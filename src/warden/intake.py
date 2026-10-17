@@ -29,7 +29,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .audit import AuditLog
 from .models import Alert
@@ -43,7 +43,8 @@ Action = Literal["ignore", "signal_remediation", "signal_incident", "expected", 
 
 
 class AlarmEvent(BaseModel):
-    source: Literal["alarm", "mcp", "cli"] = "alarm"
+    # "security": a GuardDuty or Security Hub finding (security_findings.py) - always escalate-only, below.
+    source: Literal["alarm", "mcp", "cli", "security"] = "alarm"
     rule: str  # the alarm or alert rule's name
     state: Literal["ALARM", "OK", "INSUFFICIENT_DATA"]
     transitioned_at: datetime
@@ -60,6 +61,13 @@ class AlarmEvent(BaseModel):
         if v.tzinfo is None:
             raise ValueError("transitioned_at needs a time zone")
         return v.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def _security_goes_to_a_person(self) -> AlarmEvent:
+        """A security finding never reaches a fix: no catalogue entry contains a compromise (item 15)."""
+        if self.source == "security" and not self.escalate.strip():
+            raise ValueError("a security finding needs its reason to go to a person: it is escalate-only")
+        return self
 
 
 # Alarms from different rules or tools on the same resource, within this long of an open incident's start, are that
@@ -96,6 +104,8 @@ def open_fix(ev: AlarmEvent, fixes: dict[tuple[str, str], str]) -> str | None:
     only qualify a resource (a namespace, a cluster, the alarm's own name) name none."""
     from .resolver import named_resources
 
+    if ev.source == "security":  # a security finding says nothing of whether a fix of WARDEN's worked (item 15)
+        return None
     names = named_resources(ev.alert)
     return next((wid for (env, service), wid in fixes.items() if env == ev.alert.environment and service in names),
                 None)
@@ -215,7 +225,7 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
 
         names = named_resources(ev.alert)
         others = sorted({w for (env, service), w in {**verifying, **watching}.items()
-                         if env == ev.alert.environment and service not in names})
+                         if env == ev.alert.environment and service not in names and ev.source != "security"})
         d = d.model_copy(update={"environment": ev.alert.environment, "resources": sorted(names), "after_fix": others})
     log.append(d.workflow_id or f"intake-{fp}", "intake.decision", d.model_dump())
     if d.grouped:
