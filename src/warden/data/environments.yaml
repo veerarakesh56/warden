@@ -17,8 +17,13 @@
 #   - authorized_principals and auto_remediate: read by no path since the CLI's dry-run gate (`warden run
 #     --principal`, remediation.py) was removed (owner B27); kept so a policy file stays loadable. The one path
 #     that changes anything, the Temporal RemediationWorkflow, reads neither: EVERY fix there needs a signed approval
-#     of the exact plan, in every environment, until Phase 3 shadow evidence (policy P17) enables a tier (audit
-#     2026-09-28).
+#     of the exact plan, in every environment (audit 2026-09-28). auto_remediate never makes anything autonomous
+#     (owner, 2026-10-16): only `autonomy` below does, and only through Eldane.
+#   - autonomy (owner, 2026-10-16; autonomy.py): the highest level an action class may EARN here - L0 escalate only,
+#     L1 shadow (WARDEN and Eldane, the AI critic, decide; a person still approves; the decision is scored), L2
+#     autonomous (Eldane's signed approval is enough). A ceiling, not a level: a class starts at L1 and is promoted
+#     only from its scored shadow record, demoted on any failed fix, rollback, model change or a missed catch trial.
+#     The prod tier is never above L1 - refused at load, and capped in code: a person's passkey, always.
 #   - require_human_approval: shown in the promotion report (reporting.py); nothing decides on it.
 #
 # An environment NOT listed here falls to `default`, which is deliberately the most
@@ -118,6 +123,7 @@ environments:
     authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]   # prod's
     credentials_ref: warden-dev-deploy
     tripwire: "on"
+    autonomy: L2                 # earned per action class, through Eldane (owner, 2026-10-16); L1 until earned
 
   prod:
     tier: prod
@@ -130,3 +136,4 @@ environments:
     authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]
     credentials_ref: warden-prod-deploy
     tripwire: "on"
+    autonomy: L1                 # shadow at most: Eldane advises and is scored; a person's passkey approves
