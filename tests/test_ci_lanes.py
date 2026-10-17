@@ -465,7 +465,7 @@ def test_the_privileged_pod_stays_a_negative_test_and_every_linter_skip_says_why
     assert context["privileged"] is True and context["runAsUser"] == 0
     notes = pod["metadata"]["annotations"]
     checkov = [v for k, v in notes.items() if re.fullmatch(r"checkov\.io/skip\d+", k)]
-    linter = [v for k, v in notes.items() if k.startswith("ignore-check.kube-linter.io/")]
+    linter = [v for k, v in notes.items() if re.fullmatch(r"ignore-check\.kube-linter\.io/[a-z0-9-]+", k)]
     assert checkov and linter and len(checkov) + len(linter) == len(notes), notes
     assert all(re.fullmatch(r"CKV2?_K8S_\d+=negative test - .+", v) for v in checkov), checkov
     assert all(v.startswith("negative test - ") for v in linter), linter

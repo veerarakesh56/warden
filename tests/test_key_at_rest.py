@@ -115,7 +115,10 @@ def test_the_bench_key_is_encrypted_unless_told_and_an_old_clear_one_still_loads
     mod = _bench(monkeypatch, old)
     monkeypatch.setenv(mod.PASSPHRASE_ENV, "set, but the old key has none")
     assert isinstance(mod.load_key(), Ed25519PrivateKey)
-    assert f"WARNING: {old} is not encrypted" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert f"WARNING: {old} is not encrypted" in err
+    # The warning names the variable to set (CodeQL py/clear-text-logging: a name, never its value).
+    assert mod.UNLOCK_VARIABLE == mod.PASSPHRASE_ENV and f"set {mod.PASSPHRASE_ENV}," in err
 
     mod = _bench(monkeypatch, tmp_path / "b" / BENCH)
     monkeypatch.delenv(mod.PASSPHRASE_ENV)
