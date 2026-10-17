@@ -10,9 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 # requirements.txt carries a hash for every package (compiled from requirements.in), so pip refuses
-# anything else (audit A-I-9).
+# anything else (audit A-I-9); wheels only, so no package's setup script runs at install (Sonar S8541, 2026-10-16 -
+# every pinned package has a Linux wheel for this Python).
 COPY requirements.txt .
-RUN pip install --no-cache-dir --require-hashes -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes --only-binary :all: -r requirements.txt
 COPY app.py .
 
 # Numeric, so Kubernetes runAsNonRoot can verify it without an /etc/passwd lookup.

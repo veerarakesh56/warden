@@ -32,7 +32,7 @@ jobs:
           python-version: "3.13"
           activate-environment: true
       - name: Install (locked)
-        run: uv sync --locked --extra dev --group scan
+        run: uv sync --locked --no-build --extra dev --group scan
       - name: zizmor over every workflow
         run: zizmor --offline .github/workflows
       # The workflows' own structure (one deploy per environment, each from its own branch only, no region, SHA pins,

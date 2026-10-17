@@ -409,14 +409,14 @@ def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_ex
     froms = re.findall(r"^FROM (\S+)", text, re.MULTILINE)
     assert froms and all("@sha256:" in f for f in froms)
     assert set(froms) <= set(re.findall(r"^FROM (\S+)", plain, re.MULTILINE))  # the same bases as the tool image
-    assert "uv sync --locked --no-editable --extra runtime" in text and "USER warden" in text
+    assert "uv sync --locked --no-build --no-editable --extra runtime" in text and "USER warden" in text
     assert "check_package.py" in text
     py = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(r'^runtime = \["awslambdaric>=4\.1"', py, re.MULTILINE)
     # The SDK of every model provider the deploy may pick for the llm zone (qualified in data/providers.yaml).
     from warden.providers import load_qualified
 
-    sync = re.search(r"uv sync --locked --no-editable(.*)", text).group(1)
+    sync = re.search(r"uv sync --locked --no-build --no-editable(.*)", text).group(1)
     for provider in {e["provider"] for e in load_qualified()["qualified"]} - {"claude_cli", "bedrock"}:
         assert f"--extra {provider}" in sync, provider
 

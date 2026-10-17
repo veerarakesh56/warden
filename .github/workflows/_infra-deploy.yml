@@ -115,7 +115,7 @@ jobs:
           # No cache in a job that holds credentials: uv does not re-verify unpacked cache entries, so a
           # poisoned cache would install unchecked (fifth review E, 2026-10-01).
           enable-cache: false
-      - run: uv sync --locked --only-group infra-deploy   # aurora_express.py: stdlib + boto3 only
+      - run: uv sync --locked --no-build --only-group infra-deploy   # aurora_express.py: stdlib + boto3 only
       # Helios (register R56) checks the plan before apply. Built from a pinned commit with its
       # Cargo.lock, before the job holds credentials; helios_gate.py runs it with an environment that
       # carries no credentials.
