@@ -22,7 +22,7 @@ os.environ.setdefault("WARDEN_MOCK", "1")
 
 @pytest.fixture(autouse=True, scope="session")
 def _keys_only_in_the_test_temp_folder(tmp_path_factory):
-    """Key files are written only inside WARDEN_KEY_DIR (audit._inside). For the suite that is pytest's own temp root,
+    """Key files are kept only inside WARDEN_KEY_DIR (audit.key_path). For the suite that is pytest's own temp root,
     which holds every test's tmp_path - so a test's key lands beside it, and no test can write into ~/.warden."""
     os.environ["WARDEN_KEY_DIR"] = str(tmp_path_factory.getbasetemp())
 

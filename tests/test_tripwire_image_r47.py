@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import shutil
 import sys
 
 import yaml
@@ -36,12 +37,13 @@ def test_the_image_installs_the_detector_with_cpu_only_torch():
 
 
 def test_the_weights_are_baked_at_build_from_the_pinned_revision_with_the_token_as_a_build_secret():
-    assert ('RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py /opt/hf "$WARDEN_DETECTOR"'
-            ' && chmod -R a+rX /opt/hf' in DOCKERFILE) and "ARG WARDEN_DETECTOR=baked" in DOCKERFILE
+    assert ('RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py hf "$WARDEN_DETECTOR"'
+            ' && chmod -R a+rX hf' in DOCKERFILE) and "ARG WARDEN_DETECTOR=baked" in DOCKERFILE
+    assert "WORKDIR /app" in DOCKERFILE.split("bake_tripwire.py hf")[0].splitlines()  # so hf/ is /app/hf, copied below
     # The script reaches the build: .dockerignore keeps scripts/ out but these two (a deploy failed on it, 2026-10-14).
     assert "!scripts/bake_tripwire.py" in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
     assert "ARG HF" not in DOCKERFILE and "HF_TOKEN" not in DOCKERFILE  # never a build argument or an image variable
-    assert "COPY --from=build /opt/hf /opt/hf" in DOCKERFILE
+    assert "COPY --from=build /app/hf /opt/hf" in DOCKERFILE
     for setting in ("HF_HUB_CACHE=/opt/hf", "HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1", "HF_HOME=/tmp/hf"):
         assert setting in DOCKERFILE, setting
     assert bake_tripwire.SECRET == pathlib.Path("/run/secrets/hf_token")
@@ -90,6 +92,18 @@ def test_the_bake_without_a_token_fails_unless_the_build_says_absent(tmp_path, m
         raise AssertionError("a bake without a token passed")
     assert bake_tripwire.main(["bake_tripwire.py", str(tmp_path / "hf"), "absent"]) == 0
     assert "NOT baked" in capsys.readouterr().out and not any((tmp_path / "hf").iterdir())
+    # The cache dir comes from the command line: one outside the working directory and the temp folder is refused.
+    outside = pathlib.Path.home() / ".warden-test-outside-bake"  # a folder of its own: a regression harms nothing
+    try:
+        bake_tripwire.main(["bake_tripwire.py", str(outside / "hf"), "absent"])
+    except SystemExit as exc:
+        assert "refused" in str(exc)
+    else:
+        raise AssertionError("a cache dir outside the build's folders was accepted")
+    finally:
+        written = outside.exists()
+        shutil.rmtree(outside, ignore_errors=True)
+    assert not written
     for bad in (["bake_tripwire.py", "x"], ["bake_tripwire.py", "x", "maybe"]):
         try:
             bake_tripwire.main(bad)

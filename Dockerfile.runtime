@@ -35,8 +35,9 @@ RUN /opt/warden/bin/python check_package.py "$(/opt/warden/bin/python -c 'import
 COPY scripts/bake_tripwire.py ./
 ARG WARDEN_DETECTOR=baked
 # Readable by the worker's non-root user, in the same layer (a chmod later would copy the 1.1 GB again): a cache file
-# left root-only drew "Permission denied" in the cloud's first load (2026-10-14).
-RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py /opt/hf "$WARDEN_DETECTOR" && chmod -R a+rX /opt/hf
+# left root-only drew "Permission denied" in the cloud's first load (2026-10-14). Written under the working directory
+# (the script takes no path outside it, nor the temp folder) and copied to /opt/hf below.
+RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py hf "$WARDEN_DETECTOR" && chmod -R a+rX hf
 
 FROM ghcr.io/veerarakesh56/warden-mirror/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
 
@@ -44,7 +45,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/opt/warden/bin:$PATH
 COPY --from=build /opt/warden /opt/warden
-COPY --from=build /opt/hf /opt/hf
+COPY --from=build /app/hf /opt/hf
 # The tripwire reads its weights from the image, offline; anything it writes goes to the task's /tmp (a tmpfs - the root
 # filesystem is read-only).
 ENV HF_HUB_CACHE=/opt/hf \
