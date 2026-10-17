@@ -123,7 +123,11 @@ run `deploy ecs` again after re-generating stack.json.
     terraform destroy
     python scripts/account_sweep.py     # every region, every service, never trusts tags
 
-The sweep must end `clean` (exit 0). A tag-filtered listing is not enough: an untagged resource bills
+`aurora_express.py destroy` never deletes the cluster without a final snapshot, `warden-<env>-aurora-final-<UTC time>`
+(for example `warden-dev-aurora-final-20261017t113000z`), tagged like the cluster; it stops the teardown if the
+snapshot is missing afterwards. The environment's boundary denies deleting or sharing a snapshot, so the sweep lists
+each final snapshot until the owner deletes it with the operator role once it is no longer wanted (snapshot storage
+bills by the GB-month). Apart from those, the sweep must end `clean` (exit 0). A tag-filtered listing is not enough: an untagged resource bills
 the same, and it would be invisible to a tag filter. Expect the security-group deletes to wait up to ~20 minutes
 while Lambda releases the in-VPC functions' network interfaces; that is AWS, not a hang.
 

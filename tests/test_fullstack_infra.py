@@ -7,6 +7,7 @@ the answer, a manifest the restricted Pod Security level rejects, a policy over 
 """
 from __future__ import annotations
 
+import datetime
 import fnmatch
 import json
 import pathlib
@@ -566,14 +567,18 @@ class _NotFound(Exception):
     pass
 
 
+class _ClientError(Exception):
+    pass
+
+
 class FakeRds:
     """Just enough RDS: a cluster, its instances, waiters that settle the state at once."""
 
     iam_auth = True
 
     def __init__(self, cluster=None):
-        self.cluster, self.instances, self.calls = cluster, {}, []
-        self.exceptions = type("E", (), {"DBClusterNotFoundFault": _NotFound})
+        self.cluster, self.instances, self.calls, self.snapshots = cluster, {}, [], {}
+        self.exceptions = type("E", (), {"DBClusterNotFoundFault": _NotFound, "ClientError": _ClientError})
 
     def _log(self, name, **kw):
         self.calls.append((name, kw))
@@ -617,6 +622,18 @@ class FakeRds:
     def delete_db_cluster(self, **kw):
         self._log("delete_db_cluster", **kw)
         self.cluster["Status"] = "deleting"
+        if not kw.get("SkipFinalSnapshot"):
+            name = kw["FinalDBSnapshotIdentifier"]
+            self.snapshots[name] = {"DBClusterSnapshotIdentifier": name, "Status": "available",
+                                    "DBClusterSnapshotArn": f"arn:aws:rds:ap-south-2:111122223333:cluster-snapshot:{name}"}
+
+    def describe_db_cluster_snapshots(self, DBClusterSnapshotIdentifier):
+        self._log("describe_db_cluster_snapshots", DBClusterSnapshotIdentifier=DBClusterSnapshotIdentifier)
+        snap = self.snapshots.get(DBClusterSnapshotIdentifier)
+        return {"DBClusterSnapshots": [snap] if snap else []}
+
+    def add_tags_to_resource(self, **kw):
+        self._log("add_tags_to_resource", **kw)
 
     def get_waiter(self, name):
         rds = self
@@ -723,7 +740,7 @@ def test_aurora_create_twice_changes_nothing_and_refreshes_the_records(tmp_path)
     assert len(sm.puts) == 1
 
 
-def test_aurora_destroy_deletes_instances_then_the_cluster_without_a_snapshot():
+def test_aurora_destroy_deletes_instances_then_the_cluster_with_a_final_snapshot():
     ax, rds = _aurora(), FakeRds()
     rds.create_db_cluster(DBClusterIdentifier="warden-dev-aurora")
     rds.create_db_instance(DBInstanceIdentifier="warden-dev-aurora-2")
@@ -734,11 +751,105 @@ def test_aurora_destroy_deletes_instances_then_the_cluster_without_a_snapshot():
     assert names.index("modify_db_cluster") < names.index("delete_db_instance")
     assert names.count("delete_db_instance") == 2
     assert max(i for i, n in enumerate(names) if n == "wait:db_instance_deleted") < names.index("delete_db_cluster")
-    assert ("delete_db_cluster", {"DBClusterIdentifier": "warden-dev-aurora", "SkipFinalSnapshot": True}) in rds.calls
-    assert names[-1] == "wait:db_cluster_deleted" and rds.cluster is None
+    [delete] = [kw for n, kw in rds.calls if n == "delete_db_cluster"]
+    # B9: never SkipFinalSnapshot=True - the data is kept as <cluster>-final-<UTC time>.
+    assert delete["SkipFinalSnapshot"] is False
+    assert re.fullmatch(r"warden-dev-aurora-final-\d{8}t\d{6}z", delete["FinalDBSnapshotIdentifier"])
+    snapshot = delete["FinalDBSnapshotIdentifier"]
+    assert names.index("wait:db_cluster_deleted") < names.index("describe_db_cluster_snapshots")
+    tagged = next(kw for n, kw in rds.calls if n == "add_tags_to_resource")
+    assert tagged == {"ResourceName": rds.snapshots[snapshot]["DBClusterSnapshotArn"], "Tags": ax.TAGS}
+    assert names[-1] == "add_tags_to_resource" and rds.cluster is None
     rds.calls.clear()
     ax.destroy(rds, log=lambda *_: None)   # already gone: nothing to do
     assert rds.calls == []
+
+
+def test_aurora_final_snapshot_is_named_after_the_cluster_and_the_utc_time():
+    ax = _aurora()
+    ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    # 17:05:09 IST is 11:35:09 UTC: the name carries UTC, whatever the runner's zone.
+    name = ax.final_snapshot_name("warden-dev-aurora", datetime.datetime(2026, 10, 17, 17, 5, 9, tzinfo=ist))
+    assert name == "warden-dev-aurora-final-20261017t113509z"
+    # RDS's rule for a snapshot identifier: a letter first, letters/digits/hyphens, no "--", no trailing "-".
+    assert re.fullmatch(r"[a-z][a-z0-9-]{0,254}", name) and "--" not in name and not name.endswith("-")
+    assert re.fullmatch(r"warden-dev-aurora-final-\d{8}t\d{6}z", ax.final_snapshot_name("warden-dev-aurora"))
+
+
+def test_aurora_destroy_never_skips_the_final_snapshot_in_the_source():
+    source = (TF / "aurora_express.py").read_text(encoding="utf-8")
+    assert "SkipFinalSnapshot=True" not in source
+    assert "SkipFinalSnapshot=False" in source and "FinalDBSnapshotIdentifier=snapshot" in source
+
+
+def test_aurora_destroy_stops_loudly_when_the_final_snapshot_is_missing():
+    class Lost(FakeRds):
+        def describe_db_cluster_snapshots(self, DBClusterSnapshotIdentifier):
+            return {"DBClusterSnapshots": []}
+
+    ax, rds = _aurora(), Lost()
+    rds.create_db_cluster(DBClusterIdentifier="warden-dev-aurora")
+    rds.cluster["Status"] = "available"
+    with pytest.raises(SystemExit, match="final snapshot warden-dev-aurora-final-.* not found"):
+        ax.destroy(rds, log=lambda *_: None)
+
+
+def test_aurora_destroy_says_so_when_the_final_snapshot_cannot_be_tagged():
+    class NoTags(FakeRds):
+        def add_tags_to_resource(self, **kw):
+            raise _ClientError("AccessDenied")
+
+    said = []
+    ax, rds = _aurora(), NoTags()
+    rds.create_db_cluster(DBClusterIdentifier="warden-dev-aurora")
+    rds.cluster["Status"] = "available"
+    ax.destroy(rds, log=said.append)
+    assert rds.cluster is None and len(rds.snapshots) == 1
+    assert any(s.startswith("WARNING: could not tag final snapshot") and "UNTAGGED" in s for s in said)
+    assert said[-1] == "warden-dev-aurora: gone"
+
+
+def test_aurora_destroy_that_finds_the_cluster_already_deleting_takes_no_second_snapshot():
+    ax, rds = _aurora(), FakeRds()
+    rds.create_db_cluster(DBClusterIdentifier="warden-dev-aurora")
+    rds.instances.clear()
+    rds.cluster["Status"] = "deleting"
+    ax.destroy(rds, log=lambda *_: None)
+    assert [n for n, _ in rds.calls if n != "create_db_cluster"] == ["wait:db_cluster_deleted"]
+
+
+# A final snapshot of the dev cluster, as RDS names it (lower case).
+OWN_FINAL_SNAPSHOT = "arn:aws:rds:ap-south-2:111122223333:cluster-snapshot:warden-dev-aurora-final-20261017t113509z"
+
+
+def _deploy_allows(action: str, resource: str) -> bool:
+    """Does the dev deploy policy grant (action, resource) through a statement with no condition?"""
+    return any(st["Effect"] == "Allow" and "Condition" not in st
+               and any(fnmatch.fnmatchcase(action.lower(), a.lower()) for a in _list(st["Action"]))
+               and any(fnmatch.fnmatchcase(resource, r) for r in _list(st.get("Resource")))
+               for st in _stmts(ENV_DEPLOY))
+
+
+@pytest.mark.parametrize("action", ["rds:DeleteDBCluster", "rds:CreateDBClusterSnapshot", "rds:AddTagsToResource"])
+def test_the_deploy_role_may_take_and_tag_its_own_final_snapshot_only(action):
+    """B9: deleting a cluster with a final snapshot is authorized on the snapshot too (DeleteDBCluster names the
+    cluster-snapshot resource, and CreateDBClusterSnapshot is needed) - granted on this environment's names only."""
+    own = OWN_FINAL_SNAPSHOT
+    assert _deploy_allows(action, own) and _ceiling_allows(action, own)
+    for other in ("warden-prod-aurora-final-20261017t113509z", "billing-final"):
+        foreign = own.rsplit(":", 1)[0] + ":" + other
+        assert not _deploy_allows(action, foreign)
+    if action == "rds:DeleteDBCluster":
+        assert not _ceiling_allows(action, own.rsplit(":", 1)[0] + ":warden-prod-aurora-final-1")
+
+
+@pytest.mark.parametrize("action", ["rds:DeleteDBClusterSnapshot", "rds:ModifyDBClusterSnapshotAttribute"])
+def test_nothing_in_the_environment_may_delete_or_share_a_final_snapshot(action):
+    """The snapshot is what survives a teardown: the boundary flatly denies deleting or sharing it."""
+    flat = [a for st in _stmts(ENV_BOUNDARY) if st["Effect"] == "Deny" and "Condition" not in st
+            and st.get("Resource") == "*" for a in _list(st["Action"])]
+    assert any(fnmatch.fnmatchcase(action.lower(), a.lower()) for a in flat), f"{action} is not flatly denied"
+    assert _deploy_allows(action, OWN_FINAL_SNAPSHOT), "the deploy policy grants it, so the deny is what stops it"
 
 
 @pytest.mark.parametrize("cmd", ["create", "status", "destroy"])

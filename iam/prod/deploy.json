@@ -103,6 +103,7 @@
       "Resource": [
         "arn:aws:rds:*:*:cluster:warden-prod-*",
         "arn:aws:rds:*:*:db:warden-prod-*",
+        "arn:aws:rds:*:*:cluster-snapshot:warden-prod-*",
         "arn:aws:rds:*:*:subgrp:warden-prod-*",
         "arn:aws:rds:*:*:cluster-pg:default.*",
         "arn:aws:rds:*:*:pg:default.*",

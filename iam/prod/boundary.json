@@ -286,6 +286,7 @@
       "NotResource": [
         "arn:aws:rds:*:*:cluster:warden-prod-*",
         "arn:aws:rds:*:*:db:warden-prod-*",
+        "arn:aws:rds:*:*:cluster-snapshot:warden-prod-*",
         "arn:aws:dynamodb:*:*:table/warden-prod-*",
         "arn:aws:secretsmanager:*:*:secret:warden-prod-*",
         "arn:aws:s3:::warden-prod-*"

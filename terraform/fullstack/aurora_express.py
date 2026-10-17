@@ -24,7 +24,9 @@ create    creates cluster warden-<env>-aurora (database shop, tag Project=warden
           merges the Aurora keys into stack.json. A second run on an existing cluster changes
           nothing and refreshes both.
 status    prints what exists. Exit 0 when the cluster is available, 1 otherwise.
-destroy   deletes the instances, then the cluster (no final snapshot), and waits until it is gone.
+destroy   deletes the instances, then the cluster, and waits until it is gone. The cluster is never deleted
+          without a final snapshot, <cluster>-final-<UTC time>, tagged like the cluster and checked to exist
+          afterwards; the boundary denies deleting snapshots, so the owner removes old ones by hand.
 
 Standard library + boto3 only: the infra pipeline must not depend on WARDEN or the apps.
 """
@@ -32,6 +34,7 @@ Standard library + boto3 only: the infra pipeline must not depend on WARDEN or t
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import pathlib
@@ -221,6 +224,27 @@ def status(rds, cluster: str | None = None, log=print) -> bool:
     return c.get("Status") == "available"
 
 
+def final_snapshot_name(cluster: str, now: datetime.datetime | None = None) -> str:
+    """The final snapshot's name: `<cluster>-final-<UTC time>`, e.g. warden-dev-aurora-final-20261017t113000z. Lower
+    case, as RDS stores it; letters, digits and single hyphens only (RDS's rule for a snapshot identifier)."""
+    now = (now or datetime.datetime.now(datetime.UTC)).astimezone(datetime.UTC)
+    return f"{cluster}-final-{now:%Y%m%dt%H%M%Sz}"
+
+
+def _keep_final_snapshot(rds, name: str, log) -> None:
+    """⛔ The snapshot must exist once the cluster is gone (B9): a missing one stops the teardown loudly. It is
+    tagged like the cluster so the account sweep counts it as this environment's; a failed tag is said, not fatal."""
+    found = rds.describe_db_cluster_snapshots(DBClusterSnapshotIdentifier=name).get("DBClusterSnapshots") or []
+    if not found:
+        raise SystemExit(f"final snapshot {name} not found after the cluster was deleted - look before going on")
+    snap = found[0]
+    log(f"final snapshot {name}: {snap.get('Status')}")
+    try:
+        rds.add_tags_to_resource(ResourceName=snap["DBClusterSnapshotArn"], Tags=TAGS)
+    except rds.exceptions.ClientError as e:  # the data is safe either way; the sweep reports it untagged
+        log(f"WARNING: could not tag final snapshot {name} ({type(e).__name__}): the account sweep will list it UNTAGGED")
+
+
 def destroy(rds, cluster: str | None = None, log=print) -> None:
     cluster = cluster or CLUSTER
     guard(cluster)
@@ -244,10 +268,16 @@ def destroy(rds, cluster: str | None = None, log=print) -> None:
     for i in instances(rds, cluster):
         rds.get_waiter("db_instance_deleted").wait(DBInstanceIdentifier=i["DBInstanceIdentifier"],
                                                    WaiterConfig=WAIT)
+    snapshot = None
     if (describe(rds, cluster) or {}).get("Status") != "deleting":
-        log(f"deleting cluster {cluster} (no final snapshot)")
-        rds.delete_db_cluster(DBClusterIdentifier=cluster, SkipFinalSnapshot=True)
+        # ⛔ Never skip the final snapshot (B9): the data is kept, under a name that says which cluster and when.
+        snapshot = final_snapshot_name(cluster)
+        log(f"deleting cluster {cluster}, final snapshot {snapshot}")
+        rds.delete_db_cluster(DBClusterIdentifier=cluster, SkipFinalSnapshot=False,
+                              FinalDBSnapshotIdentifier=snapshot)
     rds.get_waiter("db_cluster_deleted").wait(DBClusterIdentifier=cluster, WaiterConfig=WAIT)
+    if snapshot:
+        _keep_final_snapshot(rds, snapshot, log)
     log(f"{cluster}: gone")
 
 
