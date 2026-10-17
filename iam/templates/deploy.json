@@ -50,6 +50,12 @@
       }
     },
     {
+      "Sid": "ReadAMappingBeingDeleted",
+      "Effect": "Allow",
+      "Action": "lambda:GetEventSourceMapping",
+      "Resource": "arn:aws:lambda:${region}:*:event-source-mapping:*"
+    },
+    {
       "Sid": "OwnTaskDefinitions",
       "Effect": "Allow",
       "Action": [
