@@ -24,6 +24,41 @@ variable "missed_beats_to_page" {
   default     = 2
 }
 
+variable "page_repeat_minutes" {
+  description = "How often an open page of WARDEN's own is said again, Slack and email, until a person acknowledges it (owner, 2026-10-16: 15)."
+  type        = number
+  default     = 15
+  validation {
+    condition     = var.page_repeat_minutes >= 5 && var.page_repeat_minutes <= 120
+    error_message = "page_repeat_minutes is 5 to 120: the pager runs every five minutes."
+  }
+}
+
+variable "temporal_key_warn_days" {
+  description = "Days before a Temporal Cloud API key's end (SSM env/WARDEN_TEMPORAL_KEY_EXPIRES) that it pages."
+  type        = number
+  default     = 7
+}
+
+variable "audit_db_max_connections" {
+  description = "Connections to the audit database above which, for 10 minutes, a person is paged."
+  type        = number
+  default     = 60
+}
+
+variable "audit_db_max_gib" {
+  description = "Aurora audit storage, in GiB, above which a person is paged: far more than a year of incidents."
+  type        = number
+  default     = 10
+}
+
+variable "monthly_budget_usd" {
+  description = "A monthly cost budget, before credits, that emails the page topic at 80% spent and 100% forecast. 0: none (it needs budgets:* for the deploy role and a topic policy for budgets.amazonaws.com)."
+  type        = number
+  default     = 0
+  nullable    = false
+}
+
 variable "anchor_retention_days" {
   description = "How long an audit checkpoint's anchor cannot be deleted or overwritten by anyone (S3 Object Lock, COMPLIANCE mode). 1 in the lab; an install sets its own audit retention."
   type        = number

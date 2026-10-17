@@ -223,6 +223,8 @@ class ApprovalPage:
     # workflow id, SignedApproval -> sent: a LIMITED approver's signed approval (the bench approver, owner
     # 2026-10-15). None: this page takes no signed approval.
     signed: Callable[[str, Any], None] | None = None
+    # WARDEN's own pages (paging.S3Pages): the ones the pager repeats, and an approver's acknowledgement. None: no `/p`.
+    pages: Any = None
 
     @property
     def origin(self) -> str:
@@ -241,6 +243,8 @@ class ApprovalPage:
             return self._slack(method.upper(), parts[1:], query, cookies)
         if parts[0] == "r":
             return self._records(method.upper(), parts[1:], cookies, query)
+        if parts[0] == "p":
+            return self._pages(method.upper(), parts[1:], body, cookies)
         if self.slack is not None and len(parts) >= 2:
             self._recognise(parts[0], parts[1], cookies)
         if len(parts) >= 2 and parts[0] == "e":
@@ -445,6 +449,14 @@ class ApprovalPage:
         if self.slack is None or method != "GET":
             return _json(404, {"error": "not found"})
         redirect = f"{self.origin}/s/callback"
+        if parts == ["p"]:
+            # WARDEN's own pages: no link, the reader's own sign-in, then back to `/p`.
+            nonce = secrets.token_urlsafe(16)
+            value = f"p/pages.{nonce}"
+            state = hashlib.sha256(value.encode()).hexdigest()
+            return Response(302, {"Location": self.slack.authorize_url(redirect_uri=redirect, state=state, nonce=nonce),
+                                  "Set-Cookie": f"{_COOKIE}={value}; Max-Age=600; Path=/s; Secure; HttpOnly; SameSite=Lax",
+                                  "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, "")
         if parts == ["r"] or (len(parts) == 2 and parts[0] == "r" and _INCIDENT_ID.fullmatch(parts[1])):
             # The records: no link, the reader's own sign-in (records.py) - and the incident to come back to, if any.
             nonce = secrets.token_urlsafe(16)
@@ -472,7 +484,7 @@ class ApprovalPage:
             return _notice(400, "This sign-in did not start on this page. Open the link from the message again.")
         where, nonce = value.rsplit(".", 1)
         kind, _, token = where.partition("/")
-        if kind == "r":
+        if kind in ("r", "p"):
             try:
                 member = self.slack.member(code, redirect_uri=redirect, nonce=nonce)
             except SlackLoginError as exc:
@@ -481,8 +493,9 @@ class ApprovalPage:
                 from .records import refused_page
 
                 return self._served_html(403, refused_page())
-            back = token if token != "records" and _INCIDENT_ID.fullmatch(token) else ""
-            return Response(302, {"Location": f"/r/{back}" if back else "/r", "Cache-Control": "no-store",
+            back = token if kind == "r" and token != "records" and _INCIDENT_ID.fullmatch(token) else ""
+            to = "/p" if kind == "p" else f"/r/{back}" if back else "/r"
+            return Response(302, {"Location": to, "Cache-Control": "no-store",
                                   "Set-Cookie": (f"{_WHO}={remember(self.slack, member['user'])}; Max-Age={REMEMBER_S}; "
                                                  "Path=/; Secure; HttpOnly; SameSite=Lax")}, "")
         approver = self._approver_of(kind, token)
@@ -764,6 +777,70 @@ class ApprovalPage:
         bounds.trip(self.log, "operator", f"turned on by {approver} with their passkey: {reason}")
         self.store.use_link(token)  # used once
         return _json(200, {"on": True})
+
+    # ------------------------------------------------------------------ WARDEN's own pages
+
+    def _page_approvers(self, member: str) -> list[str]:
+        """Who may acknowledge WARDEN's own pages here: an approver with a passkey and no environment list - a person
+        over the whole runtime, never an approver limited to some environments (the bench approver) - and, with Slack
+        sign-in, only the approver entries this member is."""
+        return [a for a, e in sorted(self.policy.approvers.items()) if e.passkeys and not e.environments
+                and (self.slack is None or (bool(member) and e.slack == member))]
+
+    def _pages(self, method: str, parts: list[str], body: str, cookies: Any) -> Response:
+        """`/p`: the pages the pager repeats every 15 minutes (paging.py), and an approver's passkey acknowledging
+        exactly those shown (owner, 2026-10-16). Acknowledging stops the repeats and nothing else: the kill switch
+        stays on, an alarm stays in ALARM. On the record, signed, before the pager is told."""
+        from . import paging
+        from .slack_login import remembered
+
+        if self.pages is None or self.log is None:
+            return _json(404, {"error": "not found"})
+        value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
+        member = remembered(self.slack, value) if self.slack is not None and value else ""
+        approvers = self._page_approvers(member)
+        if (method, parts) == ("GET", []):
+            return self._served(_ACK, self.slack is not None and not member)
+        if self.slack is not None and not member:
+            return _json(403, {"error": "sign in with Slack first"})
+        if not approvers:
+            return _json(403, {"error": "only an approver with a passkey acknowledges WARDEN's pages"})
+        credentials = [c for a in approvers for c in self._credentials(a)]
+        key, now = f"pages:{member or 'passkey'}", self.clock()
+        if (method, parts) == ("POST", ["pages"]):
+            shown = paging.open_pages(self.pages)
+            if not shown:
+                return _json(200, {"open": []})
+            options, pending = passkeys.approval_options(rp_id=self.rp_id, credentials=credentials,
+                                                         workflow_id=paging.WORKFLOW,
+                                                         plan_hash=paging.signed_for(shown), tier="T1", now=now)
+            self.store.put_challenge(key, pending)
+            return _json(200, {"options": json.loads(options), "open": [
+                {"key": p["key"], "why": str(p.get("why", ""))[:600], "sent": int(p.get("sent", 1)),
+                 "opened": both_times(datetime.fromisoformat(p["opened_at"]))} for p in shown]})
+        if (method, parts) != ("POST", ["ack"]):
+            return _json(404, {"error": "not found"})
+        pending = self.store.take_challenge(key)
+        try:
+            response = json.loads(body)["response"]
+        except Exception:  # noqa: BLE001 - an answer that cannot be read acknowledges nothing
+            response = None
+        credential = next((c for c in credentials if isinstance(response, dict) and c.credential_id == response.get("id")),
+                          None)
+        if pending is None or credential is None:
+            return _json(403, {"error": "the passkey was not accepted"})
+        used = {e["body"].get("nonce") for e in self.log.entries(kinds=(paging.ACK,))}
+        verified, problems = passkeys.verify_approval(response, pending=pending, credential=credential,
+                                                      rp_id=self.rp_id, origin=self.origin, now=now, used_nonces=used)
+        if verified is None:
+            return _json(403, {"error": "the pages were not acknowledged", "problems": problems})
+        shown = paging.open_pages(self.pages)
+        if not shown or paging.signed_for(shown) != pending.plan_hash:
+            return _json(409, {"error": "the pages changed since you looked (one opened, or another approver "
+                                        "acknowledged them): look again"})
+        paging.acknowledge(self.pages, self.log, shown, approver=credential.approver, nonce=pending.nonce,
+                           credential_id=credential.credential_id, at=now)
+        return _json(200, {"acknowledged": len(shown)})
 
     # ------------------------------------------------------------------ steps
 
@@ -1236,6 +1313,53 @@ _NOTICE = _page("WARDEN", "Sign-in", """
 <p class="lede">{{TEXT}}</p>
 <div class="bar"><p id="status" role="status" aria-live="polite" data-kind="info">You can close this page.</p></div>
 """, "WARDEN asks Slack who you are, then your passkey that you are here.", "")
+
+# WARDEN's own pages: what is open and why, then one passkey ceremony over exactly those.
+_ACK = _page("WARDEN pages", "Pages", """
+<ol class="steps" aria-label="Steps"><li aria-current="step">Read what is paging</li><li>Acknowledge</li></ol>
+<h1 id="title">WARDEN is paging</h1>
+<p id="only" class="lede">These pages repeat every 15 minutes, in Slack and by email, until a person acknowledges them.
+Acknowledging stops the repeats and nothing else: an alarm stays in ALARM, the kill switch stays on, until what they
+name is dealt with.</p>
+<section id="plan" hidden aria-labelledby="plan-h"><h2 id="plan-h" class="eyebrow">Open pages</h2>
+<dl id="facts" class="facts"></dl></section>
+<div class="bar"><p id="status" role="status" aria-live="polite" data-kind="info">Show what is paging.</p>
+<button id="who" class="primary" type="button">Show the pages</button>
+<button id="ok" class="primary" type="button" hidden>Acknowledge with my passkey</button></div>
+""", "Any approver may acknowledge, with any of their passkeys; who did is kept on the record.", """
+const el = (tag, cls, text) => { const e = document.createElement(tag); e.className = cls; e.textContent = text;
+                                 return e; };
+let options = null;
+$("who").addEventListener("click", async () => {
+  busy(true);
+  try {
+    const [ok, d] = await post("pages"); if (!ok) { say(d.error, "bad"); return; }
+    if (!d.open.length) { $("title").textContent = "Nothing is paging"; $("who").hidden = true; $("only").hidden = true;
+                          step(2); say("No page is waiting for a person.", "ok"); return; }
+    const dl = $("facts"); dl.textContent = "";
+    for (const p of d.open) { dl.append(el("dt", "", p.key + " - since " + p.opened + ", said " + p.sent + " times"),
+                                        el("dd", "", p.why)); }
+    options = d.options; $("plan").hidden = false; $("who").hidden = true; $("ok").hidden = false; step(1);
+    say("Acknowledge when a person is on it.");
+  } catch (e) { say("Not shown: " + e.message, "bad"); } finally { busy(false); }
+});
+$("ok").addEventListener("click", async () => {
+  busy(true);
+  try {
+    say("Confirm with your passkey.", "work");
+    const o = JSON.parse(JSON.stringify(options)); o.challenge = a2b(o.challenge);
+    o.allowCredentials = (o.allowCredentials || []).map(c => ({...c, id: a2b(c.id)}));
+    const c = await navigator.credentials.get({publicKey: o});
+    say("Acknowledging.", "work");
+    const [ok, d] = await post("ack", {response: {id: c.id, rawId: b2a(c.rawId), type: c.type, response: {
+      clientDataJSON: b2a(c.response.clientDataJSON), authenticatorData: b2a(c.response.authenticatorData),
+      signature: b2a(c.response.signature), userHandle: c.response.userHandle ? b2a(c.response.userHandle) : null}}});
+    if (!ok) { say(d.error + (d.problems ? ": " + d.problems.join("; ") : ""), "bad"); return; }
+    $("ok").hidden = true; $("title").textContent = "Acknowledged"; step(2);
+    say("Acknowledged: the repeats stop within five minutes. You can close this page.", "ok");
+  } catch (e) { say("Not acknowledged: " + e.message, "bad"); } finally { busy(false); }
+});
+""")
 
 # The enrolment page: one button, then the approver list to save.
 _ENROL = _page("WARDEN passkey", "Passkey", """

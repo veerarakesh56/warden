@@ -36,6 +36,8 @@ ENDED = {
 # Each step on the record, in plain words, for an incident's page.
 STEP = {
     "intake.grouped": "Another alert on the same resource joined this incident",
+    "incident.reopened": "Reopened: the alarm came back while the fix was being watched",
+    "remediation.did_not_hold": "The fix did not hold - WARDEN will not offer it again on its own",
     "intake.decision": "The alarm came in", "incident.alert": "The alarm was recorded",
     "incident.ingest": "WARDEN started reading", "incident.gather": "Evidence read",
     "incident.redact": "Secrets removed from the evidence", "incident.tripwire": "Injection check on the evidence",
