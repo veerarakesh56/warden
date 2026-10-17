@@ -92,6 +92,9 @@ resource "aws_eks_access_entry" "admin" {
 resource "aws_eks_access_entry" "warden_reader" {
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-platform-reader"
+  # And one read beyond the view policy: the shop's Argo CD Application, to prove its self-heal ignores a restart
+  # (register C4; k8s/argocd/shop.yaml grants exactly that).
+  kubernetes_groups = ["warden-readers"]
 }
 
 # WARDEN's actor writes only as the remediator group (k8s/remediation-rbac.yaml: get and patch Deployments, list HPAs,

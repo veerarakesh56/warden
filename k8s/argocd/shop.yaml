@@ -78,3 +78,35 @@ spec:
       name: catalog-api
       jsonPointers:
         - /spec/replicas
+---
+# Register C4 (owner decision 2026-10-17): WARDEN may restart a Deployment Argo CD manages only once it has read, from
+# this Application itself, that self-heal ignores the restart annotation. Its reader role signs in to the cluster as
+# group warden-readers (terraform/fullstack/eks.tf); this lets it get this one Application and nothing else of Argo CD.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: warden-application-reader
+  namespace: argocd
+  labels:
+    project: warden
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    resourceNames: ["shop"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: warden-application-reader
+  namespace: argocd
+  labels:
+    project: warden
+subjects:
+  - kind: Group
+    name: warden-readers
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: warden-application-reader
+  apiGroup: rbac.authorization.k8s.io

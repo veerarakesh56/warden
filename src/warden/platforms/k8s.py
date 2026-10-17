@@ -45,6 +45,10 @@ _ENTRIES = {"k8s_restart", "k8s_scale"}
 # Helm sets it too, and Helm does not self-heal.)
 _GITOPS = {"argocd.argoproj.io/tracking-id": "Argo CD", "argocd.argoproj.io/instance": "Argo CD",
            "kustomize.toolkit.fluxcd.io/name": "Flux", "helm.toolkit.fluxcd.io/name": "Flux"}
+# Where Argo CD keeps its Applications (its chart's default), unless an Application's tracking id names another.
+ARGOCD_NAMESPACE = os.environ.get("WARDEN_ARGOCD_NAMESPACE", "argocd")
+# The restart annotation as a JSON Pointer, as an Application's ignoreDifferences names it.
+RESTART_POINTER = "/spec/template/metadata/annotations/" + RESTARTED_AT.replace("~", "~0").replace("/", "~1")
 
 
 class KubernetesPlatformError(RuntimeError):
@@ -60,7 +64,8 @@ class KubernetesPlatformRefused(KubernetesPlatformError):
 class KubernetesPlatform:
     def __init__(self, *, apps: Any = None, namespace: str | None = None, kubeconfig: str | None = None,
                  max_replicas: int = MAX_REPLICAS, autoscaling: Any = None,
-                 writer: Callable[[dict[str, Any]], Any] | None = None, cluster_name: str | None = None) -> None:
+                 writer: Callable[[dict[str, Any]], Any] | None = None, cluster_name: str | None = None,
+                 custom: Any = None) -> None:
         self._ns = namespace or os.environ.get("WARDEN_K8S_NAMESPACE", "default")
         self._max = max_replicas
         # `writer`: an approved plan's who -> the client its writes go through (an actor session's). Without one,
@@ -80,7 +85,9 @@ class KubernetesPlatform:
                                                   f"{_one_line(exc)}") from exc
             apps = client.AppsV1Api()
             autoscaling = autoscaling or client.AutoscalingV2Api()
+            custom = custom or client.CustomObjectsApi()
         self._apps = apps
+        self._custom = custom  # Argo CD's Applications; None: whether one ignores a restart is unknown, and refused
         self._autoscaling = autoscaling  # None: whether an HPA owns the count is unknown, and a scale is refused
 
     # ------------------------------------------------------------------ reads
@@ -101,11 +108,39 @@ class KubernetesPlatform:
         except Exception:  # noqa: BLE001 - absent or unreadable allows nothing; the catalogue refuses
             return {}
         labels = getattr(dep.metadata, "labels", None) or {}
-        return {"namespace": {self._ns}, "deployment": {dep.metadata.name}, "current_replicas": _replicas(dep),
+        live = {"namespace": {self._ns}, "deployment": {dep.metadata.name}, "current_replicas": _replicas(dep),
                 "environment": labels.get(ENV_LABEL), "rollout": _rollout(dep), "at_once": _at_once(dep),
                 "gitops": _gitops(dep), "autoscaled": self._autoscaled(dep.metadata.name),
                 "state": {"deployment": dep.metadata.name, "replicas": _replicas(dep),
                           "generation": dep.metadata.generation, "server": self._server()}}
+        if live["gitops"] == "Argo CD" and entry == "k8s_restart":
+            live["gitops_ignores_restart"] = self._argo_ignores_restart(dep)
+        return live
+
+    def _argo_ignores_restart(self, dep: Any) -> bool:
+        """Register C4, owner decision 2026-10-17: does the Argo CD Application tracking this Deployment ignore the
+        restart annotation, so its self-heal leaves a restart in place? True only when proven, from the live
+        Application: the Deployment's own tracking id names it and this exact Deployment, the Application deploys to
+        this namespace, and an ignoreDifferences rule for this Deployment holds a JSON Pointer covering the
+        annotation. Anything else - no tracking id (label tracking), a Flux marker as well, an Application that cannot
+        be read, a rule by jq expression only - is not proof, and the restart stays refused."""
+        meta = dep.metadata
+        marks = {**(getattr(meta, "labels", None) or {}), **(getattr(meta, "annotations", None) or {})}
+        if self._custom is None or any(_GITOPS[k] == "Flux" for k in marks if k in _GITOPS):
+            return False
+        app, _, resource = str(marks.get("argocd.argoproj.io/tracking-id", "")).partition(":")
+        if not app or resource != f"apps/Deployment:{self._ns}/{meta.name}":
+            return False
+        where, _, name = app.rpartition("_")  # `<namespace>_<name>` for an Application outside Argo CD's namespace
+        try:
+            found = self._custom.get_namespaced_custom_object("argoproj.io", "v1alpha1", where or ARGOCD_NAMESPACE,
+                                                              "applications", name, _request_timeout=REQUEST_TIMEOUT)
+        except Exception:  # noqa: BLE001 - unread is unproven
+            return False
+        spec = found.get("spec") if isinstance(found, dict) else None
+        if not isinstance(spec, dict) or (spec.get("destination") or {}).get("namespace") != self._ns:
+            return False
+        return any(_ignores_restart(rule, meta.name, self._ns) for rule in spec.get("ignoreDifferences") or [])
 
     def _autoscaled(self, deployment: str) -> bool | None:
         """Does a HorizontalPodAutoscaler own this Deployment's replica count (register C4)? None when it cannot be
@@ -338,6 +373,7 @@ def eks_from_environment() -> Any:
 
         return KubernetesPlatform(apps=_Fresh(lambda: client.AppsV1Api(read_api())),
                                   autoscaling=_Fresh(lambda: client.AutoscalingV2Api(read_api())),
+                                  custom=_Fresh(lambda: client.CustomObjectsApi(read_api())),
                                   writer=writer, cluster_name=cluster)
 
     return PerEnvironment(build, "Kubernetes")
@@ -384,6 +420,17 @@ def _refused_by_the_server(exc: Exception, deployment: str) -> None:
         raise KubernetesPlatformRefused(f"the API server refused the write to deployment/{deployment} "
                                       f"(RBAC or an admission policy: {_one_line(getattr(exc, 'reason', '') or exc)}); "
                                       f"nothing was changed") from exc
+
+
+def _ignores_restart(rule: Any, deployment: str, namespace: str) -> bool:
+    """An ignoreDifferences rule that applies to this Deployment and names the restart annotation, or a field holding
+    it, by JSON Pointer."""
+    if not isinstance(rule, dict) or rule.get("group") != "apps" or rule.get("kind") != "Deployment":
+        return False
+    if rule.get("name") not in (None, deployment) or rule.get("namespace") not in (None, namespace):
+        return False
+    return any(isinstance(p, str) and (p == RESTART_POINTER or RESTART_POINTER.startswith(p.rstrip("/") + "/"))
+               for p in rule.get("jsonPointers") or [])
 
 
 def _gitops(dep: Any) -> str:
