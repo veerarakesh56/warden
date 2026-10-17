@@ -319,6 +319,8 @@ class RemediationActivities:
         if entry:
             problems += _environment_problems(req.environment, entry, req.params, live)
         snapshot = live.get("state", {})
+        if entry and not problems:
+            problems += self._permissions(req, snapshot, workflow_id)
         basis = {"environment": req.environment, "catalog": catalog.fingerprint(), "code": code_version(),
                  "evidence": self.audit.head(req.incident_id)}
         key = f"{req.environment}/{catalog.target_key(req.entry, req.params)}" if entry else ""
@@ -333,6 +335,23 @@ class RemediationActivities:
                            "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
                            "problems": problems})
         return plan
+
+    def _permissions(self, req: FixRequest, snapshot: dict[str, Any], workflow_id: str) -> list[str]:
+        """B12: the actor role's own permissions for this plan's calls, read before anyone is asked to approve it
+        (permits.py). On the record always; only a call the role's policies deny refuses the plan - one the check
+        cannot decide, or a check that fails, is said in the row and changes nothing. A platform without the check
+        (Kubernetes, a database) writes no row."""
+        check = getattr(self.platform, "permitted", None)
+        try:
+            got = check(req.entry, req.params, snapshot, incident=req.incident_id,
+                        environment=req.environment) if check else None
+        except (RuntimeError, OSError, LookupError, ValueError) as exc:  # the check failed: the plan goes on
+            got = {"checked": False, "denied": [], "unconfirmed": [f"the check failed: {_safe_error(exc)}"]}
+        if got is None:  # a platform with no such check (Kubernetes, a database, a test's): nothing to record
+            return []
+        self.audit.append(req.incident_id, "remediation.permissions", {"workflow_id": workflow_id, "run_id": _run_id(),
+                                                                       "entry": req.entry, **got})
+        return [str(d) for d in got.get("denied") or []]
 
     @activity.defn
     def gate(self, plan: Plan, service: str) -> list[str]:
