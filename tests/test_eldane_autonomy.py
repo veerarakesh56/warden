@@ -107,6 +107,16 @@ def test_eldane_always_uses_the_other_model_from_the_one_that_diagnosed(world):
     world["model"].asked_models.clear()
     _review(world, _plan(plan_hash="h-opus"))
     assert set(world["model"].asked_models) == {"claude-sonnet-5-5"}
+    # The model and why, on the record - from the diagnosis's recorded provenance, never a setting.
+    row = autonomy.verdict_of(world["log"], _plan(plan_hash="h-opus"), "")
+    assert row["model"] == "claude-sonnet-5-5"
+    assert row["model_reason"] == ("the diagnosis was made by claude-opus-5-5; Eldane reviews with the other model, "
+                                   "claude-sonnet-5-5")
+    pair = ("claude-opus-5-5", "claude-sonnet-5-5")
+    assert eldane.model_for("claude-sonnet-5-5", pair)[0] == "claude-opus-5-5"
+    assert eldane.model_for("claude-opus-5-5", pair)[0] == "claude-sonnet-5-5"
+    assert eldane.model_for("", pair)[0] == ""
+    assert eldane.model_for("claude-opus-5-5", ("claude-opus-5-5",))[0] == ""
     with pytest.raises(eldane.CriticConfigError):
         eldane.Critic(provider_for=lambda m: None, models=("claude-opus-5-5",))
 
@@ -117,9 +127,9 @@ def test_the_same_exact_model_as_the_diagnosis_is_refused(world):
     only.models = ("claude-sonnet-5-5",)  # a list left with only the diagnosis's own model
     world["critic"] = only
     assert _review(world) is None
-    only.choose = lambda diagnosed_by: diagnosed_by  # and a chooser that got it wrong: the review still refuses
+    only.choose = lambda diagnosed_by: (diagnosed_by, "wrong")  # a chooser that got it wrong: the review refuses
     assert _review(world, _plan(plan_hash="h-same")) is None
-    assert "no model other" in autonomy.verdict_of(world["log"], _plan(plan_hash="h-same"), "")["skipped"]
+    assert "is the diagnosis's own" in autonomy.verdict_of(world["log"], _plan(plan_hash="h-same"), "")["skipped"]
     verdict = autonomy.verdict_of(world["log"], _plan(), "")
     assert verdict["agree"] is None and "no model other than the one that diagnosed" in verdict["skipped"]
     assert world["model"].prompts == []
