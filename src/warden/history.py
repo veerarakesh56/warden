@@ -44,23 +44,26 @@ def plans(log: Any, *, now: datetime | None = None, lookback: timedelta | None =
     since = (now or datetime.now(UTC)) - lookback if lookback is not None else None
     ends = {(e["body"].get("workflow_id"), e["body"].get("run_id")): e
             for e in log.entries(kinds=("workflow.end",), since=since)}
-    rows = []
-    for e in log.entries(kinds=("remediation.plan",), since=since):
-        b = e["body"]
-        end = ends.get((b.get("workflow_id"), b.get("run_id")))
-        rows.append({"seqs": [e["seq"], *([end["seq"]] if end else [])],
-                     "at": (end or e)["at"], "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
-                     # As a person reads it, for every message: a mapping's UUID is masked as a key's shape, and the
-                     # outbound gate withheld the whole facts card that named one (live, 2026-10-15).
-                     "shown": _shown(b),
-                     "environment": b.get("environment"), "service": b.get("service"),
-                     "plan_hash": b.get("plan_hash"), "incident": e["correlation_id"],
-                     "workflow_id": b.get("workflow_id"),
-                     "status": str(end["body"].get("status")) if end else "open",
-                     "approvers": [str(a) for a in (end["body"].get("approvers") or [])] if end else [],
-                     "denied_by": _denier(end["body"]) if end else "",
-                     "why": str((end["body"].get("reasons") or [""])[0]) if end else ""})
+    rows = [_plan_row(e, ends.get((e["body"].get("workflow_id"), e["body"].get("run_id"))))
+            for e in log.entries(kinds=("remediation.plan",), since=since)]
     return sorted(rows, key=lambda r: r["at"], reverse=True)
+
+
+def _plan_row(e: dict[str, Any], end: dict[str, Any] | None) -> dict[str, Any]:
+    """One plan row of `plans`, with its run's end row if it has one."""
+    b, ended = e["body"], (end or {}).get("body") or {}
+    return {"seqs": [e["seq"], *([end["seq"]] if end else [])],
+            "at": (end or e)["at"], "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
+            # As a person reads it, for every message: a mapping's UUID is masked as a key's shape, and the
+            # outbound gate withheld the whole facts card that named one (live, 2026-10-15).
+            "shown": _shown(b),
+            "environment": b.get("environment"), "service": b.get("service"),
+            "plan_hash": b.get("plan_hash"), "incident": e["correlation_id"],
+            "workflow_id": b.get("workflow_id"),
+            "status": str(ended.get("status")) if end else "open",
+            "approvers": [str(a) for a in (ended.get("approvers") or [])],
+            "denied_by": _denier(ended) if end else "",
+            "why": str((ended.get("reasons") or [""])[0]) if end else ""}
 
 
 DID_NOT_HOLD = "remediation.did_not_hold"
