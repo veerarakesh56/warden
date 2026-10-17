@@ -440,6 +440,8 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     assert "placement_constraints" not in service and "ordered_placement_strategy" not in service  # Fargate refuses them
     assert "task_role_arn            = aws_iam_role.zone[each.key].arn" in task and "readonlyRootFilesystem = true" in task
     assert "for_each                 = local.zones" in task
+    # Cost plan 2026-10-16: Container Insights was ~USD 40 a month of custom metrics nothing reads.
+    assert re.search(r'name\s*=\s*"containerInsights"\s*value\s*=\s*"disabled"', _block(tf, "aws_ecs_cluster", "runtime"))
     uid = re.search(r"useradd --create-home --uid (\d+)", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))
     assert f'user                   = "{uid.group(1)}"' in task
     assert 'command                = ["worker", "--zone", each.key, "--platform", length(each.value.assumes) > 0 ? "aws" : "none"]' in task

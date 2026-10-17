@@ -533,6 +533,15 @@ def test_the_stack_carries_its_own_budget_alarm():
     # The alert address is a SecureString in the environment's parameters, never a tfvars file.
     assert 'name = "/warden/${local.env}/tf/budget_email"' in tf
     assert "subscriber_email_addresses = [data.aws_ssm_parameter.budget_email.value]" in tf
+    # Gross spend: counted with credits, a Free-plan account reads USD 0.00 until the credits that keep it open are
+    # gone (2026-10-16: ActualSpend 0.0 while about USD 24 a day burned them).
+    budget_block = tf[tf.index('resource "aws_budgets_budget" "guard"'):]
+    assert re.search(r"cost_types\s*\{\s*include_credit\s*=\s*false\s*\}", budget_block)
+
+
+def test_no_interface_endpoint_is_paid_for_by_the_hour():
+    """Cost plan 2026-10-16: two interface endpoints were ~USD 19 a month for calls the NAT carries for cents."""
+    assert '"Interface"' not in _tf_text()
 
 
 # --------------------------------------------------------------------------- aurora_express.py

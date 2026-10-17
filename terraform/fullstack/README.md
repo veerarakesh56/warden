@@ -32,30 +32,31 @@ Lambdas are created from a placeholder zip, ECS from a placeholder container tha
 every path; every code field is in `ignore_changes`, so a re-apply never rolls the apps back.
 Kubernetes objects are not in terraform at all.
 
-## ⛔ Cost - about USD 0.50/hour, USD 12/day
+## ⛔ Cost - about USD 0.65/hour, USD 16/day (measured)
 
-Estimates for ap-south-2 using published ap-south-1 / us-east-1 list prices (Hyderabad prices differ
-slightly), no free tier, idle load from the traffic Lambda. The budget alarm is the real guard.
+Measured in Cost Explorer for 2026-10-15 (a full day, before credits, ap-south-2 prices from the AWS
+Price List API the same day). WARDEN's runtime (terraform/runtime) adds about USD 0.30/hour more.
 
 | resource | per hour | note |
 |---|---|---|
-| Aurora Serverless v2, 2 instances at the 0.5 ACU floor | ~0.13 | does not scale to zero |
+| EKS nodes, 2 x m7i-flex.large on-demand (0.1008 each) + 2 x 20 GB | ~0.205 | the largest line; c7i-flex.large is 0.0848 |
 | EKS control plane | 0.10 | standard support pinned; extended support would be 0.60 |
-| EKS node, 1 x m7i-flex.large on-demand + 20 GB | ~0.05-0.1 | Free Tier eligible (the Free plan's condition), not free for these hours |
-| NAT gateway (one, public[0]) + data processed | ~0.06 | the in-VPC Lambdas' way to Aurora's internet gateway |
-| Public IPv4 address (the NAT gateway's Elastic IP only; ECS, EKS and the internal ALB are private) | ~0.005 | |
-| ElastiCache, 2 x cache.t4g.micro | ~0.035 | |
-| ALB + minimal LCU | ~0.03 | |
-| Fargate, 2 x (0.25 vCPU, 0.5 GB) on-demand | ~0.025 | not Spot, on purpose |
-| Interface endpoints (Secrets Manager, SQS), one subnet each | ~0.022 | |
-| Container Insights (enhanced, one node) | ~0.01-0.03 | per observation |
-| DynamoDB 5 RCU / 5 WCU, 20 alarms, 1 secret, Lambda/SQS/SNS/API calls | ~0.015 | |
-| **total** | **~0.50** | |
+| Aurora Serverless v2 (express), 1 instance at the 0.5 ACU floor (0.18 per ACU-hour) | ~0.095 | does not scale to zero at a 0.5 floor |
+| Container Insights enhanced (EKS add-on), X-Ray, Application Signals | ~0.085 | per observation; the pod_status alarms read it |
+| NAT gateway (one, public[0]) + data processed | ~0.06 | also carries Secrets Manager, SQS and ECR calls |
+| ElastiCache, 2 x cache.t4g.micro | 0.04 | |
+| Fargate, 2 x (0.25 vCPU, 0.5 GB) on-demand, x86 | ~0.026 | ARM would be ~0.014 |
+| ALB | ~0.024 | |
+| Public IPv4 address (the NAT gateway's Elastic IP only) | 0.005 | |
+| DynamoDB, alarms, secrets, Lambda/SQS/SNS/API calls, Config's share | ~0.03 | |
+| **total** | **~0.65** | |
+
+No interface endpoints since 2026-10-16 (they were 0.026/hour for the two); see main.tf.
 
 **Budget:** this stack carries its own alarm, `warden-<env>-guard` (USD 50 a month by default,
-`budget_usd`), emailing the address in SSM `/warden/<env>/tf/budget_email` (SecureString) on
-forecast 60%/90% and actual 50%/100%. The proving ground's budget was destroyed with it.
-USD 50 is about four days of this stack left running. Destroy it when a run ends.
+`budget_usd`), on the whole account's GROSS spend (credits excluded: counted, a Free-plan account
+reads USD 0.00 until the credits are gone - and then the Free plan closes the account), emailing the
+address in SSM `/warden/<env>/tf/budget_email` (SecureString) on forecast 60%/90% and actual 50%/100%.
 
 ## Before the first apply
 
@@ -126,12 +127,12 @@ while Lambda releases the in-VPC functions' network interfaces; that is AWS, not
 | Where | What | Reachable from |
 |---|---|---|
 | Public subnets | the NAT gateway (its Elastic IP) only; `map_public_ip_on_launch = false` | nothing inbound |
-| Private subnets | ECS tasks (no public IP), EKS nodes and control-plane interfaces, in-VPC Lambdas, Redis, the ALB (**internal**), interface endpoints | inside the VPC only; the ALB only from the Lambda security group |
+| Private subnets | ECS tasks (no public IP), EKS nodes and control-plane interfaces, in-VPC Lambdas, Redis, the ALB (**internal**) | inside the VPC only; the ALB only from the Lambda security group |
 | AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway: throttled; `POST /checkout` needs a bearer token, which the checkout Lambda checks in constant time against a Secrets Manager secret written write-only (in no plan or state, `api_auth.tf`); `GET /health` is open and touches nothing; JSON access logs go to `/aws/vendedlogs/warden-<env>-api-access`. EKS API: `/warden/<env>/tf/my_ip_cidr` by default, IAM auth through access entries - **but open to `0.0.0.0/0` while the `EKS_PUBLIC_CIDRS` variable is set on the GitHub environment (`eks_public_access_cidrs`), and it stays open until an apply without it**. The fix, an in-VPC deploy path, is an open row in `docs/FAILURE-MODES.md` (A-I-16) |
 | Outside the VPC | Aurora in express configuration (the Free plan's only form) | IAM database authentication only, no password exists |
 
 No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT.
-There are no ECR interface endpoints, and the placeholder image comes from `public.ecr.aws`, so image
+There are no interface endpoints (Secrets Manager, SQS and ECR calls go through the NAT), and the placeholder image comes from `public.ecr.aws`, so image
 pulls go through the NAT as well; only S3 and DynamoDB have (free) gateway endpoints. A production app with a domain would put a **public** ALB in
 front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so its ALB is internal.
 

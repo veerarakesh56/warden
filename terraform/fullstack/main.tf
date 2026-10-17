@@ -96,7 +96,7 @@ resource "aws_vpc" "this" {
   }
   cidr_block           = "10.42.0.0/16"
   enable_dns_support   = true
-  enable_dns_hostnames = true # interface endpoints with private DNS, EKS private endpoint
+  enable_dns_hostnames = true # the EKS private endpoint
   tags                 = { Name = local.name }
 }
 
@@ -179,37 +179,16 @@ resource "aws_vpc_endpoint" "gateway" {
   tags              = { Name = "${local.name}-${each.key}" }
 }
 
-# Interface endpoints are billed per hour per subnet, so ONE subnet each. Private DNS makes the
-# public service names resolve to them for everything in the VPC.
-resource "aws_vpc_endpoint" "interface" {
-  for_each            = toset(["secretsmanager", "sqs"])
-  vpc_id              = aws_vpc.this.id
-  service_name        = "com.amazonaws.${local.region}.${each.key}"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.private[0].id]
-  security_group_ids  = [aws_security_group.endpoints.id]
-  private_dns_enabled = true
-  tags                = { Name = "${local.name}-${each.key}" }
-}
+# No interface endpoints (cost plan, 2026-10-16): Secrets Manager and SQS were USD 0.0129/hour each, about
+# USD 19 a month together, for a few thousand calls a day that the NAT carries for cents - ECR, STS and the
+# rest already went that way. They also sat in private[0] alone, an accepted az-outage failure (helios). TLS
+# and IAM still guard every call; no policy here conditions on aws:SourceVpce.
 
 # --------------------------------------------------------------------------- security groups
 #
 # ⚠ Descriptions: EC2 accepts only [0-9A-Za-z_ .:/()#,@[]+=&;{}!$*-]. No apostrophes.
 # Rules that a fault revokes (fs-10: Redis ingress from the app SGs) are separate resources, so the
 # harness can revoke and restore exactly one rule by id.
-
-resource "aws_security_group" "endpoints" {
-  name        = "${local.name}-endpoints"
-  description = "Interface endpoints. HTTPS from inside the VPC only."
-  vpc_id      = aws_vpc.this.id
-  ingress {
-    description = "HTTPS from the VPC"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [aws_vpc.this.cidr_block]
-  }
-}
 
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb"
@@ -276,7 +255,7 @@ locals {
 }
 
 # ⛔ THE SPENDING ALARM FOR THIS STACK. The proving ground's budget went with its teardown, so the
-# stack that costs ~USD 0.50/h carries its own. Forecast alarms fire first on purpose: by the time
+# stack (measured 2026-10-15, with the runtime: ~USD 1/h, before credits) carries its own. Forecast alarms fire first on purpose: by the time
 # ACTUAL spend crosses a line, the hours that caused it are already billed. The name is inside the
 # deploy role's budgets scope (budget/warden-<env>-*, iam/templates/deploy.json).
 resource "aws_budgets_budget" "guard" {
@@ -285,6 +264,13 @@ resource "aws_budgets_budget" "guard" {
   limit_amount = tostring(var.budget_usd)
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
+
+  # Gross spend, before credits (cost plan, 2026-10-16). With credits counted - the AWS default - a Free-plan
+  # account's spend reads USD 0.00 until the credits are gone, so this alarm stayed silent while about USD 24 a
+  # day burned them; and on the Free plan, used-up credits close the account.
+  cost_types {
+    include_credit = false
+  }
 
   dynamic "notification" {
     for_each = [

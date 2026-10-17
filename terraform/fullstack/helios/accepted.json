@@ -8,9 +8,7 @@
   "aws_subnet.private[0]",
   "aws_subnet.private[1]",
   "aws_subnet.public[0]",
-  "aws_subnet.public[1]",
-  "aws_vpc_endpoint.interface[\"secretsmanager\"]",
-  "aws_vpc_endpoint.interface[\"sqs\"]"
+  "aws_subnet.public[1]"
  ],
  "redis-loss": [
   "aws_elasticache_replication_group.redis"

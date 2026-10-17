@@ -6,9 +6,12 @@
 resource "aws_ecs_cluster" "runtime" {
   # warden-<env>-*: the environment boundary lets its deploy role touch ECS services in such clusters only.
   name = "warden-${var.environment}-runtime"
+  # Off (cost plan, 2026-10-16): Container Insights published 137 custom metrics here at USD 0.30 each, about USD 40
+  # a month, and no alarm, tool or test reads them. The free AWS/ECS service metrics (CPU and memory utilisation) and
+  # the zones' own WARDEN/<env> heartbeat stay.
   setting {
     name  = "containerInsights"
-    value = "enabled"
+    value = "disabled"
   }
   tags = { Project = "warden", Environment = var.environment }
 }
