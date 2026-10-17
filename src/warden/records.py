@@ -57,6 +57,9 @@ STEP = {
     "remediation.rollback_failed": "Undoing the fix failed", "remediation.refused": "Apply refused",
     "workflow.end": "Fix run ended", "change.recorded": "Change recorded", "discuss.turn": "Asked about in the discussion",
     "discuss.answer": "WARDEN answered in the discussion", "discuss.reply": "Answer posted",
+    "eldane.verdict": "Reviewed by Eldane, the AI critic", "eldane.call": "Eldane asked its model",
+    "eldane.trial": "A catch trial for Eldane: a planted bad plan, a test, never applied",
+    "autonomy.outcome": "Scored for earned autonomy",
 }
 # What each message about a fix plan was, by its `what` (activities.announce).
 TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Denied", "expired": "Expired",
@@ -208,10 +211,20 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
                       "plan_hash": b.get("plan_hash"), "made": e["at"], "workflow_id": b.get("workflow_id")}
         elif kind == "approval.accepted":
             note = str(b.get("note") or "")
-            r.decisions.append({"what": "Approved", "who": shown(str(b.get("approver"))), "at": e["at"],
-                                "how": "passkey" if b.get("method") == "passkey" else "signing key", "note": note,
+            ai = bool(b.get("ai"))  # Eldane (autonomy.py): always said to be an AI, with the level it approved at
+            r.decisions.append({"what": "Approved", "who": approvals.AI_LABEL if ai else shown(str(b.get("approver"))),
+                                "at": e["at"], "how": (f"own signing key - an AI approval at autonomy level "
+                                                       f"{b.get('autonomy', 'L2')}") if ai else
+                                "passkey" if b.get("method") == "passkey" else "signing key", "note": note,
                                 "hasty": bool(b.get("hasty")), "latency": b.get("latency_s")})
             r.flags += [f"A note from {shown(str(b.get('approver')))} held {t}." for t in approvals.note_tries(note)]
+        elif kind == "eldane.verdict" and b.get("agree") is not None:
+            r.decisions.append({"what": "Agreed with the plan" if b.get("agree") else "Did not agree with the plan",
+                                "who": approvals.AI_LABEL, "at": e["at"],
+                                "how": f"review - an AI, autonomy level {b.get('level', '?')}",
+                                "note": "; ".join(x.get("text", "") for p in (b.get("passes") or [])[-1:]
+                                                  for x in p.get("reasons", [])[:3]),
+                                "hasty": False, "latency": None})
         elif kind == "approval.refused":
             r.flags.append("An approval was refused: " + named("; ".join(str(p) for p in (b.get("problems") or [])[:3])))
         elif kind == "discuss.turn":

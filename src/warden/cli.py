@@ -762,7 +762,7 @@ def _main(argv: list[str] | None = None) -> int:
                           help="what this worker may change, behind a signed approval: none (default - every "
                                "remediation is refused), k8s (WARDEN_K8S_NAMESPACE), db (WARDEN_DB_TERMINATE_DSN, "
                                "WARDEN_DB_APP_USERS), or all")
-    p_worker.add_argument("--zone", choices=("all", "core", "read", "llm", "notify", "act"), default="all",
+    p_worker.add_argument("--zone", choices=("all", "core", "read", "llm", "notify", "act", "critic"), default="all",
                           help="the trust zone this process serves (register S15): core runs the workflows and the "
                                "audit's steps, read/llm/notify/act only that zone's activities with only its "
                                "credentials; all runs every zone in one process (default)")

@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from . import approvals, audit, bounds, catalog, datadog, environments, freeze, locks
+from . import approvals, audit, autonomy, bounds, catalog, datadog, environments, freeze, locks
 from . import symptom as symptoms
 from .approvals import Plan  # lives there: the approval page reads a plan without this module
 from .audit import AuditLog
@@ -301,9 +301,21 @@ def _send(log: AuditLog, incident: str, report: Any) -> list[Any]:
 
 class RemediationActivities:
     def __init__(self, *, audit: AuditLog, policy: approvals.ApproverPolicy, platform: Platform,
-                 limits: bounds.Limits = bounds.DEFAULT_LIMITS, changes: Any = None) -> None:
+                 limits: bounds.Limits = bounds.DEFAULT_LIMITS, changes: Any = None, critic: Any = None) -> None:
         self.audit, self.policy, self.platform, self.limits = audit, policy, platform, limits
         self.changes = changes  # register O9: where an applied change is recorded (changes.GitHubIssues), if anywhere
+        # Eldane (eldane.Critic), in the critic zone's process; None: as the zone's task configures it, or none at all.
+        self.critic = critic
+
+    @activity.defn
+    def critic_review(self, plan: Plan) -> approvals.SignedApproval | None:
+        """Eldane's review of the plan (eldane.review), in the critic zone: on the record always, and its signed approval
+        only where the plan's class has earned autonomy. Never a person's decision, never past the gate."""
+        from . import eldane
+
+        if self.critic is None:
+            self.critic = eldane.Critic.from_environment()
+        return eldane.review(self.audit, self.policy, plan, self.critic, run_id=_run_id())
 
     @activity.defn
     def resolve_plan(self, req: FixRequest, workflow_id: str) -> Plan:
@@ -387,7 +399,10 @@ class RemediationActivities:
         gave = [b for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",)))
                 if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()
                 and b.get("plan_hash") == plan.plan_hash]
-        did = sorted({f"{self.policy.said(str(b.get('approver')))} (with their "
+        did = sorted({f"{self.policy.said(str(b.get('approver')))} (an AI, with its own signing key, at autonomy level "
+                      f"{b.get('autonomy', autonomy.L2)}: {autonomy.MEANS[autonomy.L2]})"
+                      if self.policy.is_ai(str(b.get("approver"))) else
+                      f"{self.policy.said(str(b.get('approver')))} (with their "
                       f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})" for b in gave})
         # What each wrote with their approval, in their own words - inert, one line each (_words).
         notes = [(str(b.get("approver")), str(b["note"])) for b in gave if b.get("note")]
@@ -434,6 +449,10 @@ class RemediationActivities:
             # WARDEN's own earlier fix beside this incident's evidence: said, with whether this diagnosis named it the
             # cause - the approver decides knowing both (owner, 2026-10-15).
             said += self._own_fix_said(plan.incident_id)
+            # Eldane's review and the plan's autonomy level, beside the request: said to be an AI (Art. 50).
+            from . import eldane
+
+            said += eldane.said(self.audit, plan, _run_id())
 
             # The same fix, on the same target, that ended badly in the last day: said before the decision. A record
             # that cannot be read does not hold an approval request back.
@@ -635,17 +654,25 @@ class RemediationActivities:
                                    used_nonces=used, environment=plan.environment)
         if any(a.approver == approval.approver for a in accepted):
             problems.append(f"{approval.approver} has already approved this plan")
+        ai = self.policy.is_ai(approval.approver)
+        if ai and not problems:
+            # Eldane's approval counts only where autonomy was earned, below prod, off WARDEN's own guardrails, with
+            # the kill switch off - and its own agreement with exactly this plan on the record (autonomy.py).
+            problems += autonomy.ai_problems(self.audit, plan, _run_id())
         kind = "approval.refused" if problems else "approval.accepted"
         # Register H1: how long the approver had the plan before signing. Under HASTY_S is recorded as hasty - read
         # by the person who audits approvals, and by the catch trials (G7).
         latency = (approval.issued_at - plan.created_at).total_seconds()
         self.audit.append(plan.incident_id, kind, {"workflow_id": plan.workflow_id, "run_id": _run_id(),
-                                                   "latency_s": round(latency, 1), "hasty": latency < HASTY_S,
+                                                   # Hasty is a person's not reading; an AI's speed is not.
+                                                   "latency_s": round(latency, 1), "hasty": latency < HASTY_S and not ai,
                                                    "approver": approval.approver,
                                                    "approver_list": self.policy.fingerprint(),
                                                    "nonce": approval.nonce, "plan_hash": plan.plan_hash,
                                                    # Requirement R50: how many different people this tier needs.
                                                    "required": self.policy.required.get(plan.tier, 1),
+                                                   **({"ai": True, "label": approvals.AI_LABEL,
+                                                       "autonomy": autonomy.L2} if ai else {}),
                                                    "problems": problems})
         valid = accepted + ([approval] if not problems else [])
         return ApprovalResult(problems=problems, enough=approvals.enough(valid, plan.tier, self.policy))
@@ -755,6 +782,10 @@ class RemediationActivities:
         need = self.policy.required.get(made[-1].get("tier", ""), 1)
         if len({e["body"].get("approver") for e in approved}) < need:
             return [f"{len({e['body'].get('approver') for e in approved})} of {need} approval(s) recorded for this plan"]
+        # An AI approval is checked again here: anything may have changed since it arrived (autonomy.ai_problems).
+        if any(self.policy.is_ai(str(e["body"].get("approver"))) for e in approved) and (
+                again := autonomy.ai_problems(self.audit, plan, run)):
+            return again
         last_approval = max(e["seq"] for e in approved)
         checks = [e for e in rows("remediation.precheck") if e["seq"] > last_approval]
         if not checks or checks[-1]["body"].get("problems"):
@@ -1018,6 +1049,16 @@ class RemediationActivities:
             bounds.trip(self.audit, incident_id, f"{workflow_id} ended {outcome.status}: {'; '.join(outcome.reasons)}",
                         workflow_id=workflow_id, run_id=run)
         self.audit.append(incident_id, "workflow.end", body)
+        if plans:
+            # Earned autonomy (autonomy.py): this run's end, scored against Eldane's review of its plan - promotion and
+            # demotion are read from these rows, and from nothing else.
+            from types import SimpleNamespace
+
+            verdict = autonomy.verdict_of(self.audit, SimpleNamespace(
+                incident_id=incident_id, workflow_id=workflow_id, plan_hash=plans[-1].get("plan_hash")), run)
+            autonomy.record_outcome(self.audit, incident_id, plan=plans[-1], status=outcome.status,
+                                    approvers=body["approvers"], policy=self.policy, verdict=verdict,
+                                    workflow_id=workflow_id, run_id=run)
         self.audit.checkpoint()
         # How every plan ended, in the worker's log beside how it opened: a denied or expired plan left no line, and
         # only the audit could say (live, 2026-10-12). The status and who approved - never a typed reason.

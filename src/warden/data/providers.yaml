@@ -65,6 +65,13 @@ defaults:
   claude_cli: claude-sonnet-5-5
   gemini: gemini-3.6-flash
   openai: gpt-4o-mini
+# Eldane, the AI critic (eldane.py): its model per provider when WARDEN_ELDANE_MODEL names none - never the diagnoser's
+# family (register R10). Chosen 2026-10-16 from Google's pricing and models pages (updated 2026-10-13/15): Gemini 3.8
+# Flash, stable, $0.75 in / $3.75 out per 1M tokens until 2027-01-01 ($1.50 / $7.50 after), its JSON schema enforced by
+# the API - on the PAID tier only (the free tier's terms let human reviewers read inputs and use them to improve
+# Google's products). Not qualified on the diagnosis replay set: Eldane is qualified by its catch trials (autonomy.py).
+critic:
+  gemini: gemini-3.8-flash
 qualified:
   # The production model from 2026-10-15 (only Claude Sonnet 5.5 and Opus 5.5 are qualified). Both at
   # effort high on the same 30 incidents, today's code: Sonnet 5.5 17/30, 0 wrong-and-allowed - meets the bar; Opus 5.5
