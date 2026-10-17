@@ -29,7 +29,6 @@ from __future__ import annotations
 import pathlib
 import re
 
-import pytest
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -37,13 +36,11 @@ SRC = ROOT / "src" / "warden"
 SCENARIOS = ROOT / "scenarios"
 CATALOG = SCENARIOS / "catalog"
 
-pytestmark = pytest.mark.skipif(
-    not CATALOG.exists(), reason="scenario catalog not present in this checkout"
-)
-
 
 def _catalog_files() -> list[pathlib.Path]:
-    return sorted(CATALOG.glob("*.yaml"))
+    files = sorted(CATALOG.glob("*.yaml"))
+    assert files, f"no scenario catalog in {CATALOG}: nothing to check for leakage"
+    return files
 
 
 def _scenarios() -> list[dict]:

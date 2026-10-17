@@ -34,10 +34,7 @@ def test_a_symlink_is_never_written_through(tmp_path):
     victim = tmp_path / "victim.txt"
     victim.write_text("keep me")
     link = base / "k.pem"
-    try:
-        os.symlink(victim, link)
-    except (OSError, NotImplementedError):
-        pytest.skip("this account cannot create symlinks")
+    os.symlink(victim, link)
     with pytest.raises(ValueError, match="symlink"):
         audit.write_private_key(link, b"secret", base)
     assert victim.read_text() == "keep me"
@@ -99,10 +96,7 @@ def test_a_write_that_fails_after_the_file_was_created_leaves_nothing(tmp_path, 
 
 def test_a_dangling_symlink_for_the_public_key_is_refused_before_anything_is_written(tmp_path):
     link = tmp_path / "k.pub"
-    try:
-        os.symlink(tmp_path / "nowhere", link)
-    except (OSError, NotImplementedError):
-        pytest.skip("this account cannot create symlinks")
+    os.symlink(tmp_path / "nowhere", link)
     with pytest.raises(ValueError, match="symlink"):
         audit.generate_key(tmp_path / "k.pem", link, b"pass", base=tmp_path)
     assert not (tmp_path / "k.pem").exists()

@@ -35,7 +35,7 @@ GLOBAL_SERVICES = ("iam", "sts", "organizations", "account", "budgets", "cloudfr
 STATEMENT_KEYS = {"Sid", "Effect", "Action", "NotAction", "Resource", "NotResource",
                   "Principal", "NotPrincipal", "Condition"}
 
-pytestmark = pytest.mark.skipif(not POLICIES, reason="no operator policy files in this checkout")
+assert POLICIES, f"no operator policy files in {TF_DIR}: the tests below would have nothing to check"
 
 
 def _statements(path: pathlib.Path) -> list[dict]:

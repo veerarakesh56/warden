@@ -18,6 +18,7 @@ from scenarios import score
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BUNDLES = sorted(p for p in (ROOT / "tests" / "fixtures" / "bench").glob("wave*") if (p / "manifest.json").exists())
+assert BUNDLES, "no published bundles in tests/fixtures/bench: the published-wave tests would have nothing to grade"
 
 
 # --------------------------------------------------------------------------- log_contains
@@ -93,7 +94,6 @@ def test_a_run_without_a_fix_record_gets_no_fix_fields(tmp_path):
 # --------------------------------------------------------------------------- published waves
 
 
-@pytest.mark.skipif(not BUNDLES, reason="no published bundles in this checkout")
 @pytest.mark.parametrize("bundle", BUNDLES, ids=lambda p: p.name)
 def test_a_published_wave_scores_exactly_as_before(bundle, tmp_path):
     """Graded under its frozen rubric: no fix fields, no Fix section, and the same diagnoses as the
@@ -118,7 +118,6 @@ def test_a_published_wave_scores_exactly_as_before(bundle, tmp_path):
     assert {key(r): r["gate"] for r in today["rows"]} == {key(r): r["gate"] for r in published["rows"]}
 
 
-@pytest.mark.skipif(not BUNDLES, reason="no published bundles in this checkout")
 @pytest.mark.parametrize("bundle", BUNDLES, ids=lambda p: p.name)
 def test_the_wave_4_rubric_only_appended(bundle):
     """Every fault class a published wave was graded under is untouched in today's rubric, so the
