@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from .models import Alert, ContextBundle
 from .tools import OUTCOMES
 
+_NOT_LETTER = re.compile(r"[^a-z]")  # what a squashing check removes before it looks for run-together words
 UNTRUSTED_KINDS = frozenset("LEA")  # A: the alert rule's own summary (register M10)
 # Evidence that never supports an action on its own (grounding.action_support_problem): T, WARDEN's own words for a
 # failed read, and R, code review's findings on the deployed change - a suspect, never proof.
@@ -58,7 +59,7 @@ def _finding(line: str) -> bool:
     if not _FINDING.match(line):
         return False
     values = [field.split("=", 1)[1] for field in line.split(" ")[1:] if "=" in field]
-    return not any(STEER.search(v) or _SQUASHED_STEER.search(re.sub(r"[^a-z]", "", v.lower())) for v in values)
+    return not any(STEER.search(v) or _SQUASHED_STEER.search(_NOT_LETTER.sub("", v.lower())) for v in values)
 
 
 def _kind(line: str, names: frozenset[str] = frozenset()) -> str:
@@ -75,7 +76,7 @@ def _kind(line: str, names: frozenset[str] = frozenset()) -> str:
         spaced, bare = _aws_words(line)
         for name in names:  # the alert's own resources: whole tokens only, and still checked word by word
             bare = re.sub(r"(?<![A-Za-z0-9._/-])" + re.escape(name) + r"(?![A-Za-z0-9._/-])", " ", bare)
-        if not STEER.search(spaced) and not _SQUASHED_STEER.search(re.sub(r"[^a-z]", "", bare.lower())):
+        if not STEER.search(spaced) and not _SQUASHED_STEER.search(_NOT_LETTER.sub("", bare.lower())):
             return "C"
     return "E" if line.startswith("EVENT ") else "L"
 
@@ -187,7 +188,7 @@ def tool_error_text(raw: str) -> str:
     # Only the FIRST `<resource>: ` segment: it is WARDEN's own reader tag (`lambda/fn logs`, a log
     # group). What follows can be exception text, and exception text can quote a log line.
     first = rest.split(": ", 1)[0] if ": " in rest else ""
-    squashed = re.sub(r"[^a-z]", "", first.lower())
+    squashed = _NOT_LETTER.sub("", first.lower())
     keep = first and first != reader and _SOURCE.fullmatch(first) and not _SQUASHED_STEER.search(squashed)
     where = f"{reader} {first}" if keep else reader
     # The tag follows WARDEN's own "<reader>: " prefixes - as deep as a stack reader nests them (third
