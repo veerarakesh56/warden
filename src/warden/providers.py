@@ -712,13 +712,18 @@ def qualified(provider: Provider) -> Provider:
         return provider
     doc = load_qualified()
     bar = doc["bar"]
+    # A row qualifies the model on the prompt it was measured with, never a later one (review, PR 47): a changed prompt
+    # is a model nobody has measured, so it is refused until scripts/qualify_provider.py records a row on it. Refused,
+    # the incident gets the rules-only diagnosis and reaches a person (activities.diagnose, register M19).
+    pinned = (doc.get("prompt") or {}).get("sha")
     for entry in doc["qualified"]:
         if (isinstance(entry, dict) and entry.get("provider") == provider.name and entry.get("model") == provider.model
+                and pinned and entry.get("prompt") == pinned
                 and int(entry.get("wrong_and_allowed", 1 << 30)) <= int(bar["wrong_and_allowed"])
                 and int(entry.get("correct", -1)) >= int(bar["min_correct"])):
             return provider
-    raise ProviderError(f"{provider.name} {provider.model} has not passed WARDEN's replay set (register M20); "
-                        "measure it with scripts/qualify_provider.py")
+    raise ProviderError(f"{provider.name} {provider.model} has not passed WARDEN's replay set on today's prompt "
+                        "(register M20); measure it with scripts/qualify_provider.py")
 
 
 def resolve(name: str | None = None) -> Provider:

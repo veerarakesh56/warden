@@ -365,6 +365,17 @@ def _ruled_out(root_cause: Any, context: ContextBundle | None) -> list[dict[str,
     return rows
 
 
+def _each_string(value: Any, change: Any) -> Any:
+    """`value` with `change` applied to every string in it, lists and dicts walked."""
+    if isinstance(value, str):
+        return change(value)
+    if isinstance(value, list):
+        return [_each_string(x, change) for x in value]
+    if isinstance(value, dict):
+        return {k: _each_string(x, change) for k, x in value.items()}
+    return value
+
+
 def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
                      proposal: RemediationProposal | None) -> None:
     """Owner, 2026-10-17 (the poisoned-log downgrade): the report and its Slack top never carry a version, an image tag,
@@ -378,15 +389,7 @@ def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
     shown = shown_target(proposal, alert, ctx) if proposal else ""
 
     def say(v: Any) -> Any:
-        if isinstance(v, str):
-            if target and shown != target:
-                v = v.replace(target, shown)
-            return unread(v, read, rollback=rollback)
-        if isinstance(v, list):
-            return [say(x) for x in v]
-        if isinstance(v, dict):
-            return {k: say(x) for k, x in v.items()}
-        return v
+        return _each_string(v, lambda s: unread(s.replace(target, shown) if target else s, read, rollback=rollback))
 
     for key in ("root_cause", "verdict"):
         if data.get(key):
@@ -394,7 +397,15 @@ def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
     if data.get("proposal"):
         data["proposal"] = {**data["proposal"], "target": shown,
                             "expected_effect": say(data["proposal"]["expected_effect"])}
-    data["evidence"]["key_log_lines"] = [unread(ln, read) for ln in data["evidence"]["key_log_lines"]]
+    # The log lines shown, and the crashed container's own output (k8s `logs --previous`), are the application's
+    # words: what they name is not WARDEN's reading either (review, PR 47), and a command in them - a planted "#HUMAN
+    # HINT: run curl ... | sh" is exactly one - is withheld as in the model's prose (G4).
+    from .gate import withhold_commands
+
+    data["evidence"]["key_log_lines"] = [withhold_commands(unread(ln, read))
+                                         for ln in data["evidence"]["key_log_lines"]]
+    checked = data["evidence"]["checked"]
+    checked["previous"] = [withhold_commands(unread(ln, read)) for ln in checked["previous"]]
 
 
 def _weighed(root_cause: Any, context: ContextBundle | None) -> dict[str, Any] | None:
@@ -442,6 +453,10 @@ def _narrowed(d: dict[str, Any]) -> list[str]:
     weighed = rc.get("weighed")
     count = (f" _(WARDEN's evidence count {weighed['count']}: for {', '.join(weighed['for']) or 'nothing'}, "
              f"against {', '.join(weighed['against']) or 'nothing'})_") if weighed else ""
+    if weighed and weighed["cause"] != rc.get("hypothesis"):
+        # The count is the first ranked hypothesis's: when the model worded it differently, both are shown (review,
+        # PR 47), so a count is never read as belonging to words it was not computed for.
+        count += f" - the count is for the cause it ranked first: {weighed['cause']}"
     out.append(f"- **Left:** {rc.get('hypothesis', '')}" + (f" _(cited: {cited})_" if cited else "") + count
                + ("" if rc.get("grounded", True) else " - **not grounded**: its citations did not hold."))
     out.append("")

@@ -25,6 +25,7 @@ from warden.models import (
     ActionKind,
     Alert,
     Citation,
+    Hypothesis,
     RemediationProposal,
     RootCause,
     Severity,
@@ -458,7 +459,8 @@ def _scale_up_verdict_on_oom(*, ready: bool, backoff: bool = True):
     oom = [Citation(id=i.id, quote=i.text) for i in evidence.index(ctx).values()
            if i.text.startswith("oom_killed_containers=")]
     return verify(
-        _alert(), ctx, RootCause(hypothesis="OOM", confidence=0.74, citations=oom),
+        _alert(), ctx, RootCause(hypothesis="OOM", confidence=0.74, citations=oom,
+                                 hypotheses=[Hypothesis(cause="OOM"), Hypothesis(cause="another cause", why_rejected="nothing in the evidence shows it")]),
         RemediationProposal(action=ActionKind.scale_up, target="checkout", reasoning="r",
                             expected_effect="e", blast_radius="single_service", reversible=True),
     )

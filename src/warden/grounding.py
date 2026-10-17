@@ -27,9 +27,11 @@ def _norm(text: str) -> str:
 
 
 def citation_problems(root_cause: RootCause, items: dict[str, Item]) -> list[str]:
+    """P13. Also the chosen hypothesis's own support (review, PR 47): its evidence decides P34 and P35, so a citation of
+    it that does not hold is ungrounded like the diagnosis's own - never quietly left out of the count."""
     if not root_cause.citations:
         return ["the diagnosis cites no evidence"]
-    return [p for c in root_cause.citations if (p := _citation_problem(c, items))]
+    return list(dict.fromkeys(p for c in chosen_support(root_cause) if (p := _citation_problem(c, items))))
 
 
 def _citation_problem(c: Any, items: dict[str, Item]) -> str:
@@ -543,7 +545,10 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
 # configuration or state read, a failed read's own words, or the alert's labels. A log line is not WARDEN's reading: a
 # planted "roll back to checkout:1.2.0" is exactly a log line. The verifier still sees the model's words as written.
 _ARN = re.compile(r"(?<![\w:/-])arn:[a-z0-9-]+:[^\s,;)'\"`]+")
-_TAGGED = re.compile(r"(?<![\w.:/-])[A-Za-z][\w./-]*(?::v?\d[\w.-]*|:latest|@sha256:[0-9a-f]{12,})(?![\w-])")
+# An image reference: a name, then a tag or a digest (`checkout:1.2.0`, `checkout:latest`, `repo/app@sha256:...`,
+# `checkout:canary`). One linear pattern (possessive runs, nothing re-read: Sonar, PR 47); unread() decides per match.
+_IMAGE_REF = re.compile(r"(?<![\w.:/-])([A-Za-z][\w./-]*+)(?::(\w[\w.-]*+)|@sha256:[0-9a-f]{12,}+)(?![\w:/-])")
+_NUMBERED_TAG = re.compile(r"v?\d|latest$")
 _VERSION = re.compile(r"(?<![\w.:/-])(?:v?\d+(?:\.\d+){2,}(?:[-+][\w.]+)?|v\d+(?:\.\d+)?)(?![\w.])")
 UNREAD = "[not read by WARDEN]"
 PREVIOUS = "[the previous revision WARDEN recorded]"
@@ -565,7 +570,21 @@ def unread(text: str, read: str, *, rollback: bool = False) -> str:
         return lambda m: m.group(0) if m.group(0) in read else what
 
     version = PREVIOUS if rollback else UNREAD
-    return _VERSION.sub(keep_or(version), _TAGGED.sub(keep_or(version), _ARN.sub(keep_or(UNREAD), text)))
+    names = tokens(read)
+
+    def image(m: re.Match[str]) -> str:
+        """A numbered tag or a digest is kept only as WARDEN read it. A word for a tag (`checkout:canary`, review PR 47)
+        is the same shape as a model naming a resource by its kind (`lambda:warden-dev-x`): a name WARDEN read after the
+        colon is a resource; on an image name (lower case, OCI) anything else is a tag WARDEN did not read."""
+        whole, name, tag = m.group(0), m.group(1), m.group(2)
+        if whole in read:
+            return whole
+        if tag is None or _NUMBERED_TAG.match(tag):
+            return version
+        return whole if tag in names or name != name.lower() else version
+
+    text = _IMAGE_REF.sub(image, _ARN.sub(keep_or(UNREAD), text))
+    return _VERSION.sub(keep_or(version), text)
 
 
 def shown_target(proposal: RemediationProposal, alert: Any, context: Any) -> str:
@@ -577,8 +596,19 @@ def shown_target(proposal: RemediationProposal, alert: Any, context: Any) -> str
 
     read = read_text(alert, context)
     out = unread(target, read, rollback=proposal.action is ActionKind.rollback_deploy)
-    known = inventory(alert, context) if context is not None else {alert.service}
-    for t in sorted(tokens(out) - known, key=len, reverse=True):
-        if ("-" in t or "_" in t) and t not in read:
-            out = re.sub(rf"(?<![\w.-]){re.escape(t)}(?![\w.-])", UNREAD, out)
-    return out
+    # Every other name WARDEN does not know is withheld, whatever its punctuation (review, PR 47: `payments` was shown
+    # where `payments-db` was not). Words that describe a resource are not names, and the placeholders stay as written.
+    keep = (inventory(alert, context) if context is not None else {alert.service}) | tokens(read)
+
+    def name_or_unread(m: re.Match[str]) -> str:
+        word = m.group(0)
+        if word in keep or word.lower() in _DESCRIPTORS | _RESOURCE_KINDS or not re.search(r"[A-Za-z]", word):
+            return word
+        return UNREAD
+
+    parts = re.split(_PLACEHOLDERS, out)
+    return "".join(part if part in (UNREAD, PREVIOUS) else _NAME_TOKEN.sub(name_or_unread, part) for part in parts)
+
+
+_PLACEHOLDERS = re.compile(f"({re.escape(UNREAD)}|{re.escape(PREVIOUS)})")
+_NAME_TOKEN = re.compile(r"[A-Za-z0-9][\w.-]*[A-Za-z0-9]|[A-Za-z0-9]")  # evidence.tokens' token

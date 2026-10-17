@@ -1670,7 +1670,12 @@ class DiscussActivities:
         today = self.incident._spent_since(since)
         if calls >= discuss.DAILY_CALLS or today.usd >= DAILY_MAX_USD:
             return discuss.LIMIT
-        llm = (self.incident.llm_factory or LLMClient)()
+        try:
+            llm = (self.incident.llm_factory or LLMClient)()
+        except Exception as exc:  # noqa: BLE001 - a model that cannot be built (refused, M20) is no answer, said so
+            # Review, PR 47: a prompt not yet qualified refuses the model; the person is told, never left waiting.
+            _note(f"discuss {thread.incident}: no model could be used ({type(exc).__name__})")
+            return discuss.NO_ANSWER
         attempt = secrets.token_hex(8)
         self.audit.append(key, "incident.llm_reserve", {"run_id": _run_id(), "attempt": attempt, "usd": llm.max_usd,
                                                         "calls": 1})
