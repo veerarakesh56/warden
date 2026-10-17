@@ -55,6 +55,7 @@ import yaml
 from scenarios.region import EXAMPLE_ACCOUNT
 
 from . import ops_fullstack as fs
+from . import paths
 from .runner import (
     CATALOG,
     EXHAUSTION_MARKERS,
@@ -531,7 +532,13 @@ def _set_state(run: pathlib.Path, **kw: Any) -> None:
 
 
 def _gt_path(run: pathlib.Path, sid: str) -> pathlib.Path:
-    return run / "ground-truth" / f"{sid}.json"
+    """A scenario's record. The id is read back from a record file too (_save_record): one that would lead out of
+    ground-truth/ (`..`, a separator) is refused, never followed."""
+    folder = run / "ground-truth"
+    try:
+        return paths.inside(folder / f"{sid}.json", [folder])
+    except ValueError:
+        raise StepError(f"{sid!r} is not a scenario id: its record would lie outside {folder}") from None
 
 
 def _record(run: pathlib.Path, sid: str) -> dict | None:
@@ -995,7 +1002,10 @@ def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
     sub.add_parser("_hold").add_argument("fault")
     args = ap.parse_args(argv)
 
-    run = pathlib.Path(args.run).expanduser()
+    try:
+        run = paths.inside(args.run)  # from the command line: only where the tools work (warden.paths)
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
     run.mkdir(parents=True, exist_ok=True)
     if args.cmd == "score":
         from . import score

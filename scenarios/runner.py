@@ -65,7 +65,7 @@ import yaml
 
 from scenarios.region import EXAMPLE_ACCOUNT, fault_environment, region
 
-from . import ops, ops_db, ops_k8s
+from . import ops, ops_db, ops_k8s, paths
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -1582,9 +1582,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.rerun and not args.resume:
         raise SystemExit("--rerun only makes sense with --resume")
+    # --out and --resume come from the command line: each must lie where the tools work (warden.paths).
+    try:
+        given = paths.inside(args.resume or args.out) if (args.resume or args.out) else None
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
     if args.resume:
         rerun = tuple(x.strip() for x in args.rerun.split(",") if x.strip())
-        return _resume(pathlib.Path(args.resume), args.warden_timeout,
+        return _resume(given, args.warden_timeout,
                        rerun=rerun, reason=args.reason.strip())
 
     arm: dict[str, str] = {}
@@ -1609,10 +1614,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"--only {args.only!r} matched no scenario in wave {args.wave}")
 
     stamp = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H%M%SZ")
-    default_root = pathlib.Path(
-        os.environ.get("WARDEN_BENCH_DIR", pathlib.Path.home() / "warden-bench-runs")
-    )
-    out = pathlib.Path(args.out) if args.out else default_root / f"wave{args.wave}-{stamp}"
+    out = given or paths.bench_dir() / f"wave{args.wave}-{stamp}"
     out.mkdir(parents=True, exist_ok=True)
 
     # ⛔ The target picks the whole backend: which ops registry dispatches, what "baseline" means,
