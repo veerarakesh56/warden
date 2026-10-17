@@ -116,6 +116,8 @@ Setup, once:
    nonprod environment's channels from them - the review is about the repository, never production's. The maps are
    read as strictly as the incidents' (`settings.by_environment`): a malformed one sends the review nowhere and says
    so on the record. To run one now: `temporal schedule trigger --schedule-id warden-dependency-watch`.
+4. To turn it off: remove `WARDEN_DEPWATCH_REPO` and restart the core worker - it deletes the schedule, so no run
+   is left starting only to fail.
 
 Release notes are written by whoever publishes the package: a line that addresses a reader ("ignore ...", "approve",
 "merge now") or that the injection detector flags is held back whole - the review says how many, and they are read on
