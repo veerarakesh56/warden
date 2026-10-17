@@ -233,10 +233,14 @@ def test_both_pages_need_nothing_their_content_security_policy_refuses_and_keep_
     assert "{{" not in served.body and served.body.count('nonce="') == 2  # every placeholder filled; one style, one script
     nonce = re.search(r"script-src 'nonce-([^']+)'", served.headers["Content-Security-Policy"]).group(1)
     assert served.body.count(f'nonce="{nonce}"') == 2
+    from warden.brand import FAVICON_LINK
+
     for html in (approval_page._PAGE, approval_page._ENROL):
         assert html.count("<style nonce=") == 1 and html.count("<script nonce=") == 1
+        assert html.count(FAVICON_LINK) == 1  # the tab icon, embedded; tested on its own in test_pages_ux
+        rest = html.replace(FAVICON_LINK, "").replace("</", "")
         for refused in ("http://", "https://", "//", "<img", "<link", "<iframe", "@import", "url(", ' style="', "onclick"):
-            assert refused not in html.replace("</", ""), refused
+            assert refused not in rest, refused
         assert "prefers-color-scheme:dark" in html and "prefers-reduced-motion:reduce" in html
         assert '<html lang="en">' in html and "width=device-width" in html and ":focus-visible" in html
         assert 'role="status" aria-live="polite"' in html and "<main" in html and "<h1" in html

@@ -4,11 +4,16 @@ calm eye at its centre; bright, never dark).
 `LOGO_SVG` is inline SVG drawn with fill attributes only (no style, no id, no script, no event handler, nothing
 fetched), so it stays inside the pages' Content-Security-Policy. It sits beside the word WARDEN, so it is hidden from
 screen readers rather than read out twice. An `xmlns` attribute is dropped here: inline SVG needs none, and the pages
-hold no address. No favicon: a browser loads one as an image, and the pages' policy is `img-src 'none'`.
+hold no address.
+
+`FAVICON_LINK` puts the same mark on the browser tab (owner, 2026-10-17). A browser loads a tab icon as an image, so
+it is embedded as a `data:` address - nothing is fetched - and the pages allow images from `data:` alone
+(`img-src data:`), which reaches no host.
 """
 
 from __future__ import annotations
 
+import base64
 import re
 
 # The approved icon (warden-icon.svg), its role and label swapped for a size and aria-hidden.
@@ -24,3 +29,9 @@ _RAW = """<svg class="logo" viewBox="0 0 64 64" width="30" height="30" aria-hidd
 </svg>"""
 
 LOGO_SVG = re.sub(r'\s+xmlns(?::\w+)?="[^"]*"', "", _RAW)
+
+# A tab icon is a document of its own, so it carries the SVG namespace and drops the page-only attributes.
+_TAB = re.sub(r'\s(?:class|width|height|aria-hidden|focusable)="[^"]*"', "", LOGO_SVG).replace(
+    "<svg", '<svg xmlns="http://www.w3.org/2000/svg"', 1)
+FAVICON_LINK = ('<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,'
+                + base64.b64encode(_TAB.encode()).decode() + '">')
