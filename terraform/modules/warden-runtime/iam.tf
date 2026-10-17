@@ -77,8 +77,9 @@ locals {
     # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts. Its one secret is
     # the terminate login's DSN - no password in it: each close signs in with a token the plan's actor signs.
     act = { secrets = ["db-admin-dsn"], assumes = ["platform-reader", "actor"], platforms = ["aws", "k8s", "db"] }
-    # Eldane, the AI critic (eldane.py): its own model key and its own signing key; it reads the audit, assumes nothing.
-    critic = { secrets = ["gemini-api-key", "eldane-key"], assumes = [], platforms = [] }
+    # Eldane, the AI critic (eldane.py): the diagnosis's Claude key (owner, 2026-10-17) and its own signing key; it
+    # reads the audit and assumes nothing.
+    critic = { secrets = ["anthropic-api-key", "eldane-key"], assumes = [], platforms = [] }
   }
   # The Lambdas (frontdoor.tf), as settings.LAMBDA_SECRETS names what each handler reads (tests/test_runtime_module_g6.py
   # runs each one's load and holds the two together). Only the approval page reads who may approve; only actor-use

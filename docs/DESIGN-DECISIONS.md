@@ -378,10 +378,14 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   (section 16 records why not OPA or Cedar).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
-- Earned autonomy and the AI critic - `autonomy.py`, `eldane.py` (owner, 2026-10-16): the levels are counts over
-  WARDEN's own signed audit rows and a Wilson bound (`decide.tier_enabled`), so a feature-flag service would be a
-  second, mutable store beside the record; the critic is one call to a second vendor's model through
-  `providers.py`, whose verdict the code checks against the evidence ids. No agent framework is needed for either.
+- Autonomy and the AI critic - `autonomy.py`, `eldane.py` (owner, 2026-10-16/17): dev's level is read from
+  WARDEN's own signed audit rows (its demotions since a person's signed re-enable), so a feature-flag service would
+  be a second, mutable store beside the record. Dev is autonomous through Eldane from the first plan; prod always
+  needs a person's passkey. The critic is one call through `providers.py` to the other Claude model from the one
+  that diagnosed the incident (Opus 5.5 or Sonnet 5.5, same key, owner 2026-10-17), whose verdict the code checks
+  against the evidence ids. One family carries a known self-preference risk; the mitigations - another model per
+  incident, a blind first pass, code-checked citations, catch trials that demote at once, a "no" that only adds, a
+  person's veto - are in `eldane.py`. No agent framework is needed for either.
 - Number checks in the model's prose - `numbers.py`: a unit library (pint) would convert units, but naming which
   metric a number in free prose refers to is the hard part, and no library does it.
 - Telling English logs from others - `language.py`: language-detection libraries (lingua, langdetect) answer
