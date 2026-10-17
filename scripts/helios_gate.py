@@ -23,7 +23,7 @@ import argparse
 import json
 import os
 import pathlib
-import subprocess  # nosec B404 - runs the pinned Helios binary with fixed arguments
+import subprocess  # nosec B404  # runs the pinned Helios binary with fixed arguments
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -67,7 +67,7 @@ def _bare_env() -> dict[str, str]:
 
 def simulate(helios: list[str], document: pathlib.Path, scenario: pathlib.Path):
     """A set of failed resource addresses, "inconclusive", or ("error", why)."""
-    r = subprocess.run([*helios, "simulate", str(document), "--scenario", str(scenario), "--json"],  # nosec B603
+    r = subprocess.run([*helios, "simulate", str(document), "--scenario", str(scenario), "--json"],  # nosec B603  # the pinned Helios, fixed arguments
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300, check=False,
                        env=_bare_env())
     if r.returncode == INCONCLUSIVE:

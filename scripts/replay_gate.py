@@ -50,7 +50,7 @@ def _git_commit() -> str:
         out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
                              text=True, check=False)
         return (out.stdout or "").strip()[:12] or "unknown"
-    except OSError:  # pragma: no cover - git absent
+    except OSError:  # git absent
         return "unknown"
 
 

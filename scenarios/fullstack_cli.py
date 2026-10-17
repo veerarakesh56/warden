@@ -42,6 +42,7 @@ import dataclasses
 import datetime as dt
 import functools
 import json
+import logging
 import os
 import pathlib
 import subprocess
@@ -53,6 +54,8 @@ from typing import Any
 import yaml
 
 from scenarios.region import EXAMPLE_ACCOUNT
+
+_LOG = logging.getLogger("scenarios.fullstack")
 
 from . import ops_fullstack as fs
 from .runner import (
@@ -291,7 +294,7 @@ def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
         import psycopg
         from kubernetes import client as kube
         from kubernetes import config as kube_config
-    except ImportError as exc:  # pragma: no cover - environment, not logic
+    except ImportError as exc:
         raise StepError("Wave 4 needs: pip install -e '.[aws,k8s,postgres]'") from exc
 
     stack = load_stack(pathlib.Path(os.environ.get("WARDEN_FS_STACK") or DEFAULT_STACK))
@@ -361,12 +364,13 @@ def _wire_holder(t: fs.Target, run: pathlib.Path) -> None:
         if os.name == "nt":  # detached, no console window: it must outlive this command
             flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
                      | subprocess.CREATE_NO_WINDOW)
-        log = open(hold / f"{fid}.log", "a", encoding="utf-8")  # noqa: SIM115 - handed to the child
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "scenarios.fullstack_cli", "--run", str(run), "_hold", fid],
-            cwd=str(ROOT), stdout=log, stderr=log, stdin=subprocess.DEVNULL,
-            creationflags=flags, start_new_session=os.name != "nt",
-        )
+        # The child gets its own copy of the log's descriptor; this process's copy is closed once it has started.
+        with open(hold / f"{fid}.log", "a", encoding="utf-8") as log:
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "scenarios.fullstack_cli", "--run", str(run), "_hold", fid],
+                cwd=str(ROOT), stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+                creationflags=flags, start_new_session=os.name != "nt",
+            )
         return proc.pid
 
     def wait_ready(fid: str, timeout_s: float) -> dict:
@@ -406,8 +410,8 @@ def cmd_hold(env: Env, run: pathlib.Path, fid: str) -> int:
         for conn in held:
             try:
                 conn.close()
-            except Exception:  # noqa: BLE001, S110 - already gone is still gone
-                pass
+            except Exception as exc:  # noqa: BLE001  # cleanup: a connection already gone is still gone
+                _LOG.debug("a held connection did not close (%s)", type(exc).__name__)
         (hold / f"{fid}.exited").write_text(_now(), encoding="utf-8")
     return 0
 
@@ -565,7 +569,7 @@ def stack_problems(env: Env) -> list[str]:
     for name in sorted({s["alarm"] for s in _catalog().values() if s.get("alarm")}):
         try:
             state = env.alarm(name).get("state")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  # any read error: an unreadable alarm is a problem, never OK
             state = f"unreadable ({type(exc).__name__})"
         if state not in ("OK", "INSUFFICIENT_DATA"):
             problems.append(f"alarm {name} is {state}")
@@ -784,7 +788,7 @@ def step_verify(env: Env, run: pathlib.Path, key: str, *, timeout_s: float | Non
     def check() -> bool:
         try:
             ok, detail = env.faults[fid].verify(env.clients, env.target)
-        except Exception as exc:  # noqa: BLE001 - an unreadable verifier is "not fixed"
+        except Exception as exc:  # noqa: BLE001  # any verifier error is "not fixed", with its detail
             ok, detail = False, f"verifier failed: {type(exc).__name__}: {exc}"
         last.update(ok=ok, detail=detail)
         return ok

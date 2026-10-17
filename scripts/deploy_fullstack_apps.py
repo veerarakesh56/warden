@@ -356,7 +356,7 @@ def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
     try:
         key = aws("secretsmanager").get_secret_value(SecretId=f"warden-{env}-datadog-api-key")["SecretString"].strip()
         site = aws("ssm").get_parameter(Name=f"/warden/{env}/tf/datadog_site")["Parameter"]["Value"].strip()
-    except Exception as exc:  # noqa: BLE001 - no key or no site: the stack runs without Datadog
+    except Exception as exc:  # noqa: BLE001  # optional: no key or site, the stack runs without Datadog (said)
         print(f"Datadog agent not installed: its key or site is not set ({type(exc).__name__})", flush=True)
         return False
     if not key or site not in DATADOG_SITES:

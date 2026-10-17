@@ -552,7 +552,7 @@ def hold_connections(c: Clients, t: Target, fid: str, *, headroom: int = 3,
     def one(_: int) -> tuple[Any, str]:
         try:
             return c.sql(application_name=HOLD_APP_PREFIX + fid), ""
-        except Exception as exc:  # noqa: BLE001 - the server refusing IS the result here
+        except Exception as exc:  # noqa: BLE001  # the server refusing IS the result here, named
             return None, type(exc).__name__
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -909,7 +909,7 @@ def _redis_pct(c, t) -> float:
 def fs10_verify(c, t):
     try:
         pct = _redis_pct(c, t)
-    except Exception as exc:  # noqa: BLE001 - unreachable is the "not fixed" answer
+    except Exception as exc:  # noqa: BLE001  # unreachable, whatever the error, is the "not fixed" answer
         return False, f"redis not reachable from the VPC: {type(exc).__name__}"
     return True, f"redis reachable, memory {pct:.0f}%"
 
@@ -1445,7 +1445,7 @@ def _b_redis(c, t) -> list[str]:
         pct = _redis_pct(c, t)
         if pct >= t.redis_max_pct:
             p.append(f"redis memory at {pct:.0f}%")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  # a failed check is a problem, never a pass
         p.append(f"redis info failed: {type(exc).__name__}: {exc}")
     return p
 
@@ -1533,7 +1533,7 @@ def check_baseline(c: Clients, t: Target, areas: list[str] | None = None) -> lis
     for area in areas or list(BASELINES):
         try:
             problems += BASELINES[area](c, t)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  # a failed check is a problem, never a pass
             problems.append(f"{area}: cannot check ({type(exc).__name__}: {str(exc)[:160]})")
     return problems
 
