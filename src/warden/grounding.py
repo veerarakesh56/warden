@@ -593,12 +593,12 @@ _ARN = re.compile(r"(?<![\w:/-])arn:[a-z0-9-]+:[^\s,;)'\"`]+")
 # A tag never ends in a period: "roll back to checkout:1.2.0." ends a sentence.
 _IMAGE_REF = re.compile(r"(?<![\w.:/-])([A-Za-z][\w./-]*+)(?::(\w(?:[\w-]|\.(?=[\w-]))*+)|@sha256:[0-9a-f]{12,}+)"
                         r"(?![\w:/-])")
-_NUMBERED_TAG = re.compile(r"(?:v?\d|latest$)")
-# A version: three or more dotted numbers (`1.18.0`, `2.4.1-alpine`), or a `v` and one or two (`v3`, `v1.2`). One
-# linear pattern for every number (possessive runs: Sonar, PR 47) and the decision in _is_version - times, rates and
-# counts are numbers, not versions.
-_NUMBER = re.compile(r"(?<![\w.:/-])v?+\d++(?:\.\d++)*+(?:[-+]\w(?:\w|\.(?=\w))*+)?+(?!\w|\.\w)")
-_NUMBER_CORE = re.compile(r"v?+(\d++(?:\.\d++)*+)")
+_NUMBERED_TAG = re.compile(r"v?\d")
+# A version: three or more dotted numbers (`1.18.0`, `2.4.1-alpine`), or a `v` and one or two (`v3`, `v1.2`). Every
+# number-like word is found by one trivial pattern and judged in _version_in (Sonar, PR 47: linear, low complexity) -
+# times, rates and counts are numbers, not versions; a sentence's closing period is not part of one.
+_NUMBER = re.compile(r"(?<![\w.:/-])v?+\d[\w.+-]*+")
+_VERSION_SHAPE = re.compile(r"v?(\d+(?:\.\d+)*)(?:[-+]\w[\w.]*)?")
 UNREAD = "[not read by WARDEN]"
 PREVIOUS = "[the previous revision WARDEN recorded]"
 REFUSED_TARGET = "[a target WARDEN refused - not shown]"
@@ -628,25 +628,32 @@ def unread(text: str, read: str, *, rollback: bool = False) -> str:
         whole, name, tag = m.group(0), m.group(1), m.group(2)
         if whole in read:
             return whole
-        if tag is None or _NUMBERED_TAG.match(tag):
+        if tag is None or tag == "latest" or _NUMBERED_TAG.match(tag):
             return version
         return whole if tag in names or name != name.lower() else version
 
     def number(m: re.Match[str]) -> str:
-        return version if _is_version(m.group(0)) and m.group(0) not in read else m.group(0)
+        word = m.group(0)
+        found = _version_in(word)
+        return version + word[len(found):] if found and found not in read else word
 
     text = _IMAGE_REF.sub(image, _ARN.sub(keep_or(UNREAD), text))
     return _NUMBER.sub(number, text)
 
 
-def _is_version(number: str) -> bool:
-    dots = _NUMBER_CORE.match(number).group(1).count(".")
-    return dots >= 2 or (number.startswith("v") and dots <= 1)
+def _version_in(word: str) -> str:
+    """The version `word` is, without a closing period - or "" when it is another kind of number."""
+    stripped = word.rstrip(".")
+    shape = _VERSION_SHAPE.fullmatch(stripped)
+    if shape is None:
+        return ""
+    dots = shape.group(1).count(".")
+    return stripped if dots >= 2 or (stripped.startswith("v") and dots <= 1) else ""
 
 
 def versions(text: str) -> list[str]:
     """The versions written in `text` (what unread() withholds when WARDEN did not read them)."""
-    return [m.group(0) for m in _NUMBER.finditer(text) if _is_version(m.group(0))]
+    return [found for m in _NUMBER.finditer(text) if (found := _version_in(m.group(0)))]
 
 
 def shown_target(proposal: RemediationProposal, alert: Any, context: Any) -> str:
