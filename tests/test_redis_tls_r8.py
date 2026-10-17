@@ -9,6 +9,7 @@ import pathlib
 import re
 import socket
 import ssl
+import threading
 import time
 
 import pytest
@@ -38,38 +39,40 @@ def test_redis_takes_tls_in_transit_and_every_app_client_uses_it():
 
 EXPLICIT = {"ssl": True, "ssl_cert_reqs": "required", "ssl_check_hostname": True, "protocol": 2,
             "socket_keepalive": False}
+NO_RETRY = "Retry(NoBackoff(), 0)"
 # Each client's own timeouts (seconds), as they were under redis 5.2.1: what the fault scenarios were timed with.
 TIMEOUTS = {"app/app.py": (2, 2), "lambdas/ops/app.py": (10, 5), "lambdas/reconciler/app.py": (3, 3)}
+QUICK = 0.5  # the timeouts the stall tests use instead, so they finish quickly
+ONE_TRY_S = QUICK * 1.8  # one try fails within this; a single retry would take at least two timeouts
+
+
+def _is_redis_client(node: ast.AST) -> bool:
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "Redis"
+            and isinstance(node.func.value, ast.Name) and node.func.value.id == "redis")
 
 
 def _client_calls() -> dict[str, dict]:
-    """{file: the keyword arguments of its one redis.Redis(...) call}; retry= is rebuilt from its source."""
+    """{file: the keyword arguments of its one redis.Redis(...) call}; retry= is kept as its source text."""
     found: dict[str, dict] = {}
     base = ROOT / "scenarios" / "fullstack"
     for path in sorted(base.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "Redis"
-                    and isinstance(node.func.value, ast.Name) and node.func.value.id == "redis"):
-                rel = path.relative_to(base).as_posix()
-                assert rel not in found, f"{rel}: more than one redis.Redis(...) call"
-                assert not node.args and all(k.arg for k in node.keywords), f"{rel}: keyword arguments only"
-                kwargs = {}
-                for k in node.keywords:
-                    if k.arg == "retry":
-                        kwargs[k.arg] = ast.unparse(k.value)
-                    elif k.arg != "host":
-                        kwargs[k.arg] = ast.literal_eval(k.value)
-                found[rel] = kwargs
+        for node in filter(_is_redis_client, ast.walk(ast.parse(path.read_text(encoding="utf-8")))):
+            rel = path.relative_to(base).as_posix()
+            assert rel not in found, f"{rel}: more than one redis.Redis(...) call"
+            assert not node.args, f"{rel}: keyword arguments only"
+            assert all(k.arg for k in node.keywords), f"{rel}: no **kwargs"
+            found[rel] = {k.arg: ast.unparse(k.value) if k.arg == "retry" else ast.literal_eval(k.value)
+                          for k in node.keywords if k.arg != "host"}
     return found
 
 
 def test_every_redis_client_states_protocol_retries_keepalive_timeouts_and_tls():
     calls = _client_calls()
-    assert set(calls) == set(TIMEOUTS), calls
+    assert sorted(calls) == sorted(TIMEOUTS)
     for rel, kwargs in calls.items():
-        assert {k: kwargs.get(k) for k in EXPLICIT} == EXPLICIT, rel
-        assert kwargs.get("retry") == "Retry(NoBackoff(), 0)", (rel, kwargs.get("retry"))
+        stated = {k: kwargs.get(k) for k in EXPLICIT}
+        assert stated == EXPLICIT, rel
+        assert kwargs.get("retry") == NO_RETRY, rel
         assert (kwargs.get("socket_timeout"), kwargs.get("socket_connect_timeout")) == TIMEOUTS[rel], rel
         assert kwargs.get("port") == 6379, rel
 
@@ -84,8 +87,10 @@ def _retry(redis, source: str | None) -> dict:
     if source is None:
         return {}
     call = ast.parse(source, mode="eval").body
-    assert (isinstance(call, ast.Call) and ast.unparse(call.func) == "Retry" and len(call.args) == 2
-            and ast.unparse(call.args[0]) == "NoBackoff()"), source
+    assert isinstance(call, ast.Call), source
+    assert ast.unparse(call.func) == "Retry", source
+    assert [ast.unparse(a) for a in call.args[:1]] == ["NoBackoff()"], source
+    assert len(call.args) == 2, source
     return {"retry": redis.retry.Retry(redis.backoff.NoBackoff(), ast.literal_eval(call.args[1]))}
 
 
@@ -95,16 +100,21 @@ def _built(redis, kwargs: dict, **override):
     return redis.Redis(**{"host": "cache.example.invalid", **plain, **_retry(redis, kwargs.get("retry")), **override})
 
 
+def _assert_connection(redis, conn, timeouts: tuple) -> None:
+    assert isinstance(conn, redis.connection.SSLConnection)
+    assert conn.cert_reqs == ssl.CERT_REQUIRED
+    assert conn.check_hostname is True
+    assert conn.protocol == 2
+    assert conn.retry.get_retries() == 0
+    assert conn.socket_keepalive is False
+    assert (conn.socket_timeout, conn.socket_connect_timeout) == timeouts
+
+
 @pytest.mark.parametrize("rel", sorted(TIMEOUTS))
 def test_the_installed_redis_py_builds_each_client_as_stated(redis, rel):
     """What redis-py actually makes of the options (no server needed: a connection object is built, not opened)."""
     conn = _built(redis, _client_calls()[rel]).connection_pool.make_connection()
-    assert isinstance(conn, redis.connection.SSLConnection)
-    assert conn.cert_reqs == ssl.CERT_REQUIRED and conn.check_hostname is True
-    assert conn.protocol == 2
-    assert conn.retry.get_retries() == 0
-    assert conn.socket_keepalive is False
-    assert (conn.socket_timeout, conn.socket_connect_timeout) == TIMEOUTS[rel]
+    _assert_connection(redis, conn, TIMEOUTS[rel])
 
 
 def test_the_app_cache_client_is_the_one_checked(redis, monkeypatch):
@@ -115,25 +125,84 @@ def test_the_app_cache_client_is_the_one_checked(redis, monkeypatch):
     spec = importlib.util.spec_from_file_location("fullstack_app_r8", ROOT / "scenarios" / "fullstack" / "app" / "app.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    conn = module.cache().connection_pool.make_connection()
-    assert conn.protocol == 2 and conn.retry.get_retries() == 0 and conn.socket_keepalive is False
-    assert conn.check_hostname is True and conn.cert_reqs == ssl.CERT_REQUIRED
-    assert (conn.socket_timeout, conn.socket_connect_timeout) == (2, 2)
+    _assert_connection(redis, module.cache().connection_pool.make_connection(), TIMEOUTS["app/app.py"])
+
+
+def _timed_ping(redis, client) -> float:
+    started = time.monotonic()
+    with pytest.raises(redis.exceptions.TimeoutError):
+        client.ping()
+    return time.monotonic() - started
 
 
 @pytest.mark.parametrize("rel", sorted(TIMEOUTS))
-def test_a_cache_that_never_answers_fails_the_call_after_one_timeout(redis, rel):
-    """A server that takes the TCP connection and never answers (the TLS handshake stalls): one try, so the call
-    fails after about one timeout. redis-py 8's default retry (10 tries with backoff) would take many times longer.
-    The client's own options, with only the timeouts shortened so the test is quick."""
-    server = socket.create_server(("127.0.0.1", 0))
-    try:
-        port = server.getsockname()[1]
-        client = _built(redis, _client_calls()[rel], host="127.0.0.1", port=port, socket_timeout=0.3,
-                        socket_connect_timeout=0.3)
-        started = time.monotonic()
-        with pytest.raises(redis.exceptions.TimeoutError):
-            client.ping()
-        assert 0.25 < time.monotonic() - started < 1.2
-    finally:
-        server.close()
+def test_a_cache_that_never_completes_the_tls_handshake_fails_the_call_after_one_timeout(redis, rel):
+    """The server takes the TCP connection and never answers, so the TLS handshake stalls: with one try the call
+    fails after about one timeout. The client's own options, with only the timeouts shortened."""
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        client = _built(redis, _client_calls()[rel], host="127.0.0.1", port=server.getsockname()[1],
+                        socket_timeout=QUICK, socket_connect_timeout=QUICK)
+        elapsed = _timed_ping(redis, client)
+    assert elapsed >= QUICK * 0.8
+    assert elapsed < ONE_TRY_S
+
+
+def _answer_all_but_ping(server: socket.socket, stop: threading.Event) -> None:
+    """A Redis server that is connected and answers the connection's setup commands, then never answers PING."""
+    server.settimeout(0.05)
+    peers = []
+    while not stop.is_set():
+        try:
+            peer, _ = server.accept()
+            peer.settimeout(0.05)
+            peers.append([peer, b""])
+        except TimeoutError:
+            pass
+        for entry in peers:
+            try:
+                entry[1] += entry[0].recv(65536)
+            except TimeoutError:
+                continue
+            while entry[1].startswith(b"*") and b"\r\n" in entry[1]:
+                end = _command_end(entry[1])
+                if end is None:
+                    break
+                command, entry[1] = entry[1][:end], entry[1][end:]
+                if b"PING" not in command.upper():
+                    entry[0].sendall(b"+OK\r\n")
+    for peer, _ in peers:
+        peer.close()
+
+
+def _command_end(buf: bytes) -> int | None:
+    """Where the first RESP array (a command: *N then N bulk strings) in buf ends, or None if it is incomplete."""
+    head = buf.partition(b"\r\n")[0]
+    pos = len(head) + 2
+    for _ in range(int(head[1:])):
+        size_line, sep, _ = buf[pos:].partition(b"\r\n")
+        if not sep:
+            return None
+        pos += len(size_line) + 2 + int(size_line[1:]) + 2
+        if pos > len(buf):
+            return None
+    return pos
+
+
+@pytest.mark.parametrize("rel", sorted(TIMEOUTS))
+def test_a_cache_that_takes_a_command_and_never_replies_fails_the_call_after_one_timeout(redis, rel):
+    """The connection is up and the server reads PING but never replies: the client waits one read timeout and
+    gives up - no retry. TLS is left out here only (a test server has no ElastiCache certificate; the TLS options
+    are checked above): the client's own protocol, retry and keepalive options, with the timeouts shortened."""
+    stop = threading.Event()
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        worker = threading.Thread(target=_answer_all_but_ping, args=(server, stop), daemon=True)
+        worker.start()
+        try:
+            client = _built(redis, _client_calls()[rel], host="127.0.0.1", port=server.getsockname()[1],
+                            ssl=False, socket_timeout=QUICK, socket_connect_timeout=QUICK)
+            elapsed = _timed_ping(redis, client)
+        finally:
+            stop.set()
+            worker.join(timeout=5)
+    assert elapsed >= QUICK * 0.8
+    assert elapsed < ONE_TRY_S
