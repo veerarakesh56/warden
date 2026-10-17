@@ -38,11 +38,14 @@ BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '__RO__') THEN
         CREATE ROLE __RO__ LOGIN;
     END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '__TERMINATE__') THEN
+        CREATE ROLE __TERMINATE__ LOGIN;
+    END IF;
 END
 $$;
 
--- IAM authentication for all three (express configuration refuses password logins anyway).
-GRANT rds_iam TO __APP__, __CATALOG__, __RO__;
+-- IAM authentication for all four (express configuration refuses password logins anyway).
+GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__;
 
 -- The application: exactly the tables it reads and writes. Signed in by the order-processor
 -- Lambda's role and orders-api's ECS task role (rds-db:connect on dbuser:*/warden_<env>_app).
@@ -58,3 +61,9 @@ GRANT SELECT ON orders TO __CATALOG__;
 -- CONNECT comes from PUBLIC's default; it gets no grant on any table. Its token is signed with the
 -- warden-dev-reader role's credentials - the role WARDEN runs as.
 GRANT pg_monitor TO __RO__;
+
+-- WARDEN's one write to the database: closing the application's sessions an approved plan names
+-- (src/warden/platforms/db.py). pg_signal_backend to close a non-superuser's session, pg_read_all_stats to see
+-- whose sessions are idle or blocking - no table, no CONNECT beyond PUBLIC's. Its token is signed only by an
+-- approved plan's actor session (iam/<env>/actor.json: rds-db:connect as this user, SourceIdentity inc-*).
+GRANT pg_signal_backend, pg_read_all_stats TO __TERMINATE__;

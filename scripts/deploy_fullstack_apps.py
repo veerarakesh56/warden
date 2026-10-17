@@ -301,7 +301,12 @@ def cluster_role() -> str:
 
     docs = yaml.safe_load_all((ROOT / "k8s" / "rbac.yaml").read_text(encoding="utf-8"))
     role = next(d for d in docs if d and d.get("kind") == "ClusterRole")
-    return yaml.safe_dump(role, sort_keys=False)
+    # The remediator's cluster-scoped half: its ClusterRole and the admission policy that narrows its patches. Its
+    # binding is namespaced (manifests/shop/base/warden-rbac.yaml, synced by Argo CD); the CI ServiceAccount is not.
+    remediation = [d for d in yaml.safe_load_all((ROOT / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8"))
+                   if d and d.get("kind") in ("ClusterRole", "ValidatingAdmissionPolicy",
+                                              "ValidatingAdmissionPolicyBinding")]
+    return yaml.safe_dump_all([role, *remediation], sort_keys=False)
 
 
 # Datadog's agent on the test cluster (owner, 2026-10-14: Datadog as the observability tool WARDEN reads beside AWS):
@@ -533,14 +538,14 @@ def wait_synced(kubeconfig: str, revision: str, run=run, sleep=None) -> None:
     raise SystemExit(f"Argo CD did not sync {revision[:12]} to Healthy in {SYNC_TIMEOUT_S} s: {seen}")
 
 
-_DB_USER = re.compile(r"warden_[a-z0-9_]{1,40}_(?:app|catalog|ro)")
+_DB_USER = re.compile(r"warden_[a-z0-9_]{1,40}_(?:app|catalog|ro|terminate)")
 
 
 def db_users(stack: dict) -> dict[str, str]:
     """The environment's database users from stack.json (Terraform's `db_users`; audit A-I-2), each checked to
     be a plain identifier before it goes into SQL or a manifest."""
     users = stack.get("db_users")
-    if not isinstance(users, dict) or set(users) != {"app", "catalog", "ro"}:
+    if not isinstance(users, dict) or set(users) != {"app", "catalog", "ro", "terminate"}:
         raise SystemExit("stack.json has no db_users: write it from `terraform output -json` (README)")
     bad = [u for u in users.values() if not (isinstance(u, str) and _DB_USER.fullmatch(u))]
     if bad:
@@ -555,9 +560,10 @@ def db_users(stack: dict) -> dict[str, str]:
 
 
 def bootstrap_sql(users: dict[str, str]) -> str:
-    """bootstrap.sql with the environment's users in place of __APP__ / __CATALOG__ / __RO__."""
+    """bootstrap.sql with the environment's users in place of __APP__ / __CATALOG__ / __RO__ / __TERMINATE__."""
     text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
-    for key, name in (("APP", users["app"]), ("CATALOG", users["catalog"]), ("RO", users["ro"])):
+    for key, name in (("APP", users["app"]), ("CATALOG", users["catalog"]), ("RO", users["ro"]),
+                      ("TERMINATE", users["terminate"])):
         text = text.replace(f"__{key}__", name)
     if PLACEHOLDER.search(text):
         raise SystemExit(f"unfilled placeholders in bootstrap.sql: {sorted(set(PLACEHOLDER.findall(text)))}")

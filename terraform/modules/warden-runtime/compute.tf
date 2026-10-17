@@ -65,8 +65,8 @@ resource "aws_ecs_task_definition" "zone" {
     name      = "worker"
     image     = var.runtime_image
     essential = true
-    # The AWS platform where a zone reads or writes a watched environment; none where it cannot (iam.tf).
-    command                = ["worker", "--zone", each.key, "--platform", length(each.value.assumes) > 0 ? "aws" : "none"]
+    # The platforms a zone reads or writes a watched environment through (iam.tf `platforms`); none where it cannot.
+    command                = ["worker", "--zone", each.key, "--platform", length(each.value.platforms) > 0 ? join(",", each.value.platforms) : "none"]
     user                   = "10001"
     readonlyRootFilesystem = true
     mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]
