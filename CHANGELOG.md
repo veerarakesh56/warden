@@ -7,6 +7,13 @@ bump may carry a breaking change.
 
 ## [Unreleased] - becomes 0.10.1 (G1, security-critical fixes)
 
+### Changed (the bench approver, 2026-10-16)
+- **The bench approver approves only in a nonprod environment, enforced by WARDEN.** A signed approval, a passkey
+  approval or a signed denial from the bench approver (`bench`, or an entry labelled "bench approver") is refused
+  in any environment that is not of the nonprod tier in `environments.yaml`, whatever its entry in the approver list
+  names (`approvals.environment_refusal`, one rule for every path). `scripts/bench_approve.py --new-key` refuses any
+  environment but a nonprod one and writes no key.
+
 ### Added (Slack per environment, owner 2026-10-16)
 - **Each environment's incidents go only to its own Slack channels.** New plain settings `WARDEN_SLACK_CHANNELS`
   and `WARDEN_DISCUSS_CHANNELS`, `env=channel-id[,env=channel-id]`. With the first, alerts go through the bot to the

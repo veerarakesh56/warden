@@ -52,7 +52,13 @@ def new_key(environment: str, *, unencrypted: bool = False) -> str:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     from warden import audit
+    from warden.environments import default_environment_policies
 
+    policies = default_environment_policies()
+    nonprod = [e for e in policies.known_environments if policies.for_env(e).tier == "nonprod"]
+    if environment not in nonprod:
+        raise SystemExit(f"no key was written: the bench approver is for a nonprod environment only "
+                         f"({', '.join(nonprod) or 'none in environments.yaml'}), not {environment!r}")
     path = _key_path()
     if path.exists():
         raise SystemExit(f"{path} exists: one bench key; delete it first to make another")
