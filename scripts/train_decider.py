@@ -82,7 +82,7 @@ def brier(ps: list[float], ys: list[int]) -> float:
 def ece(ps: list[float], ys: list[int], bins: int = 10) -> float:
     total = 0.0
     for i in range(bins):
-        idx = [k for k, p in enumerate(ps) if i / bins <= p < (i + 1) / bins or (i == bins - 1 and p == 1.0)]
+        idx = [k for k, p in enumerate(ps) if i / bins <= p < (i + 1) / bins or (i == bins - 1 and p >= 1.0)]
         if idx:
             total += len(idx) / len(ps) * abs(sum(ps[k] for k in idx) / len(idx) - sum(ys[k] for k in idx) / len(idx))
     return total

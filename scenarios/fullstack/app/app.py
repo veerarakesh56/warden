@@ -136,13 +136,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._get(path, span)
 
     def _get(self, path: str, span) -> None:
-        route = self.routes.get(path)
-        if route is None:
+        # The route as registered - its own key, never text from the request: the client writes the path and the
+        # query, and a log line must not carry them (Sonar pythonsecurity:S5145, 2026-10-16).
+        found = next(((known, fn) for known, fn in self.routes.items() if known == path), None)
+        if found is None:
             return self.reply(404, {"error": "not found"}, span)
+        known, route = found
         try:
             self.reply(200, route(), span)
         except Exception as exc:
-            log.exception("GET %s failed", self.path)
+            log.exception("GET %s failed", known)
             if span is not None:
                 span.record_exception(exc)
             self.reply(500, {"error": type(exc).__name__}, span)

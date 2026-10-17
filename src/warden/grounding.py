@@ -116,7 +116,23 @@ _NEXT = re.compile(r"\s*[\"'\])]*\s*(?:\((?:was|from)[^)]{0,20}\)\s*)?,?\s*(?:->
                    r"\s*[\"'\[(]*\s*" + _VALUE)
 _WORD_AFTER = re.compile(r"[\s\"'\])]*([a-z]+)(?![a-z_]*\s*[=:])")
 # A zero that says WHEN, not how many: "restarted 0s ago" is a restart (fifth review, 2026-10-01).
-_AGO = re.compile(r"\s*(?:ms|s|sec|secs|seconds?|m|min|mins|minutes?|h|hrs?|hours?|d|days?|w|weeks?)?\s*ago\b")
+# "ago" alone, or after a unit; the unit is a word looked up in a set, not an alternation of 16 (Sonar python:S5843,
+# 2026-10-17), and each run of spaces is read one way (Sonar python:S8786, 2026-10-16). The shortest word first: a
+# unit never contains "ago", so `sago` is `s` + `ago` as before.
+_AGO_BARE = re.compile(r"\s*ago\b")
+_AGO_UNIT = re.compile(r"\s*([a-z]{1,7}?)\s*ago\b")
+_AGO_UNITS = frozenset({"ms", "s", "sec", "secs", "second", "seconds", "m", "min", "mins", "minute", "minutes", "h",
+                        "hr", "hrs", "hour", "hours", "d", "day", "days", "w", "week", "weeks"})
+
+
+def _ago(text: str, pos: int) -> bool:
+    """Whether `text` says "ago" at `pos`, after a unit or not ("0s ago", "5 min ago")."""
+    if _AGO_BARE.match(text, pos):
+        return True
+    unit = _AGO_UNIT.match(text, pos)
+    return unit is not None and unit.group(1) in _AGO_UNITS
+
+
 # For scale_down a zero of USE is its evidence: "cpu: 0%" is an idle service (fifth review).
 _USE = frozenset({"cpu", "memory", "utili"})
 # A zero of something good is a shortage, not an absence: "0/3 passing", "cache hit: 0%", "no free
@@ -177,7 +193,7 @@ def _reports_none(after: str, key: str, shortage: bool, before: str = "", idle_s
     if not m:
         return False
     phrase, value, pos = m.group(1), m.group(2), m.end()
-    if _AGO.match(after, pos):
+    if _ago(after, pos):
         return False
     if not shortage and key in _USE and not _GOOD & set(re.findall(r"[a-z]+", phrase)):
         # A numeric zero of USE is scale_down's evidence ("cpu: 0%"); a missing value ("cpu: null", "no data")
@@ -347,7 +363,29 @@ _SHELL = re.compile(r"[;|&$\\`<>]")
 # Arrows and redaction placeholders are how targets are written; any other `<` or `>` is a redirect.
 _NOT_SHELL = re.compile(r"<[A-Z][A-Z0-9]*_\d+>|->|=>")
 # A namespace or cluster that qualifies a resource: `(namespace=shop)`, `namespace warden-pg`, `ns/x`.
-_SCOPE = re.compile(r"[\s,(]*\b(?:namespace|ns|cluster)\b\s*[=:/ ]\s*[\"'\u201c\u201d\u2018\u2019]?[\w.-]+[\"'\u201c\u201d\u2018\u2019]?\s*\)?\s*,?", re.IGNORECASE)
+# At most 64 separators before the word, and each run of spaces read one way only (Sonar python:S8786, 2026-10-16): a long run of
+# spaces was searched again from each of them. More than 64 stay in the text, as spaces and commas do anyway.
+# The word and its separator, then the name: two patterns, each simple enough to read (Sonar python:S5843, 2026-10-17);
+# _unscope applies them as one.
+_SCOPE_WORD = re.compile(r"[\s,(]{0,64}\b(?:namespace|ns|cluster)\b(?:\s*[=:/]|[^\S ]* )\s*", re.IGNORECASE)
+_SCOPE_NAME = re.compile(r"[\"'\u201c\u201d\u2018\u2019]?[\w.-]+[\"'\u201c\u201d\u2018\u2019]?\s*(?:\)\s*)?,?")
+
+
+def _unscope(text: str) -> str:
+    """`text` with each scope clause replaced by a space, left to right as re.sub would with the two patterns joined: a
+    word whose name does not follow is passed over and the search goes on from the next character."""
+    out: list[str] = []
+    pos = start = 0
+    while (word := _SCOPE_WORD.search(text, start)) is not None:
+        name = _SCOPE_NAME.match(text, word.end())
+        if name is None:
+            start = word.start() + 1
+            continue
+        out += [text[pos:word.start()], " "]
+        pos = start = name.end()
+    return "".join(out) + text[pos:]
+
+
 # Words that describe a resource rather than name one: a second of these is not a second resource.
 _DESCRIPTORS = frozenset({
     "ecs", "ecs-service", "eks", "k8s", "service", "svc", "deploy", "sts", "rds", "aurora", "sqs", "sns",
@@ -364,7 +402,10 @@ _COMMAND_WORDS = re.compile(r"(?<![\w.-])(?:kubectl|aws|gcloud|az|helm|psql|redi
                             r"eksctl|systemctl)(?![\w-]|\.(?!(?:exe|sh|bat|cmd|ps1)\b)\w)", re.IGNORECASE)
 # An image reference with a real tag or digest (`python:3.12-alpine`, `repo/app@sha256:...`): the state a
 # rollback returns to, not a second resource. A word after a colon (`x:payments`) is not a tag.
-_IMAGE = re.compile(r"[\w.-]+(?:/[\w.-]+)*(?::(?:v?\d[\w.-]*|latest)\b|@sha256:[0-9a-f]{12,})", re.IGNORECASE)
+# Bounded as an image reference is (OCI: a name of at most 255 characters; a digest of 64 hex) (Sonar python:S8786, 2026-10-16): a long
+# word with no tag was searched again from each of its characters. A longer word stays in the text and counts.
+_IMAGE = re.compile(r"[\w.-]{1,128}(?:/[\w.-]{1,128}){0,16}(?::(?:v?\d[\w.-]{0,127}|latest)\b|@sha256:[0-9a-f]{12,64})",
+                    re.IGNORECASE)
 _RESOURCE_KINDS = frozenset({"deployment", "namespace", "service", "statefulset", "daemonset", "pod", "function",
                              "lambda", "cluster", "table", "queue", "topic", "rule", "instance", "database", "db"})
 
@@ -400,7 +441,9 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
     if any(_invisible(ch) for ch in unprefixed):
         return f"target {proposal.target!r} contains invisible characters"
     plain = unprefixed
-    assigned = re.findall(r"([\w.-]+)=", plain)
+    # From the start of a name, at most 64 characters: a long word with no `=` was searched again from each of its
+    # characters (Sonar python:S8786, 2026-10-16). A longer name matches nothing, so the count below refuses it as before.
+    assigned = re.findall(r"(?<![\w.-])([\w.-]{1,64})=", plain)
     if (_FLAGLIKE.search(plain) or plain.count("=") != len(assigned)
             or any(k.lower() not in _RESOURCE_KINDS for k in assigned)):
         return f"target {proposal.target!r} looks like a flag or an assignment, not a resource name"
@@ -414,7 +457,7 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
         return f"target {proposal.target!r} is a pattern or a list, not one resource"
     if _COMMAND_WORDS.search(plain):
         return f"target {proposal.target!r} holds a command, not one resource"
-    rest = _SCOPE.sub(" ", plain)
+    rest = _unscope(plain)
     # What stands after an arrow is the state to return to (`checkout -> revert to <image>`), not a
     # second resource; what is in parentheses describes the one named.
     outside = re.split(r"->|=>|\u2192", re.sub(r"\([^)]*\)", " ", rest))[0]

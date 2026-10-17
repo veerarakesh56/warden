@@ -228,7 +228,7 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
    `warden audit keygen --private ~/.warden/<name>.pem --public ~/.warden/<name>.pub.pem`. It asks for a passphrase
    and encrypts the private key with it. Both files must be inside the key folder, `WARDEN_KEY_DIR` (default
    `~/.warden`, created private if missing); a path outside it, through a symlink, or naming a file that exists is
-   refused. Then `warden enrol --approver <name> --key <private key file>`
+   refused. Then `warden enrol --approver <name> --key ~/.warden/<name>.pem`
    opens a 15-minute link where the approver creates a passkey. Save the approver list the page shows as the
    Parameter Store value `/warden/ops/approvers` and restart the workers. [OPERATIONS.md](OPERATIONS.md) covers
    rotating keys and passkeys.

@@ -339,7 +339,8 @@ def test_a_deferral_needs_a_real_past_agreement_first(evidence):
 def test_a_skip_allowed_in_ci_is_still_installed_there():
     """SKIP_OK's reason for test_providers.py holds only while CI's unit job installs the extras."""
     ci = (ROOT / ".github/workflows/ci-tool.yml").read_text(encoding="utf-8")
-    assert re.search(r"uv sync --locked --extra dev --extra all-providers", ci), "CI no longer installs the provider extras"
+    assert re.search(r"uv sync --locked --no-build --extra dev --extra all-providers", ci), \
+        "CI no longer installs the provider extras"
 
 
 def test_rows_github_shows_are_read_whatever_their_pipes():

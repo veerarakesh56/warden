@@ -200,9 +200,10 @@ resource "aws_iam_role_policy" "lambda" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
-  for_each          = local.lambdas
-  name              = "/aws/lambda/${local.name}-${each.key}"
-  retention_in_days = 3
+  for_each = local.lambdas
+  name     = "/aws/lambda/${local.name}-${each.key}"
+  # 14 days (Sonar terraform:S6413, 2026-10-16): enough to look back at an incident found days later.
+  retention_in_days = 14
 }
 
 resource "aws_lambda_function" "fn" {

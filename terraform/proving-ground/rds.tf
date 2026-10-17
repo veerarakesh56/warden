@@ -7,9 +7,10 @@
 # protocol, so `WARDEN_BACKEND=postgres` with the instance endpoint in the DSN is the whole
 # integration. Worth stating plainly rather than implying a bespoke RDS backend exists.
 #
-# Cheapest instance that actually exists: db.t4g.micro (Graviton), 20 GB gp2, single AZ, no backups,
-# no encryption at rest. Every one of those is wrong for production and right for an instance that
-# lives for an hour. On an account under 12 months old the free tier covers it entirely.
+# Cheapest instance that actually exists: db.t4g.micro (Graviton), 20 GB gp2, single AZ, no backups.
+# Every one of those is wrong for production and right for an instance that lives for an hour. On an
+# account under 12 months old the free tier covers it entirely. Encrypted at rest with the AWS-managed
+# key (2026-10-16, Sonar terraform:S6303): it costs nothing and leaves nothing to clean up.
 
 resource "aws_db_subnet_group" "this" {
   count      = var.enable_rds ? 1 : 0
@@ -46,7 +47,7 @@ resource "aws_db_instance" "this" {
 
   allocated_storage = 20
   storage_type      = "gp2"
-  storage_encrypted = false # a throwaway instance holding no data; KMS would be cost and cleanup
+  storage_encrypted = true # aws/rds, the AWS-managed key: no key to create, pay for or delete
 
   db_name  = "warden"
   username = "warden"

@@ -132,7 +132,7 @@ def last_known_good(results: list[dict], cands: list[str]) -> str:
 
 _TRACEBACK = "Traceback (most recent call last):"
 _FRAME = re.compile(r'File "([^"]+)", line (\d+), in (\S+)')
-_EXCEPTION = re.compile(r"^(?:\[ERROR\]\s+)?([A-Za-z_][\w.]*)(?::\s*(.*))?$")
+_EXCEPTION = re.compile(r"^(?:\[ERROR\]\s++)?([A-Za-z_][\w.]*+)(?::\s*+(.*))?$")  # possessive: nothing to hand back (Sonar python:S8786, 2026-10-16)
 _STREAM_VERSION = re.compile(r"\[(\d+|\$LATEST)\]")
 
 

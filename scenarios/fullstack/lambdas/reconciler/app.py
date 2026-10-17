@@ -46,6 +46,8 @@ def _token(host, user):
     return token
 
 
+# `random`, not `secrets`, on purpose (Sonar python:S2245, 2026-10-16): these numbers only pick synthetic load -
+# which cart, SKU, customer or order id to send or look up. Nothing guesses, signs or trusts them.
 def handler(event, context):
     lookup = os.environ.get("RECONCILER_FF_1", "by_id")
     host = os.environ.get("DB_HOST") or _meta()["reader"]

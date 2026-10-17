@@ -384,7 +384,7 @@ def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_p
     assert dep["spec"]["template"]["spec"]["containers"][0]["image"] == tool.OTEL_IMAGE.replace(":v", ":v")
     assert tool.OTEL_IMAGE.endswith(":v0.50.0")
     k8s = (ROOT / "manifests" / "shop" / "base" / "config.yaml").read_text(encoding="utf-8")
-    assert 'OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4318"' in k8s
+    assert 'OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"' in k8s
     assert "OTEL_SDK_DISABLED=true" in (ROOT / "scenarios" / "fullstack" / "app" / "Dockerfile").read_text(encoding="utf-8")
 
 

@@ -90,7 +90,7 @@ jobs:
           # No cache in a job that holds credentials: uv does not re-verify unpacked cache entries, so a
           # poisoned cache would install unchecked (fifth review E, 2026-10-01).
           enable-cache: false
-      - run: uv sync --locked --only-group apps-deploy
+      - run: uv sync --locked --no-build --only-group apps-deploy
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
