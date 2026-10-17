@@ -81,6 +81,10 @@ class EnvPolicy:
     # WARDEN_TRIPWIRE applies.
     tripwire: str = "off"
     approval_wait_hours: int = APPROVAL_WAIT_HOURS
+    # The highest autonomy level an action class may EARN here (autonomy.py, owner 2026-10-16): L0 escalate only, L1
+    # shadow (WARDEN and Eldane decide, a person still approves), L2 autonomous. A ceiling, never a level: what a class
+    # is at is derived from the audit. The prod tier never above L1 - refused at load, and capped again in code.
+    autonomy: str = "L0"
 
     def permits(self, action: ActionKind) -> bool:
         """Is `action` admissible in this environment? Deny wins over allow."""
@@ -128,6 +132,7 @@ class EnvironmentPolicies:
             credentials_ref=self._default.credentials_ref,
             tripwire=self._default.tripwire,
             approval_wait_hours=self._default.approval_wait_hours,
+            autonomy=self._default.autonomy,
         )
 
     @property
@@ -216,6 +221,7 @@ class EnvironmentPolicies:
             credentials_ref=raw.get("credentials_ref"),
             tripwire=_tripwire(name, raw),
             approval_wait_hours=_wait_hours(name, raw),
+            autonomy=_autonomy(name, raw),
         )
 
 
@@ -229,6 +235,21 @@ def _wait_hours(name: str, raw: dict[str, Any]) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_APPROVAL_WAIT_HOURS:
         raise EnvironmentPolicyError(f"{name}: approval_wait_hours must be a whole number of hours from 1 to "
                                      f"{MAX_APPROVAL_WAIT_HOURS}, not {value!r}")
+    return value
+
+
+AUTONOMY_LEVELS = ("L0", "L1", "L2")
+
+
+def _autonomy(name: str, raw: dict[str, Any]) -> str:
+    """The environment's autonomy ceiling. Prod (owner, 2026-10-16: "prod always needs a person's passkey") never
+    above L1, whatever the file says."""
+    value = raw.get("autonomy", "L0")
+    if value not in AUTONOMY_LEVELS:
+        raise EnvironmentPolicyError(f"{name}: autonomy must be one of {', '.join(AUTONOMY_LEVELS)}, not {value!r}")
+    if value == "L2" and (raw.get("tier") == "prod" or name == "default"):
+        raise EnvironmentPolicyError(f"{name}: a prod-tier environment is never autonomous (autonomy at most L1): a "
+                                     "person approves every change there with a passkey")
     return value
 
 
