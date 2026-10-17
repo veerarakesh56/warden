@@ -115,8 +115,8 @@ def test_only_the_body_the_file_defines_counts(monkeypatch, request):
     same_place = types.FunctionType((lambda: None).__code__.replace(co_name="sample_evidence", co_firstlineno=first),
                                     {})  # the def's name and line, another body
     padded = compile("\n" * (first - 1) + "def sample_evidence():\n    return 1\n", __file__, "exec")
-    namespace: dict = {}
-    exec(padded, namespace)  # noqa: S102 - the reviewer's compile() at the def's line
+    # the reviewer's compile() at the def's line: its function, without running the module
+    compiled = types.FunctionType(next(c for c in padded.co_consts if isinstance(c, types.CodeType)), {})
 
     def _make():
         def sample_evidence():  # a nested def under the name
@@ -132,7 +132,7 @@ def test_only_the_body_the_file_defines_counts(monkeypatch, request):
     def wrapper():  # a wraps-wrapper that never calls the body
         return None
 
-    for fake in (swapped, same_place, namespace["sample_evidence"], _make(), _noop, wrapper, lambda: None):
+    for fake in (swapped, same_place, compiled, _make(), _noop, wrapper, lambda: None):
         assert _call_watched(monkeypatch, request, fake) is False, fake
 
     # A body that started and failed, its failure swallowed - by a wrapper, by a hook, in a thread.

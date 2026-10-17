@@ -15,6 +15,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import CancelledError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, Worker
 
@@ -407,8 +409,9 @@ def test_a_run_cancelled_after_apply_ends_on_the_record_and_trips_the_kill_switc
             await asyncio.sleep(0.05)
         await handle.cancel()
 
-    with pytest.raises(Exception):  # noqa: B017 - the run ends cancelled, as asked
+    with pytest.raises(WorkflowFailureError) as ended:  # the run ends cancelled, as asked
         _run(world, drive)
+    assert isinstance(ended.value.cause, CancelledError), ended.value.cause
     ends = [e["body"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
     assert [e["status"] for e in ends] == ["cancelled_after_apply"], ends
     assert bounds.killswitch(world["log"]) is not None
@@ -470,8 +473,9 @@ def _cancel_once(world, owner, started, release):
         await asyncio.sleep(0.5)
         release.set()
 
-    with pytest.raises(Exception):  # noqa: B017 - the run ends cancelled, as asked
+    with pytest.raises(WorkflowFailureError) as ended:  # the run ends cancelled, as asked
         _run(world, drive)
+    assert isinstance(ended.value.cause, CancelledError), ended.value.cause
     return [e["body"]["status"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
 
 
@@ -491,8 +495,9 @@ def test_a_cancel_before_apply_ends_on_the_record_without_a_trip(world):
         await _until_awaiting_approval(handle)
         await handle.cancel()
 
-    with pytest.raises(Exception):  # noqa: B017 - the run ends cancelled, as asked
+    with pytest.raises(WorkflowFailureError) as ended:  # the run ends cancelled, as asked
         _run(world, drive)
+    assert isinstance(ended.value.cause, CancelledError), ended.value.cause
     statuses = [e["body"]["status"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
     assert statuses == ["cancelled"], statuses
     assert bounds.killswitch(world["log"]) is None

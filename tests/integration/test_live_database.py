@@ -80,8 +80,8 @@ def _connect_or_fail(adapter, dsn, label):
     integration run into a green one."""
     try:
         return adapter.connect(dsn)
-    except Exception as exc:  # noqa: BLE001
-        pytest.fail(f"{label} DSN is set but the server did not answer: {exc}")
+    except Exception as exc:  # re-raised: any failure to reach it fails the run
+        raise AssertionError(f"{label} DSN is set but the server did not answer: {exc}") from exc
 
 
 # ------------------------------------------------------------------ PostgreSQL

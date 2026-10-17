@@ -301,10 +301,10 @@ def test_only_a_request_never_sent_or_refused_by_status_is_unanswered():
     def chained(outer, inner):
         try:
             raise inner
-        except BaseException as e:  # noqa: BLE001 - building a chain
+        except type(inner) as e:  # building a chain
             try:
                 raise outer from e
-            except BaseException as out:  # noqa: BLE001
+            except type(outer) as out:
                 return out
 
     for unsent in (ConnectionRefusedError("refused"), Status(529), Status(429), Status(400),

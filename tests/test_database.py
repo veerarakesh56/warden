@@ -690,7 +690,7 @@ def test_every_connection_a_read_opens_is_closed(monkeypatch):
 
     monkeypatch.setattr(database, "adapter_for", lambda engine: Adapter)
     backend = DatabaseBackend(dsn="postgresql://db.example/orders", engine="postgres")
-    with pytest.raises(Exception):  # noqa: B017 - the failed read still closes
+    with pytest.raises(ToolError, match="permission denied"):  # the failed read still closes
         backend.metrics(_alert())
     backend.logs(_alert())
     assert len(opened) == 2 and closed == opened
