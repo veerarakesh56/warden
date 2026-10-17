@@ -225,6 +225,10 @@ def main() -> None:
 
     port = int(os.environ.get("PORT", "8080"))
     log.info("%s listening on %d", ROLE, port)
+    # Plain HTTP on purpose (Sonar python:S5332, 2026-10-17; owner to review): a request here carries no credential and
+    # the server reads none - GET only, no header read, synthetic shop data back. Only the internal load balancer (a
+    # security group that admits the in-VPC Lambdas alone) and the cluster's own ClusterIP Service reach this port;
+    # there is no domain, so no certificate. tests/test_shop_app_http_s5332.py holds each of those facts.
     ThreadingHTTPServer(("", port), Handler).serve_forever()
 
 
