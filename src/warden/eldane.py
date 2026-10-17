@@ -110,9 +110,9 @@ class Critic:
             raise CriticConfigError("Eldane needs two models, so it can always use the one that did not diagnose")
         self._made: dict[str, Any] = {}
 
-    def choose(self, diagnosed_by: str) -> str:
-        """The model for this incident: the first that is not the diagnosis's own, or "" when none is."""
-        return next((m for m in self.models if m != diagnosed_by), "")
+    def choose(self, diagnosed_by: str) -> tuple[str, str]:
+        """The model for this incident, and why (model_for)."""
+        return model_for(diagnosed_by, self.models)
 
     def provider(self, model: str) -> Any:
         if model not in self._made:
@@ -153,6 +153,18 @@ class Critic:
         # Never `qualified()`: that is the diagnosis's bar; Eldane's is its catch trials.
         return cls(provider_for=lambda model: providers._REGISTRY[name](model=providers.pinned(model)),
                    models=models, key=key, name=name)
+
+
+def model_for(diagnosed_by: str, models: tuple[str, ...]) -> tuple[str, str]:
+    """Eldane's model for one incident, and why, from the model the incident's diagnosis RECORDED in its provenance -
+    never a setting (owner, 2026-10-17): always the other one (Opus diagnosed: Sonnet reviews, and the reverse) -
+    the first of `models` that is not the diagnosis's own. ("", why) when there is none: Eldane does not review."""
+    if not diagnosed_by:
+        return "", "the diagnosis does not say which model made it"
+    model = next((m for m in models if m != diagnosed_by), "")
+    if not model:
+        return "", f"Eldane has no model other than the one that diagnosed this incident ({diagnosed_by})"
+    return model, f"the diagnosis was made by {diagnosed_by}; Eldane reviews with the other model, {model}"
 
 
 def _read(log: Any, incident: str, kind: str) -> list[dict[str, Any]]:
@@ -274,7 +286,7 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
     diagnosis = next((d for d in reversed(_read(log, plan.incident_id, "incident.diagnose")) if "hypothesis" in d), {})
     prov = diagnosis.get("provenance") or {}
     diagnoser = f"{prov.get('provider', 'none')}/{prov.get('model', 'none')}@{str(prov.get('system_sha256', ''))[:12]}"
-    model = critic.choose(str(prov.get("model", "")))
+    model, chosen = critic.choose(str(prov.get("model", "")))
     models = {"critic": critic.identity(model), "diagnoser": diagnoser}
     skip = ""
     if not diagnosis or not prov:
@@ -284,14 +296,15 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
     elif not model or model == prov.get("model"):
         # Owner, 2026-10-17: the same family, never the same model - its agreement would be the diagnosis agreeing
         # with itself.
-        skip = (f"Eldane has no model other than the one that diagnosed this incident ({prov.get('model')}): its "
-                "review would not be independent")
+        skip = (chosen if not model else f"Eldane's model is the diagnosis's own ({model})") + (
+            ": its review would not be independent")
     elif not evidence_rows:
         skip = "the incident's evidence is not on the record"
     elif _calls_today(log) + 3 > DAILY_CALLS:
         skip = f"Eldane's daily ceiling of {DAILY_CALLS} calls is reached (WARDEN_ELDANE_DAILY_CALLS)"
     if skip:
-        log.append(plan.incident_id, autonomy.VERDICT, {**base, "agree": None, "skipped": skip, "models": models})
+        log.append(plan.incident_id, autonomy.VERDICT, {**base, "agree": None, "skipped": skip, "models": models,
+                                                        "model": model, "model_reason": chosen})
         return None
     evidence = "<<EVIDENCE>>\n" + str(evidence_rows[-1].get("prompt", ""))[:MAX_EVIDENCE] + "\n<<END EVIDENCE>>"
     ids = set(_EVIDENCE_ID.findall(evidence_rows[-1].get("prompt", "")))
@@ -307,7 +320,8 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
     _trial(log, plan, critic, model, evidence, ids, chance, **row)
     now = autonomy.level(log, plan.environment, plan.entry, models)
     log.append(plan.incident_id, autonomy.VERDICT, {
-        **base, "agree": agree, "second_pass": second is not None, "models": models, "level": now.level,
+        **base, "agree": agree, "second_pass": second is not None, "models": models, "model": model,
+        "model_reason": chosen, "level": now.level,
         "level_said": now.said(plan.entry, plan.environment),
         "passes": [v.model_dump() for v in (first, second) if v is not None]})
     me = next((a for a, e in policy.approvers.items() if e.ai and critic.key is not None
