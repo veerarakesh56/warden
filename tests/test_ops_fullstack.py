@@ -991,3 +991,22 @@ def test_fs10_revert_raises_any_error_that_is_not_a_duplicate():
     with pytest.raises(Err, match="RequestLimitExceeded"):
         fs.FAULTS["fs-10"].revert(c, t)
     assert calls == [1, 1]
+
+
+def test_fs10_revert_revokes_an_all_protocols_extra_without_ports():
+    """An all-protocols (-1) pair is revoked by protocol and group only: EC2 takes no port range for it."""
+    w, c, t = make()
+    fs.FAULTS["fs-10"].inject(c, t)
+    w.sg_rules = [{"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-z"}]},
+                  {"IpProtocol": "tcp", "FromPort": 1, "ToPort": 9, "UserIdGroupPairs": [{"GroupId": "sg-y"}]}]
+    revoked = []
+    real = c.ec2.revoke_security_group_ingress
+
+    def record(GroupId, IpPermissions):
+        revoked.extend(IpPermissions)
+        return real(GroupId=GroupId, IpPermissions=IpPermissions)
+
+    c.ec2.revoke_security_group_ingress = record
+    fs.FAULTS["fs-10"].revert(c, t)
+    assert revoked == [{"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-z"}]},
+                       {"IpProtocol": "tcp", "UserIdGroupPairs": [{"GroupId": "sg-y"}], "FromPort": 1, "ToPort": 9}]
