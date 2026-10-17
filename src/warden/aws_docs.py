@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 import os
 import re
 import urllib.request
@@ -25,6 +26,7 @@ ENDPOINT = os.environ.get("WARDEN_AWS_DOCS_URL", "https://knowledge-mcp.global.a
 MAX_CODES = 2
 MAX_CHARS = 700
 TIMEOUT_S = 8.0
+_LOG = logging.getLogger("warden.evidence")
 _HOSTS = ("https://docs.aws.amazon.com/", "https://repost.aws/knowledge-center/")
 # A code from the facts (quarantine `aws=` / `code=`): an identifier, and one that names a failure.
 _FACT_CODE = re.compile(r"(?:^|; )(?:aws|code)=([A-Z][A-Za-z0-9.]{2,60})(?=;| \(|$)")
@@ -104,7 +106,8 @@ def lookup(phrase: str, search: Callable[[str], list[dict[str, Any]]] | None = N
     """The first result on an allowed AWS host, as one line: `<title> (<url>): <text>`. "" when there is none."""
     try:
         results = (search or _search)(phrase)
-    except Exception:  # noqa: BLE001 - reference only: no answer adds nothing
+    except Exception as exc:  # noqa: BLE001  # reference only: network, HTTP or an answer of another shape
+        _LOG.warning("the AWS documentation was not read (%s): no reference added", type(exc).__name__)
         return ""
     for r in results:
         url = str(r.get("url") or "")

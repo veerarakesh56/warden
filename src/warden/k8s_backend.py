@@ -56,6 +56,7 @@ The `kubernetes` client is an optional extra (`pip install -e ".[k8s]"`), import
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import UTC, datetime, timedelta
@@ -63,6 +64,8 @@ from typing import Any
 
 from .models import Alert
 from .tools import PARTIAL_PREFIX, ToolError, deploy_in_window, failure, failure_tag
+
+_LOG = logging.getLogger("warden.evidence")
 
 # Socket timeouts for every API call: (connect, read). The read timeout must be shorter than the
 # tool deadline in tools.py so the worker thread ends on its own instead of being abandoned.
@@ -371,7 +374,8 @@ class KubernetesBackend:
             hpas = self._autoscaling.list_namespaced_horizontal_pod_autoscaler(
                 self._namespace(alert), _request_timeout=REQUEST_TIMEOUT
             ).items
-        except Exception:  # noqa: BLE001 - supplementary evidence; its absence is not a failure
+        except Exception as exc:  # noqa: BLE001  # supplementary: omitted, never a failed read (docstring above)
+            _LOG.warning("autoscalers not read (%s): omitted", type(exc).__name__)
             return {}
         name = self._deployment(alert)
         for h in hpas:
@@ -423,7 +427,7 @@ class KubernetesBackend:
             rs_list = self._apps.list_namespaced_replica_set(
                 ns, label_selector=selector, _request_timeout=REQUEST_TIMEOUT
             ).items
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  # any API or client error is a PARTIAL line (404: no history)
             if getattr(exc, "status", None) == 404:
                 return []  # no Deployment: nothing to have a history
             return [f"{PARTIAL_PREFIX}rollout history: {_api_error(exc)}"]

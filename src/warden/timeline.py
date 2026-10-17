@@ -73,7 +73,7 @@ def recent(alert: Any, *, log: Any, platform: Any = None, now: datetime | None =
     unread: list[str] = []
     try:
         changes += warden_changes(log, since, until)
-    except Exception:  # noqa: BLE001 - a source that cannot be read is named
+    except Exception:  # noqa: BLE001  # any store error: the source that could not be read is named
         unread.append("WARDEN's audit")
     repo, token = os.environ.get("WARDEN_CHANGE_REPO", "").strip(), os.environ.get("WARDEN_GITHUB_TOKEN", "").strip()
     if repo and token:
@@ -85,7 +85,7 @@ def recent(alert: Any, *, log: Any, platform: Any = None, now: datetime | None =
     if reader is not None:
         try:
             changes += reader(alert.environment).changes(since, until, alert.environment)
-        except Exception:  # noqa: BLE001 - a source that cannot be read is named
+        except Exception:  # noqa: BLE001  # any platform error: the source that could not be read is named
             unread.append("CloudTrail")
     changes.sort(key=lambda c: c["at"], reverse=True)
     return changes[:MOST], unread
