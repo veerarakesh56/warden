@@ -216,10 +216,11 @@ wheel-exclude = [
 
 [tool.uv]
 # A range, not one version: Dependabot runs its own uv (0.12.18 on 2026-10-01) and refused "==0.12.21",
-# so no uv.lock update ran. CI pins the exact uv in setup-uv (0.12.21, released 2026-09-29), and
-# tests/test_supply_chain.py checks that pin lies in this range. CI installs only what
-# `uv sync --locked` reads from uv.lock, hashes verified.
-required-version = ">=0.12.18,<0.13"
+# so no uv.lock update ran; on 2026-10-17 it still ran 0.12.18 (dependabot-core uv/helpers). CI pins the
+# exact uv in setup-uv and both images (0.13.1, released 2026-10-14), and tests/test_supply_chain.py
+# checks that pin lies in this range. CI installs only what `uv sync --locked` reads from uv.lock,
+# hashes verified.
+required-version = ">=0.12.18,<0.14"
 default-groups = []
 
 # torch for Linux from PyTorch's CPU-only index: the runtime image holds the injection tripwire (the `guard` extra, register
@@ -242,7 +243,7 @@ warden-mcp = "warden.mcp_server:main"
 # It packs everything under src/warden - the recorded incidents (fixtures/*.json) and data/*.yaml
 # included; without them every context tool fails at runtime while the process still exits 0.
 [build-system]
-requires = ["uv_build>=0.12.21,<0.13"]
+requires = ["uv_build>=0.12.21,<0.14"]
 build-backend = "uv_build"
 
 [tool.pytest.ini_options]

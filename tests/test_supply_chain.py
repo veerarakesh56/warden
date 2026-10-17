@@ -55,6 +55,43 @@ def test_uv_is_pinned_and_checksum_verified_everywhere():
     assert len({st["with"]["checksum"] for _, _, st in uses}) == 1
 
 
+def test_the_images_run_the_same_uv_as_ci():
+    """uv 0.13 (2026-10-17) moved CI and both images together: an image built by another uv than CI's could lock,
+    build and install differently from what CI checked. One version, each image by the same digest."""
+    ci = {st["with"]["version"] for _, _, steps, _ in _steps() for st in steps
+          if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")}
+    images = {d.name: re.findall(r"^FROM ghcr\.io/astral-sh/uv:(\S+)@(sha256:[0-9a-f]{64}) AS uv$",
+                                 d.read_text(encoding="utf-8"), re.MULTILINE) for d in sorted(ROOT.glob("Dockerfile*"))}
+    assert set(images) == {"Dockerfile", "Dockerfile.runtime"} and all(len(v) == 1 for v in images.values()), images
+    assert len({v[0] for v in images.values()}) == 1, images  # the same tag and digest in both
+    assert {v[0][0] for v in images.values()} == ci, (images, ci)
+
+
+def test_every_uv_names_its_python():
+    """uv 0.13.0 made Python 3.15 its default: wherever uv runs, the Python is named, never uv's default. CI's
+    setup-uv steps name it; each image names the one its base image carries and may download none; a local checkout
+    has .python-version."""
+    import tomllib
+
+    from packaging.specifiers import SpecifierSet
+
+    for wf, job, steps, _ in _steps():
+        for st in steps:
+            if str(st.get("uses", "")).startswith("astral-sh/setup-uv@"):
+                assert re.fullmatch(r"3\.\d+", str(st["with"].get("python-version", ""))), (wf, job)
+    requires = SpecifierSet(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+                            ["requires-python"])
+    local = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+    assert re.fullmatch(r"3\.\d+", local) and f"{local}.0" in requires, local
+    for dockerfile in ("Dockerfile", "Dockerfile.runtime"):
+        text = (ROOT / dockerfile).read_text(encoding="utf-8")
+        base = re.search(r"^FROM \S+/python:(3\.\d+)-slim@\S+ AS build$", text, re.MULTILINE)
+        assert base, dockerfile
+        assert re.search(rf"^\s+UV_PYTHON={re.escape(base.group(1))} \\$", text, re.MULTILINE), dockerfile
+        assert re.search(r"^\s+UV_PYTHON_DOWNLOADS=never \\$", text, re.MULTILINE), dockerfile
+        assert base.group(1) == local, (dockerfile, base.group(1), local)
+
+
 def test_dependabot_can_run_the_uv_the_project_asks_for():
     """Dependabot's uv was 0.12.18 on 2026-10-01; an exact pin above it made every uv.lock update fail."""
     from packaging.specifiers import SpecifierSet
