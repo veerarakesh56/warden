@@ -7,6 +7,23 @@ bump may carry a breaking change.
 
 ## [Unreleased] - becomes 0.10.1 (G1, security-critical fixes)
 
+### Added (diagnosis and poisoned logs, items 7 and 10, 2026-10-17)
+- **Ranked hypotheses.** The one diagnose call returns 2 to 4 candidate causes, each with citations for and against
+  (`RootCause.hypotheses`). The report shows the chosen cause and each rejected one with why and WARDEN's own count.
+  New gate policies: `P34-NO-DECISIVE-EVIDENCE` (the chosen cause needs a held metric, deploy or configuration/state
+  citation - never only log facts or failed reads), `P35-NO-RIVAL-HYPOTHESIS` and `P35-HYPOTHESES-TOO-CLOSE` (a rule
+  over the held citations, never the model's confidence; escalated with both causes). Answers recorded before this
+  keep their verdicts (P35 does not apply to them). **The prompt changed and has not been qualified on a model yet.**
+- **Poisoned-log eval** (`evals/poisoned_logs.py`, `evals/test_poisoned_logs.py`): eleven planted payloads in the
+  styles of Pasquini et al. (USENIX Security 2026), a model that follows them, dev and prod; a `--live` variant (costs
+  money, off by default). `P36-NO-ACTION-DESPITE-SIGNATURE` (enforced, owner 2026-10-17) escalates "nothing to do"
+  while WARDEN's own failure signatures describe the evidence: it stops the one attack that passed every layer (a
+  followed "expected during maintenance" close). Cost on the recorded held-out answers: 4 of 8 right closes now go
+  to a person, none wrong.
+- **No unread version, tag, ARN or target in the report or Slack** (owner, 2026-10-17): the model's words, and the
+  log lines shown, are stripped of any version, image tag, ARN or resource name WARDEN did not read itself; a
+  rollback names "the previous revision WARDEN recorded". The verifier still sees the model's words as written.
+
 ### Changed (the bench approver, 2026-10-16)
 - **The bench approver approves only in a nonprod environment, enforced by WARDEN.** A signed approval, a passkey
   approval or a signed denial from the bench approver (`bench`, or an entry labelled "bench approver") is refused

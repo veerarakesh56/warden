@@ -86,7 +86,7 @@ def reverified(report: dict) -> dict:
 
     if not report.get("proposal") or not report.get("root_cause"):
         return report
-    v = verifier.verify(Alert(**report["alert"]), ContextBundle(**report["context"]), RootCause(**report["root_cause"]),
+    v = verifier.verify(Alert(**report["alert"]), ContextBundle(**report["context"]), RootCause.recorded(report["root_cause"]),
                         RemediationProposal(**report["proposal"]))
     return {**report, "verdict": json.loads(v.model_dump_json())}
 

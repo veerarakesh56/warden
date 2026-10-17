@@ -52,6 +52,66 @@ def ruled_out_checked(ruled: Any, items: dict[str, Item]) -> bool:
     return bool(ruled.citations) and not any(_citation_problem(c, items) for c in ruled.citations)
 
 
+# Item 7 (2026-10-17). Evidence that can DECIDE a fix: WARDEN's own reads - a metric (M), a deploy (D), a resource's
+# configuration or state (C). A typed fact from log lines (F) is what their writer chose to log - the poisoned-telemetry
+# attack (Pasquini et al., USENIX Security 2026) plants exactly that - and a failed read (T) says "unknown".
+DECISIVE_KINDS = frozenset("MDC")
+# How much a held citation weighs when hypotheses are compared: an own read twice a log fact, a failed read nothing.
+# Fixed before any held-out run was scored, never tuned on one.
+_WEIGHT = {"M": 2, "D": 2, "C": 2, "F": 1}
+MARGIN = 2  # the chosen cause must lead every rival by at least one own read (or two log facts)
+
+
+def _held(cites: list[Any], items: dict[str, Item]) -> set[str]:
+    """The ids of the citations that hold (P13's test), each once."""
+    return {c.id.strip().strip("[]") for c in cites if not _citation_problem(c, items)}
+
+
+def _weight(ids: set[str]) -> int:
+    return sum(_WEIGHT.get(i[:1], 0) for i in ids)
+
+
+def hypothesis_score(h: Any, items: dict[str, Item], also: list[Any] = ()) -> int:
+    """WARDEN's count, not the model's confidence: the held evidence for the cause minus the held evidence against.
+    `also`: more evidence for it - the diagnosis's own citations, for the chosen cause."""
+    return _weight(_held([*h.supporting, *also], items)) - _weight(_held(h.against, items))
+
+
+def chosen_support(root_cause: RootCause) -> list[Any]:
+    """The chosen cause's evidence: the diagnosis's citations, and its first hypothesis's supporting ones."""
+    return [*root_cause.citations, *(root_cause.hypotheses[0].supporting if root_cause.hypotheses else [])]
+
+
+def decisive_problem(root_cause: RootCause, items: dict[str, Item]) -> str | None:
+    """P34: the chosen cause's support must include evidence WARDEN read itself, and that citation must hold."""
+    held = _held(chosen_support(root_cause), items)
+    if any(i[:1] in DECISIVE_KINDS for i in held):
+        return None
+    what = f"only {', '.join(sorted(held))}" if held else "none of its citations holds"
+    return (f"the chosen cause rests on no evidence WARDEN read itself - a metric, a deploy, a configuration or state "
+            f"read ({what}): a fact from log lines, which whoever writes them controls, or a failed read cannot decide "
+            "a fix")
+
+
+def margin_problem(root_cause: RootCause, items: dict[str, Item]) -> tuple[str, str] | None:
+    """P35: ("no_rival" or "too_close", why) when the diagnosis weighed no rival, or its top two are too close to call
+    by WARDEN's count of their citations. None for an answer from before ranked hypotheses."""
+    hs = root_cause.hypotheses
+    if hs is None:
+        return None
+    if len(hs) < 2:
+        return ("no_rival", ("the diagnosis weighed no rival cause (WARDEN asks for 2 to 4 ranked hypotheses): a cause "
+                             "never compared with another is not narrowed down"))
+    top = hypothesis_score(hs[0], items, root_cause.citations)
+    rival = max(hs[1:], key=lambda h: hypothesis_score(h, items))
+    second = hypothesis_score(rival, items)
+    if top - second >= MARGIN:
+        return None
+    return ("too_close", (f"the evidence does not separate the top two causes - chosen: {hs[0].cause[:160]!r} (count "
+                          f"{top}); rival: {rival.cause[:160]!r} (count {second}); WARDEN's count of held citations, for "
+                          f"minus against, must differ by {MARGIN}: a person chooses between them"))
+
+
 # P15: what an action's citations must touch. P13 only asks that citations be real; a hijacked model
 # satisfied it by quoting an unrelated metric (2026-09-27 audit: `scale_down` for replica lag, citing
 # `error_rate`). Broad on purpose - it rejects only citations that say nothing about the action.
@@ -476,3 +536,49 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
     if unknown:
         return f"target {proposal.target!r} names {', '.join(unknown)}, which is not in the inventory"
     return None
+
+
+# What a person is shown of the model's words (owner, 2026-10-17, after the poisoned-log downgrade): never a version, an
+# image tag, an ARN or a resource name the model wrote unless WARDEN read it itself - in a metric, a deploy, a
+# configuration or state read, a failed read's own words, or the alert's labels. A log line is not WARDEN's reading: a
+# planted "roll back to checkout:1.2.0" is exactly a log line. The verifier still sees the model's words as written.
+_ARN = re.compile(r"(?<![\w:/-])arn:[a-z0-9-]+:[^\s,;)'\"`]+")
+_TAGGED = re.compile(r"(?<![\w.:/-])[A-Za-z][\w./-]*(?::v?\d[\w.-]*|:latest|@sha256:[0-9a-f]{12,})(?![\w-])")
+_VERSION = re.compile(r"(?<![\w.:/-])(?:v?\d+(?:\.\d+){2,}(?:[-+][\w.]+)?|v\d+(?:\.\d+)?)(?![\w.])")
+UNREAD = "[not read by WARDEN]"
+PREVIOUS = "[the previous revision WARDEN recorded]"
+REFUSED_TARGET = "[a target WARDEN refused - not shown]"
+
+
+def read_text(alert: Any, context: Any) -> str:
+    """Everything WARDEN read itself, as one text: its own items (never a log line, an event or the alert's prose) and
+    the alert's service and labels."""
+    from .evidence import index
+
+    items = index(context) if context is not None else {}
+    return " ".join([alert.service, *alert.labels.values(), *(i.text for i in items.values() if i.trusted)])
+
+
+def unread(text: str, read: str, *, rollback: bool = False) -> str:
+    """`text` with each version, image tag and ARN WARDEN did not read replaced by a fixed phrase."""
+    def keep_or(what: str):
+        return lambda m: m.group(0) if m.group(0) in read else what
+
+    version = PREVIOUS if rollback else UNREAD
+    return _VERSION.sub(keep_or(version), _TAGGED.sub(keep_or(version), _ARN.sub(keep_or(UNREAD), text)))
+
+
+def shown_target(proposal: RemediationProposal, alert: Any, context: Any) -> str:
+    """The proposal's target as a person may read it: no command, and no name, version or ARN WARDEN did not read."""
+    target = proposal.target
+    if _SHELL.search(_NOT_SHELL.sub(" ", target)) or _COMMAND_WORDS.search(target):
+        return REFUSED_TARGET
+    from .evidence import inventory
+
+    read = read_text(alert, context)
+    out = unread(target, read, rollback=proposal.action is ActionKind.rollback_deploy)
+    known = inventory(alert, context) if context is not None else {alert.service}
+    for t in sorted(tokens(out) - known, key=len, reverse=True):
+        if ("-" in t or "_" in t) and t not in read:
+            out = re.sub(rf"(?<![\w.-]){re.escape(t)}(?![\w.-])", UNREAD, out)
+    return out

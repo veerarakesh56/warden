@@ -33,8 +33,11 @@ bar:
 # used (19 correct), hashes to this same value. A prompt change fails tests/test_prompt_pin_e6.py until the model is
 # qualified again with it and this pin is updated in the same commit.
 prompt:
-  sha: d435b59f7f1545c23af17b23125de453170a2180c8ab0f7ce7050e3891ba0084
-  pinned: "2026-10-14"  # G10-57: each ruled-out cause with its reason and citations (1d4f62e9 before; 9c2e187d before that)
+  # ⚠ NOT YET QUALIFIED (2026-10-17, item 7: 2-4 ranked hypotheses with citations for and against). No model has
+  # answered this prompt: the qualified rows below were measured on d435b59f. Run scripts/qualify_provider.py in the
+  # cloud runtime before this prompt is relied on, and record its row here.
+  sha: 5ed2c6b2892bdb791970ea8008ff1ff6e6206fa8db148382975cb15a22912917
+  pinned: "2026-10-17"  # item 7 (d435b59f before: G10-57, each ruled-out cause with its reason and citations)
 # Register N6: escalating everything is safe and useless, so it is measured. "Escalated" = the gate refused, or the
 # model itself proposed escalate_to_human. Measured 2026-10-03 (scenarios/score.py act_abstain, stored answers):
 #   model                escalated  acted right  escalated a right fix  escalated rightly  stopped wrong  acted wrongly

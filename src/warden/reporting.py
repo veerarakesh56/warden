@@ -345,15 +345,74 @@ _STACK_READERS = (
 
 def _ruled_out(root_cause: Any, context: ContextBundle | None) -> list[dict[str, Any]]:
     """Each cause the model ruled out, its reason, and whether that reason holds against the evidence."""
+    from types import SimpleNamespace
+
     from . import evidence
-    from .grounding import ruled_out_checked
+    from .grounding import hypothesis_score, ruled_out_checked
 
     try:
         items = evidence.view(context) if context is not None else {}
     except Exception:  # noqa: BLE001 - a view that cannot be built checks nothing: every reason shows unchecked
         items = {}
-    return [{"cause": hedge(r.cause), "why": hedge(r.why), "cites": [c.id for c in r.citations],
+    rows = [{"cause": hedge(r.cause), "why": hedge(r.why), "cites": [c.id for c in r.citations],
              "checked": ruled_out_checked(r, items)} for r in root_cause.ruled_out]
+    # Item 7: the hypotheses that lost, each with why, the evidence against it (what rules it out) and WARDEN's count.
+    for h in (root_cause.hypotheses or [])[1:]:
+        against = SimpleNamespace(citations=h.against)
+        rows.append({"cause": hedge(h.cause), "why": hedge(h.why_rejected), "cites": [c.id for c in h.against],
+                     "checked": ruled_out_checked(against, items), "count": hypothesis_score(h, items),
+                     "for": [c.id for c in h.supporting]})
+    return rows
+
+
+def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
+                     proposal: RemediationProposal | None) -> None:
+    """Owner, 2026-10-17 (the poisoned-log downgrade): the report and its Slack top never carry a version, an image tag,
+    an ARN or a target the model wrote, or a log line holds, unless WARDEN read it itself (grounding.unread). A rollback
+    names "the previous revision WARDEN recorded" - which is what the catalogue's plan returns to."""
+    from .grounding import read_text, shown_target, unread
+
+    read = read_text(alert, ctx)
+    rollback = proposal is not None and proposal.action is ActionKind.rollback_deploy
+    target = proposal.target if proposal else ""
+    shown = shown_target(proposal, alert, ctx) if proposal else ""
+
+    def say(v: Any) -> Any:
+        if isinstance(v, str):
+            if target and shown != target:
+                v = v.replace(target, shown)
+            return unread(v, read, rollback=rollback)
+        if isinstance(v, list):
+            return [say(x) for x in v]
+        if isinstance(v, dict):
+            return {k: say(x) for k, x in v.items()}
+        return v
+
+    for key in ("root_cause", "verdict"):
+        if data.get(key):
+            data[key] = say(data[key])
+    if data.get("proposal"):
+        data["proposal"] = {**data["proposal"], "target": shown,
+                            "expected_effect": say(data["proposal"]["expected_effect"])}
+    data["evidence"]["key_log_lines"] = [unread(ln, read) for ln in data["evidence"]["key_log_lines"]]
+
+
+def _weighed(root_cause: Any, context: ContextBundle | None) -> dict[str, Any] | None:
+    """The chosen hypothesis as WARDEN weighed it (item 7): its evidence for and against and its count - or None for an
+    answer that ranked none."""
+    from . import evidence
+    from .grounding import hypothesis_score
+
+    if not root_cause.hypotheses:
+        return None
+    try:
+        items = evidence.view(context) if context is not None else {}
+    except Exception:  # noqa: BLE001 - nothing to weigh against: every count is 0
+        items = {}
+    h = root_cause.hypotheses[0]
+    support = list(dict.fromkeys(c.id for c in [*root_cause.citations, *h.supporting]))
+    return {"cause": hedge(h.cause), "for": support, "against": [c.id for c in h.against],
+            "count": hypothesis_score(h, items, root_cause.citations), "of": len(root_cause.hypotheses)}
 
 
 def _narrowed(d: dict[str, Any]) -> list[str]:
@@ -375,11 +434,15 @@ def _narrowed(d: dict[str, Any]) -> list[str]:
             how = f" _(checked against {', '.join(r['cites'])})_"
         else:
             how = " _(its reason could not be checked against the evidence)_"
-        out.append(f"- **Ruled out:** {r['cause']}{why}{how}")
+        count = f" _(WARDEN's evidence count {r['count']})_" if "count" in r else ""
+        out.append(f"- **Ruled out:** {r['cause']}{why}{how}{count}")
     if not rc.get("ruled_out"):
         out.append("- **Ruled out:** the diagnosis named no other cause it considered.")
     cited = ", ".join(c["id"] for c in rc.get("citations") or [])
-    out.append(f"- **Left:** {rc.get('hypothesis', '')}" + (f" _(cited: {cited})_" if cited else "")
+    weighed = rc.get("weighed")
+    count = (f" _(WARDEN's evidence count {weighed['count']}: for {', '.join(weighed['for']) or 'nothing'}, "
+             f"against {', '.join(weighed['against']) or 'nothing'})_") if weighed else ""
+    out.append(f"- **Left:** {rc.get('hypothesis', '')}" + (f" _(cited: {cited})_" if cited else "") + count
                + ("" if rc.get("grounded", True) else " - **not grounded**: its citations did not hold."))
     out.append("")
     return out
@@ -682,6 +745,7 @@ def build_report(
             "confidence": root_cause.confidence,
             "evidence": [hedge(e) for e in root_cause.evidence],
             "ruled_out": _ruled_out(root_cause, context),
+            "weighed": _weighed(root_cause, context),
             "citations": [{"id": c.id, "quote": c.quote} for c in root_cause.citations],
             "grounded": not (verdict and "P13-UNGROUNDED" in verdict.policy_ids),
         }
@@ -715,6 +779,7 @@ def build_report(
             "applied_change": remediation.applied_change,
             "principal": remediation.principal,
         }
+    _withhold_unread(data, alert, ctx, proposal)
     data["changed_by"] = _changed_by(list(ctx.logs))
     data["who_acts"] = _who_acts(alert, data)
 
