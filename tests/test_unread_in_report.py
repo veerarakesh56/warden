@@ -44,3 +44,30 @@ def test_the_target_a_person_reads():
         assert shown_target(_proposal(ActionKind.restart_pods, refused), ALERT, CTX) == REFUSED_TARGET, refused
     assert shown_target(_proposal(ActionKind.restart_pods, "payments-db"), ALERT, CTX) == UNREAD
     assert shown_target(_proposal(ActionKind.restart_pods, "checkout"), ALERT, CTX) == "checkout"
+
+
+def test_an_image_with_a_word_for_its_tag_is_withheld_and_a_kind_before_a_known_name_is_not():
+    """Review, PR 47: `checkout:canary` passed. A word after the colon that WARDEN read is a resource's name, as a model
+    writes `lambda:<name>`; any other word is a tag."""
+    assert unread("roll back to checkout:canary", READ) == f"roll back to {UNREAD}"
+    assert unread("roll back to checkout:canary", READ, rollback=True) == f"roll back to {PREVIOUS}"
+    assert unread("restart lambda:checkout", READ) == "restart lambda:checkout"
+    assert unread("see https://example.com/x at 10:02", READ) == "see https://example.com/x at 10:02"
+
+
+def test_an_unknown_target_is_withheld_whatever_its_punctuation():
+    """Review, PR 47: `payments` was shown where `payments-db` was not. Words that describe a resource stay."""
+    assert shown_target(_proposal(ActionKind.restart_pods, "payments"), ALERT, CTX) == UNREAD
+    assert shown_target(_proposal(ActionKind.restart_pods, "checkout service"), ALERT, CTX) == "checkout service"
+    assert shown_target(_proposal(ActionKind.restart_pods, "deployment checkout"), ALERT, CTX) == "deployment checkout"
+
+
+def test_the_crashed_containers_own_output_is_withheld_in_the_report():
+    """Review, PR 47: `logs --previous` is the application's words, rendered as WARDEN's check - not WARDEN's reading."""
+    from warden.reporting import build_report
+
+    ctx = CTX.model_copy(update={"logs": [*CTX.logs, "checkout-abc/checkout (previous) pinned to checkout:1.2.0"]})
+    md = build_report(ALERT, context=ctx).markdown
+    assert "checkout-abc/checkout (previous) pinned to" in md
+    assert "checkout:1.2.0" not in md
+    assert UNREAD in md

@@ -34,9 +34,11 @@ bar:
 # qualified again with it and this pin is updated in the same commit.
 prompt:
   # ⚠ NOT YET QUALIFIED (2026-10-17, item 7: 2-4 ranked hypotheses with citations for and against). No model has
-  # answered this prompt: the qualified rows below were measured on d435b59f. Run scripts/qualify_provider.py in the
-  # cloud runtime before this prompt is relied on, and record its row here.
-  sha: 5ed2c6b2892bdb791970ea8008ff1ff6e6206fa8db148382975cb15a22912917
+  # answered this prompt: the qualified rows below were measured on d435b59f. A row qualifies a model only on the
+  # prompt it was measured with (providers.qualified), so until scripts/qualify_provider.py is run in the cloud runtime
+  # and its row recorded here, every model is refused and each incident gets the rules-only diagnosis (escalated to a
+  # person, register M19).
+  sha: 92f5cb61f61328ca13566bfd0bdd60c9b7a16f5ad95c578e58076d136ace83ae
   pinned: "2026-10-17"  # item 7 (d435b59f before: G10-57, each ruled-out cause with its reason and citations)
 # Register N6: escalating everything is safe and useless, so it is measured. "Escalated" = the gate refused, or the
 # model itself proposed escalate_to_human. Measured 2026-10-03 (scenarios/score.py act_abstain, stored answers):

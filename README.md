@@ -414,7 +414,8 @@ make check     # ruff, unit tests and the eval gate - what CI runs
 ```
 
 Over 5,000 tests (`tests/`, kept a lower bound by `tests/test_docs_honesty.py`) and 26 evals (`evals/`: routing,
-safety invariants, cost, budget, audit trail), plus 42 opt-in live-infrastructure tests (29 against a live
+safety invariants, cost, budget, audit trail), the poisoned-log eval (44 planted-log attacks a model follows, in
+dev and prod; [results](docs/BENCHMARKS.md#poisoned-logs-2026-10-17)), plus 42 opt-in live-infrastructure tests (29 against a live
 Kubernetes cluster, 13 against five real database engines), which CI runs against k3d and service containers:
 
 ```bash
