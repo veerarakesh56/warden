@@ -194,6 +194,10 @@ jobs:
             "import awslambdaric, warden.lambdas as l; assert all(callable(getattr(l, n)) for n in ('alarm', 'alertmanager', 'approval')); print('handlers ok')"
           docker run --rm warden-runtime:ci worker --help | grep -q -- "--platform" || { echo "::error::no worker command"; exit 1; }
           test "$(docker run --rm --entrypoint id warden-runtime:ci -u)" = "10001" || { echo "::error::the runtime image runs as root"; exit 1; }
+          # As on Fargate: a read-only root, /tmp a fresh volume that takes the image's mode - the worker can write there.
+          docker run --rm --read-only --entrypoint /opt/warden/bin/python warden-runtime:ci -c \
+            "import pathlib; p = pathlib.Path('/tmp/probe'); p.write_text('x'); p.unlink(); print('/tmp writable')" \
+            || { echo "::error::the worker cannot write its /tmp"; exit 1; }
 
   # Against a REAL cluster. Every step here was first done by hand and read by eye; this job
   # replays it so it cannot regress. Assertions are on OUTPUT and on the API server's own answers,
