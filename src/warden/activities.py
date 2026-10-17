@@ -1184,6 +1184,11 @@ class IncidentActivities:
             applied = self.audit.entries(kinds=(bounds.APPLIED,), since=started - OWN_FIX_WINDOW)
             reopened_by = {r["body"].get("workflow_id")
                            for r in self.audit.entries(alert.alert_id, kinds=("remediation.did_not_hold",))}
+            # The fix that did not hold and reopened this incident, from its own record however long its soak was
+            # (CodeRabbit, PR 43: a soak longer than OWN_FIX_WINDOW left it out of the reopened diagnosis).
+            seen = {e["seq"] for e in applied}
+            applied += [e for e in self.audit.entries(alert.alert_id, kinds=(bounds.APPLIED,))
+                        if reopened_by and e["body"].get("workflow_id") in reopened_by and e["seq"] not in seen]
             # WARDEN's own undos too (live, 2026-10-16): each is told with the fix it undid, at the time of the undo.
             undos = []
             for r in self.audit.entries(kinds=("remediation.rollback",), since=started - OWN_FIX_WINDOW):

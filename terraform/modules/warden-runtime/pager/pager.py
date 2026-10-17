@@ -31,6 +31,7 @@ import urllib.request
 import boto3
 
 _KEY = re.compile(r"[A-Za-z0-9._-]{1,200}")
+_ACCOUNT = re.compile(r"(?<![0-9])[0-9]{12}(?![0-9])")
 _LOG = logging.getLogger("warden.pager")
 _LOG.setLevel(logging.INFO)
 _SLACK = "https://hooks." + "slack.com/"  # the only place a page is posted; built from parts, as every such literal
@@ -98,19 +99,41 @@ class Pager:
     def open(self, key, why, *, emailed=False, alarm="", about=""):
         """A page for `key`, unless one is open for it (acknowledged or not) - or, with `about`, one for the same
         condition was already acknowledged: a key that expires on the same date is one page, however often it is
-        seen. Said at once: in Slack, and by email unless the alarm's own action already emailed it."""
+        seen. Said at once: in Slack, and by email unless the alarm's own action already emailed it.
+
+        Written first as not yet said (`sent` 0, no `last_sent`), then said, then marked said (CodeRabbit, PR 43): a
+        page whose first saying failed on every channel is due at the next tick, and the event's retry says it again,
+        instead of waiting a whole REPEAT_MINUTES as one already said."""
         if not _KEY.fullmatch(key):
             raise ValueError("a page's key is a plain name")
         old = self.pages.page(key)
-        if old and (not self.pages.acked(old) or (about and old.get("about") == about)):
+        if old and self._acked(old) and about and old.get("about") == about:
             return None
-        now = self.clock()
-        page = {"key": key, "why": str(why)[:600], "opened_at": _iso(now), "last_sent": _iso(now), "sent": 1,
-                "alarm": alarm, "about": about}
-        self.pages.put(page)
-        said = f"WARDEN {self.env} page: {key}: {page['why']} {self._ack_line()}"
-        self._send(said, email=not emailed)
+        if old and not self._acked(old):
+            if old.get("sent"):
+                return None
+            page = old  # written, never said: say it now
+        else:
+            now = self.clock()
+            page = {"key": key, "why": str(why)[:600], "opened_at": _iso(now), "last_sent": "", "sent": 0,
+                    "alarm": alarm, "about": about}
+            self.pages.put(page)
+        said = f"WARDEN {self.env} page: {key}: {str(page.get('why', ''))[:600]} {self._ack_line()}"
+        failed = self._send(said, email=not emailed)
+        if len(failed) < (2 if not emailed else 1):  # said on at least one channel
+            page.update(last_sent=_iso(self.clock()), sent=1)
+            self.pages.put(page)
+        _raise_if(failed)
         return page
+
+    def _acked(self, page):
+        """An acknowledgement that cannot be read acknowledges nothing (CodeRabbit, PR 43): the page goes on."""
+        try:
+            return self.pages.acked(page)
+        except Exception as exc:  # noqa: BLE001 - never silenced by an unreadable acknowledgement
+            _LOG.warning("the acknowledgement of %s could not be read (%s): not acknowledged", page.get("key"),
+                         type(exc).__name__)
+            return False
 
     def _due(self, key, now):
         """The page for `key` when it is to be said again now; None otherwise. One that cannot be read is said
@@ -124,7 +147,7 @@ class Pager:
         if not isinstance(page, dict) or not _KEY.fullmatch(str(page.get("key", ""))):
             _LOG.warning("page %s is not a page: skipped", key)
             return None
-        if self.pages.acked(page):
+        if self._acked(page):
             return None
         last = _when(page.get("last_sent"))
         # A minute's slack: the schedule's ticks drift by seconds, and a page a few seconds early waits a tick.
@@ -140,19 +163,29 @@ class Pager:
                 + now_is.get(state, ""))
 
     def tick(self):
-        """Every open page not acknowledged, said again once each REPEAT_MINUTES: how long, and why."""
+        """Every open page not acknowledged, said again once each REPEAT_MINUTES: how long, and why. Said first, then
+        marked said (CodeRabbit, PR 43): a repeat no channel took is not recorded as sent, and is due again at the
+        next tick; one a channel took but that could not be marked is at worst said twice - the safe way for a pager."""
         now = self.clock()
         due = [p for p in (self._due(k, now) for k in sorted(self.pages.keys())) if p]
         if not due:
             return []
-        states = self.alarm_states([p["alarm"] for p in due if p.get("alarm")])
-        lines = []
-        for page in due:
-            lines.append(self._line(page, now, states.get(page.get("alarm") or "")))
-            self.pages.put(page)
+        try:
+            states = self.alarm_states([p["alarm"] for p in due if p.get("alarm")])
+        except Exception as exc:  # noqa: BLE001 - an alarm's state only decorates the repeat; it never stops it
+            _LOG.warning("the alarms' states could not be read (%s): repeated without them", type(exc).__name__)
+            states = {}
+        lines = [self._line(page, now, states.get(page.get("alarm") or "")) for page in due]
         said = (f"WARDEN {self.env}: {len(due)} page{'s' if len(due) > 1 else ''} not acknowledged. "
                 + " | ".join(lines) + " " + self._ack_line())
-        self._send(said, email=True)
+        failed = self._send(said, email=True)
+        if len(failed) < 2:  # said on at least one channel
+            for page in due:
+                try:
+                    self.pages.put(page)
+                except Exception as exc:  # noqa: BLE001 - the others are still marked; this one is said again
+                    _LOG.warning("page %s could not be marked as said (%s)", page["key"], type(exc).__name__)
+        _raise_if(failed)
         return [p["key"] for p in due]
 
     def _ack_line(self):
@@ -162,8 +195,8 @@ class Pager:
         return f"{where}; until then this repeats every {every} min."
 
     def _send(self, text, *, email):
-        """Slack, then email: either failing still tries the other, and a failure is raised after both - the
-        function's errors alarm pages by its own action."""
+        """Slack, then email: either failing still tries the other. The channels that failed; the caller raises them
+        (_raise_if) after recording what did go out - the function's errors alarm pages by its own action."""
         failed = []
         for name, send, on in (("slack", self.slack, True), ("email", self.email, email)):
             if on:
@@ -171,8 +204,12 @@ class Pager:
                     send(text)
                 except Exception as exc:  # noqa: BLE001 - the other channel still goes
                     failed.append(f"{name}: {type(exc).__name__}")
-        if failed:
-            raise RuntimeError("a page was not sent: " + "; ".join(failed))
+        return failed
+
+
+def _raise_if(failed):
+    if failed:
+        raise RuntimeError("a page was not sent: " + "; ".join(failed))
 
 
 def slack_sender(secret_id, secrets=None):
@@ -238,7 +275,8 @@ def worker_stopped(event, cluster_arn):
         return None
     group = str(d.get("group") or "worker").replace("service:", "")
     key = re.sub(r"[^A-Za-z0-9._-]", "-", f"task-{group}")[:200]
-    reason = " ".join(str(d.get("stoppedReason") or "").split())[:200]
+    # A bare 12-digit number is an account id to WARDEN's redaction (redaction.py): never in a page (CodeRabbit, PR 43).
+    reason = _ACCOUNT.sub("<ACCOUNTID>", " ".join(str(d.get("stoppedReason") or "").split()))[:200]
     return key, f"a worker task of {group} stopped on its own ({d.get('stopCode')}): {reason}"
 
 

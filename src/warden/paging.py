@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
+import re
 from datetime import datetime
 from typing import Any
 
 KILLSWITCH_METRIC = "KillSwitchTripped"
+_PAGE_KEY = re.compile(r"[A-Za-z0-9._-]{1,200}")  # the pager's own key shape (pager._KEY): the only ones it writes
 ACK = "page.acknowledged"
 WORKFLOW = "page-ack"  # what an acknowledgement's passkey signs for: no plan is ever this
 
@@ -38,8 +41,6 @@ def killswitch_tripped() -> None:
         boto3.client("cloudwatch", region_name=region()).put_metric_data(
             Namespace=namespace, MetricData=[{"MetricName": KILLSWITCH_METRIC, "Value": 1, "Unit": "Count"}])
     except Exception:  # noqa: BLE001 - the trip itself stands; the record holds it
-        import logging
-
         logging.getLogger("warden.paging").warning("the kill switch's page count could not be sent")
 
 
@@ -104,14 +105,26 @@ def from_environment() -> S3Pages | None:
 
 
 def open_pages(store: Any) -> list[dict[str, Any]]:
-    """Every page the pager is still repeating: written, and not acknowledged at its opening time."""
+    """Every page the pager is still repeating: written, and not acknowledged at its opening time. One object that
+    cannot be read, or is not a page, is skipped and never hides the others (CodeRabbit, PR 43); an acknowledgement
+    that cannot be read acknowledges nothing."""
     out = []
     for name in store.list("pages/"):
-        page = store.get(name)
-        if not page or not name.endswith(".json"):
+        if not name.endswith(".json"):
             continue
-        ack = store.get(f"acks/{page['key']}.json")
-        if not (ack and ack.get("opened_at") == page.get("opened_at")):
+        try:
+            page = store.get(name)
+        except Exception:  # noqa: BLE001 - one unreadable page must not hide the others
+            logging.getLogger("warden.paging").warning("a page could not be read: skipped")
+            continue
+        if not (isinstance(page, dict) and isinstance(page.get("key"), str) and _PAGE_KEY.fullmatch(page["key"])
+                and isinstance(page.get("opened_at"), str)):
+            continue
+        try:
+            ack = store.get(f"acks/{page['key']}.json")
+        except Exception:  # noqa: BLE001 - an acknowledgement that cannot be read leaves the page open
+            ack = None
+        if not (isinstance(ack, dict) and ack.get("opened_at") == page["opened_at"]):
             out.append(page)
     return out
 
