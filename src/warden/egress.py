@@ -68,6 +68,7 @@ class Destination:
     carries: str
     credentials: frozenset[str] = frozenset()
     secret_path: bool = False
+    bodies_checked: bool = False  # inside the network, but a body sent to it by urllib is checked and recorded
 
 
 _MODEL = "a model prompt: redacted evidence, placeholders only"
@@ -94,8 +95,10 @@ STATIC: tuple[Destination, ...] = (
     Destination("aws-docs", True, ("knowledge-mcp.global.api.aws",), "an AWS error code and a service word"),
     Destination("temporal", True, ("*.tmprl.cloud",), "encrypted workflow payloads (codec.py); ids and names in clear"),
     # The AWS account WARDEN runs in and watches: its own APIs, not a third party.
-    Destination("aws", False, ("*.amazonaws.com", "*.amazonaws.com.cn", "*.api.aws"),
-                "WARDEN's own AWS account: reads, the approved fix, the audit, secrets, KMS"),
+    # A name under AWS's domains may be another account's (a bucket, an API): WARDEN's own AWS calls go through boto3,
+    # never urllib, so a urllib request with a body to any of them is checked and recorded like one outside (review).
+    Destination("aws", False, ("*.amazonaws.com", "*.amazonaws.com.cn"),
+                "WARDEN's own AWS account: reads, the approved fix, the audit, secrets, KMS", bodies_checked=True),
     Destination("in-network", False, ("localhost", "*.svc", "*.cluster.local", "*.internal"),
                 "this machine and the private network: a cluster's services, instance metadata"),
 )
@@ -113,6 +116,12 @@ _CONFIGURED = (
     ("WARDEN_GRAFANA_METRICS_URL", "grafana", True, "reads only: queries naming a service", False),
     ("OTEL_EXPORTER_OTLP_ENDPOINT", "tracing", True, "spans: node names, timings, scrubbed error text", False),
     ("WARDEN_TEMPORAL_ADDRESS", "temporal", True, "encrypted workflow payloads (codec.py)", False),
+    # A proxy carries the other destinations' traffic: its name is looked up, not theirs. What is sent through it is
+    # still checked by its real address (review, 2026-10-20).
+    ("HTTPS_PROXY", "proxy", False, "the tunnel to a listed destination", False),
+    ("https_proxy", "proxy", False, "the tunnel to a listed destination", False),
+    ("HTTP_PROXY", "proxy", False, "requests to a listed destination", False),
+    ("http_proxy", "proxy", False, "requests to a listed destination", False),
 )
 # A database WARDEN reads or writes: its address is in a DSN.
 _DSNS = ("WARDEN_DB_DSN", "WARDEN_DB_TERMINATE_DSN", "WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
@@ -154,20 +163,14 @@ def destinations(env: dict[str, str] | None = None) -> tuple[Destination, ...]:
     return STATIC + tuple(extra)
 
 
-# The private network's addresses: RFC 1918 and a VPC's shared range, loopback, link-local (instance and task metadata),
-# IPv6 unique-local. Not `is_private`, which also takes the documentation ranges and other reserved space.
-_PRIVATE = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
-                                                    "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7",
-                                                    "fe80::/10"))
-
-
 def _matches(pattern: str, host: str) -> bool:
     return host.endswith(pattern[1:]) if pattern.startswith("*.") else host == pattern
 
 
 def destination_of(host: str | bytes | None, env: dict[str, str] | None = None) -> Destination | None:
     """The destination a host belongs to; None when it is on no destination. An address is the private network's
-    when it is private, loopback or link-local (instance and task metadata), and no destination's otherwise."""
+    when it is not globally routable (private, loopback, link-local - instance and task metadata), and no
+    destination's otherwise."""
     if isinstance(host, bytes):
         host = host.decode("ascii", "replace")
     name = str(host or "").strip().strip("[]").rstrip(".").lower()
@@ -178,7 +181,9 @@ def destination_of(host: str | bytes | None, env: dict[str, str] | None = None) 
     except ValueError:
         address = None
     if address is not None:
-        return STATIC[-1] if any(address in net for net in _PRIVATE if net.version == address.version) else None
+        # Not globally routable (private, loopback, link-local, shared, reserved): it cannot be a host on the
+        # internet, so it is the private network's - or nobody's.
+        return None if address.is_global else STATIC[-1]
     found = [d for d in destinations(env) if any(_matches(p, name) for p in d.hosts)]
     # A configured destination's exact host before a wildcard: a webhook on an AWS name is the webhook's.
     exact = [d for d in found if name in d.hosts]
@@ -235,11 +240,16 @@ def _strings(value: Any, skip: frozenset[str]) -> Iterable[str]:
             yield from _strings(v, skip)
 
 
-def body_strings(data: bytes | str | None, content_type: str = "", skip: frozenset[str] = frozenset()) -> list[str]:
+def body_strings(data: Any, content_type: str = "", skip: frozenset[str] = frozenset()) -> list[str]:
     """A request body as the strings it carries: JSON's strings, a form's fields, or the text itself."""
     if data is None:
         return []
-    text = data.decode("utf-8", "replace") if isinstance(data, (bytes, bytearray)) else str(data)
+    if isinstance(data, (bytes, bytearray, memoryview)):
+        text = bytes(data).decode("utf-8", "replace")
+    elif isinstance(data, str):
+        text = data
+    else:  # a file or an iterable: what it holds cannot be read here without consuming it
+        raise EgressBlocked("a request", f"its body ({type(data).__name__}) cannot be checked")
     if "x-www-form-urlencoded" in content_type.lower():
         pairs = urllib.parse.parse_qsl(text, keep_blank_values=True)
         return [s for k, v in pairs for s in (k, *(() if k in skip else (v,)))]
@@ -250,8 +260,10 @@ def body_strings(data: bytes | str | None, content_type: str = "", skip: frozens
 
 
 def content_kinds(strings: Iterable[str]) -> list[str]:
+    """The kinds found in `strings`, WARDEN's own links taken out first: Teams and a generic webhook carry them inside
+    a line of text (`label: link`), Slack as a button's whole address."""
     links = _own_links()
-    return sorted({k for s in strings if not (links and links.fullmatch(s)) for k in kinds_in(s)})
+    return sorted({k for s in strings for k in kinds_in(links.sub(" ", s) if links else s)})
 
 
 # --------------------------------------------------------------------------- the ledger
@@ -287,6 +299,12 @@ _GUARD = threading.local()
 def ledger_to(log: Any) -> None:
     """Record egress rows on this audit log too (runtime_base.open_audit: every runtime process)."""
     _SINK["audit"] = log
+
+
+def forget(log: Any) -> None:
+    """`log` is closing: its rows stop (AuditLog.close). Another log the process opened since is kept."""
+    if _SINK.get("audit") is log:
+        _SINK.pop("audit", None)
 
 
 def _correlation() -> str:
@@ -394,11 +412,12 @@ def check_request(url: str, data: bytes | str | None, headers: dict[str, str] | 
         _LOG.warning("egress %s", json.dumps({"destination": None, "verdict": "BLOCK", "why": "no destination",
                                                "host": redact(str(parts.hostname or "")).text[:120]}))
         raise EgressBlocked("an unlisted host", "it is on no destination (egress.DESTINATIONS)")
-    if not dest.outside:
+    if not (dest.outside or (dest.bodies_checked and data is not None)):
         return
     content_type = next((v for k, v in (headers or {}).items() if k.lower() == "content-type"), "")
     strings = body_strings(data, content_type, dest.credentials)
-    kinds = sorted(set(content_kinds(strings)) | set(_query_kinds(parts.query)))
+    query = _query_kinds(parts.query) if dest.outside else []  # a presigned AWS address carries its signature there
+    kinds = sorted(set(content_kinds(strings)) | set(query))
     payload = "\n".join(strings)
     record(dest, _purpose(dest, method, url), payload, "BLOCK" if kinds else "PASS", kinds)
     if kinds:

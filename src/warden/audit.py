@@ -396,6 +396,9 @@ class AuditLog:
         return self.store.db
 
     def close(self) -> None:
+        from . import egress
+
+        egress.forget(self)  # no egress row is written to a closed log (egress.ledger_to)
         self.store.close()
 
 

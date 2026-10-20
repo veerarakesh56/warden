@@ -16,6 +16,7 @@ CI and the eval suite use. A demo that only works with a paid key is a demo nobo
 
 from __future__ import annotations
 
+import contextvars
 import json
 import math
 import os
@@ -82,7 +83,8 @@ def _complete_within(provider: Provider, *, system: str, user: str, seconds: flo
         except BaseException as exc:  # noqa: BLE001 - carried across the thread boundary, re-raised below
             box["err"] = exc
 
-    th = threading.Thread(target=_worker, name="warden-llm-call", daemon=True)
+    # In the caller's context: the egress ledger names the incident from the Temporal activity running the call.
+    th = threading.Thread(target=contextvars.copy_context().run, args=(_worker,), name="warden-llm-call", daemon=True)
     th.start()
     th.join(seconds)
     if th.is_alive():

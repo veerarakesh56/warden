@@ -341,6 +341,7 @@ class OpenAICompatProvider:
                                 f"{urlparse(base_url).hostname}. Unset it for any host but OpenAI.")
         kw = {"api_key": api_key, "timeout": _sdk_timeout_s(), "max_retries": 0}
         kw["base_url"] = base_url
+        self.base_url = base_url  # the host its prompts go to: egress names the destination by it
         self._client = OpenAI(**kw)
         if base_url.rstrip("/") != OPENAI_DEFAULT_BASE_URL:
             # The SDK reads OPENAI_ORG_ID / OPENAI_PROJECT_ID itself and sends them as headers; they

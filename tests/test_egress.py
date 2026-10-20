@@ -5,6 +5,7 @@ Canaries are built from parts (tests/fakes.py's rule): no tracked file holds a v
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import pathlib
@@ -151,7 +152,7 @@ def test_an_unlisted_host_is_refused():
     with pytest.raises(EgressBlocked):
         egress.check_host("exfil.example.net")
     with pytest.raises(EgressBlocked):
-        egress.check_host("198.51.100.9")  # a public address no destination names
+        egress.check_host(str(ipaddress.IPv4Address(0x09090909)))  # a public address no destination names
 
 
 @pytest.mark.parametrize("canary", CANARIES)
@@ -224,9 +225,8 @@ def test_a_query_is_checked_and_a_number_in_it_is_a_number():
         egress.check_request(f"https://api.github.com/search?q={EMAIL}", None, {}, "GET")
 
 
-def test_the_networks_own_destinations_are_not_content_checked():
-    """WARDEN's own AWS account and the private network are inside: recorded on connect, not scanned."""
-    egress.check_request("https://logs.ap-south-1.amazonaws.com/", f"user {EMAIL}".encode(), {}, "POST")
+def test_the_private_network_is_not_content_checked():
+    """The private network is inside: recorded on connect, not scanned. (A urllib body to an AWS name is: below.)"""
     egress.check_request("http://10.0.3.22:8080/x", f"user {EMAIL}".encode(), {}, "POST")
     egress.check_host("169.254.170.2")  # the ECS task's credentials
 
@@ -291,3 +291,63 @@ def test_the_hook_refuses_before_any_connection_in_a_real_interpreter():
 def test_install_for_environment_leaves_a_demo_alone(monkeypatch):
     monkeypatch.delenv("WARDEN_ENV", raising=False)
     assert egress.install_for_environment() is False
+
+
+def test_a_proxy_is_looked_up_and_what_goes_through_it_is_still_checked(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.corp.example:3128")
+    egress.check_host("proxy.corp.example")
+    with pytest.raises(EgressBlocked):  # urllib names the real address, which is checked as ever
+        egress.check_request("https://slack.com/api/chat.postMessage", _slack(f"user {EMAIL}"), JSON, "POST")
+
+
+def test_a_body_to_any_aws_name_is_checked_and_a_presigned_query_is_not():
+    """Another account's bucket or API is under amazonaws.com too: a urllib body sent there is checked (review)."""
+    with pytest.raises(EgressBlocked):
+        egress.check_request("https://some-bucket.s3.amazonaws.com/x", f"user {EMAIL}".encode(), {}, "PUT")
+    egress.check_request("https://awslambda-x-tasks.s3.amazonaws.com/code?X-Amz-Credential=" + "ASIA" + "Q" * 16,
+                         None, {}, "GET")
+
+
+def test_a_body_that_cannot_be_read_without_consuming_it_is_refused():
+    import io
+
+    with pytest.raises(EgressBlocked, match="cannot be checked"):
+        egress.check_request("https://slack.com/api/chat.postMessage", io.BytesIO(b"{}"), JSON, "POST")
+
+
+def test_wardens_own_link_inside_a_line_of_text_is_its_own(monkeypatch):
+    """Teams and a generic webhook carry the approval link inside the message's text (`label: link`)."""
+    monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", "approve.example.org")
+    link = "https://approve.example.org/a/" + "Ab3" * 14 + "x"
+    egress.check_request("https://x.webhook.office.com/webhookb2/a", json.dumps({"text": f"Approve: {link}"}).encode(),
+                         JSON, "POST")
+
+
+def test_a_closed_log_takes_no_more_rows(tmp_path):
+    log = AuditLog(tmp_path / "a.db")
+    egress.ledger_to(log)
+    log.close()
+    egress.check_request("https://slack.com/api/chat.postMessage", _slack("ok"), JSON, "POST")  # not refused
+    assert "audit" not in egress._SINK
+
+
+def test_an_openai_shaped_provider_is_named_by_its_host(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "x")
+    provider = providers.OpenAICompatProvider(model="m", base_url="https://api.groq.com/openai/v1")
+    assert egress._model_destination(provider).name == "groq"
+
+
+def test_the_model_call_thread_keeps_the_callers_context():
+    """The ledger names the incident from the Temporal activity's context; the call runs on a thread of its own."""
+    import contextvars
+
+    from warden.llm import _complete_within
+
+    var = contextvars.ContextVar("v", default="lost")
+    var.set("kept")
+
+    class P:
+        def complete(self, **_kw):
+            return var.get()
+
+    assert _complete_within(P(), system="s", user="u", seconds=5) == "kept"
