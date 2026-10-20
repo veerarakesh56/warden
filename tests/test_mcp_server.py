@@ -233,9 +233,12 @@ def test_gather_incident_context_says_it_reads_only_the_bundled_recordings():
 
     tool = next(t for t in _tools() if t.name == "gather_incident_context")
     text = " ".join(tool.description.split())
-    assert "RECORDED" in text and "never reads a live system" in text and "bundled demo" in text
+    for said in ("RECORDED", "never reads a live system", "bundled demo"):
+        assert said in text, said
     ids = sorted(p.stem for p in FIXTURES.glob("inc-*.json"))
-    assert f"({ids[0]} to {ids[-1]})" in text and len(ids) == int(ids[-1][4:]) - int(ids[0][4:]) + 1, ids
+    assert f"({ids[0]} to {ids[-1]})" in text, ids
+    assert len(ids) == int(ids[-1][4:]) - int(ids[0][4:]) + 1, ids  # no gap the range would hide
     out = call_tool("gather_incident_context", {"alert_id": "inc-999"}).structured_content
-    assert out["logs"] == [] and len(out["tool_errors"]) == 3
+    assert out["logs"] == []
+    assert len(out["tool_errors"]) == 3
     assert all("no fixture for alert 'inc-999'" in e for e in out["tool_errors"])
