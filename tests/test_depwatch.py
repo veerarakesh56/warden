@@ -679,7 +679,9 @@ def test_nothing_read_is_never_said_as_nothing_open(world):
 
 
 def test_the_interval_is_a_setting_and_the_schedule_is_made_or_brought_up_to_date(monkeypatch):
-    from temporalio.client import ScheduleAlreadyRunningError, ScheduleOverlapPolicy
+    from types import SimpleNamespace
+
+    from temporalio.client import ScheduleAlreadyRunningError, ScheduleOverlapPolicy, ScheduleState
 
     monkeypatch.delenv("WARDEN_DEPWATCH_EVERY_HOURS", raising=False)
     assert depwatch.every() == timedelta(days=3)
@@ -705,9 +707,11 @@ def test_the_interval_is_a_setting_and_the_schedule_is_made_or_brought_up_to_dat
 
             class Handle:
                 async def update(self, fn):
-                    client.updated.append((sid, fn(None).schedule))
+                    current = SimpleNamespace(description=SimpleNamespace(schedule=SimpleNamespace(state=paused)))
+                    client.updated.append((sid, fn(current).schedule))
             return Handle()
 
+    paused = ScheduleState(note="paused by a person", paused=True)
     new, old = Client(False), Client(True)
     assert asyncio.run(depwatch.ensure_schedule(new, "warden")) == "created"
     assert asyncio.run(depwatch.ensure_schedule(old, "warden")) == "updated"
@@ -717,6 +721,9 @@ def test_the_interval_is_a_setting_and_the_schedule_is_made_or_brought_up_to_dat
         assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
         assert schedule.action.workflow == "DependencyWatchWorkflow"
         assert schedule.action.task_queue == "warden"
+    # Brought up to date, a schedule a person paused stays paused; a new one starts running.
+    assert old.updated[0][1].state is paused
+    assert new.made[0][1].state.paused is False
     monkeypatch.delenv("WARDEN_DEPWATCH_REPO", raising=False)
     assert not depwatch.configured()
     monkeypatch.setenv("WARDEN_DEPWATCH_REPO", REPO)

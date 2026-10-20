@@ -1070,7 +1070,6 @@ async def ensure_schedule(client: Any, task_queue: str) -> str:
         ScheduleOverlapPolicy,
         SchedulePolicy,
         ScheduleSpec,
-        ScheduleUpdate,
     )
 
     from .workflows import DependencyWatchWorkflow
@@ -1084,8 +1083,17 @@ async def ensure_schedule(client: Any, task_queue: str) -> str:
         await client.create_schedule(SCHEDULE_ID, schedule)
         return "created"
     except ScheduleAlreadyRunningError:
-        await client.get_schedule_handle(SCHEDULE_ID).update(lambda _: ScheduleUpdate(schedule=schedule))
+        await client.get_schedule_handle(SCHEDULE_ID).update(lambda current: _same_state(schedule, current))
         return "updated"
+
+
+def _same_state(schedule: Any, current: Any) -> Any:
+    """The new interval, action and policy, with the schedule's own state kept: a schedule a person paused (or noted)
+    stays paused when the core worker restarts."""
+    from temporalio.client import ScheduleUpdate
+
+    schedule.state = current.description.schedule.state
+    return ScheduleUpdate(schedule=schedule)
 
 
 async def remove_schedule(client: Any) -> bool:
