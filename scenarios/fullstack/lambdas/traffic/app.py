@@ -52,7 +52,7 @@ def _call(method, url, body=None, headers=None):
     req = urllib.request.Request(url, data=data, method=method,
                                  headers={"Content-Type": "application/json", **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=5, context=_tls_for(url)) as resp:  # nosec B310 - scheme checked above
+        with urllib.request.urlopen(req, timeout=5, context=_tls_for(url)) as resp:  # nosec B310  # scheme checked above
             return resp.status
     except urllib.error.HTTPError as exc:
         return exc.code
