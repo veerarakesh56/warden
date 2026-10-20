@@ -208,7 +208,7 @@ def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], **row:
     evidence is a "no", with why."""
     try:
         got = provider.complete(system=SYSTEM, user=user, schema=CriticVerdict)
-    except Exception as exc:  # noqa: BLE001 - whatever the provider raised, Eldane said nothing, so no agreement
+    except Exception as exc:  # noqa: BLE001 - any provider error means Eldane said nothing and so agrees to nothing
         log.append(incident, CALL, {**row, "ok": False, "error": type(exc).__name__})
         return CriticVerdict(agree=False, reasons=[Reason(text=f"Eldane could not be asked ({type(exc).__name__})")])
     log.append(incident, CALL, {**row, "ok": True, "input_tokens": got.input_tokens, "output_tokens": got.output_tokens})
