@@ -96,6 +96,15 @@ locals {
         { prefix = "arn:aws:rds:${local.region}:${local.account}:db:warden-${e}-" },
       { prefix = "arn:aws:rds:${local.region}:${local.account}:cluster:warden-${e}-" }]])
     })
+    # AWS Health's scheduled changes (maintenance, planned lifecycle events such as a Lambda runtime's end of support),
+    # upcoming or open: never an incident - the alarm Lambda records each for the AWS updates watch's daily digest
+    # (awswatch.health_notice), which alarms one that names WARDEN's resources. AWS's own events: no charge on the
+    # default bus.
+    healthchanges = jsonencode({
+      source        = ["aws.health"]
+      "detail-type" = ["AWS Health Event"]
+      detail        = { eventTypeCategory = ["scheduledChange"], statusCode = ["upcoming", "open"] }
+    })
   }
 }
 

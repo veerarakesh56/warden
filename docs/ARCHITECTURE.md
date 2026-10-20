@@ -234,6 +234,18 @@ with confidence, action, verdict, policies and token cost as attributes. No expo
 `WARDEN_TRACE=0` turns tracing off. Telemetry never takes the system down: a missing exporter falls back
 to the console.
 
+## The AWS updates watch
+
+`AwsWatchWorkflow` (`awswatch.py`) is started once a day by a Temporal Schedule (`warden-aws-updates`, 09:00 in the
+display zone: 03:30 UTC, 09:00 IST), made by the core worker when `WARDEN_AWSWATCH=on`. It reads AWS's What's New feed and the AWS
+News Blog in the **read** zone (two fixed URLs on aws.amazon.com, no redirect followed), and AWS Health's scheduled
+changes reach it through an EventBridge rule and the alarm Lambda, which records each and starts no incident. AWS's
+text is outside text: redacted, scanned by the tripwire, and reduced to facts (services, a kind from a closed list,
+versions, dates, Regions, AWS's own link) before it leaves the read zone. **core** weighs the facts against WARDEN's
+inventory (`data/aws_inventory.json`, made from its Terraform by `scripts/aws_inventory.py`) by fixed rules; no model
+is asked. **notify** posts the digest in the discussion channel and one alarm per item that affects WARDEN or needs a
+person's check. It changes nothing. See OPERATIONS.md.
+
 ## Running without Temporal or a model
 
 `graph.py::run()` runs the same incident steps (`ingest -> gather -> redact -> diagnose -> verify`) in one

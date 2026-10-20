@@ -387,6 +387,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   Alertmanager's own API confirming each alert is active; no ready-made receiver does that third part.
 - The pipeline and its outputs - `graph.py`, `reporting.py`, `playbook.py`, `cli.py`, and the
   approval page `approval_page.py` (its ceremonies are py_webauthn's): WARDEN's own product surface.
+- The AWS updates watch - `awswatch.py`: built. AWS Health already sends scheduled changes through EventBridge
+  (adopted: a rule, no code), and feed readers exist; what none does is weigh an announcement against WARDEN's own
+  Terraform, or keep AWS's text out of the message as quarantine keeps a log line out of a prompt. The RSS is read
+  with the standard library's expat, refusing any document type, as defusedxml does, so no new dependency.
 
 **Evidence through the AWS MCP servers or the Agent Toolkit: not adopted.** Each lets a model choose its
 calls (free-form API calls, Python, SQL or log queries), which WARDEN's design forbids; each returns raw text the

@@ -397,6 +397,24 @@ def _platform(choice: str):
     return RoutedPlatform(**platforms)
 
 
+async def _sync_awswatch(client: object) -> None:
+    """The AWS updates watch's Temporal Schedule (awswatch.py) made, brought up to date or removed as WARDEN_AWSWATCH
+    says. The incidents this worker runs never wait on it: a refusal is said and the worker goes on."""
+    from temporalio.service import RPCError
+
+    from . import awswatch
+
+    try:
+        done = await awswatch.sync_schedule(client)
+    except (RPCError, ValueError) as exc:  # Temporal refused, or WARDEN_AWSWATCH_AT is not HH:MM
+        _out(f"the AWS updates schedule could not be set ({type(exc).__name__})", err=True)
+        return
+    if done != "off":
+        hour, minute = awswatch.at()
+        when = f": daily at {hour:02d}:{minute:02d} in the display zone" if done != "removed" else ""
+        _out(f"AWS updates schedule {done}{when}", err=True)
+
+
 async def _workflow_command(args: argparse.Namespace) -> int:
     from . import discuss, runtime
     from .workflows import IncidentWorkflow
@@ -435,6 +453,7 @@ async def _workflow_command(args: argparse.Namespace) -> int:
             if problem:
                 _out(f"error: {problem}", err=True)
                 return 1
+            await _sync_awswatch(client)
             _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {args.platform}); "
                  "Ctrl+C to stop")
             publish = runtime.cloudwatch_publisher()
