@@ -886,11 +886,12 @@ class RemediationActivities:
             detail = "nothing to roll back: this run applied nothing"
             self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
             return detail
-        other = locks.holder(self.audit, plan.target, datetime.now(UTC))
-        if other is not None and not locks.same_run(other, plan.workflow_id, run):
-            # B20: another run holds the target now (this run's lock lapsed): undoing would write over its change.
-            detail = (f"not rolled back: fix run {other['body'].get('workflow_id')} holds {plan.target} now, so undoing "
-                      "this fix could undo its change too; a person decides")
+        # B20: the target's lock taken again, in one step with the check (locks.take): this run's own hold goes on, a
+        # lapsed one is taken anew, and while another run holds the target the undo would write over its change.
+        locked = locks.take(self.audit, plan.incident_id, plan.target, workflow_id=plan.workflow_id, run_id=run,
+                            plan_hash=plan.plan_hash, now=datetime.now(UTC))
+        if locked:
+            detail = f"not rolled back: {locked}; undoing this fix could undo that run's change too - a person decides"
             self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
             return detail
         try:

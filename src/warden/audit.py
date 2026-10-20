@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS entries (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, correlation_id TEXT NOT NULL, kind TEXT NOT NULL,
     body TEXT NOT NULL, prev TEXT NOT NULL, hash TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS checkpoints (seq INTEGER PRIMARY KEY, hash TEXT NOT NULL, signature TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS entries_by_correlation ON entries (correlation_id, seq);
+CREATE INDEX IF NOT EXISTS entries_by_kind ON entries (kind, seq);
 """ + "".join(
     f"CREATE TRIGGER IF NOT EXISTS {t}_no_{op.lower()} BEFORE {op} ON {t} "
     f"BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END;\n"

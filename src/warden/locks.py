@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .audit import AuditLog
+from .redaction import redact
 
 TAKEN, REFUSED = "lock.taken", "lock.refused"
 TTL = timedelta(hours=48)
@@ -53,7 +54,7 @@ def take(log: AuditLog, correlation_id: str, key: str, *, workflow_id: str, run_
         if row is None or same_run(row, workflow_id, run_id):
             return "" if row is None else "held"
         b = row["body"]
-        return (f"B20 TARGET-LOCKED: {key} is held by fix run {b.get('workflow_id')} of incident "
+        return (f"B20 TARGET-LOCKED: {redact(key).text} is held by fix run {b.get('workflow_id')} of incident "
                 f"{row['correlation_id']} since {row['at']:%Y-%m-%d %H:%M}Z; one writer per target, so this run "
                 "changes nothing until that one ends")
 

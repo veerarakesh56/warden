@@ -130,7 +130,7 @@ def test_an_undo_while_another_run_holds_the_target_is_not_sent():
     # This run's hold lapsed and another run took the target: undoing now could undo that run's change.
     acts.audit.append("inc-9", locks.TAKEN, {"key": plan.target, "workflow_id": "rem-9", "run_id": "r9"})
     detail = acts.rollback(plan)
-    assert detail.startswith("not rolled back: fix run rem-9 holds dev/k8s:shop/orders")
+    assert detail.startswith("not rolled back: B20 TARGET-LOCKED: dev/k8s:shop/orders is held by fix run rem-9")
     assert platform.rolled_back == []
     assert bounds.killswitch(acts.audit) is None  # a known state: nothing was half-made
 
@@ -141,3 +141,29 @@ def test_the_run_holding_the_target_undoes_its_own_fix():
     acts.apply(plan, REQ["service"])
     assert not acts.rollback(plan).startswith("not rolled back")
     assert len(platform.rolled_back) == 1
+
+
+def test_an_undo_whose_hold_lapsed_takes_the_target_again_before_it_writes():
+    acts, platform, owner = _acts()
+    plan = _approved(acts, owner, "rem-1")
+    acts.apply(plan, REQ["service"])
+    # The hold lapsed (no holder now): the undo takes the target anew, in one step with the check, then writes.
+    acts.audit.append(REQ["incident_id"], "workflow.end", {"workflow_id": "rem-1", "run_id": ""})
+    assert not acts.rollback(plan).startswith("not rolled back")
+    assert len(acts.audit.entries(kinds=(locks.TAKEN,))) == 2
+    assert len(platform.rolled_back) == 1
+
+
+def test_a_refusal_never_says_an_account_a_target_arn_names():
+    log = _log(clock=lambda: NOW)
+    key = f"dev/ecs:arn:aws:ecs:test-region-1:{'0' * 12}:cluster/c1/orders"
+    assert locks.take(log, "inc-a", key, workflow_id="rem-a", run_id="a", plan_hash="h", now=NOW) == ""
+    why = locks.take(log, "inc-b", key, workflow_id="rem-b", run_id="b", plan_hash="h", now=NOW)
+    assert why.startswith("B20 TARGET-LOCKED")
+    assert "0" * 12 not in why
+
+
+def test_the_audit_indexes_what_the_lock_reads():
+    log = _log()
+    names = {n for (n,) in log.db.execute("SELECT name FROM sqlite_master WHERE type = 'index'").fetchall()}
+    assert {"entries_by_correlation", "entries_by_kind"} <= names
