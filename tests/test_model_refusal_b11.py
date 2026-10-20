@@ -60,8 +60,9 @@ def test_a_refusal_is_asked_once_charged_and_escalated_not_retried():
 
 def test_a_refusal_without_a_category_still_says_it_was_a_refusal():
     p, _ = _sdk("refusal")
+    client = LLMClient(provider=p, mock=False)
     with pytest.raises(ModelRefused, match="category not named"):
-        LLMClient(provider=p, mock=False).structured(system="s", user="u", schema=Diagnosis)
+        client.structured(system="s", user="u", schema=Diagnosis)
 
 
 def test_the_context_window_stop_is_a_cut_off_too():
@@ -69,8 +70,9 @@ def test_the_context_window_stop_is_a_cut_off_too():
     p, sent = _sdk("model_context_window_exceeded")
     assert p.complete(system="s", user="u").cut_off is True
     sent.clear()
+    client = LLMClient(provider=p, mock=False)
     with pytest.raises(ModelRefused, match="cut off"):
-        LLMClient(provider=p, mock=False).structured(system="s", user="u", schema=Diagnosis)
+        client.structured(system="s", user="u", schema=Diagnosis)
     assert len(sent) == 1
 
 
@@ -159,8 +161,9 @@ def test_a_cli_refusal_is_asked_once_and_escalated(cli, monkeypatch):
     run = _Run(_envelope(stop_reason="refusal", result="I can't help with that."))
     calls = []
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: calls.append(cmd) or run(cmd, **kw))
+    client = LLMClient(provider=cli, mock=False)
     with pytest.raises(ModelRefused, match="declined to answer"):
-        LLMClient(provider=cli, mock=False).structured(system="s", user="u", schema=Diagnosis)
+        client.structured(system="s", user="u", schema=Diagnosis)
     assert len(calls) == 1
 
 
@@ -172,8 +175,9 @@ def test_a_cli_answer_cut_off_at_the_cap_is_flagged(cli, monkeypatch):
 def test_a_cli_error_result_with_exit_zero_is_still_an_error(cli, monkeypatch):
     out = _envelope(is_error=True, stop_reason="stop_sequence", api_error_status=404,
                     result="There's an issue with the selected model (x). It may not exist.")
+    run = _Run(out, returncode=0)
     with pytest.raises(providers.ProviderError, match="issue with the selected model") as caught:
-        _complete(cli, _Run(out, returncode=0), monkeypatch)
+        _complete(cli, run, monkeypatch)
     assert caught.value.status_code == 404
 
 
@@ -182,8 +186,9 @@ def test_a_usage_limit_in_the_json_result_is_still_exhaustion(cli, monkeypatch):
     the JSON would have lost it."""
     pad = {f"k{i}": "x" * 40 for i in range(20)}
     out = _envelope(is_error=True, result="You've hit your session limit · resets 7:40pm", **pad)
+    run = _Run(out, returncode=1)
     with pytest.raises(providers.ProviderExhausted):
-        _complete(cli, _Run(out, returncode=1), monkeypatch)
+        _complete(cli, run, monkeypatch)
 
 
 def test_the_models_own_json_is_never_mistaken_for_the_cli_envelope(cli, monkeypatch):
