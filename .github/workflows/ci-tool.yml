@@ -352,6 +352,8 @@ jobs:
           # stays read-only. Arming live remediation means applying this separately, and this proves
           # its boundary from the API server's own view, both directions.
           kubectl apply -f k8s/remediation-rbac.yaml
+          # CI only: the EKS actor's group, bound in this test namespace (on EKS it is bound in shop alone).
+          kubectl apply -f k8s/ci/remediation-group-binding.yaml
           SA=system:serviceaccount:warden:warden-remediator
           # An empty answer is a failed request (a settling cluster, CI on 5fdcff4): asked again,
           # its error shown; only yes or no is ever accepted.

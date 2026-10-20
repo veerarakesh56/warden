@@ -90,7 +90,8 @@ IGNORED = _application([{"group": "apps", "kind": "Deployment", "jsonPointers": 
 def test_a_restart_argo_cd_provably_ignores_is_allowed_and_nothing_else_is():
     custom = _Custom(IGNORED)
     live = _live(annotations=TRACKED, custom=custom)
-    assert live["gitops"] == "Argo CD" and live["gitops_ignores_restart"] is True
+    assert live["gitops"] == "Argo CD"
+    assert live["gitops_ignores_restart"] is True
     assert custom.asked == [("argoproj.io", "v1alpha1", "argocd", "applications", "shop")]
     assert not [p for p in catalog.validate("k8s_restart", OK, {**live, "at_once": 0}) if p.startswith("C4")]
     # A scale of the same Deployment would fight Git: refused, whatever the Application ignores.
@@ -136,6 +137,16 @@ def test_the_catalogue_lets_a_restart_through_only_on_a_proven_reading(reading):
                                                                              {**live, **reading, "at_once": 0}))
 
 
+@pytest.mark.parametrize("pointer", ["/", "", "/spec/", "/spec/template/", POINTER + "/", "spec/template",
+                                     "/spec/templat"])
+def test_a_near_miss_pointer_is_no_proof(pointer):
+    """Review, PR 48: RFC 6901 compared by whole segments. `/` and `/spec/` name a key "" - not an ancestor of the
+    annotation - and a pointer without its leading `/` is not one; none of them makes Argo CD leave a restart."""
+    custom = _Custom(_application([{"group": "apps", "kind": "Deployment", "name": "orders", "namespace": "shop",
+                                    "jsonPointers": [pointer]}]))
+    assert _live(annotations=TRACKED, custom=custom)["gitops_ignores_restart"] is False
+
+
 @pytest.mark.parametrize("pointer", [POINTER, "/spec/template/metadata/annotations", "/spec/template", "/spec"])
 def test_an_ignore_of_the_annotation_or_a_field_holding_it_is_proof(pointer):
     custom = _Custom(_application([{"group": "apps", "kind": "Deployment", "name": "orders", "namespace": "shop",
@@ -151,7 +162,8 @@ def test_the_shop_application_ignores_the_restart_and_the_reader_may_read_it_alo
 
     assert any(_ignores_restart(r, "catalog-api", "shop") for r in app["spec"]["ignoreDifferences"])
     role = next(d for d in docs if d["kind"] == "Role")
-    assert role["metadata"]["namespace"] == "argocd" and role["rules"] == [
+    assert role["metadata"]["namespace"] == "argocd"
+    assert role["rules"] == [
         {"apiGroups": ["argoproj.io"], "resources": ["applications"], "resourceNames": [app["metadata"]["name"]],
          "verbs": ["get"]}]
     binding = next(d for d in docs if d["kind"] == "RoleBinding")

@@ -43,7 +43,8 @@ _ENTRIES = {"k8s_restart", "k8s_scale"}
 # Register C4: controllers that undo a direct change. A Deployment carrying one of these is reconciled from Git by
 # Argo CD or Flux, whose self-heal reverts what WARDEN patched. (`app.kubernetes.io/instance` alone is not counted:
 # Helm sets it too, and Helm does not self-heal.)
-_GITOPS = {"argocd.argoproj.io/tracking-id": "Argo CD", "argocd.argoproj.io/instance": "Argo CD",
+ARGO_CD = "Argo CD"
+_GITOPS = {"argocd.argoproj.io/tracking-id": ARGO_CD, "argocd.argoproj.io/instance": ARGO_CD,
            "kustomize.toolkit.fluxcd.io/name": "Flux", "helm.toolkit.fluxcd.io/name": "Flux"}
 # Where Argo CD keeps its Applications (its chart's default), unless an Application's tracking id names another.
 ARGOCD_NAMESPACE = os.environ.get("WARDEN_ARGOCD_NAMESPACE", "argocd")
@@ -113,7 +114,7 @@ class KubernetesPlatform:
                 "gitops": _gitops(dep), "autoscaled": self._autoscaled(dep.metadata.name),
                 "state": {"deployment": dep.metadata.name, "replicas": _replicas(dep),
                           "generation": dep.metadata.generation, "server": self._server()}}
-        if live["gitops"] == "Argo CD" and entry == "k8s_restart":
+        if live["gitops"] == ARGO_CD and entry == "k8s_restart":
             live["gitops_ignores_restart"] = self._argo_ignores_restart(dep)
         return live
 
@@ -135,7 +136,7 @@ class KubernetesPlatform:
         try:
             found = self._custom.get_namespaced_custom_object("argoproj.io", "v1alpha1", where or ARGOCD_NAMESPACE,
                                                               "applications", name, _request_timeout=REQUEST_TIMEOUT)
-        except Exception:  # noqa: BLE001 - unread is unproven
+        except Exception:  # unread is unproven  # noqa: BLE001
             return False
         spec = found.get("spec") if isinstance(found, dict) else None
         if not isinstance(spec, dict) or (spec.get("destination") or {}).get("namespace") != self._ns:
@@ -322,9 +323,11 @@ class _Bound:
 
 
 class _Fresh:
-    """A client made again every `every` seconds: EKS honours a token for 15 minutes only."""
+    """A client made again every `every` seconds. Its EKS token is signed once, when it is made, by the reader session's
+    credentials - which platforms.reader_clients hands out with at least 300 s left (a 900 s session renewed after
+    600 s) - so a client is never kept longer than that (review, PR 48)."""
 
-    def __init__(self, make: Callable[[], Any], every: float = 600) -> None:
+    def __init__(self, make: Callable[[], Any], every: float = 240) -> None:
         self._make, self._every, self._held, self._until = make, every, None, 0.0
         self._lock = threading.Lock()
 
@@ -429,8 +432,16 @@ def _ignores_restart(rule: Any, deployment: str, namespace: str) -> bool:
         return False
     if rule.get("name") not in (None, deployment) or rule.get("namespace") not in (None, namespace):
         return False
-    return any(isinstance(p, str) and (p == RESTART_POINTER or RESTART_POINTER.startswith(p.rstrip("/") + "/"))
-               for p in rule.get("jsonPointers") or [])
+    return any(_covers(p) for p in rule.get("jsonPointers") or [])
+
+
+def _covers(pointer: Any) -> bool:
+    """A JSON Pointer (RFC 6901) that names the restart annotation or a field holding it, compared by whole segments
+    (review, PR 48): `""` is the whole document, but `"/"` names the key "" at the root and `"/spec/"` the key "" under
+    `spec` - neither covers the annotation, and Argo CD would not ignore it. Only a pointer that is a strict ancestor or
+    the annotation itself counts; the whole document is not taken as proof either."""
+    return (isinstance(pointer, str) and pointer.startswith("/") and not pointer.endswith("/")
+            and (pointer == RESTART_POINTER or RESTART_POINTER.startswith(pointer + "/")))
 
 
 def _gitops(dep: Any) -> str:

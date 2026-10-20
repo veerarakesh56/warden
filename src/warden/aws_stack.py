@@ -1885,11 +1885,13 @@ def sql_shape(sql: str) -> str:
             + (f" tables={','.join(tables)}" if tables else ""))
 
 
-def iam_dsn(rds: Any, dsn: str) -> str:
+def iam_dsn(rds: Any, dsn: str, *, verify: bool = False) -> str:
     """The DSN with a 15-minute IAM token as its password, signed by `rds`'s own credentials - in the cloud runtime the
     incident's environment reader role - when the DSN carries no password: no database password exists anywhere,
     and the role's rds-db:connect on the read-only user decides (2026-10-15: the cloud read no database at all). The
-    token lives only in this DSN, in memory."""
+    token lives only in this DSN, in memory. `verify`: the server's certificate and name are checked against Amazon
+    RDS's own certificate authorities (data/rds-ca-bundle.crt, sslmode=verify-full) - the write path's (review, PR 48:
+    a close must not go to a server that only claims to be the cluster)."""
     from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
     parts = conninfo_to_dict(dsn)
@@ -1897,6 +1899,11 @@ def iam_dsn(rds: Any, dsn: str) -> str:
         return dsn
     token = rds.generate_db_auth_token(DBHostname=parts["host"], Port=int(parts.get("port") or 5432),
                                        DBUsername=parts["user"])
+    if verify:
+        from importlib import resources
+
+        bundle = resources.files("warden") / "data" / "rds-ca-bundle.crt"
+        return make_conninfo(dsn, password=token, sslmode="verify-full", sslrootcert=str(bundle))
     return make_conninfo(dsn, password=token, sslmode="require")
 
 

@@ -71,11 +71,8 @@ subjects:
   - kind: ServiceAccount
     name: warden-remediator
     namespace: warden
-  # On EKS the actor role signs in through its access entry as this group (terraform/fullstack/eks.tf), bound in the
-  # shop namespace by manifests/shop/base/warden-rbac.yaml; here too, so CI proves the group's path on a real server.
-  - kind: Group
-    name: warden-remediators
-    apiGroup: rbac.authorization.k8s.io
+  # Not the EKS actor's group (warden-remediators): that is bound only where it serves, in shop, by
+  # manifests/shop/base/warden-rbac.yaml. CI binds it in its own test namespace from k8s/ci/ (review, PR 48).
 roleRef:
   kind: ClusterRole
   name: warden-remediator

@@ -45,7 +45,7 @@
       "Sid": "ClosesSessionsAsTheTerminateLoginOnly",
       "Effect": "Allow",
       "Action": "rds-db:connect",
-      "Resource": "arn:aws:rds-db:${region}:*:dbuser:*/warden_${env_sql}_terminate",
+      "Resource": "arn:aws:rds-db:${region}:${account}:dbuser:*/warden_${env_sql}_terminate",
       "Condition": {
         "StringLike": {
           "aws:SourceIdentity": "inc-*"
