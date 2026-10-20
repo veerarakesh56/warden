@@ -19,16 +19,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-          ref: main
+          ref: cc62129444434f902c8ee8c75fde32cf01b1c68c
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
           version: "0.12.21"
           checksum: "23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0"
           python-version: "3.13"
-      - name: Relock aiohttp to 3.14.4 and print the diff
+      - name: Relock lane DW's Dependabot bumps and print the diff
         run: |
           git rev-parse HEAD
-          uv lock --upgrade-package aiohttp==3.14.4
+          uv lock --upgrade-package pydantic==2.14.1 --upgrade-package pydantic-core==2.50.1 --upgrade-package ruff==0.17.0 --upgrade-package pymssql==2.4.4 --upgrade-package opentelemetry-api==1.45.1 --upgrade-package opentelemetry-sdk==1.45.1 --upgrade-package opentelemetry-proto==1.45.1 --upgrade-package opentelemetry-exporter-otlp-proto-common==1.45.1 --upgrade-package opentelemetry-exporter-otlp-proto-http==1.45.1 --upgrade-package opentelemetry-semantic-conventions==0.66b1 --upgrade-package opentelemetry-exporter-http-transport==0.66b1 --upgrade-package opentelemetry-exporter-otlp-common==0.66b1
+          uv lock --check
           echo "=== LOCK-DIFF-BEGIN"
           git diff --no-color uv.lock | base64 -w 0
           echo
