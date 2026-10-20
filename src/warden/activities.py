@@ -626,6 +626,15 @@ class RemediationActivities:
             out.append((LINK_LABEL + (f" (link of {name})" if len(who) > 1 else ""), f"https://{rp}/a/{token}"))
         return tuple(out)
 
+    def _needs_person(self, plan: Plan, name: str) -> list[str]:
+        """A hard case its hard model could not answer (not qualified) is a person's to approve (owner, 2026-10-17;
+        routing.needs_person): never the bench approver's, a test identity - by whatever path its approval came."""
+        entry = self.policy.approvers.get(name)
+        if entry is None or not approvals.is_bench(name, entry) or not routing.needs_person(self.audit, plan.incident_id):
+            return []
+        return [(f"{name} is not a person, and this incident is a hard case its hard model could not answer: a person "
+                 "approves its fix")]
+
     @activity.defn
     def check_approval(self, plan: Plan, approval: approvals.SignedApproval,
                        accepted: list[approvals.SignedApproval]) -> ApprovalResult:
@@ -637,11 +646,7 @@ class RemediationActivities:
             problems.append(f"{approval.approver} has already approved this plan")
         # A hard case the hard model could not answer (it is not qualified) is a person's to approve (owner, 2026-10-17;
         # routing.needs_person): never the bench approver's, a test identity.
-        entry = self.policy.approvers.get(approval.approver)
-        if entry is not None and approvals.is_bench(approval.approver, entry) and routing.needs_person(
-                self.audit, plan.incident_id):
-            problems.append(f"{approval.approver} is not a person, and this incident is a hard case its hard model could "
-                            "not answer: a person approves its fix")
+        problems += self._needs_person(plan, approval.approver)
         kind = "approval.refused" if problems else "approval.accepted"
         # Register H1: how long the approver had the plan before signing. Under HASTY_S is recorded as hasty - read
         # by the person who audits approvals, and by the catch trials (G7).
@@ -674,6 +679,7 @@ class RemediationActivities:
             problems.append(f"{assertion.approver} may not approve {plan.tier}")
         elif refusal := approvals.environment_refusal(assertion.approver, approver, plan.environment):
             problems.append(refusal)
+        problems += self._needs_person(plan, assertion.approver)
         if (assertion.workflow_id, assertion.plan_hash, assertion.tier) != (plan.workflow_id, plan.plan_hash, plan.tier):
             problems.append("the passkey approval is for a different plan")
         cooling = timedelta(minutes=self.policy.cooling_off_minutes.get(plan.tier, 0))

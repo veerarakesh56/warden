@@ -296,10 +296,9 @@ def after_answer(log: Any, pack: Any, diagnosed: Any, second: Any = None) -> Rou
 
 
 def needs_person(log: Any, incident_id: str) -> bool:
-    """Does the incident's latest routing record say its hard case was answered by the default model because the hard
+    """Does any of the incident's routing records say a hard case was answered by the default model because the hard
     one is not qualified? Then no AI or test identity approves its fix alone: a person does."""
-    rows = log.entries(incident_id, kinds=("incident.route",))
-    return bool(rows) and rows[-1]["body"].get("needs_person") is True
+    return any(r["body"].get("needs_person") is True for r in log.entries(incident_id, kinds=("incident.route",)))
 
 
 def for_question(text: str) -> Route:
