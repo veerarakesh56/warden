@@ -294,17 +294,27 @@ def _datadog_errors(ask: Callable[..., tuple[dict | None, str]], service: str, s
     lines: list[str] = []
     cursor = ""
     for _ in range(MAX_LOG_PAGES):
-        page = {"limit": MAX_LOG_EVENTS, **({"cursor": cursor} if cursor else {})}
-        try:
-            got, _ = ask("logs", "POST", "/api/v2/logs/events/search", {
-                "filter": {"query": f"service:{service} status:(error OR critical OR emergency)",
-                           "from": _iso(start), "to": _iso(end)}, "sort": "timestamp", "page": page})
-            if got is None:
-                return None
-            lines += [str((e.get("attributes") or {}).get("message") or "") for e in got.get("data") or []]
-            cursor = str(((got.get("meta") or {}).get("page") or {}).get("after") or "")
-        except READ_ERRORS:  # a malformed answer is an unread log: the monitor's own verdict stands
+        page = _datadog_page(ask, service, start, end, cursor)
+        if page is None:
             return None
+        lines += page[0]
+        cursor = page[1]
         if not cursor:
             return lines
     return None
+
+
+def _datadog_page(ask: Callable[..., tuple[dict | None, str]], service: str, start: datetime, end: datetime,
+                  cursor: str) -> tuple[list[str], str] | None:
+    """One page of the service's error logs and the cursor to the next ("" at the end); None if it was not read."""
+    body = {"filter": {"query": f"service:{service} status:(error OR critical OR emergency)", "from": _iso(start),
+                       "to": _iso(end)}, "sort": "timestamp",
+            "page": {"limit": MAX_LOG_EVENTS, **({"cursor": cursor} if cursor else {})}}
+    try:
+        got, _ = ask("logs", "POST", "/api/v2/logs/events/search", body)
+        if got is None:
+            return None
+        lines = [str((e.get("attributes") or {}).get("message") or "") for e in got.get("data") or []]
+        return lines, str(((got.get("meta") or {}).get("page") or {}).get("after") or "")
+    except READ_ERRORS:  # a malformed answer is an unread log: the metric's verdict stands
+        return None
