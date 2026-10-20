@@ -49,7 +49,7 @@ class FakeDb:
             raise ConnectionError("timeout")
         return self.counts[sql]
 
-    def baseline(self, clients, target):
+    def baseline(self, clients, *_target):  # with or without the target (PR 60 drops it)
         if self.last in self.dirty_after:
             return [f"left over from {self.last}"]
         return []
@@ -93,7 +93,7 @@ def test_a_dirty_database_stops_before_any_op(db, capsys):
 
 def test_a_fault_that_does_not_land_or_raises_or_leaves_dirt_fails(db, capsys, monkeypatch):
     db(land=False, raise_on="db_run_long_query", dirty_after={"db_release_everything"})
-    monkeypatch.setattr(pdb, "_settle_to_baseline", lambda clients, target: pdb.check_baseline_db(clients, target))
+    monkeypatch.setattr(pdb, "_settle_to_baseline", lambda clients, *rest: pdb.check_baseline_db(clients, *rest))
     assert pdb.main() == 1
     assert capsys.readouterr().out == (
         "FAIL idle-in-transaction session: fault DID NOT LAND; after revert ['left over from db_release_everything']\n"
