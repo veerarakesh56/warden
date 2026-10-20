@@ -10,15 +10,15 @@ import json
 
 import pytest
 
-from test_aws_platform_g6 import FN, FN_ARN, WHO, Fake
+from test_aws_platform_g6 import ACCT, FN, FN_ARN, WHO, Fake
 from warden import catalog
 from warden.models import ActionKind
 from warden.platforms.aws import AwsPlatform, AwsPlatformRefused
 
 BASE = {"FunctionArn": FN_ARN, "FunctionName": FN, "CodeSha256": "c0de", "Timeout": 30, "MemorySize": 512,
         "EphemeralStorage": {"Size": 512}, "Handler": "app.handler", "Runtime": "python3.13",
-        "Layers": [{"Arn": "arn:aws:lambda:test-region-1:000000000000:layer:deps:3"}], "TracingConfig": {"Mode": "Active"},
-        "Role": "arn:aws:iam::000000000000:role/fn", "Environment": {"Variables": {"MODE": "x"}},
+        "Layers": [{"Arn": f"arn:aws:lambda:test-region-1:{ACCT}:layer:deps:3"}], "TracingConfig": {"Mode": "Active"},
+        "Role": f"arn:aws:iam::{ACCT}:role/fn", "Environment": {"Variables": {"MODE": "x"}},
         "RevisionId": "r1", "LastUpdateStatus": "Successful"}
 
 
@@ -85,7 +85,7 @@ def test_settings_that_moved_since_the_plan_are_not_written(aws):
 @pytest.mark.parametrize(("change", "why"), [
     ({"CodeSha256": "other"}, "runs other code"),
     ({"Environment": {"Variables": {"MODE": "y"}}}, "environment also changed"),
-    ({"Role": "arn:aws:iam::000000000000:role/other"}, "role also changed"),
+    ({"Role": f"arn:aws:iam::{ACCT}:role/other"}, "role also changed"),
     ({"VpcConfig": {"SubnetIds": ["subnet-1"]}}, "network also changed"),
     ({"Timeout": 30, "MemorySize": 512}, "already"),
 ], ids=["code", "environment", "role", "network", "nothing-to-restore"])
