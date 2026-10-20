@@ -2,8 +2,8 @@
 
 What can attack WARDEN or go wrong through it, at each place where trust changes, and what stops it. Written with
 STRIDE (Spoofing, Tampering, Repudiation, Information disclosure, Denial of service, Elevation of privilege) over the
-components as the code and Terraform build them on `main`. Every mitigation names the file that implements it and the
-test that proves it; [tests/test_threat_model.py](../tests/test_threat_model.py) fails CI if a cited file or test
+components as the code and Terraform build them on `main`. Every mitigation that is built names the file that
+implements it and the test that proves it (a planned one has neither yet); [tests/test_threat_model.py](../tests/test_threat_model.py) fails CI if a cited file or test
 does not exist or is skipped.
 
 Three kinds of status are used, and nothing else:
@@ -136,8 +136,8 @@ The trust boundaries (TB) used below:
 | STRIDE | Threat | Mitigation | Evidence | Status |
 |---|---|---|---|---|
 | I | Workflow history exposes evidence or secrets (S2) | Every payload is encrypted with AES-256-GCM, bound to its workflow, before it leaves the worker; Temporal holds ciphertext only | [codec.py](../src/warden/codec.py); tests/test_incident_workflow.py::test_with_encryption_nothing_redacted_is_readable_in_history, tests/test_codec.py::test_a_ciphertext_is_bound_to_its_workflow | built and tested |
-| T | A forged signal or payload | The codec refuses a changed or forged ciphertext; the workflow re-verifies every approval itself | [codec.py](../src/warden/codec.py); tests/test_codec.py::test_a_forged_ciphertext_is_refused_not_raised | built and tested |
-| S, E | One leaked Temporal key reaches everything (S15) | API key over TLS; each ECS zone has its own key and its own role. The three front door Lambdas that reach Temporal share one key: kept on purpose, owner decision 2026-10-20 (cost), so a leak of it reaches what those Lambdas can, not the zones' work; the zones' own keys are not yet proven live (S15b) | [runtime.py](../src/warden/runtime.py), [iam.tf](../terraform/modules/warden-runtime/iam.tf); tests/test_temporal_auth_s15.py::test_a_remote_server_without_a_key_is_refused_before_any_connection, tests/test_runtime_module_g6.py::test_each_zone_reads_exactly_the_secrets_its_worker_loads | built, not proven live |
+| T | A forged signal or payload | The codec refuses a changed or forged ciphertext; the workflow re-verifies every approval itself | [codec.py](../src/warden/codec.py), [workflows.py](../src/warden/workflows.py), [activities.py](../src/warden/activities.py); tests/test_codec.py::test_a_forged_ciphertext_is_refused_not_raised, tests/test_remediation_workflow.py::test_a_forged_approval_is_refused_and_a_real_one_still_works, tests/test_passkey_workflow_h6.py::test_a_passkey_approval_of_another_plan_is_refused | built and tested |
+| S, E | One leaked Temporal key reaches everything (S15) | API key over TLS; each ECS zone has its own key and its own role. The three front door Lambdas that reach Temporal share one key: kept on purpose, owner decision 2026-10-20 (cost), so a leak of it reaches what those Lambdas can, not the zones' work; the zones' own keys are not yet proven live (S15b) | [runtime_base.py](../src/warden/runtime_base.py) `connect`, [iam.tf](../terraform/modules/warden-runtime/iam.tf); tests/test_temporal_auth_s15.py::test_temporal_cloud_is_reached_with_the_api_key_over_tls, tests/test_temporal_auth_s15.py::test_a_remote_server_without_a_key_is_refused_before_any_connection, tests/test_runtime_module_g6.py::test_each_zone_reads_exactly_the_secrets_its_worker_loads | built, not proven live |
 
 ### TB8: the record
 

@@ -21,13 +21,31 @@ _BARE_TEST_FILE = re.compile(r"tests/[\w/]+\.py(?!::test_)")
 # A repository path in inline code, e.g. `docs/safety-pins.sha256`: it must exist, as a link must.
 _CODE_PATH = re.compile(r"`((?:docs|src|tests|terraform|iam|scripts|\.github)/[\w./-]+)`")
 _LINK = re.compile(r"\]\(([^)\s#]+)(?:#[^)]*)?\)")
-# A link to the code or infrastructure that implements a mitigation.
-_IMPLEMENTATION = re.compile(r"\]\(\.\./(?:src|terraform|iam|scripts|\.github)/[^)\s]*\)")
+_IMPLEMENTATION_ROOTS = ("src", "terraform", "iam", "scripts", ".github", "k8s")
 STATUSES = ("built and tested", "built, not proven live", "planned")  # the three the document states
 
 
 def _text() -> str:
     return DOC.read_text(encoding="utf-8") if DOC.is_file() else ""
+
+
+def _implements(cell: str) -> bool:
+    """The cell links a file that exists under code or infrastructure, judged by where its link really resolves: a
+    `../src/../README.md` is not code (PR 82 review). Each cell on its own, so no link is made across a boundary."""
+    for target in _LINK.findall(cell):
+        path = (DOC.parent / target).resolve()
+        rel = path.relative_to(ROOT.resolve()) if path.is_relative_to(ROOT.resolve()) else None
+        if rel is not None and rel.parts and rel.parts[0] in _IMPLEMENTATION_ROOTS and path.exists():
+            return True
+    return False
+
+
+def test_an_implementation_link_counts_only_where_it_really_resolves():
+    assert _implements("[gate.py](../src/warden/gate.py)")
+    assert not _implements("[readme](../src/../README.md)")
+    assert not _implements("[nothing](../src/warden/nope.py)")
+    assert not _implements("see [x]")
+    assert not _implements("(../src/warden/gate.py)")  # half a link, as two cells joined made one
 
 
 def _threat_rows() -> list[list[str]]:
@@ -114,7 +132,7 @@ def test_every_threat_row_has_a_status_and_a_tested_claim_cites_a_test():
         status = cells[-1]
         if status not in STATUSES:
             bad.append(("no known status", cells[1][:60], status))
-        if status != "planned" and not _IMPLEMENTATION.search(cells[-3] + cells[-2]):
+        if status != "planned" and not any(_implements(cell) for cell in cells[2:4]):
             bad.append(("built without the file that implements it", cells[1][:60]))
         if status == "built and tested" and not _TEST.search(cells[-2]):
             bad.append(("tested without a test", cells[1][:60]))
