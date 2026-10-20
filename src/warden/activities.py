@@ -1809,7 +1809,7 @@ class DiscussActivities:
         # A simple question gets the default model, a deep re-investigation the hard one (routing.py), on the record.
         route = routing.for_question(turn.text)
         self.audit.append(key, "discuss.route", {"run_id": _run_id(), "ts": turn.ts, **route.record()})
-        llm = routing.client(route.model, factory=self.incident.llm_factory)
+        llm = routing.client(route.model, factory=self.incident.llm_factory, role=route.role)
         attempt = secrets.token_hex(8)
         self.audit.append(key, "incident.llm_reserve", {"run_id": _run_id(), "attempt": attempt, "usd": llm.max_usd,
                                                         "calls": 1})

@@ -69,6 +69,13 @@ effort:
 # ceiling counts each call at its own model's price.
 routing:
   anthropic: {default: claude-sonnet-5-5, hard: claude-opus-5-5}
+# What each model may be used for (owner, 2026-10-17: "Opus 5.5 = critic (Eldane) and deep chat only"; routing.py).
+# `diagnose` leads to a fix, so it ALSO needs a passing row in `qualified` below (M20); `critic` (Eldane, which can only
+# add a "no") and `chat` (an answer in the discussion channel, which changes nothing) need only the role. Add
+# `diagnose` to Opus here only once its qualification row passes - and even then the row decides.
+roles:
+  claude-sonnet-5-5: [diagnose, critic, chat]
+  claude-opus-5-5: [critic, chat]
 # The model each provider uses when WARDEN_MODEL names none (no model id in code). A default is not
 # a qualification: the model must still be in `qualified` below, or it is refused (register M20).
 defaults:
