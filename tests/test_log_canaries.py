@@ -64,10 +64,11 @@ def test_gating_handlers_is_idempotent_and_keeps_wardens_own_formatter():
     assert own.formatter.__class__ is GatedFormatter
 
 
-def test_a_formatter_that_fails_is_withheld_not_printed_raw():
+@pytest.mark.parametrize("error", [ValueError, RuntimeError, OSError])
+def test_a_formatter_that_fails_is_withheld_not_printed_raw(error):
     class Broken(logging.Formatter):
         def format(self, record):
-            raise ValueError(EMAIL)
+            raise error(EMAIL)
 
     record = logging.LogRecord("x", logging.ERROR, __file__, 1, "user %s", (EMAIL,), None)
     assert GatedWrap(Broken()).format(record) == "ERROR x: (log text withheld)"
@@ -131,6 +132,7 @@ def test_a_real_process_logs_no_canary_whatever_the_path(tmp_path):
     CLI's to gate: tests/test_log_gate_review5.py.)"""
     code = _PROCESS.format(tests=str(__import__("pathlib").Path(__file__).parent))
     got = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False)
+    assert got.returncode == 0, got.stderr[-2000:]
     out = got.stdout + got.stderr
     assert "in a thread" in out
     assert "deprecated for" in out

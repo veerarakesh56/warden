@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import sys
 import threading
 from collections.abc import Iterator
@@ -153,10 +152,6 @@ class GatedFormatter(logging.Formatter):
         return text.replace("\u2028", "\n").replace("\u2029", "\n").replace("\n", "\n    ")
 
 
-# What formatting a record (its arguments, another handler's formatter) or redacting its text can raise.
-_FORMAT_ERRORS = (ValueError, TypeError, KeyError, AttributeError, IndexError, RecursionError, MemoryError, re.error)
-
-
 class GatedWrap(logging.Formatter):
     """A handler's own formatter, its output gated as GatedFormatter gates it: for a handler WARDEN did not install -
     the Lambda runtime's, which prints every record as written (2026-10-20: a Lambda's log lines, an exception's text
@@ -169,7 +164,7 @@ class GatedWrap(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         try:
             text = _redact_then_cut(normalise(redact(self.inner.format(record)).text), GatedFormatter.LIMIT)
-        except _FORMAT_ERRORS:  # a formatting or redaction failure must not print the raw text instead
+        except Exception:  # noqa: BLE001 - any failure of another handler's formatter is withheld, never printed raw
             return f"{record.levelname} {record.name}: (log text withheld)"
         return text.replace("\u2028", "\n").replace("\u2029", "\n").replace("\n", "\n    ")
 
