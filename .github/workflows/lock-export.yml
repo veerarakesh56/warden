@@ -1,0 +1,36 @@
+name: "Temp · lock export (never merged)"
+
+# Throwaway (cloud session, 2026-10-20): uv lock needs download.pytorch.org, which the cloud sandbox cannot reach. This
+# relocks one package on a runner and prints the uv.lock diff into the log; the cloud session applies that diff in a
+# normal PR. Read-only token, no secrets, pinned uv with its checksum.
+on:
+  pull_request:
+    branches: [main]
+    paths: [".github/workflows/lock-export.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  relock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          ref: main
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: "0.13.1"
+          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+          python-version: "3.13"
+      - name: Relock aiohttp to 3.14.4 and print the diff
+        run: |
+          git rev-parse HEAD
+          uv lock --upgrade-package aiohttp==3.14.4
+          echo "=== LOCK-DIFF-BEGIN"
+          git diff --no-color uv.lock | base64 -w 0
+          echo
+          echo "=== LOCK-DIFF-END"
+          git diff --stat
