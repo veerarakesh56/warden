@@ -20,12 +20,12 @@ built yet is marked **planned**.
 
 | Data | Where | Kept for | Set in |
 |---|---|---|---|
-| The audit: every incident's alarm (its text redacted), the evidence exactly as the model was shown it (redacted, untrusted text reduced to facts), the diagnosis, its checks, every plan, approval, refusal, change, check, rollback and kill-switch trip, and who approved what | Aurora PostgreSQL cluster `warden-<env>-audit`, encrypted at rest; on a laptop, a SQLite file (`WARDEN_AUDIT_DB`, default `~/.warden/audit.db`) | Until a person deletes it: nothing in WARDEN removes a row | [audit.py](../src/warden/audit.py) |
+| The audit: every incident's alarm (its text redacted), the evidence exactly as the model was shown it (redacted, untrusted text reduced to facts), the diagnosis, its checks, every plan, approval, refusal, change, check, rollback and kill-switch trip, and who approved what | The audit database `warden-<env>-audit`, encrypted at rest: an Aurora PostgreSQL cluster, or one RDS PostgreSQL instance on the AWS Free plan; on a laptop, a SQLite file (`WARDEN_AUDIT_DB`, default `~/.warden/audit.db`) | Until a person deletes it: nothing in WARDEN removes a row | [audit.py](../src/warden/audit.py) |
 | The model's prompts and answers | Not stored as text. The diagnosis row keeps SHA-256 hashes of the system text, the prompt and the answer, with the model id and version | As the audit | [graph.py](../src/warden/graph.py) `node_diagnose` |
 | Discussion in Slack | The audit keeps who asked (Slack user id), when, the channel and thread, the question's length and what WARDEN's answer cited - not the words of the question or the answer | As the audit | [activities.py](../src/warden/activities.py) `discuss.*` rows |
 | Spend on the model | Calls, tokens and cost per incident, in the audit | As the audit | `incident.llm_spend` rows |
-| Audit backups | Aurora automated backups with point-in-time recovery | `audit_db_backup_days`: 7 by default and at least 7, except 1 allowed on the AWS Free plan | [aurora.tf](../terraform/modules/warden-runtime/aurora.tf), [variables.tf](../terraform/modules/warden-runtime/variables.tf) |
-| The audit's final snapshot | Taken when the cluster is deleted (`warden-<env>-audit-final`) | Until a person deletes it | [aurora.tf](../terraform/modules/warden-runtime/aurora.tf) |
+| Audit backups | The audit database's automated backups, with point-in-time recovery | `audit_db_backup_days`: 7 by default and at least 7, except 1 allowed on the AWS Free plan | [aurora.tf](../terraform/modules/warden-runtime/aurora.tf), [variables.tf](../terraform/modules/warden-runtime/variables.tf) |
+| The audit's final snapshot | Taken when the audit database is deleted (`warden-<env>-audit-final`) | Until a person deletes it | [aurora.tf](../terraform/modules/warden-runtime/aurora.tf) |
 | Checkpoint anchors (a signed hash of the audit at a point) | S3 bucket `warden-<env>-anchors-...`, Object Lock in COMPLIANCE mode, versioned, KMS-encrypted | Locked for `anchor_retention_days` (default 1); no lifecycle rule, so kept after that until someone deletes them | [anchors.tf](../terraform/modules/warden-runtime/anchors.tf) |
 | CloudTrail witness (AWS's own record of the account's management events, including every actor-role session and audit signature) | Trail `warden-<env>-witness`, S3 bucket `warden-<env>-witness-...`, Object Lock in COMPLIANCE mode, log file validation on | Locked for `anchor_retention_days` (default 1); no lifecycle rule | [witness.tf](../terraform/modules/warden-runtime/witness.tf) |
 | Worker logs (all five zones) | CloudWatch Logs `/warden/<env>/worker` | 90 days | [compute.tf](../terraform/modules/warden-runtime/compute.tf) |
@@ -56,7 +56,7 @@ a format no pattern knows is not caught.
 - **One incident.** Not built: the audit is append-only and its hash chain would break. Removing data from it means
   rebuilding the chain and its anchors by hand. Planned only if a legal need arises.
 - **Everything.** Tearing down the runtime with Terraform deletes the logs, the queue, the services and the Lambdas.
-  The audit cluster has deletion protection and leaves a final snapshot; the anchor and witness buckets cannot be
+  The audit database has deletion protection and leaves a final snapshot; the anchor and witness buckets cannot be
   emptied until their objects' lock ends. Secrets wait 7 days and the KMS key 30.
 
 ## Planned

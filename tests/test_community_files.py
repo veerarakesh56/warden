@@ -15,6 +15,7 @@ FILES = ("CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md", "docs/DATA-RETE
          ".github/ISSUE_TEMPLATE/feature_request.md")
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _LINK = re.compile(r"\]\(([^)\s]+)\)")
+_REFERENCE_LINK = re.compile(r"^ {0,3}\[[^\]]+\]:\s*<?([^\s>]+)>?", re.MULTILINE)  # [name]: target
 
 
 def _text(rel: str) -> str:
@@ -33,7 +34,8 @@ def test_the_file_exists_and_holds_no_email_address(rel):
 def test_every_relative_link_resolves(rel):
     base = (ROOT / rel).parent
     broken = []
-    for target in _LINK.findall(_text(rel)):
+    text = _text(rel)
+    for target in _LINK.findall(text) + _REFERENCE_LINK.findall(text):
         if target.startswith(("https://", "#")):
             continue
         assert not target.startswith("http://"), (rel, target)  # an external link is https

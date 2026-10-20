@@ -30,16 +30,23 @@ These are the commands of the `CI · tool` workflow ([ci-tool.yml](.github/workf
 ```
 ruff check src tests evals scripts scenarios
 python scripts/check_publishable.py
-pytest tests -q -n auto
+pytest tests -q -n auto -rs -o faulthandler_timeout=300
 pytest evals -q
 ```
 
 And the security scans (`uv sync --locked --group scan` first):
 
 ```
+uv export --locked --all-extras --all-groups --no-emit-project --format requirements-txt -o locked.txt
+pip-audit -r locked.txt --require-hashes --disable-pip
 bandit -q -r src scenarios scripts -ll
 zizmor --offline --format plain .github
 ```
+
+These cover `CI · tool`. The other required checks run only in CI, each on the paths it watches; their exact commands
+are in their workflows: `CI · infra` ([ci-infra.yml](.github/workflows/ci-infra.yml)), `CI · apps`
+([ci-apps.yml](.github/workflows/ci-apps.yml)) and `Scan · workflows`
+([scan-workflows.yml](.github/workflows/scan-workflows.yml)), plus CodeQL and SonarCloud.
 
 Tests under `tests/integration` need a live Kubernetes cluster or database servers. They skip on your machine and run
 in CI's own jobs, which fail if any of them skips.
