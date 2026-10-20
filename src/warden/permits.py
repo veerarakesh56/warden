@@ -30,6 +30,7 @@ from . import identity
 
 ALLOWED = "allowed"
 DENIED = "ACTOR-PERMISSION"
+_PUT_CONCURRENCY = "lambda:PutFunctionConcurrency"
 # The undo is another action: forward action -> the undo's actions, per entry (platforms/aws.py, `back=True`).
 _SG = {f"ec2:{a}SecurityGroup{s}": (f"ec2:{b}SecurityGroup{s}",)
        for s in ("Ingress", "Egress") for a, b in (("Authorize", "Revoke"), ("Revoke", "Authorize"))}
@@ -44,9 +45,8 @@ UNDO: dict[str, dict[str, tuple[str, ...]]] = {
     "ec2_revert_sg_change": _SG,
     "ec2_restore_route": {"ec2:CreateRoute": ("ec2:DeleteRoute",), "ec2:DeleteRoute": ("ec2:CreateRoute",)},
     # Back to the value the change set: none deletes the reservation (aws._lambda_restore), any other value puts it.
-    "lambda_restore_concurrency": {"lambda:PutFunctionConcurrency": ("lambda:PutFunctionConcurrency",
-                                                                     "lambda:DeleteFunctionConcurrency"),
-                                   "lambda:DeleteFunctionConcurrency": ("lambda:PutFunctionConcurrency",)},
+    "lambda_restore_concurrency": {_PUT_CONCURRENCY: (_PUT_CONCURRENCY, "lambda:DeleteFunctionConcurrency"),
+                                   "lambda:DeleteFunctionConcurrency": (_PUT_CONCURRENCY,)},
 }
 # The undo is the same actions on the same resources.
 SAME_UNDO = frozenset({"lambda_move_alias", "lambda_set_reserved_concurrency", "lambda_enable_esm",
@@ -59,9 +59,19 @@ NO_UNDO = frozenset({"athena_stop_query", "appconfig_revert", "ecs_restart_servi
                      "secrets_restore_secret", "kinesis_restore_retention", "aurora_failover"})
 
 
-class Traced(BaseException):
-    """Raised by the recording client at the executor's first call to AWS. A BaseException, so no `except Exception`
-    in the write code turns it into a failure - nothing was sent, and the sessions asked for are recorded."""
+class Traced(Exception):
+    """Raised by the recording client at the executor's first call to AWS: nothing was sent, and the sessions asked
+    for are recorded. The write code may wrap it (AwsPlatform._change turns any exception into its own error, `from`
+    it): `trace` finds it in the chain of causes."""
+
+
+def _traced(exc: BaseException | None) -> bool:
+    seen = 0
+    while exc is not None and seen < 20:
+        if isinstance(exc, Traced):
+            return True
+        exc, seen = exc.__cause__ or exc.__context__, seen + 1
+    return False
 
 
 def recorder(sessions: list[dict[str, Any]]) -> Callable[..., Callable[[str], Any]]:
@@ -86,12 +96,14 @@ def recorder(sessions: list[dict[str, Any]]) -> Callable[..., Callable[[str], An
 
 
 def trace(run: Callable[[Callable[..., Any]], Any]) -> list[dict[str, Any]]:
-    """The sessions `run(actor)` asks for before its first call to AWS. Its own refusal propagates."""
+    """The sessions `run(actor)` asks for before its first call to AWS. Its own refusal - an exception the trace's
+    stop did not cause - propagates."""
     sessions: list[dict[str, Any]] = []
     try:
         run(recorder(sessions))
-    except Traced:
-        pass
+    except Exception as exc:
+        if not _traced(exc):
+            raise
     return sessions
 
 
@@ -162,11 +174,12 @@ def _verdicts(results: list[dict[str, Any]]) -> list[tuple[str, str, str, list[s
 
 def _aws_errors() -> tuple[type[Exception], ...]:
     """What a call to AWS raises when it fails: botocore's own errors, a refused session, a lost connection."""
+    errors: list[type[Exception]] = [RuntimeError, OSError]
     try:
         from botocore.exceptions import BotoCoreError, ClientError
     except ImportError:  # no AWS extra installed: nothing but the platform's own errors can come
-        return (RuntimeError, OSError)
-    return (BotoCoreError, ClientError, RuntimeError, OSError)
+        return tuple(errors)
+    return (*errors, BotoCoreError, ClientError)
 
 
 def check(entry: str, *, run: Callable[[Callable[..., Any]], Any], iam: Callable[[], Any], incident: str,

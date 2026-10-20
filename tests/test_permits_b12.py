@@ -56,13 +56,17 @@ def _rule(f, p, iam):
 def test_the_apply_and_its_undo_are_checked_and_nothing_is_sent(aws):
     f, p = aws
     got = _rule(f, p, Iam(allow={"events:EnableRule", "events:DisableRule"}))
-    assert got["checked"] is True and got["denied"] == [] and got["unconfirmed"] == []
+    assert got["checked"] is True
+    assert got["denied"] == []
+    assert got["unconfirmed"] == []
     assert [(c["step"], c["actions"]) for c in got["calls"]] == [("apply", ["events:EnableRule"]),
                                                                  ("undo", ["events:DisableRule"])]
     # The trace minted no actor session and sent no write: only the simulator was asked.
-    assert f.writes == [] and f.sessions == []
+    assert f.writes == []
+    assert f.sessions == []
     asked = f.iam.asked[0]
-    assert asked["PolicySourceArn"] == ROLE and asked["ResourceArns"] == [f.rule["Arn"]]
+    assert asked["PolicySourceArn"] == ROLE
+    assert asked["ResourceArns"] == [f.rule["Arn"]]
     context = {c["ContextKeyName"]: c["ContextKeyValues"] for c in asked["ContextEntries"]}
     assert context == {"aws:SourceIdentity": ["inc-7"], "aws:ResourceTag/Environment": ["dev"]}
 
@@ -72,7 +76,8 @@ def test_an_undo_the_role_does_not_allow_refuses_the_plan(aws):
     got = _rule(f, p, Iam(allow={"events:EnableRule"}))
     [denied] = got["denied"]
     assert denied.startswith("ACTOR-PERMISSION: the actor role warden-dev-actor may not events:DisableRule")
-    assert "undo" in denied and ACCT not in denied  # the resource is said without the account
+    assert "undo" in denied
+    assert ACCT not in denied  # the resource is said without the account
 
 
 def test_an_apply_the_role_does_not_allow_refuses_the_plan(aws):
@@ -93,7 +98,8 @@ def test_a_key_warden_cannot_supply_is_unconfirmed_not_refused(aws):
 def test_every_page_of_the_simulators_answer_is_read(aws):
     f, p = aws
     got = _rule(f, p, Iam(allow={"events:EnableRule"}, page=1))
-    assert len(got["denied"]) == 1 and [a.get("Marker") for a in f.iam.asked] == [None, "m2", None, "m2"]
+    assert len(got["denied"]) == 1
+    assert [a.get("Marker") for a in f.iam.asked] == [None, "m2", None, "m2"]
 
 
 def test_the_sessions_own_condition_keys_are_supplied(aws):
@@ -102,9 +108,11 @@ def test_the_sessions_own_condition_keys_are_supplied(aws):
     params = {"function": FN, "mapping": "u-1"}
     snap = p.live("lambda_enable_esm", params)["state"]
     got = p.permitted("lambda_enable_esm", params, snap, incident="inc-7", environment="dev")
-    assert got["denied"] == [] and got["checked"] is True
+    assert got["denied"] == []
+    assert got["checked"] is True
     context = {c["ContextKeyName"]: c["ContextKeyValues"] for c in f.iam.asked[0]["ContextEntries"]}
-    assert context["lambda:FunctionArn"] == [FN_ARN] and context["aws:SourceIdentity"] == ["inc-7"]
+    assert context["lambda:FunctionArn"] == [FN_ARN]
+    assert context["aws:SourceIdentity"] == ["inc-7"]
 
 
 def test_a_canary_write_is_traced_without_its_wait_or_its_write(aws):
@@ -113,22 +121,28 @@ def test_a_canary_write_is_traced_without_its_wait_or_its_write(aws):
     params = {"function": FN, "alias": "live", "to_version": "3"}
     snap = p.live("lambda_move_alias", params)["state"]
     got = p.permitted("lambda_move_alias", params, snap, incident="7", environment="dev")
-    assert got["denied"] == [] and [c["actions"] for c in got["calls"]] == [["lambda:UpdateAlias"]] * 2
-    assert f.writes == [] and f.sessions == []
+    assert got["denied"] == []
+    assert [c["actions"] for c in got["calls"]] == [["lambda:UpdateAlias"]] * 2
+    assert f.writes == []
+    assert f.sessions == []
 
 
 def test_no_actor_role_or_a_refusing_write_code_is_unconfirmed(aws, monkeypatch):
     f, p = aws
     monkeypatch.delenv("WARDEN_AWS_ACTOR_ROLE_ARN")
     got = _rule(f, p, Iam())
-    assert got["checked"] is False and got["denied"] == [] and "no actor role" in got["unconfirmed"][0]
+    assert got["checked"] is False
+    assert got["denied"] == []
+    assert "no actor role" in got["unconfirmed"][0]
     monkeypatch.setenv("WARDEN_AWS_ACTOR_ROLE_ARN", ROLE)
     f.iam = Iam()
     params = {"rule": f.rule["Name"]}
     snap = p.live("events_enable_rule", params)["state"]
     f.rule["State"] = "ENABLED"  # moved since the plan: the write code refuses before any session
     got = p.permitted("events_enable_rule", params, snap, incident="7", environment="dev")
-    assert got["checked"] is False and got["denied"] == [] and "could not be traced" in got["unconfirmed"][0]
+    assert got["checked"] is False
+    assert got["denied"] == []
+    assert "could not be traced" in got["unconfirmed"][0]
     assert f.iam.asked == []
 
 
@@ -180,7 +194,8 @@ def test_a_plan_the_actor_may_not_carry_out_is_refused_before_any_approval_is_as
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
     assert [p for p in plan.problems if p.startswith("ACTOR-PERMISSION")]
     [row] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.permissions",))
-    assert row["body"]["workflow_id"] == "rem-1" and row["body"]["checked"] is True
+    assert row["body"]["workflow_id"] == "rem-1"
+    assert row["body"]["checked"] is True
 
 
 def test_a_failed_check_refuses_nothing_and_is_recorded():
@@ -193,7 +208,8 @@ def test_a_failed_check_refuses_nothing_and_is_recorded():
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
     assert plan.problems == []
     [row] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.permissions",))
-    assert row["body"]["checked"] is False and "simulator unreachable" in row["body"]["unconfirmed"][0]
+    assert row["body"]["checked"] is False
+    assert "simulator unreachable" in row["body"]["unconfirmed"][0]
 
 
 def test_a_platform_without_the_check_refuses_nothing_and_writes_no_row():
@@ -209,5 +225,6 @@ def test_a_simulator_that_cannot_be_read_is_unconfirmed_not_refused(aws):
 
     f, p = aws
     got = _rule(f, p, Down())
-    assert got["checked"] is False and got["denied"] == []
+    assert got["checked"] is False
+    assert got["denied"] == []
     assert got["unconfirmed"] == ["the policy simulator could not be read: connection reset"]
