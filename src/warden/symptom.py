@@ -82,29 +82,32 @@ class Reading:
     state: str = UNKNOWN
     why: str = ""
     periods: int = DEFAULT_PERIODS
-    values: list[float] = field(default_factory=list)
+    values: list[float | None] = field(default_factory=list)  # one per whole period since the fix; None: no data
     new_errors: list[str] = field(default_factory=list)
     errors_read: bool = False
 
     def row(self) -> dict[str, Any]:
         return {"source": self.source, "state": self.state, "why": self.why[:300], "periods": self.periods,
-                "values": [round(v, 6) for v in self.values[-self.periods:]], "new_errors": self.new_errors,
+                "values": [None if v is None else round(v, 6) for v in self.values[-self.periods:]],
+                "new_errors": self.new_errors,
                 "errors_read": self.errors_read}
 
 
-def judge(values: list[float], comparison: str, threshold: float, n: int) -> tuple[str, str]:
-    """The metric's verdict from the values of the complete periods since the fix, oldest first."""
+def judge(values: list[float | None], comparison: str, threshold: float, n: int) -> tuple[str, str]:
+    """The metric's verdict from one value per whole period since the fix, oldest first (None: the period had no
+    data). Any breach is "present"; "gone" needs each of the last N periods read and clean; anything else is unknown."""
     bad = _BAD.get(comparison)
     if bad is None:
         return UNKNOWN, f"the alarm compares with {comparison or 'no threshold'}: no single threshold to judge"
-    if not values:
-        return UNKNOWN, f"no complete period since the fix (0 of {n})"
-    breached = [v for v in values if bad(v, threshold)]
+    known = [v for v in values if v is not None]
+    breached = [v for v in known if bad(v, threshold)]
     if breached:
-        return PRESENT, (f"{len(breached)} of {len(values)} periods since the fix still breach {comparison} "
-                         f"{threshold:g} (latest {values[-1]:g})")
-    if len(values) < n:
-        return UNKNOWN, f"{len(values)} of {n} periods since the fix, none breaching"
+        return PRESENT, (f"{len(breached)} of {len(known)} periods read since the fix still breach {comparison} "
+                         f"{threshold:g} (latest {known[-1]:g})")
+    last = values[-n:]
+    if len(last) < n or None in last:
+        read = sum(v is not None for v in last)
+        return UNKNOWN, f"{read} of the last {n} periods since the fix read, none breaching"
     return GONE, f"the last {n} periods are all within {comparison} {threshold:g}"
 
 
@@ -170,17 +173,19 @@ def cloudwatch_metric(cw: Any, alarm: str, applied: datetime, now: datetime, n: 
         reading.why = "not a single-metric alarm (a metric-math or composite alarm, or not found)"
         return reading
     start, end = _aligned(applied, period), now
-    values: list[float] = []
-    if end - start >= timedelta(seconds=period):
+    # One position per whole period since the fix - the one still running would be judged on part of its data - and
+    # a period CloudWatch returned no value for stays empty, never filled by its neighbour.
+    buckets = [start + timedelta(seconds=period * i) for i in range(int((end - start).total_seconds() // period))]
+    got_values: dict[datetime, float] = {}
+    if buckets:
         got = cw.get_metric_data(MetricDataQueries=[{"Id": "m", "ReturnData": True, "MetricStat": {
             "Metric": {"Namespace": a.get("Namespace"), "MetricName": a["MetricName"],
                        "Dimensions": a.get("Dimensions") or []}, "Period": period, "Stat": stat}}],
             StartTime=start, EndTime=end, ScanBy="TimestampAscending")
         result = (got.get("MetricDataResults") or [{}])[0]
-        stamps = result.get("Timestamps") or []
-        # Only periods that are over: the one still running would be judged on part of its data.
-        values = [float(v) for t, v in zip(stamps, result.get("Values") or [], strict=False)
-                  if t + timedelta(seconds=period) <= end]
+        got_values = dict(zip(result.get("Timestamps") or [], (float(v) for v in result.get("Values") or []),
+                              strict=False))
+    values = [got_values.get(b) for b in buckets]
     reading.values = values
     reading.state, reading.why = judge(values, str(a.get("ComparisonOperator") or ""),
                                        float(a.get("Threshold") or 0.0), n)
@@ -235,16 +240,32 @@ def cloudwatch(read: Callable[[str], Any], alarm: str, labels: dict[str, Any], *
 
 
 def windows(points: list[tuple[float, float]], start: datetime, end: datetime, width: int,
-            agg: Callable[[list[float]], float]) -> list[float]:
-    """Each complete `width`-second window from `start`, aggregated as the monitor aggregates; empty windows skipped."""
-    out: list[float] = []
+            agg: Callable[[list[float]], float]) -> list[float | None]:
+    """One value per complete `width`-second window from `start`, aggregated as the monitor aggregates; None for a
+    window with no points."""
+    out: list[float | None] = []
     t = start.timestamp()
     while t + width <= end.timestamp():
         inside = [v for ts, v in points if t <= ts / 1000 < t + width]
-        if inside:
-            out.append(agg(inside))
+        out.append(agg(inside) if inside else None)
         t += width
     return out
+
+
+def _dicts(value: Any) -> list[dict[str, Any]]:
+    """The dict items of a JSON list; anything else is no item (an answer of the wrong shape reads as empty)."""
+    return [x for x in value if isinstance(x, dict)] if isinstance(value, list) else []
+
+
+def _number_pairs(series: Any) -> list[tuple[float, float]]:
+    """A Datadog series' [timestamp, value] pairs that are numbers."""
+    pairs = []
+    for s in _dicts(series):
+        point_list = s.get("pointlist")
+        for pt in point_list if isinstance(point_list, list) else []:
+            if isinstance(pt, list) and len(pt) == 2 and all(isinstance(x, int | float) for x in pt):
+                pairs.append((float(pt[0]), float(pt[1])))
+    return pairs
 
 
 def datadog(ask: Callable[..., tuple[dict | None, str]], monitor: str, service: str, *, alert_at: datetime,
@@ -253,7 +274,7 @@ def datadog(ask: Callable[..., tuple[dict | None, str]], monitor: str, service: 
     DatadogReader._ask: (answer, problem)."""
     reading = Reading(source="datadog", periods=n)
     got, problem = ask("monitor", "GET", f"/api/v1/monitor/{monitor}")
-    if got is None:
+    if not isinstance(got, dict):
         reading.why = problem or "the monitor was not read"
         return reading
     state = str(got.get("overall_state") or "")
@@ -275,12 +296,10 @@ def _datadog_metric(ask: Callable[..., tuple[dict | None, str]], m: re.Match, re
     width = int(count) * _DD_UNIT[unit]
     got, problem = ask("metrics", "GET", "/api/v1/query",
                        query={"from": int(applied.timestamp()), "to": int(now.timestamp()), "query": query})
-    if got is None:
+    if not isinstance(got, dict):
         reading.why = problem or "the monitor's metric was not read"
         return reading
-    points = [(float(ts), float(v)) for s in got.get("series") or [] for ts, v in s.get("pointlist") or []
-              if v is not None]
-    reading.values = windows(points, applied, now, width, _DD_AGG[agg])
+    reading.values = windows(_number_pairs(got.get("series")), applied, now, width, _DD_AGG[agg])
     reading.state, reading.why = judge(reading.values, comparison, float(threshold), n)
     return reading
 
@@ -310,11 +329,11 @@ def _datadog_page(ask: Callable[..., tuple[dict | None, str]], service: str, sta
     body = {"filter": {"query": f"service:{service} status:(error OR critical OR emergency)", "from": _iso(start),
                        "to": _iso(end)}, "sort": "timestamp",
             "page": {"limit": MAX_LOG_EVENTS, **({"cursor": cursor} if cursor else {})}}
-    try:
-        got, _ = ask("logs", "POST", "/api/v2/logs/events/search", body)
-        if got is None:
-            return None
-        lines = [str((e.get("attributes") or {}).get("message") or "") for e in got.get("data") or []]
-        return lines, str(((got.get("meta") or {}).get("page") or {}).get("after") or "")
-    except READ_ERRORS:  # a malformed answer is an unread log: the metric's verdict stands
-        return None
+    got, _ = ask("logs", "POST", "/api/v2/logs/events/search", body)
+    data = got.get("data") if isinstance(got, dict) else None
+    if not isinstance(data, list) or not all(isinstance(e, dict) for e in data):
+        return None  # not read, or not the shape Datadog answers with: unread, and the metric's verdict stands
+    lines = [str(a.get("message") or "") for e in data if isinstance(a := e.get("attributes"), dict)]
+    meta = got.get("meta")
+    page = meta.get("page") if isinstance(meta, dict) else None
+    return lines, str(page.get("after") or "") if isinstance(page, dict) else ""
