@@ -137,14 +137,14 @@ The trust boundaries (TB) used below:
 |---|---|---|---|---|
 | I | Workflow history exposes evidence or secrets (S2) | Every payload is encrypted with AES-256-GCM, bound to its workflow, before it leaves the worker; Temporal holds ciphertext only | [codec.py](../src/warden/codec.py); tests/test_incident_workflow.py::test_with_encryption_nothing_redacted_is_readable_in_history, tests/test_codec.py::test_a_ciphertext_is_bound_to_its_workflow | built and tested |
 | T | A forged signal or payload | The codec refuses a changed or forged ciphertext; the workflow re-verifies every approval itself | tests/test_codec.py::test_a_forged_ciphertext_is_refused_not_raised | built and tested |
-| S, E | One leaked Temporal key reaches everything (S15) | API key over TLS; each ECS zone has its own key and its own role. The four front door Lambdas still share one key (S15b); one key per Lambda is planned (B23) | tests/test_temporal_auth_s15.py::test_a_remote_server_without_a_key_is_refused_before_any_connection, tests/test_runtime_module_g6.py::test_each_zone_reads_exactly_the_secrets_its_worker_loads | built, not proven live |
+| S, E | One leaked Temporal key reaches everything (S15) | API key over TLS; each ECS zone has its own key and its own role. The three front door Lambdas that reach Temporal share one key: kept on purpose, owner decision 2026-10-20 (cost), so a leak of it reaches what those Lambdas can, not the zones' work; the zones' own keys are not yet proven live (S15b) | tests/test_temporal_auth_s15.py::test_a_remote_server_without_a_key_is_refused_before_any_connection, tests/test_runtime_module_g6.py::test_each_zone_reads_exactly_the_secrets_its_worker_loads | built, not proven live |
 
 ### TB8: the record
 
 | STRIDE | Threat | Mitigation | Evidence | Status |
 |---|---|---|---|---|
 | T, R | Someone with the database rewrites history (S12) | A hash chain with signed checkpoints; the signer is a KMS key WARDEN cannot export; checkpoints are anchored to S3 Object Lock in COMPLIANCE mode; CloudTrail witnesses every signature | [audit.py](../src/warden/audit.py); tests/test_audit_log.py::test_rewriting_a_row_and_recomputing_every_later_hash_is_caught_by_the_signature, tests/test_audit_anchor_s12.py::test_a_history_rewritten_and_re_signed_with_the_key_is_caught_by_its_anchors | built and tested |
-| R | The anchors' lock is too short to matter | At least 180 days (B19). Today Object Lock lasts `anchor_retention_days`, 1 day by default (the data-retention page, B33) | [anchors.tf](../terraform/modules/warden-runtime/anchors.tf) | planned |
+| R | The anchors' lock is too short to matter, or the rows cannot be restored | At least 180 days of audit retention (B19). Decided 2026-10-20 for the backups: 35 days of automated backups and one monthly AWS Backup copy kept 180 days. Today Object Lock on the anchors lasts `anchor_retention_days`, 1 day by default, and backups 7 days (the data-retention page, B33) | [anchors.tf](../terraform/modules/warden-runtime/anchors.tf) | planned |
 | D | The audit database is lost (O4) | Backups with point-in-time recovery, deletion protection, a final snapshot. A restore has never been drilled: the drill is planned (O4b) | tests/test_runtime_module_g6.py::test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_runtime_only | built and tested |
 
 ### TB9: repository, CI and deploy pipelines
@@ -179,7 +179,7 @@ designed out before the code lands.
 | A repeating page until someone acknowledges it | A single page that nobody sees | PR #43 (in review) |
 | Self-alarms for every zone, the Lambdas' errors, the audit database, key expiry | Only the core zone beats today (the WARDEN-down runbook, B29) | B35 |
 | Exact actions instead of wildcards in the deploy policy; the runtime's own task-execution policy | Least privilege for deploys | B22 |
-| Temporal egress only to the Temporal Cloud endpoint | A compromised worker talking anywhere on 7233 | B23 |
+| A code guard: the workers and Lambdas refuse any Temporal address that is not the configured Temporal Cloud namespace endpoint (owner decision 2026-10-20; enforced in code, not by the network - the security group stays limited to port 7233) | A worker sent to another Temporal server | B23 |
 | Checking the actor role's permissions before asking for approval | An approved plan AWS then refuses | B12 |
 | A single-writer lock per target; a check for a deploy or PR between the fix and its rollback | Two writers on one target; rolling back someone else's change | B20, B21 |
 
