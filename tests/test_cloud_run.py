@@ -28,29 +28,37 @@ def test_the_key_comes_from_the_runtimes_secret_and_is_never_printed(monkeypatch
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     key = ANTHROPIC_KEY_PREFIX + "x" * 20
     secrets = _Secrets(key)
-    said = cloud_run.model_key("ops", secrets)
-    assert secrets.asked == ["warden/ops/anthropic-api-key"] and os.environ["ANTHROPIC_API_KEY"] == key
-    assert key not in said and key not in capsys.readouterr().out
+    said = cloud_run.key_source("ops")
+    cloud_run.model_key("ops", secrets)
+    assert secrets.asked == ['warden/ops/anthropic-api-key']
+    assert os.environ['ANTHROPIC_API_KEY'] == key
+    assert key not in said
+    assert key not in capsys.readouterr().out
     # Already in the process (the llm zone's task): Secrets Manager is not asked.
-    assert "already in this process" in cloud_run.model_key("ops", _Secrets("unused"))
+    unused = _Secrets("unused")
+    cloud_run.model_key("ops", unused)
+    assert "already in this process" in cloud_run.key_source("ops")
+    assert unused.asked == []
     monkeypatch.delenv("ANTHROPIC_API_KEY")
+    empty = _Secrets(" ")
     with pytest.raises(SystemExit):
-        cloud_run.model_key("ops", _Secrets(" "))
+        cloud_run.model_key("ops", empty)
 
 
-def test_a_pass_is_added_under_qualified_and_a_fail_is_a_comment(tmp_path):
-    doc = tmp_path / "providers.yaml"
-    doc.write_text("bar:\n  min_correct: 17\nqualified:\n  - {\"model\": \"old\"}\n", encoding="utf-8")
-    row = {"provider": "anthropic", "model": "m", "correct": 18, "wrong_and_allowed": 0}
-    cloud_run.record({**row, "passed": True}, doc)
+def test_a_pass_is_added_under_qualified_and_a_fail_is_a_comment():
     import yaml
 
-    assert yaml.safe_load(doc.read_text(encoding="utf-8"))["qualified"][0] == row
-    cloud_run.record({**row, "correct": 15, "passed": False, "slo_breaches": ["escalated 29"]}, doc)
-    text = doc.read_text(encoding="utf-8")
-    assert "# NOT QUALIFIED" in text and "escalated 29" in text
+    doc = "bar:\n  min_correct: 17\nqualified:\n  - {\"model\": \"old\"}\n"
+    row = {"provider": "anthropic", "model": "m", "correct": 18, "wrong_and_allowed": 0}
+    doc, _ = cloud_run.recorded({**row, "passed": True}, doc)
+    assert yaml.safe_load(doc)["qualified"][0] == row
+    text, line = cloud_run.recorded({**row, "correct": 15, "passed": False, "slo_breaches": ["escalated 29"]}, doc)
+    assert "# NOT QUALIFIED" in text
+    assert "escalated 29" in text
     assert len(yaml.safe_load(text)["qualified"]) == 2  # the failed run admits nothing
-    assert json.dumps({**row, "correct": 15}) in text
+    assert json.dumps({**row, "correct": 15}) in line
+    with pytest.raises(SystemExit):
+        cloud_run.recorded(row, "bar: {}\n")
 
 
 def test_qualify_runs_the_replay_for_exactly_the_named_model_at_its_own_price(tmp_path, monkeypatch):
@@ -72,6 +80,10 @@ def test_qualify_runs_the_replay_for_exactly_the_named_model_at_its_own_price(tm
     for name in ("WARDEN_PROVIDER", "WARDEN_MODEL"):
         monkeypatch.delenv(name, raising=False)
     code = cloud_run.main(["qualify", "--model", "claude-opus-5-5", "--budget-usd", "2", "--out", str(tmp_path / "o")])
-    assert code == 1 and seen["provider"] == "anthropic" and seen["model"] == "claude-opus-5-5"
-    assert seen["price"] is None and "--budget-usd" in seen["argv"] and "2.0" in seen["argv"]
+    assert code == 1
+    assert seen['provider'] == 'anthropic'
+    assert seen['model'] == 'claude-opus-5-5'
+    assert seen['price'] is None
+    assert '--budget-usd' in seen['argv']
+    assert '2.0' in seen['argv']
     assert set(cloud_run.JOBS) == {"qualify"}
