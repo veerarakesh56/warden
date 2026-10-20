@@ -81,6 +81,29 @@ def test_run_from_the_home_directory_or_above_it_nothing_in_home_is_a_working_pl
         paths.inside(home / ".ssh" / "id_ed25519")
 
 
+def test_a_temp_or_tool_folder_that_is_or_holds_the_home_directory_is_no_working_place(tmp_path, monkeypatch):
+    """WARDEN_BENCH_DIR=~, RUNNER_TEMP=/home or a temp folder holding ~ would make ~/.ssh a working place
+    (CodeRabbit, PR 46). The tools' own folders under ~ stay working places."""
+    home = tmp_path / "home" / "op"
+    (home / "project").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(home / "project")
+    for name in paths.FOLDER_ENVS:
+        monkeypatch.delenv(name, raising=False)
+    secret = home / ".ssh" / "id_ed25519"
+    for env, where in (("WARDEN_BENCH_DIR", home), ("RUNNER_TEMP", home.parent), ("WARDEN_PROOF_DIR", "~")):
+        monkeypatch.setenv(env, str(where))
+        monkeypatch.setattr(paths.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+        with pytest.raises(ValueError, match="outside the places"):
+            paths.inside(secret)
+        monkeypatch.delenv(env)
+    monkeypatch.setattr(paths.tempfile, "gettempdir", lambda: str(home))
+    with pytest.raises(ValueError, match="outside the places"):
+        paths.inside(secret)
+    bench = home / paths.HOME_FOLDERS[0] / "run.json"
+    assert paths.inside(bench) == bench.resolve()
+
+
 def test_a_symlink_out_of_the_working_places_is_refused(tmp_path):
     link = tmp_path / "out"
     try:

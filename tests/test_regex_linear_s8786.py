@@ -1,7 +1,8 @@
 """Regexes that read text a model, a log or an alert wrote run in time that grows with the length of that text, not
 its square (Sonar python:S8786, 2026-10-16). Each input below is the worst case of the pattern it was before: 20,000
-characters took it seconds - 8,000 already took 0.4-2 s, four times 4,000 - and takes these milliseconds. The
-matches themselves are pinned in each module's own tests; a few here show the rewrite matches what it did."""
+characters took it seconds - 8,000 already took 0.4-2 s, four times 4,000 - and takes these milliseconds. Timed in this
+process's own CPU time, so other work on a busy machine does not count against the pattern. The matches themselves are
+pinned in each module's own tests; a few here show the rewrite matches what it did."""
 
 from __future__ import annotations
 
@@ -30,9 +31,9 @@ CASES = {
 @pytest.mark.parametrize("name", CASES)
 def test_the_worst_case_input_is_read_in_linear_time(name):
     fn, text = CASES[name]
-    start = time.perf_counter()
+    start = time.process_time()
     fn(text)
-    assert time.perf_counter() - start < 1.0, name
+    assert time.process_time() - start < 1.0, name
 
 
 @pytest.mark.parametrize("target", ["a" * N + " =b", "a" * 70 + "=b"], ids=["a long word", "a 70-letter name"])
@@ -40,9 +41,9 @@ def test_an_assignment_in_a_long_name_is_still_refused_quickly(target):
     """The worst case is a long word whose `=` comes after a space; a name longer than the pattern reads is still an
     assignment, its `=` not counted as a resource kind's."""
     proposal = type("P", (), {"target": target})()
-    start = time.perf_counter()
+    start = time.process_time()
     problem = grounding.target_problem(proposal, set())
-    assert time.perf_counter() - start < 1.0
+    assert time.process_time() - start < 1.0
     assert problem is not None
     assert "assignment" in problem, problem
 
