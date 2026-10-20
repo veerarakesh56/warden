@@ -57,7 +57,7 @@ def ceiling(environment: str) -> str:
 
 
 @dataclass
-class Level:
+class Standing:
     level: str
     reasons: list[str] = field(default_factory=list)
 
@@ -114,22 +114,22 @@ def demotions(log: Any, environment: str, entry: str | None = None,
     return sorted(set(out))
 
 
-def level(log: Any, environment: str, entry: str, models: dict[str, str] | None) -> Level:
+def level(log: Any, environment: str, entry: str, models: dict[str, str] | None) -> Standing:
     """The level `entry` is at in `environment` now, from the audit alone. `models`: the diagnosing model and Eldane
     (provider/model@prompt) as this plan's review recorded them."""
     top = ceiling(environment)
     if top == L0:
-        return Level(L0, ["the environment allows no autonomy"])
+        return Standing(L0, ["the environment allows no autonomy"])
     if not models or not models.get("critic"):
-        return Level(L1, ["Eldane has not reviewed this plan"])
+        return Standing(L1, ["Eldane has not reviewed this plan"])
     if top != L2:
-        return Level(L1, ["a person approves every change here"])
+        return Standing(L1, ["a person approves every change here"])
     reasons = []
     if bounds.killswitch(log) is not None:
         reasons.append("the kill switch is on")
     reasons += [f"demoted: {why}; a person re-enables it (`warden autonomy enable`)"
                 for _, why in demotions(log, environment, entry, models)]
-    return Level(L1, reasons) if reasons else Level(L2)
+    return Standing(L1, reasons) if reasons else Standing(L2)
 
 
 def enable_hash(log: Any, environment: str) -> str:
@@ -173,26 +173,46 @@ def record_outcome(log: Any, incident: str, *, plan: dict[str, Any], status: str
     env, entry = str(plan.get("environment") or ""), str(plan.get("entry") or "")
     if not env or ceiling(env) == L0:
         return None
-    # Once per run (PR 42 review): a retried end scores the run if the first try could not, and never twice.
-    if run.get("run_id") and any(e["body"].get("workflow_id") == run.get("workflow_id")
-                                 and e["body"].get("run_id") == run.get("run_id")
-                                 for e in log.entries(f"autonomy-{env}", kinds=(OUTCOME,))):
+    if _scored(log, env, run):
         return None
-    # `ai`: the approvers whose approvals were RECORDED as an AI's - never a person, whatever the list says now, so
-    # Eldane's own approvals can never score as a person agreeing with it.
-    people = [a for a in approvers if a not in ai and not policy.is_ai(a)]
-    person = "approved" if people else ("denied" if status == "denied" else "")
-    yes = verdict.get("agree") if verdict else None
-    body = {"environment": env, "entry": entry, "status": status, "person": person, "eldane": yes,
-            "mode": "autonomous" if approvers and not people else "shadow" if verdict else "none",
-            # A skipped review's models are placeholders, never the models that reviewed (CodeRabbit, PR 42).
-            "models": {} if (verdict or {}).get("skipped") else (verdict or {}).get("models") or {},
-            "failed": status in FAILED,
-            "harmful": yes is True and person == "denied",
-            "agreed": None if yes is None or not person else yes == (person == "approved"), "incident": incident, **run}
+    body = {"environment": env, "entry": entry, "status": status,
+            **_decisions(approvers, ai=ai, policy=policy, status=status, verdict=verdict),
+            "failed": status in FAILED, "incident": incident, **run}
     # Kept as the environment's own autonomy record, not the incident's: the incident's record reads as it did.
     log.append(f"autonomy-{env}", OUTCOME, body)
     return body
+
+
+def _scored(log: Any, env: str, run: dict[str, str]) -> bool:
+    """Once per run (PR 42 review): a retried end scores the run if the first try could not, and never twice."""
+    return bool(run.get("run_id")) and any(
+        e["body"].get("workflow_id") == run.get("workflow_id") and e["body"].get("run_id") == run.get("run_id")
+        for e in log.entries(f"autonomy-{env}", kinds=(OUTCOME,)))
+
+
+def _decisions(approvers: list[str], *, ai: frozenset[str], policy: Any, status: str,
+               verdict: dict[str, Any] | None) -> dict[str, Any]:
+    """The person's decision and Eldane's, side by side: who decided, how, and whether they agreed."""
+    # `ai`: the approvers whose approvals were RECORDED as an AI's - never a person, whatever the list says now, so
+    # Eldane's own approvals can never score as a person agreeing with it.
+    people = [a for a in approvers if a not in ai and not policy.is_ai(a)]
+    person = ""
+    if people:
+        person = "approved"
+    elif status == "denied":
+        person = "denied"
+    review = verdict or {}
+    yes = review.get("agree")
+    mode = "none"
+    if approvers and not people:
+        mode = "autonomous"
+    elif verdict:
+        mode = "shadow"
+    return {"person": person, "eldane": yes, "mode": mode,
+            # A skipped review's models are placeholders, never the models that reviewed (CodeRabbit, PR 42).
+            "models": {} if review.get("skipped") else review.get("models") or {},
+            "harmful": yes is True and person == "denied",
+            "agreed": None if yes is None or not person else yes == (person == "approved")}
 
 
 # Register R6: what neither WARDEN nor Eldane may ever approve a change to. Paths a code change could touch, and the
