@@ -1,7 +1,8 @@
 Amazon RDS certificate authorities, all commercial Regions: the global bundle published at
 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem (AWS docs: Using SSL/TLS to encrypt a connection to a
 DB instance or cluster), fetched 2026-10-17, sha256 90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b.
-Public certificates only. platforms/db.py verifies the terminate login's server against them (sslmode=verify-full).
+Public certificates only. platforms/db.py verifies the database server of every read and of the terminate login
+against them (sslmode=verify-full).
 
 -----BEGIN CERTIFICATE-----
 MIID/jCCAuagAwIBAgIQdOCSuA9psBpQd8EI368/0DANBgkqhkiG9w0BAQsFADCB

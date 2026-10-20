@@ -513,7 +513,6 @@ def db_from_environment() -> Any:
     either DSN, reads and writes nothing (platforms.Unconfigured): the plan is refused and goes to a person.
     ponytail: one watched database per runtime; a map like WARDEN_EKS_CLUSTERS when a second environment has one."""
     import boto3
-    from psycopg.conninfo import conninfo_to_dict
 
     from .. import identity
     from ..aws_stack import iam_dsn
@@ -530,10 +529,12 @@ def db_from_environment() -> Any:
         write_dsn = settings.getenv("WARDEN_DB_TERMINATE_DSN")
         if not read_dsn and not write_dsn:
             raise NotConfigured(f"this worker holds no login to {env}'s database")
-        if write_dsn and conninfo_to_dict(write_dsn).get("password"):
-            # A standing password would sign in whoever holds the DSN, with no plan and no approver.
-            raise NotConfigured("WARDEN_DB_TERMINATE_DSN carries a password; the terminate login signs in with a "
-                                "plan's IAM token only")
+        for name, dsn in (("WARDEN_STACK_DB_PRIMARY_RO_DSN", read_dsn), ("WARDEN_DB_TERMINATE_DSN", write_dsn)):
+            if why := _not_iam_only(dsn):
+                # A standing password would sign in whoever holds the DSN - for the terminate login with no plan and
+                # no approver - and iam_dsn leaves such a DSN as it is: unsigned, and not verified against RDS's
+                # certificate authorities (review, PR 48: the read DSN too).
+                raise NotConfigured(f"{name} {why}; WARDEN signs in with an IAM token only, verified (verify-full)")
         reader, actor_arn = reader_clients(sts, where, role_arn(env, "platform-reader")), role_arn(env, "actor")
 
         def sign(dsn: str) -> str:
@@ -554,6 +555,20 @@ def db_from_environment() -> Any:
                                 writer=writer)
 
     return PerEnvironment(build, "database")
+
+
+def _not_iam_only(dsn: str | None) -> str:
+    """Why `dsn` cannot be signed with an IAM token and verified by iam_dsn, or "" when it can (or is not set)."""
+    if not dsn:
+        return ""
+    from psycopg.conninfo import conninfo_to_dict
+
+    parts = conninfo_to_dict(dsn)
+    if parts.get("password"):
+        return "carries a password"
+    if not parts.get("host") or not parts.get("user"):
+        return "names no host or no user"
+    return ""
 
 
 # An Aurora cluster endpoint: `<cluster>.cluster-<id>.<region>.rds.amazonaws.com`.
