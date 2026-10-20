@@ -1610,7 +1610,7 @@ class IncidentActivities:
             return {}
         try:
             return self._route(pack.alert.alert_id, stage, routing.after_answer(self.audit, pack, diagnosed, second))
-        except Exception as exc:  # noqa: BLE001 - whatever routing hit, the verdict stands and a person approves
+        except Exception as exc:  # noqa: BLE001  # whatever routing hit the verdict stands and a person approves
             why = f"routing could not be done ({_safe_error(exc)})"
             _note(f"{pack.alert.alert_id} {stage}: {why} - no takeover, a person approves")
             # Recorded like any choice. The audit took this step's rows a moment ago; if it now fails, the step fails
