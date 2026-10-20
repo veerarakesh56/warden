@@ -126,27 +126,32 @@ class KubernetesPlatform:
         annotation, with RespectIgnoreDifferences on. Anything else - no tracking id (label tracking), a Flux marker as
         well, an Application that cannot be read, a rule by jq expression only - is not proof, and the restart stays
         refused."""
-        meta = dep.metadata
-        marks = {**(getattr(meta, "labels", None) or {}), **(getattr(meta, "annotations", None) or {})}
-        if self._custom is None or any(_GITOPS[k] == "Flux" for k in marks if k in _GITOPS):
-            return False
-        app, _, resource = str(marks.get("argocd.argoproj.io/tracking-id", "")).partition(":")
-        if not app or resource != f"apps/Deployment:{self._ns}/{meta.name}":
-            return False
-        where, _, name = app.rpartition("_")  # `<namespace>_<name>` for an Application outside Argo CD's namespace
-        try:
-            found = self._custom.get_namespaced_custom_object("argoproj.io", "v1alpha1", where or ARGOCD_NAMESPACE,
-                                                              "applications", name, _request_timeout=REQUEST_TIMEOUT)
-        except Exception:  # unread is unproven  # noqa: BLE001
-            return False
-        spec = found.get("spec") if isinstance(found, dict) else None
-        if not isinstance(spec, dict) or (spec.get("destination") or {}).get("namespace") != self._ns:
+        spec = self._tracking_application(dep.metadata)
+        if spec is None or (spec.get("destination") or {}).get("namespace") != self._ns:
             return False
         # Without RespectIgnoreDifferences, a sync for any other reason applies Git's template and drops the restart
         # (Argo CD's sync options, review PR 48): the ignore is proof only with it.
         if "RespectIgnoreDifferences=true" not in ((spec.get("syncPolicy") or {}).get("syncOptions") or []):
             return False
-        return any(_ignores_restart(rule, meta.name, self._ns) for rule in spec.get("ignoreDifferences") or [])
+        return any(_ignores_restart(rule, dep.metadata.name, self._ns) for rule in spec.get("ignoreDifferences") or [])
+
+    def _tracking_application(self, meta: Any) -> dict[str, Any] | None:
+        """The spec of the Argo CD Application whose tracking id names this exact Deployment, read live; None when there
+        is none to read (label tracking, a Flux marker as well, no client, another resource's id, unreadable)."""
+        marks = {**(getattr(meta, "labels", None) or {}), **(getattr(meta, "annotations", None) or {})}
+        if self._custom is None or any(_GITOPS[k] == "Flux" for k in marks if k in _GITOPS):
+            return None
+        app, _, resource = str(marks.get("argocd.argoproj.io/tracking-id", "")).partition(":")
+        if not app or resource != f"apps/Deployment:{self._ns}/{meta.name}":
+            return None
+        where, _, name = app.rpartition("_")  # `<namespace>_<name>` for an Application outside Argo CD's namespace
+        try:
+            found = self._custom.get_namespaced_custom_object("argoproj.io", "v1alpha1", where or ARGOCD_NAMESPACE,
+                                                              "applications", name, _request_timeout=REQUEST_TIMEOUT)
+        except Exception:  # unread is unproven  # noqa: BLE001
+            return None
+        spec = found.get("spec") if isinstance(found, dict) else None
+        return spec if isinstance(spec, dict) else None
 
     def _autoscaled(self, deployment: str) -> bool | None:
         """Does a HorizontalPodAutoscaler own this Deployment's replica count (register C4)? None when it cannot be
