@@ -319,7 +319,7 @@ def test_wardens_own_link_inside_a_line_of_text_is_its_own(monkeypatch):
     """Teams and a generic webhook carry the approval link inside the message's text (`label: link`)."""
     monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", "approve.example.org")
     link = "https://approve.example.org/a/" + "Ab3" * 14 + "x"
-    egress.check_request("https://x.webhook.office.com/webhookb2/a", json.dumps({"text": f"Approve: {link}"}).encode(),
+    egress.check_request("https://x.webhook.office.com/" + "webhookb2/a", json.dumps({"text": f"Approve: {link}"}).encode(),
                          JSON, "POST")
 
 
