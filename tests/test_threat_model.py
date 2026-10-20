@@ -14,9 +14,13 @@ from test_register import _skipped
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "THREAT-MODEL.md"
-_TEST = re.compile(r"(tests/[\w/]+\.py)(?:::(test_\w+))?")
+_TEST = re.compile(r"(tests/[\w/]+\.py)::(test_\w+)")
+# A test file named without its test: it would pass the file check and skip the existence and skip checks.
+_BARE_TEST_FILE = re.compile(r"tests/[\w/]+\.py(?!::test_)")
+# A repository path in inline code, e.g. `docs/safety-pins.sha256`: it must exist, as a link must.
+_CODE_PATH = re.compile(r"`((?:docs|src|tests|terraform|iam|scripts|\.github)/[\w./-]+)`")
 _LINK = re.compile(r"\]\(([^)\s#]+)(?:#[^)]*)?\)")
-STATUSES = ("built and tested", "built, not proven live", "planned", "built", "partly built")
+STATUSES = ("built and tested", "built, not proven live", "planned")  # the three the document states
 
 
 def _text() -> str:
@@ -56,15 +60,21 @@ def test_every_cited_test_exists_and_is_not_skipped(ref):
     file, _, func = ref.partition("::")
     path = ROOT / file
     assert path.is_file(), ref
-    if func:
-        src = path.read_text(encoding="utf-8")
-        m = re.search(rf"^((?:@.*\n)*)def {func}\(", src, re.MULTILINE)
-        assert m, f"{ref} does not exist"
-        assert not _skipped(file, src, m), f"{ref} is skipped (or may be, in CI)"
+    src = path.read_text(encoding="utf-8")
+    m = re.search(rf"^((?:@.*\n)*)def {func}\(", src, re.MULTILINE)
+    assert m, f"{ref} does not exist"
+    assert not _skipped(file, src, m), f"{ref} is skipped (or may be, in CI)"
 
 
-def test_every_link_resolves():
+def test_every_test_citation_names_its_test():
+    """In the threat tables a test file is cited only with its test (the page links its own guard file, above)."""
+    evidence = " ".join(cells[-2] for cells in _threat_rows())
+    assert not _BARE_TEST_FILE.findall(evidence), _BARE_TEST_FILE.findall(evidence)
+
+
+def test_every_link_and_every_path_in_inline_code_resolves():
     broken = [t for t in _LINK.findall(_text()) if not t.startswith("https://") and not (DOC.parent / t).exists()]
+    broken += [t for t in _CODE_PATH.findall(_text()) if not (ROOT / t).exists()]
     assert not broken, broken
 
 
@@ -73,9 +83,9 @@ def test_every_threat_row_has_a_status_and_a_tested_claim_cites_a_test():
     assert len(rows) > 30, len(rows)  # a table the reader skipped would pass vacuously
     bad = []
     for cells in rows:
-        status = cells[-1].replace("**", "")
-        if not status.startswith(STATUSES):
+        status = cells[-1]
+        if status not in STATUSES:
             bad.append(("no known status", cells[1][:60], status))
-        if status.startswith("built and tested") and not _TEST.search(cells[-2]):
+        if status == "built and tested" and not _TEST.search(cells[-2]):
             bad.append(("tested without a test", cells[1][:60]))
     assert not bad, bad
