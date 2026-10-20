@@ -39,7 +39,7 @@ prompt:
   # qualifies a model only on the prompt it was measured with (providers.qualified), so until a row on this prompt is
   # recorded here every model is refused and each incident gets the rules-only diagnosis (escalated to a person,
   # register M19).
-  sha: 92f5cb61f61328ca13566bfd0bdd60c9b7a16f5ad95c578e58076d136ace83ae
+  sha: 1225fb365a1ba49a5fde33403dd75c7129cfd544245c297990d98a15ffb16283
   pinned: "2026-10-17"  # item 7 (d435b59f before: G10-57, each ruled-out cause with its reason and citations)
 # Register N6: escalating everything is safe and useless, so it is measured. "Escalated" = the gate refused, or the
 # model itself proposed escalate_to_human. Measured 2026-10-03 (scenarios/score.py act_abstain, stored answers):

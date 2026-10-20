@@ -192,3 +192,16 @@ def test_a_models_explicit_null_is_no_rival_weighed_not_an_old_answer():
     report, _ = _run({"hypothesis": "the deploy broke checkout", "citations": [D1, M1], "hypotheses": None})
     assert report.root_cause.hypotheses == []
     assert "P35-NO-RIVAL-HYPOTHESIS" in report.verdict.policy_ids
+
+
+def test_a_stated_cause_that_is_not_the_one_ranked_first_goes_to_a_person():
+    """P38 (review, PR 47): the count and the remediation's evidence would describe another cause. Case, spacing and a
+    closing period do not count; nothing is rewritten."""
+    report, _ = _run({"hypothesis": "the 09:58 deploy broke checkout",
+                      "hypotheses": [{"cause": "a bad release", "supporting": [D1, M1]},
+                                     {"cause": "CPU saturation", "against": [M4], "why_rejected": "CPU is at 41%"}]})
+    assert "P38-HYPOTHESIS-NOT-RANKED-FIRST" in report.verdict.policy_ids
+    assert report.verdict.status is VerdictStatus.escalated
+    assert report.root_cause.hypothesis == "the 09:58 deploy broke checkout"
+    same, _ = _run(_ranked([D1, M1], rival_against=[M4]) | {"hypothesis": "The deploy broke  checkout."})
+    assert "P38-HYPOTHESIS-NOT-RANKED-FIRST" not in same.verdict.policy_ids

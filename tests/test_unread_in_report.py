@@ -79,3 +79,43 @@ def test_a_version_or_tag_that_ends_a_sentence_is_judged_without_its_period():
     assert unread("upgrade to 1.2.3.", READ) == f"upgrade to {UNREAD}."
     assert unread("roll back to checkout:canary.", READ) == f"roll back to {UNREAD}."
     assert unread("it runs checkout:2.4.1.", READ) == "it runs checkout:2.4.1."
+
+
+def test_a_value_is_read_only_as_a_whole_value_never_as_part_of_another():
+    """Review, PR 47: `1.2.3` was kept because WARDEN had read `1.2.30`."""
+    read = read_text(ALERT, CTX.model_copy(update={"recent_deploys": [{"service": "checkout", "image": "checkout:1.2.30"}]}))
+    assert unread("go back to 1.2.3", read) == f"go back to {UNREAD}"
+    assert unread("go back to 1.2.30", read) == "go back to 1.2.30"
+    assert unread("checkout:1.2.3", read) == UNREAD
+
+
+def test_a_word_after_a_colon_is_a_resource_only_after_a_kind_word():
+    """Review, PR 47: `checkout:checkout` or `Checkout:canary` kept a tag WARDEN never read."""
+    assert unread("restart lambda:checkout", READ) == "restart lambda:checkout"
+    assert unread("back to checkout:checkout", READ) == f"back to {UNREAD}"
+    assert unread("back to Checkout:canary", READ) == f"back to {UNREAD}"
+
+
+def test_a_tag_with_a_digest_is_one_reference():
+    ref = "checkout:2.4.1@sha256:" + "ab" * 32
+    assert unread(f"pin {ref} now", READ) == f"pin {UNREAD} now"
+
+
+def test_a_version_attached_to_a_name_is_still_a_version():
+    """Review, PR 47: `checkout-1.2.0` and `checkout_1.2.0` escaped; a date or an id does not become one."""
+    assert unread("deploy checkout-1.2.0", READ) == f"deploy checkout-{UNREAD}"
+    assert unread("deploy checkout_1.2.0", READ) == f"deploy checkout_{UNREAD}"
+    for kept in ("at 2026-10-17T10:02:11Z", "pod checkout-7d9f8c-x2k4p", "i-0b7d", "sha=9f2c1ab"):
+        assert unread(kept, READ) == kept
+
+
+def test_rollback_wording_is_the_targets_alone():
+    """Review, PR 47: a version the model wrote elsewhere is not "the previous revision WARDEN recorded"."""
+    from warden.models import RootCause
+    from warden.reporting import build_report
+
+    rc = RootCause(hypothesis="checkout:1.2.0 is the stable build", confidence=0.9)
+    md = build_report(ALERT, root_cause=rc, proposal=_proposal(ActionKind.rollback_deploy, "checkout -> checkout:1.2.0"),
+                      context=CTX).markdown
+    assert f"{UNREAD} is the stable build" in md
+    assert PREVIOUS in md  # the target's wording (the report shows "->" as "-›")

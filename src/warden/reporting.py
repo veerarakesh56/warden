@@ -389,12 +389,12 @@ def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
     from .grounding import read_text, shown_target, unread
 
     read = read_text(alert, ctx)
-    rollback = proposal is not None and proposal.action is ActionKind.rollback_deploy
     target = proposal.target if proposal else ""
     shown = shown_target(proposal, alert, ctx) if proposal else ""
 
     def say(v: Any) -> Any:
-        return _each_string(v, lambda s: unread(s.replace(target, shown) if target else s, read, rollback=rollback))
+        # The rollback's wording is the target's alone (shown_target); a version elsewhere is just not read (review).
+        return _each_string(v, lambda s: unread(s.replace(target, shown) if target else s, read))
 
     for key in ("root_cause", "verdict"):
         if data.get(key):

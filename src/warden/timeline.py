@@ -115,11 +115,16 @@ def with_evidence(changes: list[dict], logs: list[str], alert: Any) -> list[dict
 
 
 def section(changes: list[dict], unread: list[str]) -> str:
-    """The report's section: suspects, not causes."""
+    """The report's section: suspects, not causes. Every entry is WARDEN's own read (the platform's CloudTrail lookup,
+    or a CHANGE line only WARDEN's readers write); a resource or principal name in one is still someone else's word,
+    so a command in it is withheld as in the model's prose (G4, review PR 47)."""
+    from .gate import withhold_commands
+
     if not changes and not unread:
         return ""
     lines = ["", "### Changes near the alert - suspects, not causes", ""]
-    lines += [f"- {both_times(c['at'])} · {c['source']} · {c['what']} · by {c['who']}" for c in changes]
+    lines += [f"- {both_times(c['at'])} · {c['source']} · {withhold_commands(str(c['what']))} · by "
+              f"{withhold_commands(str(c['who']))}" for c in changes]
     if not changes:
         lines.append("- none found in the six hours before the alert")
     if unread:
