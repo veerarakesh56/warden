@@ -385,6 +385,8 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - The alert webhook's front door - `webhooks.py`: Prometheus Alertmanager does not sign its webhooks (it can send
   an Authorization header, read 2026-10-03), so the check is a bearer secret in constant time, size caps, and
   Alertmanager's own API confirming each alert is active; no ready-made receiver does that third part.
+- The confidence block - `confidence.py`: built. Tools that show a confidence show the model's; WARDEN's is
+  computed only from checks on its own record, each shown, so a reader can see why it is Low, Medium or High.
 - The pipeline and its outputs - `graph.py`, `reporting.py`, `playbook.py`, `cli.py`, and the
   approval page `approval_page.py` (its ceremonies are py_webauthn's): WARDEN's own product surface.
 

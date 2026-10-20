@@ -186,6 +186,10 @@ failure each one prevents are listed in [`ai-boundary.md`](ai-boundary.md).
   ended, read from the signed audit. Nothing on them is written back. The list pages (10, 25, 50 or 100 a page)
   and filters by environment, status, service, days and title text; a reader whose approver entries are limited
   to some environments sees only those. Every page has a light, dark or system theme and WARDEN's logo.
+- **Confidence block** (`confidence.py`): each incident's page says how far to trust WARDEN's answer - Low
+  (red), Medium (amber), High (green) - from checks on the record only (evidence read, citations grounded,
+  rules passed, a second opinion, a verified fix, a proven fix on a linked record), each shown. Never the
+  model's own confidence.
 - **Discussion** (`discuss.py`): anyone in a second Slack channel can ask WARDEN about an incident; WARDEN
   answers from the incident's own evidence. Only an enrolled approver may ask for a new plan, and that plan
   still needs a passkey approval.
