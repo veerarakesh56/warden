@@ -14,10 +14,11 @@ from warden import changes
 
 class _Recorder:
     def __init__(self, fail=False):
-        self.opened, self.fail = [], fail
+        self.opened, self.links, self.fail = [], [], fail
 
-    def open(self, title, body):
+    def open(self, title, body, *, links=()):
         self.opened.append((title, body))
+        self.links.append(links)
         return (None, "HTTP 503") if self.fail else ("https://github.example.test/o/r/issues/1", "opened")
 
 
@@ -86,3 +87,50 @@ def test_records_are_on_only_with_a_repository_and_a_token(monkeypatch):
     monkeypatch.setenv("WARDEN_CHANGE_REPO", "o/r")
     assert changes.from_environment().repo == "o/r"
     assert "WARDEN_GITHUB_TOKEN" in settings.SECRETS and settings.RESTRICTED["WARDEN_GITHUB_TOKEN"] == {"worker"}
+
+
+# Owner B10: the change record links the incident's record page - WARDEN's own link, added after the gate.
+RP = "approve.example"
+
+
+def _sent_body(monkeypatch, links):
+    sent = []
+
+    def urlopen(req, timeout):
+        sent.append(json.loads(req.data))
+        return _Resp(json.dumps({"html_url": "https://github.com/o/r/issues/8"}).encode())
+
+    monkeypatch.setattr(changes.urllib.request, "urlopen", urlopen)
+    url, detail = changes.GitHubIssues("o/r", "t").open("WARDEN change: x", "body text", links=links)
+    assert url.endswith("/issues/8") and detail == "opened"
+    return sent[0]["body"]
+
+
+def test_the_record_links_the_incidents_record_page(monkeypatch):
+    from warden.activities import IncidentActivities
+
+    monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", RP)
+    body = _sent_body(monkeypatch, IncidentActivities._record_link("inc-42"))
+    assert body.endswith(f"\n\n[Full record of the incident](https://{RP}/r/inc-42)"), body
+    assert f"https://{RP}/r)" not in body  # the record page of this incident, not the list of all of them
+
+
+def test_only_wardens_own_record_link_is_added(monkeypatch):
+    monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", RP)
+    approval = f"https://{RP}/a/" + "A" * 43
+    for links in ((("Full record", "https://evil.example/r/inc-42"),),
+                  (("Full record", f"https://{RP}/r/inc-42/../../x?y=z"),),
+                  (("Open the plan to approve or deny", approval),),
+                  (("Something else", f"https://{RP}/r/inc-42"),)):
+        body = _sent_body(monkeypatch, links)
+        assert body == "body text", links
+    # No approval domain configured: there is no record page to link.
+    monkeypatch.delenv("WARDEN_APPROVAL_RP_ID")
+    assert _sent_body(monkeypatch, (("Full record", f"https://{RP}/r/inc-42"),)) == "body text"
+
+
+def test_an_applied_change_passes_its_record_link(world, owner, monkeypatch):  # noqa: F811 - pytest fixtures
+    monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", RP)
+    world["changes"] = rec = _Recorder()
+    assert _run(world, _approve_with(owner)).status == "recovered"
+    assert ("Full record", f"https://{RP}/r/inc-42") in rec.links[0]

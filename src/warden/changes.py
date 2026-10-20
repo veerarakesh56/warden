@@ -3,7 +3,8 @@
 A fix that changed a live system must leave a record where a team already looks for changes, not only in WARDEN's
 own audit. After a run that applied something, its end is written as a GitHub issue in a configured repository:
 what was changed, where, at which tier, the exact plan hash, who approved it, how it ended, when (UTC and the
-display zone), and the audit head to check it against (on the incident's Full record page).
+display zone), and the audit head to check it against - with a link to the incident's Full record page (owner B10),
+where that head is shown with its signatures checked.
 
 The text leaves WARDEN, so it passes the outbound gate first; a gate that blocks it sends nothing. The token is a
 Secrets Manager secret (WARDEN_GITHUB_TOKEN, a fine-grained token limited to issues on that one repository), and the
@@ -20,6 +21,7 @@ import urllib.request
 from datetime import datetime
 
 from .audit import short
+from .chatops import RECORD_LABEL, approval_links
 from .environments import both_times
 from .gate import enforce
 
@@ -53,11 +55,17 @@ class GitHubIssues:
             raise ValueError("the change repository is owner/name")
         self.repo, self._token, self.api = repo, token, api.rstrip("/")
 
-    def open(self, title: str, body: str) -> tuple[str | None, str]:
+    def open(self, title: str, body: str, *, links: tuple[tuple[str, str], ...] = ()) -> tuple[str | None, str]:
+        """`links`: WARDEN's own (label, link) pairs. The gate removes every URL from the text, so the incident's
+        record page goes in after it - and only that one, exactly `https://<the approval domain>/r/<incident>`
+        (chatops.approval_links); any other link is dropped."""
         gated = enforce(f"{title}\n\n{body}")
         if gated.verdict == "BLOCK":
             return None, "withheld by the outbound gate: " + "; ".join(gated.reasons)
         title_out, _, body_out = gated.text.partition("\n\n")
+        record = next((link for label, link in approval_links(links) if label == RECORD_LABEL), None)
+        if record:
+            body_out += f"\n\n[{RECORD_LABEL} of the incident]({record})"
         req = urllib.request.Request(
             f"{self.api}/repos/{self.repo}/issues", method="POST",
             data=json.dumps({"title": title_out, "body": body_out, "labels": ["warden-change"]}).encode(),

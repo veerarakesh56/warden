@@ -1038,7 +1038,7 @@ class RemediationActivities:
 
             title, text = issue_text(incident_id=incident_id, end=body, plan=plans[-1],
                                      head=self.audit.head(incident_id), at=datetime.now(UTC))
-            url, detail = self.changes.open(title, text)
+            url, detail = self.changes.open(title, text, links=IncidentActivities._record_link(incident_id))
             self.audit.append(incident_id, "change.recorded", {"workflow_id": workflow_id, "run_id": run,
                                                                "url": url, "detail": detail})
             self.audit.checkpoint()
