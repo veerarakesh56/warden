@@ -29,14 +29,19 @@ SONNET, OPUS = "claude-sonnet-5-5", "claude-opus-5-5"
 SHIPPED = providers.load_qualified()
 
 
-def _opus_qualified(monkeypatch, qualified: bool) -> None:
-    """providers.yaml as it would read with (or without) a passing Opus row on today's prompt."""
+def _opus_qualified(monkeypatch, qualified: bool, *, roles: list[str] | None = None) -> dict:
+    """providers.yaml as it would read with (or without) a passing Opus row on today's prompt - and, once it passes,
+    the `diagnose` role the owner would add with it. `roles` sets Opus's roles outright."""
     doc = copy.deepcopy(SHIPPED)
     doc["qualified"] = [e for e in doc["qualified"] if e.get("model") != OPUS]
     if qualified:
         row = next(e for e in SHIPPED["qualified"] if e.get("model") == SONNET)
         doc["qualified"].append({**row, "model": OPUS})
+        doc["roles"][OPUS] = ["diagnose", *doc["roles"][OPUS]]
+    if roles is not None:
+        doc["roles"][OPUS] = roles
     monkeypatch.setattr(providers, "load_qualified", lambda: doc)
+    return doc
 
 
 @pytest.fixture
@@ -167,7 +172,7 @@ def test_opus_answers_a_hard_case_only_when_providers_yaml_says_it_is_qualified(
     assert route.choice == routing.HARD
     assert route.model == SONNET
     assert not route.take_over
-    assert "has not passed WARDEN's replay set" in route.fallback
+    assert route.fallback.endswith(f"{SONNET} answers")
     assert route.record()['needs_person'] is True
     assert _route(world).record()["needs_person"] is False
     # The shipped file today: Opus 5.5 is not qualified, Sonnet 5.5 is.
@@ -474,3 +479,112 @@ def test_a_routing_failure_after_the_answer_keeps_the_verdict_and_holds_for_a_pe
         update={"target": "another-service"})})
     held = acts.second_opinion(pack, world["easy"], other, approved)
     assert held.verdict.status == VerdictStatus.escalated
+
+
+
+# ------------------------------------------------------------------ roles (owner: Opus = critic and deep chat only)
+
+
+def test_the_shipped_roles_let_opus_review_and_chat_but_never_diagnose():
+    assert routing.roles(OPUS) == {"critic", "chat"}
+    assert routing.roles(SONNET) == {"diagnose", "critic", "chat"}
+    assert routing.roles("claude-unknown") == frozenset()
+
+
+def test_a_deep_question_goes_to_opus_while_it_is_unqualified(monkeypatch):
+    monkeypatch.delenv("WARDEN_MODEL", raising=False)
+    monkeypatch.delenv("WARDEN_PROVIDER", raising=False)
+    monkeypatch.setattr(providers, "load_qualified", lambda: SHIPPED)
+    assert not routing.is_qualified(OPUS)
+    route = routing.for_question("please investigate the deploy again")
+    assert route.model == OPUS
+    assert route.role == routing.CHAT
+    assert route.record()["needs_person"] is False
+    assert routing.for_question("why did it fire?").model == SONNET
+
+
+def test_a_diagnosis_never_uses_opus_while_it_is_unqualified(world, monkeypatch):
+    monkeypatch.setattr(providers, "load_qualified", lambda: SHIPPED)
+    prod = world["pack"].model_copy(update={"alert": world["pack"].alert.model_copy(update={"environment": "prod"})})
+    assert routing.for_diagnosis(world["log"], prod).model == SONNET
+    assert _route(world, pack=prod).model == SONNET
+
+
+def test_without_the_chat_role_a_deep_question_goes_to_sonnet(monkeypatch):
+    monkeypatch.delenv("WARDEN_MODEL", raising=False)
+    monkeypatch.delenv("WARDEN_PROVIDER", raising=False)
+    _opus_qualified(monkeypatch, False, roles=["critic"])
+    route = routing.for_question("please investigate the deploy again")
+    assert route.model == SONNET
+    assert "not listed for chat" in route.fallback
+
+
+def test_the_diagnose_role_without_a_passing_row_still_refuses_to_diagnose(world, monkeypatch):
+    _opus_qualified(monkeypatch, False, roles=["diagnose", "critic", "chat"])
+    prod = world["pack"].model_copy(update={"alert": world["pack"].alert.model_copy(update={"environment": "prod"})})
+    route = _route(world, pack=prod)
+    assert route.model == SONNET
+    assert "replay set" in route.fallback
+    monkeypatch.delenv("WARDEN_MOCK")
+    with pytest.raises(providers.ProviderError):
+        routing.client(OPUS, role=routing.DIAGNOSE)
+
+
+def test_an_advisory_client_needs_only_the_role(monkeypatch):
+    monkeypatch.delenv("WARDEN_MOCK", raising=False)
+    monkeypatch.delenv("WARDEN_PROVIDER", raising=False)
+    monkeypatch.setattr(providers, "load_qualified", lambda: SHIPPED)
+    assert routing.client(OPUS, role=routing.CHAT).model == OPUS
+    assert routing.client(OPUS, role=routing.CRITIC).model == OPUS
+    with pytest.raises(providers.ProviderError):
+        routing.client("claude-not-listed", role=routing.CHAT)
+    with pytest.raises(providers.ProviderError):
+        routing.client("opus", role=routing.CHAT)  # an alias that moves (M15)
+
+
+def test_the_diagnosis_activity_only_ever_asks_for_a_diagnosing_client(world, monkeypatch):
+    seen = []
+    real = routing.client
+
+    def spy(model, *, factory=None, role=routing.DIAGNOSE):
+        seen.append(role)
+        return real(model, factory=factory, role=role)
+
+    monkeypatch.setattr(routing, "client", spy)
+    world["acts"].diagnose(world["pack"])
+    world["acts"].diagnose(world["pack"].model_copy(update={"model": OPUS}))
+    assert seen == [routing.DIAGNOSE, routing.DIAGNOSE]
+
+
+def test_the_discussion_route_records_its_role(world, monkeypatch):
+    from warden.activities import DiscussActivities
+
+    seen = []
+    real = routing.client
+
+    def spy(model, *, factory=None, role=routing.DIAGNOSE):
+        seen.append(role)
+        return real(model, factory=factory, role=role)
+
+    monkeypatch.setattr(routing, "client", spy)
+    acts = DiscussActivities(audit=world["log"], incident=world["acts"])
+    turn = discuss.Turn(channel="C" + "0" * 3 + "DISCUSS1", thread_ts="1760000000.000100", ts="1760000000.000100",
+                        user="U" + "0" * 3 + "PERSON1", text="investigate it again")
+    acts.discuss_answer(turn, discuss.Thread(incident="abc", lines=["a person: q"]), {"evidence": "e", "diagnosis": "d"},
+                        False)
+    row = [e["body"] for e in world["log"].entries("discuss-abc", kinds=("discuss.route",))][-1]
+    assert row["role"] == routing.CHAT
+    assert seen == [routing.CHAT]
+
+
+def test_eldane_gets_the_other_model_for_the_critic_role(monkeypatch):
+    monkeypatch.delenv("WARDEN_MODEL", raising=False)
+    monkeypatch.delenv("WARDEN_PROVIDER", raising=False)
+    monkeypatch.setattr(providers, "load_qualified", lambda: SHIPPED)
+    assert routing.for_critic(SONNET).model == OPUS
+    assert routing.for_critic(OPUS).model == SONNET
+    assert routing.for_critic(SONNET).role == routing.CRITIC
+    assert routing.for_critic("").model == ""
+    _opus_qualified(monkeypatch, False, roles=["chat"])
+    assert routing.for_critic(SONNET).model == ""
+    assert "not listed for critic" in routing.for_critic(SONNET).why

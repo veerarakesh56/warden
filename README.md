@@ -368,7 +368,10 @@ values (`incident.route`, `discuss.route`); the rules and their thresholds are i
 [`src/warden/routing.py`](src/warden/routing.py).
 
 A model still has to pass the replay set to diagnose. **Opus 5.5 has not** (15 of 30 on 2026-10-15, below the bar
-of 17): until it does, a hard case is diagnosed by Sonnet, the record says so, and its fix goes to a person. Both
+of 17): until it does, a hard case is diagnosed by Sonnet, the record says so, and its fix goes to a person. A
+discussion answer and Eldane's review change nothing on their own, so they do not need that bar: `providers.yaml`
+lists what each model may be used for (`roles`), and today Opus is listed for reviewing and for the discussion channel,
+not for diagnosing. Both
 models must be measured again in the cloud runtime before anything acts on its own
 (`python scripts/cloud_run.py qualify --model <model> --record`, which uses the runtime's own key).
 

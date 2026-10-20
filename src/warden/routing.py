@@ -54,6 +54,10 @@ DEEP_QUESTION = re.compile(
 REPLAN_LOOKBACK = timedelta(days=2)
 
 DEFAULT, HARD, TAKEOVER, FIXED = "default", "hard", "takeover", "fixed"
+# What a model is used for (data/providers.yaml `roles`). Only `diagnose` leads to a fix, so only it is held to the
+# replay set (register M20); a critic can only add a "no", and a chat answer changes nothing (owner, 2026-10-17).
+DIAGNOSE, CRITIC, CHAT = "diagnose", "critic", "chat"
+ROLES = (DIAGNOSE, CRITIC, CHAT)
 
 
 @dataclass(frozen=True)
@@ -77,6 +81,7 @@ class Route:
     fallback: str = ""  # the hard model could not be used, and why
     take_over: bool = False  # after an answer: the hard model should take the diagnosis over
     extra: dict[str, Any] = field(default_factory=dict)
+    role: str = DIAGNOSE  # what the model is used for (ROLES)
 
     @property
     def fired(self) -> list[str]:
@@ -84,11 +89,11 @@ class Route:
 
     def record(self) -> dict[str, Any]:
         """As the audit keeps it."""
-        return {"model": self.model, "choice": self.choice, "why": self.why, "fallback": self.fallback,
+        return {"model": self.model, "role": self.role, "choice": self.choice, "why": self.why, "fallback": self.fallback,
                 "take_over": self.take_over, "fired": self.fired, "signals": [asdict(s) for s in self.signals],
                 # Owner, 2026-10-17: a hard case the hard model could not answer (not qualified) is never left to an
                 # AI alone - a person approves its fix, and Eldane on the other model still reviews it.
-                "needs_person": self.choice == HARD and bool(self.fallback), **self.extra}
+                "needs_person": self.role == DIAGNOSE and self.choice == HARD and bool(self.fallback), **self.extra}
 
 
 # --------------------------------------------------------------------------- the models
@@ -135,6 +140,19 @@ def is_qualified(model: str, provider: str | None = None) -> bool:
     return True
 
 
+def roles(model: str) -> frozenset[str]:
+    """What data/providers.yaml `roles` lets `model` be used for; nothing for a model it does not list."""
+    from .providers import load_qualified
+
+    listed = (load_qualified().get("roles") or {}).get(model) or ()
+    return frozenset(r for r in listed if r in ROLES) if isinstance(listed, list) else frozenset()
+
+
+def usable(model: str, role: str, provider: str | None = None) -> bool:
+    """May `model` be used for `role`? Its role listed in providers.yaml - and, to diagnose, its qualification too."""
+    return role in roles(model) and (role != DIAGNOSE or is_qualified(model, provider))
+
+
 def other_model(model: str, provider: str | None = None) -> str:
     """The routing model that is not `model` (Eldane's: never the diagnosis's own); "" when there is none."""
     pair = models(provider)
@@ -143,10 +161,11 @@ def other_model(model: str, provider: str | None = None) -> str:
     return pair[1] if model == pair[0] else pair[0]
 
 
-def client(model: str, *, factory: Any = None) -> Any:
+def client(model: str, *, factory: Any = None, role: str = DIAGNOSE) -> Any:
     """An LLMClient for `model`: the test's or worker's factory when one is given (handed the model when it takes
-    one), else the configured provider for exactly that model, held to its qualification (M20). "" - no routing - is
-    the provider's configured model, as before."""
+    one), else the configured provider for exactly that model. To diagnose it is held to its qualification (M20); for
+    an advisory role (critic, chat) to that role in providers.yaml instead. "" - no routing - is the provider's
+    configured model, as before."""
     if factory is not None:
         return factory(model=model) if "model" in inspect.signature(factory).parameters else factory()
     from .llm import LLMClient
@@ -155,7 +174,12 @@ def client(model: str, *, factory: Any = None) -> Any:
         return LLMClient()
     from . import providers
 
-    return LLMClient(provider=providers.qualified(providers._REGISTRY[provider_name()](model=model)))
+    built = providers._REGISTRY[provider_name()](model=providers.pinned(model))
+    if role == DIAGNOSE:
+        return LLMClient(provider=providers.qualified(built))
+    if role not in roles(model):
+        raise providers.ProviderError(f"{model} is not listed for {role!r} in data/providers.yaml `roles`")
+    return LLMClient(provider=built)
 
 
 # --------------------------------------------------------------------------- the signals
@@ -251,24 +275,25 @@ def question_signal(text: str) -> Signal:
 
 
 def choose(signals: list[Signal] | tuple[Signal, ...], provider: str | None = None, *,
-           hard_usable: bool | None = None) -> Route:
-    """The default model unless a signal fired; then the hard one - if it may be used (qualified, M20), else the
-    default, with why. `hard_usable` overrides that check (a test's)."""
+           role: str = DIAGNOSE) -> Route:
+    """The default model unless a signal fired; then the hard one - if it may be used for `role` (usable: listed for
+    it, and qualified to diagnose), else the default, with why."""
     signals = tuple(signals)
     pair = models(provider)
     if pair is None:
-        return Route(model="", choice=FIXED, signals=signals,
+        return Route(model="", choice=FIXED, signals=signals, role=role,
                      why="no routing for this provider, or WARDEN_MODEL pins another model: its configured model")
     default, hard = pair
     fired = [s.name for s in signals if s.fired]
     if not fired:
-        return Route(model=default, choice=DEFAULT, signals=signals, why="no signal marks the case hard")
+        return Route(model=default, choice=DEFAULT, signals=signals, role=role, why="no signal marks the case hard")
     why = "hard: " + ", ".join(fired)
-    usable = is_qualified(hard, provider) if hard_usable is None else hard_usable
-    if not usable:
-        return Route(model=default, choice=HARD, signals=signals, why=why,
-                     fallback=f"{hard} has not passed WARDEN's replay set (register M20): {default} answers")
-    return Route(model=hard, choice=HARD, signals=signals, why=why)
+    if not usable(hard, role, provider):
+        said = ("has not passed WARDEN's replay set (register M20)" if role in roles(hard)
+                else f"is not listed for {role} in providers.yaml `roles`")
+        return Route(model=default, choice=HARD, signals=signals, role=role, why=why,
+                     fallback=f"{hard} {said}: {default} answers")
+    return Route(model=hard, choice=HARD, signals=signals, role=role, why=why)
 
 
 def for_diagnosis(log: Any, pack: Any) -> Route:
@@ -303,4 +328,16 @@ def needs_person(log: Any, incident_id: str) -> bool:
 
 def for_question(text: str) -> Route:
     """The discussion channel: a simple question gets the default model, a deep re-investigation the hard one."""
-    return choose([question_signal(text)])
+    return choose([question_signal(text)], role=CHAT)
+
+
+def for_critic(diagnosis_model: str, provider: str | None = None) -> Route:
+    """Eldane's model (owner, 2026-10-17): always the other one from the model that made the incident's diagnosis, if
+    providers.yaml lists it for the critic role; else none, with why - its review is then not independent."""
+    model = other_model(diagnosis_model, provider)
+    if not model:
+        return Route(model="", choice=FIXED, role=CRITIC,
+                     why=f"no routing model other than the diagnosis's ({diagnosis_model or 'none recorded'})")
+    if not usable(model, CRITIC, provider):
+        return Route(model="", choice=FIXED, role=CRITIC, why=f"{model} is not listed for critic in providers.yaml `roles`")
+    return Route(model=model, choice=DEFAULT, role=CRITIC, why=f"the other model from the diagnosis's ({diagnosis_model})")

@@ -1927,7 +1927,7 @@ class DiscussActivities:
         route = routing.for_question(turn.text)
         self.audit.append(key, "discuss.route", {"run_id": _run_id(), "ts": turn.ts, **route.record()})
         try:
-            llm = routing.client(route.model, factory=self.incident.llm_factory)
+            llm = routing.client(route.model, factory=self.incident.llm_factory, role=route.role)
         except Exception as exc:  # noqa: BLE001  # a model that cannot be built is no answer: the person is told
             # Review, PR 47: a prompt not yet qualified refuses the model; the person is told, never left waiting.
             _note(f"discuss: no model could be used ({type(exc).__name__})")
