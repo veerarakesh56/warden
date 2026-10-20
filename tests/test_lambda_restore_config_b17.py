@@ -146,3 +146,40 @@ def test_a_config_revert_of_the_labelled_function_is_planned_through_the_catalog
     assert why == ""
     assert request["entry"] == "lambda_restore_config"
     assert request["params"] == {"function": FN, "from_version": "7"}
+
+
+def test_layers_are_said_by_name_and_version_never_by_arn():
+    layer = f"arn:aws:lambda:test-region-1:{ACCT}:layer:deps:3"
+    [said] = catalog.change_of("lambda_restore_config", {"function": FN, "from_version": "7"},
+                               {"now": {"Layers": []}, "to": {"Layers": [layer]}})
+    assert "Layers=deps:3" in said
+    assert ACCT not in said
+
+
+def test_an_environment_that_cannot_be_read_is_refused(aws):
+    f, p = aws
+    f.latest = {**f.latest, "Environment": {"Error": {"ErrorCode": "KMSAccessDenied"}}}
+    f.published["7"]["Environment"] = {"Error": {"ErrorCode": "KMSAccessDenied"}}
+    live = p.live("lambda_restore_config", {"function": FN})
+    assert live["from_version"] == set()
+    assert "could not be read" in live["refused"]
+
+
+@pytest.mark.parametrize("change", [{"CodeSha256": "new-code"}, {"Environment": {"Variables": {"MODE": "z"}}}],
+                         ids=["code", "environment"])
+def test_a_function_that_stopped_qualifying_after_the_approval_is_not_written(aws, change):
+    f, p = aws
+    live, params = _plan(p)
+    f.latest = {**f.latest, **change}
+    with pytest.raises(AwsPlatformRefused):
+        p.apply("lambda_restore_config", params, snapshot=live["state"], who=WHO)
+    assert f.writes == []
+
+
+def test_an_appconfig_target_named_as_one_stays_appconfigs(aws):
+    from warden import resolver
+
+    _, p = aws
+    proposal = _prop().model_copy(update={"target": f"appconfig:{FN}"})
+    request, _ = resolver.request_for(_alert(), proposal, p.live)
+    assert request is None or request["entry"] != "lambda_restore_config"

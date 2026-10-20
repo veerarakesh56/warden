@@ -476,7 +476,7 @@ def _kept_of(conf: dict[str, Any], what: str) -> Any:
     if what == "environment":
         env = conf.get("Environment") or {}
         if env.get("Error"):
-            return ("unreadable", str(env["Error"].get("ErrorCode")))
+            return object()  # unreadable equals nothing, not even another unreadable one (refused before, too)
         return hashlib.sha256(json.dumps(env.get("Variables") or {}, sort_keys=True).encode()).hexdigest()
     if what == "role":
         return conf.get("Role")
@@ -2107,7 +2107,7 @@ class AwsPlatform:
         arn, name = conf["FunctionArn"], conf["FunctionName"]
         published = [v for v in self._versions(name) if str(v.get("Version", "")).isdigit()]
         state: dict[str, Any] = {"function": name, "arn": arn, "revision": conf.get("RevisionId"),
-                                 "now": _config_of(conf), "where": self._where(arn)}
+                                 "code": conf.get("CodeSha256"), "now": _config_of(conf), "where": self._where(arn)}
         live: dict[str, Any] = {"function": {name}, "from_version": set(),
                                 "environment": self._tags("lambda", arn).get(ENV_TAG),
                                 "rollout": "progressing" if conf.get("LastUpdateStatus") == "InProgress" else "complete",
@@ -2118,18 +2118,27 @@ class AwsPlatform:
         prior = lam.get_function_configuration(FunctionName=name, Qualifier=str(version["Version"]))
         state.update(from_version=str(version["Version"]), to=_config_of(prior))
         why = ""
-        if prior.get("CodeSha256") != conf.get("CodeSha256"):
+        unread = [w for w, c in (("$LATEST", conf), (f"version {version['Version']}", prior))
+                  if (c.get("Environment") or {}).get("Error")]
+        if unread:
+            why = f"the environment of {' and '.join(unread)} could not be read, so it cannot be compared"
+        elif prior.get("CodeSha256") != conf.get("CodeSha256"):
             why = f"version {version['Version']} runs other code than $LATEST: its settings belong with that code"
         elif kept := [k for k in _CONFIG_KEPT if _kept_of(prior, k) != _kept_of(conf, k)]:
             why = f"{', '.join(kept)} also changed since version {version['Version']}: a person undoes that"
         elif state["to"] == state["now"]:
             why = f"$LATEST's settings are version {version['Version']}'s already"
+        state["eligible"] = not why
         return {**live, "from_version": set() if why else {str(version["Version"])}, "refused": why}
 
     def _lambda_config_restore(self, p, snapshot, now, who, back) -> str:
         """$LATEST's settings to the published version's (back: to what they were), only while the function's settings
         are the ones the plan saw, and conditioned on its revision (Lambda refuses a write after another)."""
-        self._expect(now, snapshot, ("function", "arn", "from_version", "to"), f"lambda {p['function']}")
+        self._expect(now, snapshot, ("function", "arn", "from_version", "to", "code"), f"lambda {p['function']}")
+        if not back and now.get("eligible") is not True:
+            # Read again just now: the code, environment, role or network moved since the approval (review, PR 107).
+            raise AwsPlatformRefused(f"lambda {p['function']} no longer qualifies for version {p['from_version']}'s "
+                                     "settings; nothing was changed")
         want_now, to = (snapshot.get("now"), snapshot.get("to")) if not back else (snapshot.get("to"), snapshot.get("now"))
         if p["from_version"] != snapshot.get("from_version") or now.get("now") != want_now or not to:
             raise AwsPlatformRefused(f"lambda {p['function']}'s settings are not the ones the plan saw; nothing was "

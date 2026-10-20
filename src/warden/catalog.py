@@ -282,8 +282,11 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
 
 
 def _pairs(values: Any) -> str | None:
-    """A dict of settings as `k=v, ...`; None when there is none."""
-    return ", ".join(f"{k}={v}" for k, v in values.items()) if isinstance(values, dict) else None
+    """A dict of settings as `k=v, ...`; None when there is none. Layers by `name:version` - an ARN names the account."""
+    if not isinstance(values, dict):
+        return None
+    return ", ".join(f"{k}={'/'.join(str(a).split(':layer:')[-1] for a in v) or 'none' if k == 'Layers' else v}"
+                     for k, v in values.items())
 
 
 def _arrow(what: str, before: Any, after: Any) -> str:
