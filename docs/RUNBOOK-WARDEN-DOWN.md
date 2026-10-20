@@ -131,8 +131,10 @@ deploy, and the deployment circuit breaker rolling a zone back.
 - the worker refuses to start if it cannot check its clock against Temporal within 90 seconds (register O6).
 
 Check Temporal Cloud's own status page and your namespace in its web UI. An expired or revoked API key looks the same
-as an outage: each zone and Lambda reads its key from Secrets Manager (`warden/ops/temporal-api-key-<zone>`, and
-`warden/ops/temporal-api-key` for the Lambdas). After a key is replaced, restart (section 6).
+as an outage: each zone reads its own key from Secrets Manager (`warden/ops/temporal-api-key-<zone>`), and the three
+front door Lambdas that reach Temporal (alarm, alertmanager, approval) share one, `warden/ops/temporal-api-key` (owner
+decision 2026-10-20, for cost). After a zone's key is replaced, restart (section 6). A Lambda reads its secrets when a
+new instance of it starts, so a warm instance keeps the old key until it is replaced.
 
 **Lambdas.** Errors are in their logs:
 
