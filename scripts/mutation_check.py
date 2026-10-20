@@ -176,22 +176,6 @@ MUTATIONS = [
         "the whole promise - production must NEVER auto-apply a fix without a human",
     ),
     (
-        "remediation skips the authorization gate",
-        "remediation.py",
-        "    if not env.authorizes(request.principal):",
-        "    if False and not env.authorizes(request.principal):",
-        "an unauthorised principal could apply a fix - authorization is the who-may-act boundary",
-    ),
-    (
-        "remediation skips the approval gate",
-        "remediation.py",
-        "    if request.approval != digest:",
-        "    if False and request.approval != digest:",
-        ("a fix would apply with nobody having approved THIS proposal - the last human checkpoint "
-         "(this anchor went stale when approval became a digest on 2026-09-27, and the mutation "
-         "silently stopped running until tests/test_mutation_anchors.py was added)"),
-    ),
-    (
         "report stops redacting its data",
         "reporting.py",
         "    data, mapping = _scrub(data, dict(redaction_map or {}))",
@@ -234,13 +218,6 @@ MUTATIONS = [
         '        if params.get("namespace") != self._ns:',
         "        if False:",
         "a plan could name kube-system; the platform serves one namespace",
-    ),
-    (
-        "the gate stops catching a backend fault",
-        "remediation.py",
-        "    except Exception as exc:  # noqa: BLE001 - a backend fault is a result, not a crash",
-        "    except ValueError as exc:  # noqa: BLE001 - a backend fault is a result, not a crash",
-        "a live-backend API error (403, unreachable) would crash the pipeline instead of a failed result",
     ),
     (
         "the database platform loses its python-side ceiling",

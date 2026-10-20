@@ -184,15 +184,18 @@ def _tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="gather_incident_context",
-            title="Gather evidence for an incident",
+            title="Read a bundled demo incident's recorded evidence",
             description=(
-                "Fetch logs, metrics and recent deploys for a known incident id, each under a "
-                "wall-clock timeout. Failures are returned as tool_errors rather than hidden, so a "
-                "partial picture never looks like a complete one."
+                "Return the RECORDED logs, metrics and recent deploys of one of WARDEN's bundled demo "
+                "incidents (inc-001 to inc-005), redacted. It never reads a live system: an id with no "
+                "recording comes back as a tool_error, not as an empty, healthy-looking picture. Each "
+                "read runs under a wall-clock timeout, and failures are returned as tool_errors rather "
+                "than hidden. A live incident's evidence is read by the worker, never through this tool."
             ),
             input_schema={
                 "type": "object",
-                "properties": {"alert_id": {"type": "string"}},
+                "properties": {"alert_id": {"type": "string",
+                                            "description": "a bundled demo incident id, e.g. inc-001"}},
                 "required": ["alert_id"],
             },
         ),

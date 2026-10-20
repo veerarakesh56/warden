@@ -104,8 +104,8 @@ RESTRICTED: dict[str, frozenset[str]] = {
                                    "lambda-actor-use"}),
     # The Alertmanager webhook's bearer secrets: only the Lambda that checks them (register S5).
     "WARDEN_ALERTMANAGER_TOKEN": frozenset({"lambda-alertmanager"}),
-    # Paging (decision D13): only what sends messages - the worker, and a manual run that emits its report.
-    "WARDEN_PAGERDUTY_ROUTING_KEY": frozenset({"worker", "run"}),
+    # Paging (decision D13): only what sends messages - the worker (`warden run` sends nothing since owner B27).
+    "WARDEN_PAGERDUTY_ROUTING_KEY": frozenset({"worker"}),
     "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS": frozenset({"lambda-alertmanager"}),
     # Sign in with Slack (slack_login.py): only the approval page asks Slack who is there.
     "WARDEN_SLACK_CLIENT_ID": frozenset({"lambda-approval"}),

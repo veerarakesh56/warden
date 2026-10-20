@@ -223,3 +223,19 @@ def test_named_metrics_count_toward_metric_count_not_on_top_of_it():
     out = _payload(call_tool("verify_remediation", {
         **_scale_up(), "metric_count": 1, "log_lines": 5, "metrics": {"oom_killed_containers": 2}}))
     assert "P9-THIN-EVIDENCE" in out["policies_fired"]
+
+
+def test_gather_incident_context_says_it_reads_only_the_bundled_recordings():
+    """Owner B27: the description promised "evidence for a known incident id", and an agent would read that as a live
+    incident. It reads the bundled recordings only (FixtureBackend): the description says so, names exactly the
+    bundled ids, and an id with no recording comes back as tool_errors, never as a quiet, healthy-looking picture."""
+    from warden.tools import FIXTURES
+
+    tool = next(t for t in _tools() if t.name == "gather_incident_context")
+    text = " ".join(tool.description.split())
+    assert "RECORDED" in text and "never reads a live system" in text and "bundled demo" in text
+    ids = sorted(p.stem for p in FIXTURES.glob("inc-*.json"))
+    assert f"({ids[0]} to {ids[-1]})" in text and len(ids) == int(ids[-1][4:]) - int(ids[0][4:]) + 1, ids
+    out = call_tool("gather_incident_context", {"alert_id": "inc-999"}).structured_content
+    assert out["logs"] == [] and len(out["tool_errors"]) == 3
+    assert all("no fixture for alert 'inc-999'" in e for e in out["tool_errors"])

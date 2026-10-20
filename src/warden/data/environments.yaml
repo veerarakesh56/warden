@@ -13,10 +13,9 @@
 #   - prod : never auto. Authorised responders only.
 #
 # What the code enforces with each key (read 2026-10-16):
-#   - allow_actions / deny_actions: the verifier's policy P1 (verifier.py), on every path, and again
-#     remediation.decide_remediation.
-#   - authorized_principals and auto_remediate: only remediation.decide_remediation - the in-process CLI path
-#     (`warden run --principal`), whose backend is a dry run that changes nothing (audit A-B-H1..H3). The one path
+#   - allow_actions / deny_actions: the verifier's policy P1 (verifier.py), on every path.
+#   - authorized_principals and auto_remediate: read by no path since the CLI's dry-run gate (`warden run
+#     --principal`, remediation.py) was removed (owner B27); kept so a policy file stays loadable. The one path
 #     that changes anything, the Temporal RemediationWorkflow, reads neither: EVERY fix there needs a signed approval
 #     of the exact plan, in every environment, until Phase 3 shadow evidence (policy P17) enables a tier (audit
 #     2026-09-28).

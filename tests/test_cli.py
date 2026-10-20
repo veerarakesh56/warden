@@ -106,47 +106,29 @@ def test_run_report_flag_prints_the_report_and_safety_line(capsys):
     assert "It changes nothing except by applying a catalogue fix plan an approver approved" in out
 
 
-def _digest_from(out: str) -> str:
-    import re
-    return re.search(r"--approve ([0-9a-f]{12})", out).group(1)
+def test_the_retired_commands_and_flags_are_gone(capsys):
+    """Owner B27: `run --principal/--approve` (an in-process dry-run gate, remediation.py), `run --emit-chatops` and the
+    `incident` command are removed. The one path that changes anything is the RemediationWorkflow behind a signed
+    approval (decision D16); a retired flag or command is a usage error, never silently ignored."""
+    import importlib.util
+
+    base = ["run", "--incident", "inc-002"]
+    for argv in ([*base, "--principal", "role:oncall"], [*base, "--approve", "0123456789ab"],
+                 [*base, "--emit-chatops"], ["incident", "--incident", "inc-002"]):
+        assert main(argv) == 2, argv
+        assert "error:" in capsys.readouterr().err, argv
+    assert importlib.util.find_spec("warden.remediation") is None
 
 
-def test_run_in_staging_with_approval_dry_runs(capsys, staging_policy):  # staging: test-only (tests/conftest.py)
-    """Two steps: a run shows the proposal and its digest; a person approves THAT digest."""
-    base = ["run", "--incident", "inc-002", "--environment", "staging", "--principal", "role:oncall"]
-    assert main(base) == 0
-    first = capsys.readouterr().out
-    assert "awaiting_approval" in first and "would scale_up" not in first
-    assert main([*base, "--approve", _digest_from(first)]) == 0
+def test_the_report_flag_only_prints(capsys, monkeypatch):
+    """`run --report` prints the report and sends nothing: no notification sink is called (the send was
+    --emit-chatops), and the report has no in-process remediation section."""
+    from warden import chatops
+
+    monkeypatch.setattr(chatops, "notify", lambda *a, **k: (_ for _ in ()).throw(AssertionError("sent")))
+    assert main(["run", "--incident", "inc-002", "--report"]) == 0
     out = capsys.readouterr().out
-    assert "dry_run" in out
-    assert "would scale_up" in out
-
-
-def test_an_approval_of_another_proposal_approves_nothing(capsys, staging_policy):
-    base = ["run", "--incident", "inc-002", "--environment", "staging", "--principal", "role:oncall"]
-    assert main([*base, "--approve", "0123456789ab"]) == 0
-    out = capsys.readouterr().out
-    assert "awaiting_approval" in out and "for a different proposal" in out
-    assert "would scale_up" not in out
-
-
-def test_run_in_prod_never_auto_remediates(capsys):
-    assert main([
-        "run", "--incident", "inc-002",
-        "--principal", "role:oncall", "--approve", "0123456789ab",
-    ]) == 0
-    out = capsys.readouterr().out
-    assert "not_auto_remediable" in out
-
-
-def test_run_with_unauthorized_principal_is_reported(capsys, staging_policy):
-    assert main([
-        "run", "--incident", "inc-002", "--environment", "staging",
-        "--principal", "role:intern", "--approve", "0123456789ab",
-    ]) == 0
-    out = capsys.readouterr().out
-    assert "unauthorized" in out
+    assert "WARDEN incident report" in out and "## Remediation" not in out
 
 
 # --------------------------------------------------------------------------- live-system overrides
@@ -281,17 +263,15 @@ def test_a_bad_argument_is_printed_through_the_gate(capsys):
         assert "error:" in err or "withheld by the outbound gate" in err, err  # a line holding a key is withheld
 
 
-def test_the_cli_never_applies_even_with_the_retired_live_switch_set(monkeypatch, capsys, staging_policy):
+def test_the_cli_never_applies_even_with_the_retired_live_switch_set(monkeypatch, capsys):
     """Audit A-B-H2, decision D16: the in-process live path (WARDEN_REMEDIATION=live, remediation_k8s.py,
-    database_remediation.py) is gone. Set the old switch: an approved CLI run still only says what it would do, and
-    the modules that acted are absent - the one write path is the RemediationWorkflow."""
+    database_remediation.py, and since B27 remediation.py's dry-run gate) is gone. Set the old switch: a CLI run still
+    only reports, and the modules that acted are absent - the one write path is the RemediationWorkflow."""
     import importlib.util
 
     monkeypatch.setenv("WARDEN_REMEDIATION", "live")
-    base = ["run", "--incident", "inc-002", "--environment", "staging", "--principal", "role:oncall"]
-    assert main(base) == 0
-    assert main([*base, "--approve", _digest_from(capsys.readouterr().out)]) == 0
+    assert main(["run", "--incident", "inc-002", "--report"]) == 0
     out = capsys.readouterr().out
-    assert "dry_run" in out and "would scale_up" in out, out
-    for gone in ("warden.remediation_k8s", "warden.database_remediation"):
+    assert "would scale_up" not in out and "dry_run" not in out, out
+    for gone in ("warden.remediation_k8s", "warden.database_remediation", "warden.remediation"):
         assert importlib.util.find_spec(gone) is None, gone

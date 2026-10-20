@@ -45,7 +45,6 @@ from .knowledge import SignatureMatch
 from .models import ActionKind, Alert, ContextBundle, RemediationProposal, RootCause, Verdict
 from .playbook import detect as detect_patterns
 from .redaction import redact
-from .remediation import RemediationResult
 from .verifier import symptoms
 
 # Tier ordering for "what is higher than here". Unknown is off the ladder (never a promotion target).
@@ -601,7 +600,6 @@ def build_report(
     root_cause: RootCause | None = None,
     proposal: RemediationProposal | None = None,
     verdict: Verdict | None = None,
-    remediation: RemediationResult | None = None,
     signatures: list[SignatureMatch] | None = None,
     policies: EnvironmentPolicies | None = None,
     context: ContextBundle | None = None,
@@ -707,13 +705,6 @@ def build_report(
             "policy_ids": verdict.policy_ids,
             "reasons": list(verdict.reasons),
             "observed": list(verdict.observed),
-        }
-    if remediation:
-        data["remediation"] = {
-            "outcome": remediation.outcome.value,
-            "detail": remediation.detail,
-            "applied_change": remediation.applied_change,
-            "principal": remediation.principal,
         }
     data["changed_by"] = _changed_by(list(ctx.logs))
     data["who_acts"] = _who_acts(alert, data)

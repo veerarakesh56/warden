@@ -182,7 +182,7 @@ aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
     --query 'services[0].{running:runningCount,desired:desiredCount,pending:pendingCount}' \
     --output table | tee -a "$OUT/run.log"
 warden_run C-ecs-bad-deploy "ECS bad deploy — real OOM kills, rollback should be permitted" \
-    --principal role:oncall --report
+    --report
 
 # --------------------------------------------------------------------------- D: EKS
 
