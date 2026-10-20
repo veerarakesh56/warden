@@ -14,7 +14,8 @@ PINS = ROOT / "docs" / "safety-pins.sha256"
 PACKAGE = "src/warden"
 PINNED = ("activities.py", "approval_page.py", "approvals.py", "bounds.py", "catalog.py", "decide.py", "evidence.py", "freeze.py", "gate.py",
           "graph.py", "grounding.py", "mcp_server.py", "passkeys.py", "quarantine.py", "redaction.py", "reporting.py", "runtime.py",
-          "tripwire.py", "verifier.py", "workflows.py", "audit.py", "locks.py")
+          "tripwire.py", "verifier.py", "workflows.py", "audit.py", "locks.py",
+          "confidence.py")  # names policies to say how far to trust an answer (item 16c)
 
 
 def files() -> list[str]:
