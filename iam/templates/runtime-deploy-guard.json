@@ -36,6 +36,17 @@
           "iam:PermissionsBoundary": "arn:aws:iam::*:policy/WardenEnvBoundary-${env}"
         }
       }
+    },
+    {
+      "Sid": "TheEnvironmentTagNeverComesOffAnApi",
+      "Effect": "Deny",
+      "Action": "apigateway:DELETE",
+      "Resource": "arn:aws:apigateway:*::/tags/*",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": "Environment"
+        }
+      }
     }
   ]
 }

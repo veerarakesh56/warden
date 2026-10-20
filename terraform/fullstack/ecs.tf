@@ -63,7 +63,7 @@ resource "aws_iam_role_policy" "ecs_execution" {
       {
         Sid      = "PullTheAppImage"
         Effect   = "Allow"
-        Action   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
+        Action   = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
         Resource = aws_ecr_repository.app.arn
       },
       {

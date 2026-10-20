@@ -144,8 +144,8 @@ def test_the_task_execution_role_has_only_its_own_minimal_policy():
     assert 'Resource = "arn:aws:ecr:${local.region}:${local.account}:repository/${local.runtime_repository}"' in block
     assert 'Resource = "${aws_cloudwatch_log_group.worker.arn}:log-stream:*"' in block
     assert re.findall(r'"((?:ecr|logs):\w+)"', block) == [
-        "ecr:GetAuthorizationToken", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "logs:CreateLogStream",
-        "logs:PutLogEvents"]
+        "ecr:GetAuthorizationToken", "ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer", "logs:CreateLogStream", "logs:PutLogEvents"]
 
 
 def test_the_runtime_deploy_role_has_exact_api_gateway_verbs_on_its_own_paths():
@@ -153,7 +153,8 @@ def test_the_runtime_deploy_role_has_exact_api_gateway_verbs_on_its_own_paths():
     path (AWS Service Reference); the module creates, reads, updates and deletes an HTTP API, its stage, routes,
     integrations, a custom domain name with its API mapping, and their tags - nothing else (no PUT import, no REST
     API, no API keys, no account settings)."""
-    grants = [(st.get("Sid"), a, _list(st["Resource"])) for st in _load("deploy")["Statement"] if st["Effect"] == "Allow"
+    grants = [(st.get("Sid"), a, _list(st["Resource"])) for kind in ("deploy", "deploy-ec2")
+              for st in _load(kind)["Statement"] if st["Effect"] == "Allow"
               for a in _list(st["Action"]) if a.startswith("apigateway:")]
     assert {a for _, a, _ in grants} == {"apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE"}
     assert {sid for sid, _, _ in grants} == {"TheFrontDoorApi"}
@@ -164,3 +165,18 @@ def test_the_runtime_deploy_role_has_exact_api_gateway_verbs_on_its_own_paths():
     assert set(re.findall(r'^resource "(aws_api\w+)"', tf, re.MULTILINE)) == {
         "aws_apigatewayv2_api", "aws_apigatewayv2_stage", "aws_apigatewayv2_integration", "aws_apigatewayv2_route",
         "aws_apigatewayv2_domain_name", "aws_apigatewayv2_api_mapping"}, "a new API Gateway resource: check its paths"
+
+
+def test_the_environment_tag_never_comes_off_an_api():
+    """B22 review (CodeRabbit, PR 85): the boundary denies touching a resource tagged as another environment's, but an
+    untag goes to /tags/<arn>, which carries no resource tag - removing another environment's Environment tag would
+    have made its API untagged, and then changeable. The guard refuses removing that key on any API Gateway resource;
+    adding another environment's value is already refused (boundary DenyOtherEnvTags)."""
+    st = _sid(_load("deploy-guard"), "TheEnvironmentTagNeverComesOffAnApi")
+    assert st["Effect"] == "Deny"
+    assert st["Action"] == "apigateway:DELETE"
+    assert st["Resource"] == "arn:aws:apigateway:*::/tags/*"
+    assert st["Condition"] == {"ForAnyValue:StringEquals": {"aws:TagKeys": "Environment"}}
+    tags = _sid(_load("boundary"), "DenyOtherEnvTags")["Condition"]
+    assert tags["StringNotEquals"] == {"aws:RequestTag/Environment": RUNTIME}
+

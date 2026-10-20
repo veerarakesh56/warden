@@ -639,7 +639,7 @@ def test_the_full_stacks_task_execution_role_has_only_its_own_minimal_policy():
     block = tf[tf.index('resource "aws_iam_role_policy" "ecs_execution"'):]
     block = block[:block.index("\n}\n")]
     assert re.findall(r'"((?:ecr|logs|secretsmanager):\w+)"', block) == [
-        "ecr:GetAuthorizationToken", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "logs:CreateLogStream",
-        "logs:PutLogEvents"]
+        "ecr:GetAuthorizationToken", "ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer", "logs:CreateLogStream", "logs:PutLogEvents"]
     assert "Resource = aws_ecr_repository.app.arn" in block
     assert 'Resource = "${aws_cloudwatch_log_group.orders_api.arn}:log-stream:*"' in block
