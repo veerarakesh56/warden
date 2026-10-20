@@ -123,8 +123,9 @@ class KubernetesPlatform:
         restart annotation, so its self-heal leaves a restart in place? True only when proven, from the live
         Application: the Deployment's own tracking id names it and this exact Deployment, the Application deploys to
         this namespace, and an ignoreDifferences rule for this Deployment holds a JSON Pointer covering the
-        annotation. Anything else - no tracking id (label tracking), a Flux marker as well, an Application that cannot
-        be read, a rule by jq expression only - is not proof, and the restart stays refused."""
+        annotation, with RespectIgnoreDifferences on. Anything else - no tracking id (label tracking), a Flux marker as
+        well, an Application that cannot be read, a rule by jq expression only - is not proof, and the restart stays
+        refused."""
         meta = dep.metadata
         marks = {**(getattr(meta, "labels", None) or {}), **(getattr(meta, "annotations", None) or {})}
         if self._custom is None or any(_GITOPS[k] == "Flux" for k in marks if k in _GITOPS):
@@ -140,6 +141,10 @@ class KubernetesPlatform:
             return False
         spec = found.get("spec") if isinstance(found, dict) else None
         if not isinstance(spec, dict) or (spec.get("destination") or {}).get("namespace") != self._ns:
+            return False
+        # Without RespectIgnoreDifferences, a sync for any other reason applies Git's template and drops the restart
+        # (Argo CD's sync options, review PR 48): the ignore is proof only with it.
+        if "RespectIgnoreDifferences=true" not in ((spec.get("syncPolicy") or {}).get("syncOptions") or []):
             return False
         return any(_ignores_restart(rule, meta.name, self._ns) for rule in spec.get("ignoreDifferences") or [])
 

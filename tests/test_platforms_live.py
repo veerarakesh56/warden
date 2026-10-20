@@ -248,7 +248,8 @@ def test_db_reads_as_the_monitor_login_and_closes_as_the_terminate_login_in_the_
     # The close's server is verified against Amazon RDS's certificate authorities, not only encrypted (review, PR 48).
     assert write["sslmode"] == "verify-full"
     assert pathlib.Path(write["sslrootcert"]).read_text(encoding="ascii").count("BEGIN CERTIFICATE") > 1
-    assert read["sslmode"] == "require"  # reads unchanged
+    assert read["sslmode"] == "verify-full"  # reads verified too
+    assert read["sslrootcert"] == write["sslrootcert"]
     assert writer_conn.killed == [101, 102], "a close went through the reader's login"
     assert reader_conn.killed == [], "a close went through the reader's login"
     assert not any("pg_terminate_backend" in sql for sql, _ in reader_conn.sql)
@@ -387,3 +388,22 @@ def test_a_role_comes_only_from_an_iam_template_and_a_configured_environment(mon
         monkeypatch.setenv("WARDEN_AWS_ROLE_ARN_TEMPLATE", bad)
         with pytest.raises(NotConfigured, match="WARDEN_AWS_ROLE_ARN_TEMPLATE"):
             role_arn("dev", "actor")
+
+
+def test_a_platform_that_fails_to_build_changes_nothing_and_is_not_built_again(monkeypatch):
+    """Review, PR 48: an unexpected failure building an environment's platform is that environment's Unconfigured -
+    nothing read or written, the worker runs on - and is remembered, not retried on every plan."""
+    calls = []
+
+    def build(env):
+        calls.append(env)
+        raise KeyError("boom")
+
+    per = warden.platforms.PerEnvironment(build, "database")
+    first = per.for_environment("dev")
+    assert isinstance(first, Unconfigured)
+    assert "KeyError" in first.why
+    assert per.for_environment("dev") is first
+    assert calls == ["dev"]
+    with pytest.raises(NotConfigured):
+        first.apply("db_terminate_idle_in_tx", IDLE, who=WHO)
