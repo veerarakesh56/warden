@@ -298,7 +298,8 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
                                                         "model": model, "model_reason": chosen})
         return None
     evidence = "<<EVIDENCE>>\n" + str(evidence_rows[-1].get("prompt", ""))[:MAX_EVIDENCE] + "\n<<END EVIDENCE>>"
-    ids = set(_EVIDENCE_ID.findall(evidence_rows[-1].get("prompt", "")))
+    # Only ids in the evidence Eldane is shown (CodeRabbit, PR 42): one past the cut is not on its record.
+    ids = set(_EVIDENCE_ID.findall(str(evidence_rows[-1].get("prompt", ""))[:MAX_EVIDENCE]))
     shown = (catalog.shown_target(plan.environment, plan.entry, plan.params) if plan.entry in catalog.CATALOG
              else plan.target)
     blind = evidence + "\n\n" + describe(plan.entry, plan.params, environment=plan.environment, tier=plan.tier,

@@ -739,3 +739,15 @@ def test_where_eldane_cannot_approve_the_person_is_asked_before_it_reviews(world
     assert reviewed
     assert opening[0] < reviewed[0]
     assert not [e for e in log.entries(INC, kinds=("approval.accepted",)) if e["body"].get("ai")]
+
+
+def test_an_id_past_the_evidence_shown_is_not_on_eldanes_record(world, monkeypatch):
+    """CodeRabbit, PR 42: the ids were read from the whole evidence, the model shown only its first MAX_EVIDENCE
+    characters - a citation of an item past the cut passed the grounding check."""
+    monkeypatch.setattr(eldane, "MAX_EVIDENCE", len(EVIDENCE))
+    world["log"].append(INC, "incident.evidence", {"prompt": EVIDENCE + "\n[L37] past the cut"})
+    world["model"].answer = json.dumps({"agree": True, "reasons": [{"text": "it", "evidence": ["L37"]}]})
+    assert _review(world) is None
+    verdict = autonomy.verdict_of(world["log"], _plan(), "")
+    assert verdict["agree"] is False
+    assert any("not on the record: L37" in r["text"] for p in verdict["passes"] for r in p["reasons"])
