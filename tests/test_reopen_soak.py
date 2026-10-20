@@ -450,3 +450,27 @@ def test_offer_again_never_clears_a_later_failure_of_another_incident(tmp_path, 
     assert history.did_not_hold(audit.AuditLog(tmp_path / "audit.db"), "e", "dev/t")[0] == "inc-10"
     assert main(["offer-again", "inc-10", "--approver", "owner", "--key", str(key_file)]) == 0
     assert history.did_not_hold(audit.AuditLog(tmp_path / "audit.db"), "e", "dev/t") == ("", "")
+
+
+def test_a_marked_run_that_then_ends_relapsed_is_one_failure_and_its_clearance_stands(tmp_path):
+    """CodeRabbit, PR 43 (outside the diff): intake marks the fix as not holding, then its run ends `relapsed`. Counted
+    twice, a clearance signed between the two was undone by the run's own end."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from warden import approvals
+
+    key = Ed25519PrivateKey.generate()
+    pem = key.public_key().public_bytes(serialization.Encoding.PEM,
+                                        serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    policy = approvals.ApproverPolicy(approvers={"owner": approvals.Approver(public_key=pem, tiers=["T1", "T2"])})
+    log = AuditLog(tmp_path / "a.db", key=None)
+    log.append("inc-9", "remediation.plan", {"workflow_id": "w", "run_id": "r", "entry": "e", "target": "dev/t"})
+    log.append("inc-9", history.DID_NOT_HOLD, {"workflow_id": "w", "run_id": "r", "entry": "e", "target": "dev/t"})
+    [(failed_at, _)] = history.failures(log, "e", "dev/t")
+    signed = approvals.sign(key, approver="owner", workflow_id=history.OFFER_AGAIN_WORKFLOW,
+                            plan_hash=history.offer_again_hash("e", "dev/t", failed_at), tier="T2")
+    assert history.offer_again(log, signed, policy=policy, entry="e", target="dev/t") == []
+    log.append("inc-9", "workflow.end", {"workflow_id": "w", "run_id": "r", "status": "relapsed"})
+    assert len(history.failures(log, "e", "dev/t")) == 1
+    assert history.did_not_hold(log, "e", "dev/t") == ("", "")

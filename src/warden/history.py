@@ -74,14 +74,19 @@ OFFER_AGAIN_WORKFLOW = "offer-again"  # what an approver's signature to clear it
 def failures(log: Any, entry: str, target: str) -> list[tuple[datetime, str]]:
     """Every time the fix `entry` on `target` was verified and did not hold - on the whole record, with no time limit
     (CodeRabbit, PR 43: a 30-day window let the same fix be offered again with no person deciding)."""
-    rows = [(e["at"], e["correlation_id"]) for e in log.entries(kinds=(DID_NOT_HOLD,))
-            if e["body"].get("entry") == entry and e["body"].get("target") == target]
-    return rows + [(at, incident) for at, incident, e, t in _relapsed(log) if e == entry and t == target]
+    markers = [e for e in log.entries(kinds=(DID_NOT_HOLD,))
+               if e["body"].get("entry") == entry and e["body"].get("target") == target]
+    # A marked run that then ends `relapsed` is the same failure, kept at the marker's time (CodeRabbit, PR 43): a
+    # clearance signed between the two must not be undone by the run's own end.
+    marked = {(e["body"].get("workflow_id"), e["body"].get("run_id")) for e in markers}
+    return [(e["at"], e["correlation_id"]) for e in markers] + [
+        (at, incident) for at, incident, e, t, run in _relapsed(log) if e == entry and t == target and run not in marked]
 
 
-def _relapsed(log: Any, incident: str | None = None) -> list[tuple[datetime, str, str, str]]:
-    """(ended at, incident, entry, target) of every fix run that ended `relapsed` - a re-check failed - read from the
-    end rows and each one's own plan row, never the whole plan history rebuilt (CodeRabbit, PR 43)."""
+def _relapsed(log: Any, incident: str | None = None) -> list[tuple[datetime, str, str, str, tuple[Any, Any]]]:
+    """(ended at, incident, entry, target, (workflow id, run id)) of every fix run that ended `relapsed` - a re-check
+    failed - read from the end rows and each one's own plan row, never the whole plan history rebuilt (CodeRabbit,
+    PR 43)."""
     out = []
     for e in log.entries(incident, kinds=("workflow.end",)):
         b = e["body"]
@@ -91,7 +96,8 @@ def _relapsed(log: Any, incident: str | None = None) -> list[tuple[datetime, str
                      if (p["body"].get("workflow_id"), p["body"].get("run_id")) == (b.get("workflow_id"),
                                                                                     b.get("run_id"))), None)
         if plan is not None:
-            out.append((e["at"], str(e["correlation_id"]), str(plan.get("entry", "")), str(plan.get("target", ""))))
+            out.append((e["at"], str(e["correlation_id"]), str(plan.get("entry", "")), str(plan.get("target", "")),
+                        (b.get("workflow_id"), b.get("run_id"))))
     return out
 
 
@@ -100,7 +106,7 @@ def failed_in(log: Any, incident: str) -> list[tuple[str, str]]:
     or a re-check failed and its run ended `relapsed` (CodeRabbit, PR 43) - once each, in the record's order."""
     rows = [(str(e["body"].get("entry", "")), str(e["body"].get("target", "")))
             for e in log.entries(incident, kinds=(DID_NOT_HOLD,))]
-    rows += [(entry, target) for _, _, entry, target in _relapsed(log, incident)]
+    rows += [(entry, target) for _, _, entry, target, _ in _relapsed(log, incident)]
     return list(dict.fromkeys(rows))
 
 
