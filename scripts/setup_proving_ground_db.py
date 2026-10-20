@@ -77,25 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         if live != args.database:
             return _fail(f"connected to database {live!r}, not {args.database!r} - refusing")
 
-        if args.reader:
-            # WARDEN's own login for a database wave (audit A-B-M13): it reads pg_stat_activity and locks through
-            # pg_monitor and holds no other privilege - not the master the injectors use.
-            password = os.environ.get("WARDEN_BENCH_DB_READER_PASSWORD", "")
-            if not password:
-                return _fail("set WARDEN_BENCH_DB_READER_PASSWORD for the warden_reader login")
-            cur.execute("SELECT 1 FROM pg_roles WHERE rolname = 'warden_reader'")
-            if cur.fetchone() is None:
-                if not args.apply:
-                    print("\ndry run - warden_reader would be created with pg_monitor. Re-run with --apply.")
-                else:
-                    from psycopg import sql
-                    cur.execute(sql.SQL("CREATE ROLE warden_reader LOGIN PASSWORD {}").format(sql.Literal(password)))
-                    cur.execute("GRANT pg_monitor TO warden_reader")
-                    cur.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO warden_reader").format(
-                        sql.Identifier(live)))
-                    print("\nwarden_reader created (pg_monitor, CONNECT only).")
-            else:
-                print("\nwarden_reader already exists.")
+        if args.reader and not _ensure_reader(cur, live, apply=args.apply):
+            return _fail("set WARDEN_BENCH_DB_READER_PASSWORD for the warden_reader login")
 
         cur.execute(f"SELECT to_regclass('{SENTINEL}')")
         if cur.fetchone()[0] is not None:
@@ -119,6 +102,26 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\ncreated. {named} on {host} is now injectable by the Wave 3 harness.")
     return 0
+
+
+def _ensure_reader(cur, live: str, *, apply: bool) -> bool:
+    """WARDEN's own login for a database wave (audit A-B-M13): it reads pg_stat_activity and locks through pg_monitor
+    and holds no other privilege - not the master the injectors use. False when its password is not set."""
+    password = os.environ.get("WARDEN_BENCH_DB_READER_PASSWORD", "")
+    if not password:
+        return False
+    cur.execute("SELECT 1 FROM pg_roles WHERE rolname = 'warden_reader'")
+    if cur.fetchone() is not None:
+        print("\nwarden_reader already exists.")
+    elif not apply:
+        print("\ndry run - warden_reader would be created with pg_monitor. Re-run with --apply.")
+    else:
+        from psycopg import sql
+        cur.execute(sql.SQL("CREATE ROLE warden_reader LOGIN PASSWORD {}").format(sql.Literal(password)))
+        cur.execute("GRANT pg_monitor TO warden_reader")
+        cur.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO warden_reader").format(sql.Identifier(live)))
+        print("\nwarden_reader created (pg_monitor, CONNECT only).")
+    return True
 
 
 def _fail(message: str) -> int:

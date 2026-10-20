@@ -80,6 +80,29 @@ def render_runtime(env: str, account: str = "<ACCOUNT_ID>") -> dict[str, str]:
     return out
 
 
+def _write(path: pathlib.Path, text: str) -> None:
+    # Every file is written with LF, as the repository stores it (.gitattributes, 2026-10-16): on Windows a render
+    # wrote CRLF, and every rendered file showed as changed.
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def _write_environment(p: argparse.ArgumentParser, env: str, account: str | None, cluster: str | None) -> None:
+    """One environment's committed files, plus its `.local.json` files when an account or a cluster is given."""
+    d = ROOT / "iam" / env
+    d.mkdir(parents=True, exist_ok=True)
+    for kind, text in render(env).items():
+        _write(d / f"{kind}.json", text)
+    if account:
+        for kind in TRUSTS:
+            _write(d / f"{kind}.local.json", render(env, account)[kind])
+        if env in HARNESS_ENVS:
+            _write(d / "harness-trust.local.json", render(env, account)["harness-trust"])
+    if cluster and env in HARNESS_ENVS:
+        if not re.fullmatch(r"cluster-[A-Z0-9]{10,40}", cluster):
+            p.error("--cluster-resource-id must look like cluster-ABC123... (the cluster's Resource ID)")
+        _write(d / "harness.local.json", render(env, cluster=cluster)["harness"])
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--account", action="store_true",
@@ -92,30 +115,15 @@ def main(argv: list[str] | None = None) -> int:
         import boto3
 
         account = boto3.client("sts").get_caller_identity()["Account"]
-    # Every file is written with LF, as the repository stores it (.gitattributes, 2026-10-16): on Windows a render
-    # wrote CRLF, and every rendered file showed as changed.
     for env in environments():
-        d = ROOT / "iam" / env
-        d.mkdir(parents=True, exist_ok=True)
-        for kind, text in render(env).items():
-            (d / f"{kind}.json").write_text(text, encoding="utf-8", newline="\n")
-        if account:
-            for kind in TRUSTS:
-                (d / f"{kind}.local.json").write_text(render(env, account)[kind], encoding="utf-8", newline="\n")
-            if env in HARNESS_ENVS:
-                (d / "harness-trust.local.json").write_text(render(env, account)["harness-trust"], encoding="utf-8", newline="\n")
-        if args.cluster_resource_id and env in HARNESS_ENVS:
-            if not re.fullmatch(r"cluster-[A-Z0-9]{10,40}", args.cluster_resource_id):
-                p.error("--cluster-resource-id must look like cluster-ABC123... (the cluster's Resource ID)")
-            (d / "harness.local.json").write_text(render(env, cluster=args.cluster_resource_id)["harness"],
-                                                  encoding="utf-8", newline="\n")
+        _write_environment(p, env, account, args.cluster_resource_id)
     runtime = runtime_environment()
     d = ROOT / "iam" / runtime
     d.mkdir(parents=True, exist_ok=True)
     for kind, text in render_runtime(runtime).items():
-        (d / f"{kind}.json").write_text(text, encoding="utf-8", newline="\n")
+        _write(d / f"{kind}.json", text)
     if account:
-        (d / "trust.local.json").write_text(render_runtime(runtime, account)["trust"], encoding="utf-8", newline="\n")
+        _write(d / "trust.local.json", render_runtime(runtime, account)["trust"])
     print(f"rendered {len(environments())} environments and the runtime ({runtime}) into iam/")
     return 0
 
