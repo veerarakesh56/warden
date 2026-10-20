@@ -23,10 +23,13 @@ def _load(env, kind):
 def _denied(env, tags):
     """Does the kill-switch policy deny an action by a session of the actor role carrying these role tags?"""
     st = next(s for s in _load(env, "kill-switch")["Statement"] if s["Sid"] == "NothingUnlessAPersonTurnedTheSwitchOff")
-    assert st["Effect"] == "Deny" and st["Action"] == "*" and st["Resource"] == "*"
+    assert st["Effect"] == "Deny"
+    assert st["Action"] == "*"
+    assert st["Resource"] == "*"
     ((op, cond),) = st["Condition"].items()
     ((key, want),) = cond.items()
-    assert op == "StringNotEquals" and key == f"aws:PrincipalTag/{ks.TAG}"
+    assert op == "StringNotEquals"
+    assert key == f"aws:PrincipalTag/{ks.TAG}"
     have = tags.get(ks.TAG)
     return have is None or have != want  # StringNotEquals: true when the key is absent
 
@@ -41,12 +44,14 @@ def test_every_action_is_denied_unless_the_tag_says_exactly_off(env):
 @pytest.mark.parametrize("env", ENVS)
 def test_the_role_cannot_turn_its_own_switch_and_no_session_can_override_it(env):
     st = next(s for s in _load(env, "kill-switch")["Statement"] if s["Sid"] == "TheRoleNeverTurnsItsOwnSwitch")
-    assert st["Effect"] == "Deny" and sorted(st["Action"]) == ["iam:TagRole", "iam:UntagRole"]
+    assert st["Effect"] == "Deny"
+    assert sorted(st["Action"]) == ["iam:TagRole", "iam:UntagRole"]
     assert st["Resource"] == f"arn:aws:iam::*:role/{ks.role_name(env)}"
     # A session tag of the same key would override the role's tag in aws:PrincipalTag: the actor's trust lets a
     # session carry only these keys.
     tagging = [s for s in _load(env, "actor-trust")["Statement"] if "sts:TagSession" in json.dumps(s["Action"])]
-    assert tagging and all(ks.TAG not in s["Condition"]["ForAllValues:StringEquals"]["aws:TagKeys"] for s in tagging)
+    assert tagging, "the actor trust lets no session carry tags: check this test"
+    assert all(ks.TAG not in s["Condition"]["ForAllValues:StringEquals"]["aws:TagKeys"] for s in tagging)
     # And the deploy role may not tag the actor (it is hand-made).
     guard = next(s for s in _load(env, "deploy-guard")["Statement"] if s["Sid"] == "NeverTouchTheHandMadeRoles")
     assert {"iam:TagRole", "iam:UntagRole"} <= set(guard["Action"])
@@ -86,7 +91,8 @@ def test_on_off_and_status(capsys):
     assert ks.main(["status", "--env", "dev"], iam=iam) == 0
     assert "off - fixes allowed" in capsys.readouterr().out
     assert ks.main(["on", "--env", "dev"], iam=iam) == 0
-    assert iam.tags[ks.TAG] == "on" and ("tag_role", "warden-dev-actor") in iam.calls
+    assert iam.tags[ks.TAG] == "on"
+    assert ("tag_role", "warden-dev-actor") in iam.calls
     assert "ON - AWS refuses every fix" in capsys.readouterr().out
     assert ks.main(["off", "--env", "dev", "--confirm"], iam=iam) == 0
     assert iam.tags[ks.TAG] == "off"
