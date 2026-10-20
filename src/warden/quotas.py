@@ -20,6 +20,7 @@ be unread, never to have headroom.
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import timedelta
 from typing import Any
@@ -176,6 +177,10 @@ class QuotaReader:
             return [f"{PARTIAL}quotas usage: {type(exc).__name__} - not read", *notes]
         rows = _shares(got, asked)
         lines = [_line(row, window) for row in rows[:MAX_LINES]]
+        partial = sum(not row[5] for row in rows)
+        if partial:
+            lines.append(f"{PARTIAL}quotas usage: {partial} of {len(asked)} usage metrics answered with partial data "
+                         f"{window} - their peak may be higher")
         unread = len(asked) - len(rows)  # no data, or no result at all: unread either way
         if unread:
             lines.append(f"{PARTIAL}quotas usage: {unread} of {len(asked)} usage metrics had no data {window} - "
@@ -184,20 +189,24 @@ class QuotaReader:
 
 
 def _shares(got: dict[str, Any], asked: dict[str, tuple[str, dict[str, Any]]]) -> list[tuple]:
-    """(share used, service, quota, peak, value) for each metric that answered, the closest to its limit first."""
+    """(share used, service, quota, peak, value, complete) for each metric that answered, the closest to its limit
+    first. `complete` is False when CloudWatch says the answer is PartialData: the peak read is a floor, not the peak."""
     rows = []
     for result in got.get("MetricDataResults") or []:
         code, q = asked.get(str(result.get("Id")), ("", {}))
         values = [float(v) for v in result.get("Values") or []]
         if q and values:
             peak, value = max(values), float(q["Value"])
-            rows.append((peak / value, code, q, peak, value))
+            rows.append((peak / value, code, q, peak, value, result.get("StatusCode", "Complete") == "Complete"))
     return sorted(rows, key=lambda r: (-r[0], r[1], str(r[2].get("QuotaCode"))))
 
 
 def _line(row: tuple, window: str) -> str:
-    share, code, q, peak, value = row
+    share, code, q, peak, value, complete = row
     quota_code = str(q.get("QuotaCode") or "")
     name = _TEXT.sub("", str(q.get("QuotaName") or ""))[:80].strip() or "unnamed"
+    # Cut down, never rounded up: 79.6% reads 79%, so the number and near_limit (80% or more) always agree.
+    used = math.floor(share * 100)
     return (f"STATE quota {code} {quota_code if _CODE.match(quota_code) else '?'} ({name}) value={value:g} "
-            f"usage_max={peak:g} used={round(share * 100)}%{' near_limit' if share >= NEAR else ''} {window}")
+            f"usage_max={peak:g} used={used}%{' near_limit' if share >= NEAR else ''}"
+            f"{'' if complete else ' partial_data'} {window}")
