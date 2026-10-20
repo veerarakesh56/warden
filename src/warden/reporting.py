@@ -297,7 +297,7 @@ def reveal_identifiers(obj, mapping: dict[str, str]):
     reveal = {p: v for p, v in mapping.items() if p[1:].rsplit("_", 1)[0] in REVEALABLE}
     # The model sometimes drops the angle brackets and writes `EMAIL_1`. Those bare forms are
     # revealed too - whole words only, identifier labels only, so `<SECRET_1>` stays masked.
-    reveal.update({p[1:-1]: v for p, v in list(reveal.items())})
+    reveal.update({p[1:-1]: v for p, v in reveal.items()})
     return _reveal(obj, reveal) if reveal else obj
 
 
@@ -787,11 +787,9 @@ def _render_markdown(d: dict) -> str:
             "Held - a recent change was left unaddressed. WARDEN offers the undo of that change as a plan for a "
             "person to approve; nothing runs until then." if offered else
             _NEXT_STEP.get(v['status'], v['status'])) + "**")
-    lines.append("")
 
     # ---- summary
-    lines.append("## Summary")
-    lines.append(f"- **Alert** (as written in the alert rule): {untrusted_inline(a['summary'])}")
+    lines.extend(["", "## Summary", f"- **Alert** (as written in the alert rule): {untrusted_inline(a['summary'])}"])
     if d["impact"]:
         lines.append("- **Impact seen in the evidence**: " + "; ".join(d["impact"]) + ".")
     elif ev["tool_errors"] and not ev["metrics"]:
@@ -908,9 +906,8 @@ def _render_markdown(d: dict) -> str:
 
     # ---- the evidence itself
     if ev["metrics"]:
-        lines.append("## Metrics at the time")
-        lines.append(" | ".join(f"{_c(k)} = **{_num(val)}**" for k, val in sorted(ev["metrics"].items())))
-        lines.append("")
+        lines.extend(["## Metrics at the time",
+                      " | ".join(f"{_c(k)} = **{_num(val)}**" for k, val in sorted(ev["metrics"].items())), ""])
     if ev["timeline"]:
         lines.append("## Timeline (UTC, local time in brackets)")
         lines.extend(f"- {_c(t)} {what}" for t, what in ev["timeline"])
@@ -935,15 +932,15 @@ def _render_markdown(d: dict) -> str:
 
     # ---- proposal and gate
     if p:
-        lines.append("## Proposed action")
-        lines.append(f"- **Action**: {_c(p['action'])} -> {_c(p['target'])}")
-        lines.append(f"- **Expected effect** (model): {p['expected_effect']}")
-        lines.append(
-            f"- **Blast radius**: {p['blast_radius_effective']} (enforced; the model claimed "
-            f"{p['blast_radius']}) - reversible: {p['reversible_by_table']} per WARDEN's action "
-            f"table (the model claimed {p['reversible']})"
-        )
-        lines.append("")
+        lines.extend([
+            "## Proposed action",
+            f"- **Action**: {_c(p['action'])} -> {_c(p['target'])}",
+            f"- **Expected effect** (model): {p['expected_effect']}",
+            (f"- **Blast radius**: {p['blast_radius_effective']} (enforced; the model claimed "
+             f"{p['blast_radius']}) - reversible: {p['reversible_by_table']} per WARDEN's action "
+             f"table (the model claimed {p['reversible']})"),
+            "",
+        ])
 
     # ---- the gate's own finding, before the follow-ups: an action the gate says cannot work must not read as a
     # recommendation. (The runbook and its risks that stood here printed commands; gone 2026-10-16.)
@@ -977,9 +974,7 @@ def _render_markdown(d: dict) -> str:
 
     if d["remediation"]:
         r = d["remediation"]
-        lines.append("## Remediation")
-        lines.append(f"- **Outcome**: {_c(r['outcome'])}")
-        lines.append(f"- {r['detail']}")
+        lines.extend(["## Remediation", f"- **Outcome**: {_c(r['outcome'])}", f"- {r['detail']}"])
         if r["applied_change"]:
             lines.append(f"- {r['applied_change']}")
         lines.append("")

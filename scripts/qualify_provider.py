@@ -117,7 +117,8 @@ class Budget:
     incident is an ERROR row - counted, never silently skipped - and no further call is made."""
 
     def __init__(self, total_usd: float, factory=None) -> None:
-        if not total_usd > 0:
+        positive = total_usd > 0  # NaN is refused too: `total_usd <= 0` would let it through
+        if not positive:
             raise ValueError("the budget must be a positive number of USD")
         from warden.llm import LLMClient
 

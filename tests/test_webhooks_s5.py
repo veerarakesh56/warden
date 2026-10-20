@@ -37,6 +37,18 @@ def test_only_a_caller_with_the_secret_gets_in_and_learns_nothing_else():
     assert not webhooks.authorized("Bearer ", ["", ""])
 
 
+def test_every_current_secret_is_compared_even_after_one_matches(monkeypatch):
+    """Constant time: the check never stops at the first match, so how long it takes says nothing about which
+    secret (or how many) matched. Empty secrets are skipped and never match."""
+    import hmac
+
+    compared = []
+    real = hmac.compare_digest
+    monkeypatch.setattr(webhooks.hmac, "compare_digest", lambda a, b: compared.append(b) or real(a, b))
+    assert webhooks.authorized(f"Bearer {SECRET}", [SECRET, "", OLD])
+    assert compared == [SECRET.encode(), OLD.encode()]
+
+
 def test_a_flood_is_refused_before_it_is_read():
     big = b"{" + b" " * (webhooks.MAX_BODY + 1) + b"}"
     assert webhooks.receive(AUTH, big, secrets=[SECRET], environment="dev").status == 413

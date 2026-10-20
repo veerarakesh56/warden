@@ -47,8 +47,9 @@ def authorized(header: str | None, secrets: list[str]) -> bool:
     if not header or not header.startswith("Bearer "):
         return False
     given = header[len("Bearer "):].encode()
-    results = [hmac.compare_digest(given, s.encode()) for s in secrets if s]
-    return any(results)
+    # sum, not any(): every secret is compared, so the time taken does not say which one (if any) matched.
+    matched = sum(hmac.compare_digest(given, s.encode()) for s in secrets if s)
+    return matched > 0
 
 
 # Alertmanager writes nanoseconds (`09:00:00.123456789Z`); an Alert holds at most microseconds.

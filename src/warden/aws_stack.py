@@ -696,9 +696,11 @@ class StackBackend:
         if lab.get("elasticache"):
             readers.append(("elasticache", lambda out: self._read_elasticache(out, alert, lab["elasticache"])))
         if lab.get("aurora_cluster"):
-            readers.append(("aurora", lambda out: self._read_aurora(out, alert, lab["aurora_cluster"])))
-            readers.append(("aurora-db-writer", lambda out: self._read_db(out, "WARDEN_STACK_DB_PRIMARY_RO_DSN", "", alert)))
-            readers.append(("aurora-db-reader", lambda out: self._read_db(out, "WARDEN_STACK_DB_REPLICA_RO_DSN", "reader_", alert)))
+            readers.extend([
+                ("aurora", lambda out: self._read_aurora(out, alert, lab["aurora_cluster"])),
+                ("aurora-db-writer", lambda out: self._read_db(out, "WARDEN_STACK_DB_PRIMARY_RO_DSN", "", alert)),
+                ("aurora-db-reader", lambda out: self._read_db(out, "WARDEN_STACK_DB_REPLICA_RO_DSN", "reader_", alert)),
+            ])
         if lab.get("alb_target_group"):
             readers.append(("alb", lambda out: self._read_alb(out, alert, lab["alb_target_group"])))
         if lab.get("apigw"):

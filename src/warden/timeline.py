@@ -79,7 +79,7 @@ def recent(alert: Any, *, log: Any, platform: Any = None, now: datetime | None =
     if repo and token:
         try:
             changes += github_deployments(repo, token, alert.environment, since, until)
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        except (OSError, ValueError):  # URLError and timeouts are OSErrors
             unread.append("GitHub deployments")
     reader = getattr(platform, "for_environment", None)
     if reader is not None:
@@ -179,7 +179,7 @@ class CommitReader:
             except urllib.error.HTTPError as exc:
                 out.append(f"TOOL-PARTIAL github commit {sha[:12]}: HTTP {exc.code} - not read")
                 continue
-            except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            except (OSError, ValueError) as exc:  # URLError and timeouts are OSErrors
                 out.append(f"TOOL-PARTIAL github commit {sha[:12]}: {type(exc).__name__} - not read")
                 continue
             info = c.get("commit") or {}
