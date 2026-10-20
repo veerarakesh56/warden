@@ -21,6 +21,9 @@
 #     of the exact plan, in every environment, until Phase 3 shadow evidence (policy P17) enables a tier (audit
 #     2026-09-28).
 #   - require_human_approval: shown in the promotion report (reporting.py); nothing decides on it.
+#   - code_fix: off | propose | auto (code_gate.py, register B4) - whether WARDEN may write code-fix pull requests here:
+#     propose opens one a person merges; auto may merge itself once every check is green. The prod tier is never auto
+#     and the default is always off - both refused at load. Quote "off": YAML reads a bare off as false.
 #
 # An environment NOT listed here falls to `default`, which is deliberately the most
 # restrictive: it can only do nothing or escalate, is never auto-remediable, and has
@@ -90,6 +93,7 @@ default:
   deny_actions: []
   authorized_principals: []
   credentials_ref: null
+  code_fix: "off"            # an unlisted environment never gets code fixes (refused at load otherwise)
 
 environments:
 # `approval_wait_hours` (default 72 - three days - and at most 168, a week) is how long a fix plan in that environment waits for its approval -
@@ -118,6 +122,7 @@ environments:
     deny_actions: [scale_down, failover_replica, redrive_messages, cancel_query]
     authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]   # prod's
     credentials_ref: warden-dev-deploy
+    code_fix: propose            # code-fix pull requests a person merges, until the auto-merge checks land (B4)
     tripwire: "on"
 
   prod:
@@ -130,4 +135,5 @@ environments:
     deny_actions: [scale_down]   # scaling prod down is a capacity decision a human owns
     authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]
     credentials_ref: warden-prod-deploy
+    code_fix: propose            # never auto: a person merges every code fix in prod (refused at load)
     tripwire: "on"

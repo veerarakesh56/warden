@@ -317,6 +317,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
+- Whether a code change WARDEN wrote may become a pull request: built - `code_gate.py` (register B4, 2026-10-17).
+  GitHub's rulesets, CODEOWNERS and the CI checks still hold the pull request; what no tool does is refuse, before
+  anything is pushed, a change by its own shape: paths, size, dependencies, suppressions, a missing test, an
+  inexact revert. Plain rules over `git diff` output, no new dependency.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
   Alertmanager webhook, the approval page) - `lambdas.py`, thin adapters over intake, webhooks and the approval page.
 - Who used an actor role: AWS CloudTrail (a management-event trail, the only record WARDEN itself does not write)
