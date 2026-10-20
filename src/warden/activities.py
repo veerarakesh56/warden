@@ -25,7 +25,8 @@ from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from . import approvals, audit, bounds, catalog, environments, freeze, locks
+from . import approvals, audit, bounds, catalog, datadog, environments, freeze, locks
+from . import symptom as symptoms
 from .approvals import Plan  # lives there: the approval page reads a plan without this module
 from .audit import AuditLog
 from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
@@ -833,13 +834,51 @@ class RemediationActivities:
                 state = None
             if state == "ALARM":
                 healthy = False
+        # And the symptom itself gone (B13): the alarm's own metric no worse for N periods since the fix, and no new
+        # error class - for a Datadog monitor too. "present" fails the check; "unknown" keeps its verdict.
+        symptom = self._symptom(plan, applied[-1]) if healthy and applied else {}
+        if symptom.get("state") == symptoms.PRESENT:
+            healthy = False
         # Every real check is on the record with its run: the verdict is taken from these rows, never from
         # what an activity result or the workflow claims (fourth review, 2026-09-30: run 1's "healthy"
         # replayed into run 2 marked a fix verified with no health check made).
         self.audit.append(plan.incident_id, "remediation.check",
                           {"workflow_id": plan.workflow_id, "run_id": _run_id(), "plan_hash": plan.plan_hash,
-                           "healthy": healthy, **({"alarm": alarm, "alarm_state": state} if alarm else {})})
+                           "healthy": healthy, **({"alarm": alarm, "alarm_state": state} if alarm else {}),
+                           **({"symptom": symptom} if symptom else {})})
         return healthy
+
+    def _symptom(self, plan: Plan, applied: datetime) -> dict[str, Any]:
+        """The symptom check's reading of the incident's own alarm (symptom.py), as its audit row; {} when the
+        incident came from no alarm WARDEN can read again. A read that fails is "unknown", said so."""
+        rows = self.audit.entries(plan.incident_id, kinds=("incident.alert",))
+        alert = (rows[-1]["body"].get("alert") or {}) if rows else {}
+        labels = alert.get("labels") or {}
+        try:
+            alert_at = datetime.fromisoformat(str(alert.get("started_at") or ""))
+        except ValueError:
+            alert_at = applied
+        alert_at = alert_at if alert_at.tzinfo else alert_at.replace(tzinfo=UTC)
+        applied = applied if applied.tzinfo else applied.replace(tzinfo=UTC)
+        n, now = symptoms.periods(), symptoms.now()
+        source = "datadog" if labels.get("via") == "datadog" else "cloudwatch"
+        reader = getattr(self.platform, "reader", None)
+        try:
+            if source == "cloudwatch" and labels.get("via") == "cloudwatch" and labels.get("alarm") and reader:
+                read = reader(**_env(reader, plan.environment))
+                if read is None:
+                    return {}
+                found = symptoms.cloudwatch(read, str(labels["alarm"]), labels, alert_at=alert_at, applied=applied,
+                                            now=now, n=n)
+            elif source == "datadog" and labels.get("datadog_monitor") and datadog.configured():
+                found = symptoms.datadog(datadog.DatadogReader()._ask, str(labels["datadog_monitor"]),
+                                         str(alert.get("service") or ""), alert_at=alert_at, applied=applied,
+                                         now=now, n=n)
+            else:
+                return {}
+        except symptoms.READ_ERRORS as exc:
+            found = symptoms.Reading(source=source, periods=n, why=f"not read: {type(exc).__name__}")
+        return found.row()
 
     def _incident_alarm(self, incident_id: str) -> str:
         """The CloudWatch alarm that opened the incident, from the incident's own record (intake sets `via` last, so
