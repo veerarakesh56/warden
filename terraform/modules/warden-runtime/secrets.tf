@@ -19,6 +19,7 @@ locals {
     # Register S15: each zone's own Temporal Cloud service account key (settings.PER_ZONE).
     "temporal-api-key-core", "temporal-api-key-read", "temporal-api-key-llm", "temporal-api-key-notify",
     "temporal-api-key-act",
+    "codefix-app-id", "codefix-app-key", # the code-fix GitHub App's id and private key (github_app.py): the act zone's alone
   ])
 }
 

@@ -297,6 +297,8 @@ ZONE_READS = {
     "WARDEN_SLACK_APP_TOKEN": ("discuss.py", {"notify"}),
     "WARDEN_SLACK_WEBHOOK": ("chatops.py", {"notify"}),
     "WARDEN_GITHUB_TOKEN": ("changes.py", {"notify"}),
+    "WARDEN_CODEFIX_APP_ID": ("github_app.py", {"act"}),
+    "WARDEN_CODEFIX_APP_KEY": ("github_app.py", {"act"}),
 }
 
 

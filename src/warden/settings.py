@@ -73,6 +73,9 @@ LOADABLE = frozenset({
     # Each environment's EKS cluster, `env=cluster[,env=cluster]` (aws_stack.eks_cluster_of): a Kubernetes alert that
     # does not name its cluster - a Datadog monitor grouped by workload - is read in its environment's (2026-10-15).
     "WARDEN_EKS_CLUSTERS",
+    # The GitHub App that writes code-fix pull requests (github_app.py, register B4): its id and private key, secrets,
+    # the act zone's alone.
+    "WARDEN_CODEFIX_APP_ID", "WARDEN_CODEFIX_APP_KEY",
     # The watched database's DSNs carry no password: each read signs an IAM token in the incident's reader role
     # (aws_stack.iam_dsn).
     "WARDEN_STACK_DB_IAM_AUTH",
@@ -108,6 +111,9 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_SLACK_CLIENT_SECRET": frozenset({"lambda-approval"}),
     # The discussion channel's listener (discuss.py): the notify zone's worker alone holds the connection.
     "WARDEN_SLACK_APP_TOKEN": frozenset({"worker"}),
+    # The code-fix GitHub App (github_app.py): only the act zone's worker writes a pull request.
+    "WARDEN_CODEFIX_APP_ID": frozenset({"worker"}),
+    "WARDEN_CODEFIX_APP_KEY": frozenset({"worker"}),
     # Who besides the approvers may read WARDEN's records (records.py): only the page that shows them reads it.
     "WARDEN_RECORD_VIEWERS": frozenset({"lambda-approval"}),
     # Datadog's read keys: the read zone's worker reads evidence with them, and the webhook's Lambda asks with them
@@ -131,6 +137,7 @@ SECRETS = frozenset({
     "WARDEN_GITHUB_TOKEN",
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
     "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
+    "WARDEN_CODEFIX_APP_ID", "WARDEN_CODEFIX_APP_KEY",
 })
 
 
@@ -150,7 +157,9 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
     # (timeline.recent) - both notify-zone activities (workflows.ZONES).
     "notify": _EVERY_ZONE | {"WARDEN_SLACK_WEBHOOK", "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN",
                              "WARDEN_GITHUB_TOKEN"},
-    "act": _EVERY_ZONE,
+    # The code-fix GitHub App (github_app.py, register B4): a write credential, so the zone that writes. Its token is
+    # narrowed to one repository, contents and pull requests.
+    "act": _EVERY_ZONE | {"WARDEN_CODEFIX_APP_ID", "WARDEN_CODEFIX_APP_KEY"},
 }
 # The runtime's Lambdas (lambdas.py), each with a role of its own that reads exactly these (iam.tf front_door_access;
 # tests/test_runtime_module_g6.py runs each handler's load and holds the two together). Every one but actor-use reaches

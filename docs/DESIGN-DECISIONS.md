@@ -321,6 +321,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   GitHub's rulesets, CODEOWNERS and the CI checks still hold the pull request; what no tool does is refuse, before
   anything is pushed, a change by its own shape: paths, size, dependencies, suppressions, a missing test, an
   inexact revert. Plain rules over `git diff` output, no new dependency.
+- Writing a code fix to GitHub: adopted - a GitHub App's installation token and GraphQL `createCommitOnBranch`, which
+  GitHub signs (verified, authored by the App), through `github_app.py`: a handful of HTTPS calls with the standard
+  library and `cryptography` (already a dependency) for the App's RS256 token. PyGithub or githubkit would be a
+  dependency for those calls, and neither narrows a token to one repository and two permissions by itself.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
   Alertmanager webhook, the approval page) - `lambdas.py`, thin adapters over intake, webhooks and the approval page.
 - Who used an actor role: AWS CloudTrail (a management-event trail, the only record WARDEN itself does not write)

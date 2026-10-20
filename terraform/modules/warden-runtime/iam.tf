@@ -66,7 +66,7 @@ locals {
     llm    = { secrets = ["anthropic-api-key"], assumes = [] }
     notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "github-token"], assumes = ["platform-reader"] }
     # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts.
-    act = { secrets = [], assumes = ["platform-reader", "actor"] }
+    act = { secrets = ["codefix-app-id", "codefix-app-key"], assumes = ["platform-reader", "actor"] }
   }
   # The Lambdas (frontdoor.tf), as settings.LAMBDA_SECRETS names what each handler reads (tests/test_runtime_module_g6.py
   # runs each one's load and holds the two together). Only the approval page reads who may approve; only actor-use
