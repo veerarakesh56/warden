@@ -121,3 +121,28 @@ def test_the_catalogue_carries_a_lambda_config_revert_and_says_the_change():
                                {"now": {"Timeout": 3}, "to": {"Timeout": 30}})
     assert said == (f"$LATEST settings of {FN}: Timeout=3 -> Timeout=30 (version 7's; same code; the environment, "
                     "role and network are unchanged)")
+
+
+def _alert():
+    from warden.models import Alert, Severity
+
+    return Alert(alert_id="a1", name="n", service=FN, environment="dev", severity=Severity.high, summary="",
+                 started_at="2026-10-20T00:00:00+00:00", labels={"lambda": FN, "alarm": "warden-dev-errors"})
+
+
+def _prop():
+    from warden.models import RemediationProposal
+
+    return RemediationProposal(action=ActionKind.revert_config, target=FN, reasoning="r", expected_effect="e",
+                               blast_radius="single_service", reversible=True)
+
+
+def test_a_config_revert_of_the_labelled_function_is_planned_through_the_catalogue(aws):
+    from warden import resolver
+
+    _, p = aws
+    assert resolver.no_fix_path(_alert(), _prop()) == ""
+    request, why = resolver.request_for(_alert(), _prop(), p.live)
+    assert why == ""
+    assert request["entry"] == "lambda_restore_config"
+    assert request["params"] == {"function": FN, "from_version": "7"}
