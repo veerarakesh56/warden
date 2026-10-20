@@ -32,7 +32,7 @@ KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust", "actor", "
 TRUSTS = ("trust", "actor-trust", "platform-reader-trust")
 # WARDEN's own runtime environment (`runtime:` in environments.yaml) gets no application IAM: its deploy role - the one
 # runtime.yml assumes - and the boundary on every role terraform/runtime makes come from the runtime-* templates (G6).
-RUNTIME_KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust")
+RUNTIME_KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "deploy-config", "trust")
 # The benchmark harness and the undo lab run only where environments.yaml `fault_environments` says, as the operator
 # on the laptop (owner, 2026-10-02; audit A-I-18) - the list is configuration, never named here.
 HARNESS_ENVS = EnvironmentPolicies.load().fault_environments

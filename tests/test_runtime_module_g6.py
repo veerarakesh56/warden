@@ -553,3 +553,72 @@ def test_paused_the_runtime_keeps_its_audit_and_stops_its_spend():
     others = "\n".join((MODULE / f).read_text(encoding="utf-8") for f in ("aurora.tf", "kms.tf", "anchors.tf",
                                                                            "witness.tf", "secrets.tf"))
     assert "paused" not in others
+
+
+CONFIG_TF = ROOT / "terraform" / "runtime" / "config.tf"
+
+
+def _config_check():
+    """scripts/check_live_config.py, whose needed_types() reads the types the undo uses from platforms/aws.py."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("check_live_config", ROOT / "scripts" / "check_live_config.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _config_blocks(text: str, head: str) -> list[str]:
+    import re
+
+    return [m.group(0) for m in re.finditer(rf"^{head} \{{.*?^\}}", text, re.DOTALL | re.MULTILINE)]
+
+
+def test_the_runtime_records_exactly_the_types_the_undo_reads():
+    """B15: the recorder Terraform keeps records every type the code reads - continuously - and nothing the code does
+    not (the list in config.tf is compared with platforms/aws.py itself)."""
+    import re
+
+    text = CONFIG_TF.read_text(encoding="utf-8")
+    listed = re.search(r"config_types = \[(.*?)\]", text, re.DOTALL).group(1)
+    assert set(re.findall(r'"(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+)"', listed)) == _config_check().needed_types()
+    (recorder,) = _config_blocks(text, 'resource "aws_config_configuration_recorder" "this"')
+    assert 'recording_frequency = "CONTINUOUS"' in recorder
+    assert "all_supported                 = false" in recorder
+    assert 'use_only = "INCLUSION_BY_RESOURCE_TYPES"' in recorder
+
+
+def test_the_recorder_is_adopted_and_never_created():
+    """B15: each Config resource exists only with an import block over the same keys, so an instance Terraform
+    plans is always an import of one that exists - a name that is not in the account fails the plan instead of
+    creating a second recorder. Nothing is managed until SSM names the recorder; nothing is destroyed by Terraform."""
+    import re
+
+    text = CONFIG_TF.read_text(encoding="utf-8")
+    resources = {re.search(r'"(aws_config_\w+)" "this"', b).group(1): b
+                 for b in _config_blocks(text, r'resource "aws_config_\w+" "this"')}
+    assert set(resources) == {"aws_config_configuration_recorder", "aws_config_delivery_channel",
+                              "aws_config_configuration_recorder_status"}
+    imports = {re.search(r"to\s*=\s*(aws_config_\w+)\.this\[each\.key\]", b).group(1):
+               re.search(r"for_each\s*=\s*(\S+)", b).group(1) for b in _config_blocks(text, "import")}
+    for kind, block in resources.items():
+        for_each = re.search(r"for_each\s*=\s*(\S+)", block).group(1)
+        assert imports.get(kind) == for_each, (kind, imports.get(kind), for_each)
+        assert "prevent_destroy = true" in block, kind
+        assert "count" not in re.findall(r"^\s*(\w+)\s*=", block, re.MULTILINE), kind
+    assert 'compact([lookup(local.tf, "config_recorder_name", "")])' in text  # off until SSM names it
+
+
+def test_the_deploy_role_can_keep_the_recorder_but_never_stop_or_delete_it():
+    import json
+
+    doc = json.loads((ROOT / "iam" / "ops" / "deploy-config.json").read_text(encoding="utf-8"))
+    actions = [a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])]
+    assert not [a for a in actions if a.startswith(("config:Delete", "config:Stop")) or a == "config:*"]
+    passing = next(st for st in doc["Statement"] if st["Sid"] == "PassConfigsOwnServiceLinkedRole")
+    assert passing["Resource"] == "arn:aws:iam::*:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig"
+    assert passing["Condition"] == {"StringEquals": {"iam:PassedToService": "config.amazonaws.com"}}
+    boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
+    ceiling = next(st for st in boundary["Statement"] if st.get("Sid") == "CeilingRegional")
+    assert "config:*" in ceiling["Action"]
+    assert next(st for st in boundary["Statement"] if st.get("Sid") == "CeilingConfigsRole")["Resource"] == passing["Resource"]

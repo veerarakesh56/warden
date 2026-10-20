@@ -16,6 +16,7 @@
         "autoscaling:*",
         "events:*",
         "apigateway:*",
+        "config:*",
         "tag:*",
         "secretsmanager:ListSecrets",
         "kms:CreateKey",
@@ -66,6 +67,12 @@
         "secretsmanager:GetSecretValue"
       ],
       "Resource": "arn:aws:secretsmanager:${region}:*:secret:rds!*"
+    },
+    {
+      "Sid": "CeilingConfigsRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig"
     },
     {
       "Sid": "CeilingIam",
