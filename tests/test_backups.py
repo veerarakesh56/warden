@@ -72,8 +72,13 @@ def test_every_runtime_log_group_keeps_its_logs_at_least_180_days():
     code = {tf.name: _code(tf.read_text(encoding="utf-8")) for tf in RUNTIME.glob("*.tf")}
     functions = {m for text in code.values() for m in re.findall(r'^resource "aws_lambda_function" "(\w+)"', text, re.MULTILINE)}
     assert functions - {"front_door", "migrate"} == {"ack"}
-    ack_role = re.search(r'resource "aws_iam_role" "ack" \{.*?^\}', code["frontdoor.tf"], re.DOTALL | re.MULTILINE).group(0)
-    assert not re.search(r"\brole\s*=\s*aws_iam_role\.ack\.(?:id|name)\b", "".join(code.values()))  # no policy on it
+    found = re.search(r'resource "aws_iam_role" "ack" \{.*?^\}', code["frontdoor.tf"], re.DOTALL | re.MULTILINE)
+    assert found, "the ack role is no longer in frontdoor.tf: check this test"
+    ack_role = found.group(0)
+    # Outside its own block the role is named only as the function's execution role (.arn): nothing attaches, binds
+    # or loops a policy onto it (by id, name, a local or for_each).
+    rest = "".join(code.values()).replace(ack_role, "")
+    assert set(re.findall(r"\baws_iam_role\.ack\b(\.\w+)?", rest)) == {".arn"}
     assert "inline_policy" not in ack_role
     assert "managed_policy_arns" not in ack_role
 
@@ -86,7 +91,7 @@ def test_anchors_and_the_witness_stay_locked_at_least_180_days():
         assert re.search(r'mode\s*=\s*"COMPLIANCE"', lock), tf
         assert re.search(r"days\s*=\s*var\.anchor_retention_days", lock), tf
     runtime = _code((ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8"))
-    days = re.search(r"\n\s*anchor_retention_days\s*=\s*(\d+)\n", runtime)
+    days = re.search(r"^\s*anchor_retention_days\s*=\s*(\d+)\s*$", runtime, re.MULTILINE)
     assert days, "terraform/runtime/main.tf sets no anchor_retention_days: the module's 1-day default applies"
     assert int(days.group(1)) >= AUDIT_DAYS
 
