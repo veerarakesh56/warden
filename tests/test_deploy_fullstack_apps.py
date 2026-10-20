@@ -210,6 +210,10 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     # ESO and Reloader, from their checked packages, before the pipeline's ExternalSecret that needs ESO's CRDs.
     helms = [c[3] for c in run.cmds if c[:3] == ["helm", "upgrade", "--install"]]
     assert helms.index("external-secrets") < helms.index("reloader")
+    # The shop namespace exists before ESO and Reloader put their Roles into it (CodeRabbit, PR 118).
+    namespace_at = next(n for n, i in enumerate(run.inputs) if i and "kind: Namespace\nmetadata:\n  name: shop" in i)
+    assert namespace_at < next(n for n, c in enumerate(run.cmds) if c[3:4] == ["external-secrets"])
+    assert "environment: dev" in run.inputs[namespace_at]
     reloader_at = next(n for n, c in enumerate(run.cmds) if c[3:4] == ["reloader"])
     external_at = next(n for n, (c, i) in enumerate(zip(run.cmds, run.inputs))
                        if "apply" in c and i and "kind: ExternalSecret" in i)
@@ -576,11 +580,13 @@ def test_eso_and_reloader_reach_the_shop_namespace_only():
                                     "processClusterGenerator", "processPushSecret"))
     assert not any(eso["crds"].values())
     assert eso["rbac"]["serviceAccountTokenCreate"] is False
-    assert not (eso["webhook"]["create"] or eso["certController"]["create"])
+    assert eso["webhook"]["create"] is False
+    assert eso["certController"]["create"] is False
     assert eso["serviceAccount"]["name"] == "external-secrets"
     reloader = yaml.safe_load(tool.RELOADER_VALUES.read_text(encoding="utf-8"))["reloader"]
     assert (reloader["watchGlobally"], reloader["namespaces"], reloader["ignoreConfigMaps"]) == (False, ["shop"], True)
-    assert reloader["reloadStrategy"] == "annotations" and reloader["autoReloadAll"] is False
+    assert reloader["reloadStrategy"] == "annotations"
+    assert reloader["autoReloadAll"] is False
 
 
 def test_a_rotation_changes_the_externalsecret_and_nothing_else_does(tmp_path, monkeypatch):

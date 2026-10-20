@@ -351,16 +351,7 @@ def _fetch_chart(url: str) -> bytes:
 
 def deploy_argocd(kubeconfig: str, out: pathlib.Path, run=run) -> None:
     """Install or upgrade Argo CD in namespace argocd, from the checked chart package, and wait for it."""
-    import hashlib
-
-    package = _fetch_chart(ARGOCD_CHART_URL)
-    got = hashlib.sha256(package).hexdigest()
-    if got != ARGOCD_CHART_SHA256:
-        raise SystemExit(f"the Argo CD chart package is not the pinned one (sha256 {got}): nothing installed")
-    chart = out / f"argo-cd-{ARGOCD_CHART}.tgz"
-    chart.write_bytes(package)
-    run(["helm", "upgrade", "--install", "argocd", str(chart), "--namespace", "argocd", "--create-namespace",
-         "--kubeconfig", kubeconfig, "--values", str(ARGOCD_VALUES), "--wait", "--timeout", "10m"])
+    _install_checked_chart("argocd", ARGOCD_CHART_URL, ARGOCD_CHART_SHA256, ARGOCD_VALUES, "argocd", kubeconfig, out, run)
 
 
 # B25 (owner, 2026-10-17): the External Secrets Operator copies catalog-api's signing key from Secrets Manager into
@@ -370,11 +361,12 @@ ESO_CHART = "2.13.0"  # ESO v2.13.0, released 2026-10-16
 ESO_CHART_URL = ("https://github.com/external-secrets/external-secrets/releases/download/"
                  f"helm-chart-{ESO_CHART}/external-secrets-{ESO_CHART}.tgz")
 ESO_CHART_SHA256 = "f693a96f0d929a07e000dd39e68b92a1a1343c5bc440ebab091b03da30bcac3a"
-ESO_VALUES = ROOT / "helm" / "external-secrets" / "values.yaml"
+HELM_VALUES = "values.yaml"  # each chart's settings: helm/<chart>/values.yaml
+ESO_VALUES = ROOT / "helm" / "external-secrets" / HELM_VALUES
 RELOADER_CHART = "2.2.18"  # Reloader v1.4.22, published 2026-09-30 (stakater's chart repository, its index's digest)
 RELOADER_CHART_URL = f"https://stakater.github.io/stakater-charts/reloader-{RELOADER_CHART}.tgz"
 RELOADER_CHART_SHA256 = "5eb4576ba75a0e165897e8a98a6ffef15d68939430da6eb8fe80796bba75cb17"
-RELOADER_VALUES = ROOT / "helm" / "reloader" / "values.yaml"
+RELOADER_VALUES = ROOT / "helm" / "reloader" / HELM_VALUES
 
 
 def _install_checked_chart(release: str, url: str, sha256: str, values: pathlib.Path, namespace: str,
@@ -530,10 +522,9 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision:
     datadog = deploy_datadog(stack, kubeconfig, aws, run)
     deploy_otel(stack, kubeconfig, datadog, run)
     deploy_argocd(kubeconfig, out, run=run)
-    deploy_secret_sync(kubeconfig, out, run=run)
     # What the pipeline owns. catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); its signing key is
     # copied by ESO from Secrets Manager (B25) - this run handles no key, only the version ESO is to hold.
-    manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S_PIPELINE)]), {
+    values = {
         "REDIS_HOST": stack["redis_primary_endpoint"],
         "DB_READER_HOST": stack["aurora_reader_endpoint"],
         "DB_NAME": stack["db_name"],
@@ -542,7 +533,13 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision:
         "DB_USER_CATALOG": db_users(stack)["catalog"],
         "KEY_SECRET": stack["catalog_signing_key_secret_name"],
         "KEY_VERSION": signing_key_version(stack, aws),
-    })
+    }
+    # The shop namespace before ESO and Reloader: their Roles go into it (CodeRabbit, PR 118 - on a new cluster it
+    # did not exist yet). The whole manifest, the namespace again included, follows them.
+    run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"],
+        input=render((K8S_PIPELINE / "namespace.yaml").read_text(encoding="utf-8"), values))
+    deploy_secret_sync(kubeconfig, out, run=run)
+    manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S_PIPELINE)]), values)
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)
     # The workloads: Argo CD syncs manifests/shop/<env> at exactly this commit, with this commit's image, by digest.
     rev = revision or commit()

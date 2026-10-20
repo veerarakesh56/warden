@@ -1204,7 +1204,8 @@ def test_eso_reads_the_one_signing_key_through_pod_identity():
     tf = (TF / "secrets_sync.tf").read_text(encoding="utf-8")
     assert 'Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]' in tf
     assert "Resource = [aws_secretsmanager_secret.catalog_signing_key.arn]" in tf
-    assert 'namespace       = "external-secrets"' in tf and 'service_account = "external-secrets"' in tf
+    assert 'namespace       = "external-secrets"' in tf
+    assert 'service_account = "external-secrets"' in tf
     # The key is made at apply and written through the write-only argument: never in a plan or the state.
     assert "secret_string_wo         = ephemeral.random_password.catalog_signing_key.result" in tf
     assert "secret_string " not in tf
