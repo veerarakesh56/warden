@@ -128,7 +128,8 @@ def test_the_report_flag_only_prints(capsys, monkeypatch):
     monkeypatch.setattr(chatops, "notify", lambda *a, **k: (_ for _ in ()).throw(AssertionError("sent")))
     assert main(["run", "--incident", "inc-002", "--report"]) == 0
     out = capsys.readouterr().out
-    assert "WARDEN incident report" in out and "## Remediation" not in out
+    assert "WARDEN incident report" in out
+    assert "## Remediation" not in out
 
 
 # --------------------------------------------------------------------------- live-system overrides
@@ -272,6 +273,7 @@ def test_the_cli_never_applies_even_with_the_retired_live_switch_set(monkeypatch
     monkeypatch.setenv("WARDEN_REMEDIATION", "live")
     assert main(["run", "--incident", "inc-002", "--report"]) == 0
     out = capsys.readouterr().out
-    assert "would scale_up" not in out and "dry_run" not in out, out
+    assert "would scale_up" not in out, out
+    assert "dry_run" not in out, out
     for gone in ("warden.remediation_k8s", "warden.database_remediation", "warden.remediation"):
         assert importlib.util.find_spec(gone) is None, gone
