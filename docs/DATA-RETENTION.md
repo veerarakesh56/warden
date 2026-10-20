@@ -61,5 +61,7 @@ a format no pattern knows is not caught.
 
 ## Planned
 
-- At least 180 days for the audit's backups, anchors, witness trail and logs (B19, in progress). This page will be
-  updated with the values when that change merges.
+- At least 180 days of audit retention (B19, in progress). For the audit database's backups the owner decided on
+  2026-10-20: automated backups raised to 35 days, plus one AWS Backup copy a month kept 180 days, in a vault in the
+  same Region with an AWS-managed key, no copy to another Region, and a switch to turn it off. This page will be
+  updated with the built values when that change merges.
