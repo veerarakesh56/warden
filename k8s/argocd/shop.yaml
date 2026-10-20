@@ -1,6 +1,6 @@
 # The shop under Argo CD (owner, 2026-10-16). Applied by the apps pipeline with the commit being deployed:
 # __REVISION__ is that commit, __IMAGE__ its image, __REPO_URL__ this repository. Field names checked against the
-# Application and AppProject CRDs that chart argo-cd 10.9.7 installs.
+# Application and AppProject CRDs that chart argo-cd 10.10.5 installs (identical to 10.9.7's).
 #
 # The project allows exactly the shop's kinds, in the shop namespace, from this repository: nothing cluster-wide.
 apiVersion: argoproj.io/v1alpha1
