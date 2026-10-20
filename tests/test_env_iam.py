@@ -625,7 +625,8 @@ def test_only_the_harness_role_may_assume_the_full_stacks_reader():
     assert re.search(r'test\s+= "ArnEquals"\s+variable\s+= "aws:PrincipalArn"', trust)
     assert 'values   = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/warden-${local.env}-harness"]' \
         in trust
-    assert trust.count("condition {") == 1 and trust.count("statement {") == 1
+    assert trust.count("condition {") == 1
+    assert trust.count("statement {") == 1
     for env in ENVS:
         assert not any(fnmatch.fnmatchcase("sts:AssumeRole", a) for a in _allows(_deploy(env))), env
 
