@@ -513,3 +513,9 @@ def test_ecs_runs_the_digest_the_push_answered_not_one_read_back_by_the_tag():
     td = next(kw for name, kw in clients["ecs"].calls if name == "register_task_definition")
     assert td["containerDefinitions"][0]["image"] == f"{STACK['ecr_repository_url']}@{pushed}"
     assert not [c for c in clients["ecr"].calls if c[0] == "describe_images"]
+
+
+def test_a_venv_symlink_is_ignored_too():
+    """PR 90: `.venv/` matches a directory only; a `.venv` symlink was committed and CI's `uv venv` failed."""
+    lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert ".venv" in lines
