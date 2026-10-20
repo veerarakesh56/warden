@@ -6,12 +6,13 @@ from __future__ import annotations
 
 
 def _read_errors() -> tuple[type[BaseException], ...]:
-    shape = (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError)
+    found: list[type[BaseException]] = [OSError, ValueError, KeyError, TypeError, AttributeError, IndexError]
     try:
         from botocore.exceptions import BotoCoreError, ClientError
     except ImportError:
-        return shape
-    return (BotoCoreError, ClientError, *shape)
+        return tuple(found)
+    found += [BotoCoreError, ClientError]
+    return tuple(found)
 
 
 READ_ERRORS = _read_errors()
