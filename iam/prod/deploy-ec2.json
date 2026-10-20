@@ -111,7 +111,7 @@
       "Resource": "arn:aws:ec2:*:*:security-group/*",
       "Condition": {
         "StringLike": {
-          "aws:ResourceTag/aws:eks:cluster-name": "warden-prod-*"
+          "aws:ResourceTag/aws:eks:cluster-name": "warden-prod-eks"
         }
       }
     },
