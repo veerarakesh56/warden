@@ -48,6 +48,8 @@ resource "aws_db_instance" "this" {
   allocated_storage = 20
   storage_type      = "gp2"
   storage_encrypted = true # aws/rds, the AWS-managed key: no key to create, pay for or delete
+  # On an instance created before 2026-10-16 this replaces it with a new, empty database: run
+  # scripts/setup_proving_ground_db.py again, so the harness's sentinel guard marks the new one (CodeRabbit, PR 46).
 
   db_name  = "warden"
   username = "warden"
