@@ -20,7 +20,7 @@ Names below use the runtime environment `ops` (environments.yaml `runtime:`). Gi
 | Temporal Cloud | Holds every workflow's state; the workers and Lambdas reach it with API keys | outside AWS; `connect` in [runtime.py](../src/warden/runtime.py) |
 | Front door Lambdas | `warden-ops-alarm` (CloudWatch alarm changes and service events), `warden-ops-alertmanager` (Alertmanager and Datadog webhooks), `warden-ops-approval` (the approval page and records page), `warden-ops-actor-use` (actor-role sessions), `warden-ops-ack` (answers Slack's button note) | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf), [witness.tf](../terraform/modules/warden-runtime/witness.tf) |
 | Lost-alarm queue | `warden-ops-alarm-dlq`: an alarm change EventBridge could not deliver to the `alarm` Lambda after 8 retries within an hour lands here and is kept 14 days | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf) |
-| Audit | Aurora PostgreSQL cluster `warden-ops-audit`; checkpoints anchored to an S3 bucket with Object Lock | [aurora.tf](../terraform/modules/warden-runtime/aurora.tf), [anchors.tf](../terraform/modules/warden-runtime/anchors.tf) |
+| Audit | The audit database `warden-ops-audit`: an Aurora PostgreSQL cluster, or one RDS PostgreSQL instance on the AWS Free plan; checkpoints anchored to an S3 bucket with Object Lock | [aurora.tf](../terraform/modules/warden-runtime/aurora.tf), [anchors.tf](../terraform/modules/warden-runtime/anchors.tf) |
 | Kill switch | A row in the audit, checked inside every apply right before the change | [bounds.py](../src/warden/bounds.py), [activities.py](../src/warden/activities.py) |
 | Logs | `/warden/ops/worker` (one stream prefix per zone) and `/aws/lambda/warden-ops-<name>`, kept 90 days | [compute.tf](../terraform/modules/warden-runtime/compute.tf), [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf) |
 
@@ -96,8 +96,13 @@ anything instead (this does not depend on WARDEN):
 
 ```
 aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --desired-count 0
+aws ecs wait services-stable --cluster warden-ops-runtime --services warden-ops-act
+aws ecs describe-services --cluster warden-ops-runtime --services warden-ops-act --query "services[].[desiredCount,runningCount]"
 ```
 
+The first command only asks ECS to scale down; a running task can still act until it stops. Treat changes as stopped
+only when the last command shows `0` and `0`. If the update fails, or the count does not reach `0`, do not go on:
+stop the task by hand (ECS console, the service, Tasks, Stop), and if that also fails, page the AWS account's owner.
 Approved plans then wait; nothing is applied until the count is set back. A second, IAM-level kill switch (a deny
 policy on the actor roles) is **planned** (B18).
 
@@ -149,9 +154,15 @@ aws logs tail /aws/lambda/warden-ops-approval --since 1h
 aws rds describe-db-clusters --db-cluster-identifier warden-ops-audit --query "DBClusters[].[Status,Endpoint]"
 ```
 
+On the AWS Free plan it is one instance instead:
+
+```
+aws rds describe-db-instances --db-instance-identifier warden-ops-audit --query "DBInstances[].[DBInstanceStatus,Endpoint.Address]"
+```
+
 It keeps automated backups with point-in-time recovery (`audit_db_backup_days`, at least 7 days outside the AWS Free
 plan) and deletion protection. A restore has not been drilled yet ([register O4](FAILURE-MODES.md)): a restore drill is **planned**. Do
-not restore over the running cluster; restore to a new one and keep the old one as evidence.
+not restore over the running database; restore to a new one and keep the old one as evidence.
 
 **The model.** With the model unreachable (provider down, key expired, budget spent) WARDEN does not stop: it
 escalates every incident to a person on its rules alone, with policy `P0-MODEL-UNAVAILABLE` (register M19). Reports
@@ -171,6 +182,7 @@ All deploys go through `.github/workflows/runtime.yml`, run by hand from the bra
 | Situation | Action |
 |---|---|
 | A secret was set or rotated; a zone is stuck | `restart`: a fresh deployment of every zone's service, the same image; fails unless all are stable again |
+| The shared `warden/ops/temporal-api-key` was set or rotated | `restart` for the zones, **and** new instances of `warden-ops-alarm`, `warden-ops-alertmanager` and `warden-ops-approval`: a warm one keeps the old key. Any change to a function's configuration makes Lambda start new instances (AWS's Lambda guide; not tried live), for example a new description - the next `apply` sets it back: `aws lambda update-function-configuration --function-name warden-ops-alarm --description "temporal key rotated <UTC time>"`, and the same for the other two |
 | The runtime was paused | set SSM `/warden/ops/tf/paused` to `false`, then `apply` |
 | Infrastructure drifted or was changed by hand | `plan`, read it, then `apply` |
 | A bad image | `apply` from a `dev` commit whose image works (only an image this workflow built, signed and attested is deployed) |

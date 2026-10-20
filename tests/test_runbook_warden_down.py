@@ -90,7 +90,9 @@ def test_the_runbook_has_what_a_person_needs_when_warden_is_down():
         assert section in text, section
     joined = "\n".join(_blocks())
     for needed in ("warden killswitch on", "warden audit verify", "--desired-count 0", "aws sqs receive-message",
-                   "aws cloudwatch describe-alarms --state-value ALARM", "aws sns publish"):
+                   "aws cloudwatch describe-alarms --state-value ALARM", "aws sns publish",
+                   # Stopping act is confirmed, not only asked for (PR 86 review): a running task acts until it stops.
+                   "aws ecs wait services-stable --cluster warden-ops-runtime --services warden-ops-act"):
         assert needed in joined, needed
 
 
