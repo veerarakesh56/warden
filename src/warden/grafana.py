@@ -169,7 +169,9 @@ class GrafanaReader:
             when = datetime.fromtimestamp(int(t.get("startTimeUnixNano") or 0) / 1e9, UTC)
             root = " ".join(str(t.get("rootTraceName") or "?").split())[:120]
             failed = _failed_in(t, svc)
-            for peer in set(failed):
+            # Once per trace, in span order: a set's order changes with each process's hash seed, and among peers
+            # failing equally often the cut to three then kept a different one for the same answer (PR 94 review).
+            for peer in dict.fromkeys(failed):
                 downstream[peer] = downstream.get(peer, 0) + 1
             out.append(f"GRAFANA trace {svc} {_iso(when)} {root} duration_ms={t.get('durationMs', '?')} "
                        f"failed_in={','.join(sorted(set(failed))) or svc}")
