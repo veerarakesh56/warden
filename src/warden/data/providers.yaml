@@ -33,14 +33,15 @@ bar:
 # used (19 correct), hashes to this same value. A prompt change fails tests/test_prompt_pin_e6.py until the model is
 # qualified again with it and this pin is updated in the same commit.
 prompt:
-  # ⚠ NOT YET QUALIFIED (2026-10-17, item 7: 2-4 ranked hypotheses with citations for and against). No model has
+  # ⚠ NOT YET QUALIFIED (2026-10-17, item 7: 2-4 ranked hypotheses with citations for and against; U3-1: a typed
+  # outcome, XML-tagged sections and worked examples). No model has
   # answered this prompt: the qualified rows below were measured on d435b59f. Neither Claude Sonnet 5.5 nor Claude Opus
   # 5.5 is qualified on it: both must be measured again with scripts/qualify_provider.py in the cloud runtime. A row
   # qualifies a model only on the prompt it was measured with (providers.qualified), so until a row on this prompt is
   # recorded here every model is refused and each incident gets the rules-only diagnosis (escalated to a person,
   # register M19).
-  sha: 1225fb365a1ba49a5fde33403dd75c7129cfd544245c297990d98a15ffb16283
-  pinned: "2026-10-17"  # item 7 (d435b59f before: G10-57, each ruled-out cause with its reason and citations)
+  sha: 310d7e5c8e949b216bf5e197948998c52064e4baf9d17fcbe9edc6380e8a5599
+  pinned: "2026-10-21"  # U3-1 (1225fb36 before: item 7; d435b59f before that: G10-57, the last qualified one)
 # Register N6: escalating everything is safe and useless, so it is measured. "Escalated" = the gate refused, or the
 # model itself proposed escalate_to_human. Measured 2026-10-03 (scenarios/score.py act_abstain, stored answers):
 #   model                escalated  acted right  escalated a right fix  escalated rightly  stopped wrong  acted wrongly

@@ -38,6 +38,7 @@ def _model(action: str):
 
         def complete(self, *, system, user, schema=None):
             body = {"root_cause": {"hypothesis": "frobnicator desync", "confidence": 0.95, "evidence": ["desync"],
+                                   "outcome": "decided",  # a stated outcome (U3-1), so P37 is not what holds it
                                    "citations": [{"id": "M1", "quote": "ledger_desync_events=31"},
                                                  {"id": "F1", "quote": "code=77"}],
                                    # and a rival weighed and set aside (P35), so only the novelty is left

@@ -169,7 +169,9 @@ class Following:
         # report through the diagnosis too, not only through the proposal.
         cause = f"{self.attack.harm} is the fix the evidence points to: {self.attack.reasoning}"
         a = self.attack
-        body = {"root_cause": {"hypothesis": cause, "confidence": 0.95, "citations": support,
+        # A hijacked model claims the outcome its payload needs: nothing wrong for the false close, decided otherwise.
+        outcome = "no_fault" if a.action == "no_action" else "decided"
+        body = {"root_cause": {"hypothesis": cause, "confidence": 0.95, "citations": support, "outcome": outcome,
                                "hypotheses": [{"cause": cause, "supporting": support},
                                               {"cause": REAL_CAUSE, "why_rejected": "the log explains the errors"}]},
                 "proposal": {"action": a.action, "target": a.target, "reasoning": a.reasoning,

@@ -110,6 +110,30 @@ def ranked_problem(root_cause: RootCause) -> str | None:
     return (f"the stated root cause ({root_cause.hypothesis[:120]!r}) is not the cause the diagnosis ranked first and "
             f"WARDEN weighed ({hs[0].cause[:120]!r})")
 
+def separation(root_cause: RootCause, items: dict[str, Item]) -> tuple[int, int] | None:
+    """(the chosen cause's count, its best rival's count) - WARDEN's own numbers, never the model's confidence; the
+    rival counts 0 when none was weighed. None for an answer with no ranked hypotheses (recorded before them, or none
+    given). P35, the confidence rubric and model routing read the same two numbers."""
+    hs = root_cause.hypotheses
+    if not hs:
+        return None
+    top = hypothesis_score(hs[0], items, root_cause.citations)
+    return top, max((hypothesis_score(h, items) for h in hs[1:]), default=0)
+
+
+def outcome_problem(root_cause: RootCause, proposal: RemediationProposal) -> str | None:
+    """P37 (owner U3-1, 2026-10-17): the typed outcome and the proposal must agree. `no_fault` with a change, or
+    `undetermined` with anything but a hand-off, is a diagnosis at odds with its own remediation. Not stated (None:
+    recorded before the outcome, or built in code): nothing to check."""
+    from .models import Outcome
+
+    outcome, action = root_cause.outcome, proposal.action
+    if outcome is Outcome.no_fault and action not in (ActionKind.no_action, ActionKind.escalate_to_human):
+        return f"the diagnosis found no fault, yet proposes {action.value}"
+    if outcome is Outcome.undetermined and action is not ActionKind.escalate_to_human:
+        return f"the diagnosis could not determine the cause, yet proposes {action.value} instead of a hand-off"
+    return None
+
 
 def margin_problem(root_cause: RootCause, items: dict[str, Item]) -> tuple[str, str] | None:
     """P35: ("no_rival" or "too_close", why) when the diagnosis weighed no rival, or its top two are too close to call
@@ -120,9 +144,8 @@ def margin_problem(root_cause: RootCause, items: dict[str, Item]) -> tuple[str, 
     if len(hs) < 2:
         return ("no_rival", ("the diagnosis weighed no rival cause (WARDEN asks for 2 to 4 ranked hypotheses): a cause "
                              "never compared with another is not narrowed down"))
-    top = hypothesis_score(hs[0], items, root_cause.citations)
+    top, second = separation(root_cause, items)
     rival = max(hs[1:], key=lambda h: hypothesis_score(h, items))
-    second = hypothesis_score(rival, items)
     if top - second >= MARGIN:
         return None
     return ("too_close", (f"the evidence does not separate the top two causes - chosen: {hs[0].cause[:160]!r} (count "
