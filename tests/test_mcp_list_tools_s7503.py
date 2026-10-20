@@ -21,7 +21,8 @@ def test_a_client_lists_the_same_tools_through_the_sdk(monkeypatch):
 
     listed = asyncio.run(main())
     assert [t.name for t in listed.tools] == [t.name for t in mcp_server.listed_tools()]
-    assert listed.tools and all(t.annotations for t in listed.tools)
+    assert listed.tools
+    assert all(t.annotations for t in listed.tools)
 
 
 def test_the_list_handler_is_not_a_coroutine_and_its_result_awaits_to_the_listing():

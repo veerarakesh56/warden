@@ -45,8 +45,10 @@ class _NoCall:
 @pytest.mark.parametrize("cmd", ["create", "status", "destroy"])
 def test_aurora_refuses_a_stack_outside_the_places_the_tools_work(cmd, monkeypatch):
     monkeypatch.setenv("WARDEN_ENV", "dev")
+    argv = [cmd, "--stack", str(OUTSIDE_DIR / "stack.json")]
+    clients = {"rds": _NoCall(), "secretsmanager": _NoCall()}
     with pytest.raises(SystemExit, match="refused: .* is outside the places"):
-        aurora.main([cmd, "--stack", str(OUTSIDE_DIR / "stack.json")], clients={"rds": _NoCall(), "secretsmanager": _NoCall()})
+        aurora.main(argv, clients=clients)
 
 
 def test_aurora_writes_the_checked_path(tmp_path, monkeypatch):

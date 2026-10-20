@@ -44,9 +44,11 @@ def test_the_server_answers_get_only_and_reads_nothing_a_client_sends():
 def test_on_ecs_only_the_internal_load_balancer_reaches_the_port():
     assert re.search(r"^\s+internal\s+=\s+true$", _resource("aws_lb", "orders"), re.MULTILINE)
     (task_rule,) = _ingress(_resource("aws_security_group", "ecs"))
-    assert "security_groups = [aws_security_group.alb.id]" in task_rule and "cidr" not in task_rule
+    assert "security_groups = [aws_security_group.alb.id]" in task_rule
+    assert "cidr" not in task_rule
     (alb_rule,) = _ingress(_resource("aws_security_group", "alb"))
-    assert "security_groups = [aws_security_group.lambda.id]" in alb_rule and "cidr" not in alb_rule
+    assert "security_groups = [aws_security_group.lambda.id]" in alb_rule
+    assert "cidr" not in alb_rule
     assert not _ingress(_resource("aws_security_group", "lambda"))
     text = "".join(p.read_text(encoding="utf-8") for p in TF.glob("*.tf"))
     for sg in ("ecs", "alb"):  # no rule added beside the inline ones
