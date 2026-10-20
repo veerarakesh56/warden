@@ -111,6 +111,18 @@ def last_known_good(results: list[dict], cands: list[str]) -> str:
     when none was known-good. Not the one that served most (live, 2026-10-16, fs-01: the broken version 4 had served
     3.5 erring hours, the good version 3 two clean hours up to the change) and not the one that served last (Wave 4,
     2026-09-26: a broken version served a few calls after the good one's hours)."""
+    series = _served_series(results, cands)
+    ended: dict[str, datetime] = {}
+    for v in cands:
+        end = _last_good_end(series.get(("v", v), {}), series.get(("e", v), {}))
+        if end is not None:
+            ended[v] = end
+    return max(ended, key=lambda v: (ended[v], int(v))) if ended else ""
+
+
+def _served_series(results: list[dict], cands: list[str]) -> dict[tuple[str, str], dict[datetime, float]]:
+    """{("v" calls | "e" errors, version): {period start: value}} from the metric results `v<i>` / `e<i>` (index into
+    `cands`); a result of another id, or a time that cannot be read, is left out."""
     series: dict[tuple[str, str], dict[datetime, float]] = {}
     for r in results:
         rid = str(r.get("Id", ""))
@@ -118,17 +130,19 @@ def last_known_good(results: list[dict], cands: list[str]) -> str:
             series[(rid[0], cands[int(rid[1:])])] = {
                 s: float(n) for t, n in zip(r.get("Timestamps") or [], r.get("Values") or [], strict=False)
                 if (s := _stamp(t)) is not None}
-    ended: dict[str, datetime] = {}
-    for v in cands:
-        calls, errors = series.get(("v", v), {}), series.get(("e", v), {})
-        good = sorted(t for t, n in calls.items() if n > 0 and not errors.get(t))
-        start = 0
-        for i in range(1, len(good) + 1):
-            if i == len(good) or (good[i] - good[i - 1]).total_seconds() != SERVED_PERIOD:
-                if (i - start) * SERVED_PERIOD >= KNOWN_GOOD.total_seconds():
-                    ended[v] = good[i - 1]
-                start = i
-    return max(ended, key=lambda v: (ended[v], int(v))) if ended else ""
+    return series
+
+
+def _last_good_end(calls: dict[datetime, float], errors: dict[datetime, float]) -> datetime | None:
+    """The last period of the latest unbroken run of serving, error-free periods at least KNOWN_GOOD long, or None."""
+    good = sorted(t for t, n in calls.items() if n > 0 and not errors.get(t))
+    end, start = None, 0
+    for i in range(1, len(good) + 1):
+        if i == len(good) or (good[i] - good[i - 1]).total_seconds() != SERVED_PERIOD:
+            if (i - start) * SERVED_PERIOD >= KNOWN_GOOD.total_seconds():
+                end = good[i - 1]
+            start = i
+    return end
 
 _TRACEBACK = "Traceback (most recent call last):"
 _FRAME = re.compile(r'File "([^"]+)", line (\d+), in (\S+)')
@@ -381,17 +395,22 @@ def _principal(e: dict) -> str:
         who = {}
     kind = _safe(who.get("type") or "unknown")
     if kind == "AssumedRole":
-        role = ((who.get("sessionContext") or {}).get("sessionIssuer") or {}).get("userName")
-        # An IAM Identity Center role ends in an opaque 16-hex id: with it the redactor's entropy backstop hid the
-        # whole actor, `role/` included, and a person's change read `by <HIGHENTROPY_1>` (G10 held-out, 2026-10-11).
-        if role and str(role).startswith("AWSReservedSSO_"):
-            role = re.sub(r"_[0-9a-f]{16}$", "", str(role))
-        return f"role/{_safe(role)}" if role else "role"
+        return _role(who)
     if kind == "IAMUser":
         return f"user/{_safe(who.get('userName'))}" if who.get("userName") else "user"
     if kind == "AWSService":
         return f"service/{_safe(who.get('invokedBy'))}" if who.get("invokedBy") else "service"
     return kind
+
+
+def _role(who: dict) -> str:
+    """An assumed role's actor: `role/<the role's name>`, or `role` when CloudTrail did not name it."""
+    role = ((who.get("sessionContext") or {}).get("sessionIssuer") or {}).get("userName")
+    # An IAM Identity Center role ends in an opaque 16-hex id: with it the redactor's entropy backstop hid the
+    # whole actor, `role/` included, and a person's change read `by <HIGHENTROPY_1>` (G10 held-out, 2026-10-11).
+    if role and str(role).startswith("AWSReservedSSO_"):
+        role = re.sub(r"_[0-9a-f]{16}$", "", str(role))
+    return f"role/{_safe(role)}" if role else "role"
 
 
 def _safe(value) -> str:
@@ -443,27 +462,8 @@ def parse_tracebacks(lines: list[str]) -> list[dict]:
         if at < 0:
             i += 1
             continue
-        frames: list[tuple[str, int, str]] = []
-        j = i + 1
-        while j < len(lines):
-            nxt = lines[j][0]
-            m = _FRAME.search(nxt)
-            if m:
-                frames.append((m.group(1), int(m.group(2)), m.group(3)))
-            elif not nxt.strip() or nxt[:1].isspace():
-                pass  # the source line under a frame
-            else:
-                break
-            j += 1
-        exception = ""
-        if j < len(lines) and frames:
-            m = _EXCEPTION.match(lines[j][0].strip())
-            if m:
-                exception = lines[j][0].strip().removeprefix("[ERROR]").strip()
-        if not exception:
-            before = text[:at].strip() or (lines[i - 1][0].strip() if i else "")
-            if before.startswith("[ERROR]"):
-                exception = before.removeprefix("[ERROR]").strip()
+        frames, j = _frames(lines, i + 1)
+        exception = (_exception_after(lines, j) if frames else "") or _exception_before(lines, i, text[:at])
         ours = [f for f in frames if f[0].startswith("/var/task/")]
         if ours:
             path, line_no, func = ours[-1]
@@ -473,6 +473,37 @@ def parse_tracebacks(lines: list[str]) -> list[dict]:
             })
         i = max(j, i + 1)
     return found
+
+
+def _frames(lines: list, j: int) -> tuple[list[tuple[str, int, str]], int]:
+    """The (path, line, function) frames from line `j` on, and the index of the first line after them."""
+    frames: list[tuple[str, int, str]] = []
+    while j < len(lines):
+        nxt = lines[j][0]
+        m = _FRAME.search(nxt)
+        if m:
+            frames.append((m.group(1), int(m.group(2)), m.group(3)))
+        elif not nxt.strip() or nxt[:1].isspace():
+            pass  # the source line under a frame
+        else:
+            break
+        j += 1
+    return frames, j
+
+
+def _exception_before(lines: list, i: int, head: str) -> str:
+    """The `[ERROR] X: y` the Lambda runtime writes before a traceback - on its line, or the line before - or ""."""
+    before = head.strip() or (lines[i - 1][0].strip() if i else "")
+    if before.startswith("[ERROR]"):
+        return before.removeprefix("[ERROR]").strip()
+    return ""
+
+
+def _exception_after(lines: list, j: int) -> str:
+    """The exception line at `j` (the `logging.exception` shape), its `[ERROR]` dropped, or ""."""
+    if j < len(lines) and _EXCEPTION.match(lines[j][0].strip()):
+        return lines[j][0].strip().removeprefix("[ERROR]").strip()
+    return ""
 
 
 def source_excerpt(fn: str, package: bytes, path: str, line_no: int) -> list[str]:
@@ -1807,44 +1838,62 @@ def _policy_allows_topic(policy: str | None, topic_arn: str) -> bool:
     """Does a queue policy let this SNS topic SendMessage? An explicit Deny wins."""
     if not policy:
         return False
-    def matches(st, unknown: bool) -> bool:
-        actions = st.get("Action") or []
-        actions = [actions] if isinstance(actions, str) else actions
-        if not any(a in ("*", "sqs:*", "sqs:SendMessage") for a in actions):
-            return False
-        principal = st.get("Principal")
-        if principal != "*":
-            p = (principal or {}).get("Service") or (principal or {}).get("AWS") or []
-            p = [p] if isinstance(p, str) else p
-            if not any(x in ("*", "sns.amazonaws.com") for x in p):
-                return False
-        # Each operator by its meaning (audit A-B-L5): `ArnNotEquals` was read as `ArnEquals`, so a Deny of every
-        # topic BUT this one denied this one. An operator not understood here gives `unknown`: an Allow it cannot
-        # prove does not allow, and a Deny it cannot read is taken to apply.
-        for op, test in (st.get("Condition") or {}).items():
-            key = next((k for k in test if k.lower() == "aws:sourcearn"), None)
-            if key is None:
-                continue
-            values = test[key] if isinstance(test[key], list) else [test[key]]
-            base = op.split(":")[-1].removesuffix("IfExists")
-            hit = any(fnmatch.fnmatchcase(topic_arn, str(v)) for v in values)
-            if base in ("ArnEquals", "ArnLike", "StringEquals", "StringLike"):
-                ok = hit
-            elif base in ("ArnNotEquals", "ArnNotLike", "StringNotEquals", "StringNotLike"):
-                ok = not hit
-            elif base == "Null":  # SNS always sends the topic as the source: present, never null
-                ok = str(values[0]).lower() == "false"
-            else:
-                return unknown
-            if not ok:
-                return False
-        return True
-
     statements = json.loads(policy).get("Statement") or []
     statements = [statements] if isinstance(statements, dict) else statements
-    if any(st.get("Effect") == "Deny" and matches(st, unknown=True) for st in statements):
+    if any(st.get("Effect") == "Deny" and _statement_matches(st, topic_arn, unknown=True) for st in statements):
         return False
-    return any(st.get("Effect") == "Allow" and matches(st, unknown=False) for st in statements)
+    return any(st.get("Effect") == "Allow" and _statement_matches(st, topic_arn, unknown=False) for st in statements)
+
+
+def _statement_matches(st: dict, topic_arn: str, unknown: bool) -> bool:
+    """Does one policy statement cover this topic sending to the queue? `unknown`: the answer for a condition
+    operator not understood here."""
+    actions = st.get("Action") or []
+    actions = [actions] if isinstance(actions, str) else actions
+    if not any(a in ("*", "sqs:*", "sqs:SendMessage") for a in actions):
+        return False
+    if not _from_sns(st.get("Principal")):
+        return False
+    return _conditions_hold(st, topic_arn, unknown)
+
+
+def _from_sns(principal: Any) -> bool:
+    """Does a statement's principal take in SNS: everyone, or a service or account list naming SNS or everyone?"""
+    if principal == "*":
+        return True
+    p = (principal or {}).get("Service") or (principal or {}).get("AWS") or []
+    p = [p] if isinstance(p, str) else p
+    return any(x in ("*", "sns.amazonaws.com") for x in p)
+
+
+def _conditions_hold(st: dict, topic_arn: str, unknown: bool) -> bool:
+    """Do a statement's conditions on aws:SourceArn hold for the topic (others are not read)?"""
+    # Each operator by its meaning (audit A-B-L5): `ArnNotEquals` was read as `ArnEquals`, so a Deny of every
+    # topic BUT this one denied this one. An operator not understood here gives `unknown`: an Allow it cannot
+    # prove does not allow, and a Deny it cannot read is taken to apply.
+    for op, test in (st.get("Condition") or {}).items():
+        key = next((k for k in test if k.lower() == "aws:sourcearn"), None)
+        if key is None:
+            continue
+        values = test[key] if isinstance(test[key], list) else [test[key]]
+        ok = _source_arn_holds(op.split(":")[-1].removesuffix("IfExists"), values, topic_arn)
+        if ok is None:
+            return unknown
+        if not ok:
+            return False
+    return True
+
+
+def _source_arn_holds(base: str, values: list, topic_arn: str) -> bool | None:
+    """Whether a condition on aws:SourceArn holds for the topic; None for an operator not understood here."""
+    hit = any(fnmatch.fnmatchcase(topic_arn, str(v)) for v in values)
+    if base in ("ArnEquals", "ArnLike", "StringEquals", "StringLike"):
+        return hit
+    if base in ("ArnNotEquals", "ArnNotLike", "StringNotEquals", "StringNotLike"):
+        return not hit
+    if base == "Null":  # SNS always sends the topic as the source: present, never null
+        return str(values[0]).lower() == "false"
+    return None
 
 
 # The database's own error log: how many of its last lines are read, and how many error lines are kept.
