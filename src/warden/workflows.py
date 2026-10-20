@@ -305,7 +305,7 @@ class RemediationWorkflow:
                     auto = result.enough
         if auto:
             # A person's decision always overrides Eldane's (owner, 2026-10-17): the channel is told Eldane approved,
-            # with the page's links, and a person's "no" in the next VETO minutes - or any time before apply - ends the
+            # with the page's links, and a person's "no" in the next VETO minutes - or later, until the apply step starts - ends the
             # plan with nothing changed.
             with contextlib.suppress(ActivityError):
                 await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "autonomous"],

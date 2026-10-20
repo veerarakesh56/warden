@@ -51,7 +51,8 @@ Who approves a fix:
 - **dev:** Eldane alone, from the first plan, when it agrees with the plan on both of its passes and nothing in
   the gate, the bounds, the self-guard or the kill switch stands. The channel gets "Eldane · AI critic (an AI)
   approved ..." with the approval page's buttons. A person can still say no - on the page, with their passkey
-  and a note - for five minutes, and any time before the fix is applied; a person's decision always overrides
+  and a note - for five minutes, and after that until the apply step starts (WARDEN reads every "no" that has
+  arrived right before it applies; one that arrives once the apply step has started is too late for that run); a person's decision always overrides
   Eldane's. People keep the rest too: they can ask WARDEN anything in the dev discussion channel, and an approver
   can ask there for a new plan.
 

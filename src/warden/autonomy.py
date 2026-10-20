@@ -42,7 +42,8 @@ TRIAL = "eldane.trial"  # a planted known-bad plan shown to Eldane, and whether 
 VERDICT = "eldane.verdict"  # Eldane's review of a real plan
 ENABLED = "autonomy.enabled"  # a person's signed re-enable of an environment after a demotion (enable)
 # How long an Eldane-approved plan waits for a person's "no" before WARDEN applies it (owner, 2026-10-17: a person's
-# decision always overrides Eldane's). A "no" any time before apply still stops it.
+# decision always overrides Eldane's). A "no" that has arrived before the apply step starts still
+# stops it (workflows.RemediationWorkflow reads it right before apply); one after that is too late for that run.
 VETO = timedelta(minutes=5)
 # Ends that say the fix did not work, or left its target in an unknown state: each demotes its class at once.
 FAILED = frozenset({"rolled_back", "not_recovered", "rollback_failed", "apply_failed", "relapsed", "side_effects",
