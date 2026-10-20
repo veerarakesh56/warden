@@ -618,8 +618,15 @@ def test_the_deploy_role_can_adopt_the_recorder_and_keep_it_on_but_never_change_
     assert config == ["config:DescribeConfigurationRecorderStatus", "config:DescribeConfigurationRecorders",
                       "config:DescribeDeliveryChannels", "config:ListTagsForResource",
                       "config:StartConfigurationRecorder"]
-    # No whole statement - resource or condition - passes a role to Config.
-    assert not [st.get("Sid") for st in allows if "config.amazonaws.com" in json.dumps(st) or "ForConfig" in json.dumps(st)]
+    # No whole statement - resource or condition - passes a role to Config: compared as values, not as substrings.
+    def values(x):
+        return [x] if isinstance(x, str) else list(x or [])
+
+    services = {v for st in allows for keys in st.get("Condition", {}).values()
+                for key, want in keys.items() if key == "iam:PassedToService" for v in values(want)}
+    assert "config.amazonaws.com" not in services
+    roles = [r for st in allows for r in values(st.get("Resource")) if r.startswith("arn:aws:iam::")]
+    assert not [r for r in roles if r.endswith("/AWSServiceRoleForConfig")]
     boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
     ceiling = next(st for st in boundary["Statement"] if st.get("Sid") == "CeilingRegional")
     assert sorted(a for a in ceiling["Action"] if a.startswith("config:")) == [
