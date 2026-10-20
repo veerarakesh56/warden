@@ -51,7 +51,8 @@ class _FailsLater(FakeLogs):
 def test_a_read_failing_after_some_pages_keeps_what_was_read_and_says_so_last():
     logs = _FailsLater()
     lines = _backend(logs=logs).logs(_alert())
-    assert lines[0].startswith("LOG s ") and lines[0].endswith(" first page")
+    assert lines[0].startswith("LOG s ")
+    assert lines[0].endswith(" first page")
     assert lines[1:] == [f"{PARTIAL_PREFIX}logs: /ecs/checkout: {aws_backend.failure(RuntimeError('ThrottlingException: slow down'))}"]
     assert logs.calls[1]["nextToken"] == "t"
 
@@ -243,7 +244,8 @@ def test_appconfig_reads_every_page_and_returns_the_guarded_environments():
                         {"a1": [{"Items": [{"Id": "x", "Monitors": []}], "NextToken": "1"}, {"Items": [GUARD]}],
                          "a2": [{"Items": [{"Id": "y"}]}]})
     out, complete = aws_describe.appconfig_for_alarm(client, ALARM)
-    assert out == [({"Id": "a1"}, GUARD)] and complete is True
+    assert out == [({"Id": "a1"}, GUARD)]
+    assert complete is True
     assert client.calls == [("apps", {"MaxResults": 50}), ("apps", {"MaxResults": 50, "NextToken": "1"}),
                             ("envs", {"ApplicationId": "a1", "MaxResults": 50}),
                             ("envs", {"ApplicationId": "a1", "MaxResults": 50, "NextToken": "1"}),
