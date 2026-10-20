@@ -3,7 +3,8 @@ design with the reason held here:
 
 - S6258: the runtime's anchors and witness buckets log every access; the dev stack's ALB logs every request.
 - S6327: the order-events topic is encrypted with the AWS-managed key, and its one publisher may use it through SNS.
-- S5332: the internal ALB answers over HTTPS only, and its caller trusts that one certificate.
+- S5332: the internal ALB answers over HTTPS only, with the stack's own certificate (its caller's side, a real
+  handshake included, is tests/test_traffic_alb_tls.py, in the apps lane).
 - S6413: the proving ground keeps its logs 14 days.
 - By design, owner to review: the lab database's public endpoint (S8793) and its backups (S6364), the runtime image's
   shared /tmp (docker S2612), the webhook routes (S6333) and the negative Pod Security test (S6428).
@@ -11,17 +12,9 @@ design with the reason held here:
 
 from __future__ import annotations
 
-import datetime
-import http.server
-import importlib.util
 import json
 import pathlib
 import re
-import socket
-import ssl
-import sys
-import threading
-import types
 
 import yaml
 
@@ -176,83 +169,6 @@ def test_the_internal_alb_answers_https_only_with_the_stacks_own_certificate():
         assert own["Condition"]["StringEquals"]["aws:ResourceTag/Environment"] == env
         imp = next(st for st in _iam(env, "deploy-ec2")["Statement"] if st.get("Sid") == "AlbCertificateImport")
         assert imp["Condition"]["StringEquals"]["aws:RequestTag/Environment"] == env
-
-
-def _self_signed(host: str, directory: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
-    """What terraform's tls_self_signed_cert makes (ecs.tf): ECDSA P-256, the ALB's name, server auth, CA:FALSE."""
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
-
-    key = ec.generate_private_key(ec.SECP256R1())
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "warden-test-orders-alb")])
-    now = datetime.datetime.now(datetime.UTC)
-    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
-            .serial_number(x509.random_serial_number()).not_valid_before(now - datetime.timedelta(minutes=1))
-            .not_valid_after(now + datetime.timedelta(days=1))
-            .add_extension(x509.SubjectAlternativeName([x509.DNSName(host)]), critical=False)
-            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-            .add_extension(x509.KeyUsage(True, False, False, False, False, False, False, False, False), critical=True)
-            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
-            .sign(key, hashes.SHA256()))
-    crt, pem_key = directory / "alb.pem", directory / "alb.key"
-    crt.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    pem_key.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                          serialization.NoEncryption()))
-    return crt, pem_key
-
-
-def _traffic(monkeypatch):
-    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(client=lambda *a, **k: None))
-    path = ROOT / "scenarios" / "fullstack" / "lambdas" / "traffic" / "app.py"
-    spec = importlib.util.spec_from_file_location("fs_traffic_tls", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def test_the_traffic_lambda_reaches_the_alb_over_tls_trusting_its_certificate_and_nothing_else(tmp_path, monkeypatch):
-    """A real handshake: the call succeeds against the ALB's certificate, and fails when the name is not the one the
-    certificate names - and a server with any other certificate gets no request at all."""
-    host = "internal-warden-test-alb-1234567890.example.elb.amazonaws.com"
-    crt, key = _self_signed(host, tmp_path)
-    (tmp_path / "other").mkdir()
-    other_crt, other_key = _self_signed(host, tmp_path / "other")  # the same name, another key: an impostor
-    app = _traffic(monkeypatch)
-
-    def serve(cert, keyfile):
-        handler = type("H", (http.server.BaseHTTPRequestHandler,), {
-            "do_GET": lambda s: (s.send_response(200), s.end_headers(), s.wfile.write(b"[]")),
-            "log_message": lambda *a: None})
-        server = http.server.HTTPServer(("127.0.0.1", 0), handler)
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(cert, keyfile)
-        server.socket = ctx.wrap_socket(server.socket, server_side=True)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        return server
-
-    real, impostor = serve(crt, key), serve(other_crt, other_key)
-    try:
-        # The ALB's DNS name resolves to the local server: urllib connects by name, so the name check is real.
-        real_getaddrinfo = socket.getaddrinfo
-        port = {"real": real.server_address[1], "impostor": impostor.server_address[1]}
-        monkeypatch.setattr(socket, "getaddrinfo", lambda h, p, *a, **k: real_getaddrinfo(
-            "127.0.0.1" if h == host else h, p, *a, **k))
-        monkeypatch.setenv("ALB_CA_PEM", crt.read_text(encoding="ascii"))
-        for proxy in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):  # as in Lambda: straight to the ALB
-            monkeypatch.delenv(proxy, raising=False)
-        for which, expected in (("real", 200), ("impostor", 0)):
-            app._ALB_TLS.clear()
-            monkeypatch.setenv("ALB_URL", f"https://{host}:{port[which]}")
-            assert app._call("GET", f"https://{host}:{port[which]}/orders") == expected, which
-        # The certificate names the ALB, not its address: reached by IP, the call is refused.
-        app._ALB_TLS.clear()
-        monkeypatch.setenv("ALB_URL", f"https://127.0.0.1:{port['real']}")
-        assert app._call("GET", f"https://127.0.0.1:{port['real']}/orders") == 0
-    finally:
-        real.shutdown()
-        impostor.shutdown()
 
 
 # ----------------------------------------------------------------- the proving ground (not deployed; R52)
