@@ -36,8 +36,9 @@ class _Ec2:
         return {"NetworkInsightsPaths": [*mine, {"NetworkInsightsPathId": "nip-other", "Tags": []}]}
 
     def describe_network_interfaces(self, **kw):
-        return {"NetworkInterfaces": [{"NetworkInterfaceId": "eni-0aaaaaaaaaaaaaaa2"},
-                                      {"NetworkInterfaceId": "eni-0aaaaaaaaaaaaaaa1"}]}
+        own = "AWS Lambda VPC ENI-warden-dev-orders-0b1c2d3e-0f1a-4b2c-8d3e-4f5a6b7c8d9e"
+        return {"NetworkInterfaces": [{"NetworkInterfaceId": "eni-0aaaaaaaaaaaaaaa2", "Description": own},
+                                      {"NetworkInterfaceId": "eni-0aaaaaaaaaaaaaaa1", "Description": own}]}
 
     def create_network_insights_path(self, **kw):
         if self.fail:
@@ -284,3 +285,71 @@ def test_it_makes_only_tagged_paths_and_analyses_in_its_own_environment_and_tags
                   if not a.split(":")[1].startswith(("Describe", "Get"))}
         assert writes == {"ec2:CreateNetworkInsightsPath", "ec2:StartNetworkInsightsAnalysis", "ec2:CreateTags",
                           "tiros:CreateQuery"}
+
+
+def test_a_function_whose_name_starts_another_s_never_lends_it_its_interface():
+    """CodeRabbit, PR 92: the description filter is a prefix, so `orders` matched `orders-worker`'s interface."""
+    class Worker(_Ec2):
+        def describe_network_interfaces(self, **kw):
+            uuid = "0b1c2d3e-0f1a-4b2c-8d3e-4f5a6b7c8d9e"
+            return {"NetworkInterfaces": [
+                {"NetworkInterfaceId": "eni-0000000000000000a", "Description": f"AWS Lambda VPC ENI-warden-dev-orders-worker-{uuid}"},
+                {"NetworkInterfaceId": "eni-0ffffffffffffffff", "Description": f"AWS Lambda VPC ENI-warden-dev-orders-{uuid}"}]}
+
+    ec2 = Worker()
+    _reader(ec2, configured="lambda/warden-dev-orders=10.0.0.9:443").logs(_alert())
+    assert ec2.created[0]["Source"] == "eni-0ffffffffffffffff"
+
+
+def test_a_path_made_but_never_analysed_is_analysed_on_the_next_read():
+    """CodeRabbit, PR 92: the create succeeded and the start failed; the path held a slot and was never analysed."""
+    class NoRuns(_Ec2):
+        def describe_network_insights_analyses(self, **kw):
+            if "NetworkInsightsPathId" in kw:
+                return {"NetworkInsightsAnalyses": []}
+            return super().describe_network_insights_analyses(**kw)
+
+    ec2 = NoRuns(existing=[LAMBDA_PATH])
+    lines = _reader(ec2, configured="lambda/warden-dev-orders=aurora/warden-dev-db:5432").logs(_alert())
+    assert ec2.created == []
+    assert [s["NetworkInsightsPathId"] for s in ec2.started] == ["nip-old-0"]
+    assert lines[0].startswith("STATE reachability lambda/warden-dev-orders")
+
+
+def test_one_answer_that_cannot_be_read_never_loses_another():
+    """CodeRabbit, PR 92: a failed re-read of an old analysis, or one failed id in the batch, dropped every answer."""
+    class Flaky(_Ec2):
+        def describe_network_insights_analyses(self, **kw):
+            ids = kw.get("NetworkInsightsAnalysisIds") or []
+            if "NetworkInsightsPathId" in kw or len(ids) > 1 or "nia-of-nip-old-0" in ids:
+                raise OSError("throttled")
+            return super().describe_network_insights_analyses(**kw)
+
+    ec2 = Flaky(existing=[LAMBDA_PATH])
+    lines = _reader(ec2).logs(_alert(ecs_service="shop"))
+    assert f"{PARTIAL}reachability lambda/warden-dev-orders: OSError reading its analysis - not read" in lines
+    assert any(x.startswith("STATE reachability ecs/warden-dev-c/shop") for x in lines)  # the new one, read alone
+
+
+def test_a_batch_that_fails_is_read_one_by_one():
+    class OneBad(_Ec2):
+        def describe_network_insights_analyses(self, **kw):
+            ids = kw["NetworkInsightsAnalysisIds"]
+            if len(ids) > 1 or ids == ["nia-1"]:
+                raise OSError("throttled")
+            return super().describe_network_insights_analyses(**kw)
+
+    ec2 = OneBad()
+    lines = _reader(ec2).logs(_alert(ecs_service="shop"))
+    assert len(ec2.started) == 2
+    assert lines[0].startswith("STATE reachability ecs/warden-dev-c/shop")  # nia-2, read alone
+    assert lines[1] == f"{PARTIAL}reachability lambda/warden-dev-orders: OSError reading analysis nia-1 - not read"
+
+
+def test_the_setup_guide_says_which_role_carries_it_and_that_it_is_optional():
+    """CodeRabbit, PR 92: the reader resolves a function's interface in the platform reader role, so that role must hold
+    this policy when it is switched on."""
+    setup = (ROOT / "docs" / "SETUP.md").read_text(encoding="utf-8")
+    row = next(line for line in setup.splitlines() if "platform-reachability.json" in line)
+    assert row.startswith("| `warden-<env>-platform-reader`, optional |")
+    assert "WARDEN_REACHABILITY=1" in row

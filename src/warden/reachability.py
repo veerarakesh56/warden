@@ -52,6 +52,7 @@ _SOURCE = re.compile(rf"^(?:lambda/({_NAME})|ecs/({_NAME})/({_NAME})|((?:eni|i)-
 _DEST = re.compile(rf"^(?:aurora/({_NAME})|rds/({_NAME})|((?:eni|i)-[0-9a-f]{{8,17}})|(\d{{1,3}}(?:\.\d{{1,3}}){{3}}))$")
 _CODE = re.compile(r"^[A-Z0-9_]{1,64}$")
 _ID = re.compile(r"^[a-z]{1,8}-[0-9a-f]{8,17}$")
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 
 @dataclass(frozen=True)
@@ -134,10 +135,8 @@ class ReachabilityReader:
                 out.append(got)
             else:
                 started.append(got)
-        try:
-            return out + self._results(ec2, [*self._latest(ec2, reported), *started])
-        except READ_ERRORS as exc:  # started and billed, but its answer not read: said, never a reachable path
-            return [*out, f"{PARTIAL}reachability: {type(exc).__name__} reading the analyses - not read"]
+        again, notes = self._latest(ec2, reported, alert)
+        return out + notes + self._results(ec2, [*again, *started])
 
     # ------------------------------------------------------------------ the cap
 
@@ -160,16 +159,29 @@ class ReachabilityReader:
                 return found
         return {**{f"unseen-{i}": "" for i in range(MAX_PER_INCIDENT)}, **found}
 
-    @staticmethod
-    def _latest(ec2: Any, reported: list[tuple[Path, str]]) -> list[tuple[Path, str]]:
-        """Each already-analysed path's latest analysis, to report again."""
-        out = []
+    def _latest(self, ec2: Any, reported: list[tuple[Path, str]], alert: Alert) -> tuple[list[tuple[Path, str]],
+                                                                                         list[str]]:
+        """Each already-analysed path's latest analysis, to report again - each read on its own, so one that fails
+        never loses another's answer. A path made but never analysed (the start failed) is analysed now, on that path:
+        it was counted, and nothing was billed for it."""
+        found: list[tuple[Path, str]] = []
+        notes: list[str] = []
         for path, path_id in reported:
-            got = ec2.describe_network_insights_analyses(NetworkInsightsPathId=path_id)
+            try:
+                got = ec2.describe_network_insights_analyses(NetworkInsightsPathId=path_id)
+            except READ_ERRORS as exc:  # this path's earlier answer not read: said, never a reachable path
+                notes.append(f"{PARTIAL}reachability {path.source}: {type(exc).__name__} reading its analysis - not read")
+                continue
             runs = sorted(got.get("NetworkInsightsAnalyses") or [], key=lambda a: str(a.get("StartDate") or ""))
             if runs:
-                out.append((path, str(runs[-1].get("NetworkInsightsAnalysisId"))))
-        return out
+                found.append((path, str(runs[-1].get("NetworkInsightsAnalysisId"))))
+                continue
+            run = self._run(ec2, path, path_id, alert)
+            if isinstance(run, str):
+                notes.append(run)
+            else:
+                found.append(run)
+        return found, notes
 
     # ------------------------------------------------------------------ one analysis
 
@@ -181,24 +193,30 @@ class ReachabilityReader:
             return f"{PARTIAL}reachability {path.source}: {type(exc).__name__} resolving it - not analysed"
         if not source or not destination:
             return f"{PARTIAL}reachability {path.source}: no network interface or address found - not analysed"
-        tags = [{"Key": "Environment", "Value": self._environment(alert)},
-                {"Key": TAG_INCIDENT, "Value": alert.alert_id[:128]}, {"Key": TAG_PATH, "Value": path.tag[:256]},
-                {"Key": "Purpose", "Value": PURPOSE}]
-        # One token per incident and path, of fixed length: a retry is the same request, two paths never collide.
-        token = hashlib.sha256(f"{alert.alert_id}|{path.tag}".encode()).hexdigest()[:48]
         ec2 = made["ec2"]
         try:
             made_path = ec2.create_network_insights_path(
-                Source=source, Protocol="tcp", DestinationPort=path.port, ClientToken=f"{token}-p",
+                Source=source, Protocol="tcp", DestinationPort=path.port, ClientToken=f"{_token(alert, path)}-p",
                 **({"DestinationIp": destination} if _is_ip(destination) else {"Destination": destination}),
-                TagSpecifications=[{"ResourceType": "network-insights-path", "Tags": tags}])
-            path_id = made_path["NetworkInsightsPath"]["NetworkInsightsPathId"]
-            run = ec2.start_network_insights_analysis(
-                NetworkInsightsPathId=path_id, ClientToken=f"{token}-a",
-                TagSpecifications=[{"ResourceType": "network-insights-analysis", "Tags": tags}])
+                TagSpecifications=[{"ResourceType": "network-insights-path", "Tags": self._tags(alert, path)}])
         except READ_ERRORS as exc:  # refused or failed: said, never a reachable path
             return f"{PARTIAL}reachability {path.source}: {type(exc).__name__} - not analysed"
+        return self._run(ec2, path, made_path["NetworkInsightsPath"]["NetworkInsightsPathId"], alert)
+
+    def _run(self, ec2: Any, path: Path, path_id: str, alert: Alert) -> tuple[Path, str] | str:
+        """Start the one analysis of a path this incident made."""
+        try:
+            run = ec2.start_network_insights_analysis(
+                NetworkInsightsPathId=path_id, ClientToken=f"{_token(alert, path)}-a",
+                TagSpecifications=[{"ResourceType": "network-insights-analysis", "Tags": self._tags(alert, path)}])
+        except READ_ERRORS as exc:  # refused or failed: said; the path stays, and the next read analyses it
+            return f"{PARTIAL}reachability {path.source}: {type(exc).__name__} - not analysed"
         return path, str(run["NetworkInsightsAnalysis"]["NetworkInsightsAnalysisId"])
+
+    def _tags(self, alert: Alert, path: Path) -> list[dict[str, str]]:
+        return [{"Key": "Environment", "Value": self._environment(alert)},
+                {"Key": TAG_INCIDENT, "Value": alert.alert_id[:128]}, {"Key": TAG_PATH, "Value": path.tag[:256]},
+                {"Key": "Purpose", "Value": PURPOSE}]
 
     def _source(self, made: Any, source: str) -> str:
         fn, cluster, service, raw = _SOURCE.match(source).groups()
@@ -220,27 +238,57 @@ class ReachabilityReader:
             return []
         pending = {aid: path for path, aid in started}
         answers: dict[str, dict[str, Any]] = {}
+        failed: dict[str, str] = {}
         until = self._clock() + WAIT_S
         while pending and self._clock() < until:
-            got = ec2.describe_network_insights_analyses(NetworkInsightsAnalysisIds=sorted(pending))
-            done = [a for a in got.get("NetworkInsightsAnalyses") or []
-                    if a.get("Status") != "running" and a.get("NetworkInsightsAnalysisId") in pending]
-            for a in done:
-                answers[a["NetworkInsightsAnalysisId"]] = a
-                pending.pop(a["NetworkInsightsAnalysisId"])
+            for a in self._poll(ec2, sorted(pending), failed):
+                if a.get("Status") != "running" and a.get("NetworkInsightsAnalysisId") in pending:
+                    answers[a["NetworkInsightsAnalysisId"]] = a
+                    pending.pop(a["NetworkInsightsAnalysisId"])
+            for aid in failed:
+                pending.pop(aid, None)
             if pending:
                 self._sleep(POLL_S)
         out = [_line(path, answers[aid]) for path, aid in started if aid in answers]
+        out += [f"{PARTIAL}reachability {path.source}: {failed[aid]} reading analysis {aid} - not read"
+                for path, aid in started if aid in failed]
         out += [f"{PARTIAL}reachability {path.source}: analysis {aid} still running after {WAIT_S:g}s - not read"
-                for path, aid in started if aid not in answers]
+                for path, aid in started if aid not in answers and aid not in failed]
         return out
+
+    @staticmethod
+    def _poll(ec2: Any, ids: list[str], failed: dict[str, str]) -> list[dict[str, Any]]:
+        """The analyses' states: all in one call, else one by one, so one that cannot be read never hides another's
+        answer; those that fail are put in `failed` with the error's name."""
+        try:
+            return ec2.describe_network_insights_analyses(NetworkInsightsAnalysisIds=ids).get(
+                "NetworkInsightsAnalyses") or []
+        except READ_ERRORS:
+            pass
+        found = []
+        for aid in ids:
+            try:
+                found += ec2.describe_network_insights_analyses(NetworkInsightsAnalysisIds=[aid]).get(
+                    "NetworkInsightsAnalyses") or []
+            except READ_ERRORS as exc:
+                failed[aid] = type(exc).__name__
+        return found
+
+
+def _token(alert: Alert, path: Path) -> str:
+    """One token per incident and path, of fixed length: a retry is the same request, two paths never collide."""
+    return hashlib.sha256(f"{alert.alert_id}|{path.tag}".encode()).hexdigest()[:48]
 
 
 def _lambda_eni(ec2: Any, fn: str) -> str:
     """A VPC function's network interface - the first by id, so the same one each time."""
     enis = ec2.describe_network_interfaces(Filters=[
         {"Name": "description", "Values": [f"AWS Lambda VPC ENI-{fn}-*", f"AWS Lambda VPC ENI-{fn}"]}])
-    found = sorted(str(n.get("NetworkInterfaceId")) for n in enis.get("NetworkInterfaces") or [])
+    # The filter is a prefix: `orders-*` also matches `orders-worker-<uuid>`. Only this function's own interfaces -
+    # its name, then the interface's UUID, or nothing - are kept (PR 92 review).
+    own = re.compile(rf"AWS Lambda VPC ENI-{re.escape(fn)}(?:-{_UUID})?")
+    found = sorted(str(n.get("NetworkInterfaceId")) for n in enis.get("NetworkInterfaces") or []
+                   if own.fullmatch(str(n.get("Description") or "")))
     return found[0] if found else ""
 
 

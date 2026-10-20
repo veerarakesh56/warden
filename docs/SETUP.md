@@ -99,6 +99,7 @@ The runtime worker reads and acts in an application environment through two role
 | Role | Policies | What it is for |
 |---|---|---|
 | `warden-<env>-platform-reader` | `platform-reader.json` and `platform-diagnose.json` | reading the evidence a diagnosis and a fix need |
+| `warden-<env>-platform-reader`, optional | `platform-reachability.json`, attached only with `WARDEN_REACHABILITY=1` | VPC Reachability Analyzer paths (billed, $0.10 an analysis, at most two an incident - `src/warden/reachability.py`) |
 | `warden-<env>-actor` | `actor.json` | one approved change: the worker takes it for 15 minutes, for one plan, with the incident and the approvers as session tags |
 
 Create each with its `*-trust.local.json`, a maximum session of 1 hour, and the tags `Project=warden`,
