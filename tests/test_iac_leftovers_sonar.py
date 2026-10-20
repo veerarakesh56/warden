@@ -98,6 +98,12 @@ def test_the_runtime_boundary_lets_a_bucket_policy_be_written_on_its_three_bucke
     assert set(deny["Action"]) == {"s3:PutBucketPolicy", "s3:Put*PublicAccessBlock"}
     assert sorted(deny["NotResource"]) == sorted(f"arn:aws:s3:::warden-ops-{b}-*" for b in ("anchors", "witness",
                                                                                            "access-logs"))
+    # And on those three only the deploy role (terraform) writes them: no role the runtime makes, whatever it is granted.
+    by_deploy = next(st for st in boundary["Statement"] if st.get("Sid") == "BucketPolicyByDeployOnly")
+    assert by_deploy["Effect"] == "Deny"
+    assert by_deploy["Resource"] == "*"
+    assert set(by_deploy["Action"]) == set(deny["Action"])
+    assert by_deploy["Condition"] == {"ArnNotLike": {"aws:PrincipalArn": "arn:aws:iam::*:role/warden-ops-deploy"}}
 
 
 def test_the_dev_stacks_alb_logs_every_request_into_a_bucket_only_elb_and_s3_logging_write():
@@ -122,7 +128,7 @@ def test_the_environments_may_write_the_policy_of_their_alb_log_bucket_and_no_ot
     for env in ("dev", "prod"):
         boundary = _iam(env, "boundary")
         denies = [st for st in boundary["Statement"] if st["Effect"] == "Deny"
-                  and {"s3:Put*Policy", "s3:Put*PublicAccess*"} & set(st["Action"])]
+                  and {"s3:Put*Policy", "s3:Put*Public*"} & set(st["Action"])]
         assert len(denies) == 1, denies
         assert denies[0]["NotResource"] == f"arn:aws:s3:::warden-{env}-alb-logs-*", denies
         grant = next(st for st in _iam(env, "deploy-ec2")["Statement"] if st.get("Sid") == "AlbLogsBucket")
@@ -181,6 +187,9 @@ def test_the_internal_alb_answers_https_only_with_the_stacks_own_certificate():
     for env in ("dev", "prod"):
         own = next(st for st in _iam(env, "deploy-ec2")["Statement"] if st.get("Sid") == "AlbCertificateOwn")
         assert own["Condition"]["StringEquals"]["aws:ResourceTag/Environment"] == env
+        assert "acm:ImportCertificate" in own["Action"]  # the in-place re-import at renewal sends no request tags
+        regional = next(st for st in _iam(env, "boundary")["Statement"] if st.get("Sid") == "CeilingRegional")
+        assert [a for a in regional["Action"] if a.startswith("acm:")] == ["acm:*Certificate"]  # never acm:*
         imp = next(st for st in _iam(env, "deploy-ec2")["Statement"] if st.get("Sid") == "AlbCertificateImport")
         assert imp["Condition"]["StringEquals"]["aws:RequestTag/Environment"] == env
 
@@ -208,7 +217,7 @@ def test_the_lab_database_is_public_by_design_and_reachable_from_one_address_ove
     # One address: the variable refuses anything but a /32 (and so 0.0.0.0/0).
     rule = re.search(r'variable "my_ip_cidr" \{.*?condition\s*=\s*(.+?)\n', variables, re.DOTALL).group(1)
     assert 'endswith(var.my_ip_cidr, "/32")' in rule
-    assert "can(cidrhost(var.my_ip_cidr, 0))" in rule
+    assert "can(cidrnetmask(var.my_ip_cidr))" in rule  # IPv4 only: an IPv6 /32 is a huge range
     # TLS only: PostgreSQL 16, whose RDS default parameter group sets rds.force_ssl = 1 (15 and later), unchanged.
     assert int(re.search(r'engine_version\s*=\s*"(\d+)"', db).group(1)) >= 15
     assert "parameter_group_name" not in db

@@ -194,6 +194,7 @@
       "Sid": "AlbCertificateOwn",
       "Effect": "Allow",
       "Action": [
+        "acm:ImportCertificate",
         "acm:DescribeCertificate",
         "acm:GetCertificate",
         "acm:ListTagsForCertificate",

@@ -227,6 +227,20 @@
       ]
     },
     {
+      "Sid": "BucketPolicyByDeployOnly",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutBucketPolicy",
+        "s3:Put*PublicAccessBlock"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/warden-${env}-deploy"
+        }
+      }
+    },
+    {
       "Sid": "DenySelfEdit",
       "Effect": "Deny",
       "Action": [
