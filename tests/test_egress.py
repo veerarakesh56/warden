@@ -367,3 +367,19 @@ def test_the_model_call_thread_keeps_the_callers_context():
             return var.get()
 
     assert _complete_within(P(), system="s", user="u", seconds=5) == "kept"
+
+
+def test_a_security_findings_text_reaches_no_outbound_payload_raw():
+    """GuardDuty and Security Hub findings (#52) are a new inbound source: the attacker's address, a canary in the
+    finding's own words - none of it is in the alert, the evidence a model would be shown, or a Slack body made of it."""
+    from test_security_intake import _guardduty
+    from warden import security_findings
+    from warden.activities import IncidentActivities
+
+    ev = security_findings.finding_event(_guardduty(description=f"contact {EMAIL} from {IP}, account {ACCOUNT}"))
+    pack = IncidentActivities(audit=AuditLog(":memory:")).prepare(ev.alert.model_copy(update={"alert_id": "sec-1"}))
+    assert "<EMAIL_" in ev.alert.summary  # the finding's own words were read, masked
+    for text in (ev.alert.summary, ev.rule, ev.escalate, pack.prompt, pack.model_dump_json()):
+        assert all(c not in text for c in CANARIES)
+    assert egress.kinds_in(pack.prompt) == []
+    egress.check_request(SLACK_API, _slack(ev.alert.summary), JSON, "POST")  # what the report would carry passes
