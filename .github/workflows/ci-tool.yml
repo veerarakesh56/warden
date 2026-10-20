@@ -65,7 +65,7 @@ jobs:
   # bandit: Python security smells at medium severity and up (reviewed false positives carry a
   # `# nosec <id>`). zizmor: workflow injection, unpinned actions, token persistence, permissions.
   security:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -73,12 +73,13 @@ jobs:
           persist-credentials: false
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
       # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
+          cache-suffix: "ci-tool-security"  # one cache per job: jobs sharing a key raced to save it
       - name: Install the scanners (locked)
         run: uv sync --locked --no-build --group scan
       # Every locked package - every extra and group, not only what this job installs - audited from the
@@ -93,7 +94,7 @@ jobs:
         run: zizmor --offline --format plain .github
 
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -102,22 +103,24 @@ jobs:
 
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
       # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
+          cache-suffix: "ci-tool-check"  # one cache per job: jobs sharing a key raced to save it
 
       - name: Install (locked)
-        run: uv sync --locked --no-build --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres
+        run: uv sync --locked --no-build --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres --extra redis
 
       # The core package must import with NO vendor SDK present. providers.py imports them lazily,
       # and this proves it - otherwise a missing extra becomes an ImportError at startup for a
       # provider the user never asked for.
       - name: Core imports without any provider SDK
         run: |
-          UV_PROJECT_ENVIRONMENT=/tmp/bare uv sync --locked --no-build
+          # env -u: the job's activated .venv is not this environment, and uv warned that it ignored it.
+          env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=/tmp/bare uv sync --locked --no-build
           /tmp/bare/bin/python -c "import warden; from warden.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
 
       - name: Lint
@@ -133,8 +136,15 @@ jobs:
       # independent of the others - a test that needs another's state fails here first.
       # A test still running after 5 min prints every thread's stack (pytest's faulthandler): on 4886152 the step
       # hung for 15 min and was cancelled with nothing saying which test.
+      # tests/integration runs in the k8s-regression and db jobs, against a live cluster and live databases, where a
+      # skip fails the job; here it could only skip (44 skips per run). With every extra the suite needs installed
+      # (redis included), nothing here skips either - and a new skip fails the step, as in those jobs.
       - name: Unit tests
-        run: pytest tests -q -n auto -rs -o faulthandler_timeout=300
+        run: |
+          set -o pipefail
+          pytest tests -q -n auto -rs -o faulthandler_timeout=300 --ignore=tests/integration | tee unit.txt
+          grep -qE ' skipped' unit.txt && { echo "::error::a unit test skipped (see the short summary above)"; exit 1; }
+          echo "every unit test ran"
 
       - name: Eval gate
         run: pytest evals -q
@@ -155,7 +165,7 @@ jobs:
           test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::expected exactly one AUTO_SAFE - fixtures probably missing"; exit 1; }
 
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -197,7 +207,7 @@ jobs:
   # enforced, the kubelet really OOM-kills - so what this job proves holds on any conformant cluster.
   k8s:
     name: k8s-regression (k3d, every push; measured on EKS in tests/fixtures/bench)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     # k3d's own images by digest, as every other image here (fifth review E): the node image is k3d 5.9.0's
     # default k3s, and k3d uses K3D_IMAGE_TOOLS as written for `k3d image import`.
@@ -215,12 +225,13 @@ jobs:
         run: |
           (docker build --network=host -t warden:local . > "$RUNNER_TEMP/build.log" 2>&1; echo $? > "$RUNNER_TEMP/build.rc") &
 
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
+          cache-suffix: "ci-tool-k8s"  # one cache per job: jobs sharing a key raced to save it
 
       # Seconds with uv; pip took 98 s here (measured 2026-10-01).
       - name: Install with the k8s extra (locked)
@@ -486,7 +497,7 @@ jobs:
   # Service images by digest (audit A-I-24), read 2026-10-01 from the registries. A tag can be moved to
   # other content; a digest cannot.
   db:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The databases' password, made per run (2026-10-16, naming audit item 17). A fixed one in this file
     # read as a real credential to every secret scanner and reader. It is not a secret: run_id is public,
@@ -547,12 +558,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
+          cache-suffix: "ci-tool-db"  # one cache per job: jobs sharing a key raced to save it
 
       - name: Install with the database extras (locked)
         run: uv sync --locked --no-build --extra dev --extra postgres --extra mysql --extra redis --extra mongo --extra mssql
@@ -561,7 +573,7 @@ jobs:
       # imported inside each engine adapter, exactly like the provider SDKs.
       - name: Core imports without any database driver
         run: |
-          UV_PROJECT_ENVIRONMENT=/tmp/bare-db uv sync --locked --no-build
+          env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=/tmp/bare-db uv sync --locked --no-build  # as /tmp/bare above
           /tmp/bare-db/bin/python -c "from warden.database import DatabaseBackend; print('core imports clean without drivers')"
 
       - name: Integration tests against REAL databases - and they must have RUN, not skipped
@@ -582,7 +594,7 @@ jobs:
           echo "database integration tests ran for real, against all five engines"
 
   terraform:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

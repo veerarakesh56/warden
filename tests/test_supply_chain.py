@@ -188,6 +188,44 @@ def test_the_build_downloads_no_unpinned_tool():
     assert (ROOT / "uv.lock").is_file()
 
 
+RUNNER = "ubuntu-24.04"  # ubuntu-latest moves to 26.04 from 2026-10-19 (actions/runner-images#14748)
+
+
+def test_every_job_names_its_runner_image():
+    """A moving label would change the OS under deploy jobs main's CI never runs; moving is done on purpose."""
+    runners = {(wf, job_id): job.get("runs-on") for wf, job_id, _, job in _steps() if "uses" not in job}
+    assert runners and all(r == RUNNER for r in runners.values()), runners
+
+
+def test_each_caching_uv_step_has_a_cache_of_its_own():
+    """Jobs sharing a key raced to save it ("Unable to reserve cache ... another job may be creating this cache")."""
+    suffixes = [(st.get("with") or {}).get("cache-suffix") for _, _, steps, _ in _steps() for st in steps
+                if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")
+                and (st.get("with") or {}).get("enable-cache") is not False]
+    assert suffixes and None not in suffixes, suffixes
+    assert len(set(suffixes)) == len(suffixes), suffixes
+
+
+
+def test_the_unit_job_leaves_the_live_tests_to_their_own_jobs():
+    """They could only skip there (44 per run); each runs, skip-free, where its cluster or database is (test_ci_lanes).
+    The rest of the suite skips nothing in CI (10 redis tests did, for want of the extra): a new skip fails the step."""
+    unit = [st["run"] for wf, job_id, steps, _ in _steps() if (wf, job_id) == ("ci-tool.yml", "check")
+            for st in steps if st.get("name") == "Unit tests"]
+    assert len(unit) == 1 and "--ignore=tests/integration" in unit[0].split(), unit
+    assert "set -o pipefail" in unit[0] and re.search(r"grep -qE ' skipped' \S+ && \{[^}]*exit 1; \}", unit[0]), unit
+    install = [st["run"] for wf, job_id, steps, _ in _steps() if (wf, job_id) == ("ci-tool.yml", "check")
+               for st in steps if st.get("name") == "Install (locked)"]
+    assert len(install) == 1 and "--extra redis" in install[0], install
+
+def test_dependabot_proposes_no_new_python_for_the_images():
+    """The images' Python matches their compiled requirements; Dependabot keeps digests current, never the version."""
+    cfg = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    docker = [u for u in cfg["updates"] if u["package-ecosystem"] == "docker"]
+    rules = [r for u in docker for r in u.get("ignore", []) if r.get("dependency-name") == "python"]
+    assert docker and len(rules) == len(docker)
+    assert all({"version-update:semver-major", "version-update:semver-minor"} <= set(r["update-types"]) for r in rules)
+
 def test_the_image_build_context_is_an_allowlist():
     lines = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
              if ln.strip() and not ln.startswith("#")]
