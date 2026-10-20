@@ -71,8 +71,11 @@ def _route(world, diagnosed=None, pack=None, second=None) -> routing.Route:
 
 def test_with_no_signal_the_default_model_answers(world):
     route = _route(world)
-    assert route.choice == routing.DEFAULT and route.model == SONNET and route.fired == []
-    assert not route.take_over and route.why == "no signal marks the case hard"
+    assert route.choice == routing.DEFAULT
+    assert route.model == SONNET
+    assert route.fired == []
+    assert not route.take_over
+    assert route.why == 'no signal marks the case hard'
     assert {s.name for s in route.signals} == {"prod", "reinvestigation", "weak_evidence", "risk_tier", "too_close",
                                                "disagreement"}
 
@@ -81,7 +84,9 @@ def test_a_t2_or_t3_fix_alone_makes_the_case_hard(world):
     for action, tier in ((ActionKind.rollback_deploy, "T2"), (ActionKind.failover_replica, "T3")):
         d = world["easy"].model_copy(update={"proposal": world["easy"].proposal.model_copy(update={"action": action})})
         route = _route(world, d)
-        assert route.fired == ["risk_tier"] and route.model == OPUS and route.take_over, action
+        assert route.fired == ['risk_tier'], action
+        assert route.model == OPUS, action
+        assert route.take_over, action
         assert next(s for s in route.signals if s.name == "risk_tier").value["tier"] == tier
     # A T1 fix does not; an action no entry carries out has no tier.
     assert routing.proposal_tier(world["pack"].alert, world["easy"].proposal)[0] == "T1"
@@ -92,7 +97,8 @@ def test_a_t2_or_t3_fix_alone_makes_the_case_hard(world):
 def test_prod_alone_makes_the_case_hard(world):
     prod = world["pack"].model_copy(update={"alert": world["pack"].alert.model_copy(update={"environment": "prod"})})
     route = _route(world, pack=prod)
-    assert route.fired == ["prod"] and route.model == OPUS
+    assert route.fired == ['prod']
+    assert route.model == OPUS
     assert next(s for s in route.signals if s.name == "prod").value == {"environment": "prod", "tier": "prod"}
 
 
@@ -100,7 +106,8 @@ def test_two_diagnoses_disagreeing_alone_makes_the_case_hard(world):
     other = world["easy"].model_copy(update={"proposal": world["easy"].proposal.model_copy(
         update={"target": "another-service"})})
     route = _route(world, second=other)
-    assert route.fired == ["disagreement"] and route.model == OPUS
+    assert route.fired == ['disagreement']
+    assert route.model == OPUS
     assert next(s for s in route.signals if s.name == "disagreement").value["second"]["target"] == "another-service"
     # The same action on the same target (case and spacing aside) is agreement.
     same = world["easy"].model_copy(update={"proposal": world["easy"].proposal.model_copy(
@@ -112,9 +119,11 @@ def test_weak_evidence_alone_makes_the_case_hard(world):
     rc = world["easy"].root_cause
     one = world["easy"].model_copy(update={"root_cause": rc.model_copy(update={"citations": rc.citations[:1]})})
     route = _route(world, one)
-    assert route.fired == ["weak_evidence"] and route.model == OPUS
+    assert route.fired == ['weak_evidence']
+    assert route.model == OPUS
     value = next(s for s in route.signals if s.name == "weak_evidence").value
-    assert len(value["own_reads"]) == routing.MIN_OWN_READS - 1 and value["substantial"] is True
+    assert len(value['own_reads']) == routing.MIN_OWN_READS - 1
+    assert value['substantial'] is True
     # A citation that does not hold counts for nothing (P13's own test).
     bad = rc.citations[1].model_copy(update={"quote": "words that are not in the item"})
     forged = world["easy"].model_copy(update={"root_cause": rc.model_copy(update={"citations": [rc.citations[0], bad]})})
@@ -127,7 +136,8 @@ def test_weak_evidence_alone_makes_the_case_hard(world):
 def test_a_reinvestigation_asked_in_chat_alone_makes_the_case_hard(world):
     world["log"].append("discuss-earlier", "discuss.replan", {"started": world["pack"].alert.alert_id, "why": ""})
     route = _route(world)
-    assert route.fired == ["reinvestigation"] and route.model == OPUS
+    assert route.fired == ['reinvestigation']
+    assert route.model == OPUS
     # Before the first answer too: the diagnosis a person asked for in chat starts on the hard model.
     assert routing.for_diagnosis(world["log"], world["pack"]).fired == ["reinvestigation"]
     # Another incident's "new plan" is not this one's.
@@ -136,7 +146,8 @@ def test_a_reinvestigation_asked_in_chat_alone_makes_the_case_hard(world):
 
 def test_too_close_is_recorded_as_not_available_until_ranked_hypotheses_exist(world):
     signal = routing.too_close_signal(world["easy"].root_cause, world["pack"].context)
-    assert signal.fired is False and signal.value["available"] is False
+    assert signal.fired is False
+    assert signal.value['available'] is False
 
 
 def test_the_models_own_confidence_never_moves_the_choice(world):
@@ -153,18 +164,23 @@ def test_opus_answers_a_hard_case_only_when_providers_yaml_says_it_is_qualified(
     assert _route(world, pack=prod).model == OPUS
     _opus_qualified(monkeypatch, False)
     route = _route(world, pack=prod)
-    assert route.choice == routing.HARD and route.model == SONNET and not route.take_over
-    assert "has not passed WARDEN's replay set" in route.fallback and route.record()["needs_person"] is True
+    assert route.choice == routing.HARD
+    assert route.model == SONNET
+    assert not route.take_over
+    assert "has not passed WARDEN's replay set" in route.fallback
+    assert route.record()['needs_person'] is True
     assert _route(world).record()["needs_person"] is False
     # The shipped file today: Opus 5.5 is not qualified, Sonnet 5.5 is.
     monkeypatch.setattr(providers, "load_qualified", lambda: SHIPPED)
-    assert not routing.is_qualified(OPUS) and routing.is_qualified(SONNET)
+    assert not routing.is_qualified(OPUS)
+    assert routing.is_qualified(SONNET)
     assert routing.models() == (SONNET, OPUS)
 
 
 def test_no_routing_for_another_provider_or_a_model_an_operator_pinned(world, monkeypatch):
     monkeypatch.setenv("WARDEN_PROVIDER", "gemini")
-    assert routing.choose([]).choice == routing.FIXED and routing.choose([]).model == ""
+    assert routing.choose([]).choice == routing.FIXED
+    assert routing.choose([]).model == ''
     monkeypatch.setenv("WARDEN_PROVIDER", "anthropic")
     monkeypatch.setenv("WARDEN_MODEL", "claude-some-other-model")
     assert routing.models() is None
@@ -173,7 +189,8 @@ def test_no_routing_for_another_provider_or_a_model_an_operator_pinned(world, mo
 
 
 def test_eldane_always_gets_the_other_model():
-    assert routing.other_model(SONNET) == OPUS and routing.other_model(OPUS) == SONNET
+    assert routing.other_model(SONNET) == OPUS
+    assert routing.other_model(OPUS) == SONNET
     assert routing.other_model("claude-unknown") == ""
 
 
@@ -183,15 +200,20 @@ def test_eldane_always_gets_the_other_model():
 def test_each_diagnosis_and_each_verified_answer_records_its_route(world):
     acts, pack = world["acts"], world["pack"]
     rows = [e["body"] for e in world["log"].entries(pack.alert.alert_id, kinds=("incident.route",))]
-    assert rows[-1]["stage"] == "diagnose" and rows[-1]["model"] == SONNET and world["asked"][-1] == SONNET
+    assert rows[-1]['stage'] == 'diagnose'
+    assert rows[-1]['model'] == SONNET
+    assert world['asked'][-1] == SONNET
     assert world["diagnosed"].route["choice"] == routing.DEFAULT
     verified = acts.verify(pack, world["diagnosed"])  # the rollback: T2
     row = [e["body"] for e in world["log"].entries(pack.alert.alert_id, kinds=("incident.route",))][-1]
-    assert row["stage"] == "verify" and row["take_over"] is True and row["fired"] == ["risk_tier"]
+    assert row['stage'] == 'verify'
+    assert row['take_over'] is True
+    assert row['fired'] == ['risk_tier']
     assert verified.route == {k: v for k, v in row.items() if k not in ("run_id", "stage")}
     # The takeover's own diagnosis is asked of the hard model, and is never taken over again.
     again = acts.diagnose(pack.model_copy(update={"model": OPUS}))
-    assert world["asked"][-1] == OPUS and again.route["choice"] == routing.TAKEOVER
+    assert world['asked'][-1] == OPUS
+    assert again.route['choice'] == routing.TAKEOVER
     assert acts.verify(pack, again).route["take_over"] is False
 
 
@@ -205,7 +227,8 @@ def test_the_second_opinion_adds_the_disagreement_signal(world):
     approved = Verified(verdict=Verdict(status=VerdictStatus.approved_for_human, policy_ids=[], reasons=["ok"]))
     other = first.model_copy(update={"proposal": first.proposal.model_copy(update={"target": "another-service"})})
     held = acts.second_opinion(pack, first, other, approved)
-    assert held.route["fired"] == ["disagreement"] and held.route["take_over"] is True
+    assert held.route['fired'] == ['disagreement']
+    assert held.route['take_over'] is True
     assert acts.second_opinion(pack, first, first, approved).route["fired"] == []
 
 
@@ -214,7 +237,8 @@ def test_a_takeover_never_lifts_the_escalation_a_disagreement_caused():
                                       reasons=["x"]), route={"fired": ["disagreement"]})
     after = Verified(verdict=Verdict(status=VerdictStatus.approved_for_human, policy_ids=[], reasons=["ok"]))
     kept = still_held(after, before)
-    assert kept.verdict.status == VerdictStatus.escalated and STILL_HELD in kept.verdict.reasons
+    assert kept.verdict.status == VerdictStatus.escalated
+    assert STILL_HELD in kept.verdict.reasons
     # A takeover for any other signal is judged on its own checks.
     assert still_held(after, before.model_copy(update={"route": {"fired": ["risk_tier"]}})) is after
 
@@ -243,7 +267,8 @@ def test_the_discussion_answer_is_asked_of_the_routed_model_and_recorded(world):
         turn = discuss.Turn(channel=channel, thread_ts="1760000000.000100", ts="1760000000.000100", user=user, text=text)
         acts.discuss_answer(turn, thread, {"evidence": "e", "diagnosis": "d"}, False)
         row = [e["body"] for e in world["log"].entries("discuss-abc", kinds=("discuss.route",))][-1]
-        assert world["asked"][-1] == model and row["model"] == model
+        assert world['asked'][-1] == model
+        assert row['model'] == model
 
 
 # ------------------------------------------------------------------ cost
@@ -266,8 +291,9 @@ def test_opus_is_charged_at_its_own_price_and_the_incident_ceiling_still_holds(m
     assert (o_in, o_out) == (2 * s_in, 2 * s_out)
     # One call of 100k in / 10k out: Sonnet $0.30, Opus $0.60. Under a $0.50 ceiling only Sonnet's fits.
     LLMClient(provider=_Priced(SONNET), max_usd=0.5).structured(system="s", user="u", schema=discuss.Answer)
+    opus = LLMClient(provider=_Priced(OPUS), max_usd=0.5)
     with pytest.raises(BudgetExceeded):
-        LLMClient(provider=_Priced(OPUS), max_usd=0.5).structured(system="s", user="u", schema=discuss.Answer)
+        opus.structured(system="s", user="u", schema=discuss.Answer)
 
 
 # ------------------------------------------------------------------ the workflow (Temporal: runs in CI)
@@ -323,7 +349,8 @@ def test_the_workflow_hands_a_hard_case_to_opus_when_it_is_qualified(tmp_path, m
     report, rows, asked = _takeover_run(tmp_path, monkeypatch, opus_qualified=True)
     # Sonnet answers and gives the second opinion; the T2 fix makes the case hard; Opus answers and gives its own.
     assert asked == [SONNET, SONNET, OPUS, OPUS], asked
-    assert [r["stage"] for r in rows if r["stage"] == "diagnose"] and rows[-1]["choice"] == routing.TAKEOVER
+    assert [r['stage'] for r in rows if r['stage'] == 'diagnose']
+    assert [r['choice'] for r in rows if r['stage'] == 'diagnose'][-1] == routing.TAKEOVER
     assert any(r["stage"] == "second_opinion" and r["take_over"] for r in rows)
     assert report.verdict.status == VerdictStatus.approved_for_human
 
@@ -331,4 +358,5 @@ def test_the_workflow_hands_a_hard_case_to_opus_when_it_is_qualified(tmp_path, m
 def test_the_workflow_keeps_sonnet_when_opus_is_not_qualified(tmp_path, monkeypatch):
     _, rows, asked = _takeover_run(tmp_path, monkeypatch, opus_qualified=False)
     assert asked == [SONNET, SONNET], asked
-    assert not any(r["take_over"] for r in rows) and any(r.get("needs_person") for r in rows)
+    assert not any(r['take_over'] for r in rows)
+    assert any(r.get('needs_person') for r in rows)

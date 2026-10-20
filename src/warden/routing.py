@@ -35,7 +35,6 @@ import os
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from typing import Any
 
 # The tiers that make a case hard (catalog.py: T1 one small reversible change; T2 service-level; T3 irreversible).
@@ -114,12 +113,23 @@ def models(provider: str | None = None) -> tuple[str, str] | None:
     return default, hard
 
 
+@dataclass(frozen=True)
+class _Unbuilt:
+    """A provider by its name and model only, as qualified() reads one: never asked anything."""
+
+    name: str
+    model: str
+
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Any:
+        raise NotImplementedError("a qualification check, never a model call")
+
+
 def is_qualified(model: str, provider: str | None = None) -> bool:
     """May `model` diagnose (register M20)? Read from data/providers.yaml alone: no client, no key."""
     from .providers import ProviderError, qualified
 
     try:
-        qualified(SimpleNamespace(name=provider or provider_name(), model=model))
+        qualified(_Unbuilt(name=provider or provider_name(), model=model))
     except ProviderError:
         return False
     return True

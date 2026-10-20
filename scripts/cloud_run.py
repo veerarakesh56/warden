@@ -30,7 +30,7 @@ from collections.abc import Callable
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PROVIDERS_YAML = ROOT / "src" / "warden" / "data" / "providers.yaml"
-SECRET = "anthropic-api-key"
+KEY_SLOT = "anthropic-api-key"  # the slot's name in Secrets Manager, never its value
 
 
 def runtime_environment() -> str:
@@ -42,28 +42,33 @@ def runtime_environment() -> str:
     return env
 
 
-def model_key(env: str, client: object = None) -> str:
-    """Put the runtime's Anthropic key in this process's environment, from Secrets Manager unless already there; say
-    where it came from - never what it is."""
+def key_source(env: str) -> str:
+    """Where the key comes from, in words: computed without reading it, so nothing said can carry it."""
     if os.environ.get("ANTHROPIC_API_KEY", "").strip():
         return "ANTHROPIC_API_KEY, already in this process (the llm zone's task)"
+    return f"Secrets Manager warden/{env}/{KEY_SLOT}"
+
+
+def model_key(env: str, client: object = None) -> None:
+    """Put the runtime's Anthropic key in this process's environment, from Secrets Manager unless already there."""
+    if os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        return
     if client is None:
         import boto3
 
         from warden.environments import region
 
         client = boto3.client("secretsmanager", region_name=region())
-    name = f"warden/{env}/{SECRET}"
+    name = f"warden/{env}/{KEY_SLOT}"
     value = client.get_secret_value(SecretId=name)["SecretString"].strip()
     if not value:
         raise SystemExit(f"{name} is empty")
     os.environ["ANTHROPIC_API_KEY"] = value
-    return f"Secrets Manager {name}"
 
 
-def record(result: dict, path: pathlib.Path = PROVIDERS_YAML) -> str:
-    """The measured row, written into providers.yaml: under `qualified:` when it passed, else as a NOT QUALIFIED
-    comment. Returns the line written."""
+def recorded(result: dict, text: str) -> tuple[str, str]:
+    """providers.yaml's text with the measured row in it - under `qualified:` when it passed, else as a NOT QUALIFIED
+    comment - and the line written. Pure: main() writes the one file it may, PROVIDERS_YAML."""
     row = {k: v for k, v in result.items() if k not in ("passed", "slo_breaches")}
     when = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%MZ")
     if result.get("passed"):
@@ -74,13 +79,12 @@ def record(result: dict, path: pathlib.Path = PROVIDERS_YAML) -> str:
         said = (f"  # NOT QUALIFIED - measured {when} by scripts/cloud_run.py qualify with the cloud runtime's key "
                 f"(below the bar{': ' + breaches if breaches else ''}):")
         lines = [said, f"  #  {json.dumps(row)}"]
-    text = path.read_text(encoding="utf-8").splitlines(keepends=True)
-    at = next((i for i, line in enumerate(text) if line.rstrip() == "qualified:"), None)
+    out = text.splitlines(keepends=True)
+    at = next((i for i, line in enumerate(out) if line.rstrip() == "qualified:"), None)
     if at is None:
-        raise SystemExit(f"{path} has no `qualified:` list")
-    text[at + 1:at + 1] = [line + "\n" for line in lines]
-    path.write_text("".join(text), encoding="utf-8", newline="\n")
-    return lines[-1].strip()
+        raise SystemExit("providers.yaml has no `qualified:` list")
+    out[at + 1:at + 1] = [line + "\n" for line in lines]
+    return "".join(out), lines[-1].strip()
 
 
 def qualify(a: argparse.Namespace) -> int:
@@ -95,7 +99,9 @@ def qualify(a: argparse.Namespace) -> int:
     code = qualify_provider.main(["--out", str(a.out), "--budget-usd", str(a.budget_usd)])
     result = json.loads((a.out / "qualification.json").read_text(encoding="utf-8"))
     if a.record:
-        print("recorded in providers.yaml:", record(result))
+        text, line = recorded(result, PROVIDERS_YAML.read_text(encoding="utf-8"))
+        PROVIDERS_YAML.write_text(text, encoding="utf-8", newline="\n")
+        print("recorded in providers.yaml:", line)
         sys.path.insert(0, str(ROOT / "scripts"))
         import safety_pins
 
@@ -116,7 +122,9 @@ def main(argv: list[str] | None = None, *, secrets_client: object = None) -> int
     p.add_argument("--record", action="store_true", help="write the measured row into providers.yaml")
     a = p.parse_args(argv)
     a.out = (a.out or pathlib.Path(tempfile.mkdtemp(prefix=f"warden-{a.job}-"))).expanduser().resolve()
-    print(f"{a.job} {a.model}: key from {model_key(a.env or runtime_environment(), secrets_client)}; out {a.out}")
+    env = a.env or runtime_environment()
+    print(f"{a.job} {a.model}: key from {key_source(env)}; out {a.out}")
+    model_key(env, secrets_client)
     return JOBS[a.job](a)
 
 
