@@ -1608,7 +1608,16 @@ class IncidentActivities:
         """Every routing signal on a verified answer, on the record; {} when an answer had no model (rules only)."""
         if diagnosed.model_unavailable:
             return {}
-        return self._route(pack.alert.alert_id, stage, routing.after_answer(self.audit, pack, diagnosed, second))
+        try:
+            return self._route(pack.alert.alert_id, stage, routing.after_answer(self.audit, pack, diagnosed, second))
+        except Exception as exc:  # noqa: BLE001 - whatever routing hit, the verdict stands and a person approves
+            why = f"routing could not be done ({_safe_error(exc)})"
+            _note(f"{pack.alert.alert_id} {stage}: {why} - no takeover, a person approves")
+            # Recorded like any choice. The audit took this step's rows a moment ago; if it now fails, the step fails
+            # as it does for every other audit write.
+            row = {**routing.Route(model="", choice=routing.FIXED, why=why).record(), "needs_person": True}
+            self.audit.append(pack.alert.alert_id, "incident.route", {"run_id": _run_id(), "stage": stage, **row})
+            return row
 
     @activity.defn
     def second_opinion(self, pack: EvidencePack, first: Diagnosed, second: Diagnosed, verified: Verified) -> Verified:
