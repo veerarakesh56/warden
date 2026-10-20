@@ -108,7 +108,10 @@ def no_fix_path(alert: Alert, proposal: RemediationProposal) -> str:
     if platforms & able:
         return ""
     named = ", ".join(sorted(kinds))
-    return f"no catalogue entry carries out {proposal.action.value} on {target} (labelled {named})"
+    advice = next((catalog.ADVICE[(proposal.action, p)] for p in sorted(platforms - {None})
+                   if (proposal.action, p) in catalog.ADVICE), "")
+    return (f"no catalogue entry carries out {proposal.action.value} on {target} (labelled {named})"
+            + (f" - {advice}" if advice else ""))
 
 
 def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any]) -> dict[str, Any] | str:
@@ -361,7 +364,9 @@ def _request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tupl
     platform, params = found
     entry = catalog.for_action(proposal.action, platform)
     if entry is None:
-        return None, f"no catalogue entry carries out {proposal.action.value} on {platform}"
+        advice = catalog.ADVICE.get((proposal.action, platform))
+        return None, f"no catalogue entry carries out {proposal.action.value} on {platform}" + (
+            f" - {advice}" if advice else "")
     if "alarm" in entry.params:  # G10-D3: the change is dated by the alarm going off
         alarm = alert.labels.get("alarm", "")
         if not alarm or "," in alarm:
