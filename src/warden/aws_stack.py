@@ -147,6 +147,7 @@ def _last_good_end(calls: dict[datetime, float], errors: dict[datetime, float]) 
 _TRACEBACK = "Traceback (most recent call last):"
 _FRAME = re.compile(r'File "([^"]+)", line (\d+), in (\S+)')
 _EXCEPTION = re.compile(r"^(?:\[ERROR\]\s++)?([A-Za-z_][\w.]*+)(?::\s*+(.*))?$")  # possessive: nothing to hand back (Sonar python:S8786, 2026-10-16)
+_LAMBDA_ERROR = "[ERROR]"  # how the Lambda runtime starts the line naming an unhandled exception
 _STREAM_VERSION = re.compile(r"\[(\d+|\$LATEST)\]")
 
 
@@ -494,15 +495,15 @@ def _frames(lines: list, j: int) -> tuple[list[tuple[str, int, str]], int]:
 def _exception_before(lines: list, i: int, head: str) -> str:
     """The `[ERROR] X: y` the Lambda runtime writes before a traceback - on its line, or the line before - or ""."""
     before = head.strip() or (lines[i - 1][0].strip() if i else "")
-    if before.startswith("[ERROR]"):
-        return before.removeprefix("[ERROR]").strip()
+    if before.startswith(_LAMBDA_ERROR):
+        return before.removeprefix(_LAMBDA_ERROR).strip()
     return ""
 
 
 def _exception_after(lines: list, j: int) -> str:
     """The exception line at `j` (the `logging.exception` shape), its `[ERROR]` dropped, or ""."""
     if j < len(lines) and _EXCEPTION.match(lines[j][0].strip()):
-        return lines[j][0].strip().removeprefix("[ERROR]").strip()
+        return lines[j][0].strip().removeprefix(_LAMBDA_ERROR).strip()
     return ""
 
 
