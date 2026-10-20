@@ -377,3 +377,30 @@ def test_a_found_links_words_and_ids_are_text_never_markup(world):
     r = records.record(log, "inc-a", policy)
     r.found = [{"with": "<img src=x onerror=alert(1)>", "side": "same-alarm", "words": "has the same alarm as"}]
     assert "<img src=x" not in records.found_links(r)
+
+
+def test_a_link_taken_back_reads_as_taken_back_in_every_step(world):
+    """CodeRabbit, PR 56: the removal row read "Linked to another record" in the record's steps."""
+    owner, _, policy, log = world
+    links.record(log, _link(owner, "inc-a", "inc-b", "same-root-cause", now=T0), policy)
+    links.record(log, _link(owner, "inc-a", "inc-b", "same-root-cause", removed=True, now=T0 + timedelta(hours=1)),
+                 policy)
+    page = records.incident_page(records.record(log, "inc-a", policy))
+    assert "A link to another record was taken back by an approver" in page
+
+
+def test_finding_links_reads_every_plan_only_for_an_incident_that_is_a_relapse(world, monkeypatch):
+    """CodeRabbit, PR 56: every record page read the whole plan history to find relapses."""
+    _, _, _, log = world
+    log.append("inc-a", "remediation.plan", {"workflow_id": "rem-a", "run_id": "r1"})
+    log.append("rem-a", "intake.relapse", {"workflow_id": "rem-a", "fingerprint": FP, "at": "2026-10-01T10:00:00+00:00"})
+    every_plan = []
+    real = log.entries
+    def spy(*args, **kw):
+        if not args and kw.get("kinds") == (links.PLAN_ROW,):
+            every_plan.append(kw)
+        return real(*args, **kw)
+
+    monkeypatch.setattr(log, "entries", spy)
+    links.found(log, "inc-b")
+    assert every_plan == []

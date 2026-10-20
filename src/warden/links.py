@@ -276,23 +276,29 @@ def _fix_links(log: Any, incident: str) -> list[tuple[str, str]]:
     return out
 
 
-def _relapse_links(log: Any, incident: str) -> list[tuple[str, str]]:
-    """(other incident, side) from a watched fix that heard its alarm again: the incident that alarm started is the
-    fingerprint and the alarm's time (intake.decide), and the fix's incident is its plan's."""
-    fixed = {str(e["body"].get("workflow_id")): str(e["correlation_id"])
-             for e in log.entries(kinds=(PLAN_ROW,))}
-    out = []
-    for e in log.entries(kinds=("intake.relapse",)):
-        b = e["body"]
-        try:
-            at = datetime.fromisoformat(str(b.get("at"))).astimezone(UTC)
-        except ValueError:
-            continue
-        new, old = f"{b.get('fingerprint')}-{at:%Y%m%dT%H%M%SZ}", fixed.get(str(b.get("workflow_id")), "")
-        if old and new == incident:
-            out.append((old, "relapse-of"))
-        elif old == incident and _FP.match(new):
-            out.append((new, "relapsed-as"))
+def _relapsed(e: dict[str, Any]) -> str:
+    """The incident an intake.relapse row's alarm started: its fingerprint and the alarm's time (intake.decide)."""
+    try:
+        at = datetime.fromisoformat(str(e["body"].get("at"))).astimezone(UTC)
+    except ValueError:
+        return ""
+    new = f"{e['body'].get('fingerprint')}-{at:%Y%m%dT%H%M%SZ}"
+    return new if _FP.match(new) else ""
+
+
+def _relapse_links(log: Any, incident: str, now: datetime) -> list[tuple[str, str]]:
+    """(other incident, side) from a watched fix that heard its alarm again, in the last FOUND_DAYS days. This
+    incident's own fixes are read through its own record; every plan is read only when this incident is the relapse,
+    to find whose fix it was - and then only plans from the window (CodeRabbit, PR 56: the page read every plan)."""
+    since = now - timedelta(days=FOUND_DAYS)
+    relapses = [(str(e["body"].get("workflow_id")), _relapsed(e))
+                for e in log.entries(kinds=("intake.relapse",), since=since)]
+    own = {str(e["body"].get("workflow_id")) for e in log.entries(incident, kinds=(PLAN_ROW,))}
+    out = [(new, "relapsed-as") for wid, new in relapses if wid in own and new and new != incident]
+    if any(new == incident for _, new in relapses):
+        fixed = {str(e["body"].get("workflow_id")): str(e["correlation_id"])
+                 for e in log.entries(kinds=(PLAN_ROW,), since=since - timedelta(days=1))}
+        out += [(fixed[wid], "relapse-of") for wid, new in relapses if new == incident and fixed.get(wid)]
     return out
 
 
@@ -315,8 +321,8 @@ def _alike_links(log: Any, incident: str, now: datetime) -> list[tuple[str, str]
 def found(log: Any, incident: str, *, now: datetime | None = None) -> list[dict[str, Any]]:
     """The links WARDEN finds for this incident in its own record, one per other incident and side, in a fixed order:
     through a fix first, then the same alarm, then the same resource."""
-    pairs = _fix_links(log, incident) + _relapse_links(log, incident) + _alike_links(log, incident,
-                                                                                     now or datetime.now(UTC))
+    now = now or datetime.now(UTC)
+    pairs = _fix_links(log, incident) + _relapse_links(log, incident, now) + _alike_links(log, incident, now)
     out, kept = [], set()
     for other, side in pairs:
         if (other, side) not in kept and other != incident:
