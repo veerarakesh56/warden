@@ -27,16 +27,29 @@ class _Log:
         return [r for r in self.rows if r["kind"] in kinds and (since is None or r["at"] >= since)]
 
 
-def _since(changes=None, log=None, opener=None, **kw):
+@pytest.fixture(autouse=True)
+def _no_github(monkeypatch):
+    """No test reads the developer's own GitHub settings (CodeRabbit, PR 84)."""
+    monkeypatch.delenv("WARDEN_CHANGE_REPO", raising=False)
+    monkeypatch.delenv("WARDEN_GITHUB_TOKEN", raising=False)
+
+
+def _since(writes=None, log=None, opener=None, **kw):
+    """(landed, unread) - and the third value, the sources this target has none of, is checked where it matters."""
     args = {"entry": "k8s_restart", "params": {"namespace": "shop", "deployment": "orders"},
             "target": "dev/k8s:shop/orders", "incident": "inc-42", "workflow_id": "rem-1", "environment": "dev",
-            "applied_at": APPLIED, "now": NOW, "log": log or _Log(), "changes": changes}
+            "applied_at": APPLIED, "now": NOW, "log": log or _Log(), "writes": writes}
     args.update(kw)
-    return landed.since_fix(**args, **({"opener": opener} if opener else {}))
+    found, unread, _ = landed.since_fix(**args, **({"opener": opener} if opener else {}))
+    return found, unread
 
 
 def _trail(*events):
-    return lambda since, until: list(events)
+    """CloudTrail looked up by the target's names: the events naming one of them, in the window."""
+    def writes(names, since, until):
+        return [e for e in events if e["what"].rpartition(" on ")[2] in names
+                and (e.get("at") is None or since <= e["at"])]
+    return writes
 
 
 def test_a_write_on_the_target_by_anyone_else_after_the_fix_is_found():
@@ -69,7 +82,7 @@ def test_another_wardens_fix_of_the_same_target_is_found_but_not_this_runs():
 
 
 def test_an_unreadable_trail_is_unknown_and_unknown_is_not_undone():
-    def down(since, until):
+    def down(names, since, until):
         raise RuntimeError("AccessDenied")
 
     found, unread = _since(down)
@@ -97,6 +110,7 @@ def test_github_deploys_and_merges_in_the_window_are_found_where_the_token_is(mo
             return _Resp(json.dumps([{"created_at": (APPLIED + timedelta(minutes=4)).isoformat(), "sha": "a1b2c3d4e5f6",
                                       "ref": "dev", "creator": {"login": "ci"}}]).encode())
         return _Resp(json.dumps([{"number": 7, "merged_at": (APPLIED + timedelta(minutes=1)).isoformat(),
+                                  "updated_at": (APPLIED + timedelta(minutes=1)).isoformat(),
                                   "merged_by": {"login": "dev1"}},
                                  {"number": 6, "merged_at": (APPLIED - timedelta(hours=1)).isoformat()},
                                  {"number": 5, "merged_at": None}]).encode())
@@ -123,7 +137,7 @@ def _applied(acts, owner):
 def test_a_rollback_after_something_landed_is_not_sent_and_the_reads_are_recorded():
     acts, platform, owner = _acts()
     plan = _applied(acts, owner)
-    platform.changes_reader = lambda entry, environment: _trail(
+    platform.writes_reader = lambda entry, environment: _trail(
         {"at": datetime.now(UTC) + timedelta(seconds=1), "source": "cloudtrail", "what": "PatchDeployment on orders",
          "who": "argocd"})
     detail = acts.rollback(plan)
@@ -138,7 +152,7 @@ def test_a_rollback_after_something_landed_is_not_sent_and_the_reads_are_recorde
 def test_a_rollback_with_nothing_landed_is_sent():
     acts, platform, owner = _acts()
     plan = _applied(acts, owner)
-    platform.changes_reader = lambda entry, environment: _trail()
+    platform.writes_reader = lambda entry, environment: _trail()
     assert not acts.rollback(plan).startswith("not rolled back")
     assert len(platform.rolled_back) == 1
     [read] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.landed",))
@@ -150,10 +164,10 @@ def test_a_rollback_whose_trail_cannot_be_read_is_not_sent():
     acts, platform, owner = _acts()
     plan = _applied(acts, owner)
 
-    def down(since, until):
+    def down(names, since, until):
         raise RuntimeError("AccessDenied")
 
-    platform.changes_reader = lambda entry, environment: down
+    platform.writes_reader = lambda entry, environment: down
     assert acts.rollback(plan).startswith("not rolled back: CloudTrail (RuntimeError) could not be read")
     assert platform.rolled_back == []
 
@@ -167,9 +181,96 @@ def test_the_routed_platform_reads_the_trail_of_the_platform_that_carries_the_en
     f.trail = [{"EventTime": APPLIED + timedelta(minutes=2), "EventName": "UpdateFunctionCode20150331v2",
                 "Username": "ci-deployer", "Resources": [{"ResourceName": FN}]}]
     routed = RoutedPlatform(**{"lambda": AwsPlatform(reader=lambda s: f, actor=f.actor)})
-    read = routed.changes_reader("lambda_move_alias", "dev")
+    read = routed.writes_reader("lambda_move_alias", "dev")
     found, unread = _since(read, entry="lambda_move_alias", params={"function": FN, "alias": "live", "to_version": "3"},
                            target=f"dev/lambda:{FN}")
-    assert unread == [] and [(c["what"], c["who"]) for c in found] == [(f"UpdateFunctionCode20150331v2 on {FN}",
-                                                                       "ci-deployer")]
-    assert routed.changes_reader("k8s_restart", "dev") is None  # no Kubernetes platform connected
+    assert unread == []
+    assert [(c["what"], c["who"]) for c in found] == [(f"UpdateFunctionCode20150331v2 on {FN}", "ci-deployer")]
+    assert routed.writes_reader("k8s_restart", "dev") is None  # no Kubernetes platform connected
+
+
+def test_a_write_with_no_time_or_in_the_fixs_own_second_counts():
+    undated = {"at": None, "source": "cloudtrail", "what": "UpdateService on orders", "who": "ci"}
+    same_second = {"at": APPLIED - timedelta(milliseconds=600), "source": "cloudtrail",
+                   "what": "UpdateService on orders", "who": "ci"}
+    found, _ = _since(_trail(undated, same_second))
+    assert len(found) == 2
+
+
+def test_a_github_list_is_read_page_by_page_and_one_longer_than_read_is_unknown(monkeypatch):
+    monkeypatch.setenv("WARDEN_CHANGE_REPO", "owner/repo")
+    monkeypatch.setenv("WARDEN_GITHUB_TOKEN", "t" * 8)
+    later = (APPLIED + timedelta(minutes=1)).isoformat()
+
+    def full(n):
+        return [{"number": i, "created_at": later, "updated_at": later} for i in range(n)]
+
+    pages = {"deployments": [full(100), [{"created_at": later, "sha": "f00d", "ref": "dev"}]], "pulls": [full(100)] * 9}
+
+    def opener(req, timeout):
+        kind = "deployments" if "/deployments" in req.full_url else "pulls"
+        page = int(req.full_url.rsplit("page=", 1)[1])
+        return _Resp(json.dumps(pages[kind][page - 1]).encode())
+
+    found, unread = _since(opener=opener)
+    assert sum(c["source"] == "deploy" for c in found) == 101  # both pages of deployments
+    assert unread == ["GitHub merges"]  # five full pages of pull requests, all since the fix: not all read
+
+
+def test_what_landed_is_kept_and_said_redacted():
+    actor = "arn:aws:sts::000000000000:assumed-role/deployer/ci"
+    event = {"at": APPLIED + timedelta(minutes=1), "source": "cloudtrail", "what": "UpdateService on orders",
+             "who": actor}
+    found, unread = _since(_trail(event))
+    assert "000000000000" not in json.dumps(landed.shown(found))
+    assert "000000000000" not in landed.said(found, unread)
+
+
+def test_a_target_whose_platform_reads_no_trail_says_so():
+    _, _, unchecked = landed.since_fix(entry="k8s_restart", params={"namespace": "shop", "deployment": "orders"},
+                                       target="dev/k8s:shop/orders", incident="inc-42", workflow_id="rem-1",
+                                       environment="dev", applied_at=APPLIED, now=NOW, log=_Log(), writes=None)
+    assert unchecked == ["CloudTrail (this target's platform has no change reader)"]
+
+
+class _Trail:
+    """CloudTrail's LookupEvents, by resource name, in pages of `per` events."""
+
+    def __init__(self, events, per=2):
+        self.events, self.per, self.asked = events, per, []
+
+    def lookup_events(self, LookupAttributes, StartTime, EndTime, MaxResults, NextToken=None):
+        name = LookupAttributes[0]["AttributeValue"]
+        self.asked.append((LookupAttributes[0]["AttributeKey"], name))
+        mine = [e for e in self.events if any(r["ResourceName"] == name for r in e["Resources"])]
+        start = int(NextToken or 0)
+        page = mine[start:start + self.per]
+        return {"Events": page, **({"NextToken": str(start + self.per)} if start + self.per < len(mine) else {})}
+
+
+def _event(i, names, read_only="false"):
+    return {"EventId": f"e{i}", "EventTime": APPLIED + timedelta(seconds=i), "EventName": "UpdateService",
+            "Username": "ci", "ReadOnly": read_only, "Resources": [{"ResourceName": n} for n in names]}
+
+
+def test_the_trail_is_read_by_every_name_of_the_target_every_page_once_each():
+    from warden.platforms.aws import AwsPlatform
+
+    trail = _Trail([_event(1, ["c1", "orders"]), _event(2, ["orders"]), _event(3, ["orders"], read_only="true"),
+                    _event(4, ["orders"]), _event(5, ["other"])])
+    p = AwsPlatform(reader=lambda s: trail, actor=None)
+    got = p.writes_on(["c1", "orders"], APPLIED, NOW)
+    assert sorted(c["event"] for c in got) == ["e1", "e2", "e4"]  # each once; read-only and others left out
+    assert ("ResourceName", "orders") in trail.asked
+
+
+def test_a_trail_longer_than_read_is_unknown():
+    from warden.platforms import aws
+
+    trail = _Trail([_event(i, ["orders"]) for i in range(aws.WRITES_PAGES * 2 + 1)])
+    p = aws.AwsPlatform(reader=lambda s: trail, actor=None)
+    with pytest.raises(aws.AwsPlatformError, match="more than"):
+        p.writes_on(["orders"], APPLIED, NOW)
+    found, unread = _since(p.writes_on)
+    assert found == []
+    assert unread == ["CloudTrail (AwsPlatformError)"]

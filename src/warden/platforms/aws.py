@@ -94,6 +94,7 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "secrets_restore_secret": "secretsmanager", "dynamodb_restore_capacity": "dynamodb",
           "asg_resume_processes": "asg",
           "aurora_failover": "rds"}
+WRITES_PAGES = 10  # B21: CloudTrail pages of one resource's events read before an undo (50 events a page)
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
 
 # G10-D: undoing a recorded security group change. Only a change in the hours before the alarm went into ALARM.
@@ -575,6 +576,30 @@ class AwsPlatform:
             if not token:
                 break
         return out
+
+    def writes_on(self, names: list[str], since: datetime, until: datetime) -> list[dict[str, Any]]:
+        """B21 (landed.py): CloudTrail's write events naming any of `names` in the window - looked up by resource name,
+        every page. More than WRITES_PAGES pages raises: a read in part is not a read."""
+        out, trail = [], self._read("cloudtrail")
+        for name in names:
+            token = None
+            for _ in range(WRITES_PAGES):
+                page = trail.lookup_events(LookupAttributes=[{"AttributeKey": "ResourceName", "AttributeValue": name}],
+                                           StartTime=since, EndTime=until, MaxResults=50,
+                                           **({"NextToken": token} if token else {}))
+                out += [{"at": _when(e.get("EventTime")), "source": "cloudtrail",
+                         "what": f"{e.get('EventName', '?')} on {name}", "who": str(e.get("Username") or "?"),
+                         "event": str(e.get("EventId") or "")}
+                        for e in page.get("Events") or [] if str(e.get("ReadOnly", "false")).lower() != "true"]
+                token = page.get("NextToken")
+                if not token:
+                    break
+            else:
+                raise AwsPlatformError(f"CloudTrail holds more than {WRITES_PAGES} pages of events on {name}")
+        unique: dict[str, dict[str, Any]] = {}
+        for c in out:  # one event can name the target by more than one of its names
+            unique.setdefault(c["event"] or str(id(c)), c)
+        return list(unique.values())
 
     def knows(self, service: str) -> bool:
         return False  # health is asked by entry (healthy_for), never by a bare name that two kinds could share

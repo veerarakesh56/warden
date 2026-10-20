@@ -933,14 +933,14 @@ class RemediationActivities:
         applied = [e["at"] for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
                    if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                    and e["body"].get("plan_hash") == plan.plan_hash]
-        reader = getattr(self.platform, "changes_reader", None)
-        found, unread = landed.since_fix(entry=plan.entry, params=plan.params, target=plan.target,
-                                         incident=plan.incident_id, workflow_id=plan.workflow_id,
-                                         environment=plan.environment, applied_at=applied[-1], now=datetime.now(UTC),
-                                         log=self.audit, changes=reader(plan.entry, plan.environment) if reader else None)
+        reader = getattr(self.platform, "writes_reader", None)
+        found, unread, unchecked = landed.since_fix(
+            entry=plan.entry, params=plan.params, target=plan.target, incident=plan.incident_id,
+            workflow_id=plan.workflow_id, environment=plan.environment, applied_at=applied[-1], now=datetime.now(UTC),
+            log=self.audit, writes=reader(plan.entry, plan.environment) if reader else None)
         self.audit.append(plan.incident_id, "remediation.landed", {
-            **row, "since": applied[-1].isoformat(), "unread": unread,
-            "landed": [{**c, "at": c["at"].isoformat()} for c in found[:10]]})
+            **row, "since": applied[-1].isoformat(), "unread": unread, "unchecked": unchecked,
+            "landed": landed.shown(found[:10])})
         if not found and not unread:
             return ""
         detail = landed.said(found, unread)
