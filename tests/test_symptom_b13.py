@@ -135,7 +135,7 @@ def test_a_new_error_class_makes_the_symptom_present_whatever_the_metric_says():
 
 def test_unread_logs_leave_the_metrics_verdict_and_say_so():
     logs = _Logs([], [], fail=OSError("denied"))
-    r = symptom.cloudwatch(_read(_CloudWatch([0.0, 0.0, 0.0]), logs), ALARM, {"lambda": "warden-dev-orders"},
+    r = symptom.cloudwatch(_read(_CloudWatch([0.0, 0.0, 0.0, 0.0]), logs), ALARM, {"lambda": "warden-dev-orders"},
                            alert_at=ALERT_AT, applied=APPLIED, now=APPLIED + timedelta(minutes=5), n=3)
     assert (r.state, r.errors_read) == (symptom.GONE, False)
     assert "error logs not read" in r.why
@@ -423,3 +423,24 @@ def test_the_platform_registry_hands_the_aws_reader_in_the_plans_environment():
     read = RoutedPlatform(aws=Aws()).reader(environment="dev")
     assert read("cloudwatch") == ("dev", "cloudwatch")
     assert RoutedPlatform().reader(environment="dev") is None
+
+
+def test_a_period_with_no_data_is_never_filled_by_its_neighbour():
+    """CodeRabbit, PR 87: CloudWatch leaves out a period with no data, and the values were judged by position, so three
+    clean values could read "gone" with the last of the three periods unread."""
+    class Gappy(_CloudWatch):
+        def get_metric_data(self, **kw):
+            start = kw["StartTime"]
+            stamps = [start, start + timedelta(minutes=1), start + timedelta(minutes=3)]  # 06:03 missing
+            return {"MetricDataResults": [{"Id": "m", "Timestamps": stamps, "Values": [0.0, 0.0, 0.0]}]}
+
+    r = symptom.cloudwatch_metric(Gappy([]), ALARM, APPLIED, APPLIED + timedelta(minutes=4, seconds=30), 3)
+    assert r.values == [0.0, 0.0, None, 0.0]
+    assert r.state == symptom.UNKNOWN
+    assert symptom.judge([0.0, None, 9.0], "GreaterThanThreshold", 5.0, 3)[0] == symptom.PRESENT  # a breach is known
+    assert symptom.windows([(_ms(0.5), 1.0)], APPLIED, APPLIED + timedelta(minutes=10), 300, max) == [1.0, None]
+
+
+@pytest.mark.parametrize("answer", [{"data": "x"}, {"data": [1]}, {"data": None}, ["not", "an", "object"]])
+def test_a_datadog_answer_of_another_shape_is_unread_never_a_crash(answer):
+    assert symptom._datadog_page(lambda *a, **k: (answer, ""), "orders", APPLIED, APPLIED, "") is None
