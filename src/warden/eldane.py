@@ -208,7 +208,7 @@ def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], **row:
     evidence is a "no", with why."""
     try:
         got = provider.complete(system=SYSTEM, user=user, schema=CriticVerdict)
-    except Exception as exc:  # noqa: BLE001 - whatever the provider raised, Eldane said nothing: no agreement
+    except Exception as exc:  # noqa: BLE001 - whatever the provider raised, Eldane said nothing, so no agreement
         log.append(incident, CALL, {**row, "ok": False, "error": type(exc).__name__})
         return CriticVerdict(agree=False, reasons=[Reason(text=f"Eldane could not be asked ({type(exc).__name__})")])
     log.append(incident, CALL, {**row, "ok": True, "input_tokens": got.input_tokens, "output_tokens": got.output_tokens})
@@ -266,7 +266,11 @@ def _trial(log: Any, plan: Any, critic: Critic, model: str, evidence: str, ids: 
     # No answer (an error, an unreadable reply), or a "no" resting on evidence that is not there, is not scored: an
     # outage must never raise the catch rate, nor count as a trial answered.
     yes = verdict._said_yes
-    caught = False if yes is True else True if yes is False and verdict._grounded else None
+    caught = None
+    if yes is True:
+        caught = False
+    elif yes is False and verdict._grounded:
+        caught = True
     # Labelled a test on the record, never sent anywhere (register R11).
     log.append(plan.incident_id, autonomy.TRIAL, {**row, "test": True, "kind": kind, "planted": bad,
                                                   "caught": caught, "critic": critic.identity(model),
@@ -288,30 +292,17 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
     diagnoser = f"{prov.get('provider', 'none')}/{prov.get('model', 'none')}@{str(prov.get('system_sha256', ''))[:12]}"
     model, chosen = critic.choose(str(prov.get("model", "")))
     models = {"critic": critic.identity(model), "diagnoser": diagnoser}
-    skip = ""
-    if not diagnosis or not prov:
-        # PR 42 review (CWE-636): no diagnosis, or none saying which model made it, is a model that cannot be told:
-        # refused, never reviewed as if independent (register R10).
-        skip = "the incident's diagnosis, or the model that made it, is not on the record (register R10)"
-    elif not model or model == prov.get("model"):
-        # Owner, 2026-10-17: the same family, never the same model - its agreement would be the diagnosis agreeing
-        # with itself.
-        skip = (chosen if not model else f"Eldane's model is the diagnosis's own ({model})") + (
-            ": its review would not be independent")
-    elif not evidence_rows:
-        skip = "the incident's evidence is not on the record"
-    elif _calls_today(log) + 3 > DAILY_CALLS:
-        skip = f"Eldane's daily ceiling of {DAILY_CALLS} calls is reached (WARDEN_ELDANE_DAILY_CALLS)"
+    skip = _skip(log, diagnosis, prov, model, chosen, evidence_rows)
     if skip:
         log.append(plan.incident_id, autonomy.VERDICT, {**base, "agree": None, "skipped": skip, "models": models,
                                                         "model": model, "model_reason": chosen})
         return None
     evidence = "<<EVIDENCE>>\n" + str(evidence_rows[-1].get("prompt", ""))[:MAX_EVIDENCE] + "\n<<END EVIDENCE>>"
     ids = set(_EVIDENCE_ID.findall(evidence_rows[-1].get("prompt", "")))
+    shown = (catalog.shown_target(plan.environment, plan.entry, plan.params) if plan.entry in catalog.CATALOG
+             else plan.target)
     blind = evidence + "\n\n" + describe(plan.entry, plan.params, environment=plan.environment, tier=plan.tier,
-                                         snapshot=plan.snapshot,
-                                         target=catalog.shown_target(plan.environment, plan.entry, plan.params)
-                                         if plan.entry in catalog.CATALOG else plan.target)
+                                         snapshot=plan.snapshot, target=shown)
     asked = critic.provider(model)
     first = ask(log, plan.incident_id, asked, blind, ids, **row, purpose="blind")
     second = ask(log, plan.incident_id, asked, blind + "\n\n" + _reasoning(diagnosis), ids, **row,
@@ -324,12 +315,40 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
         "model_reason": chosen, "level": now.level,
         "level_said": now.said(plan.entry, plan.environment),
         "passes": [v.model_dump() for v in (first, second) if v is not None]})
-    me = next((a for a, e in policy.approvers.items() if e.ai and critic.key is not None
-               and e.public_key.strip() == critic.public_pem().strip()), None)
+    me = _signer(policy, critic)
     if not agree or now.level != autonomy.L2 or me is None or autonomy.ai_problems(log, plan, run_id):
         return None
     return approvals.sign(critic.key, approver=me, workflow_id=plan.workflow_id, plan_hash=plan.plan_hash,
                           tier=plan.tier)
+
+
+def _skip(log: Any, diagnosis: dict[str, Any], prov: dict[str, Any], model: str, chosen: str,
+          evidence_rows: list[dict[str, Any]]) -> str:
+    """Why Eldane does not review this plan at all, or "" when it does."""
+    if not diagnosis or not prov:
+        # PR 42 review (CWE-636): no diagnosis, or none saying which model made it, is a model that cannot be told:
+        # refused, never reviewed as if independent (register R10).
+        return "the incident's diagnosis, or the model that made it, is not on the record (register R10)"
+    if not model:
+        return f"{chosen}: its review would not be independent"
+    if model == prov.get("model"):
+        # Owner, 2026-10-17: the same family, never the same model - its agreement would be the diagnosis agreeing
+        # with itself.
+        return f"Eldane's model is the diagnosis's own ({model}): its review would not be independent"
+    if not evidence_rows:
+        return "the incident's evidence is not on the record"
+    if _calls_today(log) + 3 > DAILY_CALLS:
+        return f"Eldane's daily ceiling of {DAILY_CALLS} calls is reached (WARDEN_ELDANE_DAILY_CALLS)"
+    return ""
+
+
+def _signer(policy: approvals.ApproverPolicy, critic: Critic) -> str | None:
+    """The approver entry Eldane signs as: the AI entry holding its own public key, or None (it reviews, never
+    approves)."""
+    if critic.key is None:
+        return None
+    mine = critic.public_pem().strip()
+    return next((a for a, e in policy.approvers.items() if e.ai and e.public_key.strip() == mine), None)
 
 
 def said(log: Any, plan: Any, run_id: str) -> str:

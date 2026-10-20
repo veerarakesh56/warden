@@ -212,10 +212,11 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
         elif kind == "approval.accepted":
             note = str(b.get("note") or "")
             ai = bool(b.get("ai"))  # Eldane (autonomy.py): always said to be an AI, with the level it approved at
+            how = "passkey" if b.get("method") == "passkey" else "signing key"
+            if ai:
+                how = f"own signing key - an AI approval at autonomy level {b.get('autonomy', 'L2')}"
             r.decisions.append({"what": "Approved", "who": approvals.AI_LABEL if ai else shown(str(b.get("approver"))),
-                                "at": e["at"], "how": (f"own signing key - an AI approval at autonomy level "
-                                                       f"{b.get('autonomy', 'L2')}") if ai else
-                                "passkey" if b.get("method") == "passkey" else "signing key", "note": note,
+                                "at": e["at"], "how": how, "note": note,
                                 "hasty": bool(b.get("hasty")), "latency": b.get("latency_s")})
             r.flags += [f"A note from {shown(str(b.get('approver')))} held {t}." for t in approvals.note_tries(note)]
         elif kind == "eldane.verdict" and b.get("agree") is not None:
