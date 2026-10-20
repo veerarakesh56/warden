@@ -372,11 +372,9 @@ def _item_id(feed: str, item: dict[str, Any]) -> str:
     return hashlib.sha256(f"{feed}\n{key}".encode()).hexdigest()[:16]
 
 
-def reduce(feed: str, items: list[dict[str, Any]], *, since: datetime, regions: list[str],
-           classify: Any = None) -> tuple[list[dict[str, Any]], str]:
-    """(fact rows, tripwire status) for one feed's items published since `since`: each redacted, scanned and reduced.
-    A row the tripwire flags keeps only its id, feed, time and link: `held`."""
-    from . import tripwire
+def _recent_texts(feed: str, items: list[dict[str, Any]],
+                  since: datetime) -> dict[str, tuple[str, dict[str, Any], datetime]]:
+    """{item id: (its redacted text, the item, when it was published)} for the items published since `since`."""
     from .redaction import redact
 
     texts: dict[str, tuple[str, dict[str, Any], datetime]] = {}
@@ -387,6 +385,16 @@ def reduce(feed: str, items: list[dict[str, Any]], *, since: datetime, regions: 
         words = " ".join([plain(str(item.get("title") or "")), plain(str(item.get("description") or "")),
                           *(plain(c) for c in item.get("category") or [])])
         texts[_item_id(feed, item)] = (redact(words).text, item, when)
+    return texts
+
+
+def reduce(feed: str, items: list[dict[str, Any]], *, since: datetime, regions: list[str],
+           classify: Any = None) -> tuple[list[dict[str, Any]], str]:
+    """(fact rows, tripwire status) for one feed's items published since `since`: each redacted, scanned and reduced.
+    A row the tripwire flags keeps only its id, feed, time and link: `held`."""
+    from . import tripwire
+
+    texts = _recent_texts(feed, items, since)
     status, scores = tripwire.scan({}, classify, outside={k: t for k, (t, _, _) in texts.items()})
     flagged = set(scores)
     if tripwire.mode() == "required" and not tripwire.ran(status):
@@ -410,6 +418,21 @@ def _health_time(value: Any) -> str:
     return when.isoformat() if when else ""
 
 
+def _entities(detail: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """(every affected entity's name, the watched environments' among them, sorted)."""
+    from .environments import env_of_name
+    from .models import NAME_PATTERN
+
+    entities = [e for e in detail.get("affectedEntities") or [] if isinstance(e, dict)]
+    names = [re.split(r"[/:]", str(e.get("entityValue") or ""))[-1] for e in entities]
+    return names, sorted({n for n in names if n and re.match(NAME_PATTERN, n) and env_of_name(n)})
+
+
+def _description(detail: dict[str, Any]) -> str:
+    return " ".join(str(d.get("latestDescription") or "") for d in detail.get("eventDescription") or []
+                    if isinstance(d, dict))[:MAX_FIELD]
+
+
 def health_notice(event: dict[str, Any]) -> dict[str, Any] | None:
     """An AWS Health scheduled change as a fact row, or None for any other event. AWS's own notice - a maintenance,
     a planned lifecycle event such as a runtime's end of support - is no incident: the row is recorded and the
@@ -423,21 +446,16 @@ def health_notice(event: dict[str, Any]) -> dict[str, Any] | None:
             or not _HEALTH_SERVICE.fullmatch(service)):
         return None
     from .environments import env_of_name
-    from .models import NAME_PATTERN
     from .redaction import redact
 
-    entities = [e for e in detail.get("affectedEntities") or [] if isinstance(e, dict)]
-    names = [re.split(r"[/:]", str(e.get("entityValue") or ""))[-1] for e in entities]
-    ours = sorted({n for n in names if n and re.match(NAME_PATTERN, n) and env_of_name(n)})
-    text = " ".join(str(d.get("latestDescription") or "") for d in detail.get("eventDescription") or []
-                    if isinstance(d, dict))[:MAX_FIELD]
+    names, ours = _entities(detail)
     row = {"id": hashlib.sha256(str(detail.get("eventArn") or code).encode()).hexdigest()[:16], "feed": "health",
            "published": _health_time(event.get("time")) or datetime.now(UTC).isoformat(), "link": "",
            "code": code, "status": str(detail.get("statusCode") or "")[:20],
            "scope": str(detail.get("eventScopeCode") or "")[:20], "start": _health_time(detail.get("startTime")),
            "end": _health_time(detail.get("endTime")), "ours": ours[:20],
            "environment": (env_of_name(ours[0]) or "") if ours else "", "others": len(names) - len(ours)}
-    row.update(facts(redact(plain(text)).text, health=service, regions=inventory()["regions"]))
+    row.update(facts(redact(plain(_description(detail))).text, health=service, regions=inventory()["regions"]))
     return row
 
 
@@ -531,9 +549,13 @@ def _inventory_line(inv: dict[str, Any]) -> str:
             f"{'; '.join(fam(f) for f in FAMILY_NAME)}; Regions {regions}.")
 
 
-def digest(digest_id: str, since: datetime, now: datetime, rows: list[dict[str, Any]], unread: list[str],
-           inv: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
-    """(the digest's text, the rows to alarm): every row judged by `verdict`."""
+_TITLES = {AFFECTED: "Affects WARDEN - a person acts", CHECK: "A person checks", NOT_AFFECTED: "Not affected",
+           INTEREST: "Of interest"}
+
+
+def _judged(rows: list[dict[str, Any]],
+            inv: dict[str, Any]) -> tuple[dict[str, list[str]], list[dict[str, Any]], int]:
+    """(the digest's lines by verdict, the rows to alarm, how many are about nothing WARDEN uses), newest first."""
     groups: dict[str, list[str]] = {AFFECTED: [], CHECK: [], NOT_AFFECTED: [], INTEREST: []}
     alarms, skipped = [], 0
     for row in sorted(rows, key=lambda r: r["published"], reverse=True):
@@ -544,20 +566,29 @@ def digest(digest_id: str, since: datetime, now: datetime, rows: list[dict[str, 
         groups[said].append(line(row, said, why))
         if said in (AFFECTED, CHECK):
             alarms.append({**row, "verdict": said, "why": why})
+    return groups, alarms, skipped
+
+
+def _section(key: str, lines: list[str], digest_id: str) -> list[str]:
+    if not lines:
+        return []
+    shown = lines[:MAX_INTEREST] if key == INTEREST else lines
+    more = [f"• and {len(lines) - len(shown)} more, on the record ({digest_id})"] if len(lines) > len(shown) else []
+    return ["", f"*{_TITLES[key]}* ({len(lines)})", *(f"• {s}" for s in shown), *more]
+
+
+def digest(digest_id: str, since: datetime, now: datetime, rows: list[dict[str, Any]], unread: list[str],
+           inv: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """(the digest's text, the rows to alarm): every row judged by `verdict`."""
+    groups, alarms, skipped = _judged(rows, inv)
     counts = {f: sum(1 for r in rows if r["feed"] == f) for f in FEED_NAMES}
     out = [f"*AWS updates for WARDEN* - {_when(now.isoformat())}, items since {_when(since.isoformat())}",
            "Read: " + ", ".join(f"{FEED_NAMES[f]} {n}" for f, n in counts.items()) + "."]
     if unread:
         out.append(f"Not read: {'; '.join(unread)}.")
     out.append(_inventory_line(inv))
-    titles = {AFFECTED: "Affects WARDEN - a person acts", CHECK: "A person checks", NOT_AFFECTED: "Not affected",
-              INTEREST: "Of interest"}
     for key, lines in groups.items():
-        if lines:
-            shown = lines[:MAX_INTEREST] if key == INTEREST else lines
-            out += ["", f"*{titles[key]}* ({len(lines)})", *(f"• {s}" for s in shown)]
-            if len(lines) > len(shown):
-                out.append(f"• and {len(lines) - len(shown)} more, on the record ({digest_id})")
+        out += _section(key, lines, digest_id)
     if not any(groups.values()):
         out += ["", "Nothing about what WARDEN uses."]
     out += ["", (f"About nothing WARDEN uses: {skipped}. AWS's words are not shown: they are outside text, reduced "
