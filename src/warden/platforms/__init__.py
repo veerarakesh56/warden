@@ -99,13 +99,14 @@ class Unconfigured:
     def __init__(self, why: str) -> None:
         self.why = why
 
-    def live(self, entry: str, params: dict[str, Any]) -> dict[str, Any]:
+    def live(self, *_: Any) -> dict[str, Any]:
+        """Nothing is read: the catalogue refuses on an empty read."""
         return {}
 
-    def knows(self, service: str) -> bool:
+    def knows(self, *_: Any) -> bool:
         return False
 
-    def healthy(self, service: str) -> bool:
+    def healthy(self, *_: Any) -> bool:
         return False
 
     def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None,

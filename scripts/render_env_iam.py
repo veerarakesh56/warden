@@ -100,8 +100,12 @@ def main(argv: list[str] | None = None) -> int:
         for kind, text in render(env).items():
             (d / f"{kind}.json").write_text(text, encoding="utf-8", newline="\n")
         if account:
-            for kind in TRUSTS:
-                (d / f"{kind}.local.json").write_text(render(env, account)[kind], encoding="utf-8", newline="\n")
+            # Every file that names the account (the trusts, and the actor's rds-db:connect - review, PR 48) gets a
+            # git-ignored render with it; the committed one keeps <ACCOUNT_ID>.
+            mine = render(env, account)
+            for kind, text in render(env).items():
+                if "<ACCOUNT_ID>" in text and kind not in ("harness", "harness-trust"):
+                    (d / f"{kind}.local.json").write_text(mine[kind], encoding="utf-8", newline="\n")
             if env in HARNESS_ENVS:
                 (d / "harness-trust.local.json").write_text(render(env, account)["harness-trust"], encoding="utf-8", newline="\n")
         if args.cluster_resource_id and env in HARNESS_ENVS:

@@ -472,3 +472,15 @@ def test_the_privileged_pod_stays_a_negative_test_and_every_linter_skip_says_why
     skipping = subprocess.run(["git", "grep", "-l", "-e", "checkov.io/skip", "-e", "ignore-check.kube-linter.io", "--",
                                "*.yaml", "*.yml"], cwd=root, capture_output=True, text=True, check=False).stdout.split()
     assert skipping == ["k8s/test/privileged-must-fail.yaml"], skipping
+
+
+def test_the_k3d_job_binds_the_eks_actors_group_from_the_ci_only_file():
+    """Review, PR 48: the group is bound in CI's test namespace by k8s/ci/ (the shipped RBAC names the ServiceAccount
+    only; tests/test_platforms_live.py), after the remediation RBAC it binds to."""
+    import pathlib
+
+    flow = (pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci-tool.yml").read_text(
+        encoding="utf-8")
+    rbac, group = flow.index("kubectl apply -f k8s/remediation-rbac.yaml"), flow.index(
+        "kubectl apply -f k8s/ci/remediation-group-binding.yaml")
+    assert rbac < group < flow.index("tests/integration/test_live_remediation.py")

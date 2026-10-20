@@ -60,14 +60,37 @@ resource "aws_eks_cluster" "this" {
 # public endpoint through their NAT gateways, so those addresses are let in - read by the runtime's own NAT names, never
 # written here. A paused runtime has no NAT and adds nothing; an un-paused one has new addresses, so re-apply this stack
 # after resuming the runtime, or WARDEN's cluster reads and fixes are refused and go to a person until then.
+# Only the runtime stack's own addresses (review, PR 48): its name, and the tags terraform/runtime's provider sets on
+# everything it makes. The runtime lives in this account and in environments.yaml's region; a stack applied in another
+# region would find no addresses and silently leave WARDEN out, so that plan is refused instead.
 data "aws_eips" "runtime_nat" {
   filter {
     name   = "tag:Name"
-    values = ["warden-${yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).runtime}-nat-*"]
+    values = ["warden-${local.runtime_env}-nat-*"]
+  }
+  filter {
+    name   = "tag:Environment"
+    values = [local.runtime_env]
+  }
+  filter {
+    name   = "tag:Project"
+    values = ["warden"]
+  }
+  filter {
+    name   = "tag:ManagedBy"
+    values = ["terraform"]
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.region == yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region
+      error_message = "WARDEN's runtime runs in environments.yaml's aws_region; this stack's region differs, so its NAT addresses cannot be found to let it reach the cluster endpoint."
+    }
   }
 }
 
 locals {
+  runtime_env    = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).runtime
   eks_cidrs_base = coalesce(var.eks_public_access_cidrs, [local.my_ip_cidr])
   # An endpoint already open to everyone (EKS_PUBLIC_CIDRS, audit A-I-16) needs no more addresses.
   eks_public_access_cidrs = contains(local.eks_cidrs_base, "0.0.0.0/0") ? local.eks_cidrs_base : distinct(concat(
