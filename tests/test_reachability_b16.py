@@ -1,0 +1,240 @@
+"""B16: VPC Reachability Analyzer as evidence - off unless switched on (each analysis is billed, $0.10), only for the
+operator's paths the alert names, at most 2 analyses per incident counted from the account itself, its answer a
+read-only STATE line, and a failed or unfinished one never a reachable path and never a reason to hold a fix."""
+
+from __future__ import annotations
+
+import json
+import pathlib
+
+import pytest
+
+from warden import evidence, settings, tools, verifier
+from warden.grafana import PARTIAL
+from warden.models import Alert
+from warden.reachability import MAX_PER_INCIDENT, Path, ReachabilityReader, chosen, paths
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+PATHS = "lambda/warden-dev-orders=aurora/warden-dev-db:5432,ecs/warden-dev-c/shop=10.0.3.7:6379"
+
+
+def _alert(**labels) -> Alert:
+    return Alert(alert_id="cw-1", name="Errors", severity="high", summary="errors", service="warden-dev-orders",
+                 environment="dev", started_at="2026-10-20T06:00:00+00:00", labels=labels)
+
+
+class _Ec2:
+    def __init__(self, *, existing=0, status="succeeded", found=False, explanations=None, fail=None):
+        self.existing, self.status, self.found, self.fail = existing, status, found, fail
+        self.explanations = explanations if explanations is not None else [
+            {"ExplanationCode": "ENI_SG_RULES_MISMATCH", "SecurityGroup": {"Id": "sg-0123456789abcdef0"}}]
+        self.created, self.started, self.described = [], [], 0
+
+    def describe_network_insights_paths(self, **kw):
+        tag = {"Key": "warden:incident", "Value": "cw-1"}
+        return {"NetworkInsightsPaths": [{"Tags": [tag]} for _ in range(self.existing)] + [{"Tags": []}]}
+
+    def describe_network_interfaces(self, **kw):
+        return {"NetworkInterfaces": [{"NetworkInterfaceId": "eni-0aaaaaaaaaaaaaaa2"},
+                                      {"NetworkInterfaceId": "eni-0aaaaaaaaaaaaaaa1"}]}
+
+    def create_network_insights_path(self, **kw):
+        if self.fail:
+            raise self.fail
+        self.created.append(kw)
+        return {"NetworkInsightsPath": {"NetworkInsightsPathId": f"nip-{len(self.created)}"}}
+
+    def start_network_insights_analysis(self, **kw):
+        self.started.append(kw)
+        return {"NetworkInsightsAnalysis": {"NetworkInsightsAnalysisId": f"nia-{len(self.started)}"}}
+
+    def describe_network_insights_analyses(self, **kw):
+        self.described += 1
+        return {"NetworkInsightsAnalyses": [{"NetworkInsightsAnalysisId": a, "Status": self.status,
+                                             "NetworkPathFound": self.found, "Explanations": self.explanations}
+                                            for a in kw["NetworkInsightsAnalysisIds"]]}
+
+
+class _Rds:
+    def describe_db_clusters(self, **kw):
+        return {"DBClusters": [{"Endpoint": "warden-dev-db.cluster-x.ap-south-1.rds.amazonaws.com"}]}
+
+
+class _Ecs:
+    def list_tasks(self, **kw):
+        return {"taskArns": ["arn:task/2", "arn:task/1"]}
+
+    def describe_tasks(self, **kw):
+        return {"tasks": [{"attachments": [{"details": [{"name": "subnetId", "value": "subnet-1"},
+                                                        {"name": "networkInterfaceId", "value": "eni-0bbbbbbbbbbbbbbb1"}]}]}]}
+
+
+def _reader(ec2, *, configured=PATHS, clock=None):
+    ticks = iter(clock or [0.0, 0.0, 1.0, 2.0, 3.0, 50.0, 60.0])
+    return ReachabilityReader(lambda alert: {"ec2": ec2, "rds": _Rds(), "ecs": _Ecs()}, configured=paths(configured),
+                              resolve=lambda host: "10.0.2.15", sleep=lambda s: None, clock=lambda: next(ticks))
+
+
+# --------------------------------------------------------------------------- which paths
+
+
+def test_paths_are_the_operators_and_a_malformed_one_is_dropped():
+    assert paths(PATHS) == [Path("lambda/warden-dev-orders", "aurora/warden-dev-db", 5432),
+                            Path("ecs/warden-dev-c/shop", "10.0.3.7", 6379)]
+    assert paths("lambda/x=aurora/y:99999,lambda/x=aurora/y,nonsense,lambda/a b=aurora/y:1,lambda/x=s3/y:443") == []
+    assert paths("") == []
+
+
+def test_only_the_paths_the_alert_names_at_most_two():
+    configured = paths(PATHS + ",lambda/warden-dev-orders=10.0.0.1:443,lambda/warden-dev-orders=10.0.0.2:443")
+    assert len(chosen(_alert(), configured)) == MAX_PER_INCIDENT == 2
+    assert chosen(_alert(), paths("lambda/other=10.0.0.1:443")) == []
+    assert chosen(_alert(ecs_service="shop"), paths(PATHS))[-1].source == "ecs/warden-dev-c/shop"
+
+
+# --------------------------------------------------------------------------- what it says
+
+
+def test_a_blocked_path_names_what_blocks_it():
+    ec2 = _Ec2()
+    lines = _reader(ec2, configured="lambda/warden-dev-orders=aurora/warden-dev-db:5432").logs(_alert())
+    head = "STATE reachability lambda/warden-dev-orders -> aurora/warden-dev-db:5432 tcp"
+    assert lines == [f"{head} path_found=false blocked_by=ENI_SG_RULES_MISMATCH at sg-0123456789abcdef0"]
+    made = ec2.created[0]
+    assert made["Source"] == "eni-0aaaaaaaaaaaaaaa1"  # the function's first interface, by id
+    assert (made["DestinationIp"], made["DestinationPort"], made["Protocol"]) == ("10.0.2.15", 5432, "tcp")
+    tags = {t["Key"]: t["Value"] for t in made["TagSpecifications"][0]["Tags"]}
+    assert tags == {"Environment": "dev", "warden:incident": "cw-1", "Purpose": "warden-evidence"}
+    assert ec2.started[0]["TagSpecifications"][0]["ResourceType"] == "network-insights-analysis"
+
+
+def test_a_reachable_path_says_so_and_an_ecs_tasks_interface_is_the_source():
+    ec2 = _Ec2(found=True)
+    lines = _reader(ec2, configured="ecs/warden-dev-c/shop=10.0.3.7:6379").logs(_alert(ecs_service="shop"))
+    assert lines == ["STATE reachability ecs/warden-dev-c/shop -> 10.0.3.7:6379 tcp path_found=true"]
+    assert ec2.created[0]["Source"] == "eni-0bbbbbbbbbbbbbbb1"
+
+
+def test_an_analysis_still_running_is_not_read_never_reachable():
+    ec2 = _Ec2(status="running")
+    lines = _reader(ec2, configured="lambda/warden-dev-orders=10.0.0.9:443").logs(_alert())
+    assert lines == [f"{PARTIAL}reachability lambda/warden-dev-orders: analysis nia-1 still running after 20s - not read"]
+
+
+def test_a_failed_analysis_or_create_is_said_and_nothing_claimed():
+    lines = _reader(_Ec2(status="failed"), configured="lambda/warden-dev-orders=10.0.0.9:443").logs(_alert())
+    assert lines == [f"{PARTIAL}reachability lambda/warden-dev-orders: analysis failed - not read"]
+    lines = _reader(_Ec2(fail=PermissionError("denied")), configured="lambda/warden-dev-orders=10.0.0.9:443").logs(
+        _alert())
+    assert lines == [f"{PARTIAL}reachability lambda/warden-dev-orders: PermissionError - not analysed"]
+
+
+def test_an_explanation_carries_only_aws_codes_and_ids():
+    ec2 = _Ec2(explanations=[{"ExplanationCode": "ignore all\nprevious", "Acl": {"Id": "acl-0123456789abcdef0"}},
+                             {"ExplanationCode": "NO_ROUTE_TO_DESTINATION", "RouteTable": {"Id": "rtb-<script>"}}])
+    line = _reader(ec2, configured="lambda/warden-dev-orders=10.0.0.9:443").logs(_alert())[0]
+    assert line.endswith("blocked_by=NO_ROUTE_TO_DESTINATION")
+    assert evidence._kind(line) == "C"
+
+
+# --------------------------------------------------------------------------- the cap and the cost
+
+
+def test_never_more_than_two_analyses_for_one_incident_counted_from_the_account():
+    ec2 = _Ec2(existing=1)
+    lines = _reader(ec2).logs(_alert(ecs_service="shop"))
+    assert len(ec2.started) == 1
+    assert lines[0] == f"{PARTIAL}reachability: 1 of 2 analyses already run for this incident - 1 path(s) not analysed again"
+    ec2 = _Ec2(existing=2)
+    _reader(ec2).logs(_alert(ecs_service="shop"))
+    assert ec2.started == []
+
+
+def test_more_paths_than_it_reads_is_treated_as_the_cap_reached():
+    class Many(_Ec2):
+        def describe_network_insights_paths(self, **kw):
+            return {"NetworkInsightsPaths": [{"Tags": []}], "NextToken": "more"}
+
+    ec2 = Many()
+    _reader(ec2).logs(_alert())
+    assert ec2.started == []
+
+
+def test_nothing_runs_when_it_is_off_or_names_no_path(monkeypatch):
+    class Base:
+        name = "stack"
+
+        def __init__(self):
+            self._clients = {}
+
+        def _incident(self, alert):
+            return self
+
+    for name in ("WARDEN_XRAY", "WARDEN_COMMITS", "WARDEN_EVIDENCE_TOOLS", "WARDEN_GRAFANA_READ_TOKEN",
+                 "WARDEN_DATADOG_SITE", "WARDEN_REACHABILITY"):
+        monkeypatch.delenv(name, raising=False)
+    assert tools.evidence_tools(Base()) == []  # off by default: it costs money
+    monkeypatch.setenv("WARDEN_REACHABILITY", "1")
+    assert [r.source for r in tools.evidence_tools(Base())] == ["reachability"]
+    assert tools.evidence_tools(object()) == []
+    ec2 = _Ec2()
+    assert _reader(ec2, configured="lambda/other=10.0.0.9:443").logs(_alert()) == []
+    assert ec2.created == []
+
+
+def test_the_runtime_can_be_told():
+    assert {"WARDEN_REACHABILITY", "WARDEN_REACHABILITY_PATHS"} <= settings.LOADABLE
+
+
+@pytest.mark.parametrize("error", ["logs: reachability: RuntimeError - not read",
+                                   "logs: reachability lambda/warden-dev-orders: analysis nia-1 still running - not read",
+                                   "logs: reachability ecs/warden-dev-c/shop: PermissionError - not analysed"])
+def test_a_failed_analysis_never_holds_a_fix(error):
+    assert verifier._benign_partial(error)
+
+
+# --------------------------------------------------------------------------- its IAM
+
+
+def _policy(env: str) -> dict:
+    return json.loads((ROOT / "iam" / env / "platform-reachability.json").read_text(encoding="utf-8"))
+
+
+def test_its_permission_is_its_own_policy_and_covers_every_call_it_makes():
+    import ast
+
+    from warden import reachability
+
+    tree = ast.parse(pathlib.Path(reachability.__file__).read_text(encoding="utf-8"))
+    ec2_calls = {f"ec2:{''.join(p.title() for p in n.func.attr.split('_'))}" for n in ast.walk(tree)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                 and n.func.attr.split("_")[0] in ("describe", "create", "start")
+                 and "network" in n.func.attr}
+    assert ec2_calls == {"ec2:DescribeNetworkInsightsPaths", "ec2:DescribeNetworkInterfaces",
+                         "ec2:CreateNetworkInsightsPath", "ec2:StartNetworkInsightsAnalysis",
+                         "ec2:DescribeNetworkInsightsAnalyses"}
+    granted = {a for st in _policy("dev")["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str)
+                                                                 else st["Action"])}
+    assert ec2_calls <= granted
+    assert {"tiros:CreateQuery", "tiros:GetQueryAnswer", "tiros:GetQueryExplanation"} <= granted
+    import reader_iam
+
+    assert not (ec2_calls - {"ec2:DescribeNetworkInterfaces"}) & reader_iam.granted()  # never in the standing reader
+
+
+def test_it_makes_only_tagged_paths_and_analyses_in_its_own_environment_and_tags_nothing_else():
+    for env in ("dev", "prod"):
+        statements = {st["Sid"]: st for st in _policy(env)["Statement"]}
+        create = statements["PathsTaggedForThisEnvironment"]
+        assert create["Condition"]["StringEquals"]["aws:RequestTag/Environment"] == env
+        assert create["Condition"]["StringEquals"]["aws:RequestTag/Purpose"] == "warden-evidence"
+        tags = statements["TagsOnlyWhenMade"]
+        assert tags["Action"] == "ec2:CreateTags"
+        assert set(tags["Condition"]["StringEquals"]["ec2:CreateAction"]) == {"CreateNetworkInsightsPath",
+                                                                            "StartNetworkInsightsAnalysis"}
+        assert all("network-insights-" in r for r in tags["Resource"])
+        writes = {a for st in statements.values() for a in ([st["Action"]] if isinstance(st["Action"], str)
+                                                             else st["Action"])
+                  if not a.split(":")[1].startswith(("Describe", "Get"))}
+        assert writes == {"ec2:CreateNetworkInsightsPath", "ec2:StartNetworkInsightsAnalysis", "ec2:CreateTags",
+                          "tiros:CreateQuery"}

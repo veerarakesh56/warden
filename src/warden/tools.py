@@ -203,6 +203,11 @@ def evidence_tools(base: Any) -> list[Any]:
         from .quotas import QuotaReader
 
         readers.append(QuotaReader(lambda alert: base._incident(alert)._clients))
+    if os.environ.get("WARDEN_REACHABILITY", "").strip() == "1" and hasattr(base, "_incident"):
+        # B16: VPC Reachability Analyzer - billed per analysis, so off unless switched on, and capped per incident.
+        from .reachability import ReachabilityReader
+
+        readers.append(ReachabilityReader(lambda alert: base._incident(alert)._clients))
     return [r for r in readers if not chosen or r.source in chosen]
 
 

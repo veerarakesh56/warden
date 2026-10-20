@@ -519,8 +519,10 @@ _BENIGN_TAIL = re.compile(r"\[output truncated\] (?:kept the newest|stopped afte
 # The alarm's own history and the IAM simulator's answer (research 2026-10-15, items 9 and 10) are secondary too: the
 # alarm, its metric and the denial line they bear on are read whatever becomes of them.
 # A service's quotas and their usage (quotas.py, B14) are read beside the alerting resource, never instead of it.
+# A Reachability Analyzer path (reachability.py, B16) is read beside the alerting resource, never instead of it.
 _SECONDARY_READ = re.compile(r"alb zones|appconfig|alarm-siblings metrics|lambda/[\w.-]+ code|alarm history|iam-simulate"
-                             r"|quotas(?: usage| [a-z0-9-]{1,40})?")
+                             r"|quotas(?: usage| [a-z0-9-]{1,40})?"
+                             r"|reachability(?: [\w./-]{1,140})?")
 # A container that has not started has no log to read, and its pod's own state lines say why (G10 held-out, 2026-10-11:
 # two right rollbacks were held by nothing but these). Kubernetes' own two answers, with their reason - never a bare 400.
 _NO_LOG_YET = re.compile(r"\[rejected as a bad request\] \(400\) (?:pod \S+ does not have a host assigned$"
