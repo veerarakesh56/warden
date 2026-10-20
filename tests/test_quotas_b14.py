@@ -123,9 +123,9 @@ def test_a_failed_read_says_so_and_another_services_read_stands():
 
 def test_no_client_and_a_failed_metric_read_are_reads_that_did_not_happen():
     def broken(alert):
-        raise RuntimeError("no role")
+        raise tools.ToolError("could not read dev: its reader role was refused")
 
-    assert QuotaReader(broken).logs(_alert(**{"lambda": "f"})) == [f"{PARTIAL}quotas: RuntimeError - not read"]
+    assert QuotaReader(broken).logs(_alert(**{"lambda": "f"})) == [f"{PARTIAL}quotas: ToolError - not read"]
     quotas = _Quotas({"lambda": [[_quota("L-B99A9384", "Concurrent executions", 1000)]]})
     assert _reader(quotas, _CloudWatch(fail=TimeoutError())).logs(_alert(**{"lambda": "f"})) == [
         f"{PARTIAL}quotas usage: TimeoutError - not read"]
@@ -142,9 +142,29 @@ def test_every_read_is_bounded():
     quotas = _Quotas({"ec2": [page, page, page]})
     cw = _CloudWatch({f"M{i}": [1.0] for i in range(100)})
     lines = _reader(quotas, cw).logs(_alert(asg="g"))
-    assert len(quotas.calls) == 2  # LIST_PAGES pages, then it stops
+    assert len(quotas.calls) == 2  # LIST_PAGES pages, then it stops - and says so
+    assert f"{PARTIAL}quotas ec2: more than 2 pages of quotas - the rest not read" in lines
     assert len(cw.calls[0]["MetricDataQueries"]) == MAX_METRICS
     assert len([x for x in lines if x.startswith("STATE quota")]) == 6
+    # The comparable quotas over the bound are said, never read as headroom.
+    assert lines[-1] == (f"{PARTIAL}quotas usage: 160 comparable quotas over the {MAX_METRICS}-metric bound not read - "
+                         "not a sign of headroom")
+
+
+def test_two_services_share_the_metric_bound_one_never_takes_every_slot():
+    """CodeRabbit, PR 78: queries were filled in listing order, so the first service could take all 40 and the second,
+    perhaps the one at its limit, got none - and nothing said so."""
+    many = [_quota(f"L-{i:04d}", f"Quota {i}", 100, metric=f"M{i}") for i in range(60)]
+    near = [_quota("L-NEAR", "Concurrent executions", 1000, metric="ConcurrentExecutions")]
+    quotas = _Quotas({"ec2": [many], "lambda": [near]})
+    cw = _CloudWatch({**{f"M{i}": [1.0] for i in range(60)}, "ConcurrentExecutions": [999.0]})
+    lines = _reader(quotas, cw).logs(_alert(quota_service="EC2", **{"lambda": "f"}))
+    asked = cw.calls[0]["MetricDataQueries"]
+    assert len(cw.calls) == 1
+    assert len(asked) == MAX_METRICS // 2 + 1  # ec2's fair share, and lambda's one
+    assert lines[0].startswith("STATE quota lambda L-NEAR")
+    assert f"{PARTIAL}quotas usage: 40 comparable quotas over the {MAX_METRICS}-metric bound not read - " \
+           "not a sign of headroom" in lines
 
 
 def test_a_quota_name_cannot_carry_anything_but_its_words():
