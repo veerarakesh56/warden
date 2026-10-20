@@ -175,6 +175,13 @@ def resolve_backend(name: str | None = None):
     return base
 
 
+def github_read_token() -> str:
+    """The read zone's read-only GitHub token (warden/<env>/github-read-token): the deploy's commits and the findings on
+    its pull request; "" reads a public repository unauthenticated. The one place it is taken: a GitHub App's
+    short-lived installation token (register B4) replaces this when the App exists."""
+    return os.environ.get("WARDEN_GITHUB_READ_TOKEN", "").strip()
+
+
 def evidence_tools(base: Any) -> list[Any]:
     """The observability tools read beside AWS: each that is configured - X-Ray (WARDEN_XRAY=1, over the incident's
     reader role), Grafana, Datadog - narrowed to WARDEN_EVIDENCE_TOOLS when it names some (the live comparison runs
@@ -193,7 +200,7 @@ def evidence_tools(base: Any) -> list[Any]:
 
         repo = (os.environ.get("WARDEN_CHANGE_REPO", "").strip()
                 or str(default_environment_policies().github.get("repository", "")))
-        readers.append(CommitReader(base, repo=repo, token=os.environ.get("WARDEN_GITHUB_READ_TOKEN", "").strip()))
+        readers.append(CommitReader(base, repo=repo, token=github_read_token()))
     if os.environ.get("WARDEN_FINDINGS", "").strip() == "1":
         # Code review's findings on the deploy's pull request (findings.py), read in the read zone like the commits.
         from .environments import default_environment_policies
@@ -206,7 +213,7 @@ def evidence_tools(base: Any) -> list[Any]:
         repo = (os.environ.get("WARDEN_CHANGE_REPO", "").strip()
                 or str(default_environment_policies().github.get("repository", "")))
         readers.append(FindingsReader(
-            base, repo=repo, token=os.environ.get("WARDEN_GITHUB_READ_TOKEN", "").strip(),
+            base, repo=repo, token=github_read_token(),
             sonar_project=os.environ.get("WARDEN_SONAR_PROJECT", "").strip(),
             sonar_token=os.environ.get("WARDEN_SONAR_TOKEN", "").strip(),
             max_prs=number("WARDEN_FINDINGS_MAX_PRS", MAX_PRS), max_per_pr=number("WARDEN_FINDINGS_MAX_PER_PR", MAX_PER_PR)))

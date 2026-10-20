@@ -67,10 +67,11 @@ LOADABLE = frozenset({
     # X-Ray (xray.py) and which tools a run reads: plain. Grafana's reader (grafana.py) is not loaded from the store:
     # WARDEN's own runtime reads Datadog only (owner, 2026-10-16); an adopter sets WARDEN_GRAFANA_* in the process.
     "WARDEN_XRAY", "WARDEN_EVIDENCE_TOOLS", "WARDEN_COMMITS", "WARDEN_HISTORY_IN_PROMPT",
-    # Code review's findings on the deploy's pull request (findings.py): plain values. Its optional tokens
-    # (WARDEN_GITHUB_READ_TOKEN, WARDEN_SONAR_TOKEN) have no Secrets Manager slot yet: set in the read worker's own
-    # environment, or not at all for a public repository and project.
+    # Code review's findings on the deploy's pull request (findings.py): plain values. The read-only GitHub token
+    # (warden/<env>/github-read-token) is the read zone's alone, one token for the deploy's commits (WARDEN_COMMITS) and
+    # the findings; WARDEN_SONAR_TOKEN has no slot (a public SonarCloud project needs none).
     "WARDEN_FINDINGS", "WARDEN_SONAR_PROJECT", "WARDEN_FINDINGS_MAX_PRS", "WARDEN_FINDINGS_MAX_PER_PR",
+    "WARDEN_GITHUB_READ_TOKEN",
     # Whose changes WARDEN never proposes to undo - a security team, a break-glass identity (platforms/aws.py): plain,
     # comma-separated. Not loadable before 2026-10-14, so the cloud runtime could never be told (gap audit).
     "WARDEN_NEVER_REVERT_PRINCIPALS",
@@ -104,6 +105,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_TEMPORAL_API_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "autonomy", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
     "WARDEN_TEMPORAL_KEY_PREVIOUS": frozenset({"worker", "incident", "intake", "status", "approve", "autonomy", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
     "WARDEN_GITHUB_TOKEN": frozenset({"worker"}),
+    "WARDEN_GITHUB_READ_TOKEN": frozenset({"worker"}),
     # Only the worker writes to AWS or beats; no other command needs to know the roles (audit A-P-5, register C13).
     "WARDEN_AWS_READER_ROLE_ARN": frozenset({"worker"}),
     "WARDEN_AWS_ACTOR_ROLE_ARN": frozenset({"worker"}),
@@ -144,7 +146,7 @@ SECRETS = frozenset({
     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_TEMPORAL_API_KEY",
-    "WARDEN_GITHUB_TOKEN",
+    "WARDEN_GITHUB_TOKEN", "WARDEN_GITHUB_READ_TOKEN",
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
     "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
     "WARDEN_ELDANE_KEY",
@@ -161,7 +163,8 @@ _EVERY_ZONE = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY"})
 ZONE_SECRETS: dict[str, frozenset[str]] = {
     "core": _EVERY_ZONE,
     "read": _EVERY_ZONE | {"WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
-                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"},
+                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
+                           "WARDEN_GITHUB_READ_TOKEN"},
     "llm": _EVERY_ZONE | {"ANTHROPIC_API_KEY"},
     # GitHub: the change-record issue `finish` writes (changes.py) and the deploys `notify` reads into the report
     # (timeline.recent) - both notify-zone activities (workflows.ZONES).

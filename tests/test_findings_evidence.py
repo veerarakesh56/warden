@@ -383,3 +383,28 @@ def test_the_reader_is_one_of_the_evidence_tools_only_when_switched_on(monkeypat
 
     assert {"WARDEN_FINDINGS", "WARDEN_SONAR_PROJECT"} <= LOADABLE
     assert "WARDEN_SONAR_TOKEN" not in LOADABLE | SECRETS
+
+
+def test_the_read_token_has_one_slot_the_read_zones_alone_and_one_place_it_is_taken(monkeypatch):
+    """warden/<env>/github-read-token (owner U3-7): loadable, a secret, read only by the read zone's worker - the zone
+    whose activities read the commits and the findings - and taken in one place (tools.github_read_token), the seam a
+    GitHub App's installation token (B4) replaces."""
+    from warden import settings, tools
+
+    name = "WARDEN_GITHUB_READ_TOKEN"
+    assert settings.secret_id("dev", name) == "warden/dev/github-read-token"
+    assert name in settings.LOADABLE
+    assert name in settings.SECRETS
+    assert {z for z, held in settings.ZONE_SECRETS.items() if name in held} == {"read"}
+    assert name in settings.loadable_for("worker", "read")
+    for zone in ("core", "llm", "notify", "act"):
+        assert name not in settings.loadable_for("worker", zone), zone
+    assert name not in settings.loadable_for("incident")
+    for flag in ("WARDEN_COMMITS", "WARDEN_FINDINGS"):
+        monkeypatch.setenv(flag, "1")
+    monkeypatch.setenv("WARDEN_CHANGE_REPO", "owner/shop")
+    monkeypatch.setenv(name, "gh-" + "env")
+    monkeypatch.setattr(tools, "github_read_token", lambda: "gh-" + "app")
+    readers = {r.source: r for r in tools.evidence_tools(object())}
+    assert readers["github"].token == "gh-app"
+    assert readers["findings"].token == "gh-app"

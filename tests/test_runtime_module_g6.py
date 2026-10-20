@@ -282,9 +282,10 @@ def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
         assert '"${local.secret_arn}/${s}-??????"' in block and "secret_arn}/${s}*" not in block, policy
 
 
-# Each zone secret, the module that reads it, and the zones whose code reads it - the map each zone's task role is held
-# to (secrets audit, 2026-10-16: the GitHub token was moved to a zone that never reads it). A secret added later is
-# added here by name, with its reader and zones.
+# Each zone secret, the module that reads it (or the modules, when one secret has more readers: one slot, never a second
+# for the same credential), and the zones whose code reads it - the map each zone's task role is held to (secrets
+# audit, 2026-10-16: the GitHub token was moved to a zone that never reads it). A secret added later is added here by
+# name, with its readers and zones.
 _EVERY = {"core", "read", "llm", "notify", "act", "critic"}
 ZONE_READS = {
     "WARDEN_TEMPORAL_KEY": ("codec.py", _EVERY),
@@ -293,6 +294,8 @@ ZONE_READS = {
     "WARDEN_STACK_DB_REPLICA_RO_DSN": ("aws_stack.py", {"read"}),
     "WARDEN_DATADOG_API_KEY": ("datadog.py", {"read"}),
     "WARDEN_DATADOG_APP_KEY": ("datadog.py", {"read"}),
+    # The read-only GitHub token: one slot for every read-zone reader of GitHub (owner U3-7).
+    "WARDEN_GITHUB_READ_TOKEN": (("tools.py",), {"read"}),
     "ANTHROPIC_API_KEY": ("providers.py", {"llm", "critic"}),
     "WARDEN_SLACK_BOT_TOKEN": ("chatops.py", {"notify"}),
     "WARDEN_SLACK_APP_TOKEN": ("discuss.py", {"notify"}),
@@ -311,9 +314,10 @@ def test_each_zone_reads_exactly_the_secrets_its_code_reads():
     held = {n: {z for z, names in settings.ZONE_SECRETS.items() if n in names}
             for n in set().union(*settings.ZONE_SECRETS.values())}
     assert set(held) == set(ZONE_READS), "a zone secret with no reader named here, or a reader with no grant"
-    for name, (module, zones) in ZONE_READS.items():
+    for name, (modules, zones) in ZONE_READS.items():
         assert held[name] == zones, name
-        assert name in (src / module).read_text(encoding="utf-8"), (name, module)
+        for module in (modules,) if isinstance(modules, str) else modules:
+            assert name in (src / module).read_text(encoding="utf-8"), (name, module)
     iam = _zones((MODULE / "iam.tf").read_text(encoding="utf-8"))
     for zone, v in iam.items():
         assert {_slug(n, zone) for n, (_, zones) in ZONE_READS.items() if zone in zones} == (
