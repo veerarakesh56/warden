@@ -226,6 +226,21 @@ def push_image(stack: dict, tag: str, aws, run=run) -> str:
     return remote
 
 
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def image_by_digest(stack: dict, tag: str, aws) -> str:
+    """The pushed image named by its digest, `<repository>@sha256:...` (owner B26): the repository's tags are mutable
+    (terraform/fullstack/ecs.tf), so a tag can name other bytes tomorrow; the digest is exactly what was built."""
+    repo = stack["ecr_repository_url"]
+    found = aws("ecr").describe_images(repositoryName=repo.split("/", 1)[1],
+                                       imageIds=[{"imageTag": tag}]).get("imageDetails") or []
+    digest = found[0].get("imageDigest", "") if found else ""
+    if not _DIGEST.fullmatch(digest):
+        raise SystemExit(f"no image {repo}:{tag} with a sha256 digest in the repository - push it first")
+    return f"{repo}@{digest}"
+
+
 def task_definition(stack: dict, image: str) -> dict:
     secret = stack["db_app_secret_arn"]
     return {
@@ -269,7 +284,8 @@ def task_definition(stack: dict, image: str) -> dict:
 
 
 def deploy_ecs(stack: dict, tag: str, aws, run=run, wait: bool = True) -> str:
-    image = push_image(stack, tag, aws, run)
+    push_image(stack, tag, aws, run)
+    image = image_by_digest(stack, tag, aws)
     ecs = aws("ecs")
     arn = ecs.register_task_definition(**task_definition(stack, image))["taskDefinition"]["taskDefinitionArn"]
     ecs.update_service(cluster=stack["ecs_cluster"], service=stack["ecs_service"], taskDefinition=arn)
@@ -317,9 +333,9 @@ DATADOG_SITES = frozenset({"datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.
 # Argo CD (owner, 2026-10-16: GitOps for the cluster - the shop is synced from manifests/ in this repository). The
 # chart's own package, fetched from the argo-helm release and installed only if its bytes are these: a pinned version
 # number alone would install whatever the repository serves under it. Settings: helm/argo-cd/values.yaml (why each).
-ARGOCD_CHART = "10.9.7"  # Argo CD v3.5.4 - the oldest release fixing the Critical advisories of 2026-10-07
+ARGOCD_CHART = "10.10.5"  # Argo CD v3.5.5 (owner B26, 2026-10-17); v3.5.4 fixed the Critical advisories of 2026-10-07
 ARGOCD_CHART_URL = f"https://github.com/argoproj/argo-helm/releases/download/argo-cd-{ARGOCD_CHART}/argo-cd-{ARGOCD_CHART}.tgz"
-ARGOCD_CHART_SHA256 = "c3c595b857a5a4a76e622b36cfacd4127120202bcfa6536fc65f01382a10f035"
+ARGOCD_CHART_SHA256 = "ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a"
 ARGOCD_VALUES = ROOT / "helm" / "argo-cd" / "values.yaml"
 
 
@@ -476,10 +492,10 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision:
         "CATALOG_SIGNING_KEY": secrets.token_hex(32),
     })
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)
-    # The workloads: Argo CD syncs manifests/shop/<env> at exactly this commit, with this commit's image.
+    # The workloads: Argo CD syncs manifests/shop/<env> at exactly this commit, with this commit's image, by digest.
     rev = revision or commit()
     app = render(SHOP_APP.read_text(encoding="utf-8"), {
-        "REPO_URL": repo_url(), "REVISION": rev, "IMAGE": f"{stack['ecr_repository_url']}:{tag}",
+        "REPO_URL": repo_url(), "REVISION": rev, "IMAGE": image_by_digest(stack, tag, aws),
         "ENVIRONMENT": stack["environment"]})
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=app)
     wait_synced(kubeconfig, rev, run, sleep=sleep)
