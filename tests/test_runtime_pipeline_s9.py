@@ -132,7 +132,7 @@ def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     module = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "modules" / "warden-runtime").glob("*.tf"))
     # Every role the module makes carries the boundary - counted against the roles themselves.
     assert module.count("permissions_boundary = var.permissions_boundary_arn") == module.count(
-        'resource "aws_iam_role" "') == 5  # the EC2 instance role went with Fargate (2026-10-14)
+        'resource "aws_iam_role" "') == 6  # the EC2 instance role went with Fargate (2026-10-14); audit backup (B19)
 
 
 EIP_ERROR = "Error: disassociating EC2 EIP (eipassoc-0abc): operation error EC2: DisassociateAddress, UnauthorizedOperation"

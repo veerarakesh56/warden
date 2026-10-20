@@ -83,10 +83,12 @@ locals {
     database      = aws_db_instance.audit[0].db_name
     resource_id   = aws_db_instance.audit[0].resource_id
     master_secret = aws_db_instance.audit[0].master_user_secret[0].secret_arn
+    arn           = aws_db_instance.audit[0].arn
     } : {
     host          = aws_rds_cluster.audit[0].endpoint
     database      = aws_rds_cluster.audit[0].database_name
     resource_id   = aws_rds_cluster.audit[0].cluster_resource_id
     master_secret = aws_rds_cluster.audit[0].master_user_secret[0].secret_arn
+    arn           = aws_rds_cluster.audit[0].arn
   }
 }

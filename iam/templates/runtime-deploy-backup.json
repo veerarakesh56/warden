@@ -1,0 +1,67 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TheAuditVaultPlanAndSelection",
+      "Effect": "Allow",
+      "Action": [
+        "backup:CreateBackupVault",
+        "backup:DescribeBackupVault",
+        "backup:DeleteBackupVault",
+        "backup:CreateBackupPlan",
+        "backup:GetBackupPlan",
+        "backup:UpdateBackupPlan",
+        "backup:DeleteBackupPlan",
+        "backup:CreateBackupSelection",
+        "backup:GetBackupSelection",
+        "backup:DeleteBackupSelection",
+        "backup:ListTags",
+        "backup:TagResource",
+        "backup:UntagResource"
+      ],
+      "Resource": [
+        "arn:aws:backup:${region}:*:backup-vault:warden-${env}-*",
+        "arn:aws:backup:${region}:*:backup-plan:*"
+      ]
+    },
+    {
+      "Sid": "AVaultNeedsItsStorage",
+      "Effect": "Allow",
+      "Action": "backup-storage:MountCapsule",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "${region}"
+        }
+      }
+    },
+    {
+      "Sid": "TheVaultsAwsManagedKeyThroughBackupOnly",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateGrant",
+        "kms:GenerateDataKey",
+        "kms:Decrypt",
+        "kms:RetireGrant",
+        "kms:DescribeKey"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "backup.${region}.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "PassTheBackupRoleToBackupOnly",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/warden-${env}-audit-backup",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "backup.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

@@ -16,6 +16,8 @@
         "autoscaling:*",
         "events:*",
         "apigateway:*",
+        "backup:*",
+        "backup-storage:MountCapsule",
         "tag:*",
         "secretsmanager:ListSecrets",
         "kms:CreateKey",
