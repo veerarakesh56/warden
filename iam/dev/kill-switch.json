@@ -1,0 +1,25 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "NothingUnlessAPersonTurnedTheSwitchOff",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalTag/warden-kill-switch": "off"
+        }
+      }
+    },
+    {
+      "Sid": "TheRoleNeverTurnsItsOwnSwitch",
+      "Effect": "Deny",
+      "Action": [
+        "iam:TagRole",
+        "iam:UntagRole"
+      ],
+      "Resource": "arn:aws:iam::*:role/warden-dev-actor"
+    }
+  ]
+}
