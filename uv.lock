@@ -3638,7 +3638,7 @@ scan = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", marker = "extra == 'slack'", specifier = ">=3.9" },
+    { name = "aiohttp", marker = "extra == 'slack'", specifier = ">=3.14.4" },
     { name = "anthropic", marker = "extra == 'all-providers'", specifier = ">=1.0" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=1.0" },
     { name = "awslambdaric", marker = "extra == 'runtime'", specifier = ">=4.1" },
