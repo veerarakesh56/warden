@@ -54,7 +54,7 @@ def _traces_of(xray: Any, svc: str, start: datetime, end: datetime) -> list[str]
     try:
         got = xray.get_trace_summaries(StartTime=start, EndTime=end, Sampling=False,
                                        FilterExpression=f'service("{svc}") {{ error = true OR fault = true }}')
-    except Exception as exc:  # noqa: BLE001 - a failed read is said as not read and never as health
+    except Exception as exc:  # noqa: BLE001  # a failed read is said as not read and never as health
         return [f"{PARTIAL}xray traces: {type(exc).__name__} - not read"]
     found = (got.get("TraceSummaries") or [])[:MAX_TRACES]
     if not found:
