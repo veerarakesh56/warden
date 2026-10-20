@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from . import approvals, audit, bounds, catalog, datadog, environments, freeze, locks
+from . import approvals, audit, bounds, catalog, datadog, environments, freeze, locks, routing
 from . import symptom as symptoms
 from .approvals import Plan  # lives there: the approval page reads a plan without this module
 from .audit import AuditLog
@@ -635,6 +635,13 @@ class RemediationActivities:
                                    used_nonces=used, environment=plan.environment)
         if any(a.approver == approval.approver for a in accepted):
             problems.append(f"{approval.approver} has already approved this plan")
+        # A hard case the hard model could not answer (it is not qualified) is a person's to approve (owner, 2026-10-17;
+        # routing.needs_person): never the bench approver's, a test identity.
+        entry = self.policy.approvers.get(approval.approver)
+        if entry is not None and approvals.is_bench(approval.approver, entry) and routing.needs_person(
+                self.audit, plan.incident_id):
+            problems.append(f"{approval.approver} is not a person, and this incident is a hard case its hard model could "
+                            "not answer: a person approves its fix")
         kind = "approval.refused" if problems else "approval.accepted"
         # Register H1: how long the approver had the plan before signing. Under HASTY_S is recorded as hasty - read
         # by the person who audits approvals, and by the catch trials (G7).
@@ -1229,14 +1236,18 @@ class IncidentActivities:
 
     @activity.defn
     def diagnose(self, pack: EvidencePack, escalate_only: str = "") -> Diagnosed:
-        from . import graph, routing
+        from . import graph
         from .llm import LLMClient
 
         # Which model answers (owner, 2026-10-17): Sonnet unless WARDEN's own signals mark the case hard.
-        route = routing.for_diagnosis(self.audit, pack)
+        route = None
         try:
+            route = routing.for_diagnosis(self.audit, pack)
             llm, refused = routing.client(route.model, factory=self.llm_factory), ""
         except Exception as exc:  # noqa: BLE001 - any model that cannot be built is the rules-only diagnosis
+            # A choice that could not be made is not a model to ask: the rules-only diagnosis, with why (PR 74 review).
+            route = route or routing.Route(model="", choice=routing.FIXED,
+                                           why=f"the model could not be chosen ({_safe_error(exc)})")
             # Live, 2026-10-15: the runtime named a model that was no longer qualified (register M20 refused it, as it
             # must) - and the incident failed here, before any path that tells a person, so it reached nobody. Now it
             # is the degraded, rules-only diagnosis with the reason said (register M19); no model is asked.
@@ -1589,8 +1600,6 @@ class IncidentActivities:
 
     def _after_answer(self, pack: EvidencePack, diagnosed: Diagnosed, stage: str, second: Any = None) -> dict[str, Any]:
         """Every routing signal on a verified answer, on the record; {} when an answer had no model (rules only)."""
-        from . import routing
-
         if diagnosed.model_unavailable:
             return {}
         return self._route(pack.alert.alert_id, stage, routing.after_answer(self.audit, pack, diagnosed, second))
@@ -1635,7 +1644,8 @@ STILL_HELD = "the two diagnoses before it disagreed: a person decides, and no fi
 def still_held(taken_over: Verified, before: Verified) -> Verified:
     """A takeover (routing.py) never lifts the escalation two disagreeing answers caused: when the answers before it
     disagreed, its verdict is escalated under SECOND_OPINION too - a person decides. Pure: the workflow calls it."""
-    if "disagreement" not in (before.route.get("fired") or []) or taken_over.verdict.status.value in (
+    disagreed = "disagreement" in (before.route.get("fired") or []) or SECOND_OPINION in before.verdict.policy_ids
+    if not disagreed or taken_over.verdict.status.value in (
             "escalated", "rejected"):
         return taken_over
     from .models import VerdictStatus
@@ -1770,7 +1780,7 @@ class DiscussActivities:
     def discuss_answer(self, turn: Any, thread: Any, evidence: dict[str, str], fresh: bool) -> str:
         """The model's answer to the mention, as the reply to post. Capped per incident per day and by the daily cap
         every incident shares; the people's words are data to it (discuss.SYSTEM)."""
-        from . import discuss, routing
+        from . import discuss
 
         turn, thread = discuss.Turn.model_validate(turn), discuss.Thread.model_validate(thread)
         key = f"discuss-{thread.incident}"

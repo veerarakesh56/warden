@@ -240,7 +240,9 @@ def test_a_takeover_never_lifts_the_escalation_a_disagreement_caused():
     assert kept.verdict.status == VerdictStatus.escalated
     assert STILL_HELD in kept.verdict.reasons
     # A takeover for any other signal is judged on its own checks.
-    assert still_held(after, before.model_copy(update={"route": {"fired": ["risk_tier"]}})) is after
+    other = Verified(verdict=Verdict(status=VerdictStatus.approved_for_human, policy_ids=[], reasons=["ok"]),
+                     route={"fired": ["risk_tier"]})
+    assert still_held(after, other) is after
 
 
 # ------------------------------------------------------------------ the discussion channel
@@ -350,7 +352,9 @@ def test_the_workflow_hands_a_hard_case_to_opus_when_it_is_qualified(tmp_path, m
     # Sonnet answers and gives the second opinion; the T2 fix makes the case hard; Opus answers and gives its own.
     assert asked == [SONNET, SONNET, OPUS, OPUS], asked
     assert [r['stage'] for r in rows if r['stage'] == 'diagnose']
-    assert [r['choice'] for r in rows if r['stage'] == 'diagnose'][-1] == routing.TAKEOVER
+    diagnosed = [r for r in rows if r['stage'] == 'diagnose']
+    assert [r['model'] for r in diagnosed] == [SONNET, SONNET, OPUS, OPUS], diagnosed
+    assert diagnosed[-1]['choice'] == routing.TAKEOVER
     assert any(r["stage"] == "second_opinion" and r["take_over"] for r in rows)
     assert report.verdict.status == VerdictStatus.approved_for_human
 
@@ -360,3 +364,63 @@ def test_the_workflow_keeps_sonnet_when_opus_is_not_qualified(tmp_path, monkeypa
     assert asked == [SONNET, SONNET], asked
     assert not any(r['take_over'] for r in rows)
     assert any(r.get('needs_person') for r in rows)
+
+
+# ------------------------------------------------------------------ review fixes (PR 74)
+
+
+def _bench_check(tmp_path, needs_person: bool, name: str = "bench") -> list[str]:
+    from datetime import UTC, datetime, timedelta
+
+    from cryptography.hazmat.primitives import serialization
+
+    from warden import approvals
+    from warden.activities import RemediationActivities
+
+    key = Ed25519PrivateKey.generate()
+    pem = key.public_key().public_bytes(serialization.Encoding.PEM,
+                                        serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    nonprod = next(e for e, tier in routing_envs() if tier == "nonprod")
+    policy = approvals.ApproverPolicy(approvers={name: approvals.Approver(
+        name="the owner" if name != "bench" else "", public_key=pem, tiers=["T1", "T2"], environments=[nonprod])})
+    log = audit.AuditLog(tmp_path / f"{name}-{needs_person}.db", key=Ed25519PrivateKey.generate())
+    log.append("inc-1", "incident.route", {"stage": "verify", "needs_person": needs_person})
+    now = datetime.now(UTC)
+    plan = approvals.Plan(workflow_id="rem-1", incident_id="inc-1", entry="events_enable_rule", tier="T1", params={},
+                          plan_hash="h", created_at=now - timedelta(minutes=5), environment=nonprod)
+    signed = approvals.sign(key, approver=name, workflow_id="rem-1", plan_hash="h", tier="T1", now=now)
+    acts = RemediationActivities(audit=log, policy=policy, platform=None)
+    return acts.check_approval(plan, signed, []).problems
+
+
+def routing_envs() -> list[tuple[str, str]]:
+    from warden.environments import default_environment_policies
+
+    policies = default_environment_policies()
+    return [(e, policies.for_env(e).tier) for e in policies.known_environments]
+
+
+def test_the_bench_approver_never_approves_a_hard_case_its_hard_model_could_not_answer(tmp_path):
+    held = _bench_check(tmp_path, needs_person=True)
+    assert any("a person approves its fix" in p for p in held), held
+    assert _bench_check(tmp_path, needs_person=False) == []
+    # A person's approval is not held by it.
+    assert _bench_check(tmp_path, needs_person=True, name="owner") == []
+
+
+def test_a_routing_failure_is_the_rules_only_diagnosis_with_why(world, monkeypatch):
+    def broken(*_a, **_k):
+        raise RuntimeError("no data file")
+
+    monkeypatch.setattr(routing, "for_diagnosis", broken)
+    d = world["acts"].diagnose(world["pack"])
+    assert d.model_unavailable.startswith("no qualified model could be used")
+    assert d.route["choice"] == routing.FIXED
+    assert "could not be chosen" in d.route["why"]
+
+
+def test_a_second_opinion_escalation_alone_is_also_kept_after_a_takeover():
+    before = Verified(verdict=Verdict(status=VerdictStatus.escalated, policy_ids=["P32-SECOND-OPINION-DIFFERS"],
+                                      reasons=["x"]), route={"fired": []})
+    after = Verified(verdict=Verdict(status=VerdictStatus.approved_for_human, policy_ids=[], reasons=["ok"]))
+    assert still_held(after, before).verdict.status == VerdictStatus.escalated
