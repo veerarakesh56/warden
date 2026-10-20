@@ -86,8 +86,9 @@ def test_effective_mode_caps_only_auto_in_prod():
 
 
 def test_an_unknown_mode_is_an_error():
+    files = [app_change(), added_test()]
     with pytest.raises(ValueError, match="sometimes"):
-        gate([app_change(), added_test()], mode="sometimes")
+        gate(files, mode="sometimes")
 
 
 # ------------------------------------------------------------------------------------------------------- CG1 size
@@ -214,6 +215,7 @@ def test_cg5_ordinary_code_is_not_a_manifest():
 # ------------------------------------------------------------------------------------------- CG6 new dependencies
 
 @pytest.mark.parametrize("line", ["import requests", "from requests import get", "import os, requests",
+                                  "x = 1; import requests", "import os; from leftpad import pad",
                                   "    import numpy as np", "from leftpad.core import pad", "import json, yaml as y"])
 def test_cg6_an_import_the_repository_does_not_use(line):
     assert "CG6" in rules([app_change(added=(line,)), added_test()])
@@ -243,6 +245,8 @@ def test_imported_modules_reads_each_shape():
     assert imported_modules("from x.y import z") == {"x"}
     assert imported_modules("from . import z") == set()
     assert imported_modules("x = 1  # import nothing") == set()
+    assert imported_modules("import os; import requests") == {"os", "requests"}
+    assert imported_modules("import os  # requests") == {"os"}
 
 
 def test_imports_in_collects_a_files_top_level_modules():
@@ -552,8 +556,9 @@ def test_an_unlisted_environment_inherits_off(tmp_path):
 
 
 def test_the_kind_must_be_known():
+    files = [app_change()]
     with pytest.raises(ValueError, match="rewrite"):
-        check([app_change()], kind="rewrite", mode="propose", tier="nonprod")
+        check(files, kind="rewrite", mode="propose", tier="nonprod")
 
 
 def test_change_kinds():

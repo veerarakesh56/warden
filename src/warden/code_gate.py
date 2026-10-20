@@ -255,20 +255,22 @@ _SUPPRESSION = re.compile(
 _DYNAMIC_IMPORT = re.compile(r"__import__\s*\(|\bimportlib\b|\bimport_module\s*\(|\brunpy\b|\bpkgutil\b")
 _INSTALL = re.compile(r"\b(?:pip3?|uv|poetry|pipx|npm|yarn|pnpm|gem|cargo|go)[\s'\",]+(?:install|add|get)\b|"
                       r"\bensurepip\b|\bsite\.addsitedir\b", re.IGNORECASE)
-_IMPORT = re.compile(r"\s*(?:from\s+([A-Za-z_][\w.]*)\s+import\b|import\s+([A-Za-z_][\w.]*(?:\s*,\s*[A-Za-z_][\w.]*"
-                     r"(?:\s+as\s+\w+)?)*(?:\s+as\s+\w+)?))")
+_IMPORT = re.compile(r"\s*(?:from\s+([A-Za-z_][\w.]*)\s+import\b|import\s+([A-Za-z_][^#]*))")
 # A test function, an assertion or an expected exception: what CG8 asks a fix to add, and CG9 forbids it to remove.
 _TEST_LINE = re.compile(r"\s*(?:async\s+)?def\s+test_\w*\s*\(|\s*assert\b|.*\bpytest\.raises\s*\(")
 
 
 def imported_modules(line: str) -> set[str]:
-    """The top-level modules an `import` or `from ... import` line names; a relative import names none."""
-    m = _IMPORT.match(line)
-    if not m:
-        return set()
-    if m.group(1):
-        return {m.group(1).split(".")[0]}
-    return {name.split()[0].split(".")[0] for name in m.group(2).split(",")}
+    """The top-level modules the `import` and `from ... import` statements of one line name (`;` separates
+    statements); a relative import names none."""
+    out: set[str] = set()
+    for statement in line.split("#", 1)[0].split(";"):
+        m = _IMPORT.match(statement)
+        if m and m.group(1):
+            out.add(m.group(1).split(".")[0])
+        elif m:
+            out |= {name.split()[0].split(".")[0] for name in m.group(2).split(",") if name.split()}
+    return out
 
 
 def imports_in(source: str) -> frozenset[str]:
