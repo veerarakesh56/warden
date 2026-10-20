@@ -306,7 +306,7 @@ class WithheldSink:
         self.detail = detail
 
     def send(self, text: str, data: dict) -> Notification:
-        # Withheld: the message text is never logged (it may carry what the sink was refused for), only the alert id.
+        # Withheld: the message text is never logged - only the alert id and why the sink is withheld (self.detail).
         import logging
 
         logging.getLogger("warden.incident").warning("a message about %s was %s",
