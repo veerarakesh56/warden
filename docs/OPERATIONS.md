@@ -56,6 +56,15 @@ Who approves a fix:
   Eldane's. People keep the rest too: they can ask WARDEN anything in the dev discussion channel, and an approver
   can ask there for a new plan.
 
+When Eldane does not agree it says why as typed objections (`wrong_target`, `cause_not_addressed`,
+`not_reversible`, `touches_warden`, `evidence_thin`, `evidence_contradicts`, `other`), each citing evidence ids.
+WARDEN's diagnosing model answers each one - it concedes, or rebuts with evidence - and Eldane is asked again, at
+most three rounds. WARDEN conceding any objection, or answering with no evidence on the record, ends it with nothing
+approved: a person decides. Each objection and answer is on the incident's record (`eldane.objection`,
+`eldane.rebuttal`). Eldane can read recorded evidence items again in full and the target's state as read when the
+plan was made; it can read nothing live and change nothing. Every request, on the page and in the channel, says the
+fix's **risks if approved** (`catalog.RISKS`).
+
 Dev drops to **L1** - Eldane reviews, a person approves - the moment any of these is on the record:
 
 - a fix of that action class ended badly (rolled back, relapsed, not recovered, or left in an unknown state);
