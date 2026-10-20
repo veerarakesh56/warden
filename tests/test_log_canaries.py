@@ -11,8 +11,8 @@ import sys
 import textwrap
 
 import pytest
-from fakes import AWS_ACCESS_KEY_ID, JWT
 
+from fakes import AWS_ACCESS_KEY_ID, JWT
 from warden import lambdas
 from warden.observability import GatedFormatter, GatedWrap, gate_handlers
 
@@ -122,7 +122,7 @@ def test_a_real_process_logs_no_canary_whatever_the_path(tmp_path):
     """The CLI's and the worker's process: log calls, exceptions, warnings, a thread's error. (An exit's text is the
     CLI's to gate: tests/test_log_gate_review5.py.)"""
     code = _PROCESS.format(tests=str(__import__("pathlib").Path(__file__).parent))
-    got = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    got = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False)
     out = got.stdout + got.stderr
     assert "in a thread" in out and "deprecated for" in out and "connect to" in out  # each path was taken
     for canary in CANARIES:
