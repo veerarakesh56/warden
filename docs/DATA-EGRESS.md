@@ -32,6 +32,24 @@ Each value is replaced by a placeholder (`<EMAIL_1>`) before any text is built f
 Honest limit: a value that **no pattern recognises** is not masked. That is the patterns' limit, not a guard's. A
 person's plain name in free text is not detected. Detection is pattern-based, never a model judging what is personal.
 
+## What comes in, and is masked first
+
+Every source WARDEN reads is evidence of kind A or B: untrusted text, redacted as one text with the rest of the
+incident before anything is built from it (`graph.node_redact`, `activities.prepare`). The sources are:
+
+- CloudWatch alarms and logs, CloudTrail, the AWS service APIs;
+- Datadog (and Grafana for adopters);
+- Kubernetes;
+- the watched databases;
+- Alertmanager and Datadog webhooks;
+- AWS Health and service events;
+- since #52, **GuardDuty and Security Hub findings**.
+
+A finding's own words, the attacker's address, the instance's addresses and keys are masked in the alert's summary
+before it is recorded or told. A finding is always escalate-only: no model is asked about it. `tests/test_egress.py`
+plants an email, an address and an account id in a finding's description and checks none of them reaches the alert,
+the evidence or a Slack body.
+
 ## Every destination
 
 | Destination | Hosts | What goes there | Checked how | Outside the network? |
