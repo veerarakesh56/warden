@@ -32,7 +32,6 @@
         "secretsmanager:ListSecrets",
         "kms:CreateKey",
         "kms:ListAliases",
-        "apigateway:*",
         "ecr:GetAuthorizationToken",
         "cloudtrail:DescribeTrails"
       ],
@@ -42,6 +41,23 @@
           "aws:RequestedRegion": "${region}"
         }
       }
+    },
+    {
+      "Sid": "TheFrontDoorApi",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:GET",
+        "apigateway:POST",
+        "apigateway:PATCH",
+        "apigateway:DELETE"
+      ],
+      "Resource": [
+        "arn:aws:apigateway:${region}::/apis",
+        "arn:aws:apigateway:${region}::/apis/*",
+        "arn:aws:apigateway:${region}::/domainnames",
+        "arn:aws:apigateway:${region}::/domainnames/*",
+        "arn:aws:apigateway:${region}::/tags/*"
+      ]
     },
     {
       "Sid": "KmsOwnKeys",
@@ -172,9 +188,7 @@
       "Condition": {
         "ArnEquals": {
           "iam:PolicyARN": [
-            "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
-            "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role",
-            "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
           ]
         }
       }

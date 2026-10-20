@@ -36,9 +36,36 @@ resource "aws_iam_role" "execution" {
   tags                 = { Project = "warden", Environment = var.environment }
 }
 
-resource "aws_iam_role_policy_attachment" "execution" {
-  role       = aws_iam_role.execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+# Its own minimal policy (B22, 2026-10-20), not the AWS-managed AmazonECSTaskExecutionRolePolicy: that one lets the
+# role pull from every repository and write to every log group in the account. ECS needs exactly these to start a
+# task: the registry token (no resource), the runtime image's layers from its one repository, and the worker's log
+# stream. The task definitions name no `secrets` and no private-registry credentials, so nothing else.
+locals {
+  # var.runtime_image is <account>.dkr.ecr.<region>.amazonaws.com/<repository>@sha256:<digest> (runtime.yml).
+  runtime_repository = regex("^[^/]+/([^@]+)@", var.runtime_image)[0]
+}
+
+resource "aws_iam_role_policy" "execution" {
+  name = "warden-${var.environment}-task-execution"
+  role = aws_iam_role.execution.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { Sid = "RegistryToken", Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
+      {
+        Sid      = "PullTheRuntimeImage"
+        Effect   = "Allow"
+        Action   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
+        Resource = "arn:aws:ecr:${local.region}:${local.account}:repository/${local.runtime_repository}"
+      },
+      {
+        Sid      = "WriteTheWorkersLog"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.worker.arn}:log-stream:*"
+      },
+    ]
+  })
 }
 
 resource "aws_cloudwatch_log_group" "worker" {

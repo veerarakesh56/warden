@@ -120,3 +120,47 @@ def test_an_address_comes_off_its_aws_managed_interface_and_nothing_more():
     st = _sid(_load("deploy-ec2"), "AnAddressOffItsAwsManagedInterface")
     assert st["Action"] == "ec2:DisassociateAddress" and "Condition" not in st
     assert st["Resource"] == f"arn:aws:ec2:{r.names(RUNTIME).region}:*:network-interface/*"
+
+
+def test_the_runtime_deploy_role_attaches_only_the_managed_policies_its_module_uses():
+    """B22 (2026-10-20): the attach list still named the ECS task-execution and EC2 container-instance policies after
+    the module stopped using them (its own minimal execution policy; Fargate since 2026-10-14). The list is exactly
+    the AWS-managed policies terraform/runtime and its module attach."""
+    allowed = set(_sid(_load("deploy"), "AttachOnlyTheManagedPoliciesUsed")["Condition"]["ArnEquals"]["iam:PolicyARN"])
+    tf = "\n".join(p.read_text(encoding="utf-8") for d in (MODULE, ROOT / "terraform" / "runtime") for p in d.glob("*.tf"))
+    used = set(re.findall(r'"(arn:aws:iam::aws:policy/[\w/-]+[\w-])"', tf))
+    assert allowed == used, (sorted(allowed - used), sorted(used - allowed))
+
+
+def test_the_task_execution_role_has_only_its_own_minimal_policy():
+    """B22: no AWS-managed policy on the execution role - it pulls the runtime image from its one repository and writes
+    the worker's log stream, nothing else."""
+    compute = (MODULE / "compute.tf").read_text(encoding="utf-8")
+    assert "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy" not in compute
+    assert 'resource "aws_iam_role_policy_attachment" "execution"' not in compute
+    block = compute[compute.index('resource "aws_iam_role_policy" "execution"'):]
+    block = block[:block.index("\n}\n")]
+    assert '"ecr:GetAuthorizationToken", Resource = "*"' in block
+    assert 'Resource = "arn:aws:ecr:${local.region}:${local.account}:repository/${local.runtime_repository}"' in block
+    assert 'Resource = "${aws_cloudwatch_log_group.worker.arn}:log-stream:*"' in block
+    assert re.findall(r'"((?:ecr|logs):\w+)"', block) == [
+        "ecr:GetAuthorizationToken", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "logs:CreateLogStream",
+        "logs:PutLogEvents"]
+
+
+def test_the_runtime_deploy_role_has_exact_api_gateway_verbs_on_its_own_paths():
+    """B22: `apigateway:*` on every resource was granted for the front door. API Gateway authorises by HTTP verb on a
+    path (AWS Service Reference); the module creates, reads, updates and deletes an HTTP API, its stage, routes,
+    integrations, a custom domain name with its API mapping, and their tags - nothing else (no PUT import, no REST
+    API, no API keys, no account settings)."""
+    grants = [(st.get("Sid"), a, _list(st["Resource"])) for st in _load("deploy")["Statement"] if st["Effect"] == "Allow"
+              for a in _list(st["Action"]) if a.startswith("apigateway:")]
+    assert {a for _, a, _ in grants} == {"apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE"}
+    assert {sid for sid, _, _ in grants} == {"TheFrontDoorApi"}
+    region = r.names(RUNTIME).region
+    assert _sid(_load("deploy"), "TheFrontDoorApi")["Resource"] == [
+        f"arn:aws:apigateway:{region}::/{p}" for p in ("apis", "apis/*", "domainnames", "domainnames/*", "tags/*")]
+    tf = "\n".join(p.read_text(encoding="utf-8") for p in MODULE.glob("*.tf"))
+    assert set(re.findall(r'^resource "(aws_api\w+)"', tf, re.MULTILINE)) == {
+        "aws_apigatewayv2_api", "aws_apigatewayv2_stage", "aws_apigatewayv2_integration", "aws_apigatewayv2_route",
+        "aws_apigatewayv2_domain_name", "aws_apigatewayv2_api_mapping"}, "a new API Gateway resource: check its paths"
