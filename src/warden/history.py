@@ -79,7 +79,7 @@ def _iso_said(text: str) -> str:
             return both_times(datetime.fromisoformat(m.group(0)), seconds=False)
         except ValueError:
             return m.group(0)
-    return re.sub(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+[+][0-9]{2}:[0-9]{2}", said, text)
+    return re.sub(r"\d{4}-\d{2}-\d{2}T[\d:.]+[+]\d{2}:\d{2}", said, text, flags=re.ASCII)
 
 
 def past(alert: Any, log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:

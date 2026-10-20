@@ -133,7 +133,7 @@ def section(changes: list[dict], unread: list[str]) -> str:
 # and the file names are written by people: untrusted lines (GITHUB ...), redacted and quarantined like any log.
 # A commit id: 7 to 40 hex characters with at least one letter - never all digits, so an AWS account id (12 digits, in
 # an image address) is never taken for one and sent to GitHub.
-_SHA = re.compile(r"(?=[0-9]*[a-f])[0-9a-f]{7,40}")
+_SHA = re.compile(r"(?=\d*[a-f])[0-9a-f]{7,40}", re.ASCII)
 MAX_COMMITS = 3
 MAX_FILES = 15
 

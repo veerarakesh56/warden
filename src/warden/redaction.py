@@ -38,12 +38,17 @@ _SP = "[ \t\u00a0\u2000-\u200a\u202f\u205f\u3000]"
 
 # A key that names a cookie: `Cookie`, `Set-Cookie`, `X-Auth-Cookie`, `HTTP_COOKIE`, `"http_cookie"`, `cookies`.
 _COOKIE_KEY = r"(?i)(?<![A-Za-z])(?:set-)?cookies?[\"'\]]*\s*"
+# API key prefixes, one per vendor shape, tried in this order (regex fragments). A new shape is one more entry.
+_KEY_PREFIXES = (r"sk-ant-", r"sk-", r"sk_live_", r"sk_test_", r"rk_live_", r"rk_test_", r"pk_live_", r"github_pat_",
+                 r"ghp_", r"gho_", r"ghu_", r"ghs_", r"ghr_", r"AKIA", r"ASIA", r"xox[baprs]-", r"glpat-", r"glrt-",
+                 r"AIza", r"npm_", r"hf_", r"hvs\.", r"hvb\.", r"xapp-")
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # A whole PEM private key block — the highest-value secret that turns up in a misconfig dump.
     # PEM and PGP. A key cut off by a line-length limit has no END line: mask to the end.
     ("PRIVKEY", re.compile(r"-----BEGIN[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?"
                            r"(?:-----END[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|\Z)")),
-    ("PRIVKEY", re.compile(r"Private-Lines:[ \t]*\d+[ \t]*\r?\n([\s\S]+?)(?=\r?\nPrivate-MAC|\Z)")),  # PuTTY
+    # PuTTY: the key lines - at least one character, then up to the Private-MAC line or the end of the text.
+    ("PRIVKEY", re.compile(r"Private-Lines:[ \t]*\d+[ \t]*\r?\n([\s\S](?:(?!\r?\nPrivate-MAC)[\s\S])*)")),
     ("ARN", re.compile(r"arn:aws:[a-z0-9\-]*:[a-z0-9\-]*:\d{12}:[^\s\"']+")),
     # Three segments (a JWS) to five (a JWE, whose second may be empty): a JWE's last two parts were left in clear
     # (eighth review, 2026-10-01).
@@ -53,7 +58,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Slack (xoxb-/...), GitLab (glpat-), Google (AIza), Stripe (sk_live_/pk_live_), npm (npm_).
     # AKIA/ASIA share one shape (prefix + 16 base32); ASIA is the temporary sibling that travels
     # with a session token in AssumeRole/SSO bundles and appears bare in botocore errors.
-    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|ASIA|xox[baprs]-|glpat-|glrt-|AIza|npm_|hf_|hvs\.|hvb\.|xapp-)[A-Za-z0-9_\-]{8,}\b")),
+    ("APIKEY", re.compile(r"\b(?:" + "|".join(_KEY_PREFIXES) + r")[A-Za-z0-9_\-]{8,}\b")),
     # 2026-09-27 audit: shapes that passed unredacted. SendGrid keys carry dots.
     ("APIKEY", re.compile(r"\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}")),
     ("APIKEY", re.compile(r"\bwhsec_[A-Za-z0-9+/=_\-]{8,}")),  # Stripe webhook secrets carry + and /
@@ -78,7 +83,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # passwords are URL-encoded), and the SECRET pattern below is the backstop for `password=` forms.
     # The password runs to the LAST "@" before the host: `admin:p@ss@db` used to mask only "p" and
     # leave "ss@db" to be read as an e-mail address (revealable in Slack).
-    ("URLCRED", re.compile(r"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@]*:([^\s]{2,256}?)@(?=[A-Za-z0-9.\-]+(?::\d+)?(?:[/?#\s]|$))")),
+    ("URLCRED", re.compile(r"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@]*:([^\s]{2,256}?)@(?=[a-z0-9.\-]+(?::\d+)?(?:[/?#\s]|$))")),
     # `@` OR its URL-encoding `%40` — a URL-encoded email (normal in HTTP access logs, the exact
     # evidence source) reads as the email to both the model and an operator, so it must be masked too.
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._+\-]+(?:@|%40)[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
@@ -119,12 +124,12 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"|\b[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\b)"
     )),
     # tenant_id=..., org_id: ..., "customer_id": "..."  — the identifiers that make logs re-identifiable
-    ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b\s*[:=]\s*[\"']?([A-Za-z0-9_\-]{3,})[\"']?")),
+    ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b\s*[:=]\s*[\"']?([a-z0-9_\-]{3,})[\"']?")),
     # A token following `Bearer ` in an Authorization header (when it is not already a JWT/API key).
     # `<>` too: a value whose start an earlier pattern masked (`Bearer <UUID_1>.rest`) is masked whole (ninth review).
-    ("BEARER", re.compile(r"(?i)\bbearer\s+([A-Za-z0-9._~+/\-<>]{12,}=*)")),
+    ("BEARER", re.compile(r"(?i)\bbearer\s+([a-z0-9._~+/\-<>]{12,}=*)")),
     # HTTP Basic auth: `Authorization: Basic <base64 of user:pass>` - the base64 IS the credential.
-    ("BASIC", re.compile(r"(?i)\bbasic\s+([A-Za-z0-9+/<>_]{8,}={0,2})")),
+    ("BASIC", re.compile(r"(?i)\bbasic\s+([a-z0-9+/<>_]{8,}={0,2})")),
     # A grouped payment-card number (4-4-4-4 with space or dash separators). Masked WHOLE and BEFORE
     # PHONE, which otherwise catches only the first 12-14 digits and leaks the final group. A
     # contiguous 16-digit card is already caught by PHONE; this closes the spaced/dashed form.
@@ -153,7 +158,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Keywords are cloud-neutral: AWS (aws_secret_access_key), Azure (AccountKey, SharedAccessKey),
     # GCP and generic (private_key, client_secret, api_key, password, token, credential).
     # Header values and client flags that carry a credential whole (2026-09-27 audit).
-    ("SECRET", re.compile(r"(?i)\bauthorization[\"']?\s*[:=]\s*[\"']?(?:[A-Za-z]+\s+)?([^\s\"']{8,})")),
+    ("SECRET", re.compile(r"(?i)\bauthorization[\"']?\s*[:=]\s*[\"']?(?:[a-z]+\s+)?([^\s\"']{8,})")),
     # The whole cookie value: it may hold placeholders already placed (they are stored restored, see find()).
     # Stopping at `<` left every cookie after a masked one in clear (seventh review, 2026-10-01). Any key ending
     # in cookie (`X-Auth-Cookie`, `HTTP_COOKIE`, `"http_cookie"`), then `:`, `=` or `=>`, then the value as it is

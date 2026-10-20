@@ -134,7 +134,7 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     # flagged it; these shapes had no pattern here. A test builds such values by concatenation.
     ("stripe-secret", re.compile(r"\b(?:whsec|sk_live|sk_test|rk_live|rk_test|pk_live)_[A-Za-z0-9+/=]{12,}"),
      "a Stripe key or webhook signing secret"),
-    ("github-fine-grained-token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "a GitHub fine-grained token"),
+    ("github-fine-grained-token", re.compile(r"\bgithub_pat_(?a:\w{20,})"), "a GitHub fine-grained token"),
     ("gitlab-token", re.compile(r"\bgl(?:pat|rt)-[A-Za-z0-9_-]{16,}"), "a GitLab token"),
     ("npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{30,}"), "an npm token"),
     ("sendgrid-key", re.compile(r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"), "a SendGrid key"),

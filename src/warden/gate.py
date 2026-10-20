@@ -161,7 +161,10 @@ _WIDE_DOTS = re.compile("[\u3002\uff0e\uff61]")
 # The code points a WHATWG URL parser drops from a host (Node 22's, over all 1.1M code points; seventh review,
 # 2026-10-01): a browser joins `evil.<U+FE0F>com` into one domain. Not ZWNJ/ZWJ: the parser keeps those, and
 # removing them rewrote Persian text.
-_INVISIBLE = re.compile(r"[\u00ad\u034f\u180b-\u180d\u180f\u200b\u2060\u2064\ufe00-\ufe0f\ufeff\U0001bca0-\U0001bca3\U000e0100-\U000e01ef]+")
+# The two astral ranges (shorthand format controls, variation selectors 17-256) are added with chr(): SonarCloud
+# reads an 8-digit \U escape in a character class as separate characters and reports duplicates Python does not have.
+_INVISIBLE = re.compile(r"[\u00ad\u034f\u180b-\u180d\u180f\u200b\u2060\u2064\ufe00-\ufe0f\ufeff"
+                        f"{chr(0x1BCA0)}-{chr(0x1BCA3)}{chr(0xE0100)}-{chr(0xE01EF)}]+")
 
 
 # Only between ASCII name characters - where it hides a link or splits a key - not everywhere: removing U+FE0F
