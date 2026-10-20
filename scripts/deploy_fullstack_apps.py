@@ -222,8 +222,11 @@ def push_image(stack: dict, tag: str, aws, run=run) -> str:
     run(["docker", "login", "--username", user, "--password-stdin", registry], input=password)
     remote = f"{stack['ecr_repository_url']}:{tag}"
     run(["docker", "tag", f"{IMAGE}:{tag}", remote])
-    run(["docker", "push", remote])
-    return remote
+    pushed = run(["docker", "push", remote]) or ""
+    # The digest the registry answered for THESE bytes (`<tag>: digest: sha256:... size: N`): read back by the tag
+    # only when the push printed none - the tag is mutable, so it could name other bytes by then (B26).
+    found = re.search(r"digest: (sha256:[0-9a-f]{64})", pushed)
+    return f"{stack['ecr_repository_url']}@{found.group(1)}" if found else image_by_digest(stack, tag, aws)
 
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
@@ -284,8 +287,7 @@ def task_definition(stack: dict, image: str) -> dict:
 
 
 def deploy_ecs(stack: dict, tag: str, aws, run=run, wait: bool = True) -> str:
-    push_image(stack, tag, aws, run)
-    image = image_by_digest(stack, tag, aws)
+    image = push_image(stack, tag, aws, run)  # <repository>@sha256:..., the bytes just pushed
     ecs = aws("ecs")
     arn = ecs.register_task_definition(**task_definition(stack, image))["taskDefinition"]["taskDefinitionArn"]
     ecs.update_service(cluster=stack["ecs_cluster"], service=stack["ecs_service"], taskDefinition=arn)
