@@ -1,10 +1,18 @@
 """Pause an environment to save money, and resume it, without losing its data (owner update 5, 2026-10-17).
 
     WARDEN_ENV=<env> python scripts/pause_resume.py snapshot --stack fullstack|runtime   # pause, BEFORE anything goes
-    WARDEN_ENV=<env> python scripts/pause_resume.py restore-tables --imports PATH         # fullstack resume, before apply
+    WARDEN_ENV=<env> python scripts/pause_resume.py restore-tables > imports.txt          # fullstack resume, before apply
     WARDEN_ENV=<env> python scripts/pause_resume.py stop-db                               # runtime pause, after apply
     WARDEN_ENV=<env> python scripts/pause_resume.py start-db                              # runtime resume, before apply
     WARDEN_ENV=<env> python scripts/pause_resume.py report --stack fullstack|runtime [--keep N]
+    WARDEN_ENV=<env> python scripts/pause_resume.py wake                                  # fullstack resume, after apply
+
+⛔ The writers stop FIRST (fullstack): a write after the copy would be lost with the stack. Only Lambdas write the data
+kept (read 2026-10-20): checkout puts carts into DynamoDB; traffic queues orders that order-processor INSERTs into
+Aurora. The ECS orders-api and the shop's pods only read Aurora (SELECT) or write Redis, a cache that is not kept. So:
+the schedules are disabled, checkout and traffic get a reserved concurrency of 0, the orders queue is drained (its
+consumer still runs), then every function of the stack is held at 0. `wake` undoes it all - after a resume, and after a
+pause that failed before anything was deleted.
 
 What each data store is, and how it is kept:
   fullstack  the shop's Aurora (express, terraform/fullstack/aurora_express.py) - a cluster snapshot; the DynamoDB
@@ -48,6 +56,14 @@ _spec.loader.exec_module(ax)
 # equal to the aws_dynamodb_table blocks there, so a new table is never left out of a pause.
 TABLES = {"carts": "aws_dynamodb_table.carts"}
 BACKUP_WAIT = {"Delay": 15, "MaxAttempts": 120}  # 30 minutes
+# The full stack's writers, as terraform/fullstack/lambda.tf names them (a test holds these equal to it): the schedules
+# that start work, the functions through which writes enter, the queue whose consumer writes Aurora, and every function.
+SCHEDULES = ("reconcile-5m", "traffic-1m")
+ENTRY_FUNCTIONS = ("checkout", "traffic")
+DRAINED_QUEUES = ("orders",)
+FUNCTIONS = ("checkout", "notifier", "ops", "order-processor", "reconciler", "traffic")
+DRAIN_WAIT = {"Delay": 15, "MaxAttempts": 60}  # 15 minutes: order-processor's batches, retried at most 3 times
+_IN_QUEUE = ("ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed")
 # USD per GB-month in the environments' region (environments.yaml aws_region), from the AWS Price List API, read
 # 2026-10-17 (RDS offer of 2026-10-06, DynamoDB offer of 2026-09-11). An estimate: Billing is the ground truth.
 PRICE = {"aurora_snapshot": 0.023, "rds_snapshot": 0.095, "dynamodb_backup": 0.114, "rds_gp3_stopped": 0.131}
@@ -100,6 +116,64 @@ def _snapshot_status(rds, kind: str, name: str) -> str:
     else:
         snaps = rds.describe_db_snapshots(DBSnapshotIdentifier=name)["DBSnapshots"]
     return (snaps[0].get("Status") if snaps else "") or ""
+
+
+def _hold(lam, names, log, concurrency: int | None) -> None:
+    """Reserved concurrency 0 (held) or none (free) on each of this stack's functions."""
+    for fn in names:
+        name = ax.PREFIX + fn
+        try:
+            if concurrency is None:
+                lam.delete_function_concurrency(FunctionName=name)
+            else:
+                lam.put_function_concurrency(FunctionName=name, ReservedConcurrentExecutions=concurrency)
+        except lam.exceptions.ResourceNotFoundException:  # a stack half gone, or never made: nothing to hold
+            log(f"{name}: does not exist")
+    log(f"{', '.join(names)}: {'free to run' if concurrency is None else 'held at 0'}")
+
+
+def _drain(sqs, queue: str, log) -> None:
+    """Until nothing is waiting, in flight or delayed in `queue`: its consumer has written all it was given."""
+    try:
+        url = sqs.get_queue_url(QueueName=queue)["QueueUrl"]
+    except sqs.exceptions.QueueDoesNotExist:
+        log(f"{queue}: does not exist")
+        return
+    for _ in range(DRAIN_WAIT["MaxAttempts"]):
+        attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=list(_IN_QUEUE))["Attributes"]
+        left = sum(int(attrs.get(k, 0)) for k in _IN_QUEUE)
+        if left == 0:
+            log(f"{queue}: drained")
+            return
+        log(f"{queue}: {left} message(s) still to be written")
+        time.sleep(DRAIN_WAIT["Delay"])
+    raise SystemExit(f"{queue} did not drain in 15 minutes: nothing is copied or deleted (run `wake` to undo the stop)")
+
+
+def _rules(events, enable: bool, log) -> None:
+    for s in SCHEDULES:
+        name = ax.PREFIX + s
+        try:
+            (events.enable_rule if enable else events.disable_rule)(Name=name)
+        except events.exceptions.ResourceNotFoundException:
+            log(f"{name}: does not exist")
+    log(f"schedules {', '.join(SCHEDULES)}: {'enabled' if enable else 'disabled'}")
+
+
+def quiesce(clients: dict, log=print) -> None:
+    """⛔ Fullstack pause, before any copy: nothing writes the data kept from here on (module docstring)."""
+    _rules(clients["events"], False, log)
+    _hold(clients["lambda"], ENTRY_FUNCTIONS, log, 0)
+    for queue in DRAINED_QUEUES:
+        _drain(clients["sqs"], ax.PREFIX + queue, log)
+    _hold(clients["lambda"], FUNCTIONS, log, 0)
+
+
+def wake(clients: dict, log=print) -> None:
+    """Undo quiesce(): the schedules on, every function free. Idempotent; a stack re-created by resume needs nothing,
+    one whose pause failed before the destroy needs exactly this."""
+    _hold(clients["lambda"], FUNCTIONS, log, None)
+    _rules(clients["events"], True, log)
 
 
 def snapshot_db(rds, kind: str, ident: str, log=print) -> str:
@@ -168,6 +242,7 @@ def snapshot(stack: str, clients: dict, log=print) -> list[str]:
     """Pause, first step: a copy of every data store of `stack`, each available before this returns."""
     rds = clients["rds"]
     if stack == "fullstack":
+        quiesce(clients, log)
         made = []
         c = ax.describe(rds, ax.CLUSTER)
         if c is None:
@@ -239,9 +314,9 @@ def start_db(rds, log=print) -> None:
     log(f"{ident}: available")
 
 
-def restore_tables(ddb, imports: pathlib.Path, log=print) -> dict[str, str]:
+def restore_tables(ddb, log=print) -> tuple[dict[str, str], list[str]]:
     """Fullstack resume, before `terraform apply`: each table that does not exist is restored from its newest pause
-    backup; every table that exists is written to `imports` (<terraform address> <name>) for the pipeline to import
+    backup; every table that exists is returned as `<terraform address> <name>` for the pipeline to import
     into Terraform's state if it is not there yet. No backup: Terraform creates the table empty (a first install)."""
     restored, lines, backups = {}, [], None
     for suffix, address in TABLES.items():
@@ -257,9 +332,8 @@ def restore_tables(ddb, imports: pathlib.Path, log=print) -> dict[str, str]:
             ddb.get_waiter("table_exists").wait(TableName=table, WaiterConfig=BACKUP_WAIT)
             restored[table] = newest["name"]
             log(f"{table}: restored from {newest['name']}")
-        lines.append(f"{address} {table}\n")
-    imports.write_text("".join(lines), encoding="utf-8")
-    return restored
+        lines.append(f"{address} {table}")
+    return restored, lines
 
 
 def _copies(stack: str, clients: dict) -> dict[str, tuple[str, list[dict]]]:
@@ -317,9 +391,8 @@ def report(stack: str, clients: dict, keep: int = 3, log=print) -> dict:
 
 def main(argv: list[str] | None = None, *, clients=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["snapshot", "restore-tables", "stop-db", "start-db", "report"])
+    ap.add_argument("cmd", choices=["snapshot", "restore-tables", "stop-db", "start-db", "report", "wake"])
     ap.add_argument("--stack", choices=["fullstack", "runtime"], default="fullstack")
-    ap.add_argument("--imports", type=pathlib.Path, help="restore-tables: where to write the tables to import")
     ap.add_argument("--keep", type=int, default=3, help="report: the newest copies kept per data store (default 3)")
     args = ap.parse_args(argv)
     env = os.environ.get("WARDEN_ENV", "")
@@ -328,17 +401,20 @@ def main(argv: list[str] | None = None, *, clients=None) -> int:
     ax.use(env)
     if args.keep < 1:
         raise SystemExit("refusing: --keep must be 1 or more")
-    if args.cmd == "restore-tables" and not args.imports:
-        raise SystemExit("refusing: restore-tables needs --imports PATH")
     if clients is None:
         import boto3
 
         session = boto3.Session(region_name=os.environ.get("AWS_REGION") or None)
-        clients = {"rds": session.client("rds"), "dynamodb": session.client("dynamodb")}
+        clients = {name: session.client(name) for name in ("rds", "dynamodb", "events", "lambda", "sqs")}
     if args.cmd == "snapshot":
         print(json.dumps({"snapshots": snapshot(args.stack, clients)}))
     elif args.cmd == "restore-tables":
-        restore_tables(clients["dynamodb"], args.imports)
+        # stdout carries only the tables to import (the pipeline reads it); what happened goes to stderr. No path is
+        # taken from the command line, so nothing is written anywhere but where the caller redirects it.
+        _, lines = restore_tables(clients["dynamodb"], log=lambda s: print(s, file=sys.stderr))
+        print("\n".join(lines))
+    elif args.cmd == "wake":
+        wake(clients)
     elif args.cmd == "stop-db":
         stop_db(clients["rds"])
     elif args.cmd == "start-db":

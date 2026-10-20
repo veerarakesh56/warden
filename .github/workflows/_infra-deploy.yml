@@ -12,8 +12,8 @@ name: "_ infra · deploy"
 # Branches (owner, 2026-10-16): main deploys nothing; dev is main fast-forwarded; prod is dev merged by pull request.
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
-# pause / resume (owner update 5, 2026-10-17; the full stack only): pause copies every data store (scripts/pause_resume.py
-# snapshot - each copy AVAILABLE before anything goes) and then destroys the stack as `destroy` does; resume restores
+# pause / resume (owner update 5, 2026-10-17; the full stack only): pause stops every writer, then copies every data
+# store (scripts/pause_resume.py snapshot - each copy AVAILABLE before anything goes) and then destroys the stack as `destroy` does; resume restores
 # the tables from their newest pause backups and imports them, applies as `apply` does, and brings Aurora back from its
 # newest pause snapshot. With no copy (a first install) resume is an apply. No copy is ever deleted.
 on:
@@ -166,8 +166,9 @@ jobs:
       - name: "resume: the tables from their newest pause backups, into Terraform's state"
         if: env.ACTION == 'resume'
         run: |
-          python scripts/pause_resume.py restore-tables --imports "$RUNNER_TEMP/imports.txt"
+          python scripts/pause_resume.py restore-tables > "$RUNNER_TEMP/imports.txt"
           while read -r address name; do
+            [ -n "$address" ] || continue
             terraform -chdir="terraform/$STACK" state show "$address" > /dev/null 2>&1 \
               || terraform -chdir="terraform/$STACK" import -input=false -no-color "$address" "$name"
           done < "$RUNNER_TEMP/imports.txt"
@@ -250,6 +251,11 @@ jobs:
           terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/after.json"
           python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --after "$RUNNER_TEMP/after.json" \
             --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
+      # A pause stops every writer first (pause_resume.py quiesce); a re-created stack starts free, and this also frees one
+      # whose pause failed before the destroy. Idempotent.
+      - name: "resume: the writers on again"
+        if: env.ACTION == 'resume'
+        run: python scripts/pause_resume.py wake
       # ⛔ Pause: every data store copied, and each copy available, BEFORE anything is deleted. A failed or unfinished
       # copy fails this step, and the destroy below does not run (no step here runs after a failure).
       - name: "pause: a copy of every data store, each available before anything goes"

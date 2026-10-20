@@ -138,6 +138,54 @@ class FakeRds:
         return W()
 
 
+class _Missing(Exception):
+    pass
+
+
+class FakeWriters:
+    """EventBridge, Lambda and SQS in one: what the full stack's writers do, logged into `log` (shared with the data
+    store fakes when the order matters). `waiting` is the orders queue's depth, read down by one each poll."""
+
+    def __init__(self, log=None, waiting=0, stuck=False, gone=()):
+        self.log, self.waiting, self.stuck, self.gone = log if log is not None else [], waiting, stuck, set(gone)
+        self.exceptions = type("E", (), {"ResourceNotFoundException": _Missing, "QueueDoesNotExist": _Missing})
+
+    def _act(self, what, name):
+        if name in self.gone:
+            raise _Missing(name)
+        self.log.append((what, name))
+
+    def disable_rule(self, Name):
+        self._act("disable_rule", Name)
+
+    def enable_rule(self, Name):
+        self._act("enable_rule", Name)
+
+    def put_function_concurrency(self, FunctionName, ReservedConcurrentExecutions):
+        assert ReservedConcurrentExecutions == 0
+        self._act("hold", FunctionName)
+
+    def delete_function_concurrency(self, FunctionName):
+        self._act("free", FunctionName)
+
+    def get_queue_url(self, QueueName):
+        self._act("queue", QueueName)
+        return {"QueueUrl": f"https://sqs/{QueueName}"}
+
+    def get_queue_attributes(self, QueueUrl, AttributeNames):
+        self.log.append(("poll", QueueUrl))
+        left = self.waiting
+        if not self.stuck:
+            self.waiting = max(0, self.waiting - 1)
+        return {"Attributes": {"ApproximateNumberOfMessages": str(left), "ApproximateNumberOfMessagesNotVisible": "0",
+                               "ApproximateNumberOfMessagesDelayed": "0"}}
+
+
+def _full(rds, ddb, writers=None):
+    w = writers or FakeWriters()
+    return {"rds": rds, "dynamodb": ddb, "events": w, "lambda": w, "sqs": w}
+
+
 class FakeDdb:
     def __init__(self, tables=(), backups=(), fail=False):
         self.tables, self.backups, self.calls, self.fail = set(tables), list(backups), [], fail
@@ -237,7 +285,7 @@ def test_resume_picks_the_newest_pause_copy_by_when_aws_made_it_not_by_its_name(
 
 def test_pause_copies_aurora_and_every_table_and_returns_only_once_each_is_available(pr):
     rds, ddb = FakeRds(cluster=_cluster()), FakeDdb(tables={"warden-dev-carts"})
-    made = pr.snapshot("fullstack", {"rds": rds, "dynamodb": ddb}, log=lambda *_: None)
+    made = pr.snapshot("fullstack", _full(rds, ddb), log=lambda *_: None)
     assert [re.sub(r"\d{8}t\d{6}z$", "<t>", m) for m in made] == ["warden-dev-aurora-pause-<t>",
                                                                   "warden-dev-carts-pause-<t>"]
     assert all(s["Status"] == "available" for s in rds.cluster_snaps.values())
@@ -248,27 +296,85 @@ def test_pause_copies_aurora_and_every_table_and_returns_only_once_each_is_avail
 
 def test_pause_fails_when_the_aurora_snapshot_is_not_available(pr):
     """⛔ The pipeline destroys nothing after a failed step: the snapshot must BE available, not just waited for."""
-    rds = FakeRds(cluster=_cluster(), stuck=True)
+    clients = _full(FakeRds(cluster=_cluster(), stuck=True), FakeDdb())
     with pytest.raises(SystemExit, match="not available: nothing is deleted"):
-        pr.snapshot("fullstack", {"rds": rds, "dynamodb": FakeDdb()}, log=lambda *_: None)
+        pr.snapshot("fullstack", clients, log=lambda *_: None)
 
 
 def test_pause_fails_when_a_table_backup_does_not_become_available(pr):
-    ddb = FakeDdb(tables={"warden-dev-carts"}, fail=True)
+    clients = _full(FakeRds(), FakeDdb(tables={"warden-dev-carts"}, fail=True))
     with pytest.raises(SystemExit, match="is DELETED: nothing is deleted"):
-        pr.snapshot("fullstack", {"rds": FakeRds(), "dynamodb": ddb}, log=lambda *_: None)
+        pr.snapshot("fullstack", clients, log=lambda *_: None)
 
 
 def test_pause_refuses_an_aurora_cluster_it_cannot_copy(pr):
+    clients = _full(FakeRds(cluster=_cluster("modifying")), FakeDdb())
     with pytest.raises(SystemExit, match="no snapshot can be taken, so nothing is deleted"):
-        pr.snapshot("fullstack", {"rds": FakeRds(cluster=_cluster("modifying")), "dynamodb": FakeDdb()},
-                    log=lambda *_: None)
+        pr.snapshot("fullstack", clients, log=lambda *_: None)
 
 
 def test_pause_of_a_stack_that_is_not_there_copies_nothing_and_says_so(pr):
     said = []
-    assert pr.snapshot("fullstack", {"rds": FakeRds(), "dynamodb": FakeDdb()}, log=said.append) == []
+    writers = FakeWriters(gone={f"warden-dev-{n}" for n in (*pr.FUNCTIONS, *pr.SCHEDULES, "orders")})
+    assert pr.snapshot("fullstack", _full(FakeRds(), FakeDdb(), writers), log=said.append) == []
     assert any("nothing to keep" in s for s in said)
+
+
+def test_pause_stops_every_writer_and_drains_the_queue_before_the_first_copy(pr):
+    """⛔ A write after the copy would be lost with the stack: schedules off, the entry functions held, the orders
+    queue drained by its consumer, then every function held - all before any snapshot or backup is asked for."""
+    pr.DRAIN_WAIT = {"Delay": 0, "MaxAttempts": 5}
+    log = []
+    writers = FakeWriters(log, waiting=2)
+
+    class Rds(FakeRds):
+        def create_db_cluster_snapshot(self, **kw):
+            log.append(("copy", kw["DBClusterSnapshotIdentifier"]))
+            super().create_db_cluster_snapshot(**kw)
+
+    class Ddb(FakeDdb):
+        def create_backup(self, TableName, BackupName):
+            log.append(("copy", BackupName))
+            return super().create_backup(TableName, BackupName)
+
+    pr.snapshot("fullstack", _full(Rds(cluster=_cluster()), Ddb(tables={"warden-dev-carts"}), writers),
+                log=lambda *_: None)
+    kinds = [k for k, _ in log]
+    first_copy = kinds.index("copy")
+    assert {("disable_rule", "warden-dev-traffic-1m"), ("disable_rule", "warden-dev-reconcile-5m")} <= set(log[:first_copy])
+    assert kinds.index("hold") < kinds.index("poll")  # traffic and checkout stop before the drain
+    polls = [i for i, k in enumerate(kinds) if k == "poll"]
+    assert len(polls) == 3  # 2 waiting, 1 waiting, drained
+    held = {n for k, n in log[polls[-1]:first_copy] if k == "hold"}
+    assert held == {f"warden-dev-{f}" for f in pr.FUNCTIONS}  # every function held after the drain, before a copy
+
+
+def test_pause_copies_nothing_when_the_queue_does_not_drain(pr):
+    pr.DRAIN_WAIT = {"Delay": 0, "MaxAttempts": 3}
+    rds, ddb = FakeRds(cluster=_cluster()), FakeDdb(tables={"warden-dev-carts"})
+    clients = _full(rds, ddb, FakeWriters(waiting=5, stuck=True))
+    with pytest.raises(SystemExit, match="did not drain in 15 minutes: nothing is copied or deleted"):
+        pr.snapshot("fullstack", clients, log=lambda *_: None)
+    assert not rds.cluster_snaps
+    assert not ddb.backups
+
+
+def test_wake_frees_every_function_and_turns_the_schedules_back_on(pr):
+    writers = FakeWriters(gone={"warden-dev-ops"})  # one already gone: skipped, the rest still woken
+    pr.wake({"events": writers, "lambda": writers}, log=lambda *_: None)
+    assert {n for k, n in writers.log if k == "free"} == {f"warden-dev-{f}" for f in pr.FUNCTIONS} - {"warden-dev-ops"}
+    assert {n for k, n in writers.log if k == "enable_rule"} == {f"warden-dev-{s}" for s in pr.SCHEDULES}
+
+
+def test_the_writers_named_are_the_full_stacks_own(pr):
+    tf = (ROOT / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
+    lambdas = tf.split("lambdas = {", 1)[1]
+    found = set(re.findall(r"^    ([a-z-]+|\"[a-z-]+\") = \{", lambdas, re.MULTILINE))
+    assert {f.strip('"') for f in found} == set(pr.FUNCTIONS)
+    schedules = tf.split("schedules = {", 1)[1].split("}\n  }", 1)[0]
+    assert set(re.findall(r"^    ([a-z0-9-]+)\s+=", schedules, re.MULTILINE)) == set(pr.SCHEDULES)
+    assert set(pr.ENTRY_FUNCTIONS) <= set(pr.FUNCTIONS)
+    assert 'toset(["orders", "notifications"])' in tf
 
 
 def test_every_dynamodb_table_in_the_full_stack_is_paused(pr):
@@ -296,7 +402,8 @@ def test_runtime_pause_snapshots_the_audit_database_then_stop_db_stops_it(pr):
     pr = _ops(pr)
     rds = FakeRds(instance=_audit_instance())
     [made] = pr.snapshot("runtime", {"rds": rds}, log=lambda *_: None)
-    assert made.startswith("warden-ops-audit-pause-") and rds.db_snaps[made]["Status"] == "available"
+    assert made.startswith("warden-ops-audit-pause-")
+    assert rds.db_snaps[made]["Status"] == "available"
     pr.stop_db(rds, log=lambda *_: None)
     assert ("stop_db_instance", {"DBInstanceIdentifier": "warden-ops-audit"}) in rds.calls
     assert not [n for n, _ in rds.calls if "delete" in n]
@@ -317,7 +424,8 @@ def test_runtime_pause_of_a_stopped_database_with_no_copy_starts_it_for_one(pr):
     rds = FakeRds(instance=_audit_instance("stopped"))
     [made] = pr.snapshot("runtime", {"rds": rds}, log=lambda *_: None)
     names = [n for n, _ in rds.calls]
-    assert names.index("start_db_instance") < names.index("create_db_snapshot") and made in rds.db_snaps
+    assert names.index("start_db_instance") < names.index("create_db_snapshot")
+    assert made in rds.db_snaps
 
 
 def test_runtime_pause_of_an_aurora_audit_cluster(pr):
@@ -342,8 +450,9 @@ def test_runtime_resume_never_lets_a_lost_audit_database_be_recreated_empty(pr):
     pr = _ops(pr)
     snap = {"DBSnapshotIdentifier": "warden-ops-audit-pause-20261017", "Status": "available",
             "SnapshotCreateTime": _t(17), "AllocatedStorage": 20}
+    rds = FakeRds(snapshots=[snap])
     with pytest.raises(SystemExit, match="restore it by hand"):
-        pr.start_db(FakeRds(snapshots=[snap]), log=lambda *_: None)
+        pr.start_db(rds, log=lambda *_: None)
 
 
 def test_runtime_resume_on_a_first_install_lets_terraform_create_the_database(pr):
@@ -356,37 +465,49 @@ def test_runtime_resume_on_a_first_install_lets_terraform_create_the_database(pr
 # --------------------------------------------------------------------------- resume: the tables and Aurora
 
 
-def test_resume_restores_a_missing_table_from_its_newest_pause_backup_and_lists_it_for_import(pr, tmp_path):
+def test_resume_restores_a_missing_table_from_its_newest_pause_backup_and_lists_it_for_import(pr):
     ddb = FakeDdb(backups=[_backup("warden-dev-carts-pause-20261017", 17),
                            _backup("warden-dev-carts-pause-20261018t090000z", 18),
                            _backup("warden-dev-carts-pause-20261019t090000z", 19, status="CREATING"),
                            _backup("warden-dev-orders-pause-20261020t090000z", 20, table="warden-dev-orders")])
-    imports = tmp_path / "imports.txt"
-    restored = pr.restore_tables(ddb, imports, log=lambda *_: None)
+    restored, imports = pr.restore_tables(ddb, log=lambda *_: None)
     assert restored == {"warden-dev-carts": "warden-dev-carts-pause-20261018t090000z"}
     assert ("restore_table_from_backup", "warden-dev-carts",
             "arn:aws:dynamodb:r:a:table/warden-dev-carts/backup/warden-dev-carts-pause-20261018t090000z") in ddb.calls
-    assert imports.read_text(encoding="utf-8") == "aws_dynamodb_table.carts warden-dev-carts\n"
+    assert imports == ["aws_dynamodb_table.carts warden-dev-carts"]
 
 
-def test_resume_picks_up_the_laptops_hand_made_backup(pr, tmp_path):
+def test_resume_picks_up_the_laptops_hand_made_backup(pr):
     ddb = FakeDdb(backups=[_backup("warden-dev-carts-pause-20261017", 17)])
-    assert pr.restore_tables(ddb, tmp_path / "i.txt", log=lambda *_: None) == {
-        "warden-dev-carts": "warden-dev-carts-pause-20261017"}
+    restored, _ = pr.restore_tables(ddb, log=lambda *_: None)
+    assert restored == {"warden-dev-carts": "warden-dev-carts-pause-20261017"}
 
 
-def test_resume_never_overwrites_a_table_that_exists(pr, tmp_path):
+def test_resume_never_overwrites_a_table_that_exists(pr):
     ddb = FakeDdb(tables={"warden-dev-carts"}, backups=[_backup("warden-dev-carts-pause-20261017", 17)])
-    assert pr.restore_tables(ddb, tmp_path / "i.txt", log=lambda *_: None) == {}
+    restored, imports = pr.restore_tables(ddb, log=lambda *_: None)
+    assert restored == {}
     assert not [c for c in ddb.calls if c[0] == "restore_table_from_backup"]
-    assert (tmp_path / "i.txt").read_text(encoding="utf-8") == "aws_dynamodb_table.carts warden-dev-carts\n"
+    assert imports == ["aws_dynamodb_table.carts warden-dev-carts"]  # imported if Terraform's state lacks it
 
 
-def test_resume_on_a_first_install_restores_nothing_and_terraform_creates_the_table(pr, tmp_path):
+def test_resume_on_a_first_install_restores_nothing_and_terraform_creates_the_table(pr):
     said = []
-    assert pr.restore_tables(FakeDdb(), tmp_path / "i.txt", log=said.append) == {}
-    assert (tmp_path / "i.txt").read_text(encoding="utf-8") == ""
+    assert pr.restore_tables(FakeDdb(), log=said.append) == ({}, [])
     assert any("a first install" in s for s in said)
+
+
+def test_restore_tables_prints_only_the_imports_on_stdout_and_takes_no_path(pr, monkeypatch, capsys):
+    """The pipeline redirects stdout to its imports file: nothing else may land there, and no path is taken from the
+    command line (Sonar: a CLI-supplied path written to is a path traversal)."""
+    monkeypatch.setenv("WARDEN_ENV", "dev")
+    ddb = FakeDdb(backups=[_backup("warden-dev-carts-pause-20261017", 17)])
+    assert pr.main(["restore-tables"], clients={"rds": FakeRds(), "dynamodb": ddb}) == 0
+    out = capsys.readouterr()
+    assert out.out == "aws_dynamodb_table.carts warden-dev-carts\n"
+    assert "restored from warden-dev-carts-pause-20261017" in out.err
+    with pytest.raises(SystemExit):
+        pr.main(["restore-tables", "--imports", "/etc/x"], clients={})
 
 
 def test_aurora_resume_restores_the_newest_pause_snapshot_as_an_express_cluster(pr):
@@ -401,14 +522,16 @@ def test_aurora_resume_restores_the_newest_pause_snapshot_as_an_express_cluster(
     assert ("modify_db_cluster", {"DBClusterIdentifier": "warden-dev-aurora", "MasterUserAuthenticationType": "iam-db-auth",
                                   "ApplyImmediately": True}) in rds.calls
     writer = next(kw for n, kw in rds.calls if n == "create_db_instance")
-    assert writer["DBInstanceIdentifier"] == "warden-dev-aurora-instance-1" and writer["DBInstanceClass"] == "db.serverless"
+    assert writer["DBInstanceIdentifier"] == "warden-dev-aurora-instance-1"
+    assert writer["DBInstanceClass"] == "db.serverless"
 
 
 def test_aurora_resume_on_a_first_install_creates_it_empty(pr):
     said = []
     rds = FakeRds()
     assert pr.ax.restore(rds, "warden-dev-aurora", "latest", log=said.append) is None
-    assert not [n for n, _ in rds.calls if n.startswith("restore")] and "a first install" in said[-1]
+    assert not [n for n, _ in rds.calls if n.startswith("restore")]
+    assert "a first install" in said[-1]
 
 
 def test_aurora_resume_never_touches_a_cluster_that_exists(pr):
@@ -418,8 +541,9 @@ def test_aurora_resume_never_touches_a_cluster_that_exists(pr):
 
 
 def test_aurora_resume_refuses_a_named_snapshot_that_is_not_there(pr):
+    rds = FakeRds()
     with pytest.raises(SystemExit, match="no cluster snapshot"):
-        pr.ax.restore(FakeRds(), "warden-dev-aurora", "warden-dev-aurora-pause-20990101", log=lambda *_: None)
+        pr.ax.restore(rds, "warden-dev-aurora", "warden-dev-aurora-pause-20990101", log=lambda *_: None)
 
 
 def test_aurora_create_restores_only_when_asked(pr, tmp_path, monkeypatch):
@@ -446,8 +570,10 @@ def test_report_keeps_the_newest_n_and_lists_older_ones_for_a_person_deleting_no
     said = []
     out = pr.report("fullstack", {"rds": rds, "dynamodb": ddb}, keep=3, log=said.append)
     assert out["older"] == ["warden-dev-aurora-pause-20261014t090000z"]
-    assert "warden-dev-aurora-final-20261013t090000z" in out["kept"] and "warden-dev-carts-pause-20261017" in out["kept"]
-    assert any("a person may delete it" in s for s in said) and "Nothing was deleted" in said[-1]
+    assert "warden-dev-aurora-final-20261013t090000z" in out["kept"]
+    assert "warden-dev-carts-pause-20261017" in out["kept"]
+    assert any("a person may delete it" in s for s in said)
+    assert "Nothing was deleted" in said[-1]
     assert out["daily_usd"] > 0
     assert not [n for n, _ in rds.calls if "delete" in n]
 
@@ -461,7 +587,9 @@ def test_report_says_a_stopped_database_starts_again_after_7_days(pr):
 
 def test_the_script_never_deletes_a_copy():
     source = (ROOT / "scripts" / "pause_resume.py").read_text(encoding="utf-8")
-    assert not re.search(r"\.delete_|DeleteBackup|DeleteDB", source)
+    # Deleting a snapshot, a backup or a database - never; only a function's concurrency limit is removed (wake).
+    assert not re.search(r"\.delete_(db|backup|table)|DeleteBackup|DeleteDB", source)
+    assert re.findall(r"\.delete_\w+", source) == [".delete_function_concurrency"]
 
 
 # --------------------------------------------------------------------------- the pipelines' order
@@ -492,11 +620,20 @@ def test_the_infra_resume_restores_and_imports_before_the_plan_and_restores_auro
     apply = _index(steps, "aurora_express.py create")
     assert tables < plan < apply
     assert "terraform -chdir=\"terraform/$STACK\" import" in steps[tables]["run"]
-    assert "env.ACTION == 'resume'" in steps[plan]["if"] and "env.ACTION == 'resume'" in steps[apply]["if"]
+    assert "env.ACTION == 'resume'" in steps[plan]["if"]
+    assert "env.ACTION == 'resume'" in steps[apply]["if"]
     assert '--from-snapshot "$FROM_SNAPSHOT"' in steps[apply]["run"]
     assert steps[apply]["env"]["FROM_SNAPSHOT"] == "${{ inputs.action == 'resume' && 'latest' || 'none' }}"
     known = steps[_index(steps, "A known action")]["run"]
-    assert "plan|apply|apply-plan|destroy|pause|resume)" in known and "pause/undo-lab|resume/undo-lab)" in known
+    assert "plan|apply|apply-plan|destroy|pause|resume)" in known
+    assert "pause/undo-lab|resume/undo-lab)" in known
+
+
+def test_the_infra_resume_wakes_the_writers_after_the_apply_and_the_pause_never_does():
+    steps = _steps(FLOWS / "_infra-deploy.yml", "run")
+    wake = _index(steps, "pause_resume.py wake")
+    assert steps[wake]["if"] == "env.ACTION == 'resume'"
+    assert _index(steps, "aurora_express.py create") < wake
 
 
 @pytest.mark.parametrize("env", ["dev", "prod"])
@@ -506,7 +643,8 @@ def test_a_deploy_can_pause_and_resume_and_resume_brings_the_apps_back_in_the_sa
     assert {"pause", "resume"} <= set(on["workflow_dispatch"]["inputs"]["infra_action"]["options"])
     job = flow["jobs"]["apps-after-resume"]
     assert job["if"] == "inputs.part == 'infra' && inputs.infra_action == 'resume'"
-    assert job["needs"] == ["infra", "apps-check"] and job["with"]["target"] == "all"
+    assert job["needs"] == ["infra", "apps-check"]
+    assert job["with"]["target"] == "all"
     assert "inputs.infra_action == 'resume'" in flow["jobs"]["apps-check"]["if"]
 
 
@@ -517,14 +655,16 @@ def test_the_runtime_pause_copies_the_audit_before_the_switch_and_stops_it_after
     assert run.index("pause_resume.py snapshot") < run.index("tf/paused\" --value true")
     assert copy < _index(steps, "terraform -chdir=terraform/runtime plan") < apply < _index(steps, "pause_resume.py stop-db")
     start = _index(steps, "pause_resume.py start-db")
-    assert steps[start]["run"].index("start-db") < steps[start]["run"].index("--value false") and start < apply
+    assert steps[start]["run"].index("start-db") < steps[start]["run"].index("--value false")
+    assert start < apply
     assert not [s for s in steps if re.search(r"always\(\)|failure\(\)|continue-on-error", json.dumps(s))]
     flow = yaml.safe_load((FLOWS / "runtime.yml").read_text(encoding="utf-8"))
     on = flow.get("on") or flow.get(True)
     assert {"pause", "resume"} <= set(on["workflow_dispatch"]["inputs"]["action"]["options"])
     # The runtime job names its environment RUNTIME_ENV; the script refuses without WARDEN_ENV.
     calls = re.findall(r"^\s*(.*)python scripts/pause_resume.py", "\n".join(s.get("run", "") for s in steps), re.MULTILINE)
-    assert calls and all(c == 'WARDEN_ENV="$RUNTIME_ENV" ' for c in calls), calls
+    assert calls, calls
+    assert all(c == 'WARDEN_ENV="$RUNTIME_ENV" ' for c in calls), calls
 
 
 def test_the_runtime_installs_its_tools_before_it_holds_credentials():
@@ -532,7 +672,8 @@ def test_the_runtime_installs_its_tools_before_it_holds_credentials():
     creds = next(i for i, s in enumerate(steps) if "configure-aws-credentials" in s.get("uses", ""))
     uv = next(i for i, s in enumerate(steps) if "setup-uv" in s.get("uses", ""))
     sync = _index(steps, "uv sync --locked --no-build --only-group infra-deploy")
-    assert uv < sync < creds and steps[uv]["with"]["enable-cache"] is False
+    assert uv < sync < creds
+    assert steps[uv]["with"]["enable-cache"] is False
 
 
 # --------------------------------------------------------------------------- permissions
@@ -569,6 +710,26 @@ def test_the_runtime_pause_switch_is_the_only_parameter_the_role_may_write():
     assert ev.refusal("ops", "ssm:PutParameter", [param + "paused"], ctx) is None
     for other in ("model", "page_topic_arn", "paused2"):
         assert ev.refusal("ops", "ssm:PutParameter", [param + other], ctx), other
+
+
+def test_the_runtime_boundary_lets_no_role_write_any_parameter_but_the_pause_switch():
+    """CodeRabbit (PR 88): the ceiling, not only the deploy policy, names tf/paused alone - a role under this boundary
+    whose own policy granted more still could not rewrite the model or the approvers."""
+    boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
+    writes = [s for s in boundary["Statement"] if s["Effect"] == "Allow"
+              and any(re.fullmatch(a.replace("*", ".*"), "ssm:PutParameter", re.IGNORECASE)
+                      for a in ([s["Action"]] if isinstance(s["Action"], str) else s["Action"]))]
+    assert [w["Sid"] for w in writes] == ["CeilingThePauseSwitch"]
+    assert writes[0]["Resource"].endswith(":parameter/warden/ops/tf/paused")
+
+
+def test_the_runtime_deploy_policy_writes_the_pause_switch_alone():
+    """Both layers name tf/paused alone: the deploy policy as well as the boundary above it."""
+    deploy = json.loads((ROOT / "iam" / "ops" / "deploy.json").read_text(encoding="utf-8"))
+    writes = [s for s in deploy["Statement"] if "ssm:PutParameter" in ([s["Action"]] if isinstance(s["Action"], str)
+                                                                     else s["Action"])]
+    assert [(w["Sid"], w["Resource"].rsplit(":parameter", 1)[1]) for w in writes] == [
+        ("ThePauseSwitch", "/warden/ops/tf/paused")]
 
 
 @pytest.mark.parametrize("env", ["dev", "prod", "ops"])

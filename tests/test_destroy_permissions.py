@@ -437,11 +437,17 @@ ARNS |= {
     "carts": "arn:aws:dynamodb:{r}:{a}:table/{p}-carts",
     "carts-new": "arn:aws:dynamodb:{r}:{a}:table/{p}-carts",
     "carts-backup": "arn:aws:dynamodb:{r}:{a}:table/{p}-carts/backup/01760000000000-abcdef12",
+    "schedule": "arn:aws:events:{r}:{a}:rule/{p}-traffic-1m",
+    "orders-queue": "arn:aws:sqs:{r}:{a}:{p}-orders",
 }
 UNTAGGED |= {"aurora-new", "aurora-pause", "aurora-pause-by-hand", "aurora-final", "default-subnets", "carts-new",
              "carts-backup"}
 _TAGGING = {"aws:RequestTag/Environment": "{env}"}
-REQUIRED_CALLS["pause"] = REQUIRED_CALLS["destroy"] + [
+# The writers stopped before the copies, started again on resume (pause_resume.py quiesce / wake).
+_WRITERS_OFF = [call("events:DisableRule", "schedule"), call("lambda:PutFunctionConcurrency", "function"),
+                call("sqs:GetQueueUrl", "orders-queue"), call("sqs:GetQueueAttributes", "orders-queue")]
+_WRITERS_ON = [call("events:EnableRule", "schedule"), call("lambda:DeleteFunctionConcurrency", "function")]
+REQUIRED_CALLS["pause"] = REQUIRED_CALLS["destroy"] + _WRITERS_OFF + _WRITERS_ON + [
     call("rds:DescribeDBClusters", "aurora"), call("rds:DescribeDBClusterSnapshots", "*"),
     call("rds:CreateDBClusterSnapshot", "aurora", "aurora-pause", **_TAGGING),
     call("rds:AddTagsToResource", "aurora-pause", **_TAGGING),
@@ -451,7 +457,7 @@ REQUIRED_CALLS["pause"] = REQUIRED_CALLS["destroy"] + [
     call("rds:DeleteDBInstance", "aurora-writer"),
     call("rds:DeleteDBCluster", "aurora", "aurora-final"), call("rds:CreateDBClusterSnapshot", "aurora", "aurora-final"),
     call("rds:AddTagsToResource", "aurora-final", **_TAGGING)]
-REQUIRED_CALLS["resume"] = [
+REQUIRED_CALLS["resume"] = _WRITERS_ON + [
     call("dynamodb:DescribeTable", "carts"), call("dynamodb:ListBackups", "*"),
     call("dynamodb:RestoreTableFromBackup", "carts-backup", "carts-new"),
     # RestoreTableFromBackup writes the items into the new table (DynamoDB's restore permissions).

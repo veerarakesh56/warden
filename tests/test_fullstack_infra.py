@@ -476,6 +476,8 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     wf = _workflow("ci-infra.yml")
     # Its destroy-permission check (B40) reads the IAM files and terraform/fullstack: an infra input too.
     own = {"tests/test_destroy_permissions.py"}
+    # Pause and resume (owner update 5): its script restores the stack's data stores, its test reads the IAM and terraform.
+    own |= {"tests/test_pause_resume.py", "scripts/pause_resume.py"}
     # The infra pipeline's own inputs count as infra: its test files (every one its check runs - ninth review CI),
     # the IAM files it validates and what they render from. Its jobs install from uv.lock, so the lock and
     # pyproject.toml trigger it too (2026-10-01). Nothing of the tool's or the apps' own code.
@@ -759,7 +761,8 @@ def test_aurora_destroy_deletes_instances_then_the_cluster_with_a_final_snapshot
     assert names.index("wait:db_cluster_deleted") < names.index("describe_db_cluster_snapshots")
     tagged = next(kw for n, kw in rds.calls if n == "add_tags_to_resource")
     assert tagged == {"ResourceName": rds.snapshots[snapshot]["DBClusterSnapshotArn"], "Tags": ax.TAGS}
-    assert names[-1] == "add_tags_to_resource" and rds.cluster is None
+    assert names[-1] == "add_tags_to_resource"
+    assert rds.cluster is None
     rds.calls.clear()
     ax.destroy(rds, log=lambda *_: None)   # already gone: nothing to do
     assert rds.calls == []
@@ -772,14 +775,17 @@ def test_aurora_final_snapshot_is_named_after_the_cluster_and_the_utc_time():
     name = ax.final_snapshot_name("warden-dev-aurora", datetime.datetime(2026, 10, 17, 17, 5, 9, tzinfo=ist))
     assert name == "warden-dev-aurora-final-20261017t113509z"
     # RDS's rule for a snapshot identifier: a letter first, letters/digits/hyphens, no "--", no trailing "-".
-    assert re.fullmatch(r"[a-z][a-z0-9-]{0,254}", name) and "--" not in name and not name.endswith("-")
+    assert re.fullmatch(r"[a-z][a-z0-9-]{0,254}", name)
+    assert "--" not in name
+    assert not name.endswith("-")
     assert re.fullmatch(r"warden-dev-aurora-final-\d{8}t\d{6}z", ax.final_snapshot_name("warden-dev-aurora"))
 
 
 def test_aurora_destroy_never_skips_the_final_snapshot_in_the_source():
     source = (TF / "aurora_express.py").read_text(encoding="utf-8")
     assert "SkipFinalSnapshot=True" not in source
-    assert "SkipFinalSnapshot=False" in source and "FinalDBSnapshotIdentifier=snapshot" in source
+    assert "SkipFinalSnapshot=False" in source
+    assert "FinalDBSnapshotIdentifier=snapshot" in source
 
 
 def test_aurora_destroy_stops_loudly_when_the_final_snapshot_is_missing():
@@ -804,7 +810,8 @@ def test_aurora_destroy_says_so_when_the_final_snapshot_cannot_be_tagged():
     rds.create_db_cluster(DBClusterIdentifier="warden-dev-aurora")
     rds.cluster["Status"] = "available"
     ax.destroy(rds, log=said.append)
-    assert rds.cluster is None and len(rds.snapshots) == 1
+    assert rds.cluster is None
+    assert len(rds.snapshots) == 1
     assert any(s.startswith("WARNING: could not tag final snapshot") and "UNTAGGED" in s for s in said)
     assert said[-1] == "warden-dev-aurora: gone"
 
@@ -835,7 +842,8 @@ def test_the_deploy_role_may_take_and_tag_its_own_final_snapshot_only(action):
     """B9: deleting a cluster with a final snapshot is authorized on the snapshot too (DeleteDBCluster names the
     cluster-snapshot resource, and CreateDBClusterSnapshot is needed) - granted on this environment's names only."""
     own = OWN_FINAL_SNAPSHOT
-    assert _deploy_allows(action, own) and _ceiling_allows(action, own)
+    assert _deploy_allows(action, own)
+    assert _ceiling_allows(action, own)
     for other in ("warden-prod-aurora-final-20261017t113509z", "billing-final"):
         foreign = own.rsplit(":", 1)[0] + ":" + other
         assert not _deploy_allows(action, foreign)
