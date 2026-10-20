@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import threading
 from collections.abc import Iterator
@@ -150,6 +151,38 @@ class GatedFormatter(logging.Formatter):
         # paragraph separators break lines for some viewers, so they are line breaks here too (fourth
         # review, 2026-09-30, A-4).
         return text.replace("\u2028", "\n").replace("\u2029", "\n").replace("\n", "\n    ")
+
+
+# What formatting a record (its arguments, another handler's formatter) or redacting its text can raise.
+_FORMAT_ERRORS = (ValueError, TypeError, KeyError, AttributeError, IndexError, RecursionError, MemoryError, re.error)
+
+
+class GatedWrap(logging.Formatter):
+    """A handler's own formatter, its output gated as GatedFormatter gates it: for a handler WARDEN did not install -
+    the Lambda runtime's, which prints every record as written (2026-10-20: a Lambda's log lines, an exception's text
+    and traceback included, reached CloudWatch raw). The handler's own layout - its request id, its JSON - is kept."""
+
+    def __init__(self, inner: logging.Formatter | None) -> None:
+        super().__init__()
+        self.inner = inner or logging.Formatter()
+
+    def format(self, record: logging.LogRecord) -> str:
+        try:
+            text = _redact_then_cut(normalise(redact(self.inner.format(record)).text), GatedFormatter.LIMIT)
+        except _FORMAT_ERRORS:  # a formatting or redaction failure must not print the raw text instead
+            return f"{record.levelname} {record.name}: (log text withheld)"
+        return text.replace("\u2028", "\n").replace("\u2029", "\n").replace("\n", "\n    ")
+
+
+def gate_handlers(logger: logging.Logger | None = None) -> int:
+    """Every handler of `logger` (the root's by default) writes through the gate: a GatedFormatter stays, any other
+    formatter is wrapped in GatedWrap. Idempotent. The number of handlers it wrapped."""
+    wrapped = 0
+    for handler in (logger or logging.getLogger()).handlers:
+        if not isinstance(handler.formatter, GatedFormatter | GatedWrap):
+            handler.setFormatter(GatedWrap(handler.formatter))
+            wrapped += 1
+    return wrapped
 
 
 class _StderrHandler(logging.StreamHandler):
