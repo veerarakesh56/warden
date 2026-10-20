@@ -1,7 +1,7 @@
 name: "Temp · lock export (never merged)"
 
 # Throwaway (cloud session, 2026-10-20): uv lock needs download.pytorch.org, which the cloud sandbox cannot reach. This
-# relocks one package on a runner and prints the uv.lock diff into the log; the cloud session applies that diff in a
+# relocks one package on a runner (uv 0.12.21: keeps the lock format, revision 3, that main has) and prints the uv.lock diff into the log; the cloud session applies that diff in a
 # normal PR. Read-only token, no secrets, pinned uv with its checksum.
 on:
   pull_request:
@@ -22,8 +22,8 @@ jobs:
           ref: main
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
-          version: "0.13.1"
-          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+          version: "0.12.21"
+          checksum: "23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0"
           python-version: "3.13"
       - name: Relock aiohttp to 3.14.4 and print the diff
         run: |
