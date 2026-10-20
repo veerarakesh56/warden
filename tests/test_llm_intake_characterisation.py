@@ -336,7 +336,8 @@ def test_widen_reads_at_most_twice_the_cap_and_trims_what_it_echoes():
     long = "x" * 300
     requests = [{"kind": long, "name": long}] * 10
     _, accepted, refused = investigation.widen(_inc(), ContextBundle(), requests)
-    assert accepted == [] and len(refused) == investigation.MAX_REQUESTS * 2
+    assert accepted == []
+    assert len(refused) == investigation.MAX_REQUESTS * 2
     assert refused[0] == {"kind": "x" * 40, "name": "x" * 120,
                           "why": "not a resource kind WARDEN reads through the environment's reader role"}
 
@@ -345,4 +346,5 @@ def test_widen_a_label_value_is_not_knowledge_for_another_kind():
     alert = _inc(sqs="warden-dev-shared")
     context = ContextBundle(logs=["CONFIG x warden-dev-shared"])
     _, accepted, refused = investigation.widen(alert, context, [{"kind": "sns_topic", "name": "warden-dev-shared"}])
-    assert accepted == [] and refused[0]["why"] == "the name is not WARDEN's own knowledge for that kind"
+    assert accepted == []
+    assert refused[0]["why"] == "the name is not WARDEN's own knowledge for that kind"
