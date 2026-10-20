@@ -115,7 +115,7 @@ def plan(ecs: Any, logs: Any, family: str, log_group: str) -> dict[str, list[str
               if g["logGroupName"] == log_group]
     return {
         "deregister": [a for a in active if a in ours],
-        "delete": [a for a in ours],
+        "delete": list(ours),
         "log_groups": groups,
         "refused": refused,
     }

@@ -129,14 +129,14 @@ class _Rows:
     one connection with another thread's statements."""
 
     def __init__(self, cursor: Any) -> None:
-        self._rows = cursor.fetchall() if getattr(cursor, "description", True) else []
+        self._fetched = cursor.fetchall() if getattr(cursor, "description", True) else []
         self.rowcount = getattr(cursor, "rowcount", -1)
 
     def fetchone(self) -> Any:
-        return self._rows[0] if self._rows else None
+        return self._fetched[0] if self._fetched else None
 
     def fetchall(self) -> list:
-        return list(self._rows)
+        return list(self._fetched)
 
 
 class _Store:

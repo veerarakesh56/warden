@@ -68,7 +68,7 @@ class GitHubIssues:
                 return json.loads(resp.read()).get("html_url"), "opened"
         except urllib.error.HTTPError as exc:
             return None, f"HTTP {exc.code}"
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        except (OSError, ValueError) as exc:  # URLError and timeouts are OSErrors
             return None, f"transport error: {type(exc).__name__}"
 
 

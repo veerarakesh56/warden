@@ -30,7 +30,6 @@ fallback is a richer typed vocabulary, never raw text.
 from __future__ import annotations
 
 import base64
-import binascii
 import functools
 import re
 
@@ -151,7 +150,7 @@ def _encoded_prose(value: str) -> bool:
     for alt in (None, b"-_"):
         try:
             raw = base64.b64decode(value + "=" * (-len(value) % 4), altchars=alt, validate=True)
-        except (binascii.Error, ValueError):
+        except ValueError:  # binascii.Error, a bad base64 string, is a ValueError
             continue
         if len(raw) >= 8 and all(32 <= b < 127 for b in raw) and b" " in raw:
             return True

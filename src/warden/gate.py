@@ -195,8 +195,8 @@ def _views(text: str) -> set[str]:
     by one of them is whole in some view, and a key the removal glues to a letter is bounded in another (ninth
     review: checking only the normalised text sent `x<BEL>AKIA...` whole)."""
     views = {text, strip_ansi(text), _ANSI_AS_TEXT.sub(" ", text)}
-    views |= {strip_controls(v) for v in list(views)}
-    views |= {_INVISIBLE.sub("", v) for v in list(views)}
+    views |= {strip_controls(v) for v in views}
+    views |= {_INVISIBLE.sub("", v) for v in views}
     return views
 
 

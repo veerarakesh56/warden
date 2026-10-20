@@ -145,14 +145,16 @@ def check_evidence(assertions: list[dict], context: dict) -> tuple[bool, list[st
                 failures.append(f"metric_gte {left}: not read")
                 continue
             right = float(assertion["right_value"])
-            if not float(metrics[left]) >= right:
+            met = float(metrics[left]) >= right  # NaN fails: never written as `< right`, which NaN would pass
+            if not met:
                 failures.append(f"metric_gte {left}>={right}: {metrics[left]} < {right}")
         elif kind == "metric_lt":
             left, right_name = assertion["left"], assertion["right"]
             if left not in metrics or right_name not in metrics:
                 failures.append(f"metric_lt {left}<{right_name}: a metric was not read")
                 continue
-            if not float(metrics[left]) < float(metrics[right_name]):
+            met = float(metrics[left]) < float(metrics[right_name])  # NaN fails, as above
+            if not met:
                 failures.append(
                     f"metric_lt {left}<{right_name}: {metrics[left]} !< {metrics[right_name]}"
                 )

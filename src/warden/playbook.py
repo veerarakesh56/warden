@@ -389,7 +389,7 @@ def _env(cfg: dict[str, str]) -> tuple[list[str], dict[str, str] | None]:
     """(env var names, {name: value} when the CONFIG line carries every value, else None)."""
     items = [i.strip() for i in cfg.get("env", "[]").strip("[]").split(",") if i.strip()]
     names = [i.split("=", 1)[0] for i in items]
-    values = dict(i.split("=", 1) for i in items) if items and all("=" in i for i in items) else None
+    values = {k: v for k, v in (i.split("=", 1) for i in items)} if items and all("=" in i for i in items) else None
     return names, values
 
 
@@ -778,8 +778,8 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
         if failover and not why and cluster and len(readers) == 1:
             why = (f"Failing back would make {readers[0]} - the former writer the application is pinned to - the "
                    "writer again. Writes pause for the switch; the lasting fix is the cluster endpoint.")
-        common = dict(developers=["Connect writers to the cluster (writer) endpoint, never an instance or -ro endpoint."],
-                      prevention=["A startup check: `SHOW transaction_read_only` must be off for a writer."])
+        common = {"developers": ["Connect writers to the cluster (writer) endpoint, never an instance or -ro endpoint."],
+                  "prevention": ["A startup check: `SHOW transaction_read_only` must be off for a writer."]}
         if failover:
             add("db_pinned_after_failover", "Writes fail after an Aurora failover",
                 f"{failover[:120]} | {ro[:80]}",

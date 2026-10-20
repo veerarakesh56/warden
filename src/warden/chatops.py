@@ -70,7 +70,7 @@ def _post_json(url: str, payload: dict, sink: str) -> Notification:
         return Notification(sink=sink, delivered=200 <= code < 300, detail=f"HTTP {code}")
     except urllib.error.HTTPError as exc:
         return Notification(sink=sink, delivered=False, detail=f"HTTP {exc.code}")
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except OSError as exc:  # URLError and timeouts are OSErrors
         return Notification(sink=sink, delivered=False, detail=f"transport error: {exc}")
 
 
@@ -132,7 +132,7 @@ def _slack_call(method: str, payload: dict, token: str, *, form: bool = False) -
                 time.sleep(min(float(exc.headers.get("Retry-After") or 1), _MAX_RETRY_AFTER_S))
                 continue
             return None, f"HTTP {exc.code}"
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        except (OSError, ValueError) as exc:  # URLError and timeouts are OSErrors
             return None, f"transport error: {type(exc).__name__}"
     return None, "rate limited"
 
