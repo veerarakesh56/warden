@@ -1052,3 +1052,15 @@ def test_the_cloud_read_role_may_only_view_the_cluster():
     assert re.search(r'policy_arn\s+= "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"', block)
     assert "Admin" not in block
     assert '${local.name}-platform-reader"' in tf
+
+
+def test_the_eks_operator_principals_have_their_new_name_and_the_old_one_still_counts():
+    """B24 (2026-10-20): eks_admin_principal_arns is eks_operator_principal_arns; the old variable is still merged in
+    for one release, so a value set under it keeps its access entry."""
+    tf = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "fullstack").glob("*.tf"))
+    assert 'variable "eks_operator_principal_arns" {' in tf
+    old = tf.split('variable "eks_admin_principal_arns" {', 1)[1].split("\n}", 1)[0]
+    assert "Deprecated (B24" in old
+    assert ("for_each      = toset(concat([data.aws_iam_session_context.current.issuer_arn], "
+            "var.eks_operator_principal_arns, var.eks_admin_principal_arns))") in tf
+

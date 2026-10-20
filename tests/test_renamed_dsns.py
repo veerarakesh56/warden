@@ -13,7 +13,7 @@ from test_settings import _FakeSecrets, _FakeSSM
 from warden import aws_stack, settings
 from warden.platforms import db
 
-RENAMES = [("WARDEN_DB_ADMIN_DSN", "WARDEN_DB_TERMINATE_DSN", "db-admin-dsn"),
+RENAMES = [("WARDEN_DB_ADMIN_DSN", "WARDEN_DB_TERMINATE_DSN", "db-terminate-dsn"),  # its slot renamed too (B24)
            ("WARDEN_STACK_DB_WRITER_DSN", "WARDEN_STACK_DB_PRIMARY_RO_DSN", "stack-db-writer-dsn"),
            ("WARDEN_STACK_DB_READER_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN", "stack-db-reader-dsn")]
 
@@ -77,3 +77,26 @@ def test_the_terminate_platform_and_the_stack_reader_read_through_the_alias(monk
     monkeypatch.setenv("WARDEN_STACK_DB_READER_DSN", "postgresql://warden_ro@replica/shop")
     b._read_db(aws_stack._Out(), "WARDEN_STACK_DB_REPLICA_RO_DSN", "reader_", None)
     assert seen == ["postgresql://warden_ro@replica/shop"]
+
+
+def test_the_terminate_dsns_slot_is_renamed_and_the_old_slot_still_reads_for_one_release(monkeypatch, caplog):
+    """B24 (2026-10-20): "admin" out of every name - the slot is db-terminate-dsn, named for its one grant. Where the
+    new slot does not exist yet, db-admin-dsn is read, with a WARNING naming the new one; the new one wins."""
+    _unset(monkeypatch, "WARDEN_DB_ADMIN_DSN", "WARDEN_DB_TERMINATE_DSN")
+    only = frozenset({"WARDEN_DB_TERMINATE_DSN"})
+    old = _FakeSecrets({"warden/dev/db-admin-dsn": "postgresql://old-slot@h/x"})
+    with caplog.at_level(logging.WARNING, logger="warden.settings"):
+        assert settings.load("dev", ssm=_FakeSSM({}), secrets=old, only=only) == ["WARDEN_DB_TERMINATE_DSN"]
+    assert settings.getenv("WARDEN_DB_TERMINATE_DSN") == "postgresql://old-slot@h/x"
+    assert "warden/dev/db-admin-dsn, deprecated: move it to warden/dev/db-terminate-dsn" in caplog.text
+    caplog.clear()
+    _unset(monkeypatch, "WARDEN_DB_TERMINATE_DSN")
+    both = _FakeSecrets({"warden/dev/db-admin-dsn": "postgresql://old-slot@h/x",
+                         "warden/dev/db-terminate-dsn": "postgresql://new-slot@h/x"})
+    with caplog.at_level(logging.WARNING, logger="warden.settings"):
+        assert settings.load("dev", ssm=_FakeSSM({}), secrets=both, only=only) == ["WARDEN_DB_TERMINATE_DSN"]
+    assert settings.getenv("WARDEN_DB_TERMINATE_DSN") == "postgresql://new-slot@h/x"
+    assert caplog.text == ""
+    # The stack's read-only DSNs keep the slots Terraform holds (secrets.tf); only the terminate slot moved.
+    assert settings.secret_id("dev", "WARDEN_STACK_DB_PRIMARY_RO_DSN") == "warden/dev/stack-db-writer-dsn"
+

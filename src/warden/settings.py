@@ -43,7 +43,11 @@ _OLD_NAME = {new: old for old, new in RENAMED.items()}
 # Their Secrets Manager slots keep the old names until terraform/modules/warden-runtime renames them (secrets.tf and
 # iam.tf, owned separately): until then each new name is read from its old slot, so a deployed runtime reads the same
 # secret it read before and its task roles need no change.
-_SLOT = {new: old.lower().removeprefix("warden_").replace("_", "-") for old, new in RENAMED.items()}
+_SLOT = {new: old.lower().removeprefix("warden_").replace("_", "-") for old, new in RENAMED.items()
+         if new != "WARDEN_DB_TERMINATE_DSN"}
+# B24 (2026-10-20, "admin" out of every name): the terminate DSN's slot is db-terminate-dsn - no Terraform holds it, a
+# person sets it. The old slot is still read for one release when the new one does not exist yet, with a WARNING.
+_OLD_SLOT = {"WARDEN_DB_TERMINATE_DSN": "db-admin-dsn"}
 
 LOADABLE = frozenset({
     "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_CHANNEL", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL",
@@ -194,13 +198,24 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
         import boto3  # only when an environment is actually named
 
         secrets = boto3.client("secretsmanager")
-    def fetch(name: str) -> Any:
+    def get(secret: str) -> Any:
         try:
-            return secrets.get_secret_value(SecretId=secret_id(env, name, zone))
+            return secrets.get_secret_value(SecretId=secret)
         except Exception as exc:  # a secret this environment does not have is simply not loaded; others raise
             if _code(exc) == "ResourceNotFoundException":
                 return None
             raise
+
+    def fetch(name: str) -> Any:
+        value = get(secret_id(env, name, zone))
+        if value is None and name in _OLD_SLOT:
+            old = f"warden/{names(env).env}/{_OLD_SLOT[name]}"
+            value = get(old)
+            if value is not None:
+                logging.getLogger("warden.settings").warning(
+                    "%s was read from %s, deprecated: move it to %s (renamed 2026-10-20; the old slot stops being "
+                    "read in the next release)", name, old, secret_id(env, name, zone))
+        return value
 
     if wanted:
         from concurrent.futures import ThreadPoolExecutor
