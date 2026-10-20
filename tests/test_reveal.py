@@ -55,20 +55,27 @@ def test_the_record_links_its_masked_values_and_they_show_by_id_without_a_reveal
     record = page.handle("GET", f"/r/{INC}", cookies=[f"warden_who={cookie}"]).body
     assert f'href="/r/{INC}/masked">Masked values (3)' in record
     shown = _get(page, cookie)
-    assert shown.status == 200 and "&lt;EMAIL_1&gt;" in shown.body and re.search(r"email:[0-9a-f]{12}", shown.body)
-    assert EMAIL not in shown.body and not log.entries(INC, kinds=(reveal.REVEAL,))
-    assert shown.headers["Cache-Control"] == "no-store" and shown.headers["Referrer-Policy"] == "no-referrer"
+    assert shown.status == 200
+    assert "&lt;EMAIL_1&gt;" in shown.body
+    assert re.search(r"email:[0-9a-f]{12}", shown.body)
+    assert EMAIL not in shown.body
+    assert not log.entries(INC, kinds=(reveal.REVEAL,))
+    assert shown.headers["Cache-Control"] == "no-store"
+    assert shown.headers["Referrer-Policy"] == "no-referrer"
     assert "form-action https://" in shown.headers["Content-Security-Policy"]
 
 
 def test_a_reveal_is_recorded_first_and_shows_only_what_was_chosen(site):
     page, log, cookie, member = site
     out = _get(page, cookie, _form(page, cookie))
-    assert out.status == 200 and EMAIL in out.body
+    assert out.status == 200
+    assert EMAIL in out.body
     assert MAPPING["<IPV4_1>"] not in out.body  # not chosen, not shown
     [row] = log.entries(INC, kinds=(reveal.REVEAL,))
-    assert row["body"]["member"] == member and row["body"]["placeholders"] == ["<EMAIL_1>"]
-    assert row["body"]["why"] == "checking which customer the 5xx hit" and EMAIL not in str(row["body"])
+    assert row["body"]["member"] == member
+    assert row["body"]["placeholders"] == ["<EMAIL_1>"]
+    assert row["body"]["why"] == "checking which customer the 5xx hit"
+    assert EMAIL not in str(row["body"])
 
 
 def test_no_row_no_value(site, monkeypatch):
@@ -87,7 +94,9 @@ def test_a_forged_form_reveals_and_records_nothing(site):
     page, log, cookie, _ = site
     forged = urllib.parse.urlencode([("reveal", "1"), ("t", "0" * 32), ("why", "x" * 20), ("p", "<EMAIL_1>")])
     out = _get(page, cookie, forged)
-    assert out.status == 400 and EMAIL not in out.body and not log.entries(INC, kinds=(reveal.REVEAL,))
+    assert out.status == 400
+    assert EMAIL not in out.body
+    assert not log.entries(INC, kinds=(reveal.REVEAL,))
 
 
 @pytest.mark.parametrize("change", [{"why": "short"}, {"p": "<NOPE_1>"}])
@@ -96,7 +105,9 @@ def test_a_reason_and_a_known_value_are_required(site, change):
     query = _form(page, cookie).replace("why=checking", "why=" + change["why"] + "&x=") if "why" in change \
         else _form(page, cookie).replace("p=%3CEMAIL_1%3E", "p=" + urllib.parse.quote(change["p"]))
     out = _get(page, cookie, query)
-    assert out.status == 400 and EMAIL not in out.body and not log.entries(INC, kinds=(reveal.REVEAL,))
+    assert out.status == 400
+    assert EMAIL not in out.body
+    assert not log.entries(INC, kinds=(reveal.REVEAL,))
 
 
 def test_a_pasted_secret_in_the_reason_is_not_kept(site):
@@ -118,7 +129,8 @@ def test_nobody_else_learns_the_incident_or_its_values(site):
     stranger = slack_login.remember(page.slack, OTHER)  # signed in, on no list
     assert _get(page, stranger).status == 403
     signed_out = page.handle("GET", f"/r/{INC}/masked")
-    assert EMAIL not in signed_out.body and "&lt;EMAIL_1&gt;" not in signed_out.body
+    assert EMAIL not in signed_out.body
+    assert "&lt;EMAIL_1&gt;" not in signed_out.body
     assert page.handle("POST", f"/r/{INC}/masked", cookies=[]).status == 404
     assert page.handle("GET", f"/r/{INC}/masked/x", cookies=[]).status == 404
 
@@ -127,7 +139,8 @@ def test_expired_values_are_said_to_be_gone(site):
     page, log, cookie, _ = site
     log.store.run("DELETE FROM vault")
     out = _get(page, cookie, _form(page, cookie))
-    assert out.status == 410 and EMAIL not in out.body
+    assert out.status == 410
+    assert EMAIL not in out.body
 
 
 def test_a_vault_that_will_not_open_shows_nothing_and_says_so(site, monkeypatch):
@@ -135,7 +148,8 @@ def test_a_vault_that_will_not_open_shows_nothing_and_says_so(site, monkeypatch)
     monkeypatch.setattr(vault, "_BUILT", {("alias/warden-ops-vault", "ops"): vault.Vault(
         key="alias/warden-ops-vault", environment="ops", kms=FakeKms("llm"))})  # a role the key refuses
     out = _get(page, cookie, _form(page, cookie))
-    assert out.status == 503 and EMAIL not in out.body
+    assert out.status == 503
+    assert EMAIL not in out.body
     assert log.entries(INC, kinds=(reveal.REFUSED,))
 
 
