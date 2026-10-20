@@ -1871,7 +1871,9 @@ def _conditions_hold(st: dict, topic_arn: str, unknown: bool) -> bool:
     """Do a statement's conditions on aws:SourceArn hold for the topic (others are not read)?"""
     # Each operator by its meaning (audit A-B-L5): `ArnNotEquals` was read as `ArnEquals`, so a Deny of every
     # topic BUT this one denied this one. An operator not understood here gives `unknown`: an Allow it cannot
-    # prove does not allow, and a Deny it cannot read is taken to apply.
+    # prove does not allow, and a Deny it cannot read is taken to apply. The conditions all have to hold, so one
+    # that does not decides first, wherever it is listed (PR 122 review: the unreadable one used to end the reading).
+    undecided = False
     for op, test in (st.get("Condition") or {}).items():
         key = next((k for k in test if k.lower() == "aws:sourcearn"), None)
         if key is None:
@@ -1879,10 +1881,10 @@ def _conditions_hold(st: dict, topic_arn: str, unknown: bool) -> bool:
         values = test[key] if isinstance(test[key], list) else [test[key]]
         ok = _source_arn_holds(op.split(":")[-1].removesuffix("IfExists"), values, topic_arn)
         if ok is None:
-            return unknown
-        if not ok:
+            undecided = True
+        elif not ok:
             return False
-    return True
+    return unknown if undecided else True
 
 
 def _source_arn_holds(base: str, values: list, topic_arn: str) -> bool | None:
