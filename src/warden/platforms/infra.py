@@ -210,3 +210,60 @@ def s3_plan_meta(s3: Callable[[], Any], bucket: str) -> Callable[[str, str], dic
         got = json.loads(body)
         return got if isinstance(got, dict) else None
     return read
+
+
+def _pairs(text: str) -> dict[str, str]:
+    """`env=value[,env=value]`, as WARDEN_EKS_CLUSTERS writes its pairs."""
+    return dict(p.split("=", 1) for p in (x.strip() for x in text.split(",")) if p.count("=") == 1)
+
+
+class PerEnvironment:
+    """One InfraPlatform per watched environment, made when a plan first names it: that environment's state bucket
+    (WARDEN_TF_STATE_BUCKETS, `env=bucket`), read with that environment's platform reader (`reader(env)`, a clients
+    callable). An environment with no bucket configured reads nothing, so every plan of it is refused."""
+
+    def __init__(self, reader: Callable[[str], Callable[[str], Any]], repo: str | None = None,
+                 buckets: str | None = None, opener: Any = urllib.request.urlopen) -> None:
+        self._reader = reader
+        self._repo = (repo if repo is not None else os.environ.get("WARDEN_CHANGE_REPO", "")).strip()
+        self._buckets = _pairs(buckets if buckets is not None else os.environ.get("WARDEN_TF_STATE_BUCKETS", ""))
+        self._open, self._made = opener, {}
+
+    def for_environment(self, environment: str) -> Any:
+        if environment not in self._made:
+            bucket = self._buckets.get(environment, "")
+            if not bucket or not _REPO.fullmatch(self._repo):
+                self._made[environment] = _Unconfigured()
+            else:
+                clients = self._reader(environment)
+                self._made[environment] = InfraPlatform(environment=environment, github=GitHub(self._repo, self._open),
+                                                        plan_meta=s3_plan_meta(lambda: clients("s3"), bucket))
+        return self._made[environment]
+
+    def live(self, entry: str, params: dict[str, Any]) -> dict[str, Any]:
+        return {}  # no environment named: nothing is read
+
+    def knows(self, service: str) -> bool:
+        return False
+
+
+class _Unconfigured:
+    """An environment without a state bucket or repository configured: reads nothing, sends nothing."""
+
+    def live(self, entry: str, params: dict[str, Any]) -> dict[str, Any]:
+        return {}
+
+    def knows(self, service: str) -> bool:
+        return False
+
+    def healthy(self, service: str, entry: str | None = None, params: dict[str, Any] | None = None) -> bool:
+        return False
+
+    def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None,
+              who: dict[str, Any] | None = None) -> str:
+        raise InfraPlatformRefused("this environment has no Terraform state bucket configured (WARDEN_TF_STATE_BUCKETS);"
+                                   " nothing was sent")
+
+    def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any],
+                 who: dict[str, Any] | None = None) -> str:
+        return "nothing to roll back: nothing was applied"

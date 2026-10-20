@@ -216,3 +216,25 @@ def test_the_repository_is_a_plain_name():
     with pytest.raises(InfraPlatformError):
         GitHub("owner/repo/../../x")
     assert GitHub("owner/repo").repo == "owner/repo"
+
+
+def test_each_environment_reads_its_own_state_bucket_and_one_without_reads_nothing():
+    from warden.platforms.infra import PerEnvironment
+
+    asked = []
+
+    def reader(env):
+        asked.append(env)
+        return lambda service: _S3()
+
+    per = PerEnvironment(reader, repo="owner/repo", buckets="dev=tf-dev, prod=tf-prod")
+    dev = per.for_environment("dev")
+    assert isinstance(dev, InfraPlatform)
+    assert dev.workflow == "deploy-dev.yml"
+    assert per.for_environment("dev") is dev
+    assert asked == ["dev"]
+    lonely = per.for_environment("stage")
+    assert lonely.live(ENTRY, {"stack": "fullstack"}) == {}
+    with pytest.raises(InfraPlatformRefused):
+        lonely.apply(ENTRY, {}, who=WHO)
+    assert PerEnvironment(reader, repo="", buckets="dev=tf-dev").for_environment("dev").live(ENTRY, {}) == {}
