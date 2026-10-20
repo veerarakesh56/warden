@@ -299,6 +299,20 @@ def _send(log: AuditLog, incident: str, report: Any) -> list[Any]:
     return sent
 
 
+def _redacted(value: Any, mapping: dict[str, str] | None = None) -> Any:
+    """Every string in `value` redacted, its shape kept; one mapping, so one value gets one placeholder throughout."""
+    from .redaction import redact
+
+    mapping = {} if mapping is None else mapping
+    if isinstance(value, str):
+        return redact(value, mapping=mapping).text
+    if isinstance(value, list):
+        return [_redacted(v, mapping) for v in value]
+    if isinstance(value, dict):
+        return {k: _redacted(v, mapping) for k, v in value.items()}
+    return value
+
+
 class RemediationActivities:
     def __init__(self, *, audit: AuditLog, policy: approvals.ApproverPolicy, platform: Platform,
                  limits: bounds.Limits = bounds.DEFAULT_LIMITS, changes: Any = None) -> None:
@@ -349,6 +363,7 @@ class RemediationActivities:
             got = {"checked": False, "denied": [], "unconfirmed": [f"the check failed: {_safe_error(exc)}"]}
         if got is None:  # a platform with no such check (Kubernetes, a database, a test's): nothing to record
             return []
+        got = _redacted(got)  # an error's text may name an account or a resource the record must not keep
         self.audit.append(req.incident_id, "remediation.permissions", {"workflow_id": workflow_id, "run_id": _run_id(),
                                                                        "entry": req.entry, **got})
         return [str(d) for d in got.get("denied") or []]

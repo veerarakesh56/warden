@@ -4,6 +4,8 @@ entry's own write code, which sends nothing while traced."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from test_apply_reverifies import _acts
@@ -228,3 +230,39 @@ def test_a_simulator_that_cannot_be_read_is_unconfirmed_not_refused(aws):
     assert got["checked"] is False
     assert got["denied"] == []
     assert got["unconfirmed"] == ["the policy simulator could not be read: connection reset"]
+
+
+@pytest.mark.parametrize(("forward", "undo", "rules"), [
+    ("ec2:RevokeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupIngress", True),
+    ("ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupEgress", False)],
+    ids=["revoke-undone-by-authorize", "authorize-undone-by-revoke"])
+def test_a_security_group_undo_is_checked_on_the_resources_it_writes(forward, undo, rules):
+    group = f"arn:aws:ec2:test-region-1:{ACCT}:security-group/sg-0123456789abcdef0"
+    rule = f"arn:aws:ec2:test-region-1:{ACCT}:security-group-rule/*"
+    applied = [{"actions": [forward], "resources": sorted([group, *([] if rules else [rule])]), "condition": {}}]
+    [back] = permits.undo_sessions("ec2_revert_sg_change", applied)
+    assert back["actions"] == [undo]
+    assert back["resources"] == sorted([group, *([rule] if rules else [])])
+
+
+def test_an_answer_with_more_pages_than_read_is_unconfirmed_not_checked(aws):
+    class Endless(Iam):
+        def simulate_principal_policy(self, **kw):
+            self.asked.append(kw)
+            return {"EvaluationResults": [], "IsTruncated": True, "Marker": "more"}
+
+    f, p = aws
+    got = _rule(f, p, Endless())
+    assert got["checked"] is False
+    assert got["denied"] == []
+    assert "more pages than WARDEN reads" in got["unconfirmed"][0]
+
+
+def test_the_row_keeps_no_arn_an_error_named():
+    acts, platform, _ = _acts()
+
+    platform.permitted = lambda *a, **k: {"checked": False, "denied": [], "unconfirmed": [
+        f"the policy simulator could not be read: AccessDenied for arn:aws:iam::{ACCT}:role/warden-dev-actor"]}
+    acts.resolve_plan(FixRequest(**REQ), "rem-1")
+    [row] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.permissions",))
+    assert ACCT not in json.dumps(row["body"])

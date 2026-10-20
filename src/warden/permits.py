@@ -27,6 +27,7 @@ from collections.abc import Callable
 from typing import Any
 
 from . import identity
+from .observability import _safe_error
 
 ALLOWED = "allowed"
 DENIED = "ACTOR-PERMISSION"
@@ -118,8 +119,19 @@ def undo_sessions(entry: str, sessions: list[dict[str, Any]]) -> list[dict[str, 
     out = []
     for s in sessions:
         acts = sorted({u for a in s["actions"] for u in swap.get(a, (a,))})
-        out.append({**s, "actions": acts})
+        out.append({**s, "actions": acts, "resources": _undo_resources(entry, acts, s["resources"])})
     return out
+
+
+def _undo_resources(entry: str, actions: list[str], resources: list[str]) -> list[str]:
+    """The undo's resources. The same as the apply's, except a security group change: an authorize is checked on the
+    group and the rule it creates (`security-group-rule/*`, as aws._sg_revert asks), a revoke on the group only."""
+    if entry != "ec2_revert_sg_change":
+        return list(resources)
+    groups = [r for r in resources if ":security-group/" in r]
+    rules = [f"{g.rsplit(':', 1)[0]}:security-group-rule/*" for g in groups
+             if any(a.startswith("ec2:AuthorizeSecurityGroup") for a in actions)]
+    return sorted({*groups, *rules})
 
 
 def actor_role_arn(environment: str) -> str:
@@ -148,8 +160,9 @@ def _results(iam: Any, role: str, session: dict[str, Any], context: list[dict[st
         out += got.get("EvaluationResults") or []
         marker = got.get("Marker") if got.get("IsTruncated") else None
         if not marker:
-            break
-    return out
+            return out
+    # A denial on a page not read would be lost: an answer read in part is an answer not read.
+    raise RuntimeError("the simulator's answer had more pages than WARDEN reads")
 
 
 def _resource(arn: str) -> str:
@@ -195,7 +208,7 @@ def check(entry: str, *, run: Callable[[Callable[..., Any]], Any], iam: Callable
     try:
         applies = trace(run)
     except RuntimeError as exc:  # the write code refused (AwsPlatform._change raises only its own errors)
-        record["unconfirmed"].append(f"the fix's calls could not be traced: {str(exc)[:200]}")
+        record["unconfirmed"].append(f"the fix's calls could not be traced: {_safe_error(exc)}")
         return record
     if not applies:
         record["unconfirmed"].append("the fix asked for no actor session before its first call; nothing to check")
@@ -209,7 +222,7 @@ def check(entry: str, *, run: Callable[[Callable[..., Any]], Any], iam: Callable
                     for v in _verdicts(_results(client, role, s, _context(incident, environment, env_tag,
                                                                          s["condition"])))]
     except _aws_errors() as exc:
-        record["unconfirmed"].append(f"the policy simulator could not be read: {str(exc)[:200]}")
+        record["unconfirmed"].append(f"the policy simulator could not be read: {_safe_error(exc)}")
         return record
     seen: set[tuple[str, str, str]] = set()
     for step, (action, resource, decision, missing) in verdicts:
