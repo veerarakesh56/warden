@@ -114,9 +114,9 @@ def test_grafana_traces_lines_in_order():
         "GRAFANA trace checkout 2026-10-17T11:59:30.000Z ? duration_ms=? failed_in=postgres",
         "GRAFANA trace checkout 1970-01-01T00:00:00.000Z x duration_ms=5 failed_in=checkout",
         "GRAFANA trace checkout 2026-10-17T11:59:50.000Z ? duration_ms=? failed_in=checkout"]
-    # Three dependencies each failing once: their order among equals follows a set's, so compared as a set.
-    assert set(lines[4:7]) == {f"GRAFANA dependency checkout -> {p}: failing in 1 of 4 failed traces read"
-                               for p in ("redis.internal", "payments", "postgres")}
+    # Three dependencies each failing once: among equals, the order they were first seen in (PR 94 review).
+    assert lines[4:7] == [f"GRAFANA dependency checkout -> {p}: failing in 1 of 4 failed traces read"
+                          for p in ("payments", "redis.internal", "postgres")]
     assert lines[7:] == [
         ("TOOL-PARTIAL grafana traces: no failed traces for cart between 2026-10-17T11:45:00.000Z and "
          "2026-10-17T12:15:00.000Z (late, not instrumented, or none) - not a sign of health"),
