@@ -231,7 +231,7 @@ class ApproverPolicy(BaseModel):
         """Register R10: an AI approver's key is its own - never a person's, so no approval of a person's can pass for
         Eldane's, and no Eldane approval for a person's."""
         for name, entry in self.approvers.items():
-            if entry.ai and any(o.public_key.strip() == entry.public_key.strip()
+            if entry.ai and any(same_public_key(o.public_key, entry.public_key)
                                 for other, o in self.approvers.items() if other != name):
                 raise ValueError(f"the AI approver {name!r} shares its public key with another approver")
         return self
@@ -285,6 +285,22 @@ class ApproverPolicy(BaseModel):
             return None
         key = serialization.load_pem_public_key(approver.public_key.encode())
         return key if isinstance(key, Ed25519PublicKey) else None
+
+
+def _key_bytes(pem: str) -> bytes:
+    """A public key as its bytes (SubjectPublicKeyInfo DER), however its PEM is wrapped or spaced; text that is not a
+    key is compared as written."""
+    try:
+        key = serialization.load_pem_public_key(pem.strip().encode())
+    except ValueError:
+        return pem.strip().encode()
+    return key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
+def same_public_key(a: str, b: str) -> bool:
+    """Whether two PEM texts hold the same public key (CodeRabbit, PR 42: compared as text, a re-wrapped copy of a
+    person's key passed as the AI approver's own)."""
+    return _key_bytes(a) == _key_bytes(b)
 
 
 def deny_request(approver: str, workflow_id: str, plan_hash: str, reason: str, issued_at: str) -> bytes:

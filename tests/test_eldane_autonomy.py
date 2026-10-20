@@ -280,6 +280,12 @@ def test_an_ai_approver_is_bounded_and_always_said_to_be_an_ai(world):
                "eldane": approvals.Approver(public_key=owner_pem, tiers=["T1"], environments=["dev"], ai=True)}
     with pytest.raises(ValueError, match="shares its public key"):
         approvals.ApproverPolicy(approvers=sharing)
+    # The same key, wrapped differently (CRLF line ends, no trailing newline): still the same key (CodeRabbit, PR 42).
+    rewrapped = owner_pem.strip().replace("\n", "\r\n")
+    assert rewrapped != owner_pem.strip()
+    sharing["eldane"] = approvals.Approver(public_key=rewrapped, tiers=["T1"], environments=["dev"], ai=True)
+    with pytest.raises(ValueError, match="shares its public key"):
+        approvals.ApproverPolicy(approvers=sharing)
     assert world["policy"].shown("eldane") == approvals.AI_LABEL == "Eldane · AI critic"
 
 
@@ -344,11 +350,11 @@ REQ = {"incident_id": INC, "entry": "k8s_rollout_undo", "service": "orders", "en
 
 
 class Platform:
-    def __init__(self):
-        self.applied = []
+    def __init__(self, environment="dev"):
+        self.applied, self.environment = [], environment
 
     def live(self, entry, params):
-        return {"namespace": {"shop"}, "deployment": {"orders"}, "to_revision": {"6"}, "environment": "dev",
+        return {"namespace": {"shop"}, "deployment": {"orders"}, "to_revision": {"6"}, "environment": self.environment,
                 "state": {"revision": "7"}}
 
     def apply(self, entry, params):
@@ -362,17 +368,17 @@ class Platform:
         return "restored"
 
 
-def _run(world, drive):
+def _run(world, drive, **req):
     async def main():
         env = await WorkflowEnvironment.start_time_skipping(data_converter=CONVERTER)
         acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"],
                                      critic=world["critic"])
         methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
                    acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert,
-                   acts.side_effects, acts.critic_review]
+                   acts.side_effects, acts.critic_review, acts.autonomy_state]
         async with env, Worker(env.client, task_queue="eldane-test", workflows=[RemediationWorkflow],
                                activities=methods, activity_executor=ThreadPoolExecutor(4)):
-            handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**REQ),
+            handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**{**REQ, **req}),
                                                      id=f"rem-{uuid.uuid4()}", task_queue="eldane-test")
             await drive(handle)
             return await handle.result()
@@ -708,3 +714,28 @@ def test_a_skipped_review_is_never_a_model_change(world):
     log.append(INC, autonomy.VERDICT, {"environment": "dev", "entry": "k8s_rollout_undo", "agree": True,
                                        "models": {**models, "critic": "anthropic/claude-other@x"}})
     assert any("changed" in why for _, why in autonomy.demotions(log, "dev"))
+
+
+def test_where_eldane_cannot_approve_the_person_is_asked_before_it_reviews(world):
+    """CodeRabbit, PR 42 (outside the diff): in prod the request waited for Eldane's review - up to eight minutes -
+    though Eldane can never approve there. The person is asked first; the review follows, in shadow."""
+    world["platform"] = Platform(environment="prod")
+
+    async def person_says_no(handle):
+        for _ in range(400):
+            if await handle.query(RemediationWorkflow.stage) == "awaiting_approval":
+                break
+            await asyncio.sleep(0.05)
+        plan = await handle.query(RemediationWorkflow.plan)
+        await handle.signal(RemediationWorkflow.deny, approvals.Denial(approver="owner", workflow_id=handle.id,
+                                                                       plan_hash=plan.plan_hash, reason="not now"))
+
+    out = _run(world, person_says_no, environment="prod")
+    assert out.status == "denied"
+    log = world["log"]
+    opening = [e["seq"] for e in log.entries(INC, kinds=("remediation.announce",)) if e["body"]["what"] == "opening"]
+    reviewed = [e["seq"] for e in log.entries(INC, kinds=(autonomy.VERDICT,))]
+    assert opening
+    assert reviewed
+    assert opening[0] < reviewed[0]
+    assert not [e for e in log.entries(INC, kinds=("approval.accepted",)) if e["body"].get("ai")]

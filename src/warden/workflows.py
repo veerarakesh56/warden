@@ -40,7 +40,7 @@ with workflow.unsafe.imports_passed_through():
         RemediationActivities,
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
-    from .autonomy import VETO
+    from .autonomy import L2, VETO
     from .catalog import MITIGATES
     from .discuss import (
         ELSEWHERE,
@@ -71,9 +71,12 @@ NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": Retry
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
 # Eldane's review: two model calls and perhaps a catch trial, once. A critic zone that is not running holds nobody up
-# for long: unstarted within two minutes, the plan goes to a person as before.
-CRITIC = {"schedule_to_start_timeout": timedelta(minutes=2), "start_to_close_timeout": timedelta(minutes=6),
+# (CodeRabbit, PR 42): unstarted within 30 seconds, or not done in four minutes, the plan goes to a person as before.
+CRITIC = {"schedule_to_start_timeout": timedelta(seconds=30), "start_to_close_timeout": timedelta(minutes=4),
           "retry_policy": RetryPolicy(maximum_attempts=1)}
+# Whether Eldane may approve here at all (the environment's autonomy ceiling), asked once: no answer is "no", and the
+# person is asked first, as everywhere Eldane cannot approve.
+CEILING = {"start_to_close_timeout": timedelta(seconds=30), "retry_policy": RetryPolicy(maximum_attempts=1)}
 # Register S15, the trust zones: each activity runs where its credentials are. The read zone holds the watched
 # environments' readers, the llm zone the model, the notify zone the paging, chat and change-record secrets (and so a
 # run's end, which resolves its page and records the change), the act zone the actors;
@@ -276,12 +279,25 @@ class RemediationWorkflow:
         # Eldane, the AI critic (owner, 2026-10-16), after the gate: it can only add a "no". It reviews the plan in its
         # own zone; where the plan's class is at L2 (autonomy.py; dev, not demoted) its signed approval comes back and is
         # checked like any other approval. Anything else, or no answer in time, and a person decides as before.
+        opened = False
         if workflow.patched("eldane-critic"):
+            # Where Eldane can never approve (prod, or an environment with no L2 ceiling) the person is asked first,
+            # and the review - shadow, scored - follows: it never holds the request back (CodeRabbit, PR 42).
+            may_approve = False
+            with contextlib.suppress(ActivityError):
+                state = await workflow.execute_activity_method(acts.autonomy_state, args=[req.environment],
+                                                               **CEILING)
+                may_approve = state.get("ceiling") == L2
+            if not may_approve and workflow.patched("h6-links"):
+                with contextlib.suppress(ActivityError):
+                    await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "opening"],
+                                                           **NOTIFY)
+                opened = True
             offered = None
             with contextlib.suppress(ActivityError):
                 offered = await workflow.execute_activity_method(acts.critic_review, **_zoned(acts.critic_review),
                                                                  args=[plan], **CRITIC)
-            if isinstance(offered, SignedApproval):
+            if may_approve and isinstance(offered, SignedApproval):
                 result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
                                                                 args=[plan, offered, []], **QUICK)
                 if not result.problems:
@@ -303,7 +319,7 @@ class RemediationWorkflow:
         # Registers H6/R28: the approvers are told as the wait starts - with the approval links when the runtime has an
         # approval domain - not only at the halfway reminder. Sent before the stage reads "awaiting_approval", so
         # whoever sees the plan waiting can already have its links.
-        if not auto and workflow.patched("h6-links"):
+        if not auto and not opened and workflow.patched("h6-links"):
             with contextlib.suppress(ActivityError):
                 await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "opening"], **NOTIFY)
         self._stage = "awaiting_approval"
