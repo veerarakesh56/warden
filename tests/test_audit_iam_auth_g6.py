@@ -76,6 +76,8 @@ def test_the_migrate_lambda_reads_the_master_secret_and_makes_the_writer(fakes, 
     monkeypatch.setenv("WARDEN_AUDIT_DB", "warden_audit")
     monkeypatch.delenv("WARDEN_AUDIT_IAM_AUTH", raising=False)
     assert lambdas.migrate({}) == {"migrated": True, "writer": "warden_audit_writer"}
-    ((dsn, _),) = fakes["connect"]
-    assert "user=warden_admin" in dsn and "sslmode=require" in dsn and "host=db.example" in dsn
-    assert any("GRANT rds_iam TO warden_audit_writer" in q for q in fakes["sql"])
+    (dsn, _), (vault_dsn, _) = fakes["connect"]  # the audit's tables, then the sealed vault's (vault.migrate)
+    assert "user=warden_admin" in dsn and "sslmode=require" in dsn and "host=db.example" in dsn and vault_dsn == dsn
+    said = [q if isinstance(q, str) else q.as_string() for q in fakes["sql"]]
+    assert any("GRANT rds_iam TO warden_audit_writer" in q for q in said)
+    assert 'GRANT SELECT, INSERT, DELETE ON vault TO "warden_audit_writer"' in said
