@@ -15,7 +15,7 @@ SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden"
 
 # Every module that fetches text from outside WARDEN. A new one is a reviewed change: whatever it reads is untrusted,
 # and must reach the model, if at all, only through the quarantine and the tripwire.
-FETCHERS = {"aws_docs.py", "aws_stack.py", "changes.py", "chatops.py", "datadog.py", "discuss.py", "grafana.py",
+FETCHERS = {"aws_docs.py", "aws_stack.py", "awswatch.py", "changes.py", "chatops.py", "datadog.py", "discuss.py", "grafana.py",
             "slack_login.py", "timeline.py", "webhooks.py"}
 
 

@@ -195,8 +195,26 @@ def _submit(events: list[AlarmEvent]) -> list[dict[str, Any]]:
     return asyncio.run(go())
 
 
+def _record_notice(notice: dict[str, Any]) -> dict[str, Any]:
+    """An AWS Health scheduled change on the record for the AWS updates watch's next digest (awswatch.py): no
+    incident, no Temporal call."""
+    from . import runtime
+    from .awswatch import HEALTH_ID
+
+    log = runtime.open_audit()
+    try:
+        log.append(HEALTH_ID, "awswatch.health", notice)
+    finally:
+        log.close()
+    return {"recorded": "an AWS Health scheduled change, for the AWS updates digest", "id": notice["id"]}
+
+
 def alarm(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     _configure("lambda-alarm")
+    from .awswatch import health_notice
+
+    if (notice := health_notice(event)) is not None:  # AWS's planned change: weighed by the watch, never an incident
+        return _record_notice(notice)
     env = os.environ.get("WARDEN_ENV", "")
     from .security_findings import finding_event
 
