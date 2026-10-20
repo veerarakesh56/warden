@@ -26,6 +26,8 @@ from typing import Any
 
 from .grafana import PARTIAL, _alert_time, _iso
 from .models import Alert
+from .read_errors import READ_ERRORS
+from .tools import ToolError
 
 LOOKBACK = timedelta(minutes=15)
 PERIOD_S = 60
@@ -34,6 +36,7 @@ LIST_PAGES = 2
 PAGE_SIZE = 100
 MAX_METRICS = 40
 MAX_LINES = 6
+NOT_HEADROOM = "not a sign of headroom"
 NEAR = 0.8  # a quota at 80% or more of its value is named as near its limit
 
 # The Service Quotas service code of each resource label WARDEN reads (resources.py), most specific first. An ECS service
@@ -96,7 +99,7 @@ class QuotaReader:
         try:
             made = self._clients(alert)
             quotas_client, cloudwatch = made["service-quotas"], made["cloudwatch"]
-        except Exception as exc:  # noqa: BLE001 - no client is a read that did not happen, never headroom
+        except (*READ_ERRORS, ToolError) as exc:  # no client (the reader role refused) is a read that did not happen
             return [f"{PARTIAL}quotas: {type(exc).__name__} - not read"]
         out: list[str] = []
         listed: list[tuple[str, dict[str, Any]]] = []
@@ -105,73 +108,96 @@ class QuotaReader:
             if problem:
                 out.append(problem)
             listed += [(code, q) for q in got]
-        return out + self._usage(cloudwatch, alert, listed)
+        return out + self._usage(cloudwatch, alert, listed, len(codes))
 
-    def traces(self, alert: Alert) -> list[str]:
+    def traces(self, _alert: Alert) -> list[str]:
         return []
 
-    def metrics(self, alert: Alert) -> dict[str, float]:
+    def metrics(self, _alert: Alert) -> dict[str, float]:
         return {}
 
     @staticmethod
     def _list(client: Any, code: str) -> tuple[list[dict[str, Any]], str]:
-        """The service's quotas that have a usage metric, up to LIST_PAGES pages."""
+        """The service's quotas that have a usage metric, up to LIST_PAGES pages; more than that is said."""
         quotas: list[dict[str, Any]] = []
         token = ""
         for _ in range(LIST_PAGES):
             try:
                 page = client.list_service_quotas(ServiceCode=code, MaxResults=PAGE_SIZE,
                                                   **({"NextToken": token} if token else {}))
-            except Exception as exc:  # noqa: BLE001 - one service unread never hides another
+            except READ_ERRORS as exc:  # one service unread never hides another
                 return quotas, f"{PARTIAL}quotas {code}: {type(exc).__name__} - not read"
             quotas += [q for q in page.get("Quotas") or [] if q.get("UsageMetric")]
             token = str(page.get("NextToken") or "")
             if not token:
-                break
-        return quotas, ""
+                return quotas, ""
+        return quotas, f"{PARTIAL}quotas {code}: more than {LIST_PAGES} pages of quotas - the rest not read"
 
-    def _usage(self, cloudwatch: Any, alert: Alert, listed: list[tuple[str, dict[str, Any]]]) -> list[str]:
-        """Each comparable quota's peak usage around the alarm, as a share of its value: the closest first."""
-        at = _alert_time(alert)
-        start, end = (at - LOOKBACK).replace(second=0, microsecond=0), at + LOOKBACK
+    @staticmethod
+    def _queries(listed: list[tuple[str, dict[str, Any]]], services: int) -> tuple[dict, list, int]:
+        """The usage metrics to read: each service's comparable quotas, in a fair share of MAX_METRICS each (one
+        service never takes every slot), and how many comparable quotas did not fit."""
+        share = max(1, MAX_METRICS // max(1, services))
+        taken: dict[str, int] = {}
         asked: dict[str, tuple[str, dict[str, Any]]] = {}
-        queries = []
+        queries: list[dict[str, Any]] = []
+        skipped = 0
         for code, q in listed:
-            stat = _metric(q)
-            value = q.get("Value")
-            if stat is None or not isinstance(value, int | float) or value <= 0 or len(queries) >= MAX_METRICS:
+            stat, value = _metric(q), q.get("Value")
+            if stat is None or not isinstance(value, int | float) or value <= 0:
                 continue
+            if taken.get(code, 0) >= share:
+                skipped += 1
+                continue
+            taken[code] = taken.get(code, 0) + 1
             qid = f"q{len(queries)}"
             asked[qid] = (code, q)
             queries.append({"Id": qid, "MetricStat": stat, "ReturnData": True})
-        if not queries:
+        return asked, queries, skipped
+
+    def _usage(self, cloudwatch: Any, alert: Alert, listed: list[tuple[str, dict[str, Any]]],
+               services: int) -> list[str]:
+        """Each comparable quota's peak usage around the alarm, as a share of its value: the closest first."""
+        at = _alert_time(alert)
+        start, end = (at - LOOKBACK).replace(second=0, microsecond=0), at + LOOKBACK
+        window = f"between {_iso(start)} and {_iso(end)}"
+        asked, queries, skipped = self._queries(listed, services)
+        over = f"{skipped} comparable quotas over the {MAX_METRICS}-metric bound not read"
+        notes = [f"{PARTIAL}quotas usage: {over} - {NOT_HEADROOM}"] if skipped else []
+        if not queries:  # nothing comparable at all (a skipped quota needs a query before it)
             if not listed:
                 return []
-            services = ", ".join(sorted({c for c, _ in listed}))
-            said = f"no quota of {services} has a count usage metric to compare - not a sign of headroom"
-            return [f"{PARTIAL}quotas: {said}"]
+            names = ", ".join(sorted({c for c, _ in listed}))
+            return [f"{PARTIAL}quotas: no quota of {names} has a count usage metric to compare - {NOT_HEADROOM}"]
         try:
             got = cloudwatch.get_metric_data(MetricDataQueries=queries, StartTime=start, EndTime=end,
                                              ScanBy="TimestampDescending")
-        except Exception as exc:  # noqa: BLE001
-            return [f"{PARTIAL}quotas usage: {type(exc).__name__} - not read"]
-        rows = []
-        for result in got.get("MetricDataResults") or []:
-            code, q = asked.get(str(result.get("Id")), ("", {}))
-            values = [float(v) for v in result.get("Values") or []]
-            if q and values:
-                peak, value = max(values), float(q["Value"])
-                rows.append((peak / value, code, q, peak, value))
+        except READ_ERRORS as exc:  # an unread usage metric is unknown, never headroom
+            return [f"{PARTIAL}quotas usage: {type(exc).__name__} - not read", *notes]
+        rows = _shares(got, asked)
+        lines = [_line(row, window) for row in rows[:MAX_LINES]]
         unread = len(asked) - len(rows)  # no data, or no result at all: unread either way
-        rows.sort(key=lambda r: (-r[0], r[1], str(r[2].get("QuotaCode"))))
-        lines = []
-        for share, code, q, peak, value in rows[:MAX_LINES]:
-            quota_code = str(q.get("QuotaCode") or "")
-            name = _TEXT.sub("", str(q.get("QuotaName") or ""))[:80].strip() or "unnamed"
-            lines.append(f"STATE quota {code} {quota_code if _CODE.match(quota_code) else '?'} ({name}) "
-                         f"value={value:g} usage_max={peak:g} used={round(share * 100)}%"
-                         f"{' near_limit' if share >= NEAR else ''} between {_iso(start)} and {_iso(end)}")
         if unread:
-            lines.append(f"{PARTIAL}quotas usage: {unread} of {len(asked)} usage metrics had no data between "
-                         f"{_iso(start)} and {_iso(end)} - not a sign of headroom")
-        return lines
+            lines.append(f"{PARTIAL}quotas usage: {unread} of {len(asked)} usage metrics had no data {window} - "
+                         f"{NOT_HEADROOM}")
+        return lines + notes
+
+
+def _shares(got: dict[str, Any], asked: dict[str, tuple[str, dict[str, Any]]]) -> list[tuple]:
+    """(share used, service, quota, peak, value) for each metric that answered, the closest to its limit first."""
+    rows = []
+    for result in got.get("MetricDataResults") or []:
+        code, q = asked.get(str(result.get("Id")), ("", {}))
+        values = [float(v) for v in result.get("Values") or []]
+        if q and values:
+            peak, value = max(values), float(q["Value"])
+            rows.append((peak / value, code, q, peak, value))
+    return sorted(rows, key=lambda r: (-r[0], r[1], str(r[2].get("QuotaCode"))))
+
+
+def _line(row: tuple, window: str) -> str:
+    share, code, q, peak, value = row
+    quota_code = str(q.get("QuotaCode") or "")
+    name = _TEXT.sub("", str(q.get("QuotaName") or ""))[:80].strip() or "unnamed"
+    return (f"STATE quota {code} {quota_code if _CODE.match(quota_code) else '?'} ({name}) value={value:g} "
+            f"usage_max={peak:g} used={round(share * 100)}%{' near_limit' if share >= NEAR else ''} {window}")
