@@ -47,6 +47,12 @@ def test_n_is_configurable_and_bounded(monkeypatch, raw, n):
     assert symptom.periods() == n
 
 
+def test_the_runtime_can_be_told_n():
+    from warden import settings
+
+    assert "WARDEN_SYMPTOM_PERIODS" in settings.LOADABLE
+
+
 def test_a_new_error_class_is_one_not_seen_before_the_fix():
     before = ["ERROR botocore.exceptions.ClientError: ThrottlingException", "Task timed out"]
     after = ["ClientError again", "psycopg.errors.UniqueViolation", "KeyError: 'sku'", "ValueError: bad",
