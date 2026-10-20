@@ -335,6 +335,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   recorded answers, off unless configured), and `xray.py` (X-Ray's trace summaries with its own root causes, in
   the incident's reader role - the apps' traces sent there with OpenTelemetry). Each is a few reads; their vendors' agents and SDKs write
   telemetry, which WARDEN only reads. Datadog's own agent is adopted to send the test stack's telemetry in.
+- Service quotas as evidence: built - `quotas.py` (B14, 2026-10-17): Service Quotas' ListServiceQuotas and each quota's
+  own usage metric through GetMetricData, in the incident's reader role. AWS's own quota-monitor solution and Trusted
+  Advisor alarm on quotas; neither answers "was this service at its limit when this alarm fired". The failures a cloud
+  read can end in, as one tuple to catch - `read_errors.py`.
 - WARDEN's records pages: built - `records.py`, two server-rendered pages read from the signed audit, on the
   approval page's own domain, sign-in and Content-Security-Policy. A dashboard product (Grafana, Backstage) would be
   a second service to run and secure, reading a copy of the record; the record already holds every fact.

@@ -254,7 +254,7 @@ def test_through_gather_a_quota_line_reaches_the_evidence_and_a_failed_one_is_be
 
 
 def test_the_reader_roles_grant_every_call_it_makes():
-    """The runtime's reader role (iam/templates/platform-*.json) and the harness's (terraform/fullstack/reader.tf):
+    """The runtime's reader role (iam/templates/platform-*.json) and the harness reader role's (fullstack reader.tf, held to the code by test_aws_stack.py):
     a quota read the role cannot make would be denied in every incident."""
     import reader_iam
     from test_aws_stack import _granted, _quota_calls
