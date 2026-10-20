@@ -1,11 +1,20 @@
 """Running WARDEN on Temporal: connect, run a worker, read a workflow's state, approve a plan.
 
 Configuration, all from the environment (SSM in the cloud through settings.py):
-- WARDEN_TEMPORAL_ADDRESS   the Temporal server, default 127.0.0.1:7233 (the local dev server)
-- WARDEN_TEMPORAL_NAMESPACE the namespace, default `default`
+- WARDEN_TEMPORAL_ADDRESS   the Temporal server, default 127.0.0.1:7233 (the local dev server). Any server off this
+                            machine must be the namespace's own Temporal Cloud endpoint,
+                            <name>.<account>.tmprl.cloud:7233: the API key goes nowhere else (B23,
+                            runtime_base.only_the_namespace_endpoint - the code's check; the security group allows
+                            port 7233 to any address, since naming a host there costs money).
+- WARDEN_TEMPORAL_NAMESPACE the namespace, default `default`; `name.account` for Temporal Cloud
 - WARDEN_TEMPORAL_API_KEY   the API key of this worker's service account (Temporal Cloud, decision D2; a Secrets
                             Manager secret, one service account per trust zone - register S15). Required for any
                             server that is not on this machine: an unauthenticated remote connection is refused.
+                            The three front-door Lambdas (alarm, alertmanager, approval) share one key,
+                            warden/<env>/temporal-api-key (owner, 2026-10-20: a key per Lambda is a Secrets Manager
+                            slot each, about USD 0.40 a month). To split them: a service account and a slot
+                            temporal-api-key-<lambda> each (secrets.tf), the Lambdas in settings.PER_ZONE's naming,
+                            each role reading its own slot (iam.tf front_door_access).
 - WARDEN_TEMPORAL_KEY       payload encryption key (codec.py); required
 - WARDEN_AUDIT_DB           the audit log, default ~/.warden/audit.db
 - WARDEN_AUDIT_KEY          the audit signing key (PEM; passphrase WARDEN_AUDIT_KEY_PASSPHRASE)
