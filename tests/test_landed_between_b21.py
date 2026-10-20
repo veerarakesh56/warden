@@ -218,12 +218,13 @@ def test_a_github_list_is_read_page_by_page_and_one_longer_than_read_is_unknown(
 
 
 def test_what_landed_is_kept_and_said_redacted():
-    actor = "arn:aws:sts::000000000000:assumed-role/deployer/ci"
+    account = "0" * 12  # built from parts: no account id in the repository
+    actor = f"arn:aws:sts::{account}:assumed-role/deployer/ci"
     event = {"at": APPLIED + timedelta(minutes=1), "source": "cloudtrail", "what": "UpdateService on orders",
              "who": actor}
     found, unread = _since(_trail(event))
-    assert "000000000000" not in json.dumps(landed.shown(found))
-    assert "000000000000" not in landed.said(found, unread)
+    assert account not in json.dumps(landed.shown(found))
+    assert account not in landed.said(found, unread)
 
 
 def test_a_target_whose_platform_reads_no_trail_says_so():
