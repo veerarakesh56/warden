@@ -1,0 +1,23 @@
+# The code gate's limits (code_gate.py, register B4): what a change WARDEN writes as a pull request may touch, and how
+# big it may be. The gate's refusals (CODEOWNERS, workflows and CI configuration, IAM, secrets, dependency manifests,
+# WARDEN's own code and this file) are code, not data: no edit here can let one in. Whether an environment gets code
+# fixes at all is `code_fix: off | propose | auto` in environments.yaml (the prod tier never `auto`).
+version: 1
+
+# Lines added plus lines removed, over the whole change. A revert restores code that ran before, so it may be larger
+# than a new fix; each at most 400 (validated at load).
+max_changed_lines: 60
+max_revert_lines: 200
+# Files the change touches, test files included (at most 20).
+max_files: 6
+
+# The only paths a change may touch: the watched applications' code and the tests beside it (`*` stays inside one
+# folder; `**/` crosses folders). Everything else - a path no glob names - is refused.
+allowed_paths:
+  - scenarios/fullstack/app/*.py
+  - scenarios/fullstack/lambdas/**/*.py
+  - tests/test_*.py
+
+# Which allowed paths are tests. A fix must add one (rule CG8); a fix may not remove an assertion or a test from one.
+test_paths:
+  - tests/test_*.py
