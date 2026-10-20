@@ -166,18 +166,30 @@ def _sg_parse(raw: dict[str, Any], group: str) -> dict[str, Any] | None:
     response = d.get("responseElements")
     field = "revokedSecurityGroupRuleSet" if kind == "revoke" else "securityGroupRuleSet"
     items = _items(_get(response, field)) if isinstance(response, dict) else []
+    who = _trail_who(d)
+    at, event_time = _trail_at(raw, d)
+    return {"event": str(raw.get("EventId") or d.get("eventID") or ""), "event_name": name, "kind": kind,
+            "egress": name.endswith("Egress"), "at": at, "event_time": event_time,
+            "rules": sorted((_sg_rule_key(i) for i in items), key=json.dumps), "rule_ids": sorted(str(_get(i, "securityGroupRuleId") or "")
+                                                                                 for i in items),
+            **who, "truncated": not isinstance(response, dict) or not items}
+
+
+def _trail_who(d: dict[str, Any]) -> dict[str, str]:
+    """Who made a CloudTrail write, in the fields (and the order) every change record carries."""
     who = d.get("userIdentity") or {}
     issuer = (who.get("sessionContext") or {}).get("sessionIssuer") or {}
     actor_name = str(issuer.get("userName") or who.get("userName") or "")
-    at = _when(raw.get("EventTime") or d.get("eventTime"))
-    return {"event": str(raw.get("EventId") or d.get("eventID") or ""), "event_name": name, "kind": kind,
-            "egress": name.endswith("Egress"), "at": at, "event_time": at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else "?",
-            "rules": sorted((_sg_rule_key(i) for i in items), key=json.dumps), "rule_ids": sorted(str(_get(i, "securityGroupRuleId") or "")
-                                                                                 for i in items),
-            "who_type": str(who.get("type") or ""), "invoked_by": str(who.get("invokedBy") or ""),
+    return {"who_type": str(who.get("type") or ""), "invoked_by": str(who.get("invokedBy") or ""),
             "source_identity": str((who.get("sessionContext") or {}).get("sourceIdentity") or ""),
             "actor_name": actor_name, "actor": f"{str(who.get('type') or '?').lower()}/{actor_name or '?'}",
-            "user_agent": str(d.get("userAgent") or ""), "truncated": not isinstance(response, dict) or not items}
+            "user_agent": str(d.get("userAgent") or "")}
+
+
+def _trail_at(raw: dict[str, Any], d: dict[str, Any]) -> tuple[datetime | None, str]:
+    """When a CloudTrail write happened, and that time as a record writes it ("?" when unknown)."""
+    at = _when(raw.get("EventTime") or d.get("eventTime"))
+    return at, at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else "?"
 
 
 def _sg_undo_text(e: dict[str, Any]) -> str:
@@ -243,18 +255,13 @@ def _trail_change(raw: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if d.get("errorCode"):
         return None
-    who = d.get("userIdentity") or {}
-    issuer = (who.get("sessionContext") or {}).get("sessionIssuer") or {}
-    actor_name = str(issuer.get("userName") or who.get("userName") or "")
-    at = _when(raw.get("EventTime") or d.get("eventTime"))
+    who = _trail_who(d)
+    at, event_time = _trail_at(raw, d)
     return {"event": str(raw.get("EventId") or d.get("eventID") or ""),
             "event_name": str(raw.get("EventName") or d.get("eventName") or ""),
-            "at": at, "event_time": at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else "?",
+            "at": at, "event_time": event_time,
             "request": d.get("requestParameters") if isinstance(d.get("requestParameters"), dict) else None,
-            "who_type": str(who.get("type") or ""), "invoked_by": str(who.get("invokedBy") or ""),
-            "source_identity": str((who.get("sessionContext") or {}).get("sourceIdentity") or ""),
-            "actor_name": actor_name, "actor": f"{str(who.get('type') or '?').lower()}/{actor_name or '?'}",
-            "user_agent": str(d.get("userAgent") or "")}
+            **who}
 
 
 # The user agents of the infrastructure-as-code tools that call AWS's APIs themselves (CloudFormation, and so CDK and
@@ -390,11 +397,17 @@ def _route_target_for(routes: list[Any], dest: tuple[str, str] | list[str] | Non
         return None
     for r in routes:
         if isinstance(r, dict) and str(_get(r, dest[0]) or "") == dest[1]:
-            for k in _ROUTE_TARGETS:
-                v = str(_get(r, k) or "")
-                if v and (k != "gatewayId" or _GATEWAY_ID.fullmatch(v)):
-                    return [k, v]
-            return None
+            return _writable_target(r)
+    return None
+
+
+def _writable_target(route: dict[str, Any]) -> list[str] | None:
+    """The first target of a route that WARDEN may write: any of _ROUTE_TARGETS, a gateway only an internet or a
+    virtual private one."""
+    for k in _ROUTE_TARGETS:
+        v = str(_get(route, k) or "")
+        if v and (k != "gatewayId" or _GATEWAY_ID.fullmatch(v)):
+            return [k, v]
     return None
 
 
