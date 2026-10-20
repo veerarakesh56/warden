@@ -86,9 +86,9 @@ def _module(directory: pathlib.Path) -> tuple[list[tuple[str, str, str, str]], d
 def _resource_versions(rtype: str, body: str, defaults: dict[str, str], versions: dict[str, dict]) -> None:
     from warden.awswatch import RUNTIME_ID
 
-    runtime = _value(_attr(body, "runtime"), defaults) if rtype == "aws_lambda_function" else None
-    if runtime and RUNTIME_ID.fullmatch(runtime):
-        _add(versions, "runtime", runtime)
+    if rtype == "aws_lambda_function" and (expr := _attr(body, "runtime")):  # none: an image Lambda, no runtime
+        runtime = _value(expr, defaults)
+        _add(versions, "runtime", runtime if runtime and RUNTIME_ID.fullmatch(runtime) else None)
     engine = _value(_attr(body, "engine"), defaults)
     if engine in ENGINES and rtype in ("aws_db_instance", "aws_rds_cluster", "aws_elasticache_replication_group",
                                        "aws_elasticache_cluster"):

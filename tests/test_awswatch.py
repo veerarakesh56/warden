@@ -66,7 +66,8 @@ def test_the_inventory_reads_versions_from_the_terraform_and_says_what_it_cannot
         'variable "pg" {\n  default = "15.4"\n}\nvariable "k8s" {\n  default = null\n}\n'
         'resource "aws_lambda_function" "a" {\n  runtime = "nodejs22.x"\n}\n'
         'resource "aws_db_instance" "b" {\n  engine         = "postgres"\n  engine_version = var.pg\n}\n'
-        'resource "aws_eks_cluster" "c" {\n  version = var.k8s\n}\n', encoding="utf-8")
+        'resource "aws_eks_cluster" "c" {\n  version = var.k8s\n}\n'
+        'resource "aws_lambda_function" "d" {\n  package_type = "Image"\n}\n', encoding="utf-8")
     data = tmp_path / "src" / "warden" / "data"
     data.mkdir(parents=True)
     (data / "environments.yaml").write_text("aws_region: ap-south-2\naws_global_region: us-east-1\n", encoding="utf-8")
@@ -76,6 +77,18 @@ def test_the_inventory_reads_versions_from_the_terraform_and_says_what_it_cannot
                                "runtime": {"known": ["nodejs22.x"], "unknown": False}}
     assert inv["services"] == ["eks", "lambda", "rds"]
     assert inv["regions"] == ["Asia Pacific (Hyderabad)", "US East (N. Virginia)"]
+
+
+def test_a_lambda_runtime_that_cannot_be_read_makes_the_runtimes_unknown(tmp_path):
+    """CodeRabbit, PR 83: a runtime from a variable with no default is not skipped - "not affected" would be a guess."""
+    tf = tmp_path / "terraform" / "m"
+    tf.mkdir(parents=True)
+    (tf / "main.tf").write_text('variable "rt" {\n  type = string\n}\n'
+                                'resource "aws_lambda_function" "a" {\n  runtime = var.rt\n}\n', encoding="utf-8")
+    data = tmp_path / "src" / "warden" / "data"
+    data.mkdir(parents=True)
+    (data / "environments.yaml").write_text("aws_region: ap-south-2\naws_global_region: us-east-1\n", encoding="utf-8")
+    assert _script().build(tmp_path)["versions"] == {"runtime": {"known": [], "unknown": True}}
 
 
 # ------------------------------------------------------------------ the due live check, fixture-driven
@@ -312,13 +325,56 @@ def test_a_day_read_reviewed_and_posted_alarms_each_item_once(tmp_path, monkeypa
     alarmed = {a["text"].splitlines()[1].split(" · ")[1] for a in made["alarms"]}
     assert alarmed == {"AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT", awswatch.LIFECYCLE}
     assert len(made["alarms"]) == 3  # the Health notice, PostgreSQL 13, Kubernetes 1.31
+    monkeypatch.setattr(awswatch.AwsWatchActivities, "_post_one", staticmethod(lambda *a, **k: "sent"))
     said = acts.awswatch_post(DIGEST_ID, made)
-    assert set(said.values()) == {"not sent: dry-run (WARDEN_CHATOPS_LIVE!=1)"}
-    # The same items again (a day later, the same feed and notice): each was alarmed once, and is not again.
+    assert set(said.values()) == {"sent"}
+    # The same items again (a day later, the same window): delivered once - no alarm and no line again.
     later = f"awswatch-{NOW + timedelta(days=1):%Y%m%dT%H%M%SZ}"
-    again = acts.awswatch_review(later, snap)
+    again = acts.awswatch_review(later, acts.awswatch_read(later))
     assert again["alarms"] == []
-    assert "*Affects WARDEN - a person acts* (1)" in again["digest"]  # still in the digest, alarmed once
+    assert "Nothing new about what WARDEN uses." in again["digest"]
+
+
+def test_an_alarm_or_a_digest_that_was_not_delivered_is_made_again_the_next_day(tmp_path, monkeypatch):
+    """Done means delivered (CodeRabbit, PR 83): a post that failed - no token, Slack down - leaves the item due."""
+    acts = awswatch.AwsWatchActivities(audit=_log(tmp_path), opener=_fake_opener)
+    made = acts.awswatch_review(DIGEST_ID, acts.awswatch_read(DIGEST_ID))
+    monkeypatch.delenv("WARDEN_SLACK_BOT_TOKEN", raising=False)
+    assert set(acts.awswatch_post(DIGEST_ID, made).values()) == {
+        "not sent: no channel (WARDEN_DISCUSS_CHANNELS / WARDEN_DISCUSS_CHANNEL) or no bot token",
+        "not sent: no channel (WARDEN_SLACK_CHANNELS / WARDEN_SLACK_CHANNEL) or no bot token"}
+    later = f"awswatch-{NOW + timedelta(days=1):%Y%m%dT%H%M%SZ}"
+    again = acts.awswatch_review(later, acts.awswatch_read(later))
+    assert [a["id"] for a in again["alarms"]] == [a["id"] for a in made["alarms"]]
+    assert again["digest"].count("\n• ") == made["digest"].count("\n• ")
+
+
+def test_a_required_tripwire_that_cannot_run_leaves_the_feed_unread_never_alarms_every_item(tmp_path, monkeypatch):
+    """CodeRabbit, PR 83: fail closed once per feed - "not read", read again tomorrow - not one alarm per item."""
+    monkeypatch.setenv("WARDEN_TRIPWIRE", "required")
+
+    def broken(texts, **_):
+        raise RuntimeError("no weights")
+
+    acts = awswatch.AwsWatchActivities(audit=_log(tmp_path), opener=_fake_opener, classify=broken)
+    snap = acts.awswatch_read(DIGEST_ID)
+    assert snap["rows"] == []
+    assert snap["unread"][0].startswith("What's New (the injection detector did not run: unavailable")
+    assert acts.awswatch_review(DIGEST_ID, snap)["alarms"] == []
+
+
+def test_a_feed_read_the_next_day_brings_the_items_a_failed_day_missed(tmp_path):
+    """The window is fixed (CodeRabbit, PR 83): a feed down on one day is read the next, its items still in it."""
+    log = _log(tmp_path)
+
+    def down(req, timeout):
+        raise urllib.error.URLError("no route")
+
+    first = awswatch.AwsWatchActivities(audit=log, opener=down)
+    first.awswatch_review(DIGEST_ID, first.awswatch_read(DIGEST_ID))
+    later = f"awswatch-{NOW + timedelta(days=1):%Y%m%dT%H%M%SZ}"
+    second = awswatch.AwsWatchActivities(audit=log, opener=_fake_opener)
+    assert "python3.10" in second.awswatch_review(later, second.awswatch_read(later))["digest"]
 
 
 def test_a_feed_that_cannot_be_read_is_said_in_the_digest(tmp_path):
@@ -332,7 +388,7 @@ def test_a_feed_that_cannot_be_read_is_said_in_the_digest(tmp_path):
 
 def test_the_digest_shows_every_time_in_utc_and_ist():
     text, _ = awswatch.digest(DIGEST_ID, SINCE, NOW, [], [], awswatch.inventory())
-    assert text.splitlines()[0] == ("*AWS updates for WARDEN* - 2026-10-16 03:30Z (09:00 IST), items since "
+    assert text.splitlines()[0] == ("*AWS updates for WARDEN* - 2026-10-16 03:30Z (09:00 IST), new items since "
                                     "2026-10-15 03:30Z (09:00 IST)")
 
 

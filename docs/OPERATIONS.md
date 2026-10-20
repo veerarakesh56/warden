@@ -127,7 +127,9 @@ one. A person who asks for a diagnosis (CLI, MCP) always gets one.
 Once a day, at 09:00 in the display zone (environments.yaml `display_zone`, Asia/Kolkata: 03:30 UTC, 09:00 IST), WARDEN reads
 what AWS announced and posts a digest in the discussion channel: each item about a service WARDEN uses, with what it
 means for WARDEN. An item that affects WARDEN, or that a person must check, also gets one alarm in the alerts channel,
-once. WARDEN reads, and changes nothing.
+once. Each run looks at the last 7 days and leaves out what a delivered digest already showed, so a feed that could
+not be read one day is read the next; an alarm or a digest that could not be delivered is made again the next day.
+WARDEN reads, and changes nothing.
 
 - **What it reads.** AWS's What's New feed (`https://aws.amazon.com/about-aws/whats-new/recent/feed/`) and the AWS News
   Blog (`https://aws.amazon.com/blogs/aws/feed/`), from the read worker; and AWS Health's scheduled changes for the
