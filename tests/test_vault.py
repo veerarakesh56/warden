@@ -109,25 +109,29 @@ def test_the_read_zone_seals_and_cannot_open(tmp_path):
     log = AuditLog(tmp_path / "a.db")
     row = _vault("read").seal("inc-1", MAPPING)
     vault.store(log, row)
+    stored, reader = vault.sealed_row(log, "inc-1", row["sha256"]), _vault("read")
     with pytest.raises(ClientError):
-        _vault("read").open(vault.sealed_row(log, "inc-1", row["sha256"]))
+        reader.open(stored)
 
 
 def test_only_the_approval_page_opens_a_sealed_map(tmp_path):
     log = AuditLog(tmp_path / "a.db")
     digest = vault.store(log, _vault("read").seal("inc-1", MAPPING))
     assert _vault("approval").open(vault.sealed_row(log, "inc-1", digest)) == MAPPING
+    stored = vault.sealed_row(log, "inc-1", digest)
     for ai_zone in ("llm", "critic", "notify", "core", "act"):
+        zone = _vault(ai_zone)
         with pytest.raises(ClientError):
-            _vault(ai_zone).open(vault.sealed_row(log, "inc-1", digest))
+            zone.open(stored)
 
 
 def test_a_sealed_map_opens_only_as_its_own_incidents():
-    row = _vault("read").seal("inc-1", MAPPING)
+    row, opener = _vault("read").seal("inc-1", MAPPING), _vault("approval")
+    moved, changed = {**row, "incident": "inc-2"}, {**row, "sha256": "0" * 64}
     with pytest.raises(ClientError):  # the wrapped key is bound to its incident
-        _vault("approval").open({**row, "incident": "inc-2"})
+        opener.open(moved)
     with pytest.raises(ValueError, match="hash"):
-        _vault("approval").open({**row, "sha256": "0" * 64})
+        opener.open(changed)
 
 
 def test_nothing_but_the_index_and_a_hash_is_on_the_signed_audit(tmp_path):
@@ -205,7 +209,8 @@ def test_prepare_seals_the_map_and_returns_none_of_it(tmp_path, monkeypatch, env
     [index] = log.entries("inc-001", kinds=(vault.INDEX,))
     assert len(index["body"]["entries"]) == pack.masked > 0
     returned = pack.model_dump_json()  # what Temporal would carry
-    assert "priya.nair" not in returned and index["body"]["sha256"] not in returned
+    assert "priya.nair" not in returned
+    assert index["body"]["sha256"] not in returned
     opened = _vault("approval").open(vault.sealed_row(log, "inc-001", index["body"]["sha256"]))
     assert "priya.nair@corp.io" in opened.values()
 
@@ -213,7 +218,8 @@ def test_prepare_seals_the_map_and_returns_none_of_it(tmp_path, monkeypatch, env
 def test_a_failed_seal_is_recorded_and_the_incident_goes_on(tmp_path, monkeypatch, env):
     log, pack = _prepare(tmp_path, monkeypatch, FakeKms("llm"))  # a role the key refuses
     [row] = log.entries("inc-001", kinds=(vault.UNAVAILABLE,))
-    assert row["body"]["error"] == "ClientError" and row["body"]["values"] == pack.masked
+    assert row["body"]["error"] == "ClientError"
+    assert row["body"]["values"] == pack.masked
     assert not log.entries("inc-001", kinds=(vault.INDEX,))
     assert pack.prompt  # the incident went on
 
@@ -242,7 +248,8 @@ def test_the_key_policy_lets_only_the_read_zone_seal_and_only_a_persons_reveal_o
     assert 'aws_iam_role.front_door["approval"]' in st["OnlyAPersonsRevealOpens"]
     assert '"kms:EncryptionContext:purpose" = "vault"' in st["OnlyAPersonsRevealOpens"]
     assert '"kms:EncryptionContext:purpose" = "pseudonym"' in st["TheReadZoneOpensThePseudonymKey"]
-    assert 'aws_iam_role.zone["read"]' in st["TheReadZoneSeals"] and "kms:GenerateDataKey\"" in st["TheReadZoneSeals"]
+    assert 'aws_iam_role.zone["read"]' in st["TheReadZoneSeals"]
+    assert "kms:GenerateDataKey\"" in st["TheReadZoneSeals"]
     admin = st["AdministerNeverRead"]
     assert not re.search(r'"kms:(\*|Decrypt|Encrypt|GenerateDataKey|ReEncrypt)', admin)
 
@@ -269,7 +276,8 @@ def test_the_vault_rows_are_on_no_ai_reading_list():
         eldane = importlib.import_module("warden.eldane")
     except ImportError:
         return  # Eldane (#42) not merged yet
-    assert vault.INDEX not in eldane.READS and vault.UNAVAILABLE not in eldane.READS
+    assert vault.INDEX not in eldane.READS
+    assert vault.UNAVAILABLE not in eldane.READS
 
 
 def test_only_people_paths_open_the_vault():
