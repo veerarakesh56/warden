@@ -31,6 +31,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import BaseModel, Field
 
 KIND = "record.link"
+ALERT_ROW, PLAN_ROW = "incident.alert", "remediation.plan"  # rows of the record this module reads
 LinkType = Literal["same-root-cause", "recurrence-of", "caused-by"]
 TYPES: tuple[str, ...] = ("same-root-cause", "recurrence-of", "caused-by")
 # Each type as read from the other incident's side.
@@ -75,9 +76,9 @@ def sign(key: Ed25519PrivateKey, *, incident: str, other: str, type: str, approv
 def _environment(log: Any, incident: str) -> str | None:
     """The incident's environment from its own record; None when the record holds no such incident."""
     found = None
-    for e in log.entries(incident, kinds=("incident.alert", "incident.ingest")):
+    for e in log.entries(incident, kinds=(ALERT_ROW, "incident.ingest")):
         b = e["body"]
-        env = (b.get("alert") or {}).get("environment") if e["kind"] == "incident.alert" else b.get("env")
+        env = (b.get("alert") or {}).get("environment") if e["kind"] == ALERT_ROW else b.get("env")
         if env:
             return str(env)
         found = ""
@@ -172,12 +173,12 @@ def _fixes(log: Any, incident: str) -> list[dict[str, Any]]:
     later on the record says it did not hold - newest first."""
     from .bounds import RESULT
 
-    rows = log.entries(incident, kinds=("remediation.plan", "workflow.end", "remediation.did_not_hold", RESULT))
+    rows = log.entries(incident, kinds=(PLAN_ROW, "workflow.end", "remediation.did_not_hold", RESULT))
     ends = {(e["body"].get("workflow_id"), e["body"].get("run_id")): e for e in rows if e["kind"] == "workflow.end"}
     out = []
     for e in rows:
         b = e["body"]
-        end = ends.get((b.get("workflow_id"), b.get("run_id"))) if e["kind"] == "remediation.plan" else None
+        end = ends.get((b.get("workflow_id"), b.get("run_id"))) if e["kind"] == PLAN_ROW else None
         if end is None or end["body"].get("status") != "recovered":
             continue
         wid = b.get("workflow_id")
@@ -279,7 +280,7 @@ def _relapse_links(log: Any, incident: str) -> list[tuple[str, str]]:
     """(other incident, side) from a watched fix that heard its alarm again: the incident that alarm started is the
     fingerprint and the alarm's time (intake.decide), and the fix's incident is its plan's."""
     fixed = {str(e["body"].get("workflow_id")): str(e["correlation_id"])
-             for e in log.entries(kinds=("remediation.plan",))}
+             for e in log.entries(kinds=(PLAN_ROW,))}
     out = []
     for e in log.entries(kinds=("intake.relapse",)):
         b = e["body"]
@@ -298,7 +299,7 @@ def _relapse_links(log: Any, incident: str) -> list[tuple[str, str]]:
 def _alike_links(log: Any, incident: str, now: datetime) -> list[tuple[str, str]]:
     """(other incident, side) for the same alarm or the same resource, newest first, FOUND_MOST of each."""
     seen: dict[str, tuple[str, str, datetime]] = {}
-    for e in log.entries(kinds=("incident.alert",), since=now - timedelta(days=FOUND_DAYS)):
+    for e in log.entries(kinds=(ALERT_ROW,), since=now - timedelta(days=FOUND_DAYS)):
         a = e["body"].get("alert") or {}
         seen[str(e["correlation_id"])] = (str(a.get("environment") or ""), str(a.get("service") or ""), e["at"])
     if incident not in seen:
