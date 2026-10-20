@@ -45,9 +45,12 @@ UNDO: dict[str, dict[str, tuple[str, ...]]] = {
     "asg_resume_processes": {"autoscaling:ResumeProcesses": ("autoscaling:SuspendProcesses",)},
     "ec2_revert_sg_change": _SG,
     "ec2_restore_route": {"ec2:CreateRoute": ("ec2:DeleteRoute",), "ec2:DeleteRoute": ("ec2:CreateRoute",)},
-    # Back to the value the change set: none deletes the reservation (aws._lambda_restore), any other value puts it.
-    "lambda_restore_concurrency": {_PUT_CONCURRENCY: (_PUT_CONCURRENCY, "lambda:DeleteFunctionConcurrency"),
-                                   "lambda:DeleteFunctionConcurrency": (_PUT_CONCURRENCY,)},
+}
+# The undo's action read from the plan's snapshot: back to the reserved concurrency the change set (`after`) - none
+# deletes the reservation, a number puts it (aws._lambda_restore).
+UNDO_BY_SNAPSHOT: dict[str, Callable[[dict[str, Any]], tuple[str, ...]]] = {
+    "lambda_restore_concurrency": lambda snap: (("lambda:DeleteFunctionConcurrency",) if snap.get("after") is None
+                                                else (_PUT_CONCURRENCY,)),
 }
 # The undo is the same actions on the same resources.
 SAME_UNDO = frozenset({"lambda_move_alias", "lambda_set_reserved_concurrency", "lambda_enable_esm",
@@ -108,13 +111,17 @@ def trace(run: Callable[[Callable[..., Any]], Any]) -> list[dict[str, Any]]:
     return sessions
 
 
-def undo_sessions(entry: str, sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The sessions the entry's undo asks for, from its apply's. Raises KeyError for an entry in none of the tables:
-    a new entry is declared before it is checked (tests/test_permits_b12.py)."""
+def undo_sessions(entry: str, sessions: list[dict[str, Any]],
+                  snapshot: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """The sessions the entry's undo asks for, from its apply's (and, for some, the plan's snapshot). Raises KeyError
+    for an entry in none of the tables: a new entry is declared before it is checked (tests/test_permits_b12.py)."""
     if entry in NO_UNDO:
         return []
     if entry in SAME_UNDO:
         return [dict(s) for s in sessions]
+    if entry in UNDO_BY_SNAPSHOT:
+        acts = sorted(UNDO_BY_SNAPSHOT[entry](snapshot or {}))
+        return [{**s, "actions": acts} for s in sessions]
     swap = UNDO[entry]
     out = []
     for s in sessions:
@@ -158,6 +165,8 @@ def _results(iam: Any, role: str, session: dict[str, Any], context: list[dict[st
                                             ResourceArns=session["resources"], ContextEntries=context,
                                             **({"Marker": marker} if marker else {}))
         out += got.get("EvaluationResults") or []
+        if got.get("IsTruncated") and not got.get("Marker"):
+            raise RuntimeError("the simulator said its answer goes on, and gave no way to read the rest")
         marker = got.get("Marker") if got.get("IsTruncated") else None
         if not marker:
             return out
@@ -185,6 +194,18 @@ def _verdicts(results: list[dict[str, Any]]) -> list[tuple[str, str, str, list[s
     return out
 
 
+def _unanswered(session: dict[str, Any], results: list[dict[str, Any]]) -> list[str]:
+    """Each action and resource the session asked about that the simulator's answer does not cover."""
+    out = []
+    for action in session["actions"]:
+        rows = [r for r in results if r.get("EvalActionName") == action]
+        if rows and any(not r.get("ResourceSpecificResults") for r in rows):
+            continue  # one decision for the action on every resource asked about
+        covered = {str(p.get("EvalResourceName")) for r in rows for p in r["ResourceSpecificResults"]} if rows else set()
+        out += [f"{action} on {_resource(res)}" for res in session["resources"] if res not in covered]
+    return out
+
+
 def _aws_errors() -> tuple[type[Exception], ...]:
     """What a call to AWS raises when it fails: botocore's own errors, a refused session, a lost connection."""
     errors: list[type[Exception]] = [RuntimeError, OSError]
@@ -196,7 +217,8 @@ def _aws_errors() -> tuple[type[Exception], ...]:
 
 
 def check(entry: str, *, run: Callable[[Callable[..., Any]], Any], iam: Callable[[], Any], incident: str,
-          environment: str, env_tag: str = "Environment", role: str | None = None) -> dict[str, Any]:
+          environment: str, env_tag: str = "Environment", role: str | None = None,
+          snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     """Whether the environment's actor role allows the calls this plan's apply and its undo would make. `run(actor)`
     runs the entry's write code with that actor; `iam()` is the environment reader's IAM client. Returns the record:
     `denied` (reasons that refuse the plan), `unconfirmed` (said, not refused) and what was checked."""
@@ -213,17 +235,20 @@ def check(entry: str, *, run: Callable[[Callable[..., Any]], Any], iam: Callable
     if not applies:
         record["unconfirmed"].append("the fix asked for no actor session before its first call; nothing to check")
         return record
-    calls = [("apply", s) for s in applies] + [("undo", s) for s in undo_sessions(entry, applies)]
+    calls = [("apply", s) for s in applies] + [("undo", s) for s in undo_sessions(entry, applies, snapshot)]
     record["calls"] = [{"step": step, "actions": s["actions"], "resources": [_resource(r) for r in s["resources"]]}
                        for step, s in calls]
     try:
         client = iam()
-        verdicts = [(step, v) for step, s in calls
-                    for v in _verdicts(_results(client, role, s, _context(incident, environment, env_tag,
-                                                                         s["condition"])))]
+        verdicts, unanswered = [], []
+        for step, s in calls:
+            results = _results(client, role, s, _context(incident, environment, env_tag, s["condition"]))
+            verdicts += [(step, v) for v in _verdicts(results)]
+            unanswered += [f"{step}: the simulator gave no decision for {u}" for u in _unanswered(s, results)]
     except _aws_errors() as exc:
         record["unconfirmed"].append(f"the policy simulator could not be read: {_safe_error(exc)}")
         return record
+    record["unconfirmed"] += unanswered
     seen: set[tuple[str, str, str]] = set()
     for step, (action, resource, decision, missing) in verdicts:
         if (step, action, resource) in seen or decision == ALLOWED:
@@ -235,5 +260,5 @@ def check(entry: str, *, run: Callable[[Callable[..., Any]], Any], iam: Callable
         else:
             record["denied"].append(f"{DENIED}: the actor role {record['role']} may not {said} ({decision}), "
                                     f"which the fix's {step} needs; a person grants it before this plan is made")
-    record["checked"] = True
+    record["checked"] = not unanswered  # every action and resource asked about has its decision
     return record

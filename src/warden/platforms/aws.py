@@ -664,7 +664,7 @@ class AwsPlatform:
                                back=False)
 
         return permits.check(entry, run=run, iam=lambda: self._read("iam"), incident=incident,
-                             environment=environment, env_tag=ENV_TAG)
+                             environment=environment, env_tag=ENV_TAG, snapshot=snapshot)
 
     def _change(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any], who: dict[str, Any],
                 back: bool) -> str:

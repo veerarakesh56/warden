@@ -156,7 +156,7 @@ def test_the_role_is_the_environments_actor(monkeypatch):
 
 
 def test_every_aws_entry_says_what_its_undo_calls():
-    tables = (set(permits.UNDO), permits.SAME_UNDO, permits.NO_UNDO)
+    tables = (set(permits.UNDO), set(permits.UNDO_BY_SNAPSHOT), permits.SAME_UNDO, permits.NO_UNDO)
     for entry in _KINDS:
         assert sum(entry in t for t in tables) == 1, entry
     assert set().union(*tables) == set(_KINDS)
@@ -266,3 +266,40 @@ def test_the_row_keeps_no_arn_an_error_named():
     acts.resolve_plan(FixRequest(**REQ), "rem-1")
     [row] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.permissions",))
     assert ACCT not in json.dumps(row["body"])
+
+
+@pytest.mark.parametrize(("after", "undo"), [(None, "lambda:DeleteFunctionConcurrency"),
+                                             (40, "lambda:PutFunctionConcurrency")], ids=["none", "a-number"])
+def test_a_concurrency_restores_undo_is_the_one_its_snapshot_needs(after, undo):
+    fn = f"arn:aws:lambda:test-region-1:{ACCT}:function:{FN}"
+    applied = [{"actions": ["lambda:PutFunctionConcurrency"], "resources": [fn], "condition": {}}]
+    [back] = permits.undo_sessions("lambda_restore_concurrency", applied, {"after": after})
+    assert back["actions"] == [undo]
+
+
+class Silent(Iam):
+    """A simulator that answers with too little: nothing at all, or one resource of two."""
+
+    def __init__(self, mode):
+        super().__init__(allow={"events:EnableRule", "events:DisableRule"})
+        self.mode = mode
+
+    def simulate_principal_policy(self, **kw):
+        got = super().simulate_principal_policy(**kw)
+        if self.mode == "empty":
+            return {"EvaluationResults": [], "IsTruncated": False}
+        if self.mode == "no-marker":
+            return {**got, "IsTruncated": True}
+        for r in got["EvaluationResults"]:
+            r["EvalDecision"] = "allowed"
+            r["ResourceSpecificResults"] = [{"EvalResourceName": "arn:other", "EvalResourceDecision": "allowed"}]
+        return got
+
+
+@pytest.mark.parametrize("mode", ["empty", "no-marker", "other-resource"])
+def test_an_answer_that_does_not_cover_every_call_is_not_checked(aws, mode):
+    f, p = aws
+    got = _rule(f, p, Silent(mode))
+    assert got["checked"] is False
+    assert got["denied"] == []
+    assert got["unconfirmed"]
