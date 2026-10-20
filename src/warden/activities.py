@@ -764,16 +764,19 @@ class RemediationActivities:
         return (bounds.blocked(self.audit, service=plan.target, action_class=plan.entry, now=now, limits=self.limits)
                 + freeze.active(plan.environment, now))
 
+    def _refuse(self, plan: Plan, run: str, why: list[str]) -> None:
+        """Apply refused before anything was touched: on the record, and raised as its own type - the workflow reports
+        "nothing was changed", not "may be half-made" (fourth review). Never retried."""
+        self.audit.append(plan.incident_id, "remediation.refused", {"workflow_id": plan.workflow_id, "run_id": run,
+                                                                   "plan_hash": plan.plan_hash, "why": why})
+        raise ApplicationError("apply refused: " + "; ".join(why), type=APPLY_REFUSED, non_retryable=True)
+
     @activity.defn
     def apply(self, plan: Plan, service: str) -> str:
         run = _run_id()
         refused = self._not_approved(plan, service)
         if refused:
-            self.audit.append(plan.incident_id, "remediation.refused", {"workflow_id": plan.workflow_id,
-                                                                       "run_id": run, "plan_hash": plan.plan_hash,
-                                                                       "why": refused})
-            # Its own type: the workflow reports "nothing was changed", not "may be half-made" (fourth review).
-            raise ApplicationError("apply refused: " + "; ".join(refused), type=APPLY_REFUSED, non_retryable=True)
+            self._refuse(plan, run, refused)
         done = [e for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
                 if e["body"].get("plan_hash") == plan.plan_hash and e["body"].get("workflow_id") == plan.workflow_id
                 and e["body"].get("run_id", "") == run]
@@ -783,10 +786,7 @@ class RemediationActivities:
         locked = locks.take(self.audit, plan.incident_id, plan.target, workflow_id=plan.workflow_id, run_id=run,
                             plan_hash=plan.plan_hash, now=datetime.now(UTC))
         if locked:
-            self.audit.append(plan.incident_id, "remediation.refused", {"workflow_id": plan.workflow_id,
-                                                                       "run_id": run, "plan_hash": plan.plan_hash,
-                                                                       "why": [locked]})
-            raise ApplicationError("apply refused: " + locked, type=APPLY_REFUSED, non_retryable=True)
+            self._refuse(plan, run, [locked])
         self.audit.append(plan.incident_id, "remediation.intent", {"workflow_id": plan.workflow_id,
                                                                    "run_id": run, "plan_hash": plan.plan_hash})
         try:
@@ -799,11 +799,7 @@ class RemediationActivities:
         except Exception as exc:
             if not getattr(exc, "nothing_changed", False):
                 raise  # the change may be half-made: the workflow says so, and a person decides
-            why = f"the platform refused before changing anything: {_safe_error(exc)}"
-            self.audit.append(plan.incident_id, "remediation.refused", {"workflow_id": plan.workflow_id,
-                                                                       "run_id": run, "plan_hash": plan.plan_hash,
-                                                                       "why": [why]})
-            raise ApplicationError(f"apply refused: {why}", type=APPLY_REFUSED, non_retryable=True) from None
+            self._refuse(plan, run, [f"the platform refused before changing anything: {_safe_error(exc)}"])
         bounds.record_applied(self.audit, plan.incident_id, service=plan.target, action_class=plan.entry,
                               plan_hash=plan.plan_hash, detail=detail, workflow_id=plan.workflow_id, run_id=run)
         return detail
