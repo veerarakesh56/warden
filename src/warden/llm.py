@@ -117,13 +117,7 @@ class LLMClient:
         if not math.isfinite(self.max_usd) or self.max_usd <= 0:
             raise ValueError(f"the model budget must be a positive number of USD, not {self.max_usd!r}")
 
-        # Per incident: the explicit argument, else WARDEN_MAX_CALLS (the cloud llm zone: 6, owner 2026-10-10), else 8.
-        if max_calls is None:
-            raw = os.environ.get("WARDEN_MAX_CALLS", "8")
-            max_calls = int(raw) if raw.isdigit() else -1
-        if isinstance(max_calls, bool) or not isinstance(max_calls, int) or max_calls < 1:
-            raise ValueError(f"max_calls must be a positive whole number, not {max_calls!r}")
-        self.max_calls = max_calls
+        self.max_calls = _max_calls(max_calls)
         self.cost = CostRecord()
         # Requests that failed without an answer (a refused connection, a 5xx): counted against this run's call
         # ceiling, but not carried to the incident's next run - they reached no model (eighth review, 2026-10-01).
@@ -276,6 +270,16 @@ class LLMClient:
                     break
         plural = "attempt" if attempts == 1 else "attempts"
         raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {last}")
+
+
+def _max_calls(max_calls: int | None) -> int:
+    """Per incident: the explicit argument, else WARDEN_MAX_CALLS (the cloud llm zone: 6, owner 2026-10-10), else 8."""
+    if max_calls is None:
+        raw = os.environ.get("WARDEN_MAX_CALLS", "8")
+        max_calls = int(raw) if raw.isdigit() else -1
+    if isinstance(max_calls, bool) or not isinstance(max_calls, int) or max_calls < 1:
+        raise ValueError(f"max_calls must be a positive whole number, not {max_calls!r}")
+    return max_calls
 
 
 # Failures before the request was written: refused, unresolved, never connected.
