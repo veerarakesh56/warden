@@ -29,6 +29,7 @@
 /src/warden/locks.py               @veerarakesh56
 /src/warden/code_gate.py           @veerarakesh56
 /src/warden/github_app.py          @veerarakesh56
+/src/warden/code_fix.py            @veerarakesh56
 /iam/                              @veerarakesh56
 /k8s/                              @veerarakesh56
 /terraform/                        @veerarakesh56

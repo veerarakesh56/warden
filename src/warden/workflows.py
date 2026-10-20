@@ -41,6 +41,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .catalog import MITIGATES
+    from .code_fix import CodeFixActivities, revert_target
     from .discuss import (
         ELSEWHERE,
         LIMIT,
@@ -65,6 +66,8 @@ QUICK = {"start_to_close_timeout": timedelta(seconds=60),
          "retry_policy": RetryPolicy(maximum_attempts=10, maximum_interval=timedelta(seconds=60))}
 ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPolicy(maximum_attempts=1)}
 NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": RetryPolicy(maximum_attempts=3)}
+# One attempt: a revert pull request is written once or not at all (a retry after a half-done write could open two).
+CODE_FIX = {"start_to_close_timeout": timedelta(minutes=3), "retry_policy": RetryPolicy(maximum_attempts=1)}
 # prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
@@ -79,7 +82,7 @@ ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan"
                   "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
          "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
-         "act": ("apply", "rollback")}
+         "act": ("apply", "rollback", "code_fix_revert")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
 
@@ -703,6 +706,17 @@ class IncidentWorkflow:
             with contextlib.suppress(ActivityError):
                 await workflow.execute_activity_method(acts.notify, **_zoned(acts.notify),
                                                        args=[pack, diagnosed, verified, "none"], **NOTIFY)
+        # Register B4: a diagnosis that rolls back a deploy, with exactly one deployed commit in the evidence, may also
+        # get a pull request that reverts the commit - written only where the environment's `code_fix` allows it, by
+        # the GitHub App, through the code gate; a person (or, outside prod, every check) merges it. It never blocks
+        # or fails the incident. Patched: histories recorded before it replay unchanged.
+        sha = revert_target(diagnosed.proposal.action.value, pack.context.recent_deploys)
+        if (sha and not diagnosed.model_unavailable and verified.verdict.status.value != "rejected"
+                and workflow.patched("b4-code-fix-revert")):
+            fix = CodeFixActivities.code_fix_revert
+            with contextlib.suppress(ActivityError):
+                await workflow.execute_activity_method(fix, **_zoned(fix), args=[first.alert_id, pack.alert.environment,
+                                                                                sha], **CODE_FIX)
         if diagnosed.model_unavailable:
             # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
             # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).

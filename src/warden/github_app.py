@@ -132,10 +132,12 @@ class Api:
     def __init__(self, connect: Callable[[str], Any] = _connect) -> None:
         self._connect = connect
 
-    def call(self, method: str, path: str, *, token: str, body: Any = None) -> tuple[int, Any]:
+    def call(self, method: str, path: str, *, token: str, body: Any = None, diff: bool = False) -> tuple[int, Any]:
+        """The reply's status and its JSON - or, with `diff`, its text (GitHub's `application/vnd.github.diff`)."""
         if not path.startswith("/") or "//" in path or "\\" in path:
             raise GitHubAppError(f"{method}: not a path on {API_HOST}")
-        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+        accept = "application/vnd.github.diff" if diff else "application/vnd.github+json"
+        headers = {"Accept": accept, "X-GitHub-Api-Version": "2022-11-28",
                    "Authorization": f"Bearer {token}", "User-Agent": "warden-code-fix"}
         data = None
         if body is not None:
@@ -155,6 +157,8 @@ class Api:
         if len(raw) > MAX_REPLY:
             raise GitHubAppError(f"{what}: the reply is over {MAX_REPLY} bytes")
         try:
+            if diff:
+                return status, raw.decode("utf-8")
             return status, json.loads(raw) if raw else None
         except ValueError:
             raise GitHubAppError(f"{what}: the reply is not JSON (HTTP {status})") from None
@@ -276,6 +280,21 @@ class RepoWriter:
         if len(data) > MAX_FILE or len(data) != got.get("size"):
             raise GitHubAppError(f"{path}: the file is over {MAX_FILE} bytes or arrived incomplete")
         return data
+
+    def commit_diff(self, sha: str) -> tuple[list[str], str]:
+        """A commit's parents and its diff as `git diff` writes it."""
+        status, got = self._call("GET", f"/commits/{_sha(sha, 'the commit')}")
+        _expect(status, 200, f"the commit {sha[:12]}")
+        parents = [str(p.get("sha") or "") for p in (got.get("parents") or []) if isinstance(p, dict)] \
+            if isinstance(got, dict) else []
+        status, text = self._api.call("GET", f"/repos/{self.repo}/commits/{sha}", token=self._token.token, diff=True)
+        _expect(status, 200, f"the diff of {sha[:12]}")
+        return [_sha(p, "a parent commit") for p in parents], text
+
+    def delete_branch(self, branch: str) -> None:
+        """Remove one of WARDEN's own branches (a write that failed half way)."""
+        status, _ = self._call("DELETE", f"/git/refs/heads/{_branch(branch)}")
+        _expect(status, 204, f"deleting {branch}")
 
     def create_branch(self, branch: str, sha: str) -> None:
         status, _ = self._call("POST", "/git/refs", {"ref": f"refs/heads/{_branch(branch)}",

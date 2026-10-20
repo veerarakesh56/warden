@@ -342,3 +342,25 @@ def test_only_the_act_zones_worker_loads_the_apps_secrets():
         assert not names & settings.loadable_for("worker", zone), zone
     for command in ("incident", "mcp", "approve", "status", "run", "lambda-approval", "lambda-alarm"):
         assert not names & settings.loadable_for(command), command
+
+
+def test_commit_diff_reads_parents_then_the_diff_text():
+    api, log = fake_api((200, {"parents": [{"sha": SHA}]}), (200, b"diff --git a/x b/x\n"))
+    parents, text = RepoWriter(token(), api=api).commit_diff(NEW)
+    assert parents == [SHA] and text == "diff --git a/x b/x\n"
+    assert [c["path"] for c in log] == [f"/repos/{REPO}/commits/{NEW}"] * 2
+    assert [c["headers"]["Accept"] for c in log] == ["application/vnd.github+json", "application/vnd.github.diff"]
+
+
+def test_commit_diff_refuses_a_parent_that_is_not_a_commit_id():
+    api, _ = fake_api((200, {"parents": [{"sha": "abc"}]}), (200, b""))
+    with pytest.raises(GitHubAppError, match="full commit id"):
+        RepoWriter(token(), api=api).commit_diff(NEW)
+
+
+def test_delete_branch_only_warden_branches():
+    api, log = fake_api((204, b""))
+    RepoWriter(token(), api=api).delete_branch("warden/revert/x")
+    assert (log[0]["method"], log[0]["path"]) == ("DELETE", f"/repos/{REPO}/git/refs/heads/warden/revert/x")
+    with pytest.raises(GitHubAppError, match="its own branches"):
+        RepoWriter(token(), api=fake_api()[0]).delete_branch("dev")
