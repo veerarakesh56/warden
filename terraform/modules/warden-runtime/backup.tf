@@ -10,10 +10,13 @@
 # (the cluster's own size); the audit database is small, so a copy a month is cents. Off with audit_monthly_backup.
 locals {
   audit_backup = var.audit_monthly_backup && !var.aws_free_plan ? 1 : 0 # the Free plan's lab instance: not covered
+  # The vault outlives the switch: turning the monthly copy off keeps the copies already made (AWS Backup refuses to
+  # delete a vault that holds any, and they are the record).
+  audit_vault = var.aws_free_plan ? 0 : 1
 }
 
 resource "aws_backup_vault" "audit" {
-  count = local.audit_backup
+  count = local.audit_vault
   name  = "warden-${var.environment}-audit"
   tags  = { Project = "warden", Environment = var.environment }
 }

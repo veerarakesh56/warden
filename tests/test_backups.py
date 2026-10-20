@@ -93,7 +93,9 @@ def test_anchors_and_the_witness_stay_locked_at_least_180_days():
         assert re.search(r'mode\s*=\s*"COMPLIANCE"', lock), tf
         assert re.search(r"days\s*=\s*var\.anchor_retention_days", lock), tf
     runtime = _code((ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8"))
-    days = re.search(r"^\s*anchor_retention_days\s*=\s*(\d+)\s*$", runtime, re.MULTILINE)
+    found = re.search(r'^module "runtime" \{.*?^\}', runtime, re.DOTALL | re.MULTILINE)
+    assert found, 'terraform/runtime/main.tf has no module "runtime" block'
+    days = re.search(r"^\s*anchor_retention_days\s*=\s*(\d+)\s*$", found.group(0), re.MULTILINE)
     assert days, "terraform/runtime/main.tf sets no anchor_retention_days: the module's 1-day default applies"
     assert int(days.group(1)) >= AUDIT_DAYS
 
@@ -118,11 +120,16 @@ def test_one_monthly_audit_copy_in_this_regions_vault_kept_past_aurora_s_35_days
     assert "selection_tag" not in selection  # this database only
     assert "condition" not in selection
     assert re.search(r"audit_backup\s*=\s*var\.audit_monthly_backup && !var\.aws_free_plan \? 1 : 0", tf)
+    # The vault outlives the switch; the plan, the selection and the role go with it.
+    assert re.search(r"count\s*=\s*local\.audit_vault\b", _resource(tf, "aws_backup_vault", "audit"))
+    assert re.search(r"audit_vault\s*=\s*var\.aws_free_plan \? 0 : 1", tf)
     variables = _code((RUNTIME / "variables.tf").read_text(encoding="utf-8"))
     block = variables.split('variable "audit_monthly_backup" {', 1)[1].split("\n}", 1)[0]
     assert re.search(r"default\s*=\s*true", block)
     root = _code((ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8"))
-    assert 'audit_monthly_backup = lookup(local.tf, "audit_monthly_backup", "true") == "true"' in " ".join(root.split())
+    # Fail closed: only "false" turns it off ("True", "yes", a trailing space all keep it on).
+    assert ('audit_monthly_backup = lower(trimspace(lookup(local.tf, "audit_monthly_backup", "true"))) != "false"'
+            in " ".join(root.split()))
 
 
 def test_the_backup_role_snapshots_this_cluster_into_this_vault_and_deletes_nothing():
@@ -130,8 +137,9 @@ def test_the_backup_role_snapshots_this_cluster_into_this_vault_and_deletes_noth
     role = _resource(tf, "aws_iam_role", "audit_backup")
     assert "permissions_boundary = var.permissions_boundary_arn" in " ".join(role.split())
     policy = _resource(tf, "aws_iam_role_policy", "audit_backup")
+    assert "NotAction" not in policy
     action_lines = re.findall(r"Action\s*=\s*(\[[^\]]*\]|\"[^\"]*\")", policy)
-    actions = {a for line in action_lines for a in re.findall(r'"([\w-]+:\w+)"', line)}
+    actions = {a for line in action_lines for a in re.findall(r'"([^"]*)"', line)}  # every string, wildcards too
     assert actions == {"rds:CreateDBClusterSnapshot", "rds:AddTagsToResource", "rds:DescribeDBClusters",
                        "rds:DescribeDBClusterSnapshots", "rds:ListTagsForResource",
                        "backup:DescribeBackupVault", "backup:CopyIntoBackupVault", "backup:TagResource",
@@ -165,8 +173,13 @@ def test_the_deploy_role_manages_only_the_audit_vault_and_plan_from_its_own_poli
     assert passing["Condition"] == {"StringEquals": {"iam:PassedToService": "backup.amazonaws.com"}}
     boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
     ceiling = next(st for st in boundary["Statement"] if st.get("Sid") == "CeilingRegional")
-    assert {"backup:*", "backup-storage:MountCapsule"} <= set(ceiling["Action"])
+    backup = sorted(a for a in ceiling["Action"] if a.startswith("backup"))
+    assert backup == ["backup-storage:MountCapsule", "backup:*BackupPlan", "backup:*BackupSelection",
+                      "backup:*BackupVault", "backup:*Tag*"]
     assert ceiling["Condition"] == {"StringEquals": {"aws:RequestedRegion": region}}
+    # Never a copy deleted or taken out, never a restore, by any role the boundary bounds (a person restores).
+    always = next(st for st in boundary["Statement"] if st.get("Sid") == "DenyAlways")
+    assert {"backup:DeleteRecoveryPoint", "backup:CopyFromBackupVault", "backup:*Restore*"} <= set(always["Action"])
 
 
 def r_region() -> str:
