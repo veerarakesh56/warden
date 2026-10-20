@@ -295,6 +295,13 @@ def after_answer(log: Any, pack: Any, diagnosed: Any, second: Any = None) -> Rou
                  fallback=route.fallback, take_over=take, extra={"answered_by": made_by or ""})
 
 
+def needs_person(log: Any, incident_id: str) -> bool:
+    """Does the incident's latest routing record say its hard case was answered by the default model because the hard
+    one is not qualified? Then no AI or test identity approves its fix alone: a person does."""
+    rows = log.entries(incident_id, kinds=("incident.route",))
+    return bool(rows) and rows[-1]["body"].get("needs_person") is True
+
+
 def for_question(text: str) -> Route:
     """The discussion channel: a simple question gets the default model, a deep re-investigation the hard one."""
     return choose([question_signal(text)])

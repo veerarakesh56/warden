@@ -672,8 +672,11 @@ class IncidentWorkflow:
                                                                 args=[hard, escalate_only], **once)
             except ActivityError:
                 second = again.model_copy(update={"model_unavailable": "the second diagnosis could not be made"})
-            checked = await workflow.execute_activity_method(
-                acts.second_opinion, **_zoned(acts.second_opinion), args=[hard, again, second, checked], **QUICK)
+            try:
+                checked = await workflow.execute_activity_method(
+                    acts.second_opinion, **_zoned(acts.second_opinion), args=[hard, again, second, checked], **QUICK)
+            except ActivityError:
+                return pack, diagnosed, verified  # its second opinion could not be recorded: the earlier answer stands
         return hard, again, still_held(checked, verified)
 
     @workflow.run

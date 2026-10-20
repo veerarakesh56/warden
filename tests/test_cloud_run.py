@@ -25,7 +25,9 @@ class _Secrets:
 
 
 def test_the_key_comes_from_the_runtimes_secret_and_is_never_printed(monkeypatch, capsys):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # Registered first, so what model_key writes into os.environ is undone after the test.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
     key = ANTHROPIC_KEY_PREFIX + "x" * 20
     secrets = _Secrets(key)
     said = cloud_run.key_source("ops")
@@ -77,8 +79,9 @@ def test_qualify_runs_the_replay_for_exactly_the_named_model_at_its_own_price(tm
     monkeypatch.setattr(qualify_provider, "main", fake_main)
     monkeypatch.setenv("WARDEN_PRICE_IN", "99")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "set-by-the-task")
-    for name in ("WARDEN_PROVIDER", "WARDEN_MODEL"):
-        monkeypatch.delenv(name, raising=False)
+    for name in ("WARDEN_PROVIDER", "WARDEN_MODEL"):  # registered first: qualify() sets both
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
     code = cloud_run.main(["qualify", "--model", "claude-opus-5-5", "--budget-usd", "2", "--out", str(tmp_path / "o")])
     assert code == 1
     assert seen['provider'] == 'anthropic'
