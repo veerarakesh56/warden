@@ -417,3 +417,36 @@ def test_a_reopen_cut_off_before_its_marker_still_marks_the_fix_on_the_retry():
     assert history.did_not_hold(log, "k8s_rollout_undo", row["target"])[0]
     asyncio.run(intake.submit(_Reusing(), ev, log))  # delivered once more: still one marker
     assert len(log.entries(incident, kinds=(history.DID_NOT_HOLD,))) == 1
+
+
+def test_offer_again_never_clears_a_later_failure_of_another_incident(tmp_path, monkeypatch, capsys):
+    """CodeRabbit, PR 43: `warden offer-again inc-9` cleared the same fix's later failure in inc-10, which the approver
+    never named nor read. Each failure is cleared by its own incident's name."""
+    import yaml
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from warden import audit
+    from warden.cli import main
+
+    signer = Ed25519PrivateKey.generate()
+    key_file = tmp_path / "owner.pem"
+    key_file.write_bytes(signer.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                             serialization.NoEncryption()))
+    pem = signer.public_key().public_bytes(serialization.Encoding.PEM,
+                                          serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    audit.generate_key(tmp_path / "audit.pem", tmp_path / "audit.pub")
+    (tmp_path / "approvers.yaml").write_text(yaml.safe_dump(
+        {"approvers": {"owner": {"public_key": pem, "tiers": ["T1", "T2"]}}}), encoding="utf-8")
+    for name, value in {"WARDEN_APPROVERS": "approvers.yaml", "WARDEN_AUDIT_DB": "audit.db",
+                        "WARDEN_AUDIT_KEY": "audit.pem"}.items():
+        monkeypatch.setenv(name, str(tmp_path / value))
+    monkeypatch.delenv("WARDEN_ENV", raising=False)
+    log = audit.AuditLog(tmp_path / "audit.db")
+    log.append("inc-9", history.DID_NOT_HOLD, {"entry": "e", "target": "dev/t", "workflow_id": "w9"})
+    log.append("inc-10", history.DID_NOT_HOLD, {"entry": "e", "target": "dev/t", "workflow_id": "w10"})
+    assert main(["offer-again", "inc-9", "--approver", "owner", "--key", str(key_file)]) == 1
+    assert "held back by a later failure, in incident inc-10" in capsys.readouterr().err
+    assert history.did_not_hold(audit.AuditLog(tmp_path / "audit.db"), "e", "dev/t")[0] == "inc-10"
+    assert main(["offer-again", "inc-10", "--approver", "owner", "--key", str(key_file)]) == 0
+    assert history.did_not_hold(audit.AuditLog(tmp_path / "audit.db"), "e", "dev/t") == ("", "")

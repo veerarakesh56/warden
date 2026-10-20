@@ -76,8 +76,23 @@ def failures(log: Any, entry: str, target: str) -> list[tuple[datetime, str]]:
     (CodeRabbit, PR 43: a 30-day window let the same fix be offered again with no person deciding)."""
     rows = [(e["at"], e["correlation_id"]) for e in log.entries(kinds=(DID_NOT_HOLD,))
             if e["body"].get("entry") == entry and e["body"].get("target") == target]
-    return rows + [(r["at"], r["incident"]) for r in plans(log, lookback=None)
-                   if r["status"] == "relapsed" and r["entry"] == entry and r["target"] == target]
+    return rows + [(at, incident) for at, incident, e, t in _relapsed(log) if e == entry and t == target]
+
+
+def _relapsed(log: Any, incident: str | None = None) -> list[tuple[datetime, str, str, str]]:
+    """(ended at, incident, entry, target) of every fix run that ended `relapsed` - a re-check failed - read from the
+    end rows and each one's own plan row, never the whole plan history rebuilt (CodeRabbit, PR 43)."""
+    out = []
+    for e in log.entries(incident, kinds=("workflow.end",)):
+        b = e["body"]
+        if b.get("status") != "relapsed":
+            continue
+        plan = next((p["body"] for p in log.entries(e["correlation_id"], kinds=("remediation.plan",))
+                     if (p["body"].get("workflow_id"), p["body"].get("run_id")) == (b.get("workflow_id"),
+                                                                                    b.get("run_id"))), None)
+        if plan is not None:
+            out.append((e["at"], str(e["correlation_id"]), str(plan.get("entry", "")), str(plan.get("target", ""))))
+    return out
 
 
 def failed_in(log: Any, incident: str) -> list[tuple[str, str]]:
@@ -85,8 +100,7 @@ def failed_in(log: Any, incident: str) -> list[tuple[str, str]]:
     or a re-check failed and its run ended `relapsed` (CodeRabbit, PR 43) - once each, in the record's order."""
     rows = [(str(e["body"].get("entry", "")), str(e["body"].get("target", "")))
             for e in log.entries(incident, kinds=(DID_NOT_HOLD,))]
-    rows += [(str(r["entry"]), str(r["target"])) for r in plans(log, lookback=None)
-             if r["incident"] == incident and r["status"] == "relapsed"]
+    rows += [(entry, target) for _, _, entry, target in _relapsed(log, incident)]
     return list(dict.fromkeys(rows))
 
 
