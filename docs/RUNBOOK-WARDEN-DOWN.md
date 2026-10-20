@@ -58,22 +58,22 @@ aws ssm get-parameter --name /warden/ops/tf/paused --query Parameter.Value --out
 1. **Look at the alarms yourself.** In each watched environment's Region, open CloudWatch, Alarms, "In alarm", and
    the Datadog monitors. Treat every alarm in ALARM as unhandled.
 
-```
-aws cloudwatch describe-alarms --state-value ALARM --query "MetricAlarms[].[AlarmName,StateUpdatedTimestamp]" --output table
-```
+   ```
+   aws cloudwatch describe-alarms --state-value ALARM --query "MetricAlarms[].[AlarmName,StateUpdatedTimestamp]" --output table
+   ```
 
 2. **Read the lost-alarm queue.** Every message is an alarm change WARDEN never saw. Handle each one by hand.
 
-```
-aws sqs get-queue-url --queue-name warden-ops-alarm-dlq
-aws sqs receive-message --queue-url <queue-url> --max-number-of-messages 10
-```
+   ```
+   aws sqs get-queue-url --queue-name warden-ops-alarm-dlq
+   aws sqs receive-message --queue-url <queue-url> --max-number-of-messages 10
+   ```
 
 3. **Page people by hand when needed.** WARDEN's own topic reaches its owner:
 
-```
-aws sns publish --topic-arn <page-topic-arn> --subject "WARDEN down: incidents handled by hand" --message "<what is happening, times in UTC and IST>"
-```
+   ```
+   aws sns publish --topic-arn <page-topic-arn> --subject "WARDEN down: incidents handled by hand" --message "<what is happening, times in UTC and IST>"
+   ```
 
    The topic's ARN is the value of SSM `/warden/ops/tf/page_topic_arn`. For anyone else, use your team's usual
    channel; WARDEN has no other paging path today.
@@ -208,17 +208,17 @@ aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --d
 2. The kill switch is in the state you expect. For the cloud runtime the approval page shows it, and every trip,
    on a link your own key signs:
 
-```
-warden killswitch link --approver <your-id> --key ~/.warden/<your-id>.pem
-```
+   ```
+   warden killswitch link --approver <your-id> --key ~/.warden/<your-id>.pem
+   ```
 
    (`warden killswitch status` reads only an audit this machine reaches.) Reset it only with your passkey on that
    page, after reading every trip it lists ([RUNBOOK-WARDEN-INCIDENT.md, section 4](RUNBOOK-WARDEN-INCIDENT.md#4-after-the-incident)).
 3. The record is whole:
 
-```
-warden audit verify --db <audit.db> --public-key <audit.pub> --anchor-bucket <bucket>
-```
+   ```
+   warden audit verify --db <audit.db> --public-key <audit.pub> --anchor-bucket <bucket>
+   ```
 
 4. Every message in `warden-ops-alarm-dlq` was handled by a person, then removed. WARDEN does not replay them
    itself. (The `alarm` Lambda takes the same EventBridge event, so it can be invoked by hand with a message's body;
