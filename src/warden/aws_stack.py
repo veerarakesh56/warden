@@ -1853,7 +1853,7 @@ _DB_LOG_ERROR = re.compile(r"\b(?:ERROR|FATAL|PANIC):")
 # Performance Insights' heaviest statements, as numbers and names only (2026-10-15: "do you see the queries").
 TOP_SQL = 5
 _SQL_WORD = re.compile(r"[A-Za-z]+")
-_SQL_TABLE = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+((?:[A-Za-z_][A-Za-z0-9_$]{0,62}\.)?[A-Za-z_][A-Za-z0-9_$]{0,62})",
+_SQL_TABLE = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+((?:[A-Z_][A-Z0-9_$]{0,62}\.)?[A-Z_][A-Z0-9_$]{0,62})",
                         re.IGNORECASE)
 _SQL_VERBS = frozenset({"SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "COPY", "VACUUM", "ANALYZE", "CREATE", "ALTER",
                         "DROP", "LOCK", "BEGIN", "COMMIT", "CALL", "MERGE", "SET", "SHOW", "TRUNCATE", "REFRESH"})

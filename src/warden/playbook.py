@@ -439,7 +439,7 @@ def _denied(line: str) -> str:
 def _db_iam_refused(ctx: ContextBundle, line: str) -> str:
     """Which role lost rds-db:connect for the refused database user - only when the evidence NAMES that role
     (a TASKROLE line). Advice for a reviewed change, for the reason _denied gives."""
-    user = re.search(r'PAM authentication failed for user "?([A-Za-z0-9_]+)', line)
+    user = re.search(r'PAM authentication failed for user "?(\w+)', line, re.ASCII)
     src = _source_of(line)
     tline = _first(ctx, f"TASKROLE ecs/{src[1]} ") if src and src[0] == "ecs" else None
     role = _kv(tline).get("role") if tline else None
