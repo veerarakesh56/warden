@@ -1860,7 +1860,7 @@ class DiscussActivities:
             llm = (self.incident.llm_factory or LLMClient)()
         except Exception as exc:  # a model that cannot be built is no answer: the person is told  # noqa: BLE001
             # Review, PR 47: a prompt not yet qualified refuses the model; the person is told, never left waiting.
-            _note(f"discuss {thread.incident}: no model could be used ({type(exc).__name__})")
+            _note(f"discuss: no model could be used ({type(exc).__name__})")
             return discuss.NO_ANSWER
         attempt = secrets.token_hex(8)
         self.audit.append(key, "incident.llm_reserve", {"run_id": _run_id(), "attempt": attempt, "usd": llm.max_usd,

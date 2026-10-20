@@ -95,6 +95,22 @@ def decisive_problem(root_cause: RootCause, items: dict[str, Item]) -> str | Non
             "a fix")
 
 
+def ranked_problem(root_cause: RootCause) -> str | None:
+    """P38 (review, PR 47): the diagnosis's hypothesis must be the cause it ranked first - the one P34 and P35 weigh
+    and the remediation acts on. Compared without case, spacing or a closing period; never rewritten to agree."""
+    hs = root_cause.hypotheses
+    if not hs:
+        return None
+
+    def norm(text: str) -> str:
+        return " ".join(text.casefold().split()).rstrip(".")
+
+    if norm(root_cause.hypothesis) == norm(hs[0].cause):
+        return None
+    return (f"the stated root cause ({root_cause.hypothesis[:120]!r}) is not the cause the diagnosis ranked first and "
+            f"WARDEN weighed ({hs[0].cause[:120]!r})")
+
+
 def margin_problem(root_cause: RootCause, items: dict[str, Item]) -> tuple[str, str] | None:
     """P35: ("no_rival" or "too_close", why) when the diagnosis weighed no rival, or its top two are too close to call
     by WARDEN's count of their citations. None for an answer from before ranked hypotheses."""
@@ -591,13 +607,22 @@ _ARN = re.compile(r"(?<![\w:/-])arn:[a-z0-9-]+:[^\s,;)'\"`]+")
 # An image reference: a name, then a tag or a digest (`checkout:1.2.0`, `checkout:latest`, `repo/app@sha256:...`,
 # `checkout:canary`). One linear pattern (possessive runs, nothing re-read: Sonar, PR 47); unread() decides per match.
 # A tag never ends in a period: "roll back to checkout:1.2.0." ends a sentence.
-_IMAGE_REF = re.compile(r"(?<![\w.:/-])([A-Za-z][\w./-]*+)(?::(\w(?:[\w-]|\.(?=[\w-]))*+)|@sha256:[0-9a-f]{12,}+)"
-                        r"(?![\w:/-])")
+_IMAGE_REF = re.compile(r"(?<![\w.:/-])([A-Za-z][\w./-]*+)(?::(\w(?:[\w-]|\.(?=[\w-]))*+)(?:@sha256:[0-9a-f]{12,}+)?+"
+                        r"|@sha256:[0-9a-f]{12,}+)(?![\w:/-])")
+# A word for a tag is a resource's kind only after one of these (`lambda:warden-dev-x`, `sqs:orders`) - review, PR 47.
+_KIND_WORDS = frozenset({"lambda", "function", "ecs", "eks", "k8s", "sqs", "sns", "rds", "aurora", "dynamodb", "table",
+                         "queue", "topic", "rule", "events", "eventbridge", "alarm", "service", "deployment",
+                         "namespace", "cluster", "kinesis", "stream", "appconfig", "asg", "ec2", "instance", "s3",
+                         "bucket", "elasticache", "redis", "secret", "secretsmanager", "pipeline", "stage", "db",
+                         "database", "statefulset", "daemonset", "pod", "job", "cronjob"})
+# Where WARDEN's read text splits into whole values (review, PR 47: `1.2.3` is not read because `1.2.30` was).
+_READ_SPLIT = re.compile(r"[\s,;()\[\]{}\"'=<>|]+")
 _NUMBERED_TAG = re.compile(r"v?\d")
 # A version: three or more dotted numbers (`1.18.0`, `2.4.1-alpine`), or a `v` and one or two (`v3`, `v1.2`). Every
 # number-like word is found by one trivial pattern and judged in _version_in (Sonar, PR 47: linear, low complexity) -
 # times, rates and counts are numbers, not versions; a sentence's closing period is not part of one.
-_NUMBER = re.compile(r"(?<![\w.:/-])v?+\d[\w.+-]*+")
+# Attached by `-` or `_` too (`checkout-1.2.0`, review PR 47); never inside a word or a dotted name.
+_NUMBER = re.compile(r"(?<![A-Za-z0-9.:/])v?+\d[\w.+-]*+")
 _VERSION_SHAPE = re.compile(r"v?(\d+(?:\.\d+)*)(?:[-+]\w[\w.]*)?")
 UNREAD = "[not read by WARDEN]"
 PREVIOUS = "[the previous revision WARDEN recorded]"
@@ -615,30 +640,39 @@ def read_text(alert: Any, context: Any) -> str:
 
 def unread(text: str, read: str, *, rollback: bool = False) -> str:
     """`text` with each version, image tag and ARN WARDEN did not read replaced by a fixed phrase."""
+    words = read_words(read)
+
     def keep_or(what: str):
-        return lambda m: m.group(0) if m.group(0) in read else what
+        return lambda m: m.group(0) if m.group(0) in words else what
 
     version = PREVIOUS if rollback else UNREAD
     names = tokens(read)
 
     def image(m: re.Match[str]) -> str:
-        """A numbered tag or a digest is kept only as WARDEN read it. A word for a tag (`checkout:canary`, review PR 47)
-        is the same shape as a model naming a resource by its kind (`lambda:warden-dev-x`): a name WARDEN read after the
-        colon is a resource; on an image name (lower case, OCI) anything else is a tag WARDEN did not read."""
+        """Kept only as WARDEN read it, whole. A word for a tag (`checkout:canary`, review PR 47) is the same shape as a
+        model naming a resource by its kind (`lambda:warden-dev-x`): only after a kind word, and only a name WARDEN
+        read, is it a resource."""
         whole, name, tag = m.group(0), m.group(1), m.group(2)
-        if whole in read:
+        if whole in words:
             return whole
-        if tag is None or tag == "latest" or _NUMBERED_TAG.match(tag):
+        if tag is None or "@sha256:" in whole or tag == "latest" or _NUMBERED_TAG.match(tag):
             return version
-        return whole if tag in names or name != name.lower() else version
+        return whole if name.lower() in _KIND_WORDS and tag in names else version
 
     def number(m: re.Match[str]) -> str:
         word = m.group(0)
         found = _version_in(word)
-        return version + word[len(found):] if found and found not in read else word
+        return version + word[len(found):] if found and found not in words else word
 
     text = _IMAGE_REF.sub(image, _ARN.sub(keep_or(UNREAD), text))
     return _NUMBER.sub(number, text)
+
+
+def read_words(read: str) -> set[str]:
+    """The whole values in WARDEN's read text: each word, and each part of it around `:` or `@` (`checkout:2.4.1`
+    holds `checkout` and `2.4.1`), without a closing period."""
+    words = {w.rstrip(".") for w in _READ_SPLIT.split(read) if w}
+    return words | {p.rstrip(".") for w in words for p in re.split(r"[:@]", w) if p}
 
 
 def _version_in(word: str) -> str:

@@ -20,6 +20,7 @@ from .grounding import (
     citation_problems,
     decisive_problem,
     margin_problem,
+    ranked_problem,
     target_problem,
 )
 from .knowledge import default_knowledge_base
@@ -637,11 +638,14 @@ def verify(
     return verdict.model_copy(update={"observed": observed}) if observed else verdict
 
 
-def _signatures_in_evidence(alert: Alert, context: ContextBundle) -> list[str]:
+def signatures_in_evidence(alert: Alert, context: ContextBundle) -> list[str]:
     """P36: the failure signatures that a signal WARDEN read fires - a log or event term, a metric, a deploy - with the
     alert's own words (its name and summary) left out."""
     own_words_out = alert.model_copy(update={"summary": ""})
-    return [m.signature.id for m in default_knowledge_base().match(own_words_out, context) if set(m.signals) - {"name"}]
+    kb = default_knowledge_base()
+    # Every match, not the top three: name-only matches must not crowd out one the evidence supports (review, PR 47).
+    return [m.signature.id for m in kb.match(own_words_out, context, limit=len(kb.signatures))
+            if set(m.signals) - {"name"}]
 
 
 def _enforce(
@@ -833,7 +837,7 @@ def _enforce(
         # lines and events, metrics and deploys - never the alert's own name or summary: healthy controls are named
         # and described like faults. On the held-out keys (no model answer involved) it hands 11 of the 33 cases a
         # person may close (G9 4 of 8, G10 7 of 25) to a person instead; each of those keys accepts the hand-off.
-        if seen := _signatures_in_evidence(alert, context):
+        if seen := signatures_in_evidence(alert, context):
             escalate = True
             policies.append("P36-NO-ACTION-DESPITE-SIGNATURE")
             reasons.append(f"No action proposed, but WARDEN's own failure signatures describe this evidence "
@@ -876,6 +880,13 @@ def _enforce(
             else:
                 policies.append("P35-HYPOTHESES-TOO-CLOSE")
             reasons.append(f"{close[1][0].upper()}{close[1][1:]}.")
+
+    # P38 - the stated root cause is the one the hypotheses ranked first (review, PR 47): otherwise the count and the
+    # remediation's evidence describe another cause. Escalates; nothing is rewritten.
+    if why := ranked_problem(root_cause):
+        escalate = True
+        policies.append("P38-HYPOTHESIS-NOT-RANKED-FIRST")
+        reasons.append(f"{why[0].upper()}{why[1:]}: a person reads both.")
 
     # P15 - the citations must bear on the ACTION, not merely exist (grounding.ACTION_EVIDENCE).
     # Escalates: a person checks whether the evidence supports this fix at all.

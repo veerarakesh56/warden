@@ -589,6 +589,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "the diagnosis weighed no rival cause (2 to 4 ranked hypotheses are asked for): "
                             "escalated to a person"
                         ),
+                        "P38-HYPOTHESIS-NOT-RANKED-FIRST": (
+                            "the stated root cause is not the cause the diagnosis ranked first and WARDEN weighed: "
+                            "escalated - a person reads both"
+                        ),
                         "P35-HYPOTHESES-TOO-CLOSE": (
                             "WARDEN's own count of the held citations for and against does not separate the chosen "
                             "cause from its best rival: escalated with both - a person chooses"

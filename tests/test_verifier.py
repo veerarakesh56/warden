@@ -505,3 +505,29 @@ def test_a_full_connection_pool_is_a_symptom(metrics, full):
     from warden.models import ContextBundle
     from warden.verifier import symptoms
     assert ("the connection pool is full" in symptoms(ContextBundle(metrics=metrics))) is full
+
+
+def test_name_only_matches_never_crowd_out_one_the_evidence_supports(monkeypatch):
+    """Review, PR 47: P36 read the knowledge base's top three, and three name-only matches ranked ahead of an evidence
+    match (ties break by id) hid it."""
+    from warden import knowledge, verifier
+
+    real = knowledge.default_knowledge_base()
+    deploy = next(s for s in real.signatures if s.id == "DEPLOY-BAD-001")
+    named = [s for s in real.signatures if s.detect.get("name_matches") is not None and s.id != deploy.id][:3]
+    assert len(named) == 3
+    import dataclasses
+    import re
+
+    renamed = [dataclasses.replace(s, id=f"AAA-{i}", detect={"name_matches": re.compile(".*")})
+               for i, s in enumerate(named)]
+    kb = knowledge.KnowledgeBase([*renamed, deploy])
+    monkeypatch.setattr(verifier, "default_knowledge_base", lambda: kb)
+    # One signal only (a recent deploy; no 5xx line, and a name DEPLOY-BAD does not match): a score of 1, tied with the
+    # three name-only matches, whose ids sort first.
+    quiet = _ctx(logs=["INFO GET /cart 200", "INFO GET /health 200"])
+    alert = _alert(name="Xyz", summary="")
+    [only] = [m for m in kb.match(alert, quiet, limit=10) if m.signature.id == "DEPLOY-BAD-001"]
+    assert only.signals == ("deploy_recent",)
+    assert "DEPLOY-BAD-001" not in [m.signature.id for m in kb.match(alert, quiet)]  # what the top three hid
+    assert verifier.signatures_in_evidence(alert, quiet) == ["DEPLOY-BAD-001"]
