@@ -267,6 +267,25 @@ def test_the_terminate_login_never_signs_in_with_a_standing_password(db_cloud, m
     assert db_cloud.sessions == []
 
 
+@pytest.mark.parametrize("dsn, why", [
+    (DSN_RO.replace("_ro@", f"_ro:{HUNTER2}@"), "password"),
+    (DSN_RO + f"?password={HUNTER2}&sslmode=disable", "password"),
+    ("postgresql:///shop?user=warden_dev_ro", "no host"),
+    ("postgresql://warden-dev-aurora.cluster-abc123.here.rds.example/shop", "no user"),
+])
+def test_the_read_login_is_signed_and_verified_or_refused(db_cloud, monkeypatch, dsn, why):
+    """A read DSN iam_dsn would pass through as it is - a standing password, or no host or user to sign for - is
+    refused before any read: it would sign in unsigned and without verify-full (review, PR 48)."""
+    monkeypatch.setenv("WARDEN_STACK_DB_PRIMARY_RO_DSN", dsn)
+    monkeypatch.delenv("WARDEN_DB_TERMINATE_DSN", raising=False)
+    p = dbp.db_from_environment().for_environment("dev")
+    assert isinstance(p, Unconfigured)
+    assert why in p.why
+    assert "WARDEN_STACK_DB_PRIMARY_RO_DSN" in p.why
+    assert HUNTER2 not in p.why
+    assert db_cloud.conns == []
+
+
 def test_a_zone_without_a_login_or_an_environment_without_a_database_closes_nothing(db_cloud, monkeypatch):
     monkeypatch.setenv("WARDEN_STACK_DB_PRIMARY_RO_DSN", DSN_RO)  # the read zone: no terminate login
     monkeypatch.delenv("WARDEN_DB_TERMINATE_DSN", raising=False)

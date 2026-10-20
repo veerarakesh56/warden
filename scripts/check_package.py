@@ -10,12 +10,13 @@ instead of shipping. Exit 0: clean; 1: files outside the allowlist, listed.
 from __future__ import annotations
 
 import pathlib
+import re
 import sys
 import zipfile
 
 ALLOWED = (".py", ".pyc", ".yaml", ".json", ".sha256")
-# One file by its exact path, not a kind (review, PR 48): Amazon RDS's public CA bundle, which the terminate login's
-# TLS is verified against. It must hold certificates and nothing else (a key in it fails the build).
+# One file by its exact path, not a kind (review, PR 48): Amazon RDS's public CA bundle, which every database login's
+# TLS (reads and the terminate login) is verified against. It must hold certificates and nothing else (a key in it fails the build).
 CERTIFICATES = ("data/rds-ca-bundle.crt", "warden/data/rds-ca-bundle.crt")
 # The package's own metadata in a wheel.
 DIST_INFO = ("METADATA", "RECORD", "WHEEL", "entry_points.txt", "licenses/LICENSE")
@@ -34,12 +35,23 @@ def outside(names: list[str]) -> list[str]:
     return bad
 
 
-def only_certificates(text: str) -> bool:
-    """Every PEM block in `text` is a certificate, and there is at least one."""
-    import re
+_CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----\r?\n([A-Za-z0-9+/=\r\n]++)-----END CERTIFICATE-----\s*+")
 
-    kinds = re.findall(r"-----BEGIN ([A-Z0-9 ]+)-----", text)
-    return bool(kinds) and set(kinds) == {"CERTIFICATE"}
+
+def only_certificates(text: str) -> bool:
+    """`text` is one or more complete CERTIFICATE blocks - each with its END line and a base64 body - and nothing
+    after them but whitespace (review, PR 48: a lone BEGIN line or text after a block passed). Plain text before the
+    first block, which RFC 7468 allows and PEM readers skip, is the bundle's provenance; it holds no `-----`."""
+    start = text.find("-----")
+    if start < 0:
+        return False
+    at = start
+    while at < len(text):
+        block = _CERTIFICATE.match(text, at)
+        if not block:
+            return False
+        at = block.end()
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
