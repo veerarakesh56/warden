@@ -48,7 +48,9 @@ def test_a_handler_warden_did_not_install_writes_through_the_gate(canary):
         log.exception("read failed for %s", canary)
     out = stream.getvalue()
     assert canary not in out
-    assert out.startswith("[ERROR]\treq-1\tuser <") and "Traceback" in out and "RuntimeError" in out
+    assert out.startswith("[ERROR]\treq-1\tuser <")
+    assert "Traceback" in out
+    assert "RuntimeError" in out
 
 
 def test_gating_handlers_is_idempotent_and_keeps_wardens_own_formatter():
@@ -58,7 +60,8 @@ def test_gating_handlers_is_idempotent_and_keeps_wardens_own_formatter():
     log.addHandler(own)
     assert gate_handlers(log) == 1
     assert gate_handlers(log) == 0
-    assert isinstance(log.handlers[0].formatter, GatedWrap) and own.formatter.__class__ is GatedFormatter
+    assert isinstance(log.handlers[0].formatter, GatedWrap)
+    assert own.formatter.__class__ is GatedFormatter
 
 
 def test_a_formatter_that_fails_is_withheld_not_printed_raw():
@@ -84,16 +87,21 @@ def test_a_lambdas_uncaught_error_reaches_neither_the_log_nor_the_runtime_raw(ca
     gated = lambdas._gated(handler)
     with pytest.raises(lambdas.HandlerFailed) as caught:
         gated({"detail": f"alarm from {canary}"})
-    assert canary not in str(caught.value) and "(ValueError)" in str(caught.value)
-    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+    assert canary not in str(caught.value)
+    assert "(ValueError)" in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert caught.value.__suppress_context__
     out = stream.getvalue()
-    assert canary not in out and "handler failed" in out and "ValueError" in out
+    assert canary not in out
+    assert "handler failed" in out
+    assert "ValueError" in out
 
 
 def test_every_lambda_entry_point_is_gated():
     for name in ("alarm", "alertmanager", "approval", "actor_use", "migrate"):
         fn = getattr(lambdas, name)
-        assert fn.__wrapped__.__name__ == name and fn.__code__ is lambdas._gated(fn.__wrapped__).__code__
+        assert fn.__wrapped__.__name__ == name
+        assert fn.__code__ is lambdas._gated(fn.__wrapped__).__code__
 
 
 _PROCESS = textwrap.dedent("""
@@ -124,6 +132,8 @@ def test_a_real_process_logs_no_canary_whatever_the_path(tmp_path):
     code = _PROCESS.format(tests=str(__import__("pathlib").Path(__file__).parent))
     got = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False)
     out = got.stdout + got.stderr
-    assert "in a thread" in out and "deprecated for" in out and "connect to" in out  # each path was taken
+    assert "in a thread" in out
+    assert "deprecated for" in out
+    assert "connect to" in out  # each path was taken
     for canary in CANARIES:
         assert canary not in out, canary
