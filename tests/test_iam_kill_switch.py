@@ -28,10 +28,12 @@ def _denied(env, tags):
     assert st["Resource"] == "*"
     ((op, cond),) = st["Condition"].items()
     ((key, want),) = cond.items()
-    assert op == "StringNotEquals"
+    # IfExists: true when the role has no such tag - fail closed by the operator's definition, not only by IAM's rule
+    # that a negated operator matches a missing key (CodeRabbit, PR 89).
+    assert op == "StringNotEqualsIfExists"
     assert key == f"aws:PrincipalTag/{ks.TAG}"
     have = tags.get(ks.TAG)
-    return have is None or have != want  # StringNotEquals: true when the key is absent
+    return have is None or have != want  # ...IfExists: true when the key is absent
 
 
 @pytest.mark.parametrize("env", ENVS)

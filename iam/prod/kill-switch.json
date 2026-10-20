@@ -7,7 +7,7 @@
       "Action": "*",
       "Resource": "*",
       "Condition": {
-        "StringNotEquals": {
+        "StringNotEqualsIfExists": {
           "aws:PrincipalTag/warden-kill-switch": "off"
         }
       }
