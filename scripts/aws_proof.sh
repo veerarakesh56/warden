@@ -115,7 +115,7 @@ terraform -chdir="$TF_DIR" init -input=false            2>&1 | tee -a "$OUT/run.
 terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
   -var "db_password=$DB_PASSWORD"                       2>&1 | tee -a "$OUT/run.log"
 
-tfout() { terraform -chdir="$TF_DIR" output -raw "$1"; }
+tfout() { local name="$1"; terraform -chdir="$TF_DIR" output -raw "$name"; }
 REGION="$(tfout region)"
 CLUSTER="$(tfout ecs_cluster)"
 SERVICE="$(tfout ecs_service)"

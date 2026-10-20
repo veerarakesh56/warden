@@ -55,10 +55,11 @@ ENV HF_HUB_CACHE=/opt/hf \
     HF_HOME=/tmp/hf
 
 # Non-root, as ./Dockerfile: an incident-response tool that runs as root is its own incident.
-RUN useradd --create-home --uid 10001 warden
-# The task's only writable place (its root filesystem is read-only): on Fargate a volume mounted at a path the image
-# declares as a VOLUME takes that path's permissions, else it is root's 0755 (AWS's bind-mount guide, read 2026-10-14).
-RUN chmod 1777 /tmp
+# /tmp is the task's only writable place (its root filesystem is read-only): on Fargate a volume mounted at a path the
+# image declares as a VOLUME takes that path's permissions, else it is root's 0755 (AWS's bind-mount guide, read
+# 2026-10-14).
+RUN useradd --create-home --uid 10001 warden \
+ && chmod 1777 /tmp
 VOLUME ["/tmp"]
 USER warden
 

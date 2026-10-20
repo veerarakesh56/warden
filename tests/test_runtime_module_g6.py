@@ -434,7 +434,7 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     assert 'mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]' in task
     assert "linuxParameters" not in task  # Fargate has no tmpfs
     dockerfile = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
-    assert 'RUN chmod 1777 /tmp\nVOLUME ["/tmp"]\nUSER warden' in dockerfile  # else the volume is root's 0755
+    assert ' && chmod 1777 /tmp\nVOLUME ["/tmp"]\nUSER warden' in dockerfile  # else the volume is root's 0755
     service = _block(tf, "aws_ecs_service", "zone")
     assert 'capacity_provider = "FARGATE"' in service and "force_new_deployment = true" in service  # the provider needs it
     # Never Spot (PR 44 review): no fallback to on-demand, and the heartbeat does not see one zone's gap.
