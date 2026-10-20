@@ -11,7 +11,7 @@ import re
 
 import pytest
 
-from test_register import _SAFE_DECORATORS, _skipped
+from test_register import _DELIMITER, _ENDS_TABLE, _SAFE_DECORATORS, _cells, _skipped
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "THREAT-MODEL.md"
@@ -35,7 +35,7 @@ def _implements(cell: str) -> bool:
     for target in _LINK.findall(cell):
         path = (DOC.parent / target).resolve()
         rel = path.relative_to(ROOT.resolve()) if path.is_relative_to(ROOT.resolve()) else None
-        if rel is not None and rel.parts and rel.parts[0] in _IMPLEMENTATION_ROOTS and path.exists():
+        if rel is not None and rel.parts and rel.parts[0] in _IMPLEMENTATION_ROOTS and path.is_file():
             return True
     return False
 
@@ -44,25 +44,45 @@ def test_an_implementation_link_counts_only_where_it_really_resolves():
     assert _implements("[gate.py](../src/warden/gate.py)")
     assert not _implements("[readme](../src/../README.md)")
     assert not _implements("[nothing](../src/warden/nope.py)")
+    assert not _implements("[a folder](../src/)")  # a directory names no file that implements anything
     assert not _implements("see [x]")
     assert not _implements("(../src/warden/gate.py)")  # half a link, as two cells joined made one
+
+
+def _table_rows(text: str) -> list[tuple[list[str], list[str]]]:
+    """(header, cells) for every row of every table, read as GitHub reads them - with or without a leading pipe -
+    using the register's own table rules (a header line, a delimiter line, rows until a blank line or a heading)."""
+    out: list[tuple[list[str], list[str]]] = []
+    lines, header, i = text.split("\n"), None, 0
+    while i < len(lines):
+        line = lines[i]
+        if header is None:
+            if "|" in line and i + 1 < len(lines) and _DELIMITER.fullmatch(lines[i + 1]):
+                header, i = _cells(line), i + 2
+                continue
+        elif not line.strip(" \t") or _ENDS_TABLE.match(line):
+            header = None
+        else:
+            out.append((header, _cells(line)))
+        i += 1
+    return out
 
 
 def _threat_rows() -> list[list[str]]:
     """The rows of section 3's tables that carry a Status column."""
     section = _text().split("## 3. Threats and mitigations", 1)[-1].split("## 4.", 1)[0]
     out = []
-    header: list[str] = []
-    for line in section.splitlines():
-        if not line.startswith("|") or re.fullmatch(r"\|[-| ]+\|", line):
-            continue
-        cells = [c.strip() for c in line.strip().strip("|").split(" | ")]
-        if cells[0] == "STRIDE":
-            header = cells
-        elif header and "Status" in header:
+    for header, cells in _table_rows(section):
+        if header[0] == "STRIDE" and "Status" in header:
             assert len(cells) == len(header) == 5, cells  # STRIDE, Threat, Mitigation, Evidence, Status
             out.append(cells)
     return out
+
+
+def test_a_row_without_a_leading_pipe_is_read():
+    table = "| STRIDE | Threat | Mitigation | Evidence | Status |\n|---|---|---|---|---|\n| S | a | m | e | planned |\n" \
+            "T | b | m | e | built and tested\n\nafter\n"
+    assert [cells[1] for _, cells in _table_rows(table)] == ["a", "b"]
 
 
 def test_the_threat_model_covers_every_trust_boundary_and_the_planned_code_path():
