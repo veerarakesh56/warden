@@ -208,8 +208,9 @@ def test_the_kept_plan_is_read_from_the_state_bucket_and_only_a_missing_one_is_n
     assert s3_plan_meta(lambda: s3, "tf-state")("other", "902") is None
     assert s3_plan_meta(lambda: s3, "tf-state")("fullstack", "../x") is None
     assert s3_plan_meta(lambda: _S3(_S3Error("NoSuchKey")), "tf-state")("fullstack", "902") is None
+    denied = s3_plan_meta(lambda: _S3(_S3Error("AccessDenied")), "tf-state")
     with pytest.raises(InfraPlatformError):
-        s3_plan_meta(lambda: _S3(_S3Error("AccessDenied")), "tf-state")("fullstack", "902")
+        denied("fullstack", "902")
 
 
 def test_the_repository_is_a_plain_name():
@@ -236,5 +237,5 @@ def test_each_environment_reads_its_own_state_bucket_and_one_without_reads_nothi
     lonely = per.for_environment("stage")
     assert lonely.live(ENTRY, {"stack": "fullstack"}) == {}
     with pytest.raises(InfraPlatformRefused):
-        lonely.apply(ENTRY, {}, who=WHO)
+        lonely.apply(ENTRY, {})
     assert PerEnvironment(reader, repo="", buckets="dev=tf-dev").for_environment("dev").live(ENTRY, {}) == {}

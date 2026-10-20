@@ -34,7 +34,7 @@ READ_TOKEN_ENV = "WARDEN_GITHUB_READ_TOKEN"
 API = "https://api.github.com"
 TIMEOUT_S = 8.0
 RUNS_READ = 20
-_RUN_ID = re.compile(r"[0-9]{1,20}")
+_RUN_ID = re.compile(r"\d{1,20}", re.ASCII)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 
@@ -98,7 +98,7 @@ class InfraPlatform:
             return {}
         try:
             return self._live(str(stack))
-        except (InfraPlatformError, urllib.error.URLError, TimeoutError, OSError, ValueError, KeyError, TypeError):
+        except (InfraPlatformError, OSError, ValueError, KeyError, TypeError):  # URLError and timeouts are OSErrors
             return {}  # unread allows nothing: the catalogue refuses
 
     def _live(self, stack: str) -> dict[str, Any]:
@@ -134,10 +134,10 @@ class InfraPlatform:
         return {**live, "plan_run": set() if why else {run_id}, "plan_sha256": set() if why else {sha},
                 "refused": why}
 
-    def knows(self, service: str) -> bool:
-        return False
+    def knows(self, *_service: str) -> bool:
+        return False  # health is asked by entry (healthy_for), never by a bare name
 
-    def healthy(self, service: str, entry: str | None = None, params: dict[str, Any] | None = None) -> bool:
+    def healthy(self, _service: str, entry: str | None = None, params: dict[str, Any] | None = None) -> bool:
         """The apply run the dispatch started finished successfully: the newest dispatched run of the workflow on the
         environment's branch, created after the fix was applied (the workflow's concurrency group runs one at a time)."""
         if entry != ENTRY:
@@ -146,7 +146,7 @@ class InfraPlatform:
         try:
             runs = self._gh.get(f"/actions/workflows/{self.workflow}/runs?branch={self.environment}"
                                 f"&event=workflow_dispatch&per_page=5", self._read_token()).get("workflow_runs") or []
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        except (OSError, ValueError):  # URLError and timeouts are OSErrors
             return False
         after = [r for r in runs if since is not None and (_when(r.get("created_at")) or since) >= since]
         return bool(after) and after[0].get("status") == "completed" and after[0].get("conclusion") == "success"
@@ -183,8 +183,7 @@ class InfraPlatform:
                 f"{params['plan_run']}'s plan (sha256 {str(params['plan_sha256'])[:12]}...), made at "
                 f"{str(snap.get('commit', ''))[:12]}")
 
-    def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any],
-                 who: dict[str, Any] | None = None) -> str:
+    def rollback(self, *_plan: Any) -> str:
         return ("nothing to roll back: a Terraform apply is not reversed automatically (T3); a person decides what "
                 "follows")
 
@@ -214,7 +213,8 @@ def s3_plan_meta(s3: Callable[[], Any], bucket: str) -> Callable[[str, str], dic
 
 def _pairs(text: str) -> dict[str, str]:
     """`env=value[,env=value]`, as WARDEN_EKS_CLUSTERS writes its pairs."""
-    return dict(p.split("=", 1) for p in (x.strip() for x in text.split(",")) if p.count("=") == 1)
+    pairs = (x.strip().split("=") for x in text.split(","))
+    return {kv[0]: kv[1] for kv in pairs if len(kv) == 2}
 
 
 class PerEnvironment:
@@ -240,30 +240,28 @@ class PerEnvironment:
                                                         plan_meta=s3_plan_meta(lambda: clients("s3"), bucket))
         return self._made[environment]
 
-    def live(self, entry: str, params: dict[str, Any]) -> dict[str, Any]:
+    def live(self, *_plan: Any) -> dict[str, Any]:
         return {}  # no environment named: nothing is read
 
-    def knows(self, service: str) -> bool:
+    def knows(self, *_service: str) -> bool:
         return False
 
 
 class _Unconfigured:
     """An environment without a state bucket or repository configured: reads nothing, sends nothing."""
 
-    def live(self, entry: str, params: dict[str, Any]) -> dict[str, Any]:
+    def live(self, *_plan: Any) -> dict[str, Any]:
         return {}
 
-    def knows(self, service: str) -> bool:
+    def knows(self, *_service: str) -> bool:
         return False
 
-    def healthy(self, service: str, entry: str | None = None, params: dict[str, Any] | None = None) -> bool:
+    def healthy(self, *_service: Any) -> bool:
         return False
 
-    def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None,
-              who: dict[str, Any] | None = None) -> str:
+    def apply(self, *_plan: Any) -> str:
         raise InfraPlatformRefused("this environment has no Terraform state bucket configured (WARDEN_TF_STATE_BUCKETS);"
                                    " nothing was sent")
 
-    def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any],
-                 who: dict[str, Any] | None = None) -> str:
+    def rollback(self, *_plan: Any) -> str:
         return "nothing to roll back: nothing was applied"
