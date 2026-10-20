@@ -5,12 +5,13 @@ without a test is refused."""
 
 from __future__ import annotations
 
+import ast
 import pathlib
 import re
 
 import pytest
 
-from test_register import _skipped
+from test_register import _SAFE_DECORATORS, _skipped
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "THREAT-MODEL.md"
@@ -41,6 +42,7 @@ def _threat_rows() -> list[list[str]]:
         if cells[0] == "STRIDE":
             header = cells
         elif header and "Status" in header:
+            assert len(cells) == len(header) == 5, cells  # STRIDE, Threat, Mitigation, Evidence, Status
             out.append(cells)
     return out
 
@@ -63,9 +65,33 @@ def test_every_cited_test_exists_and_is_not_skipped(ref):
     path = ROOT / file
     assert path.is_file(), ref
     src = path.read_text(encoding="utf-8")
-    m = re.search(rf"^((?:@.*\n)*)def {func}\(", src, re.MULTILINE)
-    assert m, f"{ref} does not exist"
-    assert not _skipped(file, src, m), f"{ref} is skipped (or may be, in CI)"
+    assert not _is_skipped(file, src, func), f"{ref} is skipped (or may be, in CI)"
+
+
+def _is_skipped(file: str, src: str, func: str) -> bool:
+    """The register's judgement, with the decorators read by the parser: a decorator over several lines, or a comment
+    or blank line before `def`, hid them from a line pattern (PR 82 review)."""
+    node = next((n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == func), None)
+    assert node is not None, f"{file}::{func} does not exist"
+    names = [ast.unparse(d.func if isinstance(d, ast.Call) else d) for d in node.decorator_list]
+    if any(name not in _SAFE_DECORATORS for name in names):
+        return True
+    body = re.search(r"^()def " + re.escape(func) + r"\(", src, re.MULTILINE)  # its body, module marks and imports
+    return _skipped(file, src, body)
+
+
+@pytest.mark.parametrize("src", [
+    "import pytest\n\n@pytest.mark.skipif(\n    True,\n    reason='x',\n)\ndef test_a():\n    pass\n",
+    "import pytest\n\n@pytest.mark.skip\n# a comment\n\ndef test_a():\n    pass\n",
+    "import pytest\n\ndef test_a():\n    pytest.skip('later')\n",
+])
+def test_a_skip_hidden_by_a_multi_line_decorator_or_a_comment_is_still_caught(src):
+    assert _is_skipped("tests/x.py", src, "test_a")
+
+
+def test_a_parametrized_test_is_not_taken_for_a_skipped_one():
+    src = "import pytest\n\n@pytest.mark.parametrize(\n    'x', [1],\n)\ndef test_a(x):\n    pass\n"
+    assert not _is_skipped("tests/x.py", src, "test_a")
 
 
 def test_every_test_citation_names_its_test():

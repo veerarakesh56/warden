@@ -179,7 +179,7 @@ designed out before the code lands.
 | A repeating page until someone acknowledges it | A single page that nobody sees | PR #43 (in review) |
 | Self-alarms for every zone, the Lambdas' errors, the audit database, key expiry | Only the core zone beats today (the WARDEN-down runbook, B29) | B35 |
 | Exact actions instead of wildcards in the deploy policy; the runtime's own task-execution policy | Least privilege for deploys | B22 |
-| A code guard: the workers and Lambdas refuse any Temporal address that is not the configured Temporal Cloud namespace endpoint (owner decision 2026-10-20; enforced in code, not by the network - the security group stays limited to port 7233) | A worker sent to another Temporal server | B23 |
+| A code guard (planned): the workers and Lambdas will refuse any Temporal address that is not the configured Temporal Cloud namespace endpoint (owner decision 2026-10-20; in code, not network-enforced - the security group stays limited to port 7233). Today the address is used as configured | A worker sent to another Temporal server | B23 |
 | Checking the actor role's permissions before asking for approval | An approved plan AWS then refuses | B12 |
 | A single-writer lock per target; a check for a deploy or PR between the fix and its rollback | Two writers on one target; rolling back someone else's change | B20, B21 |
 
