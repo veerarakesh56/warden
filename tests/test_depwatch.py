@@ -649,6 +649,21 @@ def test_an_update_fixes_only_the_alert_on_a_manifest_it_changes():
     assert depwatch.advisories(pr, [below]) == ([], [4])
 
 
+@pytest.mark.parametrize(("to", "fixed_in", "reached"), [
+    ("4", "4.0.0", True), ("2.32", "2.32.0", True), ("4.0.0", "4", True), ("3.13", "3.13.1", False),
+    ("2.10", "2.9.5", True), ("11bd719", "4.0.0", False), ("4.1", "next", False)])
+def test_a_version_reaches_its_fix_part_by_part_with_missing_parts_as_zero(to, fixed_in, reached):
+    """Dependabot titles a major-tag action bump `from 3 to 4`; the advisory says fixed in 4.0.0 - that is fixed."""
+    assert depwatch.reaches(to, fixed_in) is reached
+
+
+def test_a_major_tag_bump_fixes_the_alert_fixed_in_its_full_version():
+    pr = {"number": 2, "ecosystem": "github_actions", "files": [{"path": FLOWS}],
+          "changes": [{"package": "actions/checkout", "from": "3", "to": "4", "jump": "major"}]}
+    alert_ = {"number": 8, "package": "actions/checkout", "ecosystem": "actions", "patched": "4.0.0", "manifest": FLOWS}
+    assert depwatch.advisories(pr, [alert_]) == ([8], [])
+
+
 def test_nothing_read_is_never_said_as_nothing_open(world):
     class Down(FakeGitHub):
         def __call__(self, req, timeout):

@@ -568,14 +568,22 @@ def advisories(pr: dict[str, Any], alerts: list[dict[str, Any]]) -> tuple[list[i
     changed = {f["path"] for f in pr.get("files") or []}
     fixes, below = [], []
     for a in alerts:
-        if not a.get("manifest") or a["manifest"] not in changed:
+        if not a.get("manifest") or a["manifest"] not in changed or not a["patched"]:
             continue
         for c in pr["changes"]:
-            if _same_package(a, pr["ecosystem"], c) and a["patched"]:
-                to, fixed_in = _version(c["to"]), _version(a["patched"])
-                # A version that cannot be read is never "fixed": the alert stays open below the fix.
-                (fixes if to and fixed_in and to >= fixed_in else below).append(a["number"])
+            if _same_package(a, pr["ecosystem"], c):
+                (fixes if reaches(c["to"], a["patched"]) else below).append(a["number"])
     return sorted(set(fixes)), sorted(set(below) - set(fixes))
+
+
+def reaches(to: str, fixed_in: str) -> bool:
+    """Whether version `to` is at or past `fixed_in`, part by part with missing parts as 0 (`4` reaches `4.0.0`). A
+    version that cannot be read never reaches anything: the alert stays open below the fix."""
+    a, b = _version(to), _version(fixed_in)
+    if not a or not b:
+        return False
+    width = max(len(a), len(b))
+    return (*a, *(0,) * (width - len(a))) >= (*b, *(0,) * (width - len(b)))
 
 
 # ------------------------------------------------------------------ the model's effects, grounded
