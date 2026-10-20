@@ -116,6 +116,8 @@ def _fix(r: Any) -> Signal:
     status = str((end or {}).get("status") or "")
     if status == "recovered":
         return Signal(FIX, True, "the fix's own checks saw recovery, and the re-checks held")
+    if status == "mitigated":  # the fix held the harm and did not end it (CodeRabbit, PR 100)
+        return Signal(FIX, False, "the fix held the harm but did not fix the cause")
     if status in FAILED_FIX:
         return Signal(FIX, False, f"the fix did not hold ({status.replace('_', ' ')})")
     return Signal(FIX, None, "no fix has run to its checks")

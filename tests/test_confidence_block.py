@@ -61,7 +61,8 @@ def test_nothing_failed_but_nothing_backs_the_answer_is_medium_and_amber(log):
     ({"status": "escalated", "policies": ["P13-UNGROUNDED"]}, "grounded"),
     ({"status": "rejected", "policies": ["P2-IRREVERSIBLE-IN-PROD"]}, "rules"),
     ({"status": "escalated", "policies": ["P8-PARTIAL-CONTEXT"]}, "rules"),
-    ({"agree": False}, "second opinion"), ({"end": "rolled_back"}, "fix verified"), ({"end": "relapsed"}, "fix verified")])
+    ({"agree": False}, "second opinion"), ({"end": "rolled_back"}, "fix verified"), ({"end": "relapsed"}, "fix verified"),
+    ({"end": "mitigated"}, "fix verified")])
 def test_any_failed_signal_is_low_and_red_and_is_named(log, kw, failed):
     b = confidence.block(_incident(log, agree=kw.pop("agree", True), **kw))
     assert (b.level, b.colour, failed in b.decided_by) == ("Low", "bad", True)
