@@ -59,7 +59,7 @@ def test_the_lock_ends_with_its_runs_end_row_or_its_ttl():
     assert _take(log, "c", now=NOW + locks.TTL + timedelta(minutes=1)) == ""  # b's run never ended: its TTL did
 
 
-def test_two_workers_on_one_audit_never_both_take_the_target():
+def test_two_workers_on_one_audit_never_both_take_the_target(monkeypatch):
     """The check and the take are one step under the audit's write lock: while worker A has read "free" and not yet
     written, worker B (its own connection to the same audit) waits, then reads A's take and is refused."""
     path = Path(tempfile.mkdtemp()) / "audit.db"
@@ -77,11 +77,9 @@ def test_two_workers_on_one_audit_never_both_take_the_target():
             got["thread"] = other
         return found
 
-    locks.holder = slow_holder
-    try:
-        got["a"] = _take(a, "a")
-    finally:
-        locks.holder = real
+    monkeypatch.setattr(locks, "holder", slow_holder)
+    got["a"] = _take(a, "a")
+    monkeypatch.undo()
     got["thread"].join(10)
     assert got["a"] == ""
     assert got["b"].startswith("B20 TARGET-LOCKED")
