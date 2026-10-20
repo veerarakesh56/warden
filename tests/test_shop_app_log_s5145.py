@@ -13,8 +13,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def test_a_failed_route_is_logged_by_its_route_not_the_request_line(monkeypatch, caplog):
-    for name in ("psycopg", "redis"):  # the shop image's clients; neither is reached here
-        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    # The shop image's clients, none reached here: the modules app.py imports, with the names it takes from them.
+    stubs = {"psycopg": {}, "redis": {}, "redis.backoff": {"NoBackoff": object}, "redis.retry": {"Retry": object}}
+    for name, names in stubs.items():
+        monkeypatch.setitem(sys.modules, name, types.SimpleNamespace(**names))
     spec = importlib.util.spec_from_file_location("shop_app_s5145", ROOT / "scenarios" / "fullstack" / "app" / "app.py")
     app = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(app)
