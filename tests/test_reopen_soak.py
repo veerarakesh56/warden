@@ -315,15 +315,14 @@ def test_the_own_fix_that_did_not_hold_is_beside_the_reopened_diagnosis(tmp_path
     assert link["incident"] == "inc-r"
 
 
-def test_the_offer_again_command_clears_a_fix_with_the_approvers_own_key(tmp_path, monkeypatch, capsys):
-    import pathlib
-
+def _cli_owner(tmp_path, monkeypatch):
+    """The CLI's world for `warden offer-again`: an approver list with the owner, an audit, and the owner's own key
+    file, which this returns."""
     import yaml
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     from warden import audit
-    from warden.cli import main
 
     signer = Ed25519PrivateKey.generate()
     key_file = tmp_path / "owner.pem"
@@ -338,6 +337,16 @@ def test_the_offer_again_command_clears_a_fix_with_the_approvers_own_key(tmp_pat
                         "WARDEN_AUDIT_KEY": "audit.pem"}.items():
         monkeypatch.setenv(name, str(tmp_path / value))
     monkeypatch.delenv("WARDEN_ENV", raising=False)
+    return key_file
+
+
+def test_the_offer_again_command_clears_a_fix_with_the_approvers_own_key(tmp_path, monkeypatch, capsys):
+    import pathlib
+
+    from warden import audit
+    from warden.cli import main
+
+    key_file = _cli_owner(tmp_path, monkeypatch)
     args = ["offer-again", "inc-9", "--approver", "owner", "--key", str(key_file)]
     assert main(args) == 1
     assert "nothing to clear" in capsys.readouterr().err
@@ -422,26 +431,10 @@ def test_a_reopen_cut_off_before_its_marker_still_marks_the_fix_on_the_retry():
 def test_offer_again_never_clears_a_later_failure_of_another_incident(tmp_path, monkeypatch, capsys):
     """CodeRabbit, PR 43: `warden offer-again inc-9` cleared the same fix's later failure in inc-10, which the approver
     never named nor read. Each failure is cleared by its own incident's name."""
-    import yaml
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
     from warden import audit
     from warden.cli import main
 
-    signer = Ed25519PrivateKey.generate()
-    key_file = tmp_path / "owner.pem"
-    key_file.write_bytes(signer.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                             serialization.NoEncryption()))
-    pem = signer.public_key().public_bytes(serialization.Encoding.PEM,
-                                          serialization.PublicFormat.SubjectPublicKeyInfo).decode()
-    audit.generate_key(tmp_path / "audit.pem", tmp_path / "audit.pub")
-    (tmp_path / "approvers.yaml").write_text(yaml.safe_dump(
-        {"approvers": {"owner": {"public_key": pem, "tiers": ["T1", "T2"]}}}), encoding="utf-8")
-    for name, value in {"WARDEN_APPROVERS": "approvers.yaml", "WARDEN_AUDIT_DB": "audit.db",
-                        "WARDEN_AUDIT_KEY": "audit.pem"}.items():
-        monkeypatch.setenv(name, str(tmp_path / value))
-    monkeypatch.delenv("WARDEN_ENV", raising=False)
+    key_file = _cli_owner(tmp_path, monkeypatch)
     log = audit.AuditLog(tmp_path / "audit.db")
     log.append("inc-9", history.DID_NOT_HOLD, {"entry": "e", "target": "dev/t", "workflow_id": "w9"})
     log.append("inc-10", history.DID_NOT_HOLD, {"entry": "e", "target": "dev/t", "workflow_id": "w10"})
