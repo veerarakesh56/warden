@@ -68,6 +68,9 @@ def _condition_holds(op, key, want, ctx):
     """One condition key under one operator, as IAM's condition evaluation documents it: a positive operator is
     false when the key is absent; a negated one (Not...) is true when the key is absent; Null tests absence."""
     have = ctx.get(key)
+    if op.endswith("IfExists"):
+        # IfExists: true when the key is absent, else the operator without the suffix.
+        return have is None or _condition_holds(op.removesuffix("IfExists"), key, want, ctx)
     if op == "Null":
         return (have is None) == (str(want).lower() == "true")
     if op in ("StringEquals", "ArnEquals"):
@@ -163,8 +166,11 @@ ARNS = {
     "vpce": "arn:aws:ec2:{r}:{a}:vpc-endpoint/vpce-0a1b2c3d",
     "lt": "arn:aws:ec2:{r}:{a}:launch-template/lt-0a1b2c3d",
     "param": "arn:aws:ssm:{r}:{a}:parameter/warden/{env}/tf/my_ip_cidr",
-    "state": "arn:aws:s3:::{p}-tfstate-abc/fullstack/env:/{env}/terraform.tfstate",
-    "state-lock": "arn:aws:s3:::{p}-tfstate-abc/fullstack/env:/{env}/terraform.tfstate.tflock",
+    # The S3 backend keeps a workspace's state at env:/<workspace>/<key>; _infra-deploy.yml sets key=<stack>/... and
+    # the workspace to the environment; use_lockfile writes <state>.tflock beside it.
+    **{f"state-{stack}": f"arn:aws:s3:::{{p}}-tfstate-abc/env:/{{env}}/{stack}/terraform.tfstate" for stack in STACKS},
+    **{f"lock-{stack}": f"arn:aws:s3:::{{p}}-tfstate-abc/env:/{{env}}/{stack}/terraform.tfstate.tflock"
+       for stack in STACKS},
     "state-bucket": "arn:aws:s3:::{p}-tfstate-abc",
     "deploy-role": "arn:aws:iam::{a}:role/{p}-deploy",
     # Untagged, made by AWS: the NAT gateway's network interface; the cluster security group EKS made, carrying only
@@ -173,7 +179,8 @@ ARNS = {
     "eks-sg": "arn:aws:ec2:{r}:{a}:security-group/sg-0eks0a1b2",
     "*": "*",
 }
-UNTAGGED = {"nat-eni", "eks-sg", "*", "esm-gone", "state", "state-lock", "state-bucket", "param", "deploy-role",
+UNTAGGED = {"nat-eni", "eks-sg", "*", "esm-gone", "state-bucket", "param", "deploy-role",
+            *(f"{kind}-{stack}" for kind in ("state", "lock") for stack in STACKS),
             "api-tags"}
 # IAM and Budgets are global services: their calls go to the global region (environments.yaml aws_global_region).
 GLOBAL = ("iam:", "budgets:")
@@ -313,8 +320,10 @@ DATA_CALLS = {
     "aws_ssm_parameter": [call("ssm:GetParameter", "param")],
 }
 # The S3 backend with use_lockfile=true (_infra-deploy.yml): read and write the state, take and drop the lock object.
-BACKEND_CALLS = [call("s3:ListBucket", "state-bucket"), call("s3:GetObject", "state"), call("s3:PutObject", "state"),
-                 call("s3:GetObject", "state-lock"), call("s3:PutObject", "state-lock"), call("s3:DeleteObject", "state-lock")]
+BACKEND_CALLS = [call("s3:ListBucket", "state-bucket")] + [
+    call(action, f"{kind}-{stack}") for stack in STACKS
+    for action, kind in (("s3:GetObject", "state"), ("s3:PutObject", "state"), ("s3:GetObject", "lock"),
+                         ("s3:PutObject", "lock"), ("s3:DeleteObject", "lock"))]
 # terraform/fullstack/aurora_express.py destroy runs first in the same job (the cluster is not a terraform resource).
 # Its boto3 calls and waiters, as IAM actions (a waiter polls a describe call).
 AURORA_CALLS = {"describe_db_clusters": "rds:DescribeDBClusters", "describe_db_instances": "rds:DescribeDBInstances",
@@ -470,12 +479,15 @@ def test_the_new_grants_stay_narrow(env):
         assert refusal(env, action, [ARNS["esm"].format(**fill)], untagged)
     assert refusal(env, "lambda:GetEventSourceMapping",
                    [ARNS["esm"].format(**fill).replace(region, "us-west-2")], untagged)
+    foreign = {**untagged, "lambda:FunctionArn": f"arn:aws:lambda:{region}:{ACCOUNT}:function:someone-elses"}
+    assert refusal(env, "lambda:GetEventSourceMapping", [ARNS["esm"].format(**fill)], foreign)
     # Another environment's or an untagged address cannot be taken off an interface.
     for ctx in (other, untagged):
         assert refusal(env, "ec2:DisassociateAddress",
                        [ARNS["eip"].format(**fill), ARNS["nat-eni"].format(**fill)], ctx)
     # Tags come off only the security group of this environment's own cluster.
-    for cluster in ("warden-other-eks", "someone-elses-eks"):
+    others = [f"warden-{o}-eks" for o in ENVS if o != env] + [f"warden-{env}-lab-eks", f"warden-{env}-eks2"]
+    for cluster in (*others, "warden-other-eks", "someone-elses-eks"):
         assert refusal(env, "ec2:DeleteTags", [ARNS["eks-sg"].format(**fill)],
                        {**untagged, "aws:ResourceTag/aws:eks:cluster-name": cluster})
     assert refusal(env, "ec2:DeleteTags", [ARNS["vpc"].format(**fill)], untagged)
@@ -493,5 +505,8 @@ def test_the_evaluator_reads_conditions_as_iam_does():
     assert not _condition_holds("StringNotLike", "k", "warden-*", ctx)
     assert _condition_holds("Null", "missing", "true", ctx)
     assert not _condition_holds("Null", "k", "true", ctx)
+    assert _condition_holds("ArnLikeIfExists", "missing", "x", ctx)
+    assert _condition_holds("ArnLikeIfExists", "k", "warden-dev-*", ctx)
+    assert not _condition_holds("ArnLikeIfExists", "k", "warden-prod-*", ctx)
     with pytest.raises(AssertionError):
         _condition_holds("NumericLessThan", "k", "1", ctx)

@@ -53,7 +53,12 @@
       "Sid": "ReadAMappingBeingDeleted",
       "Effect": "Allow",
       "Action": "lambda:GetEventSourceMapping",
-      "Resource": "arn:aws:lambda:ap-south-2:*:event-source-mapping:*"
+      "Resource": "arn:aws:lambda:ap-south-2:*:event-source-mapping:*",
+      "Condition": {
+        "ArnLikeIfExists": {
+          "lambda:FunctionArn": "arn:aws:lambda:*:*:function:warden-dev-*"
+        }
+      }
     },
     {
       "Sid": "OwnTaskDefinitions",

@@ -179,7 +179,7 @@ def test_a_tag_cannot_make_another_resource_its_own(env):
         cond = st.get("Condition", {})
         on_create = cond.get("StringLike", {}).get("ec2:CreateAction")
         own = cond.get("StringEquals", {}).get("aws:ResourceTag/Environment") == env
-        eks = cond.get("StringLike", {}).get("aws:ResourceTag/aws:eks:cluster-name") == f"warden-{env}-*"
+        eks = cond.get("StringLike", {}).get("aws:ResourceTag/aws:eks:cluster-name") == f"warden-{env}-eks"
         assert on_create or own or eks, st.get("Sid")
         if on_create:
             # RunInstances: the node group's instances, tagged as they are made (EKS needs it, 2026-10-14).

@@ -473,6 +473,8 @@ def _workflow(name: str) -> dict:
 
 def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     wf = _workflow("ci-infra.yml")
+    # Its destroy-permission check (B40) reads the IAM files and terraform/fullstack: an infra input too.
+    own = {"tests/test_destroy_permissions.py"}
     # The infra pipeline's own inputs count as infra: its test files (every one its check runs - ninth review CI),
     # the IAM files it validates and what they render from. Its jobs install from uv.lock, so the lock and
     # pyproject.toml trigger it too (2026-10-01). Nothing of the tool's or the apps' own code.
@@ -484,7 +486,7 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     assert all(p.startswith(("terraform/fullstack/", "terraform/undo-lab/", "terraform/modules/", "terraform/runtime/", ".github/workflows/", "iam/")) or p in checks
                or p in ("uv.lock", "pyproject.toml", "scripts/render_env_iam.py", "scripts/helios_gate.py", "src/warden/platforms/aws.py",
                          "src/warden/data/environments.yaml")
-               for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"])
+               for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"] if p not in own)
     assert "workflow_dispatch" not in wf["on"]
     for name in ("ci-infra.yml", "_infra-validate.yml"):
         text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
