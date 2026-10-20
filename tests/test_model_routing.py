@@ -408,6 +408,37 @@ def test_the_bench_approver_never_approves_a_hard_case_its_hard_model_could_not_
     assert _bench_check(tmp_path, needs_person=True, name="owner") == []
 
 
+
+def test_any_needs_person_row_holds_the_incident(tmp_path):
+    log = audit.AuditLog(tmp_path / "a.db", key=Ed25519PrivateKey.generate())
+    log.append("inc-1", "incident.route", {"stage": "diagnose", "needs_person": True})
+    log.append("inc-1", "incident.route", {"stage": "verify", "needs_person": False})
+    assert routing.needs_person(log, "inc-1")
+    assert not routing.needs_person(log, "inc-2")
+
+
+def test_the_passkey_path_holds_the_bench_approver_too(tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    from warden import approvals
+    from warden.activities import RemediationActivities
+
+    nonprod = next(e for e, tier in routing_envs() if tier == "nonprod")
+    policy = approvals.ApproverPolicy(approvers={"bench": approvals.Approver(
+        name="", public_key="unused", tiers=["T1"], environments=[nonprod])})
+    log = audit.AuditLog(tmp_path / "p.db", key=Ed25519PrivateKey.generate())
+    log.append("inc-1", "incident.route", {"stage": "verify", "needs_person": True})
+    now = datetime.now(UTC)
+    plan = approvals.Plan(workflow_id="rem-1", incident_id="inc-1", entry="events_enable_rule", tier="T1", params={},
+                          plan_hash="h", created_at=now - timedelta(minutes=5), environment=nonprod)
+    acts = RemediationActivities(audit=log, policy=policy, platform=None)
+    assertion = approvals.PasskeyAssertion(approver="bench", workflow_id="rem-1", plan_hash="h", tier="T1", nonce="n",
+                                           expires_at=now + timedelta(minutes=5), challenge="c", response={})
+    problems = acts.check_passkey(plan, assertion, []).problems
+    assert any("a person approves its fix" in p for p in problems), problems
+    assert acts._needs_person(plan, "nobody") == []
+
+
 def test_a_routing_failure_is_the_rules_only_diagnosis_with_why(world, monkeypatch):
     def broken(*_a, **_k):
         raise RuntimeError("no data file")
