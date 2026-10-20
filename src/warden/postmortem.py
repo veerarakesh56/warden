@@ -23,6 +23,7 @@ from typing import Any
 
 from .environments import both_times
 
+END_ROW = "workflow.end"  # the row a fix run ends with
 DRAFT = ("DRAFT - written by WARDEN from its signed record of this incident. A person reviews, corrects and completes "
          "it; until then it is not a postmortem.")
 # The steps a timeline keeps, in a person's words; every other row stays in "Every step on the record".
@@ -30,7 +31,7 @@ TIMELINE = {
     "intake.decision": "The alarm came in", "incident.diagnose": "WARDEN named a likely cause",
     "incident.verify": "WARDEN's rules checked the diagnosis", "remediation.plan": "A fix plan was made",
     "approval.accepted": "The fix was approved", "remediation.intent": "WARDEN applied the fix",
-    "remediation.rollback": "WARDEN undid the fix", "workflow.end": "The fix run ended",
+    "remediation.rollback": "WARDEN undid the fix", END_ROW: "The fix run ended",
     "incident.after_hold": "Looked at again after the planned shutdown", "incident.no_plan": "No fix plan was made",
 }
 OUTCOME = {
@@ -59,7 +60,7 @@ def _alert(r: Any) -> dict[str, Any]:
 
 
 def _end(r: Any) -> str:
-    ends = [str(e["body"].get("status") or "") for e in r.rows if e["kind"] == "workflow.end"]
+    ends = [str(e["body"].get("status") or "") for e in r.rows if e["kind"] == END_ROW]
     return ends[-1] if ends else ""
 
 
@@ -80,7 +81,7 @@ def _timeline(r: Any) -> list[str]:
         if said is None:
             continue
         b = e["body"]
-        if e["kind"] == "workflow.end" and b.get("status"):
+        if e["kind"] == END_ROW and b.get("status"):
             said += f": {OUTCOME.get(str(b['status']), str(b['status']).replace('_', ' '))}"
         elif e["kind"] == "approval.accepted":
             said += f" by {_who(r, str(b.get('approver')))}"
