@@ -103,7 +103,8 @@ def test_a_prompt_with_any_raw_value_never_reaches_the_model(canary, monkeypatch
         provider.complete(system="You diagnose.", user=f"ERROR checkout user={canary} timed out")
     assert spy.calls == []
     assert canary not in str(caught.value)
-    assert caught.value.sent is False and caught.value.status_code == 0
+    assert caught.value.sent is False
+    assert caught.value.status_code == 0
 
 
 def test_a_masked_prompt_is_sent_and_recorded_without_its_text(monkeypatch, caplog):
@@ -124,9 +125,11 @@ def test_a_masked_prompt_is_sent_and_recorded_without_its_text(monkeypatch, capl
     assert len(sent) == 1
     [line] = [r.getMessage() for r in caplog.records if r.name == "warden.egress"]
     row = json.loads(line.removeprefix("egress "))
-    assert row["destination"] == "anthropic" and row["verdict"] == "PASS"
+    assert row["destination"] == "anthropic"
+    assert row["verdict"] == "PASS"
     assert row["placeholders"] == {"EMAIL": 1, "IPV4": 1}
-    assert "secret-word" not in line and "checkout" not in line
+    assert "secret-word" not in line
+    assert "checkout" not in line
 
 
 def test_the_model_guard_holds_for_eldanes_way_of_building_a_provider():
@@ -144,6 +147,7 @@ def _slack(text: str) -> bytes:
 
 
 JSON = {"Content-Type": "application/json"}
+SLACK_API = "https://slack.com/api/chat.postMessage"
 
 
 def test_an_unlisted_host_is_refused():
@@ -151,14 +155,16 @@ def test_an_unlisted_host_is_refused():
         egress.check_request("https://exfil.example.net/x", None, {}, "GET")
     with pytest.raises(EgressBlocked):
         egress.check_host("exfil.example.net")
+    public = str(ipaddress.IPv4Address(0x09090909))  # a public address no destination names
     with pytest.raises(EgressBlocked):
-        egress.check_host(str(ipaddress.IPv4Address(0x09090909)))  # a public address no destination names
+        egress.check_host(public)
 
 
 @pytest.mark.parametrize("canary", CANARIES)
 def test_a_slack_message_holding_a_raw_value_is_refused(canary):
+    body = _slack(f"user {canary} failed")
     with pytest.raises(EgressBlocked) as caught:
-        egress.check_request("https://slack.com/api/chat.postMessage", _slack(f"user {canary} failed"), JSON, "POST")
+        egress.check_request(SLACK_API, body, JSON, "POST")
     assert canary not in str(caught.value)
 
 
@@ -172,8 +178,10 @@ def test_a_masked_slack_message_passes_and_is_recorded(tmp_path):
         egress._SINK.clear()
     [row] = log.entries(kinds=(egress.SENT,))
     body = row["body"]
-    assert body["destination"] == "slack" and body["purpose"] == "POST /api/chat.postMessage"
-    assert body["placeholders"] == {"EMAIL": 1} and len(body["sha256"]) == 64
+    assert body["destination"] == "slack"
+    assert body["purpose"] == "POST /api/chat.postMessage"
+    assert body["placeholders"] == {"EMAIL": 1}
+    assert len(body["sha256"]) == 64
 
 
 def test_an_egress_the_audit_cannot_hold_is_not_made(tmp_path):
@@ -183,17 +191,20 @@ def test_an_egress_the_audit_cannot_hold_is_not_made(tmp_path):
 
     egress.ledger_to(Broken())
     try:
+        body = _slack("ok")
         with pytest.raises(EgressBlocked, match="ledger row"):
-            egress.check_request("https://slack.com/api/chat.postMessage", _slack("ok"), JSON, "POST")
+            egress.check_request(SLACK_API, body, JSON, "POST")
     finally:
         egress._SINK.clear()
 
 
 def test_identifiers_an_operator_could_show_are_not_shown_in_slack():
     """gate.G5 lets emails, tenants and IPs through for WARDEN_REPORT_SHOW_IDENTIFIERS; the egress check does not."""
+    hook = "https://hooks.slack.com/" + "services/T0/B0/x"
     for value in (EMAIL, IP, "tenant_id=" + "acme-42"):
+        body = _slack(value)
         with pytest.raises(EgressBlocked):
-            egress.check_request("https://hooks.slack.com/" + "services/T0/B0/x", _slack(value), JSON, "POST")
+            egress.check_request(hook, body, JSON, "POST")
 
 
 def test_wardens_own_approval_link_is_the_one_capability_that_may_go_to_slack(monkeypatch):
@@ -202,8 +213,9 @@ def test_wardens_own_approval_link_is_the_one_capability_that_may_go_to_slack(mo
     blocks = {"channel": "C0123456", "blocks": [{"type": "actions", "elements": [{"type": "button", "url": link}]}]}
     egress.check_request("https://slack.com/api/chat.postMessage", json.dumps(blocks).encode(), JSON, "POST")
     monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", "elsewhere.example.org")
+    body = json.dumps(blocks).encode()
     with pytest.raises(EgressBlocked):  # the same token on any other address is a token
-        egress.check_request("https://slack.com/api/chat.postMessage", json.dumps(blocks).encode(), JSON, "POST")
+        egress.check_request(SLACK_API, body, JSON, "POST")
 
 
 def test_a_destinations_own_credential_fields_go_to_it():
@@ -213,9 +225,9 @@ def test_a_destinations_own_credential_fields_go_to_it():
                          f"client_id={ACCOUNT}.{ACCOUNT}&client_secret={secret}&code={secret}".encode(), form, "POST")
     egress.check_request("https://events.pagerduty.com/v2/enqueue",
                          json.dumps({"routing_key": secret, "payload": {"summary": "inc-1 down"}}).encode(), JSON, "POST")
+    leak = json.dumps({"routing_key": "k", "payload": {"summary": secret}}).encode()
     with pytest.raises(EgressBlocked):  # the same value in any other field is a leak
-        egress.check_request("https://events.pagerduty.com/v2/enqueue",
-                             json.dumps({"routing_key": "k", "payload": {"summary": secret}}).encode(), JSON, "POST")
+        egress.check_request("https://events.pagerduty.com/v2/enqueue", leak, JSON, "POST")
 
 
 def test_a_query_is_checked_and_a_number_in_it_is_a_number():
@@ -235,7 +247,8 @@ def test_a_webhook_path_is_never_on_the_ledger(caplog):
     with caplog.at_level(logging.INFO, logger="warden.egress"):
         egress.check_request("https://hooks.slack.com/" + "services/T0SECRET/B0SECRET/XSECRETXSECRET", _slack("ok"),
                              JSON, "POST")
-    assert "SECRET" not in caplog.text and "/services" in caplog.text
+    assert "SECRET" not in caplog.text
+    assert "/services" in caplog.text
 
 
 def test_configured_addresses_are_their_destinations(monkeypatch):
@@ -296,14 +309,16 @@ def test_install_for_environment_leaves_a_demo_alone(monkeypatch):
 def test_a_proxy_is_looked_up_and_what_goes_through_it_is_still_checked(monkeypatch):
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.corp.example:3128")
     egress.check_host("proxy.corp.example")
+    body = _slack(f"user {EMAIL}")
     with pytest.raises(EgressBlocked):  # urllib names the real address, which is checked as ever
-        egress.check_request("https://slack.com/api/chat.postMessage", _slack(f"user {EMAIL}"), JSON, "POST")
+        egress.check_request(SLACK_API, body, JSON, "POST")
 
 
 def test_a_body_to_any_aws_name_is_checked_and_a_presigned_query_is_not():
     """Another account's bucket or API is under amazonaws.com too: a urllib body sent there is checked (review)."""
+    body = f"user {EMAIL}".encode()
     with pytest.raises(EgressBlocked):
-        egress.check_request("https://some-bucket.s3.amazonaws.com/x", f"user {EMAIL}".encode(), {}, "PUT")
+        egress.check_request("https://some-bucket.s3.amazonaws.com/x", body, {}, "PUT")
     egress.check_request("https://awslambda-x-tasks.s3.amazonaws.com/code?X-Amz-Credential=" + "ASIA" + "Q" * 16,
                          None, {}, "GET")
 
@@ -311,8 +326,9 @@ def test_a_body_to_any_aws_name_is_checked_and_a_presigned_query_is_not():
 def test_a_body_that_cannot_be_read_without_consuming_it_is_refused():
     import io
 
+    stream = io.BytesIO(b"{}")
     with pytest.raises(EgressBlocked, match="cannot be checked"):
-        egress.check_request("https://slack.com/api/chat.postMessage", io.BytesIO(b"{}"), JSON, "POST")
+        egress.check_request(SLACK_API, stream, JSON, "POST")
 
 
 def test_wardens_own_link_inside_a_line_of_text_is_its_own(monkeypatch):

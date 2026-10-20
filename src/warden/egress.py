@@ -72,6 +72,10 @@ class Destination:
 
 
 _MODEL = "a model prompt: redacted evidence, placeholders only"
+_REPORT = "the gated incident report"
+_SERVICE_READS = "reads only: queries naming a service"
+_DOCS = "an AWS error code and a service word"
+_LINE = "egress %s"  # every ledger line: Logs Insights finds them by it (docs/DATA-EGRESS.md)
 # The inventory. docs/DATA-EGRESS.md is written from it; tests/test_egress.py holds every network client in src/warden
 # to one of these names.
 STATIC: tuple[Destination, ...] = (
@@ -80,11 +84,11 @@ STATIC: tuple[Destination, ...] = (
     Destination("groq", True, ("api.groq.com",), _MODEL),
     Destination("openrouter", True, ("openrouter.ai",), _MODEL),
     Destination("gemini", True, ("generativelanguage.googleapis.com",), _MODEL),
-    Destination("slack-webhook", True, ("hooks.slack.com",), "the gated incident report", secret_path=True),
+    Destination("slack-webhook", True, ("hooks.slack.com",), _REPORT, secret_path=True),
     Destination("slack", True, ("slack.com", "*.slack.com"),
                 "the gated incident report and thread replies; sign-in with Slack (OAuth code exchange)",
                 credentials=frozenset({"client_id", "client_secret", "code"})),
-    Destination("teams-webhook", True, ("*.webhook.office.com",), "the gated incident report", secret_path=True),
+    Destination("teams-webhook", True, ("*.webhook.office.com",), _REPORT, secret_path=True),
     Destination("github", True, ("api.github.com",), "the gated change record (an issue); reads of recent commits"),
     Destination("datadog", True, ("api.datadoghq.com", "api.us3.datadoghq.com", "api.us5.datadoghq.com",
                                   "api.datadoghq.eu", "api.ap1.datadoghq.com", "api.ap2.datadoghq.com",
@@ -92,7 +96,7 @@ STATIC: tuple[Destination, ...] = (
                 "reads only: queries naming a service, a time window and fixed metrics"),
     Destination("pagerduty", True, ("events.pagerduty.com",), "a page: the gated report's first line",
                 credentials=frozenset({"routing_key"})),
-    Destination("aws-docs", True, ("knowledge-mcp.global.api.aws",), "an AWS error code and a service word"),
+    Destination("aws-docs", True, ("knowledge-mcp.global.api.aws",), _DOCS),
     Destination("temporal", True, ("*.tmprl.cloud",), "encrypted workflow payloads (codec.py); ids and names in clear"),
     # The AWS account WARDEN runs in and watches: its own APIs, not a third party.
     # A name under AWS's domains may be another account's (a bucket, an API): WARDEN's own AWS calls go through boto3,
@@ -105,15 +109,15 @@ STATIC: tuple[Destination, ...] = (
 
 # A setting holding a URL or address WARDEN is told to reach: its host is that destination.
 _CONFIGURED = (
-    ("WARDEN_WEBHOOK_URL", "generic-webhook", True, "the gated incident report", True),
-    ("WARDEN_TEAMS_WEBHOOK", "teams-webhook", True, "the gated incident report", True),
-    ("WARDEN_SLACK_WEBHOOK", "slack-webhook", True, "the gated incident report", True),
+    ("WARDEN_WEBHOOK_URL", "generic-webhook", True, _REPORT, True),
+    ("WARDEN_TEAMS_WEBHOOK", "teams-webhook", True, _REPORT, True),
+    ("WARDEN_SLACK_WEBHOOK", "slack-webhook", True, _REPORT, True),
     ("WARDEN_BASE_URL", "model-api", True, _MODEL, False),
-    ("WARDEN_AWS_DOCS_URL", "aws-docs", True, "an AWS error code and a service word", False),
+    ("WARDEN_AWS_DOCS_URL", "aws-docs", True, _DOCS, False),
     ("WARDEN_ALERTMANAGER_URL", "alertmanager", True, "reads only: which alerts are active", False),
-    ("WARDEN_GRAFANA_LOGS_URL", "grafana", True, "reads only: queries naming a service", False),
-    ("WARDEN_GRAFANA_TRACES_URL", "grafana", True, "reads only: queries naming a service", False),
-    ("WARDEN_GRAFANA_METRICS_URL", "grafana", True, "reads only: queries naming a service", False),
+    ("WARDEN_GRAFANA_LOGS_URL", "grafana", True, _SERVICE_READS, False),
+    ("WARDEN_GRAFANA_TRACES_URL", "grafana", True, _SERVICE_READS, False),
+    ("WARDEN_GRAFANA_METRICS_URL", "grafana", True, _SERVICE_READS, False),
     ("OTEL_EXPORTER_OTLP_ENDPOINT", "tracing", True, "spans: node names, timings, scrubbed error text", False),
     ("WARDEN_TEMPORAL_ADDRESS", "temporal", True, "encrypted workflow payloads (codec.py)", False),
     # A proxy carries the other destinations' traffic: its name is looked up, not theirs. What is sent through it is
@@ -329,7 +333,7 @@ def record(destination: Destination, purpose: str, payload: str, verdict: str, k
     row = {"destination": destination.name, "outside": destination.outside, "purpose": purpose,
            "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "placeholders": placeholders(payload),
            "verdict": verdict, "kinds": sorted(set(kinds))}
-    _LOG.log(logging.WARNING if verdict == "BLOCK" else logging.INFO, "egress %s",
+    _LOG.log(logging.WARNING if verdict == "BLOCK" else logging.INFO, _LINE,
              json.dumps(row, sort_keys=True, separators=(",", ":")))
     log = _SINK.get("audit")
     if log is not None and not getattr(_GUARD, "busy", False):
@@ -339,7 +343,7 @@ def record(destination: Destination, purpose: str, payload: str, verdict: str, k
         except _AUDIT_ERRORS as exc:
             # No row, no egress: an egress the audit cannot hold is not made (fail closed). The audit being down stops
             # every step of an incident anyway; this one says so on the log.
-            _LOG.error("egress: the audit row could not be written (%s): not sent", type(exc).__name__)
+            _LOG.exception("egress: the audit row could not be written (%s): not sent", type(exc).__name__)
             raise EgressBlocked(destination.name, "its ledger row could not be written") from None
         finally:
             _GUARD.busy = False
@@ -403,15 +407,19 @@ def _purpose(dest: Destination, method: str, url: str) -> str:
     return f"{method} {redact(shown).text}"[:120]
 
 
+def _unlisted(host: str) -> EgressBlocked:
+    """The refusal of a host on no destination, on the ledger first (its name redacted)."""
+    _LOG.warning(_LINE, json.dumps({"destination": None, "verdict": "BLOCK", "why": "no destination", "host": host}))
+    return EgressBlocked("an unlisted host", "it is on no destination (egress.DESTINATIONS)")
+
+
 def check_request(url: str, data: bytes | str | None, headers: dict[str, str] | None, method: str) -> None:
     """The check urllib's every request passes (install): its host on a destination; to one outside the network,
     nothing the redactor finds in its body or query, and a row on the ledger. Raises EgressBlocked."""
     parts = urllib.parse.urlsplit(url)
     dest = destination_of(parts.hostname)
     if dest is None:
-        _LOG.warning("egress %s", json.dumps({"destination": None, "verdict": "BLOCK", "why": "no destination",
-                                               "host": redact(str(parts.hostname or "")).text[:120]}))
-        raise EgressBlocked("an unlisted host", "it is on no destination (egress.DESTINATIONS)")
+        raise _unlisted(redact(str(parts.hostname or "")).text[:120])
     if not (dest.outside or (dest.bodies_checked and data is not None)):
         return
     content_type = next((v for k, v in (headers or {}).items() if k.lower() == "content-type"), "")
@@ -430,12 +438,10 @@ def check_host(host: Any) -> None:
     dest = destination_of(host)
     shown = redact(str(host.decode("ascii", "replace") if isinstance(host, bytes) else host)).text[:120]
     if dest is None:
-        _LOG.warning("egress %s", json.dumps({"destination": None, "verdict": "BLOCK", "why": "no destination",
-                                               "host": shown}))
-        raise EgressBlocked("an unlisted host", "it is on no destination (egress.DESTINATIONS)")
+        raise _unlisted(shown)
     if (dest.name, shown) not in _STATE["seen"]:
         _STATE["seen"].add((dest.name, shown))
-        _LOG.info("egress %s", json.dumps({"destination": dest.name, "outside": dest.outside, "connect": shown}))
+        _LOG.info(_LINE, json.dumps({"destination": dest.name, "outside": dest.outside, "connect": shown}))
 
 
 def _hook(event: str, args: tuple) -> None:
