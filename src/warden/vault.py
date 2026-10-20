@@ -41,6 +41,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 INDEX = "incident.vault"  # the signed audit's row: the index and the sealed bytes' hash, never a value
 UNAVAILABLE = "incident.vault_unavailable"
 MIN_DAYS = 180
+MAX_DAYS = 3650  # ten years: longer than any retention WARDEN documents (docs/DATA-EGRESS.md), and within a date's range
 PSEUDONYM_PARAMETER = "WARDEN_PSEUDONYM_KEY_SEALED"  # under /warden/<env>/env/: a KMS ciphertext, never the key
 
 _TABLE = ("CREATE TABLE IF NOT EXISTS vault (incident TEXT NOT NULL, sha256 TEXT NOT NULL, sealed_at TEXT NOT "
@@ -70,9 +71,10 @@ def migrate(dsn: str, writer_role: str | None = None) -> None:
 
 
 def days() -> int:
-    """How long a sealed map is kept: WARDEN_VAULT_DAYS, never less than the audit's 180 days."""
+    """How long a sealed map is kept: WARDEN_VAULT_DAYS, never less than the audit's 180 days nor more than ten
+    years."""
     raw = os.environ.get("WARDEN_VAULT_DAYS", "").strip()
-    return max(MIN_DAYS, int(raw)) if raw.isdigit() else MIN_DAYS
+    return min(MAX_DAYS, max(MIN_DAYS, int(raw))) if raw.isdigit() else MIN_DAYS
 
 
 def key_id(env: dict[str, str] | None = None) -> str:
@@ -121,8 +123,12 @@ class Vault:
         if cached is None:
             import boto3
 
-            cached = _BUILT[(key, environment)] = cls(key=key, environment=environment, kms=kms or boto3.client("kms"),
-                                                      ssm=ssm or boto3.client("ssm"))
+            from .environments import region
+
+            where = region()  # the runtime's own region, as every other client of WARDEN's (audit._pg_connect)
+            cached = _BUILT[(key, environment)] = cls(
+                key=key, environment=environment, kms=kms or boto3.client("kms", region_name=where),
+                ssm=ssm or boto3.client("ssm", region_name=where))
         return cached
 
     def pseudonym_key(self) -> bytes | None:
@@ -241,6 +247,6 @@ def seal_incident(log: Any, incident: str, mapping: dict[str, str], *, run_id: s
         if vault is None:
             return ""
         return store(log, vault.seal(incident, mapping), run_id)
-    except _SEAL_ERRORS as exc:  # the incident must go on: the map is then discarded, as before the vault
+    except Exception as exc:  # noqa: BLE001 - whatever stops a seal, the incident goes on (the map is discarded)
         log.append(incident, UNAVAILABLE, {"run_id": run_id, "error": type(exc).__name__, "values": len(mapping)})
         return ""

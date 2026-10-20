@@ -172,7 +172,7 @@ def test_a_sealed_map_expires_and_is_deleted(tmp_path, monkeypatch):
     assert log.entries("inc-old", kinds=(vault.INDEX,))
 
 
-@pytest.mark.parametrize(("raw", "days"), [("30", 180), ("365", 365), ("x", 180), ("", 180)])
+@pytest.mark.parametrize(("raw", "days"), [("30", 180), ("365", 365), ("x", 180), ("", 180), ("9" * 30, 3650)])
 def test_retention_is_never_shorter_than_the_audits(monkeypatch, raw, days):
     monkeypatch.setenv("WARDEN_VAULT_DAYS", raw)
     assert vault.days() == days
@@ -251,7 +251,8 @@ def test_the_key_policy_lets_only_the_read_zone_seal_and_only_a_persons_reveal_o
     assert 'aws_iam_role.zone["read"]' in st["TheReadZoneSeals"]
     assert "kms:GenerateDataKey\"" in st["TheReadZoneSeals"]
     admin = st["AdministerNeverRead"]
-    assert not re.search(r'"kms:(\*|Decrypt|Encrypt|GenerateDataKey|ReEncrypt)', admin)
+    assert not re.search(r'"kms:(\*|Create\*|CreateGrant|Decrypt|Encrypt|GenerateDataKey|ReEncrypt)', admin)
+    assert "CreateGrant" not in VAULT_TF.replace("that takes in CreateGrant", "")  # no statement grants it
 
 
 def test_no_ai_zone_is_named_by_the_vault_key_or_given_it():
@@ -287,3 +288,25 @@ def test_only_people_paths_open_the_vault():
     callers = {p.name for p in src.rglob("*.py")
                if re.search(r"vault\.(?:Vault|sealed_row)\b|import[^\n]*\bVault\b|\bVault\(", p.read_text(encoding="utf-8"))}
     assert callers <= {"vault.py", "records.py", "approval_page.py"}
+
+
+def test_any_failure_of_a_seal_is_recorded_and_returns(tmp_path):
+    """Not only KMS's and the database's errors: an environment not configured, a date out of range (review)."""
+    class Broken:
+        def seal(self, *_a, **_k):
+            raise OverflowError("date value out of range")
+
+    log = AuditLog(tmp_path / "a.db")
+    assert vault.seal_incident(log, "inc-1", MAPPING, vault=Broken()) == ""
+    [row] = log.entries("inc-1", kinds=(vault.UNAVAILABLE,))
+    assert row["body"]["error"] == "OverflowError"
+
+
+def test_the_vaults_clients_are_in_the_runtimes_region(monkeypatch, env):
+    import boto3
+
+    asked = []
+    monkeypatch.setattr(boto3, "client", lambda name, **kw: asked.append((name, kw.get("region_name"))) or object())
+    monkeypatch.setattr(vault, "_BUILT", {})
+    vault.Vault.from_environment()
+    assert asked == [("kms", "test-region-1"), ("ssm", "test-region-1")]

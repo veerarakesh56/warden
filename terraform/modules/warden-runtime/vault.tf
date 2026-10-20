@@ -25,7 +25,9 @@ resource "aws_kms_key" "vault" {
         Sid       = "AdministerNeverRead"
         Effect    = "Allow"
         Principal = { AWS = "arn:aws:iam::${local.account}:root" }
-        Action = ["kms:Create*", "kms:Describe*", "kms:Enable*", "kms:List*", "kms:Put*", "kms:Update*",
+        # Exact actions, never `kms:Create*`: that takes in CreateGrant, and a grant gives Decrypt with none of the
+        # conditions below (review, 2026-10-20). Changing this policy itself stays possible (PutKeyPolicy): CloudTrail.
+        Action = ["kms:CreateAlias", "kms:Describe*", "kms:Enable*", "kms:List*", "kms:Put*", "kms:Update*",
           "kms:Revoke*", "kms:Disable*", "kms:Get*", "kms:Delete*", "kms:TagResource", "kms:UntagResource",
         "kms:ScheduleKeyDeletion", "kms:CancelKeyDeletion", "kms:RotateKeyOnDemand"]
         Resource = "*"
