@@ -196,3 +196,15 @@ def test_the_models_own_json_is_never_mistaken_for_the_cli_envelope(cli, monkeyp
     done = _complete(cli, _Run('{"type": "answer", "stop_reason": "refusal"}'), monkeypatch)
     assert done.refused is False
     assert done.text == '{"type": "answer", "stop_reason": "refusal"}'
+
+
+def test_a_reason_past_the_first_400_characters_is_still_recognised(cli, monkeypatch):
+    """PR 65 review: the checks read the cut message, so a usage limit after a long stderr was a plain error."""
+    run = _Run("x" * 500, returncode=1, stderr="Claude AI usage limit reached")
+    with pytest.raises(providers.ProviderExhausted):
+        _complete(cli, run, monkeypatch)
+    run = _Run("y" * 500, returncode=1, stderr="API Error: 529 Overloaded | ECONNREFUSED")
+    with pytest.raises(providers.ProviderError) as caught:
+        _complete(cli, run, monkeypatch)
+    assert caught.value.status_code == 529
+    assert caught.value.sent is False
