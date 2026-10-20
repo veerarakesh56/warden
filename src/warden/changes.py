@@ -42,7 +42,10 @@ def issue_text(*, incident_id: str, end: dict, plan: dict, head: str, at: dateti
         (f"- **Approved by:** {approvers} (required: {end.get('required', '?')}"
          f"{', a single approver' if end.get('single_approver') else ''})"),
         f"- **Ended:** {end.get('status', '?')} at {both_times(at)}",
-        f"- **Audit head:** `{short(head)}`, the same as on the incident's Full record page, signatures checked",
+        # The head as it stood at this change's signed end row. The record page shows the incident's head NOW: rows
+        # written after this one (its own change.recorded row among them) extend the same signed chain.
+        (f"- **Audit head at this end:** `{short(head)}`. The incident's Full record page checks every row's "
+         "signature; rows written after this end extend the chain, so the head it shows moves on"),
     ])
     return title[:256], body
 
@@ -55,15 +58,17 @@ class GitHubIssues:
             raise ValueError("the change repository is owner/name")
         self.repo, self._token, self.api = repo, token, api.rstrip("/")
 
-    def open(self, title: str, body: str, *, links: tuple[tuple[str, str], ...] = ()) -> tuple[str | None, str]:
-        """`links`: WARDEN's own (label, link) pairs. The gate removes every URL from the text, so the incident's
-        record page goes in after it - and only that one, exactly `https://<the approval domain>/r/<incident>`
-        (chatops.approval_links); any other link is dropped."""
+    def open(self, title: str, body: str, *, links: tuple[tuple[str, str], ...] = (),
+             incident: str = "") -> tuple[str | None, str]:
+        """`links`: WARDEN's own (label, link) pairs. The gate removes every URL from the text, so the record page of
+        `incident` - the one this change is for - goes in after it, and only that one: exactly
+        `https://<the approval domain>/r/<incident>` (chatops.approval_links). Any other link is dropped."""
         gated = enforce(f"{title}\n\n{body}")
         if gated.verdict == "BLOCK":
             return None, "withheld by the outbound gate: " + "; ".join(gated.reasons)
         title_out, _, body_out = gated.text.partition("\n\n")
-        record = next((link for label, link in approval_links(links) if label == RECORD_LABEL), None)
+        record = next((link for label, link in approval_links(links)
+                       if label == RECORD_LABEL and incident and link.endswith(f"/r/{incident}")), None)
         if record:
             body_out += f"\n\n[{RECORD_LABEL} of the incident]({record})"
         req = urllib.request.Request(

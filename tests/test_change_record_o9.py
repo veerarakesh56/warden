@@ -16,9 +16,9 @@ class _Recorder:
     def __init__(self, fail=False):
         self.opened, self.links, self.fail = [], [], fail
 
-    def open(self, title, body, *, links=()):
+    def open(self, title, body, *, links=(), incident=""):
         self.opened.append((title, body))
-        self.links.append(links)
+        self.links.append((links, incident))
         return (None, "HTTP 503") if self.fail else ("https://github.example.test/o/r/issues/1", "opened")
 
 
@@ -31,7 +31,8 @@ def test_an_applied_change_opens_one_record_citing_its_plan_and_audit(world, own
     assert plan["entry"] in title and "recovered" in title
     assert plan["plan_hash"] in body and "owner" in body and "a single approver" in body
     # Where a reader checks the head: the incident's Full record page (the command it named could not be run).
-    assert "the same as on the incident's Full record page, signatures checked" in body and "audit show" not in body
+    # It is the head at the end row: the page's head moves on with later rows (CodeRabbit, PR 114), so it says so.
+    assert "Audit head at this end:** `" in body and "the head it shows moves on" in body and "audit show" not in body
     assert re.search(r"Ended:\*\* recovered at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z", body), body
     row = world["log"].entries("inc-42", kinds=("change.recorded",))[-1]["body"]
     assert row["url"].endswith("/issues/1") and row["detail"] == "opened"
@@ -93,7 +94,7 @@ def test_records_are_on_only_with_a_repository_and_a_token(monkeypatch):
 RP = "approve.example"
 
 
-def _sent_body(monkeypatch, links):
+def _sent_body(monkeypatch, links, incident="inc-42"):
     sent = []
 
     def urlopen(req, timeout):
@@ -101,8 +102,10 @@ def _sent_body(monkeypatch, links):
         return _Resp(json.dumps({"html_url": "https://github.com/o/r/issues/8"}).encode())
 
     monkeypatch.setattr(changes.urllib.request, "urlopen", urlopen)
-    url, detail = changes.GitHubIssues("o/r", "t").open("WARDEN change: x", "body text", links=links)
-    assert url.endswith("/issues/8") and detail == "opened"
+    url, detail = changes.GitHubIssues("o/r", "t").open("WARDEN change: x", "body text", links=links,
+                                                         incident=incident)
+    assert url.endswith("/issues/8")
+    assert detail == "opened"
     return sent[0]["body"]
 
 
@@ -124,6 +127,10 @@ def test_only_wardens_own_record_link_is_added(monkeypatch):
                   (("Something else", f"https://{RP}/r/inc-42"),)):
         body = _sent_body(monkeypatch, links)
         assert body == "body text", links
+    # Another incident's record page, or no incident named: the link is not this change's (CodeRabbit, PR 114).
+    assert _sent_body(monkeypatch, (("Full record", f"https://{RP}/r/inc-7"),)) == "body text"
+    assert _sent_body(monkeypatch, (("Full record", f"https://{RP}/r/inc-42"),), incident="") == "body text"
+    assert _sent_body(monkeypatch, (("Full record", f"https://{RP}/r/xinc-42"),)) == "body text"
     # No approval domain configured: there is no record page to link.
     monkeypatch.delenv("WARDEN_APPROVAL_RP_ID")
     assert _sent_body(monkeypatch, (("Full record", f"https://{RP}/r/inc-42"),)) == "body text"
@@ -133,4 +140,6 @@ def test_an_applied_change_passes_its_record_link(world, owner, monkeypatch):  #
     monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", RP)
     world["changes"] = rec = _Recorder()
     assert _run(world, _approve_with(owner)).status == "recovered"
-    assert ("Full record", f"https://{RP}/r/inc-42") in rec.links[0]
+    links, incident = rec.links[0]
+    assert ("Full record", f"https://{RP}/r/inc-42") in links
+    assert incident == "inc-42"
