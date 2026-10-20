@@ -400,18 +400,21 @@ def _cli_failure(code: int, text: str, stderr: str | None, result: dict[str, Any
     used to report stderr only. So when the limit was hit mid-wave every failure read `claude CLI exited 1:` followed
     by nothing at all, and the one fact that explained five ERROR rows had been thrown away. As JSON, the reason is the
     result's text, which comes last in the object: the first 400 characters of the JSON never held it."""
-    detail = " | ".join(part.strip() for part in (text, stderr) if part and part.strip())[:400]
-    if _USAGE_LIMIT.search(detail):
+    # Every check reads the whole of both streams; only the message is cut (PR 65 review: a reason past the first 400
+    # characters - the usage limit after a long stderr - was not recognised).
+    full = " | ".join(part.strip() for part in (text, stderr) if part and part.strip())
+    detail = full[:400]
+    if _USAGE_LIMIT.search(full):
         return ProviderExhausted(f"claude CLI usage limit: {detail}")
     error = ProviderError(f"claude CLI exited {code}: {detail or '(no output)'}")
     # What the CLI says of the API, so a Claude outage reads as one: an error status is not billed, and a connection
     # that never opened sent nothing (ninth review - neither is carried to the next run).
     status = result.get("api_error_status") if result else None
     if not isinstance(status, int):
-        api = _CLI_API_ERROR.search(detail)
+        api = _CLI_API_ERROR.search(full)
         status = int(api.group(1)) if api else None
     error.status_code = status
-    error.sent = not _CLI_UNSENT.search(detail)
+    error.sent = not _CLI_UNSENT.search(full)
     return error
 
 
