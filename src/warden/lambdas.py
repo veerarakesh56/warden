@@ -199,11 +199,11 @@ def _record_notice(notice: dict[str, Any]) -> dict[str, Any]:
     """An AWS Health scheduled change on the record for the AWS updates watch's next digest (awswatch.py): no
     incident, no Temporal call."""
     from . import runtime
-    from .awswatch import HEALTH_ID
+    from .awswatch import HEALTH, HEALTH_ID
 
     log = runtime.open_audit()
     try:
-        log.append(HEALTH_ID, "awswatch.health", notice)
+        log.append(HEALTH_ID, HEALTH, notice)
     finally:
         log.close()
     return {"recorded": "an AWS Health scheduled change, for the AWS updates digest", "id": notice["id"]}

@@ -48,6 +48,9 @@ from temporalio import activity
 
 SCHEDULE_ID = "warden-aws-updates"
 HEALTH_ID = "awswatch-health"  # the audit's correlation id for every Health notice the alarm Lambda records
+# The audit kinds the watch writes.
+HEALTH, READ, ALARM, DIGEST, POST = ("awswatch.health", "awswatch.read", "awswatch.alarm", "awswatch.digest",
+                                     "awswatch.post")
 FEEDS = {"whats-new": "https://aws.amazon.com/about-aws/whats-new/recent/feed/",
          "news-blog": "https://aws.amazon.com/blogs/aws/feed/"}
 FEED_NAMES = {"whats-new": "What's New", "news-blog": "AWS News Blog", "health": "AWS Health"}
@@ -645,11 +648,11 @@ class AwsWatchActivities:
     def _sent(self) -> set[str]:
         """What the notify step delivered: "digest" posts by their digest id, alarms by their item id."""
         return {e["correlation_id"] if e["body"].get("what") == "digest" else str(e["body"].get("what"))
-                for e in self.audit.entries(kinds=("awswatch.post",)) if e["body"].get("result") == "sent"}
+                for e in self.audit.entries(kinds=(POST,)) if e["body"].get("result") == "sent"}
 
     def _shown(self, sent: set[str]) -> set[str]:
         """The ids of the items a delivered digest already showed."""
-        return {r["id"] for e in self.audit.entries(kinds=("awswatch.digest",)) if e["correlation_id"] in sent
+        return {r["id"] for e in self.audit.entries(kinds=(DIGEST,)) if e["correlation_id"] in sent
                 for r in e["body"].get("rows") or []}
 
     @activity.defn
@@ -668,7 +671,7 @@ class AwsWatchActivities:
                 continue
             snap["rows"] += rows
             snap["tripwire"].append(f"{feed}: {status}")
-        self.audit.append(digest_id, "awswatch.read", {"run_id": _run_id(), "since": snap["since"],
+        self.audit.append(digest_id, READ, {"run_id": _run_id(), "since": snap["since"],
                                                        "rows": len(snap["rows"]), "unread": snap["unread"],
                                                        "tripwire": snap["tripwire"]})
         return snap
@@ -680,7 +683,7 @@ class AwsWatchActivities:
         notify delivered it (`awswatch.post` "sent"): one that failed is made again the next day."""
         now, since = _at(digest_id), datetime.fromisoformat(snap["since"])
         latest: dict[str, dict[str, Any]] = {}
-        for e in self.audit.entries(HEALTH_ID, kinds=("awswatch.health",)):
+        for e in self.audit.entries(HEALTH_ID, kinds=(HEALTH,)):
             latest[e["body"]["id"]] = e["body"]  # an updated notice: its latest row
         rows = list(snap.get("rows") or []) + list(latest.values())
         inv, sent = inventory(), self._sent()
@@ -689,9 +692,9 @@ class AwsWatchActivities:
         text, _ = digest(digest_id, since, now, fresh, list(snap.get("unread") or []), inv)
         new = [a for a in _judged(rows, inv)[1] if a["id"] not in sent]
         for a in new:
-            self.audit.append(digest_id, "awswatch.alarm", {"run_id": _run_id(), "id": a["id"], "feed": a["feed"],
+            self.audit.append(digest_id, ALARM, {"run_id": _run_id(), "id": a["id"], "feed": a["feed"],
                                                             "verdict": a["verdict"], "why": a["why"]})
-        self.audit.append(digest_id, "awswatch.digest", {
+        self.audit.append(digest_id, DIGEST, {
             "run_id": _run_id(), "rows": [{"id": r["id"], "feed": r["feed"], "verdict": verdict(r, inv)[0]}
                                           for r in fresh],
             "alarms": [a["id"] for a in new], "sha256": hashlib.sha256(text.encode()).hexdigest()})
@@ -720,11 +723,11 @@ class AwsWatchActivities:
         """Notify zone: the digest in the discussion channel, each alarm in the alerts channel - through the outbound
         gate and the redactor, as everything WARDEN sends."""
         said = {"digest": self._post_one(digest_id, made["digest"], "WARDEN_DISCUSS_CHANNEL")}
-        self.audit.append(digest_id, "awswatch.post", {"run_id": _run_id(), "what": "digest", "result": said["digest"]})
+        self.audit.append(digest_id, POST, {"run_id": _run_id(), "what": "digest", "result": said["digest"]})
         for a in made.get("alarms") or []:
             said[a["id"]] = self._post_one(f"awswatch-{a['id']}", a["text"], "WARDEN_SLACK_CHANNEL",
                                            a.get("environment", ""))
-            self.audit.append(digest_id, "awswatch.post", {"run_id": _run_id(), "what": a["id"], "result": said[a["id"]]})
+            self.audit.append(digest_id, POST, {"run_id": _run_id(), "what": a["id"], "result": said[a["id"]]})
         return said
 
 
