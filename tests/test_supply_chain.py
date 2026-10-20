@@ -381,3 +381,16 @@ def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
     [build] = [st for st in stages if " AS build" in st]
     sync = build.index("RUN uv sync")
     assert "check_package.py" in build[sync:], "the image build does not check what it installed"
+
+
+def test_an_install_outside_the_lock_cannot_take_a_known_vulnerable_aiohttp():
+    """uv.lock pins aiohttp 3.14.4, but `pip install warden[slack]` reads only pyproject's range: its floor keeps out
+    3.14.3 and every release before it (CVE-2026-111063, CVE-2026-111064, GHSA-2g87-pp6c-29x5; fixed in 3.14.4)."""
+    import tomllib
+
+    from packaging.requirements import Requirement
+
+    slack = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["optional-dependencies"]["slack"]
+    (aiohttp,) = [Requirement(r) for r in slack if Requirement(r).name == "aiohttp"]
+    assert "3.14.3" not in aiohttp.specifier
+    assert "3.14.4" in aiohttp.specifier
