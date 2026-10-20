@@ -199,7 +199,8 @@ the same commit.
 
 The runtime is `terraform/runtime` (with `terraform/modules/warden-runtime`), deployed only by
 `.github/workflows/runtime.yml`, by hand. Its actions are `image` (build, push by commit SHA, sign keylessly with
-cosign and attest), `plan`, `apply` (each verifies that signature first) and `restart`.
+cosign and attest), `plan`, `apply` (each verifies that signature first; `apply` also restarts, in the same run,
+every zone it did not roll out, so a secret set since is read), `restart`, and `pause` / `resume` (docs/OPERATIONS.md).
 
 1. Create `WardenEnvBoundary-ops`, `WardenEnvDeploy-ops` and `WardenEnvDeployEc2-ops` from `iam/ops/`, and the
    role `warden-ops-deploy` with `iam/ops/trust.local.json` (maximum session 2 hours: creating the audit database

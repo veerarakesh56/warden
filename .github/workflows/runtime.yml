@@ -11,8 +11,11 @@ name: "Runtime · ops"
 #          with cosign (keyless: this workflow's own GitHub identity) and attest how it was built (register S9).
 #   plan / apply: verify that signature and attestation, then plan or apply terraform/runtime with that digest -
 #          an image this workflow did not build and sign is never deployed.
+#          apply is apply -> deploy -> restart in ONE run (owner B34): a zone the apply did not roll out (same image,
+#          same task definition) is started again after it, so a secret set or rotated since is read - no restart
+#          dispatch is needed after an apply.
 #   restart: a fresh deployment of every zone's service, no image and no plan - after a secret is set or rotated (a
-#          worker reads its secrets when it starts).
+#          worker reads its secrets when it starts), when nothing else needs deploying.
 #   pause / resume (owner update 5, 2026-10-17): pause snapshots the audit database (available before anything else
 #          happens), sets SSM tf/paused=true and applies (no compute, no NAT, no alarm intake, no self-pages), then
 #          STOPS the database and reports what stays and its cost. resume starts the database (refusing to recreate a
@@ -237,6 +240,10 @@ jobs:
           echo "SSM /warden/$RUNTIME_ENV/tf/paused = false"
       - name: plan
         run: terraform -chdir=terraform/runtime plan -input=false -no-color -var "runtime_image=$IMAGE" -out="$RUNNER_TEMP/tfplan"
+      # B34: what this run rolled out is told apart from what it left as it was by when its deployment began.
+      - name: the time the apply starts
+        if: env.ACTION != 'plan'
+        run: echo "APPLY_STARTED=$(date -u +%s)" >> "$GITHUB_ENV"
       - name: apply the plan just made
         if: env.ACTION != 'plan'
         run: |
@@ -317,6 +324,37 @@ jobs:
             fi
           done
           exit "$bad"
+      # B34: apply -> deploy -> restart in one run. A zone whose current deployment began before this apply was left as it
+      # was by Terraform: it is started again - the same task definition, so the same image just checked - and waited for
+      # until stable, as the restart action does. A zone the apply rolled out already started with today's secrets.
+      - name: Every zone started after this apply (the restart, in the same run)
+        if: env.ACTION == 'apply' || env.ACTION == 'resume'
+        run: |
+          if [ "$(aws ssm get-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
+            echo "paused: no zone runs"
+            exit 0
+          fi
+          test -n "$APPLY_STARTED" || { echo "::error::no apply start time"; exit 1; }
+          cluster="warden-$RUNTIME_ENV-runtime"
+          services=$(aws ecs list-services --cluster "$cluster" --query 'serviceArns[]' --output text)
+          test -n "$services" || { echo "::error::no services in $cluster"; exit 1; }
+          restarted=""
+          for svc in $services; do
+            read -r name began <<< "$(aws ecs describe-services --cluster "$cluster" --services "$svc" \
+              --query 'services[0].[serviceName, deployments[0].createdAt]' --output text)"
+            if [ "$(date -u -d "$began" +%s)" -lt "$APPLY_STARTED" ]; then
+              aws ecs update-service --cluster "$cluster" --service "$svc" --force-new-deployment \
+                --query service.serviceName --output text
+              restarted="$restarted $svc"
+            else
+              echo "$name: rolled out by this apply"
+            fi
+          done
+          if [ -n "$restarted" ]; then
+            # shellcheck disable=SC2086
+            aws ecs wait services-stable --cluster "$cluster" --services $restarted
+            echo "restarted and stable:$restarted"
+          fi
       - name: "pause: the audit database stopped, and what stays"
         if: env.ACTION == 'pause'
         env:

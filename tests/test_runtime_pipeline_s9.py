@@ -223,3 +223,23 @@ def test_a_deploy_never_starts_an_extra_task():
     assert "deployment_maximum_percent         = var.worker_instances > 1 ? 150 : 100" in tf
     # ECS refuses a maximum of 100% while Availability Zone rebalancing is on (2026-10-15).
     assert 'availability_zone_rebalancing      = var.worker_instances > 1 ? "ENABLED" : "DISABLED"' in tf
+
+
+def test_apply_deploys_and_restarts_in_one_run():
+    """Owner B34: apply -> deploy -> restart in one run, no restart dispatch after it. Every safety step stays: the zone
+    check on the new image comes first, and a restart is waited for until stable."""
+    deploy = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]
+    started, apply = deploy.index("APPLY_STARTED=$(date -u +%s)"), deploy.index("name: apply the plan just made")
+    zones = deploy.index("name: Every zone runs the image just built")
+    restart = deploy.index("name: Every zone started after this apply")
+    assert started < apply < zones < restart
+    step = deploy[restart:]
+    assert "if: env.ACTION == 'apply' || env.ACTION == 'resume'" in step.split("\n")[1]
+    assert '-lt "$APPLY_STARTED"' in step  # only a zone this apply left as it was is restarted
+    assert "--force-new-deployment" in step
+    assert "aws ecs wait services-stable" in step
+    assert "--task-definition" not in step  # the same task definition: the image the zone check verified
+    assert 'test -n "$APPLY_STARTED"' in step
+    # The restart action stays for a secret rotated when nothing else is deployed.
+    assert "if: inputs.action == 'restart'" in FLOW
+
