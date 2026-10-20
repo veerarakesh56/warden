@@ -13,61 +13,73 @@ Related reading: [`ai-boundary.md`](ai-boundary.md) (why the model never decides
 ## The whole system on one page
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#FFFFFF', 'primaryColor': '#FFFFFF', 'primaryTextColor': '#1F2933', 'primaryBorderColor': '#B8C4CE', 'lineColor': '#52606D', 'textColor': '#1F2933', 'clusterBkg': '#F4F6F8', 'clusterBorder': '#7B8794', 'edgeLabelBackground': '#FFFFFF', 'fontFamily': 'Helvetica, Arial, sans-serif'}}}%%
 flowchart TB
-    subgraph IN[Ways in]
-        ALARM[CloudWatch alarm event<br/><i>lambdas.py, intake.py</i>]
-        AM[Alertmanager webhook<br/><i>webhooks.py</i>: bearer secret,<br/>size caps, still-firing check]
-        MCP[MCP tools<br/><i>mcp_server.py</i>]
-        CLI[warden CLI<br/><i>cli.py</i>, in one process]
-    end
-    AM --> ALARM
-    ALARM -->|"group repeats, flapping,<br/>open-incident cap, expected-down holds"| IW
+    subgraph CANVAS[" "]
+        subgraph IN[Ways in]
+            ALARM[CloudWatch alarm event<br/><i>lambdas.py, intake.py</i>]
+            AM[Alertmanager webhook<br/><i>webhooks.py</i>: bearer secret,<br/>size caps, still-firing check]
+            MCP[MCP tools<br/><i>mcp_server.py</i>]
+            CLI[warden CLI<br/><i>cli.py</i>, in one process]
+        end
+        AM --> ALARM
+        ALARM -->|"group repeats, flapping,<br/>open-incident cap, expected-down holds"| IW
 
-    subgraph TEMPORAL[Temporal - every payload encrypted by <i>codec.py</i>]
-        IW[IncidentWorkflow<br/><i>workflows.py</i>]
-        RW[RemediationWorkflow<br/><i>workflows.py</i>, one open plan per resource]
-    end
-    MCP --> IW & RW
+        subgraph TEMPORAL[Temporal - every payload encrypted by <i>codec.py</i>]
+            IW[IncidentWorkflow<br/><i>workflows.py</i>]
+            RW[RemediationWorkflow<br/><i>workflows.py</i>, one open plan per resource]
+        end
+        MCP --> IW & RW
 
-    subgraph INC[Incident activities - <i>activities.py</i>]
-        PREP[prepare: read evidence, redact,<br/>tripwire, quarantine to typed facts<br/><i>tools, redaction, tripwire, quarantine, evidence</i>]
-        DIAG[diagnose: the model call<br/><i>llm.py, providers.py</i>]
-        VER[verify: deterministic policies<br/><i>verifier, grounding, numbers, decide</i>]
-        NOTE[notify: one report per incident,<br/>through the outbound gate<br/><i>reporting, gate, chatops</i>]
-        PREP --> DIAG --> VER --> NOTE
-    end
-    IW --> PREP
-    CLI --> PREP
+        subgraph INC[Incident activities - <i>activities.py</i>]
+            PREP[prepare: read evidence, redact,<br/>tripwire, quarantine to typed facts<br/><i>tools, redaction, tripwire, quarantine, evidence</i>]
+            DIAG[diagnose: the model call<br/><i>llm.py, providers.py</i>]
+            VER[verify: deterministic policies<br/><i>verifier, grounding, numbers, decide</i>]
+            NOTE[notify: one report per incident,<br/>through the outbound gate<br/><i>reporting, gate, chatops</i>]
+            PREP --> DIAG --> VER --> NOTE
+        end
+        IW --> PREP
+        CLI --> PREP
 
-    subgraph REM[Remediation activities - <i>activities.py</i>]
-        PLAN[resolve_plan: catalogue entry to an<br/>exact plan from live state, plan hash<br/><i>catalog, resolver, environments</i>]
-        GATE[gate: kill switch, rate bounds,<br/>change freeze<br/><i>bounds, freeze</i>]
-        APPR[signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
-        APPLY[precheck, apply once, own success check,<br/>roll back if not recovered]
-        FIN[finish: signed end row, change record<br/><i>audit, changes</i>]
-        PLAN --> GATE --> APPR --> APPLY --> FIN
-    end
-    VER -->|"a fix a person may approve"| RW
-    RW --> PLAN
+        subgraph REM[Remediation activities - <i>activities.py</i>]
+            PLAN[resolve_plan: catalogue entry to an<br/>exact plan from live state, plan hash<br/><i>catalog, resolver, environments</i>]
+            GATE[gate: kill switch, rate bounds,<br/>change freeze<br/><i>bounds, freeze</i>]
+            APPR[signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
+            APPLY[precheck, apply once, own success check,<br/>roll back if not recovered]
+            FIN[finish: signed end row, change record<br/><i>audit, changes</i>]
+            PLAN --> GATE --> APPR --> APPLY --> FIN
+        end
+        VER -->|"a fix a person may approve"| RW
+        RW --> PLAN
 
-    subgraph PEOPLE[People]
-        PAGE[approval page<br/><i>approval_page.py</i>:<br/>Sign in with Slack, passkey]
-        KEY[warden approve<br/>Ed25519 break-glass key]
-        SLACK([Slack: one message per incident,<br/>a discussion channel])
-    end
-    PAGE -->|signal| RW
-    KEY -->|signal| RW
-    NOTE --> SLACK
+        subgraph PEOPLE[People]
+            PAGE[approval page<br/><i>approval_page.py</i>:<br/>Sign in with Slack, passkey]
+            KEY[warden approve<br/>Ed25519 break-glass key]
+            SLACK([Slack: one message per incident,<br/>a discussion channel])
+        end
+        PAGE -->|signal| RW
+        KEY -->|signal| RW
+        NOTE --> SLACK
 
-    subgraph WRITE[Writes - only after a signed approval]
-        AW[AWS: per-plan actor session<br/><i>platforms/aws.py, identity.py</i>]
-        KW[Kubernetes: restart, bounded scale<br/><i>platforms/k8s.py</i>]
-        DW[databases: close idle-in-transaction sessions<br/><i>platforms/db.py</i>]
-    end
-    APPLY --> AW & KW & DW
+        subgraph WRITE[Writes - only after a signed approval]
+            AW[AWS: per-plan actor session<br/><i>platforms/aws.py, identity.py</i>]
+            KW[Kubernetes: restart, bounded scale<br/><i>platforms/k8s.py</i>]
+            DW[databases: close idle-in-transaction sessions<br/><i>platforms/db.py</i>]
+        end
+        APPLY --> AW & KW & DW
 
-    AUD[(audit: hash chain, signed checkpoints<br/><i>audit.py</i>)]
-    INC & REM -->|every step| AUD
+        AUD[(audit: hash chain, signed checkpoints<br/><i>audit.py</i>)]
+        INC & REM -->|every step| AUD
+    end
+    style CANVAS fill:#FFFFFF,stroke:#B8C4CE,color:#1F2933
+    classDef box fill:#FFFFFF,stroke:#B8C4CE,color:#1F2933
+    style IN fill:#EAF7FE,stroke:#3DB9F5,stroke-width:2px,color:#1F2933
+    style TEMPORAL fill:#E6F9F1,stroke:#12C483,stroke-width:2px,color:#1F2933
+    style INC fill:#E8F2FC,stroke:#1A8FE3,stroke-width:2px,color:#1F2933
+    style REM fill:#FFF0ED,stroke:#FF7E6B,stroke-width:2px,color:#1F2933
+    style PEOPLE fill:#EFFDF7,stroke:#7DF2C4,stroke-width:2px,color:#1F2933
+    style WRITE fill:#FFF7F5,stroke:#FF7E6B,stroke-width:2px,color:#1F2933
+    class ALARM,AM,APPLY,APPR,AUD,AW,CLI,DIAG,DW,FIN,GATE,IW,KEY,KW,MCP,NOTE,PAGE,PLAN,PREP,RW,SLACK,VER box
 ```
 
 Four rules carry the design:
