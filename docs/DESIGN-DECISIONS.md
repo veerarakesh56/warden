@@ -307,6 +307,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - AWS knowledge for an error code the model may not know: the AWS Knowledge MCP server (AWS's documentation and
   Knowledge Center, free, no sign-in), called with a closed code and a service word only; its answer is reference,
   never evidence - `aws_docs.py` (2026-10-10).
+- The masked values, for people only (2026-10-20): AWS KMS envelope encryption (`cryptography`'s AES-256-GCM under a
+  data key a key policy lets only the read zone make and only the approval page open) and an HMAC for stable ids -
+  `vault.py`. A secrets vault product (HashiCorp Vault, a tokenization service) would be another server to run and
+  pay for; KMS's key policy is the access control this needs, and CloudTrail its witness.
 - The global services' state (2026-10-10): a CloudFront distribution and a Route 53 health check are read in
   AWS's global-services Region, where their alarms live. A distribution is granted by its Environment tag. A
   health check has an ID for a name and no condition key (AWS service reference, read 2026-10-10), so the reader may

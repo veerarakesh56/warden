@@ -1145,6 +1145,11 @@ class IncidentActivities:
                 # wrong diagnosis that followed history can be traced to the rows that led it.
                 steps.append({"node": "history_shown", "seqs": [s for r in shown for s in r["seqs"]]})
         self._record(alert.alert_id, steps)
+        # The real values behind this run's placeholders, sealed for people only (vault.py) - here, with the map, which
+        # is never returned: it never enters Temporal's history, and no AI zone can open what is sealed.
+        from . import vault
+
+        vault.seal_incident(self.audit, alert.alert_id, state.get("redaction_map", {}), run_id=_run_id())
         # The alarm as it came in, so the incident can be discussed later from its own evidence (discuss.py). Its
         # free text redacted, as everything on the record is.
         from .redaction import redact
