@@ -144,7 +144,8 @@ def test_grafana_traces_are_capped(monkeypatch):
 
 def test_grafana_traces_unconfigured_or_unanswered_read_nothing():
     g = GFake({"checkout": GRAFANA_TRACES})
-    assert grafana.GrafanaReader(env={}, get=g).traces(_two()) == [] and g.urls == []
+    assert grafana.GrafanaReader(env={}, get=g).traces(_two()) == []
+    assert g.urls == []
     assert grafana.GrafanaReader(env=ENV, get=GFake({})).traces(alert()) == [
         ("TOOL-PARTIAL grafana traces: no failed traces for checkout between 2026-10-17T11:45:00.000Z and "
          "2026-10-17T12:15:00.000Z (late, not instrumented, or none) - not a sign of health")]
@@ -179,7 +180,8 @@ def test_datadog_traces_are_capped_and_keep_three_dependencies(monkeypatch):
 
 def test_datadog_traces_without_keys_read_nothing():
     d = DFake({"checkout": DD_SPANS})
-    assert datadog.DatadogReader(env={}, call=d).traces(_two()) == [] and d.bodies == []
+    assert datadog.DatadogReader(env={}, call=d).traces(_two()) == []
+    assert d.bodies == []
 
 
 def test_xray_traces_lines_in_order():
