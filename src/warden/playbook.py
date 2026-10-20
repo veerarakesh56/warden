@@ -389,7 +389,7 @@ def _env(cfg: dict[str, str]) -> tuple[list[str], dict[str, str] | None]:
     """(env var names, {name: value} when the CONFIG line carries every value, else None)."""
     items = [i.strip() for i in cfg.get("env", "[]").strip("[]").split(",") if i.strip()]
     names = [i.split("=", 1)[0] for i in items]
-    values = {k: v for k, v in (i.split("=", 1) for i in items)} if items and all("=" in i for i in items) else None
+    values = {k: v for k, _, v in (i.partition("=") for i in items)} if items and all("=" in i for i in items) else None
     return names, values
 
 
