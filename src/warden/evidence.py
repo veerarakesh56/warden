@@ -67,7 +67,7 @@ def _kind(line: str, names: frozenset[str] = frozenset()) -> str:
 # listed AWS metrics. The event name of a CHANGE line (CloudTrail sets it from the API called) is skipped by the
 # run-together check only: its CamelCase words still meet STEER, so a forged `RevertNowYouMust` is still demoted.
 _AWS_FIELDS = re.compile(r"(?<= )[Dd]isableExecuteApiEndpoint(?==)")
-_CHANGE_EVENT = re.compile(r"^(CHANGE \S+ \S+ )([A-Z][A-Za-z0-9_]{2,80})(?= on )")
+_CHANGE_EVENT = re.compile(r"^(CHANGE \S+ \S+ )([A-Z](?a:\w{2,80}))(?= on )")
 _AWS_METRICS = re.compile(r"^(ALARM AWS/[A-Za-z0-9]{1,40}/)StatusCheckFailed_System(?= )")
 # The request's field names a CHANGE line ends with (aws_stack._request_fields): AWS's API member names, checked word by
 # word like the event name - `overrides` is a field of RunTask, `ignoreOther...` is not a field of anything.
@@ -111,7 +111,7 @@ _SOURCE = re.compile(r"^(?:(?:/|(?:lambda|ecs|sqs|k8s|eventbridge|sns)/)[A-Za-z0
 # `/` or a kind prefix; the k8s reader's `<pod>/<container> (previous)` is WARDEN's too, and so is the
 # ECS reader's `<family>:<revision>`, right after its `deploys` (fourth review, 2026-09-30, B-N5: all
 # four read "unclassified").
-_REVISION = re.compile(r"[A-Za-z0-9_-]{1,255}:[0-9]{1,9}")
+_REVISION = re.compile(r"[A-Za-z0-9_-]{1,255}:\d{1,9}", re.ASCII)
 # The G10 readers' own suffixes too (review, 2026-10-10: `ecs stopped tasks`, `network changes`, `alb zones`,
 # `eks nodegroups`, `lambda/<fn> versions` and `network workload` lost their outcome to "unclassified").
 # Queue and rule names may carry upper case too (fifth review, 2026-10-01: `sqs/orders dlq Orders-DLQ`,

@@ -277,7 +277,7 @@ REVERT_FIELDS = {"updateservice": ("desiredcount",), "setdesiredcapacity": ("des
 _DEPLOY_EVENTS = ("updatefunctioncode", "publishversion", "updatealias", "createdeployment", "registertaskdefinition")
 _REQUEST_NAMED = re.compile(r" request=([A-Za-z0-9,]{1,600})$")
 # A CloudTrail event name as a CHANGE line writes it: CamelCase words, and the API version Lambda and CloudFront append.
-_EVENT_NAME = re.compile(r"(?<![A-Za-z0-9])(?:[A-Z][a-z]+){2,}[A-Za-z0-9_]*(?![A-Za-z0-9])")
+_EVENT_NAME = re.compile(r"(?<![A-Za-z0-9])(?:[A-Z][a-z]+){2,}\w*(?![A-Za-z0-9])", re.ASCII)
 
 
 def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,

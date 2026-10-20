@@ -2312,7 +2312,7 @@ class AwsPlatform:
         """Set the table's capacity back to what AWS Config recorded before the cut (back: to what the cut set)."""
         self._expect(now, snapshot, ("table", "arn", "event", "before", "after"), f"table {p['table']}")
         text = str(p["throughput"])
-        prior = [int(v) for v in text.split("/")] if re.fullmatch(r"[1-9][0-9]*/[1-9][0-9]*", text) else None
+        prior = [int(v) for v in text.split("/")] if re.fullmatch(r"[1-9]\d*/[1-9]\d*", text, re.ASCII) else None
         want_now, to = (snapshot.get("after"), prior) if not back else (prior, snapshot.get("after"))
         if now.get("now") != want_now or not to:
             raise AwsPlatformRefused(f"table {p['table']} has {now.get('now')} read/write units, not {want_now}; "

@@ -249,8 +249,8 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
 _KEYS = ("page", "size", "env", "status", "service", "from", "to", "q")
 _ENV = re.compile(r"[a-z][a-z0-9-]{0,30}")  # environments.py's own shape for a name
 _SERVICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,63}")
-_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_PAGE_NO = re.compile(r"[1-9][0-9]{0,6}")
+_DAY = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
+_PAGE_NO = re.compile(r"[1-9]\d{0,6}", re.ASCII)
 TEXT_MAX = 100
 
 

@@ -31,7 +31,9 @@ from .gate import withhold_commands
 # control, bidi and zero-width characters (terminal escapes like OSC 52 included); without backticks;
 # unable to start a markdown block (a leading #, >, -, *, +, |, = or "1." is preceded by a
 # zero-width space, so no renderer takes it as a heading, list, quote or table); and bounded.
-_INVISIBLE = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\U000e0000-\U000e007f]")
+# The tag characters U+E0000-U+E007F are added with chr(): SonarCloud reads an 8-digit \U escape in a
+# character class as separate characters and reports duplicates Python does not have.
+_INVISIBLE = re.compile(f"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff{chr(0xE0000)}-{chr(0xE007F)}]")
 _BLOCK_START = re.compile(r"^(?:[#>\-*+|=~]|\d+[.)])")  # ~ : a `~~~` fence (review 2026-09-28)
 
 
