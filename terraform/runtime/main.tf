@@ -78,6 +78,9 @@ module "runtime" {
   worker_instances         = tonumber(lookup(local.tf, "worker_instances", "2"))
   watched_db_egress        = lookup(local.tf, "watched_db_egress", "false") == "true"
   audit_db_backup_days     = try(tonumber(local.tf["audit_db_backup_days"]), null)
+  # Audit retention (B19, 2026-10-20): an anchor and the witness's copy stay undeletable for 180 days (S3 Object Lock,
+  # COMPLIANCE - nobody, the root user included, can shorten it once an object is written).
+  anchor_retention_days    = 180
   aws_free_plan            = lookup(local.tf, "aws_free_plan", "false") == "true"
   paused                   = local.paused
   permissions_boundary_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"

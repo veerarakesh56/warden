@@ -43,7 +43,7 @@ resource "aws_iam_role_policy_attachment" "execution" {
 
 resource "aws_cloudwatch_log_group" "worker" {
   name              = "/warden/${var.environment}/worker"
-  retention_in_days = 90
+  retention_in_days = 180 # audit retention (B19): at least 180 days
   tags              = { Project = "warden", Environment = var.environment }
 }
 

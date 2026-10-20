@@ -55,3 +55,38 @@ def test_the_audit_database_keeps_backups_and_a_final_snapshot():
 def test_a_commented_out_block_does_not_count():
     body = _code('resource "aws_dynamodb_table" "t" {\n  # point_in_time_recovery {\n  #   enabled = true\n  # }\n}')
     assert not re.search(r"point_in_time_recovery\s*\{\s*enabled\s*=\s*true\s*\}", body)
+
+
+AUDIT_DAYS = 180  # B19 (owner, 2026-10-17): audit retention at least 180 days - logs, anchors, backups
+RUNTIME = ROOT / "terraform" / "modules" / "warden-runtime"
+
+
+def test_every_runtime_log_group_keeps_its_logs_at_least_180_days():
+    groups = [(name, body) for name, body in _blocks("aws_cloudwatch_log_group") if "warden-runtime" in name]
+    assert len(groups) >= 4, "the pattern no longer finds the runtime's log groups"
+    short = [name for name, body in groups
+             if int(re.search(r"retention_in_days\s*=\s*(\d+)", body).group(1)) < AUDIT_DAYS]
+    assert not short, short
+    # A Lambda without its own log group gets one from AWS that terraform does not hold to this; only the ack
+    # function has none, and its role has no permission at all - it writes no log.
+    code = {tf.name: _code(tf.read_text(encoding="utf-8")) for tf in RUNTIME.glob("*.tf")}
+    functions = {m for text in code.values() for m in re.findall(r'^resource "aws_lambda_function" "(\w+)"', text, re.MULTILINE)}
+    assert functions - {"front_door", "migrate"} == {"ack"}
+    ack_role = re.search(r'resource "aws_iam_role" "ack" \{.*?^\}', code["frontdoor.tf"], re.DOTALL | re.MULTILINE).group(0)
+    assert not re.search(r"\brole\s*=\s*aws_iam_role\.ack\.(?:id|name)\b", "".join(code.values()))  # no policy on it
+    assert "inline_policy" not in ack_role
+    assert "managed_policy_arns" not in ack_role
+
+
+def test_anchors_and_the_witness_stay_locked_at_least_180_days():
+    for tf, resource in (("anchors.tf", "anchors"), ("witness.tf", "witness")):
+        text = _code((RUNTIME / tf).read_text(encoding="utf-8"))
+        lock = re.search(rf'resource "aws_s3_bucket_object_lock_configuration" "{resource}" \{{.*?^\}}', text,
+                         re.DOTALL | re.MULTILINE).group(0)
+        assert re.search(r'mode\s*=\s*"COMPLIANCE"', lock), tf
+        assert re.search(r"days\s*=\s*var\.anchor_retention_days", lock), tf
+    runtime = _code((ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8"))
+    days = re.search(r"\n\s*anchor_retention_days\s*=\s*(\d+)\n", runtime)
+    assert days, "terraform/runtime/main.tf sets no anchor_retention_days: the module's 1-day default applies"
+    assert int(days.group(1)) >= AUDIT_DAYS
+
