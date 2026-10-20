@@ -450,6 +450,9 @@ class RemediationActivities:
                                "like; a person's decision always overrides Eldane's.")}.get(what) or OUTCOME.get(
             what, "WARDEN's plan `{entry}` on `{target}` ended `" + what + "`.").format(entry=plan.entry,
                                                                                       target=shown)
+        if what in ("waiting", "autonomous") and catalog.risks_of(plan.entry):
+            # U3-2: what can go wrong if it is approved, said before anyone decides (catalog.RISKS).
+            said += " Risks if approved: " + "; ".join(catalog.risks_of(plan.entry)) + "."
         if what == "approved" and not did:
             return []  # nothing on the record says who: nothing is claimed
         if what == "denied":

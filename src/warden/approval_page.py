@@ -817,7 +817,9 @@ class ApprovalPage:
             # First: what changes, before and after (G9-D) - then the plan's facts.
             "change": "; ".join(catalog.change_of(plan.entry, plan.params, plan.snapshot)),
             "entry": plan.entry, "target": plan.target, "tier": plan.tier,
-            "risk": approvals.TIER_MEANS.get(plan.tier, ""), "environment": plan.environment,
+            "risk": approvals.TIER_MEANS.get(plan.tier, ""),
+            # U3-2: what can go wrong if it is approved, from the catalogue - beside the plan, before the decision.
+            "risks_if_approved": "; ".join(catalog.risks_of(plan.entry)) or "none named", "environment": plan.environment,
             "values": plan.params, "plan_hash": plan.plan_hash, "made": both_times(plan.created_at),
             "link_expires": both_times(link.expires_at), "type_the_target": plan.tier in TYPED_TIERS,
             # Eldane's review and the plan's autonomy level (autonomy.py), from the record - said to be an AI.

@@ -220,6 +220,7 @@ def _decisions(approvers: list[str], *, ai: frozenset[str], policy: Any, status:
 # names WARDEN's own control plane goes by in a watched account - its roles, its parameters and its secrets.
 PROTECTED_PATHS = (".github/", "CODEOWNERS", "src/warden/data/", "src/warden/gate.py", "src/warden/verifier.py",
                    "src/warden/catalog.py", "src/warden/approvals.py", "src/warden/autonomy.py", "src/warden/eldane.py",
+                   "src/warden/critique.py",
                    "src/warden/bounds.py", "src/warden/audit.py", "src/warden/activities.py", "src/warden/workflows.py",
                    "src/warden/passkeys.py", "src/warden/approval_page.py", "docs/safety-pins.sha256", "iam/",
                    "terraform/")
