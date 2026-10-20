@@ -379,6 +379,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - The audit chain - `audit.py`: Amazon QLDB reached end of support on 2025-07-31 and CloudTrail Lake closed to new
   customers on 2026-05-31; immudb is a BSL-licensed server and Tessera a Go library that needs Aurora on AWS. The
   chain is a SQLite table in CloudTrail's digest pattern, verifiable offline.
+- One writer per target - `locks.py` (B20): a check-and-set inside the audit's own write lock, so the lock is as
+  durable and as recorded as the rest of the record. A lock service (the DynamoDB lock client, etcd) would be a
+  second store beside the audit, and its locks would not be on the record.
 - The signature catalogue - `knowledge.py`: k8sgpt, Robusta and the kube-prometheus rules cover Kubernetes only and
   need a live cluster; HolmesGPT and the AWS DevOps Agent are agent loops, not libraries. They serve as checklists
   for the Kubernetes signatures.

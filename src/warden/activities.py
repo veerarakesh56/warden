@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from . import approvals, audit, bounds, catalog, environments, freeze
+from . import approvals, audit, bounds, catalog, environments, freeze, locks
 from .approvals import Plan  # lives there: the approval page reads a plan without this module
 from .audit import AuditLog
 from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
@@ -779,6 +779,14 @@ class RemediationActivities:
                 and e["body"].get("run_id", "") == run]
         if done:  # idempotent WITHIN this run: a retried activity never applies twice. Scoped to the run
             return "already applied"  # (fourth review): a later approved run of the same plan applied nothing
+        # B20: one writer per target, across every worker - taken here, held until this run's end row (locks.py).
+        locked = locks.take(self.audit, plan.incident_id, plan.target, workflow_id=plan.workflow_id, run_id=run,
+                            plan_hash=plan.plan_hash, now=datetime.now(UTC))
+        if locked:
+            self.audit.append(plan.incident_id, "remediation.refused", {"workflow_id": plan.workflow_id,
+                                                                       "run_id": run, "plan_hash": plan.plan_hash,
+                                                                       "why": [locked]})
+            raise ApplicationError("apply refused: " + locked, type=APPLY_REFUSED, non_retryable=True)
         self.audit.append(plan.incident_id, "remediation.intent", {"workflow_id": plan.workflow_id,
                                                                    "run_id": run, "plan_hash": plan.plan_hash})
         try:
@@ -876,6 +884,13 @@ class RemediationActivities:
                    and e["body"].get("plan_hash") == plan.plan_hash
                    for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))):
             detail = "nothing to roll back: this run applied nothing"
+            self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
+            return detail
+        other = locks.holder(self.audit, plan.target, datetime.now(UTC))
+        if other is not None and not locks.same_run(other, plan.workflow_id, run):
+            # B20: another run holds the target now (this run's lock lapsed): undoing would write over its change.
+            detail = (f"not rolled back: fix run {other['body'].get('workflow_id')} holds {plan.target} now, so undoing "
+                      "this fix could undo its change too; a person decides")
             self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
             return detail
         try:
