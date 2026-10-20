@@ -42,7 +42,7 @@ EXPLICIT = {"ssl": True, "ssl_cert_reqs": "required", "ssl_check_hostname": True
 NO_RETRY = "Retry(NoBackoff(), 0)"
 # Each client's own timeouts (seconds), as they were under redis 5.2.1: what the fault scenarios were timed with.
 TIMEOUTS = {"app/app.py": (2, 2), "lambdas/ops/app.py": (10, 5), "lambdas/reconciler/app.py": (3, 3)}
-QUICK = 0.5  # the timeouts the stall tests use instead, so they finish quickly
+QUICK = 1.0  # the timeouts the stall tests use instead: short, yet long enough that a busy runner adds little
 ONE_TRY_S = QUICK * 1.8  # one try fails within this; a single retry would take at least two timeouts
 
 
