@@ -27,7 +27,8 @@
         "elasticache:Describe*",
         "apigateway:GET",
         "secretsmanager:ListSecrets",
-        "cloudtrail:LookupEvents"
+        "cloudtrail:LookupEvents",
+        "dynamodb:ListBackups"
       ],
       "Resource": "*",
       "Condition": {
@@ -284,9 +285,7 @@
         "s3:DeleteBucket"
       ],
       "NotResource": [
-        "arn:aws:rds:*:*:cluster:warden-${env}-*",
-        "arn:aws:rds:*:*:db:warden-${env}-*",
-        "arn:aws:rds:*:*:cluster-snapshot:warden-${env}-*",
+        "arn:aws:rds:*:*:*:warden-${env}-*",
         "arn:aws:dynamodb:*:*:table/warden-${env}-*",
         "arn:aws:secretsmanager:*:*:secret:warden-${env}-*",
         "arn:aws:s3:::warden-${env}-*"

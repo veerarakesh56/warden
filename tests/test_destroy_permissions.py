@@ -346,6 +346,12 @@ AURORA_ARNS = {"rds:DescribeDBInstances": "arn:aws:rds:{r}:{a}:db:{p}-aurora-ins
                "rds:DescribeDBClusters": "arn:aws:rds:{r}:{a}:cluster:{p}-aurora",
                "rds:DeleteDBCluster": "arn:aws:rds:{r}:{a}:cluster:{p}-aurora",
                "rds:ModifyDBCluster": "arn:aws:rds:{r}:{a}:cluster:{p}-aurora"}
+# B9: destroy keeps a final snapshot of the cluster, checks it exists and tags it (the delete itself is authorised on
+# the snapshot too: REQUIRED_CALLS["pause"] below covers it, pause being a destroy that copies the data first).
+AURORA_CALLS |= {"describe_db_cluster_snapshots": "rds:DescribeDBClusterSnapshots",
+                 "add_tags_to_resource": "rds:AddTagsToResource"}
+AURORA_ARNS |= {"rds:DescribeDBClusterSnapshots": "arn:aws:rds:{r}:{a}:cluster-snapshot:{p}-aurora-final-20261017t113509z",
+                "rds:AddTagsToResource": "arn:aws:rds:{r}:{a}:cluster-snapshot:{p}-aurora-final-20261017t113509z"}
 # Reached in the provider only for a setting these stacks do not use (v6.66.0 source).
 NOT_REACHED = {
     "ec2:GetIpamPoolAllocations": "aws_eip / aws_subnet / aws_vpc: only with an IPAM pool (ipam_pool_id)",
@@ -417,6 +423,45 @@ def test_the_provider_version_the_calls_were_read_from_is_the_one_locked():
 REQUIRED_CALLS = {
     "destroy": [c for group in (*DESTROY_CALLS.values(), *DATA_CALLS.values(), BACKEND_CALLS) for c in group],
 }
+# Pause and resume (owner update 5): scripts/pause_resume.py and aurora_express.py's restore, beside the destroy and
+# the apply. A copy being made, a cluster or table being restored and AWS's own default subnet group carry no
+# Environment tag yet; a request that tags names this environment (aws:RequestTag).
+ARNS |= {
+    "aurora": "arn:aws:rds:{r}:{a}:cluster:{p}-aurora",
+    "aurora-new": "arn:aws:rds:{r}:{a}:cluster:{p}-aurora",
+    "aurora-writer": "arn:aws:rds:{r}:{a}:db:{p}-aurora-instance-1",
+    "aurora-pause": "arn:aws:rds:{r}:{a}:cluster-snapshot:{p}-aurora-pause-20261017t113509z",
+    "aurora-pause-by-hand": "arn:aws:rds:{r}:{a}:cluster-snapshot:{p}-aurora-pause-20261017",
+    "aurora-final": "arn:aws:rds:{r}:{a}:cluster-snapshot:{p}-aurora-final-20261017t113509z",
+    "default-subnets": "arn:aws:rds:{r}:{a}:subgrp:default",
+    "carts": "arn:aws:dynamodb:{r}:{a}:table/{p}-carts",
+    "carts-new": "arn:aws:dynamodb:{r}:{a}:table/{p}-carts",
+    "carts-backup": "arn:aws:dynamodb:{r}:{a}:table/{p}-carts/backup/01760000000000-abcdef12",
+}
+UNTAGGED |= {"aurora-new", "aurora-pause", "aurora-pause-by-hand", "aurora-final", "default-subnets", "carts-new",
+             "carts-backup"}
+_TAGGING = {"aws:RequestTag/Environment": "{env}"}
+REQUIRED_CALLS["pause"] = REQUIRED_CALLS["destroy"] + [
+    call("rds:DescribeDBClusters", "aurora"), call("rds:DescribeDBClusterSnapshots", "*"),
+    call("rds:CreateDBClusterSnapshot", "aurora", "aurora-pause", **_TAGGING),
+    call("rds:AddTagsToResource", "aurora-pause", **_TAGGING),
+    call("dynamodb:DescribeTable", "carts"), call("dynamodb:CreateBackup", "carts"),
+    call("dynamodb:DescribeBackup", "carts-backup"), call("dynamodb:ListBackups", "*"),
+    # aurora_express.py destroy: the delete names the final snapshot it makes, which is then checked and tagged.
+    call("rds:DeleteDBInstance", "aurora-writer"),
+    call("rds:DeleteDBCluster", "aurora", "aurora-final"), call("rds:CreateDBClusterSnapshot", "aurora", "aurora-final"),
+    call("rds:AddTagsToResource", "aurora-final", **_TAGGING)]
+REQUIRED_CALLS["resume"] = [
+    call("dynamodb:DescribeTable", "carts"), call("dynamodb:ListBackups", "*"),
+    call("dynamodb:RestoreTableFromBackup", "carts-backup", "carts-new"),
+    # RestoreTableFromBackup writes the items into the new table (DynamoDB's restore permissions).
+    *[call(a, "carts-new") for a in ("dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
+                                       "dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchWriteItem")],
+    call("rds:DescribeDBClusterSnapshots", "*"),
+    *[call("rds:RestoreDBClusterFromSnapshot", "aurora-new", snap, "default-subnets", **_TAGGING)
+      for snap in ("aurora-pause", "aurora-pause-by-hand")],
+    call("rds:AddTagsToResource", "aurora-new", **_TAGGING), call("rds:ModifyDBCluster", "aurora"),
+    call("rds:CreateDBInstance", "aurora", "aurora-writer", "default-subnets", **_TAGGING)]
 
 
 @pytest.mark.parametrize("stack_action", sorted(REQUIRED_CALLS))

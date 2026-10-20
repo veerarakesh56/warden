@@ -38,7 +38,8 @@
         "secretsmanager:*",
         "ssm:GetParameter",
         "ssm:GetParameters",
-        "ssm:GetParametersByPath"
+        "ssm:GetParametersByPath",
+        "ssm:PutParameter"
       ],
       "Resource": [
         "arn:aws:s3:::warden-ops-*",

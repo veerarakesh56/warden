@@ -54,6 +54,71 @@ Sign in with Slack; it opens for the approvers and for the Slack members in the 
 `/warden/<env>/env/WARDEN_RECORD_VIEWERS` (comma-separated member ids). Slack gets one message per incident; approved,
 denied and fixed are on the record, not posted.
 
+## Pause and resume to save money (owner update 5, 2026-10-17)
+
+Between uses, pause instead of destroy: every data store is copied first, and resume brings it back from the newest
+copy. On a first install there is no copy, and resume simply builds everything empty, as apply does.
+
+**From the pipelines (one run each):**
+
+| What | Run | Keeps | Stops paying for |
+|---|---|---|---|
+| The full stack (dev) | Actions → *Deploy · dev* → `part: infra`, `infra_action: pause` | Aurora as a cluster snapshot, each DynamoDB table as an on-demand backup, named `<name>-pause-<UTC time>` | everything else: the whole stack is destroyed after the copies are available |
+| | `infra_action: resume` | restores the tables (and imports them into Terraform's state) before the apply, Aurora from its newest pause snapshot after it, then redeploys the Lambdas, ECS and the cluster's add-ons (Argo CD, the Datadog agent, the shop) in the same run, waiting until each is healthy | |
+| WARDEN's runtime (ops) | Actions → *Runtime · ops* → `action: pause` | the audit database (a snapshot, then STOPPED, not deleted), its keys, the secrets, the witness | the workers, the NAT, the alarm intake; the self-alarms' actions are off, so a planned pause pages nobody |
+| | `action: resume` | starts the audit database, then applies, migrates and checks every zone as `apply` does | |
+
+What each step guarantees: nothing is deleted or stopped until every copy is **available** (the step fails
+otherwise, and no later step runs). Resume takes the newest available `-pause-` copy by the time AWS made it, so the
+copies made by hand on 2026-10-17 (`warden-dev-aurora-pause-20261017`, `warden-dev-carts-pause-20261017`,
+`warden-ops-audit-pause-20261017`, a date only) are found too. An existing database or table is never overwritten.
+If the audit database is gone while a pause snapshot of it exists, resume refuses rather than let Terraform create
+an empty audit: restore it by hand (below). Nothing deletes a copy: the run's summary lists the newest
+`PAUSE_KEEP_SNAPSHOTS` per data store (a repository variable, default 3) and the older ones for a person to delete.
+
+**Cost while paused** (AWS Price List API for the region, read 2026-10-17; Billing is the ground truth):
+Aurora snapshot storage USD 0.023 per GB-month, an RDS (Free plan audit) snapshot USD 0.095, a DynamoDB on-demand
+backup USD 0.114; a stopped RDS instance still bills its storage (20 GB gp3 at USD 0.131 per GB-month, about USD
+0.09 a day); each secret USD 0.40 a month and each customer-managed KMS key USD 1 a month stay. For this lab's sizes
+that is cents a day; the pause run prints its own estimate.
+
+**How long resume takes:** not measured yet; expect most of an hour - the EKS cluster and the Aurora restore are the
+slow parts, then the apps redeploy. The first live resume will give the number.
+
+⛔ **AWS starts a stopped RDS database again by itself after 7 days** (StopDBInstance / StopDBCluster), and it bills
+from then. Pause the runtime again before the seventh day, or start it on purpose.
+
+**By hand (console and CLI), e.g. when the pipelines cannot run.** `$T` is the UTC time, `T=$(date -u +%Y%m%dt%H%M%Sz)`.
+
+- Aurora snapshot - console: RDS → Databases → `warden-dev-aurora` → Actions → Take snapshot, name
+  `warden-dev-aurora-pause-$T`. CLI: `aws rds create-db-cluster-snapshot --db-cluster-identifier warden-dev-aurora
+  --db-cluster-snapshot-identifier warden-dev-aurora-pause-$T --tags Key=Project,Value=warden Key=Environment,Value=dev`,
+  then `aws rds wait db-cluster-snapshot-available --db-cluster-snapshot-identifier warden-dev-aurora-pause-$T`.
+- DynamoDB backup - console: DynamoDB → Tables → `warden-dev-carts` → Backups → Create backup → Create on-demand
+  backup, name `warden-dev-carts-pause-$T`. CLI: `aws dynamodb create-backup --table-name warden-dev-carts
+  --backup-name warden-dev-carts-pause-$T` (wait until `aws dynamodb describe-backup --backup-arn <arn>` says
+  `AVAILABLE`).
+- Audit snapshot and stop - console: RDS → Databases → `warden-ops-audit` → Actions → Take snapshot
+  (`warden-ops-audit-pause-$T`), then Actions → Stop temporarily. CLI: `aws rds create-db-snapshot
+  --db-instance-identifier warden-ops-audit --db-snapshot-identifier warden-ops-audit-pause-$T`, `aws rds wait
+  db-snapshot-available --db-snapshot-identifier warden-ops-audit-pause-$T`, `aws rds stop-db-instance
+  --db-instance-identifier warden-ops-audit` (an Aurora audit: `create-db-cluster-snapshot` / `stop-db-cluster`).
+- The runtime's switch - console: Systems Manager → Parameter Store → `/warden/ops/tf/paused` → Edit → `true` (or
+  `false`). CLI: `aws ssm put-parameter --name /warden/ops/tf/paused --value true --overwrite`; then *Runtime · ops*
+  `apply`.
+- Start the audit again - console: Actions → Start. CLI: `aws rds start-db-instance --db-instance-identifier
+  warden-ops-audit` and `aws rds wait db-instance-available --db-instance-identifier warden-ops-audit`.
+- Restore a lost audit database (resume refuses to do it): console: RDS → Snapshots → the newest
+  `warden-ops-audit-pause-...` → Actions → Restore snapshot, identifier `warden-ops-audit`, the audit's subnet group and
+  security group. CLI: `aws rds restore-db-instance-from-db-snapshot --db-instance-identifier warden-ops-audit
+  --db-snapshot-identifier <snapshot> --db-subnet-group-name <the audit's> --vpc-security-group-ids <the audit's>
+  --no-publicly-accessible`. Then adopt it into Terraform's state:
+  `terraform -chdir=terraform/runtime import 'module.runtime.aws_db_instance.audit[0]' warden-ops-audit` (an Aurora
+  audit: `restore-db-cluster-from-snapshot` and `module.runtime.aws_rds_cluster.audit[0]`), and run `apply`.
+- Delete an old copy (never automatic; the environment's own roles may not): with the operator's credentials,
+  `aws rds delete-db-cluster-snapshot --db-cluster-snapshot-identifier <name>`, `aws rds delete-db-snapshot
+  --db-snapshot-identifier <name>`, `aws dynamodb delete-backup --backup-arn <arn>`.
+
 ## Talking to WARDEN about an incident in Slack (register G10-45)
 
 A second Slack channel where anyone asks WARDEN about an incident: mention `@WARDEN` with the incident's id (the one in
