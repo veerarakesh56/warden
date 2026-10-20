@@ -36,8 +36,10 @@ def test_the_first_run_holds_the_target_and_the_second_is_refused_on_the_record(
     assert why.startswith("B20 TARGET-LOCKED: dev/k8s:shop/orders is held by fix run rem-a of incident inc-a")
     [taken] = log.entries(kinds=(locks.TAKEN,))
     [refused] = log.entries(kinds=(locks.REFUSED,))
-    assert taken["body"]["workflow_id"] == "rem-a" and refused["body"]["why"] == why
-    assert _take(log, "a") == "" and len(log.entries(kinds=(locks.TAKEN,))) == 1  # already held: no second row
+    assert taken["body"]["workflow_id"] == "rem-a"
+    assert refused["body"]["why"] == why
+    assert _take(log, "a") == ""
+    assert len(log.entries(kinds=(locks.TAKEN,))) == 1  # already held: no second row
 
 
 def test_another_target_is_not_held():
@@ -81,14 +83,16 @@ def test_two_workers_on_one_audit_never_both_take_the_target():
     finally:
         locks.holder = real
     got["thread"].join(10)
-    assert got["a"] == "" and got["b"].startswith("B20 TARGET-LOCKED")
+    assert got["a"] == ""
+    assert got["b"].startswith("B20 TARGET-LOCKED")
     assert got["b_done_while_a_held"] is False
     assert len(a.entries(kinds=(locks.TAKEN,))) == 1
 
 
 def _approved(acts, owner, wid):
     plan = acts.resolve_plan(FixRequest(**REQ), wid)
-    assert _approve(acts, owner, plan, wid).enough and acts.precheck(plan) == []
+    assert _approve(acts, owner, plan, wid).enough
+    assert acts.precheck(plan) == []
     return plan
 
 
@@ -103,7 +107,8 @@ def test_a_second_fix_of_a_held_target_is_refused_at_apply_and_changes_nothing()
     acts.apply(first, REQ["service"])
     with pytest.raises(ApplicationError, match="B20 TARGET-LOCKED") as err:
         acts.apply(second, REQ["service"])
-    assert err.value.type == "ApplyRefused" and len(platform.applied) == 1
+    assert err.value.type == "ApplyRefused"
+    assert len(platform.applied) == 1
     [taken] = acts.audit.entries(kinds=(locks.TAKEN,))
     assert taken["body"]["key"] == first.target == "dev/k8s:shop/orders"
 
@@ -134,4 +139,5 @@ def test_the_run_holding_the_target_undoes_its_own_fix():
     acts, platform, owner = _acts()
     plan = _approved(acts, owner, "rem-1")
     acts.apply(plan, REQ["service"])
-    assert not acts.rollback(plan).startswith("not rolled back") and len(platform.rolled_back) == 1
+    assert not acts.rollback(plan).startswith("not rolled back")
+    assert len(platform.rolled_back) == 1
