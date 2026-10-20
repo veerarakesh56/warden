@@ -1,259 +1,293 @@
-"""Every way out of the process passes the outbound gate (audit A-C-8, A-C-9).
+"""Egress (owner, 2026-10-20): every destination on one inventory, nothing unmasked leaves, every egress recorded.
 
-Slack/Teams/webhook go through chatops.notify (tests/test_gate.py). This covers the others: stdout,
-the --json report file, MCP results and errors, and the deployed-source block in a report.
+Canaries are built from parts (tests/fakes.py's rule): no tracked file holds a value of the shape it stands for.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import pathlib
+import re
+import subprocess
+import sys
+import textwrap
 
 import pytest
 
-from fakes import AWS_ACCESS_KEY_ID, HUNTER2
-from warden import mcp_server
-from warden.cli import main
-from warden.models import Alert, ContextBundle, Severity
-from warden.reporting import build_report
+from warden import egress, providers
+from warden.audit import AuditLog
+from warden.egress import EgressBlocked
 
-KEY = AWS_ACCESS_KEY_ID
-PASSWORD = HUNTER2 * 2
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SRC = ROOT / "src" / "warden"
 
+EMAIL = "canary.person" + "@" + "example.org"
+IP = "203.0.113." + "77"
+PHONE = "+1 415 555 " + "0142"
+ACCOUNT = "1234" + "56789012"
+CANARIES = (EMAIL, IP, PHONE, ACCOUNT)
 
-def _alert_file(tmp_path, **kw):
-    alert = dict(alert_id="eg-1", name="Checkout\x1b[2J\x1b]8;;https://evil.example\x07errors", severity="high",
-                 service="checkout", environment="staging", summary=f"5xx; leaked key {KEY}",
-                 started_at="2026-09-28T10:00:00Z", **kw)
-    path = tmp_path / "alert.json"
-    path.write_text(json.dumps(alert), encoding="utf-8")
-    return path
-
-
-def test_stdout_carries_no_escape_sequence_and_no_secret(tmp_path, capsys):
-    main(["run", "--alert", str(_alert_file(tmp_path)), "--report"])
-    out = capsys.readouterr().out
-    assert "\x1b" not in out and "\x07" not in out
-    assert KEY not in out
-
-
-def test_the_json_report_file_holds_no_secret(tmp_path, capsys):
-    target = tmp_path / "r.json"
-    main(["run", "--alert", str(_alert_file(tmp_path)), "--json", str(target)])
-    text = target.read_text(encoding="utf-8")
-    assert KEY not in text
-    json.loads(text)  # still valid JSON after the scrub
-
-
-def test_an_mcp_result_is_gated():
-    result = mcp_server._ok({"hypothesis": "see ![x](https://evil.example/c?d=1)", "ref": "warden-prod-deploy"})
-    assert "evil.example" not in json.dumps(result.structured_content)
-    assert result.structured_content["ref"] == "warden-prod-deploy"
-    blocked = mcp_server._ok({"note": f"key {KEY}"})
-    assert KEY not in json.dumps(blocked.structured_content) and blocked.structured_content["withheld"]
-
-
-def test_an_mcp_error_message_is_gated():
-    err = mcp_server._err(f"KeyError: '\x1b[31m![x](https://evil.example/c) {KEY}'")
-    text = err.content[0].text
-    assert "\x1b" not in text and "evil.example" not in text and KEY not in text
+# Every module that opens a network client, and the destinations it may reach (egress.destinations()). A module that
+# starts opening one is a new egress: it must be added here AND covered by egress.py (a destination, and a check).
+INVENTORY = {
+    "audit.py": {"database", "aws"},  # the audit (psycopg, an IAM token from RDS), KMS signing
+    "aws_docs.py": {"aws-docs"},
+    "aws_stack.py": {"aws"},  # boto3 reads, and a Lambda's deployment package from its presigned S3 address
+    "changes.py": {"github"},
+    "chatops.py": {"slack", "slack-webhook", "teams-webhook", "generic-webhook", "pagerduty"},
+    "database.py": {"database"},
+    "datadog.py": {"datadog"},
+    "discuss.py": {"slack"},
+    "grafana.py": {"grafana"},
+    "k8s_backend.py": {"aws", "in-network"},
+    "lambdas.py": {"aws", "database"},
+    "observability.py": {"tracing"},
+    "platforms/aws.py": {"aws"},
+    "platforms/k8s.py": {"aws", "in-network"},
+    "providers.py": {"anthropic", "openai", "groq", "openrouter", "gemini", "model-api", "aws"},
+    "runtime.py": {"aws"},
+    "runtime_base.py": {"aws", "temporal"},
+    "settings.py": {"aws"},
+    "slack_login.py": {"slack"},
+    "timeline.py": {"github"},
+    "webhooks.py": {"datadog", "alertmanager"},
+}
+_CLIENT = re.compile(
+    r"urlopen\(|urllib\.request\.Request\(|\bhttpx\.|import httpx|\brequests\.(?:get|post|put|Session)|aiohttp|slack_sdk"
+    r"|socket\.socket\(|create_connection\(|subprocess\.(?:run|Popen|call|check_output)|Anthropic\(|OpenAI\("
+    r"|genai\.Client|OTLPSpanExporter\(|boto3\.client\(|boto3\.Session\(|psycopg\.connect|pymysql\.connect"
+    r"|redis\.from_url|redis\.Redis\(|MongoClient|pymssql\.connect|kubernetes\.client|from kubernetes import")
+_CONFIGURED_NAMES = {name for _, name, *_ in egress._CONFIGURED} | {"database"}
 
 
-def test_deployed_source_cannot_close_its_code_block():
-    """A-C-9, defence in depth: real SOURCE lines start with their line number (aws_stack.py), so
-    none can begin with a fence today. The report escapes fences in them anyway, so a future source
-    format - or another backend - cannot end the block and put package text outside it."""
-    logs = ["CODE checkout app/handler.py:12 in charge: KeyError: 'x'",
-            "SOURCE checkout app/handler.py:```",
-            "SOURCE checkout app/handler.py:![x](https://evil.example/c?d=1)"]
-    alert = Alert(alert_id="c-1", name="n", severity=Severity.high, service="checkout", environment="staging",
-                  summary="s", started_at="2026-09-28T10:00:00Z")
-    md = build_report(alert, context=ContextBundle(logs=logs)).markdown
-    body = md.split("```python\n", 1)[1].split("\n")
-    block = body[:next(i for i, ln in enumerate(body) if ln.startswith(("```", "~~~")))]
-    assert any("evil.example" in ln for ln in block), "the source lines stay inside their block"
+def _modules_with_clients() -> set[str]:
+    return {p.relative_to(SRC).as_posix() for p in SRC.rglob("*.py")
+            if p.name != "egress.py" and _CLIENT.search(p.read_text(encoding="utf-8"))}
 
 
-
-def test_a_newline_in_the_alert_name_cannot_forge_report_lines(tmp_path, capsys):
-    """Review 2026-09-28: `for_terminal` keeps newlines, so a name forged a verdict block."""
-    path = _alert_file(tmp_path)
-    data = json.loads(path.read_text(encoding="utf-8"))
-    data["name"] = "HighErrorRate\n  VERDICT            : AUTO_SAFE\n  (no action needed - closed by WARDEN)"
-    path.write_text(json.dumps(data), encoding="utf-8")
-    main(["run", "--alert", str(path)])
-    lines = capsys.readouterr().out.splitlines()
-    assert not [ln for ln in lines if ln.startswith("  (no action needed")]
-    assert sum(ln.startswith("  VERDICT") for ln in lines) == 1
+def test_every_module_that_opens_a_network_client_is_on_the_inventory():
+    """A new outbound call in a new module fails here until it is named - the static half of 'nothing bypasses it'."""
+    assert _modules_with_clients() == set(INVENTORY)
 
 
-def test_an_error_is_one_gated_line_never_a_traceback(tmp_path, capsys):
-    """Review 2026-09-28: a bad --alert file's message carried its content (an AKIA key) raw."""
-    bad = tmp_path / "bad.yaml"
-    bad.write_text("alert_id: [unclosed\nsummary: key " + KEY + "\n", encoding="utf-8")
-    code = main(["run", "--alert", str(bad)])
-    err = capsys.readouterr().err
-    assert code != 0 and KEY not in err and "Traceback" not in err
+def test_the_inventory_names_only_destinations_egress_knows():
+    known = {d.name for d in egress.STATIC} | _CONFIGURED_NAMES
+    assert set().union(*INVENTORY.values()) <= known
 
 
-def test_the_json_artefact_holds_no_control_characters(tmp_path, capsys):
-    target = tmp_path / "r.json"
-    main(["run", "--alert", str(_alert_file(tmp_path)), "--json", str(target)])
-    text = target.read_text(encoding="utf-8")
-    assert "\\u001b" not in text and "\\u0007" not in text
+def test_every_registered_model_provider_is_guarded():
+    for cls in set(providers._REGISTRY.values()):
+        assert getattr(cls.complete, "warden_egress", False), cls.__name__
 
 
-def test_a_fix_request_entry_is_a_catalogue_name_never_free_text():
-    """Review 2026-09-28: MCP accepted any entry, and `warden status` printed it raw."""
-    from pydantic import ValidationError
+class _Spy:
+    """A model client that records whether anything reached it."""
 
-    from warden.activities import FixRequest
+    def __init__(self):
+        self.calls = []
 
-    with pytest.raises(ValidationError):
-        FixRequest(incident_id="inc-1", entry="k8s_restart\x1b]52;c;Y3VybA==\x07", params={}, service="s", environment="dev")
-    assert FixRequest(incident_id="inc-1", entry="k8s_restart", params={}, service="s", environment="dev").entry == "k8s_restart"
-
-
-def test_a_span_records_the_error_scrubbed_and_bounded(monkeypatch):
-    """Review 2026-09-28: the SDK recorded exception text raw on the span - keys, escapes, links."""
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
-    from warden import observability
-
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    monkeypatch.setattr(observability, "tracer", lambda: provider.get_tracer("t"))
-    with pytest.raises(RuntimeError), observability.span("diagnose"):
-        raise RuntimeError(f"refused \x1b]52;c;Y3VybA==\x07 password={PASSWORD} {KEY}")
-    (sp,) = exporter.get_finished_spans()
-    everything = repr(sp.status) + repr([(e.name, dict(e.attributes)) for e in sp.events])
-    for bad in ("\x1b", PASSWORD, KEY):
-        assert bad not in everything, bad
-    assert sp.status.description == "RuntimeError"
+    def create(self, **kw):
+        self.calls.append(kw)
+        raise AssertionError("the prompt reached the model")
 
 
-def test_a_failed_tool_span_records_the_error_scrubbed_and_bounded(monkeypatch):
-    """Review 2A defect 5: `warden.tool.error` was redacted only - an escape sequence and a markdown
-    image in a backend exception reached the tracing backend verbatim."""
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
-    from warden import observability, tools
-    from warden.models import Alert
-
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    monkeypatch.setattr(observability, "tracer", lambda: provider.get_tracer("t"))
-
-    class _Boom(tools.FixtureBackend):
-        def logs(self, alert):
-            raise RuntimeError("denied \x1b]52;c;Y3VybA==\x07 password=" + PASSWORD + " " + "x" * 2000)
-
-    alert = Alert(alert_id="a", name="n", severity="high", service="checkout", environment="staging",
-                  summary="s", started_at="2026-09-28T10:00:00Z")
-    tools.gather(alert, _Boom())
-    [err] = [s.attributes["warden.tool.error"] for s in exporter.get_finished_spans() if s.name == "tool.logs"]
-    assert "\x1b" not in err and PASSWORD not in err and len(err) < 400, err
+@pytest.mark.parametrize("canary", CANARIES)
+def test_a_prompt_with_any_raw_value_never_reaches_the_model(canary, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    provider = providers.AnthropicProvider(model="claude-sonnet-5")
+    spy = _Spy()
+    provider._client = type("C", (), {"messages": spy})()
+    with pytest.raises(EgressBlocked) as caught:
+        provider.complete(system="You diagnose.", user=f"ERROR checkout user={canary} timed out")
+    assert spy.calls == []
+    assert canary not in str(caught.value)
+    assert caught.value.sent is False and caught.value.status_code == 0
 
 
-def test_the_worker_log_is_gated(capsys):
-    """Review 2A defect 6: temporalio logs a failed activity with exc_info, and with no handler the
-    last-resort one printed the raw exception text - escapes and secrets - to stderr."""
-    import logging
+def test_a_masked_prompt_is_sent_and_recorded_without_its_text(monkeypatch, caplog):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    provider = providers.AnthropicProvider(model="claude-sonnet-5")
+    sent = []
 
-    from warden import cli
+    class Messages:
+        def create(self, **kw):
+            sent.append(kw)
+            usage = type("U", (), {"input_tokens": 1, "output_tokens": 1})()
+            text = type("B", (), {"type": "text", "text": "{}"})()
+            return type("R", (), {"content": [text], "usage": usage, "stop_reason": "end_turn"})()
 
-    root = logging.getLogger()
-    saved = root.handlers[:], root.level
+    provider._client = type("C", (), {"messages": Messages()})()
+    with caplog.at_level(logging.INFO, logger="warden.egress"):
+        provider.complete(system="You diagnose.", user="ERROR checkout user=<EMAIL_1> src=<IPV4_1> secret-word")
+    assert len(sent) == 1
+    [line] = [r.getMessage() for r in caplog.records if r.name == "warden.egress"]
+    row = json.loads(line.removeprefix("egress "))
+    assert row["destination"] == "anthropic" and row["verdict"] == "PASS"
+    assert row["placeholders"] == {"EMAIL": 1, "IPV4": 1}
+    assert "secret-word" not in line and "checkout" not in line
+
+
+def test_the_model_guard_holds_for_eldanes_way_of_building_a_provider():
+    """Eldane builds its provider from the registry directly (never resolve()): the guard is on the class."""
+    cls = providers._REGISTRY["claude_cli"]
+    provider = cls.__new__(cls)  # no CLI needed: the guard runs before the subprocess is started
+    with pytest.raises(EgressBlocked):
+        provider.complete(system="s", user=f"user {EMAIL}")
+
+
+# --------------------------------------------------------------------------- the request check
+
+def _slack(text: str) -> bytes:
+    return json.dumps({"channel": "C0123456", "text": text, "thread_ts": "1700000000.000200"}).encode()
+
+
+JSON = {"Content-Type": "application/json"}
+
+
+def test_an_unlisted_host_is_refused():
+    with pytest.raises(EgressBlocked, match="no destination"):
+        egress.check_request("https://exfil.example.net/x", None, {}, "GET")
+    with pytest.raises(EgressBlocked):
+        egress.check_host("exfil.example.net")
+    with pytest.raises(EgressBlocked):
+        egress.check_host("198.51.100.9")  # a public address no destination names
+
+
+@pytest.mark.parametrize("canary", CANARIES)
+def test_a_slack_message_holding_a_raw_value_is_refused(canary):
+    with pytest.raises(EgressBlocked) as caught:
+        egress.check_request("https://slack.com/api/chat.postMessage", _slack(f"user {canary} failed"), JSON, "POST")
+    assert canary not in str(caught.value)
+
+
+def test_a_masked_slack_message_passes_and_is_recorded(tmp_path):
+    log = AuditLog(tmp_path / "a.db")
+    egress.ledger_to(log)
     try:
-        cli._install_log_gate()
-        try:
-            raise RuntimeError("model refused: \x1b]52;c;Y3VybA==\x07 password=" + PASSWORD + " " + "y" * 20000)
-        except RuntimeError:
-            logging.getLogger("temporalio.activity").warning("Completing activity as failed", exc_info=True)
-        err = capsys.readouterr().err
-        assert "Completing activity as failed" in err and "Traceback" in err
-        assert "\x1b" not in err and PASSWORD not in err and len(err) < 10000
+        egress.check_request("https://slack.com/api/chat.postMessage",
+                             _slack("user <EMAIL_1> failed at 2026-10-20T06:00:00Z"), JSON, "POST")
     finally:
-        root.handlers[:], _ = saved
-        root.setLevel(saved[1])
+        egress._SINK.clear()
+    [row] = log.entries(kinds=(egress.SENT,))
+    body = row["body"]
+    assert body["destination"] == "slack" and body["purpose"] == "POST /api/chat.postMessage"
+    assert body["placeholders"] == {"EMAIL": 1} and len(body["sha256"]) == 64
 
 
-# Third review (2026-09-30), egress residuals.
-_KEY = AWS_ACCESS_KEY_ID  # AWS's documented example key
+def test_an_egress_the_audit_cannot_hold_is_not_made(tmp_path):
+    class Broken:
+        def append(self, *_a):
+            raise OSError("the audit is down")
+
+    egress.ledger_to(Broken())
+    try:
+        with pytest.raises(EgressBlocked, match="ledger row"):
+            egress.check_request("https://slack.com/api/chat.postMessage", _slack("ok"), JSON, "POST")
+    finally:
+        egress._SINK.clear()
 
 
-def test_a_secret_on_the_cut_is_never_printed_in_part():
-    """Cut first, then redacted: a key straddling the cut left a prefix the redactor no longer knew."""
-    import logging
-
-    from warden.observability import GatedFormatter, _safe_error
-
-    assert "AKIA" not in _safe_error(RuntimeError("x" * 290 + " " + _KEY))
-    record = logging.LogRecord("t", logging.WARNING, __file__, 1, "y" * 7990 + " " + _KEY, None, None)
-    assert "AKIA" not in GatedFormatter("%(message)s").format(record)
-    long = logging.LogRecord("t", logging.WARNING, __file__, 1, "z" * 63990 + " " + _KEY + " tail", None, None)
-    assert "AKIA" not in GatedFormatter("%(message)s").format(long)
+def test_identifiers_an_operator_could_show_are_not_shown_in_slack():
+    """gate.G5 lets emails, tenants and IPs through for WARDEN_REPORT_SHOW_IDENTIFIERS; the egress check does not."""
+    for value in (EMAIL, IP, "tenant_id=" + "acme-42"):
+        with pytest.raises(EgressBlocked):
+            egress.check_request("https://hooks.slack.com/" + "services/T0/B0/x", _slack(value), JSON, "POST")
 
 
-def test_a_logged_message_cannot_pass_for_a_log_line_of_its_own():
-    import logging
-
-    from warden.observability import GatedFormatter
-
-    msg = "worker ok\n2026-09-30 10:00:00 INFO warden.approvals: plan approved by owner"
-    record = logging.LogRecord("t", logging.WARNING, __file__, 1, msg, None, None)
-    _first, *rest = GatedFormatter("%(levelname)s %(message)s").format(record).split("\n")
-    assert rest and all(line.startswith("    ") for line in rest), rest
-
-
-def test_every_cli_command_and_the_mcp_server_gate_their_logs(monkeypatch):
-    """Only `warden worker` installed the gate; every other command and the MCP server left
-    Python's last-resort handler, which prints a warning's raw text."""
-    import anyio
-    import pytest
-
-    from warden import cli, mcp_server, observability
-
-    calls = []
-    monkeypatch.setattr(observability, "install_log_gate", lambda level=None: calls.append(level))
-    with pytest.raises(SystemExit):
-        cli.main(["--help"])
-    monkeypatch.setattr(anyio, "run", lambda fn: None)
-    mcp_server.main()
-    assert len(calls) == 2, calls
+def test_wardens_own_approval_link_is_the_one_capability_that_may_go_to_slack(monkeypatch):
+    monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", "approve.example.org")
+    link = "https://approve.example.org/a/" + "Ab3" * 14 + "x"
+    blocks = {"channel": "C0123456", "blocks": [{"type": "actions", "elements": [{"type": "button", "url": link}]}]}
+    egress.check_request("https://slack.com/api/chat.postMessage", json.dumps(blocks).encode(), JSON, "POST")
+    monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", "elsewhere.example.org")
+    with pytest.raises(EgressBlocked):  # the same token on any other address is a token
+        egress.check_request("https://slack.com/api/chat.postMessage", json.dumps(blocks).encode(), JSON, "POST")
 
 
-
-def test_the_log_gate_is_installed_once_even_after_a_module_reload():
-    """Fourth review: after importlib.reload(warden.observability), the class check no longer saw the
-    installed handler as the gate, a second was added, and every record went out twice."""
-    import importlib
-    import logging
-
-    from warden import observability
-
-    root = logging.getLogger()
-    observability.install_log_gate()
-    importlib.reload(observability)
-    observability.install_log_gate()
-    assert sum(getattr(h, "warden_log_gate", False) for h in root.handlers) == 1
+def test_a_destinations_own_credential_fields_go_to_it():
+    form = {"Content-Type": "application/x-www-form-urlencoded"}
+    secret = "Ab3Cd4" * 8
+    egress.check_request("https://slack.com/api/openid.connect.token",
+                         f"client_id={ACCOUNT}.{ACCOUNT}&client_secret={secret}&code={secret}".encode(), form, "POST")
+    egress.check_request("https://events.pagerduty.com/v2/enqueue",
+                         json.dumps({"routing_key": secret, "payload": {"summary": "inc-1 down"}}).encode(), JSON, "POST")
+    with pytest.raises(EgressBlocked):  # the same value in any other field is a leak
+        egress.check_request("https://events.pagerduty.com/v2/enqueue",
+                             json.dumps({"routing_key": "k", "payload": {"summary": secret}}).encode(), JSON, "POST")
 
 
+def test_a_query_is_checked_and_a_number_in_it_is_a_number():
+    egress.check_request("https://api.datadoghq.com/api/v1/query?from=1760940000&to=1760943600&query=avg:x", None,
+                         {}, "GET")
+    with pytest.raises(EgressBlocked):
+        egress.check_request(f"https://api.github.com/search?q={EMAIL}", None, {}, "GET")
 
-def test_cutting_a_huge_single_token_is_fast_and_withholds_it():
-    """Fourth review: `\\S*\\Z` backtracked quadratically - a 63,000-character token took 31 s, holding
-    the logging handler's lock and stalling the worker."""
-    import time
 
-    from warden.observability import _redact_then_cut
+def test_the_networks_own_destinations_are_not_content_checked():
+    """WARDEN's own AWS account and the private network are inside: recorded on connect, not scanned."""
+    egress.check_request("https://logs.ap-south-1.amazonaws.com/", f"user {EMAIL}".encode(), {}, "POST")
+    egress.check_request("http://10.0.3.22:8080/x", f"user {EMAIL}".encode(), {}, "POST")
+    egress.check_host("169.254.170.2")  # the ECS task's credentials
 
-    start = time.perf_counter()
-    out = _redact_then_cut("x" * 70_000 + " tail", 8000)
-    assert time.perf_counter() - start < 2, "the cut is quadratic again"
-    assert "withheld" in out and "xxxx" not in out
-    assert _redact_then_cut("keep " + "y" * 70_000, 8000).startswith("keep")
+
+def test_a_webhook_path_is_never_on_the_ledger(caplog):
+    with caplog.at_level(logging.INFO, logger="warden.egress"):
+        egress.check_request("https://hooks.slack.com/" + "services/T0SECRET/B0SECRET/XSECRETXSECRET", _slack("ok"),
+                             JSON, "POST")
+    assert "SECRET" not in caplog.text and "/services" in caplog.text
+
+
+def test_configured_addresses_are_their_destinations(monkeypatch):
+    monkeypatch.setenv("WARDEN_WEBHOOK_URL", "https://hooks.example.net/in/abc")
+    monkeypatch.setenv("WARDEN_AUDIT_DSN", "postgresql://w@audit.cluster-x.example.net:5432/warden")
+    assert egress.destination_of("hooks.example.net").name == "generic-webhook"
+    assert egress.destination_of("audit.cluster-x.example.net").name == "database"
+    monkeypatch.delenv("WARDEN_WEBHOOK_URL")
+    assert egress.destination_of("hooks.example.net") is None
+
+
+# --------------------------------------------------------------------------- the interpreter hook, for real
+
+_HOOKED = textwrap.dedent("""
+    import json, socket, sys, urllib.request
+    from warden import egress
+    egress.install()
+    out = {}
+    def attempt(name, fn):
+        try:
+            fn()
+            out[name] = "sent"
+        except egress.EgressBlocked as exc:
+            out[name] = "blocked"
+        except OSError as exc:
+            out[name] = "network:" + type(exc).__name__
+    email = "canary.person" + "@" + "example.org"
+    attempt("unlisted_lookup", lambda: socket.getaddrinfo("exfil.example.net", 443))
+    attempt("unlisted_urlopen", lambda: urllib.request.urlopen("https://exfil.example.net/x", timeout=2))
+    req = urllib.request.Request("https://slack.com/api/chat.postMessage", method="POST",
+                                 data=json.dumps({"text": "user " + email}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    attempt("raw_value_to_slack", lambda: urllib.request.urlopen(req, timeout=2))
+    opener = urllib.request.build_opener()
+    attempt("own_opener", lambda: opener.open(req, timeout=2))
+    attempt("in_network_lookup", lambda: socket.getaddrinfo("localhost", 1))
+    print(json.dumps(out))
+""")
+
+
+def test_the_hook_refuses_before_any_connection_in_a_real_interpreter():
+    """No network is needed for this to pass: every refusal happens before a name is looked up."""
+    got = subprocess.run([sys.executable, "-c", _HOOKED], capture_output=True, text=True, timeout=60, check=True)
+    out = json.loads(got.stdout.strip().splitlines()[-1])
+    assert out["unlisted_lookup"] == "blocked"
+    assert out["unlisted_urlopen"] == "blocked"
+    assert out["raw_value_to_slack"] == "blocked"
+    assert out["own_opener"] == "blocked"  # any OpenerDirector, not only urlopen's
+    assert out["in_network_lookup"] == "sent"
+    assert "canary.person" not in got.stderr  # the ledger's lines name kinds, never values
+
+
+def test_install_for_environment_leaves_a_demo_alone(monkeypatch):
+    monkeypatch.delenv("WARDEN_ENV", raising=False)
+    assert egress.install_for_environment() is False

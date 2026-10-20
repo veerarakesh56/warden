@@ -667,6 +667,9 @@ def _main(argv: list[str] | None = None) -> int:
     from .observability import install_log_gate
 
     install_log_gate()  # before anything can log: no raw last-resort handler for any command
+    from . import egress
+
+    egress.install_for_environment()  # a command against a real environment: every egress named, checked, recorded
     parser = _Parser(prog="warden", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 

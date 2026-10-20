@@ -41,8 +41,9 @@ def _configure(name: str) -> None:
     """Once per Lambda container: this environment's settings, only the names this Lambda uses (settings.RESTRICTED),
     from SSM and Secrets Manager."""
     if name not in _CONFIGURED:
-        from . import settings
+        from . import egress, settings
 
+        egress.install()  # every Lambda: every egress named, checked and recorded (egress.py), before any is made
         settings.load(only=settings.loadable_for(name))
         _CONFIGURED.add(name)
 

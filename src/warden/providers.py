@@ -707,6 +707,17 @@ _REGISTRY = {
     "openrouter": OpenAICompatProvider,
     "ollama": OpenAICompatProvider,
 }
+# Every prompt to every model passes the egress check first (egress.guard_model): fail closed on any value the
+# redactor still finds. Here, on the classes, so a provider built from the registry by any path - resolve(), or
+# Eldane building its own - is guarded; tests/test_egress.py holds every registered class to it.
+def _guard_every_provider() -> None:
+    from . import egress
+
+    for cls in set(_REGISTRY.values()):
+        egress.guard_provider(cls)
+
+
+_guard_every_provider()
 
 # ⛔ Audit A-C-18: OPENAI_API_KEY used to go to whichever host the client pointed at - Groq,
 # OpenRouter, or any custom WARDEN_BASE_URL. A key is a credential for ONE vendor; each host reads
