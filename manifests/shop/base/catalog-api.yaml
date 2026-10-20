@@ -15,6 +15,9 @@ kind: Deployment
 metadata:
   name: catalog-api
   namespace: shop
+  annotations:
+    # B25: Stakater Reloader restarts this Deployment when catalog-secret changes (a key rotated through ESO).
+    secret.reloader.stakater.com/reload: catalog-secret
   labels:
     app: catalog-api
     project: warden

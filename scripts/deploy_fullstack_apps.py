@@ -35,7 +35,6 @@ import base64
 import json
 import pathlib
 import re
-import secrets
 import shutil
 import subprocess
 import sys
@@ -364,6 +363,55 @@ def deploy_argocd(kubeconfig: str, out: pathlib.Path, run=run) -> None:
          "--kubeconfig", kubeconfig, "--values", str(ARGOCD_VALUES), "--wait", "--timeout", "10m"])
 
 
+# B25 (owner, 2026-10-17): the External Secrets Operator copies catalog-api's signing key from Secrets Manager into
+# shop/catalog-secret, and Stakater Reloader restarts catalog-api when that Secret changes. Each chart is its release's
+# own package, installed only if its bytes are these; each image is pinned by digest in its values file.
+ESO_CHART = "2.13.0"  # ESO v2.13.0, released 2026-10-16
+ESO_CHART_URL = ("https://github.com/external-secrets/external-secrets/releases/download/"
+                 f"helm-chart-{ESO_CHART}/external-secrets-{ESO_CHART}.tgz")
+ESO_CHART_SHA256 = "f693a96f0d929a07e000dd39e68b92a1a1343c5bc440ebab091b03da30bcac3a"
+ESO_VALUES = ROOT / "helm" / "external-secrets" / "values.yaml"
+RELOADER_CHART = "2.2.18"  # Reloader v1.4.22, published 2026-09-30 (stakater's chart repository, its index's digest)
+RELOADER_CHART_URL = f"https://stakater.github.io/stakater-charts/reloader-{RELOADER_CHART}.tgz"
+RELOADER_CHART_SHA256 = "5eb4576ba75a0e165897e8a98a6ffef15d68939430da6eb8fe80796bba75cb17"
+RELOADER_VALUES = ROOT / "helm" / "reloader" / "values.yaml"
+
+
+def _install_checked_chart(release: str, url: str, sha256: str, values: pathlib.Path, namespace: str,
+                           kubeconfig: str, out: pathlib.Path, run=run) -> None:
+    """helm upgrade --install a chart from its release package, only if the package's sha256 is the pinned one."""
+    import hashlib
+
+    package = _fetch_chart(url)
+    got = hashlib.sha256(package).hexdigest()
+    if got != sha256:
+        raise SystemExit(f"the {release} chart package is not the pinned one (sha256 {got}): nothing installed")
+    chart = out / url.rsplit("/", 1)[1]
+    chart.write_bytes(package)
+    run(["helm", "upgrade", "--install", release, str(chart), "--namespace", namespace, "--create-namespace",
+         "--kubeconfig", kubeconfig, "--values", str(values), "--wait", "--timeout", "10m"])
+
+
+def deploy_secret_sync(kubeconfig: str, out: pathlib.Path, run=run) -> None:
+    """ESO (its CRDs first: the pipeline's ExternalSecret needs them) and Reloader, each in its own namespace and each
+    allowed into the shop namespace only (helm/external-secrets, helm/reloader)."""
+    _install_checked_chart("external-secrets", ESO_CHART_URL, ESO_CHART_SHA256, ESO_VALUES, "external-secrets",
+                           kubeconfig, out, run)
+    _install_checked_chart("reloader", RELOADER_CHART_URL, RELOADER_CHART_SHA256, RELOADER_VALUES, "reloader",
+                           kubeconfig, out, run)
+
+
+def signing_key_version(stack: dict, aws) -> str:
+    """The Secrets Manager version catalog-api's key is at (AWSCURRENT). It goes into the ExternalSecret's spec, so a
+    rotation - and only a rotation - makes ESO copy the key (refreshPolicy OnChange, k8s/shop-pipeline)."""
+    stages = aws("secretsmanager").describe_secret(SecretId=stack["catalog_signing_key_secret_name"]).get(
+        "VersionIdsToStages") or {}
+    current = [v for v, s in stages.items() if "AWSCURRENT" in s]
+    if len(current) != 1:
+        raise SystemExit(f"{stack['catalog_signing_key_secret_name']} has no current version: apply the stack first")
+    return current[0]
+
+
 def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
     """Install Datadog's agent before the apps roll out, so their pods start traced. Its API key is the persistent
     secret `warden-<env>-datadog-api-key` (pasted once by the owner; never in Terraform state), its site the plain
@@ -482,8 +530,9 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision:
     datadog = deploy_datadog(stack, kubeconfig, aws, run)
     deploy_otel(stack, kubeconfig, datadog, run)
     deploy_argocd(kubeconfig, out, run=run)
-    # What the pipeline owns. catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); the one Secret
-    # value is its signing key, generated here and sent over stdin. fs-23 removes it.
+    deploy_secret_sync(kubeconfig, out, run=run)
+    # What the pipeline owns. catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); its signing key is
+    # copied by ESO from Secrets Manager (B25) - this run handles no key, only the version ESO is to hold.
     manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S_PIPELINE)]), {
         "REDIS_HOST": stack["redis_primary_endpoint"],
         "DB_READER_HOST": stack["aurora_reader_endpoint"],
@@ -491,7 +540,8 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision:
         "REGION": stack["region"],
         "ENVIRONMENT": stack["environment"],
         "DB_USER_CATALOG": db_users(stack)["catalog"],
-        "CATALOG_SIGNING_KEY": secrets.token_hex(32),
+        "KEY_SECRET": stack["catalog_signing_key_secret_name"],
+        "KEY_VERSION": signing_key_version(stack, aws),
     })
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)
     # The workloads: Argo CD syncs manifests/shop/<env> at exactly this commit, with this commit's image, by digest.

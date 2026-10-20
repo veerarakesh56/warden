@@ -34,7 +34,11 @@ STACK = {
     "aurora_writer_endpoint": "writer.internal",
     "aurora_reader_endpoint": "reader.internal",
     "eks_cluster_name": "warden-dev-eks",
+    "catalog_signing_key_secret_name": "warden-dev-catalog-signing-key",
 }
+# B25: the catalog signing key's Secrets Manager versions, as describe_secret answers.
+KEY_VERSION = "0a1b2c3d-0000-4000-8000-00000000000" + "1"
+KEY_STAGES = {"describe_secret": {"VersionIdsToStages": {KEY_VERSION: ["AWSCURRENT"], "old-version": ["AWSPREVIOUS"]}}}
 
 
 class Fake:
@@ -178,24 +182,38 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
 
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/warden")
     run = Runner({"kustomize": _pipeline_render(), "get application shop": _synced()})
-    clients = {}
+    clients = {"secretsmanager": Fake(KEY_STAGES)}
     tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run, revision=REV, sleep=lambda s: None)
-    # catalog-api logs in with an IAM token (Pod Identity): the only secret asked for is Datadog's agent key, which
-    # this stack does not have - so no agent, and the apps deploy as before.
+    # catalog-api logs in with an IAM token (Pod Identity). Secrets Manager is asked for Datadog's agent key, which this
+    # stack does not have - so no agent - and for the signing key's VERSION only (B25: ESO copies the key itself).
     assert set(clients) <= {"secretsmanager", "ssm", "ecr"}  # ecr: the image's digest (B26)
-    assert [kw for name, kw in clients["secretsmanager"].calls] == [{"SecretId": "warden-dev-datadog-api-key"}]
+    assert [(name, kw) for name, kw in clients["secretsmanager"].calls] == [
+        ("get_secret_value", {"SecretId": "warden-dev-datadog-api-key"}),
+        ("describe_secret", {"SecretId": "warden-dev-catalog-signing-key"})]
+    assert not [c for c in clients["secretsmanager"].calls if c[0] == "get_secret_value"
+                and "signing" in c[1]["SecretId"]]
     assert not any(c[:1] == ["helm"] and "datadog" in " ".join(c) for c in run.cmds)  # no key: no agent
     assert any(c[:4] == ["helm", "upgrade", "--install", "argocd"] for c in run.cmds)  # Argo CD always (2026-10-16)
     applied = next(i for c, i in zip(run.cmds, run.inputs) if "apply" in c and i and "kind: ClusterRole" in i)
     assert not tool.PLACEHOLDER.search(applied)
     assert "kind: ClusterRole" in applied and "name: warden-readonly" in applied
     docs = [d for d in yaml.safe_load_all(applied) if d]
-    key = next(d for d in docs if d["kind"] == "Secret")["stringData"]["CATALOG_SIGNING_KEY"]
+    assert not [d for d in docs if d["kind"] == "Secret"]  # no key in this run: ESO writes catalog-secret
+    external = next(d for d in docs if d["kind"] == "ExternalSecret")
+    assert external["spec"]["data"][0]["remoteRef"]["key"] == "warden-dev-catalog-signing-key"
+    assert external["spec"]["target"]["template"]["metadata"]["annotations"]["warden.dev/key-version"] == KEY_VERSION
+    assert next(d for d in docs if d["kind"] == "SecretStore")["spec"]["provider"]["aws"]["region"] == "ap-south-2"
     config = next(d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "shop-infra")["data"]
-    assert len(key) == 64 and (config["DB_USER"], config["DB_HOST"], config["AWS_REGION"]) == (
+    assert (config["DB_USER"], config["DB_HOST"], config["AWS_REGION"]) == (
         "warden_dev_catalog", "reader.internal", "ap-south-2")
     assert next(d for d in docs if d["kind"] == "Namespace")["metadata"]["labels"]["environment"] == "dev"
-    assert all(key not in " ".join(c) for c in run.cmds)
+    # ESO and Reloader, from their checked packages, before the pipeline's ExternalSecret that needs ESO's CRDs.
+    helms = [c[3] for c in run.cmds if c[:3] == ["helm", "upgrade", "--install"]]
+    assert helms.index("external-secrets") < helms.index("reloader")
+    reloader_at = next(n for n, c in enumerate(run.cmds) if c[3:4] == ["reloader"])
+    external_at = next(n for n, (c, i) in enumerate(zip(run.cmds, run.inputs))
+                       if "apply" in c and i and "kind: ExternalSecret" in i)
+    assert reloader_at < external_at
     # The shop's workloads are Argo CD's: the Application, pinned to this commit and its image, then a wait for it.
     app_in = next(i for i in run.inputs if i and "kind: Application" in i)
     app = next(d for d in yaml.safe_load_all(app_in) if d and d["kind"] == "Application")
@@ -217,7 +235,7 @@ def test_datadogs_agent_goes_on_first_with_its_key_over_stdin_and_a_pinned_chart
     import base64
 
     key = "dd" + "0123456789abcdef" * 2
-    clients = {"secretsmanager": Fake({"get_secret_value": {"SecretString": key + "\n"}}),
+    clients = {"secretsmanager": Fake({"get_secret_value": {"SecretString": key + "\n"}, **KEY_STAGES}),
                "ssm": Fake({"get_parameter": {"Parameter": {"Value": "ap1.datadoghq.com"}}})}
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/warden")
     run = Runner({"kustomize": _pipeline_render(), "get application shop": _synced()})
@@ -422,6 +440,8 @@ def _no_chart_download(monkeypatch):
 
     monkeypatch.setattr(tool, "_fetch_chart", lambda url: b"argo-cd chart package")
     monkeypatch.setattr(tool, "ARGOCD_CHART_SHA256", hashlib.sha256(b"argo-cd chart package").hexdigest())
+    for pin in ("ESO_CHART_SHA256", "RELOADER_CHART_SHA256"):  # B25: the same stand-in package
+        monkeypatch.setattr(tool, pin, hashlib.sha256(b"argo-cd chart package").hexdigest())
 
 
 def test_argocd_is_installed_from_the_checked_package_with_its_settings(tmp_path):
@@ -519,3 +539,71 @@ def test_a_venv_symlink_is_ignored_too():
     """PR 90: `.venv/` matches a directory only; a `.venv` symlink was committed and CI's `uv venv` failed."""
     lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ".venv" in lines
+
+
+@pytest.mark.parametrize("release, pin", [("external-secrets", "ESO_CHART_SHA256"), ("reloader", "RELOADER_CHART_SHA256")])
+def test_eso_and_reloader_install_only_their_pinned_packages(tmp_path, monkeypatch, release, pin):
+    """B25: a package whose bytes are not the pinned ones installs nothing - and stops before the next."""
+    monkeypatch.setattr(tool, pin, "0" * 64)
+    run = Runner({})
+    with pytest.raises(SystemExit, match=f"the {release} chart package is not the pinned one"):
+        tool.deploy_secret_sync("kc", tmp_path, run)
+    assert release not in [c[3] for c in run.cmds if c[:1] == ["helm"]]
+
+
+def test_the_charts_are_their_releases_own_and_their_images_by_digest():
+    import re
+
+    import yaml
+
+    assert tool.ESO_CHART_URL == ("https://github.com/external-secrets/external-secrets/releases/download/"
+                                  "helm-chart-2.13.0/external-secrets-2.13.0.tgz")
+    assert tool.RELOADER_CHART_URL == "https://stakater.github.io/stakater-charts/reloader-2.2.18.tgz"
+    eso = yaml.safe_load(tool.ESO_VALUES.read_text(encoding="utf-8"))
+    assert re.fullmatch(r"v2\.13\.0@sha256:[0-9a-f]{64}", eso["image"]["tag"])
+    reloader = yaml.safe_load(tool.RELOADER_VALUES.read_text(encoding="utf-8"))
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", reloader["image"]["digest"])
+
+
+def test_eso_and_reloader_reach_the_shop_namespace_only():
+    """B25, least privilege: namespaced RBAC in shop, no cluster-wide stores, pushes, generators, webhooks or token
+    minting; Reloader watches shop's Secrets only."""
+    import yaml
+
+    eso = yaml.safe_load(tool.ESO_VALUES.read_text(encoding="utf-8"))
+    assert (eso["scopedNamespace"], eso["scopedRBAC"]) == ("shop", True)
+    assert not any(eso[k] for k in ("processClusterExternalSecret", "processClusterPushSecret", "processClusterStore",
+                                    "processClusterGenerator", "processPushSecret"))
+    assert not any(eso["crds"].values())
+    assert eso["rbac"]["serviceAccountTokenCreate"] is False
+    assert not (eso["webhook"]["create"] or eso["certController"]["create"])
+    assert eso["serviceAccount"]["name"] == "external-secrets"
+    reloader = yaml.safe_load(tool.RELOADER_VALUES.read_text(encoding="utf-8"))["reloader"]
+    assert (reloader["watchGlobally"], reloader["namespaces"], reloader["ignoreConfigMaps"]) == (False, ["shop"], True)
+    assert reloader["reloadStrategy"] == "annotations" and reloader["autoReloadAll"] is False
+
+
+def test_a_rotation_changes_the_externalsecret_and_nothing_else_does(tmp_path, monkeypatch):
+    """Owner decision 2026-10-20 (option B): the ExternalSecret changes when - and only when - the key's Secrets Manager
+    version changes, so ESO copies a rotated key and never re-syncs an unchanged one."""
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/warden")
+
+    def external(stages):
+        run = Runner({"kustomize": _pipeline_render(), "get application shop": _synced()})
+        clients = {"secretsmanager": Fake({"describe_secret": {"VersionIdsToStages": stages}})}
+        tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run, revision=REV, sleep=lambda s: None)
+        return next(i for i in run.inputs if i and "kind: ExternalSecret" in i)
+
+    first = external({"v1": ["AWSCURRENT"]})
+    assert external({"v1": ["AWSCURRENT"]}) == first  # a deploy with no rotation changes nothing ESO reacts to
+    rotated = external({"v2": ["AWSCURRENT"], "v1": ["AWSPREVIOUS"]})
+    assert rotated != first
+    assert 'warden.dev/key-version: "v2"' in rotated
+
+
+def test_no_current_key_version_stops_the_deploy(monkeypatch):
+    clients = {"secretsmanager": Fake({"describe_secret": {"VersionIdsToStages": {"v1": ["AWSPREVIOUS"]}}})}
+    aws = aws_factory(clients)
+    with pytest.raises(SystemExit, match="has no current version"):
+        tool.signing_key_version(STACK, aws)
+

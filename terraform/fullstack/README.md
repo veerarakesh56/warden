@@ -165,3 +165,29 @@ front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so it
 - **The ContainerInsights alarms** (`catalog-errors`, `cart-worker-stalled`) use metric names
   documented for Container Insights with enhanced observability; they were verified on the live
   cluster on 2026-09-26 (`alarms.tf`).
+
+## The catalog signing key: Secrets Manager -> External Secrets Operator -> Reloader (B25)
+
+catalog-api's signing key is `warden-<env>-catalog-signing-key` in Secrets Manager, made by Terraform at apply
+(`secrets_sync.tf`: an ephemeral random password written through the write-only argument, so it is in no plan or
+state). The External Secrets Operator (chart 2.13.0, `helm/external-secrets/values.yaml`) copies it into
+`shop/catalog-secret` with its own Pod Identity role, which may read that one secret only; Stakater Reloader (chart
+2.2.18, `helm/reloader/values.yaml`) restarts catalog-api when the Secret changes. Both are installed by the apps
+pipeline from their release packages, checked by sha256, with their images pinned by digest, and both are allowed
+into the `shop` namespace only (namespaced Roles, no ClusterRole for either).
+
+The ExternalSecret is `creationPolicy: Orphan` with `refreshPolicy: OnChange` (owner decision, 2026-10-20): ESO copies
+the key only when the ExternalSecret changes, and never "heals" an edit to the Secret - so lab fault fs-23 stays
+broken until it is reverted. The owner may switch to a periodic refresh (A) or move fs-23 to a Secret ESO does not own
+(C); see the B25 pull request.
+
+Install (the laptop, once per environment; nothing is installed by hand):
+
+    Deploy · dev  part: infra, infra_action: plan, then apply-plan   # the secret, the ESO role, its Pod Identity association
+    Deploy · dev  part: apps,  apps_target: k8s                      # ESO, Reloader, the SecretStore and ExternalSecret
+
+Check: `kubectl -n shop get externalsecret catalog-secret` says `SecretSynced`, and catalog-api is Ready.
+
+Rotate: raise `catalog_signing_key_version` (its default in `secrets_sync.tf`, by pull request), apply the infra,
+then deploy the apps (k8s). The deploy writes the key's new Secrets Manager version into the ExternalSecret; ESO copies
+the key and Reloader restarts catalog-api. A deploy without a rotation changes nothing ESO reacts to.
