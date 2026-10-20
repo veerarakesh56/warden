@@ -42,8 +42,19 @@ zizmor --offline --format plain .github
 ```
 
 Tests under `tests/integration` need a live Kubernetes cluster or database servers. They skip on your machine and run
-in CI's own jobs, which fail if any of them skips. Terraform changes are checked by `CI · infra`
-(`terraform fmt -check -recursive` and `terraform validate`).
+in CI's own jobs, which fail if any of them skips.
+
+Terraform is checked by the `terraform` job of `CI · tool` and, for the stacks under `terraform/fullstack`,
+`terraform/undo-lab`, `terraform/modules` and `terraform/runtime`, by `CI · infra`. From the repository root:
+
+```
+terraform -chdir=terraform fmt -check -recursive
+terraform -chdir=terraform init -backend=false
+terraform -chdir=terraform validate
+```
+
+Each other root module (for example `terraform/proving-ground`) is initialised and validated the same way with its
+own `-chdir`.
 
 ## What a pull request needs
 
