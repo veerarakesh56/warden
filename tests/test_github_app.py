@@ -97,10 +97,11 @@ def test_the_jwt_is_rs256_backdated_and_under_ten_minutes(creds, rsa_key):
 def test_a_key_that_is_not_rsa_or_not_pem_is_refused():
     ec_pem = ec.generate_private_key(ec.SECP256R1()).private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+    ec_creds, junk = AppCredentials("1", ec_pem), AppCredentials("1", "not a key")
     with pytest.raises(GitHubAppError, match="not an RSA key"):
-        app_jwt(AppCredentials("1", ec_pem), now=NOW)
+        app_jwt(ec_creds, now=NOW)
     with pytest.raises(GitHubAppError, match="not an unencrypted PEM"):
-        app_jwt(AppCredentials("1", "not a key"), now=NOW)
+        app_jwt(junk, now=NOW)
 
 
 def test_credentials_come_from_the_environment_and_never_show_the_key(creds):
@@ -149,8 +150,9 @@ def test_the_token_is_asked_for_one_repository_and_two_permissions(creds):
 ])
 def test_a_token_broader_or_other_than_asked_is_refused(creds, change):
     api, _ = fake_api((200, {"id": 42}), (201, {**TOKEN_REPLY, **change}))
+    app = GitHubApp(creds, api=api, clock=lambda: NOW)
     with pytest.raises(GitHubAppError):
-        GitHubApp(creds, api=api, clock=lambda: NOW).installation_token(REPO)
+        app.installation_token(REPO)
 
 
 @pytest.mark.parametrize("replies", [
@@ -161,15 +163,18 @@ def test_a_token_broader_or_other_than_asked_is_refused(creds, change):
 ])
 def test_a_failed_token_request_raises_with_no_reply_text(creds, replies):
     api, _ = fake_api(*replies)
+    app = GitHubApp(creds, api=api, clock=lambda: NOW)
     with pytest.raises(GitHubAppError) as err:
-        GitHubApp(creds, api=api, clock=lambda: NOW).installation_token(REPO)
-    assert "nope" not in str(err.value) and "Not Found" not in str(err.value)
+        app.installation_token(REPO)
+    assert "nope" not in str(err.value)
+    assert "Not Found" not in str(err.value)
 
 
 @pytest.mark.parametrize("repo", ["", "owner", "owner/../x", "a/b/c", "https://github.com/a/b", "/a/b"])
 def test_only_an_owner_slash_name_repository(creds, repo):
+    app = GitHubApp(creds, api=fake_api()[0], clock=lambda: NOW)
     with pytest.raises(GitHubAppError, match="owner/name"):
-        GitHubApp(creds, api=fake_api()[0], clock=lambda: NOW).installation_token(repo)
+        app.installation_token(repo)
 
 
 # --------------------------------------------------------------------------------------------- the wire
@@ -195,22 +200,27 @@ def test_a_network_failure_names_the_call_not_the_token():
         def close(self):
             pass
 
+    api = Api(connect=lambda host: Down())
     with pytest.raises(GitHubAppError) as err:
-        Api(connect=lambda host: Down()).call("GET", "/x", token="secret-token-here")
+        api.call("GET", "/x", token="secret-token-here")
     assert "secret-token-here" not in str(err.value)
     assert "ConnectionResetError" in str(err.value)
 
 
 @pytest.mark.parametrize("path", ["x", "//evil.example/x", "/a\\b"])
 def test_only_paths_on_the_fixed_host(path):
+    api = fake_api()[0]
     with pytest.raises(GitHubAppError, match="not a path"):
-        fake_api()[0].call("GET", path, token="t")
+        api.call("GET", path, token="t")
 
 
 def test_the_default_connection_is_https_with_certificate_checks():
     conn = github_app._connect(github_app.API_HOST)
-    assert conn.host == "api.github.com" and conn.port == 443
-    assert conn._context.verify_mode.name == "CERT_REQUIRED" and conn._context.check_hostname
+    assert conn.host == "api.github.com"
+    assert conn.port == 443
+    assert conn._context.verify_mode.name == "CERT_REQUIRED"
+    assert conn._context.check_hostname
+    assert conn._context.minimum_version >= __import__("ssl").TLSVersion.TLSv1_2
     assert conn.timeout == github_app.TIMEOUT_S
 
 
@@ -235,8 +245,9 @@ def test_read_file_decodes_and_checks_size():
 @pytest.mark.parametrize("reply", [{"type": "dir"}, {"type": "file", "encoding": "none", "content": ""},
                                    {"type": "file", "encoding": "base64", "content": "eA==", "size": 2}])
 def test_read_file_refuses_what_is_not_an_inline_file(reply):
+    writer = RepoWriter(token(), api=fake_api((200, reply))[0])
     with pytest.raises(GitHubAppError):
-        RepoWriter(token(), api=fake_api((200, reply))[0]).read_file("a.py", SHA)
+        writer.read_file("a.py", SHA)
 
 
 def test_create_branch_only_under_warden():
@@ -278,9 +289,9 @@ def test_commit_goes_through_create_commit_on_branch():
                                    (200, {**COMMIT_OK, "errors": [{"message": "partial"}]}),
                                    (200, {"data": {"createCommitOnBranch": None}}), (502, {})])
 def test_a_refused_commit_raises(reply):
+    writer = RepoWriter(token(), api=fake_api(reply)[0])
     with pytest.raises(GitHubAppError):
-        RepoWriter(token(), api=fake_api(reply)[0]).commit("warden/x", expected_head=SHA, headline="h",
-                                                           additions={"a.py": b"a"})
+        writer.commit("warden/x", expected_head=SHA, headline="h", additions={"a.py": b"a"})
 
 
 @pytest.mark.parametrize("kw, match", [
@@ -292,8 +303,9 @@ def test_a_refused_commit_raises(reply):
 ])
 def test_commit_input_is_checked(kw, match):
     args = {"expected_head": SHA, "headline": "h", **kw}
+    writer = RepoWriter(token(), api=fake_api((200, COMMIT_OK))[0])
     with pytest.raises(GitHubAppError, match=match):
-        RepoWriter(token(), api=fake_api((200, COMMIT_OK))[0]).commit("warden/x", **args)
+        writer.commit("warden/x", **args)
 
 
 def test_a_pull_request_from_warden_into_an_environment_branch():
@@ -307,15 +319,15 @@ def test_a_pull_request_from_warden_into_an_environment_branch():
 
 @pytest.mark.parametrize("base", ["warden/fix/x", "warden", "", "dev/x", "../dev"])
 def test_a_pull_request_base_is_never_a_warden_branch(base):
+    writer = RepoWriter(token(), api=fake_api((201, {"number": 1}))[0])
     with pytest.raises(GitHubAppError, match="environment's own branch"):
-        RepoWriter(token(), api=fake_api((201, {"number": 1}))[0]).open_pull_request(
-            head="warden/x", base=base, title="t", body="")
+        writer.open_pull_request(head="warden/x", base=base, title="t", body="")
 
 
 def test_a_pull_request_reply_without_a_number_raises():
+    writer = RepoWriter(token(), api=fake_api((201, {}))[0])
     with pytest.raises(GitHubAppError, match="no number"):
-        RepoWriter(token(), api=fake_api((201, {}))[0]).open_pull_request(head="warden/x", base="dev", title="t",
-                                                                          body="")
+        writer.open_pull_request(head="warden/x", base="dev", title="t", body="")
 
 
 # ------------------------------------------------------------------------------------------------ who holds the key

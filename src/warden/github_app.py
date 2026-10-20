@@ -112,8 +112,17 @@ def app_jwt(creds: AppCredentials, *, now: float) -> str:
 
 # ---------------------------------------------------------------------------------------------------- the wire
 
+def _tls() -> ssl.SSLContext:
+    """The system's certificate store, the server's certificate and host name checked, TLS 1.2 at least."""
+    context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    return context
+
+
 def _connect(host: str) -> http.client.HTTPSConnection:
-    return http.client.HTTPSConnection(host, timeout=TIMEOUT_S, context=ssl.create_default_context())
+    return http.client.HTTPSConnection(host, timeout=TIMEOUT_S, context=_tls())
 
 
 class Api:
