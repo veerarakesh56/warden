@@ -628,3 +628,18 @@ def test_a_broken_key_expiry_page_never_stops_the_other_repeats(monkeypatch):
         _tick(p, clock, 15)
     assert "kill switch went on" in said[-1][1]  # the open page was repeated first
     assert json.loads(s3.objects["pages/warden-ops-killswitch-on.json"])["sent"] == 2
+
+
+def test_a_cut_email_keeps_every_page_and_the_link_to_acknowledge():
+    """CodeRabbit, PR 43: the email's reason is cut at 1023 characters, and the details came first - with three long
+    pages the email lost pages and the acknowledgement link, and email is what is left when Slack fails."""
+    p, _, clock, said = _world()
+    for name in ("warden-ops-killswitch-on", "warden-ops-alarm-dlq", "warden-ops-heartbeat-missing"):
+        p.open(name, "x" * 600, emailed=True)
+    _tick(p, clock, 15)
+    [email] = [t for c, t in said if c == "email"]
+    cut = email[:pager._REASON_MAX]
+    for name in ("warden-ops-killswitch-on", "warden-ops-alarm-dlq", "warden-ops-heartbeat-missing"):
+        assert name in cut
+    assert "https://approve.example.test/p" in cut
+    assert "repeats every 15 min" in cut

@@ -119,7 +119,7 @@ class Pager:
             page = {"key": key, "why": str(why)[:600], "opened_at": _iso(now), "last_sent": "", "sent": 0,
                     "alarm": alarm, "about": about}
             self.pages.put(page)
-        said = f"WARDEN {self.env} page: {key}: {str(page.get('why', ''))[:600]} {self._ack_line()}"
+        said = f"WARDEN {self.env} page: {key}. {self._ack_line()} {str(page.get('why', ''))[:600]}"
         failed = self._send(said, email=not emailed)
         if len(failed) < (2 if not emailed else 1):  # said on at least one channel
             page.update(last_sent=_iso(self.clock()), sent=1)
@@ -177,8 +177,10 @@ class Pager:
             _LOG.warning("the alarms' states could not be read (%s): repeated without them", type(exc).__name__)
             states = {}
         lines = [self._line(page, now, states.get(page.get("alarm") or "")) for page in due]
-        said = (f"WARDEN {self.env}: {len(due)} page{'s' if len(due) > 1 else ''} not acknowledged. "
-                + " | ".join(lines) + " " + self._ack_line())
+        # Every key and the way to acknowledge first, the details after (CodeRabbit, PR 43): the email's reason is cut
+        # at _REASON_MAX, and a cut must lose a detail, never a page or the link that stops the repeats.
+        said = (f"WARDEN {self.env}: {len(due)} page{'s' if len(due) > 1 else ''} not acknowledged "
+                f"({', '.join(p['key'] for p in due)}). {self._ack_line()} " + " | ".join(lines))
         failed = self._send(said, email=True)
         if len(failed) < 2:  # said on at least one channel
             for page in due:

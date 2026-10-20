@@ -268,19 +268,23 @@ def test_a_failure_to_hold_blocks_the_fix_until_an_approver_signs_otherwise(tmp_
         "bench": approvals.Approver(public_key=pem, tiers=["T1", "T2"], environments=["prod"])})
     clock = [datetime.now(UTC) - timedelta(days=40)]
     log = AuditLog(tmp_path / "a.db", key=None, clock=lambda: clock[0])
-    early = approvals.sign(key, approver="owner", workflow_id=history.OFFER_AGAIN_WORKFLOW, plan_hash="x", tier="T2",
-                           now=clock[0] - timedelta(minutes=1))
     log.append("inc-old", history.DID_NOT_HOLD, {"entry": "e", "target": "dev/t"})  # 40 days ago
     clock[0] = datetime.now(UTC)
     [(failed_at, _)] = history.failures(log, "e", "dev/t")
     # Durable: no time limit (a 30-day window let it be offered again with nobody deciding).
     assert history.did_not_hold(log, "e", "dev/t")[0] == "inc-old"
     right = history.offer_again_hash("e", "dev/t", failed_at)
-    signed_before = early.model_copy(update={"plan_hash": right})
-    assert history.offer_again(log, signed_before, policy=policy, entry="e", target="dev/t")  # not its signature
-    for who in ("bench",):  # an approver limited to prod may not clear a dev fix
-        other = approvals.sign(key, approver=who, workflow_id=history.OFFER_AGAIN_WORKFLOW, plan_hash=right, tier="T2")
-        assert history.offer_again(log, other, policy=policy, entry="e", target="dev/t")
+    # Signed for exactly this failure, but a minute before it, and checked while still fresh: only the order is
+    # wrong, and only the order refuses it (CodeRabbit, PR 43).
+    early = approvals.sign(key, approver="owner", workflow_id=history.OFFER_AGAIN_WORKFLOW, plan_hash=right, tier="T2",
+                           now=failed_at - timedelta(minutes=1))
+    refused = history.offer_again(log, early, policy=policy, entry="e", target="dev/t",
+                                  now=failed_at + timedelta(minutes=5))
+    assert refused == ["T2 needs the plan to exist for 0:00:00 before it is approved"]
+    # An approver limited to prod may not clear a dev fix: refused for its environment, and for nothing else.
+    other = approvals.sign(key, approver="bench", workflow_id=history.OFFER_AGAIN_WORKFLOW, plan_hash=right, tier="T2")
+    refused = history.offer_again(log, other, policy=policy, entry="e", target="dev/t")
+    assert refused == ["bench may not approve in dev"]
     assert history.did_not_hold(log, "e", "dev/t")[0] == "inc-old"
     ok = approvals.sign(key, approver="owner", workflow_id=history.OFFER_AGAIN_WORKFLOW, plan_hash=right, tier="T2")
     assert history.offer_again(log, ok, policy=policy, entry="e", target="dev/t") == []
