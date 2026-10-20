@@ -3,15 +3,16 @@
 # second: every instance below exists only together with an import block of the same key, so a name that is not in
 # the account fails the plan ("Cannot import non-existent remote object") instead of creating anything. Nothing here
 # is managed until SSM /warden/<env>/tf/config_recorder_name names the recorder ("default" when made in the console);
-# the delivery channel also needs tf/config_bucket. The deploy role may not delete or stop either (deploy-config).
+# the delivery channel also needs tf/config_bucket.
+#
+# Adopted as it is: the recorder's role, what it records and the channel's settings are the owner's (a Control Tower
+# or console role, all supported types, a KMS key or an SNS topic on the channel all stay) - Terraform writes none of
+# them (ignore_changes), so it never calls PutConfigurationRecorder or PutDeliveryChannel. What it holds: neither is
+# destroyed (prevent_destroy; the deploy role may not stop or delete them), and the recorder stays ON (the status). That
+# it records every type the undo reads is checked by scripts/check_live_config.py.
 locals {
   config_recorder = toset(compact([lookup(local.tf, "config_recorder_name", "")]))
   config_channel  = lookup(local.tf, "config_bucket", "") == "" ? toset([]) : toset([for r in local.config_recorder : lookup(local.tf, "config_delivery_channel_name", "default")])
-  # Every resource type the undo reads (src/warden/platforms/aws.py; tests/test_config_recorder.py holds the two equal).
-  config_types = [
-    "AWS::ApiGateway::Stage", "AWS::AutoScaling::AutoScalingGroup", "AWS::DynamoDB::Table", "AWS::EC2::RouteTable",
-    "AWS::ECS::Service", "AWS::Kinesis::Stream", "AWS::Lambda::Function", "AWS::SQS::Queue",
-  ]
 }
 
 import {
@@ -24,19 +25,9 @@ resource "aws_config_configuration_recorder" "this" {
   for_each = local.config_recorder
   name     = each.key
   role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig"
-  recording_group {
-    all_supported                 = false
-    include_global_resource_types = false
-    resource_types                = local.config_types
-    recording_strategy {
-      use_only = "INCLUSION_BY_RESOURCE_TYPES"
-    }
-  }
-  recording_mode {
-    recording_frequency = "CONTINUOUS" # a change between two daily snapshots would be lost
-  }
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = all # the owner's definition, as imported
   }
 }
 
@@ -53,6 +44,7 @@ resource "aws_config_delivery_channel" "this" {
   depends_on     = [aws_config_configuration_recorder.this]
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = all # the owner's settings (KMS key, prefix, SNS topic, snapshot delivery), as imported
   }
 }
 
@@ -62,6 +54,7 @@ import {
   id       = each.key
 }
 
+# The one thing Terraform holds: the recorder records. A stopped recorder is started again (StartConfigurationRecorder).
 resource "aws_config_configuration_recorder_status" "this" {
   for_each   = local.config_recorder
   name       = each.key

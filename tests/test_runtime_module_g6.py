@@ -574,20 +574,6 @@ def _config_blocks(text: str, head: str) -> list[str]:
     return [m.group(0) for m in re.finditer(rf"^{head} \{{.*?^\}}", text, re.DOTALL | re.MULTILINE)]
 
 
-def test_the_runtime_records_exactly_the_types_the_undo_reads():
-    """B15: the recorder Terraform keeps records every type the code reads - continuously - and nothing the code does
-    not (the list in config.tf is compared with platforms/aws.py itself)."""
-    import re
-
-    text = CONFIG_TF.read_text(encoding="utf-8")
-    listed = re.search(r"config_types = \[(.*?)\]", text, re.DOTALL).group(1)
-    assert set(re.findall(r'"(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+)"', listed)) == _config_check().needed_types()
-    (recorder,) = _config_blocks(text, 'resource "aws_config_configuration_recorder" "this"')
-    assert 'recording_frequency = "CONTINUOUS"' in recorder
-    assert "all_supported                 = false" in recorder
-    assert 'use_only = "INCLUSION_BY_RESOURCE_TYPES"' in recorder
-
-
 def test_the_recorder_is_adopted_and_never_created():
     """B15: each Config resource exists only with an import block over the same keys, so an instance Terraform
     plans is always an import of one that exists - a name that is not in the account fails the plan instead of
@@ -606,19 +592,32 @@ def test_the_recorder_is_adopted_and_never_created():
         assert imports.get(kind) == for_each, (kind, imports.get(kind), for_each)
         assert "prevent_destroy = true" in block, kind
         assert "count" not in re.findall(r"^\s*(\w+)\s*=", block, re.MULTILINE), kind
+    # Adopted as it is (CodeRabbit, PR 112): the owner's recorder definition and channel settings are never written
+    # over - no recording group, mode or channel option in this configuration, and every change to them ignored.
+    for kind in ("aws_config_configuration_recorder", "aws_config_delivery_channel"):
+        assert re.search(r"ignore_changes\s*=\s*all\b", resources[kind]), kind
+    for setting in ("recording_group", "recording_mode", "s3_kms_key_arn", "sns_topic_arn", "snapshot_delivery"):
+        assert setting not in text, setting
+    assert re.search(r"is_enabled\s*=\s*true", resources["aws_config_configuration_recorder_status"])
     assert 'compact([lookup(local.tf, "config_recorder_name", "")])' in text  # off until SSM names it
 
 
-def test_the_deploy_role_can_keep_the_recorder_but_never_stop_or_delete_it():
+def test_the_deploy_role_can_adopt_the_recorder_and_keep_it_on_but_never_change_stop_or_delete_it():
+    """B15 (CodeRabbit, PR 112): no identity policy of the runtime deploy role writes the recorder or the channel,
+    stops or deletes either, or passes a role to Config - and the boundary allows no more than the reads and a start."""
     import json
 
-    doc = json.loads((ROOT / "iam" / "ops" / "deploy-config.json").read_text(encoding="utf-8"))
-    actions = [a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])]
-    assert not [a for a in actions if a.startswith(("config:Delete", "config:Stop")) or a == "config:*"]
-    passing = next(st for st in doc["Statement"] if st["Sid"] == "PassConfigsOwnServiceLinkedRole")
-    assert passing["Resource"] == "arn:aws:iam::*:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig"
-    assert passing["Condition"] == {"StringEquals": {"iam:PassedToService": "config.amazonaws.com"}}
+    grants = [a for kind in ("deploy", "deploy-ec2", "deploy-guard", "deploy-config")
+              for st in json.loads((ROOT / "iam" / "ops" / f"{kind}.json").read_text(encoding="utf-8"))["Statement"]
+              if st["Effect"] == "Allow" for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])]
+    config = sorted(a for a in grants if a.startswith("config:"))
+    assert config == ["config:DescribeConfigurationRecorderStatus", "config:DescribeConfigurationRecorders",
+                      "config:DescribeDeliveryChannels", "config:ListTagsForResource",
+                      "config:StartConfigurationRecorder"]
+    assert "config.amazonaws.com" not in json.dumps(grants)
     boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
     ceiling = next(st for st in boundary["Statement"] if st.get("Sid") == "CeilingRegional")
-    assert "config:*" in ceiling["Action"]
-    assert next(st for st in boundary["Statement"] if st.get("Sid") == "CeilingConfigsRole")["Resource"] == passing["Resource"]
+    assert sorted(a for a in ceiling["Action"] if a.startswith("config:")) == [
+        "config:Describe*", "config:ListTagsForResource", "config:StartConfigurationRecorder"]
+    assert "AWSServiceRoleForConfig" not in json.dumps(boundary)
+
