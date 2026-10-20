@@ -347,8 +347,9 @@ def _signer(policy: approvals.ApproverPolicy, critic: Critic) -> str | None:
     approves)."""
     if critic.key is None:
         return None
-    mine = critic.public_pem().strip()
-    return next((a for a, e in policy.approvers.items() if e.ai and e.public_key.strip() == mine), None)
+    mine = critic.public_pem()
+    return next((a for a, e in policy.approvers.items() if e.ai and approvals.same_public_key(e.public_key, mine)),
+                None)
 
 
 def said(log: Any, plan: Any, run_id: str) -> str:
