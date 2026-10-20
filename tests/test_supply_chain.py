@@ -387,6 +387,17 @@ def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
     assert not mod.only_certificates("-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n"
                                      + private_key_block("RSA", "AA=="))
     assert not mod.only_certificates("no PEM at all")
+    # Complete blocks only, and nothing after them (review, PR 48).
+    cert = "-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n"
+    assert mod.only_certificates("Where it came from.\n\n" + cert + cert)
+    assert not mod.only_certificates("-----BEGIN CERTIFICATE-----")
+    assert not mod.only_certificates("-----BEGIN CERTIFICATE-----\nAA==\n")
+    assert not mod.only_certificates(cert + "trailing text\n")
+    assert not mod.only_certificates(cert + "-----BEGIN CERTIFICATE-----\nAA==\n")
+    assert not mod.only_certificates("-----BEGIN CERTIFICATE-----\nnot base64!\n-----END CERTIFICATE-----\n")
+    assert not mod.only_certificates("header\n" + private_key_block("RSA", "AA==") + cert)
+    bundle = (ROOT / "src" / "warden" / "data" / "rds-ca-bundle.crt").read_text(encoding="ascii")
+    assert mod.only_certificates(bundle)
     stages = (ROOT / "Dockerfile").read_text(encoding="utf-8").split(chr(10) + "FROM ")
     [build] = [st for st in stages if " AS build" in st]
     sync = build.index("RUN uv sync")
