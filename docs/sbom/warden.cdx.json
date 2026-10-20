@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:72471a97-fac5-5a57-ad9e-6fcd3500ec9e",
+  "serialNumber": "urn:uuid:64d0d6a1-be75-58e8-b03e-03fcdfb02ac8",
   "version": 1,
   "metadata": {
     "component": {
@@ -27,14 +27,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/aiohttp@3.14.3",
+      "bom-ref": "pkg:pypi/aiohttp@3.14.4",
       "name": "aiohttp",
-      "version": "3.14.3",
-      "purl": "pkg:pypi/aiohttp@3.14.3",
+      "version": "3.14.4",
+      "purl": "pkg:pypi/aiohttp@3.14.4",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "9491196535a88924a60afd5b5f434b5b203b6cc616250878dbdb223a8f7844bc"
+          "content": "831fc5bd39ec2517851e348f613ddb5447a47cf4b71cb09845af7ad7ed45d8f9"
         }
       ]
     },
