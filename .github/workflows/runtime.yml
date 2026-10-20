@@ -13,13 +13,18 @@ name: "Runtime · ops"
 #          an image this workflow did not build and sign is never deployed.
 #   restart: a fresh deployment of every zone's service, no image and no plan - after a secret is set or rotated (a
 #          worker reads its secrets when it starts).
+#   pause / resume (owner update 5, 2026-10-17): pause snapshots the audit database (available before anything else
+#          happens), sets SSM tf/paused=true and applies (no compute, no NAT, no alarm intake, no self-pages), then
+#          STOPS the database and reports what stays and its cost. resume starts the database (refusing to recreate a
+#          deleted one empty while a pause snapshot of it exists), sets tf/paused=false and applies, migrates and checks
+#          every zone, as apply does. Nothing is deleted, no snapshot ever.
 on:
   workflow_dispatch:
     inputs:
       action:
-        description: "image only, or image then plan / apply the runtime; restart: redeploy the zone services"
+        description: "image only, or image then plan / apply the runtime; restart: redeploy the zone services; pause / resume (keeps the audit)"
         type: choice
-        options: [image, plan, apply, restart]
+        options: [image, plan, apply, restart, pause, resume]
         default: image
 
 permissions:
@@ -175,6 +180,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      # pause / resume run scripts/pause_resume.py (stdlib + boto3): uv, pinned and checksum-verified, installs only
+      # what uv.lock lists, without a cache, before the job holds any credential - as in _infra-deploy.yml.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        if: env.ACTION == 'pause' || env.ACTION == 'resume'
+        with:
+          version: "0.13.1"
+          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+          python-version: "3.13"
+          activate-environment: true
+          enable-cache: false
+      - if: env.ACTION == 'pause' || env.ACTION == 'resume'
+        run: uv sync --locked --no-build --only-group infra-deploy
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -205,10 +222,23 @@ jobs:
             -backend-config="bucket=$BUCKET" -backend-config="key=runtime/terraform.tfstate" \
             -backend-config="region=$AWS_REGION" -backend-config="use_lockfile=true"
           terraform -chdir=terraform/runtime workspace select -or-create "$RUNTIME_ENV"
+      # ⛔ Pause: the audit's snapshot is available before the switch is thrown; a failed copy stops the run here.
+      - name: "pause: the audit database's snapshot, then the pause switch"
+        if: env.ACTION == 'pause'
+        run: |
+          WARDEN_ENV="$RUNTIME_ENV" python scripts/pause_resume.py snapshot --stack runtime
+          aws ssm put-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --value true --overwrite > /dev/null
+          echo "SSM /warden/$RUNTIME_ENV/tf/paused = true"
+      - name: "resume: the audit database started, then the pause switch off"
+        if: env.ACTION == 'resume'
+        run: |
+          WARDEN_ENV="$RUNTIME_ENV" python scripts/pause_resume.py start-db
+          aws ssm put-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --value false --overwrite > /dev/null
+          echo "SSM /warden/$RUNTIME_ENV/tf/paused = false"
       - name: plan
         run: terraform -chdir=terraform/runtime plan -input=false -no-color -var "runtime_image=$IMAGE" -out="$RUNNER_TEMP/tfplan"
       - name: apply the plan just made
-        if: env.ACTION == 'apply'
+        if: env.ACTION != 'plan'
         run: |
           set -o pipefail
           # 2>&1: Terraform writes its errors to stderr - the retry's first real run saw none of them (2026-10-11).
@@ -230,7 +260,7 @@ jobs:
           terraform -chdir=terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan-rest"
       # The audit's tables, triggers and writer login, from inside the VPC (migrate.tf). Idempotent.
       - name: the audit's schema and writer login
-        if: env.ACTION == 'apply'
+        if: env.ACTION != 'plan'
         run: |
           # Paused (SSM tf/paused = true) there is no way out of the VPC - the Lambda cannot reach Secrets Manager -
           # and nothing writes to the audit; the schema is checked at the next resume.
@@ -249,7 +279,7 @@ jobs:
       # 2026-10-15 the apply succeeded, ECS could not start the new tasks (the account's Fargate vCPU limit) and
       # rolled every zone back, and this workflow said success.
       - name: Every zone runs the image just built
-        if: env.ACTION == 'apply'
+        if: env.ACTION != 'plan'
         run: |
           if [ "$(aws ssm get-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
             echo "paused: no zone runs"
@@ -287,6 +317,14 @@ jobs:
             fi
           done
           exit "$bad"
+      - name: "pause: the audit database stopped, and what stays"
+        if: env.ACTION == 'pause'
+        env:
+          KEEP: ${{ vars.PAUSE_KEEP_SNAPSHOTS || '3' }}
+        run: |
+          set -o pipefail
+          WARDEN_ENV="$RUNTIME_ENV" python scripts/pause_resume.py stop-db
+          WARDEN_ENV="$RUNTIME_ENV" python scripts/pause_resume.py report --stack runtime --keep "$KEEP" | tee -a "$GITHUB_STEP_SUMMARY"
 
   restart:
     if: inputs.action == 'restart'

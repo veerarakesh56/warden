@@ -2,6 +2,17 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "PauseFindsItsBackups",
+      "Effect": "Allow",
+      "Action": "dynamodb:ListBackups",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
       "Sid": "Ec2ReadCreate",
       "Effect": "Allow",
       "Action": [

@@ -1,6 +1,7 @@
 """Aurora PostgreSQL in EXPRESS configuration for the Wave 4 stack. Part of the INFRA pipeline.
 
     WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py create   [--stack PATH]   # after terraform apply
+    WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py create --from-snapshot latest|<id>   # resume
     WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py status   [--stack PATH]
     WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py destroy  [--stack PATH]   # before terraform destroy
 
@@ -23,6 +24,9 @@ create    creates cluster warden-<env>-aurora (database shop, tag Project=warden
           AZ than the writer), writes the endpoints into the metadata secret warden-<env>-db-app and
           merges the Aurora keys into stack.json. A second run on an existing cluster changes
           nothing and refreshes both.
+          --from-snapshot latest|<id> (resume): a cluster that does not exist yet is restored from that cluster
+          snapshot - `latest` is the newest `<cluster>-pause-...` one, or none on a first install (then the
+          cluster is created empty, as without the option). An existing cluster is never touched by it.
 status    prints what exists. Exit 0 when the cluster is available, 1 otherwise.
 destroy   deletes the instances, then the cluster, and waits until it is gone. The cluster is never deleted
           without a final snapshot, <cluster>-final-<UTC time>, tagged like the cluster and checked to exist
@@ -224,11 +228,84 @@ def status(rds, cluster: str | None = None, log=print) -> bool:
     return c.get("Status") == "available"
 
 
-def final_snapshot_name(cluster: str, now: datetime.datetime | None = None) -> str:
-    """The final snapshot's name: `<cluster>-final-<UTC time>`, e.g. warden-dev-aurora-final-20261017t113000z. Lower
-    case, as RDS stores it; letters, digits and single hyphens only (RDS's rule for a snapshot identifier)."""
+def utc_stamp(now: datetime.datetime | None = None) -> str:
+    """The UTC time in a snapshot's name, e.g. 20261017t113000z: lower case, as RDS stores an identifier; letters and
+    digits only, so the name keeps RDS's rule (letters, digits, single hyphens) and DynamoDB's for a backup."""
     now = (now or datetime.datetime.now(datetime.UTC)).astimezone(datetime.UTC)
-    return f"{cluster}-final-{now:%Y%m%dt%H%M%Sz}"
+    return f"{now:%Y%m%dt%H%M%Sz}"
+
+
+def final_snapshot_name(cluster: str, now: datetime.datetime | None = None) -> str:
+    """The final snapshot's name: `<cluster>-final-<UTC time>`, e.g. warden-dev-aurora-final-20261017t113000z."""
+    return f"{cluster}-final-{utc_stamp(now)}"
+
+
+def pause_name(base: str, now: datetime.datetime | None = None) -> str:
+    """A pause copy's name: `<data store>-pause-<UTC time>`, e.g. warden-dev-carts-pause-20261017t113000z."""
+    return f"{base}-pause-{utc_stamp(now)}"
+
+
+def is_pause_name(base: str, name: str) -> bool:
+    """`<base>-pause-<UTC time>` as the pipelines name it, or `<base>-pause-<YYYYMMDD>` as a person made one by hand
+    (2026-10-17). Another data store whose name starts like this one (warden-dev-aurora-2) is not it."""
+    return re.fullmatch(rf"{re.escape(base.lower())}-pause-\d{{8}}(t\d{{6}}z)?", (name or "").lower()) is not None
+
+
+def newest_pause(items: list[dict], base: str, name_key: str, time_key: str, status_key: str) -> dict | None:
+    """The newest usable pause copy of `base`: by the time AWS says it was made, not by its name - a hand-made one
+    carries a date only. Only a copy whose status is available counts."""
+    usable = [i for i in items if is_pause_name(base, i.get(name_key, ""))
+              and str(i.get(status_key, "")).lower() == "available"]
+    oldest = datetime.datetime.min.replace(tzinfo=datetime.UTC)
+    return max(usable, key=lambda i: (i.get(time_key) or oldest, i.get(name_key, "")), default=None)
+
+
+def cluster_snapshots(rds) -> list[dict]:
+    """Every manual cluster snapshot in the region. Not by cluster: RDS filters by an EXISTING cluster only, and a
+    paused one has been deleted."""
+    out, marker = [], None
+    while True:
+        page = rds.describe_db_cluster_snapshots(SnapshotType="manual", **({"Marker": marker} if marker else {}))
+        out += page.get("DBClusterSnapshots") or []
+        marker = page.get("Marker")
+        if not marker:
+            return out
+
+
+def restore(rds, cluster: str, snapshot: str, log=print) -> str | None:
+    """Resume: bring a cluster that does not exist back from a cluster snapshot - `latest` is the newest pause one.
+    Returns the snapshot used, or None when there is none (a first install: create() makes it empty). An existing
+    cluster is left as it is: a restore never overwrites data."""
+    guard(cluster)
+    if describe(rds, cluster) is not None:
+        log(f"{cluster} exists - not restored from any snapshot")
+        return None
+    if snapshot == "latest":
+        found = newest_pause(cluster_snapshots(rds), cluster, "DBClusterSnapshotIdentifier", "SnapshotCreateTime",
+                             "Status")
+        if found is None:
+            log(f"no {cluster}-pause-... snapshot: {cluster} is created empty (a first install)")
+            return None
+        snapshot = found["DBClusterSnapshotIdentifier"]
+    elif not any(s.get("DBClusterSnapshotIdentifier") == snapshot.lower() for s in cluster_snapshots(rds)):
+        raise SystemExit(f"refusing: no cluster snapshot {snapshot!r} - nothing restored")
+    log(f"restoring {cluster} from {snapshot} (express: internet access gateway, IAM authentication)")
+    # Express has no VPC: the restore asks for the same shape (the API's EnableVPCNetworking=False with
+    # EnableInternetAccessGateway=True needs IAM authentication), then the master user signs in by IAM only.
+    rds.restore_db_cluster_from_snapshot(DBClusterIdentifier=cluster, SnapshotIdentifier=snapshot,
+                                         Engine="aurora-postgresql", EnableVPCNetworking=False,
+                                         EnableInternetAccessGateway=True, EnableIAMDatabaseAuthentication=True,
+                                         ServerlessV2ScalingConfiguration=ACU, Tags=TAGS)
+    _wait_cluster(rds, cluster)
+    rds.modify_db_cluster(DBClusterIdentifier=cluster, MasterUserAuthenticationType="iam-db-auth",
+                          ApplyImmediately=True)
+    _wait_cluster(rds, cluster)
+    # A restore makes the cluster only, never its instances: the writer is added here, then create() goes on.
+    rds.create_db_instance(DBInstanceIdentifier=f"{cluster}-instance-1", DBClusterIdentifier=cluster,
+                           Engine="aurora-postgresql", DBInstanceClass="db.serverless", Tags=TAGS)
+    rds.get_waiter("db_instance_available").wait(DBInstanceIdentifier=f"{cluster}-instance-1", WaiterConfig=WAIT)
+    log(f"{cluster} restored from {snapshot}")
+    return snapshot
 
 
 def _keep_final_snapshot(rds, name: str, log) -> None:
@@ -288,6 +365,8 @@ def main(argv: list[str] | None = None, *, clients=None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["create", "status", "destroy"])
+    ap.add_argument("--from-snapshot", default="none",
+                    help="create only: latest (the newest pause snapshot) or a cluster snapshot id; default none")
     ap.add_argument("--stack", type=pathlib.Path, default=DEFAULT_STACK,
                     help="stack.json to merge the Aurora keys into (create)")
     ap.add_argument("--cluster", help="default: warden-<WARDEN_ENV>-aurora")
@@ -313,6 +392,8 @@ def main(argv: list[str] | None = None, *, clients=None) -> int:
         session = boto3.Session(region_name=args.region)
         clients = {"rds": session.client("rds"), "secretsmanager": session.client("secretsmanager")}
     rds = clients["rds"]
+    if args.cmd == "create" and args.from_snapshot != "none":
+        restore(rds, args.cluster, args.from_snapshot)
     if args.cmd == "create":
         create(rds, clients["secretsmanager"], args.stack.expanduser(), args.cluster)
     elif args.cmd == "status":
