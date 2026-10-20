@@ -7,10 +7,9 @@ is validated at load (unknown action names raise), and an environment absent fro
 to the `default` policy, which is the most restrictive one possible — the system FAILS CLOSED on an
 unrecognised environment rather than inheriting broad permissions.
 
-Two consumers:
-  - the verifier reads `permits(action)` for policy P1 (is this action admissible in this env at all);
-  - the in-process remediation gate (remediation.decide_remediation) reads `auto_remediate` and
-    `authorizes(principal)` to decide whether a given principal may actually APPLY an approved fix here, now.
+The verifier reads `permits(action)` for policy P1 (is this action admissible in this env at all). Nothing decides on
+`auto_remediate` or `authorizes(principal)` since the CLI's in-process dry-run gate (remediation.py) was removed
+(owner B27): every live change is a RemediationWorkflow plan with a signed approval.
 `require_human_approval` is only shown in the promotion report (reporting.py; read 2026-10-16).
 """
 

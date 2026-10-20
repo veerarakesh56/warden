@@ -370,7 +370,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 **Built, and why no ready-made tool fits:**
 
 - The decision rules - `verifier.py`, `grounding.py`, `catalog.py`, `bounds.py`, `freeze.py`, `intake.py`,
-  `read_scope.py`, `remediation.py`, `gate.py`'s rules: most policies need evidence that Python computes first
+  `read_scope.py`, `gate.py`'s rules: most policies need evidence that Python computes first
   (section 16 records why not OPA or Cedar).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.

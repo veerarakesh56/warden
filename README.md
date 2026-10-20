@@ -108,7 +108,8 @@ With the [Temporal CLI](https://docs.temporal.io/cli) installed:
 temporal server start-dev                                          # a local Temporal server
 export WARDEN_TEMPORAL_KEY=$(python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
 WARDEN_MOCK=1 warden worker &                                      # --platform none: every live change is refused
-WARDEN_MOCK=1 warden incident --incident inc-002                   # diagnose as a workflow
+printf '%s' '{"rule": "PodOOMKilled", "state": "ALARM", "transitioned_at": "2026-08-21T14:11:00Z", "alert": {"alert_id": "inc-002", "name": "PodOOMKilled", "severity": "high", "service": "checkout", "environment": "prod", "summary": "Repeated OOM kills", "started_at": "2026-08-21T14:11:00Z"}}' > event.json
+WARDEN_MOCK=1 warden intake event.json                             # an alarm event: started, grouped or escalated
 ```
 
 To let a worker change something, connect a platform (`warden worker --platform k8s|db|aws|all`) and approve a plan

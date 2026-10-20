@@ -14,6 +14,13 @@ bump may carry a breaking change.
   names (`approvals.environment_refusal`, one rule for every path). `scripts/bench_approve.py --new-key` refuses any
   environment but a nonprod one and writes no key.
 
+### Removed (dead commands, owner B27)
+- **Breaking (CLI):** `warden run --principal/--approve` (an in-process gate whose only backend was a dry run),
+  `warden run --emit-chatops` and the `warden incident` command are gone, with `src/warden/remediation.py` and the
+  report's `## Remediation` input. Each is now a usage error. A live change has one path, the RemediationWorkflow
+  behind a signed approval (decision D16); `warden run --report` still prints the report and sends nothing. The MCP
+  tool `gather_incident_context` now says what it does: it reads the bundled demo recordings only, never a live system.
+
 ### Added (Slack per environment, owner 2026-10-16)
 - **Each environment's incidents go only to its own Slack channels.** New plain settings `WARDEN_SLACK_CHANNELS`
   and `WARDEN_DISCUSS_CHANNELS`, `env=channel-id[,env=channel-id]`. With the first, alerts go through the bot to the
