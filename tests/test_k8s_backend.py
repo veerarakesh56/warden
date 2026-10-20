@@ -404,7 +404,8 @@ def test_replicasets_owned_by_another_deployment_are_ignored():
 
 def test_naive_timestamps_do_not_raise():
     """Review finding: a stubbed client returning a naive datetime made aware-minus-naive raise."""
-    rs = [_rs(1, ["a:1"], created=datetime.now())]  # noqa: DTZ005 - naive on purpose, that IS the test
+    naive = datetime.now(UTC).replace(tzinfo=None)  # no zone on purpose: that IS the test
+    rs = [_rs(1, ["a:1"], created=naive)]
     assert isinstance(_backend(apps=FakeApps(replicasets=rs)).deploys(_alert()), list)
 
 
