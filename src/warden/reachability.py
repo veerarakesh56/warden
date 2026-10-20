@@ -148,12 +148,12 @@ class ReachabilityReader:
         filter-at fields), so they are read and matched here; a listing longer than PATH_PAGES counts as the cap
         reached - an unseen path could be this incident's, and a third analysis is never risked."""
         found: dict[str, str] = {}
-        token = ""
+        token, key = "", incident[:128]  # the tag value as it was written (tags hold at most 256 characters)
         for _ in range(PATH_PAGES):
             page = ec2.describe_network_insights_paths(**({"NextToken": token} if token else {}))
             for p in page.get("NetworkInsightsPaths") or []:
                 tags = {t.get("Key"): t.get("Value") for t in p.get("Tags") or []}
-                if tags.get(TAG_INCIDENT) == incident[:128]:
+                if tags.get(TAG_INCIDENT) == key:
                     found[str(tags.get(TAG_PATH) or p.get("NetworkInsightsPathId"))] = str(p.get("NetworkInsightsPathId"))
             token = str(page.get("NextToken") or "")
             if not token:
