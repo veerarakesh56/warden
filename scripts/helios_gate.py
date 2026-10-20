@@ -69,9 +69,37 @@ def _bare_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k.upper() in ("PATH", "SYSTEMROOT")}
 
 
+HELIOS_NAMES = ("helios", "helios.exe")  # the binary the infra job builds (target/release/helios), by name
+
+
+def _helios_argv(helios: list[str], document: pathlib.Path, scenario: pathlib.Path) -> list[str]:
+    """Helios's command line, built only from checked values (Sonar pythonsecurity:S8705, 2026-10-20): the program is
+    an executable file named helios where the tools work (RUNNER_TEMP in the job), and the document and the scenario
+    are existing files passed as resolved absolute paths - each starts with a root or a drive, so none can be read as
+    one of Helios's options. Anything else is a ValueError, before anything runs."""
+    if len(helios) != 1:
+        raise ValueError("--helios names one program, with no arguments")
+    exe = pathlib.Path(helios[0]).expanduser().resolve()
+    roots = [b for b in (pathlib.Path(r).expanduser().resolve() for r in paths.work_roots()) if b.parent != b]
+    if exe.name not in HELIOS_NAMES or not exe.is_file() or not os.access(exe, os.X_OK) \
+            or not any(exe.is_relative_to(b) for b in roots):
+        raise ValueError(f"{helios[0]} is not the Helios binary (an executable named helios where the tools work)")
+    files = []
+    for given in (document, scenario):
+        real = pathlib.Path(given).resolve()
+        if not real.is_file() or not real.is_absolute() or str(real).startswith("-"):
+            raise ValueError(f"{given} is not a file Helios may read")
+        files.append(str(real))
+    return [str(exe), "simulate", files[0], "--scenario", files[1], "--json"]
+
+
 def simulate(helios: list[str], document: pathlib.Path, scenario: pathlib.Path):
     """A set of failed resource addresses, "inconclusive", or ("error", why)."""
-    r = subprocess.run([*helios, "simulate", str(document), "--scenario", str(scenario), "--json"],  # nosec B603
+    try:
+        argv = _helios_argv(helios, document, scenario)
+    except ValueError as e:
+        return ("error", str(e)[:300])
+    r = subprocess.run(argv,  # nosec B603
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300, check=False,
                        env=_bare_env())
     if r.returncode == INCONCLUSIVE:

@@ -77,3 +77,12 @@ def test_apps_records_into_the_checked_stack(tmp_path, monkeypatch):
     monkeypatch.setattr(apps, "deploy_ecs", lambda *a, **k: "arn:td:9")
     assert apps.main(["--out", str(tmp_path), "--stack", str(stack), "deploy", "ecs"], aws=lambda s: None) == 0
     assert json.loads(stack.read_text())["ecs_baseline_task_definition"] == "arn:td:9"
+
+
+@pytest.mark.parametrize("write", [lambda p: aurora.merge_stack(p, {"k": "v"}),
+                                   lambda p: apps.record_in_stack(p, "k", "v")], ids=["merge_stack", "record_in_stack"])
+def test_the_write_itself_refuses_a_stack_outside_the_places_the_tools_work(write):
+    """Checked beside the write too, not only in main(): a caller that skips main() still cannot write elsewhere."""
+    target = OUTSIDE_DIR / "stack.json"
+    with pytest.raises(SystemExit, match="refused: .* is outside the places the tools work"):
+        write(target)

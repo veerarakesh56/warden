@@ -139,14 +139,18 @@ def _read_stack(path: pathlib.Path) -> dict:
 
 def merge_stack(path: pathlib.Path, values: dict) -> None:
     """Add keys to stack.json in the file's own format (`terraform output -json` wraps each value)."""
-    if not path.exists():
+    real = path.expanduser().resolve()  # checked here too, beside the write (Sonar pythonsecurity:S2083, 2026-10-20)
+    bases = [b for b in (pathlib.Path(r).expanduser().resolve() for r in paths.work_roots()) if b.parent != b]
+    if not any(real.is_relative_to(b) for b in bases):
+        raise SystemExit(f"refused: {path} is outside the places the tools work ({', '.join(map(str, bases))})")
+    if not real.exists():
         raise SystemExit(f"no {path}: write it first with `terraform output -json` (README)")
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw = json.loads(real.read_text(encoding="utf-8"))
     wrapped = any(isinstance(v, dict) and "value" in v for v in raw.values())
     for key, value in values.items():
         raw[key] = {"value": value, "sensitive": False,
                     "type": "string" if isinstance(value, str) else "object"} if wrapped else value
-    path.write_text(json.dumps(raw, indent=1), encoding="utf-8")
+    real.write_text(json.dumps(raw, indent=1), encoding="utf-8")
 
 
 def create(rds, sm, stack: pathlib.Path, cluster: str | None = None, log=print) -> dict:

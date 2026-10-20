@@ -304,10 +304,14 @@ def deploy_ecs(stack: dict, tag: str, aws, run=run, wait: bool = True) -> str:
 
 def record_in_stack(path: pathlib.Path, key: str, value: str) -> None:
     """Add one apps-pipeline fact to stack.json, in the file's own (wrapped or flat) format."""
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    real = path.expanduser().resolve()  # checked here too, beside the write (Sonar pythonsecurity:S2083, 2026-10-20)
+    bases = [b for b in (pathlib.Path(r).expanduser().resolve() for r in paths.work_roots()) if b.parent != b]
+    if not any(real.is_relative_to(b) for b in bases):
+        raise SystemExit(f"refused: {path} is outside the places the tools work ({', '.join(map(str, bases))})")
+    raw = json.loads(real.read_text(encoding="utf-8"))
     wrapped = any(isinstance(v, dict) and "value" in v for v in raw.values())
     raw[key] = {"value": value, "sensitive": False, "type": "string"} if wrapped else value
-    path.write_text(json.dumps(raw, indent=1), encoding="utf-8")
+    real.write_text(json.dumps(raw, indent=1), encoding="utf-8")
 
 
 def render(manifest: str, values: dict[str, str]) -> str:

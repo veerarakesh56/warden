@@ -314,9 +314,33 @@ def _now() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
 
 
+def _contained(path: pathlib.Path, roots: list[pathlib.Path] | None = None) -> pathlib.Path:
+    """The real location of `path` when it lies inside one of `roots` (default: where the tools work, warden.paths);
+    else ValueError. Checked here, beside each write, and not only where a path enters: a scenario id read back from
+    manifest.json or a record, or named by --rerun / --only, also builds a path (Sonar pythonsecurity:S2083/S8707,
+    2026-10-20). A root that is a whole filesystem counts as none, as in warden.paths."""
+    real = pathlib.Path(path).expanduser().resolve()
+    for root in roots or paths.work_roots():
+        base = pathlib.Path(root).expanduser().resolve()
+        if base.parent != base and real.is_relative_to(base):
+            return real
+    raise ValueError(f"{path} lies outside {', '.join(map(str, roots or paths.work_roots()))}")
+
+
 def _write_json(path: pathlib.Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    """Write `payload` through the checked path only: never outside the places the tools work."""
+    real = _contained(path)
+    real.parent.mkdir(parents=True, exist_ok=True)
+    real.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+
+
+def _in_folder(folder: pathlib.Path, name: str) -> pathlib.Path:
+    """`folder / name` when it stays inside `folder`: a scenario file name read back from a file that would lead out
+    of it (`..`, an absolute path) is refused, never followed."""
+    try:
+        return _contained(folder / name, [folder])
+    except ValueError:
+        raise SystemExit(f"{name!r}: not a scenario file name - it would lie outside {folder}") from None
 
 
 # --------------------------------------------------------------------------- the environment
@@ -460,7 +484,7 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
     and no note of it.
     """
     scenario_id = scenario["id"]
-    ground_truth = out / "ground-truth" / f"{scenario_id}.json"
+    ground_truth = _in_folder(out / "ground-truth", f"{scenario_id}.json")
     record: dict[str, Any] = {
         "scenario_id": scenario_id,
         "fault_class": scenario["fault_class"],
@@ -1517,7 +1541,7 @@ def supersede(out: pathlib.Path, scenario_id: str) -> str:
     stays in the bundle for anyone to read.
     """
     gt_dir = out / "ground-truth"
-    current = gt_dir / f"{scenario_id}.json"
+    current = _in_folder(gt_dir, f"{scenario_id}.json")
     kept = gt_dir / "superseded"
     kept.mkdir(parents=True, exist_ok=True)
     attempt = 1
@@ -1528,12 +1552,12 @@ def supersede(out: pathlib.Path, scenario_id: str) -> str:
     reports.mkdir(parents=True, exist_ok=True)
     for run in record.get("runs") or []:
         name = f"{scenario_id}.attempt-{attempt}.{run['index']}.json"
-        src = out / run["report"]
+        src = _in_folder(out, run["report"])  # read back from the record: stays in this run
         if src.exists():
-            src.replace(reports / name)
+            src.replace(_in_folder(reports, name))
         run["report"] = f"reports/superseded/{name}"
     record["superseded"] = {"at": _now(), "attempt": attempt}
-    _write_json(kept / f"{scenario_id}.attempt-{attempt}.json", record)
+    _write_json(_in_folder(kept, f"{scenario_id}.attempt-{attempt}.json"), record)
     current.unlink()
     return f"ground-truth/superseded/{scenario_id}.attempt-{attempt}.json"
 
