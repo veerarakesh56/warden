@@ -144,7 +144,8 @@ def test_the_backup_role_snapshots_this_cluster_into_this_vault_and_deletes_noth
                        "rds:DescribeDBClusterSnapshots", "rds:ListTagsForResource",
                        "backup:DescribeBackupVault", "backup:CopyIntoBackupVault", "backup:TagResource",
                        "kms:DescribeKey", "kms:CreateGrant"}
-    assert 'Resource = "*"' not in " ".join(policy.split()).replace("Resource  =", "Resource =")  # nothing account-wide
+    # Nothing account-wide, as a string or in a list.
+    assert not re.search(r'Resource\s*=\s*(?:"\*"|\[[^\]]*"\*"[^\]]*\])', policy)
     assert "local.audit_db.arn" in policy
     assert "cluster-snapshot:awsbackup:*" in policy
     assert '"kms:GrantIsForAWSResource" = "true"' in policy
