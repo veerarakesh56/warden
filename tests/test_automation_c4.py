@@ -67,8 +67,9 @@ TRACKED = {"argocd.argoproj.io/tracking-id": "shop:apps/Deployment:shop/orders"}
 POINTER = "/spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt"
 
 
-def _application(rules, destination="shop"):
-    return {"spec": {"destination": {"namespace": destination}, "ignoreDifferences": rules}}
+def _application(rules, destination="shop", options=("ServerSideApply=true", "RespectIgnoreDifferences=true")):
+    return {"spec": {"destination": {"namespace": destination}, "ignoreDifferences": rules,
+                     "syncPolicy": {"syncOptions": list(options)}}}
 
 
 class _Custom:
@@ -120,8 +121,10 @@ def test_a_restart_argo_cd_provably_ignores_is_allowed_and_nothing_else_is():
     (TRACKED, {}, _Custom(_application([{"group": "apps", "kind": "Deployment", "jsonPointers": ["/spec/t"]}]))),
     (TRACKED, {}, _Custom(_application([{"group": "apps", "kind": "Deployment", "jsonPointers": [POINTER]}],
                                        destination="other"))),  # an Application deploying elsewhere
+    (TRACKED, {}, _Custom(_application([{"group": "apps", "kind": "Deployment", "jsonPointers": [POINTER]}],
+                                       options=("ServerSideApply=true",)))),  # a sync would drop the restart
 ], ids=["no-client", "unreadable", "absent", "label-tracking", "other-id", "flux-too", "other-field", "other-name",
-        "jq-only", "pointer-prefix", "other-destination"])
+        "jq-only", "pointer-prefix", "other-destination", "no-respect-ignore"])
 def test_a_restart_on_argo_cd_stays_refused_unless_the_ignore_is_proven(annotations, labels, custom):
     kw = {"custom": custom} if custom is not None else {}
     live = _live(annotations=annotations, labels=labels, **kw)

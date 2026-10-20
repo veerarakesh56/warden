@@ -377,6 +377,16 @@ def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
                "warden/fixtures/inc-001.json", "warden/data/mcp_manifest.sha256", "warden/CLI.PY"]
     assert mod.outside(shipped) == []
     assert mod.main([str(ROOT / "src" / "warden")]) == 0  # the real package passes
+    # One certificate file by its exact path (PR 48), holding certificates only; no other .crt, and no key in it.
+    assert mod.outside(["warden/data/rds-ca-bundle.crt"]) == []
+    assert mod.outside(["warden/data/other.crt", "warden/rds-ca-bundle.crt"]) == ["warden/data/other.crt",
+                                                                                 "warden/rds-ca-bundle.crt"]
+    from fakes import private_key_block
+
+    assert mod.only_certificates("-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n")
+    assert not mod.only_certificates("-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n"
+                                     + private_key_block("RSA", "AA=="))
+    assert not mod.only_certificates("no PEM at all")
     stages = (ROOT / "Dockerfile").read_text(encoding="utf-8").split(chr(10) + "FROM ")
     [build] = [st for st in stages if " AS build" in st]
     sync = build.index("RUN uv sync")

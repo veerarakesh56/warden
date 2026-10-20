@@ -539,7 +539,7 @@ def db_from_environment() -> Any:
         def sign(dsn: str) -> str:
             if not read_dsn:
                 raise NotConfigured("this worker holds no read login (WARDEN_STACK_DB_PRIMARY_RO_DSN)")
-            return iam_dsn(reader("rds"), dsn)
+            return iam_dsn(reader("rds"), dsn, verify=True)  # reads verified as closes are (review, PR 48)
 
         def writer(who: dict[str, Any]) -> Any:
             if not write_dsn:

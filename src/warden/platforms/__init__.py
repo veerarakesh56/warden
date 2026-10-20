@@ -126,6 +126,9 @@ class PerEnvironment(Unconfigured):
                     self._made[environment] = self._build(environment)
                 except NotConfigured as exc:
                     self._made[environment] = Unconfigured(str(exc))
+                except Exception as exc:  # a build that fails otherwise also changes nothing, said why  # noqa: BLE001
+                    self._made[environment] = Unconfigured(
+                        f"{environment}'s platform could not be built ({type(exc).__name__})")
             return self._made[environment]
 
 
