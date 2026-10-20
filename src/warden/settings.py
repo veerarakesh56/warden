@@ -48,6 +48,7 @@ _SLOT = {new: old.lower().removeprefix("warden_").replace("_", "-") for old, new
 # B24 (2026-10-20, "admin" out of every name): the terminate DSN's slot is db-terminate-dsn - no Terraform holds it, a
 # person sets it. The old slot is still read for one release when the new one does not exist yet, with a WARNING.
 _OLD_SLOT = {"WARDEN_DB_TERMINATE_DSN": "db-admin-dsn"}
+_NEW_SLOT = {"WARDEN_DB_TERMINATE_DSN": "db-terminate-dsn"}  # what secret_id names it; the warning says these two only
 
 LOADABLE = frozenset({
     "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_CHANNEL", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL",
@@ -209,12 +210,11 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
     def fetch(name: str) -> Any:
         value = get(secret_id(env, name, zone))
         if value is None and name in _OLD_SLOT:
-            old = f"warden/{names(env).env}/{_OLD_SLOT[name]}"
-            value = get(old)
-            if value is not None:
+            value = get(f"warden/{names(env).env}/{_OLD_SLOT[name]}")
+            if value is not None:  # names the two slots - constants - and nothing the store returned
                 logging.getLogger("warden.settings").warning(
-                    "%s was read from %s, deprecated: move it to %s (renamed 2026-10-20; the old slot stops being "
-                    "read in the next release)", name, old, secret_id(env, name, zone))
+                    "the %s slot is deprecated: move its value to the %s slot (renamed 2026-10-20; the old slot "
+                    "stops being read in the next release)", _OLD_SLOT[name], _NEW_SLOT[name])
         return value
 
     if wanted:

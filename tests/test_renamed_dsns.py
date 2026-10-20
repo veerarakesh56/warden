@@ -88,7 +88,8 @@ def test_the_terminate_dsns_slot_is_renamed_and_the_old_slot_still_reads_for_one
     with caplog.at_level(logging.WARNING, logger="warden.settings"):
         assert settings.load("dev", ssm=_FakeSSM({}), secrets=old, only=only) == ["WARDEN_DB_TERMINATE_DSN"]
     assert settings.getenv("WARDEN_DB_TERMINATE_DSN") == "postgresql://old-slot@h/x"
-    assert "warden/dev/db-admin-dsn, deprecated: move it to warden/dev/db-terminate-dsn" in caplog.text
+    assert "the db-admin-dsn slot is deprecated: move its value to the db-terminate-dsn slot" in caplog.text
+    assert "postgresql://" not in caplog.text  # never a value
     caplog.clear()
     _unset(monkeypatch, "WARDEN_DB_TERMINATE_DSN")
     both = _FakeSecrets({"warden/dev/db-admin-dsn": "postgresql://old-slot@h/x",
@@ -99,4 +100,8 @@ def test_the_terminate_dsns_slot_is_renamed_and_the_old_slot_still_reads_for_one
     assert caplog.text == ""
     # The stack's read-only DSNs keep the slots Terraform holds (secrets.tf); only the terminate slot moved.
     assert settings.secret_id("dev", "WARDEN_STACK_DB_PRIMARY_RO_DSN") == "warden/dev/stack-db-writer-dsn"
+
+
+def test_the_new_slot_the_warning_names_is_the_one_secret_id_reads():
+    assert settings.secret_id("dev", "WARDEN_DB_TERMINATE_DSN") == f"warden/dev/{settings._NEW_SLOT['WARDEN_DB_TERMINATE_DSN']}"
 
