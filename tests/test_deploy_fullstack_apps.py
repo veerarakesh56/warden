@@ -433,7 +433,8 @@ def test_argocd_is_installed_from_the_checked_package_with_its_settings(tmp_path
     assert helm[3] == "argocd" and helm[4] == str(tmp_path / f"argo-cd-{tool.ARGOCD_CHART}.tgz")
     assert helm[helm.index("--namespace") + 1] == "argocd" and helm[helm.index("--values") + 1] == str(tool.ARGOCD_VALUES)
     assert (tmp_path / f"argo-cd-{tool.ARGOCD_CHART}.tgz").read_bytes() == b"argo-cd chart package"
-    assert tool.ARGOCD_CHART == "10.10.5" and tool.ARGOCD_CHART_URL.startswith("https://github.com/argoproj/argo-helm/")
+    assert tool.ARGOCD_CHART == "10.10.5"
+    assert tool.ARGOCD_CHART_URL.startswith("https://github.com/argoproj/argo-helm/")
     # The pinned bytes of argo-cd-10.10.5.tgz (downloaded and hashed 2026-10-20); the test above patches the constant.
     assert 'ARGOCD_CHART_SHA256 = "ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a"' in \
         (ROOT / "scripts" / "deploy_fullstack_apps.py").read_text(encoding="utf-8")
@@ -495,6 +496,20 @@ def test_the_shops_workloads_render_for_dev_with_no_placeholder_and_the_hpa_owns
 @pytest.mark.parametrize("found", [{}, {"imageDetails": []}, {"imageDetails": [{"imageDigest": "latest"}]}])
 def test_an_image_without_a_sha256_digest_is_never_deployed(found):
     """B26: no digest, no deploy - never a fall back to the mutable tag."""
-    clients = {"ecr": Fake({"describe_images": found})}
+    aws = aws_factory({"ecr": Fake({"describe_images": found})})
     with pytest.raises(SystemExit, match="with a sha256 digest"):
-        tool.image_by_digest(STACK, "abc123", aws_factory(clients))
+        tool.image_by_digest(STACK, "abc123", aws)
+
+
+def test_ecs_runs_the_digest_the_push_answered_not_one_read_back_by_the_tag():
+    """CodeRabbit (PR 90): between the push and a read-back the mutable tag could move; the push's own digest is used."""
+    pushed = "sha256:" + "fedcba9876543210" * 4
+    token = base64.b64encode(b"AWS:pw").decode()
+    clients = {"ecr": Fake({"get_authorization_token": {"authorizationData": [
+                   {"authorizationToken": token, "proxyEndpoint": "https://registry"}]}, **ECR_IMAGE}),
+               "ecs": Fake({"register_task_definition": {"taskDefinition": {"taskDefinitionArn": "arn:td:5"}}})}
+    run = Runner({"docker push": f"abc123: digest: {pushed} size: 1234"})
+    tool.deploy_ecs(STACK, "abc123", aws_factory(clients), run, wait=False)
+    td = next(kw for name, kw in clients["ecs"].calls if name == "register_task_definition")
+    assert td["containerDefinitions"][0]["image"] == f"{STACK['ecr_repository_url']}@{pushed}"
+    assert not [c for c in clients["ecr"].calls if c[0] == "describe_images"]
