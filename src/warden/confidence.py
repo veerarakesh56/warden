@@ -24,14 +24,16 @@ from dataclasses import dataclass
 from typing import Any
 
 LOW, MEDIUM, HIGH = "Low", "Medium", "High"
+EVIDENCE, GROUNDED, RULES = "evidence", "grounded", "rules"  # the signals, by name
+SECOND, FIX, PROVEN = "second opinion", "fix verified", "proven fix"
 COLOUR = {LOW: "bad", MEDIUM: "warn", HIGH: "ok"}  # red, amber, green on the records page
 GROUNDING = frozenset({"P13-UNGROUNDED", "P14-TARGET-NOT-IN-EVIDENCE", "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"})
 SELF_CONFIDENCE = frozenset({"P4-LOW-CONFIDENCE"})  # the model's own confidence: not a signal here, either way
 NO_DIAGNOSIS = "P0-MODEL-UNAVAILABLE"
 FAILED_FIX = frozenset({"relapsed", "rolled_back", "not_recovered", "rollback_failed", "apply_failed", "side_effects",
                         "failed_after_apply", "cancelled_after_apply"})
-BASE = ("evidence", "grounded", "rules")
-BACKING = ("second opinion", "fix verified", "proven fix")
+BASE = (EVIDENCE, GROUNDED, RULES)
+BACKING = (SECOND, FIX, PROVEN)
 
 
 @dataclass
@@ -60,14 +62,14 @@ def _last(r: Any, kind: str) -> dict[str, Any] | None:
 def _evidence(r: Any) -> Signal:
     g = _last(r, "incident.gather")
     if g is None:
-        return Signal("evidence", None, "no evidence read is on the record")
+        return Signal(EVIDENCE, None, "no evidence read is on the record")
     read = sum(int(g.get(k) or 0) for k in ("logs", "metrics", "deploys"))
     failed = int(g.get("tool_errors") or 0)
     if failed:
-        return Signal("evidence", False, f"{failed} read(s) failed: the picture is partial")
+        return Signal(EVIDENCE, False, f"{failed} read(s) failed: the picture is partial")
     if not read:
-        return Signal("evidence", False, "nothing was read")
-    return Signal("evidence", True, f"{read} item(s) read, no read failed")
+        return Signal(EVIDENCE, False, "nothing was read")
+    return Signal(EVIDENCE, True, f"{read} item(s) read, no read failed")
 
 
 def _verify(r: Any) -> tuple[str, set[str]] | None:
@@ -78,53 +80,53 @@ def _verify(r: Any) -> tuple[str, set[str]] | None:
 def _grounded(r: Any) -> Signal:
     v = _verify(r)
     if v is None or NO_DIAGNOSIS in v[1]:
-        return Signal("grounded", None, "there was no diagnosis to check")
+        return Signal(GROUNDED, None, "there was no diagnosis to check")
     fired = sorted(v[1] & GROUNDING)
     if fired:
-        return Signal("grounded", False, f"the citations did not hold ({', '.join(fired)})")
-    return Signal("grounded", True, "every citation names real evidence and quotes it")
+        return Signal(GROUNDED, False, f"the citations did not hold ({', '.join(fired)})")
+    return Signal(GROUNDED, True, "every citation names real evidence and quotes it")
 
 
 def _rules(r: Any) -> Signal:
     v = _verify(r)
     if v is None:
-        return Signal("rules", None, "the rules have not checked a diagnosis yet")
+        return Signal(RULES, None, "the rules have not checked a diagnosis yet")
     status, fired = v
     others = sorted(fired - SELF_CONFIDENCE - GROUNDING - {NO_DIAGNOSIS})
     if status == "rejected":
-        return Signal("rules", False, f"the rules rejected the answer ({', '.join(others) or 'rejected'})")
+        return Signal(RULES, False, f"the rules rejected the answer ({', '.join(others) or 'rejected'})")
     if status == "escalated" and others:
-        return Signal("rules", False, f"the rules sent it to a person ({', '.join(others)})")
+        return Signal(RULES, False, f"the rules sent it to a person ({', '.join(others)})")
     if NO_DIAGNOSIS in fired:
-        return Signal("rules", None, "no diagnosis: the rules alone sent it to a person")
-    return Signal("rules", True, "WARDEN's rules let the answer stand")
+        return Signal(RULES, None, "no diagnosis: the rules alone sent it to a person")
+    return Signal(RULES, True, "WARDEN's rules let the answer stand")
 
 
 def _second(r: Any) -> Signal:
     s = _last(r, "incident.second_opinion")
     if s is None:
-        return Signal("second opinion", None, "no second diagnosis was asked")
+        return Signal(SECOND, None, "no second diagnosis was asked")
     if s.get("agree") is True:
-        return Signal("second opinion", True, "a second, independent diagnosis named the same fix")
-    return Signal("second opinion", False, "a second diagnosis disagreed, or none could be had")
+        return Signal(SECOND, True, "a second, independent diagnosis named the same fix")
+    return Signal(SECOND, False, "a second diagnosis disagreed, or none could be had")
 
 
 def _fix(r: Any) -> Signal:
     end = _last(r, "workflow.end")
     status = str((end or {}).get("status") or "")
     if status == "recovered":
-        return Signal("fix verified", True, "the fix's own checks saw recovery, and the re-checks held")
+        return Signal(FIX, True, "the fix's own checks saw recovery, and the re-checks held")
     if status in FAILED_FIX:
-        return Signal("fix verified", False, f"the fix did not hold ({status.replace('_', ' ')})")
-    return Signal("fix verified", None, "no fix has run to its checks")
+        return Signal(FIX, False, f"the fix did not hold ({status.replace('_', ' ')})")
+    return Signal(FIX, None, "no fix has run to its checks")
 
 
 def _proven(r: Any) -> Signal:
     proven = getattr(r, "proven", None)  # linked records (links.py), when the record carries them
     if proven:
-        return Signal("proven fix", True, f"{proven.get('entry')} was applied and verified on linked record "
+        return Signal(PROVEN, True, f"{proven.get('entry')} was applied and verified on linked record "
                                           f"{proven.get('incident')}")
-    return Signal("proven fix", None, "no linked record holds a proven fix")
+    return Signal(PROVEN, None, "no linked record holds a proven fix")
 
 
 def block(r: Any) -> Block:
