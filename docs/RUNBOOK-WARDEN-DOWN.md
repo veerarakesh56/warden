@@ -90,8 +90,9 @@ If WARDEN may be half-working (for example `act` runs but `read` or the audit do
 warden killswitch on --approver <your-id> --key ~/.warden/<your-id>.pem
 ```
 
-This opens the approval page; your passkey turns the switch on. If the approval page itself is down, stop the only
-worker that changes anything (this does not depend on WARDEN):
+This opens the approval page; your passkey turns the switch on. Go on only when the page says the switch is **on**.
+If the page does not open, or opens but does not confirm the switch is on, stop the only worker that changes
+anything instead (this does not depend on WARDEN):
 
 ```
 aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --desired-count 0
@@ -176,15 +177,20 @@ Without GitHub Actions, one zone can be restarted from the AWS CLI (same task de
 
 ```
 aws ecs update-service --cluster warden-ops-runtime --service warden-ops-core --force-new-deployment
-aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --desired-count 2
 ```
 
-The second line puts `act` back after section 4 set it to 0: use the count the stack sets (SSM
-`/warden/ops/tf/worker_instances`, 2 by default).
+To put `act` back after section 4 set it to 0, use the count the stack sets: the value of SSM
+`/warden/ops/tf/worker_instances`, or 2 when that parameter does not exist (the stack's default).
+
+```
+aws ssm get-parameter --name /warden/ops/tf/worker_instances --query Parameter.Value --output text
+aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --desired-count <worker-instances>
+```
 
 ## 7. After it is back
 
-1. `warden-ops-heartbeat-missing` is OK again, and every zone shows its running count equal to its desired count.
+1. `warden-ops-heartbeat-missing` is OK again; every zone's running count equals its desired count, and no zone's
+   desired count is 0 (`warden-ops-act` included, if section 4 stopped it); SSM `/warden/ops/tf/paused` is `false`.
 2. The kill switch is in the state you expect. For the cloud runtime the approval page shows it, and every trip,
    on a link your own key signs:
 

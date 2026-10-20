@@ -43,11 +43,37 @@ def _hcl() -> str:
     return "\n".join(p.read_text(encoding="utf-8") for p in sorted(MODULE.glob("*.tf")))
 
 
+def _map_body(hcl: str, local: str) -> str:
+    """The whole body of `<local> = { ... }`, found by matching braces, so a nested map written over several lines
+    never ends it early."""
+    head = re.search(r"^[ \t]*" + re.escape(local) + r"[ \t]*=[ \t]*\{", hcl, re.MULTILINE)
+    assert head, local
+    depth = 1
+    for i in range(head.end(), len(hcl)):
+        depth += {"{": 1, "}": -1}.get(hcl[i], 0)
+        if depth == 0:
+            return hcl[head.end():i]
+    raise AssertionError(f"{local}: no closing brace")
+
+
+def _top_level_keys(body: str) -> set[str]:
+    keys, depth = set(), 0
+    for line in body.splitlines():
+        m = re.match(r"\s*([a-z][a-z-]*)\s*=\s*\{", line)
+        if depth == 0 and m:
+            keys.add(m.group(1))
+        depth += line.count("{") - line.count("}")
+    return keys
+
+
 def _keys_of(local: str) -> set[str]:
-    """The keys of a `name = { key = {...} ... }` map in the module's locals (zones, front_doors)."""
-    body = re.search(rf"^\s*{local}\s*=\s*\{{(.*?)^\s*\}}", _hcl(), re.MULTILINE | re.DOTALL)
-    assert body, local
-    return set(re.findall(r"^\s*([a-z][a-z-]*)\s*=\s*\{", body.group(1), re.MULTILINE))
+    """The top-level keys of a `name = { key = {...} ... }` map in the module's locals (zones, front_doors)."""
+    return _top_level_keys(_map_body(_hcl(), local))
+
+
+def test_a_map_written_over_several_lines_keeps_every_key():
+    hcl = "zones = {\n  a = {\n    inner = { x = 1 }\n  }\n  b = { y = 2 }\n}\nother = { c = {} }\n"
+    assert _top_level_keys(_map_body(hcl, "zones")) == {"a", "b"}
 
 
 def _built_names() -> set[str]:
