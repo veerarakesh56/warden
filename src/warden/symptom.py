@@ -29,11 +29,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .grafana import _iso
+from .read_errors import READ_ERRORS
 
 DEFAULT_PERIODS = 3
 MAX_PERIODS = 20
 LOG_GROUPS = 2
 MAX_LOG_EVENTS = 200
+MAX_LOG_PAGES = 5  # read to the end of a window, or the log comparison is unknown - never clean, never new
 MAX_CLASSES = 10
 BEFORE = timedelta(minutes=15)  # error logs before the fix are read from this long before the alarm
 ERROR_PATTERN = "?Error ?Exception ?ERROR ?Fault ?Timeout"
@@ -49,26 +51,15 @@ _BAD: dict[str, Callable[[float, float], bool]] = {
 }
 # An error class as code names it: a word ending in Error, Exception, Fault or Timeout, not part of a longer name.
 # A module path before it (`botocore.exceptions.ClientError`) is the same class as the bare name.
-_CLASS = re.compile(r"(?<![A-Za-z0-9_])([A-Z][A-Za-z0-9]{1,60}(?:Error|Exception|Fault|Timeout))\b")
+_CLASS = re.compile(r"(?<!\w)([A-Z][A-Za-z0-9]{1,60}(?:Error|Exception|Fault|Timeout))\b")
 # A Datadog metric monitor: `<agg>(last_<n><unit>):<metric query> <comparator> <threshold>` (docs.datadoghq.com,
 # "Metric monitor" query syntax). Only the four aggregations whose meaning over a window is plain are compared.
 _DD_QUERY = re.compile(r"^(avg|sum|min|max)\(last_(\d{1,4})([mhd])\):(.{1,1000}?)\s*(>=|<=|>|<)\s*(-?\d+(?:\.\d+)?)$")
 _DD_UNIT = {"m": 60, "h": 3600, "d": 86400}
 _DD_AGG: dict[str, Callable[[list[float]], float]] = {"avg": lambda v: sum(v) / len(v), "sum": sum, "min": min,
                                                      "max": max}
-_ALERTING_MONITOR = ("Alert", "No Data")
 
 
-def _read_errors() -> tuple[type[BaseException], ...]:
-    """How a read can fail: AWS's own errors (botocore, when installed), the network's, an answer of the wrong shape."""
-    try:
-        from botocore.exceptions import BotoCoreError, ClientError
-    except ImportError:
-        return (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError)
-    return (BotoCoreError, ClientError, OSError, ValueError, KeyError, TypeError, AttributeError, IndexError)
-
-
-READ_ERRORS = _read_errors()
 
 
 def now() -> datetime:
@@ -140,10 +131,11 @@ def combine(reading: Reading, before: list[str] | None, after: list[str] | None)
     return reading
 
 
-def before_start(alert_at: datetime, applied: datetime) -> datetime:
+def before_start(alert_at: datetime, applied: datetime, now: datetime) -> datetime:
     """Where the logs before the fix start: BEFORE ahead of the alarm (or of the fix, if that came first), so every
-    class the incident itself showed is known before the fix - and not called new after it."""
-    return min(alert_at, applied) - BEFORE
+    class the incident itself showed is known before the fix - and not called new after it - and never a shorter span
+    than the one read after the fix (an error that comes once an hour is not new at the 60-minute re-check)."""
+    return min(min(alert_at, applied) - BEFORE, applied - (now - applied))
 
 
 def _ms(t: datetime) -> int:
@@ -199,13 +191,30 @@ def cloudwatch_errors(logs: Any, groups: list[str], start: datetime, end: dateti
     """The error lines of `groups` between start and end; None when any could not be read (unknown, never clean)."""
     lines: list[str] = []
     for group in groups:
+        read = _group_errors(logs, group, start, end)
+        if read is None:
+            return None
+        lines += read
+    return lines
+
+
+def _group_errors(logs: Any, group: str, start: datetime, end: datetime) -> list[str] | None:
+    """One log group's error lines in the window, every page up to MAX_LOG_PAGES; None if it could not be read to
+    the end (a page can come back empty with more to read)."""
+    lines: list[str] = []
+    token = ""
+    for _ in range(MAX_LOG_PAGES):
         try:
             got = logs.filter_log_events(logGroupName=group, startTime=_ms(start), endTime=_ms(end),
-                                         filterPattern=ERROR_PATTERN, limit=MAX_LOG_EVENTS)
+                                         filterPattern=ERROR_PATTERN, limit=MAX_LOG_EVENTS,
+                                         **({"nextToken": token} if token else {}))
         except READ_ERRORS:  # an unread log is unknown, never clean
             return None
         lines += [str(e.get("message") or "") for e in got.get("events") or []]
-    return lines
+        token = str(got.get("nextToken") or "")
+        if not token:
+            return lines
+    return None
 
 
 def cloudwatch(read: Callable[[str], Any], alarm: str, labels: dict[str, Any], *, alert_at: datetime,
@@ -217,7 +226,7 @@ def cloudwatch(read: Callable[[str], Any], alarm: str, labels: dict[str, Any], *
         reading.why += "; no log group named"
         return reading
     logs = read("logs")
-    before = cloudwatch_errors(logs, groups, before_start(alert_at, applied), applied)
+    before = cloudwatch_errors(logs, groups, before_start(alert_at, applied, now), applied)
     after = cloudwatch_errors(logs, groups, applied, now)
     return combine(reading, before, after)
 
@@ -249,13 +258,13 @@ def datadog(ask: Callable[..., tuple[dict | None, str]], monitor: str, service: 
         return reading
     state = str(got.get("overall_state") or "")
     m = _DD_QUERY.match(str(got.get("query") or "").strip())
-    if state in _ALERTING_MONITOR:
-        reading.state, reading.why = PRESENT, f"the monitor is still {state}"
-    elif m is None:
-        reading.why = f"the monitor is {state or 'unknown'}; its query is not a metric query WARDEN compares"
-    else:
+    # The monitor's own state can lag its window - an Alert that has not re-evaluated since the fix - and No Data is no
+    # evidence either way: its metric over whole windows since the fix decides, as for a CloudWatch alarm.
+    if m is not None:
         reading = _datadog_metric(ask, m, reading, applied, now, n)
-    before = _datadog_errors(ask, service, before_start(alert_at, applied), applied)
+    else:
+        reading.why = f"the monitor is {state or 'unknown'}; its query is not a metric query WARDEN compares"
+    before = _datadog_errors(ask, service, before_start(alert_at, applied, now), applied)
     after = _datadog_errors(ask, service, applied, now)
     return combine(reading, before, after)
 
@@ -278,11 +287,24 @@ def _datadog_metric(ask: Callable[..., tuple[dict | None, str]], m: re.Match, re
 
 def _datadog_errors(ask: Callable[..., tuple[dict | None, str]], service: str, start: datetime,
                     end: datetime) -> list[str] | None:
+    """The service's error log lines in the window, every page up to MAX_LOG_PAGES; None if unread or not read to the
+    end."""
     if not service or service == "unknown":
         return None
-    got, _ = ask("logs", "POST", "/api/v2/logs/events/search", {
-        "filter": {"query": f"service:{service} status:(error OR critical OR emergency)",
-                   "from": _iso(start), "to": _iso(end)}, "page": {"limit": MAX_LOG_EVENTS}})
-    if got is None:
-        return None
-    return [str((e.get("attributes") or {}).get("message") or "") for e in got.get("data") or []]
+    lines: list[str] = []
+    cursor = ""
+    for _ in range(MAX_LOG_PAGES):
+        page = {"limit": MAX_LOG_EVENTS, **({"cursor": cursor} if cursor else {})}
+        try:
+            got, _ = ask("logs", "POST", "/api/v2/logs/events/search", {
+                "filter": {"query": f"service:{service} status:(error OR critical OR emergency)",
+                           "from": _iso(start), "to": _iso(end)}, "sort": "timestamp", "page": page})
+            if got is None:
+                return None
+            lines += [str((e.get("attributes") or {}).get("message") or "") for e in got.get("data") or []]
+            cursor = str(((got.get("meta") or {}).get("page") or {}).get("after") or "")
+        except READ_ERRORS:  # a malformed answer is an unread log: the monitor's own verdict stands
+            return None
+        if not cursor:
+            return lines
+    return None

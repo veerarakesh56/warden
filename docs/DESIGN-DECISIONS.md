@@ -353,6 +353,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   fix plans of a resource, how each ended, who approved). An agent memory store or a vector index of past incidents
   would hold a model's own earlier prose, which a later diagnosis must not read (register N9); the audit already
   holds the facts.
+- Whether a fix worked: built - `symptom.py` (B13, 2026-10-17): the alarm's own metric over whole periods since the
+  fix, against the alarm's own threshold, and the error classes in the logs before and after it. CloudWatch's alarm
+  state and a Datadog monitor's say only that the alarm stopped firing. The failures a cloud read can end in, as one
+  tuple to catch - `read_errors.py`.
 - Per-incident AWS identity: AWS STS AssumeRole - SourceIdentity, session tags and an inline session policy -
   `identity.py`, and boto3 for the AWS writes in `platforms/aws.py`. IAM Roles Anywhere and Teleport's Machine ID
   issue the same STS sessions on AWS (decision D11), so WARDEN calls STS directly.

@@ -142,7 +142,7 @@ def test_unread_logs_leave_the_metrics_verdict_and_say_so():
 
 
 def test_the_logs_before_the_fix_start_before_the_alarm():
-    assert symptom.before_start(ALERT_AT, APPLIED) == ALERT_AT - symptom.BEFORE
+    assert symptom.before_start(ALERT_AT, APPLIED, APPLIED + timedelta(minutes=5)) == ALERT_AT - symptom.BEFORE
     assert symptom.log_groups({"log_group": "/ecs/warden-dev-orders", "lambda": "f", "x": "y"}) == [
         "/ecs/warden-dev-orders", "/aws/lambda/f"]
     assert symptom.log_groups({}) == []
@@ -171,12 +171,79 @@ def _ms(minutes: float) -> float:
     return (APPLIED + timedelta(minutes=minutes)).timestamp() * 1000
 
 
-def test_a_datadog_monitor_still_alerting_is_present():
-    ask, _ = _ask({"overall_state": "Alert", "query": "avg(last_5m):avg:trace.errors{service:orders} > 0.05"})
-    r = symptom.datadog(ask, "123", "orders", alert_at=ALERT_AT, applied=APPLIED, now=APPLIED + timedelta(minutes=20),
+def test_the_logs_before_the_fix_are_never_a_shorter_span_than_after_it():
+    """CodeRabbit, PR 87: at the 60-minute re-check an error that comes once an hour was "new" against 25 minutes."""
+    now = APPLIED + timedelta(minutes=60)
+    assert APPLIED - symptom.before_start(ALERT_AT, APPLIED, now) >= now - APPLIED
+
+
+@pytest.mark.parametrize("state", ["Alert", "No Data", "OK"])
+def test_a_datadog_monitors_own_state_never_decides_its_metric_over_whole_windows_does(state):
+    """CodeRabbit, PR 87: an Alert can lag its window, and No Data is no evidence either way."""
+    query = "avg(last_5m):avg:trace.errors{service:orders} > 0.05"
+    breaching = [(_ms(m), 0.5) for m in range(16)]
+    ask, _ = _ask({"overall_state": state, "query": query}, breaching)
+    r = symptom.datadog(ask, "123", "orders", alert_at=ALERT_AT, applied=APPLIED, now=APPLIED + timedelta(minutes=16),
                         n=3)
-    assert r.state == symptom.PRESENT
-    assert r.source == "datadog"
+    assert (r.state, r.source) == (symptom.PRESENT, "datadog")
+    ask, _ = _ask({"overall_state": state, "query": query})
+    r = symptom.datadog(ask, "123", "orders", alert_at=ALERT_AT, applied=APPLIED, now=APPLIED + timedelta(minutes=16),
+                        n=3)
+    assert r.state == symptom.UNKNOWN
+
+
+def test_a_malformed_datadog_log_answer_leaves_the_metrics_verdict():
+    """CodeRabbit, PR 87: a log answer that did not parse turned a PRESENT reading into "not read"."""
+    def ask(what, method, path, body=None, query=None):
+        if what == "monitor":
+            return {"overall_state": "Alert", "query": "avg(last_5m):x{a:b} > 1"}, ""
+        if what == "metrics":
+            return {"series": [{"pointlist": [[_ms(m), 5.0] for m in range(16)]}]}, ""
+        return {"data": [None]}, ""
+
+    r = symptom.datadog(ask, "123", "orders", alert_at=ALERT_AT, applied=APPLIED, now=APPLIED + timedelta(minutes=16),
+                        n=3)
+    assert (r.state, r.errors_read) == (symptom.PRESENT, False)
+
+
+def test_every_page_of_the_logs_is_read_and_a_window_not_read_to_its_end_is_unknown():
+    """CodeRabbit, PR 87: one page of 200 events was read, so the incident's own classes could be missed (and called new
+    after the fix), and an empty page with more to read looked like no errors."""
+    class Paged:
+        def __init__(self, pages):
+            self.pages, self.calls = pages, []
+
+        def filter_log_events(self, **kw):
+            self.calls.append(kw.get("nextToken", ""))
+            i = int(kw.get("nextToken") or 0)
+            more = {"nextToken": str(i + 1)} if i + 1 < len(self.pages) else {}
+            return {"events": [{"message": m} for m in self.pages[i]], **more}
+
+    logs = Paged([[], ["ThrottlingException"], ["KeyError"]])
+    assert symptom.cloudwatch_errors(logs, ["/aws/lambda/f"], APPLIED, APPLIED + timedelta(minutes=5)) == [
+        "ThrottlingException", "KeyError"]
+    assert logs.calls == ["", "1", "2"]
+    endless = Paged([["x"]] * (symptom.MAX_LOG_PAGES + 1))
+    assert symptom.cloudwatch_errors(endless, ["/aws/lambda/f"], APPLIED, APPLIED + timedelta(minutes=5)) is None
+
+
+def test_every_page_of_datadogs_logs_is_read_and_one_not_read_to_its_end_is_unknown():
+    cursors = []
+
+    def ask(what, method, path, body=None, query=None):
+        cursor = body["page"].get("cursor", "")
+        cursors.append(cursor)
+        nxt = {"meta": {"page": {"after": "c2"}}} if cursor == "" else {}
+        return {"data": [{"attributes": {"message": f"Page{cursor or '1'}Error"}}], **nxt}, ""
+
+    assert symptom._datadog_errors(ask, "orders", APPLIED, APPLIED + timedelta(minutes=5)) == ["Page1Error",
+                                                                                              "Pagec2Error"]
+    assert cursors == ["", "c2"]
+
+    def endless(what, method, path, body=None, query=None):
+        return {"data": [], "meta": {"page": {"after": "more"}}}, ""
+
+    assert symptom._datadog_errors(endless, "orders", APPLIED, APPLIED + timedelta(minutes=5)) is None
 
 
 def test_a_datadog_metric_monitor_is_judged_over_its_own_windows():
@@ -312,7 +379,10 @@ def test_a_datadog_monitors_incident_is_judged_too(tmp_path, monkeypatch):
             seen.append(path)
             if what == "monitor":
                 return {"overall_state": "Alert", "query": "avg(last_5m):x{a:b} > 1"}, ""
-            return {"data": [], "series": []}, ""
+            if what == "metrics":  # still breaching in every minute since the fix
+                start = query["from"]
+                return {"series": [{"pointlist": [[(start + 60 * i) * 1000, 5.0] for i in range(20)]}]}, ""
+            return {"data": []}, ""
 
     from warden import datadog
 
@@ -327,6 +397,7 @@ def test_a_datadog_monitors_incident_is_judged_too(tmp_path, monkeypatch):
     log.append("inc-1", bounds.APPLIED, {"workflow_id": plan.workflow_id, "run_id": "", "plan_hash": "h"})
     acts = RemediationActivities(audit=log, policy=approvals.ApproverPolicy(approvers={}),
                                  platform=_Platform(None, None))
+    monkeypatch.setattr(symptom, "now", lambda: datetime.now(UTC) + timedelta(minutes=16))
     assert acts.check_success(plan, "orders") is False
     assert "/api/v1/monitor/123" in seen
     assert log.entries("inc-1", kinds=("remediation.check",))[-1]["body"]["symptom"]["source"] == "datadog"
