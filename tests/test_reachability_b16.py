@@ -7,8 +7,6 @@ from __future__ import annotations
 import json
 import pathlib
 
-import pytest
-
 from warden import evidence, settings, tools, verifier
 from warden.grafana import PARTIAL
 from warden.models import Alert
@@ -24,15 +22,18 @@ def _alert(**labels) -> Alert:
 
 
 class _Ec2:
-    def __init__(self, *, existing=0, status="succeeded", found=False, explanations=None, fail=None):
-        self.existing, self.status, self.found, self.fail = existing, status, found, fail
+    def __init__(self, *, existing=(), status="succeeded", found=False, explanations=None, fail=None):
+        self.existing, self.status, self.found, self.fail = list(existing), status, found, fail
         self.explanations = explanations if explanations is not None else [
             {"ExplanationCode": "ENI_SG_RULES_MISMATCH", "SecurityGroup": {"Id": "sg-0123456789abcdef0"}}]
         self.created, self.started, self.described = [], [], 0
 
     def describe_network_insights_paths(self, **kw):
-        tag = {"Key": "warden:incident", "Value": "cw-1"}
-        return {"NetworkInsightsPaths": [{"Tags": [tag]} for _ in range(self.existing)] + [{"Tags": []}]}
+        """`existing`: the configured paths (their tag text) this incident already analysed, as nip-old-<n>."""
+        mine = [{"NetworkInsightsPathId": f"nip-old-{i}", "Tags": [{"Key": "warden:incident", "Value": "cw-1"},
+                                                                   {"Key": "warden:path", "Value": tag}]}
+                for i, tag in enumerate(self.existing)]
+        return {"NetworkInsightsPaths": [*mine, {"NetworkInsightsPathId": "nip-other", "Tags": []}]}
 
     def describe_network_interfaces(self, **kw):
         return {"NetworkInterfaces": [{"NetworkInterfaceId": "eni-0aaaaaaaaaaaaaaa2"},
@@ -50,9 +51,10 @@ class _Ec2:
 
     def describe_network_insights_analyses(self, **kw):
         self.described += 1
+        ids = kw.get("NetworkInsightsAnalysisIds") or [f"nia-of-{kw['NetworkInsightsPathId']}"]
         return {"NetworkInsightsAnalyses": [{"NetworkInsightsAnalysisId": a, "Status": self.status,
-                                             "NetworkPathFound": self.found, "Explanations": self.explanations}
-                                            for a in kw["NetworkInsightsAnalysisIds"]]}
+                                             "NetworkPathFound": self.found, "Explanations": self.explanations,
+                                             "StartDate": "2026-10-20T06:00:00Z"} for a in ids]}
 
 
 class _Rds:
@@ -104,7 +106,8 @@ def test_a_blocked_path_names_what_blocks_it():
     assert made["Source"] == "eni-0aaaaaaaaaaaaaaa1"  # the function's first interface, by id
     assert (made["DestinationIp"], made["DestinationPort"], made["Protocol"]) == ("10.0.2.15", 5432, "tcp")
     tags = {t["Key"]: t["Value"] for t in made["TagSpecifications"][0]["Tags"]}
-    assert tags == {"Environment": "dev", "warden:incident": "cw-1", "Purpose": "warden-evidence"}
+    assert tags == {"Environment": "dev", "warden:incident": "cw-1", "Purpose": "warden-evidence",
+                    "warden:path": "lambda/warden-dev-orders aurora/warden-dev-db 5432"}
     assert ec2.started[0]["TagSpecifications"][0]["ResourceType"] == "network-insights-analysis"
 
 
@@ -140,14 +143,43 @@ def test_an_explanation_carries_only_aws_codes_and_ids():
 # --------------------------------------------------------------------------- the cap and the cost
 
 
+LAMBDA_PATH = "lambda/warden-dev-orders aurora/warden-dev-db 5432"
+ECS_PATH = "ecs/warden-dev-c/shop 10.0.3.7 6379"
+
+
 def test_never_more_than_two_analyses_for_one_incident_counted_from_the_account():
-    ec2 = _Ec2(existing=1)
+    ec2 = _Ec2(existing=["lambda/other 10.0.0.1 443"])  # one analysis of a path no longer configured
     lines = _reader(ec2).logs(_alert(ecs_service="shop"))
     assert len(ec2.started) == 1
-    assert lines[0] == f"{PARTIAL}reachability: 1 of 2 analyses already run for this incident - 1 path(s) not analysed again"
-    ec2 = _Ec2(existing=2)
+    assert lines[0] == f"{PARTIAL}reachability: 1 of 2 analyses already run for this incident - 1 path(s) not analysed"
+    ec2 = _Ec2(existing=["lambda/other 10.0.0.1 443", "lambda/other 10.0.0.2 443"])
     _reader(ec2).logs(_alert(ecs_service="shop"))
     assert ec2.started == []
+
+
+def test_a_path_already_analysed_is_reported_from_that_analysis_never_paid_again():
+    """CodeRabbit, PR 92: a re-read replaced an earlier answer with "already run", and one still running when the read
+    ended was never read at all - paid for, and no answer."""
+    ec2 = _Ec2(existing=[LAMBDA_PATH, ECS_PATH])
+    lines = _reader(ec2).logs(_alert(ecs_service="shop"))
+    assert ec2.created == ec2.started == []
+    blocked = "tcp path_found=false blocked_by=ENI_SG_RULES_MISMATCH at sg-0123456789abcdef0"
+    assert lines == [f"STATE reachability lambda/warden-dev-orders -> aurora/warden-dev-db:5432 {blocked}",
+                     f"STATE reachability ecs/warden-dev-c/shop -> 10.0.3.7:6379 {blocked}"]
+    ec2 = _Ec2(existing=[LAMBDA_PATH])
+    lines = _reader(ec2).logs(_alert(ecs_service="shop"))
+    assert len(ec2.started) == 1  # the other path still has its room
+    assert len([x for x in lines if x.startswith("STATE reachability")]) == 2
+
+
+def test_each_path_has_its_own_fixed_length_token():
+    """CodeRabbit, PR 92: a token cut from the path's text at 64 characters gave two paths of one source the same."""
+    ec2 = _Ec2()
+    _reader(ec2, configured="lambda/warden-dev-orders=10.0.0.1:443,lambda/warden-dev-orders=10.0.0.2:443").logs(
+        _alert())
+    tokens = [c["ClientToken"] for c in ec2.created]
+    assert len(set(tokens)) == 2
+    assert all(len(t) <= 64 for t in tokens + [s["ClientToken"] for s in ec2.started])
 
 
 def test_more_paths_than_it_reads_is_treated_as_the_cap_reached():
@@ -186,11 +218,17 @@ def test_the_runtime_can_be_told():
     assert {"WARDEN_REACHABILITY", "WARDEN_REACHABILITY_PATHS"} <= settings.LOADABLE
 
 
-@pytest.mark.parametrize("error", ["logs: reachability: RuntimeError - not read",
-                                   "logs: reachability lambda/warden-dev-orders: analysis nia-1 still running - not read",
-                                   "logs: reachability ecs/warden-dev-c/shop: PermissionError - not analysed"])
-def test_a_failed_analysis_never_holds_a_fix(error):
-    assert verifier._benign_partial(error)
+def test_a_failed_analysis_never_holds_a_fix():
+    """Its own words, as gather files them: `logs: <the line after TOOL-PARTIAL>` (CodeRabbit, PR 92: a hand-written
+    case had drifted from what the reader says)."""
+    lines = (_reader(_Ec2(status="running"), configured="lambda/warden-dev-orders=10.0.0.9:443").logs(_alert())
+             + _reader(_Ec2(fail=PermissionError("x")), configured="ecs/warden-dev-c/shop=10.0.3.7:6379")
+             .logs(_alert(ecs_service="shop"))
+             + _reader(_Ec2(existing=["a 1.1.1.1 1", "b 1.1.1.2 1"])).logs(_alert(ecs_service="shop")))
+    assert len(lines) == 3
+    assert all(line.startswith(PARTIAL) for line in lines)
+    for line in lines:
+        assert verifier._benign_partial("logs: " + line.removeprefix(PARTIAL)), line
 
 
 # --------------------------------------------------------------------------- its IAM
@@ -225,9 +263,17 @@ def test_its_permission_is_its_own_policy_and_covers_every_call_it_makes():
 def test_it_makes_only_tagged_paths_and_analyses_in_its_own_environment_and_tags_nothing_else():
     for env in ("dev", "prod"):
         statements = {st["Sid"]: st for st in _policy(env)["Statement"]}
-        create = statements["PathsTaggedForThisEnvironment"]
-        assert create["Condition"]["StringEquals"]["aws:RequestTag/Environment"] == env
-        assert create["Condition"]["StringEquals"]["aws:RequestTag/Purpose"] == "warden-evidence"
+        for sid in ("CreatePathsTaggedForThisEnvironment", "AnalysesTaggedForThisEnvironment"):
+            cond = statements[sid]["Condition"]
+            assert cond["StringEquals"]["aws:RequestTag/Environment"] == env
+            assert cond["StringEquals"]["aws:RequestTag/Purpose"] == "warden-evidence"
+            assert set(cond["ForAllValues:StringEquals"]["aws:TagKeys"]) == {"Environment", "Purpose",
+                                                                             "warden:incident", "warden:path"}
+        # Only a path this environment made is analysed: its own tags, not the request's (CodeRabbit, PR 92).
+        on_path = statements["AnalyseOnlyThisEnvironmentsPaths"]
+        assert on_path["Resource"].endswith(":network-insights-path/*")
+        assert on_path["Condition"]["StringEquals"] == {"aws:ResourceTag/Environment": env,
+                                                        "aws:ResourceTag/Purpose": "warden-evidence"}
         tags = statements["TagsOnlyWhenMade"]
         assert tags["Action"] == "ec2:CreateTags"
         assert set(tags["Condition"]["StringEquals"]["ec2:CreateAction"]) == {"CreateNetworkInsightsPath",

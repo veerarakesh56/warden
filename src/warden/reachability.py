@@ -22,6 +22,7 @@ id or an IPv4 address. Example: `lambda/warden-dev-orders=aurora/warden-dev-db:5
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import os
 import re
@@ -33,6 +34,8 @@ from typing import Any
 
 from .grafana import PARTIAL
 from .models import Alert
+from .read_errors import READ_ERRORS
+from .tools import ToolError
 
 MAX_PER_INCIDENT = 2
 PRICE_USD = 0.10
@@ -41,6 +44,7 @@ POLL_S = 2.0
 PATH_PAGES = 5
 MAX_EXPLANATIONS = 3
 TAG_INCIDENT = "warden:incident"
+TAG_PATH = "warden:path"  # the configured path, `source destination port`: a re-read reports it, never pays again
 PURPOSE = "warden-evidence"
 
 _NAME = r"[A-Za-z0-9][A-Za-z0-9._-]{0,126}"
@@ -50,24 +54,15 @@ _CODE = re.compile(r"^[A-Z0-9_]{1,64}$")
 _ID = re.compile(r"^[a-z]{1,8}-[0-9a-f]{8,17}$")
 
 
-def _read_errors() -> tuple[type[BaseException], ...]:
-    """How a read can fail: AWS's own errors (botocore, when installed), the network's (DNS included), an answer of the
-    wrong shape."""
-    try:
-        from botocore.exceptions import BotoCoreError, ClientError
-    except ImportError:
-        return (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError)
-    return (BotoCoreError, ClientError, OSError, ValueError, KeyError, TypeError, AttributeError, IndexError)
-
-
-READ_ERRORS = _read_errors()
-
-
 @dataclass(frozen=True)
 class Path:
     source: str
     destination: str
     port: int
+
+    @property
+    def tag(self) -> str:
+        return f"{self.source} {self.destination} {self.port}"
 
     @property
     def names(self) -> set[str]:
@@ -108,10 +103,10 @@ class ReachabilityReader:
         self._resolve = resolve or (lambda host: socket.getaddrinfo(host, None, socket.AF_INET)[0][4][0])
         self._sleep, self._clock = sleep, clock
 
-    def traces(self, alert: Alert) -> list[str]:
+    def traces(self, _alert: Alert) -> list[str]:
         return []
 
-    def metrics(self, alert: Alert) -> dict[str, float]:
+    def metrics(self, _alert: Alert) -> dict[str, float]:
         return {}
 
     def logs(self, alert: Alert) -> list[str]:
@@ -121,40 +116,60 @@ class ReachabilityReader:
         try:
             made = self._clients(alert)
             ec2 = made["ec2"]
-            done = self._already(ec2, alert.alert_id)
-        except READ_ERRORS as exc:  # a read that did not happen, never a reachable path
+            earlier = self._already(ec2, alert.alert_id)
+        except (*READ_ERRORS, ToolError) as exc:  # a read that did not happen, never a reachable path
             return [f"{PARTIAL}reachability: {type(exc).__name__} - not read"]
-        room = max(0, MAX_PER_INCIDENT - done)
         out: list[str] = []
-        if room < len(wanted):
-            out.append(f"{PARTIAL}reachability: {done} of {MAX_PER_INCIDENT} analyses already run for this incident "
-                       f"- {len(wanted) - room} path(s) not analysed again")
+        # A path this incident already analysed is reported from that analysis: a re-read never pays again.
+        reported = [(path, earlier[path.tag]) for path in wanted if path.tag in earlier]
+        room = max(0, MAX_PER_INCIDENT - len(earlier))
+        fresh = [path for path in wanted if path.tag not in earlier]
+        if len(fresh) > room:
+            out.append(f"{PARTIAL}reachability: {len(earlier)} of {MAX_PER_INCIDENT} analyses already run for this "
+                       f"incident - {len(fresh) - room} path(s) not analysed")
         started = []
-        for path in wanted[:room]:
+        for path in fresh[:room]:
             got = self._start(made, path, alert)
             if isinstance(got, str):
                 out.append(got)
             else:
                 started.append(got)
         try:
-            return out + self._results(ec2, started)
+            return out + self._results(ec2, [*self._latest(ec2, reported), *started])
         except READ_ERRORS as exc:  # started and billed, but its answer not read: said, never a reachable path
             return [*out, f"{PARTIAL}reachability: {type(exc).__name__} reading the analyses - not read"]
 
     # ------------------------------------------------------------------ the cap
 
     @staticmethod
-    def _already(ec2: Any, incident: str) -> int:
-        """Paths already made for this incident, in the account: each one is one analysis WARDEN ran (and paid for)."""
-        count, token = 0, ""
+    def _already(ec2: Any, incident: str) -> dict[str, str]:
+        """{path tag: path id} of the paths already made for this incident, in the account - each one analysis WARDEN
+        ran and paid for. EC2 filters these listings by no tag (its Filters: source, destination, protocol and the
+        filter-at fields), so they are read and matched here; a listing longer than PATH_PAGES counts as the cap
+        reached - an unseen path could be this incident's, and a third analysis is never risked."""
+        found: dict[str, str] = {}
+        token = ""
         for _ in range(PATH_PAGES):
             page = ec2.describe_network_insights_paths(**({"NextToken": token} if token else {}))
-            count += sum(1 for p in page.get("NetworkInsightsPaths") or []
-                         if {"Key": TAG_INCIDENT, "Value": incident[:128]} in (p.get("Tags") or []))
+            for p in page.get("NetworkInsightsPaths") or []:
+                tags = {t.get("Key"): t.get("Value") for t in p.get("Tags") or []}
+                if tags.get(TAG_INCIDENT) == incident[:128]:
+                    found[str(tags.get(TAG_PATH) or p.get("NetworkInsightsPathId"))] = str(p.get("NetworkInsightsPathId"))
             token = str(page.get("NextToken") or "")
             if not token:
-                return count
-        return MAX_PER_INCIDENT  # more paths than WARDEN reads: never risk a third analysis
+                return found
+        return {**{f"unseen-{i}": "" for i in range(MAX_PER_INCIDENT)}, **found}
+
+    @staticmethod
+    def _latest(ec2: Any, reported: list[tuple[Path, str]]) -> list[tuple[Path, str]]:
+        """Each already-analysed path's latest analysis, to report again."""
+        out = []
+        for path, path_id in reported:
+            got = ec2.describe_network_insights_analyses(NetworkInsightsPathId=path_id)
+            runs = sorted(got.get("NetworkInsightsAnalyses") or [], key=lambda a: str(a.get("StartDate") or ""))
+            if runs:
+                out.append((path, str(runs[-1].get("NetworkInsightsAnalysisId"))))
+        return out
 
     # ------------------------------------------------------------------ one analysis
 
@@ -166,18 +181,20 @@ class ReachabilityReader:
             return f"{PARTIAL}reachability {path.source}: {type(exc).__name__} resolving it - not analysed"
         if not source or not destination:
             return f"{PARTIAL}reachability {path.source}: no network interface or address found - not analysed"
-        tags = [{"Key": "Environment", "Value": self._environment(alert)}, {"Key": TAG_INCIDENT,
-                                                                            "Value": alert.alert_id[:128]},
+        tags = [{"Key": "Environment", "Value": self._environment(alert)},
+                {"Key": TAG_INCIDENT, "Value": alert.alert_id[:128]}, {"Key": TAG_PATH, "Value": path.tag[:256]},
                 {"Key": "Purpose", "Value": PURPOSE}]
+        # One token per incident and path, of fixed length: a retry is the same request, two paths never collide.
+        token = hashlib.sha256(f"{alert.alert_id}|{path.tag}".encode()).hexdigest()[:48]
         ec2 = made["ec2"]
         try:
             made_path = ec2.create_network_insights_path(
-                Source=source, Protocol="tcp", DestinationPort=path.port, ClientToken=f"{alert.alert_id[:40]}-{path}"[:64],
+                Source=source, Protocol="tcp", DestinationPort=path.port, ClientToken=f"{token}-p",
                 **({"DestinationIp": destination} if _is_ip(destination) else {"Destination": destination}),
                 TagSpecifications=[{"ResourceType": "network-insights-path", "Tags": tags}])
             path_id = made_path["NetworkInsightsPath"]["NetworkInsightsPathId"]
             run = ec2.start_network_insights_analysis(
-                NetworkInsightsPathId=path_id, ClientToken=f"{path_id}-run",
+                NetworkInsightsPathId=path_id, ClientToken=f"{token}-a",
                 TagSpecifications=[{"ResourceType": "network-insights-analysis", "Tags": tags}])
         except READ_ERRORS as exc:  # refused or failed: said, never a reachable path
             return f"{PARTIAL}reachability {path.source}: {type(exc).__name__} - not analysed"
@@ -187,33 +204,13 @@ class ReachabilityReader:
         fn, cluster, service, raw = _SOURCE.match(source).groups()
         if raw:
             return raw
-        if fn:
-            enis = made["ec2"].describe_network_interfaces(Filters=[
-                {"Name": "description", "Values": [f"AWS Lambda VPC ENI-{fn}-*", f"AWS Lambda VPC ENI-{fn}"]}])
-            found = sorted(str(n.get("NetworkInterfaceId")) for n in enis.get("NetworkInterfaces") or [])
-            return found[0] if found else ""
-        ecs = made["ecs"]
-        tasks = ecs.list_tasks(cluster=cluster, serviceName=service, desiredStatus="RUNNING").get("taskArns") or []
-        if not tasks:
-            return ""
-        described = ecs.describe_tasks(cluster=cluster, tasks=sorted(tasks)[:1]).get("tasks") or []
-        for t in described:
-            for att in t.get("attachments") or []:
-                for d in att.get("details") or []:
-                    if d.get("name") == "networkInterfaceId":
-                        return str(d.get("value") or "")
-        return ""
+        return _lambda_eni(made["ec2"], fn) if fn else _task_eni(made["ecs"], cluster, service)
 
     def _destination(self, made: Any, destination: str) -> str:
         aurora, rds, raw, ip = _DEST.match(destination).groups()
         if raw or ip:
             return raw or ip
-        if aurora:
-            found = made["rds"].describe_db_clusters(DBClusterIdentifier=aurora).get("DBClusters") or []
-            host = str((found[0] if found else {}).get("Endpoint") or "")
-        else:
-            found = made["rds"].describe_db_instances(DBInstanceIdentifier=rds).get("DBInstances") or []
-            host = str(((found[0] if found else {}).get("Endpoint") or {}).get("Address") or "")
+        host = _db_host(made["rds"], aurora, rds)
         return self._resolve(host) if host else ""
 
     # ------------------------------------------------------------------ the answers
@@ -226,16 +223,43 @@ class ReachabilityReader:
         until = self._clock() + WAIT_S
         while pending and self._clock() < until:
             got = ec2.describe_network_insights_analyses(NetworkInsightsAnalysisIds=sorted(pending))
-            for a in got.get("NetworkInsightsAnalyses") or []:
-                if a.get("Status") != "running" and a.get("NetworkInsightsAnalysisId") in pending:
-                    answers[a["NetworkInsightsAnalysisId"]] = a
-                    pending.pop(a["NetworkInsightsAnalysisId"])
+            done = [a for a in got.get("NetworkInsightsAnalyses") or []
+                    if a.get("Status") != "running" and a.get("NetworkInsightsAnalysisId") in pending]
+            for a in done:
+                answers[a["NetworkInsightsAnalysisId"]] = a
+                pending.pop(a["NetworkInsightsAnalysisId"])
             if pending:
                 self._sleep(POLL_S)
         out = [_line(path, answers[aid]) for path, aid in started if aid in answers]
         out += [f"{PARTIAL}reachability {path.source}: analysis {aid} still running after {WAIT_S:g}s - not read"
                 for path, aid in started if aid not in answers]
         return out
+
+
+def _lambda_eni(ec2: Any, fn: str) -> str:
+    """A VPC function's network interface - the first by id, so the same one each time."""
+    enis = ec2.describe_network_interfaces(Filters=[
+        {"Name": "description", "Values": [f"AWS Lambda VPC ENI-{fn}-*", f"AWS Lambda VPC ENI-{fn}"]}])
+    found = sorted(str(n.get("NetworkInterfaceId")) for n in enis.get("NetworkInterfaces") or [])
+    return found[0] if found else ""
+
+
+def _task_eni(ecs: Any, cluster: str, service: str) -> str:
+    """A running task's network interface (awsvpc), from the first task by ARN."""
+    tasks = ecs.list_tasks(cluster=cluster, serviceName=service, desiredStatus="RUNNING").get("taskArns") or []
+    if not tasks:
+        return ""
+    described = ecs.describe_tasks(cluster=cluster, tasks=sorted(tasks)[:1]).get("tasks") or []
+    details = [d for t in described for att in t.get("attachments") or [] for d in att.get("details") or []]
+    return next((str(d.get("value") or "") for d in details if d.get("name") == "networkInterfaceId"), "")
+
+
+def _db_host(rds: Any, aurora: str | None, instance: str | None) -> str:
+    if aurora:
+        found = rds.describe_db_clusters(DBClusterIdentifier=aurora).get("DBClusters") or []
+        return str((found[0] if found else {}).get("Endpoint") or "")
+    found = rds.describe_db_instances(DBInstanceIdentifier=instance).get("DBInstances") or []
+    return str(((found[0] if found else {}).get("Endpoint") or {}).get("Address") or "")
 
 
 def _is_ip(value: str) -> bool:

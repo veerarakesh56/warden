@@ -2,18 +2,56 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "PathsTaggedForThisEnvironment",
+      "Sid": "CreatePathsTaggedForThisEnvironment",
       "Effect": "Allow",
-      "Action": [
-        "ec2:CreateNetworkInsightsPath",
-        "ec2:StartNetworkInsightsAnalysis"
-      ],
+      "Action": "ec2:CreateNetworkInsightsPath",
       "Resource": "*",
       "Condition": {
         "StringEquals": {
           "aws:RequestTag/Environment": "prod",
           "aws:RequestTag/Purpose": "warden-evidence",
           "aws:RequestedRegion": "ap-south-2"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "Environment",
+            "Purpose",
+            "warden:incident",
+            "warden:path"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "AnalyseOnlyThisEnvironmentsPaths",
+      "Effect": "Allow",
+      "Action": "ec2:StartNetworkInsightsAnalysis",
+      "Resource": "arn:aws:ec2:ap-south-2:*:network-insights-path/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "prod",
+          "aws:ResourceTag/Purpose": "warden-evidence"
+        }
+      }
+    },
+    {
+      "Sid": "AnalysesTaggedForThisEnvironment",
+      "Effect": "Allow",
+      "Action": "ec2:StartNetworkInsightsAnalysis",
+      "Resource": "arn:aws:ec2:ap-south-2:*:network-insights-analysis/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/Environment": "prod",
+          "aws:RequestTag/Purpose": "warden-evidence",
+          "aws:RequestedRegion": "ap-south-2"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "Environment",
+            "Purpose",
+            "warden:incident",
+            "warden:path"
+          ]
         }
       }
     },

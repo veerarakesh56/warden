@@ -365,6 +365,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Per-incident AWS identity: AWS STS AssumeRole - SourceIdentity, session tags and an inline session policy -
   `identity.py`, and boto3 for the AWS writes in `platforms/aws.py`. IAM Roles Anywhere and Teleport's Machine ID
   issue the same STS sessions on AWS (decision D11), so WARDEN calls STS directly.
+- Can the workload reach what it depends on: adopted - VPC Reachability Analyzer, through boto3 - `reachability.py`
+  (B16, 2026-10-17): off unless switched on and capped at two analyses an incident, because each is billed. The failures
+  a cloud read can end in, as one tuple to catch - `read_errors.py`.
 - Approver labels: signed with the approvers' own Ed25519 keys (`cryptography`), recorded in the audit - `labels.py`.
 
 **Built, and why no ready-made tool fits:**
