@@ -524,10 +524,19 @@ def _offer_again_command(args: argparse.Namespace) -> int:
     from . import approvals, history, runtime
 
     log = runtime.open_audit()
-    held = [(entry, target) for entry, target in history.failed_in(log, args.incident)
-            if history.did_not_hold(log, entry, target)[0]]
+    held, elsewhere = [], 0
+    for entry, target in history.failed_in(log, args.incident):
+        by = history.did_not_hold(log, entry, target)[0]
+        if by and by != args.incident:
+            # Its latest failure is another incident's (CodeRabbit, PR 43): that one is read and cleared by name.
+            _out(f"`{entry}` on `{target}` is held back by a later failure, in incident {by}: read it, then run "
+                 f"`warden offer-again {by}`", err=True)
+            elsewhere += 1
+        elif by:
+            held.append((entry, target))
     if not held:
-        _out(f"nothing to clear: no fix of {args.incident} is held back as not holding", err=True)
+        if not elsewhere:
+            _out(f"nothing to clear: no fix of {args.incident} is held back as not holding", err=True)
         return 1
     key, policy = _approver_key(args.key), runtime.approver_policy()
     for entry, target in held:
@@ -539,7 +548,7 @@ def _offer_again_command(args: argparse.Namespace) -> int:
             _out(f"`{entry}` on `{target}` not cleared: " + "; ".join(problems), err=True)
             return 1
         _out(f"`{entry}` on `{target}` may be offered again; every plan still waits for an approval")
-    return 0
+    return 1 if elsewhere else 0
 
 
 def _label_command(args: argparse.Namespace) -> int:

@@ -29,6 +29,7 @@ import re
 import urllib.request
 
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 
 _KEY = re.compile(r"[A-Za-z0-9._-]{1,200}")
 _ACCOUNT = re.compile(r"(?<!\d)\d{12}(?!\d)")
@@ -244,11 +245,17 @@ def alarm_states(cloudwatch=None):
 
 def key_expiry(param, now, warn_days, ssm=None):
     """(about, why) when a Temporal API key recorded in `param` (ISO times, comma-separated: each zone's key's end)
-    expires within `warn_days`; None otherwise, or with nothing recorded."""
+    expires within `warn_days`; None otherwise, or with nothing recorded. A parameter that is there but cannot be read
+    (access denied, throttled, a decrypt error) is a page of its own, never silence (CodeRabbit, PR 43)."""
     try:
         raw = (ssm or boto3.client("ssm")).get_parameter(Name=param)["Parameter"]["Value"]
-    except Exception:  # noqa: BLE001 - nothing recorded: nothing to warn of (the heartbeat alarm still pages a dead key)
-        return None
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", "") or "an error")
+        if code == "ParameterNotFound":
+            return None  # nothing recorded, nothing to warn of; the heartbeat alarm still pages a dead key
+        return _unreadable(code)
+    except BotoCoreError as exc:
+        return _unreadable(type(exc).__name__)
     ends = []
     for part in raw.split(","):
         try:
@@ -264,6 +271,12 @@ def key_expiry(param, now, warn_days, ssm=None):
     left = "has expired" if first <= now else f"expires in {(first - now).days} days"
     return _iso(first), (f"a Temporal Cloud API key of WARDEN's {left} ({_iso(first)} UTC): make a new key, put it in "
                          "Secrets Manager, then record its end in the expiry parameter")
+
+
+def _unreadable(why):
+    return f"unreadable-{why}"[:200], (f"the Temporal Cloud API keys' expiry parameter could not be read ({why}), so "
+                                       "WARDEN cannot warn before a key expires: give the pager ssm:GetParameter on "
+                                       "it, or record the keys' ends there again")
 
 
 def worker_stopped(event, cluster_arn):
@@ -296,10 +309,19 @@ def _on_alarm(pager, detail):
 
 
 def _on_tick(pager, now):
+    """The repeats first, then the key-expiry page (CodeRabbit, PR 43): a key-expiry page that cannot be opened or
+    read never silences the others. Either one's failure is still raised, for the errors alarm."""
+    try:
+        repeated = pager.tick()
+    finally:
+        opened = _expiry_page(pager, now)
+    return {"opened": opened, "repeated": repeated}
+
+
+def _expiry_page(pager, now):
     param = os.environ.get("KEY_EXPIRY_PARAM", "")
     expiring = key_expiry(param, now or pager.clock(), int(os.environ.get("KEY_WARN_DAYS", "7"))) if param else None
-    opened = bool(expiring and pager.open("temporal-key-expiry", expiring[1], about=expiring[0]))
-    return {"opened": opened, "repeated": pager.tick()}
+    return bool(expiring and pager.open("temporal-key-expiry", expiring[1], about=expiring[0]))
 
 
 def handler(event, context=None, *, pager=None, now=None):

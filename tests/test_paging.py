@@ -174,12 +174,16 @@ def test_a_worker_task_that_stopped_on_its_own_pages_and_a_deploys_stop_does_not
 
 
 class _Ssm:
-    def __init__(self, value):
-        self.value = value
+    """Parameter Store as the pager's client sees it: a value, nothing recorded, or an error reading it."""
+
+    def __init__(self, value, code="ParameterNotFound"):
+        self.value, self.code = value, code
 
     def get_parameter(self, Name):
         if self.value is None:
-            raise KeyError(Name)
+            from botocore.exceptions import ClientError
+
+            raise ClientError({"Error": {"Code": self.code, "Message": "no"}}, "GetParameter")
         return {"Parameter": {"Value": self.value}}
 
 
@@ -603,3 +607,24 @@ def test_a_worker_stop_reason_never_carries_an_account_id(monkeypatch):
     _, why = pager.worker_stopped(event, "arn:cluster")
     assert account not in why
     assert "<ACCOUNTID>.dkr.ecr" in why
+
+
+def test_an_expiry_parameter_that_cannot_be_read_pages_and_is_never_silence():
+    """CodeRabbit, PR 43: an AccessDenied on the expiry parameter read as "nothing recorded", and no page opened."""
+    about, why = pager.key_expiry("/p", T0, 7, ssm=_Ssm(None, code="AccessDeniedException"))
+    assert about == "unreadable-AccessDeniedException"
+    assert "could not be read (AccessDeniedException)" in why
+    assert pager.key_expiry("/p", T0, 7, ssm=_Ssm(None)) is None  # nothing recorded: nothing to warn of
+
+
+def test_a_broken_key_expiry_page_never_stops_the_other_repeats(monkeypatch):
+    """CodeRabbit, PR 43: the key-expiry page was opened before the repeats, and a failure there stopped them all."""
+    monkeypatch.setenv("KEY_EXPIRY_PARAM", "/warden/ops/env/WARDEN_TEMPORAL_KEY_EXPIRES")
+    monkeypatch.setattr(pager, "key_expiry", lambda *a, **k: ("2026-10-20T00:00:00+00:00", "a key ends soon"))
+    p, s3, clock, said = _world()
+    pager.handler(_alarm(), pager=p)
+    s3.objects["pages/temporal-key-expiry.json"] = b"{not json"
+    with pytest.raises(ValueError):
+        _tick(p, clock, 15)
+    assert "kill switch went on" in said[-1][1]  # the open page was repeated first
+    assert json.loads(s3.objects["pages/warden-ops-killswitch-on.json"])["sent"] == 2
