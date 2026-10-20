@@ -277,7 +277,7 @@ model from the one that diagnosed it (`src/warden/data/providers.yaml`, `critic`
    approver list (`/warden/ops/approvers`) with the contents of `eldane.pub.pem`:
    `eldane: {public_key: "<eldane.pub.pem>", tiers: [T1, T2], environments: [dev], ai: true}`. WARDEN always shows it
    as "Eldane · AI critic", refuses it for T3 and in prod, and a person's "no" on the approval page stops any plan it
-   approved before it is applied. Demotions and a person's re-enable are in [OPERATIONS.md](OPERATIONS.md).
+   approved until the apply step starts. Demotions and a person's re-enable are in [OPERATIONS.md](OPERATIONS.md).
 
 ## 7. Slack
 

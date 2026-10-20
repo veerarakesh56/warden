@@ -22,7 +22,7 @@ says no first. Then WARDEN applies it, checks that it worked and undoes it if it
 6. **The exact fix is approved.** In production that is always a person, with a passkey on WARDEN's approval page
    (or a signing key on the command line). In `dev`, Eldane - a second Claude model that reviews the fix and is
    always labelled an AI - approves it alone when it agrees; the channel is told, and a person can deny it with their
-   passkey for five minutes, and any time before it is applied. People can still discuss the incident in Slack and
+   passkey for five minutes, and until the apply step starts. People can still discuss the incident in Slack and
    ask for a new plan. If anything the fix depends on changes first, WARDEN makes the plan again and asks again.
 7. **It applies the fix once, checks that the service recovered, and undoes the fix if it did not.**
 
@@ -316,7 +316,7 @@ escalate.
 
 Every fix waits for a signed approval of its exact plan. In `prod` that is always a person's. In `dev` it may be
 Eldane's, alone (`autonomy: L2` in `environments.yaml`), or the labelled bench approver's, for T1 and T2; a person's
-"no" stops either before apply. Prod's ceiling is L1 - Eldane reviews and is scored, a person approves - and an L2
+"no" stops either until the apply step starts. Prod's ceiling is L1 - Eldane reviews and is scored, a person approves - and an L2
 for a prod-tier environment is refused when the file is loaded.
 
 ## Configuration
