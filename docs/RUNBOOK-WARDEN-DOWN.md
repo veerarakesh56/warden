@@ -182,7 +182,7 @@ All deploys go through `.github/workflows/runtime.yml`, run by hand from the bra
 | Situation | Action |
 |---|---|
 | A secret was set or rotated; a zone is stuck | `restart`: a fresh deployment of every zone's service, the same image; fails unless all are stable again |
-| The shared `warden/ops/temporal-api-key` was set or rotated | `restart` for the zones, **and** new instances of `warden-ops-alarm`, `warden-ops-alertmanager` and `warden-ops-approval`: a warm one keeps the old key. Any change to a function's configuration makes Lambda start new instances (AWS's Lambda guide; not tried live), for example a new description - the next `apply` sets it back: `aws lambda update-function-configuration --function-name warden-ops-alarm --description "temporal key rotated <UTC time>"`, and the same for the other two |
+| The shared `warden/ops/temporal-api-key` was set or rotated | `restart` for the zones, **and** new instances of `warden-ops-alarm`, `warden-ops-alertmanager` and `warden-ops-approval`: a warm one keeps the old key. Any change to a function's configuration makes Lambda start new instances (AWS's Lambda guide; not tried live), for example a new description - the next `apply` sets it back: `aws lambda update-function-configuration --function-name warden-ops-alarm --description "temporal key rotated <UTC time>"`, then `aws lambda wait function-updated --function-name warden-ops-alarm` (stop if the wait fails), and the same for the other two |
 | The runtime was paused | set SSM `/warden/ops/tf/paused` to `false`, then `apply` |
 | Infrastructure drifted or was changed by hand | `plan`, read it, then `apply` |
 | A bad image | `apply` from a `dev` commit whose image works (only an image this workflow built, signed and attested is deployed) |
