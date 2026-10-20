@@ -22,7 +22,7 @@ inventory, which items touch what it runs.
 - **Where it goes.** The digest, at 09:00 in the display zone (environments.yaml: Asia/Kolkata, so 03:30 UTC), in
   the discussion channel; each alarm in the alerts channel - both from the per-environment maps, read as strictly as
   the incidents' (`settings.by_environment`): the nonprod environment's channel, as the watch is about WARDEN's own
-  stack, or for a Health notice naming a watched resource, that resource's environment. A malformed map sends
+  stack, or for a Health notice naming watched resources, each of their environments. A malformed map sends
   nothing and says so on the record.
 
 WARDEN changes nothing here: there is no write to AWS, and no plan, fix or incident is started.
@@ -149,13 +149,17 @@ _VERSIONS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("redis", re.compile(r"\bRedis(?: OSS)? (?:version )?(\d)(?:\.\d{1,2})?\b"), "{}"),
     ("kubernetes", re.compile(r"\b(?:Kubernetes|EKS)(?: version)? (1\.\d{2})\b"), "{}"),
 )
+# After a family's version, the bare versions that continue its list: ", 3.10", " and 3.11", "/20", " or 14".
+_LIST_MORE = re.compile(r"\s{0,3}(?:,|/|&|\band\b|\bor\b)\s{0,3}(?:and\s{1,3})?(\d{1,2}(?:\.\d{1,2})?)(?:\.x)?\b",
+                        re.IGNORECASE)
 # The shapes of a Lambda runtime identifier, for scripts/aws_inventory.py.
 RUNTIME_ID = re.compile(r"python3\.\d{1,2}|nodejs\d{2}\.x|java\d{1,2}|ruby3\.\d|dotnet\d{1,2}|provided(?:\.al2(?:023)?)?")
 
 # Kinds, from a closed list. Order is precedence: the first that fits is the item's kind.
 LIFECYCLE, SECURITY, PRICE, AVAILABILITY, NEWS = "end of support", "security", "price", "availability", "news"
 _KINDS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    (LIFECYCLE, re.compile(r"deprecat|end[ -]of[ -](?:standard )?(?:support|life)|\bEOL\b|extended support|"
+    (LIFECYCLE, re.compile(r"deprecat|end[ -]of[ -](?:standard )?(?:support|life)|\bends? (?:standard )?support\b|"
+                           r"\bEOL\b|extended support|"
                            r"\bretir(?:e|es|ed|ing|ement)\b|\bsunset|discontinu|no longer (?:be )?(?:available|supported)|"
                            r"action required|required action|must (?:upgrade|migrate)|breaking change",
                            re.IGNORECASE)),
@@ -331,15 +335,31 @@ def without_targets(text: str) -> str:
     return " ".join([*out, text[start:]])
 
 
+def _listed(text: str, m: re.Match[str], shape: str) -> list[str]:
+    """A family match's version and the bare ones that continue its list ("Python 3.9 and 3.10", "Node.js 18, 20"),
+    each as the pattern's group would hold it. A Python version keeps only its minor (`3.10` -> `10`)."""
+    found, pos = [m.group(1)], m.end()
+    while more := _LIST_MORE.match(text, pos):
+        raw, pos = more.group(1), more.end()
+        if shape == "python3.{}":
+            if not raw.startswith("3."):
+                break
+            raw = raw.removeprefix("3.")
+        found.append(raw)
+    return found
+
+
 def versions(text: str) -> dict[str, list[str]]:
-    """{family: [versions]} a text names, each in the inventory's spelling - not those it says to move to."""
+    """{family: [versions]} a text names, each in the inventory's spelling - not those it says to move to. A list
+    ("PostgreSQL 12, 13 and 14") gives every version in it (CodeRabbit, PR 83: a later one missed is "not affected")."""
     text = without_targets(text)
     out: dict[str, list[str]] = {}
     for family, rx, shape in _VERSIONS:
         for m in rx.finditer(text):
-            v = shape.format(m.group(1).lower())
-            if v not in out.setdefault(family, []):
-                out[family].append(v)
+            for raw in _listed(text, m, shape):
+                v = shape.format(raw.lower())
+                if v not in out.setdefault(family, []):
+                    out[family].append(v)
     return {k: sorted(v) for k, v in out.items() if v}
 
 
@@ -460,7 +480,7 @@ def health_notice(event: dict[str, Any]) -> dict[str, Any] | None:
            "code": code, "status": str(detail.get("statusCode") or "")[:20],
            "scope": str(detail.get("eventScopeCode") or "")[:20], "start": _health_time(detail.get("startTime")),
            "end": _health_time(detail.get("endTime")), "ours": ours[:20],
-           "environment": (env_of_name(ours[0]) or "") if ours else "", "others": len(names) - len(ours)}
+           "environments": sorted({env_of_name(n) or "" for n in ours} - {""}), "others": len(names) - len(ours)}
     row.update(facts(redact(plain(_description(detail))).text, health=service, regions=inventory()["regions"]))
     return row
 
@@ -557,6 +577,24 @@ def _inventory_line(inv: dict[str, Any]) -> str:
 
 _TITLES = {AFFECTED: "Affects WARDEN - a person acts", CHECK: "A person checks", NOT_AFFECTED: "Not affected",
            INTEREST: "Of interest"}
+
+
+def seen_key(row: dict[str, Any]) -> str:
+    """An item as the record de-duplicates it. A Health notice is updated under the same event: once per status,
+    start and set of WARDEN's resources, so an update a reader must hear of is new (CodeRabbit, PR 83)."""
+    if row.get("feed") != "health":
+        return row["id"]
+    return f"{row['id']}:{row.get('status', '')}:{row.get('start', '')}:{','.join(row.get('ours') or [])}"
+
+
+def alarms_of(rows: list[dict[str, Any]], inv: dict[str, Any]) -> list[dict[str, Any]]:
+    """The alarms due for these rows, each with its `key` and `environment`: a Health notice naming resources of
+    several watched environments is alarmed in each of their channels; anything else in the nonprod one ("")."""
+    out = []
+    for a in _judged(rows, inv)[1]:
+        for env in a.get("environments") or [""]:
+            out.append({**a, "environment": env, "key": seen_key(a) + (f"@{env}" if env else "")})
+    return out
 
 
 def _judged(rows: list[dict[str, Any]],
@@ -688,17 +726,17 @@ class AwsWatchActivities:
         rows = list(snap.get("rows") or []) + list(latest.values())
         inv, sent = inventory(), self._sent()
         shown = self._shown(sent)
-        fresh = [r for r in rows if r["id"] not in shown]
+        fresh = [r for r in rows if seen_key(r) not in shown]
         text, _ = digest(digest_id, since, now, fresh, list(snap.get("unread") or []), inv)
-        new = [a for a in _judged(rows, inv)[1] if a["id"] not in sent]
+        new = [a for a in alarms_of(rows, inv) if a["key"] not in sent]
         for a in new:
-            self.audit.append(digest_id, ALARM, {"run_id": _run_id(), "id": a["id"], "feed": a["feed"],
-                                                            "verdict": a["verdict"], "why": a["why"]})
+            self.audit.append(digest_id, ALARM, {"run_id": _run_id(), "id": a["key"], "feed": a["feed"],
+                                                 "verdict": a["verdict"], "why": a["why"]})
         self.audit.append(digest_id, DIGEST, {
-            "run_id": _run_id(), "rows": [{"id": r["id"], "feed": r["feed"], "verdict": verdict(r, inv)[0]}
+            "run_id": _run_id(), "rows": [{"id": seen_key(r), "feed": r["feed"], "verdict": verdict(r, inv)[0]}
                                           for r in fresh],
-            "alarms": [a["id"] for a in new], "sha256": hashlib.sha256(text.encode()).hexdigest()})
-        return {"digest": text, "alarms": [{"id": a["id"], "environment": a.get("environment", ""),
+            "alarms": [a["key"] for a in new], "sha256": hashlib.sha256(text.encode()).hexdigest()})
+        return {"digest": text, "alarms": [{"id": a["key"], "environment": a["environment"],
                                             "text": alarm_text(a)} for a in new]}
 
     @staticmethod
@@ -721,13 +759,20 @@ class AwsWatchActivities:
     @activity.defn
     def awswatch_post(self, digest_id: str, made: dict[str, Any]) -> dict[str, Any]:
         """Notify zone: the digest in the discussion channel, each alarm in the alerts channel - through the outbound
-        gate and the redactor, as everything WARDEN sends."""
-        said = {"digest": self._post_one(digest_id, made["digest"], "WARDEN_DISCUSS_CHANNEL")}
-        self.audit.append(digest_id, POST, {"run_id": _run_id(), "what": "digest", "result": said["digest"]})
-        for a in made.get("alarms") or []:
-            said[a["id"]] = self._post_one(f"awswatch-{a['id']}", a["text"], "WARDEN_SLACK_CHANNEL",
-                                           a.get("environment", ""))
-            self.audit.append(digest_id, POST, {"run_id": _run_id(), "what": a["id"], "result": said[a["id"]]})
+        gate and the redactor, as everything WARDEN sends. A retried attempt never posts again what this digest's
+        earlier attempt delivered (CodeRabbit, PR 83)."""
+        done = {str(e["body"].get("what")) for e in self.audit.entries(digest_id, kinds=(POST,))
+                if e["body"].get("result") == "sent"}
+        jobs = [("digest", digest_id, made["digest"], "WARDEN_DISCUSS_CHANNEL", "")]
+        jobs += [(a["id"], "awswatch-" + hashlib.sha256(a["id"].encode()).hexdigest()[:12], a["text"],
+                  "WARDEN_SLACK_CHANNEL", a.get("environment", "")) for a in made.get("alarms") or []]
+        said = {}
+        for what, key, text, setting, environment in jobs:
+            if what in done:
+                said[what] = "sent"
+                continue
+            said[what] = self._post_one(key, text, setting, environment)
+            self.audit.append(digest_id, POST, {"run_id": _run_id(), "what": what, "result": said[what]})
         return said
 
 

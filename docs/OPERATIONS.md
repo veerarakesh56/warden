@@ -146,8 +146,9 @@ WARDEN reads, and changes nothing.
 - **AWS's text is not shown.** It is outside text: redacted, scanned by the injection tripwire (a flagged item is held
   back), and reduced to facts. The digest shows the facts and AWS's own link, to read the item on AWS's site.
 - **Where it posts.** The discussion and alerts channels of the nonprod environment, from `WARDEN_DISCUSS_CHANNELS` /
-  `WARDEN_SLACK_CHANNELS` (or the single `WARDEN_DISCUSS_CHANNEL` / `WARDEN_SLACK_CHANNEL`); a Health notice naming a
-  watched resource alarms in that resource's environment's channel. A malformed map sends nothing and says so on the
+  `WARDEN_SLACK_CHANNELS` (or the single `WARDEN_DISCUSS_CHANNEL` / `WARDEN_SLACK_CHANNEL`); a Health notice naming
+  watched resources alarms in the channel of each environment it names, and again when AWS updates it (its status,
+  its start or the resources it names). A malformed map sends nothing and says so on the
   record (`awswatch.post`).
 - **Network.** The only new egress: HTTPS (443) from the read worker to `aws.amazon.com`, two fixed URLs, no redirect
   followed, at most 5 MB each, 20 seconds each. The runtime's security group already allows 443 out; a security

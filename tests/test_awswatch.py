@@ -252,8 +252,8 @@ def _health(category="scheduledChange", scope="ACCOUNT_SPECIFIC", status="upcomi
 
 def test_a_scheduled_change_on_a_watched_resource_is_recorded_as_facts():
     row = awswatch.health_notice(_health())
-    assert (row["code"], row["ours"], row["environment"], row["status"]) == (
-        "AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT", ["warden-dev-orders"], "dev", "upcoming")
+    assert (row["code"], row["ours"], row["environments"], row["status"]) == (
+        "AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT", ["warden-dev-orders"], ["dev"], "upcoming")
     assert row["versions"] == {"runtime": ["python3.10"]}
     assert row["start"] == "2026-10-31T00:00:00+00:00"
     assert "Ignore" not in json.dumps(row)
@@ -473,4 +473,63 @@ def test_a_schedule_temporal_refuses_never_stops_the_worker(monkeypatch, capsys)
 
     monkeypatch.setattr(awswatch, "sync_schedule", refused)
     asyncio.run(cli._sync_awswatch(object()))
-    assert "the AWS updates schedule could not be set (RPCError)" in capsys.readouterr().err
+    assert "the AWS updates schedule could not be set (RPCError: denied)" in capsys.readouterr().err
+
+
+
+@pytest.mark.parametrize("text,running", [
+    ("Lambda ends support for Python 3.9 and 3.10 on October 31, 2026.", "python3.10"),
+    ("Lambda deprecates Node.js 18 and 20.", "nodejs20.x"),
+    ("Lambda deprecates the Python 3.8, 3.9 and 3.10 runtimes.", "python3.10"),
+])
+def test_every_version_in_a_list_is_read_so_a_later_one_is_not_missed(text, running):
+    """CodeRabbit, PR 83: "Python 3.9 and 3.10" named only 3.9, and a WARDEN on 3.10 read "not affected"."""
+    inv = awswatch.inventory()
+    mine = {**inv, "versions": {**inv["versions"], "runtime": {"known": [running], "unknown": False}}}
+    item = {"feed": "whats-new", **awswatch.facts(text)}
+    assert awswatch.verdict(item, mine) == (awswatch.AFFECTED, f"WARDEN runs {running}")
+
+
+def test_a_list_of_versions_stops_at_what_is_not_one():
+    assert awswatch.versions("PostgreSQL 12, 13 and 14 reach end of support on 2027, and 15 is next") == {
+        "postgresql": ["12", "13", "14"]}
+    assert awswatch.versions("Python 3.10 and 12 functions") == {"runtime": ["python3.10"]}
+
+
+def test_an_updated_health_notice_is_new_and_one_naming_two_environments_alarms_in_both(tmp_path, monkeypatch):
+    """CodeRabbit, PR 83: an update under the same event (status, start, WARDEN's resources) reaches a person again,
+    and each watched environment it names hears of it in its own channel."""
+    monkeypatch.setattr(awswatch.AwsWatchActivities, "_post_one", staticmethod(lambda *a, **k: "sent"))
+    log = _log(tmp_path)
+    log.append(awswatch.HEALTH_ID, awswatch.HEALTH, awswatch.health_notice(_health()))
+    acts = awswatch.AwsWatchActivities(audit=log, opener=_fake_opener)
+    first = acts.awswatch_review(DIGEST_ID, {"since": SINCE.isoformat(), "rows": [], "unread": []})
+    acts.awswatch_post(DIGEST_ID, first)
+    assert [a["environment"] for a in first["alarms"]] == ["dev"]
+    both = _health(status="open", entities=(f"arn:aws:lambda:ap-south-2:{ACCOUNT}:function:warden-dev-orders",
+                                             f"arn:aws:lambda:ap-south-2:{ACCOUNT}:function:warden-prod-orders"))
+    log.append(awswatch.HEALTH_ID, awswatch.HEALTH, awswatch.health_notice(both))
+    later = f"awswatch-{NOW + timedelta(days=1):%Y%m%dT%H%M%SZ}"
+    again = acts.awswatch_review(later, {"since": SINCE.isoformat(), "rows": [], "unread": []})
+    assert sorted(a["environment"] for a in again["alarms"]) == ["dev", "prod"]
+    assert "*Affects WARDEN - a person acts* (1)" in again["digest"]
+
+
+def test_a_retried_post_never_sends_again_what_it_delivered(tmp_path, monkeypatch):
+    """CodeRabbit, PR 83: an attempt that failed half-way is retried by Temporal; what it sent stays sent once."""
+    acts = awswatch.AwsWatchActivities(audit=_log(tmp_path), opener=_fake_opener)
+    made = acts.awswatch_review(DIGEST_ID, acts.awswatch_read(DIGEST_ID))
+    posted = []
+
+    def flaky(key, text, setting, environment=""):
+        posted.append(key)
+        if len(posted) == 2:
+            raise RuntimeError("Slack timed out")
+        return "sent"
+
+    monkeypatch.setattr(awswatch.AwsWatchActivities, "_post_one", staticmethod(flaky))
+    with pytest.raises(RuntimeError):
+        acts.awswatch_post(DIGEST_ID, made)
+    acts.awswatch_post(DIGEST_ID, made)  # the retry
+    assert len(posted) == len(set(posted)) + 1  # only the failed one twice
+    assert posted.count(DIGEST_ID) == 1

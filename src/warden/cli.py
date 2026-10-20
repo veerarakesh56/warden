@@ -425,7 +425,7 @@ async def _sync_awswatch(client: object) -> None:
     try:
         done = await awswatch.sync_schedule(client)
     except (RPCError, ValueError) as exc:  # Temporal refused, or WARDEN_AWSWATCH_AT is not HH:MM
-        _out(f"the AWS updates schedule could not be set ({type(exc).__name__})", err=True)
+        _out(f"the AWS updates schedule could not be set ({type(exc).__name__}: {_one(exc)[:300]})", err=True)
         return
     if done != "off":
         hour, minute = awswatch.at()
