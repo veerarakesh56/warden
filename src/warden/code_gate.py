@@ -69,7 +69,8 @@ _EXECUTABLE = "100755"
 
 @dataclass(frozen=True)
 class FileChange:
-    """One file of a change. `added` and `removed` are the lines, in diff order, without their `+`/`-`."""
+    """One file of a change. `added` and `removed` are the lines, in diff order, without their `+`/`-`; `hunks` (from
+    `parse_diff`) each hunk's lines with their sign, context included, so a revert is checked where it applies too."""
 
     path: str
     status: str = _MODIFIED
@@ -79,6 +80,7 @@ class FileChange:
     old_mode: str = _REGULAR
     new_mode: str = _REGULAR
     binary: bool = False
+    hunks: tuple[tuple[str, ...], ...] = ()
 
     @property
     def paths(self) -> tuple[str, ...]:
@@ -211,7 +213,7 @@ _NEVER: tuple[tuple[str, str], ...] = (
     ((r"(?:.*/)?(?:\.env(?:\.[^/]*)?|[^/]*\.(?:pem|key|p12|pfx|jks|keystore|crt|asc|gpg)|id_(?:rsa|ed25519|ecdsa)[^/]*|"
       r"[^/]*(?:secret|credential|passw)[^/]*)"), "secrets and keys"),
     # WARDEN's own code, policy data and pins: WARDEN never writes the rules it is held to (self-target, P22).
-    (r"src/warden/.*|scripts/.*|evals/.*|docs/safety-pins\.sha256", "WARDEN's own code and policy"),
+    (r"src/warden/.*|scripts/.*|evals/.*|tests/.*|docs/safety-pins\.sha256", "WARDEN's own code, tests and policy"),
 )
 _NEVER_RX = tuple((re.compile(rx), why) for rx, why in _NEVER)
 
@@ -257,14 +259,20 @@ _INSTALL = re.compile(r"\b(?:pip3?|uv|poetry|pipx|npm|yarn|pnpm|gem|cargo|go)[\s
                       r"\bensurepip\b|\bsite\.addsitedir\b", re.IGNORECASE)
 _IMPORT = re.compile(r"\s*(?:from\s+([A-Za-z_][\w.]*)\s+import\b|import\s+([A-Za-z_][^#]*))")
 # A test function, an assertion or an expected exception: what CG8 asks a fix to add, and CG9 forbids it to remove.
-_TEST_LINE = re.compile(r"\s*(?:async\s+)?def\s+test_\w*\s*\(|\s*assert\b|.*\bpytest\.raises\s*\(")
+_TEST_DEF = re.compile(r"\s*(?:async\s+)?def\s+test_\w*\s*\(|\s*assert\b")
+_TEST_RAISES = re.compile(r"\bpytest\.raises\s*\(")
+
+
+def is_test_line(line: str) -> bool:
+    return bool(_TEST_DEF.match(line) or _TEST_RAISES.search(line))
 
 
 def imported_modules(line: str) -> set[str]:
-    """The top-level modules the `import` and `from ... import` statements of one line name (`;` separates
-    statements); a relative import names none."""
+    """The top-level modules the `import` and `from ... import` statements of one line name. Each piece after a `;` or
+    a `:` is read as a statement (`try: import x`); a colon inside a string can only make a piece refused, never let
+    one through. A relative import names none."""
     out: set[str] = set()
-    for statement in line.split("#", 1)[0].split(";"):
+    for statement in re.split(r"[;:]", line.split("#", 1)[0]):
         m = _IMPORT.match(statement)
         if m and m.group(1):
             out.add(m.group(1).split(".")[0])
@@ -356,14 +364,14 @@ def _weakening(f: FileChange, limits: GateLimits) -> list[Refusal]:
         return []
     if f.status in (_DELETED, _RENAMED):
         return [Refusal("CG9", f"{f.path}: a test file is {f.status}")]
-    gone = sum(1 for line in f.removed if _TEST_LINE.match(line))
+    gone = sum(1 for line in f.removed if is_test_line(line))
     return [Refusal("CG9", f"{f.path}: removes {gone} assertion or test line(s)")] if gone else []
 
 
 def _adds_a_test(files: tuple[FileChange, ...], limits: GateLimits) -> list[Refusal]:
     """CG8: a fix adds a test function or an assertion in a test file."""
     for f in files:
-        if limits.is_test(f.path) and any(_TEST_LINE.match(line) for line in f.added):
+        if limits.is_test(f.path) and any(is_test_line(line) for line in f.added):
             return []
     return [Refusal("CG8", "a fix must add a test (a test function or an assertion in a test file)")]
 
@@ -372,18 +380,40 @@ _INVERSE_STATUS = {_ADDED: _DELETED, _DELETED: _ADDED, _MODIFIED: _MODIFIED, _RE
 _SHA = re.compile(r"[0-9a-f]{40}")
 
 
+def _segments(hunk: tuple[str, ...], *, flip: bool = False) -> tuple[Any, ...]:
+    """A hunk as context lines and change runs (removed, added): git writes a run's removals first, so the inverse of
+    `-a +b` is `-b +a`, not the same lines with their signs swapped. `flip` swaps each run's sides."""
+    out: list[Any] = []
+    removed: list[str] = []
+    added: list[str] = []
+    for line in (*hunk, " "):  # a closing context line ends the last run
+        sign, text = line[:1], line[1:]
+        if sign and sign in "+-":
+            (removed if sign == "-" else added).append(text)
+            continue
+        if removed or added:
+            out.append(("change", tuple(added), tuple(removed)) if flip else ("change", tuple(removed), tuple(added)))
+            removed, added = [], []
+        out.append(("context", line))
+    return tuple(out[:-1])
+
+
 def _inverse(f: FileChange) -> FileChange:
     renamed = f.status == _RENAMED
     return FileChange(path=f.old_path if renamed and f.old_path else f.path, status=_INVERSE_STATUS[f.status],
                       added=f.removed, removed=f.added, old_path=f.path if renamed else None, old_mode=f.new_mode,
-                      new_mode=f.old_mode, binary=f.binary)
+                      new_mode=f.old_mode, binary=f.binary, hunks=f.hunks)
 
 
-def _key(f: FileChange) -> tuple[Any, ...]:
-    """What makes two file changes the same change. A mode on the side where the file does not exist is ignored."""
+def _key(f: FileChange, *, flip: bool = False) -> tuple[Any, ...]:
+    """What makes two file changes the same change: its paths, status, lines, modes and each hunk's context and runs
+    (`flip`: of an inverse, whose hunks are still the original's). A mode on the side where the file does not exist is
+    ignored."""
     old = "" if f.status == _ADDED else f.old_mode
     new = "" if f.status == _DELETED else f.new_mode
-    return (f.path, f.status, f.added, f.removed, f.old_path if f.status == _RENAMED else None, old, new, f.binary)
+    hunks = tuple(_segments(h, flip=flip) for h in f.hunks)
+    return (f.path, f.status, f.added, f.removed, f.old_path if f.status == _RENAMED else None, old, new, f.binary,
+            hunks)
 
 
 def _exact_revert(files: tuple[FileChange, ...], reverts: str | None,
@@ -393,7 +423,7 @@ def _exact_revert(files: tuple[FileChange, ...], reverts: str | None,
         return [Refusal("CG10", "a revert must name the full commit it reverts")]
     if not original:
         return [Refusal("CG10", f"the change of commit {reverts[:12]} was not read")]
-    want = sorted(_key(_inverse(f)) for f in original)
+    want = sorted(_key(_inverse(f), flip=True) for f in original)
     have = sorted(_key(f) for f in files)
     if want != have:
         return [Refusal("CG10", f"the change is not exactly the inverse of commit {reverts[:12]}")]
@@ -434,9 +464,12 @@ def check(files: tuple[FileChange, ...] | list[FileChange], *, kind: ChangeKind 
 _DIFF = re.compile(r"diff --git a/(\S+) b/(\S+)")
 _HUNK = re.compile(r"@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
 _MODE = re.compile(r"(old mode|new mode|new file mode|deleted file mode) (\d{6})")
+# An unchanged mode is written only here: `index 1a..2b 120000` is a symbolic link's edit (CG7 needs it).
+_INDEX = re.compile(r"index [0-9a-f]+\.\.[0-9a-f]+(?: (\d{6}))?")
 _NO_NEWLINE = "\\ No newline at end of file"
-# Header lines that say nothing the gate reads (the mode in an `index` line is the file's, unchanged).
-_IGNORED = ("similarity index", "dissimilarity index", "index ", "rename to ", "--- ", "+++ ")
+_DEV_NULL = "/dev/null"
+# Header lines that say nothing the gate reads.
+_IGNORED = ("similarity index", "dissimilarity index")
 
 
 class _File:
@@ -448,6 +481,7 @@ class _File:
         self.binary = False
         self.added: list[str] = []
         self.removed: list[str] = []
+        self.bodies: list[list[str]] = []
         self.hunks = 0
         self.left = self.right = 0  # lines still owed by the open hunk
 
@@ -470,27 +504,45 @@ class _File:
             self.modes[what.split()[0]] = mode
 
     def _header(self, line: str) -> None:
-        m = _MODE.fullmatch(line)
+        m, index = _MODE.fullmatch(line), _INDEX.fullmatch(line)
         if m:
             self._mode(*m.groups())
-        elif line.startswith("rename from "):
-            self.status = _RENAMED
+        elif index:
+            if index.group(1):
+                self.modes = {"old": index.group(1), "new": index.group(1)}
         elif line.startswith(("Binary files ", "GIT binary patch")):
             self.binary = True
-        elif not line.startswith(_IGNORED):
+        elif not (self._names(line) or line.startswith(_IGNORED)):
             # A copy, or anything else: what the gate cannot read is never passed.
             raise CodeGateError(f"a diff header line the gate does not read: {line[:80]!r}")
+
+    def _names(self, line: str) -> bool:
+        """`rename from/to`, `---` and `+++`: each must name the file the `diff --git` line names (`/dev/null` only for
+        the side an added or deleted file does not have) - the gate checks the paths a patch tool would use."""
+        for marker, want, absent in (("rename from ", self.old, None), ("rename to ", self.new, None),
+                                     ("--- ", f"a/{self.old}", _ADDED), ("+++ ", f"b/{self.new}", _DELETED)):
+            if line.startswith(marker):
+                seen = line.removeprefix(marker)
+                if seen != want and not (seen == _DEV_NULL and self.status == absent):
+                    raise CodeGateError(f"a diff header names {seen[:80]!r}, not {want[:80]!r}")
+                if marker == "rename from ":
+                    self.status = _RENAMED
+                return True
+        return False
 
     def _hunk(self, line: str) -> None:
         m = _HUNK.match(line)
         if not m:
             raise CodeGateError(f"an unexpected diff line: {line[:80]!r}")
         self.hunks += 1
+        self.bodies.append([])
         self.left = int(m.group(1) if m.group(1) is not None else 1)
         self.right = int(m.group(2) if m.group(2) is not None else 1)
 
     def _body(self, line: str) -> None:
         sign, text = line[:1], line[1:]
+        if line != _NO_NEWLINE:  # where git writes it depends on the hunk's end, so it is not part of the body
+            self.bodies[-1].append(line)
         if sign == "-" and self.left:
             self.removed.append(text)
             self.left -= 1
@@ -509,7 +561,8 @@ class _File:
         status = _RENAMED if renamed and self.status == _MODIFIED else self.status
         return FileChange(path=self.new, status=status, added=tuple(self.added), removed=tuple(self.removed),
                           old_path=self.old if renamed else None, old_mode=self.modes["old"],
-                          new_mode=self.modes["new"], binary=self.binary)
+                          new_mode=self.modes["new"], binary=self.binary,
+                          hunks=tuple(tuple(body) for body in self.bodies))
 
 
 def _start(line: str) -> _File:

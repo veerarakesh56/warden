@@ -11,13 +11,15 @@ max_revert_lines: 200
 # Files the change touches, test files included (at most 20).
 max_files: 6
 
-# The only paths a change may touch: the watched applications' code and the tests beside it (`*` stays inside one
+# The only paths a change may touch: the watched applications' code and their own tests (`*` stays inside one
 # folder; `**/` crosses folders). Everything else - a path no glob names - is refused.
 allowed_paths:
   - scenarios/fullstack/app/*.py
   - scenarios/fullstack/lambdas/**/*.py
-  - tests/test_*.py
+  - scenarios/fullstack/tests/test_*.py
 
 # Which allowed paths are tests. A fix must add one (rule CG8); a fix may not remove an assertion or a test from one.
+# The applications' own tests, never WARDEN's (`tests/` is refused whatever this file says: a fix could otherwise
+# weaken the tests that hold WARDEN's own rules).
 test_paths:
-  - tests/test_*.py
+  - scenarios/fullstack/tests/test_*.py

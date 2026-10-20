@@ -29,7 +29,7 @@ from warden.environments import (
 )
 
 APP = "scenarios/fullstack/app/app.py"
-TEST = "tests/test_orders_fix.py"
+TEST = "scenarios/fullstack/tests/test_orders_fix.py"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 KNOWN = frozenset({"warden", "pytest", "boto3", "redis"})
 
@@ -170,7 +170,8 @@ def test_cg3_lambdas_in_any_folder_are_allowed():
     ".env", "scenarios/fullstack/app/.env.local", "scenarios/fullstack/app/server.pem", "deploy.key", "id_rsa",
     "scenarios/fullstack/app/secrets.py", "scenarios/fullstack/app/credentials.py",
     "src/warden/code_gate.py", "src/warden/data/code_fix.yaml", "src/warden/data/environments.yaml",
-    "scripts/safety_pins.py", "docs/safety-pins.sha256", "evals/test_safety.py"])
+    "scripts/safety_pins.py", "docs/safety-pins.sha256", "evals/test_safety.py", "tests/test_code_gate.py",
+    "tests/test_ci_lanes.py", "tests/fakes.py"])
 def test_cg4_what_is_never_touched(path):
     assert never_touched(path)
     assert "CG4" in rules([app_change(path=path), added_test()])
@@ -178,8 +179,8 @@ def test_cg4_what_is_never_touched(path):
 
 def test_cg4_widening_the_allowed_paths_cannot_let_one_in():
     wide = load_limits("version: 1\nmax_changed_lines: 60\nmax_revert_lines: 200\nmax_files: 6\n"
-                       "allowed_paths: ['.github/**/*', 'src/**/*', 'iam/**/*', 'tests/test_*.py']\ntest_paths: ['tests/test_*.py']\n")
-    for path in (".github/workflows/x.yml", "src/warden/approvals.py", "iam/dev/deploy.json"):
+                       "allowed_paths: ['.github/**/*', 'src/**/*', 'iam/**/*', 'tests/**/*', 'scenarios/fullstack/tests/test_*.py']\ntest_paths: ['scenarios/fullstack/tests/test_*.py']\n")
+    for path in (".github/workflows/x.yml", "src/warden/approvals.py", "iam/dev/deploy.json", "tests/test_code_gate.py"):
         verdict = gate([app_change(path=path), added_test()], limits=wide)
         assert verdict.rules == ("CG4",), path
 
@@ -216,6 +217,7 @@ def test_cg5_ordinary_code_is_not_a_manifest():
 
 @pytest.mark.parametrize("line", ["import requests", "from requests import get", "import os, requests",
                                   "x = 1; import requests", "import os; from leftpad import pad",
+                                  "try: import requests", "if x: import requests", "import json as j, requests",
                                   "    import numpy as np", "from leftpad.core import pad", "import json, yaml as y"])
 def test_cg6_an_import_the_repository_does_not_use(line):
     assert "CG6" in rules([app_change(added=(line,)), added_test()])
@@ -313,19 +315,19 @@ def test_cg9_a_new_suppression_anywhere(line):
 
 @pytest.mark.parametrize("line", ["    assert total([]) == 0", "def test_empty():", "    with pytest.raises(KeyError):"])
 def test_cg9_a_fix_may_not_remove_a_test_or_an_assertion(line):
-    weaker = FileChange(path="tests/test_orders.py", added=("    pass",), removed=(line,))
+    weaker = FileChange(path="scenarios/fullstack/tests/test_orders.py", added=("    pass",), removed=(line,))
     assert "CG9" in rules([app_change(), weaker, added_test()])
 
 
 @pytest.mark.parametrize("status", ["deleted", "renamed"])
 def test_cg9_a_fix_may_not_delete_or_move_a_test_file(status):
-    gone = FileChange(path="tests/test_orders.py", status=status, removed=("x = 1",),
-                      old_path="tests/test_old_orders.py" if status == "renamed" else None)
+    gone = FileChange(path="scenarios/fullstack/tests/test_orders.py", status=status, removed=("x = 1",),
+                      old_path="scenarios/fullstack/tests/test_old_orders.py" if status == "renamed" else None)
     assert "CG9" in rules([app_change(), gone, added_test()])
 
 
 def test_cg9_removing_ordinary_lines_from_a_test_is_fine():
-    tidy = FileChange(path="tests/test_orders.py", added=("x = 2",), removed=("x = 1",))
+    tidy = FileChange(path="scenarios/fullstack/tests/test_orders.py", added=("x = 2",), removed=("x = 1",))
     assert "CG9" not in rules([app_change(), tidy, added_test()])
 
 
@@ -355,6 +357,25 @@ def test_cg10_a_revert_of_another_file_is_refused():
     original = (app_change(path="scenarios/fullstack/app/other.py"),)
     assert "CG10" in rules((app_change(added=original[0].removed, removed=original[0].added),), kind="revert",
                            reverts=SHA, original=original)
+
+
+def test_cg10_the_same_lines_reverted_in_another_place_are_refused():
+    """Two copies of `x = 1`: a revert must undo the one the commit changed, which its context says."""
+    original = parse_diff(f"diff --git a/{APP} b/{APP}\n--- a/{APP}\n+++ b/{APP}\n@@ -1,3 +1,3 @@\n def a():\n"
+                          "-    x = 1\n+    x = 2\n return\n")
+    right = parse_diff(f"diff --git a/{APP} b/{APP}\n--- a/{APP}\n+++ b/{APP}\n@@ -1,3 +1,3 @@\n def a():\n"
+                       "-    x = 2\n+    x = 1\n return\n")
+    wrong = parse_diff(f"diff --git a/{APP} b/{APP}\n--- a/{APP}\n+++ b/{APP}\n@@ -9,3 +9,3 @@\n def b():\n"
+                       "-    x = 2\n+    x = 1\n return\n")
+    assert gate(right, kind="revert", reverts=SHA, original=original).allowed
+    assert gate(wrong, kind="revert", reverts=SHA, original=original).rules == ("CG10",)
+
+
+def test_cg10_a_revert_found_at_other_line_numbers_still_passes():
+    """Line numbers move as later commits land; the context and the lines are what must match."""
+    original = parse_diff(f"diff --git a/{APP} b/{APP}\n--- a/{APP}\n+++ b/{APP}\n@@ -1,2 +1,3 @@\n a\n+b\n c\n")
+    later = parse_diff(f"diff --git a/{APP} b/{APP}\n--- a/{APP}\n+++ b/{APP}\n@@ -40,3 +40,2 @@\n a\n-b\n c\n")
+    assert gate(later, kind="revert", reverts=SHA, original=original).allowed
 
 
 def test_cg10_a_renamed_file_reverts_back():
@@ -447,11 +468,11 @@ index 1111111..2222222 100644
 -    return total
 +    return total or 0
      # end
-diff --git a/tests/test_orders_fix.py b/tests/test_orders_fix.py
+diff --git a/scenarios/fullstack/tests/test_orders_fix.py b/scenarios/fullstack/tests/test_orders_fix.py
 new file mode 100644
 index 0000000..3333333
 --- /dev/null
-+++ b/tests/test_orders_fix.py
++++ b/scenarios/fullstack/tests/test_orders_fix.py
 @@ -0,0 +1,2 @@
 +def test_empty_order_totals_zero():
 +    assert total([]) == 0
@@ -460,9 +481,12 @@ index 0000000..3333333
 
 
 def test_parse_diff_reads_a_git_diff():
-    files = parse_diff(DIFF)
-    assert files == (app_change(), added_test(new_mode="100644"))
-    assert gate(files).allowed
+    app, test = parse_diff(DIFF)
+    assert app == app_change(hunks=((
+        "     x = 1", "-    return total", "+    return total or 0", "     # end"),))
+    assert test == added_test(new_mode="100644", hunks=((
+        "+def test_empty_order_totals_zero():", "+    assert total([]) == 0"),))
+    assert gate((app, test)).allowed
 
 
 def test_parse_diff_reads_deletes_renames_modes_and_binaries():
@@ -488,10 +512,35 @@ def test_parse_diff_reads_deletes_renames_modes_and_binaries():
     "diff --git a/x.py b/x.py\n@@ nonsense @@\n",                                    # a broken hunk header
     "diff --git a/x.py b/x.py\nsomething else\n",                                     # an unknown header line
     "diff --git a/x.py b/x.py\n@@ -1,2 +1,2 @@\n a\n\n",                              # a stripped blank line
+    "diff --git a/x.py b/y.py\nrename from z.py\nrename to y.py\n",                   # a rename of another file
+    "diff --git a/x.py b/y.py\nrename from x.py\nrename to z.py\n",
+    "diff --git a/x.py b/x.py\n--- a/src/warden/verifier.py\n+++ b/x.py\n",            # a patch of another file
+    "diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/other.py\n",
+    "diff --git a/x.py b/x.py\n--- /dev/null\n+++ b/x.py\n",                          # /dev/null for a modified file
+    "diff --git a/x.py b/x.py\nindex 1..2 1006444\n",                                  # a mode of the wrong shape
 ])
 def test_parse_diff_refuses_what_it_cannot_read(text):
     with pytest.raises(CodeGateError):
         parse_diff(text)
+
+
+def test_an_unchanged_mode_in_the_index_line_is_read():
+    """A retargeted symbolic link or a moved submodule pointer changes no mode: only the `index` line says it."""
+    for mode in ("120000", "160000"):
+        (link,) = parse_diff(f"diff --git a/scenarios/fullstack/app/l.py b/scenarios/fullstack/app/l.py\n"
+                             f"index 1a..2b {mode}\n--- a/scenarios/fullstack/app/l.py\n"
+                             f"+++ b/scenarios/fullstack/app/l.py\n@@ -1 +1 @@\n-a.py\n+b.py\n")
+        assert (link.old_mode, link.new_mode) == (mode, mode)
+        assert "CG7" in rules([link, added_test()])
+
+
+def test_dev_null_only_for_the_side_a_file_does_not_have():
+    added = parse_diff("diff --git a/n.py b/n.py\nnew file mode 100644\n--- /dev/null\n+++ b/n.py\n@@ -0,0 +1 @@\n+x\n")
+    gone = parse_diff("diff --git a/n.py b/n.py\ndeleted file mode 100644\n--- a/n.py\n+++ /dev/null\n"
+                      "@@ -1 +0,0 @@\n-x\n")
+    assert (added[0].status, gone[0].status) == ("added", "deleted")
+    with pytest.raises(CodeGateError):
+        parse_diff("diff --git a/n.py b/n.py\nnew file mode 100644\n--- a/n.py\n+++ /dev/null\n")
 
 
 def test_an_empty_diff_is_an_empty_change_and_refused():
