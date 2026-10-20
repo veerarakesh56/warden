@@ -190,7 +190,7 @@ def appconfig_for_alarm(client: Any, alarm_arn: str) -> tuple[list[tuple[dict, d
         try:
             envs, etoken = _three_pages(client.list_environments, ApplicationId=app["Id"])
             complete = complete and not etoken
-        except Exception as exc:  # noqa: BLE001 - a failed read is data: partial unless refused
+        except Exception as exc:  # noqa: BLE001  # a failed read is data: partial unless refused
             if not _refused(exc):
                 complete = False
             continue

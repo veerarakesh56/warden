@@ -498,7 +498,7 @@ class AwsBackend:
 
         try:
             current = self._task_definition(f"{family}:{revision}")
-        except Exception as exc:  # noqa: BLE001 - an unreadable revision is a partial and never a crash
+        except Exception as exc:  # noqa: BLE001  # an unreadable revision is a partial and never a crash
             return [f"{PARTIAL_PREFIX}deploys: {family}:{revision}: {failure(exc)}"]
         current_images = _images_of(current)
 
@@ -545,7 +545,7 @@ class AwsBackend:
             try:
                 previous = self._task_definition(previous_ref)
                 previous_images = _images_of(previous)
-            except Exception as exc:  # noqa: BLE001 - a failed read is reported as the gap below and never a crash
+            except Exception as exc:  # noqa: BLE001  # a failed read is reported as the gap below and never a crash
                 # ⭐ The important branch. Without the previous revision we cannot tell a real
                 # deploy from a force-new-deployment, and reporting it anyway would let policy P5
                 # approve a rollback on a restart. Report the gap; report no deploy.
