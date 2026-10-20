@@ -132,6 +132,7 @@ def test_the_environments_may_write_the_policy_of_their_alb_log_bucket_and_no_ot
         assert len(denies) == 1, denies
         assert denies[0]["NotResource"] == f"arn:aws:s3:::warden-{env}-alb-logs-*", denies
         grant = next(st for st in _iam(env, "deploy-ec2")["Statement"] if st.get("Sid") == "AlbLogsBucket")
+        assert "s3:*" not in grant["Action"]  # what the bucket's resources and force_destroy use, nothing more
         assert grant["Resource"] == [f"arn:aws:s3:::warden-{env}-alb-logs-*", f"arn:aws:s3:::warden-{env}-alb-logs-*/*"]
 
 
@@ -192,6 +193,10 @@ def test_the_internal_alb_answers_https_only_with_the_stacks_own_certificate():
         assert [a for a in regional["Action"] if a.startswith("acm:")] == ["acm:*Certificate"]  # never acm:*
         imp = next(st for st in _iam(env, "deploy-ec2")["Statement"] if st.get("Sid") == "AlbCertificateImport")
         assert imp["Condition"]["StringEquals"]["aws:RequestTag/Environment"] == env
+        # A new import only: ACM refuses tags on a re-import, so a request carrying the tag cannot overwrite an
+        # existing certificate; re-import and retagging need the certificate's own Environment tag (AlbCertificateOwn).
+        assert imp["Action"] == "acm:ImportCertificate"
+        assert "acm:AddTagsToCertificate" in own["Action"]
 
 
 # ----------------------------------------------------------------- the proving ground (not deployed; R52)

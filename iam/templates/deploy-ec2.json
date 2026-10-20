@@ -169,7 +169,22 @@
     {
       "Sid": "AlbLogsBucket",
       "Effect": "Allow",
-      "Action": "s3:*",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:Get*",
+        "s3:List*",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketLogging",
+        "s3:PutBucketTagging",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutLifecycleConfiguration",
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion"
+      ],
       "Resource": [
         "arn:aws:s3:::warden-${env}-alb-logs-*",
         "arn:aws:s3:::warden-${env}-alb-logs-*/*"
@@ -178,10 +193,7 @@
     {
       "Sid": "AlbCertificateImport",
       "Effect": "Allow",
-      "Action": [
-        "acm:ImportCertificate",
-        "acm:AddTagsToCertificate"
-      ],
+      "Action": "acm:ImportCertificate",
       "Resource": "*",
       "Condition": {
         "StringEquals": {
@@ -195,6 +207,7 @@
       "Effect": "Allow",
       "Action": [
         "acm:ImportCertificate",
+        "acm:AddTagsToCertificate",
         "acm:DescribeCertificate",
         "acm:GetCertificate",
         "acm:ListTagsForCertificate",
