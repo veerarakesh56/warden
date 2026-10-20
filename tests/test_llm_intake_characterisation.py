@@ -62,8 +62,9 @@ def _ask(client, retries=2):
 
 @pytest.mark.parametrize("usd", [float("nan"), 0.0, -1.0, float("inf")])
 def test_a_budget_that_is_not_a_positive_number_is_refused(usd):
+    provider = _Provider()
     with pytest.raises(ValueError, match=r"^the model budget must be a positive number of USD, not "):
-        llm.LLMClient(provider=_Provider(), mock=False, max_usd=usd, max_calls=1, call_timeout_s=1.0)
+        llm.LLMClient(provider=provider, mock=False, max_usd=usd, max_calls=1, call_timeout_s=1.0)
 
 
 @pytest.mark.parametrize(("env", "given", "result"), [
@@ -85,21 +86,24 @@ def test_max_calls_comes_from_the_argument_then_the_environment_then_eight(monke
 def test_max_calls_that_is_not_a_positive_whole_number_is_refused(monkeypatch, env, given, shown):
     if env is not None:
         monkeypatch.setenv("WARDEN_MAX_CALLS", env)
+    provider = _Provider()
     with pytest.raises(ValueError, match=rf"^max_calls must be a positive whole number, not {shown}$"):
-        llm.LLMClient(provider=_Provider(), mock=False, max_usd=1.0, max_calls=given, call_timeout_s=1.0)
+        llm.LLMClient(provider=provider, mock=False, max_usd=1.0, max_calls=given, call_timeout_s=1.0)
 
 
 def test_the_budget_is_checked_before_max_calls(monkeypatch):
+    provider = _Provider()
     with pytest.raises(ValueError, match="model budget"):
-        llm.LLMClient(provider=_Provider(), mock=False, max_usd=0.0, max_calls=0, call_timeout_s=1.0)
+        llm.LLMClient(provider=provider, mock=False, max_usd=0.0, max_calls=0, call_timeout_s=1.0)
 
 
 @pytest.mark.parametrize(("prices", "name"), [((float("nan"), 1.0), "WARDEN_PRICE_IN"),
                                               ((1.0, -1.0), "WARDEN_PRICE_OUT")])
 def test_a_price_that_is_not_finite_and_non_negative_is_refused(monkeypatch, prices, name):
     monkeypatch.setattr(llm, "model_prices", lambda model: prices)
+    provider = _Provider()
     with pytest.raises(ValueError, match=rf"^{name} must be a non-negative number of USD per 1M tokens"):
-        llm.LLMClient(provider=_Provider(), mock=False, max_usd=1.0, max_calls=1, call_timeout_s=1.0)
+        llm.LLMClient(provider=provider, mock=False, max_usd=1.0, max_calls=1, call_timeout_s=1.0)
 
 
 def test_the_call_timeout_is_the_argument_else_the_providers():
@@ -210,8 +214,9 @@ def test_the_call_ceiling_refuses_a_retry_before_it_is_sent():
 def test_a_prompt_over_the_ceiling_is_refused_before_any_call(monkeypatch):
     monkeypatch.setattr(llm, "MAX_PROMPT_TOKENS", 10)
     p = _Provider(_ok())
+    client = _client(p)
     with pytest.raises(llm.BudgetExceeded, match=r"^prompt of ~\d+ tokens exceeds the 10 ceiling$"):
-        _ask(_client(p))
+        _ask(client)
     assert p.calls == 0
 
 
@@ -269,13 +274,15 @@ def test_dd_event_defaults_and_states():
 @pytest.mark.parametrize(("over", "error"), [({"monitor": "abc"}, ValueError), ({"monitor": ""}, ValueError),
                                             ({"monitor": "1" * 21}, ValueError), ({"date": "soon"}, ValueError)])
 def test_dd_event_refusals(over, error):
+    delivery = _dd(**over)
     with pytest.raises(error):
-        webhooks._dd_event(_dd(**over), "dev")
+        webhooks._dd_event(delivery, "dev")
 
 
 def test_dd_event_bad_date_is_judged_after_the_monitor():
+    delivery = _dd(monitor="x", date="soon")
     with pytest.raises(ValueError, match="^no monitor id$"):
-        webhooks._dd_event(_dd(monitor="x", date="soon"), "dev")
+        webhooks._dd_event(delivery, "dev")
 
 
 # --------------------------------------------------------------------------- investigation.widen
