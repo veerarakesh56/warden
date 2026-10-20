@@ -592,7 +592,7 @@ def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
            '<span class="hint">Your passkey decides; this only opens the plan.</span></p>') if approve else ""
     checked = f'<p class="small mono">{_e(integrity(r))}</p>' if integrity(r) else ""
     main = (f'{near or neighbours([], r.id)}<h1>{_e(r.alarm or r.id)}</h1>'
-            f'<p class="lede">{_badge(r)} Incident <span class="mono">{_e(r.id)}</span></p>{checked}{act}'
+            f'<p class="lede">{_badge(r)} Incident <span class="mono">{_e(r.id)}</span></p>{checked}{act}{trust(r)}'
             '<p class="pad tools"><button type="button" class="link" id="all" aria-controls="sections">'
             'Open all sections</button></p>'
             f'<h2>Summary</h2>{_facts(_summary_facts(r))}'
@@ -656,6 +656,20 @@ def found_links(r: Record) -> str:
     return ('<h2>Related records WARDEN found</h2><p class="lede">From WARDEN\'s own signed rows. A person confirms a '
             'shared cause with <code>warden link</code>; only then can a fix there count as proven here.</p>'
             f'<ul class="flags">{items}</ul>')
+_MARK = {True: "passed", False: "failed", None: "not checked"}
+
+
+def trust(r: Record) -> str:
+    """The confidence block (confidence.py): Low, Medium or High in red, amber or green, every signal with what it
+    found, and the ones that decided the level. Never the model's own confidence."""
+    from . import confidence
+
+    b = confidence.block(r)
+    rows = "".join(f'<li><strong>{_e(s.name.capitalize())}</strong>: {_e(_MARK[s.passed])} - {_e(s.why)}</li>'
+                   for s in b.signals)
+    return (f'<h2>How far to trust this</h2><p class="pad"><span class="badge {b.colour}">Confidence: {_e(b.level)}'
+            f'</span> Decided by: {_e(", ".join(b.decided_by))}. From checks on the record - never the model\'s own '
+            f'confidence.</p><ul class="flags">{rows}</ul>')
 
 
 _FENCE = "```"
