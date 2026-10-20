@@ -114,8 +114,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "access_logs" {
   depends_on = [aws_s3_bucket_versioning.access_logs]
 }
 
-# AWS's documented policy for server access logs: the logging service, for these two source buckets in this account
-# only, writes under their prefixes; nothing else is granted. Plus TLS only, as every bucket here.
+# AWS's documented policy for server access logs: the logging service, for these two source buckets and this one in
+# this account only, writes under their prefixes; nothing else is granted. Plus TLS only, as every bucket here.
 resource "aws_s3_bucket_policy" "access_logs" {
   bucket = aws_s3_bucket.access_logs.id
   policy = jsonencode({
@@ -134,15 +134,24 @@ resource "aws_s3_bucket_policy" "access_logs" {
         Effect    = "Allow"
         Principal = { Service = "logging.s3.amazonaws.com" }
         Action    = "s3:PutObject"
-        Resource  = ["${aws_s3_bucket.access_logs.arn}/anchors/*", "${aws_s3_bucket.access_logs.arn}/witness/*"]
+        Resource  = [for prefix in ["anchors", "witness", "s3-access"] : "${aws_s3_bucket.access_logs.arn}/${prefix}/*"]
         Condition = {
-          ArnLike      = { "aws:SourceArn" = [aws_s3_bucket.anchors.arn, aws_s3_bucket.witness.arn] }
+          ArnLike      = { "aws:SourceArn" = [aws_s3_bucket.anchors.arn, aws_s3_bucket.witness.arn, aws_s3_bucket.access_logs.arn] }
           StringEquals = { "aws:SourceAccount" = local.account }
         }
       },
     ]
   })
   depends_on = [aws_s3_bucket_public_access_block.access_logs]
+}
+
+# The log bucket's own access logs, into itself under s3-access/ (AWS allows a bucket to be its own target; each delivery
+# then logs the one before - a trickle, expired with the rest), so a read of the logs leaves a trace too.
+resource "aws_s3_bucket_logging" "access_logs" {
+  bucket        = aws_s3_bucket.access_logs.id
+  target_bucket = aws_s3_bucket.access_logs.id
+  target_prefix = "s3-access/"
+  depends_on    = [aws_s3_bucket_policy.access_logs]
 }
 
 resource "aws_s3_bucket_logging" "anchors" {

@@ -46,6 +46,7 @@ def _serve(crt: pathlib.Path, key: pathlib.Path) -> http.server.HTTPServer:
         "log_message": lambda *a: None})
     server = http.server.HTTPServer(("127.0.0.1", 0), handler)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2  # as the ALB's policy, ELBSecurityPolicy-TLS13-1-2-2021-06
     ctx.load_cert_chain(crt, key)
     server.socket = ctx.wrap_socket(server.socket, server_side=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -81,8 +82,10 @@ def test_an_alb_call_trusts_exactly_one_certificate_and_any_other_call_the_syste
     monkeypatch.setenv("ALB_URL", "https://internal-alb.example")
     monkeypatch.setenv("ALB_CA_PEM", crt.read_text(encoding="ascii"))
     ctx = app._tls_for("https://internal-alb.example/orders")
-    assert isinstance(ctx, ssl.SSLContext) and ctx.cert_store_stats()["x509"] == 1  # not the system's trust store
-    assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname
+    assert isinstance(ctx, ssl.SSLContext)
+    assert ctx.cert_store_stats()["x509"] == 1  # not the system's trust store
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    assert ctx.check_hostname
     assert app._tls_for("https://internal-alb.example/orders") is ctx  # built once per container
     # The API, and a host that only starts like the ALB's name, get the default context (None).
     for url in ("https://api.example/checkout", "https://internal-alb.example.evil/orders"):

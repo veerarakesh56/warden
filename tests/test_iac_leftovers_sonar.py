@@ -57,9 +57,11 @@ def _assert_private_tls_only_bucket(path: pathlib.Path, name: str, keep_days: in
         assert re.search(rf"{flag}\s*=\s*true", pab), (name, flag)
     assert 'sse_algorithm = "AES256"' in _flat(_block(path, "aws_s3_bucket_server_side_encryption_configuration", name))
     life = _flat(_block(path, "aws_s3_bucket_lifecycle_configuration", name))
-    assert f"expiration {{ days = {keep_days} }}" in life and "noncurrent_days = 1" in life
+    assert f"expiration {{ days = {keep_days} }}" in life
+    assert "noncurrent_days = 1" in life
     policy = _block(path, "aws_s3_bucket_policy", name)
-    assert '"aws:SecureTransport" = "false"' in policy and 'Effect    = "Deny"' in policy
+    assert '"aws:SecureTransport" = "false"' in policy
+    assert 'Effect    = "Deny"' in policy
     return policy
 
 
@@ -78,8 +80,13 @@ def test_the_anchors_and_the_witness_log_every_access_to_a_bucket_only_s3_loggin
     policy = _flat(_assert_private_tls_only_bucket(anchors, "access_logs", keep_days=90))
     # Only S3's logging service writes, only under the two prefixes, only for these two buckets of this account.
     assert 'Principal = { Service = "logging.s3.amazonaws.com" } Action = "s3:PutObject"' in policy
-    assert '"${aws_s3_bucket.access_logs.arn}/anchors/*", "${aws_s3_bucket.access_logs.arn}/witness/*"' in policy
-    assert '"aws:SourceArn" = [aws_s3_bucket.anchors.arn, aws_s3_bucket.witness.arn]' in policy
+    assert ('Resource = [for prefix in ["anchors", "witness", "s3-access"] : '
+            '"${aws_s3_bucket.access_logs.arn}/${prefix}/*"]') in policy
+    assert ('"aws:SourceArn" = [aws_s3_bucket.anchors.arn, aws_s3_bucket.witness.arn, aws_s3_bucket.access_logs.arn]'
+            ) in policy
+    # The log bucket logs itself too (a read of the logs leaves a trace), in its own file as Sonar reads it.
+    own = _flat(_block(anchors, "aws_s3_bucket_logging", "access_logs"))
+    assert own.startswith("bucket = aws_s3_bucket.access_logs.id target_bucket = aws_s3_bucket.access_logs.id")
     assert '"aws:SourceAccount" = local.account' in policy
     assert policy.count("Effect = \"Allow\"") == 1
 
@@ -87,7 +94,8 @@ def test_the_anchors_and_the_witness_log_every_access_to_a_bucket_only_s3_loggin
 def test_the_runtime_boundary_lets_a_bucket_policy_be_written_on_its_three_buckets_only():
     boundary = _iam("ops", "boundary")
     deny = next(st for st in boundary["Statement"] if st.get("Sid") == "DenyBucketPolicy")
-    assert deny["Effect"] == "Deny" and set(deny["Action"]) == {"s3:PutBucketPolicy", "s3:Put*PublicAccessBlock"}
+    assert deny["Effect"] == "Deny"
+    assert set(deny["Action"]) == {"s3:PutBucketPolicy", "s3:Put*PublicAccessBlock"}
     assert sorted(deny["NotResource"]) == sorted(f"arn:aws:s3:::warden-ops-{b}-*" for b in ("anchors", "witness",
                                                                                            "access-logs"))
 
@@ -115,7 +123,8 @@ def test_the_environments_may_write_the_policy_of_their_alb_log_bucket_and_no_ot
         boundary = _iam(env, "boundary")
         denies = [st for st in boundary["Statement"] if st["Effect"] == "Deny"
                   and {"s3:Put*Policy", "s3:Put*PublicAccess*"} & set(st["Action"])]
-        assert len(denies) == 1 and denies[0]["NotResource"] == f"arn:aws:s3:::warden-{env}-alb-logs-*", denies
+        assert len(denies) == 1, denies
+        assert denies[0]["NotResource"] == f"arn:aws:s3:::warden-{env}-alb-logs-*", denies
         grant = next(st for st in _iam(env, "deploy-ec2")["Statement"] if st.get("Sid") == "AlbLogsBucket")
         assert grant["Resource"] == [f"arn:aws:s3:::warden-{env}-alb-logs-*", f"arn:aws:s3:::warden-{env}-alb-logs-*/*"]
 
@@ -134,11 +143,13 @@ def test_the_order_events_topic_is_encrypted_and_its_publisher_may_use_the_key_t
             '"sns.${local.region}.amazonaws.com" } }') in grants[0]
     # Granted to checkout - the topic's one publisher - and to no other function.
     checkout = text[text.index("    checkout = ["):text.index("    order-processor = [")]
-    assert "EncryptOrderEvents" in checkout and "PublishOrderEvents" in checkout
+    assert "EncryptOrderEvents" in checkout
+    assert "PublishOrderEvents" in checkout
     for env in ("dev", "prod"):
         ceiling = next(st for st in _iam(env, "boundary")["Statement"] if st.get("Sid") == "CeilingKms")
         via = ceiling["Condition"]["StringEquals"]["kms:ViaService"]
-        assert any(v.startswith("sns.") for v in via) and ceiling["Resource"] == "*"
+        assert any(v.startswith("sns.") for v in via)
+        assert ceiling["Resource"] == "*"
 
 
 # ----------------------------------------------------------------- S5332: HTTPS to the internal ALB
@@ -153,13 +164,16 @@ def test_the_internal_alb_answers_https_only_with_the_stacks_own_certificate():
     assert "certificate_arn = aws_acm_certificate.alb.arn" in https
     assert "moved { from = aws_lb_listener.http to = aws_lb_listener.https }" in _flat(text)  # in place, not replaced
     cert = _flat(_block(ecs, "tls_self_signed_cert", "alb"))
-    assert "dns_names = [aws_lb.orders.dns_name]" in cert and '"server_auth"' in cert
+    assert "dns_names = [aws_lb.orders.dns_name]" in cert
+    assert '"server_auth"' in cert
     assert 'algorithm = "ECDSA" ecdsa_curve = "P256"' in _flat(_block(ecs, "tls_private_key", "alb"))
     imported = _flat(_block(ecs, "aws_acm_certificate", "alb"))
-    assert "certificate_body = tls_self_signed_cert.alb.cert_pem" in imported and "create_before_destroy = true" in imported
+    assert "certificate_body = tls_self_signed_cert.alb.cert_pem" in imported
+    assert "create_before_destroy = true" in imported
     assert "validation_method" not in imported  # imported, never a requested (public) certificate
     sg = _flat(_block(main, "aws_security_group", "alb"))
-    assert "from_port = 443 to_port = 443" in sg and not re.search(r"from_port = 80\b", sg)
+    assert "from_port = 443 to_port = 443" in sg
+    assert not re.search(r"from_port = 80\b", sg)
     lam = (FULLSTACK / "lambda.tf").read_text(encoding="utf-8")
     assert 'ALB_URL           = "https://${aws_lb.orders.dns_name}"' in lam
     assert "ALB_CA_PEM        = tls_self_signed_cert.alb.cert_pem" in lam
@@ -187,11 +201,14 @@ def test_the_lab_database_is_public_by_design_and_reachable_from_one_address_ove
     assert "count = var.enable_rds ? 1 : 0" in _flat(db)
     assert re.search(r'variable "enable_rds" \{[^}]*default\s*=\s*false', variables)  # off unless asked for
     sg = _flat(_block(rds, "aws_security_group", "db"))
-    assert sg.count("ingress {") == 1 and "from_port = 5432 to_port = 5432" in sg
-    assert "cidr_blocks = [var.my_ip_cidr]" in sg and "egress" not in sg
+    assert sg.count("ingress {") == 1
+    assert "from_port = 5432 to_port = 5432" in sg
+    assert "cidr_blocks = [var.my_ip_cidr]" in sg
+    assert "egress" not in sg
     # One address: the variable refuses anything but a /32 (and so 0.0.0.0/0).
     rule = re.search(r'variable "my_ip_cidr" \{.*?condition\s*=\s*(.+?)\n', variables, re.DOTALL).group(1)
-    assert 'endswith(var.my_ip_cidr, "/32")' in rule and "can(cidrhost(var.my_ip_cidr, 0))" in rule
+    assert 'endswith(var.my_ip_cidr, "/32")' in rule
+    assert "can(cidrhost(var.my_ip_cidr, 0))" in rule
     # TLS only: PostgreSQL 16, whose RDS default parameter group sets rds.force_ssl = 1 (15 and later), unchanged.
     assert int(re.search(r'engine_version\s*=\s*"(\d+)"', db).group(1)) >= 15
     assert "parameter_group_name" not in db
@@ -203,9 +220,11 @@ def test_the_lab_database_keeps_no_backups_because_the_free_plan_refuses_the_rul
     """S6364 kept (owner to review): the Free plan caps automated backups at 1 day, so 7 cannot be set; 0 leaves no
     backup behind a destroy."""
     raw = (LAB / "rds.tf").read_text(encoding="utf-8")
-    assert "FreeTierRestrictionError" in raw and "S6364" in raw
+    assert "FreeTierRestrictionError" in raw
+    assert "S6364" in raw
     db = _flat(_block(LAB / "rds.tf", "aws_db_instance", "this"))
-    assert "backup_retention_period = 0" in db and "skip_final_snapshot = true" in db
+    assert "backup_retention_period = 0" in db
+    assert "skip_final_snapshot = true" in db
 
 
 # ----------------------------------------------------------------- docker S2612: /tmp
@@ -238,23 +257,28 @@ def test_the_only_routes_without_an_authorizer_are_the_webhooks_and_the_approval
     front = (RUNTIME / "frontdoor.tf").read_text(encoding="utf-8")
     routes = re.findall(r'^resource "aws_apigatewayv2_route" "(\w+)"', front, re.MULTILINE)
     assert sorted(routes) == ["alertmanager", "approval", "datadog"]
-    assert 'route_key = "POST /alertmanager"' in front and 'route_key = "POST /datadog"' in front
+    assert 'route_key = "POST /alertmanager"' in front
+    assert 'route_key = "POST /datadog"' in front
     assert "S6333" in front
     from warden import webhooks
-    assert not webhooks.authorized(None, ["s" * 32]) and not webhooks.authorized("Bearer " + "x" * 32, ["s" * 32])
-    assert webhooks.authorized("Bearer " + "s" * 32, ["s" * 32]) and not webhooks.authorized("Bearer ", [""])
+    assert not webhooks.authorized(None, ["s" * 32])
+    assert not webhooks.authorized("Bearer " + "x" * 32, ["s" * 32])
+    assert webhooks.authorized("Bearer " + "s" * 32, ["s" * 32])
+    assert not webhooks.authorized("Bearer ", [""])
 
 
 def test_the_privileged_pod_is_only_ever_dry_run_where_admission_must_refuse_it():
     """S6428 kept (owner to review): the negative Pod Security test. It is never applied for real anywhere."""
     pod = yaml.safe_load((ROOT / "k8s" / "test" / "privileged-must-fail.yaml").read_text(encoding="utf-8"))
-    assert pod["metadata"]["namespace"] == "warden" and pod["spec"]["containers"][0]["securityContext"]["privileged"]
+    assert pod["metadata"]["namespace"] == "warden"
+    assert pod["spec"]["containers"][0]["securityContext"]["privileged"]
     namespace = yaml.safe_load((ROOT / "k8s" / "namespace.yaml").read_text(encoding="utf-8"))
     assert namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "restricted"
     uses = [line.strip() for p in [*ROOT.glob(".github/workflows/*.yml"), *ROOT.glob("scripts/*")] if p.is_file()
             for line in p.read_text(encoding="utf-8", errors="replace").splitlines()
             if "privileged-must-fail" in line and not line.strip().startswith("#")]
-    assert uses and all("--dry-run=server" in u for u in uses), uses
+    assert uses, uses
+    assert all("--dry-run=server" in u for u in uses), uses
     kustomization = yaml.safe_load((ROOT / "k8s" / "kustomization.yaml").read_text(encoding="utf-8"))
     assert not any("test" in r for r in kustomization.get("resources", []))
     assert "S6428" in (ROOT / "k8s" / "test" / "privileged-must-fail.yaml").read_text(encoding="utf-8")

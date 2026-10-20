@@ -40,7 +40,8 @@ def _tls_for(url):
     if not (pem and alb and url.startswith(alb + "/")):
         return None
     if not _ALB_TLS:
-        _ALB_TLS.append(ssl.create_default_context(cadata=pem))
+        pinned = ssl.create_default_context(cadata=pem)  # verifies the chain and the name, as every default context
+        _ALB_TLS.append(pinned)
     return _ALB_TLS[0]
 
 
