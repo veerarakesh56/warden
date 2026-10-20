@@ -46,12 +46,14 @@ def test_every_relative_link_resolves(rel):
 def test_the_code_of_conduct_is_the_contributor_covenant_2_1_with_a_github_contact():
     text = _text("CODE_OF_CONDUCT.md")
     assert text.startswith("# Contributor Covenant Code of Conduct")
-    assert "version 2.1" in text and "https://www.contributor-covenant.org/version/2/1/code_of_conduct.html" in text
+    assert "version 2.1" in text
+    assert "https://www.contributor-covenant.org/version/2/1/code_of_conduct.html" in text
     assert "[INSERT CONTACT METHOD]" not in text
     assert "[SECURITY.md](SECURITY.md)" in text  # reports go through GitHub, as security reports do
 
 
 def test_security_reports_go_through_github_private_reporting():
     text = _text("SECURITY.md")
-    assert "private vulnerability reporting" in text and "Report a vulnerability" in text
+    assert "private vulnerability reporting" in text
+    assert "Report a vulnerability" in text
     assert "public issue" in text  # and the fallback asks only for a private channel
