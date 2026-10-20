@@ -196,7 +196,7 @@ if [[ -n "$EKS_CLUSTER" ]]; then
   kubectl apply -f "$HERE/k8s/test/oom-workload.yaml"        2>&1 | tee -a "$OUT/run.log"
 
   # The same negative check CI runs on k3d, now on a cluster that enforces Pod Security for real.
-  if kubectl apply --dry-run=server -f "$HERE/k8s/test/privileged-must-fail.yaml" 2>"$OUT/reports/D-privileged-rejected.txt"; then
+  if "$PY" "$HERE/scripts/negative_pod.py" | kubectl apply --dry-run=server -f - 2>"$OUT/reports/D-privileged-rejected.txt"; then
     note "⛔ EKS ACCEPTED a privileged pod — Pod Security is not enforced on this namespace"
   else
     note "✅ EKS rejected the privileged pod"

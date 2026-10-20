@@ -26,6 +26,7 @@ on:
       - "tests/test_api_auth_ai13.py"
       - "tests/test_shop_app_log_s5145.py"
       - "tests/test_traffic_alb_tls.py"
+      - "tests/test_load_rng_s2245.py"
   # Pull requests into main only (2026-10-16): dev and prod receive commits main has already checked.
   pull_request:
     branches: [main]
@@ -50,6 +51,7 @@ on:
       - "tests/test_api_auth_ai13.py"
       - "tests/test_shop_app_log_s5145.py"
       - "tests/test_traffic_alb_tls.py"
+      - "tests/test_load_rng_s2245.py"
   # Weekly too: the deployed requirements are audited (pip-audit) even when nothing here changes - a new CVE
   # in a pinned redis or psycopg was noticed only at the next change or deploy (sixth review, 2026-10-01).
   schedule:

@@ -454,21 +454,20 @@ def test_the_database_services_have_no_fixed_password():
         assert ":${{ env.DB_TEST_PASSWORD }}@" in step["env"][var], (var, step["env"][var])
 
 
-def test_the_privileged_pod_stays_a_negative_test_and_every_linter_skip_says_why():
-    """Naming audit item 18 (2026-10-16): every IaC linter flags k8s/test/privileged-must-fail.yaml, which is its purpose.
-    Its skips say why, they are on that one object only, and the pod is still what Pod Security must refuse."""
-    import yaml
+def test_the_privileged_pod_stays_a_negative_test_and_no_linter_needs_a_skip():
+    """Naming audit item 18 (2026-10-16) and Sonar kubernetes:S6428 (owner, 2026-10-20): the negative test's pod is built
+    when the test runs (scripts/negative_pod.py), so no manifest asks for a privileged container and no file carries a
+    linter skip. The pod is still what Pod Security must refuse: privileged, as root."""
+    import json
+    import sys
 
     root = pathlib.Path(__file__).resolve().parents[1]
-    pod = yaml.safe_load((root / "k8s" / "test" / "privileged-must-fail.yaml").read_text(encoding="utf-8"))
+    pod = json.loads(subprocess.run([sys.executable, str(root / "scripts" / "negative_pod.py")], capture_output=True,
+                                    text=True, check=True).stdout)
     context = pod["spec"]["containers"][0]["securityContext"]
-    assert context["privileged"] is True and context["runAsUser"] == 0
-    notes = pod["metadata"]["annotations"]
-    checkov = [v for k, v in notes.items() if re.fullmatch(r"checkov\.io/skip\d+", k)]
-    linter = [v for k, v in notes.items() if re.fullmatch(r"ignore-check\.kube-linter\.io/[a-z0-9-]+", k)]
-    assert checkov and linter and len(checkov) + len(linter) == len(notes), notes
-    assert all(re.fullmatch(r"CKV2?_K8S_\d+=negative test - .+", v) for v in checkov), checkov
-    assert all(v.startswith("negative test - ") for v in linter), linter
+    assert context["privileged"] is True
+    assert context["runAsUser"] == 0
+    assert not (root / "k8s" / "test" / "privileged-must-fail.yaml").exists()
     skipping = subprocess.run(["git", "grep", "-l", "-e", "checkov.io/skip", "-e", "ignore-check.kube-linter.io", "--",
                                "*.yaml", "*.yml"], cwd=root, capture_output=True, text=True, check=False).stdout.split()
-    assert skipping == ["k8s/test/privileged-must-fail.yaml"], skipping
+    assert skipping == [], skipping

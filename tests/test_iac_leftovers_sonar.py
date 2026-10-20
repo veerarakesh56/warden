@@ -262,7 +262,7 @@ def test_no_image_grants_write_to_others_and_the_runtimes_tmp_stays_debians_stic
     assert "docker run --rm --read-only --entrypoint /opt/warden/bin/python warden-runtime:ci" in ci
 
 
-# ----------------------------------------------------------------- by design: S6333 and S6428
+# ----------------------------------------------------------------- S6333 and S6428
 
 
 def test_the_only_routes_without_an_authorizer_are_the_webhooks_and_the_approval_page():
@@ -281,18 +281,33 @@ def test_the_only_routes_without_an_authorizer_are_the_webhooks_and_the_approval
     assert not webhooks.authorized("Bearer ", [""])
 
 
-def test_the_privileged_pod_is_only_ever_dry_run_where_admission_must_refuse_it():
-    """S6428 kept (owner to review): the negative Pod Security test. It is never applied for real anywhere."""
-    pod = yaml.safe_load((ROOT / "k8s" / "test" / "privileged-must-fail.yaml").read_text(encoding="utf-8"))
+def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
+    """S6428 (owner, 2026-10-20: fixed, not kept by design): the negative Pod Security test is unchanged, but its pod is
+    built when the test runs (scripts/negative_pod.py) - no manifest in the tree asks for a privileged container, so
+    nothing applies one by mistake and no linter needs a skip. It only ever goes to a server-side dry run."""
+    import json
+    import subprocess
+    import sys
+
+    built = subprocess.run([sys.executable, str(ROOT / "scripts" / "negative_pod.py")], capture_output=True, text=True,
+                           check=True).stdout
+    pod = json.loads(built)
     assert pod["metadata"]["namespace"] == "warden"
-    assert pod["spec"]["containers"][0]["securityContext"]["privileged"]
+    context = pod["spec"]["containers"][0]["securityContext"]
+    assert context["privileged"] is True
+    assert context["runAsUser"] == 0
     namespace = yaml.safe_load((ROOT / "k8s" / "namespace.yaml").read_text(encoding="utf-8"))
     assert namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "restricted"
-    uses = [line.strip() for p in [*ROOT.glob(".github/workflows/*.yml"), *ROOT.glob("scripts/*")] if p.is_file()
+    # No manifest anywhere asks for a privileged container any more.
+    manifests = [p for p in ROOT.rglob("*.y*ml") if ".venv" not in p.parts and ".git" not in p.parts
+                 and "node_modules" not in p.parts]
+    assert manifests
+    assert not [p for p in manifests if "privileged: true" in p.read_text(encoding="utf-8", errors="replace")]
+    # Everything that builds it pipes it into a server-side dry run, and checks Pod Security's own reason.
+    uses = [line.strip() for p in [*ROOT.glob(".github/workflows/*.yml"), *ROOT.glob("scripts/*.sh")]
             for line in p.read_text(encoding="utf-8", errors="replace").splitlines()
-            if "privileged-must-fail" in line and not line.strip().startswith("#")]
-    assert uses, uses
-    assert all("--dry-run=server" in u for u in uses), uses
-    kustomization = yaml.safe_load((ROOT / "k8s" / "kustomization.yaml").read_text(encoding="utf-8"))
-    assert not any("test" in r for r in kustomization.get("resources", []))
-    assert "S6428" in (ROOT / "k8s" / "test" / "privileged-must-fail.yaml").read_text(encoding="utf-8")
+            if "negative_pod.py" in line and not line.strip().startswith("#")]
+    assert len(uses) == 2, uses
+    assert all("| kubectl apply --dry-run=server -f -" in u for u in uses), uses
+    ci = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")
+    assert 'grep -q "violates PodSecurity" err.txt' in ci

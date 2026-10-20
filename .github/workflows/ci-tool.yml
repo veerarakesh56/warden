@@ -299,7 +299,8 @@ jobs:
           # because the namespace's default ServiceAccount did not exist yet, and any 'forbidden' passed (ninth
           # review). So the ServiceAccount first.
           for _ in $(seq 1 30); do kubectl get serviceaccount default -n warden >/dev/null 2>&1 && break; sleep 2; done
-          if kubectl apply --dry-run=server -f k8s/test/privileged-must-fail.yaml 2>err.txt; then
+          # The pod is built here (scripts/negative_pod.py), never kept as a manifest: nothing can apply it by mistake.
+          if python3 scripts/negative_pod.py | kubectl apply --dry-run=server -f - 2>err.txt; then
             echo "::error::a privileged pod was ACCEPTED - Pod Security is not enforced"; exit 1
           fi
           grep -q "violates PodSecurity" err.txt || { echo "::error::rejected for the wrong reason:"; cat err.txt; exit 1; }

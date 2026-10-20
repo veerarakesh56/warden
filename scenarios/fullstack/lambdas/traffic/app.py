@@ -26,6 +26,10 @@ SKUS = [f"sku-{n}" for n in range(1, 21)]
 _TOKEN: list[str] = []  # the API's bearer token (audit A-I-13), read once per container
 _ALB_TLS: list[ssl.SSLContext] = []  # trusts the ALB's certificate only, built once per container
 
+# The load picks (which cart, SKU, customer or order id) come from the operating system's CSPRNG (Sonar python:S2245,
+# 2026-10-20): never seeded, so nothing can replay or predict them, and nothing here needs them reproducible.
+_RNG = random.SystemRandom()
+
 
 def _bearer():
     if not _TOKEN:
@@ -61,21 +65,19 @@ def _call(method, url, body=None, headers=None):
         return 0
 
 
-# `random`, not `secrets`, on purpose (Sonar python:S2245, 2026-10-16): these numbers only pick synthetic load -
-# which cart, SKU, customer or order id to send or look up. Nothing guesses, signs or trusts them.
 def handler(event, context):
     n_checkout = int(os.environ.get("CHECKOUTS_PER_MIN", "10"))
     n_orders = int(os.environ.get("ORDERS_PER_MIN", "10"))
     statuses = {"checkout": [], "orders": []}
     for _ in range(n_checkout):
-        cart = f"cart-{random.randint(1, 500)}"
-        payload = {"cart_id": cart, "items": [{"sku": random.choice(SKUS), "qty": random.randint(1, 3)}]}
+        cart = f"cart-{_RNG.randint(1, 500)}"
+        payload = {"cart_id": cart, "items": [{"sku": _RNG.choice(SKUS), "qty": _RNG.randint(1, 3)}]}
         statuses["checkout"].append(_call("POST", os.environ["API_URL"] + "/checkout", payload, _bearer()))
         statuses["orders"].append(_call("GET", os.environ["ALB_URL"] + "/orders"))
     for _ in range(n_orders):
-        order = {"order_id": str(uuid.uuid4()), "cart_id": f"cart-{random.randint(1, 500)}",
-                 "customer_id": f"cust-{random.randint(1, 50000)}",
-                 "sku": random.choice(SKUS), "qty": random.randint(1, 3)}
+        order = {"order_id": str(uuid.uuid4()), "cart_id": f"cart-{_RNG.randint(1, 500)}",
+                 "customer_id": f"cust-{_RNG.randint(1, 50000)}",
+                 "sku": _RNG.choice(SKUS), "qty": _RNG.randint(1, 3)}
         SQS.send_message(QueueUrl=os.environ["ORDERS_QUEUE_URL"], MessageBody=json.dumps(order))
     bad = {k: sum(1 for s in v if not 200 <= s < 300) for k, v in statuses.items()}
     level = logging.ERROR if any(bad.values()) else logging.INFO
