@@ -30,19 +30,43 @@ def test_the_file_exists_and_holds_no_email_address(rel):
     assert not _EMAIL.findall(text), (rel, _EMAIL.findall(text))
 
 
-@pytest.mark.parametrize("rel", FILES)
-def test_every_relative_link_resolves(rel):
-    base = (ROOT / rel).parent
+_REFERENCE_USE = re.compile(r"\]\[([^\]]*)\]")  # [text][label], or [label][] with the text as label
+_REFERENCE_FULL = re.compile(r"\[([^\]]+)\]\[\]")
+_REFERENCE_LABEL = re.compile(r"^ {0,3}\[([^\]]+)\]:", re.MULTILINE)
+
+
+def _broken_links(text: str, base: pathlib.Path) -> list[str]:
+    """Every link target that does not resolve to a file inside the repository, every external link that is not
+    https, and every reference use whose label has no definition."""
     broken = []
-    text = _text(rel)
     for target in _LINK.findall(text) + _REFERENCE_LINK.findall(text):
         if target.startswith(("https://", "#")):
             continue
-        assert not target.startswith("http://"), (rel, target)  # an external link is https
-        path = target.split("#", 1)[0]
-        if not (base / path).exists():
+        path = (base / target.split("#", 1)[0]).resolve()
+        # http://, an absolute path, a `..` or a symlink out of the repository: none is a repository link.
+        if target.startswith("http://") or not path.is_relative_to(ROOT.resolve()) or not path.exists():
             broken.append(target)
-    assert not broken, (rel, broken)
+    defined = {label.strip().lower() for label in _REFERENCE_LABEL.findall(text)}
+    used = [u.lower() for u in _REFERENCE_USE.findall(text) if u] + [u.lower() for u in _REFERENCE_FULL.findall(text)]
+    broken += [f"[{u}] (no definition)" for u in used if u.strip() not in defined]
+    return broken
+
+
+@pytest.mark.parametrize("rel", FILES)
+def test_every_relative_link_resolves(rel):
+    assert not _broken_links(_text(rel), (ROOT / rel).parent), rel
+
+
+@pytest.mark.parametrize("text", ["[a](http://example.org)", "[a](../../../etc/hostname)", "[a](/etc/hostname)",
+                                  "[a](docs/NOPE.md)", "see [details][missing]", "see [nowhere][]",
+                                  "[x]: http://example.org"])
+def test_a_link_outside_the_repository_insecure_or_undefined_is_broken(text):
+    assert _broken_links(text, ROOT)
+
+
+def test_good_links_pass():
+    text = "[a](SECURITY.md) [b](https://example.org) [c][home] [home][]\n\n[home]: https://example.org\n"
+    assert _broken_links(text, ROOT) == []
 
 
 def test_the_code_of_conduct_is_the_contributor_covenant_2_1_with_a_github_contact():
