@@ -286,9 +286,23 @@ class AuditLog:
 
     def append(self, correlation_id: str, kind: str, body: dict[str, Any]) -> str:
         """Add one row and return its hash."""
+        return self._append(correlation_id, kind, body, None)[0]
+
+    def append_unless(self, correlation_id: str, kind: str, body: dict[str, Any],
+                      refuse: Callable[[], str]) -> tuple[str, str]:
+        """Add one row unless `refuse()` gives a reason: (the row's hash, "") when written, ("", the reason) when not.
+        `refuse` reads inside the write's own transaction, and every writer appends under one lock (a transaction-scoped
+        advisory lock on PostgreSQL, BEGIN IMMEDIATE on SQLite), so no row from any worker lands between its read and
+        the write: a check-and-set across workers (B20, locks.py). `refuse` reads through `entries`, never `append`."""
+        return self._append(correlation_id, kind, body, refuse)
+
+    def _append(self, correlation_id: str, kind: str, body: dict[str, Any],
+                refuse: Callable[[], str] | None) -> tuple[str, str]:
         text = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
         at = self.clock().astimezone(UTC).isoformat(timespec="microseconds")
         with self._lock, self.store.transaction():
+            if refuse is not None and (why := refuse()):
+                return "", why
             last = self.store.run("SELECT seq, hash FROM entries ORDER BY seq DESC LIMIT 1").fetchone()
             seq, prev = (last[0] + 1, last[1]) if last else (1, GENESIS)
             digest = _hash(prev, seq, at, correlation_id, kind, text)
@@ -296,7 +310,7 @@ class AuditLog:
                            (seq, at, correlation_id, kind, text, prev, digest))
         if self.key is not None and seq % self.checkpoint_every == 0:
             self.checkpoint()
-        return digest
+        return digest, ""
 
     def checkpoint(self) -> int | None:
         """Sign the current head. Returns its sequence number (None for an empty log or no key)."""
