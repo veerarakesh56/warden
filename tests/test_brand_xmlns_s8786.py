@@ -1,6 +1,7 @@
 """brand._drop_xmlns removes what the old regex removed - every xmlns attribute that follows white space, with that white
 space - in time that grows with the text's length (Sonar python:S8786, 2026-10-17: 20,000 spaces took the regex 1.7 s,
-the square of the run). It was compared with the regex on 400,000 random strings when it was written (PR text)."""
+the square of the run). Timed in this process's own CPU time, so a busy machine does not count. It was compared with
+the regex on 400,000 random strings when it was written (PR text)."""
 
 from __future__ import annotations
 
@@ -35,6 +36,6 @@ def test_the_logo_is_unchanged():
 @pytest.mark.parametrize("text", [" " * 200_000 + "x", 'xmlns="' * 40_000, ' xmlns="' + "a" * 200_000,
                                   ' xmlns="a"' * 20_000], ids=["spaces", "quotes", "unclosed", "many"])
 def test_the_worst_inputs_are_read_in_linear_time(text):
-    start = time.perf_counter()
+    start = time.process_time()
     brand._drop_xmlns(text)
-    assert time.perf_counter() - start < 1.0
+    assert time.process_time() - start < 1.0
