@@ -38,8 +38,7 @@
         "secretsmanager:*",
         "ssm:GetParameter",
         "ssm:GetParameters",
-        "ssm:GetParametersByPath",
-        "ssm:PutParameter"
+        "ssm:GetParametersByPath"
       ],
       "Resource": [
         "arn:aws:s3:::warden-ops-*",
@@ -56,6 +55,12 @@
         "arn:aws:kms:ap-south-2:*:key/*",
         "arn:aws:kms:ap-south-2:*:alias/warden-ops-*"
       ]
+    },
+    {
+      "Sid": "CeilingThePauseSwitch",
+      "Effect": "Allow",
+      "Action": "ssm:PutParameter",
+      "Resource": "arn:aws:ssm:ap-south-2:*:parameter/warden/ops/tf/paused"
     },
     {
       "Sid": "CeilingRdsSecret",
