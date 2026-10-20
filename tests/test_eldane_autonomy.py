@@ -379,7 +379,7 @@ def _run(world, drive, **req):
         async with env, Worker(env.client, task_queue="eldane-test", workflows=[RemediationWorkflow],
                                activities=methods, activity_executor=ThreadPoolExecutor(4)):
             handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**{**REQ, **req}),
-                                                     id=f"rem-{uuid.uuid4()}", task_queue="eldane-test")
+                                                     id=f"rem-{uuid.uuid4().hex[:12]}", task_queue="eldane-test")
             await drive(handle)
             return await handle.result()
     return asyncio.run(main())
@@ -656,7 +656,7 @@ def test_the_re_enable_runs_through_its_own_workflow_in_the_core_zone(world):
         async with env, Worker(env.client, task_queue="autonomy-test", workflows=[AutonomyWorkflow],
                                activities=[acts.autonomy_state, acts.autonomy_enable],
                                activity_executor=ThreadPoolExecutor(2)):
-            handle = await env.client.start_workflow(AutonomyWorkflow.run, "dev", id=f"autonomy-dev-{uuid.uuid4()}",
+            handle = await env.client.start_workflow(AutonomyWorkflow.run, "dev", id=f"autonomy-dev-{uuid.uuid4().hex[:12]}",
                                                      task_queue="autonomy-test")
             state = None
             for _ in range(200):
@@ -733,7 +733,7 @@ def test_where_eldane_cannot_approve_the_person_is_asked_before_it_reviews(world
     out = _run(world, person_says_no, environment="prod")
     assert out.status == "denied"
     log = world["log"]
-    opening = [e["seq"] for e in log.entries(INC, kinds=("remediation.announce",)) if e["body"]["what"] == "opening"]
+    opening = [e["seq"] for e in log.entries(INC, kinds=("remediation.announce",)) if e["body"]["what"] == "waiting"]
     reviewed = [e["seq"] for e in log.entries(INC, kinds=(autonomy.VERDICT,))]
     assert opening
     assert reviewed
