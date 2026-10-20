@@ -455,3 +455,22 @@ def test_a_second_opinion_escalation_alone_is_also_kept_after_a_takeover():
                                       reasons=["x"]), route={"fired": []})
     after = Verified(verdict=Verdict(status=VerdictStatus.approved_for_human, policy_ids=[], reasons=["ok"]))
     assert still_held(after, before).verdict.status == VerdictStatus.escalated
+
+
+def test_a_routing_failure_after_the_answer_keeps_the_verdict_and_holds_for_a_person(world, monkeypatch):
+    def broken(*_a, **_k):
+        raise RuntimeError("no data file")
+
+    monkeypatch.setattr(routing, "after_answer", broken)
+    acts, pack = world["acts"], world["pack"]
+    verified = acts.verify(pack, world["diagnosed"])
+    assert verified.verdict.status is not None
+    assert verified.route["take_over"] is False
+    assert verified.route["needs_person"] is True
+    assert routing.needs_person(world["log"], pack.alert.alert_id)
+    # The second opinion still escalates a disagreement.
+    approved = Verified(verdict=Verdict(status=VerdictStatus.approved_for_human, policy_ids=[], reasons=["ok"]))
+    other = world["easy"].model_copy(update={"proposal": world["easy"].proposal.model_copy(
+        update={"target": "another-service"})})
+    held = acts.second_opinion(pack, world["easy"], other, approved)
+    assert held.verdict.status == VerdictStatus.escalated
