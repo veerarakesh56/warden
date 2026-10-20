@@ -45,7 +45,7 @@ STEP = {
     "incident.report": "Report written", "incident.notify": "Report sent", "incident.plan_fix": "Fix plan looked for",
     "incident.no_plan": "No fix plan", "incident.after_hold": "Looked at again after expected down",
     "incident.evidence": "Evidence kept for questions",
-    "record.link": "Linked to another record by an approver (links.py)",
+    "record.link": "Linked to another record by an approver",
     "intake.side_effect": "Another alarm started while this fix was checked",
     "remediation.side_effects": "Other alarms started after this fix - each diagnosed on its own", "remediation.rediagnose": "Diagnosed again",
     "incident.later_alarm": "Another alarm started after this fix - diagnosed beside it",
@@ -563,7 +563,7 @@ def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
         if e["kind"] in _QUIET:
             continue
         said = (TOLD.get(str(e["body"].get("what")), "Told people how the fix ended")
-                if e["kind"] == "remediation.announce" else STEP.get(e["kind"], e["kind"]))
+                if e["kind"] == "remediation.announce" else _step(e))
         brief = _brief(e, r.shown)
         steps.append(f'<tr><td><time>{_e(_when(e["at"]))}</time></td><td>{_e(said)}</td>'
                      f'<td class="small">{_e(r.named(brief) if r.named else brief)}</td></tr>')
@@ -609,6 +609,13 @@ def _at(value: Any) -> datetime | None:
         return datetime.fromisoformat(str(value))
     except ValueError:
         return None
+
+
+def _step(e: dict[str, Any]) -> str:
+    """A step's plain words; a link taken back says so (CodeRabbit, PR 56: it read as a new link)."""
+    if e["kind"] == "record.link" and e["body"].get("removed"):
+        return "A link to another record was taken back by an approver"
+    return STEP.get(e["kind"], e["kind"])
 
 
 def linked(r: Record) -> str:
