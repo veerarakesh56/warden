@@ -67,16 +67,17 @@ resource "aws_iam_role_policy" "audit_backup" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "SnapshotTheAuditCluster"
-        Effect   = "Allow"
-        Action   = ["rds:CreateDBClusterSnapshot", "rds:AddTagsToResource"]
+        # The selection names the cluster by ARN, so no tag lookup (tag:GetResources) is needed.
+        Sid    = "SnapshotTheAuditCluster"
+        Effect = "Allow"
+        Action = [
+          "rds:CreateDBClusterSnapshot",
+          "rds:AddTagsToResource",
+          "rds:DescribeDBClusters",
+          "rds:DescribeDBClusterSnapshots",
+          "rds:ListTagsForResource",
+        ]
         Resource = [local.audit_db.arn, "arn:aws:rds:${local.region}:${local.account}:cluster-snapshot:awsbackup:*"]
-      },
-      {
-        Sid      = "ReadIt"
-        Effect   = "Allow"
-        Action   = ["rds:DescribeDBClusters", "rds:DescribeDBClusterSnapshots", "rds:ListTagsForResource", "tag:GetResources"]
-        Resource = "*"
       },
       {
         Sid      = "IntoTheVault"
@@ -90,12 +91,17 @@ resource "aws_iam_role_policy" "audit_backup" {
         Action   = "backup:TagResource"
         Resource = "arn:aws:backup:${local.region}:${local.account}:recovery-point:*"
       },
-      { Sid = "TheClustersKey", Effect = "Allow", Action = "kms:DescribeKey", Resource = "*" },
+      {
+        Sid      = "TheClustersKey"
+        Effect   = "Allow"
+        Action   = "kms:DescribeKey"
+        Resource = "arn:aws:kms:${local.region}:${local.account}:key/*"
+      },
       {
         Sid       = "GrantsForTheSnapshotOnly"
         Effect    = "Allow"
         Action    = "kms:CreateGrant"
-        Resource  = "*"
+        Resource  = "arn:aws:kms:${local.region}:${local.account}:key/*"
         Condition = { Bool = { "kms:GrantIsForAWSResource" = "true" } }
       },
     ]

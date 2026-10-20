@@ -115,7 +115,8 @@ def test_one_monthly_audit_copy_in_this_regions_vault_kept_past_aurora_s_35_days
     assert "kms_key_arn" not in _resource(tf, "aws_backup_vault", "audit")  # AWS-managed key
     selection = _resource(tf, "aws_backup_selection", "audit")
     assert re.search(r"resources\s*=\s*\[local\.audit_db\.arn\]", selection)
-    assert "selection_tag" not in selection and "condition" not in selection  # this database only
+    assert "selection_tag" not in selection  # this database only
+    assert "condition" not in selection
     assert re.search(r"audit_backup\s*=\s*var\.audit_monthly_backup && !var\.aws_free_plan \? 1 : 0", tf)
     variables = _code((RUNTIME / "variables.tf").read_text(encoding="utf-8"))
     block = variables.split('variable "audit_monthly_backup" {', 1)[1].split("\n}", 1)[0]
@@ -132,9 +133,10 @@ def test_the_backup_role_snapshots_this_cluster_into_this_vault_and_deletes_noth
     action_lines = re.findall(r"Action\s*=\s*(\[[^\]]*\]|\"[^\"]*\")", policy)
     actions = {a for line in action_lines for a in re.findall(r'"([\w-]+:\w+)"', line)}
     assert actions == {"rds:CreateDBClusterSnapshot", "rds:AddTagsToResource", "rds:DescribeDBClusters",
-                       "rds:DescribeDBClusterSnapshots", "rds:ListTagsForResource", "tag:GetResources",
+                       "rds:DescribeDBClusterSnapshots", "rds:ListTagsForResource",
                        "backup:DescribeBackupVault", "backup:CopyIntoBackupVault", "backup:TagResource",
                        "kms:DescribeKey", "kms:CreateGrant"}
+    assert 'Resource = "*"' not in " ".join(policy.split()).replace("Resource  =", "Resource =")  # nothing account-wide
     assert "local.audit_db.arn" in policy
     assert "cluster-snapshot:awsbackup:*" in policy
     assert '"kms:GrantIsForAWSResource" = "true"' in policy
