@@ -198,6 +198,9 @@ failure each one prevents are listed in [`ai-boundary.md`](ai-boundary.md).
   person; WARDEN never applies a fix on that account.
   The page also lists the related records WARDEN finds in its own rows (a re-diagnosis, an alarm after a fix, a
   relapse, the same alarm or resource), marked as WARDEN's finding.
+- **Postmortem drafts** (`postmortem.py`): each incident's page carries a draft postmortem, marked as one,
+  built only from its signed record - timeline, root cause as WARDEN named it, what was done, what verified it
+  and next steps per team - for a person to review and complete.
 - **Discussion** (`discuss.py`): anyone in a second Slack channel can ask WARDEN about an incident; WARDEN
   answers from the incident's own evidence. Only an enrolled approver may ask for a new plan, and that plan
   still needs a passkey approval.
