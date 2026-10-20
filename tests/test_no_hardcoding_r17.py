@@ -121,6 +121,7 @@ NOT_AN_ENVIRONMENT = {
     "scenarios/runner.py": ({"prod"}, "the dry runs' sample alerts"),
     "scenarios/fullstack_cli.py": ({"prod"}, "the dry run's sample alert"),
     "scenarios/ops_fullstack.py": ({"ops"}, "a result key named `ops`"),
+    "scripts/pause_resume.py": ({"ops"}, "the full stack's Lambda named `ops` (its lambda.tf)"),
 }
 
 
