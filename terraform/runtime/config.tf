@@ -13,6 +13,8 @@
 locals {
   config_recorder = toset(compact([lookup(local.tf, "config_recorder_name", "")]))
   config_channel  = lookup(local.tf, "config_bucket", "") == "" ? toset([]) : toset([for r in local.config_recorder : lookup(local.tf, "config_delivery_channel_name", "default")])
+  # Kept on only with its channel too: AWS Config refuses to start a recorder that has no delivery channel.
+  config_status = length(local.config_channel) == 0 ? toset([]) : local.config_recorder
 }
 
 import {
@@ -49,14 +51,14 @@ resource "aws_config_delivery_channel" "this" {
 }
 
 import {
-  for_each = local.config_recorder
+  for_each = local.config_status
   to       = aws_config_configuration_recorder_status.this[each.key]
   id       = each.key
 }
 
 # The one thing Terraform holds: the recorder records. A stopped recorder is started again (StartConfigurationRecorder).
 resource "aws_config_configuration_recorder_status" "this" {
-  for_each   = local.config_recorder
+  for_each   = local.config_status
   name       = each.key
   is_enabled = true
   depends_on = [aws_config_delivery_channel.this]

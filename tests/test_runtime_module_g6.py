@@ -599,6 +599,9 @@ def test_the_recorder_is_adopted_and_never_created():
     for setting in ("recording_group", "recording_mode", "s3_kms_key_arn", "sns_topic_arn", "snapshot_delivery"):
         assert setting not in text, setting
     assert re.search(r"is_enabled\s*=\s*true", resources["aws_config_configuration_recorder_status"])
+    # Started only when its channel is there too (Config refuses a recorder with no delivery channel).
+    assert "config_status = length(local.config_channel) == 0 ? toset([]) : local.config_recorder" in " ".join(
+        text.split())
     assert 'compact([lookup(local.tf, "config_recorder_name", "")])' in text  # off until SSM names it
 
 
@@ -607,14 +610,16 @@ def test_the_deploy_role_can_adopt_the_recorder_and_keep_it_on_but_never_change_
     stops or deletes either, or passes a role to Config - and the boundary allows no more than the reads and a start."""
     import json
 
-    grants = [a for kind in ("deploy", "deploy-ec2", "deploy-guard", "deploy-config")
+    allows = [st for kind in ("deploy", "deploy-ec2", "deploy-guard", "deploy-config")
               for st in json.loads((ROOT / "iam" / "ops" / f"{kind}.json").read_text(encoding="utf-8"))["Statement"]
-              if st["Effect"] == "Allow" for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])]
+              if st["Effect"] == "Allow"]
+    grants = [a for st in allows for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])]
     config = sorted(a for a in grants if a.startswith("config:"))
     assert config == ["config:DescribeConfigurationRecorderStatus", "config:DescribeConfigurationRecorders",
                       "config:DescribeDeliveryChannels", "config:ListTagsForResource",
                       "config:StartConfigurationRecorder"]
-    assert "config.amazonaws.com" not in json.dumps(grants)
+    # No whole statement - resource or condition - passes a role to Config.
+    assert not [st.get("Sid") for st in allows if "config.amazonaws.com" in json.dumps(st) or "ForConfig" in json.dumps(st)]
     boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
     ceiling = next(st for st in boundary["Statement"] if st.get("Sid") == "CeilingRegional")
     assert sorted(a for a in ceiling["Action"] if a.startswith("config:")) == [
