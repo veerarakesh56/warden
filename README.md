@@ -348,7 +348,8 @@ identity is [`k8s/remediation-rbac.yaml`](k8s/remediation-rbac.yaml): get and pa
 policy to the replica count and the restart annotation. In the cloud runtime the read and act zones connect Kubernetes
 and the database too (`--platform aws,k8s,db`): reads in each watched environment's platform-reader role (view-only on
 EKS; the database's pg_monitor login), every write in the approved plan's own actor session (on EKS the remediator
-group, bound in `shop` only; on the database the `warden_<env>_terminate` login, an IAM token and no password). An
+group, bound in `shop` only; on the database the `warden_<env>_terminate` login, an IAM token and no password, its
+server's certificate verified, on the cluster the approved plan was read from). An
 environment with no EKS cluster (`WARDEN_EKS_CLUSTERS`) or database (`WARDEN_DB_ENVIRONMENT`) configured reads and
 changes nothing there; its plans go to a person.
 

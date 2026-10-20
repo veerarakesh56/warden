@@ -249,7 +249,7 @@ class DatabasePlatform:
     def __init__(self, *, dsn: str | None = None, engine: str | None = None, conn: Any = None,
                  app_users: list[str] | None = None, max_terminate: int = MAX_TERMINATE,
                  environment: str | None = None, sign: Callable[[str], str] | None = None,
-                 writer: Callable[[dict[str, Any]], Any] | None = None) -> None:
+                 writer: Callable[[dict[str, Any]], Any] | None = None, writes_to: str | None = None) -> None:
         self._dsn = dsn or settings.getenv("WARDEN_DB_TERMINATE_DSN") or None
         # A database carries no tag WARDEN can read: whoever configures the connection states its environment
         # (P18, register S6). Unset, it is in no environment WARDEN may change.
@@ -276,6 +276,9 @@ class DatabasePlatform:
         # connection of its own for that plan's close (an actor session's token), closed after it. Without a writer
         # the one connection reads and closes, as with a DSN that carries its own credentials.
         self._sign, self._writer = sign, writer
+        # `writes_to`: the DSN the writer's connections reach. The plan was read through another (the read zone's), so a
+        # close goes ahead only when both name the same Aurora cluster (review, PR 48).
+        self._writes_to = writes_to
 
     def _connection(self) -> Any:
         if self._conn is None:
@@ -393,7 +396,7 @@ class DatabasePlatform:
             try:
                 if entry == _BLOCKER:
                     return self._close_blocker(params, snapshot or {}, who)
-                return self._apply(entry, params, who)
+                return self._apply(entry, params, who, snapshot or {})
             except DatabasePlatformError as exc:
                 if exc.__cause__ is not None:  # the server failed, not the plan: reconnect next time
                     self._drop()
@@ -404,10 +407,16 @@ class DatabasePlatform:
                         self._opened.close()
                     self._opened = None
 
-    def _for_write(self, who: dict[str, Any] | None) -> Any:
-        """The plan's own connection, in an actor session minted for it - never the reader's."""
+    def _for_write(self, who: dict[str, Any] | None, snapshot: dict[str, Any]) -> Any:
+        """The plan's own connection, in an actor session minted for it - never the reader's - to the cluster the
+        approved plan was read from."""
         if not who or not who.get("approvers"):
             raise DatabasePlatformRefused("a close needs the approved plan's actor session; nothing is closed")
+        if self._writes_to is not None:
+            read, writes = aurora_cluster(str(snapshot.get("server", ""))), aurora_cluster(self._writes_to)
+            if read is None or read != writes:
+                raise DatabasePlatformRefused("the terminate login does not reach the Aurora cluster the approved plan "
+                                            "was read from; nothing is closed")
         try:
             self._opened = self._writer(who)
         except Exception as exc:
@@ -415,7 +424,8 @@ class DatabasePlatform:
                                         "closed") from exc
         return self._opened
 
-    def _checked(self, params: dict[str, Any], who: dict[str, Any] | None = None) -> tuple[str, Any]:
+    def _checked(self, params: dict[str, Any], who: dict[str, Any] | None = None,
+                 snapshot: dict[str, Any] | None = None) -> tuple[str, Any]:
         """(database, connection) once the plan names this platform's database and the application logins exclude
         the platform's own; refused otherwise, before anything is closed."""
         if not self._users:
@@ -424,10 +434,10 @@ class DatabasePlatform:
         if self._writer is None:
             name = self._database()
         else:
-            conn = self._for_write(who)
+            conn = self._for_write(who, snapshot or {})
             try:
                 name = self._sql.database(conn)
-            except Exception:  # noqa: BLE001 - unreadable: refused below
+            except Exception:  # unreadable: refused below  # noqa: BLE001
                 name = None
         if name is None or params.get("database") != name:
             raise DatabasePlatformRefused(f"database {params.get('database')!r} is not the one this platform is "
@@ -454,7 +464,7 @@ class DatabasePlatform:
         if not (isinstance(pid, str) and pid.isdigit() and isinstance(seen, dict) and seen.get("pid") == pid
                 and seen.get("backend_start")):
             raise DatabasePlatformRefused(f"pid {pid!r} is not a session the approved plan showed blocking others")
-        name, conn = self._checked(params, who)
+        name, conn = self._checked(params, who, snapshot)
         try:
             closed = self._sql.terminate_blocker(conn, int(pid), seen["backend_start"], self._users, BLOCK_SECS)
         except Exception as exc:
@@ -463,7 +473,8 @@ class DatabasePlatform:
             return f"session {pid} in {name} no longer blocks anyone (or is another session now); nothing closed"
         return f"closed session {pid} in {name}, which was blocking others (started {seen['backend_start']})"
 
-    def _apply(self, entry: str, params: dict[str, Any], who: dict[str, Any] | None) -> str:
+    def _apply(self, entry: str, params: dict[str, Any], who: dict[str, Any] | None,
+               snapshot: dict[str, Any] | None = None) -> str:
         if entry != _ENTRY:
             raise DatabasePlatformRefused(f"{entry} is not something the database platform does "
                                         f"(it does {', '.join(_ENTRIES)} only)")
@@ -472,7 +483,7 @@ class DatabasePlatform:
                 or idle < IDLE_SECS or not 1 <= limit <= self._max:
             raise DatabasePlatformRefused(f"min_idle_seconds={idle!r} / max_sessions={limit!r} are outside the "
                                         f"bounds (idle at least {IDLE_SECS}s, 1..{self._max} sessions)")
-        name, conn = self._checked(params, who)
+        name, conn = self._checked(params, who, snapshot)
         try:
             # The ceiling again in Python: a broken LIMIT must not widen what is closed.
             ids = self._sql.candidates(conn, idle, limit, self._users)[:limit]
@@ -537,15 +548,26 @@ def db_from_environment() -> Any:
                                            plan_hash=who["plan_hash"], approvers=who["approvers"],
                                            actions=["rds-db:connect"],
                                            resources=[dbuser_arn(reader("rds"), write_dsn, actor_arn)])
-            return adapter_for("postgres").connect(iam_dsn(session_clients(creds, where)("rds"), write_dsn))
+            return adapter_for("postgres").connect(iam_dsn(session_clients(creds, where)("rds"), write_dsn, verify=True))
 
-        return DatabasePlatform(dsn=read_dsn or write_dsn, engine="postgres", environment=env, sign=sign,
+        return DatabasePlatform(dsn=read_dsn or write_dsn, engine="postgres", environment=env, sign=sign, writes_to=write_dsn,
                                 writer=writer)
 
     return PerEnvironment(build, "database")
 
 
 # An Aurora cluster endpoint: `<cluster>.cluster-<id>.<region>.rds.amazonaws.com`.
+_WRITER_ENDPOINT = re.compile(r"(?<![\w.-])([a-z][a-z0-9-]{0,62}+)\.cluster-([a-z0-9]++)\.([a-z0-9.-]++)")
+
+
+def aurora_cluster(text: str) -> tuple[str, str, str] | None:
+    """(cluster, endpoint id, the rest of the host) of the one Aurora cluster WRITER endpoint `text` names - a DSN, or a plan's
+    `server` - or None: none, more than one, or a reader (`cluster-ro-`) or instance endpoint, none of which proves
+    which cluster's writer a session is on. Endpoints, not raw hosts, are compared (review, PR 48)."""
+    found = {m.groups() for m in _WRITER_ENDPOINT.finditer(text.lower())}
+    return next(iter(found)) if len(found) == 1 else None
+
+
 _CLUSTER_ENDPOINT = re.compile(r"([a-z][a-z0-9-]{0,62})\.cluster-[a-z0-9]+\.")
 
 
@@ -557,7 +579,7 @@ def dbuser_arn(rds: Any, dsn: str, role_arn: str) -> str:
     parts = conninfo_to_dict(dsn)
     host, user = str(parts.get("host") or ""), str(parts.get("user") or "")
     found = _CLUSTER_ENDPOINT.match(host)
-    if not found or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", user):
+    if not found or not re.fullmatch(r"[A-Za-z_]\w{0,62}", user, re.ASCII):
         raise DatabasePlatformRefused("WARDEN_DB_TERMINATE_DSN names no Aurora cluster endpoint and login")
     [cluster] = rds.describe_db_clusters(DBClusterIdentifier=found.group(1))["DBClusters"]
     account = role_arn.split(":")[4]

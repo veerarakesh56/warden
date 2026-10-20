@@ -1203,7 +1203,8 @@ def test_the_actor_maps_to_the_remediator_group_only_and_connects_only_as_the_te
     eks = (ROOT / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
     entry = eks[eks.index('resource "aws_eks_access_entry" "warden_actor"'):]
     entry = entry[:entry.index("\n}\n")]
-    assert 'kubernetes_groups = ["warden-remediators"]' in entry and "-actor" in entry
+    assert 'kubernetes_groups = ["warden-remediators"]' in entry
+    assert "-actor" in entry
     assert '"warden-remediator:{{SessionName}}"' in entry  # the incident, into the Kubernetes audit log
     assert "warden_actor" not in eks.replace('"aws_eks_access_entry" "warden_actor"', "")  # no access policy: RBAC only
     # The reader's one group: the shop Application's get (register C4, k8s/argocd/shop.yaml; tests/test_automation_c4).
@@ -1212,17 +1213,29 @@ def test_the_actor_maps_to_the_remediator_group_only_and_connects_only_as_the_te
     # In the shop namespace only, to the remediator role the admission policy narrows (test_platform_k8s).
     docs = list(yaml.safe_load_all((ROOT / "manifests" / "shop" / "base" / "warden-rbac.yaml").read_text(encoding="utf-8")))
     [rb] = [d for d in docs if d["kind"] == "RoleBinding" and d["roleRef"]["name"] == "warden-remediator"]
-    assert rb["metadata"]["namespace"] == "shop" and rb["subjects"] == [
-        {"kind": "Group", "name": "warden-remediators", "apiGroup": "rbac.authorization.k8s.io"}]
+    assert rb["metadata"]["namespace"] == "shop"
+    assert rb["subjects"] == [{"kind": "Group", "name": "warden-remediators", "apiGroup": "rbac.authorization.k8s.io"}]
     actor = json.loads((ROOT / "iam" / "templates" / "actor.json").read_text(encoding="utf-8"))
     connects = [st for st in actor["Statement"] if "rds-db:connect" in str(st["Action"])]
-    assert [st["Resource"] for st in connects] == ["arn:aws:rds-db:${region}:*:dbuser:*/warden_${env_sql}_terminate"]
+    assert [st["Resource"] for st in connects] == ["arn:aws:rds-db:${region}:${account}:dbuser:*/warden_${env_sql}_terminate"]
     assert connects[0]["Condition"] == {"StringLike": {"aws:SourceIdentity": "inc-*"}}
 
 
 def test_the_runtimes_nat_addresses_reach_the_cluster_endpoint_by_name_not_by_literal():
     eks = (ROOT / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
     assert "public_access_cidrs     = local.eks_public_access_cidrs" in eks
-    assert 'data "aws_eips" "runtime_nat"' in eks and "data.aws_eips.runtime_nat.public_ips" in eks
-    assert '.runtime}-nat-*"' in eks  # environments.yaml's runtime, as terraform/runtime/network.tf names its NAT
+    assert 'data "aws_eips" "runtime_nat"' in eks
+    assert "data.aws_eips.runtime_nat.public_ips" in eks
+    # environments.yaml's runtime, as terraform/runtime/network.tf names its NAT
+    assert 'runtime_env    = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).runtime' in eks
+    lookup = eks[eks.index('data "aws_eips" "runtime_nat"'):]
+    lookup = lookup[:lookup.index("\n}\n")]
+    assert '"warden-${local.runtime_env}-nat-*"' in lookup
+    # Only the runtime stack's own (review, PR 48): the tags its provider sets, and its region or no plan.
+    for tag, value in (("Environment", "local.runtime_env"), ("Project", '"warden"'), ("ManagedBy", '"terraform"')):
+        assert f'name   = "tag:{tag}"\n    values = [{value}]' in lookup, tag
+    assert "precondition" in lookup
+    assert "local.region == yamldecode(" in lookup
+    runtime = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+    assert 'tags = { Project = "warden", Environment = local.env, ManagedBy = "terraform" }' in runtime
     assert not re.search(r"\d+\.\d+\.\d+\.\d+/\d+", eks.replace("0.0.0.0/0", ""))

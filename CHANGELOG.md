@@ -7,6 +7,22 @@ bump may carry a breaking change.
 
 ## [Unreleased] - becomes 0.10.1 (G1, security-critical fixes)
 
+### Added (Kubernetes and the database in the cloud runtime, PR 48, 2026-10-17)
+- **The read and act zones connect Kubernetes and the database** (`--platform aws,k8s,db`): reads in each watched
+  environment's platform-reader role, every write in the approved plan's own actor session (EKS: group
+  `warden-remediators`, bound in `shop` only; database: the `warden_<env>_terminate` login, an IAM token, no
+  password). An environment with no cluster or database configured reads and changes nothing; its plans go to a
+  person.
+- **Register C4, one exception (owner, 2026-10-17):** a restart of a Deployment whose Argo CD Application, read live,
+  ignores the restart annotation. Anything else on a Git-managed workload stays refused.
+- Review fixes: a database close goes ahead only on the Aurora cluster the approved plan was read from (writer
+  endpoints compared, never raw hosts), over TLS verified against Amazon RDS's certificate authorities
+  (`data/rds-ca-bundle.crt`); a JSON Pointer is compared by whole segments (`/`, `/spec/` are no proof); an EKS client
+  is made again before the credentials that signed its token can expire (240 s); the shipped remediation RoleBinding
+  names the ServiceAccount only (CI binds the actor's group from `k8s/ci/`); the runtime's NAT addresses are looked
+  up by its tags and region too; the actor's `rds-db:connect` names the account (`actor.local.json` from
+  `scripts/render_env_iam.py --account`).
+
 ### Changed (the bench approver, 2026-10-16)
 - **The bench approver approves only in a nonprod environment, enforced by WARDEN.** A signed approval, a passkey
   approval or a signed denial from the bench approver (`bench`, or an entry labelled "bench approver") is refused
