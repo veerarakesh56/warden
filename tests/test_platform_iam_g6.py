@@ -214,6 +214,10 @@ def test_the_reader_role_holds_exactly_the_platforms_reads():
 
     xray_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "xray.py").read_text(encoding="utf-8")
     evidence |= {"xray:" + "".join(w.title() for w in m.split("_")) for m in re.findall(r"xray\.([a-z_]+)\(", xray_src)}
+    # And the quota reader's (quotas.py, B14): the quotas it lists (its usage is GetMetricData, granted already).
+    from test_aws_stack import _quota_calls
+
+    evidence |= _quota_calls()
     # And the database token the stack reader signs in this role (aws_stack.iam_dsn): rds-db:connect is no API call.
     stack_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "aws_stack.py").read_text(encoding="utf-8")
     if "generate_db_auth_token(" in stack_src:

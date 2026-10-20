@@ -198,6 +198,11 @@ def evidence_tools(base: Any) -> list[Any]:
         readers.append(grafana.GrafanaReader())
     if datadog.configured():
         readers.append(datadog.DatadogReader())
+    if os.environ.get("WARDEN_QUOTAS", "").strip() == "1" and hasattr(base, "_incident"):
+        # B14: service quotas and their usage, over the incident's reader role.
+        from .quotas import QuotaReader
+
+        readers.append(QuotaReader(lambda alert: base._incident(alert)._clients))
     return [r for r in readers if not chosen or r.source in chosen]
 
 
