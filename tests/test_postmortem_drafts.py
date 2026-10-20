@@ -46,7 +46,7 @@ def _fixed(log, status="recovered", approver="owner", entry="restart_service", c
     log.append(INC, "remediation.plan", {"workflow_id": "rem-1", "run_id": "r1", "entry": entry,
                                          "target": "warden-dev-checkout", "tier": "T1", "plan_hash": "h"})
     log.append(INC, "approval.accepted", {"approver": approver, "method": "passkey", "note": "go"})
-    log.append(INC, "remediation.intent", {"workflow_id": "rem-1"})
+    log.append(INC, "remediation.applied", {"workflow_id": "rem-1"})
     for healthy in checks:
         log.append(INC, "remediation.check", {"workflow_id": "rem-1", "run_id": "r1", "healthy": healthy})
     log.append(INC, "workflow.end", {"workflow_id": "rem-1", "run_id": "r1", "status": status})
@@ -99,6 +99,37 @@ def test_the_root_cause_is_the_one_warden_named_and_says_it_is_not_confirmed(log
 def test_a_cause_warden_did_not_establish_is_said_to_be_not_established(log, policy, hypothesis, verdict):
     _incident(log, hypothesis=hypothesis, verdict=verdict)
     assert _section(_draft(log, policy), "Root cause")[0].startswith("Not established")
+
+
+def test_a_rejected_diagnosis_is_never_shown_as_the_reason(log, policy):
+    """CodeRabbit, PR 79: "Not established: the cache." printed the rejected diagnosis where the cause would be."""
+    _incident(log, hypothesis="the cache", verdict="rejected")
+    assert _section(_draft(log, policy), "Root cause") == [
+        "Not established: WARDEN's rules rejected its diagnosis. A person finds the cause."]
+
+
+def test_a_fix_only_about_to_be_applied_is_not_said_to_be_applied(log, policy):
+    """CodeRabbit, PR 79: remediation.intent is written before the platform applies, and stays when it refuses."""
+    _incident(log)
+    log.append(INC, "remediation.intent", {"workflow_id": "rem-1"})
+    said = [line.split(" - ", 1)[1] for line in _section(_draft(log, policy), "Timeline")]
+    assert "WARDEN applied the fix" not in said
+
+
+def test_a_fix_run_still_open_asks_on_call_to_wait_not_to_fix_by_hand(log, policy):
+    """CodeRabbit, PR 79: an open run told on-call to fix it by hand, which would make the run drift."""
+    _incident(log)
+    log.append(INC, "remediation.plan", {"workflow_id": "rem-1", "run_id": "r1", "entry": "restart_service",
+                                         "target": "warden-dev-checkout", "tier": "T1"})
+    assert _section(_draft(log, policy), "Next steps, per team")[0] == (
+        "On-call: the fix run has not ended - wait for its result before changing anything by hand.")
+
+
+def test_a_nameless_approver_is_never_shown_by_its_id_in_what_was_done(log, policy):
+    """CodeRabbit, PR 79: the decision line used the list's id for an approver with no name."""
+    _incident(log)
+    _fixed(log, approver="noname")
+    assert _section(_draft(log, policy), "What was done")[1].startswith("Approved by an approver at ")
 
 
 def test_a_degraded_diagnosis_says_why_there_is_no_cause(log, policy):

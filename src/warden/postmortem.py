@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from .bounds import APPLIED  # written only after the platform applied the fix, unlike its intent
 from .environments import both_times
 
 END_ROW = "workflow.end"  # the row a fix run ends with
@@ -30,7 +31,7 @@ DRAFT = ("DRAFT - written by WARDEN from its signed record of this incident. A p
 TIMELINE = {
     "intake.decision": "The alarm came in", "incident.diagnose": "WARDEN named a likely cause",
     "incident.verify": "WARDEN's rules checked the diagnosis", "remediation.plan": "A fix plan was made",
-    "approval.accepted": "The fix was approved", "remediation.intent": "WARDEN applied the fix",
+    "approval.accepted": "The fix was approved", APPLIED: "WARDEN applied the fix",
     "remediation.rollback": "WARDEN undid the fix", END_ROW: "The fix run ended",
     "incident.after_hold": "Looked at again after the planned shutdown", "incident.no_plan": "No fix plan was made",
 }
@@ -96,7 +97,12 @@ def _root_cause(r: Any) -> list[str]:
     if r.hypothesis and not r.hypothesis.startswith("No diagnosis") and r.verdict != "rejected":
         return [f"WARDEN's diagnosis, not yet confirmed by a person: {r.hypothesis}",
                 "Confirm or correct it from the evidence on this page before this draft is final."]
-    why = r.hypothesis.removeprefix("No diagnosis: ") if r.hypothesis else "WARDEN made no diagnosis"
+    if r.verdict == "rejected":  # its words are not shown as the reason either (CodeRabbit, PR 79)
+        why = "WARDEN's rules rejected its diagnosis"
+    elif r.hypothesis.startswith("No diagnosis: "):
+        why = r.hypothesis.removeprefix("No diagnosis: ")
+    else:
+        why = "WARDEN made no diagnosis"
     return [f"Not established: {why}. A person finds the cause."]
 
 
@@ -138,6 +144,8 @@ def _teams(r: Any, alert: dict[str, Any]) -> list[str]:
                    "and contain it; WARDEN changes nothing for a security finding.")
     if end in _FIXED:
         out.append("On-call: confirm the alarm stays quiet for the next day.")
+    elif r.plan and not end:  # waiting for approval, or being applied and checked (CodeRabbit, PR 79)
+        out.append("On-call: the fix run has not ended - wait for its result before changing anything by hand.")
     elif r.plan or r.verdict:
         out.append("On-call: the problem was not fixed by WARDEN - fix it by hand, or decide it needs no fix.")
     team = "DBA / data" if any(k.startswith(_DATA) for k in labels) else "The service's team (Platform / DevOps)"

@@ -157,9 +157,9 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
     ids = sorted(getattr(policy, "approvers", {}) if policy is not None else {}, key=len, reverse=True)
 
     def shown(approver: str) -> str:
-        if policy is not None and approver in getattr(policy, "approvers", {}):
-            return policy.shown(approver)
-        return "an approver"  # never the list's id
+        name = policy.shown(approver) if policy is not None and approver in getattr(policy, "approvers", {}) else ""
+        # Never the list's id: an entry with no name is shown as "an approver" (CodeRabbit, PR 79).
+        return name if name and name != approver else "an approver"
 
     def named(text: str) -> str:
         """Machine text that names an approver by the list's id (a refusal's problems), with their name instead."""
