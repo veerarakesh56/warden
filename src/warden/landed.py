@@ -34,11 +34,12 @@ GITHUB_ERRORS = (urllib.error.URLError, TimeoutError, OSError, ValueError)
 def _aws_errors() -> tuple[type[Exception], ...]:
     """What a read through the platform raises when it fails: botocore's own errors, a refused session, a lost
     connection."""
+    errors: list[type[Exception]] = [RuntimeError, OSError, LookupError]
     try:
         from botocore.exceptions import BotoCoreError, ClientError
     except ImportError:  # no AWS extra installed: only the platform's own errors can come
-        return (RuntimeError, OSError, LookupError)
-    return (BotoCoreError, ClientError, RuntimeError, OSError, LookupError)
+        return tuple(errors)
+    return (*errors, BotoCoreError, ClientError)
 
 
 def merged_pulls(repo: str, token: str, base: str, since: datetime, until: datetime,

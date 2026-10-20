@@ -43,7 +43,8 @@ def test_a_write_on_the_target_by_anyone_else_after_the_fix_is_found():
     deploy = {"at": APPLIED + timedelta(minutes=2), "source": "cloudtrail", "what": "UpdateService on orders",
               "who": "deploy-pipeline"}
     found, unread = _since(_trail(deploy))
-    assert found == [deploy] and unread == []
+    assert found == [deploy]
+    assert unread == []
     line = landed.said(found, unread)
     assert line.startswith("not rolled back: cloudtrail UpdateService on orders by deploy-pipeline landed on the target")
 
@@ -72,7 +73,8 @@ def test_an_unreadable_trail_is_unknown_and_unknown_is_not_undone():
         raise RuntimeError("AccessDenied")
 
     found, unread = _since(down)
-    assert found == [] and unread == ["CloudTrail (RuntimeError)"]
+    assert found == []
+    assert unread == ["CloudTrail (RuntimeError)"]
     assert "could not be read" in landed.said(found, unread)
 
 
@@ -100,7 +102,8 @@ def test_github_deploys_and_merges_in_the_window_are_found_where_the_token_is(mo
                                  {"number": 5, "merged_at": None}]).encode())
 
     found, unread = _since(opener=opener)
-    assert unread == [] and [c["what"] for c in found] == ["pull request #7 into dev", "a1b2c3d4e5f6 (dev)"]
+    assert unread == []
+    assert [c["what"] for c in found] == ["pull request #7 into dev", "a1b2c3d4e5f6 (dev)"]
     assert any("base=dev" in u for u in asked)
 
     def offline(req, timeout):
@@ -111,7 +114,8 @@ def test_github_deploys_and_merges_in_the_window_are_found_where_the_token_is(mo
 
 def _applied(acts, owner):
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
-    assert _approve(acts, owner, plan, "rem-1").enough and acts.precheck(plan) == []
+    assert _approve(acts, owner, plan, "rem-1").enough
+    assert acts.precheck(plan) == []
     acts.apply(plan, REQ["service"])
     return plan
 
@@ -123,9 +127,11 @@ def test_a_rollback_after_something_landed_is_not_sent_and_the_reads_are_recorde
         {"at": datetime.now(UTC) + timedelta(seconds=1), "source": "cloudtrail", "what": "PatchDeployment on orders",
          "who": "argocd"})
     detail = acts.rollback(plan)
-    assert detail.startswith("not rolled back: cloudtrail PatchDeployment on orders by argocd") and platform.rolled_back == []
+    assert detail.startswith("not rolled back: cloudtrail PatchDeployment on orders by argocd")
+    assert platform.rolled_back == []
     [read] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.landed",))
-    assert read["body"]["landed"][0]["who"] == "argocd" and read["body"]["unread"] == []
+    assert read["body"]["landed"][0]["who"] == "argocd"
+    assert read["body"]["unread"] == []
     assert bounds.killswitch(acts.audit) is None  # a known state: nothing was half-made
 
 
@@ -133,9 +139,11 @@ def test_a_rollback_with_nothing_landed_is_sent():
     acts, platform, owner = _acts()
     plan = _applied(acts, owner)
     platform.changes_reader = lambda entry, environment: _trail()
-    assert not acts.rollback(plan).startswith("not rolled back") and len(platform.rolled_back) == 1
+    assert not acts.rollback(plan).startswith("not rolled back")
+    assert len(platform.rolled_back) == 1
     [read] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.landed",))
-    assert read["body"]["landed"] == [] and read["body"]["unread"] == []
+    assert read["body"]["landed"] == []
+    assert read["body"]["unread"] == []
 
 
 def test_a_rollback_whose_trail_cannot_be_read_is_not_sent():
