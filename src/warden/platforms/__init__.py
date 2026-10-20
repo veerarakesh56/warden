@@ -66,6 +66,13 @@ class RoutedPlatform:
             p = p.for_environment(environment)
         return getattr(p, "_read", None)
 
+    def changes_reader(self, entry: str, environment: str) -> Any | None:
+        """B21: `changes(since, until)` - the write events on this entry's environment as the platform that carries it
+        out reads them (AwsPlatform.changes, CloudTrail); None when that platform has no such reader."""
+        p = self._for(entry, environment)
+        read = getattr(p, "changes", None)
+        return (lambda since, until: read(since, until, environment)) if read else None
+
     def healthy_for(self, entry: str, service: str, params: dict[str, Any] | None = None,
                     environment: str | None = None) -> bool:
         """Health as the platform that carries out `entry` sees it - only that one (sixth review, 2026-10-01: a
