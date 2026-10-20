@@ -518,10 +518,11 @@ class ApprovalPage:
         """`/r`: every incident of the last 30 days; `/r/<incident>`: one, whole (records.py). For a reader Slack
         named in this browser who may read them; anyone else is asked to sign in, and is not shown that an incident
         exists."""
-        from . import records
+        from . import records, reveal
         from .slack_login import remembered
 
-        if method != "GET" or len(parts) > 1:
+        masked = len(parts) == 2 and parts[1] == "masked"  # /r/<incident>/masked: its masked values (reveal.py)
+        if method != "GET" or (len(parts) > 1 and not masked):
             return _json(404, {"error": "not found"})
         if self.slack is None:
             # The records have no passkey behind them: with no Slack sign-in to say who is reading, nobody reads them
@@ -555,6 +556,8 @@ class ApprovalPage:
         if one is None or (allowed is not None and one.environment not in allowed):
             # One answer for "none" and "not yours": a reader limited to some environments is not told of the others.
             return self._served_html(404, records.missing_page())
+        if masked:
+            return self._masked(one, member, value, query)
         approver = self._approver_for(member, one)
         if "approve=1" in query.split("&"):
             # The record's own button: a fresh link for this reader and this plan, the same the Slack message gives -
@@ -570,7 +573,20 @@ class ApprovalPage:
             return self._served_html(400, records.bad_query_page())
         ids, _, _ = records.matching(self.log, asked, allowed, self.policy)
         return self._served_html(200, records.incident_page(one, approve=f"/r/{one.id}?approve=1" if approver else "",
-                                                            near=records.neighbours(ids, one.id, asked)))
+                                                            near=records.neighbours(ids, one.id, asked)
+                                                            + reveal.link(self.log, one.id)))
+
+    def _masked(self, one: Any, member: str, cookie: str, query: str) -> Response:
+        """An incident's masked values, and their reveal for this reader (reveal.py): its own form, sent to itself."""
+        import urllib.parse
+
+        from . import reveal
+
+        status, page = reveal.reveal(self.log, one.id, member=member, cookie=cookie, query=query,
+                                     environment=str(one.environment or ""))
+        nonce = secrets.token_urlsafe(16)
+        action = f"{self.origin}/r/{urllib.parse.quote(one.id, safe='')}/masked"
+        return Response(status, _headers(nonce, "text/html; charset=utf-8", action), page.replace("{{NONCE}}", nonce))
 
     @staticmethod
     def _viewers() -> set[str]:

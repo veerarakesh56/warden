@@ -275,7 +275,7 @@ def test_only_people_paths_open_the_vault():
     src = ROOT / "src" / "warden"
     callers = {p.name for p in src.rglob("*.py")
                if re.search(r"vault\.(?:Vault|sealed_row)\b|import[^\n]*\bVault\b|\bVault\(", p.read_text(encoding="utf-8"))}
-    assert callers <= {"vault.py", "records.py", "approval_page.py"}
+    assert callers <= {"vault.py", "reveal.py"}
 
 
 def test_any_failure_of_a_seal_is_recorded_and_returns(tmp_path):
