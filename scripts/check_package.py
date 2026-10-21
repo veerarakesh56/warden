@@ -42,13 +42,12 @@ def _x509(body: str) -> bool:
     """`body` (a PEM block's base64) decodes to one X.509 certificate OpenSSL parses (review, PR 48: `AA==` is base64,
     not a certificate). Loaded into a throwaway trust store - the same parser verify-full's trust store uses."""
     import base64
-    import binascii
     import ssl
 
     try:
         der = base64.b64decode("".join(body.split()), validate=True)
         ssl.create_default_context(cadata=der)  # a DER certificate, parsed; ValueError/SSLError when it is not one
-    except (binascii.Error, ValueError, ssl.SSLError):
+    except (ValueError, ssl.SSLError):  # binascii.Error is a ValueError
         return False
     return True
 
