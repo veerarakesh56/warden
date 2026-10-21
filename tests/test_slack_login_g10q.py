@@ -278,7 +278,7 @@ def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_
     now[0] += slack_login.REMEMBER_S + 1
     assert 'data-slack="1"' in page.handle("GET", f"/a/{third}", cookies=[who]).body
     assert slack_login.remembered(page.slack, who.split("=", 1)[1]) == ""
-    assert slack_login.REMEMBER_S == 30 * 24 * 3600
+    assert divmod(slack_login.REMEMBER_S, 24 * 3600) == (30, 0)  # exactly 30 days
     # Sealed with the app's own secret: a value another secret made is nobody.
     stranger = slack_login.SlackLogin(CLIENT, "another-secret", clock=lambda: 1_900_000_000.0)
     assert slack_login.remembered(stranger, slack_login.remember(_login(), MEMBER)) == ""
