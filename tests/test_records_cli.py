@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from test_approval_page import setup as page_setup  # noqa: F401 - the fixture, used by name below
+from test_approval_page import setup as page_setup  # noqa: F401 - the fixture is used by name below
 from warden import audit, cli, records_cli, runtime_base, settings
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
