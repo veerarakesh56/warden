@@ -75,8 +75,10 @@ DB_PASSWORD="$("$PY" -c 'import secrets,string; a=string.ascii_letters+string.di
 # --------------------------------------------------------------------------- teardown trap
 
 destroyed=0
+TUNNEL_PID=""
 teardown() {
   local rc=$?
+  [[ -n "$TUNNEL_PID" ]] && kill "$TUNNEL_PID" 2>/dev/null
   [[ "$destroyed" = "1" ]] && return $rc
   destroyed=1
   if [[ "$KEEP" = "1" ]]; then
@@ -223,6 +225,27 @@ fi
 DSN="$(terraform -chdir="$TF_DIR" output -raw db_dsn 2>/dev/null || true)"
 if [[ -n "$DSN" ]]; then
   log "E — RDS PostgreSQL"
+  # The database is private (Sonar terraform:S8793): the DSN points at 127.0.0.1, where an SSM port-forward through
+  # the lab's t4g.nano (terraform/proving-ground/db_tunnel.tf) carries it to RDS. No SSH, no inbound rule anywhere.
+  command -v session-manager-plugin >/dev/null 2>&1 \
+    || die "situation E needs the AWS CLI's Session Manager plugin (session-manager-plugin) on PATH"
+  TUNNEL_PORT="$(terraform -chdir="$TF_DIR" output -raw db_tunnel_local_port)"
+  # The agent registers with Systems Manager a minute or two after the instance starts; retry until it answers.
+  for _ in $(seq 1 30); do
+    # shellcheck disable=SC2046  # the output is the command's words, split on purpose
+    $(terraform -chdir="$TF_DIR" output -raw db_tunnel_command) >>"$OUT/tunnel.log" 2>&1 &
+    TUNNEL_PID=$!
+    for _ in $(seq 1 15); do
+      (exec 3<>"/dev/tcp/127.0.0.1/$TUNNEL_PORT") 2>/dev/null && break 2
+      kill -0 "$TUNNEL_PID" 2>/dev/null || break
+      sleep 2
+    done
+    kill "$TUNNEL_PID" 2>/dev/null || true
+    TUNNEL_PID=""
+    sleep 10
+  done
+  [[ -n "${TUNNEL_PID:-}" ]] || die "the database tunnel did not open (see $OUT/tunnel.log)"
+  note "database tunnel open on 127.0.0.1:$TUNNEL_PORT"
   # ⛔ The DSN carries the master password. It is scrubbed out of the transcript on the way past,
   # and aws_proof_bundle.py scrubs the whole bundle again afterwards. Two passes, because this is
   # the one value in the run that must never reach a published file.
@@ -230,6 +253,8 @@ if [[ -n "$DSN" ]]; then
     "$PY" -m warden.cli run --incident inc-005 --started-at now \
       --json "$OUT/reports/E-rds.json" --verbose 2>&1 \
     | sed "s#$DB_PASSWORD#********#g" | tee -a "$OUT/run.log"
+  kill "$TUNNEL_PID" 2>/dev/null || true
+  TUNNEL_PID=""
 else
   note "RDS disabled (enable_rds=false) — situation E skipped. Wave 1 does not need a database, and"
   note "an instance that exists during an ECS-only run is cost plus a month-sized tail risk."

@@ -10,7 +10,8 @@ there is one (owner, 2026-10-20: none stays open by design):
 - S2612: no image grants write to others; the runtime image checks Debian's sticky /tmp at build.
 - S6333: the webhook routes pass the gateway only with their bearer secret (a Lambda REQUEST authorizer).
 - S6428: the negative Pod Security test's pod is built when the test runs, never kept as a manifest.
-- S8793 (the lab database's public endpoint): private behind an SSM port-forward, in its own PR (owner, 2026-10-21).
+- S8793 (the lab database's public endpoint): private, reached through an SSM port-forward via a t4g.nano that exists
+  only with the database - no key, no inbound rule, no public address (owner, 2026-10-21).
 """
 
 from __future__ import annotations
@@ -214,27 +215,125 @@ def test_the_lab_keeps_its_logs_14_days_at_no_cost():
     assert re.search(r"retention_in_days\s*=\s*14\b", body)
 
 
-def test_until_the_lab_database_is_private_it_is_reachable_from_one_address_over_tls_only():
-    """S8793: the owner decided (2026-10-21) on a private database behind an SSM port-forward, in its own PR. Until it
-    lands, what limits the public endpoint is checked here, point by point."""
+def test_the_lab_database_is_private_and_reachable_only_from_the_ssm_tunnel_over_tls():
+    """S8793 (owner, 2026-10-21): no public endpoint. PostgreSQL 16 (rds.force_ssl = 1 by default from 15 on, the
+    parameter group unchanged), 5432 from the tunnel's security group only, the DSN through the local tunnel."""
     rds, variables = LAB / "rds.tf", (LAB / "variables.tf").read_text(encoding="utf-8")
     db = _block(rds, "aws_db_instance", "this")
     assert "count = var.enable_rds ? 1 : 0" in _flat(db)
     assert re.search(r'variable "enable_rds" \{[^}]*default\s*=\s*false', variables)  # off unless asked for
-    sg = _flat(_block(rds, "aws_security_group", "db"))
-    assert sg.count("ingress {") == 1
-    assert "from_port = 5432 to_port = 5432" in sg
-    assert "cidr_blocks = [var.my_ip_cidr]" in sg
-    assert "egress" not in sg
-    # One address: the variable refuses anything but a /32 (and so 0.0.0.0/0).
-    rule = re.search(r'variable "my_ip_cidr" \{.*?condition\s*=\s*(.+?)\n', variables, re.DOTALL).group(1)
-    assert 'endswith(var.my_ip_cidr, "/32")' in rule
-    assert "can(cidrnetmask(var.my_ip_cidr))" in rule  # IPv4 only: an IPv6 /32 is a huge range
-    # TLS only: PostgreSQL 16, whose RDS default parameter group sets rds.force_ssl = 1 (15 and later), unchanged.
+    assert re.search(r"publicly_accessible\s*=\s*false", db)
     assert int(re.search(r'engine_version\s*=\s*"(\d+)"', db).group(1)) >= 15
     assert "parameter_group_name" not in db
     assert "length(var.db_password) >= 16" in db
-    assert re.search(r"publicly_accessible\s*=\s*true", db)  # the one finding this test explains
+    sg = _flat(_block(rds, "aws_security_group", "db"))
+    assert sg.count("ingress {") == 1
+    assert "egress" not in sg
+    assert "from_port = 5432 to_port = 5432 protocol = \"tcp\" security_groups = [aws_security_group.db_tunnel[0].id]" in sg
+    assert "cidr" not in sg
+    outputs = _flat((LAB / "outputs.tf").read_text(encoding="utf-8"))
+    assert "@127.0.0.1:${var.db_tunnel_local_port}/${aws_db_instance.this[0].db_name}?sslmode=require" in outputs
+    assert "--document-name AWS-StartPortForwardingSessionToRemoteHost" in outputs
+    assert "--parameters host=${aws_db_instance.this[0].address},portNumber=5432," in outputs
+
+
+def _lab_resources(path: pathlib.Path) -> list[tuple[str, str, str]]:
+    text = _code(path.read_text(encoding="utf-8"))
+    return [(kind, name, _flat(_block(path, kind, name)))
+            for kind, name in re.findall(r'^(?:resource|data) "(\w+)" "(\w+)" \{', text, re.MULTILINE)]
+
+
+def test_the_tunnel_exists_only_while_the_database_does():
+    """Nothing of the tunnel is billed or reachable while enable_rds = false: every resource is counted on it."""
+    found = _lab_resources(LAB / "db_tunnel.tf")
+    assert {kind for kind, _, _ in found} >= {"aws_instance", "aws_vpc_endpoint", "aws_security_group", "aws_iam_role"}
+    for kind, name, body in found:
+        if kind == "aws_iam_policy_document":
+            continue  # a data source computed locally, nothing in AWS
+        assert body.startswith(("count = var.enable_rds ? 1 : 0",
+                                "for_each = var.enable_rds ? local.db_tunnel_endpoints : toset([])")), (kind, name)
+
+
+def test_the_tunnel_box_is_a_nano_with_no_key_no_inbound_and_no_public_address():
+    box = _flat(_block(LAB / "db_tunnel.tf", "aws_instance", "db_tunnel"))
+    assert 'instance_type = "t4g.nano"' in box
+    assert "associate_public_ip_address = false" in box  # Sonar terraform:S6329
+    for absent in ("key_name", "user_data", "ipv6"):
+        assert absent not in box, absent
+    assert 'http_endpoint = "enabled" http_tokens = "required" http_put_response_hop_limit = 1' in box  # IMDSv2
+    assert 'volume_type = "gp3" volume_size = 8 encrypted = true delete_on_termination = true' in box
+    assert "vpc_security_group_ids = [aws_security_group.db_tunnel[0].id]" in box
+    tunnel_sg = _flat(_block(LAB / "db_tunnel.tf", "aws_security_group", "db_tunnel"))
+    assert "ingress" not in tunnel_sg  # every rule is its own resource, checked below
+    assert "egress" not in tunnel_sg
+    # The role: AWS's SSM core policy and nothing else, under the lab's boundary.
+    role = _flat(_block(LAB / "db_tunnel.tf", "aws_iam_role", "db_tunnel"))
+    assert "permissions_boundary = local.permissions_boundary" in role
+    attached = re.findall(r'policy_arn = "([^"]+)"', (LAB / "db_tunnel.tf").read_text(encoding="utf-8"))
+    assert attached == ["arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"]
+    assert "aws_iam_role_policy" not in (LAB / "db_tunnel.tf").read_text(encoding="utf-8").replace(
+        "aws_iam_role_policy_attachment", "")
+
+
+def test_the_tunnel_talks_only_to_systems_manager_and_the_database():
+    """No rule anywhere lets anything in to the box; out, 443 to the SSM endpoints' group and 5432 to the database's;
+    the endpoints take 443 from the box only."""
+    rules = [(kind, name, body) for tf in sorted(LAB.glob("*.tf")) for kind, name, body in _lab_resources(tf)
+             if kind in ("aws_vpc_security_group_ingress_rule", "aws_vpc_security_group_egress_rule",
+                         "aws_security_group_rule")]
+    tunnel = [(kind, name, body) for kind, name, body in rules
+              if re.search(r"(?<!referenced_)security_group_id = aws_security_group\.db_tunnel\[0\]\.id", body)]
+    assert sorted((kind, name) for kind, name, _ in tunnel) == [
+        ("aws_vpc_security_group_egress_rule", "db_tunnel_db"), ("aws_vpc_security_group_egress_rule", "db_tunnel_ssm")]
+    bodies = {name: body for _, name, body in tunnel}
+    assert "referenced_security_group_id = aws_security_group.db_tunnel_endpoints[0].id from_port = 443 to_port = 443" \
+        in bodies["db_tunnel_ssm"]
+    assert "referenced_security_group_id = aws_security_group.db[0].id from_port = 5432 to_port = 5432" \
+        in bodies["db_tunnel_db"]
+    endpoint_rules = [body for _, _, body in rules if re.search(
+        r"(?<!referenced_)security_group_id = aws_security_group\.db_tunnel_endpoints\[0\]\.id", body)]
+    assert len(endpoint_rules) == 1
+    assert "referenced_security_group_id = aws_security_group.db_tunnel[0].id from_port = 443 to_port = 443" \
+        in endpoint_rules[0]
+    assert "cidr" not in " ".join(body for _, _, body in tunnel) + endpoint_rules[0]
+    endpoints = _flat(_block(LAB / "db_tunnel.tf", "aws_vpc_endpoint", "db_tunnel"))
+    assert 'vpc_endpoint_type = "Interface"' in endpoints
+    assert "private_dns_enabled = true" in endpoints
+    assert 'toset(["ssm", "ssmmessages", "ec2messages"])' in (LAB / "db_tunnel.tf").read_text(encoding="utf-8")
+
+
+def _statements(name: str) -> list[dict]:
+    return json.loads((LAB / name).read_text(encoding="utf-8"))["Statement"]
+
+
+def test_the_operator_may_start_only_a_nano_and_end_only_the_labs_own_instances():
+    boundary = {st["Sid"]: st for st in _statements("operator-policy-boundary.json")}
+    nano = boundary["DenyInstancesButANano"]
+    assert nano["Effect"] == "Deny"
+    assert nano["Action"] == "ec2:RunInstances"
+    assert nano["Resource"] == "arn:aws:ec2:*:*:instance/*"
+    assert nano["Condition"] == {"StringNotEquals": {"ec2:InstanceType": "t4g.nano"}}
+    for name in ("operator-policy.json", "operator-policy-rds-eks.json"):
+        for st in _statements(name):
+            actions = st["Action"] if isinstance(st["Action"], list) else [st["Action"]]
+            if st["Effect"] == "Allow" and {"ec2:TerminateInstances", "ec2:StopInstances"} & set(actions):
+                assert st["Condition"]["StringEquals"]["aws:ResourceTag/Stack"] == "warden-proving-ground", st["Sid"]
+
+
+def test_the_proof_run_reaches_the_database_through_the_tunnel_and_closes_it():
+    script = (ROOT / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")
+    section = script[script.index("# ---------------------------------------------------------------------------"
+                                  " E: RDS"):script.index("# --------------------------------------------------"
+                                                          "------------------------- the bundle")]
+    assert "command -v session-manager-plugin" in section
+    assert "$(terraform -chdir=\"$TF_DIR\" output -raw db_tunnel_command)" in section
+    assert '/dev/tcp/127.0.0.1/$TUNNEL_PORT' in section  # waits for the local port before using the DSN
+    assert section.index("TUNNEL_PID=$!") < section.index("warden.cli run --incident inc-005")
+    assert section.index("warden.cli run --incident inc-005") < section.rindex('kill "$TUNNEL_PID"')
+    trap = script[script.index("teardown() {"):script.index("trap teardown EXIT")]
+    assert 'kill "$TUNNEL_PID"' in trap  # an aborted run closes the tunnel too
+    cost = _flat((LAB / "outputs.tf").read_text(encoding="utf-8"))
+    assert "(var.enable_rds ? 0.0210 + 0.0428 : 0)" in cost
 
 
 def test_the_lab_database_keeps_seven_days_of_backups_and_leaves_none_behind_a_destroy():
