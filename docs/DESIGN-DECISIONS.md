@@ -320,7 +320,12 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Whether a code change WARDEN wrote may become a pull request: built - `code_gate.py` (register B4, 2026-10-17).
   GitHub's rulesets, CODEOWNERS and the CI checks still hold the pull request; what no tool does is refuse, before
   anything is pushed, a change by its own shape: paths, size, dependencies, suppressions, a missing test, an
-  inexact revert. Plain rules over `git diff` output, no new dependency.
+  inexact revert, code that runs other code. Plain rules over `git diff` output and Python's own parser (`ast`),
+  no new dependency.
+- Reading one workflow's encrypted Temporal history: built - `temporal_history.py` (register B36, 2026-10-21). A
+  Temporal codec server for the web UI cannot decrypt WARDEN's payloads (each is bound to its workflow, which the UI
+  does not send) and would be one more holder of the key; the SDK's own history read and WARDEN's own codec, in the
+  workflow's context, need neither.
 - Credentialed outbound HTTPS: Python's own urllib, behind one opener that speaks https only and follows a
   redirect only to the same https host and port, so no token or key is ever sent to another host - `web.py`.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
