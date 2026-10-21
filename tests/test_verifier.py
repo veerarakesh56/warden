@@ -456,7 +456,8 @@ def test_p11_does_not_fire_where_the_action_can_help(action, ctx, why):
 ])
 def test_p12_escalates_no_action_when_the_evidence_shows_a_symptom(ctx, symptom):
     fired, v = _fires(P12, ActionKind.no_action, **ctx)
-    assert fired and v.status is VerdictStatus.escalated
+    assert fired
+    assert v.status is VerdictStatus.escalated
     assert any(symptom in r for r in v.reasons), v.reasons
 
 

@@ -31,5 +31,7 @@ def test_the_approval_request_for_a_mapping_reaches_the_channel(world, sink):  #
                 params=PARAMS, plan_hash="p" * 64, created_at=datetime.now(UTC),
                 target=f"dev/{catalog.target_key('lambda_enable_esm', PARAMS)}", environment="dev")
     acts.announce(plan, "waiting")
-    assert sink.texts and "withheld" not in sink.texts[-1]
-    assert "event source mapping of warden-dev-order-processor" in sink.texts[-1] and MAPPING not in sink.texts[-1]
+    assert sink.texts
+    assert "withheld" not in sink.texts[-1]
+    assert "event source mapping of warden-dev-order-processor" in sink.texts[-1]
+    assert MAPPING not in sink.texts[-1]

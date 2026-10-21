@@ -44,7 +44,8 @@ def test_a_clean_case_on_claimed_evidence_is_escalated_never_approved():
         "reversible": True, "confidence": 0.9, "log_lines": 5, "metric_count": 4, "has_recent_deploy": True,
     }))
     assert out["verdict_on_claimed_evidence"] == "approved_for_human"
-    assert out["verdict"] == "escalated" and "MCP-CLAIMED-EVIDENCE" in out["policies_fired"]
+    assert out["verdict"] == "escalated"
+    assert "MCP-CLAIMED-EVIDENCE" in out["policies_fired"]
     assert out["requires_approval"] is True
     assert out["may_execute"] is False
 
@@ -145,7 +146,8 @@ def test_gather_over_mcp_redacts_deploy_identifiers(monkeypatch):
     )
     out = _payload(call_tool("gather_incident_context", {"alert_id": "inc-001"}))
     blob = json.dumps(out["recent_deploys"])
-    assert "123456789012" not in blob and "eve@corp.io" not in blob, "deploy identifier leaked over MCP"
+    assert "123456789012" not in blob, "deploy identifier leaked over MCP"
+    assert "eve@corp.io" not in blob, "deploy identifier leaked over MCP"
     assert "<ACCOUNTID" in blob or "<EMAIL" in blob, "the deploy was returned, just scrubbed"
 
 
@@ -158,7 +160,8 @@ def test_describe_policy_lists_every_policy():
     assert len(gate_ids) >= 12
     # Observe-mode policies (audit A-P-8) are described too: a caller sees what is being measured.
     observed = {pid for pid, _ in verifier.OBSERVED}
-    assert observed and not observed & gate_ids
+    assert observed
+    assert not observed & gate_ids
     assert set(out["policies"]) == gate_ids | observed
     assert "prod" in out["environment_allowlist"]
 

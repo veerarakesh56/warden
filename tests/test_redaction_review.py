@@ -91,7 +91,8 @@ def test_mcp_context_lookup_returns_tool_errors_redacted_with_the_logs(monkeypat
     result = mcp_server.call_tool("gather_incident_context", {"alert_id": "inc-001"})
     payload = result.structured_content
     joined = " ".join(payload["tool_errors"])
-    assert "10.0.3.22" not in joined and "admin@corp.io" not in joined, joined
+    assert "10.0.3.22" not in joined, joined
+    assert "admin@corp.io" not in joined, joined
 
 
 def test_a_database_line_and_a_log_line_never_share_a_placeholder_for_different_hosts():

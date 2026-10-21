@@ -67,7 +67,9 @@ def test_a_note_is_one_short_line_whatever_it_is_given(caplog):
     caplog.set_level(logging.INFO, logger="warden.incident")
     activities._note("a\n  b\tc " + "x" * 1000)
     line = _lines(caplog)[-1]
-    assert line.startswith("a b c x") and "\n" not in line and len(line) == 300
+    assert line.startswith("a b c x")
+    assert "\n" not in line
+    assert len(line) == 300
 
 
 def test_the_log_says_the_verdict_with_its_policies(tmp_path, caplog):
@@ -80,4 +82,5 @@ def test_the_log_says_the_verdict_with_its_policies(tmp_path, caplog):
     out = acts.verify(pack, _diag(ActionKind.restart_pods))
     line = _lines(caplog)[-1]
     assert line.startswith("inc-1 alarm=warden-dev-lab-x action=restart_pods verdict=" + out.verdict.status.value)
-    assert "policies=" + ",".join(out.verdict.policy_ids) in line and "P9-THIN-EVIDENCE" in line
+    assert "policies=" + ",".join(out.verdict.policy_ids) in line
+    assert "P9-THIN-EVIDENCE" in line
