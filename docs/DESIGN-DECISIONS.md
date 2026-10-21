@@ -317,6 +317,18 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
+- Whether a code change WARDEN wrote may become a pull request: built - `code_gate.py` (register B4, 2026-10-17).
+  GitHub's rulesets, CODEOWNERS and the CI checks still hold the pull request; what no tool does is refuse, before
+  anything is pushed, a change by its own shape: paths, size, dependencies, suppressions, a missing test, an
+  inexact revert. Plain rules over `git diff` output, no new dependency.
+- Writing a code fix to GitHub: adopted - a GitHub App's installation token and GraphQL `createCommitOnBranch`, which
+  GitHub signs (verified, authored by the App), through `github_app.py`: a handful of HTTPS calls with the standard
+  library and `cryptography` (already a dependency) for the App's RS256 token. PyGithub or githubkit would be a
+  dependency for those calls, and neither narrows a token to one repository and two permissions by itself.
+- Reverting a deployed commit as a pull request: built - `code_fix.py` (2026-10-20). `git revert` needs a clone and
+  a writable checkout in the act zone; GitHub has no revert API for a single commit. The commit's diff is read
+  from GitHub, taken back hunk by hunk where its exact lines are found once, and the result is checked by the code
+  gate against the commit itself (CG10) before anything is written.
 - Credentialed outbound HTTPS: Python's own urllib, behind one opener that speaks https only and follows a
   redirect only to the same https host and port, so no token or key is ever sent to another host - `web.py`.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the

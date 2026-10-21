@@ -77,6 +77,9 @@ class EnvPolicy:
     # It lets the policy express "which account acts in this environment" and lets a promotion report
     # tell a human which credential to use in the target env. None = inherit the deployment default.
     credentials_ref: str | None = None
+    # Whether WARDEN may write code-fix pull requests here (code_gate.py, register B4): off, propose (a person merges)
+    # or auto (it may merge itself once every check is green). The prod tier is never auto - refused at load.
+    code_fix: str = "off"
     # The injection tripwire in this environment: off, on, or required (register R47). The stricter of this and
     # WARDEN_TRIPWIRE applies.
     tripwire: str = "off"
@@ -130,6 +133,7 @@ class EnvironmentPolicies:
             deny_actions=self._default.deny_actions,
             authorized_principals=self._default.authorized_principals,
             credentials_ref=self._default.credentials_ref,
+            code_fix=self._default.code_fix,
             tripwire=self._default.tripwire,
             approval_wait_hours=self._default.approval_wait_hours,
             autonomy=self._default.autonomy,
@@ -210,6 +214,7 @@ class EnvironmentPolicies:
             deny_actions=deny,
             authorized_principals=frozenset(str(p) for p in principals),
             credentials_ref=raw.get("credentials_ref"),
+            code_fix=_code_fix(name, raw),
             tripwire=_tripwire(name, raw),
             approval_wait_hours=_wait_hours(name, raw),
             autonomy=_autonomy(name, raw),
@@ -283,6 +288,23 @@ def _flag(name: str, raw: dict[str, Any], key: str, default: bool) -> bool:
     if not isinstance(value, bool):
         raise EnvironmentPolicyError(f"{name}: {key} must be true or false, not {value!r}")
     return value
+
+
+def _code_fix(name: str, raw: dict[str, Any]) -> str:
+    """`code_fix: off | propose | auto` (register B4). Prod (owner: "prod always a person") is never auto, and an
+    environment no one listed - the default - never writes code at all."""
+    from .code_gate import PROD_TIER, CodeFixMode
+
+    value = raw.get("code_fix", CodeFixMode.off.value)
+    if value not in tuple(CodeFixMode):
+        hint = " (quote it: YAML reads a bare off as false)" if isinstance(value, bool) else ""
+        raise EnvironmentPolicyError(f"{name}: code_fix must be off, propose or auto, not {value!r}{hint}")
+    if value == CodeFixMode.auto and raw.get("tier") == PROD_TIER:
+        raise EnvironmentPolicyError(f"{name}: a prod-tier environment never merges code on its own (code_fix at most "
+                                     "propose): a person merges every code fix there")
+    if name == "default" and value != CodeFixMode.off:
+        raise EnvironmentPolicyError("default: an environment no one listed never gets code fixes (code_fix: \"off\")")
+    return str(value)
 
 
 _DEFAULT: EnvironmentPolicies | None = None

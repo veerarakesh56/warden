@@ -119,6 +119,7 @@ NOT_AN_ENVIRONMENT = {
     "src/warden/autonomy.py": ({"prod"}, "the prod TIER, which is never autonomous"),
     "src/warden/grounding.py": ({"prod", "dev"}, "a vocabulary of scope words"),
     "src/warden/redaction.py": ({"prod", "dev"}, "a vocabulary of common words never swept as secrets"),
+    "src/warden/code_gate.py": ({"prod"}, "the prod TIER, whose code fixes a person always merges"),
     "scripts/probe_cluster.py": ({"prod"}, "a manual probe's sample alert"),
     "scenarios/runner.py": ({"prod"}, "the dry runs' sample alerts"),
     "scenarios/fullstack_cli.py": ({"prod"}, "the dry run's sample alert"),

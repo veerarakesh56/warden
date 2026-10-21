@@ -23,6 +23,8 @@ locals {
     "temporal-api-key-core", "temporal-api-key-read", "temporal-api-key-llm", "temporal-api-key-notify",
     "temporal-api-key-act", "temporal-api-key-critic",
     "eldane-key", # Eldane's own Ed25519 signing key (PEM): the critic zone's alone
+    # The code-fix GitHub App's id and private key (github_app.py): the act zone's alone.
+    "codefix-app-id", "codefix-app-key",
   ])
 }
 

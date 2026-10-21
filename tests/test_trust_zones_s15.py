@@ -20,7 +20,9 @@ from warden.workflows import IncidentWorkflow
 EVERY = {"after_hold", "prepare", "reread", "investigate", "plan_fix", "diagnose", "verify", "second_opinion", "notify", "no_plan", "resolve_plan", "gate", "announce", "check_approval",
          "check_passkey", "precheck", "apply", "check_success", "record_result", "rollback", "finish",
          "discuss_thread", "discuss_facts", "discuss_evidence", "discuss_answer", "discuss_reply", "discuss_replan", "summary_owed",
-         "side_effects", "again_alert", "critic_review", "autonomy_state", "autonomy_enable"}  # the core zone: WARDEN's own record only
+         "side_effects", "again_alert", "critic_review", "autonomy_state", "autonomy_enable",  # the core zone: WARDEN's own record only
+         "code_fix_revert",  # the code-fix pull request (register B4): the act zone
+         "code_fix_unrun"}  # its audit row when the act zone never ran it: the core zone
 
 
 def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alone():
@@ -30,7 +32,9 @@ def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alon
     zoned = [n for z in workflows.ZONES.values() for n in z]
     assert len(zoned) == len(set(zoned))
     assert set(zoned) <= EVERY
-    assert workflows.ZONES["act"] == ("apply", "rollback")  # the only writes, with the only actor roles
+    # The only writes: apply and rollback with the only actor roles, and the code-fix pull request with the only
+    # GitHub App key (register B4).
+    assert workflows.ZONES["act"] == ("apply", "rollback", "code_fix_revert")
     # The only model calls: an incident's diagnosis, and an answer in its discussion (G10-45) - which has no tool.
     assert workflows.ZONES["llm"] == ("diagnose", "discuss_answer")
     # Eldane, the AI critic (eldane.py): its own model and its own signing key, apart from WARDEN's diagnoser.
@@ -105,10 +109,12 @@ def test_a_zones_worker_loads_only_its_zones_secrets_and_its_own_temporal_key():
     assert "WARDEN_DB_TERMINATE_DSN" not in llm
     assert "WARDEN_SLACK_BOT_TOKEN" in notify
     assert "ANTHROPIC_API_KEY" not in notify
-    # The act zone's one secret of its own is the terminate login's DSN, which carries no password: each close signs
-    # in with a token an approved plan's actor session signs (platforms/db.py).
+    # The act zone's AWS writes go through the actor role, so it holds no AWS secret. Its own secrets: the terminate
+    # login's DSN, which carries no password (each close signs in with a token an approved plan's actor session
+    # signs, platforms/db.py), and the code-fix GitHub App's id and key (B4).
     assert settings.loadable_for("worker", "act") & settings.SECRETS == {"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY",
-                                                                         "WARDEN_DB_TERMINATE_DSN"}
+                                                                         "WARDEN_DB_TERMINATE_DSN",
+                                                                         "WARDEN_CODEFIX_APP_ID", "WARDEN_CODEFIX_APP_KEY"}
     everything = settings.loadable_for("worker")
     assert settings.loadable_for("worker", "all") == everything >= llm | notify
     lam = settings.loadable_for("lambda-approval")

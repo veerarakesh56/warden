@@ -23,6 +23,7 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_AUDIT_DSN` | the runtime's connection to the shared audit (Aurora PostgreSQL) | rotate the audit writer's password with Secrets Manager's managed rotation for the database, then restart the workers so they reconnect | none needed: the audit rows do not change |
 | `WARDEN_AUDIT_KEY_PASSPHRASE` | the local audit signing key's encryption | re-encrypt the key file under a new passphrase, store the new passphrase | none needed: the key itself does not change |
 | `WARDEN_SLACK_BOT_TOKEN` | posting into the incident channel | regenerate the bot token in the Slack app's settings, store it, restart | the old token stops at once: rotate in a quiet hour |
+| `WARDEN_CODEFIX_APP_KEY` (with `WARDEN_CODEFIX_APP_ID`) | the GitHub App that writes code-fix pull requests (github_app.py; the act zone's alone) | in the App's settings, Private keys: generate a new key, store the `.pem` in `warden/<runtime>/codefix-app-key`, restart the act workers, then delete the old key there; the id does not change | both keys sign until the old one is deleted; an installation token already issued lasts its hour |
 | `WARDEN_DATADOG_API_KEY`, `WARDEN_DATADOG_APP_KEY` | reading logs, spans and metrics from Datadog (datadog.py; the read zone's alone; the application key scoped to `logs_read_data`, `logs_read_index_data`, `apm_read`, `timeseries_query`, `events_read`, `monitors_read`) | run `scripts/observability_setup.py` again: it makes a new scoped key, stores it and deletes the older one; then restart the read workers (runtime.yml restart) | the old key stops when it is deleted: rotate between incidents |
 | `WARDEN_DATADOG_WEBHOOK_TOKEN` | Datadog monitors' webhook into WARDEN (`POST /datadog`; the webhook Lambda's alone) | run `scripts/datadog_setup.py` again: it makes a new token, stores it and puts it in the webhook's header in one step | none: rotate between alerts |
 | `WARDEN_SLACK_APP_TOKEN` | the discussion channel's Socket Mode connection (discuss.py; the notify zone's alone) | in the Slack app's Basic Information, App-Level Tokens: generate a new token with `connections:write`, store it, restart the notify workers, then revoke the old token | both work until the old one is revoked |
@@ -266,6 +267,52 @@ is removed. A covered alarm starts no incident and is recorded (`intake.decision
 cover ends WARDEN looks at the alarm again: still firing, it is an incident from that moment. A declaration that
 cannot be read covers nothing and is said in the intake's log: a typing mistake brings alarms back, it never hides
 one. A person who asks for a diagnosis (CLI, MCP) always gets one.
+
+## Code-fix pull requests: the GitHub App (register B4)
+
+WARDEN writes a code fix as its own GitHub App, never with a person's token (`github_app.py`). The App's id and private
+key are secrets the act zone alone reads (`warden/<runtime>/codefix-app-id`, `warden/<runtime>/codefix-app-key`). Each
+use asks GitHub for an installation token limited to one repository with contents and pull requests: write, and WARDEN
+refuses a token GitHub grants more; the token lasts an hour and is never stored. Commits go through GraphQL
+`createCommitOnBranch`, so GitHub signs them and shows them as verified, authored by the App. WARDEN writes only to
+branches under `warden/` and opens pull requests from them; it never pushes to `dev`, `prod` or `main`. Whether it may
+write anything in an environment is `code_fix` in environments.yaml, and what a change may contain is the code gate
+(`code_gate.py`, `data/code_fix.yaml`).
+
+Owner steps (once; WARDEN never creates or changes the App, a ruleset or a repository setting):
+
+1. GitHub, Settings, Developer settings, GitHub Apps, **New GitHub App**: a name such as `warden-code-fix`; the
+   repository's address as the homepage; **Webhook: Active unticked** (WARDEN asks, nothing is pushed to it).
+2. Repository permissions: **Contents: Read and write**, **Pull requests: Read and write**; Metadata: Read is added by
+   GitHub. Nothing else - no Workflows (so the App cannot change `.github/workflows` even if asked), no
+   Administration, Actions, Secrets, Checks or Environments. Account permissions: none. "Where can this GitHub App be
+   installed": **Only on this account**.
+3. Create it, note the **App ID**, and under Private keys **Generate a private key** (a `.pem` file).
+4. **Install App**, **Only select repositories**: the one repository WARDEN fixes (`WARDEN_CHANGE_REPO`, else
+   environments.yaml `github.repository`).
+5. Store both, then delete the `.pem` from the computer:
+   `aws secretsmanager put-secret-value --secret-id warden/<runtime>/codefix-app-id --secret-string <App ID>` and
+   `aws secretsmanager put-secret-value --secret-id warden/<runtime>/codefix-app-key --secret-string file://<key>.pem`.
+   The slots exist once the runtime module is applied (terraform/modules/warden-runtime/secrets.tf).
+6. Restart the act workers (runtime.yml). Until both secrets are set, WARDEN writes no code fix.
+
+Rotation is in the table at the top of this page.
+
+**Revert pull requests (phase 3).** When an incident's diagnosis is "roll back the deploy", the verifier passed it for a
+person's approval and its evidence names exactly one deployed commit, the act zone also opens a pull request that
+reverts that commit, from `warden/revert/<environment>/inc-<ref>-<commit>` into the repository's default branch, where
+CI runs (the environment receives it by the usual promotion), unless that environment's `code_fix` is `off` or no App
+is configured. `<ref>` is random, drawn for each attempt: nothing on GitHub is the incident id or computed from it, and
+only the attempt's audit row (`ref`) ties the two. The commit must be in the default branch's history (GitHub's compare
+says the branch is ahead of it, with that commit as the merge base): a commit only a fork or another branch has is never
+reverted into it. No model writes any line of it: the commit's own diff is taken back where its exact lines are found
+once, each hunk searched after the one before it, and the result must pass the code gate as exactly the commit's
+inverse. A merge commit, a rename, a binary file, a deleted file that was not a regular file (a commit WARDEN writes
+cannot set a mode), code that moved on since, or anything the gate refuses goes to a person, and nothing is written.
+Every attempt is an audit row of kind `code_fix` (opened, skipped, refused or failed, with the reason and the gate's
+rules); when the act zone never runs the step (no worker picks it up within two minutes, or it fails before recording
+itself), the core zone writes the `failed` row. The rollback of the running service stays its own plan with its own
+approval; the pull request only keeps the next deploy from bringing the fault back.
 
 ## Optional: Claude's security review on pull requests
 

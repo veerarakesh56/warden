@@ -80,6 +80,9 @@ LOADABLE = frozenset({
     # Each environment's EKS cluster, `env=cluster[,env=cluster]` (aws_stack.eks_cluster_of): a Kubernetes alert that
     # does not name its cluster - a Datadog monitor grouped by workload - is read in its environment's (2026-10-15).
     "WARDEN_EKS_CLUSTERS",
+    # The GitHub App that writes code-fix pull requests (github_app.py, register B4): its id and private key, secrets,
+    # the act zone's alone.
+    "WARDEN_CODEFIX_APP_ID", "WARDEN_CODEFIX_APP_KEY",
     # How many periods after a fix the alarm's metric must stay clean for the symptom to be gone (symptom.py, B13).
     "WARDEN_SYMPTOM_PERIODS",
     # The watched database's DSNs carry no password: each read signs an IAM token in the incident's reader role
@@ -125,6 +128,9 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_SLACK_CLIENT_SECRET": frozenset({"lambda-approval"}),
     # The discussion channel's listener (discuss.py): the notify zone's worker alone holds the connection.
     "WARDEN_SLACK_APP_TOKEN": frozenset({"worker"}),
+    # The code-fix GitHub App (github_app.py): only the act zone's worker writes a pull request.
+    "WARDEN_CODEFIX_APP_ID": frozenset({"worker"}),
+    "WARDEN_CODEFIX_APP_KEY": frozenset({"worker"}),
     # Who besides the approvers may read WARDEN's records (records.py): only the page that shows them reads it.
     "WARDEN_RECORD_VIEWERS": frozenset({"lambda-approval"}),
     # Datadog's read keys: the read zone's worker reads evidence with them, and the webhook's Lambda asks with them
@@ -149,6 +155,7 @@ SECRETS = frozenset({
     "WARDEN_GITHUB_TOKEN", "WARDEN_GITHUB_READ_TOKEN",
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
     "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
+    "WARDEN_CODEFIX_APP_ID", "WARDEN_CODEFIX_APP_KEY",
     "WARDEN_ELDANE_KEY",
 })
 
@@ -170,8 +177,10 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
     # (timeline.recent) - both notify-zone activities (workflows.ZONES).
     "notify": _EVERY_ZONE | {"WARDEN_SLACK_WEBHOOK", "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN",
                              "WARDEN_GITHUB_TOKEN"},
-    # The terminate login's DSN (no password: each close signs in with a token an approved plan's actor signs).
-    "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN"},
+    # The terminate login's DSN (no password: each close signs in with a token an approved plan's actor signs),
+    # and the code-fix GitHub App (github_app.py, register B4): a write credential, so the zone that writes. Its
+    # token is narrowed to one repository, contents and pull requests.
+    "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN", "WARDEN_CODEFIX_APP_ID", "WARDEN_CODEFIX_APP_KEY"},
     # Eldane, the AI critic (eldane.py): the same Claude API key as the diagnosis (owner, 2026-10-17), and its own
     # signing key, which nobody else holds.
     "critic": _EVERY_ZONE | {"ANTHROPIC_API_KEY", "WARDEN_ELDANE_KEY"},
