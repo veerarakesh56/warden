@@ -142,10 +142,10 @@ destructive, so under-selecting is the safe direction to be wrong in.
 gone into the evidence as though the database were in trouble. Now joined to `dm_exec_sessions` on
 `is_user_process = 1`; a quiet server reads as quiet, and a test asserts it.
 
-**ChatOps.** `--emit-chatops` pushes the redacted report to Slack, Teams or a generic webhook
+**ChatOps.** The worker's notify zone pushes the redacted report to Slack, Teams or a generic webhook
 (`WARDEN_SLACK_WEBHOOK` / `WARDEN_TEAMS_WEBHOOK` / `WARDEN_WEBHOOK_URL`). It is **dry-run unless
 `WARDEN_CHATOPS_LIVE=1`**, re-redacts the exact payload before transmit, and a failed post is a status,
-never a crash.
+never a crash. (The CLI's own `--emit-chatops` was removed, owner B27: `warden run` sends nothing.)
 
 ## How the Kubernetes support was proven
 

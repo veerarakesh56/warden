@@ -16,7 +16,7 @@ import re
 import unicodedata
 from typing import Any
 
-from .evidence import PATH, Item, tokens
+from .evidence import NO_ACTION_SUPPORT, PATH, Item, tokens
 from .models import ActionKind, RemediationProposal, RootCause
 
 MIN_QUOTE = 4  # characters, whitespace excluded: a quote of "a" is in everything
@@ -27,9 +27,11 @@ def _norm(text: str) -> str:
 
 
 def citation_problems(root_cause: RootCause, items: dict[str, Item]) -> list[str]:
+    """P13. Also the chosen hypothesis's own support (review, PR 47): its evidence decides P34 and P35, so a citation of
+    it that does not hold is ungrounded like the diagnosis's own - never quietly left out of the count."""
     if not root_cause.citations:
         return ["the diagnosis cites no evidence"]
-    return [p for c in root_cause.citations if (p := _citation_problem(c, items))]
+    return list(dict.fromkeys(p for c in chosen_support(root_cause) if (p := _citation_problem(c, items))))
 
 
 def _citation_problem(c: Any, items: dict[str, Item]) -> str:
@@ -50,6 +52,82 @@ def ruled_out_checked(ruled: Any, items: dict[str, Item]) -> bool:
     """A ruled-out cause's reason holds against the evidence: it cites, and every citation is real (as P13 asks of the
     hypothesis). One that does not is shown as unchecked - it does not hold a fix back."""
     return bool(ruled.citations) and not any(_citation_problem(c, items) for c in ruled.citations)
+
+
+# Item 7 (2026-10-17). Evidence that can DECIDE a fix: WARDEN's own reads - a metric (M), a deploy (D), a resource's
+# configuration or state (C). A typed fact from log lines (F) is what their writer chose to log - the poisoned-telemetry
+# attack (Pasquini et al., USENIX Security 2026) plants exactly that - and a failed read (T) says "unknown".
+DECISIVE_KINDS = frozenset("MDC")
+# How much a held citation weighs when hypotheses are compared: an own read twice a log fact, a failed read nothing.
+# Fixed before any held-out run was scored, never tuned on one.
+_WEIGHT = {"M": 2, "D": 2, "C": 2, "F": 1}
+MARGIN = 2  # the chosen cause must lead every rival by at least one own read (or two log facts)
+
+
+def _held(cites: list[Any], items: dict[str, Item]) -> set[str]:
+    """The ids of the citations that hold (P13's test), each once."""
+    return {c.id.strip().strip("[]") for c in cites if not _citation_problem(c, items)}
+
+
+def _weight(ids: set[str]) -> int:
+    return sum(_WEIGHT.get(i[:1], 0) for i in ids)
+
+
+def hypothesis_score(h: Any, items: dict[str, Item], also: list[Any] = ()) -> int:
+    """WARDEN's count, not the model's confidence: the held evidence for the cause minus the held evidence against.
+    `also`: more evidence for it - the diagnosis's own citations, for the chosen cause."""
+    return _weight(_held([*h.supporting, *also], items)) - _weight(_held(h.against, items))
+
+
+def chosen_support(root_cause: RootCause) -> list[Any]:
+    """The chosen cause's evidence: the diagnosis's citations, and its first hypothesis's supporting ones."""
+    return [*root_cause.citations, *(root_cause.hypotheses[0].supporting if root_cause.hypotheses else [])]
+
+
+def decisive_problem(root_cause: RootCause, items: dict[str, Item]) -> str | None:
+    """P34: the chosen cause's support must include evidence WARDEN read itself, and that citation must hold."""
+    held = _held(chosen_support(root_cause), items)
+    if any(i[:1] in DECISIVE_KINDS for i in held):
+        return None
+    what = f"only {', '.join(sorted(held))}" if held else "none of its citations holds"
+    return (f"the chosen cause rests on no evidence WARDEN read itself - a metric, a deploy, a configuration or state "
+            f"read ({what}): a fact from log lines, which whoever writes them controls, or a failed read cannot decide "
+            "a fix")
+
+
+def ranked_problem(root_cause: RootCause) -> str | None:
+    """P38 (review, PR 47): the diagnosis's hypothesis must be the cause it ranked first - the one P34 and P35 weigh
+    and the remediation acts on. Compared without case, spacing or a closing period; never rewritten to agree."""
+    hs = root_cause.hypotheses
+    if not hs:
+        return None
+
+    def norm(text: str) -> str:
+        return " ".join(text.casefold().split()).rstrip(".")
+
+    if norm(root_cause.hypothesis) == norm(hs[0].cause):
+        return None
+    return (f"the stated root cause ({root_cause.hypothesis[:120]!r}) is not the cause the diagnosis ranked first and "
+            f"WARDEN weighed ({hs[0].cause[:120]!r})")
+
+
+def margin_problem(root_cause: RootCause, items: dict[str, Item]) -> tuple[str, str] | None:
+    """P35: ("no_rival" or "too_close", why) when the diagnosis weighed no rival, or its top two are too close to call
+    by WARDEN's count of their citations. None for an answer from before ranked hypotheses."""
+    hs = root_cause.hypotheses
+    if hs is None:
+        return None
+    if len(hs) < 2:
+        return ("no_rival", ("the diagnosis weighed no rival cause (WARDEN asks for 2 to 4 ranked hypotheses): a cause "
+                             "never compared with another is not narrowed down"))
+    top = hypothesis_score(hs[0], items, root_cause.citations)
+    rival = max(hs[1:], key=lambda h: hypothesis_score(h, items))
+    second = hypothesis_score(rival, items)
+    if top - second >= MARGIN:
+        return None
+    return ("too_close", (f"the evidence does not separate the top two causes - chosen: {hs[0].cause[:160]!r} (count "
+                          f"{top}); rival: {rival.cause[:160]!r} (count {second}); WARDEN's count of held citations, for "
+                          f"minus against, must differ by {MARGIN}: a person chooses between them"))
 
 
 # P15: what an action's citations must touch. P13 only asks that citations be real; a hijacked model
@@ -290,8 +368,10 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
     # wording supported scale_up and terminate_connections (independent review 2026-09-28).
     # Words split at camelCase first: WARDEN's own facts spell codes `OOMKilled`, `exitCode=137`,
     # `CPUUtilization`, and none of those "contained" oom, exit or cpu (second review, 2026-09-30).
+    # Nor an R item: a code-review finding on the deployed change is a suspect, never proof (findings.py) - it names
+    # "deploy", "commit", "file", and alone it supported a rollback.
     cited = [c.quote for c in root_cause.citations
-             if c.id.strip().strip("[]") in items and not c.id.strip().strip("[]").startswith("T")]
+             if c.id.strip().strip("[]") in items and c.id.strip().strip("[]")[:1] not in NO_ACTION_SUPPORT]
     if proposal.action is ActionKind.revert_change:
         # An API's name, never a measure (G10 held-out baseline, 2026-10-10: the keys are run-together event names, but
         # quotes were split at camelCase first, and the "none" rule read `sg-0d4c` as a zero - P15 held back every
@@ -299,7 +379,7 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
         ok = []
         for c in root_cause.citations:
             item = items.get(c.id.strip().strip("[]"))
-            if item is None or c.id.strip().strip("[]").startswith("T"):
+            if item is None or c.id.strip().strip("[]")[:1] in NO_ACTION_SUPPORT:
                 continue
             named = _REQUEST_NAMED.search(item.text)
             fields = set(named.group(1).lower().split(",")) if named else None
@@ -519,3 +599,121 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
     if unknown:
         return f"target {proposal.target!r} names {', '.join(unknown)}, which is not in the inventory"
     return None
+
+
+# What a person is shown of the model's words (owner, 2026-10-17, after the poisoned-log downgrade): never a version, an
+# image tag, an ARN or a resource name the model wrote unless WARDEN read it itself - in a metric, a deploy, a
+# configuration or state read, a failed read's own words, or the alert's labels. A log line is not WARDEN's reading: a
+# planted "roll back to checkout:1.2.0" is exactly a log line. The verifier still sees the model's words as written.
+_ARN = re.compile(r"(?<![\w:/-])arn:[a-z0-9-]+:[^\s,;)'\"`]+")
+# An image reference: a name, then a tag or a digest (`checkout:1.2.0`, `checkout:latest`, `repo/app@sha256:...`,
+# `checkout:canary`). One linear pattern (possessive runs, nothing re-read: Sonar, PR 47); unread() decides per match.
+# A tag never ends in a period: "roll back to checkout:1.2.0." ends a sentence.
+_IMAGE_REF = re.compile(r"(?<![\w.:/-])([A-Za-z][\w./-]*+)(?::(\w(?:[\w-]|\.(?=[\w-]))*+)(?:@sha256:[0-9a-f]{12,}+)?+"
+                        r"|@sha256:[0-9a-f]{12,}+)(?![\w:/-])")
+# A word for a tag is a resource's kind only after one of these (`lambda:warden-dev-x`, `sqs:orders`) - review, PR 47.
+_KIND_WORDS = frozenset({"lambda", "function", "ecs", "eks", "k8s", "sqs", "sns", "rds", "aurora", "dynamodb", "table",
+                         "queue", "topic", "rule", "events", "eventbridge", "alarm", "service", "deployment",
+                         "namespace", "cluster", "kinesis", "stream", "appconfig", "asg", "ec2", "instance", "s3",
+                         "bucket", "elasticache", "redis", "secret", "secretsmanager", "pipeline", "stage", "db",
+                         "database", "statefulset", "daemonset", "pod", "job", "cronjob"})
+# Where WARDEN's read text splits into whole values (review, PR 47: `1.2.3` is not read because `1.2.30` was).
+_READ_SPLIT = re.compile(r"[\s,;()\[\]{}\"'=<>|]+")
+_NUMBERED_TAG = re.compile(r"v?\d")
+# A version: three or more dotted numbers (`1.18.0`, `2.4.1-alpine`), or a `v` and one or two (`v3`, `v1.2`). Every
+# number-like word is found by one trivial pattern and judged in _version_in (Sonar, PR 47: linear, low complexity) -
+# times, rates and counts are numbers, not versions; a sentence's closing period is not part of one.
+# Attached by `-` or `_` too (`checkout-1.2.0`, review PR 47); never inside a word or a dotted name.
+_NUMBER = re.compile(r"(?<![A-Za-z0-9.:/])v?+\d[\w.+-]*+")
+_VERSION_SHAPE = re.compile(r"v?(\d+(?:\.\d+)*)(?:[-+]\w[\w.]*)?")
+UNREAD = "[not read by WARDEN]"
+PREVIOUS = "[the previous revision WARDEN recorded]"
+REFUSED_TARGET = "[a target WARDEN refused - not shown]"
+
+
+def read_text(alert: Any, context: Any) -> str:
+    """Everything WARDEN read itself, as one text: its own items (never a log line, an event or the alert's prose) and
+    the alert's service and labels."""
+    from .evidence import index
+
+    items = index(context) if context is not None else {}
+    return " ".join([alert.service, *alert.labels.values(), *(i.text for i in items.values() if i.trusted)])
+
+
+def unread(text: str, read: str, *, rollback: bool = False) -> str:
+    """`text` with each version, image tag and ARN WARDEN did not read replaced by a fixed phrase."""
+    words = read_words(read)
+
+    def keep_or(what: str):
+        return lambda m: m.group(0) if m.group(0) in words else what
+
+    version = PREVIOUS if rollback else UNREAD
+    names = tokens(read)
+
+    def image(m: re.Match[str]) -> str:
+        """Kept only as WARDEN read it, whole. A word for a tag (`checkout:canary`, review PR 47) is the same shape as a
+        model naming a resource by its kind (`lambda:warden-dev-x`): only after a kind word, and only a name WARDEN
+        read, is it a resource."""
+        whole, name, tag = m.group(0), m.group(1), m.group(2)
+        if whole in words:
+            return whole
+        if tag is None or "@sha256:" in whole or tag == "latest" or _NUMBERED_TAG.match(tag):
+            return version
+        return whole if name.lower() in _KIND_WORDS and tag in names else version
+
+    def number(m: re.Match[str]) -> str:
+        word = m.group(0)
+        found = _version_in(word)
+        return version + word[len(found):] if found and found not in words else word
+
+    text = _IMAGE_REF.sub(image, _ARN.sub(keep_or(UNREAD), text))
+    return _NUMBER.sub(number, text)
+
+
+def read_words(read: str) -> set[str]:
+    """The whole values in WARDEN's read text: each word, and each part of it around `:` or `@` (`checkout:2.4.1`
+    holds `checkout` and `2.4.1`), without a closing period."""
+    words = {w.rstrip(".") for w in _READ_SPLIT.split(read) if w}
+    return words | {p.rstrip(".") for w in words for p in re.split(r"[:@]", w) if p}
+
+
+def _version_in(word: str) -> str:
+    """The version `word` is, without a closing period - or "" when it is another kind of number."""
+    stripped = word.rstrip(".")
+    shape = _VERSION_SHAPE.fullmatch(stripped)
+    if shape is None:
+        return ""
+    dots = shape.group(1).count(".")
+    return stripped if dots >= 2 or (stripped.startswith("v") and dots <= 1) else ""
+
+
+def versions(text: str) -> list[str]:
+    """The versions written in `text` (what unread() withholds when WARDEN did not read them)."""
+    return [found for m in _NUMBER.finditer(text) if (found := _version_in(m.group(0)))]
+
+
+def shown_target(proposal: RemediationProposal, alert: Any, context: Any) -> str:
+    """The proposal's target as a person may read it: no command, and no name, version or ARN WARDEN did not read."""
+    target = proposal.target
+    if _SHELL.search(_NOT_SHELL.sub(" ", target)) or _COMMAND_WORDS.search(target):
+        return REFUSED_TARGET
+    from .evidence import inventory
+
+    read = read_text(alert, context)
+    out = unread(target, read, rollback=proposal.action is ActionKind.rollback_deploy)
+    # Every other name WARDEN does not know is withheld, whatever its punctuation (review, PR 47: `payments` was shown
+    # where `payments-db` was not). Words that describe a resource are not names, and the placeholders stay as written.
+    keep = (inventory(alert, context) if context is not None else {alert.service}) | tokens(read)
+
+    def name_or_unread(m: re.Match[str]) -> str:
+        word = m.group(0)
+        if word in keep or word.lower() in _DESCRIPTORS | _RESOURCE_KINDS or not re.search(r"[A-Za-z]", word):
+            return word
+        return UNREAD
+
+    parts = re.split(_PLACEHOLDERS, out)
+    return "".join(part if part in (UNREAD, PREVIOUS) else _NAME_TOKEN.sub(name_or_unread, part) for part in parts)
+
+
+_PLACEHOLDERS = re.compile(f"({re.escape(UNREAD)}|{re.escape(PREVIOUS)})")
+_NAME_TOKEN = re.compile(r"[A-Za-z0-9][\w.-]*[A-Za-z0-9]|[A-Za-z0-9]")  # evidence.tokens' token
