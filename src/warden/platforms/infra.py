@@ -125,14 +125,7 @@ class InfraPlatform:
         state: dict[str, Any] = {"stack": stack, "environment": env, "head": head}
         live: dict[str, Any] = {"stack": {stack}, "plan_run": set(), "plan_sha256": set(), "environment": env,
                                 "state": state}
-        found = None
-        for run in runs:  # newest first, as GitHub lists them
-            if not self._is_plan_of(run, stack):
-                continue  # an apps run, another stack's plan, an apply: it kept no plan of this stack - never read S3
-            meta = self._meta(stack, str(run.get("id", "")))  # a title-matched run's unreadable plan is an error
-            if meta and meta.get("stack") == stack and meta.get("environment") == env:
-                found = (run, meta)
-                break
+        found = self._newest_kept_plan(stack, runs)
         if found is None:
             return {**live, "refused": f"no kept plan of {stack} in the last {RUNS_READ} successful {self.workflow} "
                                       "runs: plan it first (Deploy · <env>, infra_action plan)"}
@@ -151,6 +144,18 @@ class InfraPlatform:
             why = "the plan's run did not succeed: Helios did not pass it"
         return {**live, "plan_run": set() if why else {run_id}, "plan_sha256": set() if why else {sha},
                 "refused": why}
+
+    def _newest_kept_plan(self, stack: str, runs: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """The newest plan run of this stack (GitHub lists newest first) whose kept metadata names this stack and
+        environment. Only plan runs of this stack are read from S3: an apps run, another stack's plan or an apply kept
+        none, and reading one would be a 403 that blocks every restore. A plan run's unreadable metadata raises."""
+        for run in runs:
+            if not self._is_plan_of(run, stack):
+                continue
+            meta = self._meta(stack, str(run.get("id", "")))
+            if meta and meta.get("stack") == stack and meta.get("environment") == self.environment:
+                return run, meta
+        return None
 
     def _is_plan_of(self, run: dict[str, Any], stack: str) -> bool:
         """A plan run of this stack, by the deploy workflow's run-name (`Deploy · <env> · infra plan <stack> <plan run
