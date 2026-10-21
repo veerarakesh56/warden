@@ -14,6 +14,8 @@ import re
 import urllib.error
 import urllib.parse
 
+import pytest
+
 from warden import evidence
 from warden.findings import FindingsReader, held, service_of
 from warden.models import (
@@ -77,7 +79,7 @@ class _GitHub:
         if key in self.fail:
             raise self.fail[key]
         page = self.pages[key]
-        if key == "pulls":  # GitHub returns at most per_page (default 30)
+        if key == "pulls" and isinstance(page, list):  # GitHub returns at most per_page (default 30)
             page = page[:int(urllib.parse.parse_qs(url.query).get("per_page", ["30"])[0])]
         return _Resp(json.dumps(page).encode())
 
@@ -452,4 +454,37 @@ def test_every_pull_request_of_the_deployed_commit_up_to_max_prs_is_read():
     for max_prs, want in ((10, 7), (3, 3)):
         lines = _read(_GitHub(prs=range(1, 8)), max_prs=max_prs)
         assert sum(ln.startswith("FINDINGS ") for ln in lines) == want
+
+
+def test_a_redirect_carries_the_token_only_to_https_on_the_same_host():
+    """urllib keeps every header on a redirect, the bearer token among them (CodeRabbit, PR 165)."""
+    import urllib.request
+
+    from warden.findings import _OPENER, _SameHostRedirects
+
+    handler = _SameHostRedirects()
+    req = urllib.request.Request("https://api.github.com/repos/owner/shop/pulls/37/comments",
+                                 headers={"Authorization": "Bearer gh-" + "read"})
+    for elsewhere in ("https://evil.example/steal", "http://api.github.com/repos/owner/shop/pulls/37/comments",
+                      "https://api.github.com.evil.example/x"):
+        with pytest.raises(urllib.error.HTTPError):
+            handler.redirect_request(req, io.BytesIO(b""), 302, "Found", {}, elsewhere)
+    moved = handler.redirect_request(req, io.BytesIO(b""), 301, "Moved", {}, "https://api.github.com/repositories/9/x")
+    assert moved.full_url == "https://api.github.com/repositories/9/x"
+    redirects = [h for h in _OPENER.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)]
+    assert len(redirects) == 1
+    assert isinstance(redirects[0], _SameHostRedirects)
+    assert FindingsReader(_Base(), repo="owner/shop")._open == _OPENER.open
+
+
+def test_an_answer_of_the_wrong_shape_is_not_read_never_nothing_found():
+    """Only `[]` says there is nothing; an object or null where a list belongs is a failed read (CodeRabbit, PR 165)."""
+    for key, what in (("alerts", "code scanning alerts for PR #37"), ("comments", "coderabbit review of PR #37"),
+                      ("reviews", "coderabbit review of PR #37"), ("issues", "sonarcloud issues for PR #37"),
+                      ("pulls", "pull requests of commit 9f2c1ab")):
+        for wrong in ({"message": "Not Found"}, None):
+            fake = _GitHub()
+            fake.pages[key] = {"issues": wrong} if key == "issues" else wrong
+            lines = _read(fake)
+            assert any(ln.startswith("TOOL-PARTIAL findings: ") and ln.endswith(f"{what} - not read") for ln in lines)
 

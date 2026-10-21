@@ -44,7 +44,30 @@ MAX_PRS, MAX_PER_PR = 2, 20  # defaults of WARDEN_FINDINGS_MAX_PRS and WARDEN_FI
 # Their ceilings: GitHub's largest page (the reader does not page on, so more would drop alerts silently), and as many
 # pull requests as their four reads each fit the read's 30 s budget.
 CEILING_PRS, CEILING_PER_PR = 10, 100
-_FAILED = (urllib.error.URLError, TimeoutError, OSError, ValueError)
+_FAILED = (urllib.error.URLError, TimeoutError, OSError, ValueError, TypeError)  # TypeError: a wrong shape
+
+
+class _SameHostRedirects(urllib.request.HTTPRedirectHandler):
+    """urllib's redirect keeps the request's headers, the bearer token among them: one is followed only to https on
+    the same host, and any other is refused as a failed read (CodeRabbit, PR 165)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(urllib.parse.urljoin(req.full_url, newurl))
+        if new.scheme != "https" or new.netloc.lower() != old.netloc.lower():
+            raise urllib.error.HTTPError(req.full_url, code, "a redirect to another host was refused", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_SameHostRedirects)
+
+
+def _list(body: Any, what: str) -> list[Any]:
+    """A response of the wrong shape is a failed read, never an empty one: only `[]` says there is nothing."""
+    if not isinstance(body, list):
+        raise TypeError(f"{what} answered with {type(body).__name__}, not a list")
+    return body
+
+
 _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 _RULE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,79}")
 _PATH = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./-]{0,199}")
@@ -180,8 +203,8 @@ class _Tally:
         self.read: list[str] = []
         self.seen = self.held = 0
 
-    def take(self, tool: str, rows: Any, parse: Any) -> None:
-        for row in rows if isinstance(rows, list) else []:
+    def take(self, tool: str, rows: list[Any], parse: Any) -> None:
+        for row in rows:
             if isinstance(row, dict):
                 self.seen += 1
                 f = parse(row)
@@ -203,7 +226,7 @@ class FindingsReader:
     source = "findings"
 
     def __init__(self, base: Any, *, repo: str = "", token: str = "", sonar_project: str = "", sonar_token: str = "",
-                 max_prs: int = MAX_PRS, max_per_pr: int = MAX_PER_PR, opener: Any = urllib.request.urlopen,
+                 max_prs: int = MAX_PRS, max_per_pr: int = MAX_PER_PR, opener: Any = _OPENER.open,
                  clock: Any = time.monotonic) -> None:
         self.base, self.repo, self.token, self._open, self._clock = base, repo, token, opener, clock
         self.sonar_project, self.sonar_token = sonar_project, sonar_token
@@ -247,38 +270,40 @@ class FindingsReader:
             if len(prs) >= self.max_prs:
                 break
             try:
-                rows = self._get(f"{_API}/repos/{self.repo}/commits/{sha}/pulls?per_page={self.max_prs}", self.token)
+                rows = _list(self._get(f"{_API}/repos/{self.repo}/commits/{sha}/pulls?per_page={self.max_prs}",
+                                       self.token), "the commit's pull requests")
             except _FAILED as exc:
                 out.append(self._unread(exc, f"pull requests of commit {sha[:12]}"))
                 continue
-            numbers = [pr.get("number") for pr in (rows if isinstance(rows, list) else []) if isinstance(pr, dict)]
+            numbers = [pr.get("number") for pr in rows if isinstance(pr, dict)]
             for n in numbers:
                 if isinstance(n, int) and n > 0 and n not in {p for p, _ in prs} and len(prs) < self.max_prs:
                     prs.append((n, sha))
         return prs
 
-    def _sonar_issues(self, n: int) -> Any:
+    def _sonar_issues(self, n: int) -> list[Any]:
         q = urllib.parse.urlencode({"componentKeys": self.sonar_project, "pullRequest": n,
                                     "issueStatuses": "OPEN,CONFIRMED,ACCEPTED", "ps": self.max_per_pr})
         body = self._get(f"{SONAR}/api/issues/search?{q}", self.sonar_token)
-        return body.get("issues") if isinstance(body, dict) else None
+        return _list(body.get("issues") if isinstance(body, dict) else body, "sonarcloud's issue search")
 
-    def _scanning_alerts(self, n: int) -> Any:
+    def _scanning_alerts(self, n: int) -> list[Any]:
         # Open alerts only: dismissed and fixed ones filled the page before an open one was read (PR 41's review).
         ref = urllib.parse.quote(f"refs/pull/{n}/merge", safe="")
-        return self._get(f"{_API}/repos/{self.repo}/code-scanning/alerts?ref={ref}&state=open"
-                         f"&per_page={self.max_per_pr}", self.token)
+        return _list(self._get(f"{_API}/repos/{self.repo}/code-scanning/alerts?ref={ref}&state=open"
+                               f"&per_page={self.max_per_pr}", self.token), "code scanning")
 
     def _rabbit_comments(self, n: int) -> list[dict[str, Any]]:
-        rows = self._get(f"{_API}/repos/{self.repo}/pulls/{n}/comments?per_page=100", self.token)
-        return [c for c in (rows if isinstance(rows, list) else []) if isinstance(c, dict)
+        rows = _list(self._get(f"{_API}/repos/{self.repo}/pulls/{n}/comments?per_page=100", self.token),
+                     "the review comments")
+        return [c for c in rows if isinstance(c, dict)
                 and (c.get("user") or {}).get("login") == CODERABBIT and not c.get("in_reply_to_id")]
 
     def _rabbit_review(self, n: int) -> str:
         """CodeRabbit's latest review state. APPROVED is said without the word: "approved" is a steering word, and the
         line would lose its trust."""
-        rows = self._get(f"{_API}/repos/{self.repo}/pulls/{n}/reviews?per_page=100", self.token)
-        states = [str(r.get("state") or "") for r in (rows if isinstance(rows, list) else []) if isinstance(r, dict)
+        rows = _list(self._get(f"{_API}/repos/{self.repo}/pulls/{n}/reviews?per_page=100", self.token), "the reviews")
+        states = [str(r.get("state") or "") for r in rows if isinstance(r, dict)
                   and (r.get("user") or {}).get("login") == CODERABBIT]
         return _REVIEW_STATES.get(states[-1], "") if states else ""
 
