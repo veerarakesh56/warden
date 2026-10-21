@@ -282,3 +282,16 @@ def test_a_placeholder_number_no_counter_can_take_never_stops_the_masking():
 
     said = records_cli.masked({"summary": f"<EMAIL_{'9' * 5000}> wrote to ops@example.com"})["summary"]
     assert "ops@example.com" not in said
+
+
+
+def test_a_placeholder_number_past_any_counter_is_shown_as_text_never_reused():
+    """CodeRabbit, PR 147: with `<EMAIL_999999999999999999>` seeded, the next label is `<EMAIL_1000000000000000000>`,
+    which a record's text could already hold - one label for two values. Such a number is never WARDEN's own."""
+    from warden import records_cli
+
+    big = "<EMAIL_1" + "0" * 18 + ">"
+    said = records_cli.masked({"summary": f"{big} <EMAIL_{'9' * 18}> ops@example.com"})["summary"]
+    assert said.count(big) == 1
+    assert said.startswith("<EMAIL_?> ")
+    assert "ops@example.com" not in said

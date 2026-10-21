@@ -195,11 +195,16 @@ def _replace(data: Any, texts: Any, key: str = "") -> Any:
     return data
 
 
+_UNREACHABLE = re.compile(r"<([A-Z][A-Z0-9]*)_\d{19,}>")  # past redaction._countable's 18 digits
+
+
 def masked(data: Any) -> Any:
     """`data` with every reader-facing string masked by WARDEN's own patterns, in one placeholder namespace, and no
     control character anywhere. New placeholders continue after the ones already in the record, so a `<EMAIL_1>` the
     pipeline placed and one placed here never name two values with one label."""
-    texts = list(_walk(data))
+    # A "placeholder" with more digits than any counter reaches was never placed by WARDEN: it is text someone wrote.
+    # Shown as `<KIND_?>`, so a label WARDEN hands out here can never be one already in the text (CodeRabbit, PR 147).
+    texts = [_UNREACHABLE.sub(r"<\1_?>", t) for t in _walk(data)]
     seed: dict[str, str] = {}
     # Only the placeholders the record holds: a text's `<EMAIL_1000000000>` must not seed a billion entries
     # (CodeRabbit, PR 147); the redactor numbers new ones after the highest it was given.
