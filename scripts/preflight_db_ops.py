@@ -98,8 +98,8 @@ def _reconnects(clients, tries: int = 15) -> bool:
 
 
 def _ingress_verified(clients, target) -> bool:
-    """The evidence outage: revoke must really cut the connection, restore must really bring it back. Prints the
-    OK/FAIL line; True when it is OK."""
+    """Revoke and restore the database's ingress; prints the OK/FAIL line, True when it is OK."""
+    # The evidence outage: revoke must really cut the connection, restore must really bring it back.
     try:
         ops_db.OPS["db_revoke_ingress"](clients, target)
         time.sleep(5)

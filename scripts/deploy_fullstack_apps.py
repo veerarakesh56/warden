@@ -656,11 +656,10 @@ def bootstrap_db(stack: dict, aws, connect=None) -> None:
 # --------------------------------------------------------------------------- cli
 
 def _checked_paths(out_arg: pathlib.Path, stack_arg: pathlib.Path | None) -> tuple[pathlib.Path, pathlib.Path]:
-    """(--out, --stack) as checked paths.
-
-    --out and --stack come from the command line, and deploy ecs writes stack.json back: each must lie where the
-    tools work - ~/warden-fullstack-build, the temp folder (RUNNER_TEMP in CI) or the working directory
-    (warden.paths; Sonar pythonsecurity:S2083, 2026-10-17). Both are used through the checked path only."""
+    """(--out, --stack) as checked paths."""
+    # --out and --stack come from the command line, and deploy ecs writes stack.json back: each must lie where the
+    # tools work - ~/warden-fullstack-build, the temp folder (RUNNER_TEMP in CI) or the working directory
+    # (warden.paths; Sonar pythonsecurity:S2083, 2026-10-17). Both are used through the checked path only.
     try:
         out = paths.inside(out_arg)
         # The default is checked too: a stack.json in --out that links elsewhere is refused (CodeRabbit, PR 63).
