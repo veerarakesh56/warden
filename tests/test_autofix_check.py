@@ -354,7 +354,7 @@ def test_the_merge_is_wired_in_the_act_zone_and_asked_once_each_time():
     assert workflows.MERGE_ASK["schedule_to_start_timeout"].total_seconds() == 120
     assert workflows.MERGE_TRIES * workflows.MERGE_EVERY.total_seconds() <= 24 * 3600
     assert workflows.MERGE_FOR.total_seconds() == 24 * 3600
-    assert "deadline = workflow.now() + MERGE_FOR" in src
+    assert "deadline = workflow.now() + MERGE_FOR\n" in src
     assert "await IncidentWorkflow._code_fix_merge(first, pack, opened)" in inspect.getsource(
         workflows.IncidentWorkflow._code_fix_revert)
     incident = inspect.getsource(workflows.IncidentWorkflow._code_fix_merge)

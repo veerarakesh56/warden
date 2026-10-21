@@ -341,6 +341,17 @@ class CodeFixActivities:
         return row
 
     @activity.defn
+    def code_fix_unrun(self, incident_id: str, sha: str) -> dict[str, Any]:
+        """The core zone's audit row for a revert the act zone never ran - not picked up in time, or it failed before
+        it could record itself - so every attempt is a row whatever stopped it. It holds no key and writes nothing
+        to GitHub."""
+        row = RevertOutcome(status="failed", commit=sha,
+                            reason="the act zone did not run the revert step (not picked up in time, or it failed "
+                                   "before recording itself)").row()
+        self.audit.append(incident_id, AUDIT_KIND, row)
+        return row
+
+    @activity.defn
     def code_fix_merge(self, incident_id: str, environment: str, number: int) -> dict[str, Any]:
         """Merge the incident's revert pull request #`number` if every condition holds (merge_refusals); else say what
         is missing. `merged` and `refused` (it can never merge: not auto, closed, or changed) are audit rows; waiting
