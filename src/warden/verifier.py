@@ -924,8 +924,10 @@ def _grounding_policies(f: _Findings, context: ContextBundle, root_cause: RootCa
     if why := decisive_problem(root_cause, items):
         f.escalate("P34-NO-DECISIVE-EVIDENCE", f"{why[0].upper()}{why[1:]}.")
     if close := margin_problem(root_cause, items):
-        f.escalate("P35-NO-RIVAL-HYPOTHESIS" if close[0] == "no_rival" else "P35-HYPOTHESES-TOO-CLOSE",
-                   f"{close[1][0].upper()}{close[1][1:]}.")
+        if close[0] == "no_rival":
+            f.escalate("P35-NO-RIVAL-HYPOTHESIS", f"{close[1][0].upper()}{close[1][1:]}.")
+        else:
+            f.escalate("P35-HYPOTHESES-TOO-CLOSE", f"{close[1][0].upper()}{close[1][1:]}.")
 
 
 def _ranking_policies(f: _Findings, context: ContextBundle, root_cause: RootCause, proposal: RemediationProposal,
