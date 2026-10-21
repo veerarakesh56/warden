@@ -28,6 +28,18 @@ def _keys_only_in_the_test_temp_folder(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _egress_hook_as_it_was():
+    """A Lambda handler or a CLI command against an environment installs the egress hook (egress.install), and an
+    interpreter's audit hook cannot be removed: after each test the hook checks only if it did before, so a test
+    that talks to a local fake host does not depend on which test ran before it in the same worker."""
+    from warden import egress
+
+    was = egress._STATE["on"]
+    yield
+    egress._STATE["on"] = was
+
+
+@pytest.fixture(autouse=True)
 def _root_logger_restored():
     """Every CLI command installs the log gate on the root logger. Each test starts and ends with the
     root logger as it was, so no test depends on which ran before it (fourth review: one did)."""

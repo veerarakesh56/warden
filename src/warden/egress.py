@@ -424,7 +424,9 @@ def guard_provider(cls: type) -> type:
 
 # --------------------------------------------------------------------------- the interpreter hook
 
-_STATE: dict[str, Any] = {"installed": False, "seen": set()}
+# `on`: the hook checks. install() turns it on and nothing in src/warden turns it off; the test suite's conftest turns
+# it back off after a test that installed it (an audit hook cannot be removed), so no test depends on which ran before.
+_STATE: dict[str, Any] = {"installed": False, "on": False, "seen": set()}
 
 
 def _purpose(dest: Destination, method: str, url: str) -> str:
@@ -479,7 +481,7 @@ _EVENTS = frozenset({"urllib.Request", "socket.getaddrinfo", "socket.gethostbyna
 
 
 def _hook(event: str, args: tuple) -> None:
-    if event not in _EVENTS or getattr(_GUARD, "hooked", False):
+    if event not in _EVENTS or not _STATE["on"] or getattr(_GUARD, "hooked", False):
         return
     _GUARD.hooked = True  # the ledger's own writes (the audit, KMS) pass the hook too, unchecked twice
     try:
@@ -497,6 +499,7 @@ def install() -> bool:
     if not _STATE["installed"]:
         sys.addaudithook(_hook)
         _STATE["installed"] = True
+    _STATE["on"] = True
     return True
 
 

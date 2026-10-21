@@ -316,6 +316,17 @@ def test_the_hook_refuses_before_any_connection_in_a_real_interpreter():
     assert "canary.person" not in got.stderr  # the ledger's lines name kinds, never values
 
 
+def test_the_hook_checks_once_installed_and_not_while_off(monkeypatch):
+    """install() turns the hook on; off (only the test suite's conftest sets it so, between tests) it checks nothing."""
+    monkeypatch.setitem(egress._STATE, "installed", True)  # never add a real audit hook to the test process
+    monkeypatch.setitem(egress._STATE, "on", False)
+    egress._hook("socket.getaddrinfo", ("exfil.example.net", 443))  # off: not checked
+    egress.install()
+    assert egress._STATE["on"] is True
+    with pytest.raises(EgressBlocked):
+        egress._hook("socket.getaddrinfo", ("exfil.example.net", 443))
+
+
 def test_install_for_environment_leaves_a_demo_alone(monkeypatch):
     monkeypatch.delenv("WARDEN_ENV", raising=False)
     assert egress.install_for_environment() is False
