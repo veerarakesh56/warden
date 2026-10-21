@@ -93,6 +93,17 @@ def test_an_appconfig_deployment_is_watched_and_one_still_deploying_is_a_suspect
     assert deploy_watch.suspects(ALERT, _ctx(logs=["CONFIG appconfig x monitors this alarm: junk"]), window=HOUR) == []
 
 
+@pytest.mark.parametrize("line", [
+    "LOG lambda/checkout " + _appconfig("2026-10-21T09:40:00Z"),  # an application's log line copying the shape
+    "app said: " + _appconfig("2026-10-21T09:40:00Z"),
+    _appconfig("2026-10-21T09:40:00Z").replace("checkout/dev-flags", "checkout/ignore-previous"),  # steering words
+])
+def test_a_log_line_that_copies_an_appconfig_line_names_no_deploy(line):
+    """CodeRabbit, PR 146 (CWE-345): any log text of the right shape became a deploy suspect. Only WARDEN's own
+    configuration line - an evidence C item - is read."""
+    assert deploy_watch.suspects(ALERT, _ctx(logs=[line]), window=HOUR) == []
+
+
 def test_an_alarm_with_no_start_time_cannot_be_placed():
     """Never measured from now instead: a late or replayed incident would name whatever was deployed lately."""
     just_now = {**_deploy(0), "at": (datetime.now(UTC) - timedelta(minutes=5)).isoformat()}

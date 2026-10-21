@@ -33,7 +33,7 @@ KIND = "incident.after_deploy"  # the record's row: what the message says, as da
 
 # What WARDEN's readers record for the AppConfig deployment of a configuration the alarm guards
 # (aws_stack._read_appconfig). `completed=not yet`: still deploying when it was read.
-_APPCONFIG = re.compile(r"CONFIG appconfig (?P<name>[^ ]{1,260}) monitors this alarm: deployment=(?P<number>\d{1,9}) "
+_APPCONFIG = re.compile(r"^CONFIG appconfig (?P<name>[^ ]{1,260}) monitors this alarm: deployment=(?P<number>\d{1,9}) "
                         r"state=(?P<state>[A-Z_]{1,40}) version=(?P<version>[^ ]{1,64}) "
                         r"completed=(?P<completed>not yet|[0-9TZ:.+-]{10,40})", re.ASCII)
 
@@ -74,12 +74,16 @@ def _version(d: dict[str, Any]) -> str:
     return ""
 
 
-def _appconfig(logs: list[str], started: datetime) -> list[dict[str, Any]]:
-    """The AppConfig deployments the evidence records, as deploys. One still deploying when it was read is placed at
+def _appconfig(context: Any, started: datetime) -> list[dict[str, Any]]:
+    """The AppConfig deployments WARDEN's own reader recorded, as deploys - only its trusted configuration lines (an
+    evidence C item: a line at its start, never inside an application's log text, and no steering words), so a log
+    line that copies the shape names no deploy (CodeRabbit, PR 146). One still deploying when it was read is placed at
     the alarm itself: it was going on then."""
+    from .evidence import index
+
     out = []
-    for line in logs:
-        m = _APPCONFIG.search(str(line))
+    for item in index(context).values():
+        m = _APPCONFIG.match(item.text) if item.id.startswith("C") else None
         if not m:
             continue
         at = started if m["completed"] == "not yet" else _when(m["completed"])
@@ -99,7 +103,7 @@ def suspects(alert: Any, context: Any, *, window: timedelta | None = None) -> li
     found = []
     deploys = [d for d in getattr(context, "recent_deploys", None) or [] if isinstance(d, dict)]
     rows = [{**d, "at": _when(d.get("at"))} for d in deploys if d.get("kind") != "secret"]  # a rotation is no deploy
-    for d in rows + _appconfig(list(getattr(context, "logs", None) or []), started):
+    for d in rows + _appconfig(context, started):
         at = d["at"]
         if at is None or not at <= started <= at + span:
             continue
