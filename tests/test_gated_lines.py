@@ -15,7 +15,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 def test_a_printed_line_goes_out_as_the_log_gate_lets_it():
     key = "AK" + "IA" + "ABCDEFGHIJKLMNOP"  # built from parts
     out = gated(f'{{"by": "someone", "key": "{key}"}}\x07')
-    assert key not in out and "\x07" not in out
+    assert key not in out
+    assert "\x07" not in out
 
 
 def test_every_print_in_the_lambdas_is_gated():
@@ -24,7 +25,8 @@ def test_every_print_in_the_lambdas_is_gated():
     assert prints, "the walk found no print - the test itself has rotted"
     for call in prints:
         inner = call.args[0] if call.args else None
-        assert isinstance(inner, ast.Call) and getattr(inner.func, "id", "") == "gated", ast.unparse(call)
+        assert isinstance(inner, ast.Call), ast.unparse(call)
+        assert getattr(inner.func, "id", "") == "gated", ast.unparse(call)
 
 
 def test_no_function_inside_listen_shadows_one_of_the_module():
@@ -32,5 +34,6 @@ def test_no_function_inside_listen_shadows_one_of_the_module():
     module = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
     listen = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "listen")
     inner = {n.name for n in ast.walk(listen) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))} - {"listen"}
-    assert inner and not inner & module, inner & module
+    assert inner, inner & module
+    assert not inner & module, inner & module
     assert discuss.heard({"type": "app_mention", "channel": "C1"}, {"C1": ""}).startswith("discuss: heard app_mention")

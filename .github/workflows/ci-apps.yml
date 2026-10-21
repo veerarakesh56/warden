@@ -28,6 +28,7 @@ on:
       - "tests/test_shop_app_log_s5145.py"
       - "tests/test_traffic_alb_tls.py"
       - "tests/test_load_rng_s2245.py"
+      - "tests/test_fullstack_ops_lambda.py"
       - "tests/test_stack_paths_s2083.py"
       - "tests/test_shop_https_s5332.py"
   # Pull requests into main only (2026-10-16): dev and prod receive commits main has already checked.
@@ -59,6 +60,7 @@ on:
       - "tests/test_shop_app_log_s5145.py"
       - "tests/test_traffic_alb_tls.py"
       - "tests/test_load_rng_s2245.py"
+      - "tests/test_fullstack_ops_lambda.py"
       - "tests/test_stack_paths_s2083.py"
       - "tests/test_shop_https_s5332.py"
   # Weekly too: the deployed requirements are audited (pip-audit) even when nothing here changes - a new CVE

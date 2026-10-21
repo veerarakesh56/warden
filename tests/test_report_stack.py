@@ -50,14 +50,17 @@ def test_what_warden_read_lists_each_component_and_each_failed_reader():
     c = ctx(tool_errors=["sqs/warden-dev-orders: AccessDenied on GetQueueAttributes"])
     md = _report(None, ActionKind.escalate_to_human, context=c).markdown
     section = md[md.index("## What WARDEN read"):md.index("## What WARDEN thinks")]
-    assert "alert time ± 15 min" in section and "alert time ± 10 min" in section
+    assert "alert time ± 15 min" in section
+    assert "alert time ± 10 min" in section
     for reader in ("lambda", "dynamodb", "elasticache", "aurora", "alb", "apigw", "ecs", "k8s", "secret", "sns",
                    "eventbridge"):
-        assert f"- {reader} `" in section and "read." in section, reader
+        assert f"- {reader} `" in section, reader
+        assert "read." in section, reader
     assert "- sqs `warden-dev-orders,warden-dev-notifications`" in section
     assert "**FAILED**: `sqs/warden-dev-orders: AccessDenied on GetQueueAttributes`" in section
     assert "Not read: the data inside the Redis cache itself" in section  # this alert names a cache and containers
-    assert "the program code inside the container images" in section and "VPC-only" not in section
+    assert "the program code inside the container images" in section
+    assert "VPC-only" not in section
     # An alert that names neither says nothing of them (owner, 2026-10-14: a schedule's alarm listed Redis).
     from warden.models import Alert
     from warden.reporting import _stack_sources

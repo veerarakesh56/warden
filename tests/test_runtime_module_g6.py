@@ -20,7 +20,8 @@ def _block(text: str, kind: str, name: str) -> str:
 def test_the_heartbeat_alarm_reads_the_workers_metric_and_pages_on_silence():
     alarm = _block((MODULE / "heartbeat.tf").read_text(encoding="utf-8"), "aws_cloudwatch_metric_alarm", "heartbeat")
     assert re.search(r'treat_missing_data\s*=\s*"breaching"', alarm)
-    assert re.search(r'comparison_operator\s*=\s*"LessThanThreshold"', alarm) and re.search(r"threshold\s*=\s*1\b", alarm)
+    assert re.search(r'comparison_operator\s*=\s*"LessThanThreshold"', alarm)
+    assert re.search(r"threshold\s*=\s*1\b", alarm)
     assert re.search(rf'metric_name\s*=\s*"{runtime.HEARTBEAT_METRIC}"', alarm)
     assert re.search(rf'dimensions\s*=\s*\{{ TaskQueue = "{runtime.TASK_QUEUE}" \}}', alarm)
     assert 'namespace           = "WARDEN/${var.environment}"' in alarm
@@ -42,7 +43,8 @@ def test_the_synthetic_alarm_pages_after_a_day_without_a_pass():
     periods = int(re.search(r"evaluation_periods\s*=\s*(\d+)", alarm).group(1))
     assert int(re.search(r"datapoints_to_alarm\s*=\s*(\d+)", alarm).group(1)) == periods
     # Longer than the synthetic's own day, within CloudWatch's seven-day limit for hourly periods (PutMetricAlarm).
-    assert runtime.SYNTHETIC_EVERY.total_seconds() < period * periods <= 7 * 86400 and period >= 3600
+    assert runtime.SYNTHETIC_EVERY.total_seconds() < period * periods <= 7 * 86400
+    assert period >= 3600
 
 
 def _module_text() -> str:
@@ -77,10 +79,13 @@ def test_every_secret_the_runtime_reads_has_a_slot_and_no_slot_is_unused():
 
 def test_the_audit_signer_is_an_ed25519_kms_key_and_the_anchors_are_locked():
     kms = _block((MODULE / "kms.tf").read_text(encoding="utf-8"), "aws_kms_key", "audit_signer")
-    assert 'customer_master_key_spec = "ECC_NIST_EDWARDS25519"' in kms and 'key_usage                = "SIGN_VERIFY"' in kms
+    assert 'customer_master_key_spec = "ECC_NIST_EDWARDS25519"' in kms
+    assert 'key_usage                = "SIGN_VERIFY"' in kms
     anchors = (MODULE / "anchors.tf").read_text(encoding="utf-8")
-    assert "object_lock_enabled = true" in anchors and 'mode = "COMPLIANCE"' in anchors
-    assert 'status = "Enabled"' in anchors and anchors.count("= true") >= 5  # lock + the four public-access blocks
+    assert "object_lock_enabled = true" in anchors
+    assert 'mode = "COMPLIANCE"' in anchors
+    assert 'status = "Enabled"' in anchors
+    assert anchors.count("= true") >= 5  # lock + the four public-access blocks
     assert '"aws:SecureTransport" = "false"' in anchors
     variables = (MODULE / "variables.tf").read_text(encoding="utf-8")
     block = variables[variables.index('variable "anchor_retention_days"'):]
@@ -111,7 +116,8 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
     assert 'aws_free_plan = lookup(local.tf, "aws_free_plan", "false") == "true"' in " ".join(root.split())
     net = (MODULE / "network.tf").read_text(encoding="utf-8")
     ingress = _block(net, "aws_vpc_security_group_ingress_rule", "audit_db_from_runtime")
-    assert "referenced_security_group_id = aws_security_group.runtime.id" in ingress and "5432" in ingress
+    assert "referenced_security_group_id = aws_security_group.runtime.id" in ingress
+    assert "5432" in ingress
     assert "cidr_ipv4" not in net.split('resource "aws_security_group" "audit_db"')[1]  # no address range reaches it
     # EC2 accepts only a-zA-Z0-9 and . _-:/()#,@[]+=&;{}!$* and space in a rule's description (the first apply, 2026-10-09).
     for desc in re.findall(r'description\s*=\s*"([^"]*)"', net):
@@ -164,7 +170,8 @@ def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
     assert {z for z, v in zones.items() if "actor" in v["assumes"]} == {"act"}
     assert {z for z, v in zones.items() if "platform-reader" in v["assumes"]} == {"read", "notify", "act"}
     role = _block(iam, "aws_iam_role", "zone")
-    assert "for_each             = local.zones" in role and 'name                 = "warden-${var.environment}-${each.key}"' in role
+    assert "for_each             = local.zones" in role
+    assert 'name                 = "warden-${var.environment}-${each.key}"' in role
     reader = json.loads((ROOT / "iam" / "templates" / "platform-reader-trust.json").read_text(encoding="utf-8"))
     assert {p for st in reader["Statement"] for p in st["Principal"]["AWS"]} == {
         f"arn:aws:iam::${{account}}:role/warden-${{runtime}}-{z}" for z in ("read", "notify", "act")}
@@ -175,7 +182,8 @@ def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
     assert 'role/warden-${e}-${r}' in iam
     # No Bedrock: no grant, variable or root input names it, and the runtime's boundary has no ceiling for it.
     module = _module_text().replace('variable "model_provider"', "")
-    assert "bedrock:" not in module and "bedrock_model_arns" not in module
+    assert "bedrock:" not in module
+    assert "bedrock_model_arns" not in module
     assert "bedrock" not in (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8").lower()
     assert "bedrock" not in (ROOT / "iam" / "templates" / "runtime-boundary.json").read_text(encoding="utf-8")
 
@@ -212,13 +220,16 @@ def test_each_lambda_has_its_own_role_that_reads_only_what_its_handler_reads():
     assert {n for n, a in access.items() if a["approvers"]} == {"approval"}
     assert {n for n, a in access.items() if a["metrics"]} == {"actor-use", "approval"}
     lambdas = (src / "lambdas.py").read_text(encoding="utf-8")
-    assert lambdas.count("put_metric_data(") == 2 and lambdas.count("approver_policy()") == 1
+    assert lambdas.count("put_metric_data(") == 2
+    assert lambdas.count("approver_policy()") == 1
     assert "approver_policy()" in lambdas.split("def approval_page")[1].split("\ndef ")[0]
     role, policy = _block(iam, "aws_iam_role", "front_door"), _block(iam, "aws_iam_role_policy", "front_door")
     assert "for_each             = local.front_door_access" in role
     assert 'name                 = "warden-${var.environment}-${each.key}-lambda"' in role
-    assert "concat(local.audit_and_settings," in policy and "local.own" not in policy
-    assert 'resource "aws_iam_role" "lambda"' not in iam and "aws_iam_role.lambda." not in _module_text()
+    assert "concat(local.audit_and_settings," in policy
+    assert "local.own" not in policy
+    assert 'resource "aws_iam_role" "lambda"' not in iam
+    assert "aws_iam_role.lambda." not in _module_text()
     assert "role          = aws_iam_role.front_door[each.key].arn" in _frontdoor()
     shared = iam[iam.index("  audit_and_settings = ["):iam.index("  who_may_approve = {")]
     assert not re.search(r"sts:|bedrock:|secretsmanager:|cloudwatch:|/approvers", shared)
@@ -279,7 +290,8 @@ def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
         assert granted == wanted, zone
     for policy in ("zone", "front_door"):  # each name exactly, not a prefix of another
         block = _block(iam, "aws_iam_role_policy", policy)
-        assert '"${local.secret_arn}/${s}-??????"' in block and "secret_arn}/${s}*" not in block, policy
+        assert '"${local.secret_arn}/${s}-??????"' in block, policy
+        assert "secret_arn}/${s}*" not in block, policy
 
 
 # Each zone secret, the module that reads it (or the modules, when one secret has more readers: one slot, never a second
@@ -332,7 +344,8 @@ def test_the_github_token_is_the_notify_zones_whose_activities_read_it():
 
     from warden import activities, changes, runtime, settings, timeline, workflows
 
-    assert "self.changes.open(" in inspect.getsource(activities.RemediationActivities.finish)
+    assert "self._record_change(" in inspect.getsource(activities.RemediationActivities.finish)
+    assert "self.changes.open(" in inspect.getsource(activities.RemediationActivities._record_change)
     assert "changes=from_environment()" in inspect.getsource(runtime._activities)
     assert '"WARDEN_GITHUB_TOKEN"' in inspect.getsource(changes.from_environment)
     assert "timeline.recent(" in inspect.getsource(activities.IncidentActivities.notify)
@@ -356,7 +369,8 @@ def test_every_front_door_runs_a_handler_that_exists_from_the_digest_pinned_imag
     for h in handlers:
         module, name = h.rsplit(".", 1)
         assert callable(getattr(importlib.import_module(module), name))
-    assert 'entry_point = ["/opt/warden/bin/python", "-m", "awslambdaric"]' in tf and "image_uri     = var.runtime_image" in tf
+    assert 'entry_point = ["/opt/warden/bin/python", "-m", "awslambdaric"]' in tf
+    assert "image_uri     = var.runtime_image" in tf
     assert 'can(regex("@sha256:[0-9a-f]{64}$", var.runtime_image))' in (MODULE / "variables.tf").read_text(encoding="utf-8")
 
 
@@ -365,14 +379,16 @@ def test_the_alarm_rule_sends_what_the_alarm_lambda_accepts_and_a_lost_alarm_pag
 
     tf = _frontdoor()
     rule = _block(tf, "aws_cloudwatch_event_rule", "alarms")
-    assert 'source        = ["aws.cloudwatch"]' in rule and '"detail-type" = ["CloudWatch Alarm State Change"]' in rule
+    assert 'source        = ["aws.cloudwatch"]' in rule
+    assert '"detail-type" = ["CloudWatch Alarm State Change"]' in rule
     assert lambdas.alarm_event({"source": "aws.cloudwatch", "detail-type": "CloudWatch Alarm State Change",
                                 "detail": {"alarmName": "warden-dev-x", "state": {"value": "OK",
                                                                                   "timestamp": "2026-10-04T00:00:00Z"}}},
                                "dev") is not None
     assert '{ prefix = "warden-${e}-" }' in rule
     target = _block(tf, "aws_cloudwatch_event_target", "alarms")
-    assert "dead_letter_config" in target and "maximum_retry_attempts" in target
+    assert "dead_letter_config" in target
+    assert "maximum_retry_attempts" in target
     page = _block(tf, "aws_cloudwatch_metric_alarm", "alarm_dlq")
     assert "alarm_actions       = [var.page_topic_arn]" in page
 
@@ -382,7 +398,8 @@ def test_the_api_throttles_logs_and_routes_exactly_what_the_page_and_the_webhook
 
     tf = _frontdoor()
     stage = _block(tf, "aws_apigatewayv2_stage", "front")
-    assert "throttling_rate_limit  = var.api_rate_limit" in stage and "throttling_burst_limit = var.api_burst_limit" in stage
+    assert "throttling_rate_limit  = var.api_rate_limit" in stage
+    assert "throttling_burst_limit = var.api_burst_limit" in stage
     assert "access_log_settings" in stage
     assert re.findall(r'"(GET /a/\{token\})", "(POST /a/\{token\}/\{step\})"', tf)
     assert re.search(r'route_key\s*=\s*"POST /alertmanager"', tf)
@@ -415,9 +432,11 @@ def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_ex
     text = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
     plain = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     froms = re.findall(r"^FROM (\S+)", text, re.MULTILINE)
-    assert froms and all("@sha256:" in f for f in froms)
+    assert froms
+    assert all("@sha256:" in f for f in froms)
     assert set(froms) <= set(re.findall(r"^FROM (\S+)", plain, re.MULTILINE))  # the same bases as the tool image
-    assert "uv sync --locked --no-build --no-editable --extra runtime" in text and "USER warden" in text
+    assert "uv sync --locked --no-build --no-editable --extra runtime" in text
+    assert "USER warden" in text
     assert "check_package.py" in text
     py = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(r'^runtime = \["awslambdaric>=4\.1"', py, re.MULTILINE)
@@ -437,19 +456,24 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
 
     tf = (MODULE / "compute.tf").read_text(encoding="utf-8")
     task = _block(tf, "aws_ecs_task_definition", "zone")
-    assert 'requires_compatibilities = ["FARGATE"]' in task and '"EC2"' not in task
+    assert 'requires_compatibilities = ["FARGATE"]' in task
+    assert '"EC2"' not in task
     assert 'cpu_architecture        = "X86_64"' in task
     assert 'mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]' in task
     assert "linuxParameters" not in task  # Fargate has no tmpfs
     dockerfile = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
     # The volume takes the image's /tmp: Debian's 1777, checked at build (else it would be root's 0755).
-    assert 'RUN test "$(stat -c \'%a %U\' /tmp)" = "1777 root"\nVOLUME ["/tmp"]\nUSER warden' in dockerfile
+    assert ('RUN useradd --create-home --uid 10001 warden \\\n'
+            '    && test "$(stat -c \'%a %U\' /tmp)" = "1777 root"\nVOLUME ["/tmp"]\nUSER warden') in dockerfile
     service = _block(tf, "aws_ecs_service", "zone")
-    assert 'capacity_provider = "FARGATE"' in service and "force_new_deployment = true" in service  # the provider needs it
+    assert 'capacity_provider = "FARGATE"' in service
+    assert "force_new_deployment = true" in service  # the provider needs it
     # Never Spot (PR 44 review): no fallback to on-demand, and the heartbeat does not see one zone's gap.
     assert "FARGATE_SPOT" not in "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf"))
-    assert "placement_constraints" not in service and "ordered_placement_strategy" not in service  # Fargate refuses them
-    assert "task_role_arn            = aws_iam_role.zone[each.key].arn" in task and "readonlyRootFilesystem = true" in task
+    assert "placement_constraints" not in service
+    assert "ordered_placement_strategy" not in service  # Fargate refuses them
+    assert "task_role_arn            = aws_iam_role.zone[each.key].arn" in task
+    assert "readonlyRootFilesystem = true" in task
     assert "for_each                 = local.zones" in task
     # Cost plan 2026-10-16: Container Insights was ~USD 40 a month of custom metrics nothing reads.
     assert re.search(r'name\s*=\s*"containerInsights"\s*value\s*=\s*"disabled"', _block(tf, "aws_ecs_cluster", "runtime"))
@@ -458,14 +482,17 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     assert 'command                = ["worker", "--zone", each.key, "--platform", length(each.value.platforms) > 0 ? join(",", each.value.platforms) : "none"]' in task
     assert 'WARDEN_HEARTBEAT_NAMESPACE   = "WARDEN/${var.environment}"' in task
     template = re.search(r'WARDEN_AWS_ROLE_ARN_TEMPLATE = "([^"]+)"', task).group(1)
-    assert "{env}" in template and "{role}" in template and template.startswith("arn:aws:iam::${local.account}:role/")
+    assert "{env}" in template
+    assert "{role}" in template
+    assert template.startswith("arn:aws:iam::${local.account}:role/")
     import inspect
 
     from warden.platforms import aws
 
     assert '"WARDEN_AWS_ROLE_ARN_TEMPLATE"' in inspect.getsource(aws.from_environment)
     assert "WARDEN_HEARTBEAT_NAMESPACE" in inspect.getsource(runtime.cloudwatch_publisher)
-    assert "rollback = true" in service and "security_groups = [aws_security_group.runtime.id]" in service
+    assert "rollback = true" in service
+    assert "security_groups = [aws_security_group.runtime.id]" in service
 
 
 def test_the_audit_is_reached_as_its_writer_with_an_iam_token_and_only_migrate_reads_the_master_secret():
@@ -477,15 +504,19 @@ def test_the_audit_is_reached_as_its_writer_with_an_iam_token_and_only_migrate_r
     mig = (MODULE / "migrate.tf").read_text(encoding="utf-8")
     iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
     assert f'audit_writer = "{lambdas.AUDIT_WRITER}"' in mig
-    assert "postgresql://${local.audit_writer}@" in mig and "sslmode=require" in mig and ":${" not in mig.split("postgresql://")[1].split("@")[0]
+    assert "postgresql://${local.audit_writer}@" in mig
+    assert "sslmode=require" in mig
+    assert ":${" not in mig.split("postgresql://")[1].split("@")[0]
     assert 'Resource = local.audit_db.master_secret' in mig
     assert 'command     = ["warden.lambdas.migrate"]' in mig
     module = _module_text()
     assert module.count("master_user_secret[0].secret_arn") == 2  # the migrate role's grant and its environment
-    assert '"rds-db:connect"' in iam and "dbuser:${local.audit_db.resource_id}/${local.audit_writer}" in iam
+    assert '"rds-db:connect"' in iam
+    assert "dbuser:${local.audit_db.resource_id}/${local.audit_writer}" in iam
     for tf in ("compute.tf", "frontdoor.tf"):
         text = (MODULE / tf).read_text(encoding="utf-8")
-        assert re.search(r'WARDEN_AUDIT_IAM_AUTH\s+= "1"', text) and re.search(r"WARDEN_AUDIT_DSN\s+= local.audit_dsn", text), tf
+        assert re.search(r'WARDEN_AUDIT_IAM_AUTH\s+= "1"', text), tf
+        assert re.search(r"WARDEN_AUDIT_DSN\s+= local.audit_dsn", text), tf
 
 
 def test_on_the_aws_free_plan_the_audit_is_one_private_rds_instance_with_the_same_protections():
@@ -506,7 +537,8 @@ def test_on_the_aws_free_plan_the_audit_is_one_private_rds_instance_with_the_sam
         assert line in db, line
     assert "master_password" not in db.replace("manage_master_user_password", "")
     others = "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf") if f.name != "aurora.tf")
-    assert "aws_rds_cluster.audit" not in others and "aws_db_instance.audit" not in others
+    assert "aws_rds_cluster.audit" not in others
+    assert "aws_db_instance.audit" not in others
 
 
 def test_no_ec2_instance_is_left_to_run_the_workers():
@@ -530,8 +562,10 @@ def test_the_runtime_reaches_out_on_https_temporal_clouds_port_and_the_audit_onl
     ports = sorted(int(p) for p in re.findall(r"from_port\s*=\s*(\d+)", sg))
     assert ports == [443, 5432, 5432, 7233]
     # The second 5432: the watched databases' public endpoints (Aurora express), only when switched on (2026-10-15).
-    assert 'dynamic "egress"' in sg and "for_each = var.watched_db_egress ? [1] : []" in sg
-    assert "security_groups = [aws_security_group.audit_db.id]" in sg and "ingress" not in sg
+    assert 'dynamic "egress"' in sg
+    assert "for_each = var.watched_db_egress ? [1] : []" in sg
+    assert "security_groups = [aws_security_group.audit_db.id]" in sg
+    assert "ingress" not in sg
     module = "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf"))
     assert "aws_vpc_security_group_egress_rule" not in module
 
@@ -556,7 +590,8 @@ def test_paused_the_runtime_keeps_its_audit_and_stops_its_spend():
     beat = (MODULE / "heartbeat.tf").read_text(encoding="utf-8")
     assert beat.count("actions_enabled     = !var.paused") == 2
     net = (ROOT / "terraform" / "runtime" / "network.tf").read_text(encoding="utf-8")
-    assert "count  = local.paused ? 0 : var.nat_gateways" in net and "count         = local.paused ? 0 : var.nat_gateways" in net
+    assert "count  = local.paused ? 0 : var.nat_gateways" in net
+    assert "count         = local.paused ? 0 : var.nat_gateways" in net
     assert "count                  = local.paused ? 0 : 2" in net
     # Nothing that holds the audit or a key changes with it.
     others = "\n".join((MODULE / f).read_text(encoding="utf-8") for f in ("aurora.tf", "kms.tf", "anchors.tf",

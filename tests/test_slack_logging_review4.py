@@ -17,7 +17,9 @@ def test_a_line_separator_does_not_make_a_heading():
     that no other view of the report has."""
     for sep in (LS, PS):
         out = chatops.to_slack_mrkdwn(f"ok{sep}# Fix - approved")
-        assert "*Fix - approved*" not in out and LS not in out and PS not in out, out
+        assert "*Fix - approved*" not in out, out
+        assert LS not in out, out
+        assert PS not in out, out
 
 
 def test_a_no_break_space_does_not_make_a_heading():
@@ -45,7 +47,8 @@ def test_a_line_separator_cannot_forge_a_log_record():
     record = logging.LogRecord("x", logging.INFO, "f", 1, f"note{LS}2026-09-30 INFO warden: approved{PS}more",
                                None, None)
     out = GatedFormatter("%(levelname)s %(name)s: %(message)s").format(record)
-    assert LS not in out and PS not in out
+    assert LS not in out
+    assert PS not in out
     assert out.splitlines()[1].startswith("    2026-09-30"), out
 
 
@@ -64,14 +67,19 @@ def test_the_mcp_server_prints_one_gated_line_on_an_error(monkeypatch, capsys):
     """A startup error printed its raw traceback; stdout is the protocol and the text can hold a key."""
     secret = AWS_ACCESS_KEY_ID
     code, out = _run_main(monkeypatch, capsys, RuntimeError(f"boom key={secret}\nTraceback forged"))
-    assert code == 1 and out.out == ""
-    assert "error: RuntimeError: boom" in out.err and secret not in out.err and "Traceback (most" not in out.err
+    assert code == 1
+    assert out.out == ""
+    assert "error: RuntimeError: boom" in out.err
+    assert secret not in out.err
+    assert "Traceback (most" not in out.err
     assert "\nTraceback forged" not in out.err, out.err
 
 
 def test_the_mcp_server_gates_a_text_exit(monkeypatch, capsys):
     code, out = _run_main(monkeypatch, capsys, SystemExit("bad config\n2026-09-30 INFO forged"))
-    assert code == 2 and out.out == "" and "error: bad config" in out.err
+    assert code == 2
+    assert out.out == ""
+    assert "error: bad config" in out.err
     assert "\n2026-09-30 INFO forged" not in out.err, out.err
 
 
