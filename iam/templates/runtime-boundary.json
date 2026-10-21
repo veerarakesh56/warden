@@ -16,6 +16,12 @@
         "autoscaling:*",
         "events:*",
         "apigateway:*",
+        "backup:*BackupPlan",
+        "backup:*BackupSelection",
+        "backup:*eBackupVault",
+        "backup:CopyIntoBackupVault",
+        "backup:*Tag*",
+        "backup-storage:MountCapsule",
         "tag:*",
         "secretsmanager:ListSecrets",
         "kms:CreateKey",
@@ -81,13 +87,10 @@
         "iam:DeleteRole",
         "iam:GetRole",
         "iam:UpdateRole",
-        "iam:TagRole",
-        "iam:UntagRole",
-        "iam:PutRolePolicy",
-        "iam:GetRolePolicy",
+        "iam:*agRole",
+        "iam:*tRolePolicy",
         "iam:DeleteRolePolicy",
-        "iam:AttachRolePolicy",
-        "iam:DetachRolePolicy",
+        "iam:*tachRolePolicy",
         "iam:PutRolePermissionsBoundary",
         "iam:List*",
         "iam:*InstanceProfile",
@@ -159,6 +162,7 @@
       "Action": [
         "iam:DeleteRolePermissionsBoundary",
         "rds:DeleteDB*Snapshot",
+        "backup:DeleteRecoveryPoint",
         "ec2:RunScheduledInstances",
         "ec2:RequestSpot*",
         "ec2:Purchase*",
@@ -249,16 +253,12 @@
       "Sid": "DenySelfEdit",
       "Effect": "Deny",
       "Action": [
-        "iam:PutRolePolicy",
-        "iam:DeleteRolePolicy",
-        "iam:AttachRolePolicy",
-        "iam:DetachRolePolicy",
+        "iam:PutR*",
+        "iam:*eRolePolicy",
+        "iam:*tachRolePolicy",
         "iam:UpdateRole",
-        "iam:UpdateAssumeRolePolicy",
         "iam:DeleteRole",
-        "iam:TagRole",
-        "iam:UntagRole",
-        "iam:PutRolePermissionsBoundary"
+        "iam:*agRole"
       ],
       "Resource": "arn:aws:iam::*:role/warden-${env}-deploy"
     },
@@ -346,8 +346,7 @@
       "Sid": "DenyFnUrls",
       "Effect": "Deny",
       "Action": [
-        "lambda:CreateFunctionUrlConfig",
-        "lambda:UpdateFunctionUrlConfig"
+        "lambda:*ateFunctionUrlConfig"
       ],
       "Resource": "*",
       "Condition": {

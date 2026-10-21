@@ -108,9 +108,9 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
         assert line in db, line
     assert "master_password" not in db.replace("manage_master_user_password", "")
     variables = (MODULE / "variables.tf").read_text(encoding="utf-8")
-    # 7 days or more; fewer (1 at least) only when the root says the account is on the AWS Free plan, which refuses
-    # longer retention (FreeTierRestrictionError, 2026-10-09). Never set in production.
-    assert ("condition     = var.audit_db_backup_days >= 7 || (var.aws_free_plan && var.audit_db_backup_days >= 1)"
+    # 35 days, Aurora's longest (B19); fewer (1 at least) only when the root says the account is on the AWS Free plan,
+    # which refuses longer retention (FreeTierRestrictionError, 2026-10-09). Never set in production.
+    assert ("condition     = var.audit_db_backup_days == 35 || (var.aws_free_plan && var.audit_db_backup_days >= 1)"
             in variables)
     root = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert 'aws_free_plan = lookup(local.tf, "aws_free_plan", "false") == "true"' in " ".join(root.split())

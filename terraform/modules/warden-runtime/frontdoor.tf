@@ -34,7 +34,7 @@ locals {
 resource "aws_cloudwatch_log_group" "front_door" {
   for_each          = local.front_doors
   name              = "/aws/lambda/warden-${var.environment}-${each.key}"
-  retention_in_days = 90
+  retention_in_days = 180 # audit retention (B19): at least 180 days
   tags              = { Project = "warden", Environment = var.environment }
 }
 
@@ -221,7 +221,7 @@ resource "aws_apigatewayv2_api" "front" {
 
 resource "aws_cloudwatch_log_group" "api_access" {
   name              = "/aws/vendedlogs/warden-${var.environment}-front-access"
-  retention_in_days = 90
+  retention_in_days = 180 # audit retention (B19): at least 180 days
   tags              = { Project = "warden", Environment = var.environment }
 }
 
@@ -321,7 +321,7 @@ resource "aws_iam_role_policy" "webhook_auth" {
 
 resource "aws_cloudwatch_log_group" "webhook_auth" {
   name              = "/aws/lambda/warden-${var.environment}-webhook-auth"
-  retention_in_days = 90
+  retention_in_days = 180 # audit retention (B19): at least 180 days
   tags              = { Project = "warden", Environment = var.environment }
 }
 

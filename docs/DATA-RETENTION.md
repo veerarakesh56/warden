@@ -10,10 +10,11 @@ built yet is marked **planned**.
 
 - **The audit is kept forever.** WARDEN only ever adds rows to it; no code deletes or changes one, and the hash chain
   and signatures would show it if anything did. Removing old rows is a person's decision, made by hand.
-- **Logs are kept 90 days**, the lost-alarm queue 14 days.
+- **Logs are kept 180 days**, the lost-alarm queue 14 days.
 - **The audit's tamper-proof copies** (checkpoint anchors) and AWS's own record (the CloudTrail witness) cannot be
-  deleted by anyone, the account's root included, for `anchor_retention_days` - **1 day by default today**. Raising
-  every audit retention to at least 180 days is **planned** (B19, in progress).
+  deleted by anyone, the account's root included, for 180 days (B19: the runtime root sets `anchor_retention_days`).
+- **The audit database's backups:** 35 days of point-in-time recovery, plus one AWS Backup copy a month that only a
+  person can delete (B19).
 - WARDEN does not send its data anywhere but the places below.
 
 ## What is stored where
@@ -24,13 +25,14 @@ built yet is marked **planned**.
 | The model's prompts and answers | Not stored as text. The diagnosis row keeps SHA-256 hashes of the system text, the prompt and the answer, with the model id and version | As the audit | [graph.py](../src/warden/graph.py) `node_diagnose` |
 | Discussion in Slack | The audit keeps who asked (Slack user id), when, the channel and thread, the question's length and what WARDEN's answer cited - not the words of the question or the answer | As the audit | [activities.py](../src/warden/activities.py) `discuss.*` rows |
 | Spend on the model | Calls, tokens and cost per incident, in the audit | As the audit | `incident.llm_spend` rows |
-| Audit backups | The audit database's automated backups, with point-in-time recovery | `audit_db_backup_days`: 7 by default and at least 7, except 1 allowed on the AWS Free plan | [aurora.tf](../terraform/modules/warden-runtime/aurora.tf), [variables.tf](../terraform/modules/warden-runtime/variables.tf) |
+| Audit backups | The audit database's automated backups, with point-in-time recovery | `audit_db_backup_days`: 35, Aurora's longest; only on the AWS Free plan fewer (1 at least) | [aurora.tf](../terraform/modules/warden-runtime/aurora.tf), [variables.tf](../terraform/modules/warden-runtime/variables.tf) |
+| Monthly audit copy | One AWS Backup copy of the audit database on the 1st of each month, in the vault `warden-<env>-audit` of the same Region, AWS-managed key, no copy to another Region; `audit_monthly_backup` (on unless set to `false`; not on the AWS Free plan) | Until a person deletes it: no lifecycle rule, and no WARDEN role may delete or restore a copy | [backup.tf](../terraform/modules/warden-runtime/backup.tf) |
 | The audit's final snapshot | Taken when the audit database is deleted (`warden-<env>-audit-final`) | Until a person deletes it | [aurora.tf](../terraform/modules/warden-runtime/aurora.tf) |
-| Checkpoint anchors (a signed hash of the audit at a point) | S3 bucket `warden-<env>-anchors-...`, Object Lock in COMPLIANCE mode, versioned, KMS-encrypted | Locked for `anchor_retention_days` (default 1); no lifecycle rule, so kept after that until someone deletes them | [anchors.tf](../terraform/modules/warden-runtime/anchors.tf) |
-| CloudTrail witness (AWS's own record of the account's management events, including every actor-role session and audit signature) | Trail `warden-<env>-witness`, S3 bucket `warden-<env>-witness-...`, Object Lock in COMPLIANCE mode, log file validation on | Locked for `anchor_retention_days` (default 1); no lifecycle rule | [witness.tf](../terraform/modules/warden-runtime/witness.tf) |
-| Worker logs (all five zones) | CloudWatch Logs `/warden/<env>/worker` | 90 days | [compute.tf](../terraform/modules/warden-runtime/compute.tf) |
-| Lambda logs | CloudWatch Logs `/aws/lambda/warden-<env>-<name>` (alarm, alertmanager, approval, actor-use, migrate) | 90 days | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf), [migrate.tf](../terraform/modules/warden-runtime/migrate.tf) |
-| Approval and records page access log: request id, the caller's IP address, time, method, route, status, size, latency | CloudWatch Logs `/aws/vendedlogs/warden-<env>-front-access` | 90 days | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf) |
+| Checkpoint anchors (a signed hash of the audit at a point) | S3 bucket `warden-<env>-anchors-...`, Object Lock in COMPLIANCE mode, versioned, KMS-encrypted | Locked for `anchor_retention_days`: 180, set by the runtime root (the module's default is 1); no lifecycle rule, so kept after that until someone deletes them | [anchors.tf](../terraform/modules/warden-runtime/anchors.tf) |
+| CloudTrail witness (AWS's own record of the account's management events, including every actor-role session and audit signature) | Trail `warden-<env>-witness`, S3 bucket `warden-<env>-witness-...`, Object Lock in COMPLIANCE mode, log file validation on | Locked for `anchor_retention_days` (180, as the anchors); no lifecycle rule | [witness.tf](../terraform/modules/warden-runtime/witness.tf) |
+| Worker logs (all five zones) | CloudWatch Logs `/warden/<env>/worker` | 180 days | [compute.tf](../terraform/modules/warden-runtime/compute.tf) |
+| Lambda logs | CloudWatch Logs `/aws/lambda/warden-<env>-<name>` (alarm, alertmanager, approval, actor-use, webhook-auth, pager, migrate) | 180 days | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf), [paging.tf](../terraform/modules/warden-runtime/paging.tf), [migrate.tf](../terraform/modules/warden-runtime/migrate.tf) |
+| Approval and records page access log: request id, the caller's IP address, time, method, route, status, size, latency | CloudWatch Logs `/aws/vendedlogs/warden-<env>-front-access` | 180 days | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf) |
 | Alarm changes that never reached WARDEN | SQS queue `warden-<env>-alarm-dlq` | 14 days | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf) |
 | Workflow state (each incident's and each fix's steps) | Temporal Cloud. Every payload is encrypted by WARDEN's codec before it leaves the worker, so Temporal holds only ciphertext | The Temporal Cloud namespace's retention, set in Temporal Cloud, outside this repository | [codec.py](../src/warden/codec.py) |
 | Who may approve: names, public keys, enrolled passkeys' public keys, tiers, Slack user ids | SSM Parameter Store `/warden/<env>/approvers` (nothing in it is secret); every change of it is recorded in the audit | Until changed | [runtime_base.py](../src/warden/runtime_base.py) |
@@ -59,9 +61,8 @@ a format no pattern knows is not caught.
   The audit database has deletion protection and leaves a final snapshot; the anchor and witness buckets cannot be
   emptied until their objects' lock ends. Secrets wait 7 days and the KMS key 30.
 
-## Planned
+## Audit retention (B19, owner decision 2026-10-20)
 
-- At least 180 days of audit retention (B19, in progress). For the audit database's backups the owner decided on
-  2026-10-20: automated backups raised to 35 days, plus one AWS Backup copy a month kept 180 days, in a vault in the
-  same Region with an AWS-managed key, no copy to another Region, and a switch to turn it off. This page will be
-  updated with the built values when that change merges.
+Every audit retention is at least 180 days: logs 180 days, anchors and the witness locked 180 days, the audit
+database's automated backups 35 days (Aurora's longest) and a monthly AWS Backup copy kept past that until a person
+deletes it. A copy older than 180 days is for a person to review (`aws backup list-recovery-points-by-backup-vault`).

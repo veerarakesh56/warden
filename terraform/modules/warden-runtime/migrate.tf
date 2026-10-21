@@ -34,7 +34,7 @@ resource "aws_iam_role_policy_attachment" "migrate_vpc" {
 
 resource "aws_cloudwatch_log_group" "migrate" {
   name              = "/aws/lambda/warden-${var.environment}-migrate"
-  retention_in_days = 90
+  retention_in_days = 180 # audit retention (B19): at least 180 days
   tags              = { Project = "warden", Environment = var.environment }
 }
 

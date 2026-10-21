@@ -102,15 +102,22 @@ variable "audit_db_max_acu" {
 }
 
 variable "audit_db_backup_days" {
-  description = "Automated backups and point-in-time recovery window, in days (register O4)."
+  description = "Automated backups and point-in-time recovery window, in days (register O4): 35, Aurora's longest (B19)."
   type        = number
-  default     = 7
+  default     = 35
   nullable    = false
   validation {
     # The AWS Free plan refuses longer retention (FreeTierRestrictionError, 2026-10-09): a lab on it keeps 1 day.
-    condition     = var.audit_db_backup_days >= 7 || (var.aws_free_plan && var.audit_db_backup_days >= 1)
-    error_message = "keep at least 7 days of point-in-time recovery for the audit (1 only on the AWS Free plan)."
+    condition     = var.audit_db_backup_days == 35 || (var.aws_free_plan && var.audit_db_backup_days >= 1)
+    error_message = "keep 35 days of point-in-time recovery for the audit, Aurora's longest (B19; 1 only on the AWS Free plan)."
   }
+}
+
+variable "audit_monthly_backup" {
+  description = "One AWS Backup copy of the audit database a month, kept past Aurora's 35 days (B19, backup.tf). Cents a month."
+  type        = bool
+  default     = true
+  nullable    = false
 }
 
 variable "aws_free_plan" {

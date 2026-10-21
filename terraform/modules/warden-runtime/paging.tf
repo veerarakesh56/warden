@@ -83,7 +83,7 @@ resource "aws_iam_role_policy" "pager" {
 
 resource "aws_cloudwatch_log_group" "pager" {
   name              = "/aws/lambda/warden-${var.environment}-pager"
-  retention_in_days = 90
+  retention_in_days = 180 # audit retention (B19): at least 180 days
   tags              = { Project = "warden", Environment = var.environment }
 }
 
