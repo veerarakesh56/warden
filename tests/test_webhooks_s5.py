@@ -81,5 +81,5 @@ def test_the_alertmanager_check_is_https_and_fails_to_nothing(monkeypatch):
     def down(*a, **k):
         raise OSError("connection refused")
 
-    monkeypatch.setattr("urllib.request.urlopen", down)
+    monkeypatch.setattr("warden.web.urlopen_loopback", down)
     assert active() == set()

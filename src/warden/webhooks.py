@@ -118,17 +118,13 @@ def alertmanager_active(base_url: str, *, timeout: float = 5.0) -> Callable[[], 
     """`active` for confirm_firing: the fingerprints of Alertmanager's active, unsilenced, uninhibited alerts, read
     from its API v2. https only (or loopback), bounded by a timeout; an unreadable answer is an empty set, so nothing
     is confirmed - a failure to check never counts as a check."""
-    import urllib.parse
-    import urllib.request
-
-    parts = urllib.parse.urlsplit(base_url)
-    if parts.scheme != "https" and parts.hostname not in ("127.0.0.1", "localhost", "::1"):
+    if not web.allowed(base_url, loopback_http=True):
         raise ValueError("the Alertmanager URL must be https")
     url = base_url.rstrip("/") + "/api/v2/alerts?active=true&silenced=false&inhibited=false"
 
     def active() -> set[str]:
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as resp:  # nosec B310 - https checked above
+            with web.urlopen_loopback(url, timeout=timeout) as resp:
                 return {str(a.get("fingerprint")) for a in json.loads(resp.read()) if isinstance(a, dict)}
         except (OSError, ValueError):
             return set()

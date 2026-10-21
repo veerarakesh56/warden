@@ -58,17 +58,15 @@ def _post_json(url: str, payload: dict, sink: str) -> Notification:
     """POST JSON with a timeout. Any transport error becomes a failed Notification, never an exception."""
     # A webhook is a secret endpoint: plain http would send the report (and the URL's token) in the
     # clear, and file:// or a custom scheme is not a webhook at all. Loopback http stays allowed for
-    # a local relay (and the transport tests' local server). urlopen below is reached only after this.
-    parts = urllib.parse.urlsplit(url)
-    loopback = parts.scheme == "http" and parts.hostname in ("127.0.0.1", "localhost", "::1")
-    if parts.scheme != "https" and not loopback:
+    # a local relay (and the transport tests' local server); web.urlopen_loopback holds that after a redirect too.
+    if not web.allowed(url, loopback_http=True):
         return Notification(sink=sink, delivered=False, detail="refused: webhook URL is not https")
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url, data=body, headers={"Content-Type": "application/json"}, method="POST"
     )
     try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:  # nosec B310
+        with web.urlopen_loopback(req, timeout=_TIMEOUT_S) as resp:
             code = resp.getcode()
         return Notification(sink=sink, delivered=200 <= code < 300, detail=f"HTTP {code}")
     except urllib.error.HTTPError as exc:
