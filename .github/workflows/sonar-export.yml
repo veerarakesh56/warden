@@ -43,7 +43,7 @@ jobs:
           an = get("https://sonarcloud.io/api/project_analyses/search?project=veerarakesh56_warden&branch=main&ps=3")
           for x in an.get("analyses", []):
               print(f"=== ANALYSIS {x.get('date')} revision={x.get('revision')}")
-          # export run for main e467109 (#164: the owner's 27)
+          # export run for main e467109 (#164: the owner's 27), second read
           for quality in ("SECURITY", "RELIABILITY", "MAINTAINABILITY"):
               page, seen = 1, 0
               while True:
