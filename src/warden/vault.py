@@ -51,8 +51,10 @@ _TABLE = ("CREATE TABLE IF NOT EXISTS vault (incident TEXT NOT NULL, sha256 TEXT
 
 def migrate(dsn: str, writer_role: str | None = None) -> None:
     """The vault's table on PostgreSQL (lambdas.migrate, after the audit's). Unlike the audit's tables it is not
-    append-only: its rows expire. The runtime's writer may read, add and delete them - deleting is how retention and
-    erasure work; a row it could read is ciphertext only it cannot open."""
+    append-only: its rows expire. The runtime's writer - every zone's login - may read and add rows (ciphertext no zone
+    but the approval page can open) and may NOT delete one: an AI zone must not be able to make a reveal impossible
+    (review, 2026-10-20). Retention runs through PURGE, a function owned by the migration role that deletes only rows
+    past their expiry by the database's own clock; an erasure is the database owner's (docs/DATA-EGRESS.md)."""
     import re
 
     from .audit import _pg_connect
@@ -67,7 +69,20 @@ def migrate(dsn: str, writer_role: str | None = None) -> None:
 
             who = sql.Identifier(writer_role)
             db.execute(sql.SQL("REVOKE ALL ON vault FROM {}").format(who))
-            db.execute(sql.SQL("GRANT SELECT, INSERT, DELETE ON vault TO {}").format(who))
+            db.execute(sql.SQL("GRANT SELECT, INSERT ON vault TO {}").format(who))
+        db.execute(_PURGE_FUNCTION)
+        db.execute("REVOKE ALL ON FUNCTION warden_vault_purge() FROM PUBLIC")
+        if writer_role:
+            db.execute(sql.SQL("GRANT EXECUTE ON FUNCTION warden_vault_purge() TO {}").format(who))
+
+
+# Expired by the database's clock, never a caller's: a time passed in could be any time, and purge every row. The
+# expiry is written as Python's isoformat (`2026-10-21T07:00:00+00:00`), which compares as text in time order.
+_PURGE_FUNCTION = (
+    "CREATE OR REPLACE FUNCTION warden_vault_purge() RETURNS integer LANGUAGE plpgsql SECURITY DEFINER "
+    "SET search_path = pg_catalog, public AS $f$ DECLARE n integer; BEGIN "
+    "DELETE FROM public.vault WHERE expires_at < to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS') "
+    "|| '+00:00'; GET DIAGNOSTICS n = ROW_COUNT; RETURN n; END $f$")
 
 
 def days() -> int:
@@ -222,7 +237,11 @@ def store(log: Any, row: dict[str, Any], run_id: str = "") -> str:
 
 
 def purge(log: Any, now: datetime | None = None) -> int:
-    """Delete every vault row past its expiry. The number deleted."""
+    """Delete every vault row past its expiry. The number deleted. On PostgreSQL through warden_vault_purge(), by the
+    database's clock (the writer may not delete); `now` is the local SQLite file's clock."""
+    if log.store.pg:
+        row = log.store.run("SELECT warden_vault_purge()").fetchone()
+        return int(row[0]) if row else 0
     when = (now or datetime.now(UTC)).astimezone(UTC).isoformat(timespec="seconds")
     return log.store.run("DELETE FROM vault WHERE expires_at < ?", (when,)).rowcount
 

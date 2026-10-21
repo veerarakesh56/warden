@@ -93,3 +93,29 @@ def test_the_runtime_role_may_only_read_and_append(fresh):
             assert granted == {"SELECT": True, "INSERT": True, "UPDATE": False, "DELETE": False, "TRUNCATE": False}
         db.execute("REVOKE ALL ON entries, checkpoints FROM warden_audit_writer_test")
         db.execute("DROP ROLE warden_audit_writer_test")
+
+
+def test_the_vault_writer_cannot_delete_and_the_purge_takes_only_expired_rows(fresh):
+    """The sealed vault on a real PostgreSQL (vault.py): the runtime's writer reads and adds rows but may not delete
+    one; warden_vault_purge() deletes only rows past their expiry, by the database's own clock."""
+    import psycopg
+
+    from warden import vault
+
+    with psycopg.connect(fresh, autocommit=True) as db:
+        db.execute("DROP TABLE IF EXISTS vault CASCADE")
+        db.execute("DO $r$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'vault_writer_test') THEN "
+                   "CREATE ROLE vault_writer_test NOLOGIN; END IF; END $r$")
+        db.execute("GRANT vault_writer_test TO CURRENT_USER")
+    vault.migrate(fresh, "vault_writer_test")
+    past, future = "2000-01-01T00:00:00+00:00", "2999-01-01T00:00:00+00:00"
+    with psycopg.connect(fresh, autocommit=True) as db:
+        db.execute("SET ROLE vault_writer_test")
+        for incident, expires in (("inc-old", past), ("inc-new", future)):
+            db.execute("INSERT INTO vault VALUES (%s, %s, %s, %s, %s, %s)",
+                       (incident, "h-" + incident, past, expires, "k", "s"))
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            db.execute("DELETE FROM vault WHERE incident = 'inc-new'")
+        assert db.execute("SELECT warden_vault_purge()").fetchone()[0] == 1
+        assert [r[0] for r in db.execute("SELECT incident FROM vault").fetchall()] == ["inc-new"]
+        db.execute("RESET ROLE")

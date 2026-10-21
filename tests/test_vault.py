@@ -310,3 +310,40 @@ def test_the_vaults_clients_are_in_the_runtimes_region(monkeypatch, env):
     monkeypatch.setattr(vault, "_BUILT", {})
     vault.Vault.from_environment()
     assert asked == [("kms", "test-region-1"), ("ssm", "test-region-1")]
+
+
+
+def test_on_postgresql_the_writer_purges_through_the_function_by_the_databases_clock():
+    """The runtime's writer may not delete a vault row (review): retention calls warden_vault_purge(), which takes no
+    time from its caller."""
+    ran = []
+
+    class Store:
+        pg = True
+
+        def run(self, sql, params=()):
+            ran.append((sql, params))
+            return type("R", (), {"fetchone": lambda self: (2,)})()
+
+    assert vault.purge(type("Log", (), {"store": Store()})(), datetime(2099, 1, 1, tzinfo=UTC)) == 2
+    assert ran == [("SELECT warden_vault_purge()", ())]
+    assert "SECURITY DEFINER" in vault._PURGE_FUNCTION
+    assert "now()" in vault._PURGE_FUNCTION
+    assert "$1" not in vault._PURGE_FUNCTION
+
+
+def test_what_an_ai_is_given_to_read_holds_nothing_of_the_vault(tmp_path, monkeypatch, env):
+    """Behaviour, not only source: an incident sealed and a seal that failed both on the record, then the discussion's
+    evidence (what its model is shown) read back - no vault row, id or hash in it."""
+    from warden.activities import DiscussActivities
+
+    log, pack = _prepare(tmp_path, monkeypatch, FakeKms("read"))
+    log.append("inc-001", vault.UNAVAILABLE, {"run_id": "r0", "error": "ClientError", "values": 1})
+    [index] = log.entries("inc-001", kinds=(vault.INDEX,))
+    marks = [index["body"]["sha256"], *(e["pseudonym"] for e in index["body"]["entries"])]
+    acts = DiscussActivities(audit=log, incident=type("I", (), {"prepare": None})())
+    shown = json.dumps(acts.discuss_evidence("inc-001", False))
+    assert pack.prompt in json.loads(shown)["evidence"]
+    for mark in marks:
+        assert mark not in shown
+    assert "vault" not in shown
