@@ -36,6 +36,9 @@ ENDED = {
 # Each step on the record, in plain words, for an incident's page.
 STEP = {
     "intake.grouped": "Another alert on the same resource joined this incident",
+    "incident.reopened": "Reopened: the alarm came back while the fix was being watched",
+    "remediation.did_not_hold": "The fix did not hold - WARDEN will not offer it again on its own",
+    "remediation.offer_again": "An approver let WARDEN offer this fix again",
     "intake.decision": "The alarm came in", "incident.alert": "The alarm was recorded",
     "incident.ingest": "WARDEN started reading", "incident.gather": "Evidence read",
     "incident.redact": "Secrets removed from the evidence", "incident.tripwire": "Injection check on the evidence",
@@ -58,6 +61,9 @@ STEP = {
     "remediation.rollback_failed": "Undoing the fix failed", "remediation.refused": "Apply refused",
     "workflow.end": "Fix run ended", "change.recorded": "Change recorded", "discuss.turn": "Asked about in the discussion",
     "discuss.answer": "WARDEN answered in the discussion", "discuss.reply": "Answer posted",
+    "eldane.verdict": "Reviewed by Eldane, the AI critic", "eldane.call": "Eldane asked its model",
+    "eldane.trial": "A catch trial for Eldane: a planted bad plan, a test, never applied",
+    "autonomy.outcome": "Scored for autonomy",
 }
 # What each message about a fix plan was, by its `what` (activities.announce).
 TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Denied", "expired": "Expired",
@@ -74,7 +80,7 @@ STATUSES = tuple(dict.fromkeys(("In progress", "Diagnosed", "No fix plan", "Wait
                                 "Approved - being applied", "Cleared while expected down",
                                 *(label for label, _ in ENDED.values()), "Failed", "Cancelled")))
 _QUIET = {"incident.llm_spend", "incident.llm_reserve", "approval.challenge", "approval.challenge_taken",
-          "approval.link", "approval.link_used", "chatops.thread", "discuss.reply"}
+          "approval.link", "approval.link_used", "chatops.thread", "discuss.reply", "intake.reopen_started"}
 
 
 @dataclass
@@ -209,10 +215,21 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
                       "plan_hash": b.get("plan_hash"), "made": e["at"], "workflow_id": b.get("workflow_id")}
         elif kind == "approval.accepted":
             note = str(b.get("note") or "")
-            r.decisions.append({"what": "Approved", "who": shown(str(b.get("approver"))), "at": e["at"],
-                                "how": "passkey" if b.get("method") == "passkey" else "signing key", "note": note,
+            ai = bool(b.get("ai"))  # Eldane (autonomy.py): always said to be an AI, with the level it approved at
+            how = "passkey" if b.get("method") == "passkey" else "signing key"
+            if ai:
+                how = f"own signing key - an AI approval at autonomy level {b.get('autonomy', 'L2')}"
+            r.decisions.append({"what": "Approved", "who": approvals.AI_LABEL if ai else shown(str(b.get("approver"))),
+                                "at": e["at"], "how": how, "note": note,
                                 "hasty": bool(b.get("hasty")), "latency": b.get("latency_s")})
             r.flags += [f"A note from {shown(str(b.get('approver')))} held {t}." for t in approvals.note_tries(note)]
+        elif kind == "eldane.verdict" and b.get("agree") is not None:
+            r.decisions.append({"what": "Agreed with the plan" if b.get("agree") else "Did not agree with the plan",
+                                "who": approvals.AI_LABEL, "at": e["at"],
+                                "how": f"review - an AI, autonomy level {b.get('level', '?')}",
+                                "note": "; ".join(x.get("text", "") for p in (b.get("passes") or [])[-1:]
+                                                  for x in p.get("reasons", [])[:3]),
+                                "hasty": False, "latency": None})
         elif kind == "approval.refused":
             r.flags.append("An approval was refused: " + named("; ".join(str(p) for p in (b.get("problems") or [])[:3])))
         elif kind == "discuss.turn":

@@ -40,9 +40,10 @@ variable "my_ip_cidr" {
 
   validation {
     # 0.0.0.0/0 would open a database with a known username to the internet. Refuse it outright
-    # rather than trusting a comment nobody reads.
-    condition     = var.my_ip_cidr != "0.0.0.0/0" && can(cidrhost(var.my_ip_cidr, 0))
-    error_message = "my_ip_cidr must be a real CIDR and must not be 0.0.0.0/0."
+    # rather than trusting a comment nobody reads - and any range wider than one address with it (2026-10-17): the
+    # EKS API endpoint is reached from here.
+    condition     = can(cidrnetmask(var.my_ip_cidr)) && endswith(var.my_ip_cidr, "/32")
+    error_message = "my_ip_cidr must be one IPv4 address as a /32, such as 203.0.113.7/32 - never 0.0.0.0/0 or any wider range."
   }
 }
 
@@ -85,7 +86,7 @@ variable "enable_rds" {
 }
 
 variable "db_password" {
-  description = "RDS master password. Set it through TF_VAR_db_password, generated rather than typed - never -var, which puts it in shell history. Ignored entirely when enable_rds is false. A throwaway instance reachable only from my_ip_cidr, but it is still a real credential, and it is stored in terraform.tfstate."
+  description = "RDS master password. Set it through TF_VAR_db_password, generated rather than typed - never -var, which puts it in shell history. Ignored entirely when enable_rds is false. A throwaway, private instance reached only through the SSM tunnel (db_tunnel.tf), but it is still a real credential, and it is stored in terraform.tfstate."
   type        = string
   sensitive   = true
   # Empty default so an ECS-only run (the common case) needs no password at all. The RDS resource
@@ -129,5 +130,15 @@ variable "environment" {
   validation {
     condition     = var.environment == null || can(regex("^[a-z][a-z0-9-]{1,30}$", var.environment))
     error_message = "environment must be a lowercase environment name such as dev."
+  }
+}
+
+variable "db_tunnel_local_port" {
+  description = "The port on this machine the database tunnel listens on (db_tunnel_command); db_dsn points at it."
+  type        = number
+  default     = 15432
+  validation {
+    condition     = var.db_tunnel_local_port >= 1024 && var.db_tunnel_local_port <= 65535
+    error_message = "db_tunnel_local_port must be an unprivileged port, 1024-65535."
   }
 }
