@@ -32,6 +32,7 @@ Line by line, so the numbers can be checked rather than believed:
 | VPC, subnets, IGW, route table, security groups, IAM | **$0** | None of these are billed |
 | **NAT Gateway** | **$0.045/hr + $0.045/GB** | ⭐ **Deliberately not created.** It would cost more than everything else here combined |
 | RDS `db.t4g.micro` + 20 GB gp2 | ~$0.021/hr | **$0 on an account under 12 months old** — the free tier covers 750 hrs/month |
+| Database tunnel (only with RDS): `t4g.nano` + 8 GiB gp3 + 3 SSM interface endpoints | ~$0.043/hr | ≈ $0.09 for a two-hour session; AWS Price List API, ap-south-2, read 2026-10-21 (nano $0.0028, gp3 ≈ $0.0010, endpoints 3 × $0.013) |
 | EKS control plane | **$0.10/hr** | Charged whether or not anything runs on it. The expensive one |
 | EKS node, 1 × `t3.small` **spot** + 20 GB | ~$0.010/hr | |
 
@@ -39,7 +40,10 @@ Line by line, so the numbers can be checked rather than believed:
 > subnets with public IPs**. That is not laziness — a private-subnet design needs a NAT Gateway, and
 > a NAT Gateway is both the largest cost here and the most common source of a surprise AWS bill.
 > Access is restricted to your own IP (`var.my_ip_cidr`) rather than left open, and the production
-> module one directory up uses private subnets.
+> module one directory up uses private subnets. **The database is the exception: it is private** (Sonar
+> terraform:S8793, owner 2026-10-21). `db_dsn` points at `127.0.0.1`, and `terraform output -raw db_tunnel_command`
+> opens an SSM port-forward to it through a `t4g.nano` (`db_tunnel.tf`) - no SSH key, no inbound rule, no public
+> address, IMDSv2 - which exists only while `enable_rds = true`. It needs the AWS CLI's Session Manager plugin.
 
 `terraform output estimated_hourly_usd` computes the figure from the switches you actually set, so
 it cannot drift from this table.

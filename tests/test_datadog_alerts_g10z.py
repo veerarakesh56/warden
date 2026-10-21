@@ -10,6 +10,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import re
 import sys
 import urllib.error
 from datetime import UTC, datetime
@@ -101,7 +102,7 @@ def test_the_route_reaches_intake_with_its_own_secret(monkeypatch):
     assert json.loads(call(_delivery(monitor="999"))["body"]) == {"accepted": 0, "dropped": 1}
     assert settings.RESTRICTED["WARDEN_DATADOG_WEBHOOK_TOKEN"] == {"lambda-alertmanager"}
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
-    assert 'route_key = "POST /datadog"' in tf
+    assert re.search(r'route_key\s*=\s*"POST /datadog"', tf)
 
 
 # ------------------------------------------------------------------ the setup script

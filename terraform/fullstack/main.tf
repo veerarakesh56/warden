@@ -18,6 +18,7 @@ terraform {
     aws     = { source = "hashicorp/aws", version = ">= 6.0, < 7.0" }
     archive = { source = "hashicorp/archive", version = ">= 2.4, < 3.0" }
     random  = { source = "hashicorp/random", version = ">= 3.7, < 4.0" } # ephemeral random_password (A-I-13)
+    tls     = { source = "hashicorp/tls", version = ">= 4.4, < 5.0" }    # the internal ALB's certificate (ecs.tf)
   }
   # No backend block on purpose: a local apply keeps local state. CI writes a backend_override.tf
   # (S3) before init - see .github/workflows/_infra-deploy.yml.
@@ -195,15 +196,15 @@ resource "aws_security_group" "alb" {
   description = "Orders API load balancer, internal. HTTP from the in-VPC Lambdas only."
   vpc_id      = aws_vpc.this.id
   ingress {
-    description = "HTTP from the Lambda security group only"
-    from_port   = 80
-    to_port     = 80
+    description = "HTTPS from the Lambda security group only"
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     # Only the Lambdas inside the VPC (the traffic generator) - never the internet.
     security_groups = [aws_security_group.lambda.id]
   }
   egress {
-    description = "To the ECS tasks"
+    description = "To the ECS tasks (HTTPS on 8080)"
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
@@ -216,7 +217,7 @@ resource "aws_security_group" "ecs" {
   description = "orders-api tasks. 8080 from the load balancer only."
   vpc_id      = aws_vpc.this.id
   ingress {
-    description     = "HTTP from the load balancer"
+    description     = "HTTPS from the load balancer (TLS served by the task)"
     from_port       = 8080
     to_port         = 8080
     protocol        = "tcp"
@@ -255,8 +256,7 @@ resource "aws_security_group" "lambda" {
   vpc_id      = aws_vpc.this.id
   # Least egress (owner B28), from what the in-VPC functions do (scenarios/fullstack/lambdas): order-processor and
   # reconciler read Aurora (express: outside the VPC, through the NAT), reconciler and ops read Redis, and traffic
-  # calls the public API (HTTPS) and the internal load balancer (HTTP 80). The ALB is named by the VPC's range, as
-  # its own egress is: a reference to its group would be a cycle (it admits this group by reference).
+  # calls the public API and the internal load balancer, both over HTTPS (the ALB listens on 443 only, ecs.tf).
   egress {
     description = "HTTPS to AWS APIs and the public API, through the NAT"
     from_port   = 443
@@ -277,13 +277,6 @@ resource "aws_security_group" "lambda" {
     to_port         = 6379
     protocol        = "tcp"
     security_groups = [aws_security_group.redis.id]
-  }
-  egress {
-    description = "HTTP to the internal load balancer, inside the VPC"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = [aws_vpc.this.cidr_block]
   }
 }
 

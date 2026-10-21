@@ -49,9 +49,18 @@ def test_the_lab_database_is_encrypted_at_rest():
 
 
 def test_every_container_of_the_flagged_manifests_declares_its_resources():
-    for rel in ("k8s/job.yaml", "k8s/test/oom-workload.yaml", "k8s/test/posture-probe.yaml",
-                "k8s/proving-ground/namespace.yaml", "k8s/test/privileged-must-fail.yaml"):
-        for doc in yaml.safe_load_all((ROOT / rel).read_text(encoding="utf-8")):
+    import json
+    import subprocess
+    import sys
+
+    # The negative Pod Security test's pod is built when it runs (scripts/negative_pod.py), never kept as a file.
+    built = subprocess.run([sys.executable, str(ROOT / "scripts" / "negative_pod.py")], capture_output=True, text=True,
+                           check=True).stdout
+    sources = {rel: (ROOT / rel).read_text(encoding="utf-8") for rel in (
+        "k8s/job.yaml", "k8s/test/oom-workload.yaml", "k8s/test/posture-probe.yaml", "k8s/proving-ground/namespace.yaml")}
+    sources["scripts/negative_pod.py"] = json.dumps(json.loads(built))
+    for rel, text in sources.items():
+        for doc in yaml.safe_load_all(text):
             spec = (doc or {}).get("spec", {})
             spec = spec.get("template", {}).get("spec", spec) if doc.get("kind") != "Pod" else spec
             for c in spec.get("containers", []):
@@ -63,7 +72,7 @@ def test_every_container_of_the_flagged_manifests_declares_its_resources():
 # Owner B28: the shop's application security groups allow the least egress their code needs, not everything.
 # Derived from the code (scenarios/fullstack): orders-api and the in-VPC Lambdas call AWS's APIs over HTTPS, read
 # Aurora in express configuration (outside the VPC, through the NAT) over PostgreSQL, and the cache over Redis; the
-# traffic Lambda also calls the internal load balancer over HTTP. Nothing else - no "all protocols" rule, no range.
+# traffic Lambda also calls the internal load balancer, over HTTPS since main's listener moved to 443. Nothing else - no "all protocols" rule, no range.
 SHOP_MAIN = ROOT / "terraform" / "fullstack" / "main.tf"
 SHOP_APPS = ROOT / "scenarios" / "fullstack"
 
@@ -85,10 +94,9 @@ def _shop_egress(name: str) -> list[dict[str, str]]:
 
 EVERYWHERE = '["0.0.0.0/0"]'
 REDIS = "[aws_security_group.redis.id]"
-VPC = "[aws_vpc.this.cidr_block]"
 SHOP_EGRESS = {
     "ecs": {("443", EVERYWHERE), ("5432", EVERYWHERE), ("6379", REDIS)},
-    "lambda": {("443", EVERYWHERE), ("5432", EVERYWHERE), ("6379", REDIS), ("80", VPC)},
+    "lambda": {("443", EVERYWHERE), ("5432", EVERYWHERE), ("6379", REDIS)},
 }
 
 
@@ -110,6 +118,8 @@ def test_the_ports_are_the_ones_the_apps_use():
     assert "port=6379" in code
     assert 'os.environ["ALB_URL"]' in code
     lambdas_tf = (ROOT / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
-    assert '"http://${aws_lb.orders.dns_name}"' in lambdas_tf  # the traffic Lambda's HTTP 80, inside the VPC
+    # The traffic Lambda reaches the internal ALB over HTTPS (main moved the listener to 443): the 443 rule covers it.
+    assert '"https://${aws_lb.orders.dns_name}"' in lambdas_tf
+    assert "http://${aws_lb.orders.dns_name}" not in lambdas_tf
     other = sorted(set(re.findall(r"port=(\d+)", code)) - {"5432", "6379"})
     assert other == [], f"an app connects to a port its security group does not allow: {other}"

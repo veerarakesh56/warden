@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Awaitable, Generator
 from typing import Any
 
 from mcp import types
@@ -184,15 +185,18 @@ def _tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="gather_incident_context",
-            title="Gather evidence for an incident",
+            title="Read a bundled demo incident's recorded evidence",
             description=(
-                "Fetch logs, metrics and recent deploys for a known incident id, each under a "
-                "wall-clock timeout. Failures are returned as tool_errors rather than hidden, so a "
-                "partial picture never looks like a complete one."
+                "Return the RECORDED logs, metrics and recent deploys of one of WARDEN's bundled demo "
+                "incidents (inc-001 to inc-005), redacted. It never reads a live system: an id with no "
+                "recording comes back as a tool_error, not as an empty, healthy-looking picture. Each "
+                "read runs under a wall-clock timeout, and failures are returned as tool_errors rather "
+                "than hidden. A live incident's evidence is read by the worker, never through this tool."
             ),
             input_schema={
                 "type": "object",
-                "properties": {"alert_id": {"type": "string"}},
+                "properties": {"alert_id": {"type": "string",
+                                            "description": "a bundled demo incident id, e.g. inc-001"}},
                 "required": ["alert_id"],
             },
         ),
@@ -565,6 +569,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "OBSERVE MODE, never obeyed: most log lines are not English, so WARDEN's English "
                             "keyword checks may miss what they say"
                         ),
+                        "P36-NO-ACTION-DESPITE-SIGNATURE": (
+                            "no action proposed while one of WARDEN's own failure signatures describes the "
+                            "evidence (not only the alert's name): escalated - a person closes it"
+                        ),
                         "P31-UNADDRESSED-CHANGE": (
                             "a role or an IAM user wrote to the alert's own resource in the half hour before it "
                             "fired, and the fix neither reverts, rolls back nor cites it: escalated to a person"
@@ -572,6 +580,22 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                         "P33-DELIBERATE-CHANGE": (
                             "the fix undoes a change a security, cost or compliance identity made on purpose (named "
                             "by the owner, or by a word of its role's name): escalated - a person decides"
+                        ),
+                        "P34-NO-DECISIVE-EVIDENCE": (
+                            "the chosen cause rests on no evidence WARDEN read itself (a metric, a deploy, a "
+                            "configuration or state read) - only log facts or failed reads: escalated to a person"
+                        ),
+                        "P35-NO-RIVAL-HYPOTHESIS": (
+                            "the diagnosis weighed no rival cause (2 to 4 ranked hypotheses are asked for): "
+                            "escalated to a person"
+                        ),
+                        "P38-HYPOTHESIS-NOT-RANKED-FIRST": (
+                            "the stated root cause is not the cause the diagnosis ranked first and WARDEN weighed: "
+                            "escalated - a person reads both"
+                        ),
+                        "P35-HYPOTHESES-TOO-CLOSE": (
+                            "WARDEN's own count of the held citations for and against does not separate the chosen "
+                            "cause from its best rival: escalated with both - a person chooses"
                         ),
                         "P30-NO-FIX-PATH": (
                             "the target is a resource the alarm's labels name, and no catalogue entry carries out "
@@ -606,11 +630,25 @@ def listed_tools() -> list[types.Tool]:
     return _annotated(_tools() + [t for t in _workflow_tools() if t.name in allowed])
 
 
+class _Ready[T]:
+    """A result that is already there, as an awaitable. The SDK awaits whatever a handler returns (mcp 2.2 and 2.3:
+    `Callable[..., Awaitable[...]]`, called as `await entry.handler(ctx, params)`), but listing the tools waits on
+    nothing - an `async def` that never awaits was the form Sonar python:S7503 flags (2026-10-17). Awaiting this hands
+    the value back at once, under any event loop anyio runs (asyncio or trio)."""
+
+    def __init__(self, value: T) -> None:
+        self._value = value
+
+    def __await__(self) -> Generator[Any, None, T]:
+        yield from ()
+        return self._value
+
+
 def build_server() -> Server:
     client = None
 
-    async def on_list_tools(ctx, params):
-        return types.ListToolsResult(tools=listed_tools())
+    def on_list_tools(ctx, params) -> Awaitable[types.ListToolsResult]:
+        return _Ready(types.ListToolsResult(tools=listed_tools()))
 
     async def on_call_tool(ctx, params):
         nonlocal client
