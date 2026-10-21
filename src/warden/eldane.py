@@ -335,13 +335,8 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
     model, chosen = critic.choose(str(prov.get("model", "")))
     models = {"critic": critic.identity(model), "diagnoser": diagnoser}
     code, skip = _skip(log, diagnosis, prov, model, chosen, evidence_rows)
-    if code == AT_CEILING:
-        # The daily call cap: one fallback row for this plan, and the day's page once (item 7, leftovers 3 and 7c).
-        log.append(plan.incident_id, llm.FALLBACK, {"reason": llm.BUDGET_CAP, "where": "eldane", "run_id": run_id})
-        paging.model_condition(log, paging.DAILY_CAP)
-    if skip:
-        log.append(plan.incident_id, autonomy.VERDICT, {**base, "agree": None, "skipped": skip, "models": models,
-                                                        "model": model, "model_reason": chosen})
+    if _skipped(log, plan, run_id, code, {**base, "agree": None, "skipped": skip, "models": models, "model": model,
+                                          "model_reason": chosen}):
         return None
     evidence = "<<EVIDENCE>>\n" + str(evidence_rows[-1].get("prompt", ""))[:MAX_EVIDENCE] + "\n<<END EVIDENCE>>"
     # Only ids in the evidence Eldane is shown (CodeRabbit, PR 42): one past the cut is not on its record.
@@ -376,6 +371,18 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
         return None
     return approvals.sign(critic.key, approver=me, workflow_id=plan.workflow_id, plan_hash=plan.plan_hash,
                           tier=plan.tier)
+
+
+def _skipped(log: Any, plan: Any, run_id: str, code: str, verdict: dict[str, Any]) -> bool:
+    """Puts a skipped review on the record (autonomy.VERDICT, `verdict`) and says True; False when Eldane reviews."""
+    if code == AT_CEILING:
+        # The daily call cap: one fallback row for this plan, and the day's page once (item 7, leftovers 3 and 7c).
+        log.append(plan.incident_id, llm.FALLBACK, {"reason": llm.BUDGET_CAP, "where": "eldane", "run_id": run_id})
+        paging.model_condition(log, paging.DAILY_CAP)
+    if not verdict["skipped"]:
+        return False
+    log.append(plan.incident_id, autonomy.VERDICT, verdict)
+    return True
 
 
 def _with_reads(prompt: str, tools: critique.EvidenceTools, wanted: list[str], ids: set[str]) -> str:
