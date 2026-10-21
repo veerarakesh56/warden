@@ -217,11 +217,19 @@ def _run_until_stopped(spend, runs: int) -> None:
         golden.run_case(case, spend.client())
 
 
+def _just_over_the_estimate(suite: str = "no_fault") -> float:
+    """A budget a little over today's estimate for the suite, so the run starts. Read from the estimate itself: a
+    longer prompt (main's #187) moved the no-fault estimate past a fixed $3 and these tests refused to start."""
+    est = golden.estimate("claude-sonnet-5-5", golden.prompt_chars(golden.planned_runs(suite)))
+    return round(est["expected_usd"] * 1.25, 2)
+
+
 def test_the_budget_is_a_hard_ceiling_even_when_every_answer_is_as_long_as_it_can_be(monkeypatch, capsys):
     from warden.providers import MAX_OUTPUT_TOKENS
 
     _paid_stand_in(monkeypatch, MAX_OUTPUT_TOKENS)
-    budget = 3.0  # over the estimate (it starts), far under what 99 maximal answers cost (it must stop)
+    budget = _just_over_the_estimate()  # it starts; far under what 99 maximal answers cost, so it must stop
+    assert budget < 99 * MAX_OUTPUT_TOKENS * 10.0 / 1e6
     assert golden.main(["--live", "--model", "claude-sonnet-5-5", "--budget-usd", str(budget),
                         "--suite", "no_fault"]) == 3
     printed = capsys.readouterr()
@@ -239,10 +247,12 @@ def test_the_budget_is_a_hard_ceiling_even_when_every_answer_is_as_long_as_it_ca
 
 def test_a_run_within_the_budget_completes_and_reports_what_it_spent(monkeypatch, capsys):
     _paid_stand_in(monkeypatch, 500)
-    assert golden.main(["--live", "--model", "claude-sonnet-5-5", "--budget-usd", "3", "--suite", "no_fault"]) == 0
+    budget = _just_over_the_estimate()
+    assert golden.main(["--live", "--model", "claude-sonnet-5-5", "--budget-usd", str(budget),
+                        "--suite", "no_fault"]) == 0
     out = json.loads(capsys.readouterr().out.split("\n}\n", 1)[1])
     assert out["pass_hat_k"] == 1.0
-    assert 0 < out["spent_usd"] <= out["budget_usd"] == 3.0
+    assert 0 < out["spent_usd"] <= out["budget_usd"] == budget
 
 
 def test_a_run_that_retries_cannot_spend_past_the_budget(monkeypatch):
@@ -271,7 +281,8 @@ def test_a_price_override_refuses_a_paid_run_before_any_call(monkeypatch, capsys
     def no_budget(*_a, **_kw):
         raise AssertionError("no paid run may start")
     monkeypatch.setattr(golden, "Spend", no_budget)
-    assert golden.main(["--live", "--model", "claude-sonnet-5-5", "--budget-usd", "3", "--suite", "no_fault"]) == 2
+    budget = str(_just_over_the_estimate())  # over the estimate: only the price check can refuse it
+    assert golden.main(["--live", "--model", "claude-sonnet-5-5", "--budget-usd", budget, "--suite", "no_fault"]) == 2
     assert "WARDEN_PRICE_IN" in capsys.readouterr().err
 
 
