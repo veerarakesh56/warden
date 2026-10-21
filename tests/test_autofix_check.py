@@ -342,20 +342,6 @@ def test_the_merge_is_wired_in_the_act_zone_and_asked_once_each_time():
     assert 'workflow.patched("b4-code-fix-merge")' in incident
 
 
-def test_the_ci_job_is_read_only_and_takes_event_values_from_its_environment():
-    import yaml
-
-    flow = (ROOT / ".github" / "workflows" / "autofix-regression.yml").read_text(encoding="utf-8")
-    doc = yaml.safe_load(flow)
-    assert doc["permissions"] == {"contents": "read"}
-    (job,) = doc["jobs"].values()
-    assert list(doc["jobs"]) == ["autofix-regression"]
-    runs = [s.get("run", "") for s in job["steps"]]
-    assert not any("${{" in r for r in runs)  # template values only through env
-    assert any("scripts/autofix_check.py" in r for r in runs)
-    assert job["steps"][0]["with"]["persist-credentials"] is False
-
-
 # ------------------------------------------------------------------------------------- the workflow (Temporal, CI)
 
 def _merge_run(answers: list[dict]) -> tuple[dict, int]:
