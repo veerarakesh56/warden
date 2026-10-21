@@ -25,7 +25,8 @@ def test_demo_output_carries_the_safety_claim(capsys):
     out = capsys.readouterr().out
     assert "No action was executed" in out
     # A13 (2026-10-16): no longer "a human executes" - WARDEN applies approved plans itself.
-    assert "a change runs only as a fix plan an approver approved" in out and "a human executes" not in out
+    assert "a change runs only as a fix plan an approver approved" in out
+    assert "a human executes" not in out
 
 
 def test_demo_produces_the_expected_spread_of_verdicts(capsys):
@@ -87,7 +88,9 @@ def test_budget_flag_is_wired_through(capsys):
     the incident goes to a person, rules only (register M19) - not a traceback (review 2026-09-28)."""
     assert main(["run", "--incident", "inc-001", "--max-usd", "0.0001"]) == 0
     out, err = capsys.readouterr()
-    assert "BudgetExceeded" in out and "P0-MODEL-UNAVAILABLE" in out and "escalate_to_human" in out
+    assert "BudgetExceeded" in out
+    assert "P0-MODEL-UNAVAILABLE" in out
+    assert "escalate_to_human" in out
     assert "Traceback" not in out + err
 
 
@@ -208,7 +211,8 @@ def test_a_label_that_is_not_a_plain_name_is_dropped_and_reported(tmp_path):
         "--label", "ecs_service=svc --prof admin", "--json", str(out_file),
     ]) == 0
     alert = json.loads(out_file.read_text(encoding="utf-8"))["alert"]
-    assert "deployment" not in alert["labels"] and "ecs_service" not in alert["labels"]
+    assert "deployment" not in alert["labels"]
+    assert "ecs_service" not in alert["labels"]
     assert sorted(alert["rejected_labels"]) == ["deployment", "ecs_service"]
 
 
@@ -218,7 +222,9 @@ def test_json_report_is_written_and_is_the_full_report(tmp_path, capsys):
     assert out_file.exists(), "the parent directory must be created"
     payload = json.loads(out_file.read_text(encoding="utf-8"))
     assert payload["alert"]["alert_id"] == "inc-002"
-    assert "verdict" in payload and "context" in payload and "cost" in payload
+    assert "verdict" in payload
+    assert "context" in payload
+    assert "cost" in payload
     assert str(out_file) in capsys.readouterr().out
 
 
@@ -260,7 +266,8 @@ def test_a_bad_argument_is_printed_through_the_gate(capsys):
     for argv in (["demo", f"x{chr(27)}[2Jkey={key}"], ["run", "--max-usd", key], ["nosuchcommand", key]):
         assert cli.main(argv) == 2
         err = capsys.readouterr().err
-        assert chr(27) not in err and key not in err, err
+        assert chr(27) not in err, err
+        assert key not in err, err
         assert "error:" in err or "withheld by the outbound gate" in err, err  # a line holding a key is withheld
 
 

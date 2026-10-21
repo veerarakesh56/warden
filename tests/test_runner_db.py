@@ -61,7 +61,7 @@ def test_the_password_never_reaches_the_manifest():
     assert described["target_kind"] == "db"
 
 
-def test_the_dsn_is_never_put_on_the_command_line():
+def test_the_dsn_is_never_put_on_the_command_line(monkeypatch):
     """An argv is readable by every other process on the box, and lands in crash dumps."""
     captured: dict[str, list[str]] = {}
 
@@ -70,12 +70,10 @@ def test_the_dsn_is_never_put_on_the_command_line():
         raise AssertionError("stop here - the command line is all this test needs")
 
     invoke = _subprocess_warden_db(_target(), timeout_s=5)
+    report = pathlib.Path("report.json")
+    monkeypatch.setattr(subprocess, "run", fake_run)  # undone by monkeypatch when the test ends
     with pytest.raises(AssertionError):
-        real, subprocess.run = subprocess.run, fake_run
-        try:
-            invoke({"WARDEN_DB_DSN": DSN}, pathlib.Path("report.json"))
-        finally:
-            subprocess.run = real
+        invoke({"WARDEN_DB_DSN": DSN}, report)
 
     assert PASSWORD not in " ".join(captured["cmd"])
     assert DSN not in " ".join(captured["cmd"])
@@ -116,7 +114,7 @@ def _clean_clients():
 def test_a_clean_database_passes_the_gate():
     """⛔ THE POSITIVE CONTROL. A gate that never passes would stop the wave on scenario one, and
     a gate that never fails is the k8s namespace-guard bug again."""
-    assert check_baseline_db(_clean_clients(), _target()) == []
+    assert check_baseline_db(_clean_clients()) == []
 
 
 def test_a_session_the_previous_revert_left_open_stops_the_next_scenario():
@@ -124,7 +122,7 @@ def test_a_session_the_previous_revert_left_open_stops_the_next_scenario():
     session as its own fault, and db-01 would report a pile-up nobody injected."""
     ops_db._HELD.append(object())
 
-    problems = check_baseline_db(_clean_clients(), _target())
+    problems = check_baseline_db(_clean_clients())
 
     assert any("still holding" in p for p in problems)
 
@@ -134,7 +132,7 @@ def test_an_uncancelled_long_query_is_named_as_such_not_counted_as_a_session():
     saying "0 session(s)" while a query still runs points at the wrong half of the revert."""
     ops_db._LONG_QUERY["conn"] = object()
 
-    problems = check_baseline_db(_clean_clients(), _target())
+    problems = check_baseline_db(_clean_clients())
 
     assert any("uncancelled long query" in p for p in problems)
     assert not any("0 held session" in p for p in problems)
@@ -144,9 +142,10 @@ def test_a_database_that_cannot_be_reached_is_not_treated_as_clean():
     def dead():
         raise RuntimeError("connection refused")
 
-    problems = check_baseline_db(ops_db.Clients(connect=dead, ec2=None), _target())
+    problems = check_baseline_db(ops_db.Clients(connect=dead, ec2=None))
 
-    assert problems and "cannot reach the database" in problems[0]
+    assert problems
+    assert "cannot reach the database" in problems[0]
 
 
 def test_a_missing_sentinel_table_is_a_problem_not_a_pass():
@@ -164,7 +163,7 @@ def test_a_missing_sentinel_table_is_a_problem_not_a_pass():
             cur.fetchone = patched
             return cur
 
-    problems = check_baseline_db(ops_db.Clients(connect=NoSentinel, ec2=None), _target())
+    problems = check_baseline_db(ops_db.Clients(connect=NoSentinel, ec2=None))
 
     assert any("sentinel" in p for p in problems)
 
