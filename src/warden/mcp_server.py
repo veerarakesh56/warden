@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Awaitable, Generator
 from typing import Any
 
 from mcp import types
@@ -609,11 +610,25 @@ def listed_tools() -> list[types.Tool]:
     return _annotated(_tools() + [t for t in _workflow_tools() if t.name in allowed])
 
 
+class _Ready[T]:
+    """A result that is already there, as an awaitable. The SDK awaits whatever a handler returns (mcp 2.2 and 2.3:
+    `Callable[..., Awaitable[...]]`, called as `await entry.handler(ctx, params)`), but listing the tools waits on
+    nothing - an `async def` that never awaits was the form Sonar python:S7503 flags (2026-10-17). Awaiting this hands
+    the value back at once, under any event loop anyio runs (asyncio or trio)."""
+
+    def __init__(self, value: T) -> None:
+        self._value = value
+
+    def __await__(self) -> Generator[Any, None, T]:
+        yield from ()
+        return self._value
+
+
 def build_server() -> Server:
     client = None
 
-    async def on_list_tools(ctx, params):
-        return types.ListToolsResult(tools=listed_tools())
+    def on_list_tools(ctx, params) -> Awaitable[types.ListToolsResult]:
+        return _Ready(types.ListToolsResult(tools=listed_tools()))
 
     async def on_call_tool(ctx, params):
         nonlocal client

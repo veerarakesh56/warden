@@ -495,10 +495,10 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
               "tests/test_supply_chain.py", "tests/test_terraform_versions.py", "tests/test_env_iam.py",
               "tests/test_helios_gate_r56.py", "tests/test_platform_iam_g6.py", "tests/test_aws_platform_g6.py",
               "tests/test_runtime_module_g6.py", "tests/test_runtime_pipeline_s9.py", "tests/test_runtime_iam_g6.py", "tests/test_actor_use_g6.py", "tests/test_redis_tls_r8.py", "tests/test_api_auth_ai13.py", "tests/test_runtime_network_g6.py",
-              "tests/test_backups.py", "tests/test_iac_hardening_sonar.py", "tests/test_iac_leftovers_sonar.py"}
+              "tests/test_backups.py", "tests/test_iac_hardening_sonar.py", "tests/test_iac_leftovers_sonar.py", "tests/test_stack_paths_s2083.py"}
     assert all(p.startswith(("terraform/fullstack/", "terraform/undo-lab/", "terraform/modules/", "terraform/runtime/", ".github/workflows/", "iam/")) or p in checks
                or p in ("uv.lock", "pyproject.toml", "scripts/render_env_iam.py", "scripts/helios_gate.py", "src/warden/platforms/aws.py",
-                         "src/warden/data/environments.yaml")
+                         "src/warden/data/environments.yaml", "src/warden/paths.py")
                for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"] if p not in own)
     assert "workflow_dispatch" not in wf["on"]
     for name in ("ci-infra.yml", "_infra-validate.yml"):
@@ -509,6 +509,23 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     assert deploy["jobs"]["run"]["permissions"]["id-token"] == "write"
     text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
     assert "aws-access-key-id" not in text and "AWS_SECRET_ACCESS_KEY" not in text
+
+
+@pytest.mark.parametrize("name", ["ci-apps.yml", "ci-infra.yml"])
+def test_a_lane_that_runs_a_script_importing_warden_paths_also_runs_when_paths_changes(name):
+    """deploy_fullstack_apps.py, aurora_express.py and helios_gate.py read their path rule from src/warden/paths.py
+    (PR 63): a change to that file alone must run the lanes that run them, or a broken rule reaches a deploy unseen."""
+    import fnmatch
+
+    wf = _workflow(name)
+    scripts = [p for p in [*ROOT.glob("scripts/*.py"), *ROOT.glob("terraform/*/*.py")]
+               if "from warden import paths" in p.read_text(encoding="utf-8")]
+    for event in ("push", "pull_request"):
+        globs = wf["on"][event]["paths"]
+        importing = [p.relative_to(ROOT).as_posix() for p in scripts
+                     if any(fnmatch.fnmatch(p.relative_to(ROOT).as_posix(), g) for g in globs)]
+        assert importing, f"{name} runs no script that imports warden.paths: drop it from this test"
+        assert "src/warden/paths.py" in globs, (name, event, importing)
 
 
 def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform():
