@@ -285,7 +285,7 @@ def test_cost_and_fallbacks_come_from_llm_rows_and_a_missing_cost_is_not_recorde
         got["Fallbacks per model request"] == f"83.3% (5 / 6 llm.call rows: {pilot.REQUESTS_ARE})"
     )
     assert got["Fallbacks by reason"] == (
-        "rules_only 2, model_refused 1, budget_cap 1, provider_unavailable 0, other 1"
+        "rules_only 2, model_refused 1, budget_cap 1, provider_unavailable 0, egress_blocked 0, other 1"
     )
 
 
@@ -869,5 +869,5 @@ def test_rows_written_by_the_model_path_itself_are_read_as_the_report_says(made)
     assert got[pilot.MODEL_REQUESTS] == f"2 (llm.call rows: {pilot.REQUESTS_ARE})"
     assert got["Fallbacks"] == "2; per incident 0.29 (2 / 7 incidents)"
     assert got["Fallbacks by reason"] == (
-        "rules_only 1, model_refused 0, budget_cap 1, provider_unavailable 0, other 0"
+        "rules_only 1, model_refused 0, budget_cap 1, provider_unavailable 0, egress_blocked 0, other 0"
     )

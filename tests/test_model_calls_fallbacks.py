@@ -4,7 +4,7 @@
 cost (USD: the usage at the model's prices, llm.model_prices) - for the diagnosis, the discussion and Eldane; and no
 log line anywhere on the model path holds the prompt or the answer.
 (3) Each time WARDEN goes on without the model's answer, exactly one `llm.fallback` row with one reason from a closed
-set: rules_only | model_refused | budget_cap | provider_unavailable."""
+set: rules_only | model_refused | budget_cap | provider_unavailable | egress_blocked."""
 
 from __future__ import annotations
 
@@ -327,7 +327,8 @@ def test_eldanes_daily_cap_is_one_budget_cap(request):
 
 def test_the_reasons_are_a_closed_set(tmp_path):
     log = audit.AuditLog(tmp_path / "a.db", key=None)
-    assert sorted(llm.FALLBACK_REASONS) == ["budget_cap", "model_refused", "provider_unavailable", "rules_only"]
+    assert sorted(llm.FALLBACK_REASONS) == ["budget_cap", "egress_blocked", "model_refused", "provider_unavailable",
+                                           "rules_only"]
     with pytest.raises(ValueError, match="not a fallback reason"):
         activities.fallback(log, "k", "something else", DIAGNOSE)
 
@@ -355,4 +356,4 @@ def test_the_rows_have_the_shape_the_pilot_report_reads(tmp_path):
     assert {e["kind"] for e in log.entries(key)} >= {"llm.call", "llm.fallback"}  # the names the report reads
     [fallback_row] = _rows(log, key, llm.FALLBACK)
     assert set(fallback_row) == {REASON, "where", "run_id"}
-    assert fallback_row[REASON] in {"rules_only", "model_refused", "budget_cap", "provider_unavailable"}
+    assert fallback_row[REASON] in {"rules_only", "model_refused", "budget_cap", "provider_unavailable", "egress_blocked"}

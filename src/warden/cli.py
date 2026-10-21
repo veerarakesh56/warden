@@ -911,6 +911,9 @@ def _main(argv: list[str] | None = None) -> int:
     from .observability import install_log_gate
 
     install_log_gate()  # before anything can log: no raw last-resort handler for any command
+    from . import egress
+
+    egress.install_for_environment()  # a command against a real environment: every egress named, checked, recorded
     args = _parser().parse_args(argv)
     # `history` reads what `status` reads (the payload key and the Temporal API key), nothing more.
     _load_environment({"link": "label", "history": "status"}.get(args.cmd, args.cmd), getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
