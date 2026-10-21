@@ -312,8 +312,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   `vault.py`. A secrets vault product (HashiCorp Vault, a tokenization service) would be another server to run and
   pay for; KMS's key policy is the access control this needs, and CloudTrail its witness.
 - Revealing a masked value to a person: built - `reveal.py`, a page of the records site behind the same Slack
-  sign-in and reader list, recorded on the signed audit before anything is shown. No product reveals one value of
-  WARDEN's own sealed map under WARDEN's own reader rules.
+  sign-in, for an approver of the incident's environment only (not the viewer list), a POSTed form, recorded on the
+  signed audit before anything is shown. No product reveals one value of WARDEN's own sealed map under WARDEN's own
+  reader rules. Open owner decision: a passkey step-up for each reveal.
 - The global services' state (2026-10-10): a CloudFront distribution and a Route 53 health check are read in
   AWS's global-services Region, where their alarms live. A distribution is granted by its Environment tag. A
   health check has an ID for a name and no condition key (AWS service reference, read 2026-10-10), so the reader may
@@ -388,6 +389,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - The decision rules - `verifier.py`, `grounding.py`, `catalog.py`, `bounds.py`, `freeze.py`, `intake.py`,
   `read_scope.py`, `gate.py`'s rules: most policies need evidence that Python computes first
   (section 16 records why not OPA or Cedar).
+- The confidence a person reads - `confidence.py`: a level from checks WARDEN can show (grounded, decisive,
+  separated, complete reads, a consistent outcome), each a rule over results the verifier already computed; a
+  calibration library would score the model's own number, which is what it must not use (owner U3-1).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
 - Autonomy and the AI critic - `autonomy.py`, `eldane.py` (owner, 2026-10-16/17): dev's level is read from

@@ -2,18 +2,22 @@
 
 `/r/<incident>/masked` on the records site (the approval page's Lambda, approval_page._records):
 
-- **Who.** A reader Slack named in this browser who may read the incident's records - an approver, or someone on the
-  viewer list (WARDEN_RECORD_VIEWERS), limited to their environments - exactly the records page's own rule. Nobody
-  else learns that the incident exists.
+- **Who.** A reader Slack named in this browser who may read the incident's records (the records page's own rule;
+  nobody else learns that the incident exists) AND is an approver for its environment. A viewer
+  (WARDEN_RECORD_VIEWERS) reads the record but never reveals (owner-safe default, review 2026-10-21); a passkey
+  step-up for each reveal is an open owner decision.
 - **What they see first.** The incident's masked values as the signed audit holds them: placeholder, kind and the
   stable pseudonym (vault.py) - enough to recognise and correlate, without a reveal.
-- **The reveal.** The reader picks the values, gives a reason, and sends the form. The signed audit records it
+- **The reveal.** The reader picks the values, gives a reason, and POSTs the form to the same address: the reason
+  and the choice travel in the body, never in an address, a history or a proxy's log. The signed audit records it
   FIRST (`incident.reveal`: who, which values, why, the sealed row's hash) - no row, no value. Then the sealed map is
   opened with the vault key, which only this Lambda's role may use (kms:Decrypt, purpose=vault; CloudTrail records
   it too), and only the chosen values are shown, once, never cached (no-store), never in an address, never in Slack.
 - **Forgery and abuse.** The form carries a token derived from the reader's own sign-in cookie, which no script and
-  no other site can read: a link elsewhere cannot make a reader's browser reveal (and record) anything. At most
-  MAX_PER_HOUR reveals per reader. The reason is redacted before it is recorded: a pasted secret is not kept.
+  no other site can read: a page elsewhere cannot make a reader's browser reveal anything. A refused attempt (a
+  forged or stale form, no value chosen, no reason, not an approver) is recorded too (`incident.reveal_attempt_refused`:
+  who and why, never the token). At most MAX_PER_HOUR reveals and refused attempts per reader. The reason is redacted
+  - whole, before it is cut to MAX_REASON - before it is recorded: a pasted secret is not kept.
 
 No AI zone has a path here: no Temporal activity, MCP tool or command calls it, and no zone but this Lambda's can
 open the key (tests/test_reveal.py, tests/test_vault.py).
@@ -30,7 +34,8 @@ from typing import Any
 from . import vault
 
 REVEAL = "incident.reveal"
-REFUSED = "incident.reveal_refused"
+REFUSED = "incident.reveal_refused"  # the vault would not open: nothing was shown
+ATTEMPT_REFUSED = "incident.reveal_attempt_refused"  # a reveal asked and refused before anything was opened
 MAX_PER_HOUR = 20
 MIN_REASON, MAX_REASON = 10, 300
 
@@ -45,6 +50,11 @@ def token(cookie: str, incident: str) -> str:
     """The form's anti-forgery token: bound to this reader's own sign-in cookie (HttpOnly, this site only) and the
     incident."""
     return hmac.new(cookie.encode(), f"reveal:{incident}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def _same(sent: str, expected: str) -> bool:
+    """The token check, in constant time; bytes, so a token with any character is refused, never an error."""
+    return hmac.compare_digest(sent.encode("utf-8", "replace"), expected.encode("utf-8", "replace"))
 
 
 def link(log: Any, incident: str) -> str:
@@ -93,7 +103,7 @@ def form_page(incident: str, index: dict[str, Any], cookie: str, note: str = "")
         f'<h1>Masked values</h1><p class="lede">What WARDEN masked in incident <span class="mono">{_e(incident)}'
         "</span> before any model saw it. The id is the same for the same value in every incident, so you can "
         "recognise it without revealing it. No AI can read these values.</p>" + said
-        + f'<form method="get" action="{action}"><input type="hidden" name="reveal" value="1">'
+        + f'<form method="post" action="{action}"><input type="hidden" name="reveal" value="1">'
         f'<input type="hidden" name="t" value="{_e(token(cookie, incident))}">'
         + _table(index["entries"], pick=True)
         + f'<p><label for="why">Why you need to see them (on the record, {MIN_REASON}+ characters)</label>'
@@ -114,8 +124,9 @@ def message_page(incident: str, text: str) -> str:
     return _page(incident, f'<h1>Masked values</h1><p class="note" role="alert">{_e(text)}</p>')
 
 
-def asked(query: str) -> dict[str, Any]:
-    q = urllib.parse.parse_qs(query, keep_blank_values=True)
+def asked(form: str) -> dict[str, Any]:
+    """The reveal's form, as POSTed (application/x-www-form-urlencoded)."""
+    q = urllib.parse.parse_qs(form, keep_blank_values=True, max_num_fields=200)
     return {"reveal": q.get("reveal", [""])[0] == "1", "t": q.get("t", [""])[0], "why": q.get("why", [""])[0],
             "p": q.get("p", [])}
 
@@ -123,7 +134,7 @@ def asked(query: str) -> dict[str, Any]:
 def _problem(sent: str, expected: str, chosen: list[str], why: str) -> str:
     """What is wrong with a reveal asked: the form not opened here, no value chosen, or no reason given. "" for
     nothing."""
-    if not hmac.compare_digest(sent, expected):
+    if not _same(sent, expected):
         return "this form was not opened here; open the masked values again"
     if not chosen:
         return "choose at least one value"
@@ -132,29 +143,44 @@ def _problem(sent: str, expected: str, chosen: list[str], why: str) -> str:
     return ""
 
 
-def reveal(log: Any, incident: str, *, member: str, cookie: str, query: str, environment: str = "",
-           opener: Any = None, now: datetime | None = None) -> tuple[int, str]:
-    """The masked-values page for `member`, who may read this incident's records: (status, html). With a reveal
-    asked, checked and recorded, the chosen values. `opener`: the vault (vault.Vault.from_environment by default)."""
+def _recent(log: Any, member: str, now: datetime) -> int:
+    """This reader's reveals and refused attempts in the hour before `now`."""
+    rows = log.entries(kinds=(REVEAL, ATTEMPT_REFUSED), since=now - timedelta(hours=1))
+    return sum(1 for e in rows if e["body"].get("member") == member)
+
+
+def _refuse(log: Any, incident: str, member: str, problem: str, chosen: list[str]) -> None:
+    """A refused attempt on the record: who, which values, why refused - never the token, never the reason."""
+    log.append(incident, ATTEMPT_REFUSED, {"member": member, "problem": problem, "placeholders": chosen})
+
+
+def reveal(log: Any, incident: str, *, member: str, cookie: str, form: str | None, environment: str = "",
+           approver: bool = False, opener: Any = None, now: datetime | None = None) -> tuple[int, str]:
+    """The masked-values page for `member`, who may read this incident's records: (status, html). `form`: the
+    reveal's POSTed body (None for a GET, which only shows the form). `approver`: whether this reader may reveal.
+    `opener`: the vault (vault.Vault.from_environment by default)."""
     from .redaction import redact
 
+    if not approver:
+        if form is not None:
+            _refuse(log, incident, member, "not an approver", [])
+        return 403, message_page(incident, "Only an approver for this environment may see or reveal masked values.")
     index = latest_index(log, incident)
     if not index or not index.get("entries"):
         return 404, message_page(incident, "WARDEN masked nothing it kept in this incident.")
-    a = asked(query)
-    if not a["reveal"]:
+    a = asked(form or "")
+    if form is None or not a["reveal"]:
         return 200, form_page(incident, index, cookie)
+    now = (now or datetime.now(UTC)).astimezone(UTC)
+    if _recent(log, member, now) >= MAX_PER_HOUR:
+        return 429, message_page(incident, f"At most {MAX_PER_HOUR} reveals an hour; try again later.")
     known = {str(e.get("placeholder")) for e in index["entries"]}
     chosen = sorted({p for p in a["p"] if p in known})
-    why = " ".join(redact(a["why"][:MAX_REASON]).text.split())
+    why = " ".join(redact(a["why"]).text.split())[:MAX_REASON]  # redacted whole, then cut: no secret's tail is kept
     problem = _problem(a["t"], token(cookie, incident), chosen, why)
     if problem:
+        _refuse(log, incident, member, problem, chosen)
         return 400, form_page(incident, index, cookie, problem)
-    now = (now or datetime.now(UTC)).astimezone(UTC)
-    recent = [e for e in log.entries(kinds=(REVEAL,), since=now - timedelta(hours=1))
-              if e["body"].get("member") == member]
-    if len(recent) >= MAX_PER_HOUR:
-        return 429, message_page(incident, f"At most {MAX_PER_HOUR} reveals an hour; try again later.")
     row = vault.sealed_row(log, incident, str(index.get("sha256", "")), now=now)  # expiry judged at the same now
     if row is None:
         return 410, message_page(incident, "These values are no longer kept (their retention ended, or they were "
@@ -167,7 +193,7 @@ def reveal(log: Any, incident: str, *, member: str, cookie: str, query: str, env
                                   "environment": environment, "at": now.isoformat(timespec="seconds")})
     try:
         opened = opener.open(row)
-    except vault._SEAL_ERRORS as exc:
+    except vault._SEAL_ERRORS as exc:  # KMS refusing, the database, a tag that does not verify (InvalidTag)
         log.append(incident, REFUSED, {"member": member, "error": type(exc).__name__})
         return 503, message_page(incident, "The vault could not be opened; nothing was shown.")
     return 200, revealed_page(incident, index, {p: opened[p] for p in chosen if p in opened})

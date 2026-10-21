@@ -45,6 +45,7 @@ class FakeKms:
         self.role = role
         self.mac_key = mac_key or self._mac_key
         self.calls: list[tuple[str, dict]] = []
+        self.messages: list[bytes] = []
 
     def _allow(self, action: str, context: dict) -> None:
         self.calls.append((action, context))
@@ -62,6 +63,9 @@ class FakeKms:
     def generate_mac(self, *, KeyId, MacAlgorithm, Message):
         self._allow("GenerateMac", {})
         assert MacAlgorithm == "HMAC_SHA_256"
+        if len(Message) > 4096:  # KMS's own limit
+            raise ClientError({"Error": {"Code": "ValidationException", "Message": "too long"}}, "kms")
+        self.messages.append(Message)
         return {"Mac": hmac.new(self.mac_key, Message, hashlib.sha256).digest()}
 
     def decrypt(self, *, CiphertextBlob, KeyId, EncryptionContext):
@@ -130,7 +134,8 @@ def test_nothing_but_the_index_and_a_hash_is_on_the_signed_audit(tmp_path):
 def test_pseudonyms_are_stable_across_incidents_and_reveal_nothing():
     a = _vault("read").index({"<EMAIL_1>": EMAIL})
     b = _vault("read").index({"<EMAIL_7>": EMAIL, "<EMAIL_8>": "other" + "@" + "example.org"})
-    assert a[0]["pseudonym"] == b[0]["pseudonym"] != b[1]["pseudonym"]
+    assert a[0]["pseudonym"] == b[0]["pseudonym"]
+    assert b[0]["pseudonym"] != b[1]["pseudonym"]
     assert re.fullmatch(r"email:[0-9a-f]{12}", a[0]["pseudonym"])
     assert "canary" not in a[0]["pseudonym"]
     other = _vault("read", kms=FakeKms("read", os.urandom(32))).index({"<EMAIL_1>": EMAIL})
@@ -313,7 +318,6 @@ def test_the_vaults_clients_are_in_the_runtimes_region(monkeypatch, env):
     assert asked == [("kms", "test-region-1")]
 
 
-
 def test_on_postgresql_the_writer_purges_through_the_function_by_the_databases_clock():
     """The runtime's writer may not delete a vault row (review): retention calls warden_vault_purge(), which takes no
     time from its caller."""
@@ -418,3 +422,94 @@ def test_no_model_facing_code_path_imports_the_vault_or_the_reveal():
     for fn in found:
         names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)} | imports(fn)
         assert not names & {"vault", "reveal"}, fn.name
+
+
+# --------------------------------------------------------------------------- what is sealed: personal data only
+
+
+def test_every_redaction_kind_is_classified_sealed_or_never():
+    """Owner-safe default (review, 2026-10-21): only personal data is sealed; secrets and financial numbers never are.
+    A new redaction kind fails this until someone decides which it is."""
+    from warden import redaction
+
+    kinds = set(redaction._LABELS)
+    assert vault.SEALED_KINDS | vault.NEVER_SEALED == kinds
+    assert not vault.SEALED_KINDS & vault.NEVER_SEALED
+    assert redaction.SECRET_KINDS <= vault.NEVER_SEALED
+    status = {k: k in vault.SEALED_KINDS for k in sorted(kinds)}
+    assert status == {
+        "ACCOUNTID": True, "APIKEY": False, "ARN": True, "AZURESAS": False, "BASIC": False, "BEARER": False,
+        "CREDITCARD": False, "EMAIL": True, "GCPTOKEN": False, "HIGHENTROPY": False, "IBAN": False, "IPV4": True,
+        "IPV6": True, "JWT": False, "MAC": True, "PHONE": True, "PRIVKEY": False, "SECRET": False, "TENANT": True,
+        "URLCRED": False, "UUID": True, "WEBHOOK": False}
+
+
+SECRET_VALUE = "AKIA" + "IOSFODNN7EXAMPLE"
+CARD = "4111" + "1111" + "1111" + "1111"
+
+
+def test_a_secret_or_a_card_number_is_never_sealed(tmp_path):
+    log = AuditLog(tmp_path / "a.db")
+    mixed = {"<EMAIL_1>": EMAIL, "<APIKEY_1>": SECRET_VALUE, "<CREDITCARD_1>": CARD, "<PRIVKEY_1>": "k" * 40}
+    digest = vault.seal_incident(log, "inc-1", mixed, vault=_vault("read"))
+    [index] = log.entries("inc-1", kinds=(vault.INDEX,))
+    assert [e["placeholder"] for e in index["body"]["entries"]] == ["<EMAIL_1>"]
+    assert _vault("approval").open(vault.sealed_row(log, "inc-1", digest)) == {"<EMAIL_1>": EMAIL}
+
+
+def test_a_map_of_secrets_alone_seals_and_records_nothing(tmp_path):
+    log = AuditLog(tmp_path / "a.db")
+    kms = FakeKms("read")
+    assert vault.seal_incident(log, "inc-1", {"<APIKEY_1>": SECRET_VALUE}, vault=_vault("read", kms=kms)) == ""
+    assert not log.entries("inc-1")
+    assert not kms.calls  # not even an id was computed for it
+
+
+def test_a_failed_purge_keeps_the_seal_and_is_recorded(tmp_path, monkeypatch):
+    log = AuditLog(tmp_path / "a.db")
+
+    def broken(*_a, **_k):
+        raise OSError("purge refused")
+
+    monkeypatch.setattr(vault, "purge", broken)
+    digest = vault.seal_incident(log, "inc-1", MAPPING, vault=_vault("read"))
+    assert digest
+    assert log.entries("inc-1", kinds=(vault.INDEX,))
+    assert not log.entries("inc-1", kinds=(vault.UNAVAILABLE,))
+    [row] = log.entries("inc-1", kinds=(vault.PURGE_FAILED,))
+    assert row["body"]["error"] == "OSError"
+
+
+def test_a_value_longer_than_kms_takes_still_gets_a_stable_id():
+    kms = FakeKms("read")
+    long_value = "x" * 5000 + "@" + "example.org"
+    first = _vault("read", kms=kms).pseudonym_of("EMAIL", long_value)
+    again = _vault("read", kms=kms).pseudonym_of("EMAIL", long_value)
+    assert first == again
+    assert re.fullmatch(r"email:[0-9a-f]{12}", first)
+    assert len(kms.messages[-1]) <= 4096  # what KMS was asked stays within its limit
+
+
+def test_the_id_cache_keeps_no_value():
+    v = _vault("read")
+    v.pseudonym_of("EMAIL", EMAIL)
+    assert EMAIL not in repr(v._macs)
+    assert all(isinstance(k, bytes) for k in v._macs)
+
+
+def test_a_discussions_re_read_seals_nothing(tmp_path, monkeypatch, env):
+    import boto3
+
+    from warden.activities import IncidentActivities
+    from warden.cli import DEMO_ALERTS
+    from warden.models import Alert
+
+    kms = FakeKms("read")
+    monkeypatch.setattr(boto3, "client", lambda name, *a, **k: {"kms": kms}[name])
+    monkeypatch.setattr(vault, "_BUILT", {})
+    log = AuditLog(tmp_path / "a.db")
+    alert = Alert(**{**DEMO_ALERTS["inc-001"], "alert_id": "discuss-inc-001"})
+    pack = IncidentActivities(audit=log).prepare(alert)
+    assert pack.masked > 0  # there was something it could have sealed
+    assert not log.entries("discuss-inc-001", kinds=(vault.INDEX, vault.UNAVAILABLE))
+    assert not kms.calls

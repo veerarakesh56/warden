@@ -1335,10 +1335,12 @@ class IncidentActivities:
             prompt = self._with_history(alert, prompt, steps)
         self._record(alert.alert_id, steps)
         # The real values behind this run's placeholders, sealed for people only (vault.py) - here, with the map, which
-        # is never returned: it never enters Temporal's history, and no AI zone can open what is sealed.
-        from . import vault
+        # is never returned: it never enters Temporal's history, and no AI zone can open what is sealed. Not for a
+        # discussion's re-read (`discuss-<incident>`): its incident's own run sealed them, and no reveal reads it.
+        if not alert.alert_id.startswith("discuss-"):
+            from . import vault
 
-        vault.seal_incident(self.audit, alert.alert_id, state.get("redaction_map", {}), run_id=_run_id())
+            vault.seal_incident(self.audit, alert.alert_id, state.get("redaction_map", {}), run_id=_run_id())
         # The alarm as it came in, so the incident can be discussed later from its own evidence (discuss.py). Its
         # free text redacted, as everything on the record is.
         from .redaction import redact
