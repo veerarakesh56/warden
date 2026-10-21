@@ -220,6 +220,7 @@ _FROM = f"https://{GITHUB}/a"
     (_FROM, f"http://{GITHUB}/a", False),
     (f"http://{GITHUB}/a", f"http://{GITHUB}/b", False),
     (_FROM, f"https://{GITHUB}:99999/a", False),
+    (_FROM, f"https://{GITHUB}:0/a", False),  # an explicit port 0 is not the default port
     ("https:///a", "https:///b", False),
 ])
 def test_same_origin(first, second, same):
