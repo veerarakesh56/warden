@@ -468,7 +468,7 @@ def _config_of(conf: dict[str, Any]) -> dict[str, Any]:
     """The restored settings of one configuration, comparable and JSON-safe."""
     return {"Timeout": conf.get("Timeout"), "MemorySize": conf.get("MemorySize"),
             "EphemeralStorage": (conf.get("EphemeralStorage") or {}).get("Size"), "Handler": conf.get("Handler"),
-            "Runtime": conf.get("Runtime"), "Layers": sorted(str(x.get("Arn")) for x in conf.get("Layers") or []),
+            "Runtime": conf.get("Runtime"), "Layers": [str(x.get("Arn")) for x in conf.get("Layers") or []],  # order matters
             "TracingConfig": (conf.get("TracingConfig") or {}).get("Mode")}
 
 
@@ -477,13 +477,21 @@ def _kept_of(conf: dict[str, Any], what: str) -> Any:
         env = conf.get("Environment") or {}
         if env.get("Error"):
             return object()  # unreadable equals nothing, not even another unreadable one (refused before, too)
-        return hashlib.sha256(json.dumps(env.get("Variables") or {}, sort_keys=True).encode()).hexdigest()
+        retained = {"KMSKeyArn": conf.get("KMSKeyArn"), "Variables": env.get("Variables") or {}}  # its key too
+        return hashlib.sha256(json.dumps(retained, sort_keys=True).encode()).hexdigest()
     if what == "role":
         return conf.get("Role")
     if what == "network":
         vpc = conf.get("VpcConfig") or {}
         return sorted(vpc.get("SubnetIds") or []), sorted(vpc.get("SecurityGroupIds") or [])
     return conf.get("PackageType"), (conf.get("ImageConfigResponse") or {}).get("ImageConfig")
+
+
+def _kept_digest(conf: dict[str, Any]) -> str:
+    """One digest of everything WARDEN does not restore, to hold a write to the state the plan saw. The environment
+    enters only as its own digest of all its variables together (no value is kept)."""
+    return hashlib.sha256(json.dumps({w: _kept_of(conf, w) for w in _CONFIG_KEPT}, sort_keys=True, default=str,
+                                     separators=(",", ":")).encode()).hexdigest()
 
 
 def _config_call(to: dict[str, Any], now: dict[str, Any]) -> dict[str, Any]:
@@ -2129,12 +2137,15 @@ class AwsPlatform:
         elif state["to"] == state["now"]:
             why = f"$LATEST's settings are version {version['Version']}'s already"
         state["eligible"] = not why
+        if not unread:
+            state["kept"] = _kept_digest(conf)
         return {**live, "from_version": set() if why else {str(version["Version"])}, "refused": why}
 
     def _lambda_config_restore(self, p, snapshot, now, who, back) -> str:
         """$LATEST's settings to the published version's (back: to what they were), only while the function's settings
         are the ones the plan saw, and conditioned on its revision (Lambda refuses a write after another)."""
-        self._expect(now, snapshot, ("function", "arn", "from_version", "to", "code"), f"lambda {p['function']}")
+        # `kept`: what WARDEN does not restore (environment, role, network, image), as planned - on apply AND undo.
+        self._expect(now, snapshot, ("function", "arn", "from_version", "to", "code", "kept"), f"lambda {p['function']}")
         if not back and now.get("eligible") is not True:
             # Read again just now: the code, environment, role or network moved since the approval (review, PR 107).
             raise AwsPlatformRefused(f"lambda {p['function']} no longer qualifies for version {p['from_version']}'s "
@@ -2155,7 +2166,7 @@ class AwsPlatform:
         lam = self._read("lambda")
         conf = lam.get_function_configuration(FunctionName=function)
         prior = lam.get_function_configuration(FunctionName=function, Qualifier=str(params.get("from_version", "")))
-        return (conf.get("LastUpdateStatus") in (None, "Successful") and _config_of(conf) == _config_of(prior)
+        return (conf.get("LastUpdateStatus") == "Successful" and _config_of(conf) == _config_of(prior)
                 and self._lambda_healthy(function, params))
 
     # ------------------------------------------------------------------ G10 v2: a queue's settings, a stream's retention

@@ -183,3 +183,35 @@ def test_an_appconfig_target_named_as_one_stays_appconfigs(aws):
     proposal = _prop().model_copy(update={"target": f"appconfig:{FN}"})
     request, _ = resolver.request_for(_alert(), proposal, p.live)
     assert request is None or request["entry"] != "lambda_restore_config"
+
+
+def test_an_undo_after_the_role_changed_is_not_written(aws):
+    f, p = aws
+    live, params = _plan(p)
+    f.latest = {**f.latest, "Timeout": 30, "MemorySize": 512, "Role": f"arn:aws:iam::{ACCT}:role/other"}
+    with pytest.raises(AwsPlatformRefused, match="changed since"):
+        p.rollback("lambda_restore_config", params, live["state"], who=WHO)
+    assert f.writes == []
+
+
+def test_the_layer_order_is_a_setting_of_its_own(aws):
+    f, p = aws
+    a, b = (f"arn:aws:lambda:test-region-1:{ACCT}:layer:{n}:1" for n in ("a", "b"))
+    f.published["7"]["Layers"] = [{"Arn": a}, {"Arn": b}]
+    f.latest = {**f.latest, "Timeout": 30, "MemorySize": 512, "Layers": [{"Arn": b}, {"Arn": a}]}
+    live, params = _plan(p)
+    assert live["from_version"] == {"7"}
+    p.apply("lambda_restore_config", params, snapshot=live["state"], who=WHO)
+    assert f.writes[-1][1]["Layers"] == [a, b]
+
+
+def test_a_changed_environment_key_is_a_changed_environment(aws):
+    f, p = aws
+    f.latest = {**f.latest, "KMSKeyArn": f"arn:aws:kms:test-region-1:{ACCT}:key/other"}
+    assert "environment also changed" in p.live("lambda_restore_config", {"function": FN})["refused"]
+
+
+def test_an_update_not_known_to_have_finished_is_not_healthy(aws):
+    f, p = aws
+    f.latest = {**f.latest, "Timeout": 30, "MemorySize": 512, "LastUpdateStatus": None}
+    assert p.healthy(FN, entry="lambda_restore_config", params={"function": FN, "from_version": "7"}) is False
