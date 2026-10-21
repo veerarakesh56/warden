@@ -1212,8 +1212,9 @@ def test_the_act_and_read_zones_start_with_kubernetes_and_the_database():
              for z, body in re.findall(r"^\s+(\w+)\s+= \{(.*)\}$", iam[iam.index("  zones = {"):], re.MULTILINE)
              if "platforms" in body}
     got = {z: set(re.findall(r'"(\w+)"', v)) for z, v in zones.items()}
+    # The critic zone (Eldane, PR 42) reaches no platform at all: it reads the audit and calls its model, nothing else.
     assert got == {"core": set(), "read": {"aws", "k8s", "db"}, "llm": set(), "notify": {"aws"},
-                   "act": {"aws", "k8s", "db"}}
+                   "act": {"aws", "k8s", "db"}, "critic": set()}
 
 
 def test_the_actor_maps_to_the_remediator_group_only_and_connects_only_as_the_terminate_login():
