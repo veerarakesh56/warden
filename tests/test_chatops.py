@@ -282,3 +282,17 @@ def test_a_webhook_url_with_a_bad_port_is_a_failed_delivery_not_an_exception():
     n = chatops._post_json("https://hooks.example:abc/x", {}, "slack")
     assert not n.delivered
     assert n.detail.startswith("transport error: ")
+
+
+def test_a_garbled_slack_response_is_a_failed_call_not_an_exception(monkeypatch):
+    """BadStatusLine is an http.client.HTTPException, not an OSError: uncaught, it stopped every later sink."""
+    import http.client
+
+    from warden import chatops, web
+
+    def garbled(req, *, timeout):
+        raise http.client.BadStatusLine("garbage")
+
+    monkeypatch.setattr(web, "urlopen", garbled)
+    assert chatops._slack_call("chat.postMessage", {}, "t") == (None, "transport error: BadStatusLine")
+

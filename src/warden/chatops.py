@@ -135,7 +135,7 @@ def _slack_call(method: str, payload: dict, token: str, *, form: bool = False) -
                 time.sleep(min(float(exc.headers.get("Retry-After") or 1), _MAX_RETRY_AFTER_S))
                 continue
             return None, f"HTTP {exc.code}"
-        except (OSError, ValueError) as exc:  # URLError and TimeoutError are OSErrors
+        except (OSError, http.client.HTTPException, ValueError) as exc:  # URLError and TimeoutError are OSErrors
             return None, f"transport error: {type(exc).__name__}"
     return None, "rate limited"
 
