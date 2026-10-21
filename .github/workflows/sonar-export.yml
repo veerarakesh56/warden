@@ -43,11 +43,7 @@ jobs:
           an = get("https://sonarcloud.io/api/project_analyses/search?project=veerarakesh56_warden&branch=main&ps=3")
           for x in an.get("analyses", []):
               print(f"=== ANALYSIS {x.get('date')} revision={x.get('revision')}")
-          # export run: the new issues SonarCloud reports on pull request 170 (2026-10-21 ~14:15 UTC)
-          for pr in ("170",):
-              d = get(f"https://sonarcloud.io/api/issues/search?componentKeys=veerarakesh56_warden&pullRequest={pr}&issueStatuses=OPEN,CONFIRMED&ps=500")
-              print(f"=== PR {pr} open total={d['total']}")
-              for i in d["issues"]:
-                  comp = i["component"].split(":", 1)[-1]
-                  msg = i["message"].replace("\n", " ")[:300]
-                  print(f"PR{pr}|{i['rule']}|{comp}|{i.get('line', '')}|{i['key']}|{i.get('issueStatus')}|{msg}")
+          # export run: main's open issue totals after PR 170 (2026-10-21 ~16:50 UTC)
+          for q in ("MAINTAINABILITY", "RELIABILITY", "SECURITY"):
+              d = get(f"https://sonarcloud.io/api/issues/search?componentKeys=veerarakesh56_warden&branch=main&issueStatuses=OPEN,CONFIRMED&impactSoftwareQualities={q}&ps=1")
+              print(f"=== MAIN {q} open total={d['total']}")
