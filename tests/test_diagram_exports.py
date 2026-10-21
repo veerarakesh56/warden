@@ -66,3 +66,9 @@ def test_the_svg_is_an_export_of_its_source_as_it_is_now(svg):
     assert page.find("./mxGraphModel").get("background") == "#FFFFFF"
     exported = set(re.findall(r'data-cell-id="([^"]+)"', svg.read_text(encoding="utf-8")))
     assert exported == {c.get("id") for c in page.iter("mxCell")} | {o.get("id") for o in page.iter("object")}
+
+
+@pytest.mark.parametrize("svg", SVGS, ids=[s.name for s in SVGS])
+def test_every_cell_of_the_source_has_an_id_of_its_own(svg):
+    ids = [c.get("id") for c in _source_page(svg).iter("mxCell")] + [o.get("id") for o in _source_page(svg).iter("object")]
+    assert sorted({i for i in ids if ids.count(i) > 1}) == []  # draw.io renumbers a repeated id when it exports

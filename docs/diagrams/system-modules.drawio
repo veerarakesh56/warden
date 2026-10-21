@@ -22,7 +22,7 @@
         <mxCell id="in-sec" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;a security finding&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;GuardDuty, Security Hub → always to a person,&lt;br&gt;never a fix &lt;i&gt;security_findings.py&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="42" y="234" width="306" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="in-hook" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;a monitoring webhook&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;Alertmanager, a Datadog monitor: bearer secret,&lt;br&gt;size caps, still firing? &lt;i&gt;webhooks.py&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
+        <mxCell id="in-hook" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;a monitoring webhook&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;Alertmanager, a Datadog monitor: the bearer checked&lt;br&gt;at the edge, then again; size caps, still firing? &lt;i&gt;webhooks.py&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="42" y="304" width="306" height="60" as="geometry" />
         </mxCell>
         <mxCell id="in-intake" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;intake&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;groups repeats, joins storms, flapping to a person,&lt;br&gt;open-incident cap, expected-down holds&lt;br&gt;&lt;i&gt;intake.py&lt;/i&gt;, &lt;i&gt;expected.py&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#12C483;align=left;spacingLeft=10;strokeWidth=1.5;" vertex="1" parent="1">
@@ -49,20 +49,20 @@
         <mxCell id="wf-inc" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;IncidentWorkflow &lt;i&gt;workflows.py&lt;/i&gt;&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;inc-&amp;lt;alert id&amp;gt;: wait for the logs, prepare, reread, diagnose,&lt;br&gt;investigate, verify, second opinion, notify, plan&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="432" y="140" width="306" height="84" as="geometry" />
         </mxCell>
-        <mxCell id="wf-rem" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;RemediationWorkflow&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;one per target · 1 resolve_plan · 2 gate · 3 signed&lt;br&gt;approvals · 4 precheck · 5 apply once · 6 its own&lt;br&gt;success check · 7 record_result, rollback if not&lt;br&gt;recovered · 8 finish&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="432" y="234" width="306" height="104" as="geometry" />
+        <mxCell id="wf-rem" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;RemediationWorkflow&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;one per target · 1 resolve_plan · 2 gate · 3 signed&lt;br&gt;approvals · 4 precheck · 5 apply once · 6 its own&lt;br&gt;success check · 7 record_result, rollback if not&lt;br&gt;recovered · 8 finish · a fix that does not&lt;br&gt;hold reopens its incident &lt;i&gt;history.py&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="432" y="234" width="306" height="122" as="geometry" />
         </mxCell>
         <mxCell id="wf-dis" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;DiscussWorkflow&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;one per question in the discussion channel&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="432" y="348" width="306" height="48" as="geometry" />
+          <mxGeometry x="432" y="366" width="306" height="48" as="geometry" />
         </mxCell>
         <mxCell id="wf-clock" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;ClockWorkflow&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;heartbeat and the daily synthetic incident&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="432" y="406" width="306" height="48" as="geometry" />
+          <mxGeometry x="432" y="424" width="306" height="48" as="geometry" />
         </mxCell>
         <mxCell id="wf-run" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;workers, one per trust zone&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;warden worker --zone &amp;lt;zone&amp;gt;: each its own task queue,&lt;br&gt;role and Temporal key &lt;i&gt;runtime.py&lt;/i&gt;, &lt;i&gt;runtime_base.py&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="432" y="464" width="306" height="64" as="geometry" />
+          <mxGeometry x="432" y="482" width="306" height="64" as="geometry" />
         </mxCell>
         <mxCell id="pr-wf" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #42, #50, #83 (not built)&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;AutonomyWorkflow (#42), DependencyWatchWorkflow&lt;br&gt;(#50), AwsWatchWorkflow (#83)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
-          <mxGeometry x="432" y="538" width="306" height="66" as="geometry" />
+          <mxGeometry x="432" y="556" width="306" height="66" as="geometry" />
         </mxCell>
         <mxCell id="people" value="People" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=13;startSize=28;fillColor=#E4E9EE;swimlaneFillColor=#FFFFFF;strokeColor=#E4E9EE;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="420" y="644" width="330" height="410" as="geometry" />
@@ -76,8 +76,11 @@
         <mxCell id="pp-rec" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;records pages&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;every incident, plan, approval and end, read from&lt;br&gt;the signed audit · links, labels &lt;i&gt;records.py&lt;/i&gt;, &lt;i&gt;links.py&lt;/i&gt;, &lt;i&gt;labels.py&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="432" y="828" width="306" height="64" as="geometry" />
         </mxCell>
-        <mxCell id="pr-pp" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #43, #119 (not built)&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;pages acknowledged with a passkey on /p (#43);&lt;br&gt;the masked values revealed to a person (#119)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
-          <mxGeometry x="432" y="902" width="306" height="70" as="geometry" />
+        <mxCell id="pp-ack" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;pages acknowledged&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;/p, behind Slack sign-in: an approver&#x27;s passkey&lt;br&gt;signs exactly the pages shown &lt;i&gt;paging.py&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFF0ED;strokeColor=#FF7E6B;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="432" y="902" width="306" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="pr-pp" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #119 (not built)&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;the masked values revealed to a person on the&lt;br&gt;records pages&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
+          <mxGeometry x="432" y="964" width="306" height="52" as="geometry" />
         </mxCell>
         <mxCell id="col-i" value="&lt;b&gt;Incident activities&lt;/b&gt; &lt;i&gt;activities.py&lt;/i&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#33424F;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="814" y="104" width="358" height="16" as="geometry" />
@@ -241,7 +244,7 @@
         <mxCell id="e-pause" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;pause / resume &lt;i&gt;scripts/pause_resume.py&lt;/i&gt;&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;a copy of every data store first, then compute, the NAT&lt;br&gt;and alarm intake off; resume restores the newest copy&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="2442" y="616" width="376" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="pr-ops" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #43 (not built): paging&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;pages repeated until a person acknowledges them: the&lt;br&gt;pager function, &lt;i&gt;paging&lt;/i&gt; on the approval page&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
+        <mxCell id="n-paging" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;paging &lt;i&gt;paging.py&lt;/i&gt;&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;an alarm or a kill-switch trip pages; the pager function&lt;br&gt;says it again every 15 minutes until acknowledged&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="2442" y="686" width="376" height="62" as="geometry" />
         </mxCell>
         <mxCell id="pr-egress" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #104, #110 (not built): egress&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;every request, name lookup and model prompt checked against one inventory; a value that would leave is refused &lt;i&gt;egress&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
@@ -331,7 +334,7 @@
         <mxCell id="e-zones-audit-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;every step: a signed row&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="2100" y="124" width="160" height="14" as="geometry" />
         </mxCell>
-        <mxCell id="footer" value="Drawn from origin/main 5cdd602 (2026-10-21) and the open pull requests named on it. The AWS resources each part runs on: aws-architecture.drawio; one incident in detail: incident-flow.drawio. tests/test_readme_architecture_r30.py checks that every module and activity named here exists." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+        <mxCell id="footer" value="Drawn from origin/main 4c0385b (2026-10-21) and the open pull requests named on it. The AWS resources each part runs on: aws-architecture.drawio; one incident in detail: incident-flow.drawio. tests/test_readme_architecture_r30.py checks that every module and activity named here exists." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="30" y="1348" width="2800" height="20" as="geometry" />
         </mxCell>
         <mxCell id="lg-a" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=0.5;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="lg-a-s" target="lg-a-e">
@@ -359,13 +362,13 @@
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="374" y="410" /><mxPoint x="374" y="182" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-mcp-wf" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.6;entryDx=0;entryDy=0;" edge="1" parent="1" source="in-mcp" target="wf-rem">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="390" y="504" /><mxPoint x="390" y="296.4" /></Array></mxGeometry>
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="390" y="504" /><mxPoint x="390" y="307.2" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-slack-wf" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="in-slack" target="wf-dis">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="406" y="644" /><mxPoint x="406" y="372" /></Array></mxGeometry>
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="406" y="644" /><mxPoint x="406" y="390" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-clock-wf" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.4;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="in-clock" target="wf-clock">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="422" y="708" /><mxPoint x="422" y="430" /></Array></mxGeometry>
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="422" y="708" /><mxPoint x="422" y="448" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-cli" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#7B8794;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=0;entryY=0.85;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="in-cli" target="a-prepare">
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="438" y="580" /><mxPoint x="438" y="634" /><mxPoint x="778" y="634" /><mxPoint x="778" y="473.8" /></Array></mxGeometry>
@@ -374,16 +377,16 @@
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="790" y="190.4" /><mxPoint x="790" y="414.4" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-plan-rem" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.3;entryDx=0;entryDy=0;" edge="1" parent="1" source="a-planfix" target="wf-rem">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="770" y="350" /><mxPoint x="770" y="265.2" /></Array></mxGeometry>
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="770" y="350" /><mxPoint x="770" y="270.6" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-rem-res" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.15;exitDx=0;exitDy=0;entryX=0.1117;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="wf-rem" target="a-resolve">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="780" y="249.6" /><mxPoint x="780" y="157" /><mxPoint x="1225.99" y="157" /></Array></mxGeometry>
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="780" y="252.3" /><mxPoint x="780" y="157" /><mxPoint x="1225.99" y="157" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-page" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=1;entryY=0.85;entryDx=0;entryDy=0;" edge="1" parent="1" source="pp-page" target="wf-rem">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="762" y="705.2" /><mxPoint x="762" y="322.4" /></Array></mxGeometry>
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="762" y="705.2" /><mxPoint x="762" y="337.7" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-key" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.85;entryDx=0;entryDy=0;" edge="1" parent="1" source="pp-key" target="wf-rem">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="410" y="796" /><mxPoint x="410" y="322.4" /></Array></mxGeometry>
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="410" y="796" /><mxPoint x="410" y="337.7" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-prep-diag" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a-prepare" target="a-diagnose">
           <mxGeometry relative="1" as="geometry"></mxGeometry>
