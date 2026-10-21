@@ -9,12 +9,19 @@ the failure modes that matter (a model returning prose, fenced JSON, or garbage 
 demand rather than by waiting for them to happen in production.
 """
 
+import asyncio
+import os
+import pathlib
+import subprocess
+import sys
+import threading
 import time
 from typing import Any
 
 import pytest
 from pydantic import BaseModel
 
+from fakes import ANTHROPIC_KEY_PREFIX
 from warden.llm import BudgetExceeded, LLMClient, ModelRefused, extract_json
 from warden.providers import Completion, ProviderError, resolve
 
@@ -166,29 +173,102 @@ def test_a_hung_model_call_times_out_fast_instead_of_hanging_the_run():
     assert elapsed < 12, f"the wall-clock did not fire: waited {elapsed:.1f}s"
 
 
-class _ExitingProvider:
-    """Raises SystemExit inside the call - a BaseException that is not an Exception."""
+def _secret_like() -> str:
+    """A message shaped like a leaked key, built from parts (tests/fakes.py) - it must never be printed or logged."""
+    return "token=" + ANTHROPIC_KEY_PREFIX + "api03-" + "q" * 24
 
-    name = "exiting"
-    model = "exiting-1"
+
+_BASE_EXCEPTIONS = {
+    "SystemExit": lambda: SystemExit(_secret_like()),
+    "KeyboardInterrupt": lambda: KeyboardInterrupt(_secret_like()),
+    "CancelledError": lambda: asyncio.CancelledError(_secret_like()),
+    "GeneratorExit": lambda: GeneratorExit(_secret_like()),
+    "BaseExceptionGroup": lambda: BaseExceptionGroup(_secret_like(), [KeyboardInterrupt(_secret_like())]),
+}
+
+
+class _RaisingProvider:
+    """Raises the given BaseException (not an Exception) inside the call, on the call's own thread."""
+
+    name = "raising"
+    model = "raising-1"
+
+    def __init__(self, err: BaseException) -> None:
+        self.err = err
 
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
-        raise SystemExit("the provider exited")
+        raise self.err
 
 
-def test_a_base_exception_in_the_call_thread_reaches_the_caller_unchanged(monkeypatch):
-    """The call runs on its own thread: a SystemExit raised there is carried back and raised to the caller as it
-    was, not lost with the thread (and not mistaken for a missing answer). The thread itself also ends with it;
-    WARDEN's own thread hook (observability.install_log_gate) says nothing for a SystemExit, so the test records
-    the hook instead of pytest's."""
-    import threading
-
-    ended_with: list[type] = []
-    monkeypatch.setattr(threading, "excepthook", lambda args: ended_with.append(args.exc_type))
-    c = LLMClient(provider=_ExitingProvider(), mock=False, call_timeout_s=2.0)
-    with pytest.raises(SystemExit, match="the provider exited"):
+def _call_raising(err: BaseException) -> BaseException:
+    c = LLMClient(provider=_RaisingProvider(err), mock=False, call_timeout_s=2.0)
+    with pytest.raises(BaseException) as raised:
         c.structured(system="s", user="u", schema=Toy, retries=0)
-    assert ended_with == [SystemExit]
+    return raised.value
+
+
+@pytest.mark.parametrize("kind", sorted(_BASE_EXCEPTIONS))
+def test_a_base_exception_in_the_call_thread_reaches_the_caller_unchanged(kind):
+    """The call runs on its own thread: whatever it raises - SystemExit, KeyboardInterrupt too - is carried back
+    and raised to the caller as the same object, not lost with the thread."""
+    err = _BASE_EXCEPTIONS[kind]()
+    assert _call_raising(err) is err
+
+
+@pytest.mark.parametrize("kind", sorted(_BASE_EXCEPTIONS))
+def test_the_call_thread_itself_ends_quietly_on_a_base_exception(kind, monkeypatch):
+    """The thread ends without the exception, so no thread hook sees it: WARDEN's hook
+    (observability.install_log_gate) would log a CRITICAL warden.uncaught that pages, and Python's own prints
+    the message raw. Only the caller raises it."""
+    seen: list[type] = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: seen.append(args.exc_type))
+    _call_raising(_BASE_EXCEPTIONS[kind]())
+    assert seen == []
+
+
+@pytest.mark.parametrize("kind", sorted(_BASE_EXCEPTIONS))
+def test_a_base_exception_in_the_call_thread_prints_nothing(kind, monkeypatch, capsys):
+    """With Python's default thread hook (which prints a thread's uncaught exception to stderr), a secret-shaped
+    message raised in the call never reaches stderr."""
+    monkeypatch.setattr(threading, "excepthook", threading.__excepthook__)
+    _call_raising(_BASE_EXCEPTIONS[kind]())
+    assert capsys.readouterr().err == ""
+
+
+_GATED_CHILD = """
+import asyncio
+from warden.observability import install_log_gate
+install_log_gate()
+from warden.llm import _complete_within
+SECRET = {secret!r}
+ERRORS = {{
+    "SystemExit": SystemExit, "KeyboardInterrupt": KeyboardInterrupt, "CancelledError": asyncio.CancelledError,
+    "GeneratorExit": GeneratorExit,
+    "BaseExceptionGroup": lambda m: BaseExceptionGroup(m, [KeyboardInterrupt(m)]),
+}}
+class Raising:
+    name = "raising"
+    model = "raising-1"
+    def complete(self, *, system, user, schema=None):
+        raise ERRORS[{kind!r}](SECRET)
+try:
+    _complete_within(Raising(), system="s", user="u", seconds=5.0)
+except BaseException as err:
+    assert str(err).startswith(SECRET)
+"""
+
+
+@pytest.mark.parametrize("kind", sorted(_BASE_EXCEPTIONS))
+def test_a_base_exception_in_the_call_thread_logs_nothing_through_the_gate(kind):
+    """In a process that installed WARDEN's log gate (every entry point does), a BaseException raised in the
+    call's thread writes no `warden.uncaught` record (CRITICAL: it would page) and nothing else on stderr; the
+    caller, which gets it, decides what to say."""
+    src = str(pathlib.Path(__file__).resolve().parents[1] / "src")
+    env = {**os.environ, "PYTHONPATH": src, "PYTHONIOENCODING": "utf-8"}
+    env.pop("WARDEN_MOCK", None)
+    child = subprocess.run([sys.executable, "-c", _GATED_CHILD.format(secret=_secret_like(), kind=kind)],
+                           capture_output=True, text=True, encoding="utf-8", env=env, timeout=120, check=False)
+    assert (child.returncode, child.stderr) == (0, "")
 
 
 class _FlakyProvider:

@@ -20,6 +20,7 @@ import json
 import math
 import os
 import threading
+from types import TracebackType
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -77,14 +78,8 @@ def _complete_within(provider: Provider, *, system: str, user: str, seconds: flo
     box: dict[str, Any] = {}
 
     def _worker() -> None:
-        try:
+        with _CarriedToCaller(box):
             box["ok"] = provider.complete(system=system, user=user, schema=schema)
-        except Exception as exc:  # noqa: BLE001 - carried across the thread boundary; re-raised below
-            box["err"] = exc
-        except BaseException as exc:
-            # SystemExit, KeyboardInterrupt: carried across the same way, and still ended this thread with.
-            box["err"] = exc
-            raise
 
     th = threading.Thread(target=_worker, name="warden-llm-call", daemon=True)
     th.start()
@@ -94,6 +89,24 @@ def _complete_within(provider: Provider, *, system: str, user: str, seconds: flo
     if "err" in box:
         raise box["err"]
     return box["ok"]
+
+
+class _CarriedToCaller:
+    """Ends the model call's thread quietly and keeps what the call raised in `box["err"]`, for the calling thread
+    to raise as it was (_complete_within). Every exception, SystemExit and KeyboardInterrupt too: none is silenced,
+    each reaches the caller; the thread itself ends without one, so no thread hook logs or prints it."""
+
+    def __init__(self, box: dict[str, Any]) -> None:
+        self._box = box
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, kind: type[BaseException] | None, err: BaseException | None,
+                 tb: TracebackType | None) -> bool:
+        if err is not None:
+            self._box["err"] = err
+        return True
 
 
 class ModelRefused(RuntimeError):
