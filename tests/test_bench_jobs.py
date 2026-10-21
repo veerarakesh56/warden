@@ -80,7 +80,8 @@ def test_the_offline_renderer_sees_each_prompt_once_and_sends_nothing(few):
     assert _is_transient(bench_jobs._Rendered()) is False  # one attempt, not three: the estimate is not tripled
     chars = bench_jobs.prompt_chars(few)
     assert set(chars) == {f"{c.set}/{c.id}" for c in few}
-    assert all(4_000 < n < 40_000 for n in chars.values())
+    assert min(chars.values()) > 4_000
+    assert max(chars.values()) < 40_000
 
 
 def test_the_estimate_is_each_models_own_listed_price_and_an_unpriced_model_is_refused():
@@ -109,6 +110,13 @@ def test_the_budget_is_split_by_estimate_and_a_run_over_it_is_refused():
     assert "raise --budget-usd" in bench_jobs.plan([A, B], chars, 1, total + 0.01)[1]
     assert bench_jobs.plan([A], {}, 1, 5.0)[1] == "no case to answer"
     assert "positive" in bench_jobs.plan([A], chars, 1, 0.0)[1]
+
+
+@pytest.mark.parametrize("budget", [float("nan"), float("inf"), -1.0])
+def test_a_budget_that_would_switch_the_ceiling_off_is_refused_by_the_plan_and_the_cap(budget):
+    assert "positive" in bench_jobs.plan([A], {"s/1": 30_000}, 1, budget)[1]
+    with pytest.raises(ValueError, match="positive"):
+        bench_jobs.HardBudget(budget, 0.0, object)
 
 
 def test_an_over_budget_run_prints_its_estimate_and_stops_before_the_key_and_before_any_client(
@@ -212,7 +220,8 @@ def test_a_dry_run_reads_no_key_and_writes_neither_docs_nor_providers_yaml(few, 
     assert result["dry_run"] is True
     assert [m["answers"] for m in result["models"]] == [3, 3]
     assert result["models"][1]["compared"]["model"] == A
-    assert all(0 < m["spent_usd"] <= m["budget_usd"] for m in result["models"])
+    assert all(m["spent_usd"] > 0 for m in result["models"])
+    assert all(m["spent_usd"] <= m["budget_usd"] for m in result["models"])
 
 
 def test_a_paid_run_reads_the_key_after_its_estimate_records_the_docs_and_writes_no_secret(
@@ -274,9 +283,9 @@ def test_a_bench_that_finds_providers_yaml_changed_fails(few, no_key, tmp_path, 
         return real(model)
 
     monkeypatch.setattr(bench_jobs, "dry_client", rerouting)
+    argv, nobody = ["bench", "--model", A, "--budget-usd", "5", "--dry-run", "--out", str(tmp_path / "o")], _NoSecrets()
     with pytest.raises(SystemExit, match="never changes routing"):
-        cloud_run.main(["bench", "--model", A, "--budget-usd", "5", "--dry-run", "--out", str(tmp_path / "o")],
-                       secrets_client=_NoSecrets())
+        cloud_run.main(argv, secrets_client=nobody)
 
 
 def test_a_paid_run_never_takes_over_a_dry_runs_mock_answers(few, no_key, tmp_path, monkeypatch):
@@ -289,14 +298,15 @@ def test_a_paid_run_never_takes_over_a_dry_runs_mock_answers(few, no_key, tmp_pa
         raise AssertionError("a paid client was made")
 
     monkeypatch.setattr(bench_jobs, "live_client", never)
+    paid, secrets = ["bench", "--model", A, "--budget-usd", "5", "--out", str(out)], _Secrets()
     with pytest.raises(SystemExit, match="another run's answers"):
-        cloud_run.main(["bench", "--model", A, "--budget-usd", "5", "--out", str(out)], secrets_client=_Secrets())
+        cloud_run.main(paid, secrets_client=secrets)
     other = tmp_path / "not-a-bench"
     other.mkdir()
     (other / "notes.txt").write_text("x", encoding="utf-8")
+    elsewhere, nobody = ["bench", "--model", A, "--budget-usd", "5", "--dry-run", "--out", str(other)], _NoSecrets()
     with pytest.raises(SystemExit, match="not empty"):
-        cloud_run.main(["bench", "--model", A, "--budget-usd", "5", "--dry-run", "--out", str(other)],
-                       secrets_client=_NoSecrets())
+        cloud_run.main(elsewhere, secrets_client=nobody)
 
 
 def test_results_are_never_written_inside_the_repository(few, no_key, capsys):
@@ -307,18 +317,15 @@ def test_results_are_never_written_inside_the_repository(few, no_key, capsys):
     assert not (ROOT / "bench-out").exists()
 
 
-def test_bench_flags_belong_to_the_bench_jobs_and_headtohead_needs_two_models(no_key, tmp_path):
-    with pytest.raises(SystemExit):
-        cloud_run.main(["qualify", "--model", A, "--dry-run"], secrets_client=_NoSecrets())
-    with pytest.raises(SystemExit, match="two models"):
-        cloud_run.main(["headtohead", "--model", A, "--dry-run", "--out", str(tmp_path / "o")],
-                       secrets_client=_NoSecrets())
-    with pytest.raises(SystemExit, match="one model"):
-        cloud_run.main(["bench", "--model", A, "--vs", B, "--dry-run", "--out", str(tmp_path / "o")],
-                       secrets_client=_NoSecrets())
-    with pytest.raises(SystemExit, match="1 to 10"):
-        cloud_run.main(["bench", "--model", A, "--repeats", "0", "--dry-run", "--out", str(tmp_path / "o")],
-                       secrets_client=_NoSecrets())
+@pytest.mark.parametrize(("argv", "said"), [
+    (["qualify", "--model", A, "--dry-run"], None),  # argparse's own error: its text goes to stderr
+    (["headtohead", "--model", A, "--dry-run"], "two models"),
+    (["bench", "--model", A, "--vs", B, "--dry-run"], "one model"),
+    (["bench", "--model", A, "--repeats", "0", "--dry-run"], "1 to 10")])
+def test_bench_flags_belong_to_the_bench_jobs_and_headtohead_needs_two_models(no_key, tmp_path, argv, said):
+    full, nobody = [*argv, "--out", str(tmp_path / "o")], _NoSecrets()
+    with pytest.raises(SystemExit, match=said):
+        cloud_run.main(full, secrets_client=nobody)
 
 
 def _row(**over) -> dict:
@@ -338,29 +345,33 @@ def test_a_docs_row_holds_only_measurements_in_the_fixed_format():
     assert f"vs {A}: 3 better, 1 worse, p=0.62" in bench_jobs.docs_row("headtohead", _row(model=B), WHEN, "d435b59f", vs)
     for bad in ({"model": "someone@example.com"}, {"model": "Model With Spaces"}, {"model": "not-a-listed-model"},
                 {"correct": "40"}, {"correct": -1}, {"spent_usd": "a lot"}):
+        row = _row(**bad)
         with pytest.raises((ValueError, SystemExit)):
-            bench_jobs.docs_row("bench", _row(**bad), WHEN, "d435b59f", None)
+            bench_jobs.docs_row("bench", row, WHEN, "d435b59f", None)
+    good = _row()
     with pytest.raises(ValueError):
-        bench_jobs.docs_row("bench", _row(), WHEN, "123456789012", None)
+        bench_jobs.docs_row("bench", good, WHEN, "123456789012", None)
     with pytest.raises(ValueError):
-        bench_jobs.docs_row("not-a-job", _row(), WHEN, "d435b59f", None)
+        bench_jobs.docs_row("not-a-job", good, WHEN, "d435b59f", None)
 
 
 def test_a_cell_that_could_carry_a_secret_or_an_account_id_is_refused_whatever_let_it_through(monkeypatch):
     # Behind the per-field checks, every cell is scanned on its own: here the model list is made to accept anything.
     monkeypatch.setattr(bench_jobs, "listed_price", lambda model: (1.0, 1.0))
     for model in (ANTHROPIC_KEY_PREFIX + "api03-abc", "acct-123456789012", "my-secret-model", "aws-token-x"):
+        row = _row(model=model)
         with pytest.raises(ValueError, match="refusing a cell"):
-            bench_jobs.docs_row("bench", _row(model=model), WHEN, "d435b59f", None)
+            bench_jobs.docs_row("bench", row, WHEN, "d435b59f", None)
 
 
 def test_a_model_cell_is_an_id_not_free_text_even_when_the_price_list_would_accept_it(monkeypatch):
     monkeypatch.setattr(bench_jobs, "listed_price", lambda model: (1.0, 1.0))
+    spaced, good = _row(model="Model With Spaces"), _row()
     with pytest.raises(ValueError, match="a model id"):
-        bench_jobs.docs_row("bench", _row(model="Model With Spaces"), WHEN, "d435b59f", None)
+        bench_jobs.docs_row("bench", spaced, WHEN, "d435b59f", None)
     vs = {"model": "Other Model (2)", "fixed": 0, "broke": 0, "p": 1.0}
     with pytest.raises(ValueError, match="a model id"):
-        bench_jobs.docs_row("headtohead", _row(), WHEN, "d435b59f", vs)
+        bench_jobs.docs_row("headtohead", good, WHEN, "d435b59f", vs)
 
 
 def test_rows_go_at_the_end_of_the_one_table_between_its_markers():
@@ -372,12 +383,14 @@ def test_rows_go_at_the_end_of_the_one_table_between_its_markers():
     body = two.split(bench_jobs.BEGIN)[1].split(bench_jobs.END)[0].splitlines()
     assert body[-2:] == ["| row 1 |", "| row 2 |"]
     assert two.replace("| row 1 |\n| row 2 |\n", "") == text
+    no_end, two_begins = text.replace(bench_jobs.END, ""), text + bench_jobs.BEGIN
+    other_header = text.replace("| Measured | Job |", "| When | Job |")
     with pytest.raises(SystemExit, match="exactly one"):
-        bench_jobs.with_rows(text.replace(bench_jobs.END, ""), [])
+        bench_jobs.with_rows(no_end, [])
     with pytest.raises(SystemExit, match="exactly one"):
-        bench_jobs.with_rows(text + bench_jobs.BEGIN, [])
+        bench_jobs.with_rows(two_begins, [])
     with pytest.raises(SystemExit, match="fixed one"):
-        bench_jobs.with_rows(text.replace("| Measured | Job |", "| When | Job |"), [])
+        bench_jobs.with_rows(other_header, [])
 
 
 def test_pass_k_counts_a_case_only_when_every_repeat_was_right_and_mcnemar_compares_first_answers():

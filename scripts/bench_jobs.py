@@ -40,6 +40,7 @@ import datetime as dt
 import functools
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -166,7 +167,7 @@ def plan(models: list[str], chars: dict[str, int], repeats: int, budget_usd: flo
     total = sum(r["expected_usd"] for r in rows)
     for r in rows:
         r["budget_usd"] = round(budget_usd * r["expected_usd"] / total, 4) if total else 0.0
-    if not budget_usd > 0:
+    if not math.isfinite(budget_usd) or budget_usd <= 0:  # nan or infinity would switch the ceiling off
         return rows, "the budget must be a positive number of USD"
     if not chars:
         return rows, "no case to answer"
@@ -200,7 +201,7 @@ class HardBudget:
     4-characters-per-token reading of the prompt, which the reserve counts at CHARS_PER_TOKEN)."""
 
     def __init__(self, total_usd: float, reserve_usd: float, factory: Callable[[], object]) -> None:
-        if not total_usd > 0 or reserve_usd < 0:
+        if not math.isfinite(total_usd) or total_usd <= 0 or reserve_usd < 0:
             raise ValueError("the budget must be a positive number of USD")
         self.total, self.reserve, self.factory, self.clients = float(total_usd), float(reserve_usd), factory, []
 
