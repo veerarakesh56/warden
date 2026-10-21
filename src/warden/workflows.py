@@ -145,6 +145,59 @@ def _plan_again(req: FixRequest, problems: list[str]) -> list[str]:
              f"({req.replans + 1} of {REPLAN_MAX})")]
 
 
+async def _end_and_plan_again(req: FixRequest, end, status: str, reasons: list[str], again: list[str]) -> FixOutcome:
+    """The run ends `status`; when the plan is made again (_plan_again said so), the run continues as a new one with
+    the same request, one more re-plan counted."""
+    outcome = await end(status, reasons)
+    if again:
+        workflow.continue_as_new(req.model_copy(update={"replans": req.replans + 1}))
+    return outcome
+
+
+async def _announce(acts, plan: Plan, what: str) -> None:
+    """Tell people where a plan stands (activities.announce). A message that fails changes nothing."""
+    with contextlib.suppress(ActivityError):
+        await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, what], **NOTIFY)
+
+
+async def _remind_or_expire(acts, plan: Plan, end, refused: list[str], *, reminder: bool, deadline: datetime,
+                            ladder: bool) -> FixOutcome | None:
+    """The approval wait reached its next time with nothing new. Register H10: halfway through the wait a person is
+    reminded (None: the wait goes on), and at the end told that nothing was done - an approval request that only
+    expires is one nobody may ever have seen. A failed message changes nothing."""
+    if reminder and workflow.now() < deadline:
+        await _announce(acts, plan, "waiting")
+        return None
+    if ladder:
+        await _announce(acts, plan, "expired")
+    return await end("expired", refused or ["no valid approval arrived in time"])
+
+
+def _denied(denial: Denial) -> str:
+    """A person's "no" as the run's reason: who, and their reason when they gave one."""
+    return f"denied by {denial.approver}" + (f": {denial.reason}" if denial.reason else "")
+
+
+def _relapse_why(service: str, alarm_at: str, *, after: timedelta, now_too: bool) -> str:
+    """Why a watched fix relapsed: its alarm fired again, or a re-check failed - and by which re-check."""
+    cause = f"its alarm fired again at {alarm_at}" if alarm_at else "a health check failed"
+    if now_too and alarm_at:
+        return f"{service} recovered, then {cause}"
+    minutes = int(after.total_seconds() // 60)
+    return f"{service} recovered, then {cause} by the {minutes}-minute re-check"
+
+
+def _not_recovered_why(req: FixRequest, alarm_at: str, side_effects: int) -> str:
+    """Why a fix is undone: its alarm fired again in the verify window, or it did not recover in time - with how many
+    other alarms started after it."""
+    why = (f"{req.service}'s alarm fired again during the verify window, at {alarm_at} (register C1)"
+           if alarm_at else f"{req.service} did not recover within {req.recover_within_minutes} min")
+    if side_effects:
+        # A count, never the signal's own words (security review M2): the record says which alarms they were.
+        why += f"; also, {side_effects} other alarm{'s' if side_effects > 1 else ''} started after the fix (see the record)"
+    return why
+
+
 END_STAGES = frozenset({"refused", "blocked", "expired", "drifted", "refused_at_apply", "apply_failed", "recovered",
                         "mitigated",
                         "rollback_failed", "not_recovered", "rolled_back", "cancelled", "cancelled_after_apply",
@@ -208,23 +261,7 @@ class RemediationWorkflow:
         done = dict.fromkeys(STEPS, False)
 
         async def end(status: str, reasons: list[str] | None = None) -> FixOutcome:
-            self._stage = status
-            outcome = FixOutcome(status=status, reasons=reasons or [], checklist=done,
-                                 plan_hash=self._plan.plan_hash if self._plan else "")
-            await workflow.execute_activity_method(acts.finish, **_zoned(acts.finish), args=[req.incident_id, wid, outcome], **QUICK)
-            done["audited"] = True
-            # The people who approved the plan are told how it ended (owner's first live approvals, 2026-10-12). After
-            # the end row, which the message is read from; a message that fails changes nothing.
-            if self._plan is not None and status in TOLD and workflow.patched("g10-outcome"):
-                with contextlib.suppress(ActivityError):
-                    await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[self._plan, "ended"], **NOTIFY)
-            elif workflow.patched("g10-summary-owed"):
-                # An end that tells nobody - failed, cancelled, or before a plan was made: the incident's one message,
-                # if nothing has carried its summary yet (activities.summary_owed).
-                with contextlib.suppress(ActivityError):
-                    await workflow.execute_activity_method(acts.summary_owed, **_zoned(acts.summary_owed),
-                                                           args=[req.incident_id, status], **NOTIFY)
-            return outcome.model_copy(update={"checklist": dict(done)})
+            return await self._end(req, wid, done, status, reasons)
 
         try:
             return await self._steps(req, acts, wid, done, end)
@@ -241,6 +278,26 @@ class RemediationWorkflow:
                 # run fails visibly.
                 await end("failed_after_apply" if self._applying else "failed", [f"a step failed: {exc.cause or exc}"])
             raise
+
+    async def _end(self, req: FixRequest, wid: str, done: dict, status: str, reasons: list[str] | None) -> FixOutcome:
+        """The run's end: its signed end row (finish), then the people told how it ended."""
+        acts = RemediationActivities
+        self._stage = status
+        outcome = FixOutcome(status=status, reasons=reasons or [], checklist=done,
+                             plan_hash=self._plan.plan_hash if self._plan else "")
+        await workflow.execute_activity_method(acts.finish, **_zoned(acts.finish), args=[req.incident_id, wid, outcome], **QUICK)
+        done["audited"] = True
+        # The people who approved the plan are told how it ended (owner's first live approvals, 2026-10-12). After
+        # the end row, which the message is read from; a message that fails changes nothing.
+        if self._plan is not None and status in TOLD and workflow.patched("g10-outcome"):
+            await _announce(acts, self._plan, "ended")
+        elif workflow.patched("g10-summary-owed"):
+            # An end that tells nobody - failed, cancelled, or before a plan was made: the incident's one message,
+            # if nothing has carried its summary yet (activities.summary_owed).
+            with contextlib.suppress(ActivityError):
+                await workflow.execute_activity_method(acts.summary_owed, **_zoned(acts.summary_owed),
+                                                       args=[req.incident_id, status], **NOTIFY)
+        return outcome.model_copy(update={"checklist": dict(done)})
 
     def _vetoed(self, wid: str, plan: Plan) -> Denial | None:
         """A person's "no" to exactly this plan, if one has come."""
@@ -290,53 +347,79 @@ class RemediationWorkflow:
         done["policy"] = True
 
         accepted: list[SignedApproval] = []
-        auto = False
-        # Eldane, the AI critic (owner, 2026-10-16), after the gate: it can only add a "no". It reviews the plan in its
-        # own zone; where the plan's class is at L2 (autonomy.py; dev, not demoted) its signed approval comes back and is
-        # checked like any other approval. Anything else, or no answer in time, and a person decides as before.
-        opened = False
-        if workflow.patched("eldane-critic"):
-            # Where Eldane can never approve (prod, or an environment with no L2 ceiling) the person is asked first,
-            # and the review - shadow, scored - follows: it never holds the request back (CodeRabbit, PR 42).
-            may_approve = False
-            with contextlib.suppress(ActivityError):
-                state = await workflow.execute_activity_method(acts.autonomy_state, args=[req.environment],
-                                                               **CEILING)
-                may_approve = state.get("ceiling") == L2
-            if not may_approve and workflow.patched("h6-links"):
-                with contextlib.suppress(ActivityError):
-                    await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "opening"],
-                                                           **NOTIFY)
-                opened = True
-            offered = None
-            with contextlib.suppress(ActivityError):
-                offered = await workflow.execute_activity_method(acts.critic_review, **_zoned(acts.critic_review),
-                                                                 args=[plan], **CRITIC)
-            if may_approve and isinstance(offered, SignedApproval):
-                result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
-                                                                args=[plan, offered, []], **QUICK)
-                if not result.problems:
-                    accepted.append(offered)
-                    auto = result.enough
-        if auto:
-            # A person's decision always overrides Eldane's (owner, 2026-10-17): the channel is told Eldane approved,
-            # with the page's links, and a person's "no" in the next VETO minutes - or later, until the apply step starts - ends the
-            # plan with nothing changed.
-            with contextlib.suppress(ActivityError):
-                await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "autonomous"],
-                                                       **NOTIFY)
-            self._stage = "awaiting_veto"
-            with contextlib.suppress(TimeoutError):
-                await workflow.wait_condition(lambda: self._vetoed(wid, plan) is not None, timeout=VETO)
-            if (no := self._vetoed(wid, plan)) is not None:
-                return await end("denied", [f"denied by {no.approver}" + (f": {no.reason}" if no.reason else "")])
-
+        auto, opened = await self._critic(req, acts, plan, accepted)
+        if auto and (vetoed := await self._veto_window(acts, wid, plan, end)) is not None:
+            return vetoed
         # Registers H6/R28: the approvers are told as the wait starts - with the approval links when the runtime has an
         # approval domain - not only at the halfway reminder. Sent before the stage reads "awaiting_approval", so
         # whoever sees the plan waiting can already have its links.
         if not auto and not opened and workflow.patched("h6-links"):
-            with contextlib.suppress(ActivityError):
-                await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "opening"], **NOTIFY)
+            await _announce(acts, plan, "opening")
+        unapproved = await self._approvals(req, acts, wid, plan, end, accepted, auto=auto)
+        if unapproved is not None:
+            return unapproved
+        done["approved"] = True
+        # Said to everyone the plan was put to: who approved it, read from this run's accepted approvals.
+        if workflow.patched("g10-approved-said"):
+            await _announce(acts, plan, "approved")
+
+        if (ended := await self._precheck(req, acts, wid, plan, done, end, auto=auto)) is not None:
+            return ended
+        if (ended := await self._apply(req, acts, plan, end)) is not None:
+            return ended
+        done["applied"] = True
+
+        if await self._verify(req, acts, plan):
+            done["verified"] = True
+            return await self._recovered(req, acts, plan, end)
+        return await self._roll_back(req, acts, plan, end)
+
+    async def _critic(self, req: FixRequest, acts, plan: Plan, accepted: list[SignedApproval]) -> tuple[bool, bool]:
+        """Eldane's review of the plan. Returns whether its approval is enough on its own, and whether the request for a person's approval was already sent."""
+        # Eldane, the AI critic (owner, 2026-10-16), after the gate: it can only add a "no". It reviews the plan in its
+        # own zone; where the plan's class is at L2 (autonomy.py; dev, not demoted) its signed approval comes back and is
+        # checked like any other approval. Anything else, or no answer in time, and a person decides as before.
+        if not workflow.patched("eldane-critic"):
+            return False, False
+        # Where Eldane can never approve (prod, or an environment with no L2 ceiling) the person is asked first,
+        # and the review - shadow, scored - follows: it never holds the request back (CodeRabbit, PR 42).
+        auto = opened = may_approve = False
+        with contextlib.suppress(ActivityError):
+            state = await workflow.execute_activity_method(acts.autonomy_state, args=[req.environment],
+                                                           **CEILING)
+            may_approve = state.get("ceiling") == L2
+        if not may_approve and workflow.patched("h6-links"):
+            await _announce(acts, plan, "opening")
+            opened = True
+        offered = None
+        with contextlib.suppress(ActivityError):
+            offered = await workflow.execute_activity_method(acts.critic_review, **_zoned(acts.critic_review),
+                                                             args=[plan], **CRITIC)
+        if may_approve and isinstance(offered, SignedApproval):
+            result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
+                                                            args=[plan, offered, []], **QUICK)
+            if not result.problems:
+                accepted.append(offered)
+                auto = result.enough
+        return auto, opened
+
+    async def _veto_window(self, acts, wid: str, plan: Plan, end) -> FixOutcome | None:
+        """The window for a person's "no" to Eldane's approval. None: no "no" came."""
+        # A person's decision always overrides Eldane's (owner, 2026-10-17): the channel is told Eldane approved,
+        # with the page's links, and a person's "no" in the next VETO minutes - or later, until the apply step starts - ends the
+        # plan with nothing changed.
+        await _announce(acts, plan, "autonomous")
+        self._stage = "awaiting_veto"
+        with contextlib.suppress(TimeoutError):
+            await workflow.wait_condition(lambda: self._vetoed(wid, plan) is not None, timeout=VETO)
+        if (no := self._vetoed(wid, plan)) is not None:
+            return await end("denied", [_denied(no)])
+        return None
+
+    async def _approvals(self, req: FixRequest, acts, wid: str, plan: Plan, end, accepted: list[SignedApproval], *,
+                         auto: bool) -> FixOutcome | None:
+        """The wait for a person's approvals, until the tier's quorum is in `accepted` (None) or the run ends: denied,
+        or expired with nothing changed. None at once when Eldane's approval was enough (`auto`)."""
         self._stage = "awaiting_approval"
         deadline = workflow.now() + timedelta(minutes=req.approval_ttl_minutes)
         refused: list[str] = []
@@ -347,57 +430,70 @@ class RemediationWorkflow:
         halfway, reminded = workflow.now() + timedelta(minutes=req.approval_ttl_minutes) / 2, False
         while not auto:
             until = halfway if ladder and not reminded and not accepted else deadline
-            try:
-                await workflow.wait_condition(lambda n=seen: len(self._inbox) > n,
-                                              timeout=max(until - workflow.now(), timedelta(0)))
-            except TimeoutError:
-                if until == halfway and workflow.now() < deadline:
-                    reminded = True
-                    with contextlib.suppress(ActivityError):
-                        await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "waiting"], **NOTIFY)
-                    continue
-                if ladder:
-                    with contextlib.suppress(ActivityError):
-                        await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "expired"], **NOTIFY)
-                return await end("expired", refused or ["no valid approval arrived in time"])
+            if not await self._arrived(seen, until):
+                expired = await _remind_or_expire(acts, plan, end, refused, reminder=until == halfway,
+                                                  deadline=deadline, ladder=ladder)
+                if expired is not None:
+                    return expired
+                reminded = True
+                continue
             approval, seen = self._inbox[seen], seen + 1
-            if isinstance(approval, Denial):
-                if approval.workflow_id == wid and approval.plan_hash == plan.plan_hash:
-                    return await end("denied", [f"denied by {approval.approver}" +
-                                                (f": {approval.reason}" if approval.reason else "")])
-                refused.append("a denial for another plan was ignored")
-                continue
-            if isinstance(approval, PasskeyAssertion):
-                result = await workflow.execute_activity_method(acts.check_passkey, **_zoned(acts.check_passkey), args=[plan, approval, accepted],
-                                                                **QUICK)
-                approval = result.accepted
-            else:
-                result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
-                                                                args=[plan, approval, accepted], **QUICK)
-            if result.problems or approval is None:
-                refused += result.problems
-                continue
-            accepted.append(approval)
-            if result.enough:
+            taken = await self._take(acts, wid, plan, approval, accepted, refused)
+            if isinstance(taken, Denial):
+                return await end("denied", [_denied(taken)])
+            if taken:
                 break
-        done["approved"] = True
-        # Said to everyone the plan was put to: who approved it, read from this run's accepted approvals.
-        if workflow.patched("g10-approved-said"):
-            with contextlib.suppress(ActivityError):
-                await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "approved"], **NOTIFY)
+        return None
 
+    async def _arrived(self, seen: int, until: datetime) -> bool:
+        """Whether something new reached the inbox (past its first `seen` items) before `until`."""
+        try:
+            await workflow.wait_condition(lambda n=seen: len(self._inbox) > n,
+                                          timeout=max(until - workflow.now(), timedelta(0)))
+        except TimeoutError:
+            return False
+        return True
+
+    async def _take(self, acts, wid: str, plan: Plan, approval: SignedApproval | PasskeyAssertion | Denial,
+                    accepted: list[SignedApproval], refused: list[str]) -> Denial | bool:
+        """One item from the inbox: a denial of this plan (returned: the run ends denied), or an approval checked by
+        WARDEN's own rules and added to `accepted` - True once the approvals are enough. What is refused, and why,
+        goes in `refused`."""
+        if isinstance(approval, Denial):
+            if approval.workflow_id == wid and approval.plan_hash == plan.plan_hash:
+                return approval
+            refused.append("a denial for another plan was ignored")
+            return False
+        if isinstance(approval, PasskeyAssertion):
+            result = await workflow.execute_activity_method(acts.check_passkey, **_zoned(acts.check_passkey), args=[plan, approval, accepted],
+                                                            **QUICK)
+            approval = result.accepted
+        else:
+            result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
+                                                            args=[plan, approval, accepted], **QUICK)
+        if result.problems or approval is None:
+            refused += result.problems
+            return False
+        accepted.append(approval)
+        return bool(result.enough)
+
+    async def _precheck(self, req: FixRequest, acts, wid: str, plan: Plan, done: dict, end, *,
+                        auto: bool) -> FixOutcome | None:
+        """The live state checked again after the approvals: drift ends the run (and makes the plan again, D7). None:
+        clean, and no person said no to an autonomous approval meanwhile."""
         self._stage = "prechecking"
         drift = await workflow.execute_activity_method(acts.precheck, **_zoned(acts.precheck), args=[plan], **QUICK)
         if drift != []:  # as for the gate: only an explicit empty list is clean
             again = _plan_again(req, drift)
-            outcome = await end("drifted", (drift or ["the precheck's answer could not be read"]) + again)
-            if again:
-                workflow.continue_as_new(req.model_copy(update={"replans": req.replans + 1}))
-            return outcome
+            return await _end_and_plan_again(req, end, "drifted",
+                                             (drift or ["the precheck's answer could not be read"]) + again, again)
         done["prechecked"] = True
         if auto and (no := self._vetoed(wid, plan)) is not None:  # a person said no while it was checked
-            return await end("denied", [f"denied by {no.approver}" + (f": {no.reason}" if no.reason else "")])
+            return await end("denied", [_denied(no)])
+        return None
 
+    async def _apply(self, req: FixRequest, acts, plan: Plan, end) -> FixOutcome | None:
+        """The approved plan applied, ONCE. None: applied."""
         self._stage = "applying"
         self._applying = True
         try:
@@ -408,14 +504,14 @@ class RemediationWorkflow:
             if isinstance(exc.cause, ApplicationError) and exc.cause.type == APPLY_REFUSED:
                 # Refused before anything was touched: nothing to roll back, nothing half-made.
                 again = _plan_again(req, str(exc.cause).removeprefix("apply refused: ").split("; "))
-                outcome = await end("refused_at_apply", [str(exc.cause), *again])
-                if again:
-                    workflow.continue_as_new(req.model_copy(update={"replans": req.replans + 1}))
-                return outcome
+                return await _end_and_plan_again(req, end, "refused_at_apply", [str(exc.cause), *again], again)
             # The change may be half-made; the state is unknown, so no automatic rollback - a person.
             return await end("apply_failed", [f"apply failed: {exc.cause or exc}"])
-        done["applied"] = True
+        return None
 
+    async def _verify(self, req: FixRequest, acts, plan: Plan) -> bool:
+        """WARDEN's own success check, on a timer, until the target is healthy enough times in a row, the window ends
+        or its alarm fires again. True: recovered, as WARDEN's audit of THIS run's checks says."""
         self._stage = "verifying"
         until = workflow.now() + timedelta(minutes=req.recover_within_minutes)
         need = CONSECUTIVE_HEALTHY if workflow.patched("c18a-consecutive") else 1
@@ -431,60 +527,75 @@ class RemediationWorkflow:
         # result replayed from an earlier run of this workflow id carries that run's id and is refused.
         recorded = await workflow.execute_activity_method(acts.record_result, **_zoned(acts.record_result),
                                                           args=[plan, req.service, recovered, need], **QUICK)
-        recovered = (isinstance(recorded, Recorded) and recorded.ok is True
-                     and recorded.run_id == workflow.info().run_id)
-        if recovered:
-            done["verified"] = True
-            side = workflow.patched("g10-side-effects")
-            if side and self._side_effects and (ended := await self._side_effects_end(req, acts, plan, end)):
-                return ended
-            if workflow.patched("g9-mitigated") and plan.entry in MITIGATES:
-                # A pause holds the harm and fixes nothing (review H2): the page stays open, a person resumes it.
-                return await end("mitigated", [f"{req.service} is mitigated, not fixed: {MITIGATES[plan.entry]}"])
-            if workflow.patched("c18a-rechecks"):
-                # Durable re-checks (register C18a): a fix that holds for minutes and fails within the hour is not a
-                # recovery. A relapse is recorded as a failed result (the breaker counts it) and goes to a person:
-                # WARDEN never reverses its own fix on its own (register C8).
-                self._stage = "watching"
-                since = workflow.now()
-                if workflow.patched("g10-outcome"):
-                    with contextlib.suppress(ActivityError):
-                        await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "verified"], **NOTIFY)
-                now_too = workflow.patched("g10-relapse-now")
-                for after in rechecks(req):
-                    wait = max(since + after - workflow.now(), timedelta(0))
-                    if now_too and wait > timedelta(0):
-                        # The alarm firing again ends the watch at once (intake signals it): the people are told of the
-                        # relapse then, and the resource is free for the plan its new incident may open (live,
-                        # 2026-10-12: the watch slept to its re-check, and the new plan was silently not opened).
-                        with contextlib.suppress(TimeoutError):
-                            await workflow.wait_condition(lambda: bool(self._alarm_at) or (side and bool(self._side_effects)),
-                                                          timeout=wait)
-                    else:
-                        await workflow.sleep(wait)
-                    if side and self._side_effects and not self._alarm_at and (
-                            ended := await self._side_effects_end(req, acts, plan, end)):
-                        return ended
-                    healthy = not self._alarm_at and await workflow.execute_activity_method(
-                        acts.check_success, **_zoned(acts.check_success), args=[plan, req.service], **QUICK)
-                    if not healthy:
-                        await workflow.execute_activity_method(acts.record_result, **_zoned(acts.record_result),
-                                                               args=[plan, req.service, False, 1], **QUICK)
-                        cause = (f"its alarm fired again at {self._alarm_at}" if self._alarm_at
-                                 else "a health check failed")
-                        minutes = int(after.total_seconds() // 60)
-                        why = f"{req.service} recovered, then {cause} by the {minutes}-minute re-check"
-                        if now_too and self._alarm_at:
-                            why = f"{req.service} recovered, then {cause}"
-                        again = []
-                        if not self._alarm_at and workflow.patched("g10-rediagnose"):
-                            # No alarm fired, so none starts an incident: WARDEN thinks again itself - the cause, the
-                            # fix, the plan - from what it reads now, with this fix beside the evidence (owner,
-                            # 2026-10-15). Any fix it finds is a new plan for an approver.
-                            again = await self._diagnose_again(req, acts, why)
-                        return await end("relapsed", [why, *again])
-            return await end("recovered")
+        return (isinstance(recorded, Recorded) and recorded.ok is True
+                and recorded.run_id == workflow.info().run_id)
 
+    async def _recovered(self, req: FixRequest, acts, plan: Plan, end) -> FixOutcome:
+        """A fix that passed its checks: ended by other alarms after it, as mitigated, as relapsed in its watch, or
+        recovered."""
+        side = workflow.patched("g10-side-effects")
+        if side and self._side_effects and (ended := await self._side_effects_end(req, acts, plan, end)):
+            return ended
+        if workflow.patched("g9-mitigated") and plan.entry in MITIGATES:
+            # A pause holds the harm and fixes nothing (review H2): the page stays open, a person resumes it.
+            return await end("mitigated", [f"{req.service} is mitigated, not fixed: {MITIGATES[plan.entry]}"])
+        if workflow.patched("c18a-rechecks"):
+            relapse = await self._watch(req, acts, plan, end, side=side)
+            if relapse is not None:
+                return relapse
+        return await end("recovered")
+
+    async def _watch(self, req: FixRequest, acts, plan: Plan, end, *, side: bool) -> FixOutcome | None:
+        """The verified fix watched through its re-checks. None: it held through every one."""
+        # Durable re-checks (register C18a): a fix that holds for minutes and fails within the hour is not a
+        # recovery. A relapse is recorded as a failed result (the breaker counts it) and goes to a person:
+        # WARDEN never reverses its own fix on its own (register C8).
+        self._stage = "watching"
+        since = workflow.now()
+        if workflow.patched("g10-outcome"):
+            await _announce(acts, plan, "verified")
+        now_too = workflow.patched("g10-relapse-now")
+        for after in rechecks(req):
+            await self._until_recheck(since + after, now_too=now_too, side=side)
+            if side and self._side_effects and not self._alarm_at and (
+                    ended := await self._side_effects_end(req, acts, plan, end)):
+                return ended
+            healthy = not self._alarm_at and await workflow.execute_activity_method(
+                acts.check_success, **_zoned(acts.check_success), args=[plan, req.service], **QUICK)
+            if not healthy:
+                return await self._relapsed(req, acts, plan, end, after=after, now_too=now_too)
+        return None
+
+    async def _until_recheck(self, at: datetime, *, now_too: bool, side: bool) -> None:
+        """Wait for the next re-check."""
+        # The alarm firing again ends the watch at once (intake signals it): the people are told of the
+        # relapse then, and the resource is free for the plan its new incident may open (live,
+        # 2026-10-12: the watch slept to its re-check, and the new plan was silently not opened).
+        wait = max(at - workflow.now(), timedelta(0))
+        if now_too and wait > timedelta(0):
+            with contextlib.suppress(TimeoutError):
+                await workflow.wait_condition(lambda: bool(self._alarm_at) or (side and bool(self._side_effects)),
+                                              timeout=wait)
+        else:
+            await workflow.sleep(wait)
+
+    async def _relapsed(self, req: FixRequest, acts, plan: Plan, end, *, after: timedelta,
+                        now_too: bool) -> FixOutcome:
+        """A re-check failed: recorded as a failed result, and the run ends relapsed - with the incident diagnosed
+        again when no alarm fired to start one."""
+        await workflow.execute_activity_method(acts.record_result, **_zoned(acts.record_result),
+                                               args=[plan, req.service, False, 1], **QUICK)
+        why = _relapse_why(req.service, self._alarm_at, after=after, now_too=now_too)
+        again = []
+        if not self._alarm_at and workflow.patched("g10-rediagnose"):
+            # No alarm fired, so none starts an incident: WARDEN thinks again itself - the cause, the
+            # fix, the plan - from what it reads now, with this fix beside the evidence (owner,
+            # 2026-10-15). Any fix it finds is a new plan for an approver.
+            again = await self._diagnose_again(req, acts, why)
+        return await end("relapsed", [why, *again])
+
+    async def _roll_back(self, req: FixRequest, acts, plan: Plan, end) -> FixOutcome:
+        """The fix did not recover the target: WARDEN undoes it, ONCE."""
         self._stage = "rolling_back"
         try:
             undone = await workflow.execute_activity_method(acts.rollback, **_zoned(acts.rollback), args=[plan], **ONCE)
@@ -494,12 +605,7 @@ class RemediationWorkflow:
             # The run still ends on the record, signed: a failed rollback crashed the workflow with no end row
             # (sixth review, 2026-10-01). The activity tripped the kill switch; a person takes it from here.
             return await end("rollback_failed", [f"{req.service} did not recover, and {exc.cause or exc}"])
-        why = (f"{req.service}'s alarm fired again during the verify window, at {self._alarm_at} (register C1)"
-               if self._alarm_at else f"{req.service} did not recover within {req.recover_within_minutes} min")
-        if self._side_effects:
-            # A count, never the signal's own words (security review M2): the record says which alarms they were.
-            n = len(self._side_effects)
-            why += f"; also, {n} other alarm{'s' if n > 1 else ''} started after the fix (see the record)"
+        why = _not_recovered_why(req, self._alarm_at, len(self._side_effects))
         # A change with nothing to undo (a restart, a closed session) is not "rolled back": the target is as the
         # fix left it, unhealthy - a person (sixth review, 2026-10-01).
         if str(undone).startswith(("nothing to roll back", "not rolled back")):
@@ -537,6 +643,28 @@ class AutonomyWorkflow:
                                                       **QUICK)
 
 
+def _not_answered(thread: Thread, turn: Turn) -> str:
+    """The reply to a mention that is not answered: another environment's incident (refused before anything of it was
+    read), no incident named, or past today's limit for it."""
+    if thread.elsewhere:  # another environment's incident: refused before anything of it was read
+        return ELSEWHERE.format(environment=turn.environment)
+    if not thread.incident:
+        return ("Which incident? Mention its id - the one in the footer of any of its messages - with your "
+                "question, and WARDEN answers here.")
+    return LIMIT
+
+
+def _replan_said(why: str, incident: str) -> str:
+    """The reply to an approver's "new plan" that was not started, by why (DiscussActivities.discuss_replan)."""
+    if why == "not an approver":
+        return NOT_APPROVER
+    if why == "asked again within the hour":
+        return REPLAN_SOON.format(incident=incident)
+    if why:
+        return NO_RECORD.format(incident=incident)
+    return NOT_READ
+
+
 @workflow.defn
 class DiscussWorkflow:
     """One mention of WARDEN in the discussion channel, answered in its thread (discuss.py): the thread read, the
@@ -549,57 +677,68 @@ class DiscussWorkflow:
         turn = Turn.model_validate(turn)
         thread = Thread.model_validate(await workflow.execute_activity_method(
             acts.discuss_thread, **_zoned(acts.discuss_thread), args=[turn], **NOTIFY))
-        if thread.elsewhere:  # another environment's incident: refused before anything of it was read
-            text = ELSEWHERE.format(environment=turn.environment)
-        elif not thread.incident:
-            text = ("Which incident? Mention its id - the one in the footer of any of its messages - with your "
-                    "question, and WARDEN answers here.")
-        elif thread.over:
-            text = LIMIT
-        if thread.incident and not thread.over and workflow.patched("discuss-facts"):
-            # The record's facts first, at once - the incident and the ones like it - then the model's answer.
-            with contextlib.suppress(ActivityError):
-                facts = await workflow.execute_activity_method(
-                    acts.discuss_facts, **_zoned(acts.discuss_facts), args=[thread.incident], **QUICK)
-                if facts:
-                    await workflow.execute_activity_method(acts.discuss_reply, **_zoned(acts.discuss_reply),
-                                                           args=[turn, facts, thread.incident], **NOTIFY)
-        if not thread.incident or thread.over:
-            pass
-        elif NEW_PLAN.search(turn.text) and workflow.patched("g10-discuss-replan"):
-            text = NOT_READ
-            with contextlib.suppress(ActivityError):
-                got = await workflow.execute_activity_method(
-                    acts.discuss_replan, **_zoned(acts.discuss_replan), args=[turn, thread.incident], **QUICK)
-                why = got.get("why", "")
-                text = (NOT_APPROVER if why == "not an approver"
-                        else REPLAN_SOON.format(incident=thread.incident) if why == "asked again within the hour"
-                        else NO_RECORD.format(incident=thread.incident) if why else NOT_READ)
-                if not why:
-                    # A diagnosis, nothing more: any fix it finds is its own plan, waiting for a passkey.
-                    with contextlib.suppress(WorkflowAlreadyStartedError):
-                        await workflow.start_child_workflow(
-                            IncidentWorkflow.run, Alert.model_validate(got["alert"]), id=f"inc-{got['new']}",
-                            task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
-                    text = REPLANNED.format(incident=thread.incident, new=f"`{got['new']}`")
-        else:
-            fresh = NOW.search(turn.text) is not None
-            text, evidence = NOT_READ, None
-            try:  # a step that fails still ends in a reply: the person is never left waiting in the thread
-                evidence = await workflow.execute_activity_method(
-                    acts.discuss_evidence, **_zoned(acts.discuss_evidence), args=[thread.incident, fresh], **PREPARE)
-                if evidence is None:
-                    text = NO_RECORD.format(incident=thread.incident)
-                else:
-                    text = NO_ANSWER
-                    text = await workflow.execute_activity_method(
-                        acts.discuss_answer, **_zoned(acts.discuss_answer), args=[turn, thread, evidence, fresh],
-                        start_to_close_timeout=timedelta(minutes=5), retry_policy=RetryPolicy(maximum_attempts=1))
-            except ActivityError:
-                pass
+        answering = bool(thread.incident) and not thread.over
+        if answering and workflow.patched("discuss-facts"):
+            await self._facts_first(acts, turn, thread)
+        text = await self._answer(acts, turn, thread) if answering else _not_answered(thread, turn)
         await workflow.execute_activity_method(acts.discuss_reply, **_zoned(acts.discuss_reply),
                                                args=[turn, text, thread.incident], **NOTIFY)
         return text
+
+    @staticmethod
+    async def _facts_first(acts, turn: Turn, thread: Thread) -> None:
+        """The record's facts, posted in the thread."""
+        # The record's facts first, at once - the incident and the ones like it - then the model's answer.
+        with contextlib.suppress(ActivityError):
+            facts = await workflow.execute_activity_method(
+                acts.discuss_facts, **_zoned(acts.discuss_facts), args=[thread.incident], **QUICK)
+            if facts:
+                await workflow.execute_activity_method(acts.discuss_reply, **_zoned(acts.discuss_reply),
+                                                       args=[turn, facts, thread.incident], **NOTIFY)
+
+    async def _answer(self, acts, turn: Turn, thread: Thread) -> str:
+        """The reply to a mention about a known incident: an approver's "new plan", or the model's answer."""
+        if NEW_PLAN.search(turn.text) and workflow.patched("g10-discuss-replan"):
+            return await self._replan(acts, turn, thread)
+        return await self._evidence_answer(acts, turn, thread)
+
+    @staticmethod
+    async def _replan(acts, turn: Turn, thread: Thread) -> str:
+        """An approver's "new plan": the incident diagnosed again as a new one from now - or why not."""
+        text = NOT_READ
+        with contextlib.suppress(ActivityError):
+            got = await workflow.execute_activity_method(
+                acts.discuss_replan, **_zoned(acts.discuss_replan), args=[turn, thread.incident], **QUICK)
+            why = got.get("why", "")
+            text = _replan_said(why, thread.incident)
+            if not why:
+                # A diagnosis, nothing more: any fix it finds is its own plan, waiting for a passkey.
+                with contextlib.suppress(WorkflowAlreadyStartedError):
+                    await workflow.start_child_workflow(
+                        IncidentWorkflow.run, Alert.model_validate(got["alert"]), id=f"inc-{got['new']}",
+                        task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
+                text = REPLANNED.format(incident=thread.incident, new=f"`{got['new']}`")
+        return text
+
+    @staticmethod
+    async def _evidence_answer(acts, turn: Turn, thread: Thread) -> str:
+        """The model's answer from the incident's evidence, read again. A step that fails still ends in a reply: the
+        person is never left waiting in the thread."""
+        fresh = NOW.search(turn.text) is not None
+        # A step that fails still ends in a reply: the person is never left waiting in the thread.
+        try:
+            evidence = await workflow.execute_activity_method(
+                acts.discuss_evidence, **_zoned(acts.discuss_evidence), args=[thread.incident, fresh], **PREPARE)
+        except ActivityError:
+            return NOT_READ
+        if evidence is None:
+            return NO_RECORD.format(incident=thread.incident)
+        try:
+            return await workflow.execute_activity_method(
+                acts.discuss_answer, **_zoned(acts.discuss_answer), args=[turn, thread, evidence, fresh],
+                start_to_close_timeout=timedelta(minutes=5), retry_policy=RetryPolicy(maximum_attempts=1))
+        except ActivityError:
+            return NO_ANSWER
 
 
 @workflow.defn
@@ -655,6 +794,56 @@ def repair_note(verdict: Any) -> str:
             "targets the evidence names. If the evidence cannot support a fix, say so and propose escalate_to_human.")
 
 
+async def _diagnose(acts, pack: Any, escalate_only: str) -> Any:
+    """The one model call (diagnose), ONE attempt."""
+    return await workflow.execute_activity_method(
+        acts.diagnose, **_zoned(acts.diagnose), args=[pack, escalate_only], start_to_close_timeout=timedelta(minutes=10),
+        retry_policy=RetryPolicy(maximum_attempts=1))
+
+
+async def _notify(acts, pack: Any, diagnosed: Any, verified: Any, *mode: str) -> None:
+    """The incident's report (notify). A notification that fails does not fail the incident: the audit holds the
+    verdict."""
+    with contextlib.suppress(ActivityError):
+        await workflow.execute_activity_method(acts.notify, **_zoned(acts.notify),
+                                               args=[pack, diagnosed, verified, *mode], **NOTIFY)
+
+
+def _for_a_person(verified: Any) -> bool:
+    """Whether the verifier passed the proposal for a person's approval."""
+    return str(getattr(verified.verdict.status, "value", verified.verdict.status)) == "approved_for_human"
+
+
+def _plannable(verified: Any) -> bool:
+    """Whether the verified proposal opens a fix plan. Patched: histories recorded before each case replay unchanged."""
+    # Review-e M5: also a proposal escalated by P6 ALONE - its reach is wide, which is exactly what the signed approval
+    # of its plan decides; shift_traffic's floor is multi_service, so no zonal shift could ever be planned.
+    plannable = verified.verdict.status.value == "approved_for_human" or (
+        workflow.patched("g9-plan-p6") and verified.verdict.status.value == "escalated"
+        and set(verified.verdict.policy_ids) == {"P6-BLAST-RADIUS"})
+    # Held by P31 alone: plan_fix offers the undo of the change the proposal left unaddressed (activities.py).
+    if (not plannable and verified.verdict.status.value == "escalated"
+            and set(verified.verdict.policy_ids) == {"P31-UNADDRESSED-CHANGE"}):
+        plannable = workflow.patched("g10-offer-undo")
+    return plannable
+
+
+async def _start_plan(req: dict[str, Any]) -> str:
+    """The fix plan's own RemediationWorkflow, started and abandoned. Why it is held, when an earlier plan for the same
+    resource is still open; "" when it started."""
+    wid = req.pop("workflow_id")
+    try:
+        await workflow.start_child_workflow(
+            RemediationWorkflow.run, FixRequest.model_validate(req), id=wid,
+            task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
+    except WorkflowAlreadyStartedError:  # one open plan per resource (C3)
+        # Where a reader can see it: the records page (2026-10-15: `warden status` needs a Temporal key
+        # that only the runtime holds, so the command it named could not be run by anyone reading this).
+        return (f"an earlier plan for the same resource (`{wid}`) is still open - waiting for its "
+                "approval, or being watched after its fix; the records page (All incidents) shows it")
+    return ""
+
+
 @workflow.defn
 class IncidentWorkflow:
     """One alert, diagnosed: prepare (read + redact, the redaction map never leaves it) -> diagnose
@@ -685,17 +874,108 @@ class IncidentWorkflow:
         now (expected down, register G10-39) - it is an incident only if it is still firing."""
         acts = IncidentActivities
         if held:  # an input no earlier history carries: they replay unchanged
-            try:
-                firing = await workflow.execute_activity_method(acts.after_hold, **_zoned(acts.after_hold),
-                                                                args=[alert, held], **QUICK)
-            except ActivityError:
-                firing = None  # the alarm could not be read: unknown is not cleared
-            if firing is False:
-                return RunReport(alert=alert, redaction_map_size=0, context=ContextBundle(),
-                                 halted_reason=f"the alarm had cleared when its hold ended ({held}): no incident")
-            # An incident from the moment it was no longer expected: the evidence is read around now, not around
-            # the shutdown.
-            alert = Alert.model_validate(alert).model_copy(update={"started_at": workflow.now().isoformat()})
+            alert, cleared = await self._hold_ended(acts, alert, held)
+            if cleared is not None:
+                return cleared
+        pack = await self._evidence(acts, alert)
+        # ONE attempt (audit A-C-7): the model client retries inside one budget and one call ceiling; a
+        # Temporal retry built a fresh client, and so a fresh budget - $1.20 spent against a $0.50 cap
+        # (fourth review, 2026-09-30).
+        diagnosed = await _diagnose(acts, pack, escalate_only)
+        # G9-B: the model may ask to read up to 3 related resources it saw named in trusted evidence, then decide
+        # again - at most INVESTIGATE_ROUNDS times; the llm zone's budget (6 calls, US$0.25 per incident, counted
+        # from the audit across rounds) stops it sooner. Patched: histories recorded before it replay unchanged.
+        first = pack.alert  # what the alarm itself named: the only targets a fix plan may take (review F6)
+        if workflow.patched("g9-investigate"):
+            pack, diagnosed = await self._investigate(acts, pack, diagnosed, escalate_only)
+        verified = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[pack, diagnosed], **QUICK)
+        # One repair round (research 2026-10-15: a model fixes an error when told exactly where it is, and rules-based
+        # feedback is the strongest kind): an answer held ONLY by checks a better answer can pass is asked once more,
+        # with the checks' own words. Safety policies are never fed back - the model must not learn to argue past
+        # them. Within the llm zone's budget (6 calls, US$0.25 per incident); patched, so histories replay unchanged.
+        note = repair_note(verified.verdict)
+        if note and not diagnosed.model_unavailable and workflow.patched("verify-repair"):
+            diagnosed, verified = await self._repair(acts, pack, note, diagnosed, verified, escalate_only)
+        # A second, independent opinion before any fix reaches a person (owner, 2026-10-15: "better and more double
+        # checks ... the model sometimes makes mistakes"): the model asked once more on the same evidence; if the two
+        # answers name another action or another target, the fix is escalated, never offered. It can only take an
+        # approval away. Within the llm zone's budget; patched, so histories recorded before it replay unchanged.
+        if (_for_a_person(verified) and not diagnosed.model_unavailable and workflow.patched("second-opinion")):
+            verified = await self._second_opinion(acts, pack, diagnosed, verified, escalate_only)
+        # One Slack message per incident (owner, 2026-10-14: "why all that alerts total details and approval thing
+        # coming in 3 parts ... i want all in one part only"): the report is recorded first, and said once - in the
+        # plan's request for approval when a plan opens, else on its own with why there is none.
+        one = workflow.patched("g10-one-message")
+        if not one and workflow.patched("s17-notify"):
+            # Register S17: a person is told, with the incident id and the audit head to check the message against -
+            # before an escalate-only run ends. A notification that fails does not fail the incident: the audit holds
+            # the verdict.
+            await _notify(acts, pack, diagnosed, verified)
+        plannable = _plannable(verified)
+        if workflow.patched("g9-plan-fix") and not diagnosed.model_unavailable and plannable:
+            await self._open_plan(acts, first, pack, diagnosed, verified, one=one)
+        elif one:  # nothing to plan: the report is the incident's one message
+            await _notify(acts, pack, diagnosed, verified, "none")
+        await self._code_fix_revert(first, pack, diagnosed, verified)
+        if diagnosed.model_unavailable:
+            # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
+            # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).
+            raise ApplicationError(f"escalated without a model: {diagnosed.model_unavailable}",
+                                   type=MODEL_UNAVAILABLE, non_retryable=True)
+        return RunReport(alert=pack.alert, redaction_map_size=pack.masked, context=pack.context,
+                         root_cause=diagnosed.root_cause, proposal=diagnosed.proposal, verdict=verified.verdict,
+                         cost=diagnosed.cost, audit=pack.steps + diagnosed.steps + verified.steps,
+                         halted_reason=verified.halted_reason)
+
+    @staticmethod
+    async def _code_fix_revert(first: Alert, pack: Any, diagnosed: Any, verified: Any) -> None:
+        """Register B4: a diagnosis that rolls back a deploy, with exactly one deployed commit in the evidence, may also
+        get a pull request that reverts the commit - written only where the environment's `code_fix` allows it, by
+        the GitHub App, through the code gate; a person (or, outside prod, every check) merges it. It never blocks
+        or fails the incident. Patched: histories recorded before it replay unchanged."""
+        sha = revert_target(diagnosed.proposal.action.value, pack.context.recent_deploys)
+        if (sha and not diagnosed.model_unavailable and verified.verdict.status.value != "rejected"
+                and workflow.patched("b4-code-fix-revert")):
+            fix = CodeFixActivities.code_fix_revert
+            opened: dict[str, Any] = {}
+            with contextlib.suppress(ActivityError):
+                opened = await workflow.execute_activity_method(fix, **_zoned(fix), args=[
+                    first.alert_id, pack.alert.environment, sha], **CODE_FIX)
+            await IncidentWorkflow._code_fix_merge(first, pack, opened)
+
+    @staticmethod
+    async def _code_fix_merge(first: Alert, pack: Any, opened: dict[str, Any]) -> None:
+        """Phase 4: under `auto` (never prod) the pull request is watched until every check, CodeRabbit and Eldane are
+        green, then merged - its own workflow, abandoned by this one."""
+        if (opened.get("status") == "opened" and opened.get("mode") == "auto"
+                and workflow.patched("b4-code-fix-merge")):
+            number = int(opened.get("pull_request") or 0)
+            with contextlib.suppress(WorkflowAlreadyStartedError):
+                await workflow.start_child_workflow(
+                    CodeFixMergeWorkflow.run, args=[first.alert_id, pack.alert.environment, number],
+                    id=f"codefix-merge-{first.alert_id}-{number}", task_queue=workflow.info().task_queue,
+                    parent_close_policy=ParentClosePolicy.ABANDON)
+
+    @staticmethod
+    async def _hold_ended(acts, alert: Alert, held: str) -> tuple[Alert, RunReport | None]:
+        """A held alarm, looked at again when its hold ended: its report when it had cleared (no incident), or the
+        alert as an incident from now."""
+        try:
+            firing = await workflow.execute_activity_method(acts.after_hold, **_zoned(acts.after_hold),
+                                                            args=[alert, held], **QUICK)
+        except ActivityError:
+            firing = None  # the alarm could not be read: unknown is not cleared
+        if firing is False:
+            return alert, RunReport(alert=alert, redaction_map_size=0, context=ContextBundle(),
+                                    halted_reason=f"the alarm had cleared when its hold ended ({held}): no incident")
+        # An incident from the moment it was no longer expected: the evidence is read around now, not around
+        # the shutdown.
+        return Alert.model_validate(alert).model_copy(update={"started_at": workflow.now().isoformat()}), None
+
+    @staticmethod
+    async def _evidence(acts, alert: Alert) -> Any:
+        """The evidence, read and redacted (prepare) once the alert's last minutes can be read - and read once more
+        when a source answered with nothing."""
         # Register R23: read only once the alert's last minutes have reached the log store. A durable timer, so a
         # worker restart does not restart the wait; patched, so histories recorded before it replay unchanged.
         if workflow.patched("r23-ingest-lag"):
@@ -713,149 +993,68 @@ class IncidentWorkflow:
                 await workflow.sleep(wait)
                 pack = await workflow.execute_activity_method(acts.reread, **_zoned(acts.reread), args=[pack],
                                                               **PREPARE)
-        # ONE attempt (audit A-C-7): the model client retries inside one budget and one call ceiling; a
-        # Temporal retry built a fresh client, and so a fresh budget - $1.20 spent against a $0.50 cap
-        # (fourth review, 2026-09-30).
-        diagnosed = await workflow.execute_activity_method(
-            acts.diagnose, **_zoned(acts.diagnose), args=[pack, escalate_only], start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=1))
-        # G9-B: the model may ask to read up to 3 related resources it saw named in trusted evidence, then decide
-        # again - at most INVESTIGATE_ROUNDS times; the llm zone's budget (6 calls, US$0.25 per incident, counted
-        # from the audit across rounds) stops it sooner. Patched: histories recorded before it replay unchanged.
-        first = pack.alert  # what the alarm itself named: the only targets a fix plan may take (review F6)
-        if workflow.patched("g9-investigate"):
-            rounds = 0
-            while diagnosed.need_evidence and not diagnosed.model_unavailable and rounds < INVESTIGATE_ROUNDS:
-                rounds += 1
-                try:
-                    wider = await workflow.execute_activity_method(
-                        acts.investigate, **_zoned(acts.investigate), args=[pack, diagnosed.need_evidence], **PREPARE)
-                    if wider.alert.labels == pack.alert.labels:
-                        break  # nothing accepted: no second answer on the same evidence (review F4)
-                    again = await workflow.execute_activity_method(
-                        acts.diagnose, **_zoned(acts.diagnose), args=[wider, escalate_only],
-                        start_to_close_timeout=timedelta(minutes=10), retry_policy=RetryPolicy(maximum_attempts=1))
-                except ActivityError:
-                    break  # a failed read or call: the answer so far stands, and is verified and told (review F8)
-                if again.model_unavailable:
-                    break  # e.g. the budget is spent: the earlier answer, on its own evidence, stands (review F8)
-                pack, diagnosed = wider, again
-        verified = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[pack, diagnosed], **QUICK)
-        # One repair round (research 2026-10-15: a model fixes an error when told exactly where it is, and rules-based
-        # feedback is the strongest kind): an answer held ONLY by checks a better answer can pass is asked once more,
-        # with the checks' own words. Safety policies are never fed back - the model must not learn to argue past
-        # them. Within the llm zone's budget (6 calls, US$0.25 per incident); patched, so histories replay unchanged.
-        note = repair_note(verified.verdict)
-        if note and not diagnosed.model_unavailable and workflow.patched("verify-repair"):
+        return pack
+
+    @staticmethod
+    async def _investigate(acts, pack: Any, diagnosed: Any, escalate_only: str) -> tuple[Any, Any]:
+        """Up to INVESTIGATE_ROUNDS rounds of related resources read, then a diagnosis again on the wider evidence. The
+        answer so far stands when nothing new was read, a step fails, or the model is unavailable."""
+        rounds = 0
+        while diagnosed.need_evidence and not diagnosed.model_unavailable and rounds < INVESTIGATE_ROUNDS:
+            rounds += 1
             try:
-                again = await workflow.execute_activity_method(
-                    acts.diagnose, **_zoned(acts.diagnose),
-                    args=[pack.model_copy(update={"prompt": pack.prompt + note}), escalate_only],
-                    start_to_close_timeout=timedelta(minutes=10), retry_policy=RetryPolicy(maximum_attempts=1))
-                if not again.model_unavailable:
-                    checked = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify),
-                                                                     args=[pack, again], **QUICK)
-                    diagnosed, verified = again, checked
+                wider = await workflow.execute_activity_method(
+                    acts.investigate, **_zoned(acts.investigate), args=[pack, diagnosed.need_evidence], **PREPARE)
+                if wider.alert.labels == pack.alert.labels:
+                    break  # nothing accepted: no second answer on the same evidence (review F4)
+                again = await _diagnose(acts, wider, escalate_only)
             except ActivityError:
-                pass  # the first answer, verified, stands
-        # A second, independent opinion before any fix reaches a person (owner, 2026-10-15: "better and more double
-        # checks ... the model sometimes makes mistakes"): the model asked once more on the same evidence; if the two
-        # answers name another action or another target, the fix is escalated, never offered. It can only take an
-        # approval away. Within the llm zone's budget; patched, so histories recorded before it replay unchanged.
-        if (str(getattr(verified.verdict.status, "value", verified.verdict.status)) == "approved_for_human"
-                and not diagnosed.model_unavailable and workflow.patched("second-opinion")):
-            try:
-                second = await workflow.execute_activity_method(
-                    acts.diagnose, **_zoned(acts.diagnose), args=[pack, escalate_only],
-                    start_to_close_timeout=timedelta(minutes=10), retry_policy=RetryPolicy(maximum_attempts=1))
-            except ActivityError:
-                second = diagnosed.model_copy(update={"model_unavailable": "the second diagnosis could not be made"})
-            verified = await workflow.execute_activity_method(
-                acts.second_opinion, **_zoned(acts.second_opinion), args=[pack, diagnosed, second, verified], **QUICK)
-        # One Slack message per incident (owner, 2026-10-14: "why all that alerts total details and approval thing
-        # coming in 3 parts ... i want all in one part only"): the report is recorded first, and said once - in the
-        # plan's request for approval when a plan opens, else on its own with why there is none.
-        one = workflow.patched("g10-one-message")
-        if not one and workflow.patched("s17-notify"):
-            # Register S17: a person is told, with the incident id and the audit head to check the message against -
-            # before an escalate-only run ends. A notification that fails does not fail the incident: the audit holds
-            # the verdict.
-            try:
-                await workflow.execute_activity_method(acts.notify, **_zoned(acts.notify), args=[pack, diagnosed, verified], **NOTIFY)
-            except ActivityError:
-                pass
+                break  # a failed read or call: the answer so far stands, and is verified and told (review F8)
+            if again.model_unavailable:
+                break  # e.g. the budget is spent: the earlier answer, on its own evidence, stands (review F8)
+            pack, diagnosed = wider, again
+        return pack, diagnosed
+
+    @staticmethod
+    async def _repair(acts, pack: Any, note: str, diagnosed: Any, verified: Any, escalate_only: str) -> tuple[Any, Any]:
+        """The diagnosis asked once more with the checks' own words, and verified again. The first answer, verified,
+        stands when this one fails or the model is unavailable."""
+        with contextlib.suppress(ActivityError):  # the first answer, verified, stands
+            again = await _diagnose(acts, pack.model_copy(update={"prompt": pack.prompt + note}), escalate_only)
+            if not again.model_unavailable:
+                checked = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify),
+                                                                 args=[pack, again], **QUICK)
+                return again, checked
+        return diagnosed, verified
+
+    @staticmethod
+    async def _second_opinion(acts, pack: Any, diagnosed: Any, verified: Any, escalate_only: str) -> Any:
+        """The model asked once more on the same evidence, and the two answers compared (second_opinion)."""
+        try:
+            second = await _diagnose(acts, pack, escalate_only)
+        except ActivityError:
+            second = diagnosed.model_copy(update={"model_unavailable": "the second diagnosis could not be made"})
+        return await workflow.execute_activity_method(
+            acts.second_opinion, **_zoned(acts.second_opinion), args=[pack, diagnosed, second, verified], **QUICK)
+
+    @staticmethod
+    async def _open_plan(acts, first: Alert, pack: Any, diagnosed: Any, verified: Any, *, one: bool) -> None:
+        """The fix plan opened, and the people told when there is none."""
         # G9-D1: a proposal the verifier passed for a person opens its fix plan - a RemediationWorkflow that waits for
         # a signed human approval, as one requested through MCP does. Its own workflow, abandoned by this one: the plan
         # outlives the incident's run. Patched: histories recorded before it replay unchanged.
-        # Review-e M5: also a proposal escalated by P6 ALONE - its reach is wide, which is exactly what the signed approval
-        # of its plan decides; shift_traffic's floor is multi_service, so no zonal shift could ever be planned.
-        plannable = verified.verdict.status.value == "approved_for_human" or (
-            workflow.patched("g9-plan-p6") and verified.verdict.status.value == "escalated"
-            and set(verified.verdict.policy_ids) == {"P6-BLAST-RADIUS"})
-        # Held by P31 alone: plan_fix offers the undo of the change the proposal left unaddressed (activities.py).
-        if (not plannable and verified.verdict.status.value == "escalated"
-                and set(verified.verdict.policy_ids) == {"P31-UNADDRESSED-CHANGE"}):
-            plannable = workflow.patched("g10-offer-undo")
-        if workflow.patched("g9-plan-fix") and not diagnosed.model_unavailable and plannable:
-            try:
-                req = await workflow.execute_activity_method(acts.plan_fix, **_zoned(acts.plan_fix),
-                                                             args=[first, diagnosed, verified], **QUICK)
-            except ActivityError:
-                req = {}
-            held = ""
-            if one:
-                with contextlib.suppress(ActivityError):
-                    await workflow.execute_activity_method(acts.notify, **_zoned(acts.notify),
-                                                           args=[pack, diagnosed, verified, "plan" if req else "none"],
-                                                           **NOTIFY)
-            if req:
-                wid = req.pop("workflow_id")
-                try:
-                    await workflow.start_child_workflow(
-                        RemediationWorkflow.run, FixRequest.model_validate(req), id=wid,
-                        task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
-                except WorkflowAlreadyStartedError:  # one open plan per resource (C3)
-                    # Where a reader can see it: the records page (2026-10-15: `warden status` needs a Temporal key
-                    # that only the runtime holds, so the command it named could not be run by anyone reading this).
-                    held = (f"an earlier plan for the same resource (`{wid}`) is still open - waiting for its "
-                            "approval, or being watched after its fix; the records page (All incidents) shows it")
-            # The report said "held for approval": with no plan to approve, a person is told so, and why.
-            if ((not req and not one) or held) and workflow.patched("g10-no-plan"):
-                with contextlib.suppress(ActivityError):
-                    await workflow.execute_activity_method(acts.no_plan, **_zoned(acts.no_plan),
-                                                           args=[first.alert_id, held], **NOTIFY)
-        elif one:  # nothing to plan: the report is the incident's one message
+        try:
+            req = await workflow.execute_activity_method(acts.plan_fix, **_zoned(acts.plan_fix),
+                                                         args=[first, diagnosed, verified], **QUICK)
+        except ActivityError:
+            req = {}
+        held = ""
+        if one:
+            await _notify(acts, pack, diagnosed, verified, "plan" if req else "none")
+        if req:
+            held = await _start_plan(req)
+        # The report said "held for approval": with no plan to approve, a person is told so, and why.
+        if ((not req and not one) or held) and workflow.patched("g10-no-plan"):
             with contextlib.suppress(ActivityError):
-                await workflow.execute_activity_method(acts.notify, **_zoned(acts.notify),
-                                                       args=[pack, diagnosed, verified, "none"], **NOTIFY)
-        # Register B4: a diagnosis that rolls back a deploy, with exactly one deployed commit in the evidence, may also
-        # get a pull request that reverts the commit - written only where the environment's `code_fix` allows it, by
-        # the GitHub App, through the code gate; a person (or, outside prod, every check) merges it. It never blocks
-        # or fails the incident. Patched: histories recorded before it replay unchanged.
-        sha = revert_target(diagnosed.proposal.action.value, pack.context.recent_deploys)
-        if (sha and not diagnosed.model_unavailable and verified.verdict.status.value != "rejected"
-                and workflow.patched("b4-code-fix-revert")):
-            fix = CodeFixActivities.code_fix_revert
-            opened: dict[str, Any] = {}
-            with contextlib.suppress(ActivityError):
-                opened = await workflow.execute_activity_method(fix, **_zoned(fix), args=[
-                    first.alert_id, pack.alert.environment, sha], **CODE_FIX)
-            # Phase 4: under `auto` (never prod) the pull request is watched until every check, CodeRabbit and Eldane
-            # are green, then merged - its own workflow, abandoned by this one.
-            if (opened.get("status") == "opened" and opened.get("mode") == "auto"
-                    and workflow.patched("b4-code-fix-merge")):
-                number = int(opened.get("pull_request") or 0)
-                with contextlib.suppress(WorkflowAlreadyStartedError):
-                    await workflow.start_child_workflow(
-                        CodeFixMergeWorkflow.run, args=[first.alert_id, pack.alert.environment, number],
-                        id=f"codefix-merge-{first.alert_id}-{number}", task_queue=workflow.info().task_queue,
-                        parent_close_policy=ParentClosePolicy.ABANDON)
-        if diagnosed.model_unavailable:
-            # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
-            # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).
-            raise ApplicationError(f"escalated without a model: {diagnosed.model_unavailable}",
-                                   type=MODEL_UNAVAILABLE, non_retryable=True)
-        return RunReport(alert=pack.alert, redaction_map_size=pack.masked, context=pack.context,
-                         root_cause=diagnosed.root_cause, proposal=diagnosed.proposal, verdict=verified.verdict,
-                         cost=diagnosed.cost, audit=pack.steps + diagnosed.steps + verified.steps,
-                         halted_reason=verified.halted_reason)
+                await workflow.execute_activity_method(acts.no_plan, **_zoned(acts.no_plan),
+                                                       args=[first.alert_id, held], **NOTIFY)

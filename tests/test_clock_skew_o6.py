@@ -21,7 +21,8 @@ def test_a_server_time_inside_the_round_trip_passes():
 def test_a_clock_off_by_more_than_the_tolerance_is_refused():
     behind = runtime.skew_problem(NOW, NOW + timedelta(minutes=3), NOW + timedelta(seconds=1))
     ahead = runtime.skew_problem(NOW, NOW - timedelta(minutes=3), NOW + timedelta(seconds=1))
-    assert "behind" in behind and "O6" in behind
+    assert "behind" in behind
+    assert "O6" in behind
     assert "ahead of" in ahead
 
 
@@ -65,4 +66,5 @@ def test_the_worker_command_stops_when_the_clock_is_off(monkeypatch, capsys):
     monkeypatch.setattr(cli.asyncio, "Event", _Stop)
     assert cli.main(["worker"]) == 1
     out, err = capsys.readouterr()
-    assert "O6" in err and "worker running" not in out
+    assert "O6" in err
+    assert "worker running" not in out

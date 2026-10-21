@@ -350,7 +350,9 @@ def test_the_merge_is_wired_in_the_act_zone_and_asked_once_each_time():
     src = inspect.getsource(workflows.CodeFixMergeWorkflow.run)
     assert "**ONCE)" in src
     assert workflows.MERGE_TRIES * workflows.MERGE_EVERY.total_seconds() <= 24 * 3600
-    incident = inspect.getsource(workflows.IncidentWorkflow.run)
+    assert "await IncidentWorkflow._code_fix_merge(first, pack, opened)" in inspect.getsource(
+        workflows.IncidentWorkflow._code_fix_revert)
+    incident = inspect.getsource(workflows.IncidentWorkflow._code_fix_merge)
     assert 'opened.get("mode") == "auto"' in incident
     assert 'workflow.patched("b4-code-fix-merge")' in incident
 

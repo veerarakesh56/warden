@@ -93,7 +93,8 @@ def test_one_deploy_workflow_per_configured_environment_and_nothing_else():
             assert wf["jobs"][job]["with"]["environment"] == env, (env, job)
             assert wf["jobs"][job]["with"]["upstream"] == upstream, (env, job)
             assert wf["jobs"][job]["permissions"]["id-token"] == "write", (env, job)
-        assert "WARDEN_FS_" not in text and "environment: fullstack" not in text, env
+        assert "WARDEN_FS_" not in text, env
+        assert "environment: fullstack" not in text, env
     assert len(shapes) == 1, "the deploy workflows differ in more than the environment's and its upstream's names"
 
 
@@ -202,7 +203,8 @@ def test_a_lane_runs_when_a_test_file_its_check_runs_changes():
         on = yaml.safe_load((flows / lane).read_text(encoding="utf-8"))[True]  # YAML 1.1 reads `on` as True
         for trigger in ("push", "pull_request"):
             missing = runs - set(on[trigger]["paths"])
-            assert runs and not missing, (lane, trigger, sorted(missing))
+            assert runs, (lane, trigger, sorted(missing))
+            assert not missing, (lane, trigger, sorted(missing))
 
 
 def test_the_pod_security_check_accepts_only_pod_securitys_own_reason():
@@ -224,7 +226,8 @@ def test_every_workflow_is_scanned_on_every_push_and_pull_request():
     flows = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
     scan = yaml.safe_load((flows / "scan-workflows.yml").read_text(encoding="utf-8"))
     on = scan[True]  # YAML 1.1 reads `on` as True
-    assert "push" in on and "pull_request" in on, on
+    assert "push" in on, on
+    assert "pull_request" in on, on
     assert all("paths" not in (on[t] or {}) and "paths-ignore" not in (on[t] or {}) for t in ("push", "pull_request"))
     assert any("zizmor" in str(step.get("run", "")) + str(step.get("uses", ""))
                for job in scan["jobs"].values() for step in job.get("steps", []))
@@ -236,7 +239,8 @@ def test_every_ci_image_build_uses_the_hosts_network():
     text = (pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci-tool.yml").read_text(
         encoding="utf-8")
     builds = re.findall(r"docker build[^\n]*", text)
-    assert builds and all("--network=host" in b for b in builds), builds
+    assert builds, builds
+    assert all("--network=host" in b for b in builds), builds
 
 
 def test_each_environment_deploys_on_a_push_to_its_own_branch_and_infra_only_plans_there():
@@ -263,11 +267,13 @@ def test_each_environment_deploys_on_a_push_to_its_own_branch_and_infra_only_pla
         assert wf[True]["push"]["branches"] == [env], env
         assert wf["concurrency"] == {"group": f"deploy-{env}", "cancel-in-progress": False}, env
         for job in calls:
-            assert job["with"]["environment"] == env and job["with"]["upstream"] == upstream, env
+            assert job["with"]["environment"] == env, env
+            assert job["with"]["upstream"] == upstream, env
             if job["uses"].endswith("/_infra-deploy.yml"):
                 assert job["with"]["action"] == "plan", env  # never apply or destroy on a push
             # Every deploying job waits for the changes job, which reports nothing to deploy on a branch creation.
-            assert "changes" in job["needs"] and "needs.changes.outputs." in job["if"], env
+            assert "changes" in job["needs"], env
+            assert "needs.changes.outputs." in job["if"], env
         what = next(s for s in wf["jobs"]["changes"]["steps"] if s.get("id") == "what")["run"]
         creation = what[what.index('if [[ "$BEFORE" =~ ^0{40}$ ]]; then'):]
         assert creation.split("\n", 2)[1].strip().startswith('files=""; created=1'), env
@@ -290,7 +296,8 @@ def test_nothing_that_can_reach_aws_runs_on_main_or_on_a_pull_request():
     for name, on in holders.items():
         assert set(on) <= {"workflow_dispatch", "workflow_call", "push"}, (name, sorted(on))
         if "push" in on:
-            assert set(on["push"]) <= {"branches", "paths"} and on["push"]["branches"] in ([e] for e in order), name
+            assert set(on["push"]) <= {"branches", "paths"}, name
+            assert on["push"]["branches"] in ([e] for e in order), name
     # And the other way round: what runs on main and on pull requests asks for no cloud identity at all.
     for f in sorted(FLOWS.glob("*.yml")):
         wf = yaml.safe_load(f.read_text(encoding="utf-8"))
@@ -441,7 +448,8 @@ def test_the_database_services_have_no_fixed_password():
 
     job = yaml.safe_load(CI.read_text(encoding="utf-8"))["jobs"]["db"]
     made = job["env"]["DB_TEST_PASSWORD"]
-    assert "${{ github.run_id }}" in made and "${{ github.run_attempt }}" in made, made
+    assert "${{ github.run_id }}" in made, made
+    assert "${{ github.run_attempt }}" in made, made
     sample = made.replace("${{ github.run_id }}", "18512345678").replace("${{ github.run_attempt }}", "1")
     assert re.fullmatch(r"[A-Za-z0-9]{8,}", sample), sample  # nothing a DSN would need encoded
     assert all(re.search(cls, sample) for cls in ("[A-Z]", "[a-z]", "[0-9]")), sample  # three of SQL Server's four sets

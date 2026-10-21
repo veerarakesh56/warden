@@ -319,12 +319,15 @@ def test_the_activity_runs_in_the_act_zone_and_is_registered():
 
 
 def test_the_workflow_asks_for_a_revert_only_after_a_rollback_diagnosis():
-    """Read from the workflow's source: the call is patched, one attempt, and guarded by revert_target."""
+    """Read from the workflow's source: run() takes the step, which is patched, one attempt, and guarded by
+    revert_target."""
     import inspect
 
     from warden import workflows
 
-    src = inspect.getsource(workflows.IncidentWorkflow.run)
+    assert "await self._code_fix_revert(first, pack, diagnosed, verified)" in inspect.getsource(
+        workflows.IncidentWorkflow.run)
+    src = inspect.getsource(workflows.IncidentWorkflow._code_fix_revert)
     assert 'workflow.patched("b4-code-fix-revert")' in src
     assert "revert_target(diagnosed.proposal.action.value, pack.context.recent_deploys)" in src
     assert workflows.CODE_FIX["retry_policy"].maximum_attempts == 1

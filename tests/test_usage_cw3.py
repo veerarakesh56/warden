@@ -22,7 +22,8 @@ def test_model_use_is_summed_per_day_and_counts_incidents_once(tmp_path):
     log.append("inc-3", "incident.gather", {"x": 1})  # other rows are not use
     [day] = usage_by_day(log, datetime.now(UTC) - timedelta(days=1))
     assert (day["incidents"], day["calls"], day["input_tokens"], day["output_tokens"]) == (2, 3, 18000, 2700)
-    assert round(day["usd"], 2) == 0.09 and day["day"] == datetime.now(UTC).date().isoformat()
+    assert round(day["usd"], 2) == 0.09
+    assert day["day"] == datetime.now(UTC).date().isoformat()
 
 
 def test_the_command_prints_it(tmp_path, monkeypatch, capsys):
@@ -34,4 +35,7 @@ def test_the_command_prints_it(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("WARDEN_ENV", raising=False)
     assert main(["usage", "--days", "7"]) == 0
     out = capsys.readouterr().out
-    assert "incidents    1" in out and "calls     2" in out and "12000" in out and "USD 0.0500" in out
+    assert "incidents    1" in out
+    assert "calls     2" in out
+    assert "12000" in out
+    assert "USD 0.0500" in out

