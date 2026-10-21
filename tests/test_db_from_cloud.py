@@ -21,8 +21,10 @@ def test_a_dsn_without_a_password_gets_the_roles_token():
     rds = _Rds()
     got = conninfo_to_dict(aws_stack.iam_dsn(rds, "postgresql://warden_dev_ro@db.example.test:5432/shop"))
     assert rds.asked == [("db.example.test", 5432, "warden_dev_ro")]
-    assert got["password"] == "signed-token-for-warden_dev_ro" and got["sslmode"] == "require"
-    assert got["dbname"] == "shop" and got["user"] == "warden_dev_ro"
+    assert got["password"] == "signed-token-for-warden_dev_ro"
+    assert got["sslmode"] == "require"
+    assert got["dbname"] == "shop"
+    assert got["user"] == "warden_dev_ro"
 
 
 def test_a_dsn_with_a_password_or_without_a_user_is_left_as_it_is():
@@ -49,4 +51,5 @@ def test_the_stack_reader_signs_only_when_told_to(monkeypatch):
     b._read_db(aws_stack._Out(), "WARDEN_STACK_DB_PRIMARY_RO_DSN", "", None)
     monkeypatch.setenv("WARDEN_STACK_DB_IAM_AUTH", "1")
     b._read_db(aws_stack._Out(), "WARDEN_STACK_DB_PRIMARY_RO_DSN", "", None)
-    assert "password" not in conninfo_to_dict(seen[0]) and conninfo_to_dict(seen[1])["password"].startswith("signed-")
+    assert "password" not in conninfo_to_dict(seen[0])
+    assert conninfo_to_dict(seen[1])["password"].startswith("signed-")

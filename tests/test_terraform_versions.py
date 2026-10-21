@@ -37,7 +37,8 @@ def test_terraform_and_every_provider_have_an_upper_bound_ci_satisfies(module):
     spec = _spec(required[0])
     assert _bounded(spec), required[0]
     pinned = _ci_terraform()
-    assert pinned and all(Version(v) in spec for v in pinned), (required[0], pinned)
+    assert pinned, (required[0], pinned)
+    assert all(Version(v) in spec for v in pinned), (required[0], pinned)
 
     providers = dict(re.findall(r'source\s*=\s*"([^"]+)"\s*,?\s*\n?\s*version\s*=\s*"([^"]+)"', text))
     assert providers, module

@@ -53,7 +53,9 @@ def test_a_cut_capacity_is_set_back_judged_by_its_alarm_and_rolled_back_to_what_
     f = Tables()
     p = _p(f)
     live = p.live("dynamodb_restore_capacity", TP)
-    assert live["event"] == {"d-1"} and live["throughput"] == {"100/400"} and live["environment"] == "dev", live
+    assert live["event"] == {"d-1"}, live
+    assert live["throughput"] == {"100/400"}, live
+    assert live["environment"] == "dev", live
     assert catalog.validate("dynamodb_restore_capacity", PLAN, live) == []
     assert "read/write capacity units of table warden-dev-carts: 100/50 -> 100/400" in catalog.change_of(
         "dynamodb_restore_capacity", PLAN, live["state"])[0]
@@ -88,7 +90,9 @@ def test_a_cut_capacity_is_set_back_judged_by_its_alarm_and_rolled_back_to_what_
 ])
 def test_a_table_change_wardens_restore_may_not_undo_is_refused(fake, why):
     live = _p(fake).live("dynamodb_restore_capacity", TP)
-    assert live["throughput"] == set() and live["event"] == set() and why in live["refused"], live.get("refused")
+    assert live["throughput"] == set(), live.get("refused")
+    assert live["event"] == set(), live.get("refused")
+    assert why in live["refused"], live.get("refused")
 
 
 @pytest.mark.parametrize("change, why", [
@@ -110,7 +114,8 @@ def test_a_table_that_is_not_as_the_cut_left_it_is_refused(change, why):
     f = Tables()
     change(f)
     live = _p(f).live("dynamodb_restore_capacity", TP)
-    assert live["throughput"] == set() and why in live["refused"], live.get("refused")
+    assert live["throughput"] == set(), live.get("refused")
+    assert why in live["refused"], live.get("refused")
 
 
 def test_a_table_still_updating_is_not_acted_on():
@@ -130,9 +135,9 @@ def test_a_capacity_that_moved_after_the_plan_is_never_written_over():
     for bad in ("100", "0/400", "100/x", "-1/400", "100/400/1"):
         g = Tables()
         q = _p(g)
+        snapshot = q.live("dynamodb_restore_capacity", TP)["state"]
         with pytest.raises(AwsPlatformRefused):
-            q.apply("dynamodb_restore_capacity", {**PLAN, "throughput": bad},
-                    snapshot=q.live("dynamodb_restore_capacity", TP)["state"], who=WHO)
+            q.apply("dynamodb_restore_capacity", {**PLAN, "throughput": bad}, snapshot=snapshot, who=WHO)
         assert g.writes == []
     assert f.writes == []
 
@@ -147,11 +152,14 @@ def test_the_resolver_plans_the_restore_from_the_tables_label_and_it_has_a_fix_p
                   started_at="2026-10-10T00:00:00+00:00", labels={"alarm": ALARM, "dynamodb_table": T})
     f = Tables()
     request, why = resolver.request_for(alert, _proposal(), lambda e, params: _p(f).live(e, params))
-    assert why == "" and request["entry"] == "dynamodb_restore_capacity" and request["params"] == PLAN, why
+    assert why == "", why
+    assert request["entry"] == "dynamodb_restore_capacity", why
+    assert request["params"] == PLAN, why
     assert resolver.no_fix_path(alert, _proposal()) == ""
     g = Tables(before=(100, 40))
     request, why = resolver.request_for(alert, _proposal(), lambda e, params: _p(g).live(e, params))
-    assert request is None and "no higher capacity" in why
+    assert request is None
+    assert "no higher capacity" in why
 
 
 def test_every_config_type_a_restore_reads_is_in_the_owners_recorder_step():
@@ -163,7 +171,8 @@ def test_every_config_type_a_restore_reads_is_in_the_owners_recorder_step():
     read = set(re.findall(r'"(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+)"',
                           (root / "src/warden/platforms/aws.py").read_text(encoding="utf-8")))
     step = (root / "docs/SETUP.md").read_text(encoding="utf-8")
-    assert "AWS::DynamoDB::Table" in read and len(read) >= 8
+    assert "AWS::DynamoDB::Table" in read
+    assert len(read) >= 8
     assert sorted(t for t in read if f"`{t}`" not in step) == []
 
 

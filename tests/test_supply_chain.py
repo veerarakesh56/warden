@@ -140,7 +140,9 @@ def test_a_job_that_holds_credentials_restores_no_cache():
 
 def test_the_deployed_requirements_are_audited_where_they_change():
     text = (ROOT / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
-    assert "pip-audit -r" in text and "--require-hashes" in text and "bandit" in text
+    assert "pip-audit -r" in text
+    assert "--require-hashes" in text
+    assert "bandit" in text
 
 
 def test_every_image_is_pinned_by_digest():
@@ -170,7 +172,8 @@ def test_every_app_requirement_carries_hashes(req):
     text = req.read_text(encoding="utf-8")
     pins = re.findall(r"^([A-Za-z0-9_.\[\]-]+==\S+)((?:\s*\\\n\s+--hash=sha256:[0-9a-f]{64})+)", text, re.MULTILINE)
     lines = [ln for ln in text.splitlines() if re.match(r"^[A-Za-z0-9]", ln)]
-    assert lines and len(pins) == len(lines), (req, len(pins), len(lines))
+    assert lines, (req, len(pins), len(lines))
+    assert len(pins) == len(lines), (req, len(pins), len(lines))
     assert (req.parent / "requirements.in").is_file()
 
 
@@ -184,7 +187,8 @@ def test_the_build_downloads_no_unpinned_tool():
     ci = {st["with"]["version"] for _, _, steps, _ in _steps() for st in steps
           if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")}
     backend = re.search(r'requires = \["uv_build([^"]+)"\]', text).group(1)
-    assert ci and all(v in SpecifierSet(backend) for v in ci), (ci, backend)
+    assert ci, (ci, backend)
+    assert all(v in SpecifierSet(backend) for v in ci), (ci, backend)
     assert (ROOT / "uv.lock").is_file()
 
 
@@ -257,7 +261,8 @@ def test_the_image_build_gets_every_licence_file_the_package_names():
     assert len(dockerfiles) >= 2, dockerfiles  # the CLI image and the runtime image
     allowed = {ln.strip()[1:] for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
                if ln.strip().startswith("!")}
-    assert names and all((ROOT / n).is_file() for n in names), names
+    assert names, names
+    assert all((ROOT / n).is_file() for n in names), names
     for dockerfile in dockerfiles:
         copied = {f for c in re.findall(r"^COPY (?!--from)(.+?) \S+$", dockerfile.read_text(encoding="utf-8"),
                                         re.MULTILINE) for f in c.split()}
@@ -347,7 +352,8 @@ def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
     docker = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
               if ln.strip().startswith("**/")]
     # One list in three places, kept equal.
-    assert backend["source-exclude"] == backend["wheel-exclude"] and set(backend["wheel-exclude"]) <= set(docker)
+    assert backend["source-exclude"] == backend["wheel-exclude"]
+    assert set(backend["wheel-exclude"]) <= set(docker)
     # Seventh review: a fixed list of strings could not see a missing pattern - plan.out and trust.local.json, which
     # .gitignore names, and these all shipped from a local build. Each name must be excluded where it lies.
     planted = [".env", ".env.prod", ".envrc", ".env~", "x.log", "crash.log", "server.pem", "x.pem.bak", "tls.key",
@@ -392,8 +398,13 @@ def test_the_deployed_requirements_are_audited_every_week():
     # fires (`0 0 31 2 *`) passed the check above (seventh review, 2026-10-01).
     [cron] = [s["cron"] for s in apps[True]["schedule"]]
     minute, hour, dom, month, dow = cron.split()
-    assert dom == "*" and month == "*" and minute.isdigit() and hour.isdigit() and dow in tuple("0123456"), cron
-    assert 0 <= int(minute) <= 59 and 0 <= int(hour) <= 23, cron  # `99 25 * * 1` is rejected by GitHub: it never runs
+    assert dom == "*", cron
+    assert month == "*", cron
+    assert minute.isdigit(), cron
+    assert hour.isdigit(), cron
+    assert dow in tuple("0123456"), cron
+    assert 0 <= int(minute) <= 59, cron
+    assert 0 <= int(hour) <= 23, cron  # `99 25 * * 1` is rejected by GitHub: it never runs
     check = (ROOT / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
     assert "pip-audit -r" in check
 

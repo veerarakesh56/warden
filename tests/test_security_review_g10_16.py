@@ -101,7 +101,8 @@ def test_verify_links_a_cited_fix_and_a_log_line_copying_warden_words_is_not_its
     inc = IncidentActivities(audit=log, backend=Forged(), llm_factory=lambda: LLMClient(mock=True))
     pack = inc.prepare(alert)
     step = log.entries(alert.alert_id, kinds=("incident.own_fixes",))[-1]["body"]
-    assert len(step["items"]) == 1 and step["items"][0].startswith("C")  # only WARDEN's own line is the fix's
+    assert len(step["items"]) == 1
+    assert step["items"][0].startswith("C")  # only WARDEN's own line is the fix's
     assert step["fixes"][0]["item"].startswith("C")
     inc.verify(pack, _diagnosed([step["fixes"][0]["item"]]))
     assert [r["body"].get("connected_by") for r in log.entries("inc-earlier", kinds=(bounds.RESULT,))] == [alert.alert_id]

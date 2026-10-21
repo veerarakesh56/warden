@@ -59,11 +59,15 @@ def test_the_link_shows_nothing_until_a_passkey_says_who_is_looking(setup):
     page, device, _, _ = setup
     token = page.new_link("rem-dev-1", "owner")
     shell = page.handle("GET", f"/a/{token}")
-    assert shell.status == 200 and "orders" not in shell.body and "p" * 64 not in shell.body
+    assert shell.status == 200
+    assert "orders" not in shell.body
+    assert "p" * 64 not in shell.body
     assert page.handle("POST", f"/a/{token}/approve-options").status == 403  # no plan before who-are-you
     shown = _show(page, device, token)
     plan = json.loads(shown.body)["plan"]
-    assert shown.status == 200 and plan["target"] == PLAN.target and plan["type_the_target"] is True
+    assert shown.status == 200
+    assert plan["target"] == PLAN.target
+    assert plan["type_the_target"] is True
     assert plan["made"].startswith("2026-10-03 09:00:00Z")  # UTC first, then the display zone (R4)
 
 
@@ -73,16 +77,20 @@ def test_an_approval_with_the_target_typed_reaches_the_workflow_once(setup):
     _show(page, device, token)
     response = _ceremony(page, device, token, "approve")
     ok = page.handle("POST", f"/a/{token}/approve", json.dumps({"response": response, "typed_target": PLAN.target}))
-    assert ok.status == 200 and len(sent) == 1
+    assert ok.status == 200
+    assert len(sent) == 1
     wf, assertion = sent[0]
-    assert wf == "rem-dev-1" and assertion.plan_hash == PLAN.plan_hash and assertion.tier == "T2"
+    assert wf == "rem-dev-1"
+    assert assertion.plan_hash == PLAN.plan_hash
+    assert assertion.tier == "T2"
     # What the workflow will re-verify does verify: the challenge is the plan's own, signed by the enrolled key.
     pending = passkeys.Pending(wf, assertion.plan_hash, assertion.tier, assertion.nonce, assertion.expires_at,
                                assertion.challenge)
     cred = page._credentials("owner")[0]
     approval, problems = passkeys.verify_approval(assertion.response, pending=pending, credential=cred, rp_id=RP,
                                                   origin=page.origin, now=T0, used_nonces=set())
-    assert problems == [] and approval.plan_hash == PLAN.plan_hash
+    assert problems == []
+    assert approval.plan_hash == PLAN.plan_hash
     assert page.handle("GET", f"/a/{token}").status == 404  # used once
 
 
@@ -92,7 +100,8 @@ def test_a_mistyped_target_sends_nothing(setup):
     _show(page, device, token)
     response = _ceremony(page, device, token, "approve")
     r = page.handle("POST", f"/a/{token}/approve", json.dumps({"response": response, "typed_target": "dev/k8s/shop"}))
-    assert r.status == 400 and sent == []
+    assert r.status == 400
+    assert sent == []
 
 
 def test_someone_elses_passkey_sees_nothing(setup):
@@ -102,7 +111,9 @@ def test_someone_elses_passkey_sees_nothing(setup):
     _enrol(stranger)
     r = page.handle("POST", f"/a/{token}/login",
                     json.dumps({"response": _ceremony(page, stranger, token, "login")}))
-    assert r.status == 403 and "orders" not in r.body and sent == []
+    assert r.status == 403
+    assert "orders" not in r.body
+    assert sent == []
 
 
 def test_an_expired_or_unknown_link_answers_the_same(setup):
@@ -110,7 +121,8 @@ def test_an_expired_or_unknown_link_answers_the_same(setup):
     token = page.new_link("rem-dev-1", "owner")
     clock.now = T0 + timedelta(minutes=15)
     expired, unknown = page.handle("GET", f"/a/{token}"), page.handle("GET", "/a/" + "x" * 43)
-    assert expired.status == unknown.status == 404 and expired.body == unknown.body
+    assert expired.status == unknown.status == 404
+    assert expired.body == unknown.body
 
 
 def test_every_response_is_locked_down(setup):
@@ -118,11 +130,16 @@ def test_every_response_is_locked_down(setup):
     token = page.new_link("rem-dev-1", "owner")
     for r in (page.handle("GET", f"/a/{token}"), page.handle("GET", "/a/nope")):
         csp = r.headers["Content-Security-Policy"]
-        assert "default-src 'none'" in csp and "frame-ancestors 'none'" in csp and "unsafe-inline" not in csp
-        assert r.headers["Strict-Transport-Security"].startswith("max-age=") and r.headers["Cache-Control"] == "no-store"
+        assert "default-src 'none'" in csp
+        assert "frame-ancestors 'none'" in csp
+        assert "unsafe-inline" not in csp
+        assert r.headers["Strict-Transport-Security"].startswith("max-age=")
+        assert r.headers["Cache-Control"] == "no-store"
         assert r.headers["Referrer-Policy"] == "no-referrer"
     shell = page.handle("GET", f"/a/{token}").body
-    assert "<script src" not in shell and "http://" not in shell and "https://" not in shell
+    assert "<script src" not in shell
+    assert "http://" not in shell
+    assert "https://" not in shell
     nonce = page.handle("GET", f"/a/{token}").headers["Content-Security-Policy"].split("'nonce-")[1].split("'")[0]
     assert len(nonce) >= 16
 
@@ -134,7 +151,8 @@ def test_the_page_gives_every_time_in_utc_and_the_installs_zone(setup, monkeypat
     page, device, _, _ = setup
     plan = json.loads(_show(page, device, page.new_link("rem-dev-1", "owner")).body)["plan"]
     assert plan["made"] == "2026-10-03 09:00:00Z (14:30 IST)"
-    assert plan["link_expires"].endswith(" IST)") and plan["link_expires"].startswith("2026-10-03 ")
+    assert plan["link_expires"].endswith(" IST)")
+    assert plan["link_expires"].startswith("2026-10-03 ")
 
 
 def test_a_stateless_page_keeps_its_links_and_challenges_in_the_audit(setup, tmp_path):
@@ -157,12 +175,16 @@ def test_a_stateless_page_keeps_its_links_and_challenges_in_the_audit(setup, tmp
     assert fresh().handle("POST", f"/a/{token}/login", json.dumps({"response": login})).status == 200
     response = _ceremony(fresh(), device, token, "approve")
     ok = fresh().handle("POST", f"/a/{token}/approve", json.dumps({"response": response, "typed_target": PLAN.target}))
-    assert ok.status == 200 and len(sent) == 1 and sent[0][1].plan_hash == PLAN.plan_hash
+    assert ok.status == 200
+    assert len(sent) == 1
+    assert sent[0][1].plan_hash == PLAN.plan_hash
     assert fresh().handle("GET", f"/a/{token}").status == 404  # used once, for every later invocation
     again = fresh().handle("POST", f"/a/{token}/approve", json.dumps({"response": response, "typed_target": PLAN.target}))
-    assert again.status == 404 and len(sent) == 1
+    assert again.status == 404
+    assert len(sent) == 1
     rows = json.dumps([e["body"] for e in log.entries()])
-    assert token not in rows and "approval.link_used" in {e["kind"] for e in log.entries()}
+    assert token not in rows
+    assert "approval.link_used" in {e["kind"] for e in log.entries()}
 
 
 def test_a_challenge_in_the_audit_is_taken_once(setup, tmp_path):
@@ -174,7 +196,8 @@ def test_a_challenge_in_the_audit_is_taken_once(setup, tmp_path):
     pending = passkeys.Pending("rem-dev-1", "p" * 64, "T2", "n-1", T0 + timedelta(minutes=5), "c-1")
     store.put_challenge("tok:approve", pending)
     assert store.take_challenge("tok:approve") == pending
-    assert store.take_challenge("tok:approve") is None and store.challenge("tok:approve") is None
+    assert store.take_challenge("tok:approve") is None
+    assert store.challenge("tok:approve") is None
 
 
 def test_the_page_shows_what_the_plan_changes_before_and_after(setup):
@@ -191,7 +214,8 @@ def test_the_page_shows_what_the_plan_changes_before_and_after(setup):
         plan = json.loads(_show(page, device, token).body)["plan"]
     finally:
         PLAN = saved
-    assert next(iter(plan)) == "change" and plan["change"] == "desired tasks of service orders: 2 -> 3"
+    assert next(iter(plan)) == "change"
+    assert plan["change"] == "desired tasks of service orders: 2 -> 3"
 
 
 def test_every_catalogue_entry_says_what_it_changes():
@@ -213,11 +237,15 @@ def test_the_page_says_what_it_is_doing_and_asks_for_the_target_only_when_the_ti
     out of sight above the plan, a second click read "link is not valid", and a T1 plan showed the target box."""
     page, _, _, _ = setup
     shell = page.handle("GET", f"/a/{page.new_link('rem-dev-1', 'owner')}").body
-    assert '<p id="typed-p" hidden>' in shell and '$("typed-p").hidden = !plan.type_the_target' in shell
+    assert '<p id="typed-p" hidden>' in shell
+    assert '$("typed-p").hidden = !plan.type_the_target' in shell
     assert '["change", "tier", "risk", "type_the_target"].includes(k)' in shell  # not listed as a fact of the plan
-    assert "Sending your approval." in shell and "Sending your denial." in shell and "s.scrollIntoView" in shell
+    assert "Sending your approval." in shell
+    assert "Sending your denial." in shell
+    assert "s.scrollIntoView" in shell
     assert shell.count("busy(true);") == 3 == shell.count("finally { busy(false); }")  # no second click mid-way
-    assert '$("acts").hidden = true' in shell and shell.count("sent(") == 2
+    assert '$("acts").hidden = true' in shell
+    assert shell.count("sent(") == 2
 
 
 def test_both_pages_need_nothing_their_content_security_policy_refuses_and_keep_the_basics_of_access(setup):
@@ -230,25 +258,35 @@ def test_both_pages_need_nothing_their_content_security_policy_refuses_and_keep_
 
     page, _, _, _ = setup
     served = page.handle("GET", f"/a/{page.new_link('rem-dev-1', 'owner')}")
-    assert "{{" not in served.body and served.body.count('nonce="') == 2  # every placeholder filled; one style, one script
+    assert "{{" not in served.body  # every placeholder filled; one style, one script
+    assert served.body.count('nonce="') == 2
     nonce = re.search(r"script-src 'nonce-([^']+)'", served.headers["Content-Security-Policy"]).group(1)
     assert served.body.count(f'nonce="{nonce}"') == 2
     from warden.brand import FAVICON_LINK
 
     for html in (approval_page._PAGE, approval_page._ENROL):
-        assert html.count("<style nonce=") == 1 and html.count("<script nonce=") == 1
+        assert html.count("<style nonce=") == 1
+        assert html.count("<script nonce=") == 1
         assert html.count(FAVICON_LINK) == 1  # the tab icon, embedded; tested on its own in test_pages_ux
         rest = html.replace(FAVICON_LINK, "").replace("</", "")
         for refused in ("http://", "https://", "//", "<img", "<link", "<iframe", "@import", "url(", ' style="', "onclick"):
             assert refused not in rest, refused
-        assert "prefers-color-scheme:dark" in html and "prefers-reduced-motion:reduce" in html
-        assert '<html lang="en">' in html and "width=device-width" in html and ":focus-visible" in html
-        assert 'role="status" aria-live="polite"' in html and "<main" in html and "<h1" in html
+        assert "prefers-color-scheme:dark" in html
+        assert "prefers-reduced-motion:reduce" in html
+        assert '<html lang="en">' in html
+        assert "width=device-width" in html
+        assert ":focus-visible" in html
+        assert 'role="status" aria-live="polite"' in html
+        assert "<main" in html
+        assert "<h1" in html
         for control in re.findall(r'<(?:input|textarea) id="([a-z]+)"', html):
             assert f'<label for="{control}">' in html, control  # every control is labelled
-        assert "#000" not in html and "#fff" not in html.lower()
+        assert "#000" not in html
+        assert "#fff" not in html.lower()
     # Owner, same day: the denial sat behind an arrow. Both decisions are in view once the plan is shown.
-    assert "<details" not in approval_page._PAGE and 'id="ok"' in approval_page._PAGE and 'id="no"' in approval_page._PAGE
+    assert "<details" not in approval_page._PAGE
+    assert 'id="ok"' in approval_page._PAGE
+    assert 'id="no"' in approval_page._PAGE
 
 
 def test_the_page_counts_the_link_down_and_says_where_the_fresh_one_is(setup):
@@ -260,9 +298,11 @@ def test_the_page_counts_the_link_down_and_says_where_the_fresh_one_is(setup):
     shown = json.loads(_show(page, device, token).body)
     assert shown["link_seconds"] == 30
     shell = page.handle("GET", f"/a/{token}").body
-    assert "countdown(d.link_seconds)" in shell and "This link works for " in shell
+    assert "countdown(d.link_seconds)" in shell
+    assert "This link works for " in shell
     assert "the newest WARDEN message in the channel has a fresh link" in shell
     assert 'd.error === "this approval link is not valid" ? GONE : d.error' in shell
     clock.now = T0 + timedelta(minutes=16)
     late = page.handle("POST", f"/a/{token}/approve-options")
-    assert late.status == 404 and json.loads(late.body)["error"] == "this approval link is not valid"  # what GONE explains
+    assert late.status == 404
+    assert json.loads(late.body)["error"] == "this approval link is not valid"  # what GONE explains
