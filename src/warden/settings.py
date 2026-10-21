@@ -204,6 +204,19 @@ def secret_id(env: str, name: str, zone: str | None = None) -> str:
     return f"warden/{names(env).env}/{slug}" + (f"-{zone}" if name in PER_ZONE and zone in ZONE_SECRETS else "")
 
 
+def _from_old_slot(get: Any, env: str | None, name: str) -> Any:
+    """B24: a renamed slot's value from its old slot, for one release, with a WARNING; None when it has no old slot or
+    that slot does not exist either."""
+    if name not in _OLD_SLOT:
+        return None
+    value = get(f"warden/{names(env).env}/{_OLD_SLOT[name]}")
+    if value is not None:  # names the two slots - constants - and nothing the store returned
+        logging.getLogger("warden.settings").warning(
+            "the %s slot is deprecated: move its value to the %s slot (renamed 2026-10-20; the old slot "
+            "stops being read in the next release)", _OLD_SLOT[name], _NEW_SLOT[name])
+    return value
+
+
 def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any = None,
          secrets: Any = None, zone: str | None = None) -> list[str]:
     """Plain values from SSM and secrets from Secrets Manager, for the names `only` allows; the NAMES loaded. `zone`:
@@ -229,13 +242,7 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
 
     def fetch(name: str) -> Any:
         value = get(secret_id(env, name, zone))
-        if value is None and name in _OLD_SLOT:
-            value = get(f"warden/{names(env).env}/{_OLD_SLOT[name]}")
-            if value is not None:  # names the two slots - constants - and nothing the store returned
-                logging.getLogger("warden.settings").warning(
-                    "the %s slot is deprecated: move its value to the %s slot (renamed 2026-10-20; the old slot "
-                    "stops being read in the next release)", _OLD_SLOT[name], _NEW_SLOT[name])
-        return value
+        return value if value is not None else _from_old_slot(get, env, name)
 
     if wanted:
         from concurrent.futures import ThreadPoolExecutor
