@@ -164,6 +164,14 @@ def refused_by_temporal(exc: BaseException) -> bool:
     return isinstance(exc, RPCError) and exc.status in _REFUSED
 
 
+async def _zones_in_time(client: Client, zones: tuple[str, ...], wait_s: float) -> str:
+    """zones_polling within the beat's own deadline: a Temporal that never answers is a missed beat, said as such."""
+    try:
+        return await asyncio.wait_for(zones_polling(client, zones), timeout=wait_s)
+    except TimeoutError:
+        return f"Temporal did not list the zones' pollers within {wait_s:g} s"
+
+
 def _say_if_refused(exc: RPCError) -> None:
     """The ERROR line for a refused key, by its status only (no traceback: the error is raised on, and the heartbeat
     says it as a missed beat)."""
@@ -178,7 +186,7 @@ async def beat(client: Client, publish: Any, task_queue: str = TASK_QUEUE, wait_
     not - and nothing published. Temporal refusing the key is also an ERROR line: the worker-errors alarm pages it
     by name at once, before the missing beats do."""
     try:
-        problem = await check_clock(client, task_queue, wait_s) or await zones_polling(client, zones)
+        problem = await check_clock(client, task_queue, wait_s) or await _zones_in_time(client, zones, wait_s)
     except RPCError as exc:
         _say_if_refused(exc)
         raise

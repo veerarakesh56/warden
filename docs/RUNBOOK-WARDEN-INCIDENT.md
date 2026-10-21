@@ -53,9 +53,9 @@ Signs that WARDEN is the incident:
 | The model behaves strangely | many escalations at once (the escalation SLO, N6), the same wrong action repeated, a model change in the `llm.call` rows |
 | The record may be tampered with | `warden audit verify` reports a broken chain, a bad signature or a checkpoint that differs from its anchor |
 | An actor role was used without an approval | the `warden-<env>-unapproved-actor` alarm pages; `actor.unapproved` rows in the audit name the role, the caller and the CloudTrail event id |
-| WARDEN is down | no Slack thread for a firing alarm; the `warden-<env>-heartbeat-missing` alarm pages (no worker completed a round trip through Temporal, or one zone - read, llm, notify, act - has no worker polling its queue: the `heartbeat missed` line in `/warden/<env>/worker` names it); Temporal shows no worker polling |
+| WARDEN is down | no Slack thread for a firing alarm; the `warden-<env>-heartbeat-missing` alarm pages (no worker completed a round trip through Temporal, or one zone - read, llm, notify, act, critic - has no worker polling its queue: the `heartbeat missed` line in `/warden/<env>/worker` names it); Temporal shows no worker polling |
 | A key or the audit database broke | the `warden-<env>-worker-errors` alarm pages; `/warden/<env>/worker` has an ERROR line naming the model's key refused, Temporal refusing a worker's key, or the audit database unreachable or full |
-| WARDEN failed on an alarm | the `warden-<env>-lambda-errors` alarm pages, and the event it failed on is kept in the `warden-<env>-alarm-dlq` queue (which pages too) for 14 days: read it and handle the alarm by hand |
+| WARDEN failed on an alarm | the `warden-<env>-lambda-errors` alarm pages: read the function's own log first - Lambda retries an event twice (for up to 6 hours), and a retry that works leaves nothing to do. An event that failed every retry is kept in the `warden-<env>-alarm-dlq` queue, whose own alarm pages, for 14 days: read it and handle the alarm by hand |
 
 Check the record first: it is what every other answer rests on.
 

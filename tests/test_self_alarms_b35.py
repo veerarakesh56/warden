@@ -70,6 +70,11 @@ class _Service:
         return type("Got", (), {"pollers": self.pollers.get(req.task_queue.name, [])})()
 
 
+class _SilentService(_Service):
+    async def describe_task_queue(self, req):
+        await asyncio.sleep(3600)  # Temporal never answers
+
+
 class _Client:
     namespace = "warden-ns"
 
@@ -104,6 +109,15 @@ def test_the_beat_vouches_for_every_zone_and_names_a_silent_one():
     assert beats == [1], "a beat was published with a zone not polling"
     assert "read, act zones" in problem
     assert "polled" in problem
+
+
+def test_a_zone_poll_temporal_never_answers_is_a_missed_beat_in_time():
+    beats = []
+    client = _Client()
+    client.workflow_service = _SilentService({})
+    problem = asyncio.run(runtime.beat(client, lambda: beats.append(1), wait_s=0.2, zones=("read",)))
+    assert beats == [], "a beat was published without the zones' answer"
+    assert "did not list the zones' pollers" in problem
 
 
 def test_without_zones_the_beat_is_the_round_trip_alone():
@@ -204,7 +218,7 @@ def test_terraform_gives_the_core_zone_every_other_deployed_zone():
     zones_block = _tf("iam.tf").split("  zones = {", 1)[1].split("\n  }\n", 1)[0]
     deployed = set(re.findall(r"^\s{4}(\w+)\s*=\s*\{", zones_block, re.MULTILINE)) - {"core"}
     assert deployed == set(ZONES)
-    assert "or a zone (read, llm, notify, act...) has no worker polling its queue" in _tf("heartbeat.tf")
+    assert "or a zone (read, llm, notify, act, critic) has no worker polling its queue" in _tf("heartbeat.tf")
 
 
 # ------------------------------------------------------------------ keys refused, the audit database gone
