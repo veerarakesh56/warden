@@ -51,7 +51,8 @@ def _actions(statement: dict) -> list[str]:
 def test_the_policy_is_valid_json_with_the_right_shape(path):
     doc = json.loads(path.read_text(encoding="utf-8"))
     assert doc["Version"] == "2012-10-17"
-    assert isinstance(doc["Statement"], list) and doc["Statement"]
+    assert isinstance(doc["Statement"], list)
+    assert doc["Statement"]
 
 
 @pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
@@ -278,6 +279,7 @@ def test_the_guardrails_policy_only_denies_and_leaves_terraform_its_own_work():
                       / "operator-guardrails.json").read_text(encoding="utf-8"))
     assert all(st["Effect"] == "Deny" for st in doc["Statement"])
     denied = {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
-    assert "iam:UpdateAssumeRolePolicy" in denied and "cloudtrail:StopLogging" in denied
+    assert "iam:UpdateAssumeRolePolicy" in denied
+    assert "cloudtrail:StopLogging" in denied
     assert not denied & {"budgets:DeleteBudget", "s3:PutBucketPublicAccessBlock"}
     assert len("".join(json.dumps(doc, separators=(",", ":")).split())) <= 6144

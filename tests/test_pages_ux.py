@@ -66,22 +66,30 @@ def _rows(body):
 
 def test_pages_count_and_show_where_the_reader_is_and_past_the_end_is_the_last_page(site):
     second = _get(site, query="page=2&size=25")
-    assert second.status == 200 and "Showing <strong>26–50</strong> of <strong>137</strong>" in second.body
-    assert len(_rows(second.body)) == 25 and _rows(second.body)[0] == "warden-prod-b-alarm-25"
-    assert 'href="/r?size=25" rel="prev">Newer' in second.body and 'href="/r?page=3&amp;size=25" rel="next">Older' in second.body
-    assert 'href="/r?page=6&amp;size=25"><span class="t">Oldest' in second.body and "Page 2 of 6" in second.body
+    assert second.status == 200
+    assert "Showing <strong>26–50</strong> of <strong>137</strong>" in second.body
+    assert len(_rows(second.body)) == 25
+    assert _rows(second.body)[0] == "warden-prod-b-alarm-25"
+    assert 'href="/r?size=25" rel="prev">Newer' in second.body
+    assert 'href="/r?page=3&amp;size=25" rel="next">Older' in second.body
+    assert 'href="/r?page=6&amp;size=25"><span class="t">Oldest' in second.body
+    assert "Page 2 of 6" in second.body
     last = _get(site, query="page=6&size=25")
-    assert "Showing <strong>126–137</strong>" in last.body and len(_rows(last.body)) == 12
+    assert "Showing <strong>126–137</strong>" in last.body
+    assert len(_rows(last.body)) == 12
     assert '<span class="step next off" aria-disabled="true">Older</span>' in last.body
     beyond = _get(site, query="page=999&size=25")
-    assert beyond.status == 200 and _rows(beyond.body) == _rows(last.body) and "Page 6 of 6" in beyond.body
+    assert beyond.status == 200
+    assert _rows(beyond.body) == _rows(last.body)
+    assert "Page 6 of 6" in beyond.body
     assert len(_rows(_get(site).body)) == records.PER_PAGE  # no query: the default size, page 1
 
 
 @pytest.mark.parametrize("query", ["size=7", "size=abc", "size=", "size=1000"])
 def test_a_page_size_not_offered_is_the_default_one(site, query):
     out = _get(site, query=query)
-    assert out.status == 200 and len(_rows(out.body)) == records.PER_PAGE
+    assert out.status == 200
+    assert len(_rows(out.body)) == records.PER_PAGE
     assert '<span class="chip" aria-current="true">50</span>' in out.body
 
 
@@ -92,7 +100,9 @@ def test_a_page_size_not_offered_is_the_default_one(site, query):
 def test_a_query_the_list_does_not_read_is_refused_whole(site, query):
     assert records.parse_query(query) is None
     out = _get(site, query=query)
-    assert out.status == 400 and "That list cannot be shown" in out.body and "-alarm-" not in out.body
+    assert out.status == 400
+    assert "That list cannot be shown" in out.body
+    assert "-alarm-" not in out.body
     assert _get(site, f"/r/{0:016x}-x", query=query).status == 400  # the record page reads the same query
 
 
@@ -103,12 +113,15 @@ def test_filters_combine_and_every_link_keeps_them(site):
     out = _get(site, query="env=dev&status=Denied&q=ALARM&size=10")
     shown = _rows(out.body)
     # dev: even i; Denied: i % 3 == 1 -> i in 4, 10, 16, ... (i % 6 == 4)
-    assert shown and all(re.fullmatch(r"warden-dev-[abc]-alarm-(\d+)", t) and int(t.rsplit("-", 1)[1]) % 6 == 4
-                         for t in shown)
-    assert "of <strong>23</strong> matching the filters" in out.body and len(shown) == 10
+    assert shown
+    assert (all(re.fullmatch(r"warden-dev-[abc]-alarm-(\d+)", t) and int(t.rsplit("-", 1)[1]) % 6 == 4
+                for t in shown))
+    assert "of <strong>23</strong> matching the filters" in out.body
+    assert len(shown) == 10
     assert 'href="/r?page=2&amp;size=10&amp;env=dev&amp;status=Denied&amp;q=ALARM" rel="next">Older' in out.body
     assert f'href="/r/{4:016x}-x?size=10&amp;env=dev&amp;status=Denied&amp;q=ALARM">Open the full record' in out.body
-    assert '<option value="Denied" selected>' in out.body and 'value="ALARM"' in out.body
+    assert '<option value="Denied" selected>' in out.body
+    assert 'value="ALARM"' in out.body
     for control in re.findall(r'<(?:input|select) id="([a-z-]+)"', out.body):  # every filter labelled
         assert f'<label for="{control}">' in out.body, control
     assert len(re.findall(r'<(?:input|select) id=', out.body)) == 6
@@ -119,7 +132,9 @@ def test_filters_combine_and_every_link_keeps_them(site):
     assert 'value="ID"' in _get(site, query="q=ID").body  # the text, not the field's own name
     svc = _get(site, query="service=B&from=2026-10-15&to=2026-10-15")
     days = set(re.findall(r'<h2 class="day">([^<]+)</h2>', svc.body))  # the display zone's day, as the list says it
-    assert _rows(svc.body) and all("-b-" in t for t in _rows(svc.body)) and days == {"Thursday 15 October 2026"}
+    assert _rows(svc.body)
+    assert all("-b-" in t for t in _rows(svc.body))
+    assert days == {"Thursday 15 October 2026"}
     assert "No incident matches these filters." in _get(site, query="q=nothing-like-this").body
 
 
@@ -127,26 +142,32 @@ def test_a_reader_limited_to_some_environments_sees_only_those(site):
     page, me = site
     page.policy.approvers["owner"].environments = ["dev"]
     out = page.handle("GET", "/r", cookies=me)
-    assert "of <strong>69</strong>" in out.body and "137" not in out.body
+    assert "of <strong>69</strong>" in out.body
+    assert "137" not in out.body
     assert all(t.startswith("warden-dev-") for t in _rows(out.body))
     assert "No incident" in page.handle("GET", "/r", query="env=prod", cookies=me).body
-    assert '<option value="prod"' not in out.body and '<option value="dev">' in out.body
+    assert '<option value="prod"' not in out.body
+    assert '<option value="dev">' in out.body
     assert page.handle("GET", f"/r/{1:016x}-x", cookies=me).status == 404  # prod: not shown, not said to exist
     one = page.handle("GET", f"/r/{2:016x}-x", cookies=me)
-    assert one.status == 200 and f'href="/r/{0:016x}-x" rel="prev">Newer' in one.body
-    assert f'href="/r/{4:016x}-x" rel="next">Older' in one.body and "2 of 69" in one.body
+    assert one.status == 200
+    assert f'href="/r/{0:016x}-x" rel="prev">Newer' in one.body
+    assert f'href="/r/{4:016x}-x" rel="next">Older' in one.body
+    assert "2 of 69" in one.body
     page.policy.approvers["owner"].environments = []  # an approver with no list reads every environment
     assert page.handle("GET", f"/r/{1:016x}-x", cookies=me).status == 200
 
 
 def test_a_record_page_leads_to_the_newer_and_older_one_within_the_same_filters(site):
     one = _get(site, f"/r/{4:016x}-x", query="env=dev&status=Denied&size=10")
-    assert one.status == 200 and "1 of 23" in one.body
+    assert one.status == 200
+    assert "1 of 23" in one.body
     assert '<span class="step prev off" aria-disabled="true">Newer</span>' in one.body
     assert f'href="/r/{10:016x}-x?size=10&amp;env=dev&amp;status=Denied" rel="next">Older' in one.body
     assert 'href="/r?size=10&amp;env=dev&amp;status=Denied">All incidents' in one.body
     deep = _get(site, f"/r/{60:016x}-x")
-    assert 'href="/r?page=2">All incidents' in deep.body and "61 of 137" in deep.body  # back to its own page
+    assert 'href="/r?page=2">All incidents' in deep.body
+    assert "61 of 137" in deep.body  # back to its own page
 
 
 # ------------------------------------------------------------------ the policy every page is served under
@@ -167,18 +188,21 @@ def test_every_page_keeps_its_policy_and_needs_nothing_it_refuses(site):
         assert "default-src 'none'" in csp, name
         assert "frame-ancestors 'none'" in csp, name
         assert re.search(r"img-src ([^;]+);", csp).group(1) == "data:", name  # the tab icon only; no host
-        assert f"style-src 'nonce-{nonce}'" in csp and "unsafe" not in csp, name
+        assert f"style-src 'nonce-{nonce}'" in csp, name
+        assert "unsafe" not in csp, name
         form = re.search(r"form-action ([^;]+);", csp).group(1)
         assert form == ("https://approve.example.test/r" if name == "list" else "'none'"), name
         body = r.body
         assert body.count("<script") == body.count(f'<script nonce="{nonce}">') == 1, name
         assert body.count("<style") == body.count(f'<style nonce="{nonce}">') == 1, name
-        assert not re.search(r"\son[a-z]+\s*=", body, re.IGNORECASE) and ' style="' not in body, name  # no inline handler
+        assert not re.search(r"\son[a-z]+\s*=", body, re.IGNORECASE), name
+        assert ' style="' not in body, name  # no inline handler
         for refused in ("http://", "https://", "<img", "<iframe", "@import", "url(", "{{"):
             assert refused not in body, (name, refused)
         assert body.count("<link") == 1, name  # the tab icon alone
         assert brand.FAVICON_LINK in body.split("</head>")[0], name
-        assert brand.LOGO_SVG in body and '<canvas id="sky" aria-hidden="true">' in body, name
+        assert brand.LOGO_SVG in body, name
+        assert '<canvas id="sky" aria-hidden="true">' in body, name
 
 
 def test_the_theme_toggle_is_labelled_remembered_safely_and_starts_from_the_device(site):
@@ -188,7 +212,8 @@ def test_the_theme_toggle_is_labelled_remembered_safely_and_starts_from_the_devi
         assert re.search(rf'<button type="button" data-mode="{mode}" aria-pressed="(true|false)" title="{label}">'
                          rf'<svg[^>]*aria-hidden="true"[^>]*>.*?</svg><span class="vh">{label}</span></button>', body)
     js = approval_page._UI_JS
-    assert js.count("localStorage.") == 3 and js.count("try {") >= 3  # every read and write caught
+    assert js.count("localStorage.") == 3
+    assert js.count("try {") >= 3  # every read and write caught
     assert ':root[data-theme=dark]{color-scheme:dark;' in body
     assert "@media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;" in body
 
@@ -196,23 +221,30 @@ def test_the_theme_toggle_is_labelled_remembered_safely_and_starts_from_the_devi
 def test_motion_holds_still_when_asked_and_the_sky_is_small_and_sleeps(site):
     css, js = approval_page._STYLE, approval_page._UI_JS
     still = css[css.index("@media (prefers-reduced-motion:reduce)"):]
-    assert still.startswith("@media (prefers-reduced-motion:reduce){*,::before,::after{transition:none!important;"
-                            "animation:none!important}") and ".rip{display:none}" in still
+    assert (still.startswith("@media (prefers-reduced-motion:reduce){*,::before,::after{transition:none!important;"
+                             "animation:none!important}"))
+    assert ".rip{display:none}" in still
     assert "if (calm.matches || t.disabled) { return; }" in js  # no wave
     assert "if (calm.matches) { px = py = -9e3; draw(); }" in js  # the sky drawn once, still
-    assert "document.hidden" in js and '"visibilitychange", sky' in js and "Math.min(devicePixelRatio || 1, 1.5)" in js
+    assert "document.hidden" in js
+    assert '"visibilitychange", sky' in js
+    assert "Math.min(devicePixelRatio || 1, 1.5)" in js
     assert len(approval_page._SKY_JS.encode()) < 3072
     assert ":focus-visible{outline:3px solid var(--accent)" in css
-    assert js.strip().startswith("(() => { try {") and js.rstrip().endswith("} catch (e) {} })();")
+    assert js.strip().startswith("(() => { try {")
+    assert js.rstrip().endswith("} catch (e) {} })();")
 
 
 def test_the_logo_stays_inside_the_policy():
     svg = brand.LOGO_SVG
-    assert svg.startswith("<svg") and 'aria-hidden="true"' in svg and "xmlns" not in svg
+    assert svg.startswith("<svg")
+    assert 'aria-hidden="true"' in svg
+    assert "xmlns" not in svg
     assert not re.search(r"\son[a-z]+\s*=|style=|<script|<image|<use|<foreignObject|//|href", svg, re.IGNORECASE)
     assert all(i.startswith("wdn-") for i in re.findall(r'\sid="([^"]+)"', svg))
     assert all(u.startswith("url(#wdn-") for u in re.findall(r"url\([^)]*\)", svg))
-    assert "#000" not in svg and "#fff" not in svg.lower()  # the pages' own test refuses them
+    assert "#000" not in svg
+    assert "#fff" not in svg.lower()  # the pages' own test refuses them
 
 
 def test_the_tab_icon_is_the_logo_embedded_and_fetches_nothing():
@@ -240,8 +272,10 @@ def test_a_records_text_never_becomes_markup_or_a_placeholder(site, tmp_path):
     page = dataclasses.replace(page, log=log)
     for out in (page.handle("GET", "/r", cookies=me), page.handle("GET", f"/r/{cid}", cookies=me)):
         nonce = re.search(r"'nonce-([^']+)'", out.headers["Content-Security-Policy"]).group(1)
-        assert "<svg onload" not in out.body and "&quot;&gt;&lt;svg onload=alert(1)&gt;" in out.body
-        assert out.body.count(nonce) == 2 and "&#123;&#123;NONCE&#125;&#125;" in out.body
+        assert "<svg onload" not in out.body
+        assert "&quot;&gt;&lt;svg onload=alert(1)&gt;" in out.body
+        assert out.body.count(nonce) == 2
+        assert "&#123;&#123;NONCE&#125;&#125;" in out.body
     notice = approval_page._notice(403, "Slack sign-in failed: <b>{{NONCE}}</b>.")
     assert "&lt;b&gt;&#123;&#123;NONCE&#125;&#125;&lt;/b&gt;" in notice.body
 

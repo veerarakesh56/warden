@@ -19,12 +19,14 @@ def test_where_names_the_line_the_section_and_the_kind_never_the_value():
     text = f"# Incident\n\n## Evidence\nall fine\n## Config\nkey {KEY} in the config\n"
     where = where_withheld(text)
     assert where == [{"line": 6, "section": "Config", "kinds": where[0]["kinds"]}]
-    assert where[0]["kinds"] and KEY not in str(where)
+    assert where[0]["kinds"]
+    assert KEY not in str(where)
 
 
 def test_a_heading_that_carries_a_secret_is_not_named():
     where = where_withheld(f"## {KEY}\nkey {KEY}\n")
-    assert all(w["section"] == "(a heading that is itself withheld)" for w in where) and KEY not in str(where)
+    assert all(w["section"] == "(a heading that is itself withheld)" for w in where)
+    assert KEY not in str(where)
 
 
 def test_a_clean_text_has_nowhere():
@@ -37,7 +39,10 @@ def test_a_withheld_message_logs_where_without_the_value(caplog):
     with caplog.at_level(logging.WARNING, logger="warden.incident"):
         chatops.notify(report, sinks=[sink])
     said = [r.getMessage() for r in caplog.records if "withheld by the outbound gate" in r.getMessage()]
-    assert len(said) == 1 and "inc-7" in said[0] and "'section': 'Config'" in said[0] and KEY not in said[0]
+    assert len(said) == 1
+    assert "inc-7" in said[0]
+    assert "'section': 'Config'" in said[0]
+    assert KEY not in said[0]
 
 
 def test_a_withheld_report_says_where_on_the_incidents_record(tmp_path, monkeypatch):
@@ -59,4 +64,7 @@ def test_a_withheld_report_says_where_on_the_incidents_record(tmp_path, monkeypa
     acts.notify(pack, diagnosed, acts.verify(pack, diagnosed), mode="none")
     row = log.entries(alert.alert_id, kinds=("incident.report",))[-1]["body"]
     assert row["markdown"] == "The report was held back by the outbound gate."
-    assert row["gate_reasons"] and row["withheld"] and row["withheld"][0]["kinds"] and KEY not in str(row)
+    assert row["gate_reasons"]
+    assert row["withheld"]
+    assert row["withheld"][0]["kinds"]
+    assert KEY not in str(row)

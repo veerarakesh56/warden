@@ -28,8 +28,10 @@ def test_the_bench_approver_denies_a_waiting_dev_plan_with_its_reason(tmp_path):
     denied = []
     page.deny = lambda wf, d: denied.append((wf, d))
     assert _deny(page, bench, plan).status == 202
-    assert denied[0][0] == plan.workflow_id and denied[0][1].reason == "the target is wrong"
-    assert denied[0][1].approver == "bench" and denied[0][1].plan_hash == plan.plan_hash
+    assert denied[0][0] == plan.workflow_id
+    assert denied[0][1].reason == "the target is wrong"
+    assert denied[0][1].approver == "bench"
+    assert denied[0][1].plan_hash == plan.plan_hash
 
 
 def test_nothing_else_is_denied(tmp_path):
