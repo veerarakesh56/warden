@@ -50,9 +50,30 @@ resource "aws_iam_role" "ecs_execution" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "ecs_execution" {
-  role       = aws_iam_role.ecs_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+# Its own minimal policy (B22, 2026-10-20), not the AWS-managed AmazonECSTaskExecutionRolePolicy (every repository
+# and log group in the account): the registry token, this stack's app repository (the APPS pipeline's image; the
+# placeholder comes from public ECR, which needs no grant), and the orders-api log stream.
+resource "aws_iam_role_policy" "ecs_execution" {
+  name = "${local.name}-task-execution"
+  role = aws_iam_role.ecs_execution.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { Sid = "RegistryToken", Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
+      {
+        Sid      = "PullTheAppImage"
+        Effect   = "Allow"
+        Action   = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
+        Resource = aws_ecr_repository.app.arn
+      },
+      {
+        Sid      = "WriteTheAppLog"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.orders_api.arn}:log-stream:*"
+      },
+    ]
+  })
 }
 
 # Its own inline policy so fs-18 can remove exactly this grant and the harness can restore it.
@@ -361,5 +382,5 @@ resource "aws_ecs_service" "orders_api" {
     ignore_changes = [task_definition, desired_count] # the APPS pipeline and the harness own these
   }
 
-  depends_on = [aws_lb_listener.https, aws_iam_role_policy_attachment.ecs_execution]
+  depends_on = [aws_lb_listener.https, aws_iam_role_policy.ecs_execution]
 }

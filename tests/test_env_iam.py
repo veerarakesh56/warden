@@ -638,6 +638,36 @@ def test_the_runtime_deploy_role_has_no_ecs_image_lookup_and_its_boundary_no_mod
         assert "bedrock" not in text, kind
 
 
+def test_only_the_harness_role_may_assume_the_full_stacks_reader():
+    """B22 (2026-10-20): the reader's trust named the whole account - any principal there allowed to assume it could.
+    Only the benchmark harness does (operator -> warden-<env>-harness -> reader; iam/templates/harness.json); the deploy
+    role's unused grant to assume it is gone too."""
+    tf = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    trust = tf[tf.index('data "aws_iam_policy_document" "fs_reader_assume"'):]
+    trust = trust[:trust.index("\n}\n")]
+    assert re.search(r'test\s+= "ArnEquals"\s+variable\s+= "aws:PrincipalArn"', trust)
+    assert 'values   = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/warden-${local.env}-harness"]' \
+        in trust
+    assert trust.count("condition {") == 1
+    assert trust.count("statement {") == 1
+    for env in ENVS:
+        assert not any(fnmatch.fnmatchcase("sts:AssumeRole", a) for a in _allows(_deploy(env))), env
+
+
+def test_the_full_stacks_task_execution_role_has_only_its_own_minimal_policy():
+    """B22: the AWS-managed AmazonECSTaskExecutionRolePolicy (every repository and log group in the account) gave way to
+    the app repository's pull and the orders-api log stream; the fs-18 secret grant stays its own policy."""
+    tf = (ROOT / "terraform" / "fullstack" / "ecs.tf").read_text(encoding="utf-8")
+    assert "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy" not in tf
+    block = tf[tf.index('resource "aws_iam_role_policy" "ecs_execution"'):]
+    block = block[:block.index("\n}\n")]
+    assert re.findall(r'"((?:ecr|logs|secretsmanager):\w+)"', block) == [
+        "ecr:GetAuthorizationToken", "ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer", "logs:CreateLogStream", "logs:PutLogEvents"]
+    assert "Resource = aws_ecr_repository.app.arn" in block
+    assert 'Resource = "${aws_cloudwatch_log_group.orders_api.arn}:log-stream:*"' in block
+
+
 def test_the_actor_connects_only_as_this_accounts_terminate_login_and_its_render_names_the_account(tmp_path, monkeypatch):
     """Review, PR 48: the actor's rds-db:connect names the account, not `*`. The committed file keeps <ACCOUNT_ID>; the
     git-ignored actor.local.json that --account writes carries the real one (and check_live_iam compares it)."""

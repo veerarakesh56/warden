@@ -21,10 +21,17 @@ data "aws_iam_policy_document" "fs_reader_assume" {
     actions = ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
 
     principals {
-      type = "AWS"
-      # Any principal in this account that is itself allowed to assume it - same trust as the
-      # proving-ground reader, for the same reason (laptop or CI OIDC role, no per-run edits).
+      type        = "AWS"
       identifiers = [data.aws_caller_identity.current.account_id]
+    }
+    # Exactly one role may assume it (B22, 2026-10-20): the benchmark harness, which the operator assumes in a fault
+    # environment (iam/templates/harness.json). Named in a condition, not as the principal: IAM refuses a trust
+    # policy whose principal role does not exist, and the harness role exists only where environments.yaml
+    # `fault_environments` puts it - elsewhere nobody can assume the reader, as intended.
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:PrincipalArn"
+      values   = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/warden-${local.env}-harness"]
     }
   }
 }

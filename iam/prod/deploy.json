@@ -163,8 +163,7 @@
             "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
             "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy",
             "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
-            "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
-            "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
           ]
         }
       }
@@ -185,12 +184,6 @@
           ]
         }
       }
-    },
-    {
-      "Sid": "AssumeOwnReader",
-      "Effect": "Allow",
-      "Action": "sts:AssumeRole",
-      "Resource": "arn:aws:iam::*:role/warden-prod-reader"
     },
     {
       "Sid": "CreateSlrs",
