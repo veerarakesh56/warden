@@ -216,7 +216,8 @@ def test_ground_truth_is_written_before_anything_is_injected(tmp_path, target):
             return super().update_service(**kw)
 
     runner.run_scenario(_harness(target, ecs=WatchingEcs()), SCENARIO, tmp_path, repeat=1, arm={})
-    assert seen and seen[0] is True
+    assert seen
+    assert seen[0] is True
 
 
 def test_repeat_produces_one_report_per_run(tmp_path, target):
@@ -532,12 +533,14 @@ def test_a_rollout_in_flight_is_not_baseline(target):
 def test_a_missing_service_is_reported_not_crashed_on(target):
     """It raised IndexError on the day the cluster had been deleted - exactly when it matters."""
     problems = _check(_Aws(services=[]), target)
-    assert problems and "not found" in problems[0]
+    assert problems
+    assert "not found" in problems[0]
 
 
 def test_an_inactive_service_is_not_baseline(target):
     problems = _check(_Aws(services=[_service(status="INACTIVE")]), target)
-    assert problems and "not found" in problems[0]
+    assert problems
+    assert "not found" in problems[0]
 
 
 def test_the_revision_is_compared_exactly(target):

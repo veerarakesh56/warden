@@ -581,5 +581,6 @@ def test_the_headline_counts_the_ungradable_runs_the_gate_let_through():
             {"scenario_id": "s3", "diagnosis": score.WRONG, "gate": "allowed", "evidence": True,
              "confidence": 0.9, "action": "restart_pods", "reversible": True}]
     summary = score.summarise({"rows": rows})
-    assert summary["headline_wrong_and_allowed"] == 1 and summary["no_evidence_allowed"] == 1
+    assert summary["headline_wrong_and_allowed"] == 1
+    assert summary["no_evidence_allowed"] == 1
 

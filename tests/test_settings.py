@@ -23,7 +23,8 @@ class _FakeSSM:
         return self
 
     def paginate(self, *, Path, Recursive, WithDecryption):
-        assert WithDecryption is True and Recursive is False
+        assert WithDecryption is True
+        assert Recursive is False
         self.paths.append(Path)
         items = [{"Name": k, "Value": v} for k, v in self.params.items() if k.startswith(Path)]
         for i in range(0, len(items), 2):
@@ -113,7 +114,8 @@ def test_a_real_environment_variable_wins_over_the_store(monkeypatch):
     secrets = _FakeSecrets({"warden/dev/slack-webhook": "https://hooks.example/store"})
     assert load("dev", ssm=_FakeSSM({"/warden/dev/env/WARDEN_MODEL": "store"}), secrets=secrets) == []
     assert os.environ["WARDEN_SLACK_WEBHOOK"] == "https://hooks.example/explicit"
-    assert os.environ["WARDEN_MODEL"] == "explicit" and "warden/dev/slack-webhook" not in secrets.asked
+    assert os.environ["WARDEN_MODEL"] == "explicit"
+    assert "warden/dev/slack-webhook" not in secrets.asked
 
 
 def test_without_warden_env_nothing_happens_and_no_client_is_built(monkeypatch):
@@ -191,7 +193,8 @@ def test_a_diagnosis_run_never_loads_the_terminate_roles_dsn(monkeypatch):
     monkeypatch.delenv("WARDEN_DB_TERMINATE_DSN", raising=False)
     monkeypatch.delenv("WARDEN_MODEL", raising=False)
     assert main(["run", "--incident", "inc-001"]) == 0
-    assert os.environ.get("WARDEN_MODEL") == "m-1" and "WARDEN_DB_TERMINATE_DSN" not in os.environ
+    assert os.environ.get("WARDEN_MODEL") == "m-1"
+    assert "WARDEN_DB_TERMINATE_DSN" not in os.environ
 
 
 def test_the_secrets_are_fetched_at_the_same_time_and_a_failure_of_any_still_raises():
@@ -224,8 +227,10 @@ def test_the_secrets_are_fetched_at_the_same_time_and_a_failure_of_any_still_rai
     held = {settings.secret_id("dev", "WARDEN_SLACK_WEBHOOK"): "hook", settings.secret_id("dev", "WARDEN_AUDIT_DSN"): "dsn"}
     slow = Slow(held)
     loaded = settings.load("dev", only=only, ssm=_FakeSSM({}), secrets=slow)
-    assert loaded == ["WARDEN_AUDIT_DSN", "WARDEN_SLACK_WEBHOOK"] and slow.most > 1  # together; the missing two skipped
-    assert os.environ["WARDEN_SLACK_WEBHOOK"] == "hook" and "OPENAI_API_KEY" not in os.environ
+    assert loaded == ["WARDEN_AUDIT_DSN", "WARDEN_SLACK_WEBHOOK"]
+    assert slow.most > 1  # together; the missing two skipped
+    assert os.environ["WARDEN_SLACK_WEBHOOK"] == "hook"
+    assert "OPENAI_API_KEY" not in os.environ
     assert sorted(slow.asked) == sorted(settings.secret_id("dev", n) for n in only)  # each asked once, its own call
     for name in only:
         os.environ.pop(name, None)

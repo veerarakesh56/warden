@@ -145,7 +145,8 @@ def test_a_database_that_cannot_be_reached_is_not_treated_as_clean():
 
     problems = check_baseline_db(ops_db.Clients(connect=dead, ec2=None), _target())
 
-    assert problems and "cannot reach the database" in problems[0]
+    assert problems
+    assert "cannot reach the database" in problems[0]
 
 
 def test_a_missing_sentinel_table_is_a_problem_not_a_pass():

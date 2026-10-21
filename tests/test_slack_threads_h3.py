@@ -46,11 +46,14 @@ def test_an_incident_is_one_thread_whose_first_line_is_updated_in_place(slack, t
     sink = SlackBotSink(TOKEN, "C123", live=True, threads=threads)
     assert _send(sink, "## Diagnosis: memory pressure\nbody").delivered
     root = slack.calls[0][1]
-    assert slack.calls[0][0] == "chat.postMessage" and "thread_ts" not in root
-    assert root["text"].startswith("WARDEN · inc-7 · ") and root["unfurl_links"] is False
+    assert slack.calls[0][0] == "chat.postMessage"
+    assert "thread_ts" not in root
+    assert root["text"].startswith("WARDEN · inc-7 · ")
+    assert root["unfurl_links"] is False
     ts = threads.get("inc-7")["ts"]
     assert threads.get("inc-7")["channel"] == "C123"  # kept with the channel it is in
-    assert slack.calls[1][0] == "chat.postMessage" and slack.calls[1][1]["thread_ts"] == ts
+    assert slack.calls[1][0] == "chat.postMessage"
+    assert slack.calls[1][1]["thread_ts"] == ts
 
     # A later message, from another worker: same thread, the first line updated, no new top-level message.
     later = SlackBotSink(TOKEN, "C123", live=True, threads=AuditThreads(audit.AuditLog(tmp_path / "a.db")))
@@ -66,12 +69,14 @@ def test_two_incidents_are_two_threads(slack):
     _send(sink, "a", "inc-1")
     _send(sink, "b", "inc-2")
     roots = [c[1] for c in slack.calls if c[0] == "chat.postMessage" and "thread_ts" not in c[1]]
-    assert len(roots) == 2 and sink.threads["inc-1"] != sink.threads["inc-2"]
+    assert len(roots) == 2
+    assert sink.threads["inc-1"] != sink.threads["inc-2"]
 
 
 def test_unarmed_it_sends_nothing(slack):
     note = SlackBotSink(TOKEN, "C123", live=False).send("x", {"alert": {"id": "inc-1"}})
-    assert not note.delivered and slack.calls == []
+    assert not note.delivered
+    assert slack.calls == []
 
 
 def _http_error(code, retry_after=None):
@@ -104,11 +109,14 @@ def test_a_rate_limit_is_waited_out_once_and_slack_errors_are_failures(monkeypat
     assert slept == [2.0]
     answers[:] = [_Resp(json.dumps({"ok": False, "error": "channel_not_found"}).encode())]
     answer, detail = chatops._slack_call("chat.postMessage", {}, TOKEN)
-    assert answer is None and detail == "slack error: channel_not_found" and TOKEN not in detail
+    assert answer is None
+    assert detail == "slack error: channel_not_found"
+    assert TOKEN not in detail
 
 
 def test_the_bot_token_is_a_secret_and_the_sink_is_configured_by_it(monkeypatch):
-    assert "WARDEN_SLACK_BOT_TOKEN" in settings.SECRETS and "WARDEN_SLACK_CHANNEL" not in settings.SECRETS
+    assert "WARDEN_SLACK_BOT_TOKEN" in settings.SECRETS
+    assert "WARDEN_SLACK_CHANNEL" not in settings.SECRETS
     monkeypatch.setenv("WARDEN_SLACK_BOT_TOKEN", TOKEN)
     monkeypatch.setenv("WARDEN_SLACK_CHANNEL", "C123")
     monkeypatch.delenv("WARDEN_SLACK_WEBHOOK", raising=False)

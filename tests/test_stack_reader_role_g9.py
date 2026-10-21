@@ -50,7 +50,8 @@ def test_every_read_of_an_incident_runs_in_its_environments_reader_role():
     b, made = _worker_backend()
     lines = b.logs(_alert())
     assert made == [("dev", "a1")]
-    assert any("read by dev's reader role" in ln for ln in lines) and not any("the worker" in ln for ln in lines)
+    assert any("read by dev's reader role" in ln for ln in lines)
+    assert not any("the worker" in ln for ln in lines)
 
 
 def test_an_unknown_environment_is_a_failed_read_never_a_read_as_the_worker():
@@ -62,7 +63,8 @@ def test_an_unknown_environment_is_a_failed_read_never_a_read_as_the_worker():
 
 def test_injected_clients_are_never_rebound_and_the_read_zone_runs_the_stack_backend():
     b = StackBackend(clients={n: object() for n in NEEDED})
-    assert b._per_env is None and b._incident(_alert()) is b
+    assert b._per_env is None
+    assert b._incident(_alert()) is b
     compute = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
     assert 'each.key == "read" ? { WARDEN_BACKEND = "stack" } : {}' in compute
 

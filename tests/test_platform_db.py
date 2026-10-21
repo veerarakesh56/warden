@@ -97,7 +97,8 @@ def test_live_names_the_connected_database_only_when_app_logins_are_named():
 def test_postgres_closes_only_idle_app_sessions_in_its_own_database_and_never_its_own():
     conn = _Conn()
     out = _platform(conn=conn).apply("db_terminate_idle_in_tx", PARAMS)
-    assert conn.killed == [101, 102] and "closed 2 session(s)" in out
+    assert conn.killed == [101, 102]
+    assert "closed 2 session(s)" in out
     select = next(sql for sql, _ in conn.sql if "pg_stat_activity" in sql)
     for clause in ("state = 'idle in transaction'", "datname = current_database()", "usename = ANY(%s)",
                    "pid <> pg_backend_pid()", "LIMIT %s"):
@@ -110,14 +111,20 @@ def test_mysql_and_mssql_are_scoped_the_same_way():
     my = _Conn()
     _platform("mysql", my).apply("db_terminate_idle_in_tx", PARAMS)
     sql, params = next((s, p) for s, p in my.sql if "innodb_trx" in s)
-    assert "p.db = DATABASE()" in sql and "p.user IN %s" in sql and "CONNECTION_ID()" in sql
+    assert "p.db = DATABASE()" in sql
+    assert "p.user IN %s" in sql
+    assert "CONNECTION_ID()" in sql
     # Idle time, not the transaction's age (sixth review).
-    assert "p.time >= %s" in sql and "trx_started" not in sql
-    assert params == (tuple(APP), 300, 5) and my.killed == [101, 102]
+    assert "p.time >= %s" in sql
+    assert "trx_started" not in sql
+    assert params == (tuple(APP), 300, 5)
+    assert my.killed == [101, 102]
     ms = _Conn()
     _platform("mssql", ms, users=["orders_app", "orders_ro"]).apply("db_terminate_idle_in_tx", PARAMS)
     sql, params = next((s, p) for s, p in ms.sql if "dm_exec_sessions" in s)
-    assert "database_id = DB_ID()" in sql and "login_name IN (%s, %s)" in sql and "@@SPID" in sql
+    assert "database_id = DB_ID()" in sql
+    assert "login_name IN (%s, %s)" in sql
+    assert "@@SPID" in sql
     assert params == ("orders_app", "orders_ro")
 
 
@@ -171,7 +178,9 @@ def test_ids_are_ints_before_they_reach_kill():
 def test_nothing_to_roll_back_and_health_is_a_positive_read():
     p = _platform(conn=_Conn(stuck=()))
     assert "nothing to roll back" in p.rollback("db_terminate_idle_in_tx", PARAMS, {})
-    assert p.knows("orders") and p.healthy("orders") and not p.healthy("billing")
+    assert p.knows("orders")
+    assert p.healthy("orders")
+    assert not p.healthy("billing")
     assert not _platform(conn=_Conn(stuck=(9,))).healthy("orders")
     assert not _platform(conn=_Conn(stuck=()), users=[]).healthy("orders")
 
@@ -201,8 +210,9 @@ def test_its_own_login_is_never_an_application_login(engine):
     conn = _Conn(me="orders_app")
     with pytest.raises(DatabasePlatformError, match="own login"):
         _platform(engine, conn, users=["orders_app"]).apply("db_terminate_idle_in_tx", PARAMS)
-    assert conn.killed == [] and not any("innodb_trx" in s or "pg_stat_activity" in s or "dm_exec_sessions" in s
-                                         for s, _ in conn.sql)
+    assert conn.killed == []
+    assert (not any("innodb_trx" in s or "pg_stat_activity" in s or "dm_exec_sessions" in s
+                    for s, _ in conn.sql))
 
 
 def test_a_broken_connection_is_reopened_and_use_is_one_at_a_time(monkeypatch):
@@ -237,8 +247,10 @@ def test_a_broken_connection_is_reopened_and_use_is_one_at_a_time(monkeypatch):
 
     monkeypatch.setattr(dbmod, "adapter_for", lambda engine: Adapter)
     p = DatabasePlatform(dsn="postgresql://warden_terminator@db.example/orders", app_users=APP)
-    assert p.healthy("orders") is False and len(opened) == 1  # broken: dropped
-    assert p.healthy("orders") is True and len(opened) == 2  # reopened
+    assert p.healthy("orders") is False
+    assert len(opened) == 1  # broken: dropped
+    assert p.healthy("orders") is True
+    assert len(opened) == 2  # reopened
     threads = [threading.Thread(target=p.healthy, args=("orders",)) for _ in range(8)]
     for t in threads:
         t.start()
@@ -252,7 +264,9 @@ def test_the_plan_names_the_database_server_but_no_credential():
     p = DatabasePlatform(dsn=f"postgresql://warden_terminator:{pw}@prod-db.example:5432/orders", conn=_Conn(),
                          app_users=APP)
     state = p.live("db_terminate_idle_in_tx", PARAMS)["state"]
-    assert state["server"] == "prod-db.example:5432" and pw not in str(state) and "warden_terminator" not in str(state)
+    assert state["server"] == "prod-db.example:5432"
+    assert pw not in str(state)
+    assert "warden_terminator" not in str(state)
 
 
 @pytest.mark.parametrize("dsn, where", [
@@ -269,7 +283,8 @@ def test_the_plan_names_where_libpq_really_connects(dsn, where):
     pw = "s3cr3t" + "-pw"
     p = DatabasePlatform(dsn=dsn.format(pw=pw), engine="postgres", conn=_Conn(), app_users=APP)
     state = p.live("db_terminate_idle_in_tx", PARAMS)["state"]
-    assert state["server"] == where and pw not in str(state)
+    assert state["server"] == where
+    assert pw not in str(state)
 
 
 @pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])
@@ -316,7 +331,9 @@ def test_the_plan_names_the_server_the_driver_really_reaches(monkeypatch, engine
     pw = "s3cr3t" + "-pw"
     p = DatabasePlatform(dsn=dsn.format(pw=pw), engine=engine, conn=_Conn(), app_users=APP)
     state = p.live("db_terminate_idle_in_tx", PARAMS)["state"]
-    assert state["server"] == where and pw not in str(state) and HUNTER2 not in str(state), state["server"]
+    assert state["server"] == where, state["server"]
+    assert pw not in str(state), state["server"]
+    assert HUNTER2 not in str(state), state["server"]
     assert "orders_app" not in state["server"], state["server"]
 
 
@@ -335,7 +352,9 @@ def test_a_close_with_nothing_to_close_says_so_and_closes_nothing(engine):
     closes nothing and its report - what the audit and the approver see - says so."""
     conn = _Conn(stuck=())
     report = _platform(engine, conn).apply("db_terminate_idle_in_tx", PARAMS)
-    assert conn.killed == [] and "nothing closed" in report and "closed 0" not in report, report
+    assert conn.killed == [], report
+    assert "nothing closed" in report, report
+    assert "closed 0" not in report, report
 
 
 @pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])
@@ -345,7 +364,8 @@ def test_a_session_that_resumed_after_it_was_listed_is_not_closed(engine):
     conn = _Conn(stuck=(101, 102))
     conn.still = {102}  # 101 committed between the list and the close
     out = _platform(engine, conn).apply("db_terminate_idle_in_tx", PARAMS)
-    assert conn.killed == [102] and out.startswith("closed 1 session"), (conn.killed, out)
+    assert conn.killed == [102], (conn.killed, out)
+    assert out.startswith("closed 1 session"), (conn.killed, out)
 
 
 STARTED = "2026-10-04 09:00:00.123+00"
@@ -361,7 +381,8 @@ def _blocking(conn=None):
 def test_a_blocker_close_may_name_only_a_session_seen_blocking():
     conn = _blocking()
     live = _platform(conn=conn).live("db_terminate_blocker", {"pid": "4242"})
-    assert live["pid"] == {"4242", "4343"} and live["database"] == {"orders"}
+    assert live["pid"] == {"4242", "4343"}
+    assert live["database"] == {"orders"}
     assert live["state"]["blocker"] == {"pid": "4242", "backend_start": STARTED}  # the named one, nothing that moves
     conn.blockers[4545] = (STARTED, 9)  # another blocker, more waiters: the plan's snapshot is unchanged (no drift)
     conn.blockers[4242] = (STARTED, 7)
@@ -370,7 +391,8 @@ def test_a_blocker_close_may_name_only_a_session_seen_blocking():
     for clause in ("pg_blocking_pids(w.pid)", "b.datname = current_database()", "w.datname = current_database()",
                    "b.usename = ANY(%s)", "b.pid <> pg_backend_pid()", "w.query_start < now() - make_interval"):
         assert clause in sql, clause
-    assert params[0] == APP and params[1] >= 30  # the app's logins only; a momentary lock is not a blocker
+    assert params[0] == APP
+    assert params[1] >= 30  # the app's logins only; a momentary lock is not a blocker
     assert _platform(users=[], conn=_blocking()).live("db_terminate_blocker", {}) == {}
 
 
@@ -379,13 +401,17 @@ def test_a_blocker_is_closed_only_if_it_is_still_the_same_session_and_still_bloc
     platform = _platform(conn=conn)
     snapshot = platform.live("db_terminate_blocker", {"pid": "4242"})["state"]
     out = platform.apply("db_terminate_blocker", {"database": "orders", "pid": "4242"}, snapshot)
-    assert conn.killed == [4242] and "was blocking others" in out
+    assert conn.killed == [4242]
+    assert "was blocking others" in out
     sql = next(s for s, _ in conn.sql if "pg_terminate_backend(b.pid)" in s)
-    assert "b.backend_start::text = %s" in sql and "pg_blocking_pids(w.pid)" in sql and "b.usename = ANY(%s)" in sql
+    assert "b.backend_start::text = %s" in sql
+    assert "pg_blocking_pids(w.pid)" in sql
+    assert "b.usename = ANY(%s)" in sql
     snapshot = platform.live("db_terminate_blocker", {"pid": "4343"})["state"]
     conn.blocking[4343] = "2026-10-04 09:30:00+00"  # the pid now belongs to a later session
     out = platform.apply("db_terminate_blocker", {"database": "orders", "pid": "4343"}, snapshot)
-    assert conn.killed == [4242] and "nothing closed" in out
+    assert conn.killed == [4242]
+    assert "nothing closed" in out
 
 
 @pytest.mark.parametrize("params, snapshot, needle", [

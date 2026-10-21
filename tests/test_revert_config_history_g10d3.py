@@ -109,7 +109,9 @@ def test_a_service_scaled_to_zero_is_set_back_to_the_count_config_recorded_befor
     f = Fake()
     p = _p(f)
     live = p.live("ecs_restore_desired", ECS)
-    assert live["event"] == {"e-1"} and live["desired"] == {"2"} and live["environment"] == "dev", live.get("refused")
+    assert live["event"] == {"e-1"}, live.get("refused")
+    assert live["desired"] == {"2"}, live.get("refused")
+    assert live["environment"] == "dev", live.get("refused")
     plan = {**ECS, "event": "e-1", "desired": "2"}
     assert catalog.validate("ecs_restore_desired", plan, live) == []
     p.apply("ecs_restore_desired", plan, snapshot=live["state"], who=WHO)
@@ -153,7 +155,9 @@ def test_every_refusal_allows_no_change_and_says_why(change, why):
     f = Fake()
     change(f)
     live = _p(f).live("ecs_restore_desired", ECS)
-    assert live["event"] == set() and live["desired"] == set() and why in live["refused"], live.get("refused")
+    assert live["event"] == set(), live.get("refused")
+    assert live["desired"] == set(), live.get("refused")
+    assert why in live["refused"], live.get("refused")
 
 
 def test_another_services_change_and_a_change_that_set_no_count_are_not_this_ones():
@@ -178,7 +182,8 @@ def test_a_concurrency_cut_is_put_back_and_an_unreserved_function_has_its_reserv
     f = _lambda_fake()
     p = _p(f)
     live = p.live("lambda_restore_concurrency", LAM)
-    assert live["event"] == {"l-1"} and live["concurrency"] == {"50"}, live.get("refused")
+    assert live["event"] == {"l-1"}, live.get("refused")
+    assert live["concurrency"] == {"50"}, live.get("refused")
     p.apply("lambda_restore_concurrency", {**LAM, "event": "l-1", "concurrency": "50"}, snapshot=live["state"], who=WHO)
     assert f.sessions[-1] == {"actions": ["lambda:PutFunctionConcurrency"], "resources": [FN_ARN]}
     assert f.writes[-1] == ("put_function_concurrency", {"FunctionName": FN, "ReservedConcurrentExecutions": 50})
@@ -211,7 +216,8 @@ def test_the_resolver_plans_revert_change_on_a_labelled_service_with_the_alarm_a
     proposal = RemediationProposal(action=ActionKind.revert_change, target="warden-dev-orders", reasoning="r",
                                    expected_effect="e", blast_radius="single_service", reversible=True)
     req, why = resolver.request_for(alert, proposal, lambda e, params: p.live(e, params))
-    assert why == "" and req["entry"] == "ecs_restore_desired"
+    assert why == ""
+    assert req["entry"] == "ecs_restore_desired"
     assert req["params"] == {**ECS, "event": "e-1", "desired": "2"}
 
 
@@ -265,7 +271,9 @@ def test_a_capacity_cut_is_set_back_within_the_groups_bounds():
     f = Groups()
     p = _p(f)
     live = p.live("asg_restore_capacity", ASG)
-    assert live["event"] == {"a-1"} and live["desired"] == {"6"} and live["environment"] == "dev", live.get("refused")
+    assert live["event"] == {"a-1"}, live.get("refused")
+    assert live["desired"] == {"6"}, live.get("refused")
+    assert live["environment"] == "dev", live.get("refused")
     plan = {**ASG, "event": "a-1", "desired": "6"}
     p.apply("asg_restore_capacity", plan, snapshot=live["state"], who=WHO)
     assert f.sessions == [{"actions": ["autoscaling:SetDesiredCapacity"], "resources": [ASG_ARN]}]
@@ -287,7 +295,8 @@ def test_a_group_change_a_person_owns_is_refused(change, why):
     f = Groups()
     change(f)
     live = _p(f).live("asg_restore_capacity", ASG)
-    assert live["event"] == set() and why in live["refused"], live.get("refused")
+    assert live["event"] == set(), live.get("refused")
+    assert why in live["refused"], live.get("refused")
 
 
 def test_a_stage_moved_to_a_new_deployment_goes_back_to_the_one_before():
@@ -296,7 +305,8 @@ def test_a_stage_moved_to_a_new_deployment_goes_back_to_the_one_before():
         {"op": "replace", "path": "/deploymentId", "value": "dep-new"}]}, eid="s-1", source="apigateway.amazonaws.com")]
     p = _p(f)
     live = p.live("apigw_restore_stage", STAGE)
-    assert live["event"] == {"s-1"} and live["deployment"] == {"dep-old"}, live.get("refused")
+    assert live["event"] == {"s-1"}, live.get("refused")
+    assert live["deployment"] == {"dep-old"}, live.get("refused")
     p.apply("apigw_restore_stage", {**STAGE, "event": "s-1", "deployment": "dep-old"}, snapshot=live["state"], who=WHO)
     assert f.sessions[-1]["actions"] == ["apigateway:PATCH"]
     assert f.writes[-1] == ("update_stage", {"restApiId": "api1", "stageName": "prod", "patchOperations": [
@@ -315,7 +325,8 @@ def test_a_stage_change_that_did_more_or_a_deployment_that_is_gone_is_refused(op
     if gone:
         f.deployments.discard("dep-old")
     live = _p(f).live("apigw_restore_stage", STAGE)
-    assert live["event"] == set() and why in live["refused"], live.get("refused")
+    assert live["event"] == set(), live.get("refused")
+    assert why in live["refused"], live.get("refused")
 
 
 # ---------------------------------------------------------------- D4: a function's timeout, memory or ephemeral storage
@@ -352,7 +363,8 @@ def test_a_timeout_cut_is_set_back_to_what_config_recorded_under_the_revision_th
     f = Settings()
     p = _p(f)
     live = p.live("lambda_restore_settings", LAM)
-    assert live["event"] == {"f-1"} and live["settings"] == {"timeout=30"}, live.get("refused")
+    assert live["event"] == {"f-1"}, live.get("refused")
+    assert live["settings"] == {"timeout=30"}, live.get("refused")
     p.apply("lambda_restore_settings", SETTINGS, snapshot=live["state"], who=WHO)
     assert f.sessions[-1] == {"actions": ["lambda:UpdateFunctionConfiguration"], "resources": [FN_ARN]}
     assert f.writes[-1] == ("update_function_configuration", {"FunctionName": FN, "RevisionId": "rev-7", "Timeout": 30})
@@ -375,7 +387,8 @@ def test_a_timeout_cut_is_set_back_to_what_config_recorded_under_the_revision_th
 ])
 def test_a_settings_change_wardens_restore_may_not_undo_is_refused(fake, why):
     live = _p(fake).live("lambda_restore_settings", LAM)
-    assert live["settings"] == set() and why in live["refused"], live.get("refused")
+    assert live["settings"] == set(), live.get("refused")
+    assert why in live["refused"], live.get("refused")
 
 
 def test_a_settings_restore_is_refused_when_the_function_moved_since():
@@ -395,21 +408,26 @@ def test_the_resolver_uses_the_lambda_revert_that_found_the_recorded_change_and_
                                    blast_radius="single_service", reversible=True)
     f = Settings()
     req, why = resolver.request_for(alert, proposal, lambda e, params: _p(f).live(e, params))
-    assert why == "" and req["entry"] == "lambda_restore_settings" and req["params"] == SETTINGS
+    assert why == ""
+    assert req["entry"] == "lambda_restore_settings"
+    assert req["params"] == SETTINGS
     g = _lambda_fake()
     req, why = resolver.request_for(alert, proposal, lambda e, params: _p(g).live(e, params))
-    assert why == "" and req["entry"] == "lambda_restore_concurrency"
+    assert why == ""
+    assert req["entry"] == "lambda_restore_concurrency"
     both = Settings()
     both.reserved = 0
     both.events += _lambda_fake().events
     both.history["AWS::Lambda::Function"][0]["supplementaryConfiguration"] = {
         "Concurrency": json.dumps({"reservedConcurrentExecutions": 50})}
     req, why = resolver.request_for(alert, proposal, lambda e, params: _p(both).live(e, params))
-    assert req is None and "more than one kind of recorded change" in why
+    assert req is None
+    assert "more than one kind of recorded change" in why
     none = Settings()
     none.events = []
     req, why = resolver.request_for(alert, proposal, lambda e, params: _p(none).live(e, params))
-    assert req is None and "no change WARDEN may undo: no recorded" in why
+    assert req is None
+    assert "no change WARDEN may undo: no recorded" in why
 
 
 def test_a_settings_revert_is_refused_when_a_version_published_after_the_change_holds_it():
@@ -418,7 +436,8 @@ def test_a_settings_revert_is_refused_when_a_version_published_after_the_change_
     f = Settings()
     f.published_after = True
     live = _p(f).live("lambda_restore_settings", LAM)
-    assert live["settings"] == set() and "version 4 was published after the change" in live["refused"]
+    assert live["settings"] == set()
+    assert "version 4 was published after the change" in live["refused"]
 
 
 def test_a_change_made_by_infrastructure_as_code_is_left_to_the_code():
@@ -428,11 +447,13 @@ def test_a_change_made_by_infrastructure_as_code_is_left_to_the_code():
     detail["userAgent"] = "APN/1.0 HashiCorp/1.0 Terraform/1.9.8 (+https://www.terraform.io) terraform-provider-aws/5.80.0"
     f.events[0]["CloudTrailEvent"] = json.dumps(detail)
     live = _p(f).live("lambda_restore_settings", LAM)
-    assert live["settings"] == set() and "infrastructure as code (Terraform)" in live["refused"]
+    assert live["settings"] == set()
+    assert "infrastructure as code (Terraform)" in live["refused"]
 
 
 def test_a_function_whose_setting_moved_before_the_plan_is_refused():
     f = Settings()
     f.timeout = 10  # neither what the change set (3) nor what it was (30): someone changed it again
     live = _p(f).live("lambda_restore_settings", LAM)
-    assert live["settings"] == set() and "moved since" in live["refused"]
+    assert live["settings"] == set()
+    assert "moved since" in live["refused"]

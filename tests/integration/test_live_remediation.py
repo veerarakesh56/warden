@@ -89,10 +89,12 @@ def _params(**kw):
 
 def test_live_reads_the_real_deployment(apps, target):
     live = KubernetesPlatform(apps=apps, namespace=NS).live("k8s_scale", _params())
-    assert NAME in live["deployment"] and live["namespace"] == {NS}
+    assert NAME in live["deployment"]
+    assert live["namespace"] == {NS}
     assert live["state"]["replicas"] == live["current_replicas"] >= 1
     # The API's own default strategy, read as the C10 check reads it: RollingUpdate, maxUnavailable "25%", rounded down.
-    assert live["at_once"] == live["current_replicas"] * 25 // 100 and live["rollout"] in ("complete", "progressing")
+    assert live["at_once"] == live["current_replicas"] * 25 // 100
+    assert live["rollout"] in ("complete", "progressing")
     assert live["environment"] == "dev"  # the Deployment's own label, read for P18 (register S6)
 
 
@@ -141,7 +143,8 @@ def test_the_platform_works_as_the_least_privilege_service_account(apps, target)
     live = p.live("k8s_scale", _params())
     assert live, "the remediator could not read the Deployment it is meant to change (is remediation-rbac.yaml applied?)"
     # Register C4: the role lists HPAs, so "no autoscaler owns this count" is read, not assumed.
-    assert live["autoscaled"] is False and live["gitops"] == "", live
+    assert live["autoscaled"] is False, live
+    assert live["gitops"] == "", live
     before = live["current_replicas"]
     p.apply("k8s_scale", _params(replicas=before + 1))
     assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == before + 1
@@ -277,7 +280,8 @@ def test_no_series_of_patches_takes_the_count_below_where_warden_found_it(apps, 
                                                               "spec": {"replicas": 4}})
         p.rollback("k8s_scale", _params(replicas=5), {"replicas": 3})
         after = apps.read_namespaced_deployment(NAME, NS)
-        assert after.spec.replicas == 3 and SCALED_FROM not in (after.metadata.annotations or {})
+        assert after.spec.replicas == 3
+        assert SCALED_FROM not in (after.metadata.annotations or {})
         with pytest.raises(ApiException):  # and no further: nothing is recorded below the start
             remediator.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 1}})
         assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == 3

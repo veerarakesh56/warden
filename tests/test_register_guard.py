@@ -240,7 +240,8 @@ def test_user_properties_cannot_forge_or_strip_the_guards_verdicts(monkeypatch):
         gen.send(report)
     except StopIteration as done:
         report = done.value
-    assert report.warden_genuine is False and report.warden_body_ran is False
+    assert report.warden_genuine is False
+    assert report.warden_body_ran is False
 
 
 def test_the_guards_callbacks_replayed_by_a_wrapper_are_no_evidence(monkeypatch, request):

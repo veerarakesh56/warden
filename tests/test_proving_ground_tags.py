@@ -26,7 +26,8 @@ def _terraform_tags() -> dict[str, str]:
     tags = dict(re.findall(r'^\s+(\w+)\s+=\s+"([^"]+)"', block, re.MULTILINE))
     # The stack's environment is configuration: the first of environments.yaml `fault_environments` (main.tf's
     # coalesce), never a default written in variables.tf.
-    assert "yamldecode(" in main and ".fault_environments[0])" in main
+    assert "yamldecode(" in main
+    assert ".fault_environments[0])" in main
     from warden.environments import EnvironmentPolicies
 
     tags["Environment"] = EnvironmentPolicies.load().fault_environments[0]
@@ -36,7 +37,9 @@ def _terraform_tags() -> dict[str, str]:
 def test_every_guard_checks_the_tag_terraform_applies():
     tags = _terraform_tags()
     stack = ("Stack", tags["Stack"])
-    assert ops.STACK_TAG == stack and ops_db.STACK_TAG == stack and teardown_sweep.STACK == stack
+    assert ops.STACK_TAG == stack
+    assert ops_db.STACK_TAG == stack
+    assert teardown_sweep.STACK == stack
     assert runner._FakeAws().describe_clusters()["clusters"][0]["tags"] == [{"key": "Stack", "value": tags["Stack"]}]
 
 
@@ -68,4 +71,5 @@ def test_the_proof_script_looks_for_leftovers_by_the_tag_terraform_applies():
     stack = _terraform_tags()["Stack"]
     proof = (ROOT / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")
     filters = re.findall(r"--tag-filters (Key=\w+,Values=[\w-]+)", proof)
-    assert filters and set(filters) == {f"Key=Stack,Values={stack}"}, filters
+    assert filters, filters
+    assert set(filters) == {f"Key=Stack,Values={stack}"}, filters

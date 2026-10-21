@@ -131,7 +131,8 @@ def test_a_fault_runs_in_the_registered_order(tmp_path):
         "baseline", "alarm",          # back at baseline afterwards
     ]
     rec = _record(tmp_path, "fs-27")
-    assert rec["status"] == "ok" and rec["revert_ok"] is True
+    assert rec["status"] == "ok"
+    assert rec["revert_ok"] is True
     assert rec["runs"][0]["fix"]["outcome"] == "execution_disabled"
     assert rec["baseline_after"]["clean"] is True
 
@@ -145,7 +146,8 @@ def test_the_steps_can_run_as_separate_commands_hours_apart(tmp_path):
     cli.step_verify(fake_env(events), tmp_path, "fs-09")
     cli.step_revert(fake_env(events), tmp_path, "fs-09")
     rec = _record(tmp_path, "fs-09")
-    assert rec["runs"][0]["fix"]["outcome"] == "execution_disabled" and rec["revert_ok"]
+    assert rec["runs"][0]["fix"]["outcome"] == "execution_disabled"
+    assert rec["revert_ok"]
     assert json.loads((tmp_path / "state.json").read_text())["active"] is None
 
 
@@ -297,7 +299,8 @@ def test_fix_outcomes(tmp_path, kw, outcome, ran):
     cli.step_run(fake_env(events, **kw), tmp_path, "fs-27")
     fix = _record(tmp_path, "fs-27")["runs"][0]["fix"]
     assert fix["outcome"] == outcome
-    assert "fix" not in events and ran is False, "the harness runs no fix command"
+    assert "fix" not in events, "the harness runs no fix command"
+    assert ran is False, "the harness runs no fix command"
 
 
 def test_with_no_fix_applied_the_state_is_checked_once_not_waited_on(tmp_path):
@@ -326,7 +329,9 @@ def test_warden_gets_only_the_reader_identity(tmp_path, monkeypatch):
     assert OPERATOR_KEY not in json.dumps(got)
     assert got["WARDEN_BACKEND"] == "stack"
     assert got["WARDEN_TOOL_TIMEOUT"] == "30"
-    assert got["KUBECONFIG"] and got["WARDEN_STACK_DB_PRIMARY_RO_DSN"] and got["WARDEN_STACK_DB_REPLICA_RO_DSN"]
+    assert got["KUBECONFIG"]
+    assert got["WARDEN_STACK_DB_PRIMARY_RO_DSN"]
+    assert got["WARDEN_STACK_DB_REPLICA_RO_DSN"]
     assert got["WARDEN_PROVIDER"] == "claude_cli", "the provider is the operator's choice"
     assert got["WARDEN_KNOWLEDGE_IN_PROMPT"] == "1"
     rec = _record(tmp_path, "fs-27")
@@ -348,7 +353,8 @@ def test_the_dsns_never_reach_the_command_line(tmp_path, monkeypatch):
     cli._subprocess_warden(5)({"WARDEN_STACK_DB_PRIMARY_RO_DSN": "postgresql://warden_ro:pw@x/shop"},
                               tmp_path / "a.yaml", tmp_path / "r.json")
     assert "pw@" not in " ".join(captured["cmd"])
-    assert "--json" in captured["cmd"] and "--alert" in captured["cmd"]
+    assert "--json" in captured["cmd"]
+    assert "--alert" in captured["cmd"]
 
 
 def test_the_harness_does_not_import_the_tool_under_test():
@@ -425,7 +431,8 @@ def test_the_run_directory_scores_with_a_fix_column(tmp_path):
     assert summary["alarm_never_fired"] == 2
     markdown = score.render_markdown(scored, summary)
     assert "## 8. Fix" in markdown
-    assert scored["rubric_drift"] is False and scored["catalog_drift"] is False
+    assert scored["rubric_drift"] is False
+    assert scored["catalog_drift"] is False
 
 
 def test_a_changed_rubric_stops_the_next_step(tmp_path):
@@ -591,7 +598,9 @@ def test_only_a_diagnose_that_wrote_no_report_may_be_retried_and_it_stays_on_rec
     rec = cli.step_diagnose(env, tmp_path, "fs-00", retry_reason="provider timeout, fixed in the provider")
     assert rec["runs"][0]["report_written"] is True
     kept = rec["attempts_without_report"]
-    assert len(kept) == 1 and kept[0]["exit_code"] == 1 and "45s" in kept[0]["stderr_tail"]
+    assert len(kept) == 1
+    assert kept[0]["exit_code"] == 1
+    assert "45s" in kept[0]["stderr_tail"]
     manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
     assert "provider timeout" in manifest["resumes"][-1]["reason"]
     with pytest.raises(cli.StepError, match="one run per fault"):
@@ -626,7 +635,8 @@ def test_a_mid_run_isolation_change_and_a_hand_repair_are_printed_in_the_results
     gt.write_text(json.dumps(record), encoding="utf-8")
     assert cli.main(["--run", str(tmp_path), "--dry-run", "score"]) == 0
     results = (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
-    assert "Evidence isolation changed" in results and "deploy_window_m" in results
+    assert "Evidence isolation changed" in results
+    assert "deploy_window_m" in results
     assert "rolled catalog-api back by hand" in results
 
 
@@ -653,7 +663,8 @@ def test_the_alert_names_the_runs_own_environments_stack(tmp_path, monkeypatch, 
     names = [v for v in labels.values() if isinstance(v, str) and "warden-" in v]
     assert len(names) == 13, labels
     for value in names:
-        assert "__ENV__" not in value and all(n.startswith(prefix) for n in value.split(",")), value
+        assert "__ENV__" not in value, value
+        assert all(n.startswith(prefix) for n in value.split(",")), value
 
 
 def test_a_fault_needs_a_full_soak_and_a_destroy_a_full_watch_after_the_last_activity(tmp_path):
@@ -676,7 +687,8 @@ def test_a_fault_needs_a_full_soak_and_a_destroy_a_full_watch_after_the_last_act
     cli._set_state(run, last_activity_at="2999-01-01T00:00:00+00:00")  # an activity after the watch began
     assert any("before the run's last activity" in p for p in cli.destroy_problems(run))
     watch = _json.loads((run / "watch.json").read_text(encoding="utf-8"))
-    assert watch["minutes"] == 30 and watch["started_at"] <= watch["finished_at"]
+    assert watch["minutes"] == 30
+    assert watch["started_at"] <= watch["finished_at"]
     cli._set_state(run, active="fs-01")
     assert any("still injected" in p for p in cli.destroy_problems(run))
     assert cli.main(["--run", str(run), "--dry-run", "destroy-check"]) == 1

@@ -89,7 +89,8 @@ def test_a_recent_template_change_is_reported_as_a_deploy(backend, alert):
     """The workload was created minutes ago: first rollout, so it counts. A later
     `kubectl rollout restart` would NOT - see the unit test for that case."""
     d = backend.deploys(alert)
-    assert len(d) == 1 and d[0]["deployment"] == "checkout"
+    assert len(d) == 1
+    assert d[0]["deployment"] == "checkout"
     assert "busybox" in d[0]["image"]
 
 

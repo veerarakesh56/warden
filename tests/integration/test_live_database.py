@@ -108,9 +108,11 @@ def test_postgres_access_lists_the_real_databases_and_who_may_connect():
         cur.execute("SELECT current_database()")
         here = cur.fetchone()[0]
     conn.close()
-    assert lines[0].startswith("STATE postgres login_roles=") and PG_USER in lines[0].split("=", 1)[1].split(","), lines
+    assert lines[0].startswith("STATE postgres login_roles="), lines
+    assert PG_USER in lines[0].split("=", 1)[1].split(","), lines
     mine = [ln for ln in lines if ln.startswith(f"STATE postgres database {here} ")]
-    assert mine and PG_USER in mine[0].split("connect_roles=", 1)[1].split(","), lines
+    assert mine, lines
+    assert PG_USER in mine[0].split("connect_roles=", 1)[1].split(","), lines
     assert not any(" database warden_no_such_db " in ln for ln in lines)
 
 
@@ -274,7 +276,8 @@ def test_postgres_blocker_close_finds_and_closes_only_the_session_still_blocking
             time.sleep(0.25)
         assert [pid for pid, _, _ in found] == [blocker_pid], found
         (_, started, blocking), = found
-        assert blocking == 1 and started
+        assert blocking == 1
+        assert started
         assert platform_db._Postgres.blockers(admin, ["someone_else"], 1, 20) == []
         assert platform_db._Postgres.blockers(admin, [PG_USER], 3600, 20) == [], "a wait of seconds is not an hour's"
         # The close re-checks on the real server: another backend start, or another login, closes nothing.

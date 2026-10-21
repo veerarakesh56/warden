@@ -41,9 +41,11 @@ def test_the_report_and_so_slack_show_both():
     md = build_report(r.alert, root_cause=r.root_cause, proposal=r.proposal, verdict=r.verdict, context=r.context,
                       redaction_map=r.redaction_map, show_identifiers=False).markdown
     header = next(line for line in md.splitlines() if line.startswith("Severity"))
-    assert "Z (" in header and "IST)" in header, header
+    assert "Z (" in header, header
+    assert "IST)" in header, header
     timeline = md.split("## Timeline", 1)[1].split("\n## ", 1)[0]
-    assert timeline.count("IST)") >= 1 and "Z (" in timeline, timeline
+    assert timeline.count("IST)") >= 1, timeline
+    assert "Z (" in timeline, timeline
 
 
 def test_every_time_the_docs_give_in_utc_also_gives_ist():
@@ -58,4 +60,5 @@ def test_every_time_the_docs_give_in_utc_also_gives_ist():
         p for p in (root / "docs").rglob("*.md") if "research" not in p.relative_to(root).parts]
     missing = [(f.name, s[m.start():m.end()]) for f in files for s in [f.read_text(encoding="utf-8")]
                for m in pat.finditer(s) if "IST" not in s[m.end():m.end() + 60]]
-    assert len(files) > 20 and missing == []
+    assert len(files) > 20
+    assert missing == []

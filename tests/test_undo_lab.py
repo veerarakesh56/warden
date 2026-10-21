@@ -45,8 +45,10 @@ def test_every_name_is_inside_the_labs_prefix_and_every_role_carries_the_boundar
     assert len(names) >= 14
     assert [n for n in names if not n[1].removeprefix("/aws/lambda/").startswith(f"warden-{ENV}-lab-")] == []
     roles = [body for kind, _, body in BLOCKS if kind == "aws_iam_role"]
-    assert len(roles) == 2 and all("permissions_boundary = local.permissions_boundary" in body for body in roles)
-    assert "WardenEnvBoundary-${local.env}" in TF and 'Project     = "warden"' in TF
+    assert len(roles) == 2
+    assert all("permissions_boundary = local.permissions_boundary" in body for body in roles)
+    assert "WardenEnvBoundary-${local.env}" in TF
+    assert 'Project     = "warden"' in TF
 
 
 def test_the_lab_exists_only_where_its_fault_role_does():
@@ -67,7 +69,8 @@ def test_the_scripts_baseline_is_the_one_terraform_declares():
     # A throttled table slows every write: the producer stops writing in time, so the table's fault never becomes the
     # function's (seen live 2026-10-11: both alarms fired for one cut).
     writing = int(re.search(r"write_seconds\s+= (\d+)", TF).group(1))
-    assert writing + work < undo_lab.TIMEOUT_SECONDS / 2 and 'os.environ["WRITE_SECONDS"]' in TF
+    assert writing + work < undo_lab.TIMEOUT_SECONDS / 2
+    assert 'os.environ["WRITE_SECONDS"]' in TF
     writes = int(re.search(r'variable "writes_per_minute".*?default\s+= (\d+)', TF, re.DOTALL).group(1))
     # One write unit serves 60 writes a minute: the cut throttles, the baseline never does.
     assert undo_lab.CUT_WRITE_UNITS * 60 < writes < undo_lab.WRITE_UNITS * 60
@@ -106,7 +109,8 @@ UNDO = {
 
 def test_each_alarm_reaches_the_resolver_as_the_resource_its_undo_changes():
     alarms = _alarms()
-    assert len(alarms) == 5 and all(a["period"] == 60 and a["periods"] <= 3 for a in alarms.values())
+    assert len(alarms) == 5
+    assert all(a["period"] == 60 and a["periods"] <= 3 for a in alarms.values())
     for suffix, (label, resource, entry) in UNDO.items():
         name = f"warden-{ENV}-lab-{suffix}"
         a = alarms[name]
@@ -125,7 +129,8 @@ def test_each_alarm_reaches_the_resolver_as_the_resource_its_undo_changes():
             return {}
 
         resolver.request_for(alert, proposal, live)
-        assert asked and asked[0][0] == entry, (name, asked)
+        assert asked, (name, asked)
+        assert asked[0][0] == entry, (name, asked)
         assert asked[0][1][catalog.CATALOG[entry].target_param] == target
         assert resolver.no_fix_path(alert, proposal) == ""
     assert "lambda_restore_settings" in catalog.REVERT_ALSO["lambda"]
@@ -140,7 +145,8 @@ def test_terraform_never_repairs_a_fault_and_the_dropped_events_alarm_follows_as
                        "aws_lambda_function": "timeout, reserved_concurrent_executions",
                        "aws_lambda_event_source_mapping": "enabled", "aws_cloudwatch_event_rule": "state"}
     dropped = next(b for k, n, b in BLOCKS if n == "producer_dropped")
-    assert 'metric_name         = "AsyncEventsDropped"' in dropped and '"Throttles"' not in TF
+    assert 'metric_name         = "AsyncEventsDropped"' in dropped
+    assert '"Throttles"' not in TF
 
 
 def test_no_alarm_text_names_its_cause():
@@ -232,17 +238,20 @@ def test_a_fault_is_one_change_on_a_lab_at_its_baseline_and_its_restore_writes_t
     assert f.calls == [WRITES[fault][0]]
     undo_lab.restore(fault, ENV, f)
     assert f.calls == list(WRITES[fault])
-    assert "already" in undo_lab.restore(fault, ENV, f) and f.calls == list(WRITES[fault])
+    assert "already" in undo_lab.restore(fault, ENV, f)
+    assert f.calls == list(WRITES[fault])
     assert all(line.count("(baseline") == 0 for line in undo_lab.status(ENV, f))
 
 
 def test_the_command_line_refuses_without_a_fault_and_says_when_in_both_zones(capsys):
     f = Lab()
-    assert undo_lab.main(["status"], clients=f) == 0 and "alarm warden-dev-lab-tick-silent: OK" in capsys.readouterr().out
+    assert undo_lab.main(["status"], clients=f) == 0
+    assert "alarm warden-dev-lab-tick-silent: OK" in capsys.readouterr().out
     assert undo_lab.main(["inject", "schedule_disabled"], clients=f) == 0
     assert re.search(r"\d\d:\d\d:\d\d UTC / \d\d:\d\d:\d\d IST  inject schedule_disabled: .*ENABLED -> DISABLED",
                      capsys.readouterr().out)
-    assert undo_lab.main(["inject", "table_capacity"], clients=f) == 1 and "refused" in capsys.readouterr().err
+    assert undo_lab.main(["inject", "table_capacity"], clients=f) == 1
+    assert "refused" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         undo_lab.main(["inject"], clients=f)
     with pytest.raises(SystemExit):
