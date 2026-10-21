@@ -98,18 +98,21 @@ def qualify(a: argparse.Namespace) -> int:
     for price in ("WARDEN_PRICE_IN", "WARDEN_PRICE_OUT"):
         os.environ.pop(price, None)  # each model at its own price (providers.yaml `prices`)
     code = qualify_provider.main(["--out", str(a.out), "--budget-usd", str(a.budget_usd)])
-    if code not in (0, 1):  # 0 passed, 1 measured below the bar; anything else stopped before a result was written
-        return code
-    result = json.loads((a.out / "qualification.json").read_text(encoding="utf-8"))
-    if a.record:
-        text, line = recorded(result, PROVIDERS_YAML.read_text(encoding="utf-8"))
-        PROVIDERS_YAML.write_text(text, encoding="utf-8", newline="\n")
-        print("recorded in providers.yaml:", line)
-        sys.path.insert(0, str(ROOT / "scripts"))
-        import safety_pins
-
-        safety_pins.main()
+    # 0 passed, 1 measured below the bar: a result to record. Anything else stopped before one was written.
+    if a.record and code in (0, 1):
+        _record(json.loads((a.out / "qualification.json").read_text(encoding="utf-8")))
     return code
+
+
+def _record(result: dict) -> None:
+    """The measured row into providers.yaml, and the safety pins rendered again with it."""
+    text, line = recorded(result, PROVIDERS_YAML.read_text(encoding="utf-8"))
+    PROVIDERS_YAML.write_text(text, encoding="utf-8", newline="\n")
+    print("recorded in providers.yaml:", line)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import safety_pins
+
+    safety_pins.main()
 
 
 JOBS: dict[str, Callable[[argparse.Namespace], int]] = {"qualify": qualify}
