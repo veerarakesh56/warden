@@ -580,7 +580,7 @@ def stack_problems(env: Env) -> list[str]:
     for name in sorted({s["alarm"] for s in _catalog().values() if s.get("alarm")}):
         try:
             state = env.alarm(name).get("state")
-        except Exception as exc:  # noqa: BLE001  # any read error: an unreadable alarm is a problem, never OK
+        except Exception as exc:  # noqa: BLE001  # any read error: an unreadable alarm is a problem and never OK
             state = f"unreadable ({type(exc).__name__})"
         if state not in ("OK", "INSUFFICIENT_DATA"):
             problems.append(f"alarm {name} is {state}")
@@ -799,7 +799,7 @@ def step_verify(env: Env, run: pathlib.Path, key: str, *, timeout_s: float | Non
     def check() -> bool:
         try:
             ok, detail = env.faults[fid].verify(env.clients, env.target)
-        except Exception as exc:  # noqa: BLE001  # any verifier error is "not fixed", with its detail
+        except Exception as exc:  # noqa: BLE001  # any verifier error is "not fixed" with its detail
             ok, detail = False, f"verifier failed: {type(exc).__name__}: {exc}"
         last.update(ok=ok, detail=detail)
         return ok

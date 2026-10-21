@@ -153,7 +153,7 @@ def op_db_saturate_connections(clients: Clients, target: Target, *, target_pct: 
         try:
             _HELD.append(clients.connect())
             opened += 1
-        except Exception as exc:  # noqa: BLE001  # the server refusing IS the result here, reported
+        except Exception as exc:  # noqa: BLE001  # the server refusing IS the result here; reported
             # Reported, never silently treated as if the target had been reached.
             return {"max_connections": max_conn, "opened": opened, "stopped_early": str(exc)[:120]}
     return {"max_connections": max_conn, "opened": opened, "target_pct": int(target_pct)}

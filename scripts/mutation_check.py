@@ -524,7 +524,7 @@ def _kill_tree(proc: subprocess.Popen) -> None:
     if os.name == "nt" and not taskkill:
         proc.kill()  # no taskkill found: pytest itself at least
     elif taskkill:
-        subprocess.run([taskkill, "/T", "/F", "/PID", str(proc.pid)],  # nosec B603  # a fixed argv, no shell
+        subprocess.run([taskkill, "/T", "/F", "/PID", str(proc.pid)],  # nosec B603  # a fixed argv and no shell
                        capture_output=True, check=False)
     else:
         import signal

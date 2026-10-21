@@ -29,7 +29,7 @@ import datetime as dt
 import pathlib
 import re
 import shutil
-import subprocess  # nosec B404  # runs Windows' own certreq/certutil, by full path
+import subprocess  # nosec B404  # runs Windows' own certreq/certutil by full path
 import sys
 
 from cryptography import x509
@@ -145,14 +145,14 @@ def _tool(name: str) -> str:
 
 
 def _run(*argv: str) -> None:
-    r = subprocess.run([_tool(argv[0]), *argv[1:]], capture_output=True, text=True, check=False)  # nosec B603  # a fixed argv, no shell
+    r = subprocess.run([_tool(argv[0]), *argv[1:]], capture_output=True, text=True, check=False)  # nosec B603  # a fixed argv and no shell
     if r.returncode:
         sys.exit(f"FAILED: {argv[0]} {argv[1]} exit {r.returncode}\n{r.stdout}{r.stderr}")
 
 
 def _request_serials() -> list[str]:
     """Serials of our pending requests in the user's REQUEST store (certreq leaves one behind)."""
-    out = subprocess.run([_tool("certutil"), "-user", "-store", "REQUEST"],  # nosec B603  # a fixed argv, no shell
+    out = subprocess.run([_tool("certutil"), "-user", "-store", "REQUEST"],  # nosec B603  # a fixed argv and no shell
                          capture_output=True, text=True, check=False).stdout
     serials, serial = [], None
     for line in out.splitlines():
@@ -174,7 +174,7 @@ def main() -> None:
     if sys.platform != "win32":
         sys.exit("Windows only: the key lives in the Windows TPM key store.")
     if args.cmd == "show":
-        subprocess.run([_tool("certutil"), "-user", "-store", "My", SUBJECT_CN], check=False)  # nosec B603  # a fixed argv, no shell
+        subprocess.run([_tool("certutil"), "-user", "-store", "My", SUBJECT_CN], check=False)  # nosec B603  # a fixed argv and no shell
         return
     OUT.mkdir(parents=True, exist_ok=True)
     inf, csr, ca_pem, leaf_pem = (OUT / n for n in ("request.inf", "request.csr", "ca.pem", "laptop.pem"))

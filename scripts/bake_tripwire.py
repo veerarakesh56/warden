@@ -20,7 +20,7 @@ import hashlib
 import json
 import os
 import pathlib
-import subprocess  # nosec B404  # runs this same Python on fixed code, to load the model as the worker does
+import subprocess  # nosec B404  # runs this same Python on fixed code to load the model as the worker does
 import sys
 
 FILES = {
@@ -73,7 +73,7 @@ def check(cache: pathlib.Path) -> tuple[float, float]:
     is first imported, so this process, which has fetched, cannot stand in for the worker) - and score one injection
     and one plain alert."""
     env = {**os.environ, "HF_HUB_CACHE": str(cache), "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
-    run = subprocess.run([sys.executable, "-c", _PROBE, ATTACK, BENIGN], env=env, capture_output=True, text=True,  # nosec B603  # this Python, fixed code
+    run = subprocess.run([sys.executable, "-c", _PROBE, ATTACK, BENIGN], env=env, capture_output=True, text=True,  # nosec B603  # this Python on fixed code
                          check=False, timeout=600)
     if run.returncode:
         raise SystemExit(f"the tripwire could not be loaded offline: {(run.stderr.strip().splitlines() or ['?'])[-1]}")
