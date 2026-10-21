@@ -185,10 +185,17 @@ resource "aws_vpc_endpoint" "gateway" {
 # from the code (tests/test_iac_hardening_sonar.py derives it again and compares):
 #   secretsmanager - order-processor, reconciler and traffic read a secret; Fargate fetches orders-api's `secrets`
 #   sqs            - traffic sends orders
-#   logs           - orders-api's awslogs driver (a Lambda's logs go through the Lambda service, not its ENI)
-#   ecr.api, ecr.dkr - orders-api's image from this stack's ECR (its layers come through the S3 gateway endpoint)
-# Not here, because the code makes no such call: STS (credentials come from the Lambda environment and the ECS
-# credentials endpoint), KMS (Secrets Manager decrypts server-side), RDS (generate_db_auth_token signs locally).
+#   logs           - orders-api's awslogs driver; on EKS, the amazon-cloudwatch-observability agent's Container
+#                    Insights records (/aws/containerinsights/<cluster>/performance, which the pod_status alarms read).
+#                    A Lambda's logs go through the Lambda service, not its ENI.
+#   ecr.api, ecr.dkr - orders-api's image from this stack's ECR (its layers come through the S3 gateway endpoint); on
+#                    EKS, the nodes' pulls of the shop image (the same ECR) and of the add-on images (vpc-cni,
+#                    kube-proxy, coredns, ... from AWS's regional *.dkr.ecr registry, which private DNS also sends here)
+# Private DNS answers for the WHOLE VPC, so every in-VPC caller of these services must be let in by the endpoint
+# group below - the EKS nodes and pods (the cluster security group) as much as the app groups.
+# Not here, because the code makes no such call: STS (credentials come from the Lambda environment, the ECS
+# credentials endpoint and the EKS Pod Identity agent - eks-auth, through the NAT), KMS (Secrets Manager decrypts
+# server-side), RDS (generate_db_auth_token signs locally), X-Ray (the EKS collector's, through the NAT).
 # Not execute-api: with private DNS it would take the traffic Lambda's calls to the PUBLIC HTTP API, which a VPC
 # endpoint cannot serve. Price (AWS Price List API, ap-south-2, published 2026-10-16, read 2026-10-21): USD 0.013 per
 # endpoint-hour per AZ - in both private subnets, USD 18.98 a month each, USD 94.90 for the five, plus USD 0.01/GB.
@@ -204,24 +211,21 @@ resource "aws_security_group" "endpoints" {
 }
 
 # Separate rules: the endpoint group and the application groups name each other (a cycle inside the blocks).
+# eks: the cluster security group, which EKS puts on the nodes and (VPC CNI) the pods. Its egress is EKS's own
+# allow-all, so it needs no rule of ours on that side.
 resource "aws_vpc_security_group_ingress_rule" "endpoints" {
-  for_each                     = { ecs = aws_security_group.ecs.id, lambda = aws_security_group.lambda.id, traffic = aws_security_group.traffic.id }
+  for_each = {
+    ecs     = aws_security_group.ecs.id
+    lambda  = aws_security_group.lambda.id
+    traffic = aws_security_group.traffic.id
+    eks     = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
+  }
   security_group_id            = aws_security_group.endpoints.id
   description                  = "HTTPS from the ${each.key} group"
   ip_protocol                  = "tcp"
   from_port                    = 443
   to_port                      = 443
   referenced_security_group_id = each.value
-}
-
-resource "aws_vpc_security_group_egress_rule" "to_endpoints" {
-  for_each                     = { ecs = aws_security_group.ecs.id, lambda = aws_security_group.lambda.id }
-  security_group_id            = each.value
-  description                  = "HTTPS to the AWS API interface endpoints only"
-  ip_protocol                  = "tcp"
-  from_port                    = 443
-  to_port                      = 443
-  referenced_security_group_id = aws_security_group.endpoints.id
 }
 
 resource "aws_vpc_endpoint" "interface" {
@@ -238,12 +242,18 @@ resource "aws_vpc_endpoint" "interface" {
 # --------------------------------------------------------------------------- security groups
 #
 # ⚠ Descriptions: EC2 accepts only [0-9A-Za-z_ .:/()#,@[]+=&;{}!$*-]. No apostrophes.
+# ⚠ A group's own `description` forces a NEW group (and the old one cannot be deleted while an ALB, a task or a
+# Lambda ENI uses it), so the group descriptions below stay as they were; the rules carry the detail.
 # Rules that a fault revokes (fs-10: Redis ingress from the app SGs) are separate resources, so the
 # harness can revoke and restore exactly one rule by id.
+# ⛔ A group's egress is EITHER inline `egress {}` blocks OR separate aws_vpc_security_group_egress_rule resources,
+# never both (the same for ingress): with inline blocks the group resource owns the whole set and revokes, on the next
+# apply, every rule its blocks do not list - a separate rule disappears and comes back on alternate applies
+# (tests/test_iac_hardening_sonar.py refuses the mix). The application groups (ecs, lambda, traffic) use separate rules.
 
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb"
-  description = "Orders API load balancer, internal. HTTPS from the traffic Lambda only."
+  description = "Orders API load balancer, internal. HTTP from the in-VPC Lambdas only."
   vpc_id      = aws_vpc.this.id
   ingress {
     description = "HTTPS from the traffic Lambda group only"
@@ -262,6 +272,9 @@ resource "aws_security_group" "alb" {
   }
 }
 
+# orders-api. Least egress (owner B28), from what orders-api does (scenarios/fullstack/app/app.py), in the separate
+# rules below: HTTPS to the AWS API interface endpoints, PostgreSQL to Aurora and Redis to the cache's own group.
+# DNS and the time service are not filtered by security groups.
 resource "aws_security_group" "ecs" {
   name        = "${local.name}-ecs"
   description = "orders-api tasks. 8080 from the load balancer only."
@@ -273,60 +286,15 @@ resource "aws_security_group" "ecs" {
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
-  # Least egress (owner B28), from what orders-api does (scenarios/fullstack/app/app.py): HTTPS to the AWS API
-  # interface endpoints (a separate rule, aws_vpc_security_group_egress_rule.to_endpoints), PostgreSQL to Aurora and
-  # Redis to the cache's own group. DNS and the time service are not filtered by security groups.
-  # Still open to the internet, each for a reason no endpoint covers:
-  # - 443: terraform's PLACEHOLDER image is on public.ecr.aws (ecs.tf), which no VPC endpoint serves. The APPS
-  #   pipeline's real image comes from this stack's ECR through the endpoints. Removing this rule needs the
-  #   placeholder pulled through an ECR pull-through cache (an IAM change: the owner kept this rule on 2026-10-21, PR 129).
-  # - 5432: Aurora in EXPRESS configuration (the Free plan's only form) has no VPC and no security group; its only way
-  #   in is the Aurora internet access gateway, which cannot be disabled, at no fixed address (aurora_express.py).
-  egress {
-    description = "HTTPS to public.ecr.aws for the placeholder image only, through the NAT"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    description = "PostgreSQL to Aurora express, outside the VPC, through the NAT"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    description     = "Redis to the cache only"
-    from_port       = 6379
-    to_port         = 6379
-    protocol        = "tcp"
-    security_groups = [aws_security_group.redis.id]
-  }
 }
 
+# The in-VPC Lambdas except traffic (order-processor, reconciler, ops). Least egress (owner B28), from what these
+# functions do (scenarios/fullstack/lambdas): order-processor and reconciler read a secret (the endpoints) and Aurora,
+# reconciler and ops read Redis.
 resource "aws_security_group" "lambda" {
   name        = "${local.name}-lambda"
-  description = "In-VPC Lambdas but traffic. Egress only."
+  description = "In-VPC Lambdas. Egress only."
   vpc_id      = aws_vpc.this.id
-  # Least egress (owner B28), from what these functions do (scenarios/fullstack/lambdas): order-processor and
-  # reconciler read a secret (the endpoints, aws_vpc_security_group_egress_rule.to_endpoints) and Aurora, reconciler
-  # and ops read Redis. Still open to the internet: 5432 only - Aurora EXPRESS has no VPC and no security group, its
-  # only way in is its internet access gateway, at no fixed address (aurora_express.py).
-  egress {
-    description = "PostgreSQL to Aurora express, outside the VPC, through the NAT"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    description     = "Redis to the cache only"
-    from_port       = 6379
-    to_port         = 6379
-    protocol        = "tcp"
-    security_groups = [aws_security_group.redis.id]
-  }
 }
 
 # The traffic Lambda alone (fs load generator): it calls the shop's PUBLIC HTTP API, which no VPC endpoint can serve,
@@ -336,13 +304,63 @@ resource "aws_security_group" "traffic" {
   name        = "${local.name}-traffic"
   description = "The traffic Lambda. Egress only."
   vpc_id      = aws_vpc.this.id
-  egress {
-    description = "HTTPS to the public API (internet), the ALB and the endpoints"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+}
+
+resource "aws_vpc_security_group_egress_rule" "to_endpoints" {
+  for_each                     = { ecs = aws_security_group.ecs.id, lambda = aws_security_group.lambda.id }
+  security_group_id            = each.value
+  description                  = "HTTPS to the AWS API interface endpoints only"
+  ip_protocol                  = "tcp"
+  from_port                    = 443
+  to_port                      = 443
+  referenced_security_group_id = aws_security_group.endpoints.id
+}
+
+# Still open to the internet, each for a reason no endpoint covers:
+# - 443 (ecs): terraform's PLACEHOLDER image is on public.ecr.aws (ecs.tf), which no VPC endpoint serves. The APPS
+#   pipeline's real image comes from this stack's ECR through the endpoints. Removing this rule needs the
+#   placeholder pulled through an ECR pull-through cache (an IAM change: the owner kept this rule on 2026-10-21, PR 129).
+resource "aws_vpc_security_group_egress_rule" "ecs_placeholder_image" {
+  security_group_id = aws_security_group.ecs.id
+  description       = "HTTPS to public.ecr.aws for the placeholder image only, through the NAT"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
+# - 443 (traffic): the shop's PUBLIC HTTP API (API Gateway), which no VPC endpoint serves; the same rule reaches the
+#   internal ALB and the endpoints.
+resource "aws_vpc_security_group_egress_rule" "traffic_https" {
+  security_group_id = aws_security_group.traffic.id
+  description       = "HTTPS to the public API (internet), the ALB and the endpoints"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
+# - 5432 (ecs, lambda): Aurora in EXPRESS configuration (the Free plan's only form) has no VPC and no security group;
+#   its only way in is the Aurora internet access gateway, which cannot be disabled, at no fixed address
+#   (aurora_express.py).
+resource "aws_vpc_security_group_egress_rule" "aurora" {
+  for_each          = { ecs = aws_security_group.ecs.id, lambda = aws_security_group.lambda.id }
+  security_group_id = each.value
+  description       = "PostgreSQL to Aurora express, outside the VPC, through the NAT"
+  ip_protocol       = "tcp"
+  from_port         = 5432
+  to_port           = 5432
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
+resource "aws_vpc_security_group_egress_rule" "redis" {
+  for_each                     = { ecs = aws_security_group.ecs.id, lambda = aws_security_group.lambda.id }
+  security_group_id            = each.value
+  description                  = "Redis to the cache only"
+  ip_protocol                  = "tcp"
+  from_port                    = 6379
+  to_port                      = 6379
+  referenced_security_group_id = aws_security_group.redis.id
 }
 
 locals {

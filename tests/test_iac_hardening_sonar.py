@@ -74,6 +74,7 @@ def test_every_container_of_the_flagged_manifests_declares_its_resources():
 # Aurora in express configuration (outside the VPC, through the NAT) over PostgreSQL, and the cache over Redis; the
 # traffic Lambda also calls the internal load balancer, over HTTPS since main's listener moved to 443. Nothing else - no "all protocols" rule, no range.
 SHOP_MAIN = ROOT / "terraform" / "fullstack" / "main.tf"
+SHOP_TF = ROOT / "terraform" / "fullstack"
 SHOP_APPS = ROOT / "scenarios" / "fullstack"
 
 
@@ -84,56 +85,126 @@ def _shop_group(name: str) -> str:
     return m.group(1)
 
 
-def _shop_egress(name: str) -> list[dict[str, str]]:
-    rules = []
-    for body in re.findall(r"^  egress \{\n(.*?)\n  \}", _shop_group(name), re.DOTALL | re.MULTILINE):
-        rule = dict(re.findall(r"^\s*(\w+)\s*=\s*(.+?)\s*$", body, re.MULTILINE))
-        rules.append(rule)
+def _owners(body: str) -> list[str]:
+    """The security groups a separate rule belongs to: its `security_group_id`, or every group of its for_each map."""
+    own = re.search(r"^\s*security_group_id\s*=\s*(.+?)\s*$", body, re.MULTILINE)
+    assert own, body
+    if own.group(1) == "each.value":
+        each = re.search(r"for_each\s*=\s*\{(.*?)\}", body, re.DOTALL)
+        assert each, body
+        return re.findall(r"aws_security_group\.(\w+)\.id", each.group(1))
+    return re.findall(r"aws_security_group\.(\w+)\.id", own.group(1))
+
+
+def _shop_egress() -> dict[str, list[dict[str, str]]]:
+    """Every separate egress rule of the shop stack, by the group it belongs to."""
+    rules: dict[str, list[dict[str, str]]] = {}
+    for where, body in _blocks("fullstack", "aws_vpc_security_group_egress_rule"):
+        attrs = dict(re.findall(r"^\s*(\w+)\s*=\s*(.+?)\s*$", body, re.MULTILINE))
+        for group in _owners(body):
+            rules.setdefault(group, []).append({"where": where, **attrs})
     return rules
 
 
-EVERYWHERE = '["0.0.0.0/0"]'
-REDIS = "[aws_security_group.redis.id]"
+EVERYWHERE = '"0.0.0.0/0"'
+REDIS = "aws_security_group.redis.id"
+ENDPOINTS = "aws_security_group.endpoints.id"
 # Owner decision 2026-10-21 (PR 129): AWS's APIs through interface endpoints, so the internet is left only where no
 # endpoint can serve: 5432 to Aurora express (no VPC, no security group), 443 for orders-api's placeholder image on
 # public.ecr.aws, and 443 for the traffic Lambda's calls to the PUBLIC HTTP API, in a group of its own.
 SHOP_EGRESS = {
-    "ecs": {("443", EVERYWHERE), ("5432", EVERYWHERE), ("6379", REDIS)},
-    "lambda": {("5432", EVERYWHERE), ("6379", REDIS)},
+    "ecs": {("443", ENDPOINTS), ("443", EVERYWHERE), ("5432", EVERYWHERE), ("6379", REDIS)},
+    "lambda": {("443", ENDPOINTS), ("5432", EVERYWHERE), ("6379", REDIS)},
     "traffic": {("443", EVERYWHERE)},
 }
 # The groups whose HTTPS to AWS goes to the endpoints, by a separate rule (the groups name each other).
 TO_ENDPOINTS = {"ecs", "lambda"}
+DESTINATIONS = ("cidr_ipv4", "cidr_ipv6", "prefix_list_id", "referenced_security_group_id")
 
 
 @pytest.mark.parametrize("name", sorted(SHOP_EGRESS))
 def test_each_app_group_allows_exactly_the_egress_its_code_needs(name):
-    rules = _shop_egress(name)
+    assert not re.search(r"^\s*egress\s*[{=]", _shop_group(name), re.MULTILINE), f"{name}: inline egress"
+    rules = _shop_egress().get(name, [])
     for r in rules:
-        assert r["protocol"] == '"tcp"', (name, r)
-        assert r["from_port"] == r["to_port"], (name, r)  # one port, never a range
-        # One destination per rule: the provider accepts both keys in one block and opens both (review, PR 129).
-        assert ("cidr_blocks" in r) != ("security_groups" in r), (name, r)
-    got = {(r["from_port"], r.get("cidr_blocks") or r.get("security_groups")) for r in rules}
+        assert r["ip_protocol"] == '"tcp"', r
+        assert r["from_port"] == r["to_port"], r  # one port, never a range
+        # One destination per rule (review, PR 129), and only the two kinds this stack uses.
+        assert [d for d in DESTINATIONS if d in r] in (["cidr_ipv4"], ["referenced_security_group_id"]), r
+    got = {(r["from_port"], r.get("cidr_ipv4") or r.get("referenced_security_group_id")) for r in rules}
     assert got == SHOP_EGRESS[name], (name, got)
     assert len(rules) == len(got), (name, rules)
 
 
-def test_https_to_aws_goes_to_the_endpoints_and_only_the_in_vpc_groups_reach_them():
+def _stacks() -> list[str]:
+    tf = ROOT / "terraform"
+    return sorted({p.parent.relative_to(tf).as_posix() for p in tf.rglob("*.tf") if ".terraform" not in p.parts})
+
+
+def _separate_rule_owners(stack: str, direction: str) -> set[str]:
+    owners = set()
+    for _, body in _blocks(stack, f"aws_vpc_security_group_{direction}_rule"):
+        owners.update(_owners(body))
+    for _, body in _blocks(stack, "aws_security_group_rule"):
+        if re.search(rf'^\s*type\s*=\s*"{direction}"', body, re.MULTILINE):
+            owners.update(_owners(body))
+    return owners
+
+
+@pytest.mark.parametrize("stack", _stacks())
+def test_no_security_group_mixes_inline_rules_with_separate_ones(stack):
+    """With inline `egress {}` / `ingress {}` blocks the group resource owns the whole set: on the next apply it revokes
+    every rule its blocks do not list, so a separate rule on the same group vanishes and comes back on alternate
+    applies (the AWS provider's documentation; review, PR 129)."""
+    for direction in ("egress", "ingress"):
+        separate = _separate_rule_owners(stack, direction)
+        for where, body in _blocks(stack, "aws_security_group"):
+            name = where.rsplit(":", 1)[1]
+            inline = re.search(rf"^\s*{direction}\s*[{{=]", body, re.MULTILINE)
+            assert not (inline and name in separate), f"{where}: inline {direction} and separate {direction} rules"
+
+
+def _in_vpc_groups() -> set[str]:
+    """The security groups the stack's in-VPC compute runs with, read from where each is attached: the Lambdas'
+    vpc_config, the ECS service, and the EKS nodes' launch template (the cluster security group, pods included)."""
+    lambdas = (SHOP_TF / "lambda.tf").read_text(encoding="utf-8")
+    vpc = re.search(r"^\s*security_group_ids\s*=\s*(.+)$", lambdas, re.MULTILINE)
+    assert vpc, "no Lambda vpc_config"
+    groups = set(re.findall(r"aws_security_group\.(\w+)\.id", vpc.group(1)))
+    ecs = (SHOP_TF / "ecs.tf").read_text(encoding="utf-8")
+    service = re.search(r"network_configuration \{(.*?)\}", ecs, re.DOTALL)
+    assert service, "no ECS network_configuration"
+    groups |= set(re.findall(r"aws_security_group\.(\w+)\.id", service.group(1)))
+    eks = (SHOP_TF / "eks.tf").read_text(encoding="utf-8")
+    nodes = re.search(r"network_interfaces \{(.*?)\}", eks, re.DOTALL)
+    assert nodes, "no node network_interfaces"
+    assert "aws_eks_cluster.this.vpc_config[0].cluster_security_group_id" in nodes.group(1)
+    return groups | {"eks"}
+
+
+def test_https_to_aws_goes_to_the_endpoints_and_every_in_vpc_caller_reaches_them():
+    """Private DNS answers for the whole VPC: every group in-VPC compute runs with must be let in, or its calls to
+    those services time out - the EKS nodes' image pulls and the Container Insights agent as much as the apps."""
     text = SHOP_MAIN.read_text(encoding="utf-8")
     egress = re.search(r'^resource "aws_vpc_security_group_egress_rule" "to_endpoints" \{\n(.*?)^\}', text,
                        re.DOTALL | re.MULTILINE)
     assert egress, "no egress rule to the endpoints"
     body = egress.group(1)
-    assert set(re.findall(r"(\w+) = aws_security_group\.\1\.id", body)) == TO_ENDPOINTS
-    assert "referenced_security_group_id = aws_security_group.endpoints.id" in body
+    assert set(_owners(body)) == TO_ENDPOINTS
+    assert f"referenced_security_group_id = {ENDPOINTS}" in body
     assert re.search(r"from_port\s*=\s*443", body)
     assert re.search(r"to_port\s*=\s*443", body)
     assert "cidr" not in body
     ingress = re.search(r'^resource "aws_vpc_security_group_ingress_rule" "endpoints" \{\n(.*?)^\}', text,
                         re.DOTALL | re.MULTILINE)
     assert ingress, "no ingress rule on the endpoints"
-    assert set(re.findall(r"(\w+) = aws_security_group\.\1\.id", ingress.group(1))) == TO_ENDPOINTS | {"traffic"}
+    each = re.search(r"for_each\s*=\s*\{(.*?)\}", ingress.group(1), re.DOTALL)
+    assert each, "the endpoint ingress names no groups"
+    admitted = dict(re.findall(r"^\s*(\w+)\s*=\s*(\S+)\s*$", each.group(1), re.MULTILINE))
+    assert set(admitted) == _in_vpc_groups()
+    assert admitted["eks"] == "aws_eks_cluster.this.vpc_config[0].cluster_security_group_id"
+    for key, ref in admitted.items():
+        assert key == "eks" or ref == f"aws_security_group.{key}.id", (key, ref)
     assert "cidr" not in ingress.group(1)
     group = _shop_group("endpoints")
     assert "egress" not in group
@@ -156,10 +227,29 @@ def _in_vpc_functions() -> set[str]:
     return set(re.findall(r"^    ([\w-]+) = \{\n(?:(?!^    \}).)*?in_vpc\s*=\s*true", lambdas, re.DOTALL | re.MULTILINE))
 
 
+def _eks_needs() -> set[str]:
+    """What the EKS nodes and pods fetch from the endpoints' services, read from eks.tf and the shop's deploy path."""
+    eks = (SHOP_TF / "eks.tf").read_text(encoding="utf-8")
+    needed = set()
+    # The nodes pull the add-ons' images (vpc-cni, kube-proxy, coredns, ...) from AWS's regional ECR registry.
+    assert 'resource "aws_eks_node_group"' in eks
+    assert 'resource "aws_eks_addon"' in eks
+    needed |= {"ecr.api", "ecr.dkr"}
+    # ... and the shop's image from this stack's ECR (Argo CD sets shop-app to the image deploy pushed there).
+    assert '"shop-app=__IMAGE__"' in (ROOT / "k8s" / "argocd" / "shop.yaml").read_text(encoding="utf-8")
+    assert "stack['ecr_repository_url']" in (ROOT / "scripts" / "deploy_fullstack_apps.py").read_text(encoding="utf-8")
+    # Container Insights: the observability agent writes its records to CloudWatch Logs (the pod alarms read them).
+    if "amazon-cloudwatch-observability" in eks:
+        assert "/aws/containerinsights/" in eks
+        needed.add("logs")
+    return needed
+
+
 def test_every_aws_call_the_in_vpc_code_makes_has_an_interface_endpoint():
     """Derived from the code: the boto3 clients of orders-api and of every in-VPC Lambda, plus what Fargate itself
-    fetches for orders-api (its image from ECR, its logs, its secrets). A client whose only call is local - the RDS
-    client signs IAM database tokens, no request - needs none; DynamoDB and S3 have gateway endpoints."""
+    fetches for orders-api (its image from ECR, its logs, its secrets), plus what the EKS nodes and pods fetch (images
+    from ECR, Container Insights logs). A client whose only call is local - the RDS client signs IAM database tokens,
+    no request - needs none; DynamoDB and S3 have gateway endpoints."""
     in_vpc = _in_vpc_functions()
     assert in_vpc == {"order-processor", "reconciler", "traffic", "ops"}, in_vpc
     sources = [SHOP_APPS / "app" / "app.py"] + [SHOP_APPS / "lambdas" / fn / "app.py" for fn in sorted(in_vpc)]
@@ -180,6 +270,7 @@ def test_every_aws_call_the_in_vpc_code_makes_has_an_interface_endpoint():
     apps = (ROOT / "scripts" / "deploy_fullstack_apps.py").read_text(encoding="utf-8")
     assert '"valueFrom": f"{secret}:' in apps  # orders-api's task secrets, which Fargate reads through the task ENI
     needed.add("secretsmanager")
+    needed |= _eks_needs()
     text = SHOP_MAIN.read_text(encoding="utf-8")
     listed = re.search(r'interface_endpoints = toset\(\[([^\]]*)\]\)', text)
     assert listed, "no interface endpoint list"
@@ -189,6 +280,17 @@ def test_every_aws_call_the_in_vpc_code_makes_has_an_interface_endpoint():
     free = set(re.findall(r'"([a-z0-9.-]+)"', gateway.group(1)))
     assert free == {"s3", "dynamodb"}
     assert needed - free == have, (sorted(needed - free), sorted(have))  # nothing missing, nothing paid for unused
+
+
+def test_the_smoke_test_after_a_network_apply_checks_every_path():
+    """A missing rule or endpoint is a silent timeout, found later. The stack README's steps after the apply exercise
+    each path anew (review, PR 129): drift, the endpoints, new ECS tasks on the ECR image, Lambda cold starts, fresh EKS
+    pulls, Container Insights."""
+    readme = (SHOP_TF / "README.md").read_text(encoding="utf-8")
+    for step in ("terraform plan -detailed-exitcode", "Name=vpc-endpoint-type,Values=Interface", "--force-new-deployment",
+                 "ecr_repository_url", "update-function-configuration", "rollout restart deployment/catalog-api",
+                 "ImagePullBackOff", "/aws/containerinsights/", "revoke-security-group-egress"):
+        assert step in readme, step
 
 
 def test_the_ports_are_the_ones_the_apps_use():

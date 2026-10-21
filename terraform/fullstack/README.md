@@ -125,6 +125,85 @@ run `deploy ecs` again after re-generating stack.json.
 `deploy k8s` also applies the ClusterRole `warden-readonly` from `k8s/rbac.yaml` (the six reads);
 `manifests/shop/base/warden-rbac.yaml` binds it in `shop` only.
 
+## After an apply that changes the network (interface endpoints and least egress, PR 129)
+
+A timeout here is silent: nothing fails at apply time, a pull or a call just hangs later. So after the apply that
+brings the endpoints (and after any later change to `main.tf`'s security groups), check every path once, in this
+order. `E=dev`, run from `terraform/fullstack` with the environment's deploy role.
+
+1. **Before the apply**, read the plan: no `aws_security_group` may be **replaced** (a group's description forces
+   that, and an ALB, a task or a Lambda ENI holding the old group makes the destroy hang). Expected: the endpoint group,
+   its 4 ingress rules, the 5 interface endpoints, the `traffic` group, the separate egress rules, the traffic
+   Lambda's `vpc_config`, the ALB's ingress rule.
+2. **Once, after that first apply**: the `ecs` and `lambda` groups still hold the old allow-all egress rule (inline
+   rules taken out of the configuration are left in AWS, not revoked). Revoke it:
+
+       for g in ecs lambda; do
+         id=$(aws ec2 describe-security-groups --filters Name=group-name,Values=warden-$E-$g --query 'SecurityGroups[0].GroupId' --output text)
+         aws ec2 revoke-security-group-egress --group-id "$id" --ip-permissions 'IpProtocol=-1,IpRanges=[{CidrIp=0.0.0.0/0}]'
+       done
+
+   Then each group's egress must be exactly what `main.tf` declares (ecs: 443 endpoints, 443 + 5432 to 0.0.0.0/0,
+   6379 redis; lambda: 443 endpoints, 5432, 6379 redis; traffic: 443 to 0.0.0.0/0) and no `-1`:
+
+       aws ec2 describe-security-group-rules --filters Name=group-id,Values="$id" \
+         --query 'SecurityGroupRules[?IsEgress].[IpProtocol,FromPort,CidrIpv4,ReferencedGroupInfo.GroupId]' --output table
+3. **A second plan must say `No changes.`** Anything else (a rule removed and added again, a group in-place update)
+   means a group mixes inline and separate rules: fix the configuration, do not apply over it.
+
+       WARDEN_ENV=$E terraform plan -detailed-exitcode   # exit code 0, not 2
+4. **The endpoints**: five interface endpoints, `available`, with private DNS:
+
+       aws ec2 describe-vpc-endpoints --filters Name=vpc-endpoint-type,Values=Interface Name=tag:Environment,Values=$E \
+         --query 'VpcEndpoints[].[ServiceName,State,PrivateDnsEnabled]' --output table
+5. **orders-api (ECR, Secrets Manager, Logs through the endpoints)**: a running task fetched its image and secret at
+   start, before the change, so start new ones, on the APPS pipeline's image (the placeholder comes from
+   `public.ecr.aws` through the NAT and proves nothing about the endpoints - run `deploy ecs` first if the service
+   still runs it):
+
+       aws ecs update-service --cluster warden-$E-ecs --service "$(terraform output -raw ecs_service)" --force-new-deployment >/dev/null
+       aws ecs wait services-stable --cluster warden-$E-ecs --services "$(terraform output -raw ecs_service)"
+       aws ecs describe-tasks --cluster warden-$E-ecs --tasks $(aws ecs list-tasks --cluster warden-$E-ecs --query 'taskArns' --output text) \
+         --query 'tasks[].[lastStatus,containers[0].image]' --output table
+
+   Every task `RUNNING`, every image starting with `terraform output -raw ecr_repository_url`, and new log streams
+   in `/ecs/warden-$E-orders-api`.
+6. **The in-VPC Lambdas (Secrets Manager, SQS through the endpoints)**: a warm environment keeps the secret it read
+   before the change, so force cold starts (a configuration update replaces the environments; the second update puts
+   the description back, so the plan stays empty), then run them:
+
+       for f in order-processor reconciler traffic ops; do
+         aws lambda update-function-configuration --function-name warden-$E-$f --description cold-start >/dev/null
+         aws lambda wait function-updated --function-name warden-$E-$f
+         aws lambda update-function-configuration --function-name warden-$E-$f --description "" >/dev/null
+         aws lambda wait function-updated --function-name warden-$E-$f
+       done
+       aws lambda invoke --function-name warden-$E-traffic /dev/stdout      # no FunctionError; it also feeds order-processor
+       aws lambda invoke --function-name warden-$E-reconciler /dev/stdout   # no FunctionError
+
+   Then order-processor's `Errors` metric stays 0 and the orders queue drains (its dead-letter queue stays empty).
+7. **EKS (ECR and Logs through the endpoints, from the cluster security group)**: running pods keep the images they
+   pulled before the change, so pull again - the shop image and an add-on image:
+
+       kubectl -n shop rollout restart deployment/catalog-api deployment/cart-worker
+       kubectl -n shop rollout status deployment/catalog-api --timeout=5m
+       kubectl -n shop rollout status deployment/cart-worker --timeout=5m
+       kubectl -n kube-system rollout restart deployment/coredns
+       kubectl -n kube-system rollout status deployment/coredns --timeout=5m
+       kubectl -n shop get events --field-selector reason=Pulled          # the new pulls
+       kubectl get events -A --field-selector reason=Failed               # no ErrImagePull / ImagePullBackOff
+
+8. **Container Insights still arrives** (the observability agent writes through the `logs` endpoint): the newest
+   stream of `/aws/containerinsights/warden-$E-eks/performance` has an event from the last 5 minutes, and the two
+   pod alarms (`warden-$E-catalog-errors`, `warden-$E-cart-worker-stalled`, missing data = breaching) are `OK`:
+
+       aws logs describe-log-streams --log-group-name /aws/containerinsights/warden-$E-eks/performance \
+         --order-by LastEventTime --descending --max-items 1 --query 'logStreams[0].lastEventTimestamp'
+       aws cloudwatch describe-alarms --alarm-names warden-$E-catalog-errors warden-$E-cart-worker-stalled \
+         --query 'MetricAlarms[].[AlarmName,StateValue]' --output table
+
+A step that hangs or fails names its path: add the missing rule or endpoint with a test (`tests/test_iac_hardening_sonar.py`), never a wider rule.
+
 ## Destroy
 
     WARDEN_ENV=dev python aurora_express.py destroy  # FIRST: terraform does not know the cluster exists
@@ -149,7 +228,10 @@ while Lambda releases the in-VPC functions' network interfaces; that is AWS, not
 | Outside the VPC | Aurora in express configuration (the Free plan's only form) | IAM database authentication only, no password exists |
 
 No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT, and the application groups allow only what the apps use (owner B28, `tests/test_iac_hardening_sonar.py`): HTTPS to AWS goes to the interface endpoints only (Secrets Manager, SQS, CloudWatch Logs, ECR; S3 and DynamoDB through
-free gateway endpoints), Redis 6379 to the cache's group only. The internet is left only where no endpoint can serve,
+free gateway endpoints), Redis 6379 to the cache's group only. Private DNS sends the whole VPC's calls to those
+services to the endpoints, so the endpoint group admits 443 from the application groups AND from the EKS cluster
+security group (the nodes' image pulls, the add-ons, the Container Insights agent). Each group's egress is separate
+`aws_vpc_security_group_egress_rule` resources, never inline blocks mixed with them. The internet is left only where no endpoint can serve,
 each with its reason in main.tf: PostgreSQL 5432 to Aurora express (no VPC, no security group, no fixed address),
 HTTPS 443 for orders-api's placeholder image on `public.ecr.aws`, and HTTPS 443 for the traffic Lambda - in a group of
 its own - which calls the shop's public API and reaches the internal load balancer over HTTPS 443. A production app with a domain would put a **public** ALB in
