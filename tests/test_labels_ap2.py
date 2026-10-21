@@ -75,6 +75,10 @@ def test_the_command_records_a_label_and_refuses_a_wrong_key(tmp_path, monkeypat
                         "WARDEN_AUDIT_KEY": "audit.pem"}.items():
         monkeypatch.setenv(name, str(tmp_path / value))
     monkeypatch.delenv("WARDEN_ENV", raising=False)
+    # Both keys here are written in the clear: a passphrase another test left in the environment made loading them
+    # fail ("Password was given but private key is not encrypted") - mutmut's test order showed it (PR 179).
+    for name in ("WARDEN_APPROVER_KEY_PASSPHRASE", "WARDEN_AUDIT_KEY_PASSPHRASE"):
+        monkeypatch.delenv(name, raising=False)
     args = ["label", "inc-7", "--diagnosis", "right", "--action", "unsure", "--approver", "owner"]
     assert main([*args, "--key", str(key_file)]) == 0
     assert main([*args, "--key", str(other_file)]) == 1
