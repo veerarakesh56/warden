@@ -6,7 +6,9 @@
 # holds them to the same corpus as WARDEN's own patterns. Not covered here, by design: `.local` and `.internal` host
 # names - a Kubernetes service's and AWS's own, everywhere in these logs, and RE2 cannot leave them out selectively.
 # Spans too: DD_APM_REPLACE_TAGS masks every tag's value with the same rules (Datadog's APM already obfuscates SQL);
-# the collector before it hashes the attributes that name a person or a client and drops URL queries.
+# the collector before it hashes the attributes that name a person or a client (and a pod's or node's address) and
+# drops URL queries. That hash is pseudonymous, not anonymous: it is unsalted, so a list of candidate values can be
+# hashed and matched against it.
 datadog:
   env:
   - name: DD_LOGS_CONFIG_PROCESSING_RULES
