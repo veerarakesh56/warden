@@ -93,7 +93,7 @@ finding's text reaches the model, the report or Slack: only typed fields.
 | Setting | What it does |
 |---|---|
 | `WARDEN_FINDINGS` | `1` turns the read on (plain value) |
-| `WARDEN_CHANGE_REPO` | the repository, `owner/name` (otherwise environments.yaml's `github.repository`) |
+| `WARDEN_CHANGE_REPO` | the repository, `owner/name` (otherwise `WARDEN_GITHUB_REPOSITORY`, then environments.yaml's `github.repository`). With none of them set, the findings and commit readers read nothing: each incident's evidence says `no repository configured` and the worker logs it |
 | `WARDEN_SONAR_PROJECT` | the SonarCloud project key; unset, SonarCloud is not read (plain value) |
 | `WARDEN_FINDINGS_MAX_PRS`, `WARDEN_FINDINGS_MAX_PER_PR` | at most this many pull requests (2) and findings a pull request (20); never more than 10 and 100 (GitHub's largest page: the reader does not page on) |
 | `WARDEN_GITHUB_READ_TOKEN` | optional for a public repository's pull requests and comments; needed for code scanning. A fine-grained token on that one repository, read-only: **Pull requests: Read**, **Code scanning alerts: Read**, and **Contents: Read** for the deploy's commits (`WARDEN_COMMITS`, the same token), plus Metadata: Read, which GitHub adds; with an expiry. In the cloud runtime it is the Secrets Manager secret `warden/<env>/github-read-token`, read by the read zone's worker only (set its value in the console, then restart the workers); a GitHub App's installation token replaces it when the App exists (B4) |

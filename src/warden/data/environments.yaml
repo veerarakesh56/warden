@@ -77,14 +77,18 @@ runtime: ops
 # an environment of its own (owner, 2026-10-12: nothing in the repository is hardcoded).
 fault_environments: [dev]
 
-# This repository, as GitHub's OIDC token names it - what the deploy roles' trust policies accept: its name, and the
-# immutable subject GitHub issues for it (owner@owner-id/repository@repository-id).
-# runtime_branch (owner, 2026-10-16): the branch the runtime pipeline (runtime.yml, environment `ops`) runs from - an
-# application environment's own branch, so the runtime runs code that has reached that environment: dev until prod
-# exists. iam/ops/trust.json and runtime.yml's guards and signing identity name it (tests hold them equal).
+# This repository, as GitHub's OIDC token names it - what the deploy roles' trust policies accept: its name
+# (owner/name), and the immutable subject GitHub issues for it (owner@owner-id/name@repository-id; read it with
+# `gh api repos/<owner>/<name>/actions/oidc/customization/sub`). The placeholders stay in the committed file and in
+# the committed iam/<env>/trust.json; WARDEN_GITHUB_REPOSITORY and WARDEN_GITHUB_SUBJECT supply the real values where
+# they are needed (scripts/render_env_iam.py --account, and the runtime's default WARDEN_CHANGE_REPO). An installation
+# may also write its own values here.
+# runtime_branch: the branch the runtime pipeline (runtime.yml, environment `ops`) runs from - an application
+# environment's own branch, so the runtime runs code that has reached that environment: dev until prod exists.
+# iam/ops/trust.json and runtime.yml's guards and signing identity name it (tests hold them equal).
 github:
-  repository: veerarakesh56/warden
-  subject: veerarakesh56@171412850/warden@1341685493
+  repository: <GITHUB_REPOSITORY>
+  subject: <GITHUB_SUBJECT>
   runtime_branch: dev
 
 default:

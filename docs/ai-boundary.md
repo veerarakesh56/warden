@@ -189,7 +189,7 @@ this document exists to warn about.
 
 ## Prior art
 
-The same conviction runs through [Helios](https://github.com/veerarakesh56/helios) — a Rust + Z3
+The same conviction runs through Helios — a Rust + Z3
 infrastructure simulator where Claude narrates counter-examples and proposes Terraform fixes, and
 the SMT engine re-verifies every proposed fix before it counts. Two tools, one principle: **rigorous
 core, AI shell.**

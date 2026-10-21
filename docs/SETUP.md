@@ -59,8 +59,16 @@ All IAM documents are rendered from `iam/templates/` into `iam/<env>/` by one sc
 
 ```bash
 python scripts/render_env_iam.py            # the committed files, with <ACCOUNT_ID> as a placeholder
+export WARDEN_GITHUB_REPOSITORY=<owner>/<name>                     # this repository
+export WARDEN_GITHUB_SUBJECT=<owner>@<owner-id>/<name>@<repository-id>
 python scripts/render_env_iam.py --account  # also *.local.json copies with your real account id, for pasting
 ```
+
+The committed trust policies name the repository as `<GITHUB_REPOSITORY>` and GitHub's OIDC subject as
+`<GITHUB_SUBJECT>` (`environments.yaml` `github`). The `--account` render fills both from `WARDEN_GITHUB_REPOSITORY`
+and `WARDEN_GITHUB_SUBJECT` (or from your own values in `environments.yaml`) and refuses while either is unset. Read
+the subject with `gh api repos/<owner>/<name>/actions/oidc/customization/sub`: it is the owner and repository names,
+each followed by `@` and its numeric id, and a trust policy with the plain names matches no token.
 
 The `*.local.json` files are git-ignored and must never be committed. `tests/test_env_iam.py` fails if a
 committed file drifts from its template. `scripts/check_live_iam.py` compares what is live in your account with

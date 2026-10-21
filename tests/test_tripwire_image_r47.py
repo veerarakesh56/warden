@@ -80,7 +80,11 @@ def test_the_pipeline_passes_the_token_as_a_build_secret_only_and_deploys_no_ima
     wf = (ROOT / ".github" / "workflows" / "runtime.yml").read_text(encoding="utf-8")
     assert "HF_TOKEN: ${{ secrets.HF_TOKEN }}" in wf
     assert '--secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime' in wf
-    assert "--build-arg" not in wf  # never WARDEN_DETECTOR=absent, never the token as an argument
+    # Never WARDEN_DETECTOR=absent, never the token as an argument: the one build argument is the base image's
+    # registry, a fixed value naming this repository owner's mirror.
+    registry = '--build-arg "BASE_IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/warden-mirror"'
+    assert wf.count(registry) == 1
+    assert "--build-arg" not in wf.replace(registry, "")
     assert "rglob('model.safetensors')), 'no tripwire weights'" in wf
     # CI's check build has no token and says so; it is never deployed.
     ci = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")

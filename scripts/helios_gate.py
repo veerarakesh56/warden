@@ -1,7 +1,7 @@
 """Helios checks every Terraform change before it is applied (register R56).
 
 For each scenario - an outage of every zone the stack uses, plus the resource losses in
-terraform/fullstack/helios/scenarios/ - Helios (github.com/veerarakesh56/helios) simulates the saved
+terraform/fullstack/helios/scenarios/ - Helios (built at a pinned commit by _infra-deploy.yml) simulates the saved
 plan and the current state. The change is refused when the plan fails anything under a scenario that
 today's stack survives, or that terraform/fullstack/helios/accepted.json does not accept (the accepted
 set matters only for a first create, when there is no state to compare with - and, after a first

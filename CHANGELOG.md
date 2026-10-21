@@ -1087,7 +1087,7 @@ bump may carry a breaking change.
     it changed; they do now, and a test keeps every path-filtered workflow that installs from it so.
   - The k8s job installs first (pip took 98 s; uv takes seconds), starts the OOM workload as soon as
     the cluster is up so its crash loop builds during the checks, and drops its teardown.
-- **The GitHub settings the owner applies are written out** (`docs/OWNER-CONSOLE-STEPS.md`, G1-G5):
+- **The GitHub settings to apply are written out** (now `docs/SETUP.md`, section 4; G1-G5):
   environments deployable from `main` only, with approval for pre-prod, qa-prod and prod; a ruleset
   so `main` is never deleted or force-pushed; actions required to be pinned to a commit; Dependabot
   alerts and security updates; CodeQL default setup. Required status checks wait for a pull-request

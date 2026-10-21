@@ -200,12 +200,45 @@ def github_read_token() -> str:
     return os.environ.get("WARDEN_GITHUB_READ_TOKEN", "").strip()
 
 
-def _change_repo() -> str:
-    """The repository whose deploys and pull requests are read: WARDEN_CHANGE_REPO, else environments.yaml's."""
-    from .environments import default_environment_policies
+_REPO_SHAPE = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 
-    return (os.environ.get("WARDEN_CHANGE_REPO", "").strip()
-            or str(default_environment_policies().github.get("repository", "")))
+
+def _change_repo() -> str:
+    """The repository whose deploys and pull requests are read: WARDEN_CHANGE_REPO, else this repository's own name
+    (environments.github_identity: WARDEN_GITHUB_REPOSITORY, else environments.yaml `github.repository`). "" when none
+    names a repository in `owner/name` form - the shipped environments.yaml holds a placeholder - and the readers are
+    then replaced by RepositoryNotConfigured, which says so in every incident's evidence."""
+    from .environments import EnvironmentPolicyError, default_environment_policies, github_identity
+
+    repo = os.environ.get("WARDEN_CHANGE_REPO", "").strip()
+    if not repo:
+        try:
+            repo = github_identity(default_environment_policies(), "repository")
+        except EnvironmentPolicyError as exc:
+            logging.getLogger("warden.incident").error("%s", exc)
+            return ""
+    return repo if _REPO_SHAPE.fullmatch(repo) else ""
+
+
+class RepositoryNotConfigured:
+    """Stands in for a GitHub reader (deploy commits, pull-request findings) that was asked for while no repository is
+    configured: nothing is read, and each incident's evidence carries one TOOL-PARTIAL line naming the setting, so a
+    missing setting is visible in the report and the log rather than an empty, healthy-looking read."""
+
+    def __init__(self, source: str) -> None:
+        self.source = source
+        self.message = (f"{PARTIAL_PREFIX}{source}: no repository configured - set WARDEN_CHANGE_REPO "
+                        "(owner/name) or WARDEN_GITHUB_REPOSITORY - not read")
+        logging.getLogger("warden.incident").warning("%s", self.message.removeprefix(PARTIAL_PREFIX))
+
+    def logs(self, alert: Any) -> list[str]:
+        return [self.message]
+
+    def traces(self, alert: Any) -> list[str]:
+        return []
+
+    def metrics(self, alert: Any) -> dict[str, float]:
+        return {}
 
 
 def _env_count(name: str, default: int, ceiling: int) -> int:
@@ -245,9 +278,12 @@ def evidence_tools(base: Any) -> list[Any]:
     if os.environ.get("WARDEN_COMMITS", "").strip() == "1":
         from .timeline import CommitReader
 
-        readers.append(CommitReader(base, repo=_change_repo(), token=github_read_token()))
+        readers.append(CommitReader(base, repo=_change_repo(), token=github_read_token()) if _change_repo()
+                       else RepositoryNotConfigured(CommitReader.source))
     if os.environ.get("WARDEN_FINDINGS", "").strip() == "1":
-        readers.append(_findings_reader(base))
+        from .findings import FindingsReader
+
+        readers.append(_findings_reader(base) if _change_repo() else RepositoryNotConfigured(FindingsReader.source))
     if grafana.configured():
         readers.append(grafana.GrafanaReader())
     if datadog.configured():

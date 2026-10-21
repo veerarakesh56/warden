@@ -21,7 +21,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from warden.environments import EnvironmentPolicies, names
+from warden.environments import GITHUB_ENV, EnvironmentPolicies, github_identity, names
 
 TEMPLATES = ROOT / "iam" / "templates"
 # The deploy role's permissions are two managed policies: one is near IAM's 6,144-character limit. The actor and
@@ -38,13 +38,25 @@ RUNTIME_KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust")
 HARNESS_ENVS = EnvironmentPolicies.load().fault_environments
 
 
-def _install() -> dict[str, str]:
+def _install(local: bool = False) -> dict[str, str]:
     """What every template may name beside its own environment: WARDEN's runtime environment (whose zone roles the
     reader and actor trust), this repository as GitHub's OIDC token names it, and the branch the runtime pipeline runs
-    from (2026-10-16; an application environment's trust names its own branch, `${env}`) - all from environments.yaml."""
+    from (an application environment's trust names its own branch, `${env}`) - all from environments.yaml.
+
+    A committed render keeps environments.yaml's values as they are, placeholders included, so no installation's
+    repository identity is written into a tracked file. A `local` render (the gitignored *.local.json pasted into IAM)
+    resolves them - WARDEN_GITHUB_REPOSITORY / WARDEN_GITHUB_SUBJECT, else environments.yaml - and refuses while either
+    is still a placeholder: a trust policy naming `<GITHUB_SUBJECT>` would be accepted by IAM and match no token."""
     cfg = EnvironmentPolicies.load()
-    return {"runtime": cfg.runtime_environment or "", "github_repository": cfg.github.get("repository", ""),
-            "github_subject": cfg.github.get("subject", ""), "runtime_branch": cfg.github.get("runtime_branch", "")}
+    github = {k: cfg.github.get(k, "") for k in ("repository", "subject")}
+    if local:
+        github = {k: github_identity(cfg, k) for k in github}
+        missing = [GITHUB_ENV[k] for k, v in github.items() if not v]
+        if missing:
+            raise SystemExit(f"set {' and '.join(missing)} (or this repository's values in environments.yaml `github`) "
+                             "before rendering the local trust policies")
+    return {"runtime": cfg.runtime_environment or "", "github_repository": github["repository"],
+            "github_subject": github["subject"], "runtime_branch": cfg.github.get("runtime_branch", "")}
 
 
 ACCOUNT_PLACEHOLDER = "<ACCOUNT_ID>"  # what a committed file holds where the account goes
@@ -60,7 +72,7 @@ def render(env: str, account: str = ACCOUNT_PLACEHOLDER, cluster: str = "<CLUSTE
         rendered = json.loads(text.substitute(env=env, env_sql=env.replace("-", "_"), account=account,
                                               cluster_resource_id=cluster, region=names(env).region,
                                               global_region=EnvironmentPolicies.load().aws_global_region,
-                                              **_install()))
+                                              **_install(local=account != ACCOUNT_PLACEHOLDER)))
         out[kind] = json.dumps(rendered, indent=2) + "\n"
     return out
 
@@ -79,7 +91,8 @@ def render_runtime(env: str, account: str = ACCOUNT_PLACEHOLDER) -> dict[str, st
     for kind in RUNTIME_KINDS:
         text = string.Template((TEMPLATES / f"runtime-{kind}.json").read_text(encoding="utf-8"))
         out[kind] = json.dumps(json.loads(text.substitute(env=env, account=account, region=names(env).region,
-                                                          **_install())), indent=2) + "\n"
+                                                          **_install(local=account != ACCOUNT_PLACEHOLDER))),
+                                    indent=2) + "\n"
     return out
 
 

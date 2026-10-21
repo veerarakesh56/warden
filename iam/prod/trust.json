@@ -11,11 +11,11 @@
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:veerarakesh56@171412850/warden@1341685493:environment:prod",
+          "token.actions.githubusercontent.com:sub": "repo:<GITHUB_SUBJECT>:environment:prod",
           "token.actions.githubusercontent.com:ref": "refs/heads/prod",
           "token.actions.githubusercontent.com:job_workflow_ref": [
-            "veerarakesh56/warden/.github/workflows/_infra-deploy.yml@refs/heads/prod",
-            "veerarakesh56/warden/.github/workflows/_apps-deploy.yml@refs/heads/prod"
+            "<GITHUB_REPOSITORY>/.github/workflows/_infra-deploy.yml@refs/heads/prod",
+            "<GITHUB_REPOSITORY>/.github/workflows/_apps-deploy.yml@refs/heads/prod"
           ]
         }
       }
