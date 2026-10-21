@@ -140,6 +140,33 @@ python scripts/heldout_bench.py --cases docs/bench/heldout-g10-2026-10-10 --out 
                                                                 # the same answers, today's gate, no model call
 ```
 
+## Paid bench runs from the cloud runtime
+
+Two runs for the owner's paid measurement, each one command with the cloud runtime's own key
+([`scripts/cloud_run.py`](../scripts/cloud_run.py), jobs in [`scripts/bench_jobs.py`](../scripts/bench_jobs.py)):
+
+- `headtohead`: two models answer the same hard cases - every held-out case whose key has more than one cause (29
+  today: 23 in G10, 6 in G9) - compared on quality and on cost, each model at its own price in `providers.yaml`.
+  "Compared" is McNemar on the first answer to each case both models answered: how many cases the row's model got
+  right that the other got wrong ("better"), the reverse ("worse"), and the two-sided p.
+- `bench`: one model answers every held-out case (220 today: G9 and G10), `--repeats` times. pass^k counts a case
+  only when every repeat was right; "Correct" counts every right answer.
+
+Each run prints its estimate before any call, refuses to start when the estimate is over `--budget-usd`, holds that
+budget as a hard ceiling while it runs, and `--dry-run` does everything but the paid call. AWS documentation lookups
+are off, so these rows are not comparable with the `--docs` G10 runs above. A bench measures: it never changes which
+model diagnoses (`providers.yaml` is not written). `--record` adds the rows below; nothing else writes them.
+
+```bash
+python scripts/cloud_run.py headtohead --model <model A> --vs <model B> --budget-usd 4 --record
+python scripts/cloud_run.py bench --model <model> --repeats 3 --budget-usd 25 --record
+```
+
+<!-- cloud-run-bench:begin -->
+| Measured | Job | Model | Answers (cases x repeats) | Correct | pass^k | Cites the cause | Right outcome | Harm allowed | Unanswered | USD spent / budget | Compared | Prompt |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+<!-- cloud-run-bench:end -->
+
 ## Injection tripwire (2026-09-27)
 
 The optional detector (Meta's Llama Prompt Guard 2, 86M, run locally) was measured on the repository's recorded

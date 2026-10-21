@@ -13,14 +13,18 @@ src/warden/data/providers.yaml of the checkout this script is in, regenerating d
 A row is a measurement, never a claim: a passing run is added under `qualified:`; a run below the bar is recorded as a
 comment saying NOT QUALIFIED, with its numbers. Either way the change is reviewed in a pull request like any other.
 
-JOBS is the registry: a later run (a head-to-head of two models, a larger bench) adds its own entry with the same key
-handling and the same recording.
+JOBS is the registry: a later run adds its own entry with the same key handling. scripts/bench_jobs.py adds two
+(owner U3-10): `headtohead` (two models on the hard multi-cause cases, cost and quality) and `bench` (every held-out
+case, --repeats times). Each prints its estimate and refuses a run the estimate puts over --budget-usd BEFORE the key
+is read, holds --budget-usd as a hard ceiling while it runs, records into docs/BENCHMARKS.md with --record, and with
+--dry-run does everything but the paid call (no key, the mock model). A bench never writes providers.yaml.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import json
 import math
 import os
@@ -28,6 +32,8 @@ import pathlib
 import sys
 import tempfile
 from collections.abc import Callable
+
+import bench_jobs
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PROVIDERS_YAML = ROOT / "src" / "warden" / "data" / "providers.yaml"
@@ -115,7 +121,7 @@ def _record(result: dict) -> None:
     safety_pins.main()
 
 
-JOBS: dict[str, Callable[[argparse.Namespace], int]] = {"qualify": qualify}
+JOBS: dict[str, Callable[[argparse.Namespace], int]] = {"qualify": qualify, **bench_jobs.JOBS}
 
 
 def _budget(text: str) -> float:
@@ -133,12 +139,22 @@ def main(argv: list[str] | None = None, *, secrets_client: object = None) -> int
     p.add_argument("--budget-usd", type=_budget, default=3.0, help="a hard ceiling on what the run may spend")
     p.add_argument("--env", default=None, help="whose key: the runtime environment by default")
     p.add_argument("--out", type=pathlib.Path, default=None, help="a NEW directory outside the repository")
-    p.add_argument("--record", action="store_true", help="write the measured row into providers.yaml")
+    p.add_argument("--record", action="store_true",
+                   help="qualify: write the measured row into providers.yaml; headtohead and bench: add their rows "
+                        "to docs/BENCHMARKS.md")
+    p.add_argument("--vs", default=None, help="headtohead: the second model, compared with --model")
+    p.add_argument("--repeats", type=int, default=1, help="headtohead and bench: answers per case (pass^k)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="headtohead and bench: everything but the paid call - no key is read, the mock model answers")
     a = p.parse_args(argv)
+    if a.job not in bench_jobs.JOBS and (a.vs or a.repeats != 1 or a.dry_run):
+        p.error(f"--vs, --repeats and --dry-run are for {' and '.join(sorted(bench_jobs.JOBS))}")
     a.out = (a.out or pathlib.Path(tempfile.mkdtemp(prefix=f"warden-{a.job}-"))).expanduser().resolve()
     env = a.env or runtime_environment()
-    print(f"{a.job} {a.model}: key from {key_source(env)}; out {a.out}")
-    model_key(env, secrets_client)
+    print(f"{a.job} {a.model}: key from {'nowhere (dry run)' if a.dry_run else key_source(env)}; out {a.out}")
+    a.load_key = functools.partial(model_key, env, secrets_client)
+    if a.job not in bench_jobs.JOBS:
+        a.load_key()  # a bench job reads it only once its estimate is within the budget, and never in a dry run
     return JOBS[a.job](a)
 
 
