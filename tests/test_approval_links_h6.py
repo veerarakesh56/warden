@@ -162,7 +162,7 @@ def test_the_wait_opens_with_the_links_and_without_a_domain_says_nothing_new(rp,
     assert all(r.actions[0][0] == chatops.LINK_LABEL for r in with_links)
     assert with_links[0].actions[0][1] != with_links[1].actions[0][1]
     # Every message also carries the incident's record (G10-46) - the expiry too, which approves nothing.
-    assert all(r.actions[-2:] == ((chatops.RECORD_LABEL, f"https://{RP}/r/inc-42"), (chatops.ALL_LABEL, f"https://{RP}/r"))
+    assert all(r.actions[-2:] == ((chatops.RECORD_LABEL, f"https://{RP}/s/r/inc-42"), (chatops.ALL_LABEL, f"https://{RP}/s/r"))
                for r in sent if r.actions)
     assert [label for r in sent for label, _ in r.actions].count(chatops.RECORD_LABEL) == 3
     kinds = [e["kind"] for e in world["log"].entries("inc-42")]

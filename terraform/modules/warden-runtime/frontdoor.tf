@@ -238,7 +238,8 @@ resource "aws_apigatewayv2_stage" "front" {
     format = jsonencode({
       requestId = "$context.requestId", ip = "$context.identity.sourceIp", time = "$context.requestTime",
       method    = "$context.httpMethod", route = "$context.routeKey", status = "$context.status",
-      length    = "$context.responseLength", latency = "$context.integrationLatency"
+      length    = "$context.responseLength", latency = "$context.integrationLatency",
+      authError = "$context.authorizer.error"
     })
   }
   tags = { Project = "warden", Environment = var.environment }
@@ -362,6 +363,10 @@ resource "aws_apigatewayv2_route" "approval" {
   route_key = each.key
   target = "integrations/${each.key == "POST /s/interact" ? aws_apigatewayv2_integration.ack.id :
   aws_apigatewayv2_integration.front["approval"].id}"
+  # The records, the pages and the signed links pass the gateway's own check first (edgeauth.tf); the others stay
+  # open on purpose, each named with its reason in src/warden/edge_auth.py (a test holds the two lists together).
+  authorization_type = contains(local.edge_gated, each.key) ? "CUSTOM" : "NONE"
+  authorizer_id      = contains(local.edge_gated, each.key) ? aws_apigatewayv2_authorizer.edge.id : null
 }
 
 # Slack shows "Operation timed out" beside a button unless its note of the click is answered within three seconds.

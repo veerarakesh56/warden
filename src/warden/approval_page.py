@@ -64,6 +64,21 @@ def invite(key: Any, approver: str, *, now: datetime, purpose: bytes = INVITE) -
     return f"{bytes_to_base64url(claim)}.{bytes_to_base64url(key.sign(purpose + claim))}"
 
 
+def signed_link_approver(policy: ApproverPolicy, token: str, purpose: bytes, now: datetime) -> str | None:
+    """The approver a signed link (an enrolment's, a kill switch reset's or stop's) names, when their own key signed it
+    for this purpose and it has not expired nor was made to last longer than a link does - or None. Whether it was
+    already used is the audit's to say (ApprovalPage._invited); the gateway's authorizer checks only this
+    (edge_auth.py)."""
+    try:
+        claim, signature = (base64url_to_bytes(part) for part in token.split("."))
+        said = json.loads(claim)
+        approver, expires = str(said["approver"]), datetime.fromisoformat(said["expires_at"])
+        policy.key_of(approver).verify(signature, purpose + claim)
+        return approver if now < expires <= now + LINK_TTL else None
+    except Exception:  # noqa: BLE001 - whatever is wrong with a link, it invites nobody
+        return None
+
+
 @dataclass
 class Link:
     workflow_id: str
@@ -449,6 +464,9 @@ class ApprovalPage:
         if self.slack is None or method != "GET":
             return _json(404, {"error": "not found"})
         redirect = f"{self.origin}/s/callback"
+        landed = self._landed(parts, cookies)
+        if landed is not None:
+            return landed
         if parts == ["p"]:
             # WARDEN's own pages: no link, the reader's own sign-in, then back to `/p`.
             nonce = secrets.token_urlsafe(16)
@@ -520,6 +538,23 @@ class ApprovalPage:
         return Response(302, {"Location": f"/{kind}/{token}", "Cache-Control": "no-store",
                               "Set-Cookie": (f"{_WHO}={remember(self.slack, member['user'])}; Max-Age={REMEMBER_S}; "
                                              "Path=/; Secure; HttpOnly; SameSite=Lax")}, "")
+
+    def _landed(self, parts: list[str], cookies: Any) -> Response | None:
+        """`/s/r`, `/s/r/<incident>` and `/s/p` are where a records or pages link lands: the gateway lets `/r` and `/p`
+        through only with the sign-in's cookie (edge_auth.py), so a browser Slack already named for a reader goes
+        straight on; any other one (None here) goes to Slack first."""
+        from .slack_login import remembered
+
+        if parts in (["r"], ["p"]):
+            to = f"/{parts[0]}"
+        elif len(parts) == 2 and parts[0] == "r" and _INCIDENT_ID.fullmatch(parts[1]):
+            to = f"/r/{parts[1]}"
+        else:
+            return None
+        value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
+        if not value or not self._may_read(remembered(self.slack, value)):
+            return None
+        return Response(302, {"Location": to, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, "")
 
     # ------------------------------------------------------------------ records
 
@@ -631,14 +666,12 @@ class ApprovalPage:
     def _invited(self, token: str, purpose: bytes = INVITE) -> str | None:
         """The approver a signed link names - when their own key signed it for this purpose, it has not expired, it
         was not made to last longer than a link does, and it has not been used."""
+        approver = signed_link_approver(self.policy, token, purpose, self.clock())
+        if approver is None:
+            return None
         try:
-            claim, signature = (base64url_to_bytes(part) for part in token.split("."))
-            said = json.loads(claim)
-            approver, expires = str(said["approver"]), datetime.fromisoformat(said["expires_at"])
-            self.policy.key_of(approver).verify(signature, purpose + claim)
-            now = self.clock()
-            return approver if now < expires <= now + LINK_TTL and not self.store.used(token) else None
-        except Exception:  # noqa: BLE001 - whatever is wrong with a link, it invites nobody
+            return None if self.store.used(token) else approver
+        except Exception:  # noqa: BLE001 - a link whose use cannot be read invites nobody
             return None
 
     def _enrol(self, method: str, token: str, step: str, body: str) -> Response:

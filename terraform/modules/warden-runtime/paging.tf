@@ -13,7 +13,9 @@
 # Manager, SSM reads): EventBridge Scheduler and DynamoDB are not in them, and the boundary lets only the anchors and
 # witness buckets have a bucket policy - so a scheduled rule, and the anchors bucket's own TLS-only policy.
 locals {
-  ack_url = var.approval_domain == "" ? "" : "https://${var.approval_domain}/p"
+  # /s/p: Slack's sign-in, straight on to /p when the browser is already signed in - /p itself passes the gateway only
+  # with the sign-in's cookie (edgeauth.tf).
+  ack_url = var.approval_domain == "" ? "" : "https://${var.approval_domain}/s/p"
   # The self-alarms that page and repeat. Paused, the workers are off on purpose: their silence pages nobody.
   self_alarms = concat(var.paused ? [] : [aws_cloudwatch_metric_alarm.heartbeat.alarm_name,
     aws_cloudwatch_metric_alarm.synthetic.alarm_name, aws_cloudwatch_metric_alarm.worker_errors.alarm_name], [
@@ -27,9 +29,11 @@ locals {
     aws_cloudwatch_metric_alarm.audit_db_connections.alarm_name,
     aws_cloudwatch_metric_alarm.audit_db_storage.alarm_name,
   ])
-  # Every function a person's page or WARDEN's intake depends on: the front doors, Slack's answer, the pager itself.
+  # Every function a person's page or WARDEN's intake depends on: the front doors, Slack's answer, the pager itself,
+  # and the approval site's gate (edgeauth.tf: an error there refuses every approver).
   paged_functions = merge({ for k, f in aws_lambda_function.front_door : k => f.function_name },
-  { ack = aws_lambda_function.ack.function_name, pager = aws_lambda_function.pager.function_name })
+    { ack = aws_lambda_function.ack.function_name, pager = aws_lambda_function.pager.function_name,
+  edge-auth = aws_lambda_function.edge_auth.function_name })
   audit_db_dimensions = var.aws_free_plan ? { DBInstanceIdentifier = "warden-${var.environment}-audit" } : {
   DBClusterIdentifier = "warden-${var.environment}-audit" }
   key_expiry_param = "/warden/${var.environment}/env/WARDEN_TEMPORAL_KEY_EXPIRES"

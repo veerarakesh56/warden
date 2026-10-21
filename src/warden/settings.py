@@ -122,7 +122,8 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS": frozenset({"lambda-alertmanager"}),
     # Sign in with Slack (slack_login.py): only the approval page asks Slack who is there.
     "WARDEN_SLACK_CLIENT_ID": frozenset({"lambda-approval"}),
-    "WARDEN_SLACK_CLIENT_SECRET": frozenset({"lambda-approval"}),
+    # The gateway's authorizer checks the sign-in's cookie with it (edge_auth.py): the secret, never the app's id.
+    "WARDEN_SLACK_CLIENT_SECRET": frozenset({"lambda-approval", "lambda-edge-auth"}),
     # The discussion channel's listener (discuss.py): the notify zone's worker alone holds the connection.
     "WARDEN_SLACK_APP_TOKEN": frozenset({"worker"}),
     # Who besides the approvers may read WARDEN's records (records.py): only the page that shows them reads it.
@@ -186,6 +187,7 @@ LAMBDA_SECRETS: dict[str, frozenset[str]] = {
                                "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"}),
     "approval": frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_SLACK_CLIENT_SECRET"}),
     "actor-use": frozenset(),
+    "edge-auth": frozenset({"WARDEN_SLACK_CLIENT_SECRET"}),
 }
 # One per zone: each zone's own Temporal Cloud service account, so Temporal's audit log names the zone that called.
 PER_ZONE = frozenset({"WARDEN_TEMPORAL_API_KEY"})

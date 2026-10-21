@@ -104,7 +104,8 @@ read zone alone): today it is set in the read worker's own environment, or left 
 
 ## WARDEN's records (registers G10-46, G10-47)
 
-Every incident WARDEN has handled is at `https://<the approval domain>/r` - no time limit (the record is
+Every incident WARDEN has handled is at `https://<the approval domain>/s/r` (Slack's sign-in, then `/r`; the gateway
+lets `/r` through only with that sign-in's cookie) - no time limit (the record is
 append-only), newest first, under its day, 50 a page by default (10, 25, 50 or 100; newest, newer, older and oldest
 links; filters for environment, status, service, a day range and title text): its summary and status in the list, its details unfolding
 beneath it, and a page of its own (the message's "Full record" button) with who approved or denied it and their note,

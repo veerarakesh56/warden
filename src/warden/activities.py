@@ -1808,7 +1808,7 @@ class IncidentActivities:
         from .chatops import ALL_LABEL, RECORD_LABEL
 
         rp = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
-        return ((RECORD_LABEL, f"https://{rp}/r/{incident}"), (ALL_LABEL, f"https://{rp}/r")) if rp else ()
+        return ((RECORD_LABEL, f"https://{rp}/s/r/{incident}"), (ALL_LABEL, f"https://{rp}/s/r")) if rp else ()
 
     def _connected(self, alert_id: str, diagnosed: Diagnosed) -> None:
         """An earlier fix of WARDEN's that this diagnosis cites as part of the cause is counted as a failed result of that
@@ -2025,7 +2025,7 @@ class DiscussActivities:
 
         rp = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
         return history.similar_text(history.similar(self.audit, incident,
-                                                    link=(lambda i: f"https://{rp}/r/{i}") if rp else None))
+                                                    link=(lambda i: f"https://{rp}/s/r/{i}") if rp else None))
 
     @activity.defn
     def discuss_answer(self, turn: Any, thread: Any, evidence: dict[str, str], fresh: bool) -> str:

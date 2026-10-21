@@ -219,6 +219,26 @@ quality, not cost.
   CloudTrail's own digest design. The key never leaves the HSM.
 - **Passkeys (WebAuthn) for approvals, signed over the exact plan hash.** This is stronger than a
   login-based approval (GitHub environments, PagerDuty tasks).
+- **The approval site's gate at the gateway** (owner, 2026-10-21; Sonar terraform:S6333 on `frontdoor.tf`). The
+  site must stay reachable from the internet, so every route that carries something checkable passes an API
+  Gateway Lambda REQUEST authorizer (`edge_auth.py`, `edgeauth.tf`) before the page's function runs. It checks with
+  the page's own code: the Slack sign-in's sealed cookie (HMAC-SHA256, compared in constant time, 30 days) for the
+  records (`/r`) and WARDEN's own pages (`/p`), and the approver's Ed25519 signature, purpose and 15-minute expiry for
+  an enrolment's or a kill switch link (`/e`, `/k`, `/x`). No identity source and no cached answer (TTL 0): every
+  request is checked on its own. The function checks everything again (the passkey, the reader list, a link already
+  used), so the gate adds a layer and weakens nothing. The stage throttles every route and writes an access log with
+  the authorizer's error; an error in the gate is refused (500) and pages a person. A records or pages link in a
+  message lands on `/s/r` or `/s/p`, which goes straight on when the browser is already signed in.
+  Open on purpose, each with its reason (this list is held equal to the code by
+  `tests/test_approval_edge_auth.py`; it moves to docs/THREAT-MODEL.md, TB5, when PR 82 merges):
+  `GET /a/{token}` and `POST /a/{token}/{step}` - the passkey sign-in's start: the token is random (256 bits) and
+  lives only in the audit database, so checking it at the gateway would put that database, and a grant to read it, in
+  front of the page; the function answers an unknown or expired token with one 404, and every step after the
+  page needs Slack's sign-in for that link and then the approver's passkey (`/a/signed/...` is an Ed25519 signature
+  over the body, which an authorizer never sees). `GET /s/{kind}/{token}`, `GET /s/r`, `GET /s/p` and
+  `GET /s/callback` - Slack's sign-in itself, before which a browser has nothing to show; the callback checks Slack's
+  state against this site's own short-lived cookie. `POST /s/interact` - Slack's note of a button click, answered
+  with nothing read and nothing decided (`ack.py`, a function with no permission at all).
 - **Identity is AWS-native; Teleport is an optional adapter.** Teleport's agent features were still a
   preview in 2026-09. Re-checked 2026-10-04: Teleport has since added Beams, a runtime for infrastructure agents, and
   agent behaviour controls to its commercial Identity Security platform (July 2026). WARDEN still needs none of it:
@@ -414,6 +434,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - The alert webhook's front door - `webhooks.py`: Prometheus Alertmanager does not sign its webhooks (it can send
   an Authorization header, read 2026-10-03), so the check is a bearer secret in constant time, size caps, and
   Alertmanager's own API confirming each alert is active; no ready-made receiver does that third part.
+- The approval site's gate at the gateway - `edge_auth.py`: built, a few lines over API Gateway's own Lambda REQUEST
+  authorizer. It must check exactly what the page checks (the Slack sign-in's seal, an approver's signed link), so it
+  calls the page's own functions; a managed authorizer (JWT, IAM) cannot read either.
 - Security findings as intake - `security_findings.py`: built. AWS's own responders (Security Hub automation rules,
   the GuardDuty-to-Lambda samples) act on a finding; WARDEN must only read and hand it to a person, deduplicated
   and redacted as its other alerts are, so the parser is a small function over the documented event shapes.

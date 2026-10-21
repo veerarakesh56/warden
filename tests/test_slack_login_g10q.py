@@ -203,8 +203,10 @@ def test_an_enrolment_links_the_member_slack_named_and_never_another_than_the_li
 
 def test_the_runtime_gives_the_secret_to_the_approval_lambda_alone_and_routes_the_two_steps():
     assert "WARDEN_SLACK_CLIENT_SECRET" in settings.SECRETS
-    assert {n for n, names in settings.LAMBDA_SECRETS.items() if "WARDEN_SLACK_CLIENT_SECRET" in names} == {"approval"}
-    assert settings.RESTRICTED["WARDEN_SLACK_CLIENT_SECRET"] == frozenset({"lambda-approval"})
+    # The approval page, and the gateway's authorizer that checks the records' sign-in cookie with it (edge_auth.py).
+    assert {n for n, names in settings.LAMBDA_SECRETS.items() if "WARDEN_SLACK_CLIENT_SECRET" in names} == {
+        "approval", "edge-auth"}
+    assert settings.RESTRICTED["WARDEN_SLACK_CLIENT_SECRET"] == frozenset({"lambda-approval", "lambda-edge-auth"})
     assert "WARDEN_SLACK_CLIENT_ID" not in settings.SECRETS  # an id, not a secret: plain configuration
     for zone in settings.ZONE_SECRETS:
         assert "WARDEN_SLACK_CLIENT_SECRET" not in settings.loadable_for("worker", zone)
