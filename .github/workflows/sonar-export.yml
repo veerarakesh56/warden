@@ -43,8 +43,16 @@ jobs:
           an = get("https://sonarcloud.io/api/project_analyses/search?project=veerarakesh56_warden&branch=main&ps=3")
           for x in an.get("analyses", []):
               print(f"=== ANALYSIS {x.get('date')} revision={x.get('revision')}")
-          # export run: main's open issue totals after PR 170 (2026-10-21 ~16:50 UTC)
-          for q in ("MAINTAINABILITY", "RELIABILITY", "SECURITY"):
-              d = get(f"https://sonarcloud.io/api/issues/search?componentKeys=veerarakesh56_warden&branch=main&issueStatuses=OPEN,CONFIRMED&impactSoftwareQualities={q}&ps=1")
-              print(f"=== MAIN {q} open total={d['total']}")
-# re-run 1653
+          # export run: main's open maintainability issues, one per line, after PR 170 (2026-10-21 ~17:00 UTC)
+          page, seen = 1, 0
+          while True:
+              d = get(f"https://sonarcloud.io/api/issues/search?componentKeys=veerarakesh56_warden&branch=main&issueStatuses=OPEN,CONFIRMED&impactSoftwareQualities=MAINTAINABILITY&ps=500&p={page}")
+              if page == 1:
+                  print(f"=== MAIN MAINTAINABILITY open total={d['total']}")
+              for i in d["issues"]:
+                  comp = i["component"].split(":", 1)[-1]
+                  print(f"M|{i['rule']}|{comp}|{i.get('line', '')}|{i['key']}|{i['message'][:120]}")
+              seen += len(d["issues"])
+              if seen >= d["total"] or not d["issues"]:
+                  break
+              page += 1
