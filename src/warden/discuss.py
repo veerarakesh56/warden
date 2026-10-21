@@ -30,7 +30,7 @@ from pydantic import AfterValidator, BaseModel, Field
 from .gate import withhold_commands
 from .models import ModelProse, inert
 
-INCIDENT = re.compile(r"(?:inc-)?([0-9a-f]{16}-[0-9]{8}T[0-9]{6}Z)")
+INCIDENT = re.compile(r"(?:inc-)?([0-9a-f]{16}-\d{8}T\d{6}Z)", re.ASCII)
 # "Is it still...", "check again", "what about now": read the resource as it is now, not as it was at the alarm.
 NOW = re.compile(r"(?i)\b(now|again|currently|latest|still|anymore|recheck|re-check)\b")
 MAX_MESSAGES = 30

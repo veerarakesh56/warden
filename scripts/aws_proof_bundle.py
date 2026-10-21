@@ -18,6 +18,11 @@ import argparse
 import json
 import pathlib
 import re
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
+
+from warden import paths  # after the sys.path line above, deliberately
 
 SITUATIONS = [
     ("A-ecs-healthy", "ECS, healthy", "Real task counts from `ecs:DescribeServices` and real CPU/memory from `cloudwatch:GetMetricData`."),
@@ -35,7 +40,9 @@ def _redact(text: str, account: str) -> str:
     text = re.sub(r"\b\d{12}\b", "<ACCOUNT>", text)
     # Up to the LAST `@` of the token, as libpq reads it (audit A-B-L18): a password holding an `@` was masked only
     # up to it, and its tail showed beside the host.
-    text = re.sub(r"(?<=://)([^:/@\s]+):\S*@", r"\1:********@", text)
+    # "://" matched rather than looked behind at (Sonar python:S8786, 2026-10-16: its analysis takes a look-behind
+    # for no anchor); the same matches on 200,000 random strings.
+    text = re.sub(r"://([^:/@\s]+):\S*@", lambda m: "://" + m.group(1) + ":********@", text)
     # An RDS endpoint's middle label (`<id>.c1a2b3.<region>.rds.amazonaws.com`) is fixed per account
     # and region - an account-linked identifier, if not the account id itself. Wave 3's manifest,
     # ground truth and reports all carried it until 2026-09-25. Instance name and region are kept.
@@ -93,7 +100,10 @@ def main() -> int:
     ap.add_argument("--eks", default="")
     args = ap.parse_args()
 
-    out = pathlib.Path(args.dir)
+    try:
+        out = paths.inside(args.dir)  # a path from the command line: only where the tools work (warden.paths)
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
     reports = out / "reports"
 
     # Redact EVERY file in the bundle in place. Anything published comes from these files, so they

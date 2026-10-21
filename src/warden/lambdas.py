@@ -6,6 +6,8 @@
   without the bearer secret or over its caps; an alert Alertmanager itself no longer lists as active is dropped.
 - `approval`: the passkey approval page, behind API Gateway on the approval domain. Its links and challenges live in
   the shared audit (AuditLinkStore), because one invocation's memory is gone by the next.
+- the same `alarm` Lambda takes GuardDuty's and Security Hub's findings on the watched environments' resources
+  (security_findings.py): each goes to a person on the rules alone, never to a fix.
 - `actor_use`: an EventBridge rule on CloudTrail's AssumeRole of an actor role. A session the audit does not show
   approved is recorded and pages a person (actor_use.check).
 
@@ -196,7 +198,9 @@ def _submit(events: list[AlarmEvent]) -> list[dict[str, Any]]:
 def alarm(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     _configure("lambda-alarm")
     env = os.environ.get("WARDEN_ENV", "")
-    ev = alarm_event(event, env) or service_event(event, env) or health_event(event, env)
+    from .security_findings import finding_event
+
+    ev = alarm_event(event, env) or service_event(event, env) or health_event(event, env) or finding_event(event)
     if ev is None:
         return {"ignored": "not a CloudWatch alarm state change, nor a service event WARDEN takes"}
     decisions = _submit([ev])
@@ -300,11 +304,12 @@ def approval_page() -> Any:
     if not rp_id:
         raise RuntimeError("WARDEN_APPROVAL_RP_ID is not set: the passkeys' relying party is the approval domain")
     policy = runtime.approver_policy()
-    from . import slack_login
+    from . import paging, slack_login
 
     log = runtime.open_audit()
     return ApprovalPage(rp_id=rp_id, policy=policy, plan_of=plan_of, signal=signal, deny=deny,
-                        store=AuditLinkStore(log), log=log, slack=slack_login.from_environment(), signed=signed)
+                        store=AuditLinkStore(log), log=log, slack=slack_login.from_environment(), signed=signed,
+                        pages=paging.from_environment())
 
 
 def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:

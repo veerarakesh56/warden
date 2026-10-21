@@ -168,18 +168,30 @@ def _sg_parse(raw: dict[str, Any], group: str) -> dict[str, Any] | None:
     response = d.get("responseElements")
     field = "revokedSecurityGroupRuleSet" if kind == "revoke" else "securityGroupRuleSet"
     items = _items(_get(response, field)) if isinstance(response, dict) else []
+    who = _trail_who(d)
+    at, event_time = _trail_at(raw, d)
+    return {"event": str(raw.get("EventId") or d.get("eventID") or ""), "event_name": name, "kind": kind,
+            "egress": name.endswith("Egress"), "at": at, "event_time": event_time,
+            "rules": sorted((_sg_rule_key(i) for i in items), key=json.dumps), "rule_ids": sorted(str(_get(i, "securityGroupRuleId") or "")
+                                                                                 for i in items),
+            **who, "truncated": not isinstance(response, dict) or not items}
+
+
+def _trail_who(d: dict[str, Any]) -> dict[str, str]:
+    """Who made a CloudTrail write, in the fields (and the order) every change record carries."""
     who = d.get("userIdentity") or {}
     issuer = (who.get("sessionContext") or {}).get("sessionIssuer") or {}
     actor_name = str(issuer.get("userName") or who.get("userName") or "")
-    at = _when(raw.get("EventTime") or d.get("eventTime"))
-    return {"event": str(raw.get("EventId") or d.get("eventID") or ""), "event_name": name, "kind": kind,
-            "egress": name.endswith("Egress"), "at": at, "event_time": at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else "?",
-            "rules": sorted((_sg_rule_key(i) for i in items), key=json.dumps), "rule_ids": sorted(str(_get(i, "securityGroupRuleId") or "")
-                                                                                 for i in items),
-            "who_type": str(who.get("type") or ""), "invoked_by": str(who.get("invokedBy") or ""),
+    return {"who_type": str(who.get("type") or ""), "invoked_by": str(who.get("invokedBy") or ""),
             "source_identity": str((who.get("sessionContext") or {}).get("sourceIdentity") or ""),
             "actor_name": actor_name, "actor": f"{str(who.get('type') or '?').lower()}/{actor_name or '?'}",
-            "user_agent": str(d.get("userAgent") or ""), "truncated": not isinstance(response, dict) or not items}
+            "user_agent": str(d.get("userAgent") or "")}
+
+
+def _trail_at(raw: dict[str, Any], d: dict[str, Any]) -> tuple[datetime | None, str]:
+    """When a CloudTrail write happened, and that time as a record writes it ("?" when unknown)."""
+    at = _when(raw.get("EventTime") or d.get("eventTime"))
+    return at, at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else "?"
 
 
 def _sg_undo_text(e: dict[str, Any]) -> str:
@@ -245,18 +257,13 @@ def _trail_change(raw: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if d.get("errorCode"):
         return None
-    who = d.get("userIdentity") or {}
-    issuer = (who.get("sessionContext") or {}).get("sessionIssuer") or {}
-    actor_name = str(issuer.get("userName") or who.get("userName") or "")
-    at = _when(raw.get("EventTime") or d.get("eventTime"))
+    who = _trail_who(d)
+    at, event_time = _trail_at(raw, d)
     return {"event": str(raw.get("EventId") or d.get("eventID") or ""),
             "event_name": str(raw.get("EventName") or d.get("eventName") or ""),
-            "at": at, "event_time": at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else "?",
+            "at": at, "event_time": event_time,
             "request": d.get("requestParameters") if isinstance(d.get("requestParameters"), dict) else None,
-            "who_type": str(who.get("type") or ""), "invoked_by": str(who.get("invokedBy") or ""),
-            "source_identity": str((who.get("sessionContext") or {}).get("sourceIdentity") or ""),
-            "actor_name": actor_name, "actor": f"{str(who.get('type') or '?').lower()}/{actor_name or '?'}",
-            "user_agent": str(d.get("userAgent") or "")}
+            **who}
 
 
 # The user agents of the infrastructure-as-code tools that call AWS's APIs themselves (CloudFormation, and so CDK and
@@ -392,11 +399,17 @@ def _route_target_for(routes: list[Any], dest: tuple[str, str] | list[str] | Non
         return None
     for r in routes:
         if isinstance(r, dict) and str(_get(r, dest[0]) or "") == dest[1]:
-            for k in _ROUTE_TARGETS:
-                v = str(_get(r, k) or "")
-                if v and (k != "gatewayId" or _GATEWAY_ID.fullmatch(v)):
-                    return [k, v]
-            return None
+            return _writable_target(r)
+    return None
+
+
+def _writable_target(route: dict[str, Any]) -> list[str] | None:
+    """The first target of a route that WARDEN may write: any of _ROUTE_TARGETS, a gateway only an internet or a
+    virtual private one."""
+    for k in _ROUTE_TARGETS:
+        v = str(_get(route, k) or "")
+        if v and (k != "gatewayId" or _GATEWAY_ID.fullmatch(v)):
+            return [k, v]
     return None
 
 
@@ -1279,7 +1292,7 @@ class AwsPlatform:
         attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["QueueArn", "ApproximateNumberOfMessages"])
         attrs = attrs["Attributes"]
         tasks = sqs.list_message_move_tasks(SourceArn=attrs["QueueArn"], MaxResults=1).get("Results") or []
-        return bool(tasks) and tasks[0].get("Status") == "COMPLETED" and str(attrs.get("ApproximateNumberOfMessages")) == "0"
+        return next(iter(tasks), {}).get("Status") == "COMPLETED" and str(attrs.get("ApproximateNumberOfMessages")) == "0"
 
     # ------------------------------------------------------------------ athena: cancel the runaway query (G9-D)
 
@@ -1566,7 +1579,7 @@ class AwsPlatform:
         alarm = self._read("cloudwatch").describe_alarms(AlarmNames=[str(params.get("alarm", ""))],
                                                          AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
         return str(st.get("deployment")) == str(params.get("deployment")) and st.get("deploy_state") in (
-            "REVERTED", "ROLLED_BACK") and bool(alarm) and alarm[0].get("StateValue") == "OK"
+            "REVERTED", "ROLLED_BACK") and next(iter(alarm), {}).get("StateValue") == "OK"
 
     # ------------------------------------------------------------------ ec2: undo a recorded security group change (G10-D)
 
@@ -1692,7 +1705,7 @@ class AwsPlatform:
         alarm = self._read("cloudwatch").describe_alarms(AlarmNames=[str(params.get("alarm", ""))],
                                                          AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
         undone = "kind" in st and st.get("present") is (st["kind"] == "revoke")
-        return undone and bool(alarm) and alarm[0].get("StateValue") == "OK"
+        return undone and next(iter(alarm), {}).get("StateValue") == "OK"
 
     # ------------------------------------------------------------------ undo a recorded change, from Config (G10-D3)
 
@@ -1706,7 +1719,7 @@ class AwsPlatform:
     def _alarm_ok(self, alarm: str) -> bool:
         found = self._read("cloudwatch").describe_alarms(AlarmNames=[alarm], AlarmTypes=["MetricAlarm"]).get(
             "MetricAlarms") or []
-        return bool(found) and found[0].get("StateValue") == "OK"
+        return next(iter(found), {}).get("StateValue") == "OK"
 
     def _alarm_clear_minutes(self, alarm: str) -> int | None:
         """How long this alarm may take to read OK once its cause is gone - None when that cannot be read."""
@@ -2318,7 +2331,7 @@ class AwsPlatform:
         """Set the table's capacity back to what AWS Config recorded before the cut (back: to what the cut set)."""
         self._expect(now, snapshot, ("table", "arn", "event", "before", "after"), f"table {p['table']}")
         text = str(p["throughput"])
-        prior = [int(v) for v in text.split("/")] if re.fullmatch(r"[1-9][0-9]*/[1-9][0-9]*", text) else None
+        prior = [int(v) for v in text.split("/")] if re.fullmatch(r"[1-9]\d*/[1-9]\d*", text, re.ASCII) else None
         want_now, to = (snapshot.get("after"), prior) if not back else (prior, snapshot.get("after"))
         if now.get("now") != want_now or not to:
             raise AwsPlatformRefused(f"table {p['table']} has {now.get('now')} read/write units, not {want_now}; "
@@ -2828,30 +2841,17 @@ def from_environment() -> AwsPlatform:
 
 def _platform(sts: Any, where: str, reader_arn: str, actor_arn: str) -> AwsPlatform:
     """One environment's platform: reads in its reader role, each write in an actor session for one plan."""
-    import boto3
-
     from .. import identity
+    from . import reader_clients, session_clients
 
-    def session(creds: dict[str, str]) -> Clients:
-        s = boto3.Session(**creds, region_name=where)
-        return lambda service: s.client(service)
-
-    held: dict[str, Any] = {}
-
-    def reader(service: str) -> Any:
-        # The reader session lasts 15 minutes; it is renewed after 10, so no read runs on one about to expire.
-        import time
-
-        if held.get("until", 0) < time.monotonic():
-            held["clients"] = session(identity.reader_session(sts, role_arn=reader_arn, incident="warden-worker"))
-            held["until"] = time.monotonic() + 600
-        return held["clients"](service)
+    reader = reader_clients(sts, where, reader_arn)
 
     def actor(who: dict[str, Any], actions: list[str], resources: list[str], condition: dict | None,
               also: tuple = ()) -> Clients:
-        return session(identity.actor_session(sts, role_arn=actor_arn, incident=who["incident"],
-                                              plan_hash=who["plan_hash"], approvers=who["approvers"],
-                                              actions=actions, resources=resources, condition=condition, also=also))
+        return session_clients(identity.actor_session(sts, role_arn=actor_arn, incident=who["incident"],
+                                                      plan_hash=who["plan_hash"], approvers=who["approvers"],
+                                                      actions=actions, resources=resources, condition=condition,
+                                                      also=also), where)
 
     return AwsPlatform(reader=reader, actor=actor)
 

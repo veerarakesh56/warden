@@ -36,6 +36,9 @@ ENDED = {
 # Each step on the record, in plain words, for an incident's page.
 STEP = {
     "intake.grouped": "Another alert on the same resource joined this incident",
+    "incident.reopened": "Reopened: the alarm came back while the fix was being watched",
+    "remediation.did_not_hold": "The fix did not hold - WARDEN will not offer it again on its own",
+    "remediation.offer_again": "An approver let WARDEN offer this fix again",
     "intake.decision": "The alarm came in", "incident.alert": "The alarm was recorded",
     "incident.ingest": "WARDEN started reading", "incident.gather": "Evidence read",
     "incident.redact": "Secrets removed from the evidence", "incident.tripwire": "Injection check on the evidence",
@@ -45,6 +48,7 @@ STEP = {
     "incident.report": "Report written", "incident.notify": "Report sent", "incident.plan_fix": "Fix plan looked for",
     "incident.no_plan": "No fix plan", "incident.after_hold": "Looked at again after expected down",
     "incident.evidence": "Evidence kept for questions",
+    "record.link": "Linked to another record by an approver",
     "intake.side_effect": "Another alarm started while this fix was checked",
     "remediation.side_effects": "Other alarms started after this fix - each diagnosed on its own", "remediation.rediagnose": "Diagnosed again",
     "incident.later_alarm": "Another alarm started after this fix - diagnosed beside it",
@@ -56,6 +60,9 @@ STEP = {
     "remediation.rollback_failed": "Undoing the fix failed", "remediation.refused": "Apply refused",
     "workflow.end": "Fix run ended", "change.recorded": "Change recorded", "discuss.turn": "Asked about in the discussion",
     "discuss.answer": "WARDEN answered in the discussion", "discuss.reply": "Answer posted",
+    "eldane.verdict": "Reviewed by Eldane, the AI critic", "eldane.call": "Eldane asked its model",
+    "eldane.trial": "A catch trial for Eldane: a planted bad plan, a test, never applied",
+    "autonomy.outcome": "Scored for autonomy",
 }
 # What each message about a fix plan was, by its `what` (activities.announce).
 TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Denied", "expired": "Expired",
@@ -72,7 +79,7 @@ STATUSES = tuple(dict.fromkeys(("In progress", "Diagnosed", "No fix plan", "Wait
                                 "Approved - being applied", "Cleared while expected down",
                                 *(label for label, _ in ENDED.values()), "Failed", "Cancelled")))
 _QUIET = {"incident.llm_spend", "incident.llm_reserve", "approval.challenge", "approval.challenge_taken",
-          "approval.link", "approval.link_used", "chatops.thread", "discuss.reply"}
+          "approval.link", "approval.link_used", "chatops.thread", "discuss.reply", "intake.reopen_started"}
 
 
 @dataclass
@@ -113,6 +120,10 @@ class Record:
     unsigned: int = 0
     broken: int = 0
     named: Any = None  # a machine text with each approver id replaced by their name
+    # Its links to other records as they stand, and the proven fix they lead to (links.py); not read for the list.
+    links: list[dict[str, Any]] = field(default_factory=list)
+    proven: dict[str, Any] | None = None
+    found: list[dict[str, Any]] = field(default_factory=list)  # links WARDEN finds in its own rows (links.found)
 
 
 def incident_ids(log: Any) -> list[str]:
@@ -203,10 +214,21 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
                       "plan_hash": b.get("plan_hash"), "made": e["at"], "workflow_id": b.get("workflow_id")}
         elif kind == "approval.accepted":
             note = str(b.get("note") or "")
-            r.decisions.append({"what": "Approved", "who": shown(str(b.get("approver"))), "at": e["at"],
-                                "how": "passkey" if b.get("method") == "passkey" else "signing key", "note": note,
+            ai = bool(b.get("ai"))  # Eldane (autonomy.py): always said to be an AI, with the level it approved at
+            how = "passkey" if b.get("method") == "passkey" else "signing key"
+            if ai:
+                how = f"own signing key - an AI approval at autonomy level {b.get('autonomy', 'L2')}"
+            r.decisions.append({"what": "Approved", "who": approvals.AI_LABEL if ai else shown(str(b.get("approver"))),
+                                "at": e["at"], "how": how, "note": note,
                                 "hasty": bool(b.get("hasty")), "latency": b.get("latency_s")})
             r.flags += [f"A note from {shown(str(b.get('approver')))} held {t}." for t in approvals.note_tries(note)]
+        elif kind == "eldane.verdict" and b.get("agree") is not None:
+            r.decisions.append({"what": "Agreed with the plan" if b.get("agree") else "Did not agree with the plan",
+                                "who": approvals.AI_LABEL, "at": e["at"],
+                                "how": f"review - an AI, autonomy level {b.get('level', '?')}",
+                                "note": "; ".join(x.get("text", "") for p in (b.get("passes") or [])[-1:]
+                                                  for x in p.get("reasons", [])[:3]),
+                                "hasty": False, "latency": None})
         elif kind == "approval.refused":
             r.flags.append("An approval was refused: " + named("; ".join(str(p) for p in (b.get("problems") or [])[:3])))
         elif kind == "discuss.turn":
@@ -238,6 +260,11 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
             r.status, r.kind = "Cleared while expected down", "ok"
         elif r.verdict:
             r.status, r.kind = "Diagnosed", "info"
+    if not light:
+        from . import links
+
+        r.links, r.proven = links.links_of(log, incident), links.proven_fix(log, incident)
+        r.found = links.found(log, incident)
     return r
 
 
@@ -249,8 +276,8 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
 _KEYS = ("page", "size", "env", "status", "service", "from", "to", "q")
 _ENV = re.compile(r"[a-z][a-z0-9-]{0,30}")  # environments.py's own shape for a name
 _SERVICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,63}")
-_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_PAGE_NO = re.compile(r"[1-9][0-9]{0,6}")
+_DAY = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
+_PAGE_NO = re.compile(r"[1-9]\d{0,6}", re.ASCII)
 TEXT_MAX = 100
 
 
@@ -553,7 +580,7 @@ def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
         if e["kind"] in _QUIET:
             continue
         said = (TOLD.get(str(e["body"].get("what")), "Told people how the fix ended")
-                if e["kind"] == "remediation.announce" else STEP.get(e["kind"], e["kind"]))
+                if e["kind"] == "remediation.announce" else _step(e))
         brief = _brief(e, r.shown)
         steps.append(f'<tr><td><time>{_e(_when(e["at"]))}</time></td><td>{_e(said)}</td>'
                      f'<td class="small">{_e(r.named(brief) if r.named else brief)}</td></tr>')
@@ -586,12 +613,66 @@ def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
             '<p class="pad tools"><button type="button" class="link" id="all" aria-controls="sections">'
             'Open all sections</button></p>'
             f'<h2>Summary</h2>{_facts(_summary_facts(r))}'
-            f'<h2>Decisions</h2>{_decisions(r)}'
+            f'<h2>Decisions</h2>{_decisions(r)}{linked(r)}{found_links(r)}'
             f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{told_html}{report}'
             f'<details class="block"><summary>Every step on the record</summary><div class="scroll"><table>'
             f'<thead><tr><th scope="col">When</th><th scope="col">Step</th><th scope="col">Details</th></tr></thead>'
             f'<tbody>{"".join(steps)}</tbody></table></div></details>')
     return _shell(f"WARDEN - {r.alarm or r.id}", "Record", main, script=_OPEN_ALL_JS)
+
+
+def _at(value: Any) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _step(e: dict[str, Any]) -> str:
+    """A step's plain words; a link taken back says so (CodeRabbit, PR 56: it read as a new link)."""
+    if e["kind"] == "record.link" and e["body"].get("removed"):
+        return "A link to another record was taken back by an approver"
+    return STEP.get(e["kind"], e["kind"])
+
+
+def linked(r: Record) -> str:
+    """The incident's links to other records - each in plain words, who linked it and when, the other record one
+    click away - and the proven fix they lead to (links.py). Nothing when it has none."""
+    if not r.links and not r.proven:
+        return ""
+    from . import links
+
+    def who(approver: str) -> str:
+        name = r.shown(approver) if r.shown else ""
+        return name if name and name != approver else "an approver"  # never the list's id
+
+    items = []
+    for k in r.links:
+        note = f'<blockquote class="note">{_e(k["note"])}</blockquote>' if k.get("note") else ""
+        items.append(f'<li><p>This incident {_e(links.WORDS[k["side"]])} <a href="{_e(Query().href(incident=k["with"]))}">'
+                     f'<span class="mono">{_e(k["with"])}</span></a> - linked by {_e(who(str(k.get("approver"))))} '
+                     f'at <time>{_e(_when(_at(k.get("at"))))}</time></p>{note}</li>')
+    out = '<h2>Linked records</h2><ul class="decisions">' + "".join(items) + "</ul>" if items else ""
+    if r.proven:
+        f = r.proven
+        out += (f'<p class="pad"><strong>Proven fix on a linked record:</strong> <span class="mono">{_e(f["entry"])}</span>'
+                f' on <span class="mono">{_e(f["target"])}</span> was applied and verified in '
+                f'<a href="{_e(Query().href(incident=f["incident"]))}"><span class="mono">{_e(f["incident"])}</span></a> '
+                f'at <time>{_e(_when(f["verified_at"]))}</time> ({len(f["path"])} link(s) away). A fact from the '
+                'record for a person to weigh: WARDEN does not apply it on that account.</p>')
+    return out
+
+
+def found_links(r: Record) -> str:
+    """The links WARDEN found in its own record (links.found): a re-diagnosis, an alarm after a fix, a relapse, the
+    same alarm or resource - each one click away, said to be WARDEN's finding and not a person's link."""
+    if not r.found:
+        return ""
+    items = "".join(f'<li>This incident {_e(k["words"])} <a href="{_e(Query().href(incident=k["with"]))}">'
+                    f'<span class="mono">{_e(k["with"])}</span></a></li>' for k in r.found)
+    return ('<h2>Related records WARDEN found</h2><p class="lede">From WARDEN\'s own signed rows. A person confirms a '
+            'shared cause with <code>warden link</code>; only then can a fix there count as proven here.</p>'
+            f'<ul class="flags">{items}</ul>')
 
 
 _FENCE = "```"

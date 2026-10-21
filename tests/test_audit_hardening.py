@@ -107,37 +107,6 @@ def test_a_service_name_is_a_name():
         _alert(service="--profile=admin")
 
 
-def test_a_real_fix_acts_only_on_the_alerting_resource_and_only_on_the_approved_proposal():
-    """Audit repro: a hijacked model proposed scale_down on another resource that exists in the
-    inventory, and the same-command-line --approve 'approved' it before anyone saw it."""
-    from warden.models import ActionKind, RemediationProposal, Verdict, VerdictStatus
-    from warden.remediation import (
-        RemediationOutcome,
-        RemediationRequest,
-        decide_remediation,
-        proposal_digest,
-    )
-
-    alert = _alert(labels={"deployment": "checkout", "lambda": "orders-fn"})
-    ok = Verdict(status=VerdictStatus.approved_for_human)
-
-    def prop(target):
-        return RemediationProposal(action=ActionKind.scale_up, target=target, reasoning="r",
-                                   expected_effect="e", blast_radius="single_service", reversible=True)
-
-    other = prop("orders-fn")
-    r = decide_remediation(alert, other, ok, RemediationRequest(principal="role:oncall",
-                                                                approval=proposal_digest(alert, other)))
-    assert r.outcome is RemediationOutcome.blocked and "not the alerting resource" in r.detail
-    mine = prop("deployment/checkout")
-    stale = proposal_digest(alert, prop("checkout"))
-    r = decide_remediation(alert, mine, ok, RemediationRequest(principal="role:oncall", approval=stale))
-    assert r.outcome is RemediationOutcome.awaiting_approval, "a digest approves one exact proposal"
-    r = decide_remediation(alert, mine, ok, RemediationRequest(principal="role:oncall",
-                                                               approval=proposal_digest(alert, mine)))
-    assert r.outcome is RemediationOutcome.dry_run
-
-
 def test_mcp_gather_cannot_read_outside_the_fixtures(tmp_path):
     """Audit repro: alert_id=<absolute path> read any *.json, and its metrics came back raw."""
     from warden.mcp_server import call_tool

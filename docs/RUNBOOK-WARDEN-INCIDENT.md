@@ -58,10 +58,14 @@ Signs that WARDEN is the incident:
 Check the record first: it is what every other answer rests on.
 
 ```
-warden audit verify --db <audit.db> --public-key <audit.pub> --anchor-bucket <bucket>
-warden audit show <incident-id> --db <audit.db> --public-key <audit.pub>
+warden audit verify --db <audit.db> --public-key ~/.warden/audit.pub --anchor-bucket <bucket>
+warden audit show <incident-id> --db <audit.db> --public-key ~/.warden/audit.pub
 warden status <workflow-id>
 ```
+
+Key files (`--key`, `--public-key`) are read only from the key folder, `WARDEN_KEY_DIR` (default `~/.warden`): copy the
+audit public key there first; a key named anywhere else, or through a symlink, is refused. `--db` must lie in the
+working directory, the temp folder or a tool's output folder.
 
 `audit verify` recomputes every hash and checks every signature and anchor; `audit show` lists one incident's rows
 with their hashes, the same hashes WARDEN's Slack footers cite (S17), so a message claiming to be WARDEN's can be

@@ -59,7 +59,13 @@ SHORT_CHARS, SHORT_STEP_CHARS = 120, 60
 # (23 of 35 before), recall 51 of 132 attacks (46 before), 0 of 36 benign alerts flagged, and 3 of 14
 # benign texts worded as instructions escalated (1 before) - the owner accepted the extra escalations:
 # a false alarm costs one human review.
-_SEGMENT = re.compile(r"(?<=[.;!?])\s+|\n+|,\s+|\s+(?=[A-Za-z_][\w.-]*=)")
+_SEGMENT_BREAKS = (
+    r"(?<=[.;!?])\s+",  # after the end of a sentence
+    r"\n+",  # a line break
+    r",\s+",  # a comma
+    r"\s+(?=[A-Za-z_][\w.-]*=)",  # before a key=value
+)
+_SEGMENT = re.compile("|".join(_SEGMENT_BREAKS))
 MIN_SEGMENT_CHARS = 20
 # The most tokens of text one scan takes, counted in its long windows (about 1.25x the text, from their
 # overlap): some 26,000 tokens of what the model reads. Recorded incidents need at most 14,121 (p99
