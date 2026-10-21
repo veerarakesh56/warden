@@ -14,7 +14,8 @@ def test_a_function_with_one_alias_is_planned_on_it(aws):  # noqa: F811
     f, p = aws
     f.list_aliases = lambda FunctionName, **kw: {"Aliases": [{"Name": "live"}]}
     live = p.live("lambda_move_alias", {"function": FN})
-    assert live["alias"] == {"live"} and live["to_version"] == {"3"}
+    assert live["alias"] == {"live"}
+    assert live["to_version"] == {"3"}
     assert catalog.validate("lambda_move_alias", {"function": FN, "alias": "live", "to_version": "3"}, live) == []
 
 
@@ -22,7 +23,8 @@ def test_a_function_with_several_aliases_and_none_named_is_refused(aws):  # noqa
     f, p = aws
     f.list_aliases = lambda FunctionName, **kw: {"Aliases": [{"Name": "live"}, {"Name": "beta"}]}
     live = p.live("lambda_move_alias", {"function": FN})
-    assert live["alias"] == set() and live["refused"] == f"{FN} has 2 aliases and the alarm names none of them"
+    assert live["alias"] == set()
+    assert live["refused"] == f"{FN} has 2 aliases and the alarm names none of them"
 
 
 def _alert(**labels):
@@ -40,7 +42,10 @@ def test_the_resolver_asks_the_live_read_for_the_alias_when_the_alarm_names_none
     f, p = aws
     f.list_aliases = lambda FunctionName, **kw: {"Aliases": [{"Name": "live"}]}
     req, why = resolver.request_for(_alert(), _proposal(), lambda e, params: p.live(e, params))
-    assert why == "" and req["entry"] == "lambda_move_alias" and req["params"]["alias"] == "live"
+    assert why == ""
+    assert req["entry"] == "lambda_move_alias"
+    assert req["params"]["alias"] == "live"
     assert req["params"]["to_version"] == "3"
     req, why = resolver.request_for(_alert(lambda_qualifier="7"), _proposal(), lambda e, params: p.live(e, params))
-    assert req is None and "names a Lambda version, not an alias" in why
+    assert req is None
+    assert "names a Lambda version, not an alias" in why

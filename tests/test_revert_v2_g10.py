@@ -77,7 +77,8 @@ def test_a_visibility_timeout_cut_is_set_back_and_its_rollback_sets_what_the_cha
     f = Queue()
     p = _p(f)
     live = p.live("sqs_restore_attributes", QP)
-    assert live["event"] == {"q-1"} and live["attributes"] == {"VisibilityTimeout=300"}, live.get("refused")
+    assert live["event"] == {"q-1"}, live.get("refused")
+    assert live["attributes"] == {"VisibilityTimeout=300"}, live.get("refused")
     params = {**QP, "event": "q-1", "attributes": "VisibilityTimeout=300"}
     p.apply("sqs_restore_attributes", params, snapshot=live["state"], who=WHO)
     assert f.sessions[-1] == {"actions": ["sqs:SetQueueAttributes"], "resources": [Q_ARN]}
@@ -99,7 +100,8 @@ def test_a_visibility_timeout_cut_is_set_back_and_its_rollback_sets_what_the_cha
 ])
 def test_a_queue_change_wardens_restore_may_not_undo_is_refused(fake, why):
     live = _p(fake).live("sqs_restore_attributes", QP)
-    assert live["attributes"] == set() and why in live["refused"], live.get("refused")
+    assert live["attributes"] == set(), live.get("refused")
+    assert why in live["refused"], live.get("refused")
 
 
 def test_a_queue_whose_setting_moved_is_refused_before_and_after_the_plan():
@@ -120,7 +122,8 @@ def test_a_retention_cut_is_raised_back_and_never_shortened_again():
     f = Stream()
     p = _p(f)
     live = p.live("kinesis_restore_retention", SP)
-    assert live["event"] == {"k-1"} and live["hours"] == {"168"}, live.get("refused")
+    assert live["event"] == {"k-1"}, live.get("refused")
+    assert live["hours"] == {"168"}, live.get("refused")
     params = {**SP, "event": "k-1", "hours": "168"}
     p.apply("kinesis_restore_retention", params, snapshot=live["state"], who=WHO)
     assert f.sessions[-1] == {"actions": ["kinesis:IncreaseStreamRetentionPeriod"], "resources": [S_ARN]}
@@ -150,4 +153,5 @@ def test_the_resolver_plans_a_queue_and_a_stream_revert_from_their_labels():
                       started_at="2026-10-10T00:00:00+00:00", labels=labels)
         req, why = resolver.request_for(alert, proposal.model_copy(update={"target": target}),
                                         lambda e, params, fake=fake: _p(fake).live(e, params))
-        assert why == "" and req["entry"] == entry, why
+        assert why == "", why
+        assert req["entry"] == entry, why

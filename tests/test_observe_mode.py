@@ -16,7 +16,8 @@ def test_an_observed_policy_is_recorded_and_changes_nothing():
     args = (_alert(), _ctx(metrics={"error_rate": 0.31, "p99_latency_ms": 2140.0}), _rc(confidence=0.95),
             _prop(action=ActionKind.no_action))
     observed, enforced = verify(*args), _enforce(*args)
-    assert observed.observed and observed.observed[0].startswith("P25-NO-ACTION-OVER-ERROR-RATE: ")
+    assert observed.observed
+    assert observed.observed[0].startswith("P25-NO-ACTION-OVER-ERROR-RATE: ")
     assert "error_rate" in observed.observed[0]
     assert observed.model_copy(update={"observed": []}) == enforced  # the decision is exactly the enforced one
     assert "P25-NO-ACTION-OVER-ERROR-RATE" not in observed.policy_ids
@@ -34,7 +35,8 @@ def test_the_report_shows_it_as_observed_only():
             _prop(action=ActionKind.no_action))
     v = verify(*args)
     md = build_report(args[0], root_cause=args[2], proposal=args[3], verdict=v, context=args[1]).markdown
-    assert "Observed only, not enforced" in md and "P25-NO-ACTION-OVER-ERROR-RATE" in md
+    assert "Observed only, not enforced" in md
+    assert "P25-NO-ACTION-OVER-ERROR-RATE" in md
 
 
 def test_a_replay_score_counts_where_it_would_have_fired_by_diagnosis(tmp_path):
