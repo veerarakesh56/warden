@@ -114,7 +114,18 @@ def _is_skipped(file: str, src: str, func: str) -> bool:
     names = [ast.unparse(d.func if isinstance(d, ast.Call) else d) for d in node.decorator_list]
     if any(name not in _SAFE_DECORATORS for name in names):
         return True
-    for call in (c for d in node.decorator_list for c in ast.walk(d)):  # a parametrized case marked off (PR 82 review)
+    # A parametrized case marked off (PR 82 review), in the decorator or in a case list the module assigns by name; a
+    # named list the file does not spell out cannot be checked and is refused.
+    tree = ast.parse(src)
+    assigned = {target.id: stmt.value for stmt in tree.body if isinstance(stmt, ast.Assign)
+                for target in stmt.targets if isinstance(target, ast.Name)}
+    parts: list[ast.AST] = list(node.decorator_list)
+    for decorator in (d for d in node.decorator_list if isinstance(d, ast.Call)):
+        for name in (arg.id for arg in decorator.args if isinstance(arg, ast.Name)):
+            if name not in assigned:
+                return True
+            parts.append(assigned[name])
+    for call in (c for part in parts for c in ast.walk(part)):
         if isinstance(call, ast.Call) and ast.unparse(call.func) in ("pytest.param", "param"):
             marks = " ".join(ast.unparse(k.value) for k in call.keywords if k.arg == "marks")
             if "skip" in marks or "xfail" in marks:
@@ -136,6 +147,13 @@ def test_a_skip_hidden_by_a_multi_line_decorator_or_a_comment_is_still_caught(sr
 def test_a_parametrized_case_marked_off_is_not_evidence(marks):
     src = f"import pytest\n\n@pytest.mark.parametrize('x', [pytest.param(1, marks={marks})])\ndef test_a(x):\n    pass\n"
     assert _is_skipped("tests/x.py", src, "test_a")
+
+
+def test_a_named_case_list_is_read_where_it_is_assigned():
+    head, test = "import pytest\n\n", "\n@pytest.mark.parametrize('x', cases)\ndef test_a(x):\n    pass\n"
+    assert _is_skipped("tests/x.py", head + "cases = [pytest.param(1, marks=pytest.mark.skip)]\n" + test, "test_a")
+    assert _is_skipped("tests/x.py", head + "from elsewhere import cases\n" + test, "test_a")
+    assert not _is_skipped("tests/x.py", head + "cases = [1, pytest.param(2, id='two')]\n" + test, "test_a")
 
 
 def test_a_parametrized_test_is_not_taken_for_a_skipped_one():
