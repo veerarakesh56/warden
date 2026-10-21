@@ -399,11 +399,15 @@ def catalog_secret_synced(kubeconfig: str, run=run) -> None:
     try:
         run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "wait", "--for=condition=Ready",
              "externalsecret/catalog-secret", "--timeout=180s"])
-    except SystemExit:
-        status = run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "get", "externalsecret", "catalog-secret",
-                      "-o", "jsonpath={.status.conditions}"])
+    except SystemExit as waited:
+        # Its status, if it can be read - a second failure never hides the first (CodeRabbit, PR 118).
+        try:
+            status = run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "get", "externalsecret", "catalog-secret",
+                          "-o", "jsonpath={.status.conditions}"])
+        except SystemExit as unreadable:
+            status = f"(its status could not be read either: {unreadable})"
         raise SystemExit(f"catalog-secret was not synced by ESO (its role, its Pod Identity association, the secret?): "
-                         f"{status}") from None
+                         f"{status}; the wait said: {waited}") from waited
     print("catalog-secret: synced by ESO", flush=True)
 
 

@@ -607,6 +607,18 @@ def test_a_rotation_changes_the_externalsecret_and_nothing_else_does(tmp_path, m
     assert 'warden.dev/key-version: "v2"' in rotated
 
 
+def test_a_status_that_cannot_be_read_never_hides_the_wait_failure():
+    """CodeRabbit (PR 118): both failures are said - the wait's first."""
+    class BothFail(Runner):
+        def __call__(self, cmd, *, input=None):
+            self.cmds.append(cmd)
+            raise SystemExit("kubectl exited 1: " + ("timed out" if "wait" in cmd else "connection refused"))
+
+    with pytest.raises(SystemExit, match="could not be read either: kubectl exited 1: connection refused.*"
+                                         "the wait said: kubectl exited 1: timed out"):
+        tool.catalog_secret_synced("kc", BothFail())
+
+
 def test_no_current_key_version_stops_the_deploy_before_eso_and_the_externalsecret(tmp_path, monkeypatch):
     """CodeRabbit (PR 118): through deploy_k8s - no AWSCURRENT version, no ESO install and no ExternalSecret."""
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/warden")
