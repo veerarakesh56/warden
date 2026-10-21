@@ -23,6 +23,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "sbom" / "warden.cdx.json"
 
 
+def _model_status(row: dict, pinned: str | None) -> str:
+    """A row counts only on the prompt it was measured with (providers.qualified): one on an earlier prompt is listed as
+    what it is, never as qualified today."""
+    if row.get("prompt") == pinned:
+        return "qualified on WARDEN's replay set"
+    return f"measured on an earlier prompt ({str(row.get('prompt'))[:8]}), NOT qualified on the pinned one"
+
+
 def render() -> dict:
     sys.path.insert(0, str(ROOT / "src"))
     from warden import tripwire
@@ -50,11 +58,13 @@ def render() -> dict:
                "purl": f"pkg:huggingface/{org}/{name}@{tripwire.REVISION}",
                "description": "the injection tripwire (P16): a signal that escalates, never a gate that allows"}]
     providers = yaml.safe_load((ROOT / "src" / "warden" / "data" / "providers.yaml").read_text(encoding="utf-8"))
+    pinned = (providers.get("prompt") or {}).get("sha")
     for q in sorted(providers["qualified"], key=lambda q: (q["provider"], q["model"])):
+        status = _model_status(q, pinned)
         models.append({
             "type": "machine-learning-model", "bom-ref": f"model:{q['provider']}/{q['model']}", "name": q["model"],
             "version": q["model"], "supplier": {"name": "Anthropic"},
-            "description": f"qualified on WARDEN's replay set: {q['correct']} of {q['runs']} correct, "
+            "description": f"{status}: {q['correct']} of {q['runs']} correct, "
                            f"{q['wrong_and_allowed']} wrong and allowed (measured {q['measured']})",
             "properties": [{"name": "warden:provider", "value": q["provider"]},
                            {"name": "warden:client", "value": str(q.get("version", ""))}]})

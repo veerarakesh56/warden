@@ -48,3 +48,15 @@ def test_the_detector_loads_its_pinned_revision_from_safetensors_only(monkeypatc
         tripwire._classifier.cache_clear()
     assert seen["model"] == tripwire.MODEL and seen["revision"] == tripwire.REVISION
     assert seen["model_kwargs"] == {"use_safetensors": True}
+
+
+def test_a_model_row_on_an_earlier_prompt_is_never_called_qualified():
+    """A row qualifies its model only on the prompt it was measured with (providers.qualified): the bill says so."""
+    import yaml
+
+    doc = yaml.safe_load((ROOT / "src" / "warden" / "data" / "providers.yaml").read_text(encoding="utf-8"))
+    pinned = doc["prompt"]["sha"]
+    models = {c["name"]: c for c in sbom.render()["components"] if c["type"] == "machine-learning-model"}
+    for row in doc["qualified"]:
+        said = models[row["model"]]["description"]
+        assert ("NOT qualified" in said) is (row.get("prompt") != pinned), said

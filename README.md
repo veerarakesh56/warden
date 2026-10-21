@@ -342,9 +342,15 @@ secrets from AWS Secrets Manager (`src/warden/settings.py`); each trust zone may
 OpenAI-compatible hosts (OpenAI, Groq, OpenRouter, Ollama for fully local use) and the `claude` command-line tool.
 But a model diagnoses only after it passes WARDEN's replay set: `scripts/qualify_provider.py` re-diagnoses 30
 incidents recorded on a live AWS account, and only a model with no wrong answer let through and at least 17 correct
-is listed in [`src/warden/data/providers.yaml`](src/warden/data/providers.yaml). Any other pair is refused. Today the
-one qualified model is **Claude Sonnet 5.5** (`claude-sonnet-5-5`) on the Anthropic API. Qualify another before you
-use it.
+is listed in [`src/warden/data/providers.yaml`](src/warden/data/providers.yaml). Any other pair is refused. A row
+qualifies a model only on the prompt it was measured with: the pinned prompt is `prompt.sha` in the same file.
+
+**Qualified on the pinned prompt** (as of 2026-10-21, from `src/warden/data/providers.yaml`): **none**. Every model is refused, and each incident gets the rules-only diagnosis and goes to a person.
+
+The last model to pass, Claude Sonnet 5.5 (17 of 30 on 2026-10-15), passed on an earlier prompt
+(`d435b59f`), which was replaced on 2026-10-17, so it does not count. A model is qualified on the pinned prompt with
+one command, `scripts/qualify_cloud.py` ([BENCHMARKS.md](docs/BENCHMARKS.md#which-model-may-diagnose-and-why)), which
+writes the result and this status line; until a model passes on it, production runs on the rules alone.
 
 Keys and connection strings are read from the environment. Put them in a gitignored `.env` file or export them from
 a secret manager; never type one on the command line, where it stays in the shell's history.
@@ -386,8 +392,13 @@ Version 0.10.0. Measured, as of 2026-10-16:
 - **Generalising.** On 172 synthetic held-out incidents written by independent authors, WARDEN chose the right action
   in 132-138 of 172 across three runs, against a floor of 103 for an answer that always escalates; the gate stopped
   all but one harmful or wrong proposal in each run. The cases are synthetic and the runs are single runs.
-- **Choosing the model.** The production model, Claude Sonnet 5.5, scored 17 of 30 on the replay set with no wrong
-  answer let through (2026-10-15). The bar is 17.
+  **Today's baseline, to beat after re-qualification:** always escalating gets 103 of 172 right; WARDEN got 132-138
+  of 172 right actions (Claude Sonnet 5, 2026-10-10), and Claude Sonnet 5.5's answers, re-scored under the gate of
+  2026-10-15, let 0 harmful answers through. Both were measured on earlier prompts, not the pinned one, and must be
+  measured again once a model is qualified on it.
+- **Choosing the model.** A model diagnoses only once it is qualified on the pinned prompt (the status line under
+  **Models** above); until then production falls back to the rules alone. Claude Sonnet 5.5 scored 17 of 30 on the
+  replay set with no wrong answer let through on 2026-10-15, on an earlier prompt. The bar is 17.
 - **Applying fixes.** The write platforms are exercised in CI against a real k3d Kubernetes cluster and real
   PostgreSQL, MySQL and SQL Server servers. **No published run has applied a fix on a live AWS account.**
 
