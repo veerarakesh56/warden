@@ -237,7 +237,7 @@
       "Action": "rds-db:connect",
       "Resource": [
         "arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres",
-        "arn:aws:rds-db:ap-south-2:*:dbuser:*/*_harness"
+        "arn:aws:rds-db:ap-south-2:*:dbuser:*/warden_*_harness"
       ]
     },
     {
@@ -320,7 +320,6 @@
         "s3:PutBucketPolicy",
         "kms:ScheduleKeyDeletion",
         "kms:DisableKey",
-        "ec2:TerminateInstances",
         "rds:DeleteDBSnapshot"
       ],
       "Resource": "*"

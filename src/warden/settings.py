@@ -67,12 +67,21 @@ LOADABLE = frozenset({
     # X-Ray (xray.py) and which tools a run reads: plain. Grafana's reader (grafana.py) is not loaded from the store:
     # WARDEN's own runtime reads Datadog only (owner, 2026-10-16); an adopter sets WARDEN_GRAFANA_* in the process.
     "WARDEN_XRAY", "WARDEN_EVIDENCE_TOOLS", "WARDEN_COMMITS", "WARDEN_HISTORY_IN_PROMPT",
+    # Code review's findings on the deploy's pull request (findings.py): plain values. The read-only GitHub token
+    # (warden/<env>/github-read-token) is the read zone's alone, one token for the deploy's commits (WARDEN_COMMITS) and
+    # the findings; WARDEN_SONAR_TOKEN has no slot (a public SonarCloud project needs none).
+    "WARDEN_FINDINGS", "WARDEN_SONAR_PROJECT", "WARDEN_FINDINGS_MAX_PRS", "WARDEN_FINDINGS_MAX_PER_PR",
+    "WARDEN_GITHUB_READ_TOKEN",
     # Whose changes WARDEN never proposes to undo - a security team, a break-glass identity (platforms/aws.py): plain,
     # comma-separated. Not loadable before 2026-10-14, so the cloud runtime could never be told (gap audit).
     "WARDEN_NEVER_REVERT_PRINCIPALS",
+    # Service quotas and their usage as evidence (quotas.py, B14): plain, "1" reads them.
+    "WARDEN_QUOTAS",
     # Each environment's EKS cluster, `env=cluster[,env=cluster]` (aws_stack.eks_cluster_of): a Kubernetes alert that
     # does not name its cluster - a Datadog monitor grouped by workload - is read in its environment's (2026-10-15).
     "WARDEN_EKS_CLUSTERS",
+    # How many periods after a fix the alarm's metric must stay clean for the symptom to be gone (symptom.py, B13).
+    "WARDEN_SYMPTOM_PERIODS",
     # The watched database's DSNs carry no password: each read signs an IAM token in the incident's reader role
     # (aws_stack.iam_dsn).
     "WARDEN_STACK_DB_IAM_AUTH",
@@ -80,6 +89,9 @@ LOADABLE = frozenset({
     # serves, the environment of the one watched database and the application logins it may close sessions of. Plain;
     # each only narrows what an approved plan may touch.
     "WARDEN_K8S_NAMESPACE", "WARDEN_DB_ENVIRONMENT", "WARDEN_DB_APP_USERS",
+    # Eldane's own Ed25519 signing key (eldane.py, PEM): a secret, read only by the critic zone. Its provider and model
+    # are not loadable, as the diagnoser's are not: the task definition sets them (compute.tf).
+    "WARDEN_ELDANE_KEY",
 })
 
 
@@ -88,11 +100,12 @@ LOADABLE = frozenset({
 RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_DB_TERMINATE_DSN": frozenset({"worker"}),
     "WARDEN_AUDIT_KEY_PASSPHRASE": frozenset({"worker", "incident", "intake", "status", "approve", "killswitch", "audit",
-                                              "label"}),
-    "WARDEN_TEMPORAL_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
-    "WARDEN_TEMPORAL_API_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
-    "WARDEN_TEMPORAL_KEY_PREVIOUS": frozenset({"worker", "incident", "intake", "status", "approve", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
+                                              "label", "offer-again"}),
+    "WARDEN_TEMPORAL_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "autonomy", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
+    "WARDEN_TEMPORAL_API_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "autonomy", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
+    "WARDEN_TEMPORAL_KEY_PREVIOUS": frozenset({"worker", "incident", "intake", "status", "approve", "autonomy", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
     "WARDEN_GITHUB_TOKEN": frozenset({"worker"}),
+    "WARDEN_GITHUB_READ_TOKEN": frozenset({"worker"}),
     # Only the worker writes to AWS or beats; no other command needs to know the roles (audit A-P-5, register C13).
     "WARDEN_AWS_READER_ROLE_ARN": frozenset({"worker"}),
     "WARDEN_AWS_ACTOR_ROLE_ARN": frozenset({"worker"}),
@@ -100,12 +113,12 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_HEARTBEAT_NAMESPACE": frozenset({"worker"}),
     # The commands that open the audit (runtime.open_audit) and the ones that read it.
     "WARDEN_AUDIT_DSN": frozenset({"worker", "incident", "intake", "status", "approve", "killswitch", "audit",
-                                   "label", "usage", "lambda-alarm", "lambda-alertmanager", "lambda-approval",
+                                   "label", "offer-again", "usage", "lambda-alarm", "lambda-alertmanager", "lambda-approval",
                                    "lambda-actor-use"}),
     # The Alertmanager webhook's bearer secrets: only the Lambda that checks them (register S5).
     "WARDEN_ALERTMANAGER_TOKEN": frozenset({"lambda-alertmanager"}),
-    # Paging (decision D13): only what sends messages - the worker, and a manual run that emits its report.
-    "WARDEN_PAGERDUTY_ROUTING_KEY": frozenset({"worker", "run"}),
+    # Paging (decision D13): only what sends messages - the worker (`warden run` sends nothing since owner B27).
+    "WARDEN_PAGERDUTY_ROUTING_KEY": frozenset({"worker"}),
     "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS": frozenset({"lambda-alertmanager"}),
     # Sign in with Slack (slack_login.py): only the approval page asks Slack who is there.
     "WARDEN_SLACK_CLIENT_ID": frozenset({"lambda-approval"}),
@@ -119,6 +132,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_DATADOG_API_KEY": frozenset({"worker", "lambda-alertmanager"}),
     "WARDEN_DATADOG_APP_KEY": frozenset({"worker", "lambda-alertmanager"}),
     "WARDEN_DATADOG_WEBHOOK_TOKEN": frozenset({"lambda-alertmanager"}),
+    "WARDEN_ELDANE_KEY": frozenset({"worker"}),
 }
 
 
@@ -132,9 +146,10 @@ SECRETS = frozenset({
     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_TEMPORAL_API_KEY",
-    "WARDEN_GITHUB_TOKEN",
+    "WARDEN_GITHUB_TOKEN", "WARDEN_GITHUB_READ_TOKEN",
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
     "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
+    "WARDEN_ELDANE_KEY",
 })
 
 
@@ -148,7 +163,8 @@ _EVERY_ZONE = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY"})
 ZONE_SECRETS: dict[str, frozenset[str]] = {
     "core": _EVERY_ZONE,
     "read": _EVERY_ZONE | {"WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
-                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"},
+                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
+                           "WARDEN_GITHUB_READ_TOKEN"},
     "llm": _EVERY_ZONE | {"ANTHROPIC_API_KEY"},
     # GitHub: the change-record issue `finish` writes (changes.py) and the deploys `notify` reads into the report
     # (timeline.recent) - both notify-zone activities (workflows.ZONES).
@@ -156,6 +172,9 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
                              "WARDEN_GITHUB_TOKEN"},
     # The terminate login's DSN (no password: each close signs in with a token an approved plan's actor signs).
     "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN"},
+    # Eldane, the AI critic (eldane.py): the same Claude API key as the diagnosis (owner, 2026-10-17), and its own
+    # signing key, which nobody else holds.
+    "critic": _EVERY_ZONE | {"ANTHROPIC_API_KEY", "WARDEN_ELDANE_KEY"},
 }
 # The runtime's Lambdas (lambdas.py), each with a role of its own that reads exactly these (iam.tf front_door_access;
 # tests/test_runtime_module_g6.py runs each handler's load and holds the two together). Every one but actor-use reaches

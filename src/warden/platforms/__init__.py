@@ -61,6 +61,14 @@ class RoutedPlatform:
             p = p.for_environment(environment)
         return p.alarm_state(alarm)
 
+    def reader(self, environment: str | None = None) -> Any | None:
+        """The connected AWS platform's read clients in the plan's environment (name -> boto3 client, its reader
+        role): the symptom check (symptom.py, B13) reads the alarm's metric and the error logs through it."""
+        p = next((p for p in self._by_kind.values() if hasattr(p, "alarm_state")), None)
+        if p is not None and environment and hasattr(p, "for_environment"):
+            p = p.for_environment(environment)
+        return getattr(p, "_read", None)
+
     def healthy_for(self, entry: str, service: str, params: dict[str, Any] | None = None,
                     environment: str | None = None) -> bool:
         """Health as the platform that carries out `entry` sees it - only that one (sixth review, 2026-10-01: a
@@ -126,7 +134,7 @@ class PerEnvironment(Unconfigured):
                     self._made[environment] = self._build(environment)
                 except NotConfigured as exc:
                     self._made[environment] = Unconfigured(str(exc))
-                except Exception as exc:  # a build that fails otherwise also changes nothing, said why  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001  # a build that fails otherwise also changes nothing and says why
                     self._made[environment] = Unconfigured(
                         f"{environment}'s platform could not be built ({type(exc).__name__})")
             return self._made[environment]

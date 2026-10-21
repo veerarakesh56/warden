@@ -7,6 +7,7 @@ the answer, a manifest the restricted Pod Security level rejects, a policy over 
 """
 from __future__ import annotations
 
+import datetime
 import fnmatch
 import json
 import pathlib
@@ -310,7 +311,7 @@ def test_only_the_operator_may_log_in_as_postgres_and_the_ceiling_allows_it():
     st = next(s for s in _stmts(OPERATOR) if s["Sid"] == "PgLogin")
     assert (st["Effect"], st["Action"]) == ("Allow", "rds-db:connect")
     assert st["Resource"] == ["arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres",
-                              "arn:aws:rds-db:ap-south-2:*:dbuser:*/*_harness"]
+                              "arn:aws:rds-db:ap-south-2:*:dbuser:*/warden_*_harness"]
     assert len(json.dumps(json.loads(OPERATOR.read_text(encoding="utf-8")), separators=(",", ":"))) <= POLICY_LIMIT
     assert any("rds-db:connect" in _list(s["Action"]) for s in _stmts(BOUNDARY) if s["Effect"] == "Allow")
     assert "dbuser:*/postgres" not in _tf_text()
@@ -503,6 +504,10 @@ def _workflow(name: str) -> dict:
 
 def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     wf = _workflow("ci-infra.yml")
+    # Its destroy-permission check (B40) reads the IAM files and terraform/fullstack: an infra input too.
+    own = {"tests/test_destroy_permissions.py"}
+    # Pause and resume (owner update 5): its script restores the stack's data stores, its test reads the IAM and terraform.
+    own |= {"tests/test_pause_resume.py", "scripts/pause_resume.py"}
     # The infra pipeline's own inputs count as infra: its test files (every one its check runs - ninth review CI),
     # the IAM files it validates and what they render from. Its jobs install from uv.lock, so the lock and
     # pyproject.toml trigger it too (2026-10-01). Nothing of the tool's or the apps' own code.
@@ -510,11 +515,11 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
               "tests/test_supply_chain.py", "tests/test_terraform_versions.py", "tests/test_env_iam.py",
               "tests/test_helios_gate_r56.py", "tests/test_platform_iam_g6.py", "tests/test_aws_platform_g6.py",
               "tests/test_runtime_module_g6.py", "tests/test_runtime_pipeline_s9.py", "tests/test_runtime_iam_g6.py", "tests/test_actor_use_g6.py", "tests/test_redis_tls_r8.py", "tests/test_api_auth_ai13.py", "tests/test_runtime_network_g6.py",
-              "tests/test_backups.py", "tests/test_iac_hardening_sonar.py"}
+              "tests/test_backups.py", "tests/test_iac_hardening_sonar.py", "tests/test_iac_leftovers_sonar.py", "tests/test_stack_paths_s2083.py"}
     assert all(p.startswith(("terraform/fullstack/", "terraform/undo-lab/", "terraform/modules/", "terraform/runtime/", ".github/workflows/", "iam/")) or p in checks
                or p in ("uv.lock", "pyproject.toml", "scripts/render_env_iam.py", "scripts/helios_gate.py", "src/warden/platforms/aws.py",
-                         "src/warden/data/environments.yaml")
-               for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"])
+                         "src/warden/data/environments.yaml", "src/warden/paths.py")
+               for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"] if p not in own)
     assert "workflow_dispatch" not in wf["on"]
     for name in ("ci-infra.yml", "_infra-validate.yml"):
         text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
@@ -524,6 +529,23 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     assert deploy["jobs"]["run"]["permissions"]["id-token"] == "write"
     text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
     assert "aws-access-key-id" not in text and "AWS_SECRET_ACCESS_KEY" not in text
+
+
+@pytest.mark.parametrize("name", ["ci-apps.yml", "ci-infra.yml"])
+def test_a_lane_that_runs_a_script_importing_warden_paths_also_runs_when_paths_changes(name):
+    """deploy_fullstack_apps.py, aurora_express.py and helios_gate.py read their path rule from src/warden/paths.py
+    (PR 63): a change to that file alone must run the lanes that run them, or a broken rule reaches a deploy unseen."""
+    import fnmatch
+
+    wf = _workflow(name)
+    scripts = [p for p in [*ROOT.glob("scripts/*.py"), *ROOT.glob("terraform/*/*.py")]
+               if "from warden import paths" in p.read_text(encoding="utf-8")]
+    for event in ("push", "pull_request"):
+        globs = wf["on"][event]["paths"]
+        importing = [p.relative_to(ROOT).as_posix() for p in scripts
+                     if any(fnmatch.fnmatch(p.relative_to(ROOT).as_posix(), g) for g in globs)]
+        assert importing, f"{name} runs no script that imports warden.paths: drop it from this test"
+        assert "src/warden/paths.py" in globs, (name, event, importing)
 
 
 def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform():
@@ -594,14 +616,18 @@ class _NotFound(Exception):
     pass
 
 
+class _ClientError(Exception):
+    pass
+
+
 class FakeRds:
     """Just enough RDS: a cluster, its instances, waiters that settle the state at once."""
 
     iam_auth = True
 
     def __init__(self, cluster=None):
-        self.cluster, self.instances, self.calls = cluster, {}, []
-        self.exceptions = type("E", (), {"DBClusterNotFoundFault": _NotFound})
+        self.cluster, self.instances, self.calls, self.snapshots = cluster, {}, [], {}
+        self.exceptions = type("E", (), {"DBClusterNotFoundFault": _NotFound, "ClientError": _ClientError})
 
     def _log(self, name, **kw):
         self.calls.append((name, kw))
@@ -645,6 +671,18 @@ class FakeRds:
     def delete_db_cluster(self, **kw):
         self._log("delete_db_cluster", **kw)
         self.cluster["Status"] = "deleting"
+        if not kw.get("SkipFinalSnapshot"):
+            name = kw["FinalDBSnapshotIdentifier"]
+            self.snapshots[name] = {"DBClusterSnapshotIdentifier": name, "Status": "available",
+                                    "DBClusterSnapshotArn": f"arn:aws:rds:ap-south-2:111122223333:cluster-snapshot:{name}"}
+
+    def describe_db_cluster_snapshots(self, DBClusterSnapshotIdentifier):
+        self._log("describe_db_cluster_snapshots", DBClusterSnapshotIdentifier=DBClusterSnapshotIdentifier)
+        snap = self.snapshots.get(DBClusterSnapshotIdentifier)
+        return {"DBClusterSnapshots": [snap] if snap else []}
+
+    def add_tags_to_resource(self, **kw):
+        self._log("add_tags_to_resource", **kw)
 
     def get_waiter(self, name):
         rds = self
@@ -751,7 +789,7 @@ def test_aurora_create_twice_changes_nothing_and_refreshes_the_records(tmp_path)
     assert len(sm.puts) == 1
 
 
-def test_aurora_destroy_deletes_instances_then_the_cluster_without_a_snapshot():
+def test_aurora_destroy_deletes_instances_then_the_cluster_with_a_final_snapshot():
     ax, rds = _aurora(), FakeRds()
     rds.create_db_cluster(DBClusterIdentifier="warden-dev-aurora")
     rds.create_db_instance(DBInstanceIdentifier="warden-dev-aurora-2")
@@ -762,11 +800,113 @@ def test_aurora_destroy_deletes_instances_then_the_cluster_without_a_snapshot():
     assert names.index("modify_db_cluster") < names.index("delete_db_instance")
     assert names.count("delete_db_instance") == 2
     assert max(i for i, n in enumerate(names) if n == "wait:db_instance_deleted") < names.index("delete_db_cluster")
-    assert ("delete_db_cluster", {"DBClusterIdentifier": "warden-dev-aurora", "SkipFinalSnapshot": True}) in rds.calls
-    assert names[-1] == "wait:db_cluster_deleted" and rds.cluster is None
+    [delete] = [kw for n, kw in rds.calls if n == "delete_db_cluster"]
+    # B9: never SkipFinalSnapshot=True - the data is kept as <cluster>-final-<UTC time>.
+    assert delete["SkipFinalSnapshot"] is False
+    assert re.fullmatch(r"warden-dev-aurora-final-\d{8}t\d{6}z", delete["FinalDBSnapshotIdentifier"])
+    snapshot = delete["FinalDBSnapshotIdentifier"]
+    assert names.index("wait:db_cluster_deleted") < names.index("describe_db_cluster_snapshots")
+    tagged = next(kw for n, kw in rds.calls if n == "add_tags_to_resource")
+    assert tagged == {"ResourceName": rds.snapshots[snapshot]["DBClusterSnapshotArn"], "Tags": ax.TAGS}
+    assert names[-1] == "add_tags_to_resource"
+    assert rds.cluster is None
     rds.calls.clear()
     ax.destroy(rds, log=lambda *_: None)   # already gone: nothing to do
     assert rds.calls == []
+
+
+def test_aurora_final_snapshot_is_named_after_the_cluster_and_the_utc_time():
+    ax = _aurora()
+    ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    # 17:05:09 IST is 11:35:09 UTC: the name carries UTC, whatever the runner's zone.
+    name = ax.final_snapshot_name("warden-dev-aurora", datetime.datetime(2026, 10, 17, 17, 5, 9, tzinfo=ist))
+    assert name == "warden-dev-aurora-final-20261017t113509z"
+    # RDS's rule for a snapshot identifier: a letter first, letters/digits/hyphens, no "--", no trailing "-".
+    assert re.fullmatch(r"[a-z][a-z0-9-]{0,254}", name)
+    assert "--" not in name
+    assert not name.endswith("-")
+    assert re.fullmatch(r"warden-dev-aurora-final-\d{8}t\d{6}z", ax.final_snapshot_name("warden-dev-aurora"))
+
+
+def test_aurora_destroy_never_skips_the_final_snapshot_in_the_source():
+    source = (TF / "aurora_express.py").read_text(encoding="utf-8")
+    assert "SkipFinalSnapshot=True" not in source
+    assert "SkipFinalSnapshot=False" in source
+    assert "FinalDBSnapshotIdentifier=snapshot" in source
+
+
+def test_aurora_destroy_stops_loudly_when_the_final_snapshot_is_missing():
+    class Lost(FakeRds):
+        def describe_db_cluster_snapshots(self, DBClusterSnapshotIdentifier):
+            return {"DBClusterSnapshots": []}
+
+    ax, rds = _aurora(), Lost()
+    rds.create_db_cluster(DBClusterIdentifier="warden-dev-aurora")
+    rds.cluster["Status"] = "available"
+    with pytest.raises(SystemExit, match="final snapshot warden-dev-aurora-final-.* not found"):
+        ax.destroy(rds, log=lambda *_: None)
+
+
+def test_aurora_destroy_says_so_when_the_final_snapshot_cannot_be_tagged():
+    class NoTags(FakeRds):
+        def add_tags_to_resource(self, **kw):
+            raise _ClientError("AccessDenied")
+
+    said = []
+    ax, rds = _aurora(), NoTags()
+    rds.create_db_cluster(DBClusterIdentifier="warden-dev-aurora")
+    rds.cluster["Status"] = "available"
+    ax.destroy(rds, log=said.append)
+    assert rds.cluster is None
+    assert len(rds.snapshots) == 1
+    assert any(s.startswith("WARNING: could not tag final snapshot") and "UNTAGGED" in s for s in said)
+    assert said[-1] == "warden-dev-aurora: gone"
+
+
+def test_aurora_destroy_that_finds_the_cluster_already_deleting_takes_no_second_snapshot():
+    ax, rds = _aurora(), FakeRds()
+    rds.create_db_cluster(DBClusterIdentifier="warden-dev-aurora")
+    rds.instances.clear()
+    rds.cluster["Status"] = "deleting"
+    ax.destroy(rds, log=lambda *_: None)
+    assert [n for n, _ in rds.calls if n != "create_db_cluster"] == ["wait:db_cluster_deleted"]
+
+
+# A final snapshot of the dev cluster, as RDS names it (lower case).
+OWN_FINAL_SNAPSHOT = "arn:aws:rds:ap-south-2:111122223333:cluster-snapshot:warden-dev-aurora-final-20261017t113509z"
+
+
+def _deploy_allows(action: str, resource: str) -> bool:
+    """Does the dev deploy role (its two policies) grant (action, resource) through a statement with no condition?"""
+    return any(st["Effect"] == "Allow" and "Condition" not in st
+               and any(fnmatch.fnmatchcase(action.lower(), a.lower()) for a in _list(st["Action"]))
+               and any(fnmatch.fnmatchcase(resource, r) for r in _list(st.get("Resource")))
+               for st in [*_stmts(ENV_DEPLOY), *_stmts(ENV_DEPLOY.with_name("deploy-ec2.json"))])
+
+
+@pytest.mark.parametrize("action", ["rds:DeleteDBCluster", "rds:CreateDBClusterSnapshot", "rds:AddTagsToResource"])
+def test_the_deploy_role_may_take_and_tag_its_own_final_snapshot_only(action):
+    """B9: deleting a cluster with a final snapshot is authorized on the snapshot too (DeleteDBCluster names the
+    cluster-snapshot resource, and CreateDBClusterSnapshot is needed) - granted on this environment's names only."""
+    own = OWN_FINAL_SNAPSHOT
+    assert _deploy_allows(action, own)
+    assert _ceiling_allows(action, own)
+    for other in ("warden-prod-aurora-final-20261017t113509z", "billing-final"):
+        foreign = own.rsplit(":", 1)[0] + ":" + other
+        assert not _deploy_allows(action, foreign)
+    if action == "rds:DeleteDBCluster":
+        assert not _ceiling_allows(action, own.rsplit(":", 1)[0] + ":warden-prod-aurora-final-1")
+
+
+@pytest.mark.parametrize("action", ["rds:DeleteDBClusterSnapshot", "rds:ModifyDBClusterSnapshotAttribute"])
+def test_nothing_in_the_environment_may_delete_or_share_a_final_snapshot(action):
+    """The snapshot is what survives a teardown: the boundary flatly denies deleting or sharing it."""
+    flat = [a for st in _stmts(ENV_BOUNDARY) if st["Effect"] == "Deny" and "Condition" not in st
+            and st.get("Resource") == "*" for a in _list(st["Action"])]
+    assert any(fnmatch.fnmatchcase(action.lower(), a.lower()) for a in flat), f"{action} is not flatly denied"
+    # Two layers (CodeRabbit, PR 88): the deploy role is not granted it either - only the snapshot actions a destroy
+    # and a restore make (deploy-ec2's OwnClusterSnapshots).
+    assert not _deploy_allows(action, OWN_FINAL_SNAPSHOT)
 
 
 @pytest.mark.parametrize("cmd", ["create", "status", "destroy"])
@@ -1092,8 +1232,9 @@ def test_the_act_and_read_zones_start_with_kubernetes_and_the_database():
              for z, body in re.findall(r"^\s+(\w+)\s+= \{(.*)\}$", iam[iam.index("  zones = {"):], re.MULTILINE)
              if "platforms" in body}
     got = {z: set(re.findall(r'"(\w+)"', v)) for z, v in zones.items()}
+    # The critic zone (Eldane, PR 42) reaches no platform at all: it reads the audit and calls its model, nothing else.
     assert got == {"core": set(), "read": {"aws", "k8s", "db"}, "llm": set(), "notify": {"aws"},
-                   "act": {"aws", "k8s", "db"}}
+                   "act": {"aws", "k8s", "db"}, "critic": set()}
 
 
 def test_the_actor_maps_to_the_remediator_group_only_and_connects_only_as_the_terminate_login():

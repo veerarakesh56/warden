@@ -148,7 +148,7 @@ class KubernetesPlatform:
         try:
             found = self._custom.get_namespaced_custom_object("argoproj.io", "v1alpha1", where or ARGOCD_NAMESPACE,
                                                               "applications", name, _request_timeout=REQUEST_TIMEOUT)
-        except Exception:  # unread is unproven  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # unread is unproven
             return None
         spec = found.get("spec") if isinstance(found, dict) else None
         return spec if isinstance(spec, dict) else None
