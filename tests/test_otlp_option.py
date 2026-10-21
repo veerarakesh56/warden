@@ -23,9 +23,20 @@ def _variable(name: str) -> str:
     return text[start:text.index("\n}\n", start)]
 
 
-def _endpoint_rule() -> re.Pattern[str]:
-    block = _variable("otlp_endpoint")
-    return re.compile(re.search(r'can\(regex\("(.+?)", var\.otlp_endpoint\)\)', block).group(1))
+class _Rule:
+    """The variable's validation as Terraform applies it: the URL shape, and no /v1/traces at its end."""
+
+    def __init__(self, block: str) -> None:
+        shape, suffix = re.findall(r'can\(regex\("(.+?)", var\.otlp_endpoint\)\)', block)
+        assert f'!can(regex("{suffix}", var.otlp_endpoint))' in block
+        self.shape, self.suffix = re.compile(shape), re.compile(suffix)
+
+    def fullmatch(self, url: str) -> bool:
+        return bool(self.shape.fullmatch(url)) and not self.suffix.search(url)
+
+
+def _endpoint_rule() -> _Rule:
+    return _Rule(_variable("otlp_endpoint"))
 
 
 def test_the_exporter_is_off_by_default_everywhere():
@@ -49,7 +60,8 @@ def test_an_https_endpoint_on_443_is_accepted(url):
 @pytest.mark.parametrize("url", ["http://otlp.example.test", "https://otlp.example.test:4318",
                                  "https://user:pw@otlp.example.test", "https://otlp.example.test/?key=x",
                                  "https://otlp.example.test/#x", "https://OTLP.example.test", "otlp.example.test",
-                                 "https://otlp.example.test/a b"])
+                                 "https://otlp.example.test/a b", "https://otlp.example.test/v1/traces",
+                                 "https://otlp.example.test/otlp/v1/traces/"])
 def test_any_other_endpoint_is_refused(url):
     assert not _endpoint_rule().fullmatch(url)
 
@@ -71,7 +83,7 @@ def test_no_new_way_out_is_opened_for_it():
 
 
 def test_the_image_carries_the_official_exporter_from_the_lockfile():
-    docker = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+    docker = re.sub(r"\\\n\s*", "", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
     assert "--extra otlp" in re.search(r"uv sync --locked --no-build --no-editable(.*)", docker).group(1)
     py = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(rf'^otlp = \["{OFFICIAL}>=[0-9.]+"\]$', py, re.MULTILINE)

@@ -41,13 +41,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 
-from . import approvals, autonomy, catalog, paging
-from .llm import elapsed_ms
+from . import approvals, autonomy, catalog, llm, paging
 
 # The only audit rows Eldane reads (register R12): the evidence as the diagnosis saw it, and the diagnosis.
 READS = ("incident.evidence", "incident.diagnose")
 CALL = "eldane.call"
 DAILY_CALLS = int(os.environ.get("WARDEN_ELDANE_DAILY_CALLS", "60"))  # register R25: a ceiling of its own
+_CEILING = "Eldane's daily ceiling of {n} calls is reached (WARDEN_ELDANE_DAILY_CALLS)"
 RATE = float(os.environ.get("WARDEN_ELDANE_TRIAL_RATE", "0.1"))  # register R11: about 5-10% of volume
 WARM_RATE, WARM_TRIALS = 0.5, 20  # more trials while its current model has answered fewer than WARM_TRIALS
 MAX_EVIDENCE = 60_000
@@ -205,22 +205,38 @@ def _calls_today(log: Any) -> int:
     return len(log.entries(kinds=(CALL,), since=datetime.now(UTC) - timedelta(hours=24)))
 
 
+def _model_call(log: Any, incident: str, provider: Any, ts: str, started: float, got: Any, row: dict[str, Any]) -> None:
+    """Eldane's `llm.call` row: the same metadata as every model call's (llm.call_record), its cost at the model's
+    prices (llm.model_prices) - never the question or the answer."""
+    model = str(getattr(provider, "model", "") or "unknown")
+    p_tok, c_tok = llm.usage(got)
+    record = llm.call_record(model=model, ts=ts, started=started, prompt_tokens=p_tok, completion_tokens=c_tok,
+                             cost=llm.usd(llm.model_prices(model), p_tok, c_tok), ok=got is not None)
+    log.append(incident, llm.CALL, {**record, "where": "eldane", "run_id": row.get("run_id", "")})
+
+
 def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], **row: Any) -> CriticVerdict:
     """One question to Eldane. Fail-closed: an error, an unreadable answer or a citation of anything not in the
     evidence is a "no", with why."""
     # How long the call took (item 7a): the monotonic clock, in this activity - never workflow time.
-    started = time.monotonic()
+    ts, started = llm.now_iso(), time.monotonic()
     try:
         got = provider.complete(system=SYSTEM, user=user, schema=CriticVerdict)
     except Exception as exc:  # noqa: BLE001 - any provider error means Eldane said nothing and so agrees to nothing
-        log.append(incident, CALL, {**row, "ok": False, "error": type(exc).__name__, "latency_ms": elapsed_ms(started)})
+        log.append(incident, CALL, {**row, "ok": False, "error": type(exc).__name__, "latency_ms": llm.elapsed_ms(started)})
+        _model_call(log, incident, provider, ts, started, None, row)
+        reason = llm.failure_reason(exc)
+        log.append(incident, llm.FALLBACK, {"reason": reason, "where": "eldane", "run_id": row.get("run_id", "")})
         return CriticVerdict(agree=False, reasons=[Reason(text=f"Eldane could not be asked ({type(exc).__name__})")])
     log.append(incident, CALL, {**row, "ok": True, "input_tokens": got.input_tokens, "output_tokens": got.output_tokens,
-                                "latency_ms": elapsed_ms(started)})
+                                "latency_ms": llm.elapsed_ms(started)})
+    _model_call(log, incident, provider, ts, started, got, row)
     text = got.text or ""
     try:
         verdict = CriticVerdict.model_validate(json.loads(text[text.find("{"):text.rfind("}") + 1]))
     except (ValueError, ValidationError):
+        log.append(incident, llm.FALLBACK, {"reason": llm.MODEL_REFUSED, "where": "eldane",
+                                            "run_id": row.get("run_id", "")})
         return CriticVerdict(agree=False, reasons=[Reason(text="Eldane's answer could not be read as its verdict")])
     cited = {i for r in verdict.reasons for i in r.evidence}
     verdict._said_yes, verdict._grounded = verdict.agree, not cited - ids
@@ -298,6 +314,10 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
     model, chosen = critic.choose(str(prov.get("model", "")))
     models = {"critic": critic.identity(model), "diagnoser": diagnoser}
     skip = _skip(log, diagnosis, prov, model, chosen, evidence_rows)
+    if skip == _CEILING.format(n=DAILY_CALLS):
+        # The daily call cap: one fallback row for this plan, and the day's page once (item 7, leftovers 3 and 7c).
+        log.append(plan.incident_id, llm.FALLBACK, {"reason": llm.BUDGET_CAP, "where": "eldane", "run_id": run_id})
+        paging.model_condition(log, paging.DAILY_CAP)
     if skip:
         log.append(plan.incident_id, autonomy.VERDICT, {**base, "agree": None, "skipped": skip, "models": models,
                                                         "model": model, "model_reason": chosen})
@@ -344,8 +364,7 @@ def _skip(log: Any, diagnosis: dict[str, Any], prov: dict[str, Any], model: str,
     if not evidence_rows:
         return "the incident's evidence is not on the record"
     if _calls_today(log) + 3 > DAILY_CALLS:
-        paging.model_condition(log, paging.DAILY_CAP)  # the daily call cap pages once a day (item 7c)
-        return f"Eldane's daily ceiling of {DAILY_CALLS} calls is reached (WARDEN_ELDANE_DAILY_CALLS)"
+        return _CEILING.format(n=DAILY_CALLS)
     return ""
 
 

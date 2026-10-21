@@ -46,10 +46,11 @@ MODEL_PAGED = "page.model_condition"
 
 def model_condition(log: Any, condition: str, *, now: datetime | None = None) -> bool:
     """Count `condition` for its page - once per UTC day: True when this call counted it, False when it had already
-    been counted today (or is not a condition, or the count could not be made). On WARDEN's record first, under
-    "pages", then the metric, so every worker sees the day's count; two workers racing on the first can each count
-    it, and still page once - the alarm acts only on its change into ALARM, and the pager opens no second page for an
-    alarm whose page is open. The row holds the condition and the day only."""
+    been counted today (or is not a condition, or the count could not be sent). The metric first, then WARDEN's
+    record under "pages" (CodeRabbit, PR 176): a count that could not be sent is not recorded, so the next call
+    tries again - a missed page is worse than a second one. Every worker reads the day's record; two racing on the
+    first can each count it and still page once - the alarm acts only on its change into ALARM, and the pager opens
+    no second page for an alarm whose page is open. The row holds the condition and the day only."""
     metric = MODEL_METRICS.get(condition)
     if metric is None:
         return False
@@ -60,20 +61,21 @@ def model_condition(log: Any, condition: str, *, now: datetime | None = None) ->
         if any(e["body"].get("condition") == condition and e["body"].get("day") == day
                for e in log.entries("pages", kinds=(MODEL_PAGED,), since=midnight)):
             return False
+        if not _count(metric):
+            return False
         log.append("pages", MODEL_PAGED, {"condition": condition, "day": day})
     except Exception:  # noqa: BLE001 - a page never stops the incident; it still goes to a person
         _LOG.warning("the model's %s page could not be recorded", condition)
         return False
-    _count(metric)
     return True
 
 
-def _count(metric: str) -> None:
+def _count(metric: str) -> bool:
     """One count of `metric` under the runtime's own namespace (WARDEN_HEARTBEAT_NAMESPACE); none on a laptop or in a
-    test. Best effort, as the kill switch's: the record holds it either way."""
+    test. True when it was sent, or there is nowhere to send it; False when sending failed. Best effort."""
     namespace = os.environ.get("WARDEN_HEARTBEAT_NAMESPACE", "").strip()
     if not namespace:
-        return
+        return True
     try:
         import boto3
 
@@ -81,8 +83,10 @@ def _count(metric: str) -> None:
 
         boto3.client("cloudwatch", region_name=region()).put_metric_data(
             Namespace=namespace, MetricData=[{"MetricName": metric, "Value": 1, "Unit": "Count"}])
-    except Exception:  # noqa: BLE001 - the condition stands on the record
+    except Exception:  # noqa: BLE001 - the caller decides what a count not sent means
         _LOG.warning("the page count %s could not be sent", metric)
+        return False
+    return True
 
 
 def signed_for(pages: list[dict[str, Any]]) -> str:

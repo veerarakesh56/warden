@@ -412,7 +412,7 @@ def test_the_lambdas_get_the_names_the_runtime_reads():
 
 
 def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_extra():
-    text = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+    text = re.sub(r"\\\n\s*", "", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
     plain = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     froms = re.findall(r"^FROM (\S+)", text, re.MULTILINE)
     assert froms and all("@sha256:" in f for f in froms)

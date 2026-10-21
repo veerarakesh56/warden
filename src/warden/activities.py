@@ -139,6 +139,25 @@ def _run_id() -> str:
         return ""
 
 
+def model_calls(log: Any, key: str, llm: Any, where: str) -> None:
+    """One `llm.call` row per request the client sent (llm.call_record: metadata only, never a prompt or an answer),
+    then the day's page if the calls stopped on a paging condition. Written in the activity that made the calls."""
+    from .llm import CALL
+
+    for call in getattr(llm, "calls", None) or []:
+        log.append(key, CALL, {**call, "where": where, "run_id": _run_id()})
+    paging.model_condition(log, getattr(llm, "stopped_by", ""))
+
+
+def fallback(log: Any, key: str, reason: str, where: str) -> None:
+    """The one `llm.fallback` row of a run that went on without the model's answer (llm.FALLBACK_REASONS)."""
+    from .llm import FALLBACK, FALLBACK_REASONS
+
+    if reason not in FALLBACK_REASONS:
+        raise ValueError(f"not a fallback reason: {reason!r}")
+    log.append(key, FALLBACK, {"reason": reason, "where": where, "run_id": _run_id()})
+
+
 def _latencies(llm: Any) -> list[int]:
     """Each request's time in milliseconds (LLMClient.latencies_ms), for the run's spend row: measured inside this
     activity on the monotonic clock, never in workflow code. A client that kept none records an empty list."""
@@ -1334,6 +1353,7 @@ class IncidentActivities:
     @activity.defn
     def diagnose(self, pack: EvidencePack, escalate_only: str = "") -> Diagnosed:
         from . import graph
+        from . import llm as llm_mod
         from .llm import LLMClient
 
         try:
@@ -1358,6 +1378,8 @@ class IncidentActivities:
         if over:
             paging.model_condition(self.audit, paging.DAILY_CAP)  # one page a day, however many incidents it stops
         if over or escalate_only or refused:
+            fallback(self.audit, pack.alert.alert_id, llm_mod.RULES_ONLY if escalate_only or refused else llm_mod.BUDGET_CAP,
+                     "diagnose")
             reason = escalate_only or refused or (f"the daily model cap is reached (${today.usd:.2f} of ${DAILY_MAX_USD:.2f}, "
                                        f"{today.input_tokens + today.output_tokens} of {DAILY_MAX_TOKENS} tokens in 24 h)")
             state = {"alert": pack.alert, "context": pack.context, "llm": llm, "model_unavailable": reason}
@@ -1383,7 +1405,9 @@ class IncidentActivities:
                 "run_id": _run_id(), "attempt": attempt, "usd": now.usd - before.usd, "calls": now.calls - before.calls - unanswered,
                 "unanswered": unanswered, "input_tokens": now.input_tokens - before.input_tokens,
                 "output_tokens": now.output_tokens - before.output_tokens, "latency_ms": _latencies(llm)})
-            paging.model_condition(self.audit, getattr(llm, "stopped_by", ""))
+            model_calls(self.audit, pack.alert.alert_id, llm, "diagnose")
+        if state.get("model_unavailable"):
+            fallback(self.audit, pack.alert.alert_id, llm_mod.fallback_reason(getattr(llm, "stopped_by", "")), "diagnose")
         self._record(pack.alert.alert_id, steps)
         return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps,
                          model_unavailable=state.get("model_unavailable", ""),
@@ -1865,6 +1889,7 @@ class DiscussActivities:
         """The model's answer to the mention, as the reply to post. Capped per incident per day and by the daily cap
         every incident shares; the people's words are data to it (discuss.SYSTEM)."""
         from . import discuss
+        from . import llm as llm_mod
         from .llm import LLMClient
 
         turn, thread = discuss.Turn.model_validate(turn), discuss.Thread.model_validate(thread)
@@ -1877,12 +1902,14 @@ class DiscussActivities:
         if today.usd >= DAILY_MAX_USD:
             paging.model_condition(self.audit, paging.DAILY_CAP)
         if calls >= discuss.DAILY_CALLS or today.usd >= DAILY_MAX_USD:
+            fallback(self.audit, key, llm_mod.BUDGET_CAP, "discuss")
             return discuss.LIMIT
         try:
             llm = (self.incident.llm_factory or LLMClient)()
         except Exception as exc:  # noqa: BLE001  # a model that cannot be built is no answer: the person is told
             # Review, PR 47: a prompt not yet qualified refuses the model; the person is told, never left waiting.
             _note(f"discuss: no model could be used ({type(exc).__name__})")
+            fallback(self.audit, key, llm_mod.RULES_ONLY, "discuss")
             return discuss.NO_ANSWER
         attempt = secrets.token_hex(8)
         self.audit.append(key, "incident.llm_reserve", {"run_id": _run_id(), "attempt": attempt, "usd": llm.max_usd,
@@ -1903,8 +1930,9 @@ class DiscussActivities:
                 "calls": now.calls - before.calls - unanswered, "unanswered": unanswered,
                 "input_tokens": now.input_tokens - before.input_tokens,
                 "output_tokens": now.output_tokens - before.output_tokens, "latency_ms": _latencies(llm)})
-            paging.model_condition(self.audit, getattr(llm, "stopped_by", ""))
+            model_calls(self.audit, key, llm, "discuss")
         if answer is None:
+            fallback(self.audit, key, llm_mod.fallback_reason(getattr(llm, "stopped_by", "")), "discuss")
             return discuss.NO_ANSWER
         self.audit.append(key, "discuss.answer", {"run_id": _run_id(), "ts": turn.ts, "cites": answer.cites[:20],
                                                   "asks_for_change": answer.asks_for_change, "approver": approver})

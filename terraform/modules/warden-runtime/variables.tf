@@ -260,7 +260,7 @@ variable "otlp_endpoint" {
   default     = ""
   nullable    = false
   validation {
-    condition     = var.otlp_endpoint == "" || can(regex("^https://[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:443)?(/[A-Za-z0-9._~-]+)*/?$", var.otlp_endpoint))
-    error_message = "otlp_endpoint is an https URL on port 443 with a lower-case host, and no credentials, query or fragment."
+    condition     = var.otlp_endpoint == "" || (can(regex("^https://[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:443)?(/[A-Za-z0-9._~-]+)*/?$", var.otlp_endpoint)) && !can(regex("/v1/traces/?$", var.otlp_endpoint)))
+    error_message = "otlp_endpoint is an https base URL on port 443 with a lower-case host, and no credentials, query, fragment or /v1/traces (the exporter adds it)."
   }
 }

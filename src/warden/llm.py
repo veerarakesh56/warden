@@ -21,6 +21,7 @@ import math
 import os
 import threading
 import time
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -112,6 +113,42 @@ class ModelDeclined(ModelCutOff):
 PROVIDER_UNAVAILABLE = "provider_unavailable"
 BUDGET_REACHED = "budget"
 
+# The audit rows of the model path (owner item 7, leftovers 2 and 3). `llm.call`: one per request sent, metadata only -
+# ts, model, prompt_tokens, completion_tokens, latency_ms, cost (USD, from the usage and model_prices) and ok; never
+# the prompt or the answer. `llm.fallback`: one each time WARDEN went on without the model's answer, with one reason.
+CALL = "llm.call"
+FALLBACK = "llm.fallback"
+RULES_ONLY, MODEL_REFUSED, BUDGET_CAP = "rules_only", "model_refused", "budget_cap"
+FALLBACK_REASONS = frozenset({RULES_ONLY, MODEL_REFUSED, BUDGET_CAP, PROVIDER_UNAVAILABLE})
+
+
+def fallback_reason(stopped_by: str) -> str:
+    """The fallback reason of a failed model call, from its client's `stopped_by`: a spent budget, the provider down -
+    else the model's own failure (no valid answer, a refusal, a cut-off, a permanent 4xx)."""
+    return {BUDGET_REACHED: BUDGET_CAP, PROVIDER_UNAVAILABLE: PROVIDER_UNAVAILABLE}.get(stopped_by, MODEL_REFUSED)
+
+
+def call_record(*, model: str, ts: str, started: float, prompt_tokens: int, completion_tokens: int, cost: float,
+                ok: bool) -> dict[str, Any]:
+    """One `llm.call` row's body: metadata only."""
+    return {"ts": ts, "model": model, "prompt_tokens": int(prompt_tokens), "completion_tokens": int(completion_tokens),
+            "latency_ms": elapsed_ms(started), "cost": round(float(cost), 8), "ok": bool(ok)}
+
+
+def usd(prices: tuple[float, float], prompt_tokens: int, completion_tokens: int) -> float:
+    """What tokens cost at (input, output) USD per 1M tokens - model_prices(model): the one formula every cost uses."""
+    return (prompt_tokens / 1e6) * prices[0] + (completion_tokens / 1e6) * prices[1]
+
+
+def failure_reason(exc: Exception) -> str:
+    """The fallback reason of a provider error: the provider unavailable (a connection error, a 429, a 5xx), else the
+    model refused (a permanent 4xx)."""
+    return PROVIDER_UNAVAILABLE if _is_transient(exc) else MODEL_REFUSED
+
+
+def now_iso() -> str:
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
+
 
 class LLMClient:
     def __init__(
@@ -138,7 +175,7 @@ class LLMClient:
         # How long each request took, in whole milliseconds, in the order they were sent - an answer, a failure and
         # every retry alike (item 7a). Measured with the monotonic clock in the process that makes the call (the
         # activity's, never workflow code), so a clock step cannot make one negative or replay differently.
-        self.latencies_ms: list[int] = []
+        self.calls: list[dict[str, Any]] = []  # each request's call_record, in order
         # The last call's paging condition (PROVIDER_UNAVAILABLE or BUDGET_REACHED), "" when none: read by the activity.
         self.stopped_by = ""
         self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
@@ -176,10 +213,22 @@ class LLMClient:
         """The CLI or SDK version that made the call (register M15)."""
         return "mock" if self.mock else str(getattr(self._provider, "version", "unknown"))
 
+    @property
+    def latencies_ms(self) -> list[int]:
+        return [c["latency_ms"] for c in self.calls]
+
+    def _note_call(self, ts: str, started: float, in_tok: int, out_tok: int, *, ok: bool) -> None:
+        self.calls.append(call_record(model=self.model, ts=ts, started=started, prompt_tokens=in_tok,
+                                      completion_tokens=out_tok, cost=self._usd(in_tok, out_tok), ok=ok))
+
     # ------------------------------------------------------------------ budget
 
+    def _usd(self, in_tok: int, out_tok: int) -> float:
+        """What tokens cost at this model's prices (model_prices: data/providers.yaml `prices`): the one formula."""
+        return usd((self.price_in, self.price_out), in_tok, out_tok)
+
     def _charge(self, in_tok: int, out_tok: int) -> None:
-        usd = (in_tok / 1e6) * self.price_in + (out_tok / 1e6) * self.price_out
+        usd = self._usd(in_tok, out_tok)
         self.cost.add(in_tok, out_tok, usd)
         if self.cost.usd > self.max_usd:
             self.stopped_by = BUDGET_REACHED
@@ -216,16 +265,16 @@ class LLMClient:
             if mock_factory is None:
                 raise ModelRefused(f"mock mode needs a mock_factory for {schema.__name__}")
             self._before_a_call(0.0)
-            self._charge(len(system) // 4 + len(user) // 4, 120)
+            ts, started, mock_in = now_iso(), time.monotonic(), len(system) // 4 + len(user) // 4
+            self._charge(mock_in, 120)
             # Called with NO arguments on purpose. An earlier version passed the prompt text and
             # the mock branched on substrings in it - which matched the field LABELS ("RECENT
             # DEPLOYS:", "error_rate") rather than the values, so every incident produced the same
             # hypothesis. Mocks read typed state through a closure now; text matching is banned.
-            started = time.monotonic()
             try:
                 return mock_factory()
             finally:
-                self.latencies_ms.append(elapsed_ms(started))
+                self._note_call(ts, started, mock_in, 120, ok=True)
 
         prompt = (
             f"{user}\n\nReturn ONLY a JSON object matching this schema:\n"
@@ -255,14 +304,14 @@ class LLMClient:
                 # exit. This wall-clock is a BACKSTOP set just after it, for the rare case the SDK
                 # timeout does not fire (e.g. an OAuth-style key whose validation hangs below the
                 # request layer).
-                started = time.monotonic()
+                ts, started = now_iso(), time.monotonic()
                 try:
                     completion = _complete_within(
                         self._provider, system=system, user=prompt,
                         seconds=self.call_timeout_s + 2.0, schema=schema,
                     )
                 finally:
-                    self.latencies_ms.append(elapsed_ms(started))
+                    self._note_call(ts, started, *usage(completion), ok=completion is not None)
                 # Charged BEFORE validation: a malformed response still costs money, and a budget
                 # that only counts successful calls can be exhausted by a model that keeps failing.
                 self._charge(completion.input_tokens, completion.output_tokens)
@@ -311,6 +360,13 @@ class LLMClient:
         self.stopped_by = _provider_down(last)
         plural = "attempt" if attempts == 1 else "attempts"
         raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {last}")
+
+
+def usage(completion: Any) -> tuple[int, int]:
+    """(prompt, completion) tokens of an answer; (0, 0) for a request that failed - its usage is unknown."""
+    if completion is None:
+        return 0, 0
+    return int(completion.input_tokens or 0), int(completion.output_tokens or 0)
 
 
 def elapsed_ms(started: float) -> int:

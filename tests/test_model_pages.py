@@ -15,7 +15,7 @@ import pytest
 from pydantic import BaseModel
 
 from test_paging import MODULE, _world, pager
-from warden import activities, audit, eldane, llm, paging
+from warden import activities, audit, llm, paging
 from warden.activities import IncidentActivities
 from warden.cli import DEMO_ALERTS
 from warden.llm import LLMClient, ModelRefused
@@ -141,18 +141,6 @@ def test_the_daily_cap_pages_once_for_every_incident_it_stops(tmp_path, counted)
     assert _metrics(counted) == [CAP_METRIC]
 
 
-def test_eldanes_daily_call_cap_pages_once(tmp_path, counted):
-    log = audit.AuditLog(tmp_path / "a.db", key=None)
-    for _ in range(eldane.DAILY_CALLS):
-        log.append("inc-1", eldane.CALL, {"ok": True})
-    rows = {"model": "m", "evidence": [{"prompt": "p"}]}
-    for _ in range(3):
-        assert "daily ceiling" in eldane._skip(log, {"d": 1}, {"model": "other"}, rows["model"], "why",
-                                               rows["evidence"])
-    assert [r[CONDITION] for r in _paged(log)] == [paging.DAILY_CAP]
-    assert _metrics(counted) == [CAP_METRIC]
-
-
 def test_each_condition_pages_again_the_next_day_and_not_before(tmp_path, counted):
     log = audit.AuditLog(tmp_path / "a.db", key=None)
     assert paging.model_condition(log, paging.BUDGET, now=DAY)
@@ -243,3 +231,27 @@ def test_the_pages_words_are_fixed_and_the_pager_opens_one_page_per_alarm():
     assert pager.handler(event, pager=p) == {"opened": False}
     assert len(said) == 1
     assert says[0] in said[0][1]
+
+
+def test_a_count_that_could_not_be_sent_is_tried_again_not_lost(tmp_path, monkeypatch):
+    """CodeRabbit, PR 176: recorded before it was sent, a failed count silenced the day's page. Now the record follows
+    the count, so the next call sends it again."""
+    import boto3
+
+    tries: list[str] = []
+
+    class FailingOnce:
+        def put_metric_data(self, **kw):
+            tries.append(kw["MetricData"][0]["MetricName"])
+            if len(tries) == 1:
+                raise ConnectionError("CloudWatch unreachable")
+
+    monkeypatch.setenv("WARDEN_HEARTBEAT_NAMESPACE", "WARDEN/ops")
+    monkeypatch.setattr(boto3, "client", lambda *a, **k: FailingOnce())
+    log = audit.AuditLog(tmp_path / "a.db", key=None)
+    assert not paging.model_condition(log, paging.BUDGET, now=DAY)
+    assert _paged(log) == []
+    assert paging.model_condition(log, paging.BUDGET, now=DAY)
+    assert not paging.model_condition(log, paging.BUDGET, now=DAY)
+    assert tries == [BUDGET_METRIC, BUDGET_METRIC]
+    assert [r[CONDITION] for r in _paged(log)] == [paging.BUDGET]
