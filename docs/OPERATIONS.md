@@ -310,17 +310,18 @@ since, or anything the gate refuses goes to a person, and nothing is written. Ev
 service stays its own plan with its own approval; the pull request only keeps the next deploy from bringing the fault
 back.
 
-**Merging (phase 4) - the owner's option A (2026-10-21, final).** A code-fix pull request merges itself only in an environment
-whose `code_fix` is `auto` (never the prod tier; both ship `propose`, so today a person merges every one). Under `auto`,
-`CodeFixMergeWorkflow` asks every 10 minutes for a day, and the act zone merges (rebase, naming the exact commit) only
-when every condition holds for the one commit WARDEN wrote (`code_fix.MERGE_CONDITIONS`, each its own check): the
-mode; the pull request open, not a draft, mergeable; its head that commit, from a `warden/` branch into the default
-branch; every check run on it green and `auto_merge.required_checks` (data/code_fix.yaml) among them, each
-passed (a required check that was skipped is not green); CodeRabbit reviewed that commit, asked for nothing and left no thread open; and Eldane approved that commit - an audit row of
-kind `eldane_code_review` that only Eldane's code review writes (Eldane is on main since PR 42; its code review is not built yet). Until it exists nothing
-merges itself. SonarCloud's quality gate is its own condition, by name. The owner chose option A (2026-10-21, final):
-in dev a code fix merges itself only after CI, CodeRabbit, SonarCloud and Eldane are all green; prod never (refused in
-code, whatever the mode). The other options were B (exact reverts without Eldane) and C (never).
+**Merging (phase 4) - the owner's option A (2026-10-21, final).** A code-fix pull request merges itself only in an
+environment whose `code_fix` is `auto` (never the prod tier; both ship `propose`, so today a person merges every one).
+Under `auto`, `CodeFixMergeWorkflow` asks every 10 minutes for a day, and the act zone merges (rebase, naming the exact
+commit) only when every condition holds for the one commit WARDEN wrote (`code_fix.MERGE_CONDITIONS`, each its own
+check): the mode; the pull request open, not a draft, mergeable; its head that commit, from a `warden/` branch into the
+default branch; every check run on it green and `auto_merge.required_checks` (data/code_fix.yaml) among them, each
+passed (a required check that was skipped is not green); CodeRabbit reviewed that commit, asked for nothing and left no
+thread open; and Eldane approved that commit - an audit row of kind `eldane_code_review` that only Eldane's code review
+writes (Eldane is on main since PR 42; its code review is not built yet). Until it exists nothing merges itself.
+SonarCloud's quality gate is its own condition, by name. The owner chose option A (2026-10-21, final): in dev a code fix
+merges itself only after CI, CodeRabbit, SonarCloud and Eldane are all green; prod never (refused in code, whatever the
+mode). The other options were B (exact reverts without Eldane) and C (never).
 
 The `CI · autofix` workflow's `autofix-regression` job runs on every pull request into main: the code-fix rules' tests,
 and for a pull request from a `warden/` branch the gate again over the pull request as GitHub holds it - one commit on
