@@ -153,6 +153,19 @@ def test_a_sealed_map_expires_and_is_deleted(tmp_path, monkeypatch):
     assert log.entries("inc-old", kinds=(vault.INDEX,))
 
 
+def test_a_row_past_its_expiry_is_not_read_before_any_purge(tmp_path, monkeypatch):
+    """Review: sealed_row read a row past its expiry until a later seal's purge deleted it."""
+    monkeypatch.delenv("WARDEN_VAULT_DAYS", raising=False)
+    log = AuditLog(tmp_path / "a.db")
+    then = datetime(2026, 1, 1, tzinfo=UTC)
+    row = _vault("read").seal("inc-old", MAPPING, now=then)
+    vault.store(log, row)  # its own purge runs at `then`: the row is kept
+    expiry = datetime.fromisoformat(row["expires_at"])
+    assert vault.sealed_row(log, "inc-old", row["sha256"], now=expiry) is not None  # the last moment it is kept
+    assert vault.sealed_row(log, "inc-old", row["sha256"], now=expiry + timedelta(seconds=1)) is None
+    assert vault.sealed_row(log, "inc-old", row["sha256"]) is None  # today: long past
+
+
 @pytest.mark.parametrize(("raw", "days"), [("30", 180), ("365", 365), ("x", 180), ("", 180), ("9" * 30, 3650)])
 def test_retention_is_never_shorter_than_the_audits(monkeypatch, raw, days):
     monkeypatch.setenv("WARDEN_VAULT_DAYS", raw)
@@ -335,6 +348,25 @@ def test_what_an_ai_is_given_to_read_holds_nothing_of_the_vault(tmp_path, monkey
     for mark in marks:
         assert mark not in shown
     assert "vault" not in shown
+
+
+def test_what_eldane_is_given_to_read_holds_nothing_of_the_vault(tmp_path, monkeypatch, env):
+    """Eldane (#42, now on main) reads only its READS kinds: each read back from an incident with sealed and failed
+    vault rows holds none of them, and a vault kind cannot be read at all."""
+    from warden import eldane
+
+    log, _pack = _prepare(tmp_path, monkeypatch, FakeKms("read"))
+    log.append("inc-001", vault.UNAVAILABLE, {"run_id": "r0", "error": "ClientError", "values": 1})
+    [index] = log.entries("inc-001", kinds=(vault.INDEX,))
+    marks = [index["body"]["sha256"], *(e["pseudonym"] for e in index["body"]["entries"])]
+    shown = json.dumps([eldane._read(log, "inc-001", kind) for kind in eldane.READS])
+    assert "incident.evidence" in eldane.READS
+    assert shown != "[[], []]"  # the evidence was read: the check below is not of an empty page
+    for mark in marks:
+        assert mark not in shown
+    for kind in (vault.INDEX, vault.UNAVAILABLE):
+        with pytest.raises(ValueError, match="does not read"):
+            eldane._read(log, "inc-001", kind)
 
 
 # The modules a model is reached from, or that an AI's tools run in: none may import the vault or the reveal.

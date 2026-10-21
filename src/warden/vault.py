@@ -243,12 +243,14 @@ def purge(log: Any, now: datetime | None = None) -> int:
     return log.store.run("DELETE FROM vault WHERE expires_at < ?", (when,)).rowcount
 
 
-def sealed_row(log: Any, incident: str, sha256: str) -> dict[str, Any] | None:
-    """The sealed row the audit's index row names; None when it has expired or was erased."""
+def sealed_row(log: Any, incident: str, sha256: str, now: datetime | None = None) -> dict[str, Any] | None:
+    """The sealed row the audit's index row names; None when it has expired or was erased. Expired is judged here
+    too, as purge judges it: a row past its expiry that no purge has reached yet is not read (review)."""
     if not log.store.pg:
         log.store.run(_TABLE)
+    when = (now or datetime.now(UTC)).astimezone(UTC).isoformat(timespec="seconds")
     got = log.store.run("SELECT incident, sha256, sealed_at, expires_at, wrapped_key, sealed FROM vault "
-                        "WHERE incident = ? AND sha256 = ?", (incident, sha256)).fetchone()
+                        "WHERE incident = ? AND sha256 = ? AND expires_at >= ?", (incident, sha256, when)).fetchone()
     return dict(zip(_COLUMNS, got, strict=True)) if got else None
 
 
