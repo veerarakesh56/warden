@@ -120,7 +120,8 @@ def test_no_outbound_call_in_warden_or_its_scripts_uses_urllibs_own_opener():
 ])
 def test_a_loopback_redirect_stays_on_the_same_server_and_https_rules_are_unchanged(url, other, same):
     assert web.same_origin(url, other, loopback_http=True) is same
-    assert web.same_origin(url, other) is (same and url.startswith("https://"))
+    https_same = same and url.startswith("https://")  # without the loopback option only https can match
+    assert web.same_origin(url, other) is https_same
 
 
 class _Redirecting(urllib.request.BaseHandler):
