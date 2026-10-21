@@ -219,13 +219,17 @@ class ModelDeclined(ModelCutOff):
 CALL = "llm.call"
 FALLBACK = "llm.fallback"
 RULES_ONLY, MODEL_REFUSED, BUDGET_CAP = "rules_only", "model_refused", "budget_cap"
-FALLBACK_REASONS = frozenset({RULES_ONLY, MODEL_REFUSED, BUDGET_CAP, PROVIDER_UNAVAILABLE})
+# The egress check refused the call (egress.EgressBlocked, an SDK's wrapping included): a configuration or security
+# event, not the model's answer and not an outage - told apart from model_refused, and it pages nobody.
+EGRESS_BLOCKED = "egress_blocked"
+FALLBACK_REASONS = frozenset({RULES_ONLY, MODEL_REFUSED, BUDGET_CAP, PROVIDER_UNAVAILABLE, EGRESS_BLOCKED})
 
 
 def fallback_reason(stopped_by: str) -> str:
     """The fallback reason of a failed model call, from its client's `stopped_by`: a spent budget, the provider down -
     else the model's own failure (no valid answer, a refusal, a cut-off, a permanent 4xx, a prompt too large)."""
-    return {BUDGET_REACHED: BUDGET_CAP, PROVIDER_UNAVAILABLE: PROVIDER_UNAVAILABLE}.get(stopped_by, MODEL_REFUSED)
+    return {BUDGET_REACHED: BUDGET_CAP, PROVIDER_UNAVAILABLE: PROVIDER_UNAVAILABLE,
+            EGRESS_BLOCKED: EGRESS_BLOCKED}.get(stopped_by, MODEL_REFUSED)
 
 
 def call_record(*, model: str, ts: str, started: float, prompt_tokens: int, completion_tokens: int, cost: float,
@@ -241,8 +245,10 @@ def usd(prices: tuple[float, float], prompt_tokens: int, completion_tokens: int)
 
 
 def failure_reason(exc: Exception) -> str:
-    """The fallback reason of a provider error: the provider unavailable (a connection error, a 429, a 5xx), else the
-    model refused (a permanent 4xx)."""
+    """The fallback reason of a provider error: the egress check's refusal, the provider unavailable (a connection
+    error, a 429, a 5xx), else the model refused (a permanent 4xx)."""
+    if _refused_here(exc):
+        return EGRESS_BLOCKED
     return PROVIDER_UNAVAILABLE if _is_transient(exc) else MODEL_REFUSED
 
 
@@ -387,7 +393,9 @@ class LLMClient:
                 return answer
             if sent is None:
                 break
-        self.stopped_by = _provider_down(last)
+        # The egress check's refusal is named apart (its fallback reason, egress_blocked); it is no paging condition -
+        # paging.model_condition counts only the provider down and a spent budget, and _provider_down stays "".
+        self.stopped_by = EGRESS_BLOCKED if last is not None and _refused_here(last) else _provider_down(last)
         plural = "attempt" if attempts == 1 else "attempts"
         raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {refusal_reason(last, schema)}")
 

@@ -155,7 +155,7 @@ counted either. All times are UTC.
 | Model requests | `llm.call` rows: one per request sent - retries, unanswered requests and Eldane's trials included, so NOT the same count as model calls |
 | Spend ledger | `usd` of the same `incident.llm_spend` rows (the budget ledger) |
 | Cost per incident | `cost` (US dollars) of `llm.call` rows (the incident's and its discussion's), over incidents; a row with no `cost` is "not recorded" for that call, never estimated |
-| Fallbacks | `llm.fallback` rows by `reason` (rules_only, model_refused, budget_cap, provider_unavailable; any other reason counted as "other", its text never printed); per incident = fallbacks / incidents, per model request = fallbacks / `llm.call` rows (requests, retries included) |
+| Fallbacks | `llm.fallback` rows by `reason` (rules_only, model_refused, budget_cap, provider_unavailable, egress_blocked; any other reason counted as "other", its text never printed); per incident = fallbacks / incidents, per model request = fallbacks / `llm.call` rows (requests, retries included) |
 | Undo count | runs with a `remediation.rollback` row whose `undone` is true; `remediation.rollback_failed` runs beside it |
 
 The four plan outcomes are rates over ENDED plans, and one plan can be two of them (approved, then drifted and planned

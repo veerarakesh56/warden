@@ -1010,5 +1010,32 @@ def test_a_refusal_inside_a_model_sdk_is_not_retried():
     except APIConnectionError as wrapped:
         assert llm._is_transient(wrapped) is False
         assert llm._provider_down(wrapped) == ""  # not an outage: the provider is not paged as down (#176)
-        assert llm.failure_reason(wrapped) == llm.MODEL_REFUSED
+        assert llm.failure_reason(wrapped) == llm.EGRESS_BLOCKED  # told apart from the model's own refusal
     assert llm._is_transient(APIConnectionError("Connection error.")) is True
+
+
+def test_a_model_call_the_egress_check_refuses_is_recorded_as_egress_blocked_and_pages_nobody():
+    """A blocked outbound call is a configuration or security event, not a model answer (owner, 2026-10-21): its
+    fallback reason is egress_blocked, never model_refused, and it is no paging condition."""
+    from pydantic import BaseModel
+
+    from warden import llm, paging
+
+    class _Answer(BaseModel):
+        ok: bool
+
+    class _Prompted:
+        name, model, base_url = "anthropic", "claude-test", ""
+
+        def complete(self, *, system, user, schema=None):  # never reached: the guard refuses first
+            raise AssertionError("sent")
+
+    egress.guard_provider(_Prompted)
+    client = llm.LLMClient(provider=_Prompted(), max_usd=1.0, mock=False)
+    with pytest.raises(llm.ModelRefused):
+        client.structured(system="s", user=f"user {EMAIL}", schema=_Answer)
+    assert client.stopped_by == llm.EGRESS_BLOCKED
+    assert llm.fallback_reason(client.stopped_by) == llm.EGRESS_BLOCKED
+    assert llm.EGRESS_BLOCKED in llm.FALLBACK_REASONS
+    assert llm.EGRESS_BLOCKED not in paging.MODEL_METRICS  # nobody is paged for it
+    assert llm.failure_reason(EgressBlocked("anthropic", "the prompt is not fully masked")) == llm.EGRESS_BLOCKED
