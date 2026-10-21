@@ -68,6 +68,52 @@ def _settle_to_baseline(clients, target, seconds: int = 30) -> list[str]:
         time.sleep(2)
 
 
+def _op_verified(clients, target, label: str, op_args: tuple[str, dict], landed) -> bool:
+    """Inject one op at its smallest size, check the fault landed, release it and require a clean baseline. Prints
+    the op's OK/FAIL line; True when it is OK."""
+    op, args = op_args
+    before = _scalar(clients, TOTAL)
+    try:
+        ops_db.OPS[op](clients, target, **args)
+        time.sleep(3)
+        ok = bool(landed(clients, before))
+    except Exception as exc:  # noqa: BLE001
+        ok = False
+        print(f"   inject raised {type(exc).__name__}: {exc}")
+    ops_db.OPS["db_release_everything"](clients, target)
+    left = _settle_to_baseline(clients, target)
+    verdict = "OK  " if ok and not left else "FAIL"
+    print(f"{verdict} {label}: fault {'landed' if ok else 'DID NOT LAND'}; "
+          f"after revert {'baseline clean' if not left else left}")
+    return verdict != "FAIL"
+
+
+def _reconnects(clients, tries: int = 15) -> bool:
+    """Whether the database answers again within `tries` attempts, 2 s apart."""
+    for _ in range(tries):
+        if _reachable(clients):
+            return True
+        time.sleep(2)
+    return False
+
+
+def _ingress_verified(clients, target) -> bool:
+    """Revoke and restore the database's ingress; prints the OK/FAIL line, True when it is OK."""
+    # The evidence outage: revoke must really cut the connection, restore must really bring it back.
+    try:
+        ops_db.OPS["db_revoke_ingress"](clients, target)
+        time.sleep(5)
+        cut = not _reachable(clients)
+    finally:
+        ops_db.OPS["db_restore_ingress"](clients, target)
+    back = _reconnects(clients)
+    left = _settle_to_baseline(clients, target) if back else ["still unreachable after restore"]
+    verdict = "OK  " if cut and back and not left else "FAIL"
+    print(f"{verdict} security-group revoke: connection {'cut' if cut else 'NOT cut'}; "
+          f"restore {'reconnected' if back else 'DID NOT reconnect'}; {left or 'baseline clean'}")
+    return verdict != "FAIL"
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
     harness = _db_live_harness(timeout_s=60)
@@ -80,39 +126,8 @@ def main() -> int:
         return 1
 
     for label, (op, args), landed in CHECKS:
-        before = _scalar(clients, TOTAL)
-        try:
-            ops_db.OPS[op](clients, target, **args)
-            time.sleep(3)
-            ok = bool(landed(clients, before))
-        except Exception as exc:  # noqa: BLE001
-            ok = False
-            print(f"   inject raised {type(exc).__name__}: {exc}")
-        ops_db.OPS["db_release_everything"](clients, target)
-        left = _settle_to_baseline(clients, target)
-        verdict = "OK  " if ok and not left else "FAIL"
-        failed += verdict == "FAIL"
-        print(f"{verdict} {label}: fault {'landed' if ok else 'DID NOT LAND'}; "
-              f"after revert {'baseline clean' if not left else left}")
-
-    # The evidence outage: revoke must really cut the connection, restore must really bring it back.
-    try:
-        ops_db.OPS["db_revoke_ingress"](clients, target)
-        time.sleep(5)
-        cut = not _reachable(clients)
-    finally:
-        ops_db.OPS["db_restore_ingress"](clients, target)
-    back = False
-    for _ in range(15):
-        if _reachable(clients):
-            back = True
-            break
-        time.sleep(2)
-    left = _settle_to_baseline(clients, target) if back else ["still unreachable after restore"]
-    verdict = "OK  " if cut and back and not left else "FAIL"
-    failed += verdict == "FAIL"
-    print(f"{verdict} security-group revoke: connection {'cut' if cut else 'NOT cut'}; "
-          f"restore {'reconnected' if back else 'DID NOT reconnect'}; {left or 'baseline clean'}")
+        failed += not _op_verified(clients, target, label, (op, args), landed)
+    failed += not _ingress_verified(clients, target)
 
     print("\nALL OPS VERIFIED AGAINST THE REAL DATABASE" if not failed else f"\n{failed} FAILED - do not run the wave")
     return 1 if failed else 0

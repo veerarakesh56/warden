@@ -228,3 +228,117 @@ def test_settings_come_from_the_store_and_the_environment_is_put_back(monkeypatc
     assert dict(os.environ) == before
     assert ce._missing("datadog", values) == ["WARDEN_DATADOG_SITE", "WARDEN_DATADOG_APP_KEY"]
     assert ce._missing("grafana", {"WARDEN_GRAFANA_READ_TOKEN": "t", "WARDEN_GRAFANA_LOGS_URL": "u"}) == []
+
+
+def _page_run(tool, **kw):
+    r = {**ce._row("fs-10", tool), "status": "ok", "correct": False, "diagnosis": score.SAFE, "action": None,
+         "gate_allowed": None, "input_tokens": None, "output_tokens": None, "usd": None, "wall_s": None,
+         "lines": {}, "dependency_named": None}
+    return {**r, **kw}
+
+
+def test_the_page_shows_each_outcome_with_its_class():
+    """Characterisation (before the cognitive-complexity split of render_html): every row and class the page writes -
+    the best accuracy in bold, failed runs in red, a correct / safe / failed / wrong run, gate allowed / refused /
+    unknown, tokens, tool lines, dependency named / not / unknown, and a note with failed tool reads."""
+    import re
+
+    runs = [_page_run("none", correct=True, diagnosis=score.CORRECT, action="restart", gate_allowed=True,
+                      input_tokens=900, output_tokens=80, usd=0.0123, wall_s=41.6, lines={"XRAY": 0},
+                      dependency_named=False),
+            _page_run("xray", lines={"XRAY": 2, "GRAFANA": 0}, dependency_named=True, tool_read_failures=2,
+                      error=" slow "),
+            _page_run("grafana", status="failed", diagnosis=score.ERROR, error="exit 1", gate_allowed=False),
+            _page_run("datadog", diagnosis="WRONG")]
+    summary = [{"tool": "none", "accuracy": 0.5, "correct": 1, "runs": 2, "failed": 0, "mean_wall_s": 41.6,
+                "mean_usd": 0.0123, "dependency_found": 0, "dependency_known": 1},
+               {"tool": "xray", "accuracy": 0.5, "correct": 1, "runs": 2, "failed": 1, "mean_wall_s": None,
+                "mean_usd": None, "dependency_found": 1, "dependency_known": 0},
+               {"tool": "splunk", "accuracy": None, "correct": 0, "runs": 0, "failed": 0, "mean_wall_s": None,
+                "mean_usd": None, "dependency_found": 0, "dependency_known": 0}]
+    page = ce.render_html({"started_at": "T0", "git_commit": "c1", "dry_run": True, "summary": summary,
+                           "faults": [{"fault": "fs-10", "title": "cache down", "error": "inject failed",
+                                       "runs": runs}, {"fault": "fs-11", "runs": []}]})
+    assert "Started T0, commit c1 - DRY RUN, no real evidence</p>" in page
+    assert re.findall(r"<tr><td.*?</tr>", page) == [
+        ('<tr><td class="best">AWS only</td><td class="best">50%</td><td>1 / 2</td><td>0</td><td>42 s</td>'
+         "<td>$0.0123</td><td>0 / 1</td></tr>"),
+        ('<tr><td class="best">AWS + X-Ray</td><td class="best">50%</td><td>1 / 2</td><td class="bad">1</td>'
+         "<td>-</td><td>-</td><td>-</td></tr>"),
+        "<tr><td>splunk</td><td>-</td><td>0 / 0</td><td>0</td><td>-</td><td>-</td><td>-</td></tr>",
+        ('<tr><td>AWS only</td><td class="ok">correct</td><td>restart</td><td>allowed</td><td>900 / 80</td>'
+         '<td>$0.0123</td><td>42 s</td><td>none</td><td>not named</td><td class="note"></td></tr>'),
+        ('<tr><td>AWS + X-Ray</td><td class="warn">safe-but-unhelpful</td><td>-</td><td>-</td><td>-</td><td>-</td>'
+         '<td>-</td><td>XRAY 2</td><td>named it</td><td class="note">2 read(s) of the tool failed.  slow</td></tr>'),
+        ('<tr><td>AWS + Grafana</td><td class="bad">failed</td><td>-</td><td>refused</td><td>-</td><td>-</td>'
+         '<td>-</td><td>none</td><td>-</td><td class="note">exit 1</td></tr>'),
+        ('<tr><td>AWS + Datadog</td><td class="bad">wrong</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td>'
+         '<td>none</td><td>-</td><td class="note"></td></tr>'),
+    ]
+    assert re.findall(r"<h2>.*?</p>", page) == ['<h2>fs-10</h2><p class="meta">cache down - inject failed</p>',
+                                               '<h2>fs-11</h2><p class="meta"></p>']
+    assert page.endswith("</tbody></table></div></main></body></html>")
+    zero = ce.render_html({"summary": [{**summary[0], "accuracy": 0.0}]})
+    assert 'class="best"' not in zero
+    assert "<h2>" not in zero
+
+
+def test_the_command_line_refuses_repeats_and_a_live_run_without_out(capsys):
+    """Characterisation (before the cognitive-complexity split of main): each refusal is argparse's exit 2 with its
+    message, before anything is read or written."""
+    for argv, message in ((["--dry-run", "--tools", "none,none"], "--tools: each once, from none, xray, grafana, datadog"),
+                          (["--dry-run", "--tools", " , "], "--tools: each once"),
+                          (["--dry-run", "--faults", "fs-99"], "--faults: "),
+                          (["--faults", "fs-10"], "--out is required for a live run")):
+        with pytest.raises(SystemExit) as stop:
+            ce.main(argv)
+        assert stop.value.code == 2
+        assert message in capsys.readouterr().err
+
+
+def test_a_dry_run_names_the_store_it_would_read(capsys):
+    assert ce.main(["--dry-run", "--faults", "fs-10", "--tools", "none", "--settings-env", "lab"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("compare 1 fault(s) x 1 tool(s) = 1 diagnoses\n")
+    assert out.endswith("  (a live run first loads the missing settings from the lab environment's store)\n")
+    assert ce.main(["--dry-run", "--faults", "fs-10", "--tools", "none", "--settings-env", ""]) == 0
+    assert "a live run first loads" not in capsys.readouterr().out
+
+
+def test_a_live_run_stops_before_any_inject_when_a_tool_is_not_ready(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(ce, "evidence_settings", lambda tools, store="": {})
+    monkeypatch.setattr(ce, "compare", lambda *a, **k: pytest.fail("must not run"))
+    assert ce.main(["--faults", "fs-10", "--tools", "none,grafana,datadog", "--out", str(tmp_path / "o"),
+                    "--run", str(tmp_path / "r")]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("STOPPED before any inject: grafana needs WARDEN_GRAFANA_")
+    assert "; datadog needs WARDEN_DATADOG_" in err
+    assert not (tmp_path / "o").exists()
+
+
+def test_a_live_run_prints_each_tools_summary_or_stops_on_a_step_error(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(ce, "evidence_settings", lambda tools, store="": dict(VALUES))
+    got = {}
+
+    def compare(env, run, out, faults, tools, values, *, settle_s):
+        got.update(env=env, faults=faults, tools=tools, settle_s=settle_s)
+        return {"summary": [{"tool": "xray", "accuracy": 0.5, "correct": 1, "runs": 2, "mean_wall_s": 12.4,
+                             "mean_usd": 0.01}]}
+
+    monkeypatch.setattr(ce, "compare", compare)
+    out = tmp_path / "o"
+    argv = ["--faults", "fs-10", "--tools", "xray", "--out", str(out), "--run", str(tmp_path / "r"),
+            "--settle-minutes", "0.5"]
+    assert ce.main(argv, env="ENV") == 0
+    assert got == {"env": "ENV", "faults": ["fs-10"], "tools": ["xray"], "settle_s": 30.0}
+    assert capsys.readouterr().out == ("xray     accuracy  50%  1/2  time 12 s  cost $0.0100\n"
+                                       f"results: {out / 'results.json'}  {out / 'results.html'}\n")
+    assert out.is_dir()
+    assert (tmp_path / "r").is_dir()
+
+    def stopped(*a, **k):
+        raise cli.StepError("the alarm never fired")
+
+    monkeypatch.setattr(ce, "compare", stopped)
+    assert ce.main(argv, env="ENV") == 1
+    assert capsys.readouterr().err == "STOPPED: the alarm never fired\n"

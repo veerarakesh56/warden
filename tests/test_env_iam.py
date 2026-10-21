@@ -660,3 +660,40 @@ def test_the_actor_connects_only_as_this_accounts_terminate_login_and_its_render
     [connect] = [s for s in local["Statement"] if s["Action"] == "rds-db:connect"]
     assert connect["Resource"].split(":")[4] == "1" * 12
     assert (tmp_path / "iam" / "dev" / "actor-trust.local.json").is_file()
+
+
+def test_main_writes_every_file_each_option_asks_for_and_nothing_else(monkeypatch, tmp_path, capsys):
+    """Characterisation (before the cognitive-complexity split of main): with --account and --cluster-resource-id,
+    each environment gets its committed kinds, a `.local.json` for every file that names the account, the harness environments
+    their harness trust and harness policy; the runtime its own kinds and trust - each the matching render, LF only."""
+    import types
+
+    account = "0" * 12
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(
+        client=lambda name: types.SimpleNamespace(get_caller_identity=lambda: {"Account": account})))
+    monkeypatch.setattr(r, "ROOT", tmp_path)
+    cluster = "cluster-ABCDEFGHIJ1234"
+    assert r.main(["--account", "--cluster-resource-id", cluster]) == 0
+    runtime = r.runtime_environment()
+    assert capsys.readouterr().out == f"rendered {len(r.environments())} environments and the runtime ({runtime}) into iam/\n"
+    want = {}
+    for env in r.environments():
+        want.update({f"{env}/{kind}.json": text for kind, text in r.render(env).items()})
+        mine = r.render(env, account)
+        want.update({f"{env}/{kind}.local.json": mine[kind] for kind, text in r.render(env).items()
+                     if r.ACCOUNT_PLACEHOLDER in text and kind not in ("harness", "harness-trust")})
+        if env in r.HARNESS_ENVS:
+            want[f"{env}/harness-trust.local.json"] = r.render(env, account)["harness-trust"]
+            want[f"{env}/harness.local.json"] = r.render(env, cluster=cluster)["harness"]
+    want.update({f"{runtime}/{kind}.json": text for kind, text in r.render_runtime(runtime).items()})
+    want[f"{runtime}/trust.local.json"] = r.render_runtime(runtime, account)["trust"]
+    written = {p.relative_to(tmp_path / "iam").as_posix(): p.read_bytes() for p in (tmp_path / "iam").rglob("*.json")}
+    assert sorted(written) == sorted(want)
+    for name, text in want.items():
+        assert written[name] == text.encode("utf-8"), name
+
+
+def test_main_without_options_writes_no_local_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(r, "ROOT", tmp_path)
+    assert r.main([]) == 0
+    assert not list((tmp_path / "iam").rglob("*.local.json"))
