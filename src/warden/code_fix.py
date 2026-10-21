@@ -17,13 +17,14 @@ How the revert is made, with no model involved:
    A hunk found nowhere or twice - the code moved on since - is refused, never guessed.
 4. The revert's own diff is made from those contents and put through the code gate as a revert (code_gate.check):
    paths, size, secrets, dependencies, suppressions, and CG10, that it is exactly the inverse of the commit.
-5. Only then: a branch `warden/revert/<environment>/<incident>-<commit>`, one signed commit at the head WARDEN read,
-   and a pull request into the default branch. Every outcome - opened, skipped, refused, failed - is one audit row.
+5. Only then: a branch `warden/revert/<environment>/inc-<hash of the incident id>-<commit>`, one signed commit at
+   the head WARDEN read, and a pull request into the default branch. Every outcome - opened, skipped, refused, failed - is one audit row.
 """
 
 from __future__ import annotations
 
 import difflib
+import hashlib
 import os
 import re
 from collections.abc import Callable, Mapping
@@ -45,7 +46,6 @@ from .code_gate import (
 from .github_app import AppCredentials, GitHubApp, GitHubAppError, RepoWriter
 
 _SHA = re.compile(r"[0-9a-f]{40}")
-_SLUG = re.compile(r"[^a-z0-9-]+")
 AUDIT_KIND = "code_fix"
 
 
@@ -196,8 +196,10 @@ def _revert_file(writer: RepoWriter, head: str, f: FileChange, plan: _Plan) -> N
     plan.sources.append(current or "")
 
 
-def _slug(text: str) -> str:
-    return _SLUG.sub("-", text.lower()).strip("-")[:40] or "incident"
+def public_ref(incident: str) -> str:
+    """What a public pull request calls an incident: a stable hash of its id, never the id itself (an alert's id can
+    carry a monitor number, a resource or an account). The audit row keeps the id; this reference finds it there."""
+    return "inc-" + hashlib.sha256(incident.encode("utf-8")).hexdigest()[:12]
 
 
 def _body(incident: str, sha: str, environment: str, mode: CodeFixMode, files: list[str]) -> str:
@@ -287,18 +289,19 @@ def _open(req: RevertRequest, writer: RepoWriter, mode: CodeFixMode, base: Rever
     if not verdict.allowed:
         return _with(base, status="refused", head=head, rules=verdict.rules,
                      reason="; ".join(str(r) for r in verdict.refusals)[:500])
-    branch = f"warden/revert/{req.environment}/{_slug(req.incident)}-{req.sha[:12]}"
+    ref = public_ref(req.incident)
+    branch = f"warden/revert/{req.environment}/{ref}-{req.sha[:12]}"
     writer.create_branch(branch, head)
-    title = f"Revert {req.sha[:12]}: the deploy behind incident {_slug(req.incident)}"
+    title = f"Revert {req.sha[:12]}: the deploy behind incident {ref}"
     try:
         oid = writer.commit(branch, expected_head=head, headline=title,
-                            body=f"Reverts {req.sha}. Written by WARDEN (incident {req.incident}).",
+                            body=f"Reverts {req.sha}. Written by WARDEN (incident {ref}).",
                             additions=plan.additions, deletions=tuple(plan.deletions))
     except GitHubAppError as exc:
         raise GitHubAppError(f"{exc}; {_remove(writer, branch)}") from None
     try:
         number, url = writer.open_pull_request(head=branch, base=base_branch, title=title,
-                                               body=_body(req.incident, req.sha, req.environment, mode,
+                                               body=_body(ref, req.sha, req.environment, mode,
                                                           sorted(f.path for f in original)))
     except GitHubAppError as exc:  # the commit is written but no pull request holds it: the branch goes
         return _with(base, status="failed", head=head, branch=branch, revert_commit=oid,
