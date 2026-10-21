@@ -325,10 +325,12 @@ def _alike_links(seen: dict[str, tuple[str, str, datetime]], incident: str) -> l
     return [(k, "same-alarm") for k in same_alarm] + [(k, "same-resource") for k in same_resource]
 
 
-def _signature_links(log: Any, seen: dict[str, tuple[str, str, datetime]], incident: str,
-                     now: datetime) -> list[tuple[str, str]]:
+def _signature_links(log: Any, seen: dict[str, tuple[str, str, datetime]], incident: str, now: datetime,
+                     same_alarm: set[str]) -> list[tuple[str, str]]:
     """(other incident, "same-signature") for incidents in the same environment whose evidence matched a known failure
-    pattern this one's did, newest first, FOUND_MOST - and not one already found by its alarm (owner B8)."""
+    pattern this one's did, newest first, FOUND_MOST - and not one already linked as the same alarm (owner B8). An
+    older incident of the same alarm that the same-alarm links left out (past their FOUND_MOST) can still be found
+    here (PR 183 review)."""
     matched: dict[str, set[str]] = {}
     for e in log.entries(kinds=(SIGNATURE_ROW,), since=now - timedelta(days=FOUND_DAYS)):
         ids = e["body"].get("ids")
@@ -337,9 +339,8 @@ def _signature_links(log: Any, seen: dict[str, tuple[str, str, datetime]], incid
     mine = matched.get(incident, set())
     if not mine or incident not in seen:
         return []
-    fp = _FP.match(incident)
     alike = [k for k in matched if k != incident and k in seen and seen[k][0] == seen[incident][0] and matched[k] & mine
-             and not (fp and k.startswith(fp.group(1)))]
+             and k not in same_alarm]
     return [(k, "same-signature") for k in sorted(alike, key=lambda k: seen[k][2], reverse=True)[:FOUND_MOST]]
 
 
@@ -348,8 +349,10 @@ def found(log: Any, incident: str, *, now: datetime | None = None) -> list[dict[
     through a fix first, then the same alarm, the same resource, the same known failure pattern."""
     now = now or datetime.now(UTC)
     seen = _recent(log, now)
-    pairs = (_fix_links(log, incident) + _relapse_links(log, incident, now) + _alike_links(seen, incident)
-             + _signature_links(log, seen, incident, now))
+    alike = _alike_links(seen, incident)
+    same_alarm = {k for k, side in alike if side == "same-alarm"}
+    pairs = (_fix_links(log, incident) + _relapse_links(log, incident, now) + alike
+             + _signature_links(log, seen, incident, now, same_alarm))
     out, kept = [], set()
     for other, side in pairs:
         if (other, side) not in kept and other != incident:

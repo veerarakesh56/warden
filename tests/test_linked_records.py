@@ -459,6 +459,23 @@ def test_the_same_alarm_is_not_found_again_as_the_same_pattern(world):
     assert {k["side"] for k in links.found(log, here) if k["with"] == again} == {"same-alarm"}
 
 
+def test_an_older_incident_of_the_same_alarm_past_its_links_is_still_found_by_its_pattern(world):
+    _, _, _, log = world
+    here = f"{FP}-20261009T100000Z"
+    _incident(log, here)
+    _signatures(log, here, "K8S-OOM-001")
+    older = [f"{FP}-20261001T10{i:02d}00Z" for i in range(links.FOUND_MOST + 1)]  # one more than the alarm's links
+    for inc in older:
+        _incident(log, inc)
+        _signatures(log, inc, "K8S-OOM-001")
+    found = links.found(log, here)
+    by_alarm = {k["with"] for k in found if k["side"] == "same-alarm"}
+    by_pattern = {k["with"] for k in found if k["side"] == "same-signature"}
+    assert len(by_alarm) == links.FOUND_MOST
+    assert by_alarm.isdisjoint(by_pattern)  # never linked twice
+    assert by_alarm | by_pattern == set(older)  # the one the alarm's links left out is found by its pattern
+
+
 def test_at_most_the_newest_few_incidents_of_the_same_pattern_are_found(world):
     _, _, _, log = world
     here = f"{FP}-20261009T100000Z"
