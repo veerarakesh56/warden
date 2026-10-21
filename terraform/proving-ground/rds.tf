@@ -57,12 +57,9 @@ resource "aws_db_instance" "this" {
   password = var.db_password
   port     = 5432
 
-  # Public on purpose (Sonar terraform:S8793, by design - owner to review; tests/test_iac_leftovers_sonar.py holds every
-  # point): WARDEN runs on the operator's laptop and reaches the database directly, and a private one needs a NAT
-  # Gateway or a bastion, both billed. What stands in for private: the stack is off unless enable_rds = true, the
-  # security group above admits 5432 from the operator's one address only, the master password is 16+ characters
-  # from a per-run generator (precondition below), PostgreSQL 16 on RDS refuses a connection without TLS
-  # (rds.force_ssl defaults to 1 from 15 on), and the instance lives for one session.
+  # Sonar terraform:S8793: the owner decided (2026-10-21) to make this database private, reached through an SSM
+  # port-forward from a t4g.nano that exists only while enable_rds = true; that change has its own PR. Until it lands:
+  # off unless enable_rds = true, 5432 from the operator's one /32 only, a 16+ character password, TLS only.
   db_subnet_group_name   = aws_db_subnet_group.this[0].name
   vpc_security_group_ids = [aws_security_group.db[0].id]
   publicly_accessible    = true # no NAT Gateway and no bastion; bounded by the SG above

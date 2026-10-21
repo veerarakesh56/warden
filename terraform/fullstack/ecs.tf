@@ -199,9 +199,14 @@ resource "aws_s3_bucket_lifecycle_configuration" "alb_logs" {
   depends_on = [aws_s3_bucket_versioning.alb_logs]
 }
 
-# ELB's documented policy (the logdelivery service principal - the region-account form exists only for regions older
-# than August 2022), for this account's load balancers only; S3's own access logs of this bucket under s3-access/;
-# TLS only.
+# ELB's log delivery writes as the logdelivery.elasticloadbalancing service principal, AWS's policy for regions available
+# from August 2022 - this stack's region (environments.yaml) among them. AWS's ALB guide (as quoted in search results,
+# 2026-10-21; the page itself is not reachable from here) names it the current policy and keeps an older one, the
+# region's ELB account as principal, for regions available before August 2022. That form cannot be written for this
+# region at all: the provider's aws_elb_service_account has no account for regions after August 2022 and fails there
+# (terraform-provider-aws v6.66.0, internal/service/elb/service_account_data_source.go, read 2026-10-21). An apply in
+# a pre-2022 region that refused this policy would fail loudly at the ALB's access_logs. For this account's load
+# balancers only; S3's own access logs of this bucket under s3-access/; TLS only.
 resource "aws_s3_bucket_policy" "alb_logs" {
   bucket = aws_s3_bucket.alb_logs.id
   policy = jsonencode({

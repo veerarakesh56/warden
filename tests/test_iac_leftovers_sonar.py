@@ -10,7 +10,7 @@ there is one (owner, 2026-10-20: none stays open by design):
 - S2612: no image grants write to others; the runtime image checks Debian's sticky /tmp at build.
 - S6333: the webhook routes pass the gateway only with their bearer secret (a Lambda REQUEST authorizer).
 - S6428: the negative Pod Security test's pod is built when the test runs, never kept as a manifest.
-- Still open, owner to decide (cost): the lab database's public endpoint (S8793).
+- S8793 (the lab database's public endpoint): private behind an SSM port-forward, in its own PR (owner, 2026-10-21).
 """
 
 from __future__ import annotations
@@ -210,9 +210,9 @@ def test_the_lab_keeps_its_logs_14_days_at_no_cost():
     assert re.search(r"retention_in_days\s*=\s*14\b", body)
 
 
-def test_the_lab_database_is_public_by_design_and_reachable_from_one_address_over_tls_only():
-    """S8793 kept (owner to review): WARDEN on the operator's laptop reaches it directly; private would need a billed
-    NAT Gateway or bastion. What stands in for private is checked here, point by point."""
+def test_until_the_lab_database_is_private_it_is_reachable_from_one_address_over_tls_only():
+    """S8793: the owner decided (2026-10-21) on a private database behind an SSM port-forward, in its own PR. Until it
+    lands, what limits the public endpoint is checked here, point by point."""
     rds, variables = LAB / "rds.tf", (LAB / "variables.tf").read_text(encoding="utf-8")
     db = _block(rds, "aws_db_instance", "this")
     assert "count = var.enable_rds ? 1 : 0" in _flat(db)
