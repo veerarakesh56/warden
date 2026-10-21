@@ -44,7 +44,6 @@ with workflow.unsafe.imports_passed_through():
     from .catalog import MITIGATES
     from .discuss import (
         ELSEWHERE,
-        EXTEND,
         LIMIT,
         NEW_PLAN,
         NO_ANSWER,
@@ -56,6 +55,7 @@ with workflow.unsafe.imports_passed_through():
         REPLANNED,
         Thread,
         Turn,
+        asks_to_extend,
         extended_said,
     )
     from .extend import ceiling
@@ -726,7 +726,7 @@ class DiscussWorkflow:
         """The reply to a mention about a known incident: an approver's "new plan", or the model's answer."""
         if NEW_PLAN.search(turn.text) and workflow.patched("g10-discuss-replan"):
             return await self._replan(acts, turn, thread)
-        if EXTEND.search(turn.text) and workflow.patched("u38-discuss-extend"):
+        if asks_to_extend(turn.text) and workflow.patched("u38-discuss-extend"):
             return await self._extend(acts, turn, thread)
         return await self._evidence_answer(acts, turn, thread)
 
