@@ -23,6 +23,7 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_AUDIT_DSN` | the runtime's connection to the shared audit (Aurora PostgreSQL) | rotate the audit writer's password with Secrets Manager's managed rotation for the database, then restart the workers so they reconnect | none needed: the audit rows do not change |
 | `WARDEN_AUDIT_KEY_PASSPHRASE` | the local audit signing key's encryption | re-encrypt the key file under a new passphrase, store the new passphrase | none needed: the key itself does not change |
 | `WARDEN_SLACK_BOT_TOKEN` | posting into the incident channel | regenerate the bot token in the Slack app's settings, store it, restart | the old token stops at once: rotate in a quiet hour |
+| `WARDEN_CODEFIX_APP_KEY` (with `WARDEN_CODEFIX_APP_ID`) | the GitHub App that writes code-fix pull requests (github_app.py; the act zone's alone) | in the App's settings, Private keys: generate a new key, store the `.pem` in `warden/<runtime>/codefix-app-key`, restart the act workers, then delete the old key there; the id does not change | both keys sign until the old one is deleted; an installation token already issued lasts its hour |
 | `WARDEN_DATADOG_API_KEY`, `WARDEN_DATADOG_APP_KEY` | reading logs, spans and metrics from Datadog (datadog.py; the read zone's alone; the application key scoped to `logs_read_data`, `logs_read_index_data`, `apm_read`, `timeseries_query`, `events_read`, `monitors_read`) | run `scripts/observability_setup.py` again: it makes a new scoped key, stores it and deletes the older one; then restart the read workers (runtime.yml restart) | the old key stops when it is deleted: rotate between incidents |
 | `WARDEN_DATADOG_WEBHOOK_TOKEN` | Datadog monitors' webhook into WARDEN (`POST /datadog`; the webhook Lambda's alone) | run `scripts/datadog_setup.py` again: it makes a new token, stores it and puts it in the webhook's header in one step | none: rotate between alerts |
 | `WARDEN_SLACK_APP_TOKEN` | the discussion channel's Socket Mode connection (discuss.py; the notify zone's alone) | in the Slack app's Basic Information, App-Level Tokens: generate a new token with `connections:write`, store it, restart the notify workers, then revoke the old token | both work until the old one is revoked |
@@ -266,6 +267,83 @@ is removed. A covered alarm starts no incident and is recorded (`intake.decision
 cover ends WARDEN looks at the alarm again: still firing, it is an incident from that moment. A declaration that
 cannot be read covers nothing and is said in the intake's log: a typing mistake brings alarms back, it never hides
 one. A person who asks for a diagnosis (CLI, MCP) always gets one.
+
+## Code-fix pull requests: the GitHub App (register B4)
+
+WARDEN writes a code fix as its own GitHub App, never with a person's token (`github_app.py`). The App's id and private
+key are secrets the act zone alone reads (`warden/<runtime>/codefix-app-id`, `warden/<runtime>/codefix-app-key`). Each
+use asks GitHub for an installation token limited to one repository with contents and pull requests: write and checks:
+read, and WARDEN refuses a token GitHub grants more; the token lasts an hour and is never stored. Commits go through GraphQL
+`createCommitOnBranch`, so GitHub signs them and shows them as verified, authored by the App. WARDEN writes only to
+branches under `warden/` and opens pull requests from them; it never pushes to `dev`, `prod` or `main`. Whether it may
+write anything in an environment is `code_fix` in environments.yaml, and what a change may contain is the code gate
+(`code_gate.py`, `data/code_fix.yaml`).
+
+Owner steps (once; WARDEN never creates or changes the App, a ruleset or a repository setting):
+
+1. GitHub, Settings, Developer settings, GitHub Apps, **New GitHub App**: a name such as `warden-code-fix`; the
+   repository's address as the homepage; **Webhook: Active unticked** (WARDEN asks, nothing is pushed to it).
+2. Repository permissions: **Contents: Read and write**, **Pull requests: Read and write**, **Checks: Read-only** (the
+   auto-merge step reads a pull request's check runs; it writes none); Metadata: Read is added by GitHub. Nothing
+   else - no Workflows (so the App cannot change `.github/workflows` even if asked), no Administration, Actions,
+   Secrets or Environments. Account permissions: none. "Where can this GitHub App be
+   installed": **Only on this account**.
+3. Create it, note the **App ID**, and under Private keys **Generate a private key** (a `.pem` file).
+4. **Install App**, **Only select repositories**: the one repository WARDEN fixes (`WARDEN_CHANGE_REPO`, else
+   environments.yaml `github.repository`).
+5. Store both, then delete the `.pem` from the computer:
+   `aws secretsmanager put-secret-value --secret-id warden/<runtime>/codefix-app-id --secret-string <App ID>` and
+   `aws secretsmanager put-secret-value --secret-id warden/<runtime>/codefix-app-key --secret-string file://<key>.pem`.
+   The slots exist once the runtime module is applied (terraform/modules/warden-runtime/secrets.tf).
+6. Restart the act workers (runtime.yml). Until both secrets are set, WARDEN writes no code fix.
+
+Rotation is in the table at the top of this page.
+
+**Revert pull requests (phase 3).** When an incident's diagnosis is "roll back the deploy", the verifier passed it for a
+person's approval and its evidence names exactly one deployed commit, the act zone also opens a pull request that
+reverts that commit, from `warden/revert/<environment>/inc-<hash>-<commit>` (a hash of the incident id: the public
+repository never sees the id; the audit row holds both) into the repository's default branch, where CI runs (the
+environment receives it by the usual promotion), unless that environment's `code_fix` is `off` or no App is configured.
+No model writes any line of it: the commit's own diff is taken back where its exact lines are found once, and the result
+must pass the code gate as exactly the commit's inverse. A merge commit, a rename, a binary file, code that moved on
+since, or anything the gate refuses goes to a person, and nothing is written. Every attempt is an audit row of kind
+`code_fix` (opened, skipped, refused or failed, with the reason and the gate's rules); when the act zone never runs the
+step (no worker picks it up within two minutes, or it fails before recording itself), the core zone writes the `failed`
+row. The rollback of the running service stays its own plan with its own approval; the pull request only keeps the next
+deploy from bringing the fault back.
+
+**Merging (phase 4) - the owner's option A (2026-10-21, final).** A code-fix pull request merges itself only in an
+environment whose `code_fix` is `auto` (never the prod tier; both ship `propose`, so today a person merges every one).
+Under `auto`, `CodeFixMergeWorkflow` asks every 10 minutes for a day, and the act zone merges (rebase, naming the exact
+commit) only when every condition holds for the one commit WARDEN wrote (`code_fix.MERGE_CONDITIONS`, each its own
+check): the mode; the pull request open, not a draft, mergeable; its head that commit, from a `warden/` branch into the
+default branch; every check run on it green and `auto_merge.required_checks` (data/code_fix.yaml) among them, each
+passed (a required check that was skipped is not green); CodeRabbit reviewed that commit, asked for nothing and left no
+thread open; and Eldane approved that commit - an audit row of kind `eldane_code_review` that only Eldane's code review
+writes (Eldane is on main since PR 42; its code review is not built yet). Until it exists nothing merges itself.
+SonarCloud's quality gate is its own condition, by name. The owner chose option A (2026-10-21, final): in dev a code fix
+merges itself only after CI, CodeRabbit, SonarCloud and Eldane are all green; prod never (refused in code, whatever the
+mode). The other options were B (exact reverts without Eldane) and C (never).
+
+The `CI · autofix` workflow's `autofix-regression` job runs on every pull request into main: the code-fix rules' tests,
+and for a pull request from a `warden/` branch the gate again over the pull request as GitHub holds it - one commit on
+its base, exactly the inverse of the commit it names, in its environment's mode (`scripts/autofix_check.py`). A branch
+changed after WARDEN wrote it fails there.
+
+Owner steps for the rulesets (later; WARDEN never changes a ruleset or a repository setting):
+
+1. Settings, Rules, Rulesets, the ruleset on `main`: add **Require status checks to pass** with `autofix-regression`,
+   `SonarCloud Code Analysis` and the CI jobs already required; keep **Require a pull request before merging**.
+2. If option A or B is chosen and `main`'s ruleset requires an approving review: the App cannot approve its own pull
+   request, so it cannot merge there. Do **not** put the App in the ruleset's bypass list to get round that - a
+   bypass skips every rule, the required checks included. The choice is the owner's: keep the review (a person
+   merges; option C in effect) or drop the review requirement for `main` and rely on the required checks plus
+   WARDEN's own conditions. Without a review requirement, nothing to add: the App merges through the same required
+   checks as anyone.
+3. `dev` and `prod`: keep their rulesets as they are (only promotions from `main` reach them). For prod, keep
+   **Require approval of the most recent reviewable push** and a required reviewer: a person, always.
+4. Then, and only then, set `code_fix: auto` for `dev` in environments.yaml (a reviewed pull request; prod is refused
+   at load).
 
 ## Optional: Claude's security review on pull requests
 

@@ -316,6 +316,8 @@ ZONE_READS = {
     "WARDEN_DB_TERMINATE_DSN": ("platforms/db.py", {"act"}),
     # Eldane, the AI critic: its own signing key (its model key is the diagnosis's, above; owner 2026-10-17).
     "WARDEN_ELDANE_KEY": ("eldane.py", {"critic"}),
+    "WARDEN_CODEFIX_APP_ID": ("github_app.py", {"act"}),
+    "WARDEN_CODEFIX_APP_KEY": ("github_app.py", {"act"}),
 }
 
 

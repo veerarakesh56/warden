@@ -23,6 +23,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
+    TimeoutType,
     WorkflowAlreadyStartedError,
     is_cancelled_exception,
 )
@@ -42,6 +43,7 @@ with workflow.unsafe.imports_passed_through():
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .autonomy import L2, VETO
     from .catalog import MITIGATES
+    from .code_fix import CodeFixActivities, revert_target
     from .discuss import (
         ELSEWHERE,
         LIMIT,
@@ -66,6 +68,17 @@ QUICK = {"start_to_close_timeout": timedelta(seconds=60),
          "retry_policy": RetryPolicy(maximum_attempts=10, maximum_interval=timedelta(seconds=60))}
 ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPolicy(maximum_attempts=1)}
 NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": RetryPolicy(maximum_attempts=3)}
+# One attempt: a revert pull request is written once or not at all (a retry after a half-done write could open two).
+# Two minutes to be picked up: with no act-zone worker the incident does not wait for it (it never blocks the run).
+CODE_FIX = {"schedule_to_start_timeout": timedelta(minutes=2), "start_to_close_timeout": timedelta(minutes=3),
+            "retry_policy": RetryPolicy(maximum_attempts=1)}
+# Phase 4: how often a code-fix pull request is asked about, and for how long (a day) before a person has it. Each ask
+# is one attempt, picked up within two minutes or counted as not answered, so an absent act zone still ends the day.
+MERGE_ASK = {"schedule_to_start_timeout": timedelta(minutes=2), "start_to_close_timeout": timedelta(minutes=5),
+             "retry_policy": RetryPolicy(maximum_attempts=1)}
+MERGE_EVERY = timedelta(minutes=10)
+MERGE_FOR = timedelta(hours=24)  # the deadline, from the workflow's start: asks and the waits between them
+MERGE_TRIES = 144
 # prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
@@ -87,7 +100,7 @@ ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan"
                   "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
          "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
-         "act": ("apply", "rollback"),
+         "act": ("apply", "rollback", "code_fix_revert", "code_fix_merge"),
          # Eldane, the AI critic (eldane.py): its own model, its own signing key, no other zone's credentials.
          "critic": ("critic_review",)}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
@@ -744,6 +757,31 @@ class ClockWorkflow:
         return workflow.now()
 
 
+@workflow.defn
+class CodeFixMergeWorkflow:
+    """Register B4, phase 4: one code-fix pull request, asked about every MERGE_EVERY until it is merged, can never
+    merge (refused), or MERGE_TRIES asks or MERGE_FOR (asks and waits together) have passed - then it is a person's. Each ask is the act zone's code_fix_merge,
+    which merges only when every condition holds (code_fix.merge_refusals)."""
+
+    @workflow.run
+    async def run(self, incident_id: str, environment: str, number: int) -> dict[str, Any]:
+        ask = CodeFixActivities.code_fix_merge
+        out: dict[str, Any] = {}
+        deadline = workflow.now() + MERGE_FOR
+        for attempt in range(MERGE_TRIES):
+            try:
+                out = await workflow.execute_activity_method(ask, **_zoned(ask), args=[incident_id, environment, number],
+                                                             **MERGE_ASK)  # asked once; the loop asks again
+            except ActivityError:
+                out = {"status": "waiting", "reasons": ["the merge step could not run"]}
+            if out.get("status") in ("merged", "refused"):
+                return out
+            if attempt == MERGE_TRIES - 1 or workflow.now() + MERGE_EVERY >= deadline:
+                break  # no wait after the last ask
+            await workflow.sleep(MERGE_EVERY)
+        return {"status": "given_up", "pull_request": number, "reasons": out.get("reasons", [])}
+
+
 MODEL_UNAVAILABLE = "ModelUnavailable"
 
 
@@ -784,6 +822,18 @@ async def _notify(acts, pack: Any, diagnosed: Any, verified: Any, *mode: str) ->
 def _for_a_person(verified: Any) -> bool:
     """Whether the verifier passed the proposal for a person's approval."""
     return str(getattr(verified.verdict.status, "value", verified.verdict.status)) == "approved_for_human"
+
+
+def _revert_wanted(diagnosed: Any, verified: Any) -> bool:
+    """A revert pull request only for a diagnosis the model made and the verifier passed for a person's approval:
+    never for one that was rejected, escalated or held (B4)."""
+    return not diagnosed.model_unavailable and _for_a_person(verified)
+
+
+def _never_recorded(err: Any) -> bool:
+    """Whether a failed code-fix step cannot have written its own audit row: anything but a start-to-close timeout
+    (not picked up in time, or it raised before recording)."""
+    return getattr(err.cause, "type", None) is not TimeoutType.START_TO_CLOSE
 
 
 def _plannable(verified: Any) -> bool:
@@ -888,6 +938,7 @@ class IncidentWorkflow:
             await self._open_plan(acts, first, pack, diagnosed, verified, one=one)
         elif one:  # nothing to plan: the report is the incident's one message
             await _notify(acts, pack, diagnosed, verified, "none")
+        await self._code_fix_revert(first, pack, diagnosed, verified)
         if diagnosed.model_unavailable:
             # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
             # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).
@@ -897,6 +948,45 @@ class IncidentWorkflow:
                          root_cause=diagnosed.root_cause, proposal=diagnosed.proposal, verdict=verified.verdict,
                          cost=diagnosed.cost, audit=pack.steps + diagnosed.steps + verified.steps,
                          halted_reason=verified.halted_reason)
+
+    @staticmethod
+    async def _code_fix_revert(first: Alert, pack: Any, diagnosed: Any, verified: Any) -> None:
+        """Register B4: a diagnosis that rolls back a deploy, with exactly one deployed commit in the evidence, may also
+        get a pull request that reverts the commit - written only where the environment's `code_fix` allows it, by
+        the GitHub App, through the code gate; a person (or, outside prod, every check) merges it. It never blocks
+        or fails the incident. Patched: histories recorded before it replay unchanged."""
+        sha = revert_target(diagnosed.proposal.action.value, pack.context.recent_deploys)
+        if sha and _revert_wanted(diagnosed, verified) and workflow.patched("b4-code-fix-revert"):
+            fix = CodeFixActivities.code_fix_revert
+            opened: dict[str, Any] = {}
+            try:
+                opened = await workflow.execute_activity_method(fix, **_zoned(fix), args=[
+                    first.alert_id, pack.alert.environment, sha], **CODE_FIX)
+            except ActivityError as err:
+                await IncidentWorkflow._code_fix_unrun(first.alert_id, sha, err)
+            await IncidentWorkflow._code_fix_merge(first, pack, opened)
+
+    @staticmethod
+    async def _code_fix_unrun(incident_id: str, sha: str, err: ActivityError) -> None:
+        """The revert step did not record itself: the core zone writes its audit row. A start-to-close timeout is the
+        one failure after which the step may have run and recorded itself, so it gets no second row."""
+        if _never_recorded(err) and workflow.patched("b4-code-fix-unrun"):
+            with contextlib.suppress(ActivityError):
+                await workflow.execute_activity_method(CodeFixActivities.code_fix_unrun, args=[incident_id, sha],
+                                                       **QUICK)
+
+    @staticmethod
+    async def _code_fix_merge(first: Alert, pack: Any, opened: dict[str, Any]) -> None:
+        """Phase 4: under `auto` (never prod) the pull request is watched until every check, CodeRabbit and Eldane are
+        green, then merged - its own workflow, abandoned by this one."""
+        if (opened.get("status") == "opened" and opened.get("mode") == "auto"
+                and workflow.patched("b4-code-fix-merge")):
+            number = int(opened.get("pull_request") or 0)
+            with contextlib.suppress(WorkflowAlreadyStartedError):
+                await workflow.start_child_workflow(
+                    CodeFixMergeWorkflow.run, args=[first.alert_id, pack.alert.environment, number],
+                    id=f"codefix-merge-{first.alert_id}-{number}", task_queue=workflow.info().task_queue,
+                    parent_close_policy=ParentClosePolicy.ABANDON)
 
     @staticmethod
     async def _hold_ended(acts, alert: Alert, held: str) -> tuple[Alert, RunReport | None]:
