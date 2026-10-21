@@ -81,9 +81,23 @@ output "db_endpoint" {
 }
 
 output "db_dsn" {
-  description = "WARDEN_DB_DSN for the RDS instance. Empty unless enable_rds = true."
-  value       = var.enable_rds ? "postgresql://${aws_db_instance.this[0].username}:${var.db_password}@${aws_db_instance.this[0].address}:${aws_db_instance.this[0].port}/${aws_db_instance.this[0].db_name}" : ""
+  description = "WARDEN_DB_DSN for the RDS instance, through the open tunnel (db_tunnel_command) on this machine. Empty unless enable_rds = true."
+  value       = var.enable_rds ? "postgresql://${aws_db_instance.this[0].username}:${var.db_password}@127.0.0.1:${var.db_tunnel_local_port}/${aws_db_instance.this[0].db_name}?sslmode=require" : ""
   sensitive   = true
+}
+
+output "db_tunnel_instance_id" {
+  description = "The SSM box the database tunnel goes through. Empty unless enable_rds = true."
+  value       = var.enable_rds ? aws_instance.db_tunnel[0].id : ""
+}
+
+output "db_tunnel_command" {
+  description = "Opens the database tunnel on this machine (needs the AWS CLI's Session Manager plugin); keep it running while the DSN is used. Empty unless enable_rds = true."
+  value = var.enable_rds ? join(" ", [
+    "aws ssm start-session --region ${local.region} --target ${aws_instance.db_tunnel[0].id}",
+    "--document-name AWS-StartPortForwardingSessionToRemoteHost",
+    "--parameters host=${aws_db_instance.this[0].address},portNumber=5432,localPortNumber=${var.db_tunnel_local_port}",
+  ]) : ""
 }
 
 output "eks_cluster" {
@@ -105,7 +119,8 @@ output "estimated_hourly_usd" {
     # Fargate Spot, 2 tasks x (0.25 vCPU + 0.5 GB) at ap-south-1 spot rates, plus the optional bits.
     # NOTE: ap-south-2 (Hyderabad) prices differ slightly from ap-south-1. This is an ESTIMATE for
     # sanity-checking the bill, never a quote - the $5 budget alarm is the real guard.
-    0.0086 + (var.enable_rds ? 0.0210 : 0) + (var.enable_eks ? 0.1096 : 0)
+    # The database tunnel (db_tunnel.tf, read 2026-10-21): t4g.nano 0.0028 + 8 GiB gp3 0.0010 + 3 endpoints 0.039.
+    0.0086 + (var.enable_rds ? 0.0210 + 0.0428 : 0) + (var.enable_eks ? 0.1096 : 0)
   )
 }
 
