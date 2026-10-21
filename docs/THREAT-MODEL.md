@@ -10,7 +10,8 @@ Three kinds of status are used, and nothing else:
 
 - **built and tested**: the code exists and a test proves it (cited);
 - **built, not proven live**: the code and its test exist, but it has not yet run in a live cloud window;
-- **planned**: not built. Nothing marked planned protects anything today.
+- **planned**: not built. A planned mitigation gives none of its protection today; where a row names a weaker
+  control that works now (a person stopping the act service, today's shorter retention), only that control holds.
 
 The full list of failure modes, with what is still open, is [the failure-mode register](FAILURE-MODES.md). This page
 is the security view of the same system; where a row of the register covers a threat, its id is given (for example

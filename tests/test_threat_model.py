@@ -114,6 +114,11 @@ def _is_skipped(file: str, src: str, func: str) -> bool:
     names = [ast.unparse(d.func if isinstance(d, ast.Call) else d) for d in node.decorator_list]
     if any(name not in _SAFE_DECORATORS for name in names):
         return True
+    for call in (c for d in node.decorator_list for c in ast.walk(d)):  # a parametrized case marked off (PR 82 review)
+        if isinstance(call, ast.Call) and ast.unparse(call.func) in ("pytest.param", "param"):
+            marks = " ".join(ast.unparse(k.value) for k in call.keywords if k.arg == "marks")
+            if "skip" in marks or "xfail" in marks:
+                return True
     body = re.search(r"^()def " + re.escape(func) + r"\(", src, re.MULTILINE)  # its body, module marks and imports
     return _skipped(file, src, body)
 
@@ -124,6 +129,12 @@ def _is_skipped(file: str, src: str, func: str) -> bool:
     "import pytest\n\ndef test_a():\n    pytest.skip('later')\n",
 ])
 def test_a_skip_hidden_by_a_multi_line_decorator_or_a_comment_is_still_caught(src):
+    assert _is_skipped("tests/x.py", src, "test_a")
+
+
+@pytest.mark.parametrize("marks", ["pytest.mark.skip", "[pytest.mark.skipif(True, reason='x')]", "pytest.mark.xfail"])
+def test_a_parametrized_case_marked_off_is_not_evidence(marks):
+    src = f"import pytest\n\n@pytest.mark.parametrize('x', [pytest.param(1, marks={marks})])\ndef test_a(x):\n    pass\n"
     assert _is_skipped("tests/x.py", src, "test_a")
 
 
