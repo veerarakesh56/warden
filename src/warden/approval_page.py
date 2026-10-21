@@ -349,7 +349,7 @@ class ApprovalPage:
         try:
             at = datetime.fromisoformat(str(data.get("issued_at", "")))
             self.policy.key_of(name).verify(bytes.fromhex(str(data.get("signature", ""))), message)
-        except Exception:  # noqa: BLE001  # an unparsable time, an unknown key or a bad signature: refused the same
+        except Exception:  # noqa: BLE001 - an unparsable time; an unknown key or a bad signature: refused the same
             return _json(403, {"error": "the request is not signed by that approver"})
         if abs(self.clock() - at) > timedelta(minutes=5):
             return _json(403, {"error": "the request is too old"})
@@ -371,7 +371,7 @@ class ApprovalPage:
             return _json(404, {"error": "no plan this approver may deny is waiting under that id and hash"})
         try:
             denial = approvals.Denial(approver=name, workflow_id=wid, plan_hash=ph, reason=reason)
-        except Exception:  # noqa: BLE001  # a reason past NOTE_MAX, or a malformed name: refused whole
+        except Exception:  # noqa: BLE001 - a reason past NOTE_MAX; or a malformed name: refused whole
             return _json(400, {"error": "not a denial"})
         self.deny(wid, denial)
         return _json(202, {"denied": wid})
@@ -707,7 +707,7 @@ class ApprovalPage:
             self.policy.key_of(approver).verify(signature, purpose + claim)
             now = self.clock()
             return approver if now < expires <= now + LINK_TTL and not self.store.used(token) else None
-        except Exception:  # noqa: BLE001  # whatever is wrong with a link, it invites nobody
+        except Exception:  # noqa: BLE001 - whatever is wrong with a link; it invites nobody
             return None
 
     def _enrol(self, method: str, token: str, step: str, body: str) -> Response:
@@ -734,7 +734,7 @@ class ApprovalPage:
             made = passkeys.finish_registration(json.loads(body)["response"], approver=approver,
                                                 challenge=base64url_to_bytes(pending.challenge), rp_id=self.rp_id,
                                                 origin=self.origin)
-        except Exception:  # noqa: BLE001  # a ceremony that does not verify enrols nothing, whatever the reason
+        except Exception:  # noqa: BLE001 - a ceremony that does not verify enrols nothing; whatever the reason
             return _json(403, {"error": _NOT_ACCEPTED})
         listed = self.policy.model_copy(deep=True)
         if any(c.credential_id == made.credential_id for c in listed.approvers[approver].passkeys):
