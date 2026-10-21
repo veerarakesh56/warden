@@ -246,6 +246,16 @@ class Hypothesis(BaseModel):
                                                              "sentence")
 
 
+class Outcome(str, Enum):
+    """What the diagnosis concluded (owner U3-1, 2026-10-17), checked against the proposal (verifier P37):
+    `decided` - one cause, the remediation acts on it; `undetermined` - the evidence does not decide, a person does;
+    `no_fault` - nothing is wrong (a planned or expected state, a transient that passed)."""
+
+    decided = "decided"
+    undetermined = "undetermined"
+    no_fault = "no_fault"
+
+
 class RootCause(BaseModel):
     """The model's reading of the evidence. A hypothesis — never a verdict."""
 
@@ -272,6 +282,13 @@ class RootCause(BaseModel):
         default_factory=list,
         description="2 to 4 candidate causes, most likely first. The first is your hypothesis above and the one the "
                     "remediation acts on")
+    # None: not stated - an answer recorded before the typed outcome, or one built in code; P37 does not apply. A
+    # model's answer that states none is made `undetermined` in graph._diagnose (fail closed).
+    outcome: Outcome | None = Field(
+        default=None,
+        description="decided: the evidence decides one cause and the remediation acts on it; undetermined: it does "
+                    "not, and the remediation is escalate_to_human; no_fault: nothing is wrong, and the remediation is "
+                    "no_action")
 
     @classmethod
     def recorded(cls, data: dict[str, Any]) -> RootCause:
