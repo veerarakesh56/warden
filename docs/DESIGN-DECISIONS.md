@@ -295,7 +295,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Injection tripwire: Meta Llama Prompt Guard 2, pinned by commit, safetensors only - `tripwire.py`.
 - Model access: the vendors' own SDKs and the Claude CLI, behind one client - `providers.py`, `llm.py`.
 - Typed contracts: Pydantic - `models.py`. Tracing: OpenTelemetry - `observability.py`. MCP: the `mcp` SDK -
-  `mcp_server.py`. CommonMark parsing for the outbound gate: `markdown-it-py` - `gate.py`.
+  `mcp_server.py`; each tool's declared result shape (outputSchema) - `mcp_schemas.py`. CommonMark parsing for the outbound gate: `markdown-it-py` - `gate.py`.
 - AWS, Kubernetes and database reads: boto3, the Kubernetes client and the database drivers - `aws_backend.py`,
   `aws_stack.py`, `k8s_backend.py`, `database.py`, `tools.py`. What an alarm watches: CloudWatch's own documented
   namespaces and dimensions, one table - `resources.py` (checked against AWS's metric pages 2026-10-10). The state of
