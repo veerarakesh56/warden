@@ -7,6 +7,7 @@ locals {
   secrets = toset([
     "slack-bot-token", "slack-webhook", "stack-db-writer-dsn", "stack-db-reader-dsn", "anthropic-api-key",
     "temporal-key", "temporal-api-key", "github-token",
+    "db-admin-dsn",        # the terminate login's DSN, no password (WARDEN_DB_TERMINATE_DSN, platforms/db.py): the act zone's alone
     "slack-client-secret", # Sign in with Slack on the approval page (slack_login.py): the approval Lambda's alone
     "slack-app-token",     # the discussion channel's Socket Mode connection (discuss.py): the notify zone's alone
     "datadog-api-key",     # Datadog's API key (datadog.py), with the scoped application key below: the read zone's
@@ -16,10 +17,14 @@ locals {
     #                    timeseries_query, events_read, monitors_read
     "datadog-webhook-token", # the bearer secret Datadog's webhook sends (webhooks.receive_datadog); set by the setup
     #                          script together with the webhook itself
+    "github-read-token", # the read-only GitHub token (tools.github_read_token): the deploy's commits and code review's
+    #                      findings on its pull request; the read zone's alone
     "stack-redis-ro-dsn", # the cache's own reads (redis_reads.py): rediss:// to a read-only ACL user; the read zone's
+    #                       alone
     # Register S15: each zone's own Temporal Cloud service account key (settings.PER_ZONE).
     "temporal-api-key-core", "temporal-api-key-read", "temporal-api-key-llm", "temporal-api-key-notify",
-    "temporal-api-key-act",
+    "temporal-api-key-act", "temporal-api-key-critic",
+    "eldane-key", # Eldane's own Ed25519 signing key (PEM): the critic zone's alone
   ])
 }
 

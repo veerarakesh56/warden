@@ -12,6 +12,10 @@ name: "_ infra · deploy"
 # Branches (owner, 2026-10-16): main deploys nothing; dev is main fast-forwarded; prod is dev merged by pull request.
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
+# pause / resume (owner update 5, 2026-10-17; the full stack only): pause stops every writer, then copies every data
+# store (scripts/pause_resume.py snapshot - each copy AVAILABLE before anything goes) and then destroys the stack as `destroy` does; resume restores
+# the tables from their newest pause backups and imports them, applies as `apply` does, and brings Aurora back from its
+# newest pause snapshot. With no copy (a first install) resume is an apply. No copy is ever deleted.
 on:
   workflow_call:
     # Passed by name by every caller: an environment secret a caller does not pass is an empty string here,
@@ -73,7 +77,8 @@ jobs:
           exit 1
       - name: A known action
         run: |
-          case "$ACTION" in plan|apply|apply-plan|destroy) ;; *) echo "::error::unknown action: $ACTION"; exit 1 ;; esac
+          case "$ACTION" in plan|apply|apply-plan|destroy|pause|resume) ;; *) echo "::error::unknown action: $ACTION"; exit 1 ;; esac
+          case "$ACTION/$STACK" in pause/undo-lab|resume/undo-lab) echo "::error::pause and resume are for the full stack"; exit 1 ;; esac
           case "$STACK" in fullstack|undo-lab) ;; *) echo "::error::unknown stack: $STACK"; exit 1 ;; esac
       - name: The environment names its region
         run: |
@@ -120,7 +125,7 @@ jobs:
       # Cargo.lock, before the job holds credentials; helios_gate.py runs it with an environment that
       # carries no credentials.
       - name: Build Helios at a pinned commit
-        if: env.ACTION != 'destroy'
+        if: env.ACTION != 'destroy' && env.ACTION != 'pause'
         env:
           HELIOS_COMMIT: bf4f3dd0c0e420146382a31c21a930e47c9deab7  # v0.2.0
         run: |
@@ -157,8 +162,18 @@ jobs:
             -backend-config="region=$AWS_REGION" -backend-config="use_lockfile=true"
           # The environment IS the workspace; terraform refuses any other (main.tf precondition).
           terraform -chdir="terraform/$STACK" workspace select -or-create "$WARDEN_ENV"
+      # Before the plan: a table restored now is imported, so the plan updates it instead of creating an empty one.
+      - name: "resume: the tables from their newest pause backups, into Terraform's state"
+        if: env.ACTION == 'resume'
+        run: |
+          python scripts/pause_resume.py restore-tables > "$RUNNER_TEMP/imports.txt"
+          while read -r address name; do
+            [ -n "$address" ] || continue
+            terraform -chdir="terraform/$STACK" state show "$address" > /dev/null 2>&1 \
+              || terraform -chdir="terraform/$STACK" import -input=false -no-color "$address" "$name"
+          done < "$RUNNER_TEMP/imports.txt"
       - name: plan, and Helios on it (R56)
-        if: env.ACTION == 'plan' || env.ACTION == 'apply'
+        if: env.ACTION == 'plan' || env.ACTION == 'apply' || env.ACTION == 'resume'
         run: |
           set -o pipefail
           terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/before.json"
@@ -205,7 +220,10 @@ jobs:
           python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --plan "$RUNNER_TEMP/plan.json" \
             --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: apply and publish stack.json
-        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan'
+        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan' || env.ACTION == 'resume'
+        env:
+          # resume: Aurora from its newest pause snapshot (none: created empty, a first install).
+          FROM_SNAPSHOT: ${{ inputs.action == 'resume' && 'latest' || 'none' }}
         run: |
           # The plan Helios checked, and nothing else.
           terraform -chdir="terraform/$STACK" apply -input=false -no-color "$RUNNER_TEMP/tfplan"
@@ -214,7 +232,7 @@ jobs:
             | jq 'with_entries(select(.value.sensitive | not))' > "$RUNNER_TEMP/stack.json"
           # Aurora (express configuration) after the VPC exists; it merges its keys into stack.json.
           if [ "$STACK" = fullstack ]; then
-            python terraform/fullstack/aurora_express.py create --stack "$RUNNER_TEMP/stack.json"
+            python terraform/fullstack/aurora_express.py create --stack "$RUNNER_TEMP/stack.json" --from-snapshot "$FROM_SNAPSHOT"
           fi
           # The apps deploy's own key - ecs_baseline_task_definition, the revision the harness reverts to - is kept: an
           # infra apply never changes the service's task definition (ecs.tf ignores it), and a re-apply dropped the
@@ -226,15 +244,25 @@ jobs:
           fi
           aws s3 cp "$RUNNER_TEMP/stack.json" "s3://$BUCKET/$STACK/stack.json" --only-show-errors
       - name: Helios on the applied state (R56)
-        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan'
+        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan' || env.ACTION == 'resume'
         run: |
           set -o pipefail
           # The scenarios a plan could not decide (values unknown until apply), and every other one again.
           terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/after.json"
           python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --after "$RUNNER_TEMP/after.json" \
             --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
+      # A pause stops every writer first (pause_resume.py quiesce); a re-created stack starts free, and this also frees one
+      # whose pause failed before the destroy. Idempotent.
+      - name: "resume: the writers on again"
+        if: env.ACTION == 'resume'
+        run: python scripts/pause_resume.py wake
+      # ⛔ Pause: every data store copied, and each copy available, BEFORE anything is deleted. A failed or unfinished
+      # copy fails this step, and the destroy below does not run (no step here runs after a failure).
+      - name: "pause: a copy of every data store, each available before anything goes"
+        if: env.ACTION == 'pause'
+        run: python scripts/pause_resume.py snapshot --stack "$STACK"
       - name: destroy
-        if: env.ACTION == 'destroy'
+        if: env.ACTION == 'destroy' || env.ACTION == 'pause'
         run: |
           # Aurora first: terraform does not know it exists.
           if [ "$STACK" = fullstack ]; then
@@ -244,3 +272,10 @@ jobs:
           aws s3 rm "s3://$BUCKET/$STACK/stack.json" --only-show-errors || true
           aws resourcegroupstaggingapi get-resources --region "$AWS_REGION" \
             --tag-filters Key=Project,Values=warden "Key=Environment,Values=$WARDEN_ENV" --query 'length(ResourceTagMappingList)'
+      - name: "pause: what stays, and what it costs a day"
+        if: env.ACTION == 'pause'
+        env:
+          KEEP: ${{ vars.PAUSE_KEEP_SNAPSHOTS || '3' }}
+        run: |
+          set -o pipefail
+          python scripts/pause_resume.py report --stack "$STACK" --keep "$KEEP" | tee -a "$GITHUB_STEP_SUMMARY"

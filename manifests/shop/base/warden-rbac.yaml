@@ -27,3 +27,23 @@ roleRef:
   kind: ClusterRole
   name: warden-readonly
   apiGroup: rbac.authorization.k8s.io
+---
+# WARDEN's one write path on EKS: its actor role, for one approved plan, signs in through its access entry as group
+# warden-remediators (terraform/fullstack/eks.tf). Bound here, in shop only, to the remediator ClusterRole (get and
+# patch Deployments, list HPAs) that the deploy tool applies from k8s/remediation-rbac.yaml with its admission policy,
+# which holds every patch to a restart or a bounded scale.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: warden-remediator
+  namespace: shop
+  labels:
+    project: warden
+subjects:
+  - kind: Group
+    name: warden-remediators
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: warden-remediator
+  apiGroup: rbac.authorization.k8s.io
