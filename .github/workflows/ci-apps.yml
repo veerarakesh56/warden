@@ -31,7 +31,7 @@ on:
       - "tests/test_fullstack_ops_lambda.py"
       - "tests/test_stack_paths_s2083.py"
       - "tests/test_shop_https_s5332.py"
-  # Pull requests into main only (2026-10-16): dev and prod receive commits main has already checked.
+  # Pull requests into main only: dev and prod receive commits main has already checked.
   pull_request:
     # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
     # marked ready for review, and on every push after that.
@@ -64,7 +64,7 @@ on:
       - "tests/test_stack_paths_s2083.py"
       - "tests/test_shop_https_s5332.py"
   # Weekly too: the deployed requirements are audited (pip-audit) even when nothing here changes - a new CVE
-  # in a pinned redis or psycopg was noticed only at the next change or deploy (sixth review, 2026-10-01).
+  # in a pinned redis or psycopg was noticed only at the next change or deploy.
   schedule:
     - cron: "23 3 * * 1"
 

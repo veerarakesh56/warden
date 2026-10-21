@@ -175,7 +175,7 @@ def test_postgres_reports_replica_lag_when_it_is_a_replica():
 
 
 def test_aurora_refusing_the_replay_function_loses_no_other_metric():
-    """Wave 4 (2026-09-26): Aurora answers "Function pg_last_xact_replay_timestamp() is currently not
+    """Wave 4: Aurora answers "Function pg_last_xact_replay_timestamp() is currently not
     supported for Aurora", and that one error threw away every count - no database metrics on any
     fault, and every verdict carried P8-PARTIAL-CONTEXT."""
     conn = _SqlStub({

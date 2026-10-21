@@ -1,4 +1,4 @@
-"""Key files are written only inside the key folder (Sonar pythonsecurity:S8707, 2026-10-16): the paths come from a
+"""Key files are written only inside the key folder (Sonar pythonsecurity:S8707): the paths come from a
 command line an agent can drive, so no path may reach a file outside it - by `..`, by an absolute path, or through a
 symlink - and no key write ever replaces an existing file (the public key's write_bytes used to)."""
 

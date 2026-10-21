@@ -1,4 +1,4 @@
-"""G9-E (2026-10-10): the policies that blocked correct answers (audit-coverage-limits E1, E3), changed only where it
+"""G9-E: the policies that blocked correct answers (audit-coverage-limits E1, E3), changed only where it
 is safe - P5 counts a configuration-only revision as a deploy (tests/test_aws_backend.py). P29 (a benign failed read
 is not P8's partial picture) was observed beside P8 until the owner enforced it on 2026-10-11, after three held-out
 runs: 19, 22 and 21 more right fix plans reached the approver and no wrong one."""
@@ -82,7 +82,7 @@ def test_p8_counts_only_the_material_reads_and_never_judges_a_hand_off():
     assert _p8([MATERIAL[0]], PROPOSAL.model_copy(update={"action": ActionKind.no_action}))
 
 
-# Signature metric keys no WARDEN backend emits (audit F1, 2026-10-10): a signature carrying only these matches on
+# Signature metric keys no WARDEN backend emits: a signature carrying only these matches on
 # logs, events and names alone. Named, so a new dead key is a decision - remap it to what a backend reads, or say here
 # why it stays (an operator's own exporter, a bundled fixture).
 DEAD_SIGNATURE_METRICS = {

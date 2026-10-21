@@ -62,7 +62,7 @@ def test_a_scale_is_refused_when_the_autoscalers_cannot_be_read():
     assert any("could not be read" in p for p in catalog.validate("k8s_scale", {**OK, "replicas": 3}, live))
 
 
-# --------------------------------------------------------------------------- Argo CD and a restart (owner, 2026-10-17)
+# --------------------------------------------------------------------------- Argo CD and a restart
 
 TRACKED = {"argocd.argoproj.io/tracking-id": "shop:apps/Deployment:shop/orders"}
 POINTER = "/spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt"

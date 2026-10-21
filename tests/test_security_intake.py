@@ -103,7 +103,7 @@ def test_a_security_hub_threat_finding_on_a_watched_resource_goes_to_a_person():
     tagged["detail"]["findings"][0]["Resources"] = [{"Type": "AwsEc2Instance", "Id": "i-0a1b2c3d4e5f60718",
                                                      "Tags": {"Name": "warden-dev-bastion"}}]
     assert security_findings.finding_event(tagged).alert.service == "warden-dev-bastion"
-    # A name inside an ARN, not at its end: a load balancer's id follows its name (CodeRabbit, PR 52).
+    # A name inside an ARN, not at its end: a load balancer's id follows its name.
     alb = _hub(Resources=[{"Type": "AwsElbv2LoadBalancer",
                            "Id": f"arn:aws:elasticloadbalancing:ap-south-2:{ACCOUNT}:loadbalancer/app/warden-dev-web/abc123"}])
     assert security_findings.finding_event(alb).alert.service == "warden-dev-web"

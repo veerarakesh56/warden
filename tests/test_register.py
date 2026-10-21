@@ -58,7 +58,7 @@ def rows(text: str, malformed: list[str] | None = None) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     # Lines end only at a line feed, and blank means spaces and tabs only, as in GitHub's renderer: splitlines() and
     # str.strip() also break on U+2028, U+0085, VT, FF and the separators, and called an NBSP line blank - one such
-    # character after a row hid every later row (seventh review, 2026-10-01). The registers carry none at all
+    # character after a row hid every later row. The registers carry none at all
     # (test_the_registers_hold_no_invisible_line_breaks); this keeps the parser honest if one gets in.
     lines = text.replace("\r\n", "\n").split("\n")
     header: list[str] | None = None
@@ -111,7 +111,7 @@ SKIP_OK = {
 
 
 # Tests only a CI job can run - a live k3d cluster, the database service containers. They skip here and in the
-# unit job; the named job runs the file and fails if anything in it skips (owner, 2026-10-02), so a citation of one
+# unit job; the named job runs the file and fails if anything in it skips, so a citation of one
 # is evidence: test_every_ci_only_file_runs_where_a_skip_fails_the_job holds each to that.
 CI_ONLY = {
     "tests/integration/test_live_cluster.py": "k8s",
@@ -123,7 +123,7 @@ CI_ONLY = {
 def _skipped(file: str, src: str, m: re.Match) -> bool:
     """Skipped - or expected to fail - directly, through any decorator that is not known never to skip,
     by a module-level `pytestmark` (one line or many), or by `importorskip`, `skip(` or `xfail(` in its
-    body or at module level. Third review (2026-09-30): an alias, a module mark and an importorskip in
+    body or at module level. Third review: an alias, a module mark and an importorskip in
     the body all passed a check for the word "skip" above the function; fourth review: a module-level
     importorskip, a multi-line pytestmark list, `from pytest import mark`, a helper-module alias and
     xfail still did."""
@@ -293,7 +293,7 @@ def test_a_real_window_and_a_past_date_pass():
     "import pytest\n\ndef test_a():\n    pytest.importorskip('psycopg')\n",
 ])
 def test_a_test_skipped_by_alias_module_mark_or_importorskip_is_not_evidence(src):
-    """Third review (2026-09-30): each of these passed a check for the word "skip" above the function."""
+    """Third review: each of these passed a check for the word "skip" above the function."""
     m = re.search(r"^((?:@.*\n)*)def test_a\(", src, re.MULTILINE)
     assert _skipped("tests/x.py", src, m)
     plain = "import pytest\n\ndef test_a():\n    pass\n"
@@ -345,7 +345,7 @@ def test_a_skip_allowed_in_ci_is_still_installed_there():
 
 
 def test_rows_github_shows_are_read_whatever_their_pipes():
-    """Sixth review (2026-10-01): an indented row, a row with no leading pipe and a renamed header all
+    """Sixth review: an indented row, a row with no leading pipe and a renamed header all
     rendered on GitHub and were invisible to the guard."""
     table = ("| ID | Finding | Group | Status | Evidence |\n|---|---|---|---|---|\n"
              "| X-1 | a | G1 | OPEN | e |\n  | X-2 | b | G1 | OPEN | e |\nX-3 | c | G0 | OPEN | e |\n"
@@ -360,7 +360,7 @@ def test_rows_github_shows_are_read_whatever_their_pipes():
 
 
 def test_rows_end_where_githubs_tables_end():
-    """Seventh review (2026-10-01): an invisible line break or an NBSP line ended the table here while GitHub kept
+    """Seventh review: an invisible line break or an NBSP line ended the table here while GitHub kept
     showing the rows after it; a `#` row without a space did too."""
     head = "| ID | Group | Status | Evidence |\n|---|---|---|---|\n| A-1 | G1 | DONE-local | x |"
     for sep in ("\u2028", "\u0085", "\x0b", "\x0c", "\x1c", "\x1e"):
@@ -375,7 +375,7 @@ def test_rows_end_where_githubs_tables_end():
 
 def test_the_registers_hold_no_invisible_line_breaks():
     """No C0 control but tab and line feed, no C1, no U+2028/U+2029, no NBSP-family line in any register: each hid
-    rows from this parser while GitHub showed them (seventh review)."""
+    rows from this parser while GitHub showed them."""
     bad = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029]")
     for rel in REGISTERS:
         text = (ROOT / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
@@ -384,7 +384,7 @@ def test_the_registers_hold_no_invisible_line_breaks():
 
 
 def test_the_registers_hold_no_table_the_parser_cannot_read():
-    """Eighth review (2026-10-01): GitHub shows a table inside a block quote and a raw HTML table; rows() reads
+    """Eighth review: GitHub shows a table inside a block quote and a raw HTML table; rows() reads
     neither - planted on the real AUDIT, a quoted row set to DONE-local with Evidence "trust me" passed every check."""
     for rel in REGISTERS:
         text = (ROOT / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
@@ -417,7 +417,7 @@ def test_a_plain_table_row_or_prose_is_not_refused(line):
 
 
 def test_every_ci_only_file_runs_where_a_skip_fails_the_job():
-    """Owner decision (2026-10-02): a CI-only test counts as evidence only because its job runs the file and fails
+    """Owner decision: a CI-only test counts as evidence only because its job runs the file and fails
     when anything in it skips. Each listed file must be in a run step of that job holding both checks."""
     import yaml
 

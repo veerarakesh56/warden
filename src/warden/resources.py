@@ -1,4 +1,4 @@
-"""What an alarm watches, as typed resource labels (G9-A1, 2026-10-10).
+"""What an alarm watches, as typed resource labels (G9-A1).
 
 A CloudWatch alarm names its resource only through its metrics' namespace and dimensions - `AWS/Lambda`
 `FunctionName=orders`, `AWS/RDS` `DBInstanceIdentifier=db1`. The evidence backends select their readers by resource
@@ -154,7 +154,7 @@ def _usage(d: Mapping[str, str]) -> Labels:
     return {"quota_service": d["Service"], **({"quota_resource": d["Resource"]} if d.get("Resource") else {})}
 
 
-# Namespace -> labels. Every main AWS service the owner named (2026-10-10) that publishes CloudWatch metrics.
+# Namespace -> labels. Every main AWS service the owner named that publishes CloudWatch metrics.
 NAMESPACES: dict[str, Callable[[Mapping[str, str]], Labels]] = {
     "AWS/Lambda": _lambda,
     "AWS/Logs": _one("log_group", "LogGroupName"),

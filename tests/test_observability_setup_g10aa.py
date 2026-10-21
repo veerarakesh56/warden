@@ -1,6 +1,6 @@
 """scripts/observability_setup.py: from the owner's broader setup keys, WARDEN's narrow Datadog credentials made and
 stored - again and again without a second of anything, and never printed. The runtime and the test stack's agent each
-hold an API key of their own (secrets audit, 2026-10-16)."""
+hold an API key of their own."""
 
 from __future__ import annotations
 
@@ -152,7 +152,7 @@ def test_refuses_a_site_that_is_not_datadogs(tmp_path, monkeypatch):
 
 
 def test_the_setup_keys_are_asked_for_not_read_from_disk_and_an_old_key_file_warns(tmp_path, monkeypatch, capsys):
-    """Naming audit item 24 (2026-10-16): the admin keys were plaintext files in ~/.warden, which outlived the
+    """Naming audit item 24: the admin keys were plaintext files in ~/.warden, which outlived the
     "revoke after" step whenever it was forgotten. Without --keys-dir nothing is read from disk: each key is typed at
     a prompt that does not echo it, or piped one per line on stdin; a named folder of the old files still reads, with
     a warning."""

@@ -11,13 +11,13 @@ settings.py). Every payload records which key encrypted it, and is bound (AES-GC
 the namespace and workflow it belongs to. A payload that does not decrypt here - not encrypted, another
 key, a forged or changed ciphertext, or one recorded in ANOTHER workflow - decodes to the REFUSED
 marker, which no converter turns into a value. It never raises: the SDK decodes a whole activation at
-once, so one bad payload would fail every task of its workflow (second review, 2026-09-30).
+once, so one bad payload would fail every task of its workflow.
 
 Honest limits:
 - Workflow ids, activity and signal names, and timestamps stay in plain text; only payloads are
   encrypted.
 - Payloads of one workflow id - of any slot, and of earlier runs of the same id - still decrypt in each
-  other's place: the binding is namespace and workflow id only (third review, 2026-09-30). So nothing
+  other's place: the binding is namespace and workflow id only. So nothing
   trusts an activity result for safety: `apply` re-reads WARDEN's own audit rows of its OWN run (plan,
   approvals, a clean precheck after them) and re-checks bounds and the kill switch; the workflow counts
   only an explicit empty gate or precheck answer as clean.
@@ -97,7 +97,7 @@ class EncryptionCodec(PayloadCodec, WithSerializationContext):
                 # value. NOT an exception here: the SDK decodes a whole activation at once, so
                 # raising let ONE plain signal (any name, even unhandled) fail every task of a
                 # workflow that had already applied a change - no success check, no rollback
-                # (independent review, 2026-09-28). Now a plain signal is dropped by the SDK
+                #. Now a plain signal is dropped by the SDK
                 # ("Failed deserializing signal input"), a plain update or start fails, and the
                 # workflow carries on.
                 out.append(Payload(metadata={"encoding": REFUSED}))

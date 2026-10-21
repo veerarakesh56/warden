@@ -107,7 +107,7 @@ def test_a_refused_diagnosis_escalates_to_a_person_on_the_evidence_alone(tmp_pat
 
 
 def _envelope(**over):
-    """The `claude -p --output-format json` result object, shaped as CLI 2.1.302 printed it (2026-10-17)."""
+    """The `claude -p --output-format json` result object, shaped as CLI 2.1.302 printed it."""
     body = {"type": "result", "subtype": "success", "is_error": False, "stop_reason": "end_turn",
             "result": '{"answer": "yes"}', "usage": {"input_tokens": 10, "output_tokens": 5}, "num_turns": 1}
     body.update(over)

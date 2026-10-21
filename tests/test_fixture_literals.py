@@ -1,6 +1,6 @@
 """No file holds a credential-shaped literal: the tests build theirs from parts, in tests/fakes.py.
 
-Naming audit items 5 and 16 (2026-10-16). scripts/check_publishable.py catches the shapes that are real secrets.
+Naming audit items 5 and 16. scripts/check_publishable.py catches the shapes that are real secrets.
 This catches the fixture shapes that are not, but that gitleaks, trufflehog and GitHub push protection flag as if
 they were: AWS's documented example key, a JWT, an armoured private key, a vendor token prefix with a body, the
 stock fake password, and a quoted literal given to a password. Each pattern is written so that it cannot match its

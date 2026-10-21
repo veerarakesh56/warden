@@ -278,7 +278,7 @@ def test_a_rule_is_enabled_and_its_rollback_disables_it(aws):
 
 
 def test_a_custom_bus_rule_is_read_enabled_and_checked_on_its_own_bus(aws):
-    """G10 review (2026-10-10): the rule was looked up on the default bus only, so a disabled rule on a custom bus
+    """G10 review: the rule was looked up on the default bus only, so a disabled rule on a custom bus
     could never be enabled. The resolver writes `bus/rule`; every read and the write name the bus."""
     f, p = aws
     f.rule["EventBusName"] = "orders-bus"
@@ -312,7 +312,7 @@ def test_table_write_capacity_at_most_doubles_and_an_autoscaled_table_is_left_al
 def test_an_ecs_service_goes_back_to_its_last_steady_task_definition_from_ecs_history(aws):
     f, p = aws
     live = p.live("ecs_rollback_service", {"cluster": "c1", "service": "orders"})
-    # orders:9 was the last success before the running :12 - not :11, the "revision minus one" (audit A-B-M6).
+    # orders:9 was the last success before the running :12 - not :11, the "revision minus one".
     assert live["to_task_definition"] == {"arn:td/orders:9"}
     params = {"cluster": "c1", "service": "orders", "to_task_definition": "arn:td/orders:9"}
     assert _ok("ecs_rollback_service", params, live) == []
@@ -363,7 +363,7 @@ def test_the_router_hands_the_platform_the_approvers_and_the_targets_parameters(
 
 def test_the_approvers_reach_the_platform_from_this_runs_audit_rows(tmp_path):
     """The `who` a platform gets is read from the audit's approval rows for this workflow run and plan - the
-    workflow cannot be handed one (audit A-P-5). The rollback of an approved change carries the same names."""
+    workflow cannot be handed one. The rollback of an approved change carries the same names."""
     from test_remediation_workflow import FakePlatform, _approve_with, _run
     from test_remediation_workflow import owner as owner_fixture
     from test_remediation_workflow import world as world_fixture

@@ -102,7 +102,7 @@ def _call_watched(monkeypatch, request, called, name="sample_evidence"):
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")  # the thread case, on purpose
 def test_only_the_body_the_file_defines_counts(monkeypatch, request):
-    """Seventh review (2026-10-01): judged at collection, five bypasses passed the full run with an `assert False`
+    """Seventh review: judged at collection, five bypasses passed the full run with an `assert False`
     body; eighth review: judged by a start of code with the def's file, line and name, eight more did. Only the
     file's own code object, started, returned and never unwound, counts."""
     import functools
@@ -214,7 +214,7 @@ def sample_flaky():
 
 
 def test_a_second_def_under_the_name_is_no_evidence(monkeypatch, request):
-    """Ninth review (2026-10-01): every function the file defined under the name counted - a same-named
+    """Ninth review: every function the file defined under the name counted - a same-named
     staticmethod in a class, or a second module-level def - so a body other than the cited one was evidence."""
     assert _call_watched(monkeypatch, request, sample_twice, name="sample_twice") is False
     assert _call_watched(monkeypatch, request, _Shadow.sample_evidence) is False

@@ -1,4 +1,4 @@
-"""Third independent review (2026-09-30), area C: P15, P5, P14, replica-lag names, provider settings."""
+"""Third independent review, area C: P15, P5, P14, replica-lag names, provider settings."""
 
 from __future__ import annotations
 
@@ -155,7 +155,7 @@ def test_the_gemini_transport_is_never_swapped_by_the_environment(monkeypatch, t
     ("replica_lag_pages", 30, None), ("replica_lag_txns", 31, None), ("replica_lag_samples", 32, None),
 ])
 def test_more_lag_units_are_converted_and_more_non_lag_names_refused(name, value, seconds):
-    """Fifth review (2026-10-01): any spelling outside the whitelist was read as seconds, hours were ignored,
+    """Fifth review: any spelling outside the whitelist was read as seconds, hours were ignored,
     and CloudWatch's own names were not read at all."""
     got = replica_lag_s({name: value})
     assert got == (None if seconds is None else pytest.approx(seconds)), (name, got)

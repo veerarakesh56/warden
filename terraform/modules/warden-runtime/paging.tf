@@ -1,4 +1,4 @@
-# Pages that repeat until a person acknowledges them (owner, 2026-10-16), and keep repeating with WARDEN down.
+# Pages that repeat until a person acknowledges them, and keep repeating with WARDEN down.
 #
 # CloudWatch sends an alarm's action once, when it goes into ALARM, never again while it stays there; AWS's own paging
 # with acknowledgement (Systems Manager Incident Manager) takes no new customers since 2025-11-07 (read 2026-10-16).

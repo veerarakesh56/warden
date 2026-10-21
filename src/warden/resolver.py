@@ -1,4 +1,4 @@
-"""From an approved diagnosis to a fix plan (G9-D1, 2026-10-10).
+"""From an approved diagnosis to a fix plan (G9-D1).
 
 The audit (2026-10-10, finding 4): a diagnosis never became a plan. FOR_ACTION had no caller; a fix started only when
 someone called the MCP `request_remediation` tool with an entry and its parameters. Now, when the verifier passes a
@@ -73,7 +73,7 @@ def _platform(alert: Alert, target: str) -> tuple[str, dict[str, str]] | None:
 _NAMING_LABEL = {labels[-1][0]: platform for platform, labels in _PLATFORM_LABELS.items()}
 _QUALIFIERS = frozenset({"alarm", "namespace", "ecs_cluster", "eks_cluster", "apigw_stage", "selector", "log_group",
                          "cluster", "lambda_qualifier", "service", "environment", "region", "account",
-                         # Where an alert came from and which monitor said so: never a resource (2026-10-15).
+                         # Where an alert came from and which monitor said so: never a resource.
                          "via", "datadog_monitor", "alarm_region"})
 # The resource kinds each special path is reached from (_configuration: the AppConfig application, never a label).
 _SPECIAL_KINDS = {ActionKind.revert_config: frozenset(), ActionKind.freeze_changes: frozenset({"lambda", "ecs"})}
@@ -154,7 +154,7 @@ def _more_concurrency(params: dict[str, Any], live: dict[str, Any]) -> dict[str,
 
 def _redrive_rate(params: dict[str, Any], live: dict[str, Any]) -> dict[str, Any] | str:
     """The dead-letter redrive's messages a second."""
-    # Slow enough not to flood the consumer, fast enough to finish inside the verify window (review H3).
+    # Slow enough not to flood the consumer, fast enough to finish inside the verify window.
     waiting = live.get("waiting")
     if not isinstance(waiting, int):
         return "the dead-letter queue's depth was not read"
@@ -418,7 +418,7 @@ def _fill_refs(entry: catalog.Entry, params: dict[str, Any], state: dict[str, An
             continue
         allowed = state.get(name)
         if not isinstance(allowed, (set, frozenset, list, tuple)) or len(allowed) != 1:
-            if state.get("refused"):  # the platform's own reason, not a generic one (G10, 2026-10-10)
+            if state.get("refused"):  # the platform's own reason, not a generic one (G10)
                 return f"no change WARDEN may undo: {state['refused']}"
             return f"no single known-good {name} was read (WARDEN does not choose one)"
         params[name] = next(iter(allowed))

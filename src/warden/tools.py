@@ -47,7 +47,7 @@ def alert_time(alert: Alert) -> datetime:
 def deploy_in_window(alert: Alert, at: datetime | None, window: timedelta) -> bool:
     """Whether a change reached production in the `window` before the alert started. Measured from the alert, not from
     now: a replayed or late incident took any change of the last hours, and one made AFTER the alert - often the first
-    attempt at a fix - is no cause of it (audit A-B-M10)."""
+    attempt at a fix - is no cause of it."""
     started = alert_time(alert)
     return at is not None and started - window <= at <= started + DEPLOY_AFTER_ALERT
 from .observability import _safe_error, span
@@ -243,7 +243,7 @@ class RepositoryNotConfigured:
 
 def _env_count(name: str, default: int, ceiling: int) -> int:
     """A count from the environment: ASCII digits only (`isdigit` also takes "²", which int() refuses), at most
-    `ceiling`; a long string is never converted to find out (CodeRabbit, PR 41)."""
+    `ceiling`; a long string is never converted to find out."""
     raw = os.environ.get(name, "").strip()
     if not (raw.isascii() and raw.isdecimal()):
         return default
@@ -366,7 +366,7 @@ class FixtureBackend:
         self.root = root or FIXTURES
 
     def _load(self, alert_id: str) -> dict:
-        # ⛔ Contained (2026-09-27 audit): the MCP tool passes a caller's alert_id straight here, and
+        # ⛔ Contained: the MCP tool passes a caller's alert_id straight here, and
         # an absolute path or `..` read any *.json on the machine, metrics and all.
         root = self.root.resolve()
         path = (root / f"{alert_id}.json").resolve()
@@ -403,7 +403,7 @@ def _call_with_timeout(fn, alert: Alert, timeout: float):
         pool.shutdown(wait=False, cancel_futures=True)
 
 
-# Bounds on what one incident may carry (2026-09-27 audit): 150 lines of 64 KB each made a 9.7M-char
+# Bounds on what one incident may carry: 150 lines of 64 KB each made a 9.7M-char
 # prompt, and redaction time grows with lines x distinct identifiers. Backends already cap lines;
 # this is the ceiling whatever the backend. A cut is recorded as a failed read, never silent.
 MAX_LINE_CHARS = int(os.environ.get("WARDEN_MAX_LINE_CHARS", "2000"))
@@ -424,7 +424,7 @@ def _bounded(lines: list, tool_errors: list[str]) -> list[str]:
 
 class Metrics(dict):
     """A metrics result that can say what it could not read: `partial` lines go to tool_errors as a list result's do.
-    A failed or partial metric read vanished, and its absence read as "no such signal" (audit A-B-M18)."""
+    A failed or partial metric read vanished, and its absence read as "no such signal"."""
 
     def __init__(self, *args, partial: list[str] | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -445,7 +445,7 @@ def _numbers(metrics: object) -> dict[str, float]:
 
 # A third-party source that answered and found nothing (datadog.py, grafana.py, xray.py: "no error lines for ...",
 # "no failed traces/spans for ..."). Not a failed read: an EMPTY one - unknown, never a sign of health (P23 still
-# refuses "no action" on it), re-read once while the alert is young (item 3), and no longer a reason for P8 to hold
+# refuses "no action" on it), re-read once while the alert is young, and no longer a reason for P8 to hold
 # every fix (fs-22 run 2, 2026-10-15: Grafana's empty answer held the plan). The segments before it are WARDEN's own
 # reader tags; an application's text never starts a TOOL-PARTIAL line.
 _NOTHING_FOUND = re.compile(r"^(?:[a-z0-9/_.-]+(?: [a-z]+)?: )*?(datadog|grafana|xray) (logs|traces): "
@@ -550,7 +550,7 @@ def gather(
                 sp.set_attribute(_TOOL_ERROR, msg)
             except Exception as exc:  # noqa: BLE001 - a tool failing is data; not a crash
                 msg = f"{name}: {failure(exc)}"
-                bundle.tool_errors.append(msg)  # raw, like the logs: node_redact scrubs it (A-C-5)
+                bundle.tool_errors.append(msg)  # raw, like the logs: node_redact scrubs it
                 sp.set_attribute(_TOOL_OK, False)
                 # The span leaves for a tracing backend on its own: scrubbed, stripped of control
                 # characters and bounded, like a span's exception event (review 2A defect 5).

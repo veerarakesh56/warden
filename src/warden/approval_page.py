@@ -882,7 +882,7 @@ class ApprovalPage:
 
     def _pages(self, method: str, parts: list[str], body: str, cookies: Any) -> Response:
         """`/p`: the pages the pager repeats every 15 minutes (paging.py), and an approver's passkey acknowledging
-        exactly those shown (owner, 2026-10-16). Acknowledging stops the repeats and nothing else: the kill switch
+        exactly those shown. Acknowledging stops the repeats and nothing else: the kill switch
         stays on, an alarm stays in ALARM. On the record, signed, before the pager is told."""
         from .slack_login import remembered
 
@@ -911,7 +911,7 @@ class ApprovalPage:
 
     def _pages_shown(self, credentials: list[passkeys.Credential], member: str) -> Response:
         """The open pages, and a passkey challenge over exactly those - under an id of its own, so one look never
-        replaces or takes another's challenge (CodeRabbit, PR 43)."""
+        replaces or takes another's challenge."""
         from . import paging
 
         shown = paging.open_pages(self.pages)
@@ -938,7 +938,7 @@ class ApprovalPage:
             response, ask = None, ""
         credential = next((c for c in credentials if isinstance(response, dict) and c.credential_id == response.get("id")),
                           None)
-        # The challenge is taken only for an answer that names one of this member's passkeys (CodeRabbit, PR 43): a
+        # The challenge is taken only for an answer that names one of this member's passkeys: a
         # malformed or foreign answer leaves the look it names open.
         pending = (self.store.take_challenge(f"pages:{member}:{ask}")
                    if credential is not None and _ASK.fullmatch(ask) else None)
@@ -1004,7 +1004,7 @@ class ApprovalPage:
 
         return _json(200, {"approver": self.policy.shown(link.approver),
                            # For the page's countdown: a person read the plan past its link's end and was told only
-                           # "not valid", while a fresh link was already waiting in the channel (live, 2026-10-12).
+                           # "not valid", while a fresh link was already waiting in the channel.
                            "link_seconds": max(0, int((link.expires_at - self.clock()).total_seconds())), "plan": {
             # First: what changes, before and after (G9-D) - then the plan's facts.
             "change": "; ".join(catalog.change_of(plan.entry, plan.params, plan.snapshot)),
@@ -1087,7 +1087,7 @@ class ApprovalPage:
 
 def _headers(nonce: str, content_type: str, form_action: str = "'none'") -> dict[str, str]:
     """`form_action`: 'none' everywhere but the records list, whose filters are a plain form that works with no
-    script - there, that one address of this site (owner, 2026-10-16)."""
+    script - there, that one address of this site."""
     return {
         "Content-Type": content_type,
         "Content-Security-Policy": (f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
@@ -1127,7 +1127,7 @@ def _count(value: Any) -> int:
 
 
 def _opened(value: Any) -> str:
-    """A page's opening time, as shown; one that cannot be read says so (CodeRabbit, PR 43)."""
+    """A page's opening time, as shown; one that cannot be read says so."""
     try:
         return both_times(datetime.fromisoformat(str(value)))
     except (TypeError, ValueError):

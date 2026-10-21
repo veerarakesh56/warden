@@ -44,7 +44,7 @@ MAX_PROMPT_TOKENS = int(os.environ.get("WARDEN_MAX_PROMPT_TOKENS", "60000"))
 def model_prices(model: str) -> tuple[float, float]:
     """USD per 1M tokens (input, output) for `model`: WARDEN_PRICE_IN/OUT when a person sets them, else the model's
     own row in data/providers.yaml `prices`, else the defaults above. One price for every model under-counted Opus 5.5
-    ($4/$20) and over-counted Sonnet ($2/$10) against the incident's USD ceiling (2026-10-15)."""
+    ($4/$20) and over-counted Sonnet ($2/$10) against the incident's USD ceiling."""
     if os.environ.get("WARDEN_PRICE_IN") or os.environ.get("WARDEN_PRICE_OUT"):
         return PRICE_PER_MTOK_IN, PRICE_PER_MTOK_OUT
     from .providers import load_qualified
@@ -62,7 +62,7 @@ def model_prices(model: str) -> tuple[float, float]:
 # own default, else 45 s.
 
 
-# Owner item 5 (2026-10-21): a retry after an answer that failed validation says what failed, instead of sending the
+# Owner item 5: a retry after an answer that failed validation says what failed, instead of sending the
 # same prompt again. Only field paths and error types are fed back, never an input value: the answer echoes redacted
 # evidence, and a validation error can quote it. Part of the prompt a model is qualified on (qualify_provider.py
 # prompt_fingerprint), so changing it changes the pin in data/providers.yaml.
@@ -70,7 +70,7 @@ RETRY_FEEDBACK = ("Your last answer failed validation: {errors}. Return ONLY val
                   "else.")
 _MAX_FED_BACK = 8  # errors named; the rest are counted
 # pydantic's own error types (`missing`, `enum`, `int_parsing` ...): a validator can name a custom one after a value
-# from the answer (PydanticCustomError), so only these are told (review, PR 132); any other is "invalid".
+# from the answer (PydanticCustomError), so only these are told; any other is "invalid".
 _ERROR_TYPES = frozenset(typing.get_args(ErrorType))
 
 
@@ -258,7 +258,7 @@ class LLMClient:
         mock: bool | None = None,
         call_timeout_s: float | None = None,
     ) -> None:
-        # The explicit argument wins; the environment is only the default (audit A-C-16). A budget
+        # The explicit argument wins; the environment is only the default. A budget
         # that is not a positive finite number is refused: nan compared False everywhere and
         # switched the ceiling off.
         self.max_usd = float(max_usd if max_usd is not None else os.environ.get("WARDEN_MAX_USD", "0.50"))
@@ -268,7 +268,7 @@ class LLMClient:
         self.max_calls = _max_calls(max_calls)
         self.cost = CostRecord()
         # Requests that failed without an answer (a refused connection, a 5xx): counted against this run's call
-        # ceiling, but not carried to the incident's next run - they reached no model (eighth review, 2026-10-01).
+        # ceiling, but not carried to the incident's next run - they reached no model.
         self.unanswered = 0
         # How long each request took, in whole milliseconds, in the order they were sent - an answer, a failure and
         # every retry alike (item 7a). Measured with the monotonic clock in the process that makes the call (the
@@ -284,7 +284,7 @@ class LLMClient:
             provider = resolve()
         self._provider = provider
         # The model's own prices (model_prices). A price that is not a finite, non-negative number switched the USD
-        # ceiling off: nan made every cost nan, a negative price made it shrink (fourth review, 2026-09-30). Zero is a
+        # ceiling off: nan made every cost nan, a negative price made it shrink. Zero is a
         # free tier.
         self.price_in, self.price_out = model_prices(self.model)
         for name, price in (("WARDEN_PRICE_IN", self.price_in), ("WARDEN_PRICE_OUT", self.price_out)):
@@ -367,7 +367,7 @@ class LLMClient:
             return self._mock_answer(system=system, user=user, schema=schema, mock_factory=mock_factory)
 
         prompt = ask_for(user, schema)
-        # Refused BEFORE the call (2026-09-27 audit): charging after it meant one oversized prompt
+        # Refused BEFORE the call: charging after it meant one oversized prompt
         # could spend past max_usd before the budget ever looked. ~4 characters per token.
         est_in = (len(system) + len(prompt)) // 4
         if est_in > MAX_PROMPT_TOKENS:
@@ -411,11 +411,11 @@ class LLMClient:
                  schema: type[T]) -> tuple[T | None, Exception | None, str | None]:
         """One request of `sent`, the first prompt or `prompt` with feedback: (the validated answer, None, sent), or
         (None, why it failed, what to send next - None to stop asking)."""
-        # Before EVERY attempt, retries included (audit A-C-15, A-C-17): the call over the ceiling
+        # Before EVERY attempt, retries included: the call over the ceiling
         # is never made, and a retry that would pass the budget on its input alone is not sent.
         # Honest limit: a response's OUTPUT cost is known only after it arrives, so one call can
         # still end above the ceiling; the next is then refused. Estimated on what is sent: a retry
-        # carries the validation feedback (item 5), and its input is priced with it.
+        # carries the validation feedback, and its input is priced with it.
         self._before_a_call(((len(system) + len(sent)) // 4 / 1e6) * self.price_in)
         completion = None
         # Exactly what is handed to the provider, kept so the diagnosis records its hash (B36: `warden history`
@@ -450,10 +450,10 @@ class LLMClient:
             # the model answered, it just was not valid JSON — retry
             if completion is None:
                 # Raised inside the provider - it could not read what came back (an HTML 200): the request was
-                # answered and may be billed, and it counted as no call at all (ninth review).
+                # answered and may be billed, and it counted as no call at all.
                 self.cost.add(0, 0, 0.0)
                 return None, exc, sent
-            # The model's own answer failed: the next attempt says why (item 5). No call is added.
+            # The model's own answer failed: the next attempt says why. No call is added.
             return None, exc, _retry_prompt(system, prompt, validation_feedback(exc, schema))
         except Exception as exc:  # noqa: BLE001
             # A provider/network error. The SDKs' internal retries are DISABLED (providers.py) so
@@ -545,7 +545,7 @@ _UNSENT = frozenset({"ConnectError", "ConnectTimeout", "ConnectionRefusedError",
 def _reached_the_model(exc: BaseException) -> bool:
     """May this failed request have been processed - and billed? Only one provably never sent, or answered with an
     error status (an API error is not billed), is not: those are what an outage makes, and carrying them locked an
-    incident for good (eighth review). Everything else is - a provider's own read timeout (the request processed,
+    incident for good. Everything else is - a provider's own read timeout (the request processed,
     the client gone), a 200 it could not parse (ninth review: classed "reached no model", 18 requests went where the
     ceiling allowed 4)."""
     seen: list[BaseException] = []

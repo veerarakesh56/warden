@@ -375,7 +375,7 @@ def test_the_alerts_own_name_and_summary_are_not_evidence_for_p36():
     assert "P36-NO-ACTION-DESPITE-SIGNATURE" in verify(_alert(), noisy, CALM, _prop(action=ActionKind.no_action)).policy_ids
 
 
-# --------------------------------------------------------------------------- P11 / P12 (2026-09-25)
+# --------------------------------------------------------------------------- P11 / P12
 #
 # Written after the EKS and RDS waves, from their failures - see the policy comments. Every rule has
 # a case where it MUST fire and a case where it must NOT, so it cannot drift into blocking the

@@ -76,7 +76,7 @@ RECENT_DEPLOY_WINDOW = timedelta(hours=float(os.environ.get("WARDEN_K8S_DEPLOY_W
 # How far back events and live container logs are read - the same reach as the AWS side's CloudWatch
 # window. Before this, both were unbounded (every event the API still held, the last N log lines):
 # Wave 4's healthy-control run read readiness-probe failures and start-up logs from an hour earlier
-# and proposed rolling catalog-api back onto a broken image (2026-09-26).
+# and proposed rolling catalog-api back onto a broken image.
 LOG_LOOKBACK = timedelta(minutes=float(os.environ.get("WARDEN_K8S_LOG_LOOKBACK_M", "15")))
 LOG_TAIL_LINES = int(os.environ.get("WARDEN_K8S_LOG_TAIL", "40"))
 # Lines of a CRASHED container's output (`logs --previous`). Its last lines hold the fatal message; the
@@ -269,7 +269,7 @@ class KubernetesBackend:
     def _events(self, ns: str, lines: list[str]) -> list:
         """The namespace's events, up to EVENT_MAX_PAGES pages. A failed or cut-short read adds a TOOL-PARTIAL to
         `lines` and keeps the events read before it."""
-        # Every page (audit A-B-M7): a busy namespace's first page could hold none of this workload's events.
+        # Every page: a busy namespace's first page could hold none of this workload's events.
         events: list = []
         try:
             token = None
@@ -547,7 +547,7 @@ def _this_workloads(kind: str, name: str, pod_names: set[str], deployment: str) 
     """Whether an event's object is this workload's pod, ReplicaSet or Deployment, or a node."""
     if kind == "Pod":
         return name in pod_names  # another workload's pod
-    # Its own name, not a prefix of it (audit A-B-L6): `checkout` took `checkout-api`'s rollout. A ReplicaSet is
+    # Its own name, not a prefix of it: `checkout` took `checkout-api`'s rollout. A ReplicaSet is
     # `<deployment>-<pod-template-hash>`, and the hash holds no dash.
     if kind == "Deployment":
         return name == deployment  # another workload's rollout

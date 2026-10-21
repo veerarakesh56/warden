@@ -63,7 +63,7 @@ def test_a_path_elsewhere_or_climbing_out_is_refused(tmp_path):
 
 def test_run_from_the_home_directory_or_above_it_nothing_in_home_is_a_working_place(tmp_path, monkeypatch):
     """`warden` run from ~ (or from /home) must not read or write ~/.ssh or ~/.aws because the working directory holds
-    them (CodeRabbit, PR 46). A project folder under the home directory is still a working place."""
+    them. A project folder under the home directory is still a working place."""
     home = tmp_path / "home" / "op"
     (home / "project").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
@@ -83,7 +83,7 @@ def test_run_from_the_home_directory_or_above_it_nothing_in_home_is_a_working_pl
 
 def test_a_temp_or_tool_folder_that_is_or_holds_the_home_directory_is_no_working_place(tmp_path, monkeypatch):
     """WARDEN_BENCH_DIR=~, RUNNER_TEMP=/home or a temp folder holding ~ would make ~/.ssh a working place
-    (CodeRabbit, PR 46). The tools' own folders under ~ stay working places."""
+   . The tools' own folders under ~ stay working places."""
     home = tmp_path / "home" / "op"
     (home / "project").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))

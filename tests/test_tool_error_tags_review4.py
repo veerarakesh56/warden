@@ -73,7 +73,7 @@ def test_free_text_still_cannot_place_a_tag(raw):
      "access denied on DescribeRule"),
 ])
 def test_more_warden_reader_tags_keep_their_outcome(raw, expected):
-    """Fifth review (2026-10-01): these readers' tags still read "failed (unclassified)"."""
+    """Fifth review: these readers' tags still read "failed (unclassified)"."""
     out = evidence.tool_error_text(raw)
     assert "unclassified" not in out, (raw, out)
     assert out.endswith(expected), (raw, out)

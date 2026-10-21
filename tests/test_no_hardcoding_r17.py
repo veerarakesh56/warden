@@ -14,7 +14,7 @@ from warden import environments
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # Every AWS partition's regions: commercial (eu-west-1), China (cn-north-1), GovCloud (us-gov-west-1), the ISO
-# partitions (us-iso-east-1, us-isob-east-1) and the European Sovereign Cloud (eusc-de-east-1) (CodeRabbit, PR 37).
+# partitions (us-iso-east-1, us-isob-east-1) and the European Sovereign Cloud (eusc-de-east-1).
 REGION = re.compile(r"\b(?:[a-z]{2}|eusc-[a-z]{2})(?:-gov|-iso[a-z]?)?-"
                     r"(?:north|south|east|west|central|northeast|southeast|northwest|southwest)-\d\b")
 # AWS serves its global services (IAM, CloudFront, region discovery) from us-east-1: AWS's fixed choice, named once as

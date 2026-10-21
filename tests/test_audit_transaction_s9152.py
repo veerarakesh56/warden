@@ -1,4 +1,4 @@
-"""The SQLite audit store's transaction (Sonar python:S9152, 2026-10-16): whatever ends the body - an error, an early
+"""The SQLite audit store's transaction (Sonar python:S9152): whatever ends the body - an error, an early
 close - nothing of it is kept, and the error that ended it is the one raised, never "cannot rollback - no transaction
 is active" from a rollback with no transaction left."""
 

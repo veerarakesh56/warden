@@ -1,4 +1,4 @@
-# The undo lab (owner, 2026-10-11): the smallest system on which WARDEN's undo of a recorded change can be proven on
+# The undo lab: the smallest system on which WARDEN's undo of a recorded change can be proven on
 # real AWS, end to end - a person's change, an alarm that follows it, the diagnosis, a passkey-approved plan, the
 # write, the alarm reading OK again, and a rollback. Request-priced and inside the Free plan's allowances: one
 # provisioned table (5 read / 10 write units), one queue and its dead-letter queue, two small functions, one schedule.
@@ -191,7 +191,7 @@ data "archive_file" "consumer" {
 
 resource "aws_cloudwatch_log_group" "producer" {
   name              = "/aws/lambda/${local.name}-producer"
-  retention_in_days = 14 # long enough to look back at an incident (Sonar terraform:S6413, 2026-10-16)
+  retention_in_days = 14 # long enough to look back at an incident (Sonar terraform:S6413)
 }
 
 resource "aws_cloudwatch_log_group" "consumer" {

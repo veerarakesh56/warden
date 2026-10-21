@@ -82,7 +82,7 @@ def _status_after_a_remediation(monkeypatch) -> str:
 
 
 def test_status_answers_for_a_remediation_this_server_started(monkeypatch):
-    """workflow_status answers only for workflows this server started (audit A-B-H4): a remediation it started
+    """workflow_status answers only for workflows this server started: a remediation it started
     itself is one - checked without Temporal, so a lost `_STARTED.add` is caught locally."""
     assert '"stage": "awaiting approval"' in _status_after_a_remediation(monkeypatch)
 

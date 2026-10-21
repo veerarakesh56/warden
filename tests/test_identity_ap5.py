@@ -45,7 +45,7 @@ def test_the_actor_session_names_the_approvers_the_incident_and_the_plan():
 
 
 def test_an_incident_the_audit_names_without_the_prefix_still_gets_the_name_the_actors_trust_requires():
-    """The first live apply (2026-10-12) was refused by STS: the audit's incident id is the alarm's fingerprint and
+    """The first live apply was refused by STS: the audit's incident id is the alarm's fingerprint and
     time, the actor role trusts SourceIdentity `inc-*` only, and the tests all said `inc-42`."""
     import fnmatch
     import pathlib

@@ -63,7 +63,7 @@ def test_prod_has_no_promotion_targets():
 
 
 def test_report_always_carries_the_safety_line():
-    """A13 (2026-10-16): it said "Nothing was executed against production by this tool" - untrue since WARDEN applies
+    """A13: it said "Nothing was executed against production by this tool" - untrue since WARDEN applies
     approved plans itself."""
     rep = build_report(_alert(), proposal=_prop())
     assert rep.markdown.endswith(CLOSING)
@@ -72,7 +72,7 @@ def test_report_always_carries_the_safety_line():
 
 
 def test_the_masked_identifiers_hint_says_it_is_a_local_option():
-    """A9 (2026-10-16): the hint told every reader to set WARDEN_REPORT_SHOW_IDENTIFIERS, which the cloud runtime
+    """A9: the hint told every reader to set WARDEN_REPORT_SHOW_IDENTIFIERS, which the cloud runtime
     ignores (activities.notify passes show_identifiers=False)."""
     from warden.models import ContextBundle
 
@@ -83,7 +83,7 @@ def test_the_masked_identifiers_hint_says_it_is_a_local_option():
 
 
 def test_promotion_names_the_account_to_use_in_each_target_env_in_the_data_only():
-    """A10 (2026-10-16): the markdown pointed a person at a manual replay with each environment's deploy role; WARDEN
+    """A10: the markdown pointed a person at a manual replay with each environment's deploy role; WARDEN
     watches only where it is installed. The targets stay in the data."""
     rep = build_report(_alert(environment="staging"), proposal=_prop(ActionKind.scale_up))
     # every promotion target carries the credentials pointer for that environment
@@ -94,7 +94,7 @@ def test_promotion_names_the_account_to_use_in_each_target_env_in_the_data_only(
 
 
 def test_a_hand_off_says_a_person_should_look_and_promotes_nothing():
-    """The runtime's first report on live AWS (2026-10-11) escalated to a person, yet read "No change proposed -
+    """The runtime's first report on live AWS escalated to a person, yet read "No change proposed -
     recorded, nothing to run" and listed three environments in which "a human applies this fix"."""
     safe = Verdict(status=VerdictStatus.auto_safe)
     handed = build_report(_alert(), proposal=_prop(ActionKind.escalate_to_human), verdict=safe).markdown

@@ -44,7 +44,7 @@ def test_a_multi_line_anchor_is_found_in_a_crlf_file():
 
 
 def test_an_interrupted_run_stops_its_workers(monkeypatch):
-    """Sixth review (2026-10-01): on Ctrl-C the run - in its own session on POSIX - kept its workers going while
+    """Sixth review: on Ctrl-C the run - in its own session on POSIX - kept its workers going while
     the mutated file was restored under them."""
     stopped = []
 

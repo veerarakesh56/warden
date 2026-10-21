@@ -1,4 +1,4 @@
-"""The MCP server's stdout carries JSON-RPC and nothing else (audit A-C-20).
+"""The MCP server's stdout carries JSON-RPC and nothing else.
 
 With console tracing on, spans were printed to stdout - into the protocol stream, where a client
 reads them as broken messages. This starts the real server, with console tracing on, and makes it

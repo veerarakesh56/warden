@@ -118,7 +118,7 @@ def test_the_ecs_cluster_is_one_the_boundary_lets_its_services_into():
 
 def test_an_address_comes_off_its_aws_managed_interface_and_nothing_more():
     """A NAT gateway's network interface is AWS-managed and untagged, so the tag-conditioned DisassociateAddress was
-    refused and pausing the runtime stopped half-way (2026-10-10). The interface side is allowed for that action only."""
+    refused and pausing the runtime stopped half-way. The interface side is allowed for that action only."""
     st = _sid(_load("deploy-ec2"), "AnAddressOffItsAwsManagedInterface")
     assert st["Action"] == "ec2:DisassociateAddress"
     assert "Condition" not in st

@@ -2,7 +2,7 @@ name: "Scan · workflows"
 
 # Every workflow file is scanned on EVERY change. The tool pipeline (ci-tool.yml) is path-filtered so that
 # infra and apps changes do not run it - and with it, the workflow scan used to be skipped for exactly
-# the pipelines that hold cloud credentials (audit A-I-15).
+# the pipelines that hold cloud credentials.
 on:
   push:
     branches: [main]

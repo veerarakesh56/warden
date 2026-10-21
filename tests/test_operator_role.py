@@ -72,7 +72,7 @@ def test_the_sweep_role_is_assumed_only_in_the_callers_own_account():
 def test_chaining_into_the_sweep_role_keeps_the_source_identity():
     """A Roles Anywhere session always has a source identity (the certificate CN). IAM: when a role
     assumes another, sts:SetSourceIdentity must be allowed in the caller's policy AND the target's
-    trust policy, or the AssumeRole fails (independent review, 2026-09-28). The session's certificate tags
+    trust policy, or the AssumeRole fails. The session's certificate tags
     are carried along too, so the trust must also allow sts:TagSession (refused without it, live 2026-10-02)."""
     import importlib.util
     import types
@@ -107,7 +107,7 @@ def test_no_database_login_no_iam_change_no_model_call(forbidden):
 def test_secrets_are_only_the_ops_ones_and_never_their_values():
     """Secrets audit, 2026-10-16: the laptop read the value of every warden/ops/* secret, and nothing it runs needs one
     (the benchmarks read their tools' keys in the cloud runtime). It may see that a secret is there, not what it is.
-    No Bedrock either (owner, 2026-10-09)."""
+    No Bedrock either."""
     granted = [a for st in _allow_statements() for a in _list(st["Action"]) if a.startswith("secretsmanager:")]
     assert granted == ["secretsmanager:DescribeSecret"]
     for st in _allow_statements():

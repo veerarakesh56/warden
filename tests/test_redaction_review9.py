@@ -1,4 +1,4 @@
-"""Ninth independent review (2026-10-01), redaction: cookies in every written form, values whose start an earlier
+"""Ninth independent review, redaction: cookies in every written form, values whose start an earlier
 pattern masked, tools saying "there is none", and a secret inside a compound value echoed alone elsewhere."""
 from __future__ import annotations
 

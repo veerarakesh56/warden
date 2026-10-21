@@ -38,8 +38,8 @@ def _model(action: str):
 
         def complete(self, *, system, user, schema=None):
             body = {"root_cause": {"hypothesis": "frobnicator desync", "confidence": 0.95, "evidence": ["desync"],
-                                   # an outcome that agrees with the action (U3-1), so P37 is not what holds it: a
-                                   # close is no_fault, since a decided cause closed with no action is P37 (PR 132)
+                                   # an outcome that agrees with the action, so P37 is not what holds it: a
+                                   # close is no_fault, since a decided cause closed with no action is P37
                                    "outcome": "no_fault" if action == "no_action" else "decided",
                                    "citations": [{"id": "M1", "quote": "ledger_desync_events=31"},
                                                  {"id": "F1", "quote": "code=77"}],

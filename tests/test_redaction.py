@@ -210,7 +210,7 @@ def test_restore_round_trips():
 
 def test_the_independent_leak_check_is_the_gate_not_the_redactor():
     """The re-scan inside redact() used the sweep's own rule, so it could never fire on a real leak
-    (second review, 2026-09-30) and was removed. The independent check is the outbound gate's G5,
+    and was removed. The independent check is the outbound gate's G5,
     which re-runs every pattern on what leaves - and blocks."""
     from warden import gate
 

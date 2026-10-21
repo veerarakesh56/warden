@@ -103,7 +103,7 @@ def test_a_secret_still_in_the_outgoing_text_blocks_the_message():
 
 def test_identifiers_an_operator_may_show_do_not_block_and_clean_text_passes():
     shown = enforce("user a@corp.io on 10.2.3.4")
-    # Not blocked; the email's domain is defanged like any domain (second review, 2026-09-30).
+    # Not blocked; the email's domain is defanged like any domain.
     assert shown.verdict == "REWRITE"
     assert shown.text == "user a@corp[.]io on 10.2.3.4"
     assert enforce("user `a@corp.io` on 10.2.3.4").verdict == "PASS"

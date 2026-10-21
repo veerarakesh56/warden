@@ -201,7 +201,7 @@ def test_a_phrase_fact_only_ever_names_a_word_from_the_closed_vocabulary():
 
 
 def test_a_value_that_is_encoded_prose_is_not_a_fact():
-    """Found rewriting the injection corpus (2026-09-30): base64 of an instruction passed every value
+    """Found rewriting the injection corpus: base64 of an instruction passed every value
     check and reached the model, which can decode it. An id that happens to be base64 still passes."""
     import base64 as b64
 
@@ -212,7 +212,7 @@ def test_a_value_that_is_encoded_prose_is_not_a_fact():
 
 
 
-# Third review (2026-09-30): look-alike letters and digits spelled steering words the checks missed.
+# Third review: look-alike letters and digits spelled steering words the checks missed.
 _CY = str.maketrans({"a": "\u0430", "e": "\u0435", "o": "\u043e", "i": "\u0456", "c": "\u0441", "p": "\u0440"})
 
 

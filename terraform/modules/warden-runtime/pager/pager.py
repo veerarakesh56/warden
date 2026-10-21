@@ -1,4 +1,4 @@
-"""WARDEN's own pages, repeated until a person acknowledges them - with WARDEN itself down (owner, 2026-10-16).
+"""WARDEN's own pages, repeated until a person acknowledges them - with WARDEN itself down.
 
 CloudWatch sends an alarm's action once, on the change into ALARM, and never again while it stays there; AWS's own
 paging service with acknowledgement (Incident Manager) takes no new customers since 2025-11-07. So this function,
@@ -102,7 +102,7 @@ class Pager:
         condition was already acknowledged: a key that expires on the same date is one page, however often it is
         seen. Said at once: in Slack, and by email unless the alarm's own action already emailed it.
 
-        Written first as not yet said (`sent` 0, no `last_sent`), then said, then marked said (CodeRabbit, PR 43): a
+        Written first as not yet said (`sent` 0, no `last_sent`), then said, then marked said: a
         page whose first saying failed on every channel is due at the next tick, and the event's retry says it again,
         instead of waiting a whole REPEAT_MINUTES as one already said."""
         if not _KEY.fullmatch(key):
@@ -128,7 +128,7 @@ class Pager:
         return page
 
     def _acked(self, page):
-        """An acknowledgement that cannot be read acknowledges nothing (CodeRabbit, PR 43): the page goes on."""
+        """An acknowledgement that cannot be read acknowledges nothing: the page goes on."""
         try:
             return self.pages.acked(page)
         except Exception as exc:  # noqa: BLE001 - never silenced by an unreadable acknowledgement
@@ -138,7 +138,7 @@ class Pager:
 
     def _due(self, key, now):
         """The page for `key` when it is to be said again now; None otherwise. One that cannot be read is said
-        again rather than silenced (CodeRabbit, PR 43): a page whose times are unreadable is due at every tick, and
+        again rather than silenced: a page whose times are unreadable is due at every tick, and
         a key whose object is not a page is logged and skipped - the other pages still go."""
         try:
             page = self.pages.page(key)
@@ -165,7 +165,7 @@ class Pager:
 
     def tick(self):
         """Every open page not acknowledged, said again once each REPEAT_MINUTES: how long, and why. Said first, then
-        marked said (CodeRabbit, PR 43): a repeat no channel took is not recorded as sent, and is due again at the
+        marked said: a repeat no channel took is not recorded as sent, and is due again at the
         next tick; one a channel took but that could not be marked is at worst said twice - the safe way for a pager."""
         now = self.clock()
         due = [p for p in (self._due(k, now) for k in sorted(self.pages.keys())) if p]
@@ -177,7 +177,7 @@ class Pager:
             _LOG.warning("the alarms' states could not be read (%s): repeated without them", type(exc).__name__)
             states = {}
         lines = [self._line(page, now, states.get(page.get("alarm") or "")) for page in due]
-        # Every key and the way to acknowledge first, the details after (CodeRabbit, PR 43): the email's reason is cut
+        # Every key and the way to acknowledge first, the details after: the email's reason is cut
         # at _REASON_MAX, and a cut must lose a detail, never a page or the link that stops the repeats.
         said = (f"WARDEN {self.env}: {len(due)} page{'s' if len(due) > 1 else ''} not acknowledged "
                 f"({', '.join(p['key'] for p in due)}). {self._ack_line()} " + " | ".join(lines))
@@ -248,7 +248,7 @@ def alarm_states(cloudwatch=None):
 def key_expiry(param, now, warn_days, ssm=None):
     """(about, why) when a Temporal API key recorded in `param` (ISO times, comma-separated: each zone's key's end)
     expires within `warn_days`; None otherwise, or with nothing recorded. A parameter that is there but cannot be read
-    (access denied, throttled, a decrypt error) is a page of its own, never silence (CodeRabbit, PR 43)."""
+    (access denied, throttled, a decrypt error) is a page of its own, never silence."""
     try:
         raw = (ssm or boto3.client("ssm")).get_parameter(Name=param)["Parameter"]["Value"]
     except ClientError as exc:
@@ -290,7 +290,7 @@ def worker_stopped(event, cluster_arn):
         return None
     group = str(d.get("group") or "worker").replace("service:", "")
     key = re.sub(r"[^A-Za-z0-9._-]", "-", f"task-{group}")[:200]
-    # A bare 12-digit number is an account id to WARDEN's redaction (redaction.py): never in a page (CodeRabbit, PR 43).
+    # A bare 12-digit number is an account id to WARDEN's redaction (redaction.py): never in a page.
     reason = _ACCOUNT.sub("<ACCOUNTID>", " ".join(str(d.get("stoppedReason") or "").split()))[:200]
     return key, f"a worker task of {group} stopped on its own ({d.get('stopCode')}): {reason}"
 
@@ -311,7 +311,7 @@ def _on_alarm(pager, detail):
 
 
 def _on_tick(pager, now):
-    """The repeats first, then the key-expiry page (CodeRabbit, PR 43): a key-expiry page that cannot be opened or
+    """The repeats first, then the key-expiry page: a key-expiry page that cannot be opened or
     read never silences the others. Either one's failure is still raised, for the errors alarm."""
     try:
         repeated = pager.tick()

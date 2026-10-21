@@ -105,7 +105,7 @@ LOG_EVENT_LIMIT = int(os.environ.get("WARDEN_AWS_LOG_LIMIT", "200"))
 LOG_MAX_LINES = int(os.environ.get("WARDEN_AWS_LOG_MAX_LINES", "120"))
 LOG_MAX_PAGES = int(os.environ.get("WARDEN_AWS_LOG_MAX_PAGES", "10"))
 # Read first: the minutes before the alert up to the window's end. Pages run oldest-first, so a window larger than
-# the page budget lost exactly the alert-time lines (audit A-B-M5); the earlier part takes the pages left.
+# the page budget lost exactly the alert-time lines; the earlier part takes the pages left.
 LOG_NEAR = timedelta(minutes=float(os.environ.get("WARDEN_AWS_LOG_NEAR_M", "5")))
 # Older error-looking events kept on top of the newest LOG_MAX_LINES when a window is truncated.
 LOG_ERROR_EXTRA = 30
@@ -338,7 +338,7 @@ class AwsBackend:
         for event in sorted(events, key=lambda e: e.get("timestamp") or 0):
             message = str(event.get("message", "")).rstrip()
             if message:
-                # ⛔ "LOG " first (2026-09-27 audit). The line used to START with the stream name, and
+                # ⛔ "LOG " first. The line used to START with the stream name, and
                 # anyone holding logs:CreateLogStream (every task and function role) chooses that
                 # name - spaces allowed. A stream named "CONFIG payments-api ..." became a TRUSTED C
                 # item, and one named "TOOL-PARTIAL ..." a failed-read T item, both citable.
@@ -455,7 +455,7 @@ class AwsBackend:
         except Exception as exc:  # noqa: BLE001
             # Utilisation is supporting evidence; the exact task counts above are the load-bearing
             # part. Losing it must not lose them, and an omitted key reads as absent, not as zero -
-            # but the failure is said (audit A-B-M18), so absent is not mistaken for "not elevated".
+            # but the failure is said, so absent is not mistaken for "not elevated".
             return {}, [f"utilisation: {failure(exc)}"]
 
         keys = {"m0": "cpu_utilization_pct", "m1": "memory_utilization_pct"}
@@ -527,7 +527,7 @@ class AwsBackend:
         if rolled_back_from:
             out["rolled_back_from"] = rolled_back_from
         if changed:
-            # What changed, by NAME only: an environment value can be a secret (audit A-B-M9), its name is not.
+            # What changed, by NAME only: an environment value can be a secret, its name is not.
             out["kind"] = "config"
             out["changed"] = ",".join(changed[:12])
         registered = _aware((current or {}).get("registeredAt"))
@@ -556,7 +556,7 @@ class AwsBackend:
                 )
                 return [gap], [], []
             if previous_images == current_images:
-                # G9-E (audit E3): the same images, but another revision whose settings differ - a command, memory,
+                # G9-E: the same images, but another revision whose settings differ - a command, memory,
                 # an environment variable - IS a deploy: the rollback P5 refused (ecs-10, a command change that OOMs)
                 # was the right answer. The same revision, or identical settings, is a restart, not a deploy.
                 changed = _config_changes(previous, current) if previous_ref != this_ref else []
@@ -615,7 +615,7 @@ def _previous(deployments: list[dict], primary: dict, family: str, revision: int
         if prev_family == family and prev_revision > revision:
             # A ROLLBACK: the revision being replaced is newer than the one going live - ECS's circuit breaker or a
             # person stepping back. Reported as a change, but with nothing to roll back to: the "previous" here is
-            # the broken revision, and a rollback aimed at it redeployed it (audit A-B-M6).
+            # the broken revision, and a rollback aimed at it redeployed it.
             rolled_back_from = f"{prev_family}:{prev_revision}"
         elif prev_family:
             # ⛔ Used, even when it is the SAME revision as PRIMARY. That is exactly what a
@@ -695,7 +695,7 @@ _STREAM_UNSAFE = re.compile(r"[^A-Za-z0-9_./#$\[\]:-]")
 
 
 def _stream(name) -> str:
-    """A log stream name as one token (audit A-C-3): whoever can create a stream chooses its name,
+    """A log stream name as one token: whoever can create a stream chooses its name,
     spaces included, and the name sits where WARDEN's own line structure is."""
     return _STREAM_UNSAFE.sub("_", str(name or "?"))[:256] or "?"
 

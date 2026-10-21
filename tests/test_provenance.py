@@ -1,4 +1,4 @@
-"""Every diagnosis records which model said it, to exactly which prompt, under which code and policies (audit A-P-1)."""
+"""Every diagnosis records which model said it, to exactly which prompt, under which code and policies."""
 
 from __future__ import annotations
 

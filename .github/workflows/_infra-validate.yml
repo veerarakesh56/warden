@@ -22,7 +22,7 @@ jobs:
       - run: terraform -chdir=terraform/fullstack fmt -check -recursive
       - run: terraform -chdir=terraform/fullstack init -backend=false -input=false
       - run: terraform -chdir=terraform/fullstack validate
-      # The undo lab (2026-10-11): the small stack WARDEN's undo is proven on.
+      # The undo lab: the small stack WARDEN's undo is proven on.
       - run: terraform -chdir=terraform/undo-lab fmt -check -recursive
       - run: terraform -chdir=terraform/undo-lab init -backend=false -input=false
       - run: terraform -chdir=terraform/undo-lab validate

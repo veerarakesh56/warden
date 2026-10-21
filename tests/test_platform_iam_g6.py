@@ -200,7 +200,7 @@ def _actions(name: str) -> set[str]:
 
 def test_the_reader_role_holds_exactly_the_platforms_reads():
     """And the evidence reader's (aws_backend.py, held to this role by tests/test_aws_backend.py): the cloud runtime
-    reads each incident in this role, and it held no logs read at all (2026-10-09)."""
+    reads each incident in this role, and it held no logs read at all."""
     import reader_iam
 
     reads, _, _ = _exercise()

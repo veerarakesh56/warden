@@ -32,7 +32,7 @@ _LINES = re.compile(r"[(]x(\d+): ")
 _GENERIC = frozenset({"Error", "Exception", "RuntimeError", "ValueError", "TypeError", "KeyError"})
 # Only codes AWS or the platform itself reports: an AWS SDK service exception (`...Exception`, how every AWS API names
 # its errors) or one of these documented failure codes. An application's own error names (`TaxEngineError`,
-# `IndexError`) found only generic Lambda pages in the held-out dry run (2026-10-10), and a signal found Spot.
+# `IndexError`) found only generic Lambda pages in the held-out dry run, and a signal found Spot.
 _PLATFORM_CODES = frozenset({"ResourceInitializationError", "CannotPullContainerError", "CannotStartContainerError",
                              "OutOfMemoryError", "CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull",
                              "FailedScheduling", "OOMKilled", "Evicted", "EndpointConnectionError",

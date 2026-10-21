@@ -582,7 +582,7 @@ def test_secret_is_read_as_metadata_only():
 
 
 def test_a_secret_scheduled_for_deletion_is_said():
-    """G10 held-out set (2026-10-10): DescribeSecret's DeletedDate was dropped, so the model never learnt that every read
+    """G10 held-out set: DescribeSecret's DeletedDate was dropped, so the model never learnt that every read
     of the secret now fails - and that RestoreSecret can bring it back inside the recovery window."""
     sm = Fake(describe_secret={"LastChangedDate": NOW, "DeletedDate": NOW - timedelta(minutes=5)})
     lines = _backend(_clients(secretsmanager=sm)).logs(_alert(secret=f"{P}db-app"))
@@ -961,20 +961,20 @@ _ARN_FORMATS = {
 
 
 def test_every_reader_arn_has_the_shape_aws_gives_its_resource():
-    """Seventh review (2026-10-01): the scoping test checked where each action sits, not its ARN - seven format
+    """Seventh review: the scoping test checked where each action sits, not its ARN - seven format
     mutants passed (`table/` -> `tables/`, `cluster:` -> `db:`, a typo in `/aws/lambda/`, an sqs prefix...). Each ARN
     must be its service's published format with the stack's name where the resource's name goes."""
     text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     own = re.search(r'sid\s*=\s*"ReadOwnStack"(.*?)\n  \}', text, re.DOTALL).group(1)
     arns = re.findall(r'"arn:aws:([a-z0-9-]+):\$\{local\.reader_arn\}:([^"]+)"', own)
-    assert len(arns) == 14, arns  # + the stack's alarms (G9-A2a), + its database instances' error logs (2026-10-15)
+    assert len(arns) == 14, arns  # + the stack's alarms (G9-A2a), + its database instances' error logs
     # Each service once (two log groups, a cluster and its instances), so a grant moved to another service's prefix is
     # caught.
     assert sorted(s for s, _ in arns) == sorted([*_ARN_FORMATS, "logs", "rds"]), arns
     for service, resource in arns:
         # A name the grant covers, `/` included (an ECS service's ARN holds its cluster); it must fit the format, the
         # format's own text exact and any name in its {slots}.
-        # Nothing widens it before the stack's name: `service/*/warden-dev-*` was R7-D3's own shape (eighth review).
+        # Nothing widens it before the stack's name: `service/*/warden-dev-*` was R7-D3's own shape.
         assert "*" not in resource.split("${local.name}")[0], (service, resource)
         covered = resource.replace("${local.name}-*", "warden-dev-x/y")
         shapes = ["".join(".+" if i % 2 else re.escape(part) for i, part in enumerate(re.split(r"\{([A-Za-z]+)\}", f)))
@@ -1085,7 +1085,7 @@ def test_a_fault_flags_value_never_reaches_the_evidence():
 
 
 def test_the_watched_environments_reader_role_grants_every_call_the_stack_backend_makes():
-    """G9-A2b (2026-10-10): the cloud runtime's read zone runs this backend in `warden-<env>-platform-reader`; a call the
+    """G9-A2b: the cloud runtime's read zone runs this backend in `warden-<env>-platform-reader`; a call the
     role does not grant is an AccessDenied found during a real incident."""
 
     called = {_iam_action(a, m) for a, m in _api_calls()}
@@ -1121,7 +1121,7 @@ def test_an_albs_zones_its_zonal_shift_setting_and_its_hosts_per_zone_are_read()
 
 
 def test_a_rule_on_a_custom_bus_is_read_on_that_bus():
-    """G10 review (2026-10-10): DescribeRule looked on the default bus only, so a rule on a custom bus read as a failed
+    """G10 review: DescribeRule looked on the default bus only, so a rule on a custom bus read as a failed
     read. The alarm's EventBusName dimension (label `event_bus`) names the bus for the describe and the metrics."""
     events = Fake(describe_rule={"State": "DISABLED", "ScheduleExpression": "-"})
     cw = Fake(get_metric_data={"MetricDataResults": []})

@@ -54,7 +54,7 @@ from warden import paths  # after the sys.path line above, deliberately
 
 # One environment per process, set by use() from WARDEN_ENV in main(): never a default.
 # Set by use(). One per line: a chained `= ""` made one literal flow into the secret's name AND the cluster's,
-# and CodeQL read every log of the cluster name as logging a secret (2026-10-02).
+# and CodeQL read every log of the cluster name as logging a secret.
 ENV = ""
 PREFIX = ""
 CLUSTER = ""
@@ -78,7 +78,7 @@ def use(env: str) -> None:
     CLUSTER = PREFIX + "aurora"
     SECRET_ID = PREFIX + "db-app"  # the Secrets Manager secret's NAME - it holds endpoints, never a password
     # The application's login, as data.tf names it (db_users): the secret said "app", which no IAM grant names
-    # and bootstrap.sql no longer creates (seventh review, 2026-10-01).
+    # and bootstrap.sql no longer creates.
     APP_USER = f"warden_{env.replace('-', '_')}_app"
     TAGS = [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": ENV},
             {"Key": "ManagedBy", "Value": "aurora_express.py"}, {"Key": "Lifecycle", "Value": "ephemeral"}]
@@ -86,7 +86,7 @@ def use(env: str) -> None:
 
 def guard(cluster: str) -> None:
     """⛔ This script creates and DELETES a database cluster. Only this environment's own: a name prefix let
-    WARDEN_ENV=qa delete warden-qa-prod-aurora (seventh review, 2026-10-01)."""
+    WARDEN_ENV=qa delete warden-qa-prod-aurora."""
     if not CLUSTER or cluster != CLUSTER:
         raise SystemExit(f"refusing: {cluster!r} is not this environment's cluster ({CLUSTER or 'none set'})")
 
@@ -139,7 +139,7 @@ def _read_stack(path: pathlib.Path) -> dict:
 
 def merge_stack(path: pathlib.Path, values: dict) -> None:
     """Add keys to stack.json in the file's own format (`terraform output -json` wraps each value)."""
-    # Checked here too, beside the read and the write (Sonar pythonsecurity:S2083, 2026-10-20).
+    # Checked here too, beside the read and the write (Sonar pythonsecurity:S2083).
     real = pathlib.Path(path).expanduser().resolve()
     bases = [b for b in (pathlib.Path(r).expanduser().resolve() for r in paths.work_roots()) if b.parent != b]
     if not any(real.is_relative_to(b) for b in bases):  # the form audit.key_path uses (S8707 cleared there)
@@ -228,7 +228,7 @@ def _add_reader(rds, cluster: str, c: dict, log) -> None:
                                    PromotionTier=1, Tags=TAGS, **({"AvailabilityZone": other} if other else {}))
         except Exception as exc:  # one refusal is expected and named; any other still stops the build
             # The AWS Free plan's limit on database instances (WARDEN's own audit database holds one): "You reached the
-            # maximum number of instances available with free plan accounts" (2026-10-14). The cluster's reader
+            # maximum number of instances available with free plan accounts". The cluster's reader
             # endpoint then serves the writer; the faults that need a second instance (write-to-reader, failover)
             # cannot run on this account.
             if (getattr(exc, "response", None) or {}).get("Error", {}).get("Code") != "InstanceQuotaExceeded":
@@ -274,7 +274,7 @@ def pause_name(base: str, now: datetime.datetime | None = None) -> str:
 
 def is_pause_name(base: str, name: str) -> bool:
     """`<base>-pause-<UTC time>` as the pipelines name it, or `<base>-pause-<YYYYMMDD>` as a person made one by hand
-    (2026-10-17). Another data store whose name starts like this one (warden-dev-aurora-2) is not it."""
+   . Another data store whose name starts like this one (warden-dev-aurora-2) is not it."""
     return re.fullmatch(rf"{re.escape(base.lower())}-pause-\d{{8}}(t\d{{6}}z)?", (name or "").lower()) is not None
 
 
@@ -293,7 +293,7 @@ STALE_MARGIN = datetime.timedelta(hours=1)  # a pause's own final snapshot follo
 def refuse_a_stale_pause(snapshots: list[dict], cluster: str) -> None:
     """⛔ A `destroy` after the last pause leaves a final snapshot newer than every pause copy: `latest` would bring back
     older data, and the tables' pause backups are older still (destroy makes none). Refused, both named, so a person
-    picks one (CodeRabbit, PR 88). A pause makes its own final snapshot right after its pause copy: within the margin."""
+    picks one. A pause makes its own final snapshot right after its pause copy: within the margin."""
     def newest(kind):
         found = [s for s in snapshots if str(s.get("Status", "")).lower() == "available"
                  and (is_pause_name(cluster, s.get("DBClusterSnapshotIdentifier", "")) if kind == "pause"

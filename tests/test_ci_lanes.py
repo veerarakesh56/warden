@@ -75,7 +75,7 @@ def _holds_aws(wf: dict) -> bool:
 def test_one_deploy_workflow_per_configured_environment_and_nothing_else():
     """Deploys are separated per environment: deploy-<env>.yml for exactly the keys of
     environments.yaml, so a GitHub Environment (and its role) exists for nothing else. The files are
-    identical apart from the environment's name and the branch it is promoted from (owner, 2026-10-16) - the steps
+    identical apart from the environment's name and the branch it is promoted from - the steps
     live in the shared _*.yml workflows."""
     import yaml
 
@@ -143,7 +143,7 @@ def test_every_action_is_pinned_to_a_full_commit_sha():
 
 
 def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_triggers():
-    """Fourth review (2026-09-30): the tool CI skips terraform/fullstack and the infra/apps/deploy
+    """Fourth review: the tool CI skips terraform/fullstack and the infra/apps/deploy
     workflows, and three tests that guard those files (the reader role's least privilege among them)
     ran only in the tool CI - a change to reader.tf alone ran none of them."""
     import pathlib
@@ -161,7 +161,7 @@ def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_tri
     # own table (it runs in the workflow scan).
     exempt = {"test_register.py", "test_ci_lanes.py"}
     # Joined spellings read as one path: `ROOT / "k8s" / "fullstack"` named no path the table knew, and
-    # the test could leave the apps check unnoticed (fifth review, 2026-10-01).
+    # the test could leave the apps check unnoticed.
     joined = re.compile(r'''(["'])\s*/\s*(["'])''')
     missing = [(p.name, path) for p in sorted((root / "tests").glob("test_*.py")) if p.name not in exempt
                for path, workflow in runs.items()
@@ -187,7 +187,7 @@ def test_a_run_on_main_is_never_cancelled_by_the_next_push():
 
 
 def test_a_lane_runs_when_a_test_file_its_check_runs_changes():
-    """Ninth review CI run (2026-10-01): CI · infra runs six test files but triggered on one, so a check that
+    """Ninth review CI run: CI · infra runs six test files but triggered on one, so a check that
     could not work in its environment (the live-count test, without the k8s extra) stayed hidden until that one
     file changed. Every test file a lane's check job runs is one of the lane's trigger paths, push and PR."""
     import re
@@ -207,7 +207,7 @@ def test_a_lane_runs_when_a_test_file_its_check_runs_changes():
 
 
 def test_the_pod_security_check_accepts_only_pod_securitys_own_reason():
-    """Ninth review (2026-10-01): it accepted any "forbidden" - on 5fdcff4 the privileged pod was refused because the
+    """Ninth review: it accepted any "forbidden" - on 5fdcff4 the privileged pod was refused because the
     namespace's default ServiceAccount did not exist yet, and the step went green without Pod Security deciding."""
     text = (pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci-tool.yml").read_text(
         encoding="utf-8")
@@ -395,7 +395,7 @@ def _promotion_scripts() -> dict[str, str]:
 ])
 def test_the_promotion_check_deploys_only_what_came_from_the_upstream_branch(tmp_path, env, upstream, at, passes):
     """The check as each workflow runs it, against a real repository: a fast-forward of the upstream branch or a merge
-    commit that adds nothing to it passes; anything else fails before a credential is held (owner, 2026-10-16)."""
+    commit that adds nothing to it passes; anything else fails before a credential is held."""
     import os
     import shutil
     import subprocess
@@ -440,7 +440,7 @@ def test_the_promotion_check_refuses_an_upstream_that_is_no_other_branch(tmp_pat
 
 
 def test_the_database_services_have_no_fixed_password():
-    """Naming audit item 17 (2026-10-16): the db job's PostgreSQL, MySQL and SQL Server passwords were fixed strings in
+    """Naming audit item 17: the db job's PostgreSQL, MySQL and SQL Server passwords were fixed strings in
     this file, and a fixed complex-looking one reads as a real credential. One value is made per run; the services, their
     health checks and the DSNs the tests read all use it, and it meets SQL Server's sa password policy."""
     import yaml
@@ -463,7 +463,7 @@ def test_the_database_services_have_no_fixed_password():
 
 
 def test_the_privileged_pod_stays_a_negative_test_and_no_linter_needs_a_skip():
-    """Naming audit item 18 (2026-10-16) and Sonar kubernetes:S6428 (owner, 2026-10-20): the negative test's pod is built
+    """Naming audit item 18 and Sonar kubernetes:S6428: the negative test's pod is built
     when the test runs (scripts/negative_pod.py), so no manifest asks for a privileged container and no file carries a
     linter skip. The pod is still what Pod Security must refuse: privileged, as root."""
     import json

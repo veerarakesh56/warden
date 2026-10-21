@@ -235,7 +235,7 @@ def test_the_reply_goes_into_the_thread_through_the_gate(world):
 
 
 def test_a_model_answer_with_a_fenced_command_is_posted_without_a_code_block(world):
-    """Audit A12 (2026-10-16): the prompt's "no commands for anyone to run" was the only guard, and the gate keeps a
+    """Audit A12: the prompt's "no commands for anyone to run" was the only guard, and the gate keeps a
     closed fence verbatim - a hijacked model's fenced `kubectl delete` reached the thread as a code block to paste."""
     from unittest import mock
 
@@ -372,5 +372,5 @@ def test_the_runtime_gives_the_listener_its_token_in_the_notify_zone_alone():
     # A listener that cannot connect is logged; the notify worker - every alert WARDEN sends - keeps running.
     guard = cli[cli.index('if args.zone == "notify" and discuss.configured():'):]
     assert guard.index("try:") < guard.index("await discuss.listen(") < guard.index("except Exception")
-    # Slack's async web client; 3.14.4 is the first release without CVE-2026-111063/-111064 (PR 98).
+    # Slack's async web client; 3.14.4 is the first release without CVE-2026-111063/-111064.
     assert '"aiohttp>=3.14.4"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")

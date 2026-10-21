@@ -1,4 +1,4 @@
-"""The outbound gate against the third independent review's render harness (2026-09-30).
+"""The outbound gate against the third independent review's render harness.
 
 Every input is a prefix x payload x template from the review, plus its targeted cases. The gate's
 output is rendered by CommonMark and read as Slack would, and must show: no link, no image, no raw

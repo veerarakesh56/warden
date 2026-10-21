@@ -61,10 +61,10 @@ def test_an_unapproved_plan_is_reminded_halfway_then_reported_expired(world, sin
 
 
 def test_a_plan_approved_in_time_gets_no_reminder_and_its_approvers_are_told_how_it_went(world, owner, sink):  # noqa: F811
-    """No waiting or expired message - and, since the owner's first live approvals (2026-10-12, G10-24), the
+    """No waiting or expired message - and, since the owner's first live approvals (G10-24), the
     people who approved it hear that the fix was verified and that it held."""
     out = _run(world, _approve_with(owner))
-    # Nothing in the channel: approved and fixed are on the records page (owner, 2026-10-14), worded as before.
+    # Nothing in the channel: approved and fixed are on the records page, worded as before.
     told = recorded(world["log"])
     assert out.status == "recovered", (sink.texts, told)
     assert len(sink.texts) == 1, (sink.texts, told)

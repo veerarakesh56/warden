@@ -54,7 +54,7 @@ SERVER_VERSION = "0.10.0"
 
 def _count(args: dict, key: str, ceiling: int = 1000) -> int:
     """A caller's count, clamped: the schema's bounds are advice to the client, not enforced by the
-    dispatcher, and `log_lines: 10**9` would build a billion-item list (2026-09-27 audit)."""
+    dispatcher, and `log_lines: 10**9` would build a billion-item list."""
     try:
         return min(max(int(args.get(key, 0)), 0), ceiling)
     except (TypeError, ValueError):
@@ -220,7 +220,7 @@ def _tools() -> list[types.Tool]:
 _SUBMITTED = "submitted via MCP"
 
 WORKFLOW_TOOLS = ("start_incident_diagnosis", "request_remediation", "workflow_status")
-# The client's profile (audit A-B-H4): `read` (the default) may start a diagnosis and read its own workflows;
+# The client's profile: `read` (the default) may start a diagnosis and read its own workflows;
 # `remediate` may also request a remediation. One stdio server serves one client, so the profile is the server's.
 PROFILES = {"read": frozenset({"start_incident_diagnosis", "workflow_status"}),
             "remediate": frozenset(WORKFLOW_TOOLS)}
@@ -328,14 +328,14 @@ async def _start_incident_diagnosis(args: dict[str, Any], client: Any) -> types.
     from .workflows import IncidentWorkflow
 
     alert = Alert.model_validate(args.get("alert") or {})
-    # Only the labels the operator's allowlist names steer a read (audit A-B-H4).
+    # Only the labels the operator's allowlist names steer a read.
     alert, not_followed = read_scope.restrict(alert, read_scope.load())
-    # Its own id space (audit A-B-L11): a caller cannot take the id alert intake will give a real alert.
+    # Its own id space: a caller cannot take the id alert intake will give a real alert.
     wid = f"inc-mcp-{alert.alert_id}"
     _STARTED.add(wid)
     try:
         # One alert is one incident, with one model budget: a completed run is not started again (fifth
-        # review, 2026-10-01: each new run got a fresh budget); a FAILED run may be (sixth review).
+        # review, 2026-10-01: each new run got a fresh budget); a FAILED run may be.
         await client.start_workflow(IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE,
                                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
     except WorkflowAlreadyStartedError:
@@ -488,7 +488,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                     "reversible_by_table": proposal.table_reversible,
                     "grounding": "not checked: this tool receives evidence counts, not evidence",
                     "may_execute": False,
-                    # True wording (2026-10-16): no call here changes anything by itself; request_remediation only
+                    # True wording: no call here changes anything by itself; request_remediation only
                     # asks for a plan, which WARDEN applies after an approver signs it.
                     "note": ("This verdict changes nothing. A fix happens only through request_remediation's plan, "
                              "which WARDEN applies after an approver signs it on the approval page."),
@@ -510,7 +510,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 started_at="1970-01-01T00:00:00Z",
             )
             ctx = gather(alert, FixtureBackend())
-            # ONE text (second review, 2026-09-30): logs, deploys and tool errors share one map, so one
+            # ONE text: logs, deploys and tool errors share one map, so one
             # host is one placeholder and a secret found anywhere is masked everywhere.
             deploy_keys = [(i, k) for i, d in enumerate(ctx.recent_deploys) for k in d]
             texts = [*ctx.logs, *(str(ctx.recent_deploys[i][k]) for i, k in deploy_keys), *ctx.tool_errors]
@@ -524,7 +524,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
             # deploys carry identifiers; a live backend's would carry ECR refs (the host embeds the
             # account id) and role ARNs. This payload goes to the external MCP client/model; returning deploys raw was the same leak
             # the graph path had (fixed there), on a second code path. Tool errors share the map
-            # (audit A-C-5); metrics are floats.
+            #; metrics are floats.
             return _ok(
                 {
                     "logs": redacted,
@@ -686,7 +686,7 @@ def listed_tools() -> list[types.Tool]:
 class _Ready[T]:
     """A result that is already there, as an awaitable. The SDK awaits whatever a handler returns (mcp 2.2 and 2.3:
     `Callable[..., Awaitable[...]]`, called as `await entry.handler(ctx, params)`), but listing the tools waits on
-    nothing - an `async def` that never awaits was the form Sonar python:S7503 flags (2026-10-17). Awaiting this hands
+    nothing - an `async def` that never awaits was the form Sonar python:S7503 flags. Awaiting this hands
     the value back at once, under any event loop anyio runs (asyncio or trio)."""
 
     def __init__(self, value: T) -> None:

@@ -544,7 +544,7 @@ def hold_connections(c: Clients, t: Target, fid: str, *, headroom: int = 3,
     """fs-12: open sessions until the server refuses, then give `headroom` back so an operator (and
     WARDEN's read) can still get in - the apps' pools grab them and hit the limit.
 
-    ⛔ Measured in the preflight (2026-09-26): one IAM-token TLS login through the express gateway
+    ⛔ Measured in the preflight: one IAM-token TLS login through the express gateway
     takes ~0.26 s, so 844 in series took 3.7 minutes - past the inject's ready timeout, and the
     revert then raced a holder that was still opening sessions. So: in parallel. And past
     `max_connections` on purpose (+50 attempts): stopping at our own count (the old loop did, with
@@ -1655,7 +1655,7 @@ _VARIANTS: dict[str, dict[str, Any]] = {}
 def decide_fix(verdict: str | None) -> str:
     """The fix outcome of one run, from the gate's verdict alone.
 
-    ⛔ THE HARNESS RUNS NO FIX COMMAND (2026-09-27 security audit). It used to run an approved fix's
+    ⛔ THE HARNESS RUNS NO FIX COMMAND. It used to run an approved fix's
     printed commands through an allow-list, with the operator's full environment. The allow-list
     matched banned flags by exact name, and the AWS CLI accepts abbreviations: `--prof admin` ran
     as another profile, and `--regio us-east-1` in another region. A deny-list of flags cannot be

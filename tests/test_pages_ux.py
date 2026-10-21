@@ -1,4 +1,4 @@
-"""WARDEN's pages, upgraded (owner, 2026-10-16): the records list pages and filters on the server - its query read
+"""WARDEN's pages, upgraded: the records list pages and filters on the server - its query read
 strictly, a limited approver still shown only its environments - the record page's way to the next one, light and dark
 themes that pass WCAG 2.2 AA, a quiet background and a wave on a press that hold still for reduced motion, and the
 logo in every header - all inside the pages' Content-Security-Policy."""

@@ -33,7 +33,7 @@ Nothing here can see a secret no pattern matched.
 The check that CAN fail is the outbound gate's G5, which re-runs every pattern on what leaves and
 blocks the message (`tests/test_gate.py`, `tests/test_cli.py`). An earlier re-scan inside `redact()`
 used the sweep's own rule, so it could never fire on a real leak; the second independent review
-(2026-09-30) found that, and it was removed.
+ found that, and it was removed.
 
 ⚠ Honest limit: it is regex-based. Strong against accidental leakage, not a guarantee against a
 determined adversary.
@@ -240,13 +240,13 @@ quality, not cost.
   Gemini choice below). Qualified on the API the same day with the SDK the runtime image ships - 20 of 30 correct,
   none wrong and allowed, every incident answered, $0.48; an earlier run on an older SDK scored 18 (both pass;
   src/warden/data/providers.yaml). Sonnet 5, not the newer Sonnet 5.5, which failed the same bar.
-- *(Superseded 2026-10-09)* **Gemini on Google AI Studio's free tier for the first cloud window** (owner, 2026-10-04), while Bedrock access waits
+- *(Superseded 2026-10-09)* **Gemini on Google AI Studio's free tier for the first cloud window**, while Bedrock access waits
   on AWS Support. Accepted with its costs stated: Google may use free-tier prompts to improve its products (WARDEN sends
   only redacted prompts - typed facts, never raw logs), and the free quota is small (on 2026-10-03 it answered 4 of 30
   incidents in a day), so the qualification (M20) runs in daily batches (`qualify_provider.py --resume`) and the model
   diagnoses in the cloud only once it has passed.
 - *(Superseded 2026-10-09: the production model is on the Claude API, above. Bedrock stays a supported
-  provider.)* **Bedrock Claude Sonnet 5 for production** (owner, 2026-10-03), chosen by WARDEN's own replay
+  provider.)* **Bedrock Claude Sonnet 5 for production**, chosen by WARDEN's own replay
   results, never by public leaderboards, which flip between systems. On the 30 recorded incidents
   (src/warden/data/providers.yaml): Fable 5.1 and Fable 5 scored 20 correct, Sonnet 5 19, Sonnet 5.5 16,
   Opus 5 15 and Opus 5.5 10, none with a wrong fix let through. Sonnet 5 passed the bar at a fifth of
@@ -265,7 +265,7 @@ quality, not cost.
   - The operator role only reads (`iam/operator/`).
 - **One AWS account, hardened, for the lab** (owner decision). Separate accounts per environment are
   the production recommendation, and the IaC supports them.
-- **Quarantine keys are filtered word by word, not by an allowlist** (2026-09-30).
+- **Quarantine keys are filtered word by word, not by an allowlist**.
   The plan said "allowlist". Measured over every recorded run (4,722 distinct untrusted lines), the
   only application keys were the bench apps' own (`cart_id`, `orders`, `rejected` ...). A fixed list
   would fit only the bench, or would drop every real application's keys. Instead:
@@ -306,8 +306,8 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   live-read, exact-session, rollback and positive-health contract - no remediation framework covers that contract.
 - AWS knowledge for an error code the model may not know: the AWS Knowledge MCP server (AWS's documentation and
   Knowledge Center, free, no sign-in), called with a closed code and a service word only; its answer is reference,
-  never evidence - `aws_docs.py` (2026-10-10).
-- The global services' state (2026-10-10): a CloudFront distribution and a Route 53 health check are read in
+  never evidence - `aws_docs.py`.
+- The global services' state: a CloudFront distribution and a Route 53 health check are read in
   AWS's global-services Region, where their alarms live. A distribution is granted by its Environment tag. A
   health check has an ID for a name and no condition key (AWS service reference, read 2026-10-10), so the reader may
   read any health check's checker status in the account - the one account-wide read, its status only, never its
@@ -344,7 +344,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   recorded answers, off unless configured), and `xray.py` (X-Ray's trace summaries with its own root causes, in
   the incident's reader role - the apps' traces sent there with OpenTelemetry). Each is a few reads; their vendors' agents and SDKs write
   telemetry, which WARDEN only reads. Datadog's own agent is adopted to send the test stack's telemetry in.
-- Service quotas as evidence: built - `quotas.py` (B14, 2026-10-17): Service Quotas' ListServiceQuotas, and for the
+- Service quotas as evidence: built - `quotas.py` (B14): Service Quotas' ListServiceQuotas, and for the
   count quotas AWS gives a usage metric read as a Maximum, that metric through GetMetricData, in the incident's reader
   role (other quotas are not compared). AWS's own quota-monitor solution and Trusted
   Advisor alarm on quotas; neither answers "was this service at its limit when this alarm fired". The failures a cloud
@@ -370,7 +370,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   fix plans of a resource, how each ended, who approved). An agent memory store or a vector index of past incidents
   would hold a model's own earlier prose, which a later diagnosis must not read (register N9); the audit already
   holds the facts.
-- Whether a fix worked: built - `symptom.py` (B13, 2026-10-17): the alarm's own metric over whole periods since the
+- Whether a fix worked: built - `symptom.py` (B13): the alarm's own metric over whole periods since the
   fix, against the alarm's own threshold, and the error classes in the logs before and after it. CloudWatch's alarm
   state and a Datadog monitor's say only that the alarm stopped firing. The failures a cloud read can end in, as one
   tuple to catch - `read_errors.py`.
@@ -393,7 +393,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   calibration library would score the model's own number, which is what it must not use (owner U3-1).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
-- Autonomy and the AI critic - `autonomy.py`, `eldane.py` (owner, 2026-10-16/17): dev's level is read from
+- Autonomy and the AI critic - `autonomy.py`, `eldane.py`: dev's level is read from
   WARDEN's own signed audit rows (its demotions since a person's signed re-enable), so a feature-flag service would
   be a second, mutable store beside the record. Dev is autonomous through Eldane from the first plan; prod always
   needs a person's passkey. The critic is one call through `providers.py` to the other Claude model from the one
@@ -434,7 +434,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   approval page `approval_page.py` (its ceremonies are py_webauthn's): WARDEN's own product surface.
 - Where a command-line path may point - `paths.py`: the standard library's `pathlib` (resolve, is_relative_to) and
   a list of the tools' own folders; a sandboxing library would confine the whole process, not one argument
-  (2026-10-16, Sonar pythonsecurity:S8707).
+  (Sonar pythonsecurity:S8707).
 
 **Evidence through the AWS MCP servers or the Agent Toolkit: not adopted.** Each lets a model choose its
 calls (free-form API calls, Python, SQL or log queries), which WARDEN's design forbids; each returns raw text the

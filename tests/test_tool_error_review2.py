@@ -88,7 +88,7 @@ def test_a_config_line_with_run_together_steering_words_is_not_trusted():
 
 
 
-# Third review (2026-09-30): nested stack prefixes lost the tag (ea65387 regression).
+# Third review: nested stack prefixes lost the tag (ea65387 regression).
 @pytest.mark.parametrize("line, expected", [
     ("logs: lambda/checkout logs: logs: /aws/lambda/checkout: [access denied on FilterLogEvents] boom",
      "logs lambda/checkout logs: access denied on FilterLogEvents"),

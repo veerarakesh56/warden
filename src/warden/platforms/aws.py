@@ -4,7 +4,7 @@ The workflow decides whether to act; this carries out one approved entry on one 
 Kubernetes platform:
 - reads go through the incident's reader session; a write goes through an actor session minted for that one
   plan (identity.actor_session): 900 s, SourceIdentity the incident, session tags naming the approvers and the
-  plan, and a session policy allowing only that entry's actions on that resource (audit A-P-5);
+  plan, and a session policy allowing only that entry's actions on that resource;
 - every write re-reads first and refuses, changing nothing, when the resource moved since the plan was
   approved - and re-checks its bounds against that read;
 - a rollback restores exactly what the plan's snapshot recorded;
@@ -19,7 +19,7 @@ ecs_rollback_service (to the task definition of the service's last successful de
 one, from ECS's own deployment history), and aurora_failover (T3: promote one available reader the approver named,
 only while the writer is still the one they saw; irreversible - a person decides what comes after). lambda_restore_config
 is not carried out here: restoring a
-configuration copies environment values, which WARDEN does not read (audit A-B-M9).
+configuration copies environment values, which WARDEN does not read.
 
 G9-D (2026-10-10; AWS's own documentation read that day, verify-fix-apis.md): lambda_disable_esm (pause a mapping that
 reads an SQS queue - never a stream, whose records age out while paused), events_disable_rule (pause a SCHEDULED rule -
@@ -684,7 +684,7 @@ def _runaway_queries(queries: list[dict[str, Any]], wg: str) -> tuple[set[str], 
         st = q.get("Status") or {}
         mine[q["QueryExecutionId"]] = st.get("State")
         ran = ((q.get("Statistics") or {}).get("EngineExecutionTimeInMillis") or 0) / 1000
-        # Only a SELECT: a cancelled INSERT INTO or CTAS can leave partial data (review M4). Its engine time, not
+        # Only a SELECT: a cancelled INSERT INTO or CTAS can leave partial data. Its engine time, not
         # its time queued (L8).
         if st.get("State") == "RUNNING" and q.get("SubstatementType") == "SELECT" \
                 and ran >= RUNAWAY_QUERY.total_seconds():
@@ -1212,7 +1212,7 @@ class AwsPlatform:
         mine = [m for m in mappings if _unqualified(str(m.get("FunctionArn", ""))) == fn_arn]
         want = "Enabled" if pause else "Disabled"
         # A pause only for a queue that keeps its messages a day or more: they wait there. A stream's records expire
-        # while a mapping is paused, and so do a short-retention queue's (review H2).
+        # while a mapping is paused, and so do a short-retention queue's.
         allowed = {m["UUID"] for m in mine if m.get("State") == want
                    and (not pause or self._keeps(str(m.get("EventSourceArn", ""))))}
         if only:
@@ -1396,7 +1396,7 @@ class AwsPlatform:
     def _previous_steady(self, cluster: str, service: str, current: str) -> str:
         """The task definition of the service's last successful deployment before the one now running, from ECS's
         own deployment history (ListServiceDeployments) - never "revision minus one", which CI-registered and
-        rolled-back revisions break (audit A-B-M6)."""
+        rolled-back revisions break."""
         ecs = self._read("ecs")
         done = ecs.list_service_deployments(cluster=cluster, service=service, status=["SUCCESSFUL"],
                                             maxResults=20).get("serviceDeployments") or []
@@ -1640,7 +1640,7 @@ class AwsPlatform:
         arn = f"arn:aws:apigateway:{apigw.meta.region_name}::/restapis/{api_id}/stages/{stage}"
         whole = lambda v: int(v) if isinstance(v, int | float) and v >= 1 and float(v).is_integer() else None
         return {"api": {name}, "stage": {stage} if whole(rate) and whole(burst) else set(),
-                # A stage inherits its API's tags (review L6): its own, else the API's.
+                # A stage inherits its API's tags: its own, else the API's.
                 "environment": (st.get("tags") or {}).get(ENV_TAG) or api_tags.get(ENV_TAG),
                 "current_rate_limit": whole(rate), "current_burst_limit": whole(burst),
                 "account_rate_limit": whole(acct.get("rateLimit")), "account_burst_limit": whole(acct.get("burstLimit")),

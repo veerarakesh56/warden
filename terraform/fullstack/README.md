@@ -23,7 +23,7 @@ application code:
 | apps | Lambdas, container image, the shop (`manifests/shop`, synced by Argo CD; `k8s/shop-pipeline`) | `scripts/deploy_fullstack_apps.py`, or `.github/workflows/deploy-<env>.yml` (by hand, from the branch `<env>`; part: apps), or a push to the branch `<env>` (`on-merge-<env>.yml`) | `stack.json` |
 | WARDEN CI | the tool | `.github/workflows/ci-tool.yml` | - |
 
-Branches (owner, 2026-10-16): an environment deploys only from the branch of its own name, and `main` deploys
+Branches: an environment deploys only from the branch of its own name, and `main` deploys
 nothing (CI only). The `dev` branch deploys dev; it is `main` fast-forwarded. The `prod` branch deploys prod, every
 job behind a person's approval; it is `dev` merged by pull request. A commit that did not come that way is refused
 before the job holds a credential.
@@ -136,26 +136,26 @@ bills by the GB-month). Apart from those, the sweep must end `clean` (exit 0). A
 the same, and it would be invisible to a tag filter. Expect the security-group deletes to wait up to ~20 minutes
 while Lambda releases the in-VPC functions' network interfaces; that is AWS, not a hang.
 
-## Network: what is public and what is not (2026-09-27 review)
+## Network: what is public and what is not
 
 | Where | What | Reachable from |
 |---|---|---|
 | Public subnets | the NAT gateway (its Elastic IP) only; `map_public_ip_on_launch = false` | nothing inbound |
 | Private subnets | ECS tasks (no public IP), EKS nodes and control-plane interfaces, in-VPC Lambdas, Redis, the ALB (**internal**) | inside the VPC only; the ALB only from the Lambda security group |
-| AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway: throttled; `POST /checkout` needs a bearer token, which the checkout Lambda checks in constant time against a Secrets Manager secret written write-only (in no plan or state, `api_auth.tf`); `GET /health` is open and touches nothing; JSON access logs go to `/aws/vendedlogs/warden-<env>-api-access`. EKS API: `/warden/<env>/tf/my_ip_cidr` by default, IAM auth through access entries - **but open to `0.0.0.0/0` while the `EKS_PUBLIC_CIDRS` variable is set on the GitHub environment (`eks_public_access_cidrs`), and it stays open until an apply without it**. The fix, an in-VPC deploy path, is an open row in `docs/FAILURE-MODES.md` (A-I-16) |
+| AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway: throttled; `POST /checkout` needs a bearer token, which the checkout Lambda checks in constant time against a Secrets Manager secret written write-only (in no plan or state, `api_auth.tf`); `GET /health` is open and touches nothing; JSON access logs go to `/aws/vendedlogs/warden-<env>-api-access`. EKS API: `/warden/<env>/tf/my_ip_cidr` by default, IAM auth through access entries - **but open to `0.0.0.0/0` while the `EKS_PUBLIC_CIDRS` variable is set on the GitHub environment (`eks_public_access_cidrs`), and it stays open until an apply without it**. The fix, an in-VPC deploy path, is an open row in `docs/FAILURE-MODES.md` |
 | Outside the VPC | Aurora in express configuration (the Free plan's only form) | IAM database authentication only, no password exists |
 
 No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT.
 There are no interface endpoints (Secrets Manager, SQS and ECR calls go through the NAT), and the placeholder image comes from `public.ecr.aws`, so image
 pulls go through the NAT as well; only S3 and DynamoDB have (free) gateway endpoints. A production app with a domain would put a **public** ALB in
 front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so its ALB is internal - and still HTTPS only
-(2026-10-17): the stack makes a self-signed certificate for the ALB's DNS name and imports it into ACM (no charge),
+: the stack makes a self-signed certificate for the ALB's DNS name and imports it into ACM (no charge),
 and the traffic Lambda trusts that one certificate (`ALB_CA_PEM`). Its access logs go to `warden-<env>-alb-logs-*`
 (14 days), and the order-events topic is encrypted with the AWS-managed `aws/sns` key.
 
 ## Things that are deliberate
 
-- **One NAT gateway, in one AZ** (2026-09-26): Aurora (express) is outside the VPC, so the in-VPC
+- **One NAT gateway, in one AZ**: Aurora (express) is outside the VPC, so the in-VPC
   Lambdas need a way out; AWS APIs are still reached through the endpoints. ⚠ If `public[0]`'s AZ
   fails, the in-VPC Lambdas lose the database - accepted for a benchmark, a production stack runs
   one NAT per AZ. Aurora itself has no security group: its internet access gateway cannot be

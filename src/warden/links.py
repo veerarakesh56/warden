@@ -156,7 +156,7 @@ def links_of(log: Any, incident: str) -> list[dict[str, Any]]:
 
 
 def _standing(rows: list[dict[str, Any]], incident: str) -> list[dict[str, Any]]:
-    """links_of over link rows already read: a walk reads them once, not once per record it reaches (CodeRabbit)."""
+    """links_of over link rows already read: a walk reads them once, not once per record it reaches."""
     latest: dict[tuple[str, str], dict[str, Any]] = {}
     for e in rows:
         b = e["body"]

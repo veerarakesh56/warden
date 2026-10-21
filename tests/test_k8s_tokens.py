@@ -1,4 +1,4 @@
-"""No service-account token is mounted where nothing calls the API (audit A-I-26): a token in a pod is a
+"""No service-account token is mounted where nothing calls the API: a token in a pod is a
 credential any process there - or anyone who gets in - can use against the cluster."""
 from __future__ import annotations
 

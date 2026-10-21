@@ -47,7 +47,7 @@ class RoutedPlatform:
     def healthy(self, service: str) -> bool:
         # Asked only of the platforms that know the service: a database platform knows nothing of a
         # Deployment and would call every Kubernetes fix a failure. None knowing it is not healthy -
-        # unknown counts as a failure (review C18).
+        # unknown counts as a failure.
         answers = [p.healthy(service) for p in self._by_kind.values() if p.knows(service)]
         return bool(answers) and all(answers)
 

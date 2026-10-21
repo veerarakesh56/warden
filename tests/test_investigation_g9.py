@@ -149,7 +149,7 @@ def _run(tmp_path, asks: int, widen: bool = True):
 
 
 # Each count of `diagnose` holds one more call than the investigation makes: the incident's fix would reach a person,
-# so its last answer gets a second opinion (2026-10-15).
+# so its last answer gets a second opinion.
 def test_the_model_decides_without_more_evidence_and_nothing_more_is_read(tmp_path):
     assert _run(tmp_path, asks=0) == {"prepare": 1, "investigate": 0, "diagnose": 1 + 1}
 

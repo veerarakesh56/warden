@@ -63,7 +63,7 @@ def _finding(line: str) -> bool:
 
 
 def _kind(line: str, names: frozenset[str] = frozenset()) -> str:
-    # Defence in depth (2026-09-27 audit): a "trusted" line that uses steering language is demoted
+    # Defence in depth: a "trusted" line that uses steering language is demoted
     # to untrusted. Trust by prefix rests on every backend prefixing application text, and a custom
     # backend that does not would otherwise hand the model a forged CONFIG line. Measured on every
     # recorded wave: 0 of 125 real config lines are affected.
@@ -146,7 +146,7 @@ _SEGMENT = re.compile(r"(?:[a-z0-9/][a-z0-9._/-]{0,253}|(?:/|(?:lambda|ecs|sqs|k
 _TAG = re.compile(r"\[(" + "|".join(re.escape(o) for o in OUTCOMES) + r")(?: on ([A-Za-z]\w{0,59}))?\] ")
 # Only operations WARDEN's own readers call (aws_backend.py, aws_stack.py). A shape check let a log
 # writer name a fake one - `GetRollbackCheckoutToRevisionFortyOneNow` - through a traceback path that
-# became a KeyError (independent review 2026-09-28).
+# became a KeyError.
 READ_OPERATIONS = frozenset({
     "FilterLogEvents", "GetMetricData", "DescribeServices", "DescribeTaskDefinition", "DescribeCluster",
     "DescribeDBClusters", "DescribeDBInstances", "DescribeDBLogFiles", "DownloadDBLogFilePortion",
@@ -173,7 +173,7 @@ READ_OPERATIONS = frozenset({
     "ListNodegroups", "ListTasks", "StartQuery", "DescribeSubscriber",
 })
 # Steering words looked for with the separators removed: STEER needs a non-letter on each side, so
-# `ignoreallpreviousinstructions` passed it (review 2026-09-28).
+# `ignoreallpreviousinstructions` passed it.
 # `revert` and the misspelled `rolback` too (fourth review, 2026-09-30, B-N7).
 _SQUASHED_STEER = re.compile(r"ignore|instruct|previous|propose|approv|override|disregard|execute|pretend|"
                              r"forget|rol+back|rol+ingback|revert|failover|thefix|youmust|mustbe|should|"

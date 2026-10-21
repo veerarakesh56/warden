@@ -1,4 +1,4 @@
-"""Each environment's own Slack channels (owner, 2026-10-16): a dev incident is told only in dev's alerts channel and
+"""Each environment's own Slack channels: a dev incident is told only in dev's alerts channel and
 discussed only in dev's discussion channel, a prod one only in prod's - never another environment's, whatever is
 missing or mistyped. WARDEN_SLACK_CHANNELS and WARDEN_DISCUSS_CHANNELS, `env=channel,...`, are runtime settings."""
 

@@ -157,7 +157,7 @@ def test_grafana_sits_beside_aws_and_its_failure_never_takes_aws_down(monkeypatc
 def test_the_read_keys_are_the_read_zones_alone_and_grafana_has_no_slot():
     """Datadog's read keys have their slots, the read zone holds them (and the webhook Lambda, to confirm a monitor);
     X-Ray needs no key. Grafana's reader stays for an adopter who sets WARDEN_GRAFANA_* in the process, but WARDEN's own
-    runtime reads Datadog only (owner, 2026-10-16): nothing of Grafana's is loaded from the store or has a slot."""
+    runtime reads Datadog only: nothing of Grafana's is loaded from the store or has a slot."""
     for name in ("WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"):
         assert name in settings.SECRETS, name
         assert settings.RESTRICTED[name] == {"worker", "lambda-alertmanager"}, name

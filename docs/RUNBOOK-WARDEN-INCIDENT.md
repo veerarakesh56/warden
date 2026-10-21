@@ -109,4 +109,4 @@ warden killswitch reset --approver <your-id> --key ~/.warden/<your-id>.pem --tri
 
 - Write down what happened, with times in UTC and the display zone, and the audit hashes that prove it.
 - Add the case to the register (`docs/FAILURE-MODES.md`) with a test that fails without its fix, and plant-check it.
-- If a policy would have caught it, add it in observe mode first (audit A-P-8), measure it, then enforce it.
+- If a policy would have caught it, add it in observe mode first, measure it, then enforce it.

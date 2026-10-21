@@ -1,4 +1,4 @@
-"""What an alert from an MCP caller may make WARDEN read (audit A-B-H4).
+"""What an alert from an MCP caller may make WARDEN read.
 
 An alert's labels steer the readers: `namespace`, `log_group`, `ecs_cluster`, `lambda`, ... name what is read. From
 alert intake they come from the monitoring system; from an MCP caller they are whatever the caller wrote, so a

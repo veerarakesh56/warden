@@ -1,4 +1,4 @@
-"""A fix judged by its alarm is verified for as long as that alarm can take to read OK (2026-10-11). The workflow's
+"""A fix judged by its alarm is verified for as long as that alarm can take to read OK. The workflow's
 verify window was a fixed five minutes: an alarm of three 5-minute periods clears no sooner than fifteen, so a right
 restore behind it was rolled back as "not recovered". The platform's live read now gives the alarm's own evaluation
 time, and the resolver carries it in the request - never under the default, never over what a request may ask."""
@@ -46,7 +46,7 @@ def test_the_live_read_gives_the_time_its_alarm_can_take_to_clear(alarm, minutes
 def test_only_a_read_that_names_an_alarm_is_timed_by_one_and_a_failed_timing_voids_nothing():
     f = Timed(Period=300, EvaluationPeriods=3)
     live = _p(f).live("lambda_set_reserved_concurrency", {"function": FN})
-    # No alarm names it - but a fix judged by metrics is given the time that takes (live, 2026-10-16).
+    # No alarm names it - but a fix judged by metrics is given the time that takes.
     from warden.platforms.aws import METRIC_SETTLE_MINUTES
 
     assert live["function"] == {FN}

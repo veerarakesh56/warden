@@ -6,7 +6,7 @@ fetched), so it stays inside the pages' Content-Security-Policy. It sits beside 
 screen readers rather than read out twice. An `xmlns` attribute is dropped here: inline SVG needs none, and the pages
 hold no address.
 
-`FAVICON_LINK` puts the same mark on the browser tab (owner, 2026-10-17). A browser loads a tab icon as an image, so
+`FAVICON_LINK` puts the same mark on the browser tab. A browser loads a tab icon as an image, so
 it is embedded as a `data:` address - nothing is fetched - and the pages allow images from `data:` alone
 (`img-src data:`), which reaches no host.
 """

@@ -9,7 +9,7 @@ name: "_ infra · deploy"
 # bucket, and a GitHub Environment <env> (deployment branch: <env> only) with the secret AWS_ROLE_ARN (it holds the
 # account id: a variable is printed unmasked in a step's inputs, 2026-10-16), the variables AWS_REGION and
 # TF_STATE_BUCKET (optional EKS_PUBLIC_CIDRS, EKS_ADMIN_ROLE_ARNS) and, for prod, the owner as required reviewer.
-# Branches (owner, 2026-10-16): main deploys nothing; dev is main fast-forwarded; prod is dev merged by pull request.
+# Branches: main deploys nothing; dev is main fast-forwarded; prod is dev merged by pull request.
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
 # pause / resume (owner update 5, 2026-10-17; the full stack only): pause stops every writer, then copies every data
@@ -29,7 +29,7 @@ on:
       environment:
         type: string
         required: true
-      # The branch this environment's commits are promoted from: main for dev, dev for prod (2026-10-16).
+      # The branch this environment's commits are promoted from: main for dev, dev for prod.
       upstream:
         type: string
         required: true
@@ -118,7 +118,7 @@ jobs:
           python-version: "3.13"
           activate-environment: true
           # No cache in a job that holds credentials: uv does not re-verify unpacked cache entries, so a
-          # poisoned cache would install unchecked (fifth review E, 2026-10-01).
+          # poisoned cache would install unchecked.
           enable-cache: false
       - run: uv sync --locked --no-build --only-group infra-deploy   # aurora_express.py: stdlib + boto3 only
       # Helios (register R56) checks the plan before apply. Built from a pinned commit with its
@@ -149,7 +149,7 @@ jobs:
         env:
           CIDRS: ${{ vars.EKS_PUBLIC_CIDRS }}
           # The ARNs of the IAM roles given admin access to the cluster - names, not credentials. A secret only
-          # because an ARN holds the account id (2026-10-16).
+          # because an ARN holds the account id.
           ADMIN_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
         run: |
           if [ -n "$CIDRS" ]; then echo "TF_VAR_eks_public_access_cidrs=$CIDRS" >> "$GITHUB_ENV"; fi
@@ -195,7 +195,7 @@ jobs:
           printf '{"commit":"%s","sha256":"%s","stack":"%s","environment":"%s"}\n' "$GITHUB_SHA" "$sum" "$STACK" "$WARDEN_ENV" \
             > "$RUNNER_TEMP/plan-meta.json"
           aws s3 cp "$RUNNER_TEMP/plan-meta.json" "s3://$BUCKET/$STACK/plans/$RUN.json" --only-show-errors
-          # In the log as well (2026-10-16): a job summary is not readable through the API, and a reviewer reads the log.
+          # In the log as well: a job summary is not readable through the API, and a reviewer reads the log.
           echo "plan kept for review: run $RUN, commit $GITHUB_SHA, plan sha256 $sum"
           { echo "### Plan kept for review"; echo "run \`$RUN\` · commit \`$GITHUB_SHA\` · plan sha256 \`$sum\`";
             echo "Apply exactly this plan: Deploy · <env> → infra_action apply-plan, with this run id and sha256."; } \
@@ -237,7 +237,7 @@ jobs:
           fi
           # The apps deploy's own key - ecs_baseline_task_definition, the revision the harness reverts to - is kept: an
           # infra apply never changes the service's task definition (ecs.tf ignores it), and a re-apply dropped the
-          # key, leaving the harness unable to start (2026-10-15).
+          # key, leaving the harness unable to start.
           if aws s3 cp "s3://$BUCKET/$STACK/stack.json" "$RUNNER_TEMP/previous.json" --only-show-errors 2>/dev/null; then
             jq -s '(.[0] | with_entries(select(.key == "ecs_baseline_task_definition"))) + .[1]' \
               "$RUNNER_TEMP/previous.json" "$RUNNER_TEMP/stack.json" > "$RUNNER_TEMP/merged.json"

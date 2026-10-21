@@ -16,7 +16,7 @@ no shadow period and no minimum of catch trials (decide.tier_enabled stays avail
 - after a demotion the environment returns to L2 only when a PERSON re-enables it: a T3 approval, signed with their
   own key, of exactly the demotions on the record (`warden autonomy enable`; enable() below) - recorded, never an AI's.
 
-Self-guard (register R6, item 12): neither WARDEN nor Eldane ever approves a plan whose target is WARDEN's own runtime
+Self-guard (register R6): neither WARDEN nor Eldane ever approves a plan whose target is WARDEN's own runtime
 (P22 SELF-TARGET) or that touches WARDEN's guardrails - the gate, the catalogue, environments.yaml, the approvers,
 Eldane's config, CI workflows, IAM, CODEOWNERS. Those are a person's, with a passkey.
 
@@ -101,7 +101,7 @@ def demotions(log: Any, environment: str, entry: str | None = None,
         elif b.get("harmful"):
             out.append((e["seq"], (f"a person said no to a plan Eldane said yes to (`{b.get('entry')}`, incident "
                                    f"{b.get('incident', '?')})")))
-    # Only models that did review (CodeRabbit, PR 42): a skipped review - no diagnosis provenance, the daily ceiling -
+    # Only models that did review: a skipped review - no diagnosis provenance, the daily ceiling -
     # records placeholder models, and an end with no review copies them; neither is a model that changed.
     under = sorted(((e["seq"], e["body"]["models"]) for e in filter(here, log.entries(kinds=(OUTCOME, VERDICT)))
                     if e["body"].get("models") and not e["body"].get("skipped")), key=lambda x: x[0])
@@ -185,7 +185,7 @@ def record_outcome(log: Any, incident: str, *, plan: dict[str, Any], status: str
 
 
 def _scored(log: Any, env: str, run: dict[str, str]) -> bool:
-    """Once per run (PR 42 review): a retried end scores the run if the first try could not, and never twice."""
+    """Once per run: a retried end scores the run if the first try could not, and never twice."""
     return bool(run.get("run_id")) and any(
         e["body"].get("workflow_id") == run.get("workflow_id") and e["body"].get("run_id") == run.get("run_id")
         for e in log.entries(f"autonomy-{env}", kinds=(OUTCOME,)))
@@ -210,7 +210,7 @@ def _decisions(approvers: list[str], *, ai: frozenset[str], policy: Any, status:
     elif verdict:
         mode = "shadow"
     return {"person": person, "eldane": yes, "mode": mode,
-            # A skipped review's models are placeholders, never the models that reviewed (CodeRabbit, PR 42).
+            # A skipped review's models are placeholders, never the models that reviewed.
             "models": {} if review.get("skipped") else review.get("models") or {},
             "harmful": yes is True and person == "denied",
             "agreed": None if yes is None or not person else yes == (person == "approved")}

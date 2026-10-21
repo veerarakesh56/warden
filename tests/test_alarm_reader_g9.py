@@ -1,4 +1,4 @@
-"""G9-A2a (2026-10-10): any alarm on any service is read. The alarm as CloudWatch defines it - never its name's or
+"""G9-A2a: any alarm on any service is read. The alarm as CloudWatch defines it - never its name's or
 description's text - its own metric, the resource's other recently active metrics, and the writes to the resource in
 CloudTrail, as trusted structured lines (evidence kind C)."""
 
@@ -192,7 +192,7 @@ def test_the_configuration_an_alarm_guards_and_its_latest_deployment_are_read():
 
 
 def test_a_metric_math_alarm_reads_the_metrics_it_is_made_of_never_its_expression():
-    """G10 review (2026-10-10): a metric-math alarm read nothing but its threshold, so an API Gateway fault behind one
+    """G10 review: a metric-math alarm read nothing but its threshold, so an API Gateway fault behind one
     showed no symptom. Each part's metric is AWS's structured fields and is read like a plain alarm's; the expression
     is the owner's text and never is. A custom namespace's part is shown, never keyed (H2)."""
     def part(qid, ns, metric, stat="Sum"):
@@ -217,7 +217,7 @@ def test_a_metric_math_alarm_reads_the_metrics_it_is_made_of_never_its_expressio
 
 
 def test_a_change_line_names_the_fields_its_request_set_never_their_values():
-    """G10 held-out baseline (2026-10-10): a CHANGE line named the API call only, so a forced redeploy and a cut of the
+    """G10 held-out baseline: a CHANGE line named the API call only, so a forced redeploy and a cut of the
     desired count read alike - the model missed a person's cut (g10-135), and a redeploy read as a change WARDEN could
     undo. The request's top-level field names are shown; values never are, and nothing but a field name passes."""
     e = _event("SetQueueAttributes")

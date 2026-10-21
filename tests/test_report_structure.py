@@ -136,7 +136,7 @@ def test_a_healthy_service_detects_no_pattern():
 
 def test_when_the_gate_says_the_action_cannot_work_that_is_the_first_warning():
     """⛔ Reviewing a real EKS report: the gate escalated scale_up on OOM-killed pods (P11), and the
-    runbook below it still read as a recipe for scaling up. The runbook is gone (2026-10-16); the gate's finding
+    runbook below it still read as a recipe for scaling up. The runbook is gone; the gate's finding
     still stands first, before the follow-ups."""
     from warden.verifier import verify
 

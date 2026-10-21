@@ -84,7 +84,7 @@ def _safe(path: pathlib.Path, what: str) -> str:
 
 
 def _helios_argv(helios: list[str], document: pathlib.Path, scenario: pathlib.Path) -> list[str]:
-    """Helios's command line, every part checked (Sonar pythonsecurity:S8705, 2026-10-20/21): the program is one
+    """Helios's command line, every part checked (Sonar pythonsecurity:S8705): the program is one
     executable file named helios where the tools work (RUNNER_TEMP in the job); the document and the scenario are
     existing files, resolved, absolute and made of safe characters only. The scenario goes as `--scenario=<path>` and
     the document after `--`, so neither can be read as an option (Helios's clap CLI: `simulate <INPUT> --scenario
@@ -200,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--baseline", type=pathlib.Path)
     ap.add_argument("--out-dir", type=pathlib.Path, required=True)
     # Each stack is judged by its OWN scenarios and accepted failures (terraform/<stack>/helios): the undo lab's first
-    # plan was refused for not holding the full stack's node group, queue and cache (2026-10-11).
+    # plan was refused for not holding the full stack's node group, queue and cache.
     ap.add_argument("--stack", default="fullstack")
     args = ap.parse_args(argv)
     helios_dir = ROOT / "terraform" / args.stack / "helios"

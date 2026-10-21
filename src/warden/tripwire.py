@@ -5,7 +5,7 @@ adds a SECOND, independent signal: Meta's Llama Prompt Guard 2 (86M), a classifi
 large corpus of prompt-injection and jailbreak attempts, runs locally on every untrusted part the
 model reads (alert text, labels, trusted items) and on each log line and event. The typed facts are not
 scanned themselves: they are covered through the lines they came from - so facts from lines past the scan
-budget are covered only by the quarantine's filters (fifth review, 2026-10-01).
+budget are covered only by the quarantine's filters.
 A line it flags does not change what the model sees; it changes what the gate allows: policy P16
 escalates the incident to a person, so a flagged line can never lead to an automatic or pre-approved
 fix. It is a tripwire, never a gate that clears text as safe - published work bypasses such
@@ -49,7 +49,7 @@ MAX_TOKENS = 512
 WINDOW_CHARS, STEP_CHARS = 400, 300     # a stand-in classifier without a model (tests): characters
 # The parts the MODEL reads are also scored in short windows. In one 500-token window, about 300 benign
 # characters before an instruction brought its score from 0.99 to below the threshold: 13 of 25 padded
-# placements were caught (fourth review, 2026-09-30). An instruction of up to 32 tokens lies whole in a
+# placements were caught. An instruction of up to 32 tokens lies whole in a
 # 64-token window with at most 32 tokens of anything else.
 SHORT_TOKENS, SHORT_STEP = 64, 32
 SHORT_CHARS, SHORT_STEP_CHARS = 120, 60
@@ -70,7 +70,7 @@ MIN_SEGMENT_CHARS = 20
 # The most tokens of text one scan takes, counted in its long windows (about 1.25x the text, from their
 # overlap): some 26,000 tokens of what the model reads. Recorded incidents need at most 14,121 (p99
 # 11,630, measured 2026-09-30 over 337 reports). With the short windows and sentences, 14,003 tokens
-# took 86 s on a laptop CPU with the real model (2026-10-01), so a scan at the budget runs about three
+# took 86 s on a laptop CPU with the real model, so a scan at the budget runs about three
 # minutes, inside prepare's 15. Over it, nothing is scored and the incident escalates (second review,
 # 2026-09-30): a flood of log text must buy neither an unscanned pass nor a stalled incident.
 MAX_SCAN_TOKENS = 32_768
@@ -90,7 +90,7 @@ def threshold() -> float | None:
     """The score at which a window is flagged, or None if the setting is unusable. ⛔ Audit A-C-12:
     `float("nan")` was accepted, and every comparison with nan is False - detection silently off.
     A threshold no real score reaches switches detection off the same way: the strongest real scores
-    measured were 0.998-0.9993 (second review, 2026-09-30), so the setting is capped at 0.99."""
+    measured were 0.998-0.9993, so the setting is capped at 0.99."""
     try:
         t = float(os.environ.get("WARDEN_TRIPWIRE_THRESHOLD", "0.9"))
     except ValueError:
@@ -224,7 +224,7 @@ def scan(items: dict[str, Item], classify: Any = None, *,
         worst: dict[str, float] = {}
         for item_id, score in zip(owner, cut.scores(windows), strict=True):
             worst[item_id] = max(worst.get(item_id, 0.0), score)
-    except Exception as exc:  # noqa: BLE001 - missing library; no model access; a classify error (A-C-12)
+    except Exception as exc:  # noqa: BLE001 - missing library; no model access; a classify error
         return f"unavailable: {type(exc).__name__}", {}
     status = "ran" if scanned == len(logs) else f"ran-partial: {scanned} of {len(logs)} log lines"
     return status, {i: round(s, 3) for i, s in worst.items() if s >= limit}

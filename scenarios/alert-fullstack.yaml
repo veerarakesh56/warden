@@ -11,7 +11,7 @@
 # The summary below is the fallback when an alarm has no description.
 # `environment: prod` is the policy environment the benchmark is judged under - the strictest - whatever stack it
 # runs on (the stack is WARDEN_ENV's; its names are rewritten per run). A report from a dev run says prod for that
-# reason, not by mistake (eighth review, 2026-10-01).
+# reason, not by mistake.
 
 alert_id: bench
 name: StackAlarm

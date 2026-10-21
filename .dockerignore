@@ -1,5 +1,5 @@
 # The image needs pyproject.toml, uv.lock, README.md, LICENSE, NOTICE and src/ only. Everything else stays out of the build
-# context, so local files - credentials, tfvars, caches - never reach the builder (audit A-I-24).
+# context, so local files - credentials, tfvars, caches - never reach the builder.
 *
 !pyproject.toml
 !uv.lock

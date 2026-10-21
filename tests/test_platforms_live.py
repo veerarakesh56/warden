@@ -1,4 +1,4 @@
-"""Item 4: the Kubernetes and database platforms in the cloud runtime (2026-10-17). Before, the runtime started its
+"""Item 4: the Kubernetes and database platforms in the cloud runtime. Before, the runtime started its
 workers with `--platform aws` only, so an EKS pod problem or a database session problem could only escalate.
 
 What is held here, each with a weaker version that fails (the plant checks):
@@ -245,7 +245,7 @@ def test_db_reads_as_the_monitor_login_and_closes_as_the_terminate_login_in_the_
     assert session["resources"] == ["arn:aws:rds-db:here:111122223333:dbuser:cluster-RID/warden_dev_terminate"]
     [_, (write, writer_conn)] = db_cloud.conns
     assert (write["user"], write["password"]) == ("warden_dev_terminate", "actor-1-token-warden_dev_terminate")
-    # The close's server is verified against Amazon RDS's certificate authorities, not only encrypted (review, PR 48).
+    # The close's server is verified against Amazon RDS's certificate authorities, not only encrypted.
     assert write["sslmode"] == "verify-full"
     assert pathlib.Path(write["sslrootcert"]).read_text(encoding="ascii").count("BEGIN CERTIFICATE") > 1
     assert read["sslmode"] == "verify-full"  # reads verified too
@@ -275,7 +275,7 @@ def test_the_terminate_login_never_signs_in_with_a_standing_password(db_cloud, m
 ])
 def test_the_read_login_is_signed_and_verified_or_refused(db_cloud, monkeypatch, dsn, why):
     """A read DSN iam_dsn would pass through as it is - a standing password, or no host or user to sign for - is
-    refused before any read: it would sign in unsigned and without verify-full (review, PR 48)."""
+    refused before any read: it would sign in unsigned and without verify-full."""
     monkeypatch.setenv("WARDEN_STACK_DB_PRIMARY_RO_DSN", dsn)
     monkeypatch.delenv("WARDEN_DB_TERMINATE_DSN", raising=False)
     p = dbp.db_from_environment().for_environment("dev")

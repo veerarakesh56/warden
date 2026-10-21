@@ -1,5 +1,5 @@
 """Register M11: free-text configuration - a function's description, its tags, its environment - does not reach the
-model as text. Environment values pass an allowlist (A-B-M9); descriptions and tags are never read at all."""
+model as text. Environment values pass an allowlist; descriptions and tags are never read at all."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Held-out G10 with Claude Sonnet 5.5 (2026-10-15): six harmful proposals, every one stopped - four only by low
+"""Held-out G10 with Claude Sonnet 5.5: six harmful proposals, every one stopped - four only by low
 confidence or a citation check, which a more confident answer passes. Three rules now stop them by what the action
 does, whatever the confidence; on all 172 cases they fire on those four and on no correct answer."""
 

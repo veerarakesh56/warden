@@ -17,7 +17,7 @@ terraform {
   required_providers {
     aws     = { source = "hashicorp/aws", version = ">= 6.0, < 7.0" }
     archive = { source = "hashicorp/archive", version = ">= 2.4, < 3.0" }
-    random  = { source = "hashicorp/random", version = ">= 3.7, < 4.0" } # ephemeral random_password (A-I-13)
+    random  = { source = "hashicorp/random", version = ">= 3.7, < 4.0" } # ephemeral random_password
     tls     = { source = "hashicorp/tls", version = ">= 4.4, < 5.0" }    # the internal ALB's certificate (ecs.tf)
   }
   # No backend block on purpose: a local apply keeps local state. CI writes a backend_override.tf
@@ -63,7 +63,7 @@ locals {
 
   # Per-environment values from SSM Parameter Store (free, standard tier), never a local tfvars file.
   # Sensitive: a plan prints "(sensitive value)", not the owner's address - plan logs of a public repo's
-  # CI are public (audit A-I-14).
+  # CI are public.
   my_ip_cidr = sensitive(data.aws_ssm_parameter.my_ip_cidr.insecure_value)
 }
 

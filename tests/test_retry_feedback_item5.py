@@ -1,4 +1,4 @@
-"""Owner item 5 (2026-10-21): a retry after an answer that failed validation tells the model what failed, instead of
+"""Owner item 5: a retry after an answer that failed validation tells the model what failed, instead of
 sending the same prompt again - within the same number of calls and the same budget, and never with a value from the
 answer (it echoes redacted evidence; a validation error can quote it). Only field paths and error types go back."""
 
@@ -145,7 +145,7 @@ class Typed(BaseModel):
         raise PydanticCustomError(v, "custom")  # a validator that names its error type after the value
 
 
-@pytest.mark.parametrize("value", [PLANTED, "secretword"])  # a plain lowercase word too (review, PR 132)
+@pytest.mark.parametrize("value", [PLANTED, "secretword"])  # a plain lowercase word too
 def test_an_error_type_that_is_not_pydantics_own_is_not_echoed(value):
     with pytest.raises(ValidationError) as caught:
         Typed.model_validate({"cause": value})

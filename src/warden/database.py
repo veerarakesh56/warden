@@ -28,7 +28,7 @@ from .tools import PARTIAL_PREFIX, ToolError, failure
 
 CONNECT_TIMEOUT = float(os.environ.get("WARDEN_DB_CONNECT_TIMEOUT", "4.0"))
 # Every statement and every lock wait is bounded: a read of a database that is already in trouble must not hang
-# behind a lock or add a long query to its load (audit A-B-M1, register O8). Seconds.
+# behind a lock or add a long query to its load (register O8). Seconds.
 STATEMENT_TIMEOUT = float(os.environ.get("WARDEN_DB_STATEMENT_TIMEOUT", "10.0"))
 LOCK_TIMEOUT = 2.0
 # A connection counts as "stuck" (terminate-eligible, and evidence in its own right) once it has been
@@ -57,7 +57,7 @@ def engine_of(dsn: str) -> str:
 
 
 def dsn_of(alert: Alert) -> str:
-    # ⛔ The operator's environment only (2026-09-27 audit). A `dsn` label let whoever shapes the
+    # ⛔ The operator's environment only. A `dsn` label let whoever shapes the
     # alert choose which database WARDEN connects to - and which one terminate_connections acts on.
     dsn = os.environ.get("WARDEN_DB_DSN")
     if not dsn:
@@ -95,7 +95,7 @@ class _Postgres:
     def metrics(cls, conn) -> dict[str, float]:
         r = cls._rows
         total = r(conn, "SELECT count(*) FROM pg_stat_activity")[0][0]
-        # Only those idle that long (audit A-B-L9): an application between two statements of a transaction is
+        # Only those idle that long: an application between two statements of a transaction is
         # "idle in transaction" for milliseconds, and counting it called a healthy pool stuck.
         idle_tx = r(conn, "SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction' "
                           "AND state_change < now() - make_interval(secs => %s)", (IDLE_SECS,))[0][0]
@@ -115,7 +115,7 @@ class _Postgres:
             "connections_used_pct": float(total) / float(max_conn) if max_conn else 0.0,
         }
         # ⛔ Best effort, LAST, on its own: Aurora refuses this function ("currently not supported for
-        # Aurora"), and raising here threw away every count above - Wave 4 (2026-09-26) read no database
+        # Aurora"), and raising here threw away every count above - Wave 4 read no database
         # metrics at all on any fault, and every verdict carried P8-PARTIAL-CONTEXT. Aurora's replica
         # lag comes from CloudWatch (AuroraReplicaLag) instead. Autocommit: the failure poisons nothing.
         try:
@@ -395,7 +395,7 @@ class _Mongo:
         conns = status.get("connections", {})
         current = float(conns.get("current", 0))
         available = float(conns.get("available", 0))
-        # Filtered on the server (audit A-B-L8): the unfiltered answer is one document, capped at 16 MB, and a busy
+        # Filtered on the server: the unfiltered answer is one document, capped at 16 MB, and a busy
         # server's every operation came back to be filtered here.
         ops = conn.admin.command("currentOp", {"active": True, "secs_running": {"$gte": 60}})
         # USER ops only. Counting the server's own heartbeats here reported a healthy cluster as

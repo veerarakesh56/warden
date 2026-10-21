@@ -4,7 +4,7 @@ What the on-call engineer should look at now, what the developers should look at
 platform/DevOps team should change so it cannot recur the same way, what the DBA should check, and what
 to put in place to catch it earlier.
 
-⛔ ADVICE IN WORDS, NEVER A COMMAND (2026-10-16). Each pattern used to carry a `fix` of exact aws, kubectl
+⛔ ADVICE IN WORDS, NEVER A COMMAND. Each pattern used to carry a `fix` of exact aws, kubectl
 and SQL commands, printed even under a rejected verdict, some with masked values written back into
 them. A change now goes only through a catalogue plan and a signed approval, which WARDEN applies
 itself; nothing here is a command for anyone to paste.
@@ -98,7 +98,7 @@ def _oom(ctx: ContextBundle) -> list[Pattern]:
                           f"A limit below what the code allocates can never hold: set it above the peak "
                           f"(e.g. {suggested} MiB = logged peak + 25%, rounded to 128 MiB) or cut the allocation.")
         elif limit:
-            # A8 (2026-10-16): the advice used to end in a `kubectl top pod` to paste; it says what to measure.
+            # A8: the advice used to end in a `kubectl top pod` to paste; it says what to measure.
             sizing.append(f"The container limit is {limit:.0f} MiB. Measure each container's real memory use "
                           "under load before changing it.")
         out.append(Pattern(
@@ -383,7 +383,7 @@ def _errors(ctx: ContextBundle, found: list[Pattern]) -> list[Pattern]:
 # `__<short>` suffix when several resources of a kind are labelled) and the deploy records of D.
 # Each pattern's advice names what the evidence shows (a version, a value, a missing rule) in words; a
 # value it suggests (a timeout, a capacity) is worked out from the evidence and the working is said. It
-# prints no command (2026-10-16): the change itself is a catalogue plan for an approver.
+# prints no command: the change itself is a catalogue plan for an approver.
 
 # The prefixes of a parsed traceback frame and of a DynamoDB table's read (contract C).
 _CODE = "CODE "
@@ -442,7 +442,7 @@ def _app_sgs(ctx: ContextBundle, cache_sgs: list[str]) -> list[str]:
 
 
 def _kv(line: str) -> dict[str, str]:
-    # From the start of a word: a long word with no `=` was searched again from each of its letters (Sonar python:S8786, 2026-10-16).
+    # From the start of a word: a long word with no `=` was searched again from each of its letters (Sonar python:S8786).
     return dict(re.findall(r"\b(\w+)=(\[[^\]]*\]|\S+)", line))
 
 
@@ -875,7 +875,7 @@ def _topic_delivery_refused(ctx: ContextBundle) -> list[Pattern]:
         if pol:
             queue = pol.split()[2]
             topic = _kv(pol).get("allows_sns_topic", "").rsplit(":", 1)[0]
-            # Beside the statements the policy has: a whole-policy replace dropped them (audit A6, 2026-10-16).
+            # Beside the statements the policy has: a whole-policy replace dropped them.
             why = (f"Allow topic {topic} in {queue}'s access policy, beside the statements it already has, in the "
                    "infrastructure code that declares the queue.")
         _add(out, "topic_delivery_refused", "SNS cannot deliver to the queue",

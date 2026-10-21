@@ -2,7 +2,7 @@
 # Deployments, ConfigMap, Secret, the warden ServiceAccount) is applied by the APPS pipeline from
 # k8s/fullstack/.
 #
-# Lessons carried over from terraform/proving-ground/eks.tf (Wave 2, measured):
+# Lessons carried over from terraform/proving-ground/eks.tf (Wave 2):
 #  - endpoint_private_access MUST be true while the public endpoint is locked to one IP, or nodes
 #    reach the API from their own public IPs, are refused, and never join (~20 billed minutes).
 #  - on a fresh account create the node-group service-linked role FIRST (README): CreateNodegroup
@@ -60,7 +60,7 @@ resource "aws_eks_cluster" "this" {
 # public endpoint through their NAT gateways, so those addresses are let in - read by the runtime's own NAT names, never
 # written here. A paused runtime has no NAT and adds nothing; an un-paused one has new addresses, so re-apply this stack
 # after resuming the runtime, or WARDEN's cluster reads and fixes are refused and go to a person until then.
-# Only the runtime stack's own addresses (review, PR 48): its name, and the tags terraform/runtime's provider sets on
+# Only the runtime stack's own addresses: its name, and the tags terraform/runtime's provider sets on
 # everything it makes. The runtime lives in this account and in environments.yaml's region; a stack applied in another
 # region would find no addresses and silently leave WARDEN out, so that plan is refused instead.
 data "aws_eips" "runtime_nat" {
@@ -111,7 +111,7 @@ resource "aws_eks_access_entry" "admin" {
 
 # WARDEN's cloud read role views the cluster - pods, events, pod logs, rollouts - and never Secrets
 # (AmazonEKSViewPolicy). It signs in with its own EKS token (k8s_backend.eks_backend): before this the cloud runtime
-# could read nothing in the cluster, "credentials rejected or missing" (2026-10-15).
+# could read nothing in the cluster, "credentials rejected or missing".
 resource "aws_eks_access_entry" "warden_reader" {
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-platform-reader"
@@ -230,7 +230,7 @@ resource "aws_launch_template" "nodes" {
     }
   }
 
-  # Never a public address, whatever subnet a node lands in (Sonar terraform:S6329, 2026-10-16): the private subnets
+  # Never a public address, whatever subnet a node lands in (Sonar terraform:S6329): the private subnets
   # give none already, and this keeps it so if the node group's subnets ever change. Security groups set here replace
   # the ones EKS would choose, so it names the one EKS applies without a template: the cluster security group (pods
   # use it too - the cache allows it, main.tf).
@@ -241,7 +241,7 @@ resource "aws_launch_template" "nodes" {
   }
 
   # Hop limit 1: a pod in its own network namespace cannot reach IMDS, so it cannot take the NODE role's
-  # credentials (audit A-I-12). What needs IMDS runs on the host network and still reaches it: vpc-cni,
+  # credentials. What needs IMDS runs on the host network and still reaches it: vpc-cni,
   # kube-proxy, the Pod Identity agent, and the CloudWatch agent (its chart sets agent.hostNetwork: true,
   # read 2026-10-01). Pods that need AWS get their own role through Pod Identity (catalog-api, below).
   metadata_options {
@@ -292,7 +292,7 @@ resource "aws_eks_addon" "this" {
 # agent it would outlive the stack, untagged.
 resource "aws_cloudwatch_log_group" "container_insights" {
   name = "/aws/containerinsights/${aws_eks_cluster.this.name}/performance"
-  # 14 days (Sonar terraform:S6413, 2026-10-16): enough to look back at an incident found days later.
+  # 14 days (Sonar terraform:S6413): enough to look back at an incident found days later.
   retention_in_days = 14
 }
 
@@ -300,7 +300,7 @@ resource "aws_cloudwatch_log_group" "container_insights" {
 #
 # catalog-api signs IAM database tokens as user catalog (read-only). EKS Pod Identity hands the
 # role to pods of ServiceAccount shop/catalog-api (k8s/fullstack/catalog-api.yaml) - no long-lived
-# key. With the nodes' IMDS hop limit at 1 (A-I-12), no other pod can read the NODE role's credentials.
+# key. With the nodes' IMDS hop limit at 1, no other pod can read the NODE role's credentials.
 
 resource "aws_iam_role" "catalog_pod" {
   name                 = "${local.name}-catalog-pod"

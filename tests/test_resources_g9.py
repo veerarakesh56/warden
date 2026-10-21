@@ -1,6 +1,6 @@
-"""G9-A1 (2026-10-10): an alarm on any main AWS service names its resource. CloudWatch gives only the metric's
+"""G9-A1: an alarm on any main AWS service names its resource. CloudWatch gives only the metric's
 namespace and dimensions; resources.py maps them to the evidence backends' resource labels, deterministically, and the
-alarm intake applies it. Before this, only an ECS alarm named anything WARDEN could read (audit 2026-10-10)."""
+alarm intake applies it. Before this, only an ECS alarm named anything WARDEN could read."""
 
 from __future__ import annotations
 

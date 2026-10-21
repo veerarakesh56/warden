@@ -77,7 +77,7 @@ locals {
     # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts. Its one secret is
     # the terminate login's DSN - no password in it: each close signs in with a token the plan's actor signs.
     act = { secrets = ["db-admin-dsn"], assumes = ["platform-reader", "actor"], platforms = ["aws", "k8s", "db"] }
-    # Eldane, the AI critic (eldane.py): the diagnosis's Claude key (owner, 2026-10-17) and its own signing key; it
+    # Eldane, the AI critic (eldane.py): the diagnosis's Claude key and its own signing key; it
     # reads the audit and assumes nothing.
     critic = { secrets = ["anthropic-api-key", "eldane-key"], assumes = [], platforms = [] }
   }
@@ -155,7 +155,7 @@ data "aws_iam_policy_document" "lambda_trust" {
   }
 }
 
-# One role per Lambda (secrets audit, 2026-10-16): the internet-facing approval page held the webhook's Datadog keys and
+# One role per Lambda: the internet-facing approval page held the webhook's Datadog keys and
 # bearer secrets because all four shared one role. No moved block: every name changes, so each is a new role either
 # way, and Terraform deletes the old one only after the functions have moved to theirs.
 resource "aws_iam_role" "front_door" {

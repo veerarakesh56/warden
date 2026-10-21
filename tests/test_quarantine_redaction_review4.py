@@ -63,7 +63,7 @@ def test_a_short_hex_value_or_a_non_key_name_is_left():
 @pytest.mark.parametrize("name", ["cache_key", "object_key", "idempotency_key", "dedup_key", "partition_key",
                                   "routing_key", "primary_key", "sort-key", "cacheKey", "key", "monkey", "turnkey"])
 def test_a_hash_under_a_name_that_is_not_a_credential_is_evidence(name):
-    """Fifth review (2026-10-01): "any name ending in key" masked a cache key's commit sha as a SECRET, and a
+    """Fifth review: "any name ending in key" masked a cache key's commit sha as a SECRET, and a
     SECRET is swept from every line - WARDEN's own deploy record lost its version."""
     line = f"restored build cache {name}={_HEX40}"
     assert redact(line).text == line
@@ -82,7 +82,7 @@ def test_one_credential_gets_one_placeholder_and_restores():
 @pytest.mark.parametrize("name", ["vault_key", "consumer_key", "root_key", "data_key", "deploy_key", "host_key",
                                   "oauth_key", "kms_key", "wrapping_key", "dek_key"])
 def test_a_hex_credential_under_more_key_names_is_masked(name):
-    """Sixth review (2026-10-01): narrowing the hex-key rule to credential names left real ones out - a 64-digit
+    """Sixth review: narrowing the hex-key rule to credential names left real ones out - a 64-digit
     lowercase hex value has no upper case for the high-entropy backstop."""
     value = "deadbeef" * 8
     out = redact(f"{name}={value}").text

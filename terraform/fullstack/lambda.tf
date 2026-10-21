@@ -28,7 +28,7 @@ resource "aws_sqs_queue" "main" {
 
 resource "aws_sns_topic" "order_events" {
   name = "${local.name}-order-events"
-  # Encrypted at rest with the AWS-managed key (Sonar terraform:S6327, 2026-10-17): no key to create or pay for each
+  # Encrypted at rest with the AWS-managed key (Sonar terraform:S6327): no key to create or pay for each
   # month. SNS reuses a data key for up to 5 minutes, so one publisher costs about 18,000 KMS requests a month, inside
   # KMS's free 20,000. The publisher (checkout) holds kms:GenerateDataKey*/Decrypt through SNS only (EncryptOrderEvents
   # below, and the boundary's CeilingKms). SNS decrypts before it delivers to the notifications queue, which stays as it is.
@@ -137,7 +137,7 @@ locals {
         ORDERS_QUEUE_URL  = aws_sqs_queue.main["orders"].id
         CHECKOUTS_PER_MIN = "10"
         ORDERS_PER_MIN    = "10"
-        API_TOKEN_SECRET  = aws_secretsmanager_secret.api_token.arn # sent as a bearer token (A-I-13)
+        API_TOKEN_SECRET  = aws_secretsmanager_secret.api_token.arn # sent as a bearer token
       }
     }
     ops = {
@@ -209,7 +209,7 @@ resource "aws_iam_role_policy" "lambda" {
 resource "aws_cloudwatch_log_group" "lambda" {
   for_each = local.lambdas
   name     = "/aws/lambda/${local.name}-${each.key}"
-  # 14 days (Sonar terraform:S6413, 2026-10-16): enough to look back at an incident found days later.
+  # 14 days (Sonar terraform:S6413): enough to look back at an incident found days later.
   retention_in_days = 14
 }
 
@@ -326,7 +326,7 @@ resource "aws_apigatewayv2_route" "checkout" {
   target    = "integrations/${aws_apigatewayv2_integration.checkout.id}"
 }
 
-# Access logs (audit A-I-13). Under /aws/vendedlogs/: the owner creates ONE account-level resource policy that lets
+# Access logs. Under /aws/vendedlogs/: the owner creates ONE account-level resource policy that lets
 # CloudWatch Logs' delivery service write to /aws/vendedlogs/warden-* (docs/SETUP.md, 3e), so API Gateway
 # never needs logs:PutResourcePolicy - which the boundary denies, because such a policy can share logs outside.
 resource "aws_cloudwatch_log_group" "api_access" {

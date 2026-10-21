@@ -1,4 +1,4 @@
-"""Security findings as intake events (item 15): Amazon GuardDuty and AWS Security Hub CSPM, through EventBridge.
+"""Security findings as intake events: Amazon GuardDuty and AWS Security Hub CSPM, through EventBridge.
 
 A security finding is never a fault one of WARDEN's fixes mends. Its catalogue restarts, scales, rolls back and closes
 idle sessions; none of them contains a compromise, and a restart or rollback of a compromised task throws away what a

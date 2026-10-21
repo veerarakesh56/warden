@@ -1,4 +1,4 @@
-"""G9-A2b (2026-10-10): in the cloud runtime the stack backend reads each incident in its environment's reader role,
+"""G9-A2b: in the cloud runtime the stack backend reads each incident in its environment's reader role,
 `warden-<env>-platform-reader` - every reader, never the worker's own role - and the read zone runs it."""
 
 from __future__ import annotations

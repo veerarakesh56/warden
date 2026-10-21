@@ -1,4 +1,4 @@
-"""The per-incident model budget holds under Temporal (fourth review, 2026-09-30, audit A-C-7).
+"""The per-incident model budget holds under Temporal.
 
 The diagnose activity built a fresh LLMClient on every attempt and was allowed 2 attempts, so a failing model
 was paid for twice: max_usd=0.50 per client, $1.20 spent. The provider here always answers invalid JSON."""
@@ -67,7 +67,7 @@ def test_a_failing_model_is_paid_for_once_per_incident():
 
 
 def test_one_alert_is_one_incident_with_one_budget():
-    """Fifth review (2026-10-01): an incident id was reusable once its run ended, and each new run got a fresh
+    """Fifth review: an incident id was reusable once its run ended, and each new run got a fresh
     model budget. Every workflow start names its workflow as `<Workflow>.run` (an alias could hide one - sixth
     review), and every IncidentWorkflow start allows a new run only after a FAILED one, never terminating one."""
     import ast
@@ -92,7 +92,7 @@ def test_one_alert_is_one_incident_with_one_budget():
 
 
 def test_a_failed_incident_may_run_again_but_a_completed_one_may_not():
-    """Sixth review (2026-10-01): with REJECT_DUPLICATE, a run that failed (the model down) made the incident
+    """Sixth review: with REJECT_DUPLICATE, a run that failed (the model down) made the incident
     undiagnosable while its history was retained. Run on Temporal's time-skipping server."""
     from temporalio.common import WorkflowIDReusePolicy
     from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -107,8 +107,8 @@ def test_a_failed_incident_may_run_again_but_a_completed_one_may_not():
                 raise ConnectionRefusedError("the provider is down")
             return Completion("not json at all", 10, 10)
 
-    # The ceiling is the incident's, across runs (seventh review) - but the outage run's failed requests reached no
-    # model and do not carry (eighth review), so a ceiling of one call still lets the run after it make its call.
+    # The ceiling is the incident's, across runs - but the outage run's failed requests reached no
+    # model and do not carry, so a ceiling of one call still lets the run after it make its call.
     def factory():
         return LLMClient(provider=Flaky(), max_calls=1, max_usd=0.50, mock=not down["now"], call_timeout_s=5)
 

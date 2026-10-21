@@ -129,7 +129,7 @@ def test_catalog_api_gets_its_role_through_pod_identity():
 
 def test_rds_db_connect_is_scoped_to_one_database_user_per_identity():
     text = _tf_text()
-    # Named for the environment (audit A-I-2): `app` existed in every environment's cluster.
+    # Named for the environment: `app` existed in every environment's cluster.
     assert 'db_users = { for k in ["app", "catalog", "ro", "terminate"] : k => "warden_${replace(local.env, "-", "_")}_${k}" }' in text
     assert "dbuser:*/${u}" in text
     assert "for k, u in local.db_users" in text
@@ -223,7 +223,7 @@ def test_no_account_id_or_email_in_any_file():
     files = TF_FILES + [BOUNDARY, TF / "README.md", TF / "terraform.tfvars.example"]
     files += [p for p in list(K8S.rglob("*")) + list(APPS.rglob("*")) if p.is_file() and "__pycache__" not in p.parts]
     for f in files:
-        # A package hash is not an account id: a run of 12 digits inside one matched (2026-10-01).
+        # A package hash is not an account id: a run of 12 digits inside one matched.
         text = re.sub(r"sha256:[0-9a-f]{64}", "", f.read_text(encoding="utf-8"))
         assert not re.search(r"(?<![\d.])\d{12}(?![\d.])", text), f"12-digit number in {f}"
         assert not re.search(r"[\w.+-]+@(?!example\.com)[\w-]+\.[\w.]+", text), f"email in {f}"
@@ -508,7 +508,7 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     own |= {"tests/test_pause_resume.py", "scripts/pause_resume.py"}
     # The infra pipeline's own inputs count as infra: its test files (every one its check runs - ninth review CI),
     # the IAM files it validates and what they render from. Its jobs install from uv.lock, so the lock and
-    # pyproject.toml trigger it too (2026-10-01). Nothing of the tool's or the apps' own code.
+    # pyproject.toml trigger it too. Nothing of the tool's or the apps' own code.
     checks = {"tests/test_fullstack_infra.py", "tests/test_aws_stack.py", "tests/test_docs_honesty.py",
               "tests/test_supply_chain.py", "tests/test_terraform_versions.py", "tests/test_env_iam.py",
               "tests/test_helios_gate_r56.py", "tests/test_platform_iam_g6.py", "tests/test_aws_platform_g6.py",
@@ -534,7 +534,7 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
 @pytest.mark.parametrize("name", ["ci-apps.yml", "ci-infra.yml"])
 def test_a_lane_that_runs_a_script_importing_warden_paths_also_runs_when_paths_changes(name):
     """deploy_fullstack_apps.py, aurora_express.py and helios_gate.py read their path rule from src/warden/paths.py
-    (PR 63): a change to that file alone must run the lanes that run them, or a broken rule reaches a deploy unseen."""
+   : a change to that file alone must run the lanes that run them, or a broken rule reaches a deploy unseen."""
     import fnmatch
 
     wf = _workflow(name)
@@ -564,7 +564,7 @@ def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform(
 
 def test_bootstrap_sql_has_no_password_and_no_placeholder():
     """2026-09-26: IAM authentication only. Every role gets rds_iam; no PASSWORD clause. The only placeholders
-    are the four users, named for the environment when the file is sent (audit A-I-2)."""
+    are the four users, named for the environment when the file is sent."""
     text = (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
     assert "{" not in text
@@ -738,7 +738,7 @@ def test_aurora_create_makes_an_express_cluster_with_a_reader_and_records_it(tmp
     assert reader["AvailabilityZone"] == "az-b"  # not the writer's
     assert not any("Password" in k for _, kw in rds.calls for k in kw), "express has no password"
     assert found["aurora_writer_instance"] == "warden-dev-aurora-instance-1"  # whatever express named it
-    # What the dev harness policy's rds-db:connect grant names the cluster by (audit A-I-18).
+    # What the dev harness policy's rds-db:connect grant names the cluster by.
     assert found["aurora_cluster_resource_id"] == "cluster-FAKE0RESOURCE0ID0"
     assert sm.puts == [("warden-dev-db-app", {
         "username": "warden_dev_app", "dbname": "shop", "port": 5432,  # data.tf's db_users["app"], not "app"
@@ -912,7 +912,7 @@ def test_nothing_in_the_environment_may_delete_or_share_a_final_snapshot(action)
     flat = [a for st in _stmts(ENV_BOUNDARY) if st["Effect"] == "Deny" and "Condition" not in st
             and st.get("Resource") == "*" for a in _list(st["Action"])]
     assert any(fnmatch.fnmatchcase(action.lower(), a.lower()) for a in flat), f"{action} is not flatly denied"
-    # Two layers (CodeRabbit, PR 88): the deploy role is not granted it either - only the snapshot actions a destroy
+    # Two layers: the deploy role is not granted it either - only the snapshot actions a destroy
     # and a restore make (deploy-ec2's OwnClusterSnapshots).
     assert not _deploy_allows(action, OWN_FINAL_SNAPSHOT)
 
@@ -944,7 +944,7 @@ def test_aurora_status_says_whether_the_cluster_is_up():
 
 def test_the_infra_pipeline_creates_aurora_after_apply_and_destroys_it_first():
     text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
-    # One workflow, two stacks (2026-10-11): Aurora is the full stack's only, and the undo lab never reaches it.
+    # One workflow, two stacks: Aurora is the full stack's only, and the undo lab never reaches it.
     # The stack.json upload (a plan kept for review is copied to the bucket earlier, 2026-10-16).
     assert (text.index('"terraform/$STACK" apply') < text.index("aurora_express.py create")
             < text.index('aws s3 cp "$RUNNER_TEMP/stack.json"'))
@@ -1097,7 +1097,7 @@ def test_no_terraform_root_accepts_the_internet_in_any_ingress_form(name):
 
 @pytest.mark.parametrize("name", sorted(ROOTS))
 def test_every_terraform_root_tags_project_and_environment(name):
-    """Owner rule R53: the root module and the proving ground carried neither (review 2026-09-28)."""
+    """Owner rule R53: the root module and the proving ground carried neither."""
     text = _all_tf(ROOTS[name])
     assert re.search(r'Project\s*=\s*"warden"', text), name
     assert re.search(r"Environment\s*=\s*(?:coalesce\(var\.environment, yamldecode\(|local\.env)", text), name
@@ -1159,7 +1159,7 @@ def test_a_pod_cannot_reach_the_nodes_credentials():
 @pytest.mark.parametrize("env, cluster", [("qa", "warden-qa-prod-aurora"), ("qa", "warden-qa-staging-aurora"),
                                           ("pre", "warden-pre-prod-aurora"), ("dev", "warden-dev-aurora-old")])
 def test_aurora_acts_only_on_its_own_environments_cluster(tmp_path, monkeypatch, env, cluster):
-    """Seventh review (2026-10-01): the guard was a name prefix, so WARDEN_ENV=qa accepted
+    """Seventh review: the guard was a name prefix, so WARDEN_ENV=qa accepted
     warden-qa-prod-aurora and `destroy` deleted it."""
     ax = _aurora()
     monkeypatch.setenv("WARDEN_ENV", env)
@@ -1304,7 +1304,7 @@ def test_the_runtimes_nat_addresses_reach_the_cluster_endpoint_by_name_not_by_li
     lookup = eks[eks.index('data "aws_eips" "runtime_nat"'):]
     lookup = lookup[:lookup.index("\n}\n")]
     assert '"warden-${local.runtime_env}-nat-*"' in lookup
-    # Only the runtime stack's own (review, PR 48): the tags its provider sets, and its region or no plan.
+    # Only the runtime stack's own: the tags its provider sets, and its region or no plan.
     for tag, value in (("Environment", "local.runtime_env"), ("Project", '"warden"'), ("ManagedBy", '"terraform"')):
         assert f'name   = "tag:{tag}"\n    values = [{value}]' in lookup, tag
     assert "precondition" in lookup

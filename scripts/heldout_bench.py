@@ -151,7 +151,7 @@ def always_escalate(keys: dict[str, dict]) -> dict[str, int]:
 
 def answer_key(cases: pathlib.Path) -> dict:
     """The set's answer key. Named `key.json` until 2026-10-16, the usual name of a GCP service-account key, so
-    scanners and readers took it for a leaked credential (naming audit item 8); a copy outside the repository
+    scanners and readers took it for a leaked credential; a copy outside the repository
     still named so is read, with a warning, for one release."""
     path = cases / "answer-key.json"
     if not path.exists() and (cases / "key.json").exists():

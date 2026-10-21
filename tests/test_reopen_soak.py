@@ -1,4 +1,4 @@
-"""Item 11 (owner, 2026-10-16): a fix that was verified and then did not hold.
+"""Item 11: a fix that was verified and then did not hold.
 
 The fix is watched through its soak (WARDEN_SOAK_MINUTES, 60 by default: re-checks at +15 and +60, and at the soak's
 end when it is longer). When the same alarm - or one on a resource the fix changed - comes back inside it, intake
@@ -144,7 +144,7 @@ def test_a_fix_that_relapsed_at_a_re_check_is_not_offered_again_either(tmp_path)
 
 
 def test_a_fix_that_relapsed_at_a_re_check_long_ago_is_still_not_offered_again(tmp_path):
-    """Durable (CodeRabbit, PR 43): no time limit on a relapsed run either - only a person clears it."""
+    """Durable: no time limit on a relapsed run either - only a person clears it."""
     clock = [datetime.now(UTC) - timedelta(days=400)]
     log = AuditLog(tmp_path / "a.db", key=None, clock=lambda: clock[0])
     log.append("inc-9", "remediation.plan", {"workflow_id": "w", "run_id": "r", "entry": "e", "target": "dev/t"})
@@ -192,7 +192,7 @@ def test_the_plan_row_carries_its_soak_for_intake(world, owner):
     assert plan["soak_minutes"] == 90
 
 
-# ------------------------------------------------------------------ PR 43 review (CodeRabbit)
+# ------------------------------------------------------------------ PR 43 review
 
 def test_an_alarm_that_transitioned_before_the_fix_was_verified_reopens_nothing():
     log = _log()
@@ -275,7 +275,7 @@ def test_a_failure_to_hold_blocks_the_fix_until_an_approver_signs_otherwise(tmp_
     assert history.did_not_hold(log, "e", "dev/t")[0] == "inc-old"
     right = history.offer_again_hash("e", "dev/t", failed_at)
     # Signed for exactly this failure, but a minute before it, and checked while still fresh: only the order is
-    # wrong, and only the order refuses it (CodeRabbit, PR 43).
+    # wrong, and only the order refuses it.
     early = approvals.sign(key, approver="owner", workflow_id=history.OFFER_AGAIN_WORKFLOW, plan_hash=right, tier="T2",
                            now=failed_at - timedelta(minutes=1))
     refused = history.offer_again(log, early, policy=policy, entry="e", target="dev/t",
@@ -362,7 +362,7 @@ def test_the_offer_again_command_clears_a_fix_with_the_approvers_own_key(tmp_pat
     assert history.did_not_hold(audit.AuditLog(pathlib.Path(tmp_path / "audit.db")), "e", "dev/t") == ("", "")
     assert main(args) == 1
     assert "nothing to clear" in capsys.readouterr().err  # cleared: nothing held back now
-    # A fix whose re-check failed (its run ended `relapsed`, no did-not-hold row) is cleared the same way (PR 43).
+    # A fix whose re-check failed (its run ended `relapsed`, no did-not-hold row) is cleared the same way.
     log = audit.AuditLog(pathlib.Path(tmp_path / "audit.db"))
     log.append("inc-7", "remediation.plan", {"workflow_id": "w7", "run_id": "r", "entry": "e", "target": "dev/u"})
     log.append("inc-7", "workflow.end", {"workflow_id": "w7", "run_id": "r", "status": "relapsed"})
@@ -412,7 +412,7 @@ def test_a_long_soaks_own_fix_is_beside_the_reopened_diagnosis(tmp_path):
 
 
 def test_a_reopen_cut_off_before_its_marker_still_marks_the_fix_on_the_retry():
-    """CodeRabbit, PR 43 (security review): the reopen's intent and the did-not-hold marker are two rows; a retry of
+    """CodeRabbit, PR 43: the reopen's intent and the did-not-hold marker are two rows; a retry of
     an intent recorded without its marker writes the marker, so the fix is never offered again unmarked."""
     log = _log()
     ev = _ev(at=LATER())

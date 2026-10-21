@@ -156,7 +156,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get(self, path: str, span) -> None:
         # The route as registered - its own key, never text from the request: the client writes the path and the
-        # query, and a log line must not carry them (Sonar pythonsecurity:S5145, 2026-10-16).
+        # query, and a log line must not carry them (Sonar pythonsecurity:S5145).
         found = next(((known, fn) for known, fn in self.routes.items() if known == path), None)
         if found is None:
             return self.reply(404, {"error": "not found"}, span)

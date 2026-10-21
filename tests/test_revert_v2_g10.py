@@ -1,4 +1,4 @@
-"""G10 v2 (2026-10-10): a queue's timing and size settings, and a stream's retention, back to what AWS Config recorded
+"""G10 v2: a queue's timing and size settings, and a stream's retention, back to what AWS Config recorded
 just before ONE recorded change (held-out int-sqs-visibility-shorter-than-timeout and int-kinesis-retention-cut).
 Field names from AWS's Config resource schemas (awslabs/aws-config-resource-schema, read 2026-10-10):
 AWS::SQS::Queue configuration.VisibilityTimeout and the other integer settings, AWS::Kinesis::Stream

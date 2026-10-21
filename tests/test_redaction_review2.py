@@ -180,7 +180,7 @@ def test_a_resource_label_is_not_masked_as_a_secret_in_the_prompt():
 
 
 def test_redacting_many_lines_stays_fast():
-    """Third review (2026-09-30): 300 log lines took 68 s (122 s measured here) once there were more
+    """Third review: 300 log lines took 68 s (122 s measured here) once there were more
     found values than Python's regex cache holds; the same lines now take under a second."""
     import time
 
@@ -210,7 +210,7 @@ def _values(n):
 
 @pytest.mark.parametrize("kind", ["base64", "passphrase", "letters"])
 def test_every_copy_of_a_secret_is_masked_whatever_it_looks_like(kind):
-    """Fourth review (2026-09-30): an exemption for 'plain words and assignments' left a base64 key
+    """Fourth review: an exemption for 'plain words and assignments' left a base64 key
     ending in `==`, a passphrase and a letters-only password in clear in other lines, and G5 passed them."""
     from warden import gate
     from warden.redaction import redact_many
@@ -280,7 +280,7 @@ def _best_time(lines, runs=2):
 
 
 def test_many_distinct_values_per_line_scale_linearly():
-    """Fourth review (2026-09-30): the sweep tested every found value against every line - 2,000 lines of
+    """Fourth review: the sweep tested every found value against every line - 2,000 lines of
     ten values each took 217 s. A ratio, not a wall-clock limit (a loaded machine slows both runs alike):
     eight times the lines, and so eight times the values, must cost about eight times as much, never the
     sixty-four times a quadratic sweep costs. At 4x with a cutoff of 8 a loaded CI runner measured 8.0x on a linear
@@ -307,14 +307,14 @@ def test_a_planted_nested_chain_does_not_make_every_value_slow():
     for line in chain + _lines(300, 10):
         r.find(line)
     r._build()
-    # Grouped into finders shallow enough to compile - none checked one by one (fifth review, R5-B2).
+    # Grouped into finders shallow enough to compile - none checked one by one (R5-B2).
     assert len(r._finders) > 1, (len(r._finders), len(r._slow))
     assert not r._slow, (len(r._finders), len(r._slow))
     assert all(w.startswith("aaaa") for w in r._slow)
 
 
 def test_a_shorter_secret_starting_where_a_longer_value_starts_is_still_masked():
-    """Fifth review (2026-10-01): the finder reports only the longest value at a position. Here the longer
+    """Fifth review: the finder reports only the longest value at a position. Here the longer
     value is an identifier (`<secret>99`, found as a user id) that is not standalone inside `Q<secret>99`,
     so it is not replaced - and the secret inside it was never checked, and stayed in clear."""
     from warden.redaction import redact_many
@@ -339,7 +339,7 @@ def test_the_finder_agrees_with_the_exact_loop_when_values_share_a_start():
 
 
 def test_a_comb_of_nested_values_is_found_by_grouped_finders_not_one_by_one():
-    """Fifth review (2026-10-01, R5-B2): a comb - every prefix of a long run branches once - puts thousands of
+    """Fifth review (R5-B2): a comb - every prefix of a long run branches once - puts thousands of
     values past the finder's depth. Checked one by one against every segment, 8,008 of them cost 126-144 s a
     pass. They are split into shallow groups with a finder each; the output equals the exact loop's."""
     from warden import redaction

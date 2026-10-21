@@ -27,7 +27,7 @@ def _norm(text: str) -> str:
 
 
 def citation_problems(root_cause: RootCause, items: dict[str, Item]) -> list[str]:
-    """P13. Also the chosen hypothesis's own support (review, PR 47): its evidence decides P34 and P35, so a citation of
+    """P13. Also the chosen hypothesis's own support: its evidence decides P34 and P35, so a citation of
     it that does not hold is ungrounded like the diagnosis's own - never quietly left out of the count."""
     if not root_cause.citations:
         return ["the diagnosis cites no evidence"]
@@ -54,7 +54,7 @@ def ruled_out_checked(ruled: Any, items: dict[str, Item]) -> bool:
     return bool(ruled.citations) and not any(_citation_problem(c, items) for c in ruled.citations)
 
 
-# Item 7 (2026-10-17). Evidence that can DECIDE a fix: WARDEN's own reads - a metric (M), a deploy (D), a resource's
+# Item 7. Evidence that can DECIDE a fix: WARDEN's own reads - a metric (M), a deploy (D), a resource's
 # configuration or state (C). A typed fact from log lines (F) is what their writer chose to log - the poisoned-telemetry
 # attack (Pasquini et al., USENIX Security 2026) plants exactly that - and a failed read (T) says "unknown".
 DECISIVE_KINDS = frozenset("MDC")
@@ -96,7 +96,7 @@ def decisive_problem(root_cause: RootCause, items: dict[str, Item]) -> str | Non
 
 
 def ranked_problem(root_cause: RootCause) -> str | None:
-    """P38 (review, PR 47): the diagnosis's hypothesis must be the cause it ranked first - the one P34 and P35 weigh
+    """P38: the diagnosis's hypothesis must be the cause it ranked first - the one P34 and P35 weigh
     and the remediation acts on. Compared without case, spacing or a closing period; never rewritten to agree."""
     hs = root_cause.hypotheses
     if not hs:
@@ -163,7 +163,7 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     # Not "config": every CONFIG line starts with it, so any config line supported a rollback.
     ActionKind.rollback_deploy: ("deploy", "revision", "image", "version", "rollout", "sha", "release",
                                  "alias"),
-    # Capacity signals only (audit A-C-6): "error", "5xx", "timeout", "request", "running",
+    # Capacity signals only: "error", "5xx", "timeout", "request", "running",
     # "latency", "duration" and "lag" are symptoms of almost anything - a routine Lambda REPORT line
     # has a duration - so citing them said nothing about whether MORE replicas help.
     ActionKind.scale_up: ("memory", "oom", "throttl", "cpu", "concurrency", "pool", "connection", "queue",
@@ -185,13 +185,13 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     # matched a Lambda deploy line, and a days-old configuration was reverted).
     ActionKind.revert_config: ("appconfig", "feature flag", "feature-flag", "configuration profile", "toggle"),
     # Not "loop" (CrashLoopBackOff), not "stopped" (an ECS task stopped): neither says a flow is the harm or is off
-    # (independent review 2026-10-10, H1).
+    # (H1).
     ActionKind.pause_flow: ("poison", "recurs", "storm", "runaway", "flood", "redeliver", "receive count",
                             "dead-letter", "dlq", "duplicat", "cascad", "overload"),
     ActionKind.resume_flow: ("disabled", "paused", "inactive", "suspended", "not enabled"),
     ActionKind.shift_traffic: ("zone", "zonal", "az", "impair", "unhealthy host", "unhealthyhost", "outage"),
     ActionKind.redrive_messages: ("dlq", "dead-letter", "deadletter", "redriv", "maxreceive", "receive count"),
-    # Not "query" or "statement" alone: a DynamoDB Query line is no runaway (review H1).
+    # Not "query" or "statement" alone: a DynamoDB Query line is no runaway.
     ActionKind.cancel_query: ("long_running", "long-running", "runaway", "running for", "queued", "workgroup", "athena",
                               "scanned"),
     # Not "limit" (a container's memory limit, a database's connection limit), not "rate" (it matched inside
@@ -221,9 +221,9 @@ _NEXT = re.compile(r"\s*[\"'\])]*\s*(?:\((?:was|from)[^)]{0,20}\)\s*)?,?\s*(?:->
 # A run of lower-case letters: a word as the measures and phrases are read.
 _LETTERS = re.compile(r"[a-z]+")
 _WORD_AFTER = re.compile(r"[\s\"'\])]*([a-z]+)(?![a-z_]*\s*[=:])")
-# A zero that says WHEN, not how many: "restarted 0s ago" is a restart (fifth review, 2026-10-01).
+# A zero that says WHEN, not how many: "restarted 0s ago" is a restart.
 # "ago" alone, or after a unit; the unit is a word looked up in a set, not an alternation of 16 (Sonar python:S5843,
-# 2026-10-17), and each run of spaces is read one way (Sonar python:S8786, 2026-10-16). The shortest word first: a
+# 2026-10-17), and each run of spaces is read one way (Sonar python:S8786). The shortest word first: a
 # unit never contains "ago", so `sago` is `s` + `ago` as before.
 _AGO_BARE = re.compile(r"\s*ago\b")
 _AGO_UNIT = re.compile(r"\s*([a-z]{1,7}?)\s*ago\b")
@@ -239,7 +239,7 @@ def _ago(text: str, pos: int) -> bool:
     return unit is not None and unit.group(1) in _AGO_UNITS
 
 
-# For scale_down a zero of USE is its evidence: "cpu: 0%" is an idle service (fifth review).
+# For scale_down a zero of USE is its evidence: "cpu: 0%" is an idle service.
 _USE = frozenset({"cpu", "memory", "utili"})
 # A zero of something good is a shortage, not an absence: "0/3 passing", "cache hit: 0%", "no free
 # memory", "0 free connection slots", "no spare capacity". Not for scale_down, whose evidence is spare
@@ -248,13 +248,13 @@ _GOOD = frozenset({"pass", "passing", "passed", "ready", "healthy", "available",
                    "up", "hit", "hits", "success", "successful", "succeeded", "ok", "alive", "remaining",
                    "left", "headroom", "live"})
 # After a plain zero, these say how much of the measure is left - a shortage ("connections: 0 free"); a
-# status word after it ("restarts: 0 ok") is another field (sixth review, 2026-10-01). Only of a measure that is
+# status word after it ("restarts: 0 ok") is another field. Only of a measure that is
 # capacity: "queue: 0 remaining" and "restarts: 0 left" are none of a bad thing, and "connections: 0 idle" none
 # idle (seventh review, 2026-10-01: all three supported an action).
 _QUANTITY = frozenset({"free", "available", "left", "remaining", "spare", "headroom", "passing", "passed"})
 _CAPACITY = ("memory", "cpu", "concurrency", "pool", "connection", "capacity", "probe", "slot")
 # Words that make a measure a count of something bad, whatever capacity word it holds: "blocked connections: 0
-# remaining" is no blocked connection, "probe failures: 0 left" no failure (eighth review, 2026-10-01).
+# remaining" is no blocked connection, "probe failures: 0 left" no failure.
 # By stem, so every inflection counts: `leaked`, `throttling`, `timed out`, `failing`, `evictions` named no bad
 # thing as whole words (register R9-O3).
 _BAD_STEMS = ("block", "fail", "error", "erroring", "leak", "kill", "oom", "deadlock", "throttl", "reject", "drop",
@@ -319,7 +319,7 @@ def _reports_none(after: str, key: str, shortage: bool, before: str = "", idle_s
         return False
     if not shortage and key in _USE and not _GOOD & set(_LETTERS.findall(phrase)):
         # A numeric zero of USE is scale_down's evidence ("cpu: 0%"); a missing value ("cpu: null", "no data")
-        # or headroom ("0 MiB free") is not (sixth review, 2026-10-01).
+        # or headroom ("0 MiB free") is not.
         following = set(_LETTERS.findall(after[pos:pos + 24])[:3])  # "0 MiB free" reads "0 mi b free"
         return not (value[:1].isdigit() and float(value.split("/")[0]) == 0 and not _GOOD & following)
     value, pos = _last_of_transition(after, key, value, pos)
@@ -329,7 +329,7 @@ def _reports_none(after: str, key: str, shortage: bool, before: str = "", idle_s
     after_word = word.group(1) if word else ""
     # A quantity word after a zero is a shortage only of a measure of capacity - the key, or a capacity word
     # between it and the value ("queue slots: 0 free") - with no bad thing named beside it; "idle" only where an
-    # idle pool is the shortage (scale_up), not where idle sessions are the fault (eighth review).
+    # idle pool is the shortage (scale_up), not where idle sessions are the fault.
     measured = set(_LETTERS.findall(f"{before} {phrase}"))
     capacity = key.startswith(_CAPACITY) or any(w.startswith(_CAPACITY) for w in _LETTERS.findall(phrase))
     quantity = after_word in _QUANTITY or (idle_short and after_word == "idle")
@@ -408,9 +408,9 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
         return None
     # The QUOTED span, not the whole item: the model must quote the words that support the action
     # (P13 checks the quote is really in the item). Not a T item: WARDEN's own "connection failed"
-    # wording supported scale_up and terminate_connections (independent review 2026-09-28).
+    # wording supported scale_up and terminate_connections.
     # Words split at camelCase first: WARDEN's own facts spell codes `OOMKilled`, `exitCode=137`,
-    # `CPUUtilization`, and none of those "contained" oom, exit or cpu (second review, 2026-09-30).
+    # `CPUUtilization`, and none of those "contained" oom, exit or cpu.
     # Nor an R item: a code-review finding on the deployed change is a suspect, never proof (findings.py) - it names
     # "deploy", "commit", "file", and alone it supported a rollback.
     cited = [c.quote for c in root_cause.citations
@@ -504,9 +504,9 @@ _SHELL = re.compile(r"[;|&$\\`<>]")
 # Arrows and redaction placeholders are how targets are written; any other `<` or `>` is a redirect.
 _NOT_SHELL = re.compile(r"<[A-Z][A-Z0-9]*_\d+>|->|=>")
 # A namespace or cluster that qualifies a resource: `(namespace=shop)`, `namespace warden-pg`, `ns/x`.
-# At most 64 separators before the word, and each run of spaces read one way only (Sonar python:S8786, 2026-10-16): a long run of
+# At most 64 separators before the word, and each run of spaces read one way only (Sonar python:S8786): a long run of
 # spaces was searched again from each of them. More than 64 stay in the text, as spaces and commas do anyway.
-# The word and its separator, then the name: two patterns, each simple enough to read (Sonar python:S5843, 2026-10-17);
+# The word and its separator, then the name: two patterns, each simple enough to read (Sonar python:S5843);
 # _unscope applies them as one.
 _SCOPE_WORD = re.compile(r"[\s,(]{0,64}\b(?:namespace|ns|cluster)\b(?:\s*[=:/]|[^\S ]* )\s*", re.IGNORECASE)
 _SCOPE_NAME = re.compile(r"[\"'\u201c\u201d\u2018\u2019]?[\w.-]+[\"'\u201c\u201d\u2018\u2019]?\s*(?:\)\s*)?,?")
@@ -537,13 +537,13 @@ _DESCRIPTORS = frozenset({
 # Whole words only: `public.ecr.aws` in an image name is not the aws CLI.
 # After anything but a name character (fifth review, 2026-10-01: `orders (kubectl/delete/ns/x)`, `orders(rm)`
 # passed): still not inside a name - `public.ecr.aws` is no aws CLI.
-# A trailing period ends the word, it does not continue a name: "orders (rm.)" (sixth review, 2026-10-01).
+# A trailing period ends the word, it does not continue a name: "orders (rm.)".
 _COMMAND_WORDS = re.compile(r"(?<![\w.-])(?:kubectl|aws|gcloud|az|helm|psql|redis-cli|mysql|rm|delete|drop|truncate|"
                             r"curl|wget|sh|bash|sudo|exec|eval|kill|pkill|killall|terraform|shutdown|reboot|"
                             r"eksctl|systemctl)(?![\w-]|\.(?!(?:exe|sh|bat|cmd|ps1)\b)\w)", re.IGNORECASE)
 # An image reference with a real tag or digest (`python:3.12-alpine`, `repo/app@sha256:...`): the state a
 # rollback returns to, not a second resource. A word after a colon (`x:payments`) is not a tag.
-# Bounded as an image reference is (OCI: a name of at most 255 characters; a digest of 64 hex) (Sonar python:S8786, 2026-10-16): a long
+# Bounded as an image reference is (OCI: a name of at most 255 characters; a digest of 64 hex) (Sonar python:S8786): a long
 # word with no tag was searched again from each of its characters. A longer word stays in the text and counts.
 _IMAGE = re.compile(r"[\w.-]{1,128}(?:/[\w.-]{1,128}){0,16}(?::(?:v?\d[\w.-]{0,127}|latest)\b|@sha256:[0-9a-f]{12,64})",
                     re.IGNORECASE)
@@ -594,7 +594,7 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
 def _character_problem(target: str) -> str | None:
     """Shell syntax, or a character a resource name never holds."""
     # A known name does not excuse shell syntax around it: `checkout; kubectl delete ns prod` named
-    # `checkout` and passed (2026-09-27 audit). Redirects too (fourth review: `orders > /tmp/x`).
+    # `checkout` and passed. Redirects too (fourth review: `orders > /tmp/x`).
     if _SHELL.search(_NOT_SHELL.sub(" ", target)):
         return f"target {target!r} contains shell syntax"
     # Resource names are ASCII. Characters outside every dash category still read as one (fourth
@@ -602,11 +602,11 @@ def _character_problem(target: str) -> str | None:
     if any(ord(ch) > 127 and ch not in _PROSE and not _invisible(ch) for ch in _LEADING.sub("", target)):
         return f"target {target!r} holds characters a resource name never does"
     # A target is a resource name. `-n kube-system` or `--all` would be read by a CLI as a flag, and
-    # `x=y` as an assignment or a selector (audit A-C-25).
+    # `x=y` as an assignment or a selector.
     # models.inert() prefixes a leading "-" with a zero-width space so no CLI reads it as a flag;
     # the name is still not a resource name, so look past that prefix.
     # Invisible format characters go first: a soft hyphen or U+180E before `-n` hid the flag
-    # (second review, 2026-09-30). `kind=name` with a resource kind is a name, as models write it
+    #. `kind=name` with a resource kind is a name, as models write it
     # (`deployment=checkout (namespace=shop)`); any other `x=y` is a selector or an assignment.
     # models.inert() puts a zero-width space before a leading "-": that one is looked past (it is
     # still a flag). Any other invisible character refuses the target outright.
@@ -619,7 +619,7 @@ def _shape_problem(target: str, plain: str) -> str | None:
     """A flag, an assignment, a pattern, a list, a command or a whole namespace in place of one resource name."""
     # Flags and `x=y`: see the comment above the invisible-character check in _character_problem, which runs first.
     # From the start of a name, at most 64 characters: a long word with no `=` was searched again from each of its
-    # characters (Sonar python:S8786, 2026-10-16). A longer name matches nothing, so the count below refuses it as before.
+    # characters (Sonar python:S8786). A longer name matches nothing, so the count below refuses it as before.
     assigned = re.findall(r"(?<![\w.-])([\w.-]{1,64})=", plain)
     if (_FLAGLIKE.search(plain) or plain.count("=") != len(assigned)
             or any(k.lower() not in _RESOURCE_KINDS for k in assigned)):

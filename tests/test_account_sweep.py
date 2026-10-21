@@ -155,7 +155,7 @@ def test_a_service_the_account_is_not_signed_up_for_is_not_enabled_not_blind():
 
 def test_the_runtime_environment_is_a_valid_tag():
     """W0-now tags the runtime's secrets Environment=ops; the first sweep after it must not call
-    them untagged (second review, 2026-09-30)."""
+    them untagged."""
     assert sweep_mod.tag_problem({"Project": "warden", "Environment": "ops"}) is None
     assert sweep_mod.tag_problem({"Project": "warden", "Environment": "opz"})
 

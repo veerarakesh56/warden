@@ -108,14 +108,14 @@ TABLE: dict[str, Describe] = {
                                   "HealthyThresholdCount", "UnhealthyThresholdCount", "LoadBalancerArns")),
     "clb": Describe("elb", "describe_instance_health", "elasticloadbalancing:DescribeInstanceHealth",
                     _arg("LoadBalancerName"), "", ("InstanceStates",)),
-    # The global services (G10, 2026-10-10): read in AWS's global-services Region, where their alarms live and the
+    # The global services (G10): read in AWS's global-services Region, where their alarms live and the
     # reader runs for them (alarm_region, G10-F1). Route 53: the checkers' reports, counted by Success/Failure.
     "cloudfront": Describe("cloudfront", "get_distribution", "cloudfront:GetDistribution", _arg("Id"), "Distribution",
                            ("Status", "DistributionConfig.Enabled", "DistributionConfig.Origins.Quantity",
                             "DistributionConfig.HttpVersion", "DistributionConfig.PriceClass", "LastModifiedTime")),
     "route53_health_check": Describe("route53", "get_health_check_status", "route53:GetHealthCheckStatus",
                                      _arg("HealthCheckId"), "", ("HealthCheckObservations",)),
-    # EventBridge's Custom Event Bus (G10, 2026-10-10): a subscriber - whether it runs, whether its bus revoked it,
+    # EventBridge's Custom Event Bus (G10): a subscriber - whether it runs, whether its bus revoked it,
     # how it retries, whether a dead-letter destination is set (its keys only) and how much it logs.
     "eventbridge_subscriber": Describe("eventbridgev2", "describe_subscriber", "events:DescribeSubscriber",
                                        lambda v, account, region: {

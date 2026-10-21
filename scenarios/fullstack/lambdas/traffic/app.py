@@ -23,7 +23,7 @@ log.setLevel(logging.INFO)
 
 SQS = boto3.client("sqs")
 SKUS = [f"sku-{n}" for n in range(1, 21)]
-_TOKEN: list[str] = []  # the API's bearer token (audit A-I-13), read once per container
+_TOKEN: list[str] = []  # the API's bearer token, read once per container
 _ALB_TLS: list[ssl.SSLContext] = []  # trusts the ALB's certificate only, built once per container
 
 # The load picks (which cart, SKU, customer or order id) come from the operating system's CSPRNG (Sonar python:S2245,

@@ -111,7 +111,7 @@ def _raise_throttle(p: dict, live: dict) -> list[str]:
 
 
 def _redrive_in_time(p: dict, live: dict) -> list[str]:
-    """The move finishes inside the verify window, or the run would always roll back (review H3)."""
+    """The move finishes inside the verify window, or the run would always roll back."""
     waiting = live.get("waiting")
     if not isinstance(waiting, int):
         return ["the dead-letter queue's depth was not read"]
@@ -397,7 +397,7 @@ def change_of(name: str, params: dict[str, Any], snapshot: dict[str, Any]) -> li
 def target_key(name: str, params: dict[str, Any]) -> str:
     """The resource a fix changes, as one key: its platform and the parameters naming it, outermost first
     (`k8s:shop/orders`). The bounds, the mutex and the workflow id key on it - never on a free-text service
-    name, which let `orders` in two namespaces share one rate limit and one open fix (audit C3, A-B-M4)."""
+    name, which let `orders` in two namespaces share one rate limit and one open fix."""
     entry = CATALOG[name]
     return entry.platform + ":" + "/".join(str(params.get(p, "")) for p in entry.target_params)
 
@@ -432,7 +432,7 @@ _UNTIL_SCALED = ("until_scaled", ("an autoscaler or infrastructure as code may o
 _TEMPORARY = ("temporary", "it holds the harm, not the cause: the cause still needs its own fix.")
 _ONE_OFF = ("one_off", "a one-off action that nothing changes back; the cause still needs its own fix.")
 # The time a fix was applied in this run, handed by check_success to the platform's health check in a copy of the
-# plan's parameters (never planned, never hashed): a fix is judged on what came after it (live, 2026-10-16).
+# plan's parameters (never planned, never hashed): a fix is judged on what came after it.
 APPLIED_AT = "_applied_at"
 
 LASTS: dict[str, tuple[str, str]] = {
@@ -481,7 +481,7 @@ def for_action(action: ActionKind, platform: str) -> Entry | None:
 
 
 ROLLS_PODS = frozenset({"k8s_restart", "ecs_restart_service"})
-# A pause holds the harm, it fixes nothing (independent review 2026-10-10, H2): its run ends "mitigated" - the page is
+# A pause holds the harm, it fixes nothing (H2): its run ends "mitigated" - the page is
 # not resolved and a person resumes the flow.
 MITIGATES = {"lambda_disable_esm": "it stays paused until a person resumes it",
              "events_disable_rule": "it stays paused until a person resumes it",

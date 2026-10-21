@@ -10,7 +10,7 @@ metadata:
     # from them (the monitors filter on both, scripts/datadog_setup.py).
     tags.datadoghq.com/service: cart-worker
 spec:
-  replicas: 2  # like production (owner, 2026-10-15); was 1
+  replicas: 2  # like production; was 1
   selector:
     matchLabels:
       app: cart-worker
@@ -21,7 +21,7 @@ spec:
     metadata:
       # ⛔ The amazon-cloudwatch-observability add-on auto-injects an OpenTelemetry agent into pods
       # behind a Service (Application Signals). Its container violates the namespace's `restricted`
-      # Pod Security, so EVERY catalog-api pod was refused on the first real deploy (2026-09-26) - and
+      # Pod Security, so EVERY catalog-api pod was refused on the first real deploy - and
       # it injected the Java agent into a Python app. Opt out explicitly; metrics still come from the
       # add-on's node agent, which is what the alarms read.
       annotations:

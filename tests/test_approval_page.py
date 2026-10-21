@@ -233,7 +233,7 @@ def test_every_catalogue_entry_says_what_it_changes():
 
 
 def test_the_page_says_what_it_is_doing_and_asks_for_the_target_only_when_the_tier_needs_it(setup):
-    """The owner's first live approval (2026-10-12): the page gave no sign while it sent the approval, the status was
+    """The owner's first live approval: the page gave no sign while it sent the approval, the status was
     out of sight above the plan, a second click read "link is not valid", and a T1 plan showed the target box."""
     page, _, _, _ = setup
     shell = page.handle("GET", f"/a/{page.new_link('rem-dev-1', 'owner')}").body

@@ -268,7 +268,7 @@ def test_no_account_id_is_written_into_a_policy(path):
 
 
 def test_the_guardrails_policy_only_denies_and_leaves_terraform_its_own_work():
-    """terraform/proving-ground/operator-guardrails.json (2026-09-27 audit): a deny-only policy the
+    """terraform/proving-ground/operator-guardrails.json: a deny-only policy the
     owner attaches to the operator. The boundary is full (6,130 of 6,144 characters) and the operator
     cannot detach a user policy, so these hold. It must never grant, and must not deny what the
     stacks' own apply/destroy does (budgets, the bucket public-access block being SET)."""

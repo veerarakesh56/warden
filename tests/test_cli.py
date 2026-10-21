@@ -24,7 +24,7 @@ def test_demo_output_carries_the_safety_claim(capsys):
     main(["demo"])
     out = capsys.readouterr().out
     assert "No action was executed" in out
-    # A13 (2026-10-16): no longer "a human executes" - WARDEN applies approved plans itself.
+    # A13: no longer "a human executes" - WARDEN applies approved plans itself.
     assert "a change runs only as a fix plan an approver approved" in out
     assert "a human executes" not in out
 
@@ -85,7 +85,7 @@ def test_unknown_incident_exits_with_a_useful_message(capsys):
 
 def test_budget_flag_is_wired_through(capsys):
     """--max-usd must actually reach the client, not just be accepted by argparse. Over budget, no call is made and
-    the incident goes to a person, rules only (register M19) - not a traceback (review 2026-09-28)."""
+    the incident goes to a person, rules only (register M19) - not a traceback."""
     assert main(["run", "--incident", "inc-001", "--max-usd", "0.0001"]) == 0
     out, err = capsys.readouterr()
     assert "BudgetExceeded" in out
@@ -104,7 +104,7 @@ def test_run_report_flag_prints_the_report_and_safety_line(capsys):
     assert main(["run", "--incident", "inc-002", "--report"]) == 0
     out = capsys.readouterr().out
     assert "WARDEN incident report" in out
-    # A10/A13 (2026-10-16): no manual promotion section, and the closing line says how WARDEN changes things.
+    # A10/A13: no manual promotion section, and the closing line says how WARDEN changes things.
     assert "## Promotion" not in out
     assert "It changes nothing except by applying a catalogue fix plan an approver approved" in out
 

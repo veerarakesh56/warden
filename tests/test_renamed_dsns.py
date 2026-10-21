@@ -1,4 +1,4 @@
-"""Naming audit items 6-7 (2026-10-16): each database DSN is named for the one grant it carries - the terminate role,
+"""Naming audit items 6-7: each database DSN is named for the one grant it carries - the terminate role,
 and read-only logins to the Aurora primary and replica. The old names were "admin", "writer" and "reader"; an old name
 set in the environment is still read for one release, with a WARNING naming the new one, and the deployed Secrets
 Manager slots keep their old names until the runtime module renames them."""

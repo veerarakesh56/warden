@@ -103,7 +103,7 @@ def test_a_reverified_report_carries_todays_verdict_and_an_unanswered_one_is_lef
 
 
 def test_the_answer_key_is_named_as_one_and_an_old_copy_still_reads_with_a_warning(tmp_path, capsys):
-    """Naming audit item 8 (2026-10-16): `key.json` is the usual name of a GCP service-account key, so the committed
+    """Naming audit item 8: `key.json` is the usual name of a GCP service-account key, so the committed
     sets name theirs answer-key.json; a set outside the repository still named key.json reads, and says so."""
     for name in ("heldout-g9-2026-10-10", "heldout-g10-2026-10-10"):
         cases = ROOT / "docs" / "bench" / name

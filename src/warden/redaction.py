@@ -5,7 +5,7 @@ the other copies of each found value - every copy of a SECRET, every standalone 
 (see _sweep). Strings that belong together (one incident's lines, labels, errors) are redacted as ONE
 text: a value found in any of them is masked in all of them (redact_many, second review 2026-09-30).
 
-⚠ What this is not (audit A-C-23): nothing here can see a secret NO pattern matches. The patterns are
+⚠ What this is not: nothing here can see a secret NO pattern matches. The patterns are
 the control; HIGHENTROPY is their backstop; the outbound gate's G5 re-runs them, independently, on
 everything that leaves. (A re-scan inside redact() used the sweep's own rule and could never fire, so
 it was removed - second review, 2026-09-30.)
@@ -27,7 +27,7 @@ from typing import Any
 # still reason about the shape. A value that is nothing but placeholders (`api_key=<APIKEY_1>`) is masked
 # already and left alone; one that holds a placeholder AND more (`password=<UUID_1>.more`) is masked whole and
 # stored restored, so restore() gives it back in one step. Value classes used to stop at `<` instead, and left
-# whatever followed a placeholder in clear (eighth review, 2026-10-01).
+# whatever followed a placeholder in clear.
 # A credential command-line flag: any name with `--`; with a single `-` only password/passwd, since
 # `-token` or `-secret` is as often a word in a message as a flag.
 _CRED_FLAG = (r"(?i)(?<![\w-])(?:--(?:[a-z0-9]+-){0,2}"
@@ -126,7 +126,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # tenant_id=..., org_id: ..., "customer_id": "..."  — the identifiers that make logs re-identifiable
     ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b\s*[:=]\s*[\"']?([a-z0-9_\-]{3,})[\"']?")),
     # A token following `Bearer ` in an Authorization header (when it is not already a JWT/API key).
-    # `<>` too: a value whose start an earlier pattern masked (`Bearer <UUID_1>.rest`) is masked whole (ninth review).
+    # `<>` too: a value whose start an earlier pattern masked (`Bearer <UUID_1>.rest`) is masked whole.
     ("BEARER", re.compile(r"(?i)\bbearer\s+([a-z0-9._~+/\-<>]{12,}=*)")),
     # HTTP Basic auth: `Authorization: Basic <base64 of user:pass>` - the base64 IS the credential.
     ("BASIC", re.compile(r"(?i)\bbasic\s+([a-z0-9+/<>_]{8,}={0,2})")),
@@ -157,10 +157,10 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # AWS secret access key (the credential paired with the AKIA id) is the case that exposed it.
     # Keywords are cloud-neutral: AWS (aws_secret_access_key), Azure (AccountKey, SharedAccessKey),
     # GCP and generic (private_key, client_secret, api_key, password, token, credential).
-    # Header values and client flags that carry a credential whole (2026-09-27 audit).
+    # Header values and client flags that carry a credential whole.
     ("SECRET", re.compile(r"(?i)\bauthorization[\"']?\s*[:=]\s*[\"']?(?:[a-z]+\s+)?([^\s\"']{8,})")),
     # The whole cookie value: it may hold placeholders already placed (they are stored restored, see find()).
-    # Stopping at `<` left every cookie after a masked one in clear (seventh review, 2026-10-01). Any key ending
+    # Stopping at `<` left every cookie after a masked one in clear. Any key ending
     # in cookie (`X-Auth-Cookie`, `HTTP_COOKIE`, `"http_cookie"`), then `:`, `=` or `=>`, then the value as it is
     # written: quoted (escapes kept), a list (Go's `Cookie:[...]`, every item of a Set-Cookie list), a dict, a
     # header to the end of the line, or an assignment (`cookie=sid=...; b=...`, a logfmt `cookie=x` value only)
@@ -193,7 +193,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("SECRET", re.compile(r"\bsqlcmd\b[^\r\n]*?[ \t]-P[ \t]*([^\s\"']{3,})")),
     ("SECRET", re.compile(r"\bldap\w*\b[^\r\n]*?[ \t]-w[ \t]+([^\s\"']{3,})")),
     # `-[^\Wb]*b`: the flags up to their first b, one way only - `-\w*b\w*` split a long flag word every way it could
-    # (Sonar python:S8786, 2026-10-16).
+    # (Sonar python:S8786).
     ("SECRET", re.compile(r"\bhtpasswd\b[^\r\n]*?[ \t]-[^\Wb]*b\w*[ \t]+\S+[ \t]+\S+[ \t]+([^\s\"']{3,})")),
     ("SECRET", re.compile(r"\bcurl\b[^\r\n]*?[ \t](?:-u[ \t]*|--user(?:=|[ \t]+))[^:\s]+:([^\s\"']{3,})")),
     ("SECRET", re.compile(r"(?i)\"auth\"\s*:\s*\"([^\"]{8,})\"")),
@@ -227,7 +227,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # `signing_key:`, `DD_APP_KEY=`, `Ocp-Apim-Subscription-Key:` - 32 or more hex characters (fourth
     # review, 2026-09-30, B-N8; HIGHENTROPY below needs upper case, lower case and a digit). Only these
     # names: "any name ending in key" also took `cache_key=<sha>` and `object_key=<digest>`, and a SECRET is
-    # swept from every line, so a commit sha vanished from WARDEN's own deploy record (fifth review).
+    # swept from every line, so a commit sha vanished from WARDEN's own deploy record.
     ("SECRET", re.compile(r"(?i)(?:^|[\s\"',;{(\[?&])[\w.\-]{0,40}?(?:encryption|encrypt|crypt|hmac|signing|"
                           r"sign|secret|private|master|app|application|api|access|subscription|client|account|"
                           r"auth|service|license|webhook|session|storage|shared|vault|consumer|root|data|"
@@ -275,7 +275,7 @@ _PIECE = re.compile(r"[^\s;,&=.:\"'\[\]{}<>]{8,}")
 _LABELS = tuple(dict.fromkeys(label for label, _ in PATTERNS))
 _PLACEHOLDER = re.compile(r"(<[A-Z][A-Z0-9]*_\d+>)")
 # A terminal escape sequence (colour, cursor, title): not text, and glued to a key it hid the key from every pattern
-# that needs a word boundary - `ESC[1mAKIA...` read as `mAKIA...` (ninth review, 2026-10-01).
+# that needs a word boundary - `ESC[1mAKIA...` read as `mAKIA...`.
 _ANSI = re.compile(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-Z\\-_]")
 
 
@@ -354,7 +354,7 @@ class _Redactor:
         # masked already (seventh review: excluding `<` instead left the cookies after it in clear).
         full = _PLACEHOLDER.sub(lambda p: self.mapping.get(p.group(1), p.group(1)), original)
         # By its shape, not the map: the gate re-scans with a fresh one, and took `Cookie: <SECRET_1>` for a
-        # new secret - every report quoting a masked cookie was withheld (eighth review, 2026-10-01).
+        # new secret - every report quoting a masked cookie was withheld.
         if _PLACEHOLDER.search(original) and not re.search(r"[A-Za-z0-9]", _PLACEHOLDER.sub("", original)):
             return m.group(0)
         placeholder = self.reverse[full] if full in self.reverse else self._place(label, full, original)
@@ -393,7 +393,7 @@ class _Redactor:
         # Each finder reports one value per position, the longest of its group. A shorter value starting at the
         # same position is always a prefix of it, and it must be checked too: when the longer one is an
         # identifier that is not standalone there, it is not replaced, and a shorter SECRET inside it stayed in
-        # clear (fifth review, 2026-10-01). Read off each group's trie: the values ending along each path.
+        # clear. Read off each group's trie: the values ending along each path.
         self._finders = []
         try:
             for group in [g for g in [fast, *(split or [])] if g]:
@@ -419,7 +419,7 @@ class _Redactor:
         #
         # Which values occur in a segment is found by ONE trie-shaped regex over all of them, built once
         # per map: testing every value against every segment was quadratic - 217 s for 2,000 lines of
-        # 22,500 distinct values (fourth review, 2026-09-30).
+        # 22,500 distinct values.
         if self._built_for != len(self.mapping):
             self._build()
         parts = _PLACEHOLDER.split(out)  # even indices = free text, odd indices = whole placeholders
@@ -510,7 +510,7 @@ def _trie_regex(root: dict[str, dict]) -> str:
 # ⛔ Audit A-C-4: the sweep replaced every copy of every found value, so a TENANT `user_id=500` turned
 # every HTTP 500 in the text into <TENANT_1>. The first fix (length thresholds) let SHORT SECRETS
 # survive in other lines - URL-encoded, glued, repeated - and made the leak check vacuous
-# (independent review, 2026-09-28). The rule now depends on what the value is:
+#. The rule now depends on what the value is:
 #   - a SECRET (a key, token, password, credential): every copy, anywhere, from 4 characters. A
 #     secret must never survive; rewriting a stray substring is the lesser harm.
 #   - an IDENTIFIER (tenant, IP, email, account id, ...): every copy that stands as its own token.
@@ -542,7 +542,7 @@ def _sweep(placeholder: str, original: str):
     if _kind(placeholder) in SECRET_KINDS and len(original) >= 4:
         # Every copy, whatever it looks like. An exemption for "plain words and assignments" (932d515)
         # left real secrets in clear - a base64 key ending in `==`, a passphrase, a letters-only
-        # password - and the gate passed them (fourth review, 2026-09-30). Known limit, open (audit
+        # password - and the gate passed them. Known limit, open (audit
         # B-N4 row): a log writer who plants `password=<word>` masks that word in every line, WARDEN's
         # own reads included. A secret or an identifier must never stay in clear, so that limit is
         # handled by escalating, not by leaving copies unmasked.
@@ -560,7 +560,7 @@ def _standalone(original: str) -> re.Pattern[str]:
 def redact_many(items: list[str], mapping: dict[str, str] | None = None) -> tuple[list[str], dict[str, str]]:
     """Redact several strings as ONE text, with one placeholder namespace: a value found in any of them
     is masked in all of them. One pass left a secret found in a later line in clear in the earlier
-    ones (second review, 2026-09-30); the first pass now only finds, the second masks."""
+    ones; the first pass now only finds, the second masks."""
     r = _Redactor(mapping)
     found = [r.find(item) for item in items]
     return [r.sweep(text) for text in found], r.mapping

@@ -60,7 +60,7 @@ def trip(log: AuditLog, correlation_id: str, reason: str, **run: str) -> None:
     review, 2026-10-01). A reset names the latest trip."""
     log.append(correlation_id, TRIPPED, {"reason": reason, **run})
     log.checkpoint()
-    # A person is paged, and paged again until one acknowledges (owner, 2026-10-16): the count's alarm does it.
+    # A person is paged, and paged again until one acknowledges: the count's alarm does it.
     from .paging import killswitch_tripped
 
     killswitch_tripped()
@@ -150,7 +150,7 @@ def record_applied(log: AuditLog, correlation_id: str, *, service: str, action_c
 def record_result(log: AuditLog, correlation_id: str, *, service: str, ok: bool, now: datetime,
                   limits: Limits = DEFAULT_LIMITS, **detail) -> None:
     log.append(correlation_id, RESULT, {"service": service, "ok": ok, **detail})
-    # Only failures since the last reset (audit A-B-L1): a person who reset the switch has seen those, and one new
+    # Only failures since the last reset: a person who reset the switch has seen those, and one new
     # failure must not re-trip it on the strength of the failures the reset was for.
     resets = log.entries(kinds=(RESET,))
     after = resets[-1]["seq"] if resets else 0

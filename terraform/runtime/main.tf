@@ -101,7 +101,7 @@ module "runtime" {
 }
 
 # A slot the owner made by hand before the first apply (the Slack webhook, moved off the laptop in W0-now) is adopted,
-# not created again: the first apply failed with ResourceExistsException (2026-10-09). Once in state, an import is a no-op.
+# not created again: the first apply failed with ResourceExistsException. Once in state, an import is a no-op.
 locals {
   adopt = ["slack-webhook"]
 }

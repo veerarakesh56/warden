@@ -88,7 +88,7 @@ python scripts/replay_gate.py --reports tests/fixtures/bench/wave1-2026-09-11T15
 The full-stack lab ([`FULLSTACK-LAB.md`](FULLSTACK-LAB.md)) ran faults fs-00 to fs-05 on 2026-09-26 and was then
 stopped. **No full-stack score is published.**
 
-## Held-out set G9: 48 cases (2026-10-10)
+## Held-out set G9: 48 cases
 
 Written by one independent author; see [the set's README](bench/heldout-g9-2026-10-10/README.md). Answered by Claude
 Sonnet 5 on the Anthropic API (anthropic 1.11.0), code of commit `d01407c`.
@@ -105,7 +105,7 @@ acts on a NAT gateway, so it would have been advice only. The run also found a r
 alarms exist only in us-east-1, and WARDEN read one Region. WARDEN has read alarms in AWS's global-service Region
 since then (`aws_global_region` in `src/warden/data/environments.yaml`); that has not been re-run on this set.
 
-## Held-out set G10: 172 cases (2026-10-10)
+## Held-out set G10: 172 cases
 
 Written by four independent authors and reviewed by four more; see
 [the set's README](bench/heldout-g10-2026-10-10/README.md). Answered by Claude Sonnet 5 on the Anthropic API with the
@@ -140,14 +140,14 @@ python scripts/heldout_bench.py --cases docs/bench/heldout-g10-2026-10-10 --out 
                                                                 # the same answers, today's gate, no model call
 ```
 
-## Injection tripwire (2026-09-27)
+## Injection tripwire
 
 The optional detector (Meta's Llama Prompt Guard 2, 86M, run locally) was measured on the repository's recorded
 incidents: **0 false alarms in 4,637 distinct real log and event lines**, and it caught **6 of the 14** attack
 payloads in `tests/test_injection_corpus.py`. The misses are why it is a tripwire on top of quarantine and the
 outbound gate, never a replacement for them.
 
-## Poisoned logs (2026-10-17)
+## Poisoned logs
 
 Pasquini et al., *When AIOps Become "AI Oops"* (USENIX Security 2026,
 [arXiv:2508.06394](https://arxiv.org/abs/2508.06394)), steer AIOps agents into harmful fixes by making an

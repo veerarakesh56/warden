@@ -87,7 +87,7 @@ def fake_env(events: list, *, alarm_state="ALARM", verdict="approved_for_human",
         return 0, ""
 
     def extract(report, built):
-        data = {"alert": {"id": "bench"}}  # a built report holds no command (2026-10-16)
+        data = {"alert": {"id": "bench"}}  # a built report holds no command
         runner._write_json(built, data)
         return data
 
@@ -127,7 +127,7 @@ def test_a_fault_runs_in_the_registered_order(tmp_path):
     assert _collapse(events) == [
         "baseline", "alarm",          # the gate before inject: stack + every catalog alarm
         "inject", "alarm",            # wait for THIS fault's alarm
-        "warden", "verify", "revert",  # no "fix": the harness runs no fix command (2026-09-27)
+        "warden", "verify", "revert",  # no "fix": the harness runs no fix command
         "baseline", "alarm",          # back at baseline afterwards
     ]
     rec = _record(tmp_path, "fs-27")
@@ -660,7 +660,7 @@ def test_the_report_is_rebuilt_with_identifiers_shown(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("prefix", ["warden-dev-", "warden-qa-staging-"])
 def test_the_alert_names_the_runs_own_environments_stack(tmp_path, monkeypatch, prefix):
-    """Seventh review (2026-10-01): the template named dev's stack and nothing rewrote it, while the reader is scoped
+    """Seventh review: the template named dev's stack and nothing rewrote it, while the reader is scoped
     to its own environment's stack - outside dev every scoped read of the alert's labels was AccessDenied."""
     monkeypatch.setattr(cli.fs, "PREFIX", prefix)
     path = cli._alert_file(tmp_path, {"id": "fs-01", "alarm": "a", "severity": "high"}, {})

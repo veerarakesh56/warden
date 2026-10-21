@@ -61,7 +61,7 @@ def _redact_tree(src: pathlib.Path, dst: pathlib.Path, account: str) -> int:
 
 def _account_from(run: pathlib.Path) -> str:
     """The account id to mask, taken from the run's own manifest rather than from the environment. Every 12-digit
-    number of the manifest and the ground truth, not the first one found (audit A-B-L18): a run that touched two
+    number of the manifest and the ground truth, not the first one found: a run that touched two
     accounts kept the second one in clear. Several are joined with `|`, one regex alternation."""
     found: set[str] = set()
     for path in [run / MANIFEST, *(run / "ground-truth").glob("*.json")]:
@@ -149,7 +149,7 @@ def main() -> int:
     args = parser.parse_args()
 
     sys.stdout.reconfigure(encoding="utf-8")  # a Windows console is cp1252 and cannot print ⛔
-    # Inside the repository only, checked before anything else (audit A-B-L18): `--into` could be an absolute path or
+    # Inside the repository only, checked before anything else: `--into` could be an absolute path or
     # climb out with `..`, and the destination is removed before the copy.
     base = (ROOT / args.into).resolve()
     if ROOT.resolve() not in base.parents:

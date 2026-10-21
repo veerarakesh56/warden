@@ -73,7 +73,7 @@ class AlarmEvent(BaseModel):
 
     @model_validator(mode="after")
     def _security_goes_to_a_person(self) -> AlarmEvent:
-        """A security finding never reaches a fix: no catalogue entry contains a compromise (item 15)."""
+        """A security finding never reaches a fix: no catalogue entry contains a compromise."""
         if self.source == "security" and not self.escalate.strip():
             raise ValueError("a security finding needs its reason to go to a person: it is escalate-only")
         return self
@@ -96,10 +96,10 @@ class Decision(BaseModel):
     resources: list[str] = Field(default_factory=list)
     # WARDEN's own fixes in this alarm's environment, on other resources, being verified or watched when it started:
     # told of it (RemediationWorkflow.side_effect). The incident is started as any other - connected or not is for
-    # its diagnosis to say (owner, 2026-10-15).
+    # its diagnosis to say.
     after_fix: list[str] = Field(default_factory=list)
     # A reopened incident's reason to go to a person on the rules alone (flapping, a storm, AWS's own fault): carried
-    # into its run as an escalate-only one is (CodeRabbit, PR 43).
+    # into its run as an escalate-only one is.
     escalate: str = ""
 
 
@@ -112,11 +112,11 @@ def fingerprint(ev: AlarmEvent) -> str:
 def open_fix(ev: AlarmEvent, fixes: dict[tuple[str, str], str]) -> str | None:
     """The open remediation, if any, of a resource this alarm names. By what the alarm's labels name, not only its
     `service`: an alarm on a schedule's invocations has the ALARM's name for a service and the RULE's in its labels,
-    and the fix was filed under the rule - so the alarm never reached its own fix (live, 2026-10-12). The labels that
+    and the fix was filed under the rule - so the alarm never reached its own fix. The labels that
     only qualify a resource (a namespace, a cluster, the alarm's own name) name none."""
     from .resolver import named_resources
 
-    if ev.source == "security":  # a security finding says nothing of whether a fix of WARDEN's worked (item 15)
+    if ev.source == "security":  # a security finding says nothing of whether a fix of WARDEN's worked
         return None
     names = named_resources(ev.alert)
     return next((wid for (env, service), wid in fixes.items() if env == ev.alert.environment and service in names),
@@ -129,7 +129,7 @@ def held_fix(ev: AlarmEvent, log: AuditLog, now: datetime) -> dict[str, Any] | N
     or a resource the alarm names, in its environment. None: no fix of this is being soaked.
 
     Driven from the passing results, which are recent: a result older than the longest soak is past any soak. Each
-    one's plan row is read from its incident's record with no time limit (CodeRabbit, PR 43): it is written before
+    one's plan row is read from its incident's record with no time limit: it is written before
     the approval wait, up to a week before the fix is verified."""
     from . import bounds
     from .resolver import named_resources
@@ -247,7 +247,7 @@ def _escalation(ev: AlarmEvent, flips: int, open_count: int) -> str:
 
 def reopen_pending(ev: AlarmEvent, log: AuditLog, now: datetime) -> dict[str, Any] | None:
     """The reopen this same transition already decided and recorded, when its incident never started - a start that
-    failed, retried by EventBridge after the fix's run had ended (CodeRabbit, PR 43): the intent outlives the soak."""
+    failed, retried by EventBridge after the fix's run had ended: the intent outlives the soak."""
     fp, at = fingerprint(ev), ev.transitioned_at.isoformat()
     started = {(e["correlation_id"], e["body"].get("at")) for e in log.entries(kinds=(REOPEN_STARTED,),
                                                                               since=now - LOOKBACK)}
@@ -382,7 +382,7 @@ def _scoped(d: Decision, ev: AlarmEvent, verifying: dict[tuple[str, str], str],
     from .resolver import named_resources
 
     names = named_resources(ev.alert)
-    # A security finding is an incident of its own (item 15): no later alarm groups into it by the resources it
+    # A security finding is an incident of its own: no later alarm groups into it by the resources it
     # names, and no fix of WARDEN's is told of it as a side effect.
     security = ev.source == "security"
     others = [] if security else sorted({w for (env, service), w in {**verifying, **watching}.items()
@@ -405,7 +405,7 @@ def _mark_reopened(log: AuditLog, d: Decision, held: dict[str, Any], *, pending:
     # On the incident's own record, first, both: the fix it had did not hold, which plan_fix reads before it
     # offers a fix (history.did_not_hold) - and it is open again, the intent a retry of this transition honours
     # if the start below fails (reopen_pending). The marker first, and once, on a retry too: an intent is never
-    # on the record without it (CodeRabbit, PR 43). The fix's own run is told once the incident has started.
+    # on the record without it. The fix's own run is told once the incident has started.
     incident = d.workflow_id.removeprefix("inc-")
     _did_not_hold(log, incident, held, at, rule)
     if not pending:

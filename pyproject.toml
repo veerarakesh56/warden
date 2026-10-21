@@ -26,7 +26,7 @@ dependencies = [
     # decision D2). Tests use its time-skipping test server.
     "temporalio>=1.33,<2",
     # The outbound gate finds code regions the way CommonMark does (MIT, pure Python). A line-by-line
-    # tracker could not follow fences inside lists and quotes (third review, 2026-09-30).
+    # tracker could not follow fences inside lists and quotes.
     "markdown-it-py>=3.0",
 ]
 
@@ -79,7 +79,7 @@ infra-deploy = ["boto3>=1.43.110"]   # terraform/fullstack/aurora_express.py: st
 [tool.uv.build-backend]
 # uv_build packs everything under src/warden; a local .env or log file must never ship (fifth review E,
 # 2026-10-01: a planted src/warden/.env reached the wheel).
-# Secret-bearing files that .gitignore keeps out of git, kept out of the sdist and wheel too (sixth review).
+# Secret-bearing files that .gitignore keeps out of git, kept out of the sdist and wheel too.
 source-exclude = [
     "**/.env",
     "**/.env.*",
@@ -263,6 +263,6 @@ src = ["src", "tests", "evals", "scenarios"]
 # C408: `dict(a=1)` over `{"a": 1}`. Kept deliberately — the demo fixtures and test helpers use the
 # `base = dict(...); base.update(kw)` override pattern, which is unreadable with brace literals.
 ignore = ["C408"]
-# ruff 0.17 (2026-10-09) took the flake8-datetimez rules out of its defaults; WARDEN keeps them: a naive datetime
+# ruff 0.17 took the flake8-datetimez rules out of its defaults; WARDEN keeps them: a naive datetime
 # compared with an aware one raises, and audit times must carry their zone.
 extend-select = ["DTZ"]

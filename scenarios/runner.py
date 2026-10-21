@@ -253,7 +253,7 @@ def _service_problems(service: dict, target: ops.Target) -> list[str]:
 
 
 def _log_group_problems(clients: ops.Clients, target: ops.Target) -> list[str]:
-    # This exact group (audit A-B-L19): by prefix, `/ecs/checkout-legacy` passed for a deleted `/ecs/checkout`.
+    # This exact group: by prefix, `/ecs/checkout-legacy` passed for a deleted `/ecs/checkout`.
     groups = clients.logs.describe_log_groups(logGroupNamePrefix=target.log_group).get("logGroups") or []
     if not any(g.get("logGroupName") == target.log_group for g in groups):
         return [f"log group {target.log_group} is missing - a previous run deleted it"]
@@ -313,7 +313,7 @@ def load_wave(wave: int) -> tuple[dict, list[dict]]:
     """Return (catalog document, scenarios) for one wave, in catalog order."""
     for path in sorted(CATALOG.glob(CATALOG_GLOB)):
         # `warden-__ENV__-`: the environment's own prefix, as in the alert templates - a catalogue names no
-        # environment (owner, 2026-10-12).
+        # environment.
         text = path.read_text(encoding="utf-8").replace("warden-__ENV__-", f"warden-{fault_environment()}-")
         doc = yaml.safe_load(text) or {}
         if int(doc.get("wave", -1)) == wave:
@@ -362,7 +362,7 @@ def _write_json(path: pathlib.Path, payload: dict) -> None:
 def _in_folder(folder: pathlib.Path, name: str) -> pathlib.Path:
     """`folder / name` for a plain file name: a scenario id read back from a file or named on the command line that
     holds a separator, `.` or `..` is refused, never followed - even one that would lead back into the folder
-    (`../ground-truth/x`), so no two names reach one file (CodeRabbit, PR 63)."""
+    (`../ground-truth/x`), so no two names reach one file."""
     if not name or name in (".", "..") or os.path.basename(name) != name or "/" in name or "\\" in name:
         raise SystemExit(f"{name!r}: not a scenario file name - a plain name in {folder} only")
     try:
@@ -1520,7 +1520,7 @@ def _db_dry_harness() -> Harness:
         # The live DSN's shape - it carries the master password - with a placeholder one and a host that never
         # resolves (.invalid, RFC 6761). Put together here, so no URL with a password sits in the source for
         # check_publishable to take for a leak (an allow-list entry would blunt that guard for a fixture); it was a
-        # URL with no password, a shape the live run never has (Sonar python:S2115, 2026-10-16).
+        # URL with no password, a shape the live run never has (Sonar python:S2115).
         dsn=urllib.parse.urlunsplit(("postgresql", "warden:dry-run@dry-run.invalid:5432", "/" + DB_DATABASE, "", "")),
         database=DB_DATABASE, host="dry-run.invalid",
         instance_id="dry-run", security_group_id="sg-dry-run",
@@ -1591,7 +1591,7 @@ def supersede(out: pathlib.Path, scenario_id: str) -> str:
     stays in the bundle for anyone to read.
     """
     # Every folder this moves between is checked to lie inside the run first: a symlinked ground-truth/, reports/ or
-    # superseded/ would carry a record or a report out of it (CodeRabbit, PR 63).
+    # superseded/ would carry a record or a report out of it.
     gt_dir = _run_part(out, "ground-truth")
     current = _in_folder(gt_dir, f"{scenario_id}.json")
     kept = _run_part(gt_dir, "superseded")
@@ -1731,7 +1731,7 @@ def _wave_scenarios(wave: int, only: str) -> tuple[dict, list[dict]]:
     """The wave's catalog and its scenarios, narrowed by --only (id prefixes, comma-separated)."""
     doc, scenarios = load_wave(wave)
     if doc.get("service") == "fullstack":
-        # ⛔ Wave 4 is operator-driven by the owner's decision (2026-09-25): no loop, no terraform,
+        # ⛔ Wave 4 is operator-driven by the owner's decision: no loop, no terraform,
         # WARDEN run by hand one fault at a time. Refused here rather than half-supported.
         raise SystemExit(
             "Wave 4 is run step by step: python -m scenarios.fullstack_cli --help "

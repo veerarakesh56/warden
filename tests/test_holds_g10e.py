@@ -1,4 +1,4 @@
-"""G10 held-out, second pass (2026-10-11): right fixes WARDEN can carry out that its own checks still held back.
+"""G10 held-out, second pass: right fixes WARDEN can carry out that its own checks still held back.
 
 Read from the last run's answers, one by one: a load balancer's own name refused as a list (P14), a deregistered target
 group held as having no fix path (P30), an AppConfig revert whose citation and target were both refused (P15, P14)."""
@@ -168,7 +168,7 @@ def _restart_beside(actor, event="UpdateService"):
 @pytest.mark.parametrize("actor", ["<HIGHENTROPY_1>", "Root", "IdentityCenterUser", "role", "user/dev-ssingh",
                                    "role/AWSReservedSSO_AdministratorAccess"])
 def test_a_write_by_anyone_but_aws_is_a_persons_write_p31_looks_at(actor):
-    """G10 held-out (2026-10-11): only `role/...` and `user/...` counted, so a change by an Identity Center role the
+    """G10 held-out: only `role/...` and `user/...` counted, so a change by an Identity Center role the
     redactor had hidden, by the root user or by a federated one was nobody's - and a fix could ignore it."""
     assert "P31-UNADDRESSED-CHANGE" in _restart_beside(actor)
 
@@ -206,7 +206,7 @@ def test_a_recorded_change_is_a_kind_of_evidence_as_a_deploy_is():
     DISABLED state and its alarm were all read, and the re-enable was held as thin evidence."""
     change = "CHANGE 2026-10-10T06:58:20Z events.amazonaws.com DisableRule on nightly-close by user/ops-oncall"
     assert _reenable(change) == []
-    # An actor with nothing readable (security review M4, 2026-10-16) is not known to be no guardrail: a person decides.
+    # An actor with nothing readable is not known to be no guardrail: a person decides.
     # Today's redaction leaves none such among the 172 held-out inputs (an SSO role's suffix is dropped first).
     assert _reenable(change.replace("user/ops-oncall", "<HIGHENTROPY_1>")) == ["P33-DELIBERATE-CHANGE"]
     assert "P9-THIN-EVIDENCE" in _reenable("CHANGE none on nightly-close in the 6 h before the alert")

@@ -190,7 +190,7 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     assert set(clients) <= {"secretsmanager", "ssm", "ecr"}  # ecr: the image's digest (B26)
     assert [kw for name, kw in clients["secretsmanager"].calls] == [{"SecretId": "warden-dev-datadog-api-key"}]
     assert not any(c[:1] == ["helm"] and "datadog" in " ".join(c) for c in run.cmds)  # no key: no agent
-    assert any(c[:4] == ["helm", "upgrade", "--install", "argocd"] for c in run.cmds)  # Argo CD always (2026-10-16)
+    assert any(c[:4] == ["helm", "upgrade", "--install", "argocd"] for c in run.cmds)  # Argo CD always
     applied = next(i for c, i in zip(run.cmds, run.inputs) if "apply" in c and i and "kind: ClusterRole" in i)
     assert not tool.PLACEHOLDER.search(applied)
     assert "kind: ClusterRole" in applied
@@ -310,7 +310,7 @@ def test_bootstrap_db_creates_the_database_express_could_not():
 
 
 def test_run_decodes_tool_output_as_utf8_not_the_locale(monkeypatch):
-    """docker's build output is UTF-8; decoding it as cp1252 crashed a real build (2026-09-26)."""
+    """docker's build output is UTF-8; decoding it as cp1252 crashed a real build."""
     seen = {}
 
     def fake_run(cmd, **kw):
@@ -344,7 +344,7 @@ def test_the_task_definition_revision_carries_project_and_environment_tags():
 
 
 def test_an_extra_the_lambda_asks_for_is_checked(tmp_path):
-    """Fifth review (2026-10-01): `psycopg[binary]` without psycopg-binary passed the check, and the Lambda would
+    """Fifth review: `psycopg[binary]` without psycopg-binary passed the check, and the Lambda would
     die on import."""
     _dist(tmp_path, "psycopg", ['psycopg-binary==3.3.5; extra == "binary"', 'psycopg-pool; extra == "pool"'])
     assert tool.missing_dependencies(tmp_path) == []
@@ -414,7 +414,7 @@ def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_p
 
 
 def test_the_collector_sends_in_plaintext_only_to_the_agent_on_its_own_node():
-    """Naming audit item 19 (2026-10-16): `tls: insecure` is right only for the node-local hop to the Datadog agent's
+    """Naming audit item 19: `tls: insecure` is right only for the node-local hop to the Datadog agent's
     OTLP receiver. HOST_IP must be the pod's own node, and every other exporter keeps TLS."""
     import yaml
 
@@ -479,7 +479,7 @@ def test_argocd_settings_name_no_login_no_load_balancer_and_deny_by_default():
 
 
 def test_a_sync_that_failed_or_never_reached_the_commit_fails_the_deploy(monkeypatch):
-    """Dev is run as production (owner, 2026-10-16): the deploy says why Argo CD did not deploy the commit, and fails."""
+    """Dev is run as production: the deploy says why Argo CD did not deploy the commit, and fails."""
     failed = Runner({"get application shop": _synced(phase="Failed", health="Degraded")})
     with pytest.raises(SystemExit, match="sync of 0123456789ab failed"):
         tool.wait_synced("kc", REV, failed, sleep=lambda s: None)
@@ -546,7 +546,7 @@ def test_an_image_without_a_sha256_digest_is_never_deployed(found):
 
 
 def test_ecs_runs_the_digest_the_push_answered_not_one_read_back_by_the_tag():
-    """CodeRabbit (PR 90): between the push and a read-back the mutable tag could move; the push's own digest is used."""
+    """CodeRabbit: between the push and a read-back the mutable tag could move; the push's own digest is used."""
     pushed = "sha256:" + "fedcba9876543210" * 4
     token = base64.b64encode(b"AWS:pw").decode()
     clients = {"ecr": Fake({"get_authorization_token": {"authorizationData": [

@@ -30,7 +30,7 @@ files get committed, copied into buckets and shared far more often than anyone p
 
 ## Also set deliberately
 
-- **Private subnets only** is the intent. Honest status (audit 2026-09-28): the only validation is
+- **Private subnets only** is the intent. Honest status: the only validation is
   that `subnet_ids` is non-empty, and no resource uses `subnet_ids` yet, so nothing enforces it.
   WARDEN reads telemetry; nothing connects *to* it, so it has no reason to be publicly routable.
 - **Egress on 443 only** — model API, AWS APIs, OTLP collector.

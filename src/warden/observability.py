@@ -53,7 +53,7 @@ def _build_exporter() -> SpanExporter | None:
             # telemetry could not be shipped - observability must never take the system down.
             return ConsoleSpanExporter(out=sys.stderr)
     if os.environ.get("WARDEN_TRACE_CONSOLE") == "1":
-        # stderr, never stdout (audit A-C-20): stdout is the MCP server's JSON-RPC channel, and one
+        # stderr, never stdout: stdout is the MCP server's JSON-RPC channel, and one
         # span printed there corrupts the stream for the client.
         return ConsoleSpanExporter(out=sys.stderr)
     return None
@@ -106,9 +106,9 @@ def _redact_then_cut(text: str, limit: int) -> str:
     if len(text) > 8 * limit:
         cut = text[: 8 * limit]
         # The last whitespace, found by scanning back once: a regex (`\S*\Z`) was quadratic on one long
-        # token - 31 s for a 63,000-character record, holding the handler lock (fourth review).
+        # token - 31 s for a 63,000-character record, holding the handler lock.
         # Any whitespace, not only space, newline and tab: a record joined by NBSP or U+2028 was withheld
-        # whole (fifth review, 2026-10-01).
+        # whole.
         end = next((i for i in range(len(cut) - 1, -1, -1) if cut[i].isspace()), -1)
         text = cut[: end + 1] if end >= 0 else "(one token longer than the log limit, withheld)"
     return redact(text).text[:limit]
@@ -141,7 +141,7 @@ class GatedFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         try:
             # Redacted as written first - a control character between a letter and a key is the boundary the
-            # patterns need - then normalised and redacted again, for what the normalising joined (ninth review).
+            # patterns need - then normalised and redacted again, for what the normalising joined.
             text = _redact_then_cut(normalise(redact(super().format(record)).text), self.LIMIT)
         except Exception:  # noqa: BLE001 - a redaction failure must not print the raw text instead
             return f"{record.levelname} {record.name}: (log text withheld)"
@@ -172,7 +172,7 @@ def install_log_gate(level: int | None = None) -> None:
     CLI command and the MCP server install this first (third review: only `warden worker` did)."""
     root = logging.getLogger()
     # A marker, not the class: after a module reload the old handler's class is another object, and a
-    # second handler printed every record twice (fourth review, 2026-09-30).
+    # second handler printed every record twice.
     if not any(getattr(h, "warden_log_gate", False) for h in root.handlers):
         handler = _StderrHandler()
         handler.setFormatter(GatedFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
@@ -180,7 +180,7 @@ def install_log_gate(level: int | None = None) -> None:
         root.addHandler(handler)
     if level is not None:
         root.setLevel(level)
-    # The other ways Python prints raw text go through the same gate (fifth review, 2026-10-01): warnings
+    # The other ways Python prints raw text go through the same gate: warnings
     # (the CLI and `warden worker` printed them raw), and the hooks for an uncaught error - including
     # those that are not an Exception (`BaseExceptionGroup`, `GeneratorExit`) - an error in a thread,
     # and one raised where nothing can catch it (`__del__`).

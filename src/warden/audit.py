@@ -173,7 +173,7 @@ class _Store:
             finally:
                 # The body raised, the generator was closed early, or COMMIT failed: nothing of it is kept. Only a
                 # transaction still open is rolled back - a ROLLBACK with none raised "cannot rollback - no
-                # transaction is active" over the error that ended it (Sonar python:S9152, 2026-10-16).
+                # transaction is active" over the error that ended it (Sonar python:S9152).
                 if self.db.in_transaction:
                     self.db.execute("ROLLBACK")
 
@@ -198,7 +198,7 @@ def _signed_message(seq: int, head: str) -> bytes:
 @functools.cache
 def code_version() -> str:
     """A hash of WARDEN's own source and policy data (every .py and .yaml in the package), read once per process.
-    Recorded with every model call (audit A-P-1) and bound into every plan (register O5)."""
+    Recorded with every model call and bound into every plan (register O5)."""
     root = pathlib.Path(__file__).parent
     digest = hashlib.sha256()
     for f in sorted([*root.rglob("*.py"), *root.rglob("*.yaml")]):
@@ -494,7 +494,7 @@ def _check_anchors(checkpoints: list, anchors: dict[int, tuple[str, str]], probl
 # --------------------------------------------------------------------------- keys
 
 
-# Key files are written inside one folder only (Sonar pythonsecurity:S8707, 2026-10-16): the paths come from a command
+# Key files are written inside one folder only (Sonar pythonsecurity:S8707): the paths come from a command
 # line, and an agent can drive that command line, so a path must never reach `~/.bashrc`, a synced folder or a file
 # through `..` or a symlink. The folder is WARDEN_KEY_DIR, or ~/.warden.
 KEY_DIR_ENV = "WARDEN_KEY_DIR"
@@ -523,7 +523,7 @@ def key_path(path: pathlib.Path, base: pathlib.Path | None = None) -> pathlib.Pa
 
 def _create(real: pathlib.Path, data: bytes, mode: int) -> None:
     """Create `real` holding `data`, never over an existing file. A file this call created and could not fill is
-    removed again: no half-written key is left to block a retry (CodeRabbit, PR 35)."""
+    removed again: no half-written key is left to block a retry."""
     fd = os.open(real, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0), mode)
     try:
         with os.fdopen(fd, "wb") as f:
@@ -561,7 +561,7 @@ def generate_key(private_path: pathlib.Path, public_path: pathlib.Path, passphra
         _create(public_real, key.public_key().public_bytes(serialization.Encoding.PEM,
                                                            serialization.PublicFormat.SubjectPublicKeyInfo), 0o644)
     except BaseException:
-        private_real.unlink()  # no half pair: "no key was written" must stay true (CodeRabbit, PR 35)
+        private_real.unlink()  # no half pair: "no key was written" must stay true
         raise
 
 

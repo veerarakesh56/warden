@@ -1,4 +1,4 @@
-"""The outbound gate judged by a real renderer, not by regex (independent review, 2026-09-28).
+"""The outbound gate judged by a real renderer, not by regex.
 
 The reviewer proved each G3 bypass by rendering the gate's output with a CommonMark parser and
 finding a live <img> or link. The same check runs here: whatever the gate lets out must render with

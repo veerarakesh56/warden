@@ -1,4 +1,4 @@
-"""Item 7 (2026-10-17): ranked hypotheses, each with evidence for and against; a plan only on a cause decided by
+"""Item 7: ranked hypotheses, each with evidence for and against; a plan only on a cause decided by
 evidence WARDEN read itself (P34), and only when WARDEN's own count of the citations separates it from its best rival
 (P35) - never the model's self-confidence. Still one model call."""
 
@@ -36,7 +36,7 @@ class _Scripted:
 
 
 def _run(root_cause: dict, proposal: dict = ROLLBACK):
-    # The outcome the answer states (U3-1); a fix on an undetermined one is P37's, not these tests'.
+    # The outcome the answer states; a fix on an undetermined one is P37's, not these tests'.
     provider = _Scripted({"root_cause": {"confidence": 0.9, "outcome": "decided", **root_cause}, "proposal": proposal})
     report = run(INC, llm=LLMClient(provider=provider, mock=False))
     return report, provider
@@ -132,7 +132,7 @@ def test_an_old_answer_keeps_its_meaning():
 
 
 def test_a_root_cause_built_anywhere_else_weighed_no_rival():
-    """Fail closed (review, PR 47): only a stored answer read back is "before ranked hypotheses"."""
+    """Fail closed: only a stored answer read back is "before ranked hypotheses"."""
     items = {"M1": evidence.Item("M1", "error_rate=0.042")}
     fresh = RootCause.model_validate({"hypothesis": "x", "confidence": 0.9, "citations": [M1]})
     assert fresh.hypotheses == []
@@ -188,7 +188,7 @@ def test_the_count_says_which_cause_it_is_for_when_the_model_worded_them_differe
 
 
 def test_a_models_explicit_null_is_no_rival_weighed_not_an_old_answer():
-    """Plant check (PR 47): `"hypotheses": null` from the model is made [] in diagnose, so P35 applies - only a stored
+    """Plant check: `"hypotheses": null` from the model is made [] in diagnose, so P35 applies - only a stored
     answer read back may carry None."""
     report, _ = _run({"hypothesis": "the deploy broke checkout", "citations": [D1, M1], "hypotheses": None})
     assert report.root_cause.hypotheses == []
@@ -196,7 +196,7 @@ def test_a_models_explicit_null_is_no_rival_weighed_not_an_old_answer():
 
 
 def test_a_stated_cause_that_is_not_the_one_ranked_first_goes_to_a_person():
-    """P38 (review, PR 47): the count and the remediation's evidence would describe another cause. Case, spacing and a
+    """P38: the count and the remediation's evidence would describe another cause. Case, spacing and a
     closing period do not count; nothing is rewritten."""
     report, _ = _run({"hypothesis": "the 09:58 deploy broke checkout",
                       "hypotheses": [{"cause": "a bad release", "supporting": [D1, M1]},

@@ -1,4 +1,4 @@
-"""Naming audit item 4 (2026-10-16): a signing key is encrypted at rest unless its maker explicitly says otherwise.
+"""Naming audit item 4: a signing key is encrypted at rest unless its maker explicitly says otherwise.
 `warden audit keygen` wrote the key in the clear whenever no passphrase was set, and only said so; the bench approver's
 key was always in the clear. Both now refuse without a passphrase unless told --unencrypted, and create the file
 exclusively (never over another, mode 0600 on POSIX)."""

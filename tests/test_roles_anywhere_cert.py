@@ -75,7 +75,7 @@ def test_each_issue_makes_a_new_ca():
 
 
 def test_a_csr_without_the_pinned_organisation_is_refused():
-    """The role trust pins x509Subject/O=warden as well as the CN (independent review, 2026-09-28)."""
+    """The role trust pins x509Subject/O=warden as well as the CN."""
     no_org = _csr(org=None)
     with pytest.raises(ValueError, match="O must be exactly"):
         rac.issue(no_org, NOW)
@@ -85,7 +85,7 @@ def test_a_csr_without_the_pinned_organisation_is_refused():
 
 
 def test_the_key_request_asks_the_tpm_for_a_key_that_cannot_leave_it():
-    """Second review (2026-09-30): nothing pinned these, so a change that made the key exportable or
+    """Second review: nothing pinned these, so a change that made the key exportable or
     moved it off the TPM would still pass. The installed certificate was checked the same day
     (certutil: Microsoft Platform Crypto Provider, private key NOT exportable)."""
     fields = dict(line.split(" = ", 1) for line in rac.INF.splitlines() if " = " in line)

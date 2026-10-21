@@ -31,7 +31,7 @@ CTX = ContextBundle(
     metrics={"error_rate": 0.042, "lambda_errors__checkout": 12.0},
     recent_deploys=[{"sha": "9f2c1ab", "service": "checkout"}],
 )
-# The Wave 4 alert's labels, as the stack backend received them (2026-09-26).
+# The Wave 4 alert's labels, as the stack backend received them.
 LABELS = {"app": "shop", "lambda": "warden-dev-checkout,warden-dev-notifier",
           "dynamodb_table": "warden-dev-carts"}
 

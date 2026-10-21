@@ -55,7 +55,7 @@ def _plan_row(e: dict[str, Any], end: dict[str, Any] | None) -> dict[str, Any]:
     return {"seqs": [e["seq"], *([end["seq"]] if end else [])],
             "at": (end or e)["at"], "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
             # As a person reads it, for every message: a mapping's UUID is masked as a key's shape, and the
-            # outbound gate withheld the whole facts card that named one (live, 2026-10-15).
+            # outbound gate withheld the whole facts card that named one.
             "shown": _shown(b),
             "environment": b.get("environment"), "service": b.get("service"),
             "plan_hash": b.get("plan_hash"), "incident": e["correlation_id"],
@@ -76,7 +76,7 @@ def failures(log: Any, entry: str, target: str) -> list[tuple[datetime, str]]:
     (CodeRabbit, PR 43: a 30-day window let the same fix be offered again with no person deciding)."""
     markers = [e for e in log.entries(kinds=(DID_NOT_HOLD,))
                if e["body"].get("entry") == entry and e["body"].get("target") == target]
-    # A marked run that then ends `relapsed` is the same failure, kept at the marker's time (CodeRabbit, PR 43): a
+    # A marked run that then ends `relapsed` is the same failure, kept at the marker's time: a
     # clearance signed between the two must not be undone by the run's own end.
     marked = {(e["body"].get("workflow_id"), e["body"].get("run_id")) for e in markers}
     return [(e["at"], e["correlation_id"]) for e in markers] + [
@@ -103,7 +103,7 @@ def _relapsed(log: Any, incident: str | None = None) -> list[tuple[datetime, str
 
 def failed_in(log: Any, incident: str) -> list[tuple[str, str]]:
     """(entry, target) of each fix of `incident` that was verified and did not hold - its alarm came back in the soak,
-    or a re-check failed and its run ended `relapsed` (CodeRabbit, PR 43) - once each, in the record's order."""
+    or a re-check failed and its run ended `relapsed` - once each, in the record's order."""
     rows = [(str(e["body"].get("entry", "")), str(e["body"].get("target", "")))
             for e in log.entries(incident, kinds=(DID_NOT_HOLD,))]
     rows += [(entry, target) for _, _, entry, target, _ in _relapsed(log, incident)]
@@ -184,7 +184,7 @@ def past(alert: Any, log: Any, *, now: datetime | None = None) -> list[dict[str,
 
     names = named_resources(alert)
     # A reopened incident's own fix that did not hold is its history too (item 11, intake `reopen`) - also while its
-    # run is still ending, by the marker intake wrote (CodeRabbit, PR 43).
+    # run is still ending, by the marker intake wrote.
     marked = {e["body"].get("workflow_id") for e in log.entries(alert.alert_id, kinds=(DID_NOT_HOLD,))}
     return [r for r in plans(log, now=now)
             if (r["incident"] != alert.alert_id or r["status"] in FIXED_BEFORE or r.get("workflow_id") in marked)
@@ -198,7 +198,7 @@ def _line(row: dict[str, Any]) -> str:
     if row.get("denied_by"):
         who = f" · by @@{row['denied_by']}@@"  # "was denied · by <the person>"
     # Why a fix did not last or was not applied - "worked, then failed again" alone said nothing of what happened
-    # (owner, 2026-10-14). WARDEN's own reason, cut short and inert; a denial's is the person's words and is not
+    #. WARDEN's own reason, cut short and inert; a denial's is the person's words and is not
     # repeated here.
     why = str(row.get("why") or "")
     if why and row["status"] not in ("denied", "recovered", "open"):
@@ -224,7 +224,7 @@ def again(rows: list[dict[str, Any]]) -> str:
             "fix is related is for the diagnosis and a person to judge.")
 
 
-# Similar incidents (owner, 2026-10-15): "compare using previous similar or common issues - what was done then, how
+# Similar incidents: "compare using previous similar or common issues - what was done then, how
 # was the result, did it fail or succeed, later double-checked, is it stable, and what should we do now - with
 # timestamps and record links ... and troubleshooting if anything is suspicious and repetitive". From WARDEN's own
 # signed record only: the incidents, their fix plans and how each run ended - never a past diagnosis's prose.
@@ -358,7 +358,7 @@ def warning(rows: list[dict[str, Any]], *, entry: str, target: str, plan_hash: s
     latest = f"most recently it {ENDED[again[0]['status']]} ({both_times(again[0]['at'], seconds=False)})"
     times = "once" if len(again) == 1 else f"{len(again)} times"
     # ...and what did hold is said too: "none lasted" stood beside a run of the same fix that had worked an hour
-    # before (live, 2026-10-12).
+    # before.
     held = [r for r in same if r["status"] == "recovered"]
     held_times = "once" if len(held) == 1 else f"{len(held)} times"
     also = (f" It held {held_times} in that day, most recently "
@@ -373,7 +373,7 @@ _SHOWN = frozenset(ENDED) - {"denied"}
 
 
 def for_prompt(rows: list[dict[str, Any]], log: Any) -> list[dict[str, Any]]:
-    """The past runs a diagnosis may be shown, with the research's safeguards (2026-10-15): only rows the signed
+    """The past runs a diagnosis may be shown, with the research's safeguards: only rows the signed
     record vouches for (AuditLog.intact), only today's catalogue entries on a target of a resource's shape, only runs
     that ended - so a forged, altered or half-written row, or a fix since removed, never reaches the model."""
     from .catalog import CATALOG

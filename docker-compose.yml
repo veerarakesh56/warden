@@ -8,7 +8,7 @@
 #   WARDEN_MOCK=0
 #   ANTHROPIC_API_KEY=<your-key>
 # or export it from a secret manager first, e.g. `export ANTHROPIC_API_KEY="$(<read it from your secret manager>)"`,
-# then `docker compose up`. Never type the key on the command line: it stays in the shell's history (2026-10-16).
+# then `docker compose up`. Never type the key on the command line: it stays in the shell's history.
 
 services:
   warden:

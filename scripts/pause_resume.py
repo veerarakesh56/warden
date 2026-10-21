@@ -63,7 +63,7 @@ ENTRY_FUNCTIONS = ("checkout", "traffic")
 DRAINED_QUEUES = ("orders",)
 FUNCTIONS = ("checkout", "notifier", "ops", "order-processor", "reconciler", "traffic")
 DRAIN_WAIT = {"Delay": 15, "MaxAttempts": 60}  # 15 minutes: order-processor's batches, retried at most 3 times
-# SQS's counters are approximate: "drained" is this many zero readings in a row, a Delay apart (CodeRabbit, PR 88).
+# SQS's counters are approximate: "drained" is this many zero readings in a row, a Delay apart.
 DRAIN_ZEROS = 3
 SETTLE_MARGIN_S = 5  # past the longest entry function's timeout: an invocation that began before the hold has ended
 _IN_QUEUE = ("ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed")
@@ -168,7 +168,7 @@ def _rules(events, enable: bool, log) -> None:
 
 def _settle(lam, names, log) -> None:
     """A hold stops NEW invocations only: wait out the longest timeout of `names`, so one that began just before it -
-    traffic queueing an order, checkout writing a cart - has ended before the drain is judged (CodeRabbit, PR 88)."""
+    traffic queueing an order, checkout writing a cart - has ended before the drain is judged."""
     longest = 0
     for fn in names:
         try:
@@ -270,7 +270,7 @@ def snapshot(stack: str, clients: dict, log=print) -> list[str]:
     """Pause, first step: a copy of every data store of `stack`, each available before this returns."""
     rds = clients["rds"]
     if stack == "fullstack":
-        # A cluster that cannot be copied is found before any writer is stopped (CodeRabbit, PR 103).
+        # A cluster that cannot be copied is found before any writer is stopped.
         _copyable(ax.describe(rds, ax.CLUSTER))
         try:
             quiesce(clients, log)
@@ -349,7 +349,7 @@ def start_db(rds, log=print) -> None:
     kind, status = found[0], _db_status(*found)
     if status == "stopping":
         # A resume right after a pause: RDS refuses to start a database that is still stopping, and the available-
-        # waiters never end on `stopped` (CodeRabbit, PR 103). Wait for the stop, then start it.
+        # waiters never end on `stopped`. Wait for the stop, then start it.
         status = _wait_stopped(rds, ident, log)
     if status == "stopped":
         log(f"starting {ident}")

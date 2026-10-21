@@ -3,7 +3,7 @@
 #   ECS:    command ["warden", "worker", "--platform", "aws"]
 #   Lambda: entry point ["/opt/warden/bin/python", "-m", "awslambdaric"], command ["warden.lambdas.alarm"] (or
 #           .alertmanager, .approval) - AWS's runtime interface client in a non-AWS base image, as AWS documents.
-# Base images by digest (audit A-I-24), the same two as ./Dockerfile; Dependabot (docker) proposes new digests.
+# Base images by digest, the same two as ./Dockerfile; Dependabot (docker) proposes new digests.
 # Docker's official python image by default; CI and runtime.yml pass the repository's own mirror of the same
 # digest (mirror-images.yml: ghcr.io/<owner>/warden-mirror), as shared runners are rate-limited by Docker Hub.
 ARG BASE_IMAGE_REGISTRY=docker.io/library
@@ -22,7 +22,7 @@ COPY --from=uv /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
 COPY src ./src
 
-# Only what uv.lock lists, every hash verified (audit A-I-9): the runtime extra (the Lambda runtime interface client,
+# Only what uv.lock lists, every hash verified: the runtime extra (the Lambda runtime interface client,
 # AWS, the PostgreSQL audit, passkeys), Kubernetes for the k8s platform, the Anthropic SDK for the llm zone's model
 # (the Claude API; Bedrock goes through boto3), Slack, and the injection tripwire (guard: transformers and torch, the
 # CPU-only build - pyproject.toml's pytorch-cpu index), and OpenTelemetry's own OTLP/HTTP exporter (otlp), used only when
@@ -42,7 +42,7 @@ RUN /opt/warden/bin/python check_package.py \
 COPY scripts/bake_tripwire.py ./
 ARG WARDEN_DETECTOR=baked
 # Readable by the worker's non-root user, in the same layer (a chmod later would copy the 1.1 GB again): a cache file
-# left root-only drew "Permission denied" in the cloud's first load (2026-10-14). Written under the working directory
+# left root-only drew "Permission denied" in the cloud's first load. Written under the working directory
 # (the script takes no path outside it, nor the temp folder) and copied to /opt/hf below.
 RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py hf "$WARDEN_DETECTOR" && chmod -R a+rX hf
 

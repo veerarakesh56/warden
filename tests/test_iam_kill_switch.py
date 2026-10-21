@@ -29,7 +29,7 @@ def _denied(env, tags):
     ((op, cond),) = st["Condition"].items()
     ((key, want),) = cond.items()
     # IfExists: true when the role has no such tag - fail closed by the operator's definition, not only by IAM's rule
-    # that a negated operator matches a missing key (CodeRabbit, PR 89).
+    # that a negated operator matches a missing key.
     assert op == "StringNotEqualsIfExists"
     assert key == f"aws:PrincipalTag/{ks.TAG}"
     have = tags.get(ks.TAG)

@@ -232,11 +232,11 @@ def test_the_boundary_carries_every_guardrail_its_roles_could_break(env):
                if any(fnmatch.fnmatchcase(a.lower(), p.lower()) for p in ceiling)
                and not any(fnmatch.fnmatchcase(a.lower(), d.lower()) and c == st.get("Condition") for d, c in denied)]
     # Stricter than the guardrail is allowed: AddPermission is denied for any principal that is not an AWS service -
-    # "*" included, and another account by id, which Access Analyzer does not see on an alias (eighth review).
+    # "*" included, and another account by id, which Access Analyzer does not see on an alias.
     stricter = {"StringNotEquals": {"lambda:Principal": ["events.amazonaws.com", "apigateway.amazonaws.com"]}}
     missing = [a for a in missing if not (a == "lambda:AddPermission" and ("lambda:AddPermission", stricter) in denied)]
     assert not missing, missing
-    # `s3:DeleteBucketPublicAccessBlock` is no IAM action: deleting the block is authorised as the Put (ninth review).
+    # `s3:DeleteBucketPublicAccessBlock` is no IAM action: deleting the block is authorised as the Put.
     for action in ("s3:PutBucketPublicAccessBlock", "s3:PutBucketPolicy"):
         assert any(fnmatch.fnmatchcase(action.lower(), d.lower()) and c is None for d, c in denied), action
 
@@ -281,7 +281,7 @@ def test_the_deploy_role_can_do_what_the_first_real_deploy_needed(env):
 
 
 @pytest.mark.parametrize("env", ENVS)
-# The name predates the branch model (2026-10-16): docs/AUDIT-2026-09-28.md row A-I-10 cites the test by it, so the
+# The name predates the branch model: docs/AUDIT-2026-09-28.md row A-I-10 cites the test by it, so the
 # two are renamed together (research_notes "Branch and pipeline model", doc-changes.md).
 def test_only_main_and_the_two_deploy_workflows_may_assume(env):
     """Audit A-I-10: any workflow run in the repository's `<env>` environment - from any branch - could assume the
@@ -365,7 +365,7 @@ def test_the_deploy_role_turns_on_api_access_logs_without_writing_a_logs_resourc
 
 @pytest.mark.parametrize("env", ENVS)
 def test_no_role_shares_an_event_bus_or_the_image_registry_outside(env):
-    """Seventh review (2026-10-01): roles inside the boundary could share outside the account through resource
+    """Seventh review: roles inside the boundary could share outside the account through resource
     policies. IAM Access Analyzer's external-access analyzer (the owner's, since 2026-09-27) reports role trusts,
     Lambda, SQS, SNS, ECR repositories and DynamoDB; it does not analyze an EventBridge bus's permissions or the ECR
     registry's policy and replication (AWS docs, read 2026-10-01) - so those are denied outright."""
@@ -379,7 +379,7 @@ def test_no_role_shares_an_event_bus_or_the_image_registry_outside(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functions(env):
-    """Eighth review (2026-10-01): RunTask and StartTask carry no subnet key, and ECS's own role makes the task's
+    """Eighth review: RunTask and StartTask carry no subnet key, and ECS's own role makes the task's
     network interface - a dev role could run a task with prod's subnets and security groups (HIGH). Nothing in the
     stack runs one, so both are denied. Also: daemons in another cluster, EventBridge's bus policy API, account-wide
     log policies, and a function permission for another account (by id, or on an alias Access Analyzer misses)."""
@@ -405,7 +405,7 @@ def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functio
     clusters = next(st for st in statements if st["Sid"] == "DenyOtherClusters")
     assert any(fnmatch.fnmatchcase("ecs:CreateDaemon", p) for p in _list(clusters["Action"]))
     # Only the two service principals the stack grants, exactly: "ends in .amazonaws.com" let through a role ARN
-    # ending so and any service without a source ARN (ninth review).
+    # ending so and any service without a source ARN.
     invoke = next(st for st in statements if st["Sid"] == "DenyInvokeByAll")
     granted = invoke["Condition"]["StringNotEquals"]["lambda:Principal"]
     assert set(invoke["Condition"]) == {"StringNotEquals"}
@@ -416,7 +416,7 @@ def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functio
 
 
 def test_no_environment_name_is_another_ones_prefix():
-    """Eighth review (2026-10-01): every IAM pattern is `warden-<env>-*`, so an environment `qa` beside `qa-prod` would
+    """Eighth review: every IAM pattern is `warden-<env>-*`, so an environment `qa` beside `qa-prod` would
     match the other's resources - the hazard R7-D5 fixed in the Aurora script, latent in IAM."""
     for a in ENVS:
         for b in ENVS:
@@ -460,7 +460,7 @@ def test_no_role_changes_a_vpcs_untagged_defaults(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_no_role_changes_account_settings_opens_a_way_out_or_buys_capacity(env):
-    """Ninth review (2026-10-01): an environment's role could change account- and region-wide settings every
+    """Ninth review: an environment's role could change account- and region-wide settings every
     environment lives under (EBS encryption by default, instance metadata defaults, block public access for images,
     snapshots and the VPC, ECS account defaults, account log policies), open a way out (another account's access to
     a queue, topic or layer; peering; accepting an attachment) or commit money (reservations, purchases). Nothing in
@@ -513,7 +513,7 @@ def test_every_deploy_grant_lies_inside_the_boundary_on_resources_too(env):
 
 
 def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, monkeypatch):
-    """Audit A-I-18 (owner, 2026-10-02): the operator runs the Wave 4 harness from the laptop, in dev only. Its policy
+    """Audit A-I-18: the operator runs the Wave 4 harness from the laptop, in dev only. Its policy
     writes only dev's named or tagged resources, and logs in to Aurora - as the master user, which the faults need -
     only on dev's cluster, named by its resource id: `dbuser:*` would reach every environment's database."""
     assert [e for e in ENVS if (ROOT / "iam" / e / "harness.json").exists()] == list(r.HARNESS_ENVS) == ["dev"]
@@ -542,7 +542,7 @@ def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, mon
 
 
 def test_only_the_operator_role_of_this_account_may_assume_the_harness_role():
-    """Register R18 (owner, 2026-10-02): the harness is its own identity, warden-dev-harness - not permissions added to
+    """Register R18: the harness is its own identity, warden-dev-harness - not permissions added to
     the read-only operator role. Only that role may assume it, in this account, keeping its source identity and
     its certificate's session tags (a chained AssumeRole without sts:TagSession was refused live, 2026-10-02)."""
     trust = json.loads((ROOT / "iam" / "dev" / "harness-trust.json").read_text(encoding="utf-8"))
@@ -574,7 +574,7 @@ _HARNESS_CLIENTS = {"lam": "lambda", "ddb": "dynamodb", "ec": "elasticache", "el
 
 
 def test_every_aws_call_the_fault_scripts_make_is_allowed_by_the_harness_policy():
-    """The first live status run with the harness (2026-10-15) was refused cloudwatch:DescribeAlarms, lambda:ListTags
+    """The first live status run with the harness was refused cloudwatch:DescribeAlarms, lambda:ListTags
     and elasticache:ListTagsForResource: the policy was written by hand from the calls remembered. Every call through
     the harness's clients (`c.<client>.<method>(`) now maps to an allowed action."""
     src = "".join((ROOT / "scenarios" / f).read_text(encoding="utf-8") for f in ("ops_fullstack.py", "fullstack_cli.py"))
@@ -592,7 +592,7 @@ def test_every_aws_call_the_fault_scripts_make_is_allowed_by_the_harness_policy(
 
 def test_the_harness_reads_the_stack_file_and_never_the_terraform_state():
     """The infra deploy publishes stack.json (non-sensitive outputs only) beside the state; the harness reads that one
-    object (2026-10-15) - never terraform.tfstate, which holds every sensitive value in plaintext."""
+    object - never terraform.tfstate, which holds every sensitive value in plaintext."""
     st = next(s for s in _load("dev", "harness")["Statement"] if s.get("Sid") == "ReadThisEnvironmentsStackFileOnly")
     assert st["Effect"] == "Allow"
     assert _list(st["Action"]) == ["s3:GetObject"]
@@ -603,8 +603,8 @@ def test_the_harness_reads_the_stack_file_and_never_the_terraform_state():
 
 def test_the_harness_can_carry_the_operators_source_identity_to_the_reader():
     """The operator's session carries a source identity, which AWS passes on to every role it assumes: the harness could
-    not assume the reader without sts:SetSourceIdentity in its own policy and in the reader's trust (2026-10-14), nor
-    without sts:TagSession, for the certificate's transitive session tags (2026-10-15)."""
+    not assume the reader without sts:SetSourceIdentity in its own policy and in the reader's trust, nor
+    without sts:TagSession, for the certificate's transitive session tags."""
     st = next(s for s in _load("dev", "harness")["Statement"] if s.get("Sid") == "AssumeThisEnvironmentsReader")
     assert sorted(_list(st["Action"])) == ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
     trust = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
@@ -631,8 +631,8 @@ def test_the_deploy_role_never_writes_the_owners_datadog_key(env):
 
 
 def test_the_runtime_deploy_role_has_no_ecs_image_lookup_and_its_boundary_no_model():
-    """The workers run on Fargate (2026-10-14): the ECS-optimised AMI lookup under /aws/service/ecs is gone, and no
-    Bedrock (owner, 2026-10-09) - neither the deploy role nor the ceiling on every runtime role keeps either."""
+    """The workers run on Fargate: the ECS-optimised AMI lookup under /aws/service/ecs is gone, and no
+    Bedrock - neither the deploy role nor the ceiling on every runtime role keeps either."""
     for kind in ("deploy", "boundary"):
         text = json.dumps(_load(RUNTIME, kind))
         assert "/aws/service/" not in text, kind

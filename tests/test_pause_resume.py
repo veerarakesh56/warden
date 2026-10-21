@@ -315,7 +315,7 @@ def test_pause_fails_when_a_table_backup_does_not_become_available(pr):
 
 
 def test_pause_refuses_an_aurora_cluster_it_cannot_copy_before_any_writer_stops(pr):
-    """CodeRabbit (PR 103): found before quiesce(), so a refused pause leaves the shop running."""
+    """CodeRabbit: found before quiesce(), so a refused pause leaves the shop running."""
     writers = FakeWriters()
     clients = _full(FakeRds(cluster=_cluster("modifying")), FakeDdb(), writers)
     with pytest.raises(SystemExit, match="no snapshot can be taken, so nothing is deleted"):
@@ -361,7 +361,7 @@ def test_pause_stops_every_writer_and_drains_the_queue_before_the_first_copy(pr)
     assert kinds.index("hold") < kinds.index("poll")  # traffic and checkout stop before the drain
     polls = [i for i, k in enumerate(kinds) if k == "poll"]
     assert len(polls) == 2 + pr.DRAIN_ZEROS  # 2 waiting, 1 waiting, then DRAIN_ZEROS empty readings in a row
-    # The entry functions' running invocations are waited out before the queue is judged (CodeRabbit, PR 88).
+    # The entry functions' running invocations are waited out before the queue is judged.
     assert max(i for i, k in enumerate(kinds) if k == "timeout") < polls[0]
     held = {n for k, n in log[polls[-1]:first_copy] if k == "hold"}
     assert held == {f"warden-dev-{f}" for f in pr.FUNCTIONS}  # every function held after the drain, before a copy
@@ -464,7 +464,7 @@ def test_runtime_resume_starts_the_database_and_waits_for_it(pr):
 
 
 def test_a_resume_right_after_a_pause_waits_for_the_stop_then_starts(pr):
-    """CodeRabbit (PR 103): a database still `stopping` is waited for, then started - not waited on as if starting."""
+    """CodeRabbit: a database still `stopping` is waited for, then started - not waited on as if starting."""
     pr = _ops(pr)
 
     class Stopping(FakeRds):
@@ -482,7 +482,7 @@ def test_a_resume_right_after_a_pause_waits_for_the_stop_then_starts(pr):
 
 
 def test_a_failure_that_is_not_ours_after_the_writers_stop_still_says_wake(pr):
-    """CodeRabbit (PR 103): a waiter's or AWS's own error (not SystemExit) gets the wake hint too."""
+    """CodeRabbit: a waiter's or AWS's own error (not SystemExit) gets the wake hint too."""
     class Throttled(FakeDdb):
         def create_backup(self, TableName, BackupName):
             raise RuntimeError("ThrottlingException")
@@ -587,7 +587,7 @@ def test_aurora_resume_restores_the_newest_pause_snapshot_as_an_express_cluster(
 
 
 def test_aurora_resume_refuses_latest_when_a_destroy_came_after_the_last_pause(pr):
-    """CodeRabbit (PR 88): pause, resume, writes, then a plain destroy - its final snapshot is newer than every pause
+    """CodeRabbit: pause, resume, writes, then a plain destroy - its final snapshot is newer than every pause
     copy, and `latest` would bring back older data. Refused, both named."""
     rds = FakeRds(snapshots=[_csnap("warden-dev-aurora-pause-20261017", 17),
                              _csnap("warden-dev-aurora-final-20261019t090000z", 19)])
@@ -800,7 +800,7 @@ def test_the_runtime_pause_switch_is_the_only_parameter_the_role_may_write():
 
 
 def test_the_runtime_boundary_lets_no_role_write_any_parameter_but_the_pause_switch():
-    """CodeRabbit (PR 88): the ceiling, not only the deploy policy, names tf/paused alone - a role under this boundary
+    """CodeRabbit: the ceiling, not only the deploy policy, names tf/paused alone - a role under this boundary
     whose own policy granted more still could not rewrite the model or the approvers."""
     boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
     writes = [s for s in boundary["Statement"] if s["Effect"] == "Allow"
@@ -823,7 +823,7 @@ def test_the_runtime_deploy_policy_writes_the_pause_switch_alone():
 @pytest.mark.parametrize("action", ["rds:DeleteDBClusterSnapshot", "rds:ModifyDBClusterSnapshotAttribute",
                                     "rds:CopyDBClusterSnapshot"])
 def test_the_deploy_policies_alone_grant_no_snapshot_delete_copy_or_share(env, action):
-    """CodeRabbit (PR 103): the identity layer on its own, conditions evaluated (not only unconditional statements),
+    """CodeRabbit: the identity layer on its own, conditions evaluated (not only unconditional statements),
     the boundary left out - so the second layer holds whatever the boundary says."""
     ev = _evaluator()
     region = ev.r.names(env).region
@@ -837,7 +837,7 @@ def test_the_deploy_policies_alone_grant_no_snapshot_delete_copy_or_share(env, a
 @pytest.mark.parametrize("env", ["dev", "prod"])
 @pytest.mark.parametrize("kind", ["pause-20261017", "pause-20261020t062500z", "final-20261020t062500z"])
 def test_the_snapshot_grants_stay_narrow(env, kind):
-    """CodeRabbit (PR 88): the deploy role may make, tag, restore from and delete a cluster with a final snapshot of its
+    """CodeRabbit: the deploy role may make, tag, restore from and delete a cluster with a final snapshot of its
     OWN environment's clusters - nothing else on a snapshot (no copy, share, delete), and nothing on another's."""
     ev = _evaluator()
     region = ev.r.names(env).region

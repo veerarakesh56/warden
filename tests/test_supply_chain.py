@@ -1,4 +1,4 @@
-"""Every install is pinned to a hash and every image to a digest (audit A-I-9, A-I-24; fourth review E).
+"""Every install is pinned to a hash and every image to a digest.
 
 Unpinned `pip install` ran while deploy jobs held cloud credentials, and images were pulled by tags that
 can be moved to other content. These keep it that way."""
@@ -41,7 +41,7 @@ def test_every_uv_sync_is_locked():
 
 
 def test_no_install_runs_a_packages_build_script():
-    """Sonar S8541 (2026-10-16): an sdist's setup script is code that runs at install, in a job that may hold
+    """Sonar S8541: an sdist's setup script is code that runs at install, in a job that may hold
     credentials. Every locked package is a wheel; uv builds only WARDEN itself, in process (uv_build's direct build)."""
     syncs = [line for _, _, steps, _ in _steps() for st in steps
              for line in _code(st.get("run", "")).splitlines() if re.search(r"\buv sync\b", line)]
@@ -72,7 +72,7 @@ def test_uv_is_pinned_and_checksum_verified_everywhere():
 
 
 def test_the_images_run_the_same_uv_as_ci():
-    """uv 0.13 (2026-10-17) moved CI and both images together: an image built by another uv than CI's could lock,
+    """uv 0.13 moved CI and both images together: an image built by another uv than CI's could lock,
     build and install differently from what CI checked. One version, each image by the same digest."""
     ci = {st["with"]["version"] for _, _, steps, _ in _steps() for st in steps
           if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")}
@@ -129,7 +129,7 @@ def test_packages_are_installed_before_any_cloud_credentials():
 
 def test_a_job_that_holds_credentials_restores_no_cache():
     """uv does not re-verify unpacked cache entries: a poisoned cache restored into a deploy job would install
-    unchecked (fifth review E, 2026-10-01)."""
+    unchecked."""
     for wf, job, steps, _ in _steps():
         if not any("configure-aws-credentials" in str(st.get("uses", "")) for st in steps):
             continue
@@ -272,7 +272,7 @@ def test_the_image_build_gets_every_licence_file_the_package_names():
 
 
 def test_every_download_refuses_anything_but_https():
-    """Sonar githubactions:S6506 (2026-10-16): a redirect could take curl to plain http; the checksum after it would
+    """Sonar githubactions:S6506: a redirect could take curl to plain http; the checksum after it would
     catch a changed file, but the download itself is held to https and TLS 1.2+ as well."""
     files = [*sorted((ROOT / ".github/workflows").glob("*.yml")), *sorted(ROOT.glob("Dockerfile*"))]
     calls = [(f.name, ln.strip()) for f in files for ln in f.read_text(encoding="utf-8").splitlines()
@@ -314,7 +314,7 @@ def test_the_lock_was_made_from_this_pyproject():
 
 def test_a_workflow_that_installs_from_the_lock_runs_when_the_lock_changes():
     """CI · apps and CI · infra install from uv.lock but ran only on their own paths, so a stale lock stayed
-    hidden from them until an apps or infra file changed (2026-10-01)."""
+    hidden from them until an apps or infra file changed."""
     def installs(wf: pathlib.Path) -> bool:
         text = wf.read_text(encoding="utf-8")
         called = re.findall(r"uses: \$/\.github/workflows/(\S+\.yml)|uses: \./\.github/workflows/(\S+\.yml)", text)
@@ -344,7 +344,7 @@ def test_the_groups_that_build_the_lambdas_carry_pip():
 
 
 def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
-    """Sixth review (2026-10-01): five patterns - a git-ignored tfstate (the database master password in plaintext)
+    """Sixth review: five patterns - a git-ignored tfstate (the database master password in plaintext)
     or tfvars under src/ would still ship from a local build."""
     import fnmatch
     import tomllib
@@ -375,7 +375,7 @@ def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
     for path in (".docker/config.json", ".kube/config", ".azure/accessTokens.json"):
         assert any(fnmatch.fnmatchcase(path, p.removeprefix("**/")) for p in backend["wheel-exclude"]), path
     # Nothing re-includes what the excludes keep out: the last matching line wins, and `!src/**` after them would
-    # bring everything back (eighth review).
+    # bring everything back.
     lines = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
              if ln.strip() and not ln.startswith("#")]
     first_exclude = next(i for i, ln in enumerate(lines) if ln.startswith("**/"))
@@ -391,12 +391,12 @@ def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
 
 
 def test_the_deployed_requirements_are_audited_every_week():
-    """Sixth review (2026-10-01): the apps pipeline ran only on a change, so a new CVE in a pinned dependency of
+    """Sixth review: the apps pipeline ran only on a change, so a new CVE in a pinned dependency of
     what is deployed waited for the next change."""
     apps = yaml.safe_load((ROOT / ".github" / "workflows" / "ci-apps.yml").read_text(encoding="utf-8"))
     assert apps[True].get("schedule"), "CI · apps has no schedule"
     # And it fires every week: any day of the month and month, one fixed minute, hour and weekday - a cron that never
-    # fires (`0 0 31 2 *`) passed the check above (seventh review, 2026-10-01).
+    # fires (`0 0 31 2 *`) passed the check above.
     [cron] = [s["cron"] for s in apps[True]["schedule"]]
     minute, hour, dom, month, dow = cron.split()
     assert dom == "*", cron
@@ -438,7 +438,7 @@ def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
                "warden/fixtures/inc-001.json", "warden/data/mcp_manifest.sha256", "warden/CLI.PY"]
     assert mod.outside(shipped) == []
     assert mod.main([str(ROOT / "src" / "warden")]) == 0  # the real package passes
-    # One certificate file by its exact path (PR 48), holding certificates only; no other .crt, and no key in it.
+    # One certificate file by its exact path, holding certificates only; no other .crt, and no key in it.
     assert mod.outside(["warden/data/rds-ca-bundle.crt"]) == []
     assert mod.outside(["warden/data/other.crt", "warden/rds-ca-bundle.crt"]) == ["warden/data/other.crt",
                                                                                  "warden/rds-ca-bundle.crt"]
@@ -455,7 +455,7 @@ def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
     assert not mod.only_certificates(cert + junk)
     assert not mod.only_certificates(cert + private_key_block("RSA", "AA=="))
     assert not mod.only_certificates("no PEM at all")
-    # Complete blocks only, and nothing after them (review, PR 48).
+    # Complete blocks only, and nothing after them.
     assert mod.only_certificates("Where it came from.\n\n" + cert + cert)
     assert not mod.only_certificates("-----BEGIN CERTIFICATE-----")
     assert not mod.only_certificates(cert[:-len("-----END CERTIFICATE-----\n")])

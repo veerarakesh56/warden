@@ -580,7 +580,7 @@ def test_the_new_grants_stay_narrow(env):
         assert refusal(env, "ec2:DeleteTags", [ARNS["eks-sg"].format(**fill)],
                        {**untagged, "aws:ResourceTag/aws:eks:cluster-name": cluster, "aws:TagKeys": ["Project"]})
     assert refusal(env, "ec2:DeleteTags", [ARNS["vpc"].format(**fill)], {**untagged, "aws:TagKeys": ["Project"]})
-    # Only the keys the stack sets come off (CodeRabbit, PR 103): never another key, and never every tag at once - a
+    # Only the keys the stack sets come off: never another key, and never every tag at once - a
     # DeleteTags that names no key removes them all, and ForAllValues alone would let it through (hence Null).
     sg = {**untagged, "aws:ResourceTag/aws:eks:cluster-name": f"warden-{env}-eks"}
     own = {**untagged, "aws:ResourceTag/Environment": env}

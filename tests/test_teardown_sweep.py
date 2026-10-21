@@ -186,7 +186,7 @@ def test_a_similarly_named_family_is_not_swept_up():
 
 def test_apply_removes_only_tagged_revisions_and_the_recreated_log_group(capsys):
     """The resources Terraform never knew about - the reason this script exists. Only those carrying the proving
-    ground's tag (audit A-B-M14): an untagged `checkout` revision may be anyone's, and is reported, never removed."""
+    ground's tag: an untagged `checkout` revision may be anyone's, and is reported, never removed."""
     tag = "warden-proving-ground"
     ecs = FakeEcs(active=["checkout:2", "checkout:9"], inactive=["checkout:7"],
                   tags={"checkout:2": tag, "checkout:7": tag})

@@ -1,4 +1,4 @@
-"""Where a path named on a command line may point (Sonar pythonsecurity:S8707, 2026-10-16).
+"""Where a path named on a command line may point (Sonar pythonsecurity:S8707).
 
 An agent can drive WARDEN's command line and the repository's scripts, so a path taken from argv is untrusted: after
 `..` and symlinks are resolved it must lie inside a place these tools work in - the working directory (the checkout),
@@ -31,7 +31,7 @@ def bench_dir() -> pathlib.Path:
 def work_roots() -> list[pathlib.Path]:
     """The working directory, the temp folder and the folders set for the tools - each only when it neither is nor holds
     the home directory: run from ~, or with WARDEN_BENCH_DIR=~, a tool would otherwise read and write ~/.ssh and ~/.aws
-    (CodeRabbit, PR 46) - and the tools' own folders under the home directory, named one by one."""
+    - and the tools' own folders under the home directory, named one by one."""
     home = pathlib.Path.home()
     real_home = home.expanduser().resolve()
     broad = [pathlib.Path.cwd(), pathlib.Path(tempfile.gettempdir()),
