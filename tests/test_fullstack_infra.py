@@ -126,7 +126,7 @@ def test_catalog_api_gets_its_role_through_pod_identity():
 def test_rds_db_connect_is_scoped_to_one_database_user_per_identity():
     text = _tf_text()
     # Named for the environment (audit A-I-2): `app` existed in every environment's cluster.
-    assert 'db_users = { for k in ["app", "catalog", "ro"] : k => "warden_${replace(local.env, "-", "_")}_${k}" }' in text
+    assert 'db_users = { for k in ["app", "catalog", "ro", "terminate"] : k => "warden_${replace(local.env, "-", "_")}_${k}" }' in text
     assert "dbuser:*/${u}" in text and "for k, u in local.db_users" in text
     assert text.count('"rds-db:connect"') == 5, "one grant per identity: processor, reconciler, task, pod, reader"
     assert not re.search(r"dbuser:[^\s\"]*/\*", text), "a grant for every database user"
@@ -457,11 +457,21 @@ def test_the_bootstrap_gives_warden_ro_pg_monitor_and_nothing_more():
     text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
     mentions = [" ".join(s.split()) for s in re.split(r";", code) if "__RO__" in s]
-    allowed = [r"^GRANT pg_monitor TO __RO__$", r"^GRANT rds_iam TO __APP__, __CATALOG__, __RO__$"]
+    allowed = [r"^GRANT pg_monitor TO __RO__$", r"^GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__$"]
     grants = [m for m in mentions if m.upper().startswith(("GRANT", "ALTER"))]
     assert "GRANT pg_monitor TO __RO__" in grants
     assert all(any(re.match(a, g) for a in allowed) for g in grants), grants
     assert "CREATE ROLE __RO__ LOGIN" in code
+
+
+def test_the_terminate_login_may_close_sessions_and_read_none_of_the_data():
+    """WARDEN's one database write (platforms/db.py): pg_signal_backend and pg_read_all_stats - no table, no schema,
+    no other role."""
+    code = re.sub(r"--[^\n]*", "", (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8"))
+    grants = [" ".join(s.split()) for s in code.split(";") if "__TERMINATE__" in s and "GRANT" in s.upper()]
+    assert sorted(grants) == ["GRANT pg_signal_backend, pg_read_all_stats TO __TERMINATE__",
+                              "GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__"]
+    assert "CREATE ROLE __TERMINATE__ LOGIN" in code
 
 
 # --------------------------------------------------------------------------- pipelines
@@ -485,10 +495,10 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
               "tests/test_supply_chain.py", "tests/test_terraform_versions.py", "tests/test_env_iam.py",
               "tests/test_helios_gate_r56.py", "tests/test_platform_iam_g6.py", "tests/test_aws_platform_g6.py",
               "tests/test_runtime_module_g6.py", "tests/test_runtime_pipeline_s9.py", "tests/test_runtime_iam_g6.py", "tests/test_actor_use_g6.py", "tests/test_redis_tls_r8.py", "tests/test_api_auth_ai13.py", "tests/test_runtime_network_g6.py",
-              "tests/test_backups.py", "tests/test_iac_hardening_sonar.py"}
+              "tests/test_backups.py", "tests/test_iac_hardening_sonar.py", "tests/test_iac_leftovers_sonar.py", "tests/test_stack_paths_s2083.py"}
     assert all(p.startswith(("terraform/fullstack/", "terraform/undo-lab/", "terraform/modules/", "terraform/runtime/", ".github/workflows/", "iam/")) or p in checks
                or p in ("uv.lock", "pyproject.toml", "scripts/render_env_iam.py", "scripts/helios_gate.py", "src/warden/platforms/aws.py",
-                         "src/warden/data/environments.yaml")
+                         "src/warden/data/environments.yaml", "src/warden/paths.py")
                for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"] if p not in own)
     assert "workflow_dispatch" not in wf["on"]
     for name in ("ci-infra.yml", "_infra-validate.yml"):
@@ -499,6 +509,23 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     assert deploy["jobs"]["run"]["permissions"]["id-token"] == "write"
     text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
     assert "aws-access-key-id" not in text and "AWS_SECRET_ACCESS_KEY" not in text
+
+
+@pytest.mark.parametrize("name", ["ci-apps.yml", "ci-infra.yml"])
+def test_a_lane_that_runs_a_script_importing_warden_paths_also_runs_when_paths_changes(name):
+    """deploy_fullstack_apps.py, aurora_express.py and helios_gate.py read their path rule from src/warden/paths.py
+    (PR 63): a change to that file alone must run the lanes that run them, or a broken rule reaches a deploy unseen."""
+    import fnmatch
+
+    wf = _workflow(name)
+    scripts = [p for p in [*ROOT.glob("scripts/*.py"), *ROOT.glob("terraform/*/*.py")]
+               if "from warden import paths" in p.read_text(encoding="utf-8")]
+    for event in ("push", "pull_request"):
+        globs = wf["on"][event]["paths"]
+        importing = [p.relative_to(ROOT).as_posix() for p in scripts
+                     if any(fnmatch.fnmatch(p.relative_to(ROOT).as_posix(), g) for g in globs)]
+        assert importing, f"{name} runs no script that imports warden.paths: drop it from this test"
+        assert "src/warden/paths.py" in globs, (name, event, importing)
 
 
 def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform():
@@ -516,14 +543,14 @@ def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform(
 
 def test_bootstrap_sql_has_no_password_and_no_placeholder():
     """2026-09-26: IAM authentication only. Every role gets rds_iam; no PASSWORD clause. The only placeholders
-    are the three users, named for the environment when the file is sent (audit A-I-2)."""
+    are the four users, named for the environment when the file is sent (audit A-I-2)."""
     text = (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
     assert "{" not in text and "}" not in text
-    assert set(re.findall(r"__[A-Z_]+__", code)) == {"__APP__", "__CATALOG__", "__RO__"}
+    assert set(re.findall(r"__[A-Z_]+__", code)) == {"__APP__", "__CATALOG__", "__RO__", "__TERMINATE__"}
     assert not re.search(r"(?i)\bpassword\b", code)
-    assert "GRANT rds_iam TO __APP__, __CATALOG__, __RO__" in code
-    for role in ("__APP__", "__CATALOG__", "__RO__"):
+    assert "GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__" in code
+    for role in ("__APP__", "__CATALOG__", "__RO__", "__TERMINATE__"):
         assert f"CREATE ROLE {role} LOGIN" in code
 
 
@@ -1175,3 +1202,58 @@ def test_the_cloud_read_role_may_only_view_the_cluster():
     assert re.search(r'policy_arn\s+= "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"', block)
     assert "Admin" not in block
     assert '${local.name}-platform-reader"' in tf
+
+
+# --------------------------------------------------------------------------- item 4: Kubernetes and the database live
+# (the platforms themselves: tests/test_platforms_live.py)
+def test_the_act_and_read_zones_start_with_kubernetes_and_the_database():
+    iam = (ROOT / "terraform" / "modules" / "warden-runtime" / "iam.tf").read_text(encoding="utf-8")
+    zones = {z: re.search(r"platforms = \[([^\]]*)\]", body).group(1)
+             for z, body in re.findall(r"^\s+(\w+)\s+= \{(.*)\}$", iam[iam.index("  zones = {"):], re.MULTILINE)
+             if "platforms" in body}
+    got = {z: set(re.findall(r'"(\w+)"', v)) for z, v in zones.items()}
+    # The critic zone (Eldane, PR 42) reaches no platform at all: it reads the audit and calls its model, nothing else.
+    assert got == {"core": set(), "read": {"aws", "k8s", "db"}, "llm": set(), "notify": {"aws"},
+                   "act": {"aws", "k8s", "db"}, "critic": set()}
+
+
+def test_the_actor_maps_to_the_remediator_group_only_and_connects_only_as_the_terminate_login():
+    eks = (ROOT / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
+    entry = eks[eks.index('resource "aws_eks_access_entry" "warden_actor"'):]
+    entry = entry[:entry.index("\n}\n")]
+    assert 'kubernetes_groups = ["warden-remediators"]' in entry
+    assert "-actor" in entry
+    assert '"warden-remediator:{{SessionName}}"' in entry  # the incident, into the Kubernetes audit log
+    assert "warden_actor" not in eks.replace('"aws_eks_access_entry" "warden_actor"', "")  # no access policy: RBAC only
+    # The reader's one group: the shop Application's get (register C4, k8s/argocd/shop.yaml; tests/test_automation_c4).
+    reader = eks[eks.index('resource "aws_eks_access_entry" "warden_reader"'):]
+    assert 'kubernetes_groups = ["warden-readers"]' in reader[:reader.index("\n}\n")]
+    # In the shop namespace only, to the remediator role the admission policy narrows (test_platform_k8s).
+    docs = list(yaml.safe_load_all((ROOT / "manifests" / "shop" / "base" / "warden-rbac.yaml").read_text(encoding="utf-8")))
+    [rb] = [d for d in docs if d["kind"] == "RoleBinding" and d["roleRef"]["name"] == "warden-remediator"]
+    assert rb["metadata"]["namespace"] == "shop"
+    assert rb["subjects"] == [{"kind": "Group", "name": "warden-remediators", "apiGroup": "rbac.authorization.k8s.io"}]
+    actor = json.loads((ROOT / "iam" / "templates" / "actor.json").read_text(encoding="utf-8"))
+    connects = [st for st in actor["Statement"] if "rds-db:connect" in str(st["Action"])]
+    assert [st["Resource"] for st in connects] == ["arn:aws:rds-db:${region}:${account}:dbuser:*/warden_${env_sql}_terminate"]
+    assert connects[0]["Condition"] == {"StringLike": {"aws:SourceIdentity": "inc-*"}}
+
+
+def test_the_runtimes_nat_addresses_reach_the_cluster_endpoint_by_name_not_by_literal():
+    eks = (ROOT / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
+    assert "public_access_cidrs     = local.eks_public_access_cidrs" in eks
+    assert 'data "aws_eips" "runtime_nat"' in eks
+    assert "data.aws_eips.runtime_nat.public_ips" in eks
+    # environments.yaml's runtime, as terraform/runtime/network.tf names its NAT
+    assert 'runtime_env    = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).runtime' in eks
+    lookup = eks[eks.index('data "aws_eips" "runtime_nat"'):]
+    lookup = lookup[:lookup.index("\n}\n")]
+    assert '"warden-${local.runtime_env}-nat-*"' in lookup
+    # Only the runtime stack's own (review, PR 48): the tags its provider sets, and its region or no plan.
+    for tag, value in (("Environment", "local.runtime_env"), ("Project", '"warden"'), ("ManagedBy", '"terraform"')):
+        assert f'name   = "tag:{tag}"\n    values = [{value}]' in lookup, tag
+    assert "precondition" in lookup
+    assert "local.region == yamldecode(" in lookup
+    runtime = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+    assert 'tags = { Project = "warden", Environment = local.env, ManagedBy = "terraform" }' in runtime
+    assert not re.search(r"\d+\.\d+\.\d+\.\d+/\d+", eks.replace("0.0.0.0/0", ""))

@@ -15,6 +15,7 @@
         "logs:*",
         "cloudwatch:*",
         "elasticloadbalancing:*",
+        "acm:*Certificate",
         "lambda:*",
         "sqs:*",
         "autoscaling:*",
@@ -84,7 +85,8 @@
           "kms:ViaService": [
             "secretsmanager.ap-south-2.amazonaws.com",
             "rds.ap-south-2.amazonaws.com",
-            "ssm.ap-south-2.amazonaws.com"
+            "ssm.ap-south-2.amazonaws.com",
+            "sns.ap-south-2.amazonaws.com"
           ]
         }
       }
@@ -134,13 +136,13 @@
       }
     },
     {
-      "Sid": "CeilingReadSlrs",
+      "Sid": "ReadSlrs",
       "Effect": "Allow",
       "Action": "iam:GetRole",
       "Resource": "arn:aws:iam::*:role/aws-service-role/*"
     },
     {
-      "Sid": "DenyRoleWithoutThisBoundary",
+      "Sid": "DenyUnboundedRoles",
       "Effect": "Deny",
       "Action": [
         "iam:CreateRole",
@@ -177,9 +179,7 @@
         "ec2:AllocateHosts",
         "ecs:RunTask",
         "ecs:StartTask",
-        "s3:Put*PublicAccessBlock",
         "s3:Put*Acl",
-        "s3:PutBucketPolicy",
         "rds:Modify*SnapshotAttribute",
         "ec2:ModifySnapshotAttribute",
         "ec2:ModifyImageAttribute",
@@ -272,6 +272,15 @@
           "aws:ResourceTag/Environment": "true"
         }
       }
+    },
+    {
+      "Sid": "DenyS3Policy",
+      "Effect": "Deny",
+      "Action": [
+        "s3:Put*Policy",
+        "s3:Put*Public*"
+      ],
+      "NotResource": "arn:aws:s3:::warden-dev-alb-logs-*"
     },
     {
       "Sid": "DenyDestroyingOthers",

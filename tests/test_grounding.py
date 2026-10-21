@@ -14,6 +14,7 @@ from warden.models import (
     Alert,
     Citation,
     ContextBundle,
+    Hypothesis,
     RemediationProposal,
     RootCause,
     Severity,
@@ -43,7 +44,8 @@ def _alert(**kw):
 
 
 def _verdict(citations, *, target="checkout", action=ActionKind.rollback_deploy, **kw):
-    rc = RootCause(hypothesis="bad deploy", confidence=0.9, citations=citations)
+    rc = RootCause(hypothesis="bad deploy", confidence=0.9, citations=citations,
+                   hypotheses=[Hypothesis(cause="bad deploy"), Hypothesis(cause="another cause", why_rejected="nothing in the evidence shows it")])  # a rival set aside (P35)
     prop = RemediationProposal(action=action, target=target, reasoning="r", expected_effect="e",
                                blast_radius="single_service", reversible=True)
     return verify(_alert(), CTX, rc, prop, **kw)
