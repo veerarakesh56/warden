@@ -165,18 +165,26 @@ def load_stack(path: pathlib.Path) -> dict[str, Any]:
     return flat
 
 
-_HARNESS_USER = re.compile(r"warden_[a-z0-9_]{1,30}_harness")
+# The environment part takes 1-31 characters: an environment name is [a-z][a-z0-9-]{0,30} (src/warden/environments.py),
+# with `-` as `_` in a database user name.
+_HARNESS_USER = re.compile(r"warden_[a-z0-9_]{1,31}_harness")
 
 
 def harness_user(stack: dict) -> str:
-    """The harness's database login: stack.json's db_users["harness"] (owner B28). Never the master user - a stack
-    written before that login existed is refused, not run as `postgres`."""
+    """The harness's database login: stack.json's db_users["harness"] (owner B28), and exactly the name Terraform
+    derives for the stack's own environment (data.tf). Never the master user - a stack written before that login
+    existed is refused, not run as `postgres` - and never another environment's harness user."""
     users = stack.get("db_users")
     name = users.get("harness") if isinstance(users, dict) else None
     if not (isinstance(name, str) and _HARNESS_USER.fullmatch(name)):
         raise StepError("stack.json names no harness database user (db_users.harness): re-write it with `terraform "
                         "output -json` and run `scripts/deploy_fullstack_apps.py bootstrap-db` - the harness never "
                         "logs in as the master user")
+    env = stack.get("environment")
+    want = f"warden_{env.replace('-', '_')}_harness" if isinstance(env, str) and env else None
+    if name != want:
+        raise StepError(f"stack.json's harness user {name!r} is not environment {env!r}'s own (expected {want!r}): "
+                        "re-write stack.json from this environment's `terraform output -json`")
     return name
 
 
