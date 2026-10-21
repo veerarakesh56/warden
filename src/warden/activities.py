@@ -2059,7 +2059,7 @@ class DiscussActivities:
                                     user=discuss.prompt(turn.text, thread, evidence.get("evidence", ""),
                                                         evidence.get("diagnosis", ""), approver=approver),
                                     mock_factory=lambda: discuss.Answer(answer="(a test answer)", cites=[]))
-        except Exception as exc:  # noqa: BLE001  # whatever stopped the model, the person is told, never left waiting
+        except Exception as exc:  # noqa: BLE001 - whatever stopped the model; the person is told; never left waiting
             _note(f"discuss {thread.incident}: no answer from the model ({type(exc).__name__})")
         finally:
             now, unanswered = llm.cost, int(getattr(llm, "unanswered", 0) or 0)
