@@ -72,7 +72,8 @@ REPLAN_SOON = "WARDEN made a new plan for `{incident}` less than an hour ago; as
 
 # U3-8: an enrolled approver who may approve the waiting plan extends its wait (extend.py): "extend the wait",
 # "extend by 12h", "extend approval". By EXTEND_MAX_HOURS unless they say how long, and at most that at a time.
-EXTEND = re.compile(r"(?i)\bextend\b[^.?!\n]{0,40}?\b(?:wait|waiting|approval|plan|time|deadline|it|by|\d{1,3}\s*(?:h|hrs?|hours?))\b")
+EXTEND = re.compile(r"(?i)\bextend\b([^.?!\n]{0,40})")
+_EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|time|deadline|it|by)\b|\d\s*h")
 _HOURS = re.compile(r"(?i)\bextend\b[^.?!\n]{0,40}?\b(\d{1,4})\s*(?:h|hrs?|hours?)\b")
 EXTENDED = ("The wait for WARDEN's plan `{workflow}` is extended by {hours} h, to {until}{capped}. Nothing else "
             "changes: it still needs an approver's passkey, and WARDEN reads the target again before applying it. When "
@@ -87,6 +88,12 @@ NOT_EXTENDED = {
     "at the limit": ("WARDEN's plan `{workflow}` already waits as long as a plan can: until {until}, {ceiling} hours "
                      "from when it was made. A new plan can be asked for with \"new plan\"."),
 }
+
+
+def asks_to_extend(text: str) -> bool:
+    """An "extend" that names what it extends - the wait, the approval, it, by some hours - not any "extend"."""
+    m = EXTEND.search(text or "")
+    return bool(m and _EXTEND_WHAT.search(m.group(1)))
 
 
 def hours_asked(text: str) -> int:
