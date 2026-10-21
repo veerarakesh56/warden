@@ -109,3 +109,15 @@ def test_an_old_run_without_its_result_is_an_error_not_an_empty_column(tmp_path)
     missing.mkdir()
     with pytest.raises(ValueError, match="qualification.json"):
         cmp.old_side({}, None, missing)
+
+
+def test_a_run_rescored_with_a_changed_rubric_is_refused(tmp_path):
+    run = tmp_path / "run"
+    for name in cmp.runs():
+        shutil.copytree(BENCH / name, run / name)
+    rubric = run / cmp.runs()[0] / "grading" / "scoring.yaml"
+    rubric.write_text(
+        rubric.read_text(encoding="utf-8") + "\n# changed after the run\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="differs from the hash the run recorded"):
+        cmp.incidents(run)

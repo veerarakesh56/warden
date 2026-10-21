@@ -7,6 +7,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import shutil
 import sys
 
 import pytest
@@ -25,6 +26,23 @@ sys.modules["qualify_cloud"] = qc
 _spec.loader.exec_module(qc)
 
 WHEN = "2026-10-21 14:00"
+BENCH = ROOT / "tests" / "fixtures" / "bench"
+
+
+def _saved_run(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A run directory with stored reports (the committed live runs) and a qualification.json that matches them."""
+    import qualify_provider
+
+    run = tmp_path / "run"
+    for name in qualify_provider.RUNS:
+        shutil.copytree(BENCH / name, run / name)
+    counts = qualify_provider.tally(run)
+    saved = run / "qualification.json"
+    saved.write_text(
+        json.dumps({**_result(correct=counts["correct"]), **counts, "passed": False}),
+        encoding="utf-8",
+    )
+    return saved
 
 
 def _files() -> dict[str, str]:
@@ -138,8 +156,7 @@ def test_from_result_writes_every_file_with_no_key_and_no_model_call(tmp_path, m
     monkeypatch.setitem(sys.modules, "sbom", bill)
     monkeypatch.setattr(qc, "ROOT", tmp_path)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")  # recorded, so teardown restores whatever was there
-    saved = tmp_path / "qualification.json"
-    saved.write_text(json.dumps(_result(correct=_bar()["min_correct"] - 2)), encoding="utf-8")
+    saved = _saved_run(tmp_path)
     assert qc.main(["--from-result", str(saved)]) == 1
     assert rendered == ["pins", "sbom"]
     said = capsys.readouterr().out
@@ -244,8 +261,35 @@ def test_a_comparison_that_fails_still_records_the_paid_result(tmp_path, monkeyp
         raise ValueError("unreadable run")
 
     monkeypatch.setattr(qc, "print_comparison", broken)
-    saved = tmp_path / "qualification.json"
-    saved.write_text(json.dumps(_result(correct=0)), encoding="utf-8")
+    saved = _saved_run(tmp_path)
     assert qc.main(["--from-result", str(saved)]) == 2
     assert len(written) == 1
     assert "comparison unavailable" in capsys.readouterr().err
+
+
+def test_a_saved_result_that_its_reports_do_not_bear_out_is_refused(tmp_path):
+    saved = _saved_run(tmp_path)
+    edited = json.loads(saved.read_text(encoding="utf-8"))
+    edited["wrong_and_allowed"] = 0  # the stored reports say otherwise
+    saved.write_text(json.dumps(edited), encoding="utf-8")
+    with pytest.raises(SystemExit, match="does not match its own reports"):
+        qc.checked_result(saved)
+
+
+def test_a_saved_result_without_its_reports_is_refused(tmp_path):
+    lone = tmp_path / "qualification.json"
+    lone.write_text(json.dumps(_result(correct=30)), encoding="utf-8")
+    with pytest.raises(SystemExit, match="needs the run's reports"):
+        qc.checked_result(lone)
+
+
+def test_a_run_that_wrote_no_result_says_so(tmp_path, monkeypatch):
+    import qualify_provider
+
+    monkeypatch.setattr(qc, "model_key", lambda *_a: "a fake slot")
+    monkeypatch.setattr(qualify_provider, "main", lambda _argv: 1)
+    for name in ("WARDEN_PROVIDER", "WARDEN_MODEL"):
+        monkeypatch.setenv(name, "")
+    args = qc.argparse.Namespace(env="someenv", model=SONNET, out=tmp_path, budget_usd=1.0)
+    with pytest.raises(SystemExit, match="wrote no"):
+        qc.measure(args)

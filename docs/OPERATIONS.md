@@ -332,6 +332,7 @@ rules alone.
   The old side is the row qualified now, or else the newest recorded row: totals only, with no model call. With
   `--compare-with`, the old side is an earlier run directory, compared per incident. `--from-result
   <run dir>/qualification.json` repeats the comparison and the recording for a finished run, with no model call.
+  It is accepted only when the run's reports sit beside the file and tally to the same counts.
 - **What the run writes, pass or fail.**
   - A dated row in [BENCHMARKS.md](BENCHMARKS.md).
   - The status line in README and BENCHMARKS.

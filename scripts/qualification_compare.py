@@ -54,7 +54,13 @@ def incidents(out: pathlib.Path) -> dict[str, dict]:
         run_out = out / name
         if not (run_out / "grading" / "scoring.yaml").exists():
             continue
-        for row in score_run_dir(run_out, rubric_path=run_out / "grading" / "scoring.yaml")["rows"]:
+        scored = score_run_dir(run_out, rubric_path=run_out / "grading" / "scoring.yaml")
+        # CodeRabbit, PR 173: a rubric changed since the run was made measures nothing.
+        if scored.get("rubric_drift"):
+            raise ValueError(
+                f"{run_out}: grading/scoring.yaml differs from the hash the run recorded"
+            )
+        for row in scored["rows"]:
             found[f"{row['scenario_id']}.{row['index']}"] = {
                 "outcome": _outcome(row),
                 "escalated": row["gate"] == "refused" or row["action"] == ESCALATE,

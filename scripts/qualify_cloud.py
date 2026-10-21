@@ -225,8 +225,33 @@ def measure(a: argparse.Namespace, secrets_client: object = None) -> dict:
     sys.path.insert(0, str(SCRIPTS))
     import qualify_provider
 
-    qualify_provider.main(["--out", str(a.out), "--budget-usd", str(a.budget_usd)])
-    return json.loads((a.out / RESULT_FILE).read_text(encoding="utf-8"))
+    status = qualify_provider.main(["--out", str(a.out), "--budget-usd", str(a.budget_usd)])
+    written = a.out / RESULT_FILE
+    # CodeRabbit, PR 173: say which run wrote nothing, never a bare FileNotFoundError.
+    if not written.is_file():
+        raise SystemExit(f"qualify_provider.py exited {status} and wrote no {written}")
+    return json.loads(written.read_text(encoding="utf-8"))
+
+
+def checked_result(path: pathlib.Path) -> dict:
+    """A saved result, only when its run directory's own reports give the same counts (CodeRabbit, PR 173): the counts
+    are tallied again from the stored reports, so a hand-written or edited file is refused. The prompt cannot be
+    proven from the reports; the pull request that carries the recording is where a person checks it."""
+    result = json.loads(path.read_text(encoding="utf-8"))
+    sys.path.insert(0, str(SCRIPTS))
+    import qualify_provider
+
+    run_dir = path.parent
+    missing = [name for name in qualify_provider.RUNS if not (run_dir / name / "reports").is_dir()]
+    if missing:
+        raise SystemExit(
+            f"--from-result needs the run's reports beside it: {', '.join(missing)} missing in {run_dir}"
+        )
+    counts = qualify_provider.tally(run_dir)
+    differ = {k: (result.get(k), v) for k, v in counts.items() if result.get(k) != v}
+    if differ:
+        raise SystemExit(f"{path} does not match its own reports (file, reports): {differ}")
+    return result
 
 
 def write(result: dict, when: str) -> str:
@@ -313,7 +338,7 @@ def main(argv: list[str] | None = None, *, secrets_client: object = None) -> int
         )
     sys.path.insert(0, str(SCRIPTS))
     if a.from_result:
-        result = json.loads(a.from_result.read_text(encoding="utf-8"))
+        result = checked_result(a.from_result)
         a.out = a.from_result.parent
     else:
         if not a.model or a.budget_usd is None:
