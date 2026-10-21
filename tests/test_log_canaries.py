@@ -139,3 +139,17 @@ def test_a_real_process_logs_no_canary_whatever_the_path(tmp_path):
     assert "connect to" in out  # each path was taken
     for canary in CANARIES:
         assert canary not in out, canary
+
+
+def test_with_no_root_handler_a_lambdas_error_is_still_gated(monkeypatch, capsys):
+    """Python's last-resort handler prints a record raw: a Lambda with no root handler gets the gate's own (review)."""
+    monkeypatch.setattr(logging.getLogger(), "handlers", [])
+
+    def handler(event, context=None):
+        raise ValueError(f"cannot parse {event['detail']}")
+
+    with pytest.raises(lambdas.HandlerFailed):
+        lambdas._gated(handler)({"detail": "alarm from " + EMAIL})
+    err = capsys.readouterr().err
+    assert EMAIL not in err
+    assert "handler failed" in err

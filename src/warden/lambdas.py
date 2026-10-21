@@ -453,9 +453,11 @@ class HandlerFailed(RuntimeError):
 def _gated(handler: Any) -> Any:
     @functools.wraps(handler)
     def run(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
-        from .observability import gate_handlers
+        from .observability import gate_handlers, install_log_gate
 
         gate_handlers()  # the runtime's own root handler, and any added since, write through the gate
+        if not logging.getLogger().handlers:
+            install_log_gate()  # none at all: Python's last-resort handler would print the error raw (review)
         try:
             return handler(event, context)
         except Exception as exc:
