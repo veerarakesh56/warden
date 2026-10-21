@@ -436,16 +436,6 @@ def _in_runtime_task(environ: Any, env: str) -> bool:
     return bool(environ.get("ECS_CONTAINER_METADATA_URI_V4")) and environ.get("WARDEN_ENV") == env
 
 
-def key_source(environ: Any = os.environ) -> str:
-    """Where the key will come from, in words - computed without reading any key, so nothing said can carry one."""
-    env = runtime_environment()
-    from warden.settings import secret_id
-
-    if str(environ.get(KEY_SLOT, "")).strip() and _in_runtime_task(environ, env):
-        return "the runtime task's own key (injected by ECS)"
-    return f"Secrets Manager {secret_id(env, KEY_SLOT)}"
-
-
 def runtime_key(environ: Any = os.environ, secrets_client: Any = None) -> None:
     """Put the cloud runtime's own Anthropic key in `environ`, or refuse. A key already in `environ` is accepted only
     inside the runtime's own ECS task. Nothing is returned or printed: the key stays in `environ`."""
@@ -651,8 +641,10 @@ def paid(
         raise Refused(f"REFUSED: --cap-usd {a.cap_usd} does not cover even one call's worst case")
     for name in ("WARDEN_PRICE_IN", "WARDEN_PRICE_OUT", "WARDEN_MODEL_EFFORT"):
         os.environ.pop(name, None)  # the model's own price row and effort, as production runs it
-    print("key:", key_source(os.environ))
     runtime_key(os.environ)
+    print(
+        "key: the cloud runtime's own"
+    )  # a fixed text: nothing derived from the key or its slot is printed
     from warden import providers
 
     provider = providers._REGISTRY["anthropic"](model=providers.pinned(a.model))

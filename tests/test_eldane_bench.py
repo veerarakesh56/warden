@@ -190,17 +190,16 @@ def test_the_runtime_task_s_own_key_is_used(bench):
     secrets = FakeSecrets()
     bench.runtime_key(env, secrets)
     assert secrets.asked == []
-    assert "runtime task" in bench.key_source(env)
+    assert env["ANTHROPIC_API_KEY"] == FAKE_KEY
 
 
 def test_the_key_is_read_from_the_runtime_s_slot_and_never_said(bench):
     env: dict[str, str] = {}
     secrets = FakeSecrets()
-    said = bench.key_source(env)
-    bench.runtime_key(env, secrets)
+    said = bench.runtime_key(env, secrets)
     assert secrets.asked == [f"warden/{bench.runtime_environment()}/anthropic-api-key"]
     assert env["ANTHROPIC_API_KEY"] == FAKE_KEY
-    assert FAKE_KEY not in said
+    assert said is None
 
 
 @pytest.mark.parametrize(
