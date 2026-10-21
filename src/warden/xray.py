@@ -31,9 +31,13 @@ class XRayReader:
         self._client = client
 
     def logs(self, alert: Alert) -> list[str]:
-        return []  # X-Ray holds traces; the logs are CloudWatch's, read by the AWS backend
+        """The evidence-source contract's logs view. X-Ray holds traces: the logs for the alert are CloudWatch's, read
+        by the AWS backend, so none come from here."""
+        return []
 
     def metrics(self, alert: Alert) -> dict[str, float]:
+        """The evidence-source contract's metrics view. X-Ray holds traces: the metrics for the alert are CloudWatch's,
+        so none come from here."""
         return {}
 
     def traces(self, alert: Alert) -> list[str]:
@@ -42,7 +46,7 @@ class XRayReader:
         out: list[str] = []
         try:
             xray = self._client(alert)
-        except Exception as exc:  # noqa: BLE001 - no client is a read that did not happen, never health
+        except Exception as exc:  # noqa: BLE001  # no client is a read that did not happen and never health
             return [f"{PARTIAL}xray: {type(exc).__name__} - not read"]
         for svc in [s for s in services(alert) if _NAME.match(s)]:
             out += _traces_of(xray, svc, start, end)
