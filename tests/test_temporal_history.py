@@ -141,3 +141,20 @@ def test_the_cli_loads_what_status_loads_and_no_more():
     src = inspect.getsource(cli)
     assert '{"link": "label", "history": "status"}' in src
     assert '"history")' in src
+
+
+def test_identifiers_are_masked_and_the_rest_stays_readable():
+    email = "person" + "@example.com"
+    out = shown(asyncio.run(render([completed(3, encrypted({"who": email, "service": "checkout"}))], bound())))
+    assert email not in out
+    assert "checkout" in out  # masked, not withheld: the history is still readable
+
+
+def test_control_characters_never_reach_the_terminal():
+    """Payload values are JSON (control characters escaped); a name from the history itself is not."""
+    e = HistoryEvent(event_id=7, event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED)
+    e.workflow_execution_signaled_event_attributes.CopyFrom(WorkflowExecutionSignaledEventAttributes(
+        signal_name="approve\x07\b", input=Payloads(payloads=[encrypted({"note": "a\bb\x07c"})])))
+    out = shown(asyncio.run(render([e], bound())))
+    assert "\b" not in out
+    assert "\x07" not in out
