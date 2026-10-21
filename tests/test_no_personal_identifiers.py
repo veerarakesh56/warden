@@ -24,6 +24,8 @@ _HANDLE_ALLOWED = {
     ".github/CODEOWNERS",
 }
 _FORBIDDEN = [
+    # A person's name: the copyright notice and the package metadata name "The WARDEN Authors".
+    ("a person's name", re.compile(r"(?i)\b" + "Veera" + r"\s*" + "Rakesh" + r"\b|\b" + "Keth" + "ari" + r"\b")),
     ("a local working-notes path", re.compile(re.escape("/tmp/" + "claude-"))),
     ("an internal notes file", re.compile(r"\b(?:" + "RULES" + r"|MERGE-" + "QUEUE" + r"|OWNER-[A-Z][A-Z-]*|" + "MEMORY"
                                           + r")\.md\b")),
@@ -79,6 +81,7 @@ def test_the_handle_allowlist_is_still_needed():
     ("per " + "MERGE-" + "QUEUE" + ".md", "an internal notes file"),
     ("ghcr.io/" + "someone" + "/warden-mirror/python:3", "a registry path under a literal account"),
     ("mail " + "someone" + "@" + "gmail" + ".com", "a personal e-mail address"),
+    ("by " + "Veera" + " " + "Rakesh", "a person's name"),
 ])
 def test_each_kind_of_identifier_is_caught(tmp_path, planted, what):
     (tmp_path / "f.txt").write_text(f"x {planted} y\n", encoding="utf-8")

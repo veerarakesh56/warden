@@ -54,6 +54,7 @@ def test_every_deploy_role_has_a_guard_for_the_roles_without_a_boundary():
 
 def test_the_licence_notice_names_its_author_and_ships_with_the_package():
     notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
-    assert "Copyright 2026 Veera Rakesh Kethari" in notice
-    assert "Copyright 2026 Veera Rakesh Kethari" in (ROOT / "LICENSE").read_text(encoding="utf-8")
+    assert "Copyright 2026 The WARDEN Authors" in notice
+    # The licence keeps Apache's own appendix text; the copyright notice is NOTICE's.
+    assert "Copyright [yyyy] [name of copyright owner]" in (ROOT / "LICENSE").read_text(encoding="utf-8")
     assert 'license-files = ["LICENSE", "NOTICE"]' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
