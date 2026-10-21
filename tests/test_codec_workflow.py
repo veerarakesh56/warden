@@ -105,7 +105,7 @@ def _world(policy, healthy_after=1):
     platform = FakePlatform(healthy_after=healthy_after)
     a = RemediationActivities(audit=log, policy=policy, platform=platform)
     return platform, [a.resolve_plan, a.gate, a.check_approval, a.precheck, a.apply, a.check_success,
-                      a.record_result, a.rollback, a.finish]
+                      a.record_result, a.rollback, a.finish, a.approval_wait, a.approval_extension]
 
 
 def test_a_forged_ciphertext_signal_after_apply_does_not_stop_the_rollback():

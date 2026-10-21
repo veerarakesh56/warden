@@ -442,9 +442,11 @@ class RemediationWorkflow:
                          auto: bool) -> FixOutcome | None:
         """The wait for a person's approvals, until the tier's quorum is in `accepted` (None) or the run ends: denied,
         or expired with nothing changed. None at once when Eldane's approval was enough (`auto`)."""
-        self._stage = "awaiting_approval"
         deadline = workflow.now() + timedelta(minutes=req.approval_ttl_minutes)
         await _record_wait(acts, plan, deadline, auto=auto)
+        # Said once the run's own deadline is on the record (U3-8): whoever sees the plan waiting - an approver, a
+        # test - sees a wait an extension counts from, and the next activity is the approval's own check.
+        self._stage = "awaiting_approval"
         refused: list[str] = []
         seen = 0
         # Register H10: halfway through the wait a person is reminded, and at the end told that nothing was done -
