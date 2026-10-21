@@ -248,3 +248,19 @@ def test_an_alerts_own_fields_are_masked_too(reader, capsys, tmp_path, monkeypat
         code, out, _ = _run(capsys, *argv)
         assert code == 0
         _clean(out)
+
+
+def test_a_huge_placeholder_number_is_seeded_once_not_counted_up_to():
+    """CodeRabbit, PR 147: `<EMAIL_1000000000>` in an alert's text seeded every number up to it before printing."""
+    from warden import records_cli
+
+    said = records_cli.masked({"summary": "<EMAIL_1000000000> wrote to ops@example.com"})["summary"]
+    assert said.startswith("<EMAIL_1000000000> wrote to <EMAIL_")
+    assert "ops@example.com" not in said
+
+
+def test_a_new_placeholder_never_reuses_a_number_the_record_already_holds():
+    from warden import records_cli
+
+    said = records_cli.masked({"summary": "<EMAIL_2> and ops@example.com"})["summary"]
+    assert said == "<EMAIL_2> and <EMAIL_3>"

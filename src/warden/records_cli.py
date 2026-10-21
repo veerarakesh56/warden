@@ -201,10 +201,11 @@ def masked(data: Any) -> Any:
     pipeline placed and one placed here never name two values with one label."""
     texts = list(_walk(data))
     seed: dict[str, str] = {}
+    # Only the placeholders the record holds: a text's `<EMAIL_1000000000>` must not seed a billion entries
+    # (CodeRabbit, PR 147); the redactor numbers new ones after the highest it was given.
     for found in redaction._PLACEHOLDER.findall("\n".join(texts)):
         kind, _, n = found.strip("<>").rpartition("_")
-        for i in range(1, int(n) + 1):
-            seed.setdefault(f"<{kind}_{i}>", f"\x00{kind}{i}\x00")  # holds the number only: never in any text
+        seed.setdefault(found, f"\x00{kind}{n}\x00")  # holds the number only: never in any text
     clean, _ = redaction.redact_many(texts, seed)
     return _replace(data, iter(clean))
 
