@@ -381,6 +381,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   `identity.py`, and boto3 for the AWS writes in `platforms/aws.py`. IAM Roles Anywhere and Teleport's Machine ID
   issue the same STS sessions on AWS (decision D11), so WARDEN calls STS directly.
 - Approver labels: signed with the approvers' own Ed25519 keys (`cryptography`), recorded in the audit - `labels.py`.
+- Whether the actor role allows a fix's calls before anyone is asked to approve it (B12): AWS's own IAM policy
+  simulator (SimulatePrincipalPolicy, in the environment's reader role) - `permits.py`, which only traces the calls
+  from the fix's own write code and asks the simulator about them.
 - Pages of WARDEN's own that repeat until acknowledged - `paging.py` with the runtime module's pager: CloudWatch
   alarms, EventBridge rules and a schedule, S3 for the page state, CloudWatch's own email action. CloudWatch sends an
   alarm action once; Systems Manager Incident Manager, AWS's paging with acknowledgement, takes no new customers since
@@ -421,6 +424,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - One writer per target - `locks.py` (B20): a check-and-set inside the audit's own write lock, so the lock is as
   durable and as recorded as the rest of the record. A lock service (the DynamoDB lock client, etcd) would be a
   second store beside the audit, and its locks would not be on the record.
+- What landed on a target since WARDEN's fix, read before WARDEN undoes it - `landed.py` (B21): CloudTrail's
+  LookupEvents through the platform reader, GitHub's Deployments and Pulls REST APIs, and WARDEN's own audit -
+  the same three reads `timeline.py` makes, over the window from the fix to the undo.
 - The signature catalogue - `knowledge.py`: k8sgpt, Robusta and the kube-prometheus rules cover Kubernetes only and
   need a live cluster; HolmesGPT and the AWS DevOps Agent are agent loops, not libraries. They serve as checklists
   for the Kubernetes signatures.

@@ -32,7 +32,14 @@ rather than read this machine's own file (2026-10-16: `on` used to print ON here
 If the approval page cannot be reached, stop the worker that applies changes, which does not depend on WARDEN: AWS
 console → ECS → cluster `warden-ops-runtime` → service `warden-ops-act` → Update service → Desired tasks `0` (or
 `aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --desired-count 0`). Approved plans
-wait; nothing is applied until it is set back to `1`. (An AWS deny policy as a second switch is not built yet.)
+wait; nothing is applied until it is set back to the stack's count (SSM `/warden/ops/tf/worker_instances`, 2 when it
+is not set; [RUNBOOK-WARDEN-DOWN.md](RUNBOOK-WARDEN-DOWN.md), section 6).
+
+A second switch AWS enforces, outside WARDEN's code and database (B18): an IAM deny on each watched environment's
+actor role `warden-<env>-actor` that refuses every AWS call unless the role's tag `warden-kill-switch` says `off`. A
+person with `iam:TagRole` turns it on with `python scripts/iam_kill_switch.py on --env <env>` and reads it with
+`... status --env <env>`. It covers AWS fixes only, protects nothing unless its policy is attached to the role (`status`
+says so), and has not yet been proven in a live window.
 
 ## 1. Preparation (before any incident)
 
@@ -92,8 +99,10 @@ matched to the record or exposed as forged.
   sessions (IAM, the role, **Revoke active sessions**), and keep the trail's files as they are - Object Lock keeps
   them for the retention period. If the alarm says the audit could not be read, check the audit database first: the
   session may have been approved, and the check could not see it.
-- **WARDEN down.** Incidents go to people directly: the alarms page as they did before WARDEN. Start the worker
-  again (`warden worker`), and check the clock (`warden worker` refuses to run with a skewed clock, O6).
+- **WARDEN down.** In this install the watched environments' own alarms page nobody directly (their CloudWatch
+  alarms have no alarm actions): with WARDEN down, people look at the alarms by hand. Follow
+  [RUNBOOK-WARDEN-DOWN.md](RUNBOOK-WARDEN-DOWN.md): the lost-alarm queue, which part is down, and how to bring it
+  back. Check the clock (`warden worker` refuses to run with a skewed clock, O6).
 
 ## 4. After the incident
 
