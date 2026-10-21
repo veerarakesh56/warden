@@ -317,6 +317,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
+- Reading one workflow's encrypted Temporal history: built - `temporal_history.py` (register B36, 2026-10-21). A
+  Temporal codec server for the web UI cannot decrypt WARDEN's payloads (each is bound to its workflow, which the UI
+  does not send) and would be one more holder of the key; the SDK's own history read and WARDEN's own codec, in the
+  workflow's context, need neither.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
   Alertmanager webhook, the approval page) - `lambdas.py`, thin adapters over intake, webhooks and the approval page.
 - Who used an actor role: AWS CloudTrail (a management-event trail, the only record WARDEN itself does not write)

@@ -391,6 +391,15 @@ def _platform(choice: str):
     return RoutedPlatform(**platforms)
 
 
+async def _history(client, workflow_id: str) -> int:
+    """Register B36: one workflow's history, decrypted in its own context and redacted (temporal_history.py)."""
+    from . import codec
+    from .temporal_history import history
+
+    _out(await history(client, workflow_id, key=codec.key_from_env(), previous=tuple(codec.previous_keys_from_env())))
+    return 0
+
+
 async def _workflow_command(args: argparse.Namespace) -> int:
     from . import discuss, runtime
 
@@ -404,6 +413,8 @@ async def _workflow_command(args: argparse.Namespace) -> int:
             _out(f"error: {exc}", err=True)
             return 1
     client = await runtime.connect()
+    if args.cmd == "history":
+        return await _history(client, args.workflow_id)
     if args.cmd == "worker":
         _install_log_gate()
         policy = runtime.approver_policy()
@@ -723,6 +734,8 @@ def _main(argv: list[str] | None = None) -> int:
     p_intake.add_argument("event", type=pathlib.Path, help="an alarm event, JSON (warden.intake.AlarmEvent)")
     p_status = sub.add_parser("status", help="show a remediation workflow's stage and plan (with its hash)")
     p_status.add_argument("workflow_id")
+    p_history = sub.add_parser("history", help="show one workflow's Temporal history, decrypted and redacted")
+    p_history.add_argument("workflow_id")
     p_approve = sub.add_parser("approve", help="sign and send an approval of the plan you reviewed")
     p_approve.add_argument("workflow_id")
     p_approve.add_argument("--plan-hash", required=True, help="the hash `warden status` showed you")
@@ -767,10 +780,11 @@ def _main(argv: list[str] | None = None) -> int:
     p_label.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
 
     args = parser.parse_args(argv)
-    _load_environment("label" if args.cmd == "link" else args.cmd, getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
+    # `history` reads what `status` reads (the payload key and the Temporal API key), nothing more.
+    _load_environment({"link": "label", "history": "status"}.get(args.cmd, args.cmd), getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
     if args.cmd == "audit":
         return _audit_command(args)
-    if args.cmd in ("worker", "intake", "status", "approve"):
+    if args.cmd in ("worker", "intake", "status", "approve", "history"):
         return asyncio.run(_workflow_command(args))
     if args.cmd == "enrol":
         return _enrol_command(args)

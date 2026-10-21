@@ -152,3 +152,23 @@ it off, set `WARDEN_SECURITY_REVIEW` to anything but `on`, or delete it.
 Known limit, not verified here: the action's false-positive filter checks its API access with a fixed older model
 (`claude-3-5-haiku-20241022` in its code). If that model is retired, the filter step may fail and its findings may
 arrive unfiltered; read the first run's log.
+
+## Reading a workflow's Temporal history (register B36)
+
+Every payload WARDEN puts in Temporal is encrypted and bound to its namespace and workflow (codec.py), so the
+Temporal Cloud web UI shows only ciphertext. To read one workflow's history:
+
+    warden history <workflow-id>        # e.g. inc-<alert id>, or a remediation's id from `warden status`
+
+It loads what `warden status` loads - the payload key (`WARDEN_TEMPORAL_KEY`, and `WARDEN_TEMPORAL_KEY_PREVIOUS`)
+and a Temporal API key - with your own identity, so only a person who may read those secrets can read a history. Each
+event is shown with its number, time (UTC and local), type and the activity or signal it names, and its payloads as
+JSON; the whole text then goes through the redactor (identifiers and secrets masked) and the terminal's outbound gate.
+A payload that does not decrypt in that workflow's context (another key, another workflow, never encrypted) is shown
+as unreadable, never as data. At most 500 events and 2,000 characters a value. Nothing is written.
+
+Not built, by decision (2026-10-21): a codec server for the Temporal web UI. WARDEN's payloads are bound to their
+workflow, which the UI does not send, so one would need a change to the payload format; and a hosted one would put
+the payload key in an internet-facing Lambda. If the web UI view is wanted later, the option is a local codec server
+on an allowed person's computer (loopback only) together with that format change.
+
