@@ -447,6 +447,24 @@ def _weighed(root_cause: Any, context: ContextBundle | None) -> dict[str, Any] |
             "count": hypothesis_score(h, items, root_cause.citations), "of": len(root_cause.hypotheses)}
 
 
+def _assessed(alert: Alert, context: ContextBundle | None, root_cause: Any,
+              proposal: RemediationProposal | None) -> dict[str, Any] | None:
+    from .confidence import assess
+
+    if context is None or proposal is None:
+        return None
+    return assess(alert, context, root_cause, proposal)
+
+
+def _confidence_said(rc: dict[str, Any]) -> str:
+    """How sure the diagnosis is, as a person reads it: WARDEN's level from its checks first, the model's number after."""
+    level = (rc.get("warden_confidence") or {}).get("level")
+    outcome = f"; outcome {rc['outcome'].replace('_', ' ')}" if rc.get("outcome") else ""
+    model = f"the model said {rc['confidence']:.2f}"
+    return (f"WARDEN's confidence {level}, from its checks; {model}{outcome}" if level
+            else f"model, confidence {rc['confidence']:.2f}{outcome}")
+
+
 def _narrowed(d: dict[str, Any]) -> list[str]:
     """How WARDEN narrowed it down (owner's report bar, 2026-10-12: "narrow to the real root cause"): what the fixed
     checks found, each other cause and why it was set aside - checked against the evidence or said to be unchecked -
@@ -831,6 +849,9 @@ def build_report(
             "evidence": [hedge(e) for e in root_cause.evidence],
             "ruled_out": _ruled_out(root_cause, context),
             "weighed": _weighed(root_cause, context),
+            "outcome": root_cause.outcome.value if root_cause.outcome else None,
+            # WARDEN's own confidence from checks it can show (confidence.py), ahead of the model's number.
+            "warden_confidence": _assessed(alert, context, root_cause, proposal),
             "citations": [{"id": c.id, "quote": c.quote} for c in root_cause.citations],
             "grounded": not (verdict and "P13-UNGROUNDED" in verdict.policy_ids),
         }
@@ -977,8 +998,9 @@ def _summary_lines(d: dict) -> list[str]:
         lines.append(f"- **Proposed**: {_c(p['action'])} on {_c(p['target'])}"
                      + (f" - gate: {_c(v['status'])}" if v else ""))
     if d["root_cause"]:
-        lines.append(f"- **Diagnosis** (model, confidence {d['root_cause']['confidence']:.2f}): "
-                     f"{d['root_cause']['hypothesis']}")
+        # The model's text, said so first (N4); WARDEN's own level follows (U3-1).
+        said = _confidence_said(d["root_cause"]).removeprefix("model, ")
+        lines.append(f"- **Diagnosis** (model; {said}): {d['root_cause']['hypothesis']}")
     lines.append("")
     return lines
 
@@ -1036,7 +1058,10 @@ def _diagnosis_lines(d: dict) -> list[str]:
     rc = d["root_cause"]
     if not rc:
         return []
-    lines = [f"## What WARDEN thinks happened  (model, confidence {rc['confidence']:.2f})", rc["hypothesis"]]
+    lines = [f"## What WARDEN thinks happened  ({_confidence_said(rc)})", rc["hypothesis"]]
+    unmet = [c for c in (rc.get("warden_confidence") or {}).get("checks", []) if not c["met"]]
+    if unmet:
+        lines.extend(["", "Why not higher: " + "; ".join(f"{c['name']} - {c['detail']}" for c in unmet) + "."])
     if not rc["grounded"]:
         lines.extend(["", ("**⚠ Not grounded** - the gate could not match this diagnosis to the evidence "
                            "(P13, reasons under the verdict). Read it as a guess.")])
