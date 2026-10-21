@@ -13,7 +13,8 @@ from warden import audit
 
 def test_a_key_is_written_inside_the_folder(tmp_path):
     audit.generate_key(tmp_path / "a.pem", tmp_path / "a.pub", b"pass", base=tmp_path)
-    assert (tmp_path / "a.pem").exists() and (tmp_path / "a.pub").exists()
+    assert (tmp_path / "a.pem").exists()
+    assert (tmp_path / "a.pub").exists()
 
 
 @pytest.mark.parametrize("where", ["outside", "dotdot", "the folder itself"])
@@ -122,5 +123,7 @@ def test_the_cli_refuses_a_path_outside_and_writes_nothing(tmp_path, monkeypatch
     monkeypatch.setenv(audit.KEY_DIR_ENV, str(tmp_path / "keys"))
     monkeypatch.setenv("WARDEN_AUDIT_KEY_PASSPHRASE", "pass")
     code = cli.main(["audit", "keygen", "--private", str(tmp_path / "out.pem"), "--public", str(tmp_path / "out.pub")])
-    assert code == 1 and "no key was written" in capsys.readouterr().err
-    assert not (tmp_path / "out.pem").exists() and not (tmp_path / "out.pub").exists()
+    assert code == 1
+    assert "no key was written" in capsys.readouterr().err
+    assert not (tmp_path / "out.pem").exists()
+    assert not (tmp_path / "out.pub").exists()

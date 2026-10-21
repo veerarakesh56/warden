@@ -64,7 +64,8 @@ def test_each_append_holds_the_chains_lock_in_its_transaction(conn):
     log.append("inc-1", "x", {"a": 2})
     locks = [s for s in conn.sql if s[0].startswith("SELECT pg_advisory_xact_lock")]
     inserts = [s for s in conn.sql if s[0].startswith("INSERT INTO entries")]
-    assert len(locks) == 2 and all(in_tx for _, _, in_tx in locks + inserts)
+    assert len(locks) == 2
+    assert all(in_tx for _, _, in_tx in locks + inserts)
     assert all("%s" in sql and "?" not in sql for sql, _, _ in inserts)
     assert [p[0] for _, p, _ in inserts] == [1, 2]  # seq follows the head read under the lock
     assert not any(s[0].startswith("CREATE") for s in conn.sql)  # the runtime never creates or changes the schema
@@ -88,7 +89,8 @@ def test_a_postgres_log_is_read_only_through_its_methods(conn):
     log = audit.AuditLog(DSN)
     with pytest.raises(AttributeError):
         _ = log.db
-    assert audit._is_postgres(DSN) and not audit._is_postgres("audit.db")
+    assert audit._is_postgres(DSN)
+    assert not audit._is_postgres("audit.db")
 
 
 def test_the_runtime_uses_the_shared_audit_when_its_dsn_is_set(monkeypatch, tmp_path):

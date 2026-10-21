@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
+from . import web
 from .intake import AlarmEvent
 from .models import Alert, Severity
 
@@ -216,7 +217,7 @@ def datadog_alerting(site: str, api_key: str, app_key: str, *, timeout: float = 
 
     def fetch(url: str, hdrs: dict) -> dict:
         req = urllib.request.Request(url, headers=hdrs)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - https to a known Datadog site
+        with web.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read() or b"{}")
 
     fetch = get or fetch

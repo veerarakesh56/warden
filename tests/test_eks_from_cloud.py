@@ -28,7 +28,8 @@ def test_the_token_is_a_presigned_caller_identity_that_names_the_cluster():
     raw = token.removeprefix("k8s-aws-v1.")
     url = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode()
     q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-    assert q["Action"] == ["GetCallerIdentity"] and q["X-Amz-Expires"] == ["60"]
+    assert q["Action"] == ["GetCallerIdentity"]
+    assert q["X-Amz-Expires"] == ["60"]
     assert "x-k8s-aws-id" in q["X-Amz-SignedHeaders"][0]
 
 
@@ -40,7 +41,8 @@ class _Eks:
 def test_the_backend_talks_to_the_clusters_own_endpoint_and_verifies_its_ca():
     b = k8s_backend.eks_backend(_Eks(), _sts(), "warden-dev-eks")
     cfg = b._core.api_client.configuration
-    assert cfg.host == "https://warden-dev-eks.example.test" and cfg.verify_ssl
+    assert cfg.host == "https://warden-dev-eks.example.test"
+    assert cfg.verify_ssl
     import pathlib
 
     assert pathlib.Path(cfg.ssl_ca_cert).read_bytes().startswith(b"-----BEGIN CERTIFICATE-----")
@@ -50,7 +52,8 @@ def test_the_backend_talks_to_the_clusters_own_endpoint_and_verifies_its_ca():
 def test_an_alert_that_names_no_cluster_is_read_in_its_environments(monkeypatch):
     monkeypatch.setenv("WARDEN_EKS_CLUSTERS", "staging=warden-staging-eks, dev=warden-dev-eks,qa=bad;name")
     assert aws_stack.eks_cluster_of("dev") == "warden-dev-eks"
-    assert aws_stack.eks_cluster_of("qa") == "" and aws_stack.eks_cluster_of("prod") == ""
+    assert aws_stack.eks_cluster_of("qa") == ""
+    assert aws_stack.eks_cluster_of("prod") == ""
     monkeypatch.delenv("WARDEN_EKS_CLUSTERS")
     assert aws_stack.eks_cluster_of("dev") == ""
 

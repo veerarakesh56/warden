@@ -54,4 +54,5 @@ def test_an_id_that_could_be_part_of_a_withheld_value_is_named_by_a_hash(name, b
 def test_an_id_clear_of_every_withheld_value_is_still_named():
     """Audit A-C-24: the notice names its alert, so a person can find the report."""
     r = gate.enforce("report", before_redaction="password=" + PW, alert_id="inc-7")
-    assert r.verdict == "BLOCK" and "about inc-7 " in r.text, r.text
+    assert r.verdict == "BLOCK", r.text
+    assert "about inc-7 " in r.text, r.text

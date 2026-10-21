@@ -54,7 +54,8 @@ def test_a_watched_fix_is_told_its_alarm_fired_again_and_the_alarm_still_starts_
     assert [e["body"]["workflow_id"] for e in log.entries(kinds=("intake.relapse",))] == ["rem-dev-9"]
     quiet = asyncio.run(intake.submit(client := _Client(stages={"rem-dev-9": "awaiting_approval"}),
                                       ev.model_copy(update={"transitioned_at": now + timedelta(hours=1)}), log))
-    assert quiet.action == "start" and [c[0] for c in client.calls] == ["start"]  # a plan nobody approved yet: not told
+    assert quiet.action == "start"
+    assert [c[0] for c in client.calls] == ["start"]  # a plan nobody approved yet: not told
 
 
 def _watched(alarm_at):
@@ -94,10 +95,12 @@ def _watched(alarm_at):
 def test_the_watch_ends_when_the_alarm_fires_again_not_at_its_next_recheck():
     at = T0.isoformat()
     out, took = _watched(at)
-    assert out.status == "relapsed" and out.reasons == [f"orders recovered, then its alarm fired again at {at}"], out
+    assert out.status == "relapsed", out
+    assert out.reasons == [f"orders recovered, then its alarm fired again at {at}"], out
     assert took < RECHECK_AFTER[0], took  # told at once: the first re-check is a quarter of an hour away
 
 
 def test_a_watch_nothing_disturbs_still_runs_its_rechecks_to_the_end():
     out, took = _watched("")
-    assert out.status == "recovered" and took >= RECHECK_AFTER[-1], (out, took)
+    assert out.status == "recovered", (out, took)
+    assert took >= RECHECK_AFTER[-1], (out, took)
