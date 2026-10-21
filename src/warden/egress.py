@@ -38,6 +38,9 @@ Honest limits:
 - Behind a proxy (HTTPS_PROXY), a client other than urllib looks up the proxy's name, not its target's: the name
   check cannot see where such a client goes through the proxy (urllib's requests are still checked by their real
   address). The runtime sets no proxy; a laptop that does keeps that limit.
+- A structured body's value that is only digits is not read as a phone (an id, a count): every other kind in it
+  still blocks. A GitHub run id is 11 digits today; one of 12 would read as an AWS account id, and the guard would
+  refuse that infra dispatch rather than let it out - a person sees egress_blocked (PR 113).
 - tests/test_egress.py holds the static inventory of every module that opens a network client.
 - The hook is installed by the processes that talk to a real environment (`warden ...` with WARDEN_ENV set, every
   Lambda). The model guard holds in every process, installed or not.
@@ -343,14 +346,19 @@ def body_strings(data: Any, content_type: str = "", skip: frozenset[str] = froze
         return [text]
 
 
-def _scanned_values(strings: list[str], data: Any, content_type: str) -> list[str]:
-    """A structured body's (JSON's, a form's) values as content_kinds scans them: a value that is only digits is a
-    number - an id, a count (a GitHub run id read as a phone number refused every infra dispatch, PR 113) - as
-    _query_kinds treats a query's. A phone written with `+`, spaces or dashes is not only digits and is still scanned;
-    a body that is plain text is scanned whole, digits or not."""
+def _body_kinds(strings: list[str], data: Any, content_type: str) -> list[str]:
+    """The kinds content_kinds finds in a body, with one exception for a structured body's (JSON's, a form's) value
+    that is only digits: it is a number - an id, a count - and is not read as a PHONE, as _query_kinds treats a
+    query's (a GitHub run id read as a phone refused every infra dispatch, PR 113). Every other kind it carries still
+    blocks: an ACCOUNTID first of all. A phone written with `+`, spaces or dashes is not only digits and is still a
+    PHONE; a plain-text body is scanned whole, digits or not."""
     if not _structured(data, content_type):
-        return strings
-    return [s for s in strings if not _DIGITS.fullmatch(s)]
+        return content_kinds(strings)
+    found: set[str] = set()
+    for value in strings:
+        kinds = content_kinds([value])
+        found.update(k for k in kinds if not (k == "PHONE" and _DIGITS.fullmatch(value)))
+    return sorted(found)
 
 
 def _structured(data: Any, content_type: str) -> bool:
@@ -581,7 +589,7 @@ def check_request(url: str, data: bytes | str | None, headers: dict[str, str] | 
     strings = body_strings(data, _header(headers, "content-type"), dest.credentials)
     # A presigned AWS address carries its signature in the query: AWS's own `X-Amz-*` parameters are left out there.
     query = _query_kinds(parts.query, skip_amz=not dest.outside)
-    kinds = sorted(set(content_kinds(_scanned_values(strings, data, _header(headers, "content-type")))) | set(query)
+    kinds = sorted(set(_body_kinds(strings, data, _header(headers, "content-type"))) | set(query)
                    | set(content_kinds(_url_strings(dest, parts))))
     payload = "\n".join(strings)
     record(dest, _purpose(dest, method, url), payload, "BLOCK" if kinds else "PASS", kinds)

@@ -1082,6 +1082,13 @@ def test_a_digit_only_id_in_a_json_or_form_body_is_a_number_not_a_phone():
                          {"Content-Type": "application/x-www-form-urlencoded"}, "POST")
 
 
+def test_a_digit_only_account_id_in_a_structured_body_is_still_refused():
+    """The digit-only exemption drops only PHONE: a 12-digit account id to Slack (or anywhere) is still ACCOUNTID."""
+    with pytest.raises(EgressBlocked, match="ACCOUNTID"):
+        egress.check_request(SLACK_API, json.dumps({"x": "".join(str(d) for d in (1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2))}),
+                             JSON, "POST")
+
+
 def test_a_plain_text_body_is_still_scanned_whole_digits_included():
     with pytest.raises(EgressBlocked, match="PHONE"):
         egress.check_request(GITHUB_DISPATCH, "call 4155550100", {"Content-Type": "text/plain"}, "POST")
