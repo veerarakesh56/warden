@@ -732,7 +732,7 @@ class RemediationActivities:
         # a person, never into another automatic diagnosis - no chain of fixes on fixes.
         if any(e["body"].get("new") == incident_id for e in self.audit.entries(kinds=(_REDIAGNOSE_ROW,))):
             self.audit.append(incident_id, _REDIAGNOSE_ROW, {"run_id": _run_id(), "new": "",
-                                                                      "why": why[:300], "refused": "already a re-diagnosis"})
+                                                             "why": why[:300], "refused": "already a re-diagnosis"})
             return {}
         now = datetime.now(UTC)
         new = f"{incident_id.split('-')[0]}-{now:%Y%m%dT%H%M%SZ}"
@@ -763,7 +763,7 @@ class RemediationActivities:
             promotion=(), actions=IncidentActivities._record_link(incident_id)))
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(incident_id, _ANNOUNCE_ROW, {"run_id": _run_id(), "what": status, "head": head,
-                                                                "delivered": delivered, "summary": True})
+                                                       "delivered": delivered, "summary": True})
         return delivered
 
     def _approval_links(self, plan: Plan) -> tuple[tuple[str, str], ...]:
@@ -2051,7 +2051,7 @@ class DiscussActivities:
             return discuss.NO_ANSWER
         attempt = secrets.token_hex(8)
         self.audit.append(key, _LLM_RESERVE_ROW, {"run_id": _run_id(), "attempt": attempt, "usd": llm.max_usd,
-                                                        "calls": 1})
+                                                  "calls": 1})
         before = llm.cost.model_copy()
         answer = None
         try:
