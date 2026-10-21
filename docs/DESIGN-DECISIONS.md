@@ -289,6 +289,11 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Orchestration: Temporal Cloud and the `temporalio` SDK - `workflows.py`, `runtime.py`, `activities.py` (the
   steps, run as Temporal activities), `runtime_base.py` (runtime's client half, for the approval Lambda).
 - Payload encryption: Temporal's payload-codec interface with `cryptography`'s AES-256-GCM - `codec.py`.
+- What leaves the network (2026-10-20): Python's own audit hooks (`sys.addaudithook`, PEP 578) see every urllib
+  request and every name lookup before a connection is made; the redaction patterns check what is sent; the
+  ledger is a log line and an audit row - `egress.py`. An egress proxy or firewall (Squid, AWS Network Firewall)
+  sees hosts, not which incident's text is in a TLS body, and costs money; the runtime's network rules stay the outer
+  layer (register B23).
 - Passkey approvals: py_webauthn (duo-labs, BSD-3-Clause) verifies every WebAuthn ceremony - `passkeys.py`.
 - Signatures: `cryptography`'s Ed25519 for approvals and audit checkpoints (`approvals.py`); AWS KMS for the
   non-exportable signer and S3 Object Lock for the anchors (`audit.py`, register S12).

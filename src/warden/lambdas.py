@@ -42,8 +42,9 @@ def _configure(name: str) -> None:
     """Once per Lambda container: this environment's settings, only the names this Lambda uses (settings.RESTRICTED),
     from SSM and Secrets Manager."""
     if name not in _CONFIGURED:
-        from . import settings
+        from . import egress, settings
 
+        egress.install()  # every Lambda: every egress named, checked and recorded (egress.py), before any is made
         settings.load(only=settings.loadable_for(name))
         _CONFIGURED.add(name)
 
@@ -391,7 +392,11 @@ def _approvers_changed(detail: dict[str, Any]) -> dict[str, Any]:
             "event_id": detail.get("eventID"), "event_time": detail.get("eventTime"),
             "refused": detail.get("errorCode") or ""}
     try:
-        runtime.open_audit().append("approvers", "approvers.changed", body)
+        log = runtime.open_audit()
+        try:
+            log.append("approvers", "approvers.changed", body)
+        finally:
+            log.close()  # a failed log is not left as the egress ledger's (egress.forget)
     except Exception as e:  # noqa: BLE001 - the page below still goes out; and the log line says why
         body["audit_error"] = type(e).__name__
     import boto3
