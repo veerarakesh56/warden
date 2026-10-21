@@ -333,7 +333,7 @@ def test_health_is_a_positive_signal_and_unknown_is_not_healthy(aws):
     assert p.healthy("orders", entry="ecs_rollback_service", params={"cluster": "c1"}) is True
     f.service["deployments"] = [{"rolloutState": "COMPLETED"}, {"rolloutState": "IN_PROGRESS"}]
     assert p.healthy("orders", entry="ecs_rollback_service", params={"cluster": "c1"}) is False
-    assert p.healthy(FN) is False
+    assert p.healthy(FN) is False  # never judged by a bare name
     assert p.knows(FN) is False
 
 

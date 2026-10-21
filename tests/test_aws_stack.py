@@ -390,7 +390,7 @@ def test_metrics_use_the_contract_names(dsns):
     assert m["ddb_consumed_wcu"] == 2.0
     assert m["ddb_write_throttle_events"] == 11
     assert m["ddb_throttled_requests"] == 7
-    assert m["redis_memory_pct"] == 91
+    assert m["redis_memory_pct"] == 91  # summed across the two nodes
     assert m["redis_evictions"] == 6
     assert m["redis_nodes_total"] == 2
     assert m["redis_nodes_available"] == 1

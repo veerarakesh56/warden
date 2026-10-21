@@ -111,7 +111,7 @@ def test_an_answer_cut_off_at_the_output_cap_is_charged_said_plainly_and_not_ask
     client = LLMClient(provider=p, mock=False)
     with pytest.raises(ModelRefused, match="cut off"):
         client.structured(system="s", user="u", schema=Diagnosis)
-    assert len(sent) == 1
+    assert len(sent) == 1  # asked once, and charged
     assert client.cost.usd > 0
     assert sent[0]["max_tokens"] == providers.MAX_OUTPUT_TOKENS >= 16384  # room for thinking and the answer
     # The model's own price (2026-10-15): Sonnet 5.5 at $2 in / $10 out per million, not one price for every model.

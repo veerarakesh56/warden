@@ -173,7 +173,7 @@ def test_the_held_alarm_is_started_now_to_run_when_its_cover_ends_once(monkeypat
     first = asyncio.run(intake.submit(client, _ev(at=now), log))
     again = asyncio.run(intake.submit(client, _ev(at=now + timedelta(minutes=5)), log))
     assert first.action == again.action == "expected"
-    assert first.workflow_id == again.workflow_id
+    assert first.workflow_id == again.workflow_id  # one hold per cover
     (_, wid, args, delay), _ = client.calls
     assert wid == first.workflow_id
     assert args[1] == ""
@@ -223,7 +223,7 @@ def test_the_alarms_own_state_says_whether_it_still_fires_and_the_record_says_wh
     log.append("intake-fp1", "intake.event", {"fingerprint": "fp1", "state": "ALARM"})
     assert said(Backend(None)) is True
     log.append("intake-fp1", "intake.event", {"fingerprint": "fp1", "state": "OK"})
-    assert said(Backend(None)) is False
+    assert said(Backend(None)) is False  # the alarm itself outranks the record
     assert said(Backend(True)) is True
     rows = [e["body"] for e in log.entries(alert.alert_id, kinds=("incident.after_hold",))]
     assert rows[0]["held"] == "why"

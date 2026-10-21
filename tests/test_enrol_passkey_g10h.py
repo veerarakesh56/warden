@@ -163,7 +163,7 @@ def test_the_command_signs_a_link_the_page_accepts_and_opens_it_without_printing
 
     opened = []
     monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url) or True)
-    assert cli.main(["enrol", "--approver", "owner", "--key", str(pem)]) == 1
+    assert cli.main(["enrol", "--approver", "owner", "--key", str(pem)]) == 1  # no domain, no link
     assert not opened
     monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", RP)
     assert cli.main(["enrol", "--approver", "owner", "--key", str(pem)]) == 0

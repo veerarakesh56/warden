@@ -258,7 +258,7 @@ def test_both_pages_need_nothing_their_content_security_policy_refuses_and_keep_
 
     page, _, _, _ = setup
     served = page.handle("GET", f"/a/{page.new_link('rem-dev-1', 'owner')}")
-    assert "{{" not in served.body
+    assert "{{" not in served.body  # every placeholder filled; one style, one script
     assert served.body.count('nonce="') == 2
     nonce = re.search(r"script-src 'nonce-([^']+)'", served.headers["Content-Security-Policy"]).group(1)
     assert served.body.count(f'nonce="{nonce}"') == 2
@@ -305,4 +305,4 @@ def test_the_page_counts_the_link_down_and_says_where_the_fresh_one_is(setup):
     clock.now = T0 + timedelta(minutes=16)
     late = page.handle("POST", f"/a/{token}/approve-options")
     assert late.status == 404
-    assert json.loads(late.body)["error"] == "this approval link is not valid"
+    assert json.loads(late.body)["error"] == "this approval link is not valid"  # what GONE explains

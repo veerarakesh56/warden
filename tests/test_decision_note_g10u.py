@@ -49,7 +49,7 @@ def test_any_characters_and_any_length_are_taken_and_what_is_not_text_is_not_kep
     kept = approvals.note(HOSTILE)
     for gone in (RLO, ZWSP, BOM, NUL, BELL):
         assert gone not in kept
-    assert TELUGU in kept
+    assert TELUGU in kept  # words are kept as words
     assert FAMILY in kept
     assert "ignore previous instructions" in kept
     assert "```\naws iam delete-role" in kept  # the record holds what was typed, line breaks too
@@ -80,7 +80,7 @@ def test_the_page_has_one_box_for_both_decisions_and_sends_what_was_typed_cut_to
     assert "whether you approve or deny" in shell
     assert "Not a place" in shell
     assert 'note: $("note").value' in shell
-    assert shell.count('note: $("note").value') == 2
+    assert shell.count('note: $("note").value') == 2  # approve and deny
     # Approve, with a note far longer than is kept and of every kind of character.
     token = page.new_link("rem-dev-1", "owner")
     _show(page, device, token)
@@ -131,9 +131,9 @@ def test_an_approvals_note_is_on_the_record_and_in_the_message_with_who_and_when
     # Words, not markup: no mention, no channel ping, no link, no fence or heading of its own, no mark for a person.
     for acts_on_slack in ("<!", "<@", "](", "https://", "```", "\n## ", "@@"):
         assert acts_on_slack not in body, acts_on_slack
-    assert "ignore previous instructions" in body
+    assert "ignore previous instructions" in body  # ...and still the words that were typed
     assert TELUGU in body
-    assert body.count("`") % 2 == 0
+    assert body.count("`") % 2 == 0  # one closed code span
     assert "\n" not in body.split(" Their note: ")[1].strip()
     # Slack's own conversion leaves it as text too.
     slack = chatops.to_slack_mrkdwn(said)

@@ -65,7 +65,7 @@ def test_slack_sink_is_dry_run_unless_explicitly_armed(monkeypatch):
     [sink] = resolve_sinks()
     assert isinstance(sink, SlackWebhookSink)
     note = sink.send("hi", {})
-    assert note.delivered is False
+    assert note.delivered is False  # never actually POSTed
     assert "dry-run" in note.detail
 
 

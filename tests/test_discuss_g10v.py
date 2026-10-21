@@ -72,7 +72,7 @@ def test_the_people_are_data_between_markers_and_whether_the_asker_is_an_approve
     assert "an enrolled approver" in discuss.prompt("q", thread, "e", "d", approver=True)
     pasted = discuss.prompt("is it the key AKIA" + "FAKE" * 3 + "1234?", discuss.Thread(
         incident=ID, lines=["a person: password=" + "hunter" + "2isnotsafe"]), "e", "d", approver=False)
-    assert "FAKE" * 3 not in pasted
+    assert "FAKE" * 3 not in pasted  # a secret a person pasted never reaches it
     assert "hunter" + "2isnotsafe" not in pasted
     long = discuss.Thread(incident=ID, lines=["x" * 5000, "y" * 5000])
     assert len(discuss.prompt("q", long, "e", "d", approver=False)) < discuss.MAX_THREAD_CHARS + 600
@@ -133,7 +133,7 @@ def test_the_thread_is_read_its_incident_found_and_who_wrote_what_said_without_t
     assert calls["conversations.replies"] == ({"channel": CHANNEL, "ts": "1760000000.000100", "limit": 200}, True)
     assert calls["auth.test"] == ({}, True)  # read methods form-encoded, as Slack documents them
     [row] = [e["body"] for e in world["log"].entries(f"discuss-{INCIDENT}", kinds=("discuss.turn",))]
-    assert row["user"] == PERSON
+    assert row["user"] == PERSON  # who and when, not their words
     assert row["incident"] == INCIDENT
     assert "text" not in row
 

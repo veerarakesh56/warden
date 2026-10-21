@@ -66,7 +66,7 @@ def test_a_link_hours_old_is_still_found_by_the_lambdas_store_and_ends_with_its_
     clock.now = T0 + timedelta(hours=29)
     shown = _show(page, device, "t" * 43)
     assert shown.status == 200
-    assert '"link_seconds": 3600' in shown.body
+    assert '"link_seconds": 3600' in shown.body  # an hour left, said to the page
     clock.now = T0 + timedelta(hours=30, seconds=1)
     assert page.handle("GET", "/a/" + "t" * 43).status == 404
     assert approval_page.LINK_LIFE_MAX >= timedelta(hours=environments.MAX_APPROVAL_WAIT_HOURS)

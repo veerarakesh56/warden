@@ -182,7 +182,7 @@ def test_every_write_to_the_approver_list_is_recorded_and_pages_made_or_refused(
         "PutParameter", "AssumedRole", "console-admin")
     assert made["refused"] == ""
     assert refused["refused"] == "AccessDenied"
-    assert "ignored" not in str(log.appended)
+    assert "ignored" not in str(log.appended)  # never the caller-chosen ARN
     # Another parameter, another environment's list, a read: none of them is the list being written.
     for other in (_list_write(name="/warden/ops/tf/paused"), _list_write(name="/warden/dev/approvers"),
                   _list_write("GetParameter")):
