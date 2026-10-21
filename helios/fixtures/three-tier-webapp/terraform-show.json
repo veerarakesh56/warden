@@ -1,0 +1,142 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.7.0",
+  "values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc.main",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "main",
+          "values": {
+            "id": "vpc-0aaa111",
+            "cidr_block": "10.0.0.0/16",
+            "arn": "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-0aaa111",
+            "tags": {
+              "Name": "three-tier-webapp"
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.public_a",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public_a",
+          "values": {
+            "id": "subnet-0a1a",
+            "vpc_id": "vpc-0aaa111",
+            "availability_zone": "us-east-1a",
+            "cidr_block": "10.0.1.0/24"
+          }
+        },
+        {
+          "address": "aws_subnet.public_b",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public_b",
+          "values": {
+            "id": "subnet-0b1b",
+            "vpc_id": "vpc-0aaa111",
+            "availability_zone": "us-east-1b",
+            "cidr_block": "10.0.2.0/24"
+          }
+        },
+        {
+          "address": "aws_instance.web",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "web",
+          "values": {
+            "id": "i-0c1c",
+            "subnet_id": "subnet-0a1a",
+            "availability_zone": "us-east-1a",
+            "instance_type": "t3.micro",
+            "ami": "ami-0abcdef1234567890"
+          }
+        },
+        {
+          "address": "aws_lb.app",
+          "mode": "managed",
+          "type": "aws_lb",
+          "name": "app",
+          "values": {
+            "id": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/three-tier-alb/abc123",
+            "arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/three-tier-alb/abc123",
+            "name": "three-tier-alb",
+            "load_balancer_type": "application",
+            "subnets": [
+              "subnet-0a1a",
+              "subnet-0b1b"
+            ],
+            "availability_zones": [
+              "us-east-1a",
+              "us-east-1b"
+            ]
+          }
+        },
+        {
+          "address": "aws_db_instance.primary",
+          "mode": "managed",
+          "type": "aws_db_instance",
+          "name": "primary",
+          "values": {
+            "id": "three-tier-db",
+            "identifier": "three-tier-db",
+            "engine": "postgres",
+            "instance_class": "db.t3.micro",
+            "multi_az": true,
+            "availability_zone": "us-east-1a",
+            "db_subnet_group_name": "three-tier-db-subnets"
+          }
+        },
+        {
+          "address": "aws_elasticache_cluster.cache",
+          "mode": "managed",
+          "type": "aws_elasticache_cluster",
+          "name": "cache",
+          "values": {
+            "id": "three-tier-cache",
+            "cluster_id": "three-tier-cache",
+            "engine": "redis",
+            "node_type": "cache.t3.micro",
+            "num_cache_nodes": 1,
+            "availability_zone": "us-east-1a",
+            "subnet_group_name": "three-tier-cache-subnets"
+          }
+        },
+        {
+          "address": "aws_lambda_function.worker",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "worker",
+          "values": {
+            "id": "three-tier-worker",
+            "function_name": "three-tier-worker",
+            "runtime": "python3.12",
+            "handler": "index.handler",
+            "vpc_config": {
+              "subnet_ids": [
+                "subnet-0a1a",
+                "subnet-0b1b"
+              ],
+              "security_group_ids": []
+            },
+            "role": "arn:aws:iam::123456789012:role/lambda-worker"
+          }
+        },
+        {
+          "address": "aws_s3_bucket.assets",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "assets",
+          "values": {
+            "id": "three-tier-webapp-assets-unique",
+            "bucket": "three-tier-webapp-assets-unique",
+            "region": "us-east-1"
+          }
+        }
+      ]
+    }
+  }
+}

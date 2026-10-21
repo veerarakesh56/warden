@@ -1,0 +1,59 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. The more reproducible the report, the
+        faster we can fix it.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the bug.
+      placeholder: "`helios verify` exits zero even though a failure remains in the post-fix chain."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands. Include the Terraform JSON, scenario YAML, and fix JSON if relevant.
+      render: bash
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior (with output)
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Helios version (commit SHA or tag)
+      placeholder: "v0.1.0 or git rev-parse HEAD"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS + Rust + Python version
+      placeholder: "Ubuntu 24.04, rustc 1.85, Python 3.12"
+    validations:
+      required: true

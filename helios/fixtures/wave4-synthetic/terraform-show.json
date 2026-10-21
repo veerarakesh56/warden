@@ -1,0 +1,721 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.9.8",
+  "values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc.this",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "this",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpc-0a4200000000000a1",
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:vpc/vpc-0a4200000000000a1",
+            "cidr_block": "10.42.0.0/16",
+            "tags": {
+              "Name": "warden-pg-fs"
+            }
+          }
+        },
+        {
+          "address": "aws_internet_gateway.this",
+          "mode": "managed",
+          "type": "aws_internet_gateway",
+          "name": "this",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "igw-0a4200000000000d1",
+            "vpc_id": "vpc-0a4200000000000a1"
+          }
+        },
+        {
+          "address": "aws_subnet.public[0]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "index": 0,
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "subnet-0a4200000000000b0",
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:subnet/subnet-0a4200000000000b0",
+            "vpc_id": "vpc-0a4200000000000a1",
+            "availability_zone": "ap-south-2a",
+            "cidr_block": "10.42.0.0/24",
+            "tags": {
+              "Name": "warden-pg-fs-public-0"
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.public[1]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "index": 1,
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "subnet-0a4200000000000b1",
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:subnet/subnet-0a4200000000000b1",
+            "vpc_id": "vpc-0a4200000000000a1",
+            "availability_zone": "ap-south-2b",
+            "cidr_block": "10.42.1.0/24",
+            "tags": {
+              "Name": "warden-pg-fs-public-1"
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.private[0]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private",
+          "index": 0,
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "subnet-0a4200000000000c0",
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:subnet/subnet-0a4200000000000c0",
+            "vpc_id": "vpc-0a4200000000000a1",
+            "availability_zone": "ap-south-2a",
+            "cidr_block": "10.42.10.0/24",
+            "tags": {
+              "Name": "warden-pg-fs-private-0"
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.private[1]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private",
+          "index": 1,
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "subnet-0a4200000000000c1",
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:subnet/subnet-0a4200000000000c1",
+            "vpc_id": "vpc-0a4200000000000a1",
+            "availability_zone": "ap-south-2b",
+            "cidr_block": "10.42.11.0/24",
+            "tags": {
+              "Name": "warden-pg-fs-private-1"
+            }
+          }
+        },
+        {
+          "address": "aws_route_table.public",
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "public",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "rtb-0a4200000000000e0",
+            "vpc_id": "vpc-0a4200000000000a1",
+            "route": [
+              {
+                "cidr_block": "0.0.0.0/0",
+                "gateway_id": "igw-0a4200000000000d1",
+                "nat_gateway_id": ""
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_route_table.private",
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "private",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "rtb-0a4200000000000e1",
+            "vpc_id": "vpc-0a4200000000000a1",
+            "route": []
+          }
+        },
+        {
+          "address": "aws_route_table_association.public[0]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "public",
+          "index": 0,
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "rtbassoc-0a42000000000pu0",
+            "subnet_id": "subnet-0a4200000000000b0",
+            "route_table_id": "rtb-0a4200000000000e0",
+            "gateway_id": ""
+          }
+        },
+        {
+          "address": "aws_route_table_association.public[1]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "public",
+          "index": 1,
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "rtbassoc-0a42000000000pu1",
+            "subnet_id": "subnet-0a4200000000000b1",
+            "route_table_id": "rtb-0a4200000000000e0",
+            "gateway_id": ""
+          }
+        },
+        {
+          "address": "aws_route_table_association.private[0]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "private",
+          "index": 0,
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "rtbassoc-0a42000000000pr0",
+            "subnet_id": "subnet-0a4200000000000c0",
+            "route_table_id": "rtb-0a4200000000000e1",
+            "gateway_id": ""
+          }
+        },
+        {
+          "address": "aws_route_table_association.private[1]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "private",
+          "index": 1,
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "rtbassoc-0a42000000000pr1",
+            "subnet_id": "subnet-0a4200000000000c1",
+            "route_table_id": "rtb-0a4200000000000e1",
+            "gateway_id": ""
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.gateway[\"dynamodb\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "gateway",
+          "index": "dynamodb",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpce-0a42000000000dy01",
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:vpc-endpoint/vpce-0a42000000000dy01",
+            "vpc_id": "vpc-0a4200000000000a1",
+            "service_name": "com.amazonaws.ap-south-2.dynamodb",
+            "vpc_endpoint_type": "Gateway",
+            "subnet_ids": [],
+            "route_table_ids": [
+              "rtb-0a4200000000000e0",
+              "rtb-0a4200000000000e1"
+            ]
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.gateway[\"s3\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "gateway",
+          "index": "s3",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpce-0a42000000000s301",
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:vpc-endpoint/vpce-0a42000000000s301",
+            "vpc_id": "vpc-0a4200000000000a1",
+            "service_name": "com.amazonaws.ap-south-2.s3",
+            "vpc_endpoint_type": "Gateway",
+            "subnet_ids": [],
+            "route_table_ids": [
+              "rtb-0a4200000000000e0",
+              "rtb-0a4200000000000e1"
+            ]
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.interface[\"secretsmanager\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "interface",
+          "index": "secretsmanager",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpce-0a42000000000se02",
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:vpc-endpoint/vpce-0a42000000000se02",
+            "vpc_id": "vpc-0a4200000000000a1",
+            "service_name": "com.amazonaws.ap-south-2.secretsmanager",
+            "vpc_endpoint_type": "Interface",
+            "subnet_ids": [
+              "subnet-0a4200000000000c0"
+            ],
+            "route_table_ids": []
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.interface[\"sqs\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "interface",
+          "index": "sqs",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpce-0a42000000000sq02",
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:vpc-endpoint/vpce-0a42000000000sq02",
+            "vpc_id": "vpc-0a4200000000000a1",
+            "service_name": "com.amazonaws.ap-south-2.sqs",
+            "vpc_endpoint_type": "Interface",
+            "subnet_ids": [
+              "subnet-0a4200000000000c0"
+            ],
+            "route_table_ids": []
+          }
+        },
+        {
+          "address": "aws_db_subnet_group.aurora",
+          "mode": "managed",
+          "type": "aws_db_subnet_group",
+          "name": "aurora",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-aurora",
+            "name": "warden-pg-fs-aurora",
+            "arn": "arn:aws:rds:ap-south-2:123456789012:subgrp:warden-pg-fs-aurora",
+            "subnet_ids": [
+              "subnet-0a4200000000000b0",
+              "subnet-0a4200000000000b1"
+            ]
+          }
+        },
+        {
+          "address": "aws_rds_cluster.aurora",
+          "mode": "managed",
+          "type": "aws_rds_cluster",
+          "name": "aurora",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-aurora",
+            "cluster_identifier": "warden-pg-fs-aurora",
+            "arn": "arn:aws:rds:ap-south-2:123456789012:cluster:warden-pg-fs-aurora",
+            "engine": "aurora-postgresql",
+            "db_subnet_group_name": "warden-pg-fs-aurora",
+            "availability_zones": [
+              "ap-south-2a",
+              "ap-south-2b",
+              "ap-south-2c"
+            ],
+            "cluster_members": [
+              "warden-pg-fs-aurora-1",
+              "warden-pg-fs-aurora-2"
+            ]
+          }
+        },
+        {
+          "address": "aws_rds_cluster_instance.aurora_1",
+          "mode": "managed",
+          "type": "aws_rds_cluster_instance",
+          "name": "aurora_1",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-aurora-1",
+            "identifier": "warden-pg-fs-aurora-1",
+            "arn": "arn:aws:rds:ap-south-2:123456789012:db:warden-pg-fs-aurora-1",
+            "cluster_identifier": "warden-pg-fs-aurora",
+            "availability_zone": "ap-south-2a",
+            "db_subnet_group_name": "warden-pg-fs-aurora",
+            "instance_class": "db.serverless",
+            "writer": true
+          }
+        },
+        {
+          "address": "aws_rds_cluster_instance.aurora_2",
+          "mode": "managed",
+          "type": "aws_rds_cluster_instance",
+          "name": "aurora_2",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-aurora-2",
+            "identifier": "warden-pg-fs-aurora-2",
+            "arn": "arn:aws:rds:ap-south-2:123456789012:db:warden-pg-fs-aurora-2",
+            "cluster_identifier": "warden-pg-fs-aurora",
+            "availability_zone": "ap-south-2b",
+            "db_subnet_group_name": "warden-pg-fs-aurora",
+            "instance_class": "db.serverless",
+            "writer": false
+          }
+        },
+        {
+          "address": "aws_elasticache_subnet_group.redis",
+          "mode": "managed",
+          "type": "aws_elasticache_subnet_group",
+          "name": "redis",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-redis",
+            "name": "warden-pg-fs-redis",
+            "arn": "arn:aws:elasticache:ap-south-2:123456789012:subnetgroup:warden-pg-fs-redis",
+            "subnet_ids": [
+              "subnet-0a4200000000000c0",
+              "subnet-0a4200000000000c1"
+            ]
+          }
+        },
+        {
+          "address": "aws_elasticache_replication_group.redis",
+          "mode": "managed",
+          "type": "aws_elasticache_replication_group",
+          "name": "redis",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-redis",
+            "replication_group_id": "warden-pg-fs-redis",
+            "arn": "arn:aws:elasticache:ap-south-2:123456789012:replicationgroup:warden-pg-fs-redis",
+            "subnet_group_name": "warden-pg-fs-redis",
+            "num_cache_clusters": 2,
+            "automatic_failover_enabled": true,
+            "multi_az_enabled": false,
+            "member_clusters": [
+              "warden-pg-fs-redis-001",
+              "warden-pg-fs-redis-002"
+            ]
+          }
+        },
+        {
+          "address": "aws_lb.orders",
+          "mode": "managed",
+          "type": "aws_lb",
+          "name": "orders",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "arn:aws:elasticloadbalancing:ap-south-2:123456789012:loadbalancer/app/warden-pg-fs-alb/0a42000000000f01",
+            "arn": "arn:aws:elasticloadbalancing:ap-south-2:123456789012:loadbalancer/app/warden-pg-fs-alb/0a42000000000f01",
+            "name": "warden-pg-fs-alb",
+            "load_balancer_type": "application",
+            "internal": false,
+            "subnets": [
+              "subnet-0a4200000000000b0",
+              "subnet-0a4200000000000b1"
+            ],
+            "subnet_mapping": [
+              {
+                "subnet_id": "subnet-0a4200000000000b0",
+                "allocation_id": "",
+                "outpost_id": ""
+              },
+              {
+                "subnet_id": "subnet-0a4200000000000b1",
+                "allocation_id": "",
+                "outpost_id": ""
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_ecs_cluster.this",
+          "mode": "managed",
+          "type": "aws_ecs_cluster",
+          "name": "this",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "arn:aws:ecs:ap-south-2:123456789012:cluster/warden-pg-fs-ecs",
+            "arn": "arn:aws:ecs:ap-south-2:123456789012:cluster/warden-pg-fs-ecs",
+            "name": "warden-pg-fs-ecs"
+          }
+        },
+        {
+          "address": "aws_ecs_service.orders_api",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "orders_api",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "arn:aws:ecs:ap-south-2:123456789012:service/warden-pg-fs-ecs/warden-pg-fs-orders-api",
+            "name": "warden-pg-fs-orders-api",
+            "cluster": "arn:aws:ecs:ap-south-2:123456789012:cluster/warden-pg-fs-ecs",
+            "desired_count": 2,
+            "launch_type": "FARGATE",
+            "network_configuration": [
+              {
+                "subnets": [
+                  "subnet-0a4200000000000b0",
+                  "subnet-0a4200000000000b1"
+                ],
+                "assign_public_ip": true,
+                "security_groups": [
+                  "sg-0a4200000000000a3"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_eks_cluster.this",
+          "mode": "managed",
+          "type": "aws_eks_cluster",
+          "name": "this",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-eks",
+            "name": "warden-pg-fs-eks",
+            "arn": "arn:aws:eks:ap-south-2:123456789012:cluster/warden-pg-fs-eks",
+            "role_arn": "arn:aws:iam::123456789012:role/warden-pg-fs-eks-cluster",
+            "vpc_config": [
+              {
+                "subnet_ids": [
+                  "subnet-0a4200000000000b0",
+                  "subnet-0a4200000000000b1"
+                ],
+                "cluster_security_group_id": "sg-0a4200000000000a4",
+                "endpoint_private_access": true,
+                "endpoint_public_access": true
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_eks_node_group.this",
+          "mode": "managed",
+          "type": "aws_eks_node_group",
+          "name": "this",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-eks:warden-pg-fs-eks-ng",
+            "arn": "arn:aws:eks:ap-south-2:123456789012:nodegroup/warden-pg-fs-eks/warden-pg-fs-eks-ng/0a42",
+            "cluster_name": "warden-pg-fs-eks",
+            "node_group_name": "warden-pg-fs-eks-ng",
+            "node_role_arn": "arn:aws:iam::123456789012:role/warden-pg-fs-eks-node",
+            "subnet_ids": [
+              "subnet-0a4200000000000b0",
+              "subnet-0a4200000000000b1"
+            ],
+            "capacity_type": "ON_DEMAND",
+            "scaling_config": [
+              {
+                "desired_size": 1,
+                "min_size": 1,
+                "max_size": 1
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_sqs_queue.dlq[\"notifications\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "dlq",
+          "index": "notifications",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "https://sqs.ap-south-2.amazonaws.com/123456789012/warden-pg-fs-notifications-dlq",
+            "arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-notifications-dlq",
+            "name": "warden-pg-fs-notifications-dlq",
+            "redrive_policy": ""
+          }
+        },
+        {
+          "address": "aws_sqs_queue.dlq[\"orders\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "dlq",
+          "index": "orders",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "https://sqs.ap-south-2.amazonaws.com/123456789012/warden-pg-fs-orders-dlq",
+            "arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-orders-dlq",
+            "name": "warden-pg-fs-orders-dlq",
+            "redrive_policy": ""
+          }
+        },
+        {
+          "address": "aws_sqs_queue.main[\"notifications\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "main",
+          "index": "notifications",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "https://sqs.ap-south-2.amazonaws.com/123456789012/warden-pg-fs-notifications",
+            "arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-notifications",
+            "name": "warden-pg-fs-notifications",
+            "redrive_policy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-notifications-dlq\",\"maxReceiveCount\":3}"
+          }
+        },
+        {
+          "address": "aws_sqs_queue.main[\"orders\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "main",
+          "index": "orders",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "https://sqs.ap-south-2.amazonaws.com/123456789012/warden-pg-fs-orders",
+            "arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-orders",
+            "name": "warden-pg-fs-orders",
+            "redrive_policy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-orders-dlq\",\"maxReceiveCount\":3}"
+          }
+        },
+        {
+          "address": "aws_sns_topic.order_events",
+          "mode": "managed",
+          "type": "aws_sns_topic",
+          "name": "order_events",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "arn:aws:sns:ap-south-2:123456789012:warden-pg-fs-order-events",
+            "arn": "arn:aws:sns:ap-south-2:123456789012:warden-pg-fs-order-events"
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"checkout\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "checkout",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-checkout",
+            "function_name": "warden-pg-fs-checkout",
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-checkout",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-checkout",
+            "runtime": "python3.12",
+            "vpc_config": []
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"notifier\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "notifier",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-notifier",
+            "function_name": "warden-pg-fs-notifier",
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-notifier",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-notifier",
+            "runtime": "python3.12",
+            "vpc_config": []
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"ops\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "ops",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-ops",
+            "function_name": "warden-pg-fs-ops",
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-ops",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-ops",
+            "runtime": "python3.12",
+            "vpc_config": [
+              {
+                "subnet_ids": [
+                  "subnet-0a4200000000000c0",
+                  "subnet-0a4200000000000c1"
+                ],
+                "security_group_ids": [
+                  "sg-0a4200000000000a5"
+                ],
+                "vpc_id": "vpc-0a4200000000000a1"
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"order-processor\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "order-processor",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-order-processor",
+            "function_name": "warden-pg-fs-order-processor",
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-order-processor",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-order-processor",
+            "runtime": "python3.12",
+            "vpc_config": [
+              {
+                "subnet_ids": [
+                  "subnet-0a4200000000000c0",
+                  "subnet-0a4200000000000c1"
+                ],
+                "security_group_ids": [
+                  "sg-0a4200000000000a5"
+                ],
+                "vpc_id": "vpc-0a4200000000000a1"
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"reconciler\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "reconciler",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-reconciler",
+            "function_name": "warden-pg-fs-reconciler",
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-reconciler",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-reconciler",
+            "runtime": "python3.12",
+            "vpc_config": [
+              {
+                "subnet_ids": [
+                  "subnet-0a4200000000000c0",
+                  "subnet-0a4200000000000c1"
+                ],
+                "security_group_ids": [
+                  "sg-0a4200000000000a5"
+                ],
+                "vpc_id": "vpc-0a4200000000000a1"
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"traffic\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "traffic",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "warden-pg-fs-traffic",
+            "function_name": "warden-pg-fs-traffic",
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-traffic",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-traffic",
+            "runtime": "python3.12",
+            "vpc_config": []
+          }
+        },
+        {
+          "address": "aws_lambda_event_source_mapping.notifications",
+          "mode": "managed",
+          "type": "aws_lambda_event_source_mapping",
+          "name": "notifications",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "0a42e5a0-0000-4000-8000-e5a000000013",
+            "event_source_arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-notifications",
+            "function_name": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-notifier",
+            "function_arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-notifier"
+          }
+        },
+        {
+          "address": "aws_lambda_event_source_mapping.orders",
+          "mode": "managed",
+          "type": "aws_lambda_event_source_mapping",
+          "name": "orders",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "0a42e5a0-0000-4000-8000-e5a000000006",
+            "event_source_arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-orders",
+            "function_name": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-order-processor",
+            "function_arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-order-processor"
+          }
+        }
+      ]
+    }
+  }
+}

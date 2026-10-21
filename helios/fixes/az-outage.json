@@ -1,0 +1,24 @@
+{
+  "scenario_name": "lose-us-east-1a",
+  "explanation": "A deliberately naive fix: move every us-east-1a-pinned single-AZ resource to us-east-1b. The 1a outage no longer takes them down, but a 1b outage now takes all of them; helios verify re-simulates every zone and rejects it (New failures introduced, exit 1).",
+  "edits": [
+    {
+      "op": "set_attr",
+      "resource_id": "aws_subnet.public_a",
+      "key": "availability_zone",
+      "value": "us-east-1b"
+    },
+    {
+      "op": "set_attr",
+      "resource_id": "aws_instance.web",
+      "key": "availability_zone",
+      "value": "us-east-1b"
+    },
+    {
+      "op": "set_attr",
+      "resource_id": "aws_elasticache_cluster.cache",
+      "key": "availability_zone",
+      "value": "us-east-1b"
+    }
+  ]
+}

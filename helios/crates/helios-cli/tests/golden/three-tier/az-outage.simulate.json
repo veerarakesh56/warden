@@ -1,0 +1,21 @@
+{
+  "scenario": "lose-us-east-1a",
+  "failures": [
+    {
+      "id": "aws_elasticache_cluster.cache",
+      "kind": "ElasticacheCluster",
+      "reason": "single-AZ in us-east-1a, which is down"
+    },
+    {
+      "id": "aws_instance.web",
+      "kind": "Instance",
+      "reason": "single-AZ in us-east-1a, which is down"
+    },
+    {
+      "id": "aws_subnet.public_a",
+      "kind": "Subnet",
+      "reason": "single-AZ in us-east-1a, which is down"
+    }
+  ],
+  "skipped": []
+}

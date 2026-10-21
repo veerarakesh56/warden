@@ -1,0 +1,95 @@
+{
+ "format_version": "1.0",
+ "values": {
+  "root_module": {
+   "resources": [
+    {
+     "address": "aws_vpc.v",
+     "mode": "managed",
+     "type": "aws_vpc",
+     "name": "v",
+     "values": {
+      "id": "vpc-1",
+      "arn": "arn:aws:ec2:us-east-1:1:vpc/vpc-1"
+     }
+    },
+    {
+     "address": "aws_subnet.priv_a",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "priv_a",
+     "values": {
+      "id": "subnet-pa",
+      "vpc_id": "vpc-1",
+      "availability_zone": "us-east-1a"
+     }
+    },
+    {
+     "address": "aws_subnet.pub_b",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "pub_b",
+     "values": {
+      "id": "subnet-ub",
+      "vpc_id": "vpc-1",
+      "availability_zone": "us-east-1b"
+     }
+    },
+    {
+     "address": "aws_nat_gateway.n",
+     "mode": "managed",
+     "type": "aws_nat_gateway",
+     "name": "n",
+     "values": {
+      "id": "nat-1",
+      "subnet_id": "subnet-ub"
+     }
+    },
+    {
+     "address": "aws_route_table.priv",
+     "mode": "managed",
+     "type": "aws_route_table",
+     "name": "priv",
+     "values": {
+      "id": "rtb-p",
+      "route": [
+       {
+        "cidr_block": "0.0.0.0/0",
+        "nat_gateway_id": "nat-1"
+       }
+      ]
+     }
+    },
+    {
+     "address": "aws_route_table_association.pa",
+     "mode": "managed",
+     "type": "aws_route_table_association",
+     "name": "pa",
+     "values": {
+      "id": "a1",
+      "subnet_id": "subnet-pa",
+      "route_table_id": "rtb-p"
+     }
+    },
+    {
+     "address": "aws_lambda_function.f",
+     "mode": "managed",
+     "type": "aws_lambda_function",
+     "name": "f",
+     "values": {
+      "id": "f",
+      "function_name": "f",
+      "arn": "arn:aws:lambda:us-east-1:123456789012:function:f",
+      "vpc_config": [
+       {
+        "subnet_ids": [
+         "subnet-pa"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}

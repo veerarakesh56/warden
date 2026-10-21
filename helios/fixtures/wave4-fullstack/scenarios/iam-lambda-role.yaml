@@ -1,0 +1,7 @@
+{
+ "name": "iam-lambda-role",
+ "kind": {
+  "type": "iam-revocation",
+  "principal_arn": "arn:aws:iam::123456789012:role/warden-pg-fs-checkout"
+ }
+}

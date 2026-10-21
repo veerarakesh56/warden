@@ -1,0 +1,198 @@
+{
+  "scenario": "lose-us-east-1a",
+  "graph": {
+    "nodes": [
+      {
+        "id": "aws_vpc.main",
+        "kind": "Vpc",
+        "attrs": {
+          "arn": "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-0aaa111",
+          "cidr_block": "10.0.0.0/16",
+          "id": "vpc-0aaa111",
+          "tags": {
+            "Name": "three-tier-webapp"
+          }
+        }
+      },
+      {
+        "id": "aws_subnet.public_a",
+        "kind": "Subnet",
+        "attrs": {
+          "availability_zone": "us-east-1a",
+          "cidr_block": "10.0.1.0/24",
+          "id": "subnet-0a1a",
+          "vpc_id": "vpc-0aaa111"
+        }
+      },
+      {
+        "id": "aws_subnet.public_b",
+        "kind": "Subnet",
+        "attrs": {
+          "availability_zone": "us-east-1b",
+          "cidr_block": "10.0.2.0/24",
+          "id": "subnet-0b1b",
+          "vpc_id": "vpc-0aaa111"
+        }
+      },
+      {
+        "id": "aws_instance.web",
+        "kind": "Instance",
+        "attrs": {
+          "ami": "ami-0abcdef1234567890",
+          "availability_zone": "us-east-1a",
+          "id": "i-0c1c",
+          "instance_type": "t3.micro",
+          "subnet_id": "subnet-0a1a"
+        }
+      },
+      {
+        "id": "aws_lb.app",
+        "kind": "Lb",
+        "attrs": {
+          "arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/three-tier-alb/abc123",
+          "availability_zones": [
+            "us-east-1a",
+            "us-east-1b"
+          ],
+          "id": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/three-tier-alb/abc123",
+          "load_balancer_type": "application",
+          "name": "three-tier-alb",
+          "subnets": [
+            "subnet-0a1a",
+            "subnet-0b1b"
+          ]
+        }
+      },
+      {
+        "id": "aws_db_instance.primary",
+        "kind": "DbInstance",
+        "attrs": {
+          "availability_zone": "us-east-1a",
+          "db_subnet_group_name": "three-tier-db-subnets",
+          "engine": "postgres",
+          "id": "three-tier-db",
+          "identifier": "three-tier-db",
+          "instance_class": "db.t3.micro",
+          "multi_az": true
+        }
+      },
+      {
+        "id": "aws_elasticache_cluster.cache",
+        "kind": "ElasticacheCluster",
+        "attrs": {
+          "availability_zone": "us-east-1a",
+          "cluster_id": "three-tier-cache",
+          "engine": "redis",
+          "id": "three-tier-cache",
+          "node_type": "cache.t3.micro",
+          "num_cache_nodes": 1,
+          "subnet_group_name": "three-tier-cache-subnets"
+        }
+      },
+      {
+        "id": "aws_lambda_function.worker",
+        "kind": "LambdaFunction",
+        "attrs": {
+          "function_name": "three-tier-worker",
+          "handler": "index.handler",
+          "id": "three-tier-worker",
+          "runtime": "python3.12",
+          "vpc_config": {
+            "security_group_ids": [],
+            "subnet_ids": [
+              "subnet-0a1a",
+              "subnet-0b1b"
+            ]
+          }
+        }
+      },
+      {
+        "id": "aws_s3_bucket.assets",
+        "kind": "S3Bucket",
+        "attrs": {
+          "bucket": "three-tier-webapp-assets-unique",
+          "id": "three-tier-webapp-assets-unique",
+          "region": "us-east-1"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "aws_subnet.public_a",
+        "to": "aws_vpc.main",
+        "dep": {
+          "kind": "Contains",
+          "via": "vpc_id"
+        }
+      },
+      {
+        "from": "aws_subnet.public_b",
+        "to": "aws_vpc.main",
+        "dep": {
+          "kind": "Contains",
+          "via": "vpc_id"
+        }
+      },
+      {
+        "from": "aws_instance.web",
+        "to": "aws_subnet.public_a",
+        "dep": {
+          "kind": "Contains",
+          "via": "subnet_id"
+        }
+      },
+      {
+        "from": "aws_lb.app",
+        "to": "aws_subnet.public_a",
+        "dep": {
+          "kind": "MemberOf",
+          "via": "subnets"
+        }
+      },
+      {
+        "from": "aws_lb.app",
+        "to": "aws_subnet.public_b",
+        "dep": {
+          "kind": "MemberOf",
+          "via": "subnets"
+        }
+      },
+      {
+        "from": "aws_lambda_function.worker",
+        "to": "aws_subnet.public_a",
+        "dep": {
+          "kind": "MemberOf",
+          "via": "subnet_ids"
+        }
+      },
+      {
+        "from": "aws_lambda_function.worker",
+        "to": "aws_subnet.public_b",
+        "dep": {
+          "kind": "MemberOf",
+          "via": "subnet_ids"
+        }
+      }
+    ]
+  },
+  "chain": {
+    "scenario": "lose-us-east-1a",
+    "failures": [
+      {
+        "id": "aws_elasticache_cluster.cache",
+        "kind": "ElasticacheCluster",
+        "reason": "single-AZ in us-east-1a, which is down"
+      },
+      {
+        "id": "aws_instance.web",
+        "kind": "Instance",
+        "reason": "single-AZ in us-east-1a, which is down"
+      },
+      {
+        "id": "aws_subnet.public_a",
+        "kind": "Subnet",
+        "reason": "single-AZ in us-east-1a, which is down"
+      }
+    ]
+  }
+}

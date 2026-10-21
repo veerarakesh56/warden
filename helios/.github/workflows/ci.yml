@@ -1,0 +1,299 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+# Read-only by default; only the two jobs that run the Action (it posts the sticky PR comment)
+# get pull-requests: write.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check / fmt / clippy / test
+    runs-on: ubuntu-latest
+    env:
+      # The Python e2e tests in crates/helios-cli/tests/cli.rs fail (not skip) without the venv.
+      HELIOS_REQUIRE_PY: "1"
+      # helios_ai itself is not installed (see the sync step): the venv python finds it here.
+      PYTHONPATH: ${{ github.workspace }}/helios-ai/src
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: No secrets, state or plan files in the tree
+        run: python3 scripts/check_publishable.py
+
+      - name: scripts/ tests (publish guards, Action gate + comment, Z3 and action pins, README counts)
+        run: python3 -m unittest discover -s scripts -v
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Fetch the pinned Z3 (sha256-checked; z3-sys links it)
+        run: python3 scripts/fetch_z3.py
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
+        with:
+          version: "0.8.x"
+
+      # Locked wheels only, no build: no dependency's setup code runs, and helios-ai is not built
+      # either (its build backend is not in uv.lock). PYTHONPATH above puts its source on the path.
+      - name: Sync helios-ai venv (needed by the Rust e2e pipe test)
+        run: uv sync --frozen --no-build --no-install-project
+        working-directory: helios-ai
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --all-targets
+
+      - name: cargo doc
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  msrv:
+    name: msrv / cargo check (Rust 1.88)
+    runs-on: ubuntu-latest
+    env:
+      # Overrides rust-toolchain.toml's `stable` channel.
+      RUSTUP_TOOLCHAIN: "1.88"
+      # No Z3 needed: `cargo check` does not link. (The GITHUB_TOKEN this job used to set for
+      # z3-sys's gh-release download was never read: z3-sys reads READ_ONLY_GITHUB_TOKEN. Helios
+      # no longer uses gh-release; scripts/fetch_z3.py fetches a sha256-pinned Z3 instead.)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@360a4e93673de6630fac2478bc9e35244b01a759 # 1.88 branch, 2026-10-16
+        with:
+          toolchain: "1.88"
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: cargo check on the declared rust-version
+        run: cargo check --workspace --all-targets --locked
+
+  python-check:
+    name: python / ruff / pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: helios-ai
+    env:
+      PYTHONPATH: ${{ github.workspace }}/helios-ai/src
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
+        with:
+          version: "0.8.x"
+
+      # As in `check`: locked wheels, nothing built. The tools then run from the venv directly
+      # (`uv run` would sync again, and build the project).
+      - name: Sync dependencies
+        run: uv sync --frozen --no-build --no-install-project
+
+      - name: ruff check
+        run: .venv/bin/ruff check
+
+      - name: pytest
+        run: .venv/bin/python -m pytest -v
+
+  web-check:
+    name: web / build / vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          # vitest 5 / vite 8 / jsdom 29 need Node ^22.12 (Node 20 is end-of-life).
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # No lifecycle scripts: the lock's only install script is fsevents (macOS-only).
+      - name: npm ci
+        run: npm ci --ignore-scripts
+
+      - name: vitest
+        run: npm run test
+
+      - name: vite build
+        run: npm run build
+
+  action-smoke:
+    name: action / smoke (inspect + comment body)
+    runs-on: ubuntu-latest
+    needs: check
+    permissions:
+      contents: read
+      pull-requests: write # the Action posts its sticky PR comment
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Run helios action against fixture scenarios
+        id: helios
+        uses: ./action
+        with:
+          github-token: ${{ github.token }}
+          terraform-json: fixtures/three-tier-webapp
+          scenarios-glob: fixtures/scenarios/*.yaml
+
+      - name: Assert artifact dir contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir='${{ steps.helios.outputs.artifact-dir }}'
+          test -d "$dir"
+          test -s "$dir/az-outage.json"
+          jq -e '.graph.nodes | length > 0' "$dir/az-outage.json" > /dev/null
+          jq -e '.chain.failures | length > 0' "$dir/az-outage.json" > /dev/null
+          test -f "$dir/az-outage.verify.txt"
+
+      - name: Assert sticky-comment body has marker + scenario summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          path='${{ steps.helios.outputs.comment-body }}'
+          test -s "$path"
+          grep -q '<!-- helios-action -->' "$path"
+          grep -q 'az-outage' "$path"
+          grep -q 'iam-revocation' "$path"
+
+      - name: Run helios action with fail-on=failures (must fail)
+        id: helios-gate
+        continue-on-error: true
+        uses: ./action
+        with:
+          github-token: ${{ github.token }}
+          terraform-json: fixtures/three-tier-webapp
+          scenarios-glob: fixtures/scenarios/*.yaml
+          fail-on: failures
+          artifact-name: helios-inspect-gate
+
+      - name: Assert fail-on=failures failed the job step
+        shell: bash
+        run: |
+          echo "fail-on=failures outcome: ${{ steps.helios-gate.outcome }}"
+          test "${{ steps.helios-gate.outcome }}" = failure
+
+      - name: Run helios action on an inconclusive scenario (must fail, must say so)
+        id: helios-inconclusive
+        continue-on-error: true
+        uses: ./action
+        with:
+          github-token: ${{ github.token }}
+          terraform-json: fixtures/iam-inconclusive/plan.json
+          scenarios-glob: fixtures/iam-inconclusive/*.yaml
+          fail-on: failures
+          artifact-name: helios-inspect-inconclusive
+
+      - name: Assert the inconclusive scenario is reported, not passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.helios-inconclusive.outcome }}" = failure
+          grep -q 'inconclusive' "${{ runner.temp }}/helios-comment.md"
+          grep -q 'INCONCLUSIVE' "${{ runner.temp }}/helios-comment.md"
+
+      - name: Run helios action on WARDEN's real Wave 4 plan (zone + NAT loss must be inconclusive)
+        id: helios-wave4
+        continue-on-error: true
+        uses: ./action
+        with:
+          github-token: ${{ github.token }}
+          terraform-json: fixtures/wave4-fullstack/plan.json
+          scenarios-glob: fixtures/wave4-fullstack/scenarios/*.yaml
+          fail-on: failures
+          artifact-name: helios-inspect-wave4
+
+      - name: Assert the real plan's unplaceable Lambdas make it inconclusive, not a pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.helios-wave4.outcome }}" = failure
+          grep -q 'INCONCLUSIVE' "${{ runner.temp }}/helios-comment.md"
+          grep -q 'order-processor' "${{ runner.temp }}/helios-comment.md"
+
+  # The Action as another repository uses it: the workspace is the CONSUMER's (no Cargo.toml, no
+  # fixtures/), Helios is somewhere else, and only the required input is given. Before the fix
+  # it ran `cargo build` and hashFiles() in the caller's workspace and defaulted to Helios's own
+  # fixtures, so it failed anywhere but here.
+  action-consumer:
+    name: action / as a consumer repository uses it
+    runs-on: ubuntu-latest
+    needs: check
+    permissions:
+      contents: read
+      pull-requests: write # the Action posts its sticky PR comment
+    steps:
+      - name: Check out Helios OUTSIDE the consumer's root
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: vendor/helios
+
+      - name: Lay out a consumer repository (a plan, nothing of Helios's)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p infra
+          cp vendor/helios/fixtures/wave4-synthetic/terraform-show.json infra/plan.json
+          test ! -e Cargo.toml && test ! -e fixtures
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+        with:
+          toolchain: stable
+
+      - name: Run the action with only terraform-json set
+        id: helios
+        uses: ./vendor/helios/action
+        with:
+          github-token: ${{ github.token }}
+          terraform-json: infra/plan.json
+          artifact-name: helios-inspect-consumer
+
+      - name: Assert it built from its own source and ran the plan's standard scenarios
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x vendor/helios/action/bin/helios
+          test ! -e target
+          dir='${{ steps.helios.outputs.artifact-dir }}'
+          ls "$dir"
+          ls "$dir"/az-outage-*.json "$dir"/region-outage-*.json > /dev/null
+          grep -q 'az-outage' '${{ steps.helios.outputs.comment-body }}'

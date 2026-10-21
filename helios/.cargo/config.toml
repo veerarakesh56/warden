@@ -1,0 +1,4 @@
+# z3-sys links the Z3 that scripts/fetch_z3.py downloaded and checked against a pinned sha256
+# (z3-sys's own `gh-release` download has no hash check). Run that script before building.
+[env]
+Z3_LIBRARY_PATH_OVERRIDE = { value = "target/z3/bin", relative = true }

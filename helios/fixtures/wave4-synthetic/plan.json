@@ -1,0 +1,1056 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "data.aws_availability_zones.available",
+          "mode": "data",
+          "type": "aws_availability_zones",
+          "name": "available",
+          "values": {
+            "names": [
+              "ap-south-2a",
+              "ap-south-2b",
+              "ap-south-2c"
+            ]
+          }
+        },
+        {
+          "address": "aws_vpc.this",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "this",
+          "values": {
+            "cidr_block": "10.42.0.0/16",
+            "tags": {
+              "Name": "warden-pg-fs"
+            }
+          }
+        },
+        {
+          "address": "aws_internet_gateway.this",
+          "mode": "managed",
+          "type": "aws_internet_gateway",
+          "name": "this",
+          "values": {}
+        },
+        {
+          "address": "aws_subnet.public[0]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "index": 0,
+          "values": {
+            "availability_zone": "ap-south-2a",
+            "cidr_block": "10.42.0.0/24",
+            "tags": {
+              "Name": "warden-pg-fs-public-0"
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.public[1]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "index": 1,
+          "values": {
+            "availability_zone": "ap-south-2b",
+            "cidr_block": "10.42.1.0/24",
+            "tags": {
+              "Name": "warden-pg-fs-public-1"
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.private[0]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private",
+          "index": 0,
+          "values": {
+            "availability_zone": "ap-south-2a",
+            "cidr_block": "10.42.10.0/24",
+            "tags": {
+              "Name": "warden-pg-fs-private-0"
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.private[1]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private",
+          "index": 1,
+          "values": {
+            "availability_zone": "ap-south-2b",
+            "cidr_block": "10.42.11.0/24",
+            "tags": {
+              "Name": "warden-pg-fs-private-1"
+            }
+          }
+        },
+        {
+          "address": "aws_route_table.public",
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "public",
+          "values": {
+            "route": [
+              {
+                "cidr_block": "0.0.0.0/0",
+                "nat_gateway_id": ""
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_route_table.private",
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "private",
+          "values": {
+            "route": []
+          }
+        },
+        {
+          "address": "aws_route_table_association.public[0]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "public",
+          "index": 0,
+          "values": {
+            "gateway_id": ""
+          }
+        },
+        {
+          "address": "aws_route_table_association.public[1]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "public",
+          "index": 1,
+          "values": {
+            "gateway_id": ""
+          }
+        },
+        {
+          "address": "aws_route_table_association.private[0]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "private",
+          "index": 0,
+          "values": {
+            "gateway_id": ""
+          }
+        },
+        {
+          "address": "aws_route_table_association.private[1]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "private",
+          "index": 1,
+          "values": {
+            "gateway_id": ""
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.gateway[\"dynamodb\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "gateway",
+          "index": "dynamodb",
+          "values": {
+            "service_name": "com.amazonaws.ap-south-2.dynamodb",
+            "vpc_endpoint_type": "Gateway"
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.gateway[\"s3\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "gateway",
+          "index": "s3",
+          "values": {
+            "service_name": "com.amazonaws.ap-south-2.s3",
+            "vpc_endpoint_type": "Gateway"
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.interface[\"secretsmanager\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "interface",
+          "index": "secretsmanager",
+          "values": {
+            "service_name": "com.amazonaws.ap-south-2.secretsmanager",
+            "vpc_endpoint_type": "Interface",
+            "route_table_ids": []
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.interface[\"sqs\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "interface",
+          "index": "sqs",
+          "values": {
+            "service_name": "com.amazonaws.ap-south-2.sqs",
+            "vpc_endpoint_type": "Interface",
+            "route_table_ids": []
+          }
+        },
+        {
+          "address": "aws_db_subnet_group.aurora",
+          "mode": "managed",
+          "type": "aws_db_subnet_group",
+          "name": "aurora",
+          "values": {
+            "name": "warden-pg-fs-aurora"
+          }
+        },
+        {
+          "address": "aws_rds_cluster.aurora",
+          "mode": "managed",
+          "type": "aws_rds_cluster",
+          "name": "aurora",
+          "values": {
+            "cluster_identifier": "warden-pg-fs-aurora",
+            "engine": "aurora-postgresql",
+            "db_subnet_group_name": "warden-pg-fs-aurora"
+          }
+        },
+        {
+          "address": "aws_rds_cluster_instance.aurora_1",
+          "mode": "managed",
+          "type": "aws_rds_cluster_instance",
+          "name": "aurora_1",
+          "values": {
+            "identifier": "warden-pg-fs-aurora-1",
+            "instance_class": "db.serverless"
+          }
+        },
+        {
+          "address": "aws_rds_cluster_instance.aurora_2",
+          "mode": "managed",
+          "type": "aws_rds_cluster_instance",
+          "name": "aurora_2",
+          "values": {
+            "identifier": "warden-pg-fs-aurora-2",
+            "instance_class": "db.serverless"
+          }
+        },
+        {
+          "address": "aws_elasticache_subnet_group.redis",
+          "mode": "managed",
+          "type": "aws_elasticache_subnet_group",
+          "name": "redis",
+          "values": {
+            "name": "warden-pg-fs-redis"
+          }
+        },
+        {
+          "address": "aws_elasticache_replication_group.redis",
+          "mode": "managed",
+          "type": "aws_elasticache_replication_group",
+          "name": "redis",
+          "values": {
+            "replication_group_id": "warden-pg-fs-redis",
+            "subnet_group_name": "warden-pg-fs-redis",
+            "num_cache_clusters": 2,
+            "automatic_failover_enabled": true,
+            "multi_az_enabled": false
+          }
+        },
+        {
+          "address": "aws_lb.orders",
+          "mode": "managed",
+          "type": "aws_lb",
+          "name": "orders",
+          "values": {
+            "name": "warden-pg-fs-alb",
+            "load_balancer_type": "application",
+            "internal": false
+          }
+        },
+        {
+          "address": "aws_ecs_cluster.this",
+          "mode": "managed",
+          "type": "aws_ecs_cluster",
+          "name": "this",
+          "values": {
+            "name": "warden-pg-fs-ecs"
+          }
+        },
+        {
+          "address": "aws_ecs_service.orders_api",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "orders_api",
+          "values": {
+            "name": "warden-pg-fs-orders-api",
+            "desired_count": 2,
+            "launch_type": "FARGATE",
+            "network_configuration": [
+              {
+                "assign_public_ip": true
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_eks_cluster.this",
+          "mode": "managed",
+          "type": "aws_eks_cluster",
+          "name": "this",
+          "values": {
+            "name": "warden-pg-fs-eks",
+            "vpc_config": [
+              {
+                "endpoint_public_access": true
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_eks_node_group.this",
+          "mode": "managed",
+          "type": "aws_eks_node_group",
+          "name": "this",
+          "values": {
+            "cluster_name": "warden-pg-fs-eks",
+            "node_group_name": "warden-pg-fs-eks-ng",
+            "capacity_type": "ON_DEMAND",
+            "scaling_config": [
+              {
+                "desired_size": 1,
+                "min_size": 1,
+                "max_size": 1
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_sqs_queue.dlq[\"notifications\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "dlq",
+          "index": "notifications",
+          "values": {
+            "name": "warden-pg-fs-notifications-dlq"
+          }
+        },
+        {
+          "address": "aws_sqs_queue.dlq[\"orders\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "dlq",
+          "index": "orders",
+          "values": {
+            "name": "warden-pg-fs-orders-dlq"
+          }
+        },
+        {
+          "address": "aws_sqs_queue.main[\"notifications\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "main",
+          "index": "notifications",
+          "values": {
+            "name": "warden-pg-fs-notifications"
+          }
+        },
+        {
+          "address": "aws_sqs_queue.main[\"orders\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "main",
+          "index": "orders",
+          "values": {
+            "name": "warden-pg-fs-orders"
+          }
+        },
+        {
+          "address": "aws_sns_topic.order_events",
+          "mode": "managed",
+          "type": "aws_sns_topic",
+          "name": "order_events",
+          "values": {}
+        },
+        {
+          "address": "aws_lambda_function.fn[\"checkout\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "checkout",
+          "values": {
+            "function_name": "warden-pg-fs-checkout",
+            "runtime": "python3.12",
+            "vpc_config": []
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"notifier\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "notifier",
+          "values": {
+            "function_name": "warden-pg-fs-notifier",
+            "runtime": "python3.12",
+            "vpc_config": []
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"ops\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "ops",
+          "values": {
+            "function_name": "warden-pg-fs-ops",
+            "runtime": "python3.12",
+            "vpc_config": [
+              {}
+            ]
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"order-processor\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "order-processor",
+          "values": {
+            "function_name": "warden-pg-fs-order-processor",
+            "runtime": "python3.12",
+            "vpc_config": [
+              {}
+            ]
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"reconciler\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "reconciler",
+          "values": {
+            "function_name": "warden-pg-fs-reconciler",
+            "runtime": "python3.12",
+            "vpc_config": [
+              {}
+            ]
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"traffic\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "traffic",
+          "values": {
+            "function_name": "warden-pg-fs-traffic",
+            "runtime": "python3.12",
+            "vpc_config": []
+          }
+        },
+        {
+          "address": "aws_lambda_event_source_mapping.notifications",
+          "mode": "managed",
+          "type": "aws_lambda_event_source_mapping",
+          "name": "notifications",
+          "values": {}
+        },
+        {
+          "address": "aws_lambda_event_source_mapping.orders",
+          "mode": "managed",
+          "type": "aws_lambda_event_source_mapping",
+          "name": "orders",
+          "values": {}
+        },
+        {
+          "address": "aws_iam_role.eks_cluster",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "eks_cluster",
+          "values": {
+            "name": "warden-pg-fs-eks-cluster"
+          }
+        },
+        {
+          "address": "aws_iam_role.eks_node",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "eks_node",
+          "values": {
+            "name": "warden-pg-fs-eks-node"
+          }
+        },
+        {
+          "address": "aws_iam_role.lambda[\"checkout\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "values": {
+            "name": "warden-pg-fs-checkout"
+          },
+          "index": "checkout"
+        },
+        {
+          "address": "aws_iam_role.lambda[\"notifier\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "values": {
+            "name": "warden-pg-fs-notifier"
+          },
+          "index": "notifier"
+        },
+        {
+          "address": "aws_iam_role.lambda[\"ops\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "values": {
+            "name": "warden-pg-fs-ops"
+          },
+          "index": "ops"
+        },
+        {
+          "address": "aws_iam_role.lambda[\"order-processor\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "values": {
+            "name": "warden-pg-fs-order-processor"
+          },
+          "index": "order-processor"
+        },
+        {
+          "address": "aws_iam_role.lambda[\"reconciler\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "values": {
+            "name": "warden-pg-fs-reconciler"
+          },
+          "index": "reconciler"
+        },
+        {
+          "address": "aws_iam_role.lambda[\"traffic\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "values": {
+            "name": "warden-pg-fs-traffic"
+          },
+          "index": "traffic"
+        }
+      ]
+    }
+  },
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc.this",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "this",
+          "expressions": {}
+        },
+        {
+          "address": "aws_internet_gateway.this",
+          "mode": "managed",
+          "type": "aws_internet_gateway",
+          "name": "this",
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.this.id",
+                "aws_vpc.this"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.public",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.this.id",
+                "aws_vpc.this"
+              ]
+            },
+            "availability_zone": {
+              "references": [
+                "data.aws_availability_zones.available.names",
+                "data.aws_availability_zones.available",
+                "count.index"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.private",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private",
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.this.id",
+                "aws_vpc.this"
+              ]
+            },
+            "availability_zone": {
+              "references": [
+                "data.aws_availability_zones.available.names",
+                "data.aws_availability_zones.available",
+                "count.index"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_route_table.public",
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "public",
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.this.id",
+                "aws_vpc.this"
+              ]
+            },
+            "route": {
+              "references": [
+                "aws_internet_gateway.this.id",
+                "aws_internet_gateway.this"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_route_table.private",
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "private",
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.this.id",
+                "aws_vpc.this"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_route_table_association.public",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "public",
+          "expressions": {
+            "subnet_id": {
+              "references": [
+                "aws_subnet.public",
+                "count.index"
+              ]
+            },
+            "route_table_id": {
+              "references": [
+                "aws_route_table.public.id",
+                "aws_route_table.public"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_route_table_association.private",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "private",
+          "expressions": {
+            "subnet_id": {
+              "references": [
+                "aws_subnet.private",
+                "count.index"
+              ]
+            },
+            "route_table_id": {
+              "references": [
+                "aws_route_table.private.id",
+                "aws_route_table.private"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.gateway",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "gateway",
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.this.id",
+                "aws_vpc.this"
+              ]
+            },
+            "route_table_ids": {
+              "references": [
+                "aws_route_table.public.id",
+                "aws_route_table.public",
+                "aws_route_table.private.id",
+                "aws_route_table.private"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.interface",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "interface",
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.this.id",
+                "aws_vpc.this"
+              ]
+            },
+            "subnet_ids": {
+              "references": [
+                "aws_subnet.private[0].id",
+                "aws_subnet.private[0]",
+                "aws_subnet.private"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_db_subnet_group.aurora",
+          "mode": "managed",
+          "type": "aws_db_subnet_group",
+          "name": "aurora",
+          "expressions": {
+            "subnet_ids": {
+              "references": [
+                "aws_subnet.public"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_rds_cluster.aurora",
+          "mode": "managed",
+          "type": "aws_rds_cluster",
+          "name": "aurora",
+          "expressions": {
+            "db_subnet_group_name": {
+              "references": [
+                "aws_db_subnet_group.aurora.name",
+                "aws_db_subnet_group.aurora"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_rds_cluster_instance.aurora_1",
+          "mode": "managed",
+          "type": "aws_rds_cluster_instance",
+          "name": "aurora_1",
+          "expressions": {
+            "cluster_identifier": {
+              "references": [
+                "aws_rds_cluster.aurora.id",
+                "aws_rds_cluster.aurora"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_rds_cluster_instance.aurora_2",
+          "mode": "managed",
+          "type": "aws_rds_cluster_instance",
+          "name": "aurora_2",
+          "expressions": {
+            "cluster_identifier": {
+              "references": [
+                "aws_rds_cluster.aurora.id",
+                "aws_rds_cluster.aurora"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_elasticache_subnet_group.redis",
+          "mode": "managed",
+          "type": "aws_elasticache_subnet_group",
+          "name": "redis",
+          "expressions": {
+            "subnet_ids": {
+              "references": [
+                "aws_subnet.private"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_elasticache_replication_group.redis",
+          "mode": "managed",
+          "type": "aws_elasticache_replication_group",
+          "name": "redis",
+          "expressions": {
+            "subnet_group_name": {
+              "references": [
+                "aws_elasticache_subnet_group.redis.name",
+                "aws_elasticache_subnet_group.redis"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_lb.orders",
+          "mode": "managed",
+          "type": "aws_lb",
+          "name": "orders",
+          "expressions": {
+            "subnets": {
+              "references": [
+                "aws_subnet.public"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_ecs_cluster.this",
+          "mode": "managed",
+          "type": "aws_ecs_cluster",
+          "name": "this",
+          "expressions": {}
+        },
+        {
+          "address": "aws_ecs_service.orders_api",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "orders_api",
+          "expressions": {
+            "cluster": {
+              "references": [
+                "aws_ecs_cluster.this.id",
+                "aws_ecs_cluster.this"
+              ]
+            },
+            "network_configuration": [
+              {
+                "subnets": {
+                  "references": [
+                    "aws_subnet.public"
+                  ]
+                },
+                "security_groups": {
+                  "references": [
+                    "aws_security_group.ecs.id",
+                    "aws_security_group.ecs"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_eks_cluster.this",
+          "mode": "managed",
+          "type": "aws_eks_cluster",
+          "name": "this",
+          "expressions": {
+            "role_arn": {
+              "references": [
+                "aws_iam_role.eks_cluster.arn",
+                "aws_iam_role.eks_cluster"
+              ]
+            },
+            "vpc_config": [
+              {
+                "subnet_ids": {
+                  "references": [
+                    "aws_subnet.public"
+                  ]
+                },
+                "public_access_cidrs": {
+                  "references": [
+                    "var.my_ip_cidr"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_eks_node_group.this",
+          "mode": "managed",
+          "type": "aws_eks_node_group",
+          "name": "this",
+          "expressions": {
+            "cluster_name": {
+              "references": [
+                "aws_eks_cluster.this.name",
+                "aws_eks_cluster.this"
+              ]
+            },
+            "node_role_arn": {
+              "references": [
+                "aws_iam_role.eks_node.arn",
+                "aws_iam_role.eks_node"
+              ]
+            },
+            "subnet_ids": {
+              "references": [
+                "aws_subnet.public"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_sqs_queue.dlq",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "dlq",
+          "expressions": {
+            "name": {
+              "references": [
+                "local.name",
+                "each.key"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_sqs_queue.main",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "main",
+          "expressions": {
+            "redrive_policy": {
+              "references": [
+                "aws_sqs_queue.dlq",
+                "each.key"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_sns_topic.order_events",
+          "mode": "managed",
+          "type": "aws_sns_topic",
+          "name": "order_events",
+          "expressions": {}
+        },
+        {
+          "address": "aws_lambda_function.fn",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "expressions": {
+            "role": {
+              "references": [
+                "aws_iam_role.lambda",
+                "each.key"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_lambda_event_source_mapping.notifications",
+          "mode": "managed",
+          "type": "aws_lambda_event_source_mapping",
+          "name": "notifications",
+          "expressions": {
+            "event_source_arn": {
+              "references": [
+                "aws_sqs_queue.main[\"notifications\"].arn",
+                "aws_sqs_queue.main[\"notifications\"]",
+                "aws_sqs_queue.main"
+              ]
+            },
+            "function_name": {
+              "references": [
+                "aws_lambda_function.fn[\"notifier\"].arn",
+                "aws_lambda_function.fn[\"notifier\"]",
+                "aws_lambda_function.fn"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_lambda_event_source_mapping.orders",
+          "mode": "managed",
+          "type": "aws_lambda_event_source_mapping",
+          "name": "orders",
+          "expressions": {
+            "event_source_arn": {
+              "references": [
+                "aws_sqs_queue.main[\"orders\"].arn",
+                "aws_sqs_queue.main[\"orders\"]",
+                "aws_sqs_queue.main"
+              ]
+            },
+            "function_name": {
+              "references": [
+                "aws_lambda_function.fn[\"order-processor\"].arn",
+                "aws_lambda_function.fn[\"order-processor\"]",
+                "aws_lambda_function.fn"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_iam_role.eks_cluster",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "eks_cluster",
+          "expressions": {
+            "name": {
+              "references": [
+                "local.name"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_iam_role.eks_node",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "eks_node",
+          "expressions": {
+            "name": {
+              "references": [
+                "local.name"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_iam_role.lambda",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "expressions": {
+            "name": {
+              "references": [
+                "local.name"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

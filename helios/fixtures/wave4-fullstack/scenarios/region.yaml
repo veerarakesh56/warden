@@ -1,0 +1,4 @@
+name: lose-ap-south-2
+kind:
+  type: region-outage
+  region: ap-south-2

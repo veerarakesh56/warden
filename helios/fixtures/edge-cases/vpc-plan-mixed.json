@@ -1,0 +1,542 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.9.5",
+ "planned_values": {
+  "root_module": {
+   "resources": [
+    {
+     "address": "aws_vpc.this",
+     "mode": "managed",
+     "type": "aws_vpc",
+     "name": "this",
+     "values": {
+      "cidr_block": "10.0.0.0/16"
+     }
+    },
+    {
+     "address": "aws_subnet.public[0]",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "public",
+     "values": {
+      "availability_zone": "us-east-1a"
+     }
+    },
+    {
+     "address": "aws_subnet.public[1]",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "public",
+     "values": {
+      "availability_zone": "us-east-1b"
+     }
+    },
+    {
+     "address": "aws_subnet.public[2]",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "public",
+     "values": {
+      "availability_zone": "us-east-1c"
+     }
+    },
+    {
+     "address": "aws_subnet.private[0]",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "private",
+     "values": {
+      "availability_zone": "us-east-1a"
+     }
+    },
+    {
+     "address": "aws_subnet.private[1]",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "private",
+     "values": {
+      "availability_zone": "us-east-1b"
+     }
+    },
+    {
+     "address": "aws_subnet.private[2]",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "private",
+     "values": {
+      "availability_zone": "us-east-1c"
+     }
+    },
+    {
+     "address": "aws_nat_gateway.this[0]",
+     "mode": "managed",
+     "type": "aws_nat_gateway",
+     "name": "this",
+     "values": {
+      "connectivity_type": "public"
+     }
+    },
+    {
+     "address": "aws_nat_gateway.this[1]",
+     "mode": "managed",
+     "type": "aws_nat_gateway",
+     "name": "this",
+     "values": {
+      "connectivity_type": "public"
+     }
+    },
+    {
+     "address": "aws_nat_gateway.this[2]",
+     "mode": "managed",
+     "type": "aws_nat_gateway",
+     "name": "this",
+     "values": {
+      "connectivity_type": "public"
+     }
+    },
+    {
+     "address": "aws_route_table.private[0]",
+     "mode": "managed",
+     "type": "aws_route_table",
+     "name": "private",
+     "values": {}
+    },
+    {
+     "address": "aws_route.private_nat_gateway[0]",
+     "mode": "managed",
+     "type": "aws_route",
+     "name": "private_nat_gateway",
+     "values": {
+      "destination_cidr_block": "0.0.0.0/0"
+     }
+    },
+    {
+     "address": "aws_route_table.private[1]",
+     "mode": "managed",
+     "type": "aws_route_table",
+     "name": "private",
+     "values": {}
+    },
+    {
+     "address": "aws_route.private_nat_gateway[1]",
+     "mode": "managed",
+     "type": "aws_route",
+     "name": "private_nat_gateway",
+     "values": {
+      "destination_cidr_block": "0.0.0.0/0"
+     }
+    },
+    {
+     "address": "aws_route_table.private[2]",
+     "mode": "managed",
+     "type": "aws_route_table",
+     "name": "private",
+     "values": {}
+    },
+    {
+     "address": "aws_route.private_nat_gateway[2]",
+     "mode": "managed",
+     "type": "aws_route",
+     "name": "private_nat_gateway",
+     "values": {
+      "destination_cidr_block": "0.0.0.0/0"
+     }
+    },
+    {
+     "address": "aws_route_table.public[0]",
+     "mode": "managed",
+     "type": "aws_route_table",
+     "name": "public",
+     "values": {}
+    },
+    {
+     "address": "aws_route.public_internet_gateway[0]",
+     "mode": "managed",
+     "type": "aws_route",
+     "name": "public_internet_gateway",
+     "values": {
+      "destination_cidr_block": "0.0.0.0/0"
+     }
+    },
+    {
+     "address": "aws_route_table_association.public[\"0\"]",
+     "mode": "managed",
+     "type": "aws_route_table_association",
+     "name": "public",
+     "values": {
+      "gateway_id": null
+     }
+    },
+    {
+     "address": "aws_route_table_association.public[\"1\"]",
+     "mode": "managed",
+     "type": "aws_route_table_association",
+     "name": "public",
+     "values": {
+      "gateway_id": null
+     }
+    },
+    {
+     "address": "aws_route_table_association.public[\"2\"]",
+     "mode": "managed",
+     "type": "aws_route_table_association",
+     "name": "public",
+     "values": {
+      "gateway_id": null
+     }
+    },
+    {
+     "address": "aws_route_table_association.private[0]",
+     "mode": "managed",
+     "type": "aws_route_table_association",
+     "name": "private",
+     "values": {
+      "gateway_id": null
+     }
+    },
+    {
+     "address": "aws_route_table_association.private[1]",
+     "mode": "managed",
+     "type": "aws_route_table_association",
+     "name": "private",
+     "values": {
+      "gateway_id": null
+     }
+    },
+    {
+     "address": "aws_route_table_association.private[2]",
+     "mode": "managed",
+     "type": "aws_route_table_association",
+     "name": "private",
+     "values": {
+      "gateway_id": null
+     }
+    },
+    {
+     "address": "aws_ecs_cluster.main",
+     "mode": "managed",
+     "type": "aws_ecs_cluster",
+     "name": "main",
+     "values": {
+      "name": "main"
+     }
+    },
+    {
+     "address": "aws_ecs_service.api",
+     "mode": "managed",
+     "type": "aws_ecs_service",
+     "name": "api",
+     "values": {
+      "name": "api",
+      "desired_count": 3,
+      "launch_type": "FARGATE",
+      "network_configuration": [
+       {
+        "assign_public_ip": false
+       }
+      ]
+     }
+    },
+    {
+     "address": "aws_lb.web",
+     "mode": "managed",
+     "type": "aws_lb",
+     "name": "web",
+     "values": {
+      "name": "web",
+      "internal": false,
+      "load_balancer_type": "application"
+     }
+    },
+    {
+     "address": "aws_db_subnet_group.main",
+     "mode": "managed",
+     "type": "aws_db_subnet_group",
+     "name": "main",
+     "values": {
+      "name": "main"
+     }
+    },
+    {
+     "address": "aws_db_instance.pg",
+     "mode": "managed",
+     "type": "aws_db_instance",
+     "name": "pg",
+     "values": {
+      "identifier": "pg",
+      "multi_az": true,
+      "db_subnet_group_name": "main"
+     }
+    },
+    {
+     "address": "aws_lambda_function.fn",
+     "mode": "managed",
+     "type": "aws_lambda_function",
+     "name": "fn",
+     "values": {
+      "function_name": "fn",
+      "vpc_config": [
+       {
+        "ipv6_allowed_for_dual_stack": false
+       }
+      ]
+     }
+    },
+    {
+     "address": "aws_instance.worker",
+     "mode": "managed",
+     "type": "aws_instance",
+     "name": "worker",
+     "values": {
+      "instance_type": "t3.micro"
+     }
+    }
+   ]
+  }
+ },
+ "configuration": {
+  "root_module": {
+   "resources": [
+    {
+     "address": "aws_vpc.this",
+     "expressions": {
+      "cidr_block": {
+       "constant_value": "10.0.0.0/16"
+      }
+     }
+    },
+    {
+     "address": "aws_subnet.public",
+     "expressions": {
+      "vpc_id": {
+       "references": [
+        "aws_vpc.this.id",
+        "aws_vpc.this"
+       ]
+      },
+      "availability_zone": {
+       "references": [
+        "var.azs",
+        "count.index"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_subnet.private",
+     "expressions": {
+      "vpc_id": {
+       "references": [
+        "aws_vpc.this.id",
+        "aws_vpc.this"
+       ]
+      },
+      "availability_zone": {
+       "references": [
+        "var.azs",
+        "count.index"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_nat_gateway.this",
+     "expressions": {
+      "subnet_id": {
+       "references": [
+        "aws_subnet.public",
+        "var.single_nat_gateway",
+        "count.index"
+       ]
+      },
+      "allocation_id": {
+       "references": [
+        "local.nat_gateway_ips",
+        "var.single_nat_gateway",
+        "count.index"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_route_table.private",
+     "expressions": {
+      "vpc_id": {
+       "references": [
+        "aws_vpc.this.id",
+        "aws_vpc.this"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_route.private_nat_gateway",
+     "expressions": {
+      "route_table_id": {
+       "references": [
+        "aws_route_table.private",
+        "count.index"
+       ]
+      },
+      "destination_cidr_block": {
+       "references": [
+        "var.nat_gateway_destination_cidr_block"
+       ]
+      },
+      "nat_gateway_id": {
+       "references": [
+        "aws_nat_gateway.this",
+        "count.index"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_route_table.public",
+     "expressions": {
+      "vpc_id": {
+       "references": [
+        "aws_vpc.this.id",
+        "aws_vpc.this"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_route.public_internet_gateway",
+     "expressions": {
+      "route_table_id": {
+       "references": [
+        "aws_route_table.public[0].id",
+        "aws_route_table.public"
+       ]
+      },
+      "gateway_id": {
+       "references": [
+        "aws_internet_gateway.this[0].id",
+        "aws_internet_gateway.this"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_route_table_association.public",
+     "expressions": {
+      "subnet_id": {
+       "references": [
+        "each.value.id",
+        "each.value"
+       ]
+      },
+      "route_table_id": {
+       "references": [
+        "aws_route_table.public[0].id",
+        "aws_route_table.public"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_route_table_association.private",
+     "expressions": {
+      "subnet_id": {
+       "references": [
+        "aws_subnet.private",
+        "count.index"
+       ]
+      },
+      "route_table_id": {
+       "references": [
+        "aws_route_table.private",
+        "var.single_nat_gateway",
+        "count.index"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_ecs_service.api",
+     "expressions": {
+      "cluster": {
+       "references": [
+        "aws_ecs_cluster.main.id",
+        "aws_ecs_cluster.main"
+       ]
+      },
+      "network_configuration": [
+       {
+        "subnets": {
+         "references": [
+          "aws_subnet.private"
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "address": "aws_lb.web",
+     "expressions": {
+      "subnets": {
+       "references": [
+        "aws_subnet.public"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_db_subnet_group.main",
+     "expressions": {
+      "subnet_ids": {
+       "references": [
+        "aws_subnet.private"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_db_instance.pg",
+     "expressions": {
+      "db_subnet_group_name": {
+       "references": [
+        "aws_db_subnet_group.main.name",
+        "aws_db_subnet_group.main"
+       ]
+      }
+     }
+    },
+    {
+     "address": "aws_lambda_function.fn",
+     "expressions": {
+      "vpc_config": [
+       {
+        "subnet_ids": {
+         "references": [
+          "aws_subnet.private"
+         ]
+        },
+        "security_group_ids": {
+         "references": [
+          "aws_security_group.fn.id",
+          "aws_security_group.fn"
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "address": "aws_instance.worker",
+     "expressions": {
+      "subnet_id": {
+       "references": [
+        "aws_subnet.private[1].id",
+        "aws_subnet.private"
+       ]
+      }
+     }
+    }
+   ]
+  }
+ }
+}

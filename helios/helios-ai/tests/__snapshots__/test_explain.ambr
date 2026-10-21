@@ -1,0 +1,15 @@
+# serializer version: 1
+# name: test_explain_matches_snapshot[az_outage_chain.json]
+  '''
+  # Failure narrative for lose-us-east-1a
+  
+  Claude would explain the chain here. (mocked)
+  '''
+# ---
+# name: test_explain_matches_snapshot[region_outage_chain.json]
+  '''
+  # Failure narrative for lose-us-east-1
+  
+  Claude would explain the chain here. (mocked)
+  '''
+# ---

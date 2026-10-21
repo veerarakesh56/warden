@@ -1,0 +1,55 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.uv-cache/
+
+# Node (web viewer)
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Terraform working state — never commit
+*.tfstate
+*.tfstate.backup
+tfplan*
+*.tfplan
+plan.out
+# Real plan/state JSON used to validate Helios; only scrubbed copies (scripts/scrub_tfjson.py) go in fixtures/
+/validation/
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+aws-credentials
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Helios artifacts
+/reports/
+*.helios.json
+# `fixes/` holds committed example FixProposals consumed by the GitHub Action.
+# User-supplied fixes belong outside the repo or under a path not in scenarios.

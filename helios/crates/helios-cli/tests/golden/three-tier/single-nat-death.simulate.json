@@ -1,0 +1,16 @@
+{
+  "scenario": "nat-1a-dead",
+  "failures": [
+    {
+      "id": "aws_instance.web",
+      "kind": "Instance",
+      "reason": "its subnet_id aws_subnet.public_a is down"
+    },
+    {
+      "id": "aws_subnet.public_a",
+      "kind": "Subnet",
+      "reason": "NAT in subnet aws_subnet.public_a is dead — subnet loses egress"
+    }
+  ],
+  "skipped": []
+}

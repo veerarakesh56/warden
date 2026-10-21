@@ -1,0 +1,97 @@
+{
+ "format_version": "1.2",
+ "planned_values": {
+  "root_module": {
+   "resources": [
+    {
+     "address": "aws_subnet.e1",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "e1",
+     "values": {
+      "availability_zone": "us-east-1a"
+     }
+    },
+    {
+     "address": "aws_subnet.e2",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "e2",
+     "values": {
+      "availability_zone": "us-east-1b"
+     }
+    },
+    {
+     "address": "aws_subnet.w1",
+     "mode": "managed",
+     "type": "aws_subnet",
+     "name": "w1",
+     "values": {
+      "availability_zone": "us-west-2a"
+     }
+    },
+    {
+     "address": "aws_s3_bucket.dr",
+     "mode": "managed",
+     "type": "aws_s3_bucket",
+     "name": "dr",
+     "values": {
+      "bucket": "dr-bucket"
+     }
+    },
+    {
+     "address": "aws_sqs_queue.dr",
+     "mode": "managed",
+     "type": "aws_sqs_queue",
+     "name": "dr",
+     "values": {
+      "name": "dr-q"
+     }
+    }
+   ]
+  }
+ },
+ "configuration": {
+  "provider_config": {
+   "aws": {
+    "name": "aws",
+    "expressions": {
+     "region": {
+      "constant_value": "us-east-1"
+     }
+    }
+   },
+   "aws.west": {
+    "name": "aws",
+    "alias": "west",
+    "expressions": {
+     "region": {
+      "constant_value": "us-west-2"
+     }
+    }
+   }
+  },
+  "root_module": {
+   "resources": [
+    {
+     "address": "aws_s3_bucket.dr",
+     "provider_config_key": "aws.west",
+     "expressions": {
+      "bucket": {
+       "constant_value": "dr-bucket"
+      }
+     }
+    },
+    {
+     "address": "aws_sqs_queue.dr",
+     "provider_config_key": "aws.west",
+     "expressions": {
+      "name": {
+       "constant_value": "dr-q"
+      }
+     }
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,4 @@
+name: nat-1a-dead
+kind:
+  type: single-nat-death
+  subnet_id: aws_subnet.public_a

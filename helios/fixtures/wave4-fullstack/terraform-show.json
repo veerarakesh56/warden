@@ -1,0 +1,781 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.15.8",
+  "values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_ecs_cluster.this",
+          "mode": "managed",
+          "type": "aws_ecs_cluster",
+          "name": "this",
+          "values": {
+            "arn": "arn:aws:ecs:ap-south-2:123456789012:cluster/warden-pg-fs-ecs",
+            "id": "arn:aws:ecs:ap-south-2:123456789012:cluster/warden-pg-fs-ecs",
+            "name": "warden-pg-fs-ecs",
+            "region": "ap-south-2"
+          }
+        },
+        {
+          "address": "aws_ecs_service.orders_api",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "orders_api",
+          "values": {
+            "arn": "arn:aws:ecs:ap-south-2:123456789012:service/warden-pg-fs-ecs/warden-pg-fs-orders-api",
+            "cluster": "arn:aws:ecs:ap-south-2:123456789012:cluster/warden-pg-fs-ecs",
+            "desired_count": 2,
+            "id": "arn:aws:ecs:ap-south-2:123456789012:service/warden-pg-fs-ecs/warden-pg-fs-orders-api",
+            "launch_type": "FARGATE",
+            "name": "warden-pg-fs-orders-api",
+            "network_configuration": [
+              {
+                "subnets": [
+                  "subnet-00000000000000001",
+                  "subnet-00000000000000002"
+                ]
+              }
+            ],
+            "region": "ap-south-2"
+          }
+        },
+        {
+          "address": "aws_eks_cluster.this",
+          "mode": "managed",
+          "type": "aws_eks_cluster",
+          "name": "this",
+          "values": {
+            "arn": "arn:aws:eks:ap-south-2:123456789012:cluster/warden-pg-fs-eks",
+            "cluster_id": null,
+            "id": "warden-pg-fs-eks",
+            "name": "warden-pg-fs-eks",
+            "region": "ap-south-2",
+            "role_arn": "arn:aws:iam::123456789012:role/warden-pg-fs-eks-cluster",
+            "vpc_config": [
+              {
+                "subnet_ids": [
+                  "subnet-00000000000000001",
+                  "subnet-00000000000000002"
+                ],
+                "vpc_id": "vpc-00000000000000001"
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_eks_node_group.this",
+          "mode": "managed",
+          "type": "aws_eks_node_group",
+          "name": "this",
+          "values": {
+            "arn": "arn:aws:eks:ap-south-2:123456789012:nodegroup/warden-pg-fs-eks/warden-pg-fs-eks-ng/00000000-0000-0000-0000-a00000000001",
+            "cluster_name": "warden-pg-fs-eks",
+            "id": "warden-pg-fs-eks:warden-pg-fs-eks-ng",
+            "node_group_name": "warden-pg-fs-eks-ng",
+            "node_role_arn": "arn:aws:iam::123456789012:role/warden-pg-fs-eks-node",
+            "region": "ap-south-2",
+            "scaling_config": [
+              {
+                "desired_size": 1,
+                "max_size": 1,
+                "min_size": 1
+              }
+            ],
+            "subnet_ids": [
+              "subnet-00000000000000001",
+              "subnet-00000000000000002"
+            ]
+          }
+        },
+        {
+          "address": "aws_elasticache_replication_group.redis",
+          "mode": "managed",
+          "type": "aws_elasticache_replication_group",
+          "name": "redis",
+          "values": {
+            "arn": "arn:aws:elasticache:ap-south-2:123456789012:replicationgroup:warden-pg-fs-redis",
+            "automatic_failover_enabled": true,
+            "id": "warden-pg-fs-redis",
+            "member_clusters": [
+              "warden-pg-fs-redis-001",
+              "warden-pg-fs-redis-002"
+            ],
+            "multi_az_enabled": false,
+            "num_cache_clusters": 2,
+            "preferred_cache_cluster_azs": null,
+            "region": "ap-south-2",
+            "replicas_per_node_group": 1,
+            "replication_group_id": "warden-pg-fs-redis",
+            "subnet_group_name": "warden-pg-fs-redis"
+          }
+        },
+        {
+          "address": "aws_elasticache_subnet_group.redis",
+          "mode": "managed",
+          "type": "aws_elasticache_subnet_group",
+          "name": "redis",
+          "values": {
+            "arn": "arn:aws:elasticache:ap-south-2:123456789012:subnetgroup:warden-pg-fs-redis",
+            "id": "warden-pg-fs-redis",
+            "name": "warden-pg-fs-redis",
+            "region": "ap-south-2",
+            "subnet_ids": [
+              "subnet-00000000000000003",
+              "subnet-00000000000000004"
+            ],
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_iam_role.catalog_pod",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "catalog_pod",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-catalog-pod",
+            "id": "warden-pg-fs-catalog-pod",
+            "name": "warden-pg-fs-catalog-pod"
+          }
+        },
+        {
+          "address": "aws_iam_role.ecs_execution",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "ecs_execution",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-ecs-exec",
+            "id": "warden-pg-fs-ecs-exec",
+            "name": "warden-pg-fs-ecs-exec"
+          }
+        },
+        {
+          "address": "aws_iam_role.ecs_task",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "ecs_task",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-orders-api-task",
+            "id": "warden-pg-fs-orders-api-task",
+            "name": "warden-pg-fs-orders-api-task"
+          }
+        },
+        {
+          "address": "aws_iam_role.eks_cluster",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "eks_cluster",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-eks-cluster",
+            "id": "warden-pg-fs-eks-cluster",
+            "name": "warden-pg-fs-eks-cluster"
+          }
+        },
+        {
+          "address": "aws_iam_role.eks_node",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "eks_node",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-eks-node",
+            "id": "warden-pg-fs-eks-node",
+            "name": "warden-pg-fs-eks-node"
+          }
+        },
+        {
+          "address": "aws_iam_role.fs_reader",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "fs_reader",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-reader",
+            "id": "warden-pg-fs-reader",
+            "name": "warden-pg-fs-reader"
+          }
+        },
+        {
+          "address": "aws_iam_role.lambda[\"checkout\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "index": "checkout",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-checkout",
+            "id": "warden-pg-fs-checkout",
+            "name": "warden-pg-fs-checkout"
+          }
+        },
+        {
+          "address": "aws_iam_role.lambda[\"notifier\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "index": "notifier",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-notifier",
+            "id": "warden-pg-fs-notifier",
+            "name": "warden-pg-fs-notifier"
+          }
+        },
+        {
+          "address": "aws_iam_role.lambda[\"ops\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "index": "ops",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-ops",
+            "id": "warden-pg-fs-ops",
+            "name": "warden-pg-fs-ops"
+          }
+        },
+        {
+          "address": "aws_iam_role.lambda[\"order-processor\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "index": "order-processor",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-order-processor",
+            "id": "warden-pg-fs-order-processor",
+            "name": "warden-pg-fs-order-processor"
+          }
+        },
+        {
+          "address": "aws_iam_role.lambda[\"reconciler\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "index": "reconciler",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-reconciler",
+            "id": "warden-pg-fs-reconciler",
+            "name": "warden-pg-fs-reconciler"
+          }
+        },
+        {
+          "address": "aws_iam_role.lambda[\"traffic\"]",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "lambda",
+          "index": "traffic",
+          "values": {
+            "arn": "arn:aws:iam::123456789012:role/warden-pg-fs-traffic",
+            "id": "warden-pg-fs-traffic",
+            "name": "warden-pg-fs-traffic"
+          }
+        },
+        {
+          "address": "aws_lambda_event_source_mapping.notifications",
+          "mode": "managed",
+          "type": "aws_lambda_event_source_mapping",
+          "name": "notifications",
+          "values": {
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:event-source-mapping:00000000-0000-0000-0000-a00000000002",
+            "event_source_arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-notifications",
+            "function_arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-notifier",
+            "function_name": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-notifier",
+            "id": "00000000-0000-0000-0000-a00000000002",
+            "region": "ap-south-2",
+            "scaling_config": []
+          }
+        },
+        {
+          "address": "aws_lambda_event_source_mapping.orders",
+          "mode": "managed",
+          "type": "aws_lambda_event_source_mapping",
+          "name": "orders",
+          "values": {
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:event-source-mapping:00000000-0000-0000-0000-a00000000003",
+            "event_source_arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-orders",
+            "function_arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-order-processor",
+            "function_name": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-order-processor",
+            "id": "00000000-0000-0000-0000-a00000000003",
+            "region": "ap-south-2",
+            "scaling_config": []
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"checkout\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "checkout",
+          "values": {
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-checkout",
+            "function_name": "warden-pg-fs-checkout",
+            "id": "warden-pg-fs-checkout",
+            "region": "ap-south-2",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-checkout",
+            "vpc_config": []
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"notifier\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "notifier",
+          "values": {
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-notifier",
+            "function_name": "warden-pg-fs-notifier",
+            "id": "warden-pg-fs-notifier",
+            "region": "ap-south-2",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-notifier",
+            "vpc_config": []
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"ops\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "ops",
+          "values": {
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-ops",
+            "function_name": "warden-pg-fs-ops",
+            "id": "warden-pg-fs-ops",
+            "region": "ap-south-2",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-ops",
+            "vpc_config": [
+              {
+                "subnet_ids": [
+                  "subnet-00000000000000003",
+                  "subnet-00000000000000004"
+                ],
+                "vpc_id": "vpc-00000000000000001"
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"order-processor\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "order-processor",
+          "values": {
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-order-processor",
+            "function_name": "warden-pg-fs-order-processor",
+            "id": "warden-pg-fs-order-processor",
+            "region": "ap-south-2",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-order-processor",
+            "vpc_config": [
+              {
+                "subnet_ids": [
+                  "subnet-00000000000000003",
+                  "subnet-00000000000000004"
+                ],
+                "vpc_id": "vpc-00000000000000001"
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"reconciler\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "reconciler",
+          "values": {
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-reconciler",
+            "function_name": "warden-pg-fs-reconciler",
+            "id": "warden-pg-fs-reconciler",
+            "region": "ap-south-2",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-reconciler",
+            "vpc_config": [
+              {
+                "subnet_ids": [
+                  "subnet-00000000000000003",
+                  "subnet-00000000000000004"
+                ],
+                "vpc_id": "vpc-00000000000000001"
+              }
+            ]
+          }
+        },
+        {
+          "address": "aws_lambda_function.fn[\"traffic\"]",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "fn",
+          "index": "traffic",
+          "values": {
+            "arn": "arn:aws:lambda:ap-south-2:123456789012:function:warden-pg-fs-traffic",
+            "function_name": "warden-pg-fs-traffic",
+            "id": "warden-pg-fs-traffic",
+            "region": "ap-south-2",
+            "role": "arn:aws:iam::123456789012:role/warden-pg-fs-traffic",
+            "vpc_config": []
+          }
+        },
+        {
+          "address": "aws_lb.orders",
+          "mode": "managed",
+          "type": "aws_lb",
+          "name": "orders",
+          "values": {
+            "arn": "arn:aws:elasticloadbalancing:ap-south-2:123456789012:loadbalancer/app/warden-pg-fs-alb/0000000000000001",
+            "id": "arn:aws:elasticloadbalancing:ap-south-2:123456789012:loadbalancer/app/warden-pg-fs-alb/0000000000000001",
+            "name": "warden-pg-fs-alb",
+            "region": "ap-south-2",
+            "subnets": [
+              "subnet-00000000000000001",
+              "subnet-00000000000000002"
+            ],
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_nat_gateway.this",
+          "mode": "managed",
+          "type": "aws_nat_gateway",
+          "name": "this",
+          "values": {
+            "id": "nat-00000000000000001",
+            "region": "ap-south-2",
+            "route_table_id": null,
+            "subnet_id": "subnet-00000000000000001",
+            "tags": {
+              "Name": "warden-pg-fs"
+            },
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_route_table.private",
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "private",
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:route-table/rtb-00000000000000001",
+            "id": "rtb-00000000000000001",
+            "region": "ap-south-2",
+            "route": [
+              {
+                "cidr_block": "0.0.0.0/0",
+                "gateway_id": "",
+                "nat_gateway_id": "nat-00000000000000001"
+              }
+            ],
+            "tags": {
+              "Name": "warden-pg-fs-private"
+            },
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_route_table.public",
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "public",
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:route-table/rtb-00000000000000002",
+            "id": "rtb-00000000000000002",
+            "region": "ap-south-2",
+            "route": [
+              {
+                "cidr_block": "0.0.0.0/0",
+                "gateway_id": "igw-00000000000000001",
+                "nat_gateway_id": ""
+              }
+            ],
+            "tags": {
+              "Name": "warden-pg-fs-public"
+            },
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_route_table_association.private[0]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "private",
+          "index": 0,
+          "values": {
+            "gateway_id": "",
+            "id": "rtbassoc-00000000000000001",
+            "region": "ap-south-2",
+            "route_table_id": "rtb-00000000000000001",
+            "subnet_id": "subnet-00000000000000003"
+          }
+        },
+        {
+          "address": "aws_route_table_association.private[1]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "private",
+          "index": 1,
+          "values": {
+            "gateway_id": "",
+            "id": "rtbassoc-00000000000000002",
+            "region": "ap-south-2",
+            "route_table_id": "rtb-00000000000000001",
+            "subnet_id": "subnet-00000000000000004"
+          }
+        },
+        {
+          "address": "aws_route_table_association.public[0]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "public",
+          "index": 0,
+          "values": {
+            "gateway_id": "",
+            "id": "rtbassoc-00000000000000003",
+            "region": "ap-south-2",
+            "route_table_id": "rtb-00000000000000002",
+            "subnet_id": "subnet-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_route_table_association.public[1]",
+          "mode": "managed",
+          "type": "aws_route_table_association",
+          "name": "public",
+          "index": 1,
+          "values": {
+            "gateway_id": "",
+            "id": "rtbassoc-00000000000000004",
+            "region": "ap-south-2",
+            "route_table_id": "rtb-00000000000000002",
+            "subnet_id": "subnet-00000000000000002"
+          }
+        },
+        {
+          "address": "aws_sqs_queue.dlq[\"notifications\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "dlq",
+          "index": "notifications",
+          "values": {
+            "arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-notifications-dlq",
+            "id": "https://sqs.ap-south-2.amazonaws.com/123456789012/warden-pg-fs-notifications-dlq",
+            "name": "warden-pg-fs-notifications-dlq",
+            "redrive_policy": "",
+            "region": "ap-south-2"
+          }
+        },
+        {
+          "address": "aws_sqs_queue.dlq[\"orders\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "dlq",
+          "index": "orders",
+          "values": {
+            "arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-orders-dlq",
+            "id": "https://sqs.ap-south-2.amazonaws.com/123456789012/warden-pg-fs-orders-dlq",
+            "name": "warden-pg-fs-orders-dlq",
+            "redrive_policy": "",
+            "region": "ap-south-2"
+          }
+        },
+        {
+          "address": "aws_sqs_queue.main[\"notifications\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "main",
+          "index": "notifications",
+          "values": {
+            "arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-notifications",
+            "id": "https://sqs.ap-south-2.amazonaws.com/123456789012/warden-pg-fs-notifications",
+            "name": "warden-pg-fs-notifications",
+            "redrive_policy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-notifications-dlq\",\"maxReceiveCount\":3}",
+            "region": "ap-south-2"
+          }
+        },
+        {
+          "address": "aws_sqs_queue.main[\"orders\"]",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "main",
+          "index": "orders",
+          "values": {
+            "arn": "arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-orders",
+            "id": "https://sqs.ap-south-2.amazonaws.com/123456789012/warden-pg-fs-orders",
+            "name": "warden-pg-fs-orders",
+            "redrive_policy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:ap-south-2:123456789012:warden-pg-fs-orders-dlq\",\"maxReceiveCount\":3}",
+            "region": "ap-south-2"
+          }
+        },
+        {
+          "address": "aws_subnet.private[0]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private",
+          "index": 0,
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:subnet/subnet-00000000000000003",
+            "availability_zone": "ap-south-2a",
+            "cidr_block": "10.42.10.0/24",
+            "id": "subnet-00000000000000003",
+            "region": "ap-south-2",
+            "tags": {
+              "Name": "warden-pg-fs-private-0"
+            },
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_subnet.private[1]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private",
+          "index": 1,
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:subnet/subnet-00000000000000004",
+            "availability_zone": "ap-south-2b",
+            "cidr_block": "10.42.11.0/24",
+            "id": "subnet-00000000000000004",
+            "region": "ap-south-2",
+            "tags": {
+              "Name": "warden-pg-fs-private-1"
+            },
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_subnet.public[0]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "index": 0,
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:subnet/subnet-00000000000000001",
+            "availability_zone": "ap-south-2a",
+            "cidr_block": "10.42.0.0/24",
+            "id": "subnet-00000000000000001",
+            "region": "ap-south-2",
+            "tags": {
+              "Name": "warden-pg-fs-public-0"
+            },
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_subnet.public[1]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "index": 1,
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:subnet/subnet-00000000000000002",
+            "availability_zone": "ap-south-2b",
+            "cidr_block": "10.42.1.0/24",
+            "id": "subnet-00000000000000002",
+            "region": "ap-south-2",
+            "tags": {
+              "Name": "warden-pg-fs-public-1"
+            },
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_vpc.this",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "this",
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:vpc/vpc-00000000000000001",
+            "cidr_block": "10.42.0.0/16",
+            "default_route_table_id": "rtb-00000000000000003",
+            "id": "vpc-00000000000000001",
+            "region": "ap-south-2",
+            "tags": {
+              "Name": "warden-pg-fs"
+            }
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.gateway[\"dynamodb\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "gateway",
+          "index": "dynamodb",
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:vpc-endpoint/vpce-00000000000000001",
+            "id": "vpce-00000000000000001",
+            "region": "ap-south-2",
+            "route_table_ids": [
+              "rtb-00000000000000001",
+              "rtb-00000000000000002"
+            ],
+            "service_name": "com.amazonaws.ap-south-2.dynamodb",
+            "subnet_ids": [],
+            "tags": {
+              "Name": "warden-pg-fs-dynamodb"
+            },
+            "vpc_endpoint_type": "Gateway",
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.gateway[\"s3\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "gateway",
+          "index": "s3",
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:vpc-endpoint/vpce-00000000000000002",
+            "id": "vpce-00000000000000002",
+            "region": "ap-south-2",
+            "route_table_ids": [
+              "rtb-00000000000000001",
+              "rtb-00000000000000002"
+            ],
+            "service_name": "com.amazonaws.ap-south-2.s3",
+            "subnet_ids": [],
+            "tags": {
+              "Name": "warden-pg-fs-s3"
+            },
+            "vpc_endpoint_type": "Gateway",
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.interface[\"secretsmanager\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "interface",
+          "index": "secretsmanager",
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:vpc-endpoint/vpce-00000000000000003",
+            "id": "vpce-00000000000000003",
+            "region": "ap-south-2",
+            "route_table_ids": [],
+            "service_name": "com.amazonaws.ap-south-2.secretsmanager",
+            "subnet_ids": [
+              "subnet-00000000000000003"
+            ],
+            "tags": {
+              "Name": "warden-pg-fs-secretsmanager"
+            },
+            "vpc_endpoint_type": "Interface",
+            "vpc_id": "vpc-00000000000000001"
+          }
+        },
+        {
+          "address": "aws_vpc_endpoint.interface[\"sqs\"]",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "interface",
+          "index": "sqs",
+          "values": {
+            "arn": "arn:aws:ec2:ap-south-2:123456789012:vpc-endpoint/vpce-00000000000000004",
+            "id": "vpce-00000000000000004",
+            "region": "ap-south-2",
+            "route_table_ids": [],
+            "service_name": "com.amazonaws.ap-south-2.sqs",
+            "subnet_ids": [
+              "subnet-00000000000000003"
+            ],
+            "tags": {
+              "Name": "warden-pg-fs-sqs"
+            },
+            "vpc_endpoint_type": "Interface",
+            "vpc_id": "vpc-00000000000000001"
+          }
+        }
+      ]
+    }
+  }
+}

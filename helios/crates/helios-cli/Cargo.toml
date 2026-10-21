@@ -1,0 +1,31 @@
+[package]
+name = "helios-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Helios command-line interface: simulate, plan, verify."
+
+[[bin]]
+name = "helios"
+path = "src/main.rs"
+
+[dependencies]
+helios-graph.workspace = true
+helios-models.workspace = true
+helios-engine.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+owo-colors.workspace = true
+comfy-table.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,7 @@
+{
+ "name": "redis-loss",
+ "kind": {
+  "type": "resource-loss",
+  "resource_id": "aws_elasticache_replication_group.redis"
+ }
+}

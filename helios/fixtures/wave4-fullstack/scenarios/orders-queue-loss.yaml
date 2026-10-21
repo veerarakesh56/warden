@@ -1,0 +1,7 @@
+{
+ "name": "orders-queue-loss",
+ "kind": {
+  "type": "resource-loss",
+  "resource_id": "aws_sqs_queue.main[\"orders\"]"
+ }
+}

@@ -1,0 +1,4 @@
+name: lose-the-cache
+kind:
+  type: resource-loss
+  resource_id: aws_elasticache_cluster.cache

@@ -1,0 +1,4 @@
+name: lose-us-east-1a
+kind:
+  type: az-outage
+  az: us-east-1a

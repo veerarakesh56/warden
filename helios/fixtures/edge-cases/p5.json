@@ -1,0 +1,60 @@
+{
+ "format_version": "1.2",
+ "planned_values": {
+  "root_module": {
+   "resources": [
+    {
+     "address": "aws_ecs_cluster.c",
+     "mode": "managed",
+     "type": "aws_ecs_cluster",
+     "name": "c",
+     "values": {
+      "name": "c"
+     }
+    },
+    {
+     "address": "aws_ecs_service.s",
+     "mode": "managed",
+     "type": "aws_ecs_service",
+     "name": "s",
+     "values": {
+      "name": "s",
+      "desired_count": 1,
+      "network_configuration": [
+       {
+        "assign_public_ip": false
+       }
+      ]
+     }
+    }
+   ]
+  }
+ },
+ "configuration": {
+  "root_module": {
+   "resources": [
+    {
+     "address": "aws_ecs_service.s",
+     "expressions": {
+      "cluster": {
+       "references": [
+        "aws_ecs_cluster.c.id",
+        "aws_ecs_cluster.c"
+       ]
+      },
+      "network_configuration": [
+       {
+        "subnets": {
+         "references": [
+          "data.aws_subnets.private.ids",
+          "data.aws_subnets.private"
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}

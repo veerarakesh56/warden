@@ -1,0 +1,21 @@
+[package]
+name = "helios-aws"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "AWS SDK wrappers for live-state collection. Not yet implemented."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# aws-config = "1"                # enable when live-state collection lands
+# aws-sdk-ec2 = "1"
+# aws-sdk-rds = "1"
+# aws-sdk-lambda = "1"
+# aws-sdk-s3 = "1"
+# aws-sdk-elasticache = "1"
+# aws-sdk-elbv2 = "1"

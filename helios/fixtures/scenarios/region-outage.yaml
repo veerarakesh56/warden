@@ -1,0 +1,4 @@
+name: lose-us-east-1
+kind:
+  type: region-outage
+  region: us-east-1

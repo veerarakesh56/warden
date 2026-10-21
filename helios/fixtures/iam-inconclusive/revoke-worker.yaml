@@ -1,0 +1,4 @@
+name: revoke-worker-before-apply
+kind:
+  type: iam-revocation
+  principal_arn: arn:aws:iam::123456789012:role/worker

@@ -1,0 +1,51 @@
+{
+  "scenario": "lose-us-east-1",
+  "failures": [
+    {
+      "id": "aws_db_instance.primary",
+      "kind": "DbInstance",
+      "reason": "multi-AZ across [\"us-east-1a\", \"us-east-1b\"] — whole region us-east-1 is down"
+    },
+    {
+      "id": "aws_elasticache_cluster.cache",
+      "kind": "ElasticacheCluster",
+      "reason": "single-AZ in us-east-1a (region us-east-1 is down)"
+    },
+    {
+      "id": "aws_instance.web",
+      "kind": "Instance",
+      "reason": "single-AZ in us-east-1a (region us-east-1 is down)"
+    },
+    {
+      "id": "aws_lambda_function.worker",
+      "kind": "LambdaFunction",
+      "reason": "regional in us-east-1, which is down"
+    },
+    {
+      "id": "aws_lb.app",
+      "kind": "Lb",
+      "reason": "multi-AZ across [\"us-east-1a\", \"us-east-1b\"] — whole region us-east-1 is down"
+    },
+    {
+      "id": "aws_s3_bucket.assets",
+      "kind": "S3Bucket",
+      "reason": "regional in us-east-1, which is down"
+    },
+    {
+      "id": "aws_subnet.public_a",
+      "kind": "Subnet",
+      "reason": "single-AZ in us-east-1a (region us-east-1 is down)"
+    },
+    {
+      "id": "aws_subnet.public_b",
+      "kind": "Subnet",
+      "reason": "single-AZ in us-east-1b (region us-east-1 is down)"
+    },
+    {
+      "id": "aws_vpc.main",
+      "kind": "Vpc",
+      "reason": "regional in us-east-1, which is down"
+    }
+  ],
+  "skipped": []
+}

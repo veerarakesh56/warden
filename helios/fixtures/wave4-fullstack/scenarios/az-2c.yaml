@@ -1,0 +1,4 @@
+name: lose-ap-south-2c
+kind:
+  type: az-outage
+  az: ap-south-2c

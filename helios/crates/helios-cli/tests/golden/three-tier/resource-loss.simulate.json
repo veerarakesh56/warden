@@ -1,0 +1,11 @@
+{
+  "scenario": "lose-the-cache",
+  "failures": [
+    {
+      "id": "aws_elasticache_cluster.cache",
+      "kind": "ElasticacheCluster",
+      "reason": "aws_elasticache_cluster.cache is lost (resource-loss) — treated as unavailable"
+    }
+  ],
+  "skipped": []
+}

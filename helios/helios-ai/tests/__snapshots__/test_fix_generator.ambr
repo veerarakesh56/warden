@@ -1,0 +1,15 @@
+# serializer version: 1
+# name: test_propose_fix_matches_snapshot
+  dict({
+    'edits': list([
+      dict({
+        'key': 'availability_zone',
+        'op': 'set_attr',
+        'resource_id': 'aws_elasticache_cluster.cache',
+        'value': 'us-east-1b',
+      }),
+    ]),
+    'explanation': 'Mocked FixProposal -- move the first failed resource to a different availability zone.',
+    'scenario_name': 'lose-us-east-1a',
+  })
+# ---

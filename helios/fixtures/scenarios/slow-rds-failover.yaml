@@ -1,0 +1,4 @@
+name: rds-slow-failover
+kind:
+  type: slow-rds-failover
+  db_id: aws_db_instance.primary

@@ -1,0 +1,58 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_lambda_function.known",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "known",
+          "values": { "function_name": "known", "region": "eu-west-1" }
+        },
+        {
+          "address": "aws_lambda_function.opaque",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "opaque",
+          "values": { "function_name": "opaque", "region": "eu-west-1" }
+        },
+        {
+          "address": "aws_iam_role.worker",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "worker",
+          "values": { "name": "worker" }
+        }
+      ]
+    }
+  },
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_lambda_function.known",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "known",
+          "expressions": { "role": { "references": ["aws_iam_role.worker.arn", "aws_iam_role.worker"] } }
+        },
+        {
+          "address": "aws_lambda_function.opaque",
+          "mode": "managed",
+          "type": "aws_lambda_function",
+          "name": "opaque",
+          "expressions": { "role": { "references": ["var.opaque_role_arn"] } }
+        },
+        {
+          "address": "aws_iam_role.worker",
+          "mode": "managed",
+          "type": "aws_iam_role",
+          "name": "worker",
+          "expressions": {}
+        }
+      ]
+    }
+  }
+}

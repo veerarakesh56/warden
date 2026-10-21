@@ -1,0 +1,7 @@
+{
+ "name": "nat-death",
+ "kind": {
+  "type": "single-nat-death",
+  "subnet_id": "aws_nat_gateway.this"
+ }
+}
