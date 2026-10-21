@@ -523,18 +523,7 @@ def db_from_environment() -> Any:
     sts = boto3.client("sts", region_name=where)
 
     def build(env: str) -> DatabasePlatform:
-        if env != os.environ.get("WARDEN_DB_ENVIRONMENT", "").strip():
-            raise NotConfigured(f"no database is configured for {env} (WARDEN_DB_ENVIRONMENT)")
-        read_dsn = settings.getenv("WARDEN_STACK_DB_PRIMARY_RO_DSN")
-        write_dsn = settings.getenv("WARDEN_DB_TERMINATE_DSN")
-        if not read_dsn and not write_dsn:
-            raise NotConfigured(f"this worker holds no login to {env}'s database")
-        for name, dsn in (("WARDEN_STACK_DB_PRIMARY_RO_DSN", read_dsn), ("WARDEN_DB_TERMINATE_DSN", write_dsn)):
-            if why := _not_iam_only(dsn):
-                # A standing password would sign in whoever holds the DSN - for the terminate login with no plan and
-                # no approver - and iam_dsn leaves such a DSN as it is: unsigned, and not verified against RDS's
-                # certificate authorities (review, PR 48: the read DSN too).
-                raise NotConfigured(f"{name} {why}; WARDEN signs in with an IAM token only, verified (verify-full)")
+        read_dsn, write_dsn = _logins(env)
         reader, actor_arn = reader_clients(sts, where, role_arn(env, "platform-reader")), role_arn(env, "actor")
 
         def sign(dsn: str) -> str:
@@ -555,6 +544,27 @@ def db_from_environment() -> Any:
                                 writer=writer)
 
     return PerEnvironment(build, "database")
+
+
+def _logins(env: str) -> tuple[str | None, str | None]:
+    """The read and terminate DSNs this worker holds for `env`'s database, each one WARDEN can sign with an IAM token
+    and verify; NotConfigured (the plan goes to a person) when there is no database for `env`, no login, or a DSN
+    iam_dsn would pass through as it is."""
+    from . import NotConfigured
+
+    if env != os.environ.get("WARDEN_DB_ENVIRONMENT", "").strip():
+        raise NotConfigured(f"no database is configured for {env} (WARDEN_DB_ENVIRONMENT)")
+    read_dsn = settings.getenv("WARDEN_STACK_DB_PRIMARY_RO_DSN")
+    write_dsn = settings.getenv("WARDEN_DB_TERMINATE_DSN")
+    if not read_dsn and not write_dsn:
+        raise NotConfigured(f"this worker holds no login to {env}'s database")
+    for name, dsn in (("WARDEN_STACK_DB_PRIMARY_RO_DSN", read_dsn), ("WARDEN_DB_TERMINATE_DSN", write_dsn)):
+        if why := _not_iam_only(dsn):
+            # A standing password would sign in whoever holds the DSN - for the terminate login with no plan and
+            # no approver - and iam_dsn leaves such a DSN as it is: unsigned, and not verified against RDS's
+            # certificate authorities (review, PR 48: the read DSN too).
+            raise NotConfigured(f"{name} {why}; WARDEN signs in with an IAM token only, verified (verify-full)")
+    return read_dsn, write_dsn
 
 
 def _not_iam_only(dsn: str | None) -> str:
