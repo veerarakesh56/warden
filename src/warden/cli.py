@@ -79,6 +79,9 @@ DEMO_ALERTS: dict[str, dict] = {
 }
 
 
+DB_HELP = "a SQLite audit file (or set WARDEN_AUDIT_DSN)"
+
+
 def _out(text: object, *, err: bool = False) -> None:
     """stdout is an egress too - a terminal, a CI log, a pasted ticket (audit A-C-8): no secret, and no
     control character (an ESC sequence in model- or alert-written text can rewrite what the operator
@@ -651,6 +654,47 @@ def _usage_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def metric_line(name: str, value: str) -> str:
+    """One report line. A value the outbound gate withholds is replaced alone: the metric's name stays on screen,
+    so a line never silently disappears (CodeRabbit, PR 175)."""
+    shown = gate.for_terminal(value)
+    if shown.startswith("[withheld"):
+        shown = "[value withheld by the outbound gate]"
+    return f"{name:<36} {shown}"
+
+
+def _report_command(args: argparse.Namespace) -> int:
+    """`warden report pilot`: the pilot metrics (pilot.py), read only from audit rows whose hash chain and checkpoint
+    signatures check out against --public-key. Exit 1 when any row or checkpoint failed verification (no row is counted
+    on its word), 2 when the command was given something it cannot read."""
+    from . import audit, pilot
+
+    try:
+        since = pilot.parse_since(args.since)
+    except ValueError as e:
+        _out(f"error: {e}", err=True)
+        return 2
+    # As `warden audit verify`: the DSN from the environment (a secret), never the command line; else the --db file.
+    target = os.environ.get("WARDEN_AUDIT_DSN", "").strip() or (_contained(args.db, "--db") if args.db else None)
+    if target is None:
+        _out("error: give --db naming an existing audit file, or set WARDEN_AUDIT_DSN", err=True)
+        return 2
+    try:
+        key = audit.load_public_key(_key_file(args.public_key))
+    except (ValueError, TypeError, OSError) as e:
+        # A key that cannot be read is the operator's input, never a failed verification (exit 1): CodeRabbit, PR 175.
+        _out(f"error: --public-key is not an Ed25519 public key that can be read: {type(e).__name__}", err=True)
+        return 2
+    try:
+        checked = pilot.read_only(target, key)  # read-only: never creates or writes the audit
+    except pilot.Unreadable as e:
+        _out(f"error: the audit cannot be read: {_one(e)}", err=True)
+        return 2
+    for name, value in pilot.lines(pilot.report(checked, since)):
+        _out(metric_line(name, value))
+    return 0 if checked.intact else 1
+
+
 def _offer_again_command(args: argparse.Namespace) -> int:
     """Item 11: a fix that did not hold is offered again only after an approver signs that it may be - each fix of
     this incident that is still held back, whether its alarm came back in the soak or a re-check failed."""
@@ -876,6 +920,7 @@ def _main(argv: list[str] | None = None) -> int:
         "offer-again": _offer_again_command,
         "autonomy": lambda a: asyncio.run(_autonomy_command(a)),
         "usage": _usage_command,
+        "report": _report_command,
     }.get(args.cmd)
     if command is not None:
         return command(args)
@@ -989,10 +1034,10 @@ def _parser() -> argparse.ArgumentParser:
                           help="write the private key in the clear (refused otherwise without a passphrase)")
     p_show = audit_sub.add_parser("show", help="one incident's rows and their hashes, after verifying the chain")
     p_show.add_argument("incident")
-    p_show.add_argument("--db", type=pathlib.Path, help="a SQLite audit file (or set WARDEN_AUDIT_DSN)")
+    p_show.add_argument("--db", type=pathlib.Path, help=DB_HELP)
     p_show.add_argument("--public-key", required=True, type=pathlib.Path)
     p_verify = audit_sub.add_parser("verify", help="recompute the hash chain and check every signature")
-    p_verify.add_argument("--db", type=pathlib.Path, help="a SQLite audit file (or set WARDEN_AUDIT_DSN)")
+    p_verify.add_argument("--db", type=pathlib.Path, help=DB_HELP)
     p_verify.add_argument("--public-key", required=True, type=pathlib.Path)
     p_verify.add_argument("--anchor-bucket", help="the S3 Object Lock bucket the checkpoints are anchored in (S12)")
     p_migrate = audit_sub.add_parser("migrate", help="create the PostgreSQL audit tables (migration role only)")
@@ -1050,6 +1095,14 @@ def _parser() -> argparse.ArgumentParser:
 
     p_usage = sub.add_parser("usage", help="model calls, tokens and cost per day, from the audit")
     p_usage.add_argument("--days", type=int, default=30)
+    p_report = sub.add_parser("report", help="reports read only from the verified audit")
+    report_sub = p_report.add_subparsers(dest="report_cmd", required=True)
+    p_pilot = report_sub.add_parser("pilot", help="pilot metrics: incidents, plan outcomes, times, model use, undos")
+    p_pilot.add_argument("--since", required=True,
+                         help="incidents first seen from this day (YYYY-MM-DD, UTC) or time with its zone")
+    p_pilot.add_argument("--db", type=pathlib.Path, help=DB_HELP)
+    p_pilot.add_argument("--public-key", required=True, type=pathlib.Path,
+                         help="the audit's checkpoint public key (PEM), in the key folder")
     p_link = sub.add_parser("link", help="link two incidents' records, signed: a similar incident then finds the proven fix")
     p_link.add_argument("incident")
     p_link.add_argument("other")
