@@ -164,3 +164,32 @@ def test_the_thread_asks_in_plain_words_and_is_answered_in_fixed_ones():
         assert out, why
         assert "{" not in out, why
     assert discuss.extended_said({"why": "something else"}, INC) == discuss.NOT_READ
+
+
+def test_a_plan_eldane_approved_is_not_extended(world):
+    """Eldane's approval is not waited on by a person: its wait is never extended (lane C, U3-8). A person's approval
+    of a plan that needs two does not stop the wait for the second."""
+    log, policy = world
+    policy = approvals.ApproverPolicy(approvers={**policy.approvers, "eldane": approvals.Approver(
+        public_key="k-eldane", tiers=["T1"], environments=["dev"], ai=True)})
+    row = _plan(log)
+    log.append(INC, "approval.accepted", {"workflow_id": WID, "plan_hash": "h1", "approver": "owner"})
+    assert not _ask(log, policy, hours=1).get("why")  # a person's approval: still waiting for the second
+    log.append(INC, "approval.accepted", {"workflow_id": WID, "plan_hash": "other", "approver": "eldane"})
+    assert not _ask(log, policy, hours=1).get("why")  # Eldane's approval of another plan
+    log.append(INC, "approval.accepted", {"workflow_id": WID, "plan_hash": "h1", "approver": "eldane"})
+    assert _ask(log, policy) == {"why": "approved by Eldane", "workflow_id": WID}
+    assert extend.ai_approved(log, policy, INC, {**extend.waiting(log, INC), "seq": row["seq"]})
+    said = discuss.extended_said({"why": "approved by Eldane", "workflow_id": WID}, INC)
+    assert said.startswith("Eldane, the AI critic, already approved")
+
+
+def test_eldane_itself_never_extends_a_wait(world):
+    """An AI entry on the list, even one given a Slack id, is not a person who may extend a wait."""
+    log, policy = world
+    eldane_slack = "U" + "0" * 3 + "ELDANE1"
+    policy = approvals.ApproverPolicy(approvers={**policy.approvers, "eldane": approvals.Approver(
+        public_key="k-eldane", tiers=["T1"], environments=["dev"], ai=True, slack=eldane_slack)})
+    _plan(log)
+    assert _ask(log, policy, user=eldane_slack) == {"why": "not this plan's approver"}
+    assert _rows(log) == []
