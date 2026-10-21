@@ -40,8 +40,9 @@ IDLE_SECS = int(os.environ.get("WARDEN_DB_TERMINATE_IDLE_SECS", "300"))  # the "
 TIMEOUT_S = float(os.environ.get("WARDEN_DB_CONNECT_TIMEOUT", "4.0"))
 DEFAULT_PORT = 6379
 
+INFO, SLOWLOG_GET, CLIENT_LIST = "INFO", "SLOWLOG GET", "CLIENT LIST"
 # The only commands WARDEN sends. (name, number of arguments after it).
-ALLOWED: dict[str, int] = {"INFO": 0, "SLOWLOG GET": 1, "CLIENT LIST": 0}
+ALLOWED: dict[str, int] = {INFO: 0, SLOWLOG_GET: 1, CLIENT_LIST: 0}
 
 
 class RefusedCommand(ValueError):
@@ -53,7 +54,7 @@ def allowed(command: str, *args: Any) -> bool:
     name = " ".join(str(command).split()).upper()
     if name not in ALLOWED or len(args) != ALLOWED[name]:
         return False
-    if name == "SLOWLOG GET":
+    if name == SLOWLOG_GET:
         n = args[0]
         return isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= SLOWLOG_MAX
     return True
@@ -146,13 +147,15 @@ def mask_addr(addr: Any) -> str:
     return "<ADDR>"
 
 
-def read(conn: ReadOnlyRedis, name: str) -> tuple[list[str], dict[str, float]]:
-    """INFO, SLOWLOG GET and CLIENT LIST from one server, as evidence lines and metrics."""
-    lines: list[str] = []
-    metrics: dict[str, float] = {}
-    _info(conn.run("INFO"), name, lines, metrics)
-    _slowlog(conn.run("SLOWLOG GET", SLOWLOG_MAX), name, lines, metrics)
-    _clients(conn.run("CLIENT LIST"), name, lines, metrics)
+def read(conn: ReadOnlyRedis, name: str, lines: list[str] | None = None,
+         metrics: dict[str, float] | None = None) -> tuple[list[str], dict[str, float]]:
+    """INFO, SLOWLOG GET and CLIENT LIST from one server, as evidence lines and metrics. Each read lands in `lines` and
+    `metrics` as it completes, so a caller that passes its own keeps what was read before a later command failed."""
+    lines = [] if lines is None else lines
+    metrics = {} if metrics is None else metrics
+    _info(conn.run(INFO), name, lines, metrics)
+    _slowlog(conn.run(SLOWLOG_GET, SLOWLOG_MAX), name, lines, metrics)
+    _clients(conn.run(CLIENT_LIST), name, lines, metrics)
     return lines, metrics
 
 

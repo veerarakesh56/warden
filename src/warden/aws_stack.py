@@ -1360,12 +1360,15 @@ class StackBackend:
         if host not in _cache_endpoints(group):
             raise ToolError(f"{REDIS_DSN} names a host that is not an endpoint of {rg}; the cache's data was not read")
         conn = self._redis_factory(dsn)
+        lines: list[str] = []
+        metrics: dict[str, float] = {}
         try:
-            lines, metrics = redis_reads.read(conn, rg)
+            redis_reads.read(conn, rg, lines, metrics)
         finally:
+            # What was read before a later command failed is kept (CodeRabbit, PR 151); the failure is the PARTIAL.
+            out.lines += lines
+            out.metrics.update(metrics)
             conn.close()
-        out.lines += lines
-        out.metrics.update(metrics)
 
     # ------------------------------------------------------------------ aurora
 

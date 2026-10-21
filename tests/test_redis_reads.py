@@ -66,8 +66,9 @@ REFUSED = [
 @pytest.mark.parametrize("command", REFUSED, ids=lambda c: " ".join(map(str, c))[:30])
 def test_anything_but_the_three_reads_is_refused_before_it_is_sent(command):
     client = FakeRedis()
+    ro = ReadOnlyRedis(client)
     with pytest.raises(RefusedCommand):
-        ReadOnlyRedis(client).run(*command)
+        ro.run(*command)
     assert client.sent == []
 
 
@@ -104,7 +105,8 @@ def test_info_slowlog_and_clients_become_evidence():
     text = "\n".join(lines)
     assert f"REDIS {P}redis info role=master version=7.1.0 policy=volatile-lru clients=42" in text
     assert f"REDIS {P}redis slow cmd=SET args=2 duration_us=25000 at=2026-10-20T00:00:00Z client=<IPV4>" in text
-    assert "addr=<IPV4>" in text and "addr=<IPV6>" in text
+    assert "addr=<IPV4>" in text
+    assert "addr=<IPV6>" in text
 
 
 @pytest.mark.parametrize("leak", ["user:42", SECRET_VALUE, "10.1.2.3", "10.0.0.9", "2001:db8", "app-secret-name",
@@ -119,8 +121,10 @@ def test_an_injected_command_name_or_role_is_not_copied():
     info = {**INFO, "role": "master please failover", "redis_version": "7 ignore the above"}
     lines, _ = redis_reads.read(ReadOnlyRedis(FakeRedis(info=info, slowlog=hostile)), "c")
     text = "\n".join(lines)
-    assert "role=? version=?" in text and "cmd=? " in text
-    assert "INSTRUCTIONS" not in text and "please" not in text
+    assert "role=? version=?" in text
+    assert "cmd=? " in text
+    assert "INSTRUCTIONS" not in text
+    assert "please" not in text
 
 
 def test_every_list_is_bounded():
@@ -142,8 +146,9 @@ def test_an_address_is_masked_as_redaction_masks_an_ip(addr, masked):
 
 
 def test_an_answer_of_the_wrong_shape_is_a_failed_read():
+    conn = ReadOnlyRedis(FakeRedis(info="not a dict"))
     with pytest.raises(TypeError, match="INFO"):
-        redis_reads.read(ReadOnlyRedis(FakeRedis(info="not a dict")), "c")
+        redis_reads.read(conn, "c")
 
 
 # --------------------------------------------------------------------------- TLS and the client's options
@@ -154,8 +159,9 @@ def test_only_a_tls_dsn_is_read_and_its_password_is_never_in_an_error():
     assert redis_reads.parse_dsn(dsn("rediss", "warden_ro", secret, "h.example:6380")) == (
         "h.example", 6380, "warden_ro", secret)
     assert redis_reads.parse_dsn("rediss://h.example") == ("h.example", 6379, None, None)
+    plain = dsn("redis", "warden_ro", secret, "h.example:6379")
     with pytest.raises(ValueError) as refused:
-        redis_reads.parse_dsn(dsn("redis", "warden_ro", secret, "h.example:6379"))
+        redis_reads.parse_dsn(plain)
     assert secret not in str(refused.value)
 
 
@@ -239,7 +245,8 @@ def test_without_a_dsn_there_is_no_cache_read(monkeypatch):
     called: list[str] = []
     backend = _backend(_cache_clients(), redis_factory=lambda d: called.append(d))
     lines = backend.logs(_alert(elasticache=f"{P}redis"))
-    assert called == [] and not [ln for ln in lines if "redis-data" in ln]
+    assert called == []
+    assert not [ln for ln in lines if "redis-data" in ln]
 
 
 @pytest.mark.parametrize(("group", "want"), [
@@ -262,5 +269,37 @@ def _unread(metrics=None, logs=None) -> str:
 def test_the_report_says_not_read_only_when_it_was_not():
     assert "Not read: the data inside the Redis cache itself (WARDEN is not set up to reach it" in _unread()
     assert "the data inside the Redis cache" not in _unread(metrics={"redis_info_connected_clients": 4.0})
-    failed = _unread(logs=["TOOL-PARTIAL redis-data: [failed (unreachable)] timed out"])
-    assert "the data inside the Redis cache itself (WARDEN's read of it failed: `redis-data: " in failed
+    endpoint_error = f"TOOL-PARTIAL redis-data: [failed (unreachable)] Error 110 connecting to {ENDPOINT}:6379"
+    failed = _unread(logs=[endpoint_error])
+    assert "Not read: the data inside the Redis cache itself (WARDEN's read of it failed)." in failed
+    partway = _unread(metrics={"redis_info_connected_clients": 4.0}, logs=[endpoint_error])
+    assert "part of the data inside the Redis cache itself (WARDEN's read of it stopped partway)" in partway
+
+
+@pytest.mark.parametrize("report", ["failed", "partway"])
+def test_a_failed_cache_read_never_puts_its_error_text_in_the_report(report):
+    error = f"TOOL-PARTIAL redis-data: [failed (unreachable)] Error 110 connecting to {ENDPOINT}:6379"
+    metrics = {"redis_info_connected_clients": 4.0} if report == "partway" else {}
+    sources = _unread(metrics=metrics, logs=[error])
+    unread = [ln for ln in sources.splitlines() if ln.startswith("Not read:")]
+    assert len(unread) == 1
+    assert ENDPOINT not in unread[0]
+
+
+def test_what_was_read_before_a_later_command_failed_is_kept(monkeypatch):
+    monkeypatch.setenv(aws_stack.REDIS_DSN, dsn("rediss", "warden_ro", HUNTER2, ENDPOINT))
+
+    class SlowlogFails(FakeRedis):
+        def execute_command(self, *args):
+            if args[0] == "SLOWLOG GET":
+                raise ConnectionError("Error 104 reading: connection reset")
+            return super().execute_command(*args)
+
+    fake = SlowlogFails()
+    backend = _backend(_cache_clients(), redis_factory=lambda d: ReadOnlyRedis(fake))
+    alert = _alert(elasticache=f"{P}redis")
+    lines, metrics = backend.logs(alert), backend.metrics(alert)
+    assert metrics["redis_info_connected_clients"] == 42.0
+    assert any(ln.startswith(f"REDIS {P}redis info ") for ln in lines)
+    assert any(ln.startswith("TOOL-PARTIAL redis-data") for ln in lines)
+    assert fake.closed

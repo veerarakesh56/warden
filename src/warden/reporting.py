@@ -405,16 +405,29 @@ def _stack_sources(alert: Alert, ctx: ContextBundle) -> list[str]:
     # "Not read: Redis itself ..."): plain words, nothing for a component the incident does not involve.
     unread = []
     # U3-5: WARDEN reads the cache's own INFO, SLOWLOG and CLIENT LIST when the runtime holds its DSN and reaches it.
-    if alert.labels.get("elasticache") and not any(k.startswith("redis_info_") for k in ctx.metrics):
-        failed = [e for e in errors if e.startswith("redis-data")]
-        unread.append("the data inside the Redis cache itself (" + (
-            f"WARDEN's read of it failed: {_c(failed[0][:160])}" if failed else
-            "WARDEN is not set up to reach it; it reads the cache's settings, events and metrics instead") + ")")
+    # A failure is said without its text: a connection error names the cache's endpoint (CodeRabbit, PR 151).
+    if alert.labels.get("elasticache"):
+        cache = _cache_unread(any(e.startswith("redis-data") for e in errors),
+                              any(k.startswith("redis_info_") for k in ctx.metrics))
+        if cache:
+            unread.append(cache)
     if any(alert.labels.get(k) for k in ("ecs_service", "ecs_cluster", "deployment")):
         unread.append("the program code inside the container images (WARDEN does not download images)")
     if unread:
         out.append("Not read: " + "; ".join(unread) + ".")
     return out
+
+
+def _cache_unread(failed: bool, read_some: bool) -> str:
+    """What of the Redis cache's own data WARDEN did not read, in plain words; "" when it read all of it."""
+    if failed and read_some:
+        return "part of the data inside the Redis cache itself (WARDEN's read of it stopped partway)"
+    if failed:
+        return "the data inside the Redis cache itself (WARDEN's read of it failed)"
+    if read_some:
+        return ""
+    return ("the data inside the Redis cache itself (WARDEN is not set up to reach it; it reads the cache's settings, "
+            "events and metrics instead)")
 
 
 def _returned(ctx: ContextBundle) -> list[str]:
