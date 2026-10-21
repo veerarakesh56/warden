@@ -191,10 +191,16 @@ def test_the_build_downloads_no_unpinned_tool():
 RUNNER = "ubuntu-24.04"  # ubuntu-latest moves to 26.04 from 2026-10-19 (actions/runner-images#14748)
 
 
+def _check_job_step(name: str) -> list[str]:
+    return [st["run"] for wf, job_id, steps, _ in _steps() if (wf, job_id) == ("ci-tool.yml", "check")
+            for st in steps if st.get("name") == name]
+
+
 def test_every_job_names_its_runner_image():
     """A moving label would change the OS under deploy jobs main's CI never runs; moving is done on purpose."""
     runners = {(wf, job_id): job.get("runs-on") for wf, job_id, _, job in _steps() if "uses" not in job}
-    assert runners and all(r == RUNNER for r in runners.values()), runners
+    assert runners
+    assert {k: r for k, r in runners.items() if r != RUNNER} == {}
 
 
 def test_each_caching_uv_step_has_a_cache_of_its_own():
@@ -202,21 +208,23 @@ def test_each_caching_uv_step_has_a_cache_of_its_own():
     suffixes = [(st.get("with") or {}).get("cache-suffix") for _, _, steps, _ in _steps() for st in steps
                 if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")
                 and (st.get("with") or {}).get("enable-cache") is not False]
-    assert suffixes and all(isinstance(s, str) and s.strip() for s in suffixes), suffixes
+    assert suffixes
+    assert [s for s in suffixes if not (isinstance(s, str) and s.strip())] == []
     assert len(set(suffixes)) == len(suffixes), suffixes
-
 
 
 def test_the_unit_job_leaves_the_live_tests_to_their_own_jobs():
     """They could only skip there (44 per run); each runs, skip-free, where its cluster or database is (test_ci_lanes).
     The rest of the suite skips nothing in CI (10 redis tests did, for want of the extra): a new skip fails the step."""
-    unit = [st["run"] for wf, job_id, steps, _ in _steps() if (wf, job_id) == ("ci-tool.yml", "check")
-            for st in steps if st.get("name") == "Unit tests"]
-    assert len(unit) == 1 and "--ignore=tests/integration" in unit[0].split(), unit
-    assert "set -o pipefail" in unit[0] and re.search(r"grep -qE ' skipped' \S+ && \{[^}]*exit 1; \}", unit[0]), unit
-    install = [st["run"] for wf, job_id, steps, _ in _steps() if (wf, job_id) == ("ci-tool.yml", "check")
-               for st in steps if st.get("name") == "Install (locked)"]
-    assert len(install) == 1 and "--extra redis" in install[0], install
+    unit = _check_job_step("Unit tests")
+    assert len(unit) == 1, unit
+    assert "--ignore=tests/integration" in unit[0].split()
+    assert "set -o pipefail" in unit[0]
+    assert re.search(r"grep -qE ' skipped' \S+ && \{[^}]*exit 1; \}", unit[0]), unit[0]
+    install = _check_job_step("Install (locked)")
+    assert len(install) == 1, install
+    assert "--extra redis" in install[0]
+
 
 def test_dependabot_proposes_no_new_python_for_the_images():
     """The images' Python matches their compiled requirements; Dependabot keeps digests current, never the version."""
@@ -227,6 +235,7 @@ def test_dependabot_proposes_no_new_python_for_the_images():
         rules = [r for r in update.get("ignore", []) if r.get("dependency-name") == "python"]
         assert len(rules) == 1, update
         assert {"version-update:semver-major", "version-update:semver-minor"} <= set(rules[0].get("update-types", [])), update
+
 
 def test_the_image_build_context_is_an_allowlist():
     lines = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
