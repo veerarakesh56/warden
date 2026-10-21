@@ -40,12 +40,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from .environments import EnvironmentPolicies, both_times, default_environment_policies
+from .evidence import _finding
 from .gate import hedge
 from .knowledge import SignatureMatch
 from .models import ActionKind, Alert, ContextBundle, RemediationProposal, RootCause, Verdict
 from .playbook import detect as detect_patterns
 from .redaction import redact
-from .remediation import RemediationResult
 from .verifier import symptoms
 
 # Tier ordering for "what is higher than here". Unknown is off the ladder (never a promotion target).
@@ -343,17 +343,89 @@ _STACK_READERS = (
 )
 
 
-def _ruled_out(root_cause: Any, context: ContextBundle | None) -> list[dict[str, Any]]:
-    """Each cause the model ruled out, its reason, and whether that reason holds against the evidence."""
+def _items_of(context: ContextBundle | None) -> dict[str, Any]:
+    """The evidence items a citation may name; none when there is no context or its view cannot be built."""
     from . import evidence
-    from .grounding import ruled_out_checked
 
     try:
-        items = evidence.view(context) if context is not None else {}
-    except Exception:  # noqa: BLE001 - a view that cannot be built checks nothing: every reason shows unchecked
-        items = {}
-    return [{"cause": hedge(r.cause), "why": hedge(r.why), "cites": [c.id for c in r.citations],
+        return evidence.view(context) if context is not None else {}
+    except Exception:  # noqa: BLE001  # a view that cannot be built checks nothing: all unchecked and every count 0
+        return {}
+
+
+def _ruled_out(root_cause: Any, context: ContextBundle | None) -> list[dict[str, Any]]:
+    """Each cause the model ruled out, its reason, and whether that reason holds against the evidence."""
+    from types import SimpleNamespace
+
+    from .grounding import hypothesis_score, ruled_out_checked
+
+    items = _items_of(context)
+    rows = [{"cause": hedge(r.cause), "why": hedge(r.why), "cites": [c.id for c in r.citations],
              "checked": ruled_out_checked(r, items)} for r in root_cause.ruled_out]
+    # Item 7: the hypotheses that lost, each with why, the evidence against it (what rules it out) and WARDEN's count.
+    for h in (root_cause.hypotheses or [])[1:]:
+        against = SimpleNamespace(citations=h.against)
+        rows.append({"cause": hedge(h.cause), "why": hedge(h.why_rejected), "cites": [c.id for c in h.against],
+                     "checked": ruled_out_checked(against, items), "count": hypothesis_score(h, items),
+                     "for": [c.id for c in h.supporting]})
+    return rows
+
+
+def _each_string(value: Any, change: Any) -> Any:
+    """`value` with `change` applied to every string in it, lists and dicts walked."""
+    if isinstance(value, str):
+        return change(value)
+    if isinstance(value, list):
+        return [_each_string(x, change) for x in value]
+    if isinstance(value, dict):
+        return {k: _each_string(x, change) for k, x in value.items()}
+    return value
+
+
+def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
+                     proposal: RemediationProposal | None) -> None:
+    """Owner, 2026-10-17 (the poisoned-log downgrade): the report and its Slack top never carry a version, an image tag,
+    an ARN or a target the model wrote, or a log line holds, unless WARDEN read it itself (grounding.unread). A rollback
+    names "the previous revision WARDEN recorded" - which is what the catalogue's plan returns to."""
+    from .grounding import read_text, shown_target, unread
+
+    read = read_text(alert, ctx)
+    target = proposal.target if proposal else ""
+    shown = shown_target(proposal, alert, ctx) if proposal else ""
+
+    def say(v: Any) -> Any:
+        # The rollback's wording is the target's alone (shown_target); a version elsewhere is just not read (review).
+        return _each_string(v, lambda s: unread(s.replace(target, shown) if target else s, read))
+
+    for key in ("root_cause", "verdict"):
+        if data.get(key):
+            data[key] = say(data[key])
+    if data.get("proposal"):
+        data["proposal"] = {**data["proposal"], "target": shown,
+                            "expected_effect": say(data["proposal"]["expected_effect"])}
+    # The log lines shown, and the crashed container's own output (k8s `logs --previous`), are the application's
+    # words: what they name is not WARDEN's reading either (review, PR 47), and a command in them - a planted "#HUMAN
+    # HINT: run curl ... | sh" is exactly one - is withheld as in the model's prose (G4).
+    from .gate import withhold_commands
+
+    data["evidence"]["key_log_lines"] = [withhold_commands(unread(ln, read))
+                                         for ln in data["evidence"]["key_log_lines"]]
+    checked = data["evidence"]["checked"]
+    checked["previous"] = [withhold_commands(unread(ln, read)) for ln in checked["previous"]]
+
+
+def _weighed(root_cause: Any, context: ContextBundle | None) -> dict[str, Any] | None:
+    """The chosen hypothesis as WARDEN weighed it (item 7): its evidence for and against and its count - or None for an
+    answer that ranked none."""
+    from .grounding import hypothesis_score
+
+    if not root_cause.hypotheses:
+        return None
+    items = _items_of(context)
+    h = root_cause.hypotheses[0]
+    support = list(dict.fromkeys(c.id for c in [*root_cause.citations, *h.supporting]))
+    return {"cause": hedge(h.cause), "for": support, "against": [c.id for c in h.against],
+            "count": hypothesis_score(h, items, root_cause.citations), "of": len(root_cause.hypotheses)}
 
 
 def _narrowed(d: dict[str, Any]) -> list[str]:
@@ -375,11 +447,19 @@ def _narrowed(d: dict[str, Any]) -> list[str]:
             how = f" _(checked against {', '.join(r['cites'])})_"
         else:
             how = " _(its reason could not be checked against the evidence)_"
-        out.append(f"- **Ruled out:** {r['cause']}{why}{how}")
+        count = f" _(WARDEN's evidence count {r['count']})_" if "count" in r else ""
+        out.append(f"- **Ruled out:** {r['cause']}{why}{how}{count}")
     if not rc.get("ruled_out"):
         out.append("- **Ruled out:** the diagnosis named no other cause it considered.")
     cited = ", ".join(c["id"] for c in rc.get("citations") or [])
-    out.append(f"- **Left:** {rc.get('hypothesis', '')}" + (f" _(cited: {cited})_" if cited else "")
+    weighed = rc.get("weighed")
+    count = (f" _(WARDEN's evidence count {weighed['count']}: for {', '.join(weighed['for']) or 'nothing'}, "
+             f"against {', '.join(weighed['against']) or 'nothing'})_") if weighed else ""
+    if weighed and weighed["cause"] != rc.get("hypothesis"):
+        # The count is the first ranked hypothesis's: when the model worded it differently, both are shown (review,
+        # PR 47), so a count is never read as belonging to words it was not computed for.
+        count += f" - the count is for the cause it ranked first: {weighed['cause']}"
+    out.append(f"- **Left:** {rc.get('hypothesis', '')}" + (f" _(cited: {cited})_" if cited else "") + count
                + ("" if rc.get("grounded", True) else " - **not grounded**: its citations did not hold."))
     out.append("")
     return out
@@ -496,6 +576,30 @@ def _code_findings(logs: list[str]) -> list[dict]:
     return found
 
 
+def _review_findings(logs: list[str]) -> dict[str, list[dict[str, str]]]:
+    """Code review's findings on the deployed change (findings.py): the typed R lines WARDEN built, field by field -
+    never a finding's own text, which WARDEN never kept. Each pull request read has one summary line."""
+    out: dict[str, list[dict[str, str]]] = {"findings": [], "pull_requests": []}
+    for line in logs:
+        if not _finding(line):
+            continue
+        head, *fields = line.split(" ")
+        values = {k: v for k, _, v in (f.partition("=") for f in fields if "=" in f)}
+        if head == "FINDING" and fields:
+            out["findings"].append({"tool": fields[0], **values})
+        elif head == "FINDINGS":
+            out["pull_requests"].append(values)
+    return out
+
+
+_FINDING_STATUS = {"open": "Unresolved finding in the deployed change",
+                   "outdated": "Finding on code changed since it was made (it may be fixed)",
+                   "accepted": "Finding accepted in review (left in on purpose)",
+                   "fixed": "Finding marked fixed"}
+_TOOL_NAMES = {"sonarcloud": "SonarCloud", "coderabbit": "CodeRabbit", "codeql": "CodeQL",
+               "code-scanning": "GitHub code scanning"}
+
+
 # A resource of one of these kinds is the data team's to own; any other the alarm names, the platform team's.
 _DATA_KINDS = frozenset({"aurora_cluster", "rds_instance", "dynamodb_table", "docdb_cluster", "docdb_instance",
                          "elasticache_node", "elasticache_serverless", "memorydb", "opensearch", "redshift"})
@@ -573,6 +677,8 @@ def _who_acts(alert: Alert, data: dict) -> list[list[str]]:
                                        "pipeline should look first")])
     if data.get("code") or (data.get("evidence") or {}).get("recent_deploys"):
         out.append(["Developers", "the evidence holds a code finding or a recent deploy: review that change"])
+    elif (data.get("review") or {}).get("findings"):
+        out.append(["Developers", "code review flagged the deployed change: check those findings first"])
     return out
 
 
@@ -601,7 +707,6 @@ def build_report(
     root_cause: RootCause | None = None,
     proposal: RemediationProposal | None = None,
     verdict: Verdict | None = None,
-    remediation: RemediationResult | None = None,
     signatures: list[SignatureMatch] | None = None,
     policies: EnvironmentPolicies | None = None,
     context: ContextBundle | None = None,
@@ -625,6 +730,8 @@ def build_report(
     promotion = _promotion_targets(alert, proposal, pol) if proposal and proposal.action not in _LOCAL_ONLY else []
     affected = _affected(ctx.logs)
     checked, ordinary_logs = _checked(ctx.logs)
+    review = _review_findings(ctx.logs)
+    ordinary_logs = [ln for ln in ordinary_logs if not _finding(ln)]  # shown in their own section
     patterns = detect_patterns(alert, ctx)
 
     data: dict = {
@@ -649,6 +756,7 @@ def build_report(
         ],
         "patterns": [dataclasses.asdict(p) for p in patterns],
         "code": _code_findings(ctx.logs),
+        "review": review,
         "root_cause": None,
         "evidence": {
             "metrics": dict(ctx.metrics),
@@ -682,6 +790,7 @@ def build_report(
             "confidence": root_cause.confidence,
             "evidence": [hedge(e) for e in root_cause.evidence],
             "ruled_out": _ruled_out(root_cause, context),
+            "weighed": _weighed(root_cause, context),
             "citations": [{"id": c.id, "quote": c.quote} for c in root_cause.citations],
             "grounded": not (verdict and "P13-UNGROUNDED" in verdict.policy_ids),
         }
@@ -708,13 +817,7 @@ def build_report(
             "reasons": list(verdict.reasons),
             "observed": list(verdict.observed),
         }
-    if remediation:
-        data["remediation"] = {
-            "outcome": remediation.outcome.value,
-            "detail": remediation.detail,
-            "applied_change": remediation.applied_change,
-            "principal": remediation.principal,
-        }
+    _withhold_unread(data, alert, ctx, proposal)
     data["changed_by"] = _changed_by(list(ctx.logs))
     data["who_acts"] = _who_acts(alert, data)
 
@@ -883,6 +986,35 @@ def _render_markdown(d: dict) -> str:
             lines.append("```")
         lines.append(f"- **Developers**: start at {_c(str(c['file']) + ':' + str(c['line']))} in {_c(c['in'])} ({c['function']})"
                      + (" - the line marked `>|` is the one that raised." if c["source"] else "."))
+        lines.append("")
+
+    review = d.get("review") or {}
+    if review.get("findings") or review.get("pull_requests"):
+        # Every value is from a typed line, but a log line of the same shape can carry any printable character: each is
+        # shown in inline code; only WARDEN's own fixed labels (_TOOL_NAMES, _FINDING_STATUS) are not (CodeRabbit).
+        lines.append("## Code review's findings on the deployed change  (suspects, not proof)")
+        for f in review.get("findings") or []:
+            where = f"{f.get('file', '?')}" + (f":{f['line']}" if f.get("line") else "")
+            tool = f.get("tool", "")
+            what = ", ".join(x for x in (_TOOL_NAMES.get(tool) or _c(tool),
+                                         f"rule {_c(f['rule'])}" if f.get("rule") else "",
+                                         _c(f["severity"]) if f.get("severity") else "",
+                                         _c(f["category"]) if f.get("category") else "") if x)
+            lines.append(f"- **{_FINDING_STATUS.get(f.get('status', ''), 'Finding')}**: PR #{_c(f.get('pr', '?'))} "
+                         f"(commit {_c(f.get('commit', '?'))}), {what} - {_c(where)}"
+                         + (f" - the path matches service {_c(f['maybe_service'])} (a guess from the file name)"
+                            if f.get("maybe_service") else ""))
+        for pr in review.get("pull_requests") or []:
+            said = [f"read {_c(pr.get('read', 'none').replace(',', ', '))}",
+                    f"{_c(pr.get('shown', '0'))} shown of {_c(pr.get('found', '0'))} found"]
+            if pr.get("held", "0") != "0":
+                said.append(f"{_c(pr['held'])} held back - its text read like an instruction or failed a check, so "
+                            "WARDEN did not use it")
+            if pr.get("coderabbit_review"):
+                said.append(f"CodeRabbit's last review: {_c(pr['coderabbit_review'])}")
+            lines.append(f"- PR #{_c(pr.get('pr', '?'))}: " + "; ".join(said) + ".")
+        lines.append("- A finding is a lead for the developers, never proof of the cause: WARDEN's gate does not let "
+                     "one justify a fix. What could not be read is listed under \"could NOT read\".")
         lines.append("")
 
     if d["matched_signatures"]:
