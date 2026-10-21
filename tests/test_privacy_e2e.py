@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import pathlib
 import urllib.request
 
 import pytest
@@ -21,6 +22,7 @@ from warden.llm import LLMClient
 from warden.models import Alert
 from warden.reporting import build_report
 
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 SLACK_HOOK = "https://hooks.slack.com/" + "services/T0/B0/canaryhook"
 TEAMS_HOOK = "https://example.webhook.office.com/" + "webhookb2/canary"
 
@@ -127,3 +129,31 @@ def test_the_check_would_have_caught_a_leak_in_the_same_path(wire):
     body = json.dumps({"text": "user " + "canary.person" + "@" + "example.org"}).encode()
     with pytest.raises(EgressBlocked):
         egress.check_request(SLACK_HOOK, body, {"Content-Type": "application/json"}, "POST")
+
+
+def test_the_lab_agent_sends_the_incidents_logs_to_datadog_masked():
+    """The other way a value could leave: the lab's apps' own logs, shipped by the Datadog agent (owner, 2026-10-21).
+    Every log line of every bundled incident, through the agent's global mask_sequences (helm/datadog/values.yaml):
+    none of the values WARDEN masks in that incident reaches Datadog raw. (Host names under .local/.internal are
+    left to Kubernetes and AWS by the agent's rules - the values file says why - and so are not counted here.)"""
+    import re
+
+    import yaml
+
+    values = yaml.safe_load((ROOT / "helm" / "datadog" / "values.yaml").read_text(encoding="utf-8"))
+    [env] = [e for e in values["datadog"]["env"] if e["name"] == "DD_LOGS_CONFIG_PROCESSING_RULES"]
+    rules = json.loads(env["value"])
+    for incident in sorted(DEMO_ALERTS):
+        alert = Alert(**DEMO_ALERTS[incident])
+        report = graph.run(alert, llm=LLMClient(mock=True))
+        state = {"alert": alert}
+        graph.apply_node(state, graph.node_gather(state))
+        # A UUID (a trace or request id) is masked for the model but not at the agent: Datadog joins a log to its trace
+        # by it, and it names no person - not one of the owner's classes.
+        raw = [v for p, v in report.redaction_map.items()
+               if len(v) >= 6 and not p.startswith(("<HOSTNAME_", "<UUID_"))]
+        for line in state["context"].logs:
+            for rule in rules:
+                line = re.sub(rule["pattern"], rule["replace_placeholder"], line)
+            leaked = [v for v in raw if v in line]
+            assert not leaked, (incident, leaked, line)
