@@ -114,7 +114,7 @@ def test_the_deploy_policy_fits_inside_its_boundary(env):
 @pytest.mark.parametrize("env", ENVS)
 def test_the_boundary_holds_every_environment_to_itself(env):
     st = {s["Sid"]: s for s in _load(env, "boundary")["Statement"]}
-    assert st["DenyRoleWithoutThisBoundary"]["Condition"]["ArnNotLike"]["iam:PermissionsBoundary"] == \
+    assert st["DenyUnboundedRoles"]["Condition"]["ArnNotLike"]["iam:PermissionsBoundary"] == \
         f"arn:aws:iam::*:policy/WardenEnvBoundary-{env}"
     assert st["DenySelfEdit"]["Resource"] == f"arn:aws:iam::*:role/warden-{env}-deploy"
     # Data that is not this environment's is never destroyed, even untagged: rds:* is region-wide
@@ -213,8 +213,16 @@ def test_the_boundary_carries_every_guardrail_its_roles_could_break(env):
     guard = json.loads((ROOT / "terraform" / "proving-ground" / "operator-guardrails.json").read_text(encoding="utf-8"))
     boundary = _load(env, "boundary")
     ceiling = _allows(boundary)
+    # A deny on every resource, or on every resource but this environment's ALB access-log buckets (2026-10-17, Sonar
+    # terraform:S6258: the stack writes that bucket's policy and public access block itself). An account-level action
+    # names no bucket, so such a deny still covers it.
+    alb_logs = [f"arn:aws:s3:::warden-{env}-alb-logs-*"]
+    exempt = [_list(st["NotResource"]) for st in boundary["Statement"] if st["Effect"] == "Deny" and "NotResource" in st
+              and any(fnmatch.fnmatchcase(b, a.lower()) for a in _list(st["Action"])
+                      for b in ("s3:putbucketpolicy", "s3:putbucketpublicaccessblock"))]
+    assert exempt == [alb_logs], exempt
     denied = [(a, st.get("Condition")) for st in boundary["Statement"] if st["Effect"] == "Deny"
-              and st.get("Resource") == "*" for a in _list(st["Action"])]
+              and (st.get("Resource") == "*" or _list(st.get("NotResource")) == alb_logs) for a in _list(st["Action"])]
     # IAM wildcards in the boundary's denies (`s3:Put*PublicAccessBlock`) cover the guardrail's exact actions.
     missing = [a for st in guard["Statement"] for a in _list(st["Action"])
                if any(fnmatch.fnmatchcase(a.lower(), p.lower()) for p in ceiling)

@@ -806,7 +806,7 @@ def test_the_runtime_boundary_lets_no_role_write_any_parameter_but_the_pause_swi
     writes = [s for s in boundary["Statement"] if s["Effect"] == "Allow"
               and any(re.fullmatch(a.replace("*", ".*"), "ssm:PutParameter", re.IGNORECASE)
                       for a in ([s["Action"]] if isinstance(s["Action"], str) else s["Action"]))]
-    assert [w["Sid"] for w in writes] == ["CeilingThePauseSwitch"]
+    assert [w["Sid"] for w in writes] == ["CeilingPause"]
     assert writes[0]["Resource"].endswith(":parameter/warden/ops/tf/paused")
 
 

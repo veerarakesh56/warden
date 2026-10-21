@@ -174,6 +174,10 @@ ARNS = {
     "vpce": "arn:aws:ec2:{r}:{a}:vpc-endpoint/vpce-0a1b2c3d",
     "lt": "arn:aws:ec2:{r}:{a}:launch-template/lt-0a1b2c3d",
     "param": "arn:aws:ssm:{r}:{a}:parameter/warden/{env}/tf/my_ip_cidr",
+    # The ALB's imported certificate and its access-log bucket (Sonar S5332 / S6258, PR 62).
+    "cert": "arn:aws:acm:{r}:{a}:certificate/0a1b2c3d-aaaa-bbbb-cccc-ddddeeeeffff",
+    "alb-logs": "arn:aws:s3:::{p}-alb-logs-20261021000000000000000001",
+    "alb-logs-obj": "arn:aws:s3:::{p}-alb-logs-20261021000000000000000001/AWSLogs/{a}/elasticloadbalancing/x.log.gz",
     # The S3 backend keeps a workspace's state at env:/<workspace>/<key>; _infra-deploy.yml sets key=<stack>/... and
     # the workspace to the environment; use_lockfile writes <state>.tflock beside it.
     **{f"state-{stack}": f"arn:aws:s3:::{{p}}-tfstate-abc/env:/{{env}}/{stack}/terraform.tfstate" for stack in STACKS},
@@ -189,7 +193,7 @@ ARNS = {
 }
 UNTAGGED = {"nat-eni", "eks-sg", "*", "esm-gone", "state-bucket", "param", "deploy-role",
             *(f"{kind}-{stack}" for kind in ("state", "lock") for stack in STACKS),
-            "api-tags"}
+            "api-tags", "alb-logs-obj"}
 # IAM and Budgets are global services: their calls go to the global region (environments.yaml aws_global_region).
 GLOBAL = ("iam:", "budgets:")
 
@@ -202,6 +206,9 @@ def call(action, *kinds, **extra):
 # Each SDK operation as its IAM action (Service Reference). The provider's tag interceptor lists tags on Read for a
 # resource with tags (`@Tags` in its source); EC2 and Secrets Manager return tags in the describe call itself.
 DESTROY_CALLS = {
+    # Read: DescribeCertificate and the tag interceptor; Delete retries while the listener still holds it.
+    "aws_acm_certificate": [call("acm:DescribeCertificate", "cert"), call("acm:ListTagsForCertificate", "cert"),
+                            call("acm:DeleteCertificate", "cert")],
     "aws_apigatewayv2_api": [call("apigateway:GET", "api"), call("apigateway:GET", "api-tags"),
                              call("apigateway:DELETE", "api")],
     "aws_apigatewayv2_integration": [call("apigateway:GET", "api-int"), call("apigateway:DELETE", "api-int")],
@@ -296,6 +303,23 @@ DESTROY_CALLS = {
     "aws_route_table": [call("ec2:DescribeRouteTables", "*"), call("ec2:DescribeNetworkInterfaces", "*"),
                         call("ec2:DisassociateRouteTable", "rtb", "subnet"), call("ec2:DeleteRouteTable", "rtb")],
     "aws_route_table_association": [call("ec2:DescribeRouteTables", "*"), call("ec2:DisassociateRouteTable", "rtb", "subnet")],
+    # The ALB's log bucket (force_destroy: every object version goes first). The bucket's Read asks for each of its
+    # sub-configurations; a sub-resource's Delete is a Put of the empty configuration where S3 has no Delete action.
+    "aws_s3_bucket": [call(a, "alb-logs") for a in (
+        "s3:ListBucket", "s3:GetBucketPolicy", "s3:GetBucketAcl", "s3:GetBucketCORS", "s3:GetBucketWebsite",
+        "s3:GetBucketVersioning", "s3:GetAccelerateConfiguration", "s3:GetBucketRequestPayment", "s3:GetBucketLogging",
+        "s3:GetLifecycleConfiguration", "s3:GetReplicationConfiguration", "s3:GetEncryptionConfiguration",
+        "s3:GetBucketObjectLockConfiguration", "s3:GetBucketTagging", "s3:ListBucketVersions", "s3:DeleteBucket")]
+    + [call("s3:DeleteObjectVersion", "alb-logs-obj"), call("s3:DeleteObject", "alb-logs-obj")],
+    "aws_s3_bucket_lifecycle_configuration": [call("s3:GetLifecycleConfiguration", "alb-logs"),
+                                              call("s3:PutLifecycleConfiguration", "alb-logs")],
+    "aws_s3_bucket_logging": [call("s3:GetBucketLogging", "alb-logs"), call("s3:PutBucketLogging", "alb-logs")],
+    "aws_s3_bucket_policy": [call("s3:GetBucketPolicy", "alb-logs"), call("s3:DeleteBucketPolicy", "alb-logs")],
+    "aws_s3_bucket_public_access_block": [call("s3:GetBucketPublicAccessBlock", "alb-logs"),
+                                          call("s3:PutBucketPublicAccessBlock", "alb-logs")],
+    "aws_s3_bucket_server_side_encryption_configuration": [call("s3:GetEncryptionConfiguration", "alb-logs"),
+                                                           call("s3:PutEncryptionConfiguration", "alb-logs")],
+    "aws_s3_bucket_versioning": [call("s3:GetBucketVersioning", "alb-logs"), call("s3:PutBucketVersioning", "alb-logs")],
     "aws_secretsmanager_secret": [call("secretsmanager:DescribeSecret", "secret"),
                                   call("secretsmanager:DeleteSecret", "secret")],
     "aws_secretsmanager_secret_version": [call("secretsmanager:GetSecretValue", "secret"),

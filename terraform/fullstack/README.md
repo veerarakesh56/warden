@@ -29,7 +29,12 @@ job behind a person's approval; it is `dev` merged by pull request. A commit tha
 before the job holds a credential.
 
 Lambdas are created from a placeholder zip, ECS from a placeholder container that answers 200 on
-every path; every code field is in `ignore_changes`, so a re-apply never rolls the apps back.
+every path over HTTPS; every code field is in `ignore_changes`, so a re-apply never rolls the apps back.
+
+The shop's containers serve HTTPS only (Sonar python:S5332, owner row 25): each makes its own self-signed certificate
+at start (`scenarios/fullstack/app/app.py`; the placeholder with the image's openssl), so nothing is stored and nothing
+costs. Their only callers do not verify a target's certificate: the ALB (target group and health check on HTTPS) and the
+kubelet's `scheme: HTTPS` probes. The ALB's own listener has the stack's certificate, which the traffic Lambda pins.
 Kubernetes objects are not in terraform at all.
 
 ## ⛔ Cost - about USD 0.53/hour, USD 13/day (after the cost plan)
@@ -143,7 +148,10 @@ while Lambda releases the in-VPC functions' network interfaces; that is AWS, not
 No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT.
 There are no interface endpoints (Secrets Manager, SQS and ECR calls go through the NAT), and the placeholder image comes from `public.ecr.aws`, so image
 pulls go through the NAT as well; only S3 and DynamoDB have (free) gateway endpoints. A production app with a domain would put a **public** ALB in
-front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so its ALB is internal.
+front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so its ALB is internal - and still HTTPS only
+(2026-10-17): the stack makes a self-signed certificate for the ALB's DNS name and imports it into ACM (no charge),
+and the traffic Lambda trusts that one certificate (`ALB_CA_PEM`). Its access logs go to `warden-<env>-alb-logs-*`
+(14 days), and the order-events topic is encrypted with the AWS-managed `aws/sns` key.
 
 ## Things that are deliberate
 

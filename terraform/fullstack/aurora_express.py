@@ -7,7 +7,8 @@
 
 The environment is WARDEN_ENV, and nothing else: with none set the script refuses, and a stack.json from
 another environment is refused (audit A-I-23: it acted on dev unless told otherwise). The region is
-AWS_REGION (or stack.json's `region`).
+AWS_REGION (or stack.json's `region`). --stack (default ~/warden-fullstack-build/stack.json) must lie
+there, in the temp folder (RUNNER_TEMP) or in the working directory (warden.paths).
 
 ⛔ WHY THIS IS NOT TERRAFORM (2026-09-26, docs/FULLSTACK-LAB.md section 1). The
 account is on the AWS Free plan, which creates an Aurora cluster only "WithExpressConfiguration",
@@ -45,6 +46,11 @@ import pathlib
 import re
 import sys
 import time
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "src"))  # warden.paths is stdlib only: the
+# infra deploy job installs boto3 and no package
+
+from warden import paths  # after the sys.path line above, deliberately
 
 # One environment per process, set by use() from WARDEN_ENV in main(): never a default.
 # Set by use(). One per line: a chained `= ""` made one literal flow into the secret's name AND the cluster's,
@@ -133,14 +139,21 @@ def _read_stack(path: pathlib.Path) -> dict:
 
 def merge_stack(path: pathlib.Path, values: dict) -> None:
     """Add keys to stack.json in the file's own format (`terraform output -json` wraps each value)."""
-    if not path.exists():
+    # Checked here too, beside the read and the write (Sonar pythonsecurity:S2083, 2026-10-20).
+    real = pathlib.Path(path).expanduser().resolve()
+    bases = [b for b in (pathlib.Path(r).expanduser().resolve() for r in paths.work_roots()) if b.parent != b]
+    if not any(real.is_relative_to(b) for b in bases):  # the form audit.key_path uses (S8707 cleared there)
+        raise SystemExit(f"refused: {path} is outside the places the tools work ({', '.join(map(str, bases))})")
+    if not real.exists():
         raise SystemExit(f"no {path}: write it first with `terraform output -json` (README)")
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    with open(real, encoding="utf-8") as src:
+        raw = json.loads(src.read())
     wrapped = any(isinstance(v, dict) and "value" in v for v in raw.values())
     for key, value in values.items():
         raw[key] = {"value": value, "sensitive": False,
                     "type": "string" if isinstance(value, str) else "object"} if wrapped else value
-    path.write_text(json.dumps(raw, indent=1), encoding="utf-8")
+    with open(real, "w", encoding="utf-8") as out:
+        out.write(json.dumps(raw, indent=1))
 
 
 def create(rds, sm, stack: pathlib.Path, cluster: str | None = None, log=print) -> dict:
@@ -397,7 +410,14 @@ def main(argv: list[str] | None = None, *, clients=None) -> int:
     ap.add_argument("--cluster", help="default: warden-<WARDEN_ENV>-aurora")
     ap.add_argument("--region", help="default: AWS_REGION, else stack.json's region")
     args = ap.parse_args(argv)
-    stack = _read_stack(args.stack.expanduser())
+    # --stack comes from the command line and create writes it back: it must lie where the tools work - the
+    # checkout, the temp folder (RUNNER_TEMP in the deploy job) or ~/warden-fullstack-build (warden.paths; Sonar
+    # pythonsecurity:S2083, 2026-10-17). It is read and written through the checked path only.
+    try:
+        stack_path = paths.inside(args.stack)
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
+    stack = _read_stack(stack_path)
     env = os.environ.get("WARDEN_ENV", "")
     if not env:
         raise SystemExit("refusing: set WARDEN_ENV to the environment whose Aurora this is")
@@ -420,7 +440,7 @@ def main(argv: list[str] | None = None, *, clients=None) -> int:
     if args.cmd == "create" and args.from_snapshot != "none":
         restore(rds, args.cluster, args.from_snapshot)
     if args.cmd == "create":
-        create(rds, clients["secretsmanager"], args.stack.expanduser(), args.cluster)
+        create(rds, clients["secretsmanager"], stack_path, args.cluster)
     elif args.cmd == "status":
         return 0 if status(rds, args.cluster) else 1
     else:

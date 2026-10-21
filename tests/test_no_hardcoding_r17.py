@@ -219,7 +219,7 @@ LEGACY_OR_REGION_ALLOWED = {
     "scripts/prove_boundary.py": ({"legacy"}, PROVING_GROUND),
     "scripts/teardown_sweep.py": ({"legacy"}, PROVING_GROUND),
     "terraform/proving-ground/operator-policy-boundary.json": ({"legacy", "region"}, PROVING_GROUND),
-    "terraform/proving-ground/operator-policy-rds-eks.json": ({"region"}, PROVING_GROUND),
+    "terraform/proving-ground/operator-policy-rds-eks.json": ({"legacy", "region"}, PROVING_GROUND),
     "terraform/proving-ground/operator-policy.json": ({"legacy", "region"}, PROVING_GROUND),
     "terraform/proving-ground/terraform.tfvars.example": ({"region"}, PROVING_GROUND),
     "terraform/proving-ground/variables.tf": ({"legacy"}, PROVING_GROUND),
