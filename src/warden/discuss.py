@@ -234,7 +234,7 @@ def said(answer: Answer, *, approver: bool, fresh: bool) -> str:
         text += "\n\n" + ("To have WARDEN diagnose it again and plan a fix, mention @WARDEN with \"new plan\" in this "
                           "thread; the plan still needs a passkey in the alerts channel." if approver else NOT_APPROVER)
     if answer.cites:
-        text += f"\n\n_Evidence cited: {', '.join(c for c in answer.cites[:12])}._"
+        text += f"\n\n_Evidence cited: {', '.join(answer.cites[:12])}._"
     text += "\n_Read " + ("now" if fresh else "as at the alarm") + " - WARDEN changes nothing from this channel._"
     return text
 
