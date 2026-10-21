@@ -51,6 +51,7 @@ def _note(text: str) -> None:
 _PLAN_ROW = "remediation.plan"
 _END_ROW = "workflow.end"
 _ACCEPTED_ROW = "approval.accepted"
+_EXTEND_ASKED = "discuss.extend"  # one row per Slack message that asked for an extension (U3-8)
 _REPORT_ROW = "incident.report"
 _ANNOUNCE_ROW = "remediation.announce"
 _ALERT_ROW = "incident.alert"
@@ -334,7 +335,7 @@ def _refused_before(log: audit.AuditLog, thread: str, asked: str) -> dict[str, A
     """The refusal this Slack message already got, from the discussion's record ({} when none): a retried "extend"
     that was refused stays refused - it does not extend a plan made since (CodeRabbit, PR 182). An extension it got
     is answered from its own row (extend.answered)."""
-    for e in log.entries(thread, kinds=("discuss.extend",)):
+    for e in log.entries(thread, kinds=(_EXTEND_ASKED,)):
         if e["body"].get("asked") == asked and e["body"].get("why"):
             return {k: e["body"][k] for k in ("why", "workflow_id", "until") if e["body"].get(k)}
     return {}
@@ -2025,11 +2026,11 @@ class DiscussActivities:
         else:
             got = extend.request(self.audit, self.policy, incident=incident, user=turn.user, hours=hours,
                                  now=datetime.now(UTC), asked=asked)
-        self.audit.append_unless(thread, "discuss.extend", {
+        self.audit.append_unless(thread, _EXTEND_ASKED, {
             "run_id": _run_id(), "user": turn.user, "asked": asked, "ts": turn.ts, "hours": hours,
             "why": got.get("why", ""), "workflow_id": got.get("workflow_id", ""), "until": got.get("until", "")},
             lambda: "recorded" if any(e["body"].get("asked") == asked
-                                      for e in self.audit.entries(thread, kinds=("discuss.extend",))) else "")
+                                      for e in self.audit.entries(thread, kinds=(_EXTEND_ASKED,))) else "")
         if got.get("until"):
             got["until_said"] = environments.both_times(datetime.fromisoformat(got["until"]), seconds=False)
         return got
