@@ -424,3 +424,16 @@ def test_the_act_zone_reads_github_with_its_own_token_and_the_read_zone_with_the
     monkeypatch.setenv("WARDEN_GITHUB_READ_TOKEN", "read-" + "y")
     monkeypatch.delenv("WARDEN_GITHUB_ACTIONS_TOKEN", raising=False)
     assert infra._read_token() == "read-y"
+
+
+def test_the_tokens_documented_scope_covers_the_reads_the_act_zone_makes():
+    """The act zone re-reads the branch head (GET /branches, Contents: Read) and the runs (Actions) with this token
+    before it dispatches (Actions: write): a token without Contents: Read would refuse every restore (review, PR 113)."""
+    ops = (ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+    rows = [line for line in ops.splitlines() if line.startswith("| `WARDEN_GITHUB_ACTIONS_TOKEN` |")]
+    assert len(rows) == 2
+    for row in rows:
+        assert "**Actions: Read and write**" in row
+        assert "**Contents: Read**" in row
+    assert "Actions: Read and write, and Contents:\n    #                         Read" in (MODULE / "secrets.tf").read_text(
+        encoding="utf-8")

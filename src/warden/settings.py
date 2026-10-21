@@ -94,7 +94,8 @@ LOADABLE = frozenset({
     "WARDEN_ELDANE_KEY",
     # B17, infra_restore_baseline (platforms/infra.py): each environment's Terraform state bucket, `env=bucket`, plain -
     # unset, the infra platform reads nothing and every such plan is refused. The token that may dispatch the deploy
-    # workflow (fine-grained, Actions: write on the one repository) is a secret, the act zone's alone.
+    # workflow (fine-grained, Actions: Read and write and Contents: Read on the one repository) is a secret, the act
+    # zone's alone.
     "WARDEN_TF_STATE_BUCKETS", "WARDEN_GITHUB_ACTIONS_TOKEN",
 })
 
