@@ -15,7 +15,8 @@ calls and nothing else; whether a change may be written at all is the code gate'
   branch moved since WARDEN read it.
 - **Branches.** WARDEN writes only to branches under `warden/` that it creates; it never commits to, or opens a pull
   request into, a `warden/` branch from anything else, and never writes to any other branch. A pull request's base is
-  the environment's own branch, which a person or the later auto-merge checks merge.
+  the repository's default branch, where CI runs (`main`: dev and prod receive only what it has checked), merged by a
+  person or, in phase 4 and never for prod, by the checks.
 - **The wire.** One fixed host (api.github.com) over HTTPS with the system's certificate checks; every call has a
   timeout; a reply over 4 MB is refused. No token, key or reply text is ever put in an error or a log line.
 """
@@ -306,7 +307,7 @@ class RepoWriter:
     def open_pull_request(self, *, head: str, base: str, title: str, body: str) -> tuple[int, str]:
         """A pull request from WARDEN's branch into `base`; its number and address."""
         if not _BASE.fullmatch(base or "") or base.startswith(BRANCH_PREFIX.rstrip("/")):
-            raise GitHubAppError("a pull request's base must be an environment's own branch")
+            raise GitHubAppError("a pull request's base must be one of the repository's own branches, never WARDEN's")
         status, got = self._call("POST", "/pulls", {"head": _branch(head), "base": base,
                                                      "title": _line(title, "the title"), "body": body,
                                                      "maintainer_can_modify": False})

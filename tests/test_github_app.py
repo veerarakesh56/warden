@@ -320,7 +320,7 @@ def test_a_pull_request_from_warden_into_an_environment_branch():
 @pytest.mark.parametrize("base", ["warden/fix/x", "warden", "", "dev/x", "../dev"])
 def test_a_pull_request_base_is_never_a_warden_branch(base):
     writer = RepoWriter(token(), api=fake_api((201, {"number": 1}))[0])
-    with pytest.raises(GitHubAppError, match="environment's own branch"):
+    with pytest.raises(GitHubAppError, match="never WARDEN's"):
         writer.open_pull_request(head="warden/x", base=base, title="t", body="")
 
 
