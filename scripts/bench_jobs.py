@@ -264,7 +264,8 @@ def dry_client(model: str):
 def answer(model: str, cases: list[Case], repeats: int, out: pathlib.Path, budget: HardBudget,
            log: Callable[[str], None] = print) -> dict:
     """Every case `repeats` times by `model` into out/<model>/r<n>/<set>/<id>.json, graded from the key. An answer
-    already on disk is kept (a restarted run pays once); one the budget did not reach is an unanswered row."""
+    already on disk is kept (a restarted run pays once; the spend shown is this run's); one the budget did not reach
+    is an unanswered row."""
     from heldout_bench import score
     from replay_diagnose import UNAVAILABLE, rediagnose
 
@@ -363,7 +364,8 @@ def docs_row(job: str, s: dict, when: dt.datetime, prompt: str, vs: dict | None,
         other = f"vs {vs['model']}: {vs['fixed']} better, {vs['broke']} worse, p={vs['p']:.2f}"
         if not _MODEL.fullmatch(vs["model"]):
             raise ValueError("a model id is lowercase words and numbers joined by - or .")
-    cells = [both_times(when), f"{job} (dry run)" if dry_run else job, s["model"], f"{s['answers']} ({s['cases']} x {s['repeats']})", str(s["correct"]),
+    cells = [both_times(when), f"{job} (dry run)" if dry_run else job, s["model"],
+             f"{s['answers']} ({s['cases']} x {s['repeats']})", str(s["correct"]),
              f"{s['pass_k']} of {s['cases']}" if s["repeats"] > 1 else "-", str(s["cited_cause"]),
              str(s["outcome_right"]), str(s["harm_allowed"]), str(s["unanswered"]),
              f"{s['spent_usd']:.2f} / {s['budget_usd']:.2f}", other, prompt]
@@ -390,6 +392,19 @@ def with_rows(text: str, rows: list[str]) -> str:
 
 def _fingerprint(path: pathlib.Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def same_run(out: pathlib.Path, job: str, dry_run: bool) -> None:
+    """--out holds one job's answers of one kind: a restart continues it, and a paid run never takes over a dry run's
+    mock answers (nor the reverse) as if they were the model's."""
+    mark, kind = out / "run.json", {"job": job, "dry_run": dry_run}
+    if mark.exists() and json.loads(mark.read_text(encoding="utf-8")) != kind:
+        raise SystemExit(f"{out} holds another run's answers ({mark.read_text(encoding='utf-8').strip()}); "
+                         "use a new --out")
+    if not mark.exists() and out.exists() and any(out.iterdir()):
+        raise SystemExit(f"{out} is not empty and is no bench run's; use a new --out")
+    out.mkdir(parents=True, exist_ok=True)
+    mark.write_text(json.dumps(kind), encoding="utf-8")
 
 
 def run(job: str, a: argparse.Namespace) -> int:
@@ -419,7 +434,7 @@ def run(job: str, a: argparse.Namespace) -> int:
     from qualify_provider import prompt_fingerprint
 
     prompt = prompt_fingerprint()[:8]
-    out.mkdir(parents=True, exist_ok=True)
+    same_run(out, job, a.dry_run)
     done, sums = {}, []
     make = dry_client if a.dry_run else live_client
     for m, r in zip(models, rows, strict=True):

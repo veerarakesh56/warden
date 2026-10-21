@@ -255,6 +255,26 @@ def test_a_bench_that_finds_providers_yaml_changed_fails(few, no_key, tmp_path, 
                        secrets_client=_NoSecrets())
 
 
+def test_a_paid_run_never_takes_over_a_dry_runs_mock_answers(few, no_key, tmp_path, monkeypatch):
+    out = tmp_path / "o"
+    dry = ["bench", "--model", A, "--budget-usd", "5", "--dry-run", "--out", str(out)]
+    assert cloud_run.main(dry, secrets_client=_NoSecrets()) == 0
+    assert cloud_run.main(dry, secrets_client=_NoSecrets()) == 0  # a restart of the same run continues it
+
+    def never(model):
+        raise AssertionError("a paid client was made")
+
+    monkeypatch.setattr(bench_jobs, "live_client", never)
+    with pytest.raises(SystemExit, match="another run's answers"):
+        cloud_run.main(["bench", "--model", A, "--budget-usd", "5", "--out", str(out)], secrets_client=_Secrets())
+    other = tmp_path / "not-a-bench"
+    other.mkdir()
+    (other / "notes.txt").write_text("x", encoding="utf-8")
+    with pytest.raises(SystemExit, match="not empty"):
+        cloud_run.main(["bench", "--model", A, "--budget-usd", "5", "--dry-run", "--out", str(other)],
+                       secrets_client=_NoSecrets())
+
+
 def test_results_are_never_written_inside_the_repository(few, no_key, capsys):
     code = cloud_run.main(["bench", "--model", A, "--budget-usd", "5", "--dry-run", "--out", str(ROOT / "bench-out")],
                           secrets_client=_NoSecrets())
