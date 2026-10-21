@@ -990,25 +990,29 @@ def _render_markdown(d: dict) -> str:
 
     review = d.get("review") or {}
     if review.get("findings") or review.get("pull_requests"):
+        # Every value is from a typed line, but a log line of the same shape can carry any printable character: each is
+        # shown in inline code; only WARDEN's own fixed labels (_TOOL_NAMES, _FINDING_STATUS) are not (CodeRabbit).
         lines.append("## Code review's findings on the deployed change  (suspects, not proof)")
         for f in review.get("findings") or []:
             where = f"{f.get('file', '?')}" + (f":{f['line']}" if f.get("line") else "")
-            what = ", ".join(x for x in (_TOOL_NAMES.get(f.get("tool", ""), f.get("tool", "")),
-                                         f"rule {_c(f['rule'])}" if f.get("rule") else "", f.get("severity", ""),
-                                         f.get("category", "")) if x)
-            lines.append(f"- **{_FINDING_STATUS.get(f.get('status', ''), 'Finding')}**: PR #{f.get('pr', '?')} "
+            tool = f.get("tool", "")
+            what = ", ".join(x for x in (_TOOL_NAMES.get(tool) or _c(tool),
+                                         f"rule {_c(f['rule'])}" if f.get("rule") else "",
+                                         _c(f["severity"]) if f.get("severity") else "",
+                                         _c(f["category"]) if f.get("category") else "") if x)
+            lines.append(f"- **{_FINDING_STATUS.get(f.get('status', ''), 'Finding')}**: PR #{_c(f.get('pr', '?'))} "
                          f"(commit {_c(f.get('commit', '?'))}), {what} - {_c(where)}"
                          + (f" - the path matches service {_c(f['maybe_service'])} (a guess from the file name)"
                             if f.get("maybe_service") else ""))
         for pr in review.get("pull_requests") or []:
-            said = [f"read {pr.get('read', 'none').replace(',', ', ')}",
-                    f"{pr.get('shown', '0')} shown of {pr.get('found', '0')} found"]
+            said = [f"read {_c(pr.get('read', 'none').replace(',', ', '))}",
+                    f"{_c(pr.get('shown', '0'))} shown of {_c(pr.get('found', '0'))} found"]
             if pr.get("held", "0") != "0":
-                said.append(f"{pr['held']} held back - its text read like an instruction or failed a check, so WARDEN "
-                            "did not use it")
+                said.append(f"{_c(pr['held'])} held back - its text read like an instruction or failed a check, so "
+                            "WARDEN did not use it")
             if pr.get("coderabbit_review"):
-                said.append(f"CodeRabbit's last review: {pr['coderabbit_review']}")
-            lines.append(f"- PR #{pr.get('pr', '?')}: " + "; ".join(said) + ".")
+                said.append(f"CodeRabbit's last review: {_c(pr['coderabbit_review'])}")
+            lines.append(f"- PR #{_c(pr.get('pr', '?'))}: " + "; ".join(said) + ".")
         lines.append("- A finding is a lead for the developers, never proof of the cause: WARDEN's gate does not let "
                      "one justify a fix. What could not be read is listed under \"could NOT read\".")
         lines.append("")
