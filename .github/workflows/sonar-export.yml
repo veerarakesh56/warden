@@ -51,23 +51,3 @@ jobs:
                   comp = i["component"].split(":", 1)[-1]
                   msg = i["message"].replace("\n", " ")[:300]
                   print(f"PR{pr}|{i['rule']}|{comp}|{i.get('line', '')}|{i['key']}|{i.get('issueStatus')}|{msg}")
-          for quality in ("SECURITY", "RELIABILITY", "MAINTAINABILITY"):
-              page, seen = 1, 0
-              while True:
-                  d = get(f"{base}&impactSoftwareQualities={quality}&p={page}")
-                  if page == 1:
-                      print(f"=== {quality} total={d['total']}")
-                  for i in d["issues"]:
-                      imp = ",".join(f"{x['softwareQuality'][0]}{x['severity'][0]}" for x in i.get("impacts", []))
-                      comp = i["component"].split(":", 1)[-1]
-                      msg = i["message"].replace("\n", " ")[:200]
-                      print(f"{quality[0]}|{i['rule']}|{imp}|{comp}|{i.get('line', '')}|{i['key']}|{i.get('issueStatus')}|{msg}")
-                  seen += len(d["issues"])
-                  if seen >= d["total"] or not d["issues"] or page >= 20:
-                      break
-                  page += 1
-          h = get("https://sonarcloud.io/api/hotspots/search?projectKey=veerarakesh56_warden&status=TO_REVIEW&ps=500")
-          print(f"=== HOTSPOTS to review total={h['paging']['total']}")
-          for i in h["hotspots"]:
-              comp = i["component"].split(":", 1)[-1]
-              print(f"H|{i['ruleKey']}|{i['vulnerabilityProbability']}|{comp}|{i.get('line', '')}|{i['key']}|{i['message'][:200]}")
