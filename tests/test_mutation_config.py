@@ -71,9 +71,10 @@ def test_a_pull_request_that_changes_a_safety_module_or_the_setup_runs_it():
 def test_the_copy_mutmut_tests_in_deselects_only_repository_checks():
     """The suite mutmut runs is the unit suite; what it leaves out is named, and none of it tests a safety module."""
     selection = _pyproject()["tool"]["mutmut"]["pytest_add_cli_args_test_selection"]
-    assert selection[:2] == ["tests/", "--ignore=tests/integration"]
-    deselected = [a.removeprefix("--deselect=") for a in selection[2:]]
-    assert all(a.startswith("--deselect=tests/") for a in selection[2:])
+    # This file reads pyproject's only_mutate, which each CI job narrows to its module in its own copy.
+    assert selection[:3] == ["tests/", "--ignore=tests/integration", "--ignore=tests/test_mutation_config.py"]
+    deselected = [a.removeprefix("--deselect=") for a in selection[3:]]
+    assert all(a.startswith("--deselect=tests/") for a in selection[3:])
     stems = {d.split("::")[0].removeprefix("tests/test_").removesuffix(".py") for d in deselected}
     assert not any(m.removesuffix(".py") in s for m in SAFETY for s in stems), stems
     assert len(deselected) <= 6, deselected
@@ -97,7 +98,7 @@ def test_every_deselected_test_exists():
     """A renamed test would leave its --deselect pointing at nothing, and the renamed test would run in mutmut's copy,
     where a repository check cannot hold: each deselected id names a test function in its file."""
     selection = _pyproject()["tool"]["mutmut"]["pytest_add_cli_args_test_selection"]
-    for arg in selection[2:]:
+    for arg in selection[3:]:
         path, name = arg.removeprefix("--deselect=").split("::")
         assert f"def {name}(" in (ROOT / path).read_text(encoding="utf-8"), arg
 

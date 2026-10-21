@@ -282,6 +282,9 @@ also_copy = ["conftest.py", "evals/", "scenarios/", "scripts/", "docs/", "iam/",
 # the package check meets mutmut's own files next to the source.
 pytest_add_cli_args_test_selection = [
     "tests/", "--ignore=tests/integration",
+    # The mutation setup's own tests: each CI job narrows only_mutate to its module (scripts/mutation_ci.py narrow),
+    # so in that job's copy they read a one-module list by construction.
+    "--ignore=tests/test_mutation_config.py",
     "--deselect=tests/test_tamper_n8.py::test_the_pinned_hashes_match_the_files",
     "--deselect=tests/test_mutation_anchors.py::test_every_mutation_anchor_exists_exactly_once",
     "--deselect=tests/test_check_publishable.py::test_no_path_is_exempt_from_the_scan",
