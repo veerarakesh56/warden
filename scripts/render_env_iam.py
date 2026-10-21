@@ -47,7 +47,10 @@ def _install() -> dict[str, str]:
             "github_subject": cfg.github.get("subject", ""), "runtime_branch": cfg.github.get("runtime_branch", "")}
 
 
-def render(env: str, account: str = "<ACCOUNT_ID>", cluster: str = "<CLUSTER_RESOURCE_ID>") -> dict[str, str]:
+ACCOUNT_PLACEHOLDER = "<ACCOUNT_ID>"  # what a committed file holds where the account goes
+
+
+def render(env: str, account: str = ACCOUNT_PLACEHOLDER, cluster: str = "<CLUSTER_RESOURCE_ID>") -> dict[str, str]:
     """{kind: JSON text} for one environment. substitute() fails on any unknown placeholder. `cluster` is the
     environment's Aurora cluster resource id (stack.json `aurora_cluster_resource_id`), for the harness policy."""
     out = {}
@@ -70,7 +73,7 @@ def runtime_environment() -> str:
     return EnvironmentPolicies.load().runtime_environment
 
 
-def render_runtime(env: str, account: str = "<ACCOUNT_ID>") -> dict[str, str]:
+def render_runtime(env: str, account: str = ACCOUNT_PLACEHOLDER) -> dict[str, str]:
     """{kind: JSON text} for the runtime environment, from iam/templates/runtime-<kind>.json."""
     out = {}
     for kind in RUNTIME_KINDS:
@@ -100,8 +103,12 @@ def main(argv: list[str] | None = None) -> int:
         for kind, text in render(env).items():
             (d / f"{kind}.json").write_text(text, encoding="utf-8", newline="\n")
         if account:
-            for kind in TRUSTS:
-                (d / f"{kind}.local.json").write_text(render(env, account)[kind], encoding="utf-8", newline="\n")
+            # Every file that names the account (the trusts, and the actor's rds-db:connect - review, PR 48) gets a
+            # git-ignored render with it; the committed one keeps <ACCOUNT_ID>.
+            mine = render(env, account)
+            for kind, text in render(env).items():
+                if ACCOUNT_PLACEHOLDER in text and kind not in ("harness", "harness-trust"):
+                    (d / f"{kind}.local.json").write_text(mine[kind], encoding="utf-8", newline="\n")
             if env in HARNESS_ENVS:
                 (d / "harness-trust.local.json").write_text(render(env, account)["harness-trust"], encoding="utf-8", newline="\n")
         if args.cluster_resource_id and env in HARNESS_ENVS:

@@ -175,6 +175,43 @@ def resolve_backend(name: str | None = None):
     return base
 
 
+def github_read_token() -> str:
+    """The read zone's read-only GitHub token (warden/<env>/github-read-token): the deploy's commits and the findings on
+    its pull request; "" reads a public repository unauthenticated. The one place it is taken: a GitHub App's
+    short-lived installation token (register B4) replaces this when the App exists."""
+    return os.environ.get("WARDEN_GITHUB_READ_TOKEN", "").strip()
+
+
+def _change_repo() -> str:
+    """The repository whose deploys and pull requests are read: WARDEN_CHANGE_REPO, else environments.yaml's."""
+    from .environments import default_environment_policies
+
+    return (os.environ.get("WARDEN_CHANGE_REPO", "").strip()
+            or str(default_environment_policies().github.get("repository", "")))
+
+
+def _env_count(name: str, default: int, ceiling: int) -> int:
+    """A count from the environment: ASCII digits only (`isdigit` also takes "²", which int() refuses), at most
+    `ceiling`; a long string is never converted to find out (CodeRabbit, PR 41)."""
+    raw = os.environ.get(name, "").strip()
+    if not (raw.isascii() and raw.isdecimal()):
+        return default
+    digits = raw.lstrip("0") or "0"
+    return ceiling if len(digits) > len(str(ceiling)) else min(int(digits), ceiling)
+
+
+def _findings_reader(base: Any) -> Any:
+    """Code review's findings on the deploy's pull request (findings.py), read in the read zone like the commits."""
+    from .findings import CEILING_PER_PR, CEILING_PRS, MAX_PER_PR, MAX_PRS, FindingsReader
+
+    return FindingsReader(
+        base, repo=_change_repo(), token=github_read_token(),
+        sonar_project=os.environ.get("WARDEN_SONAR_PROJECT", "").strip(),
+        sonar_token=os.environ.get("WARDEN_SONAR_TOKEN", "").strip(),
+        max_prs=_env_count("WARDEN_FINDINGS_MAX_PRS", MAX_PRS, CEILING_PRS),
+        max_per_pr=_env_count("WARDEN_FINDINGS_MAX_PER_PR", MAX_PER_PR, CEILING_PER_PR))
+
+
 def evidence_tools(base: Any) -> list[Any]:
     """The observability tools read beside AWS: each that is configured - X-Ray (WARDEN_XRAY=1, over the incident's
     reader role), Grafana, Datadog - narrowed to WARDEN_EVIDENCE_TOOLS when it names some (the live comparison runs
@@ -188,12 +225,11 @@ def evidence_tools(base: Any) -> list[Any]:
 
         readers.append(XRayReader(lambda alert: base._incident(alert)._clients["xray"]))
     if os.environ.get("WARDEN_COMMITS", "").strip() == "1":
-        from .environments import default_environment_policies
         from .timeline import CommitReader
 
-        repo = (os.environ.get("WARDEN_CHANGE_REPO", "").strip()
-                or str(default_environment_policies().github.get("repository", "")))
-        readers.append(CommitReader(base, repo=repo, token=os.environ.get("WARDEN_GITHUB_READ_TOKEN", "").strip()))
+        readers.append(CommitReader(base, repo=_change_repo(), token=github_read_token()))
+    if os.environ.get("WARDEN_FINDINGS", "").strip() == "1":
+        readers.append(_findings_reader(base))
     if grafana.configured():
         readers.append(grafana.GrafanaReader())
     if datadog.configured():
