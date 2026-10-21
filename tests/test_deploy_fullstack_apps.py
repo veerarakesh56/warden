@@ -607,9 +607,31 @@ def test_a_rotation_changes_the_externalsecret_and_nothing_else_does(tmp_path, m
     assert 'warden.dev/key-version: "v2"' in rotated
 
 
-def test_no_current_key_version_stops_the_deploy(monkeypatch):
+def test_no_current_key_version_stops_the_deploy_before_eso_and_the_externalsecret(tmp_path, monkeypatch):
+    """CodeRabbit (PR 118): through deploy_k8s - no AWSCURRENT version, no ESO install and no ExternalSecret."""
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/warden")
     clients = {"secretsmanager": Fake({"describe_secret": {"VersionIdsToStages": {"v1": ["AWSPREVIOUS"]}}})}
+    run = Runner({"kustomize": _pipeline_render(), "get application shop": _synced()})
     aws = aws_factory(clients)
     with pytest.raises(SystemExit, match="has no current version"):
-        tool.signing_key_version(STACK, aws)
+        tool.deploy_k8s(STACK, "abc123", tmp_path, aws, run, revision=REV, sleep=lambda s: None)
+    assert "external-secrets" not in [c[3] for c in run.cmds if c[:3] == ["helm", "upgrade", "--install"]]
+    assert not [i for i in run.inputs if i and "kind: ExternalSecret" in i]
+
+
+def test_an_externalsecret_that_does_not_sync_stops_the_deploy_with_its_status(tmp_path, monkeypatch):
+    """CodeRabbit (PR 118): said at the step, by name, with ESO's own conditions."""
+    class Failing(Runner):
+        def __call__(self, cmd, *, input=None):
+            if "wait" in cmd and "externalsecret/catalog-secret" in cmd:
+                self.cmds.append(cmd)
+                raise SystemExit("kubectl exited 1")
+            return super().__call__(cmd, input=input)
+
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/warden")
+    run = Failing({"kustomize": _pipeline_render(), "jsonpath={.status.conditions}": '[{"reason":"SecretSyncedError"}]'})
+    aws = aws_factory({"secretsmanager": Fake(KEY_STAGES)})
+    with pytest.raises(SystemExit, match="catalog-secret was not synced by ESO .*SecretSyncedError"):
+        tool.deploy_k8s(STACK, "abc123", tmp_path, aws, run, revision=REV, sleep=lambda s: None)
+    assert not [i for i in run.inputs if i and "kind: Application" in i]  # the shop is not synced over it
 

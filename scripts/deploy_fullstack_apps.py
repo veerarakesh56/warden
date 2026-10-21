@@ -393,6 +393,20 @@ def deploy_secret_sync(kubeconfig: str, out: pathlib.Path, run=run) -> None:
                            kubeconfig, out, run)
 
 
+def catalog_secret_synced(kubeconfig: str, run=run) -> None:
+    """The ExternalSecret has copied the key - said here, by name, not found later as catalog-api waiting for its
+    Secret behind Argo CD's health (a missing ESO role or Pod Identity association; CodeRabbit, PR 118)."""
+    try:
+        run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "wait", "--for=condition=Ready",
+             "externalsecret/catalog-secret", "--timeout=180s"])
+    except SystemExit:
+        status = run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "get", "externalsecret", "catalog-secret",
+                      "-o", "jsonpath={.status.conditions}"])
+        raise SystemExit(f"catalog-secret was not synced by ESO (its role, its Pod Identity association, the secret?): "
+                         f"{status}") from None
+    print("catalog-secret: synced by ESO", flush=True)
+
+
 def signing_key_version(stack: dict, aws) -> str:
     """The Secrets Manager version catalog-api's key is at (AWSCURRENT). It goes into the ExternalSecret's spec, so a
     rotation - and only a rotation - makes ESO copy the key (refreshPolicy OnChange, k8s/shop-pipeline)."""
@@ -541,6 +555,7 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision:
     deploy_secret_sync(kubeconfig, out, run=run)
     manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S_PIPELINE)]), values)
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)
+    catalog_secret_synced(kubeconfig, run)
     # The workloads: Argo CD syncs manifests/shop/<env> at exactly this commit, with this commit's image, by digest.
     rev = revision or commit()
     app = render(SHOP_APP.read_text(encoding="utf-8"), {
