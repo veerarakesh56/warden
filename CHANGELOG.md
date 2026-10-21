@@ -7,12 +7,62 @@ bump may carry a breaking change.
 
 ## [Unreleased] - becomes 0.10.1 (G1, security-critical fixes)
 
+### Added (Kubernetes and the database in the cloud runtime, PR 48, 2026-10-17)
+- **The read and act zones connect Kubernetes and the database** (`--platform aws,k8s,db`): reads in each watched
+  environment's platform-reader role, every write in the approved plan's own actor session (EKS: group
+  `warden-remediators`, bound in `shop` only; database: the `warden_<env>_terminate` login, an IAM token, no
+  password). An environment with no cluster or database configured reads and changes nothing; its plans go to a
+  person.
+- **Register C4, one exception (owner, 2026-10-17):** a restart of a Deployment whose Argo CD Application, read live,
+  ignores the restart annotation. Anything else on a Git-managed workload stays refused.
+- Review fixes: a database close goes ahead only on the Aurora cluster the approved plan was read from (writer
+  endpoints compared, never raw hosts), over TLS verified against Amazon RDS's certificate authorities
+  (`data/rds-ca-bundle.crt`); a JSON Pointer is compared by whole segments (`/`, `/spec/` are no proof); an EKS client
+  is made again before the credentials that signed its token can expire (240 s); the shipped remediation RoleBinding
+  names the ServiceAccount only (CI binds the actor's group from `k8s/ci/`); the runtime's NAT addresses are looked
+  up by its tags and region too; the actor's `rds-db:connect` names the account (`actor.local.json` from
+  `scripts/render_env_iam.py --account`).
+
+### Added (diagnosis and poisoned logs, items 7 and 10, 2026-10-17)
+- **Ranked hypotheses.** The one diagnose call returns 2 to 4 candidate causes, each with citations for and against
+  (`RootCause.hypotheses`). The report shows the chosen cause and each rejected one with why and WARDEN's own count.
+  New gate policies: `P34-NO-DECISIVE-EVIDENCE` (the chosen cause needs a held metric, deploy or configuration/state
+  citation - never only log facts or failed reads), `P35-NO-RIVAL-HYPOTHESIS` and `P35-HYPOTHESES-TOO-CLOSE` (a rule
+  over the held citations, never the model's confidence; escalated with both causes). A citation of the chosen
+  cause's own support that does not hold is ungrounded (P13). Answers recorded before this keep their verdicts (P35
+  does not apply to them). **The prompt changed and has not been qualified on a model yet.**
+- **Poisoned-log eval** (`evals/poisoned_logs.py`, `evals/test_poisoned_logs.py`): eleven planted payloads in the
+  styles of Pasquini et al. (USENIX Security 2026), a model that follows them, dev and prod; a `--live` variant (costs
+  money, off by default). 42 of 44 runs held; the 2 that reach the approver are the rollback the evidence also
+  supports, with no plan or report naming the payload's version (docs/BENCHMARKS.md).
+  `P36-NO-ACTION-DESPITE-SIGNATURE` (enforced, owner 2026-10-17) escalates "nothing to do" while WARDEN's own failure
+  signatures describe what WARDEN read (never the alert's own name or summary): it stops the one attack that passed
+  every layer (a followed "expected during maintenance" close). Cost, from the held-out keys alone: of the 33 cases a
+  person may close, 11 now go to a person (G9 4 of 8, G10 7 of 25); each of those keys accepts the hand-off.
+- **No unread version, tag, ARN or target in the report or Slack** (owner, 2026-10-17): the model's words, the log
+  lines shown and a crashed container's output are stripped of any version, image tag (`checkout:canary` too), ARN
+  or resource name WARDEN did not read itself; a rollback names "the previous revision WARDEN recorded"; a command
+  in a shown log line is withheld (G4). The verifier still sees the model's words as written.
+
+### Changed (a model is qualified on the prompt it was measured with, review of PR 47)
+- `providers.qualified` admits a provider and model only through a row measured on today's pinned prompt. **Until
+  the item 7 prompt is qualified (`scripts/qualify_provider.py` in the cloud runtime), every model is refused and
+  each incident gets the rules-only diagnosis, escalated to a person** (register M19); a Slack discussion answers
+  that no answer could be had instead of failing.
+
 ### Changed (the bench approver, 2026-10-16)
 - **The bench approver approves only in a nonprod environment, enforced by WARDEN.** A signed approval, a passkey
   approval or a signed denial from the bench approver (`bench`, or an entry labelled "bench approver") is refused
   in any environment that is not of the nonprod tier in `environments.yaml`, whatever its entry in the approver list
   names (`approvals.environment_refusal`, one rule for every path). `scripts/bench_approve.py --new-key` refuses any
   environment but a nonprod one and writes no key.
+
+### Removed (dead commands, owner B27)
+- **Breaking (CLI):** `warden run --principal/--approve` (an in-process gate whose only backend was a dry run),
+  `warden run --emit-chatops` and the `warden incident` command are gone, with `src/warden/remediation.py` and the
+  report's `## Remediation` input. Each is now a usage error. A live change has one path, the RemediationWorkflow
+  behind a signed approval (decision D16); `warden run --report` still prints the report and sends nothing. The MCP
+  tool `gather_incident_context` now says what it does: it reads the bundled demo recordings only, never a live system.
 
 ### Added (Slack per environment, owner 2026-10-16)
 - **Each environment's incidents go only to its own Slack channels.** New plain settings `WARDEN_SLACK_CHANNELS`

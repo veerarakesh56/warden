@@ -75,8 +75,10 @@ DB_PASSWORD="$("$PY" -c 'import secrets,string; a=string.ascii_letters+string.di
 # --------------------------------------------------------------------------- teardown trap
 
 destroyed=0
+TUNNEL_PID=""
 teardown() {
   local rc=$?
+  [[ -n "$TUNNEL_PID" ]] && kill "$TUNNEL_PID" 2>/dev/null
   [[ "$destroyed" = "1" ]] && return $rc
   destroyed=1
   if [[ "$KEEP" = "1" ]]; then
@@ -115,7 +117,7 @@ terraform -chdir="$TF_DIR" init -input=false            2>&1 | tee -a "$OUT/run.
 terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
   -var "db_password=$DB_PASSWORD"                       2>&1 | tee -a "$OUT/run.log"
 
-tfout() { terraform -chdir="$TF_DIR" output -raw "$1"; }
+tfout() { local name="$1"; terraform -chdir="$TF_DIR" output -raw "$name"; }
 REGION="$(tfout region)"
 CLUSTER="$(tfout ecs_cluster)"
 SERVICE="$(tfout ecs_service)"
@@ -182,7 +184,7 @@ aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
     --query 'services[0].{running:runningCount,desired:desiredCount,pending:pendingCount}' \
     --output table | tee -a "$OUT/run.log"
 warden_run C-ecs-bad-deploy "ECS bad deploy — real OOM kills, rollback should be permitted" \
-    --principal role:oncall --report
+    --report
 
 # --------------------------------------------------------------------------- D: EKS
 
@@ -196,11 +198,16 @@ if [[ -n "$EKS_CLUSTER" ]]; then
   kubectl apply -f "$HERE/k8s/test/oom-workload.yaml"        2>&1 | tee -a "$OUT/run.log"
 
   # The same negative check CI runs on k3d, now on a cluster that enforces Pod Security for real.
-  if kubectl apply --dry-run=server -f "$HERE/k8s/test/privileged-must-fail.yaml" 2>"$OUT/reports/D-privileged-rejected.txt"; then
+  # The pod is built first, on its own: a generator failure must not read as Pod Security's refusal (CodeRabbit, PR 62).
+  "$PY" "$HERE/scripts/negative_pod.py" > "$OUT/privileged-pod.json" || die "scripts/negative_pod.py failed"
+  if kubectl apply --dry-run=server -f "$OUT/privileged-pod.json" 2>"$OUT/reports/D-privileged-rejected.txt"; then
     note "⛔ EKS ACCEPTED a privileged pod — Pod Security is not enforced on this namespace"
+  elif grep -q "violates PodSecurity" "$OUT/reports/D-privileged-rejected.txt"; then
+    note "✅ EKS rejected the privileged pod (violates PodSecurity)"
   else
-    note "✅ EKS rejected the privileged pod"
+    note "⛔ the privileged pod was refused for another reason - Pod Security NOT shown (see D-privileged-rejected.txt)"
   fi
+  rm -f "$OUT/privileged-pod.json"
 
   note "letting the workload OOM"
   sleep 90
@@ -218,6 +225,27 @@ fi
 DSN="$(terraform -chdir="$TF_DIR" output -raw db_dsn 2>/dev/null || true)"
 if [[ -n "$DSN" ]]; then
   log "E — RDS PostgreSQL"
+  # The database is private (Sonar terraform:S8793): the DSN points at 127.0.0.1, where an SSM port-forward through
+  # the lab's t4g.nano (terraform/proving-ground/db_tunnel.tf) carries it to RDS. No SSH, no inbound rule anywhere.
+  command -v session-manager-plugin >/dev/null 2>&1 \
+    || die "situation E needs the AWS CLI's Session Manager plugin (session-manager-plugin) on PATH"
+  TUNNEL_PORT="$(terraform -chdir="$TF_DIR" output -raw db_tunnel_local_port)"
+  # The agent registers with Systems Manager a minute or two after the instance starts; retry until it answers.
+  for _ in $(seq 1 30); do
+    # shellcheck disable=SC2046  # the output is the command's words, split on purpose
+    $(terraform -chdir="$TF_DIR" output -raw db_tunnel_command) >>"$OUT/tunnel.log" 2>&1 &
+    TUNNEL_PID=$!
+    for _ in $(seq 1 15); do
+      (exec 3<>"/dev/tcp/127.0.0.1/$TUNNEL_PORT") 2>/dev/null && break 2
+      kill -0 "$TUNNEL_PID" 2>/dev/null || break
+      sleep 2
+    done
+    kill "$TUNNEL_PID" 2>/dev/null || true
+    TUNNEL_PID=""
+    sleep 10
+  done
+  [[ -n "${TUNNEL_PID:-}" ]] || die "the database tunnel did not open (see $OUT/tunnel.log)"
+  note "database tunnel open on 127.0.0.1:$TUNNEL_PORT"
   # ⛔ The DSN carries the master password. It is scrubbed out of the transcript on the way past,
   # and aws_proof_bundle.py scrubs the whole bundle again afterwards. Two passes, because this is
   # the one value in the run that must never reach a published file.
@@ -225,6 +253,8 @@ if [[ -n "$DSN" ]]; then
     "$PY" -m warden.cli run --incident inc-005 --started-at now \
       --json "$OUT/reports/E-rds.json" --verbose 2>&1 \
     | sed "s#$DB_PASSWORD#********#g" | tee -a "$OUT/run.log"
+  kill "$TUNNEL_PID" 2>/dev/null || true
+  TUNNEL_PID=""
 else
   note "RDS disabled (enable_rds=false) — situation E skipped. Wave 1 does not need a database, and"
   note "an instance that exists during an ECS-only run is cost plus a month-sized tail risk."
