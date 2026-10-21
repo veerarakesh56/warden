@@ -95,7 +95,8 @@ def _run(world, drive, **req):
         acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"],
                                      limits=world.get("limits", bounds.DEFAULT_LIMITS), changes=world.get("changes"))
         methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
-                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert, acts.side_effects]
+                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert, acts.side_effects,
+                   acts.approval_wait, acts.approval_extension]
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[RemediationWorkflow], activities=methods,
                                activity_executor=ThreadPoolExecutor(4)):
             handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**{**REQ, **req}),
@@ -144,7 +145,8 @@ def test_an_approved_fix_is_applied_once_verified_and_fully_audited(world, owner
     kinds = [e["kind"] for e in world["log"].entries("inc-42")]
     assert "remediation.check" in kinds  # every real health check is on the record (fourth review)
     assert [k for k in kinds if k != "remediation.check"] == [
-        "remediation.plan", "remediation.gate", "remediation.announce", "approval.accepted", "remediation.announce",
+        "remediation.plan", "remediation.gate", "remediation.announce", "approval.wait", "approval.accepted",
+        "remediation.announce",
         "remediation.precheck",
         "lock.taken", "remediation.intent", bounds.APPLIED, bounds.RESULT, "remediation.announce", "workflow.end",
         "remediation.announce"]  # the approvers are told it is verified, and how it ended (G10-24)
@@ -554,3 +556,109 @@ def test_how_a_plan_ended_is_on_the_workers_log_with_no_typed_reason(world, capl
     with caplog.at_level(logging.INFO, logger="warden.incident"):
         acts.finish("inc-42", "rem-x", FixOutcome(status="denied", reasons=["denied by owner: typed words"], checklist={}))
     assert [r.getMessage() for r in caplog.records] == ["inc-42 fix plan rem-x ended denied approvers=-"]
+
+
+# ------------------------------------------------------------------ U3-8: an approver extends the wait
+
+
+SLACK_ID = "U" + "0" * 3 + "APPROV1"
+
+
+def _extended_run(world, owner, *, ask, approve_after):
+    """A plan that waits an hour; `ask(plan)` may record an extension while it waits; the clock is moved past the
+    hour; then, if `approve_after`, the owner approves it."""
+    world["policy"].approvers["owner"].slack = SLACK_ID
+
+    async def main():
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=CONVERTER)
+        acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
+        methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
+                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert,
+                   acts.side_effects, acts.approval_wait, acts.approval_extension]
+        async with env, Worker(env.client, task_queue=QUEUE, workflows=[RemediationWorkflow], activities=methods,
+                               activity_executor=ThreadPoolExecutor(4)):
+            handle = await env.client.start_workflow(RemediationWorkflow.run,
+                                                     FixRequest(**REQ, approval_ttl_minutes=60),
+                                                     id=f"rem-{uuid.uuid4()}", task_queue=QUEUE)
+            plan = await _until_awaiting_approval(handle)
+            ask(plan)
+            await env.sleep(timedelta(minutes=90))  # past the plan's own hour
+            still = await handle.query(RemediationWorkflow.stage)
+            later = await handle.query(RemediationWorkflow.plan)
+            if approve_after and still == "awaiting_approval":
+                await _approve_with(owner)(handle)
+            outcome = await handle.result()
+            world["history"] = await handle.fetch_history()
+            world["namespace"] = env.client.namespace
+            return still, later, outcome
+    return asyncio.run(main())
+
+
+def _extend(world, hours=24):
+    from warden import extend
+
+    def ask(plan):
+        got = extend.request(world["log"], world["policy"], incident="inc-42", user=SLACK_ID, hours=hours,
+                             now=datetime.now(UTC), asked="C" + "0" * 3 + "CHAN1/1760000000.000200")
+        assert not got.get("why"), got
+    return ask
+
+
+def test_an_approvers_extension_keeps_the_plan_waiting_past_its_time_and_it_is_still_checked_before_apply(world,
+                                                                                                         owner):
+    still, later, out = _extended_run(world, owner, ask=_extend(world), approve_after=True)
+    assert still == "awaiting_approval"
+    assert later.approval_ttl_minutes > 60 * 24  # it says its new time
+    assert out.status == "recovered"
+    assert out.checklist["prechecked"]  # the precheck still ran before apply
+    [wait] = world["log"].entries("inc-42", kinds=("approval.wait",))  # the run's own deadline, on the record
+    assert wait["body"]["workflow_id"] == later.workflow_id
+    kinds = [e["kind"] for e in world["log"].entries("inc-42")]
+    assert kinds.index("approval.extended") < kinds.index("approval.accepted") < kinds.index("remediation.precheck")
+    # The plan said its new time with fresh links when its first hour ran out: the request, the halfway reminder and
+    # then that one (CodeRabbit, PR 150: two were there without it).
+    assert _waiting(world) == 3
+    asyncio.run(Replayer(workflows=[RemediationWorkflow], data_converter=CONVERTER, namespace=world["namespace"])
+                .replay_workflow(world["history"]))
+
+
+def _waiting(world):
+    return sum(1 for e in world["log"].entries("inc-42", kinds=("remediation.announce",))
+               if e["body"].get("what") == "waiting")
+
+
+def test_without_an_extension_the_plan_expires_at_its_time(world, owner):
+    still, _, out = _extended_run(world, owner, ask=lambda plan: None, approve_after=True)
+    assert still == "expired"
+    assert out.status == "expired"
+    assert world["platform"].applied == []
+    assert _waiting(world) == 2  # the request and the halfway reminder only
+
+
+def test_an_extension_of_another_plan_does_not_keep_this_one(world, owner):
+    def ask(plan):
+        world["log"].append("inc-42", "approval.extended", {"workflow_id": plan.workflow_id, "plan_hash": "other",
+                                                            "until": (datetime.now(UTC) + timedelta(days=2)).isoformat()})
+    still, _, out = _extended_run(world, owner, ask=ask, approve_after=True)
+    assert still == "expired"
+    assert out.status == "expired"
+    assert world["platform"].applied == []
+
+
+def test_a_history_from_before_the_extension_patches_replays_on_this_code_and_expires(world, owner, monkeypatch):
+    """A run recorded by the code before U3-8 - its u38 patches answer False, as for a history without their markers
+    - replays on this code unchanged: no wait recorded, no extension read, and an extension on the record does not
+    keep it: it expires at its own time, as it did."""
+    from temporalio import workflow as temporal_workflow
+
+    real = temporal_workflow.patched
+    monkeypatch.setattr(temporal_workflow, "patched",
+                        lambda patch_id: False if patch_id.startswith("u38-") else real(patch_id))
+    still, _, out = _extended_run(world, owner, ask=_extend(world), approve_after=False)
+    monkeypatch.undo()
+    assert still == "expired"
+    assert out.status == "expired"
+    assert world["log"].entries("inc-42", kinds=("approval.wait",)) == []
+    assert world["platform"].applied == []
+    asyncio.run(Replayer(workflows=[RemediationWorkflow], data_converter=CONVERTER, namespace=world["namespace"])
+                .replay_workflow(world["history"]))
