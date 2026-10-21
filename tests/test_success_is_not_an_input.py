@@ -85,7 +85,8 @@ def test_a_replayed_healthy_result_does_not_verify_a_fix():
                 return await asyncio.wait_for(h2.result(), 120), platform, log
 
     out, platform, log = asyncio.run(main())
-    assert out.status == "rolled_back" and not out.checklist.get("verified"), (out.status, out.checklist)
+    assert out.status == "rolled_back", (out.status, out.checklist)
+    assert not out.checklist.get("verified"), (out.status, out.checklist)
     assert platform.rolled_back, "the unverified change was not rolled back"
     results = [e["body"] for e in log.entries(kinds=("remediation.result",))]
     assert results[-1].get("ok") is False, results

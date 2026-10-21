@@ -244,6 +244,15 @@ def similar(log: Any, incident: str, *, now: datetime | None = None, link: Any =
     fixes = {}
     for p in plans(log, now=now):  # newest first: each incident's latest plan
         fixes.setdefault(p["incident"], p)
+    alike = _alike(log, here, incident, now)
+    rows = [_similar_row(r, why, alike, here=here, fix=fixes.get(r.id), link=link) for r, why in alike]
+    return {"current": here, "rows": rows, "pattern": _pattern(here, rows, now)}
+
+
+def _alike(log: Any, here: Any, incident: str, now: datetime) -> list[tuple[Any, list[str]]]:
+    """The incidents like `here` in LOOKBACK, in its environment, newest first, each with why it is alike."""
+    from . import records
+
     alike = []
     for other in records.incident_ids(log)[:SIMILAR_SCAN]:
         if other == incident:
@@ -256,16 +265,18 @@ def similar(log: Any, incident: str, *, now: datetime | None = None, link: Any =
         if why:
             alike.append((r, why))
     alike.sort(key=lambda x: x[0].first, reverse=True)
-    rows = []
-    for r, why in alike:
-        fix = fixes.get(r.id)
-        after = [o for o, _ in alike if o.first > r.first] + ([here] if here.first > r.first else [])
-        nxt = min(after, key=lambda o: o.first) if after else None
-        rows.append({"incident": r.id, "at": r.first, "why": why, "status": r.status, "verdict": r.verdict,
-                     "action": r.action, "target": r.target, "fix": fix,
-                     "stable": nxt is None, "next": nxt.id if nxt else "", "next_at": nxt.first if nxt else None,
-                     "link": link(r.id) if link else ""})
-    return {"current": here, "rows": rows, "pattern": _pattern(here, rows, now)}
+    return alike
+
+
+def _similar_row(r: Any, why: list[str], alike: list[tuple[Any, list[str]]], *, here: Any, fix: Any,
+                 link: Any) -> dict[str, Any]:
+    """One like incident: what was done and how it ended, and whether one like it came after (stable when not)."""
+    after = [o for o, _ in alike if o.first > r.first] + ([here] if here.first > r.first else [])
+    nxt = min(after, key=lambda o: o.first) if after else None
+    return {"incident": r.id, "at": r.first, "why": why, "status": r.status, "verdict": r.verdict,
+            "action": r.action, "target": r.target, "fix": fix,
+            "stable": nxt is None, "next": nxt.id if nxt else "", "next_at": nxt.first if nxt else None,
+            "link": link(r.id) if link else ""}
 
 
 def _pattern(here: Any, rows: list[dict[str, Any]], now: datetime) -> list[str]:
@@ -302,19 +313,28 @@ def similar_text(found: dict[str, Any], *, title: str = "Seen before - WARDEN's 
         lines.append(f"*{title}*: nothing like it in the last {LOOKBACK.days} days.")
     else:
         lines.append(f"*{title}*: {len(rows)} like it in the last {LOOKBACK.days} days.")
-        for r in rows[:SIMILAR_MOST]:
-            fix = r["fix"]
-            done = (f"`{fix['entry']}` on `{fix.get('shown') or fix['target']}` {ENDED.get(fix['status'], fix['status'])}"
-                    + (f" · approved by {', '.join(f'@@{a}@@' for a in fix['approvers'])}" if fix["approvers"] else "")
-                    if fix else (f"proposed `{r['action']}`, {r['status'].lower()}" if r["action"] else r["status"]))
-            stable = ("no incident like it since" if r["stable"]
-                      else f"came back {both_times(r['next_at'], seconds=False)} (`{r['next']}`)")
-            ref = f"<{r['link']}|{r['incident']}>" if r["link"] else f"`{r['incident']}`"
-            lines.append(f"- {both_times(r['at'], seconds=False)} · {ref} · {' and '.join(r['why'])} · {done} · "
-                         f"{stable}")
+        lines += [_similar_line(r) for r in rows[:SIMILAR_MOST]]
     for p in found.get("pattern") or []:
         lines.append(f"*Pattern:* {p}.")
     return "\n".join(lines)
+
+
+def _done(r: dict[str, Any]) -> str:
+    """What was done for a like incident: its fix and how it ended, with who approved it - or, with no fix, what was
+    proposed and where it stands."""
+    fix = r["fix"]
+    if not fix:
+        return f"proposed `{r['action']}`, {r['status'].lower()}" if r["action"] else r["status"]
+    approved = f" · approved by {', '.join(f'@@{a}@@' for a in fix['approvers'])}" if fix["approvers"] else ""
+    return f"`{fix['entry']}` on `{fix.get('shown') or fix['target']}` {ENDED.get(fix['status'], fix['status'])}" + approved
+
+
+def _similar_line(r: dict[str, Any]) -> str:
+    """One like incident as a line: when, its record, why alike, what was done, and whether it stayed stable."""
+    stable = ("no incident like it since" if r["stable"]
+              else f"came back {both_times(r['next_at'], seconds=False)} (`{r['next']}`)")
+    ref = f"<{r['link']}|{r['incident']}>" if r["link"] else f"`{r['incident']}`"
+    return f"- {both_times(r['at'], seconds=False)} · {ref} · {' and '.join(r['why'])} · {_done(r)} · {stable}"
 
 
 def section(rows: list[dict[str, Any]]) -> str:
@@ -340,7 +360,8 @@ def warning(rows: list[dict[str, Any]], *, entry: str, target: str, plan_hash: s
     # ...and what did hold is said too: "none lasted" stood beside a run of the same fix that had worked an hour
     # before (live, 2026-10-12).
     held = [r for r in same if r["status"] == "recovered"]
-    also = (f" It held {'once' if len(held) == 1 else f'{len(held)} times'} in that day, most recently "
+    held_times = "once" if len(held) == 1 else f"{len(held)} times"
+    also = (f" It held {held_times} in that day, most recently "
             f"{both_times(held[0]['at'], seconds=False)}." if held else "")
     return f" Before you decide: in the last day this same fix did not last {times} - {latest}.{also}"
 

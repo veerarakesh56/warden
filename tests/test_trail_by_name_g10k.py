@@ -37,8 +37,10 @@ class BusySettings(Busy, Settings):
 def test_a_cut_timeout_is_found_in_an_account_whose_lambda_calls_never_end():
     f = BusySettings()
     live = _p(f).live("lambda_restore_settings", LAM)
-    assert live["event"] == {"f-1"} and not live.get("refused"), live.get("refused")
-    assert f.asked and {key for key, _ in f.asked} == {"EventName"}
+    assert live["event"] == {"f-1"}, live.get("refused")
+    assert not live.get("refused"), live.get("refused")
+    assert f.asked
+    assert {key for key, _ in f.asked} == {"EventName"}
     assert {name for _, name in f.asked} == set(aws.LAMBDA_SETTINGS_WRITES)
     f.asked.clear()
     assert "no recorded concurrency change" in _p(f).live("lambda_restore_concurrency", LAM)["refused"]
@@ -52,16 +54,20 @@ def test_the_undo_of_the_one_recorded_kind_is_planned_there():
                                    blast_radius="single_service", reversible=True)
     f = BusySettings()
     req, why = resolver.request_for(alert, proposal, lambda e, params: _p(f).live(e, params))
-    assert why == "" and req["entry"] == "lambda_restore_settings", why
+    assert why == "", why
+    assert req["entry"] == "lambda_restore_settings", why
 
 
 def test_an_event_answered_under_two_names_is_still_one_change():
     f = _lambda_fake()  # its CloudTrail answers every lookup with the same recorded event
     live = _p(f).live("lambda_restore_concurrency", LAM)
-    assert len(aws.LAMBDA_CONCURRENCY_WRITES) == 2 and live["event"] == {"l-1"}, live.get("refused")
+    assert len(aws.LAMBDA_CONCURRENCY_WRITES) == 2, live.get("refused")
+    assert live["event"] == {"l-1"}, live.get("refused")
 
 
 def test_no_undo_family_reads_a_whole_services_events():
     src = pathlib.Path(aws.__file__).read_text(encoding="utf-8")
-    assert '"EventSource"' not in src and "AttributeKey=EventSource" not in src
-    assert src.count("self._trail_named(") >= 3 and src.count("def _trail_named(") == 1
+    assert '"EventSource"' not in src
+    assert "AttributeKey=EventSource" not in src
+    assert src.count("self._trail_named(") >= 3
+    assert src.count("def _trail_named(") == 1
