@@ -317,6 +317,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
+- Reading one workflow's encrypted Temporal history: built - `temporal_history.py` (register B36, 2026-10-21). A
+  Temporal codec server for the web UI cannot decrypt WARDEN's payloads (each is bound to its workflow, which the UI
+  does not send) and would be one more holder of the key; the SDK's own history read and WARDEN's own codec, in the
+  workflow's context, need neither.
 - Credentialed outbound HTTPS: Python's own urllib, behind one opener that speaks https only and follows a
   redirect only to the same https host and port, so no token or key is ever sent to another host - `web.py`.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
@@ -381,6 +385,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - The decision rules - `verifier.py`, `grounding.py`, `catalog.py`, `bounds.py`, `freeze.py`, `intake.py`,
   `read_scope.py`, `gate.py`'s rules: most policies need evidence that Python computes first
   (section 16 records why not OPA or Cedar).
+- The confidence a person reads - `confidence.py`: a level from checks WARDEN can show (grounded, decisive,
+  separated, complete reads, a consistent outcome), each a rule over results the verifier already computed; a
+  calibration library would score the model's own number, which is what it must not use (owner U3-1).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
 - Autonomy and the AI critic - `autonomy.py`, `eldane.py` (owner, 2026-10-16/17): dev's level is read from
