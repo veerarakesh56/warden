@@ -196,11 +196,16 @@ if [[ -n "$EKS_CLUSTER" ]]; then
   kubectl apply -f "$HERE/k8s/test/oom-workload.yaml"        2>&1 | tee -a "$OUT/run.log"
 
   # The same negative check CI runs on k3d, now on a cluster that enforces Pod Security for real.
-  if kubectl apply --dry-run=server -f "$HERE/k8s/test/privileged-must-fail.yaml" 2>"$OUT/reports/D-privileged-rejected.txt"; then
+  # The pod is built first, on its own: a generator failure must not read as Pod Security's refusal (CodeRabbit, PR 62).
+  "$PY" "$HERE/scripts/negative_pod.py" > "$OUT/privileged-pod.json" || die "scripts/negative_pod.py failed"
+  if kubectl apply --dry-run=server -f "$OUT/privileged-pod.json" 2>"$OUT/reports/D-privileged-rejected.txt"; then
     note "⛔ EKS ACCEPTED a privileged pod — Pod Security is not enforced on this namespace"
+  elif grep -q "violates PodSecurity" "$OUT/reports/D-privileged-rejected.txt"; then
+    note "✅ EKS rejected the privileged pod (violates PodSecurity)"
   else
-    note "✅ EKS rejected the privileged pod"
+    note "⛔ the privileged pod was refused for another reason - Pod Security NOT shown (see D-privileged-rejected.txt)"
   fi
+  rm -f "$OUT/privileged-pod.json"
 
   note "letting the workload OOM"
   sleep 90

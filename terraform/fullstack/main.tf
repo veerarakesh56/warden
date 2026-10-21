@@ -18,6 +18,7 @@ terraform {
     aws     = { source = "hashicorp/aws", version = ">= 6.0, < 7.0" }
     archive = { source = "hashicorp/archive", version = ">= 2.4, < 3.0" }
     random  = { source = "hashicorp/random", version = ">= 3.7, < 4.0" } # ephemeral random_password (A-I-13)
+    tls     = { source = "hashicorp/tls", version = ">= 4.4, < 5.0" }    # the internal ALB's certificate (ecs.tf)
   }
   # No backend block on purpose: a local apply keeps local state. CI writes a backend_override.tf
   # (S3) before init - see .github/workflows/_infra-deploy.yml.
@@ -195,9 +196,9 @@ resource "aws_security_group" "alb" {
   description = "Orders API load balancer, internal. HTTP from the in-VPC Lambdas only."
   vpc_id      = aws_vpc.this.id
   ingress {
-    description = "HTTP from the Lambda security group only"
-    from_port   = 80
-    to_port     = 80
+    description = "HTTPS from the Lambda security group only"
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     # Only the Lambdas inside the VPC (the traffic generator) - never the internet.
     security_groups = [aws_security_group.lambda.id]

@@ -378,7 +378,7 @@ def test_the_api_throttles_logs_and_routes_exactly_what_the_page_and_the_webhook
     assert "throttling_rate_limit  = var.api_rate_limit" in stage and "throttling_burst_limit = var.api_burst_limit" in stage
     assert "access_log_settings" in stage
     assert re.findall(r'"(GET /a/\{token\})", "(POST /a/\{token\}/\{step\})"', tf)
-    assert 'route_key = "POST /alertmanager"' in tf
+    assert re.search(r'route_key\s*=\s*"POST /alertmanager"', tf)
     # Every page step the page serves is a POST on /a/{token}/{step}; the shell is the GET.
     import inspect
 
@@ -435,7 +435,8 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     assert 'mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]' in task
     assert "linuxParameters" not in task  # Fargate has no tmpfs
     dockerfile = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
-    assert 'RUN chmod 1777 /tmp\nVOLUME ["/tmp"]\nUSER warden' in dockerfile  # else the volume is root's 0755
+    # The volume takes the image's /tmp: Debian's 1777, checked at build (else it would be root's 0755).
+    assert 'RUN test "$(stat -c \'%a %U\' /tmp)" = "1777 root"\nVOLUME ["/tmp"]\nUSER warden' in dockerfile
     service = _block(tf, "aws_ecs_service", "zone")
     assert 'capacity_provider = "FARGATE"' in service and "force_new_deployment = true" in service  # the provider needs it
     # Never Spot (PR 44 review): no fallback to on-demand, and the heartbeat does not see one zone's gap.

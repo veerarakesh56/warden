@@ -140,7 +140,7 @@
       "Resource": "*"
     },
     {
-      "Sid": "DenyRoleWithoutThisBoundary",
+      "Sid": "DenyUnboundedRoles",
       "Effect": "Deny",
       "Action": [
         "iam:CreateRole",
@@ -228,8 +228,23 @@
       ],
       "NotResource": [
         "arn:aws:s3:::warden-${env}-anchors-*",
-        "arn:aws:s3:::warden-${env}-witness-*"
+        "arn:aws:s3:::warden-${env}-witness-*",
+        "arn:aws:s3:::warden-${env}-access-logs-*"
       ]
+    },
+    {
+      "Sid": "BucketPolicyByDeployOnly",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutBucketPolicy",
+        "s3:Put*PublicAccessBlock"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/warden-${env}-deploy"
+        }
+      }
     },
     {
       "Sid": "DenySelfEdit",

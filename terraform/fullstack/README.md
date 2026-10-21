@@ -143,7 +143,10 @@ while Lambda releases the in-VPC functions' network interfaces; that is AWS, not
 No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT.
 There are no interface endpoints (Secrets Manager, SQS and ECR calls go through the NAT), and the placeholder image comes from `public.ecr.aws`, so image
 pulls go through the NAT as well; only S3 and DynamoDB have (free) gateway endpoints. A production app with a domain would put a **public** ALB in
-front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so its ALB is internal.
+front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so its ALB is internal - and still HTTPS only
+(2026-10-17): the stack makes a self-signed certificate for the ALB's DNS name and imports it into ACM (no charge),
+and the traffic Lambda trusts that one certificate (`ALB_CA_PEM`). Its access logs go to `warden-<env>-alb-logs-*`
+(14 days), and the order-events topic is encrypted with the AWS-managed `aws/sns` key.
 
 ## Things that are deliberate
 

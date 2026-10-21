@@ -40,9 +40,10 @@ variable "my_ip_cidr" {
 
   validation {
     # 0.0.0.0/0 would open a database with a known username to the internet. Refuse it outright
-    # rather than trusting a comment nobody reads.
-    condition     = var.my_ip_cidr != "0.0.0.0/0" && can(cidrhost(var.my_ip_cidr, 0))
-    error_message = "my_ip_cidr must be a real CIDR and must not be 0.0.0.0/0."
+    # rather than trusting a comment nobody reads - and any range wider than one address with it (2026-10-17: the
+    # database is public by design, rds.tf, so this /32 is what keeps it to one machine).
+    condition     = can(cidrnetmask(var.my_ip_cidr)) && endswith(var.my_ip_cidr, "/32")
+    error_message = "my_ip_cidr must be one IPv4 address as a /32, such as 203.0.113.7/32 - never 0.0.0.0/0 or any wider range."
   }
 }
 
