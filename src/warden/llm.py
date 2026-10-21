@@ -276,6 +276,9 @@ class LLMClient:
         self.calls: list[dict[str, Any]] = []  # each request's call_record, in order
         # The last call's paging condition (PROVIDER_UNAVAILABLE or BUDGET_REACHED), "" when none: read by the activity.
         self.stopped_by = ""
+        # The (system, user) text last handed to the provider; None until a real call is sent (never in mock mode).
+        self.last_request: tuple[str, str] | None = None
+        self.last_appended = ""  # what that call appended to the prompt it was built from: the retry feedback, or nothing
         self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
         if provider is None and not self.mock:
             provider = resolve()
@@ -363,10 +366,7 @@ class LLMClient:
         if self.mock:
             return self._mock_answer(system=system, user=user, schema=schema, mock_factory=mock_factory)
 
-        prompt = (
-            f"{user}\n\nReturn ONLY a JSON object matching this schema:\n"
-            f"{json.dumps(schema.model_json_schema())}"
-        )
+        prompt = ask_for(user, schema)
         # Refused BEFORE the call (2026-09-27 audit): charging after it meant one oversized prompt
         # could spend past max_usd before the budget ever looked. ~4 characters per token.
         est_in = (len(system) + len(prompt)) // 4
@@ -418,6 +418,11 @@ class LLMClient:
         # carries the validation feedback (item 5), and its input is priced with it.
         self._before_a_call(((len(system) + len(sent)) // 4 / 1e6) * self.price_in)
         completion = None
+        # Exactly what is handed to the provider, kept so the diagnosis records its hash (B36: `warden history`
+        # shows what the model was sent and proves it byte for byte, never a re-render that could differ).
+        # On a retry, `sent` is the prompt with the validation feedback after it (item 5): what was appended is kept
+        # too, so `warden history` rebuilds the text exactly - field paths and error types only, never a value.
+        self.last_request, self.last_appended = (system, sent), sent[len(prompt):]
         try:
             # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s,
             # same env var) is the one that actually ends the worker thread and lets the process
@@ -513,6 +518,13 @@ def _provider_down(last: Exception | None) -> str:
     if last is None or isinstance(last, (ValidationError, ValueError, ModelCutOff)) or not _is_transient(last):
         return ""
     return PROVIDER_UNAVAILABLE
+
+
+def ask_for(user: str, schema: Any) -> str:
+    """The user text a structured call hands the provider: the prompt, then the schema it must answer in. The one place
+    it is built - `warden history` (the temporal_history module) rebuilds it with this and checks it against the
+    recorded hash."""
+    return f"{user}\n\nReturn ONLY a JSON object matching this schema:\n{json.dumps(schema.model_json_schema())}"
 
 
 def _max_calls(max_calls: int | None) -> int:
