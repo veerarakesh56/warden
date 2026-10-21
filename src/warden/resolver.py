@@ -111,19 +111,16 @@ def no_fix_path(alert: Alert, proposal: RemediationProposal) -> str:
     return f"no catalogue entry carries out {proposal.action.value} on {target} (labelled {named})"
 
 
+# Why a change the alarm must date cannot be planned.
+_NO_SINGLE_ALARM = "the alert names no single alarm, so no change before it can be dated"
+
+
 def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any]) -> dict[str, Any] | str:
     """The catalogue's bounded numbers, conservatively, from the live value. Only a number the catalogue bounds: a
     restore's `concurrency` is the value Config recorded (a ref), not a raise (G10-D4: planning one always failed)."""
     ints = {k for k, spec in entry.params.items() if spec.kind == "int"}
     if "concurrency" in ints:
-        cur, free = live.get("current_concurrency"), live.get("unreserved_account_concurrency")
-        if not isinstance(cur, int) or not isinstance(free, int):
-            return "the current concurrency was not read"
-        room = free - 100  # AWS keeps 100 unreserved for the account
-        step = min(max(cur, 10), room)  # at most double, never past the account's room
-        if step < 1:
-            return "the account has no room for more concurrency"
-        return {**params, "concurrency": cur + step}
+        return _more_concurrency(params, live)
     if "capacity" in ints:
         cur = live.get("current_capacity")
         if not isinstance(cur, int) or cur < 1:
@@ -132,28 +129,50 @@ def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any])
     if "minutes" in ints:
         return {**params, "minutes": 60}  # an hour, then ARC ends it by itself
     if "per_second" in ints:
-        # Slow enough not to flood the consumer, fast enough to finish inside the verify window (review H3).
-        waiting = live.get("waiting")
-        if not isinstance(waiting, int):
-            return "the dead-letter queue's depth was not read"
-        rate = max(1, -(-waiting // catalog.REDRIVE_SECONDS))
-        if rate > 50:
-            return f"{waiting} messages cannot move inside the verify window at 50 a second; a person runs it"
-        return {**params, "per_second": rate}
+        return _redrive_rate(params, live)
     if "rate_limit" in ints:
-        out = dict(params)
-        for key in ("rate_limit", "burst_limit"):
-            cur, cap = live.get(f"current_{key}"), live.get(f"account_{key}")
-            if not isinstance(cur, int) or cur < 1 or not isinstance(cap, int) or cap <= cur:
-                return f"the stage's {key} or the account's room for it was not read"
-            out[key] = min(2 * cur, cap)
-        return out
+        return _stage_limits(params, live)
     if "replicas" in ints:
         cur = live.get("current_replicas")
         if not isinstance(cur, int) or cur < 1:
             return "the current replica count was not read"
         return {**params, "replicas": cur + 1}
     return params
+
+
+def _more_concurrency(params: dict[str, Any], live: dict[str, Any]) -> dict[str, Any] | str:
+    """At most double the reserved concurrency (by at least 10), never past the account's unreserved room."""
+    cur, free = live.get("current_concurrency"), live.get("unreserved_account_concurrency")
+    if not isinstance(cur, int) or not isinstance(free, int):
+        return "the current concurrency was not read"
+    room = free - 100  # AWS keeps 100 unreserved for the account
+    step = min(max(cur, 10), room)  # at most double, never past the account's room
+    if step < 1:
+        return "the account has no room for more concurrency"
+    return {**params, "concurrency": cur + step}
+
+
+def _redrive_rate(params: dict[str, Any], live: dict[str, Any]) -> dict[str, Any] | str:
+    """The dead-letter redrive's messages a second."""
+    # Slow enough not to flood the consumer, fast enough to finish inside the verify window (review H3).
+    waiting = live.get("waiting")
+    if not isinstance(waiting, int):
+        return "the dead-letter queue's depth was not read"
+    rate = max(1, -(-waiting // catalog.REDRIVE_SECONDS))
+    if rate > 50:
+        return f"{waiting} messages cannot move inside the verify window at 50 a second; a person runs it"
+    return {**params, "per_second": rate}
+
+
+def _stage_limits(params: dict[str, Any], live: dict[str, Any]) -> dict[str, Any] | str:
+    """The stage's rate and burst limits doubled, each within the account's own limit."""
+    out = dict(params)
+    for key in ("rate_limit", "burst_limit"):
+        cur, cap = live.get(f"current_{key}"), live.get(f"account_{key}")
+        if not isinstance(cur, int) or cur < 1 or not isinstance(cap, int) or cap <= cur:
+            return f"the stage's {key} or the account's room for it was not read"
+        out[key] = min(2 * cur, cap)
+    return out
 
 
 def _configuration(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
@@ -184,7 +203,7 @@ def _security_group(alert: Alert, proposal: RemediationProposal, live: Any) -> t
     the platform's live read decides which, and whether it may be undone; the model only names the group."""
     alarm = alert.labels.get("alarm", "")
     if not alarm or "," in alarm:
-        return None, "the alert names no single alarm, so no change before it can be dated"
+        return None, _NO_SINGLE_ALARM
     group = _bare(alert, proposal.target)
     entry = catalog.CATALOG["ec2_revert_sg_change"]
     state = live(entry.name, {"group": group, "alarm": alarm})
@@ -207,7 +226,7 @@ def _route_table(alert: Alert, proposal: RemediationProposal, live: Any) -> tupl
     before the alarm went off - the platform's live read decides which, and whether it may be undone."""
     alarm = alert.labels.get("alarm", "")
     if not alarm or "," in alarm:
-        return None, "the alert names no single alarm, so no change before it can be dated"
+        return None, _NO_SINGLE_ALARM
     table = _bare(alert, proposal.target)
     entry = catalog.CATALOG["ec2_restore_route"]
     state = live(entry.name, {"route_table": table, "alarm": alarm})
@@ -230,7 +249,7 @@ def _deregistered(alert: Alert, proposal: RemediationProposal, live: Any) -> tup
     """revert_change on a target group (G10-D2): the ONE DeregisterTargets a person made before the alarm."""
     alarm = alert.labels.get("alarm", "")
     if not alarm or "," in alarm:
-        return None, "the alert names no single alarm, so no change before it can be dated"
+        return None, _NO_SINGLE_ALARM
     group = _bare(alert, proposal.target)
     entry = catalog.CATALOG["elb_reregister_targets"]
     state = live(entry.name, {"target_group": group, "alarm": alarm})
@@ -356,8 +375,13 @@ def _request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tupl
         return _route_table(alert, proposal, live)
     if proposal.action is ActionKind.revert_change and _bare(alert, proposal.target) in _target_groups(alert):
         return _deregistered(alert, proposal, live)
+    return _catalogue_request(alert, proposal, live)
+
+
+def _labelled_resource(alert: Alert, proposal: RemediationProposal) -> tuple[tuple[str, dict[str, str]] | None, str]:
+    """(the platform and parameters of the labelled resource the plan is on, or None; the consumer the diagnosis
+    named, "" unless the plan is on that consumer's queue)."""
     found = _platform(alert, proposal.target)
-    consumer = ""
     if found is None and proposal.action is ActionKind.resume_flow:
         # A queue's alarm and its switched-off consumer named by its function (fs-07, live, 2026-10-15: the diagnosis
         # was right - "the event source mapping for warden-dev-orders is disabled" - and named the function
@@ -366,25 +390,55 @@ def _request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tupl
         # when that mapping's function is the one the diagnosis named.
         queue = alert.labels.get("sqs", "")
         if queue and "," not in queue:
-            found, consumer = _platform(alert, queue), _bare(alert, proposal.target)
+            return _platform(alert, queue), _bare(alert, proposal.target)
+    return found, ""
+
+
+def _label_params(alert: Alert, entry: catalog.Entry, params: dict[str, Any]) -> str:
+    """Add to `params` what `entry` takes from the alert's labels - the alarm, the Lambda alias; "" or why it cannot."""
+    if "alarm" in entry.params:  # G10-D3: the change is dated by the alarm going off
+        alarm = alert.labels.get("alarm", "")
+        if not alarm or "," in alarm:
+            return _NO_SINGLE_ALARM
+        params["alarm"] = alarm
+    if entry.name == "lambda_move_alias":
+        alias = alert.labels.get("lambda_qualifier", "")
+        if alias.isdigit() or alias == "$LATEST":
+            return "the alarm names a Lambda version, not an alias, so there is no alias to move"
+        if alias:
+            params["alias"] = alias
+        # With none named, the platform's live read finds the function's one alias, or refuses (AwsPlatform._live_alias).
+    return ""
+
+
+def _fill_refs(entry: catalog.Entry, params: dict[str, Any], state: dict[str, Any]) -> str:
+    """Add to `params` each reference the live read found exactly one of; "" or why one is missing."""
+    for name, spec in entry.params.items():
+        if name in params or spec.kind != "ref":
+            continue
+        allowed = state.get(name)
+        if not isinstance(allowed, (set, frozenset, list, tuple)) or len(allowed) != 1:
+            if state.get("refused"):  # the platform's own reason, not a generic one (G10, 2026-10-10)
+                return f"no change WARDEN may undo: {state['refused']}"
+            return f"no single known-good {name} was read (WARDEN does not choose one)"
+        params[name] = next(iter(allowed))
+    return ""
+
+
+def _catalogue_request(alert: Alert, proposal: RemediationProposal,
+                       live: Any) -> tuple[dict[str, Any] | None, str]:
+    """The catalogue entry for the action on the labelled resource's platform, with its parameters from the labels and
+    the live read."""
+    found, consumer = _labelled_resource(alert, proposal)
     if found is None:
         return None, "the proposal's target is not a resource the alert's labels name"
     platform, params = found
     entry = catalog.for_action(proposal.action, platform)
     if entry is None:
         return None, f"no catalogue entry carries out {proposal.action.value} on {platform}"
-    if "alarm" in entry.params:  # G10-D3: the change is dated by the alarm going off
-        alarm = alert.labels.get("alarm", "")
-        if not alarm or "," in alarm:
-            return None, "the alert names no single alarm, so no change before it can be dated"
-        params["alarm"] = alarm
-    if entry.name == "lambda_move_alias":
-        alias = alert.labels.get("lambda_qualifier", "")
-        if alias.isdigit() or alias == "$LATEST":
-            return None, "the alarm names a Lambda version, not an alias, so there is no alias to move"
-        if alias:
-            params["alias"] = alias
-        # With none named, the platform's live read finds the function's one alias, or refuses (AwsPlatform._live_alias).
+    why = _label_params(alert, entry, params)
+    if why:
+        return None, why
     state = live(entry.name, params)
     if consumer and consumer not in (state.get("function") or ()):
         return None, (f"the alarm names the queue {params.get('queue')}, and its one switched-off consumer is not "
@@ -394,15 +448,9 @@ def _request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tupl
         if entry is None:
             return None, state
         params = {k: v for k, v in params.items() if k in entry.params}  # the entry found may take fewer
-    for name, spec in entry.params.items():
-        if name in params or spec.kind != "ref":
-            continue
-        allowed = state.get(name)
-        if not isinstance(allowed, (set, frozenset, list, tuple)) or len(allowed) != 1:
-            if state.get("refused"):  # the platform's own reason, not a generic one (G10, 2026-10-10)
-                return None, f"no change WARDEN may undo: {state['refused']}"
-            return None, f"no single known-good {name} was read (WARDEN does not choose one)"
-        params[name] = next(iter(allowed))
+    why = _fill_refs(entry, params, state)
+    if why:
+        return None, why
     if entry.platform != platform:
         # A fix on another platform's resource that the live read tied to the alert's own (a queue's switched-off
         # consumer): the label's parameter led the read and is not the entry's.
