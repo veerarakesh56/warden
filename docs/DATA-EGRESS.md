@@ -21,16 +21,28 @@ revealed, kept and deleted.
 
 Everything the redactor's patterns find (`src/warden/redaction.py`), of **every** kind:
 
-- personal data: email addresses, phone numbers, IPv4/IPv6/MAC addresses, tenant, organisation, customer, account
-  and user ids, IBANs, card numbers;
+- personal data: email addresses, phone numbers, personal names (where a pattern can see one, below), street
+  addresses, IPv4/IPv6/MAC addresses, tenant, organisation, customer, account and user ids, IBANs, card numbers,
+  national ids (US SSN, Indian Aadhaar and PAN);
+- internal host names: names under a company's private suffixes (`.corp`, `.lan`, `.intranet`, `.internal`, `.local`,
+  `home.arpa`). A Kubernetes service's `.cluster.local` name and AWS's own `compute.internal`/`ec2.internal` are kept:
+  WARDEN reads and acts on them (the address inside an EC2 name is masked);
 - credentials: keys, tokens, passwords, cookies, JWTs, private keys, connection-string passwords, webhook URLs, and
   long high-entropy strings;
 - cloud account ids and ARNs.
 
 Each value is replaced by a placeholder (`<EMAIL_1>`) before any text is built for a model, a chat or a ticket.
 
-Honest limit: a value that **no pattern recognises** is not masked. That is the patterns' limit, not a guard's. A
-person's plain name in free text is not detected. Detection is pattern-based, never a model judging what is personal.
+Honest limits:
+- A value that **no pattern recognises** is not masked. That is the patterns' limit, not a guard's.
+- **Personal names are caught only in the forms a pattern can see**: after a name field's key (`full_name=`,
+  `"customer_name":`, `username=`), after a title (`Dr.`, `Mrs`, `Shri`...) or a greeting (`Dear ...`). A name in
+  free prose with no such marker (`priya nair restarted the pod`) is **not** found - no pattern can tell it from a
+  word. A test pins this, so the day it changes, this page changes with it.
+- Detection is pattern-based, never a model judging what is personal.
+
+`tests/test_redaction_classes.py` holds a corpus for every class above (`tests/privacy_corpus.py`), the evidence that
+must stay as it is, and the egress check refusing each.
 
 ## What comes in, and is masked first
 
@@ -60,6 +72,7 @@ the evidence or a Slack body.
 | Microsoft Teams, a generic webhook | `*.webhook.office.com`, `WARDEN_WEBHOOK_URL` | the gated report | the same; the webhook's path is never written to the ledger | yes |
 | GitHub | `api.github.com` | the gated change record (an issue); reads of recent deploys | the same | yes |
 | Datadog | `api.<site>` | reads only: a service name, a time window, fixed metric queries | the same (all-digit query values are times, not phone numbers) | yes |
+| Datadog, from the lab's agent (the shop's own logs and spans, not WARDEN's) | Datadog's intake, by its agent on the lab cluster | the apps' container and OpenTelemetry logs, spans, metrics | **masked at the agent**: global `mask_sequences` for every class above (`helm/datadog/values.yaml`, RE2), span tags by `DD_APM_REPLACE_TAGS`; the collector before it hashes user/client attributes and drops URL queries; `tests/test_datadog_agent_masking.py`. Not at the agent: `.local`/`.internal` names | yes |
 | PagerDuty | `events.pagerduty.com` | the gated report's first line | the same; `routing_key` is PagerDuty's own credential | yes |
 | AWS's documentation (opt-in) | `knowledge-mcp.global.api.aws` | an AWS error code and a service word | the same | yes |
 | AWS's news feeds (the AWS updates watch, opt-in) | `aws.amazon.com` | a GET of the What's New and blog RSS feeds - nothing of WARDEN's; the text read is untrusted | the urllib hook (no body to check) | yes |
@@ -164,15 +177,16 @@ The CloudWatch log groups keep 90 days until lane N's retention change lands.
   map is encrypted with AES-256-GCM. The sealed row goes to the `vault` table beside the audit. The signed audit gets
   only the index: placeholder, kind, stable id, the sealed bytes' SHA-256 and the expiry. The map is never returned
   by `prepare`, so it never enters Temporal's history. No log line holds it. No Slack message holds it.
-- **Stable ids.** For example `email:3f9a0c7d21b4`: an HMAC-SHA256 of kind and value under the environment's key.
-  The same value gets the same id in every incident, so people can recognise and correlate their own customers,
-  hosts and tenants. The id reveals nothing about the value. The key exists only as a KMS ciphertext, made without
-  anyone seeing it (`GenerateDataKeyWithoutPlaintext`), and only the read zone may open it. **No model is shown an
+- **Stable ids.** For example `email:3f9a0c7d21b4`: an HMAC-SHA256 of kind and value, computed **by KMS** with
+  the environment's HMAC key (`alias/warden-<env>-pseudonym`), which never leaves KMS; only the read zone may use it
+  (`kms:GenerateMac`). The same value gets the same id in every incident, so people can recognise and correlate
+  their own users, organisations, tenants and hosts. The id reveals nothing about the value. **No model is shown an
   id**; models see `<EMAIL_1>`.
 - **Who can open them.** The vault key's policy (`terraform/modules/warden-runtime/vault.tf`) names every principal:
-  - the read zone may seal;
-  - only the approval page's Lambda may open (`kms:Decrypt`, `purpose=vault`);
-  - the account may administer the key but never read with it.
+  - the read zone may seal (`GenerateDataKey`) and holds **no** `kms:Decrypt`;
+  - only the approval page's Lambda may open (`kms:Decrypt`, `purpose=vault`) - it is the only principal with
+    Decrypt on the key, in the key policy and in IAM;
+  - the account may administer the keys (exact actions, no `CreateGrant`) but never use them.
 
   No AI zone is named: not the llm zone (the diagnosis model and the discussion chat), not Eldane's critic zone, and
   not any zone added later. An IAM grant elsewhere cannot add one, because the key policy does not delegate use to
@@ -215,17 +229,17 @@ The CloudWatch log groups keep 90 days until lane N's retention change lands.
 
 ## Live steps (the owner's laptop, once)
 
-1. Apply the runtime module. This creates the vault key `alias/warden-<env>-vault` (about US$1 a month, plus
-   US$0.03 per 10,000 requests), its two role policies, and the route `GET /r/{incident}/masked`.
+1. Apply the runtime module. This creates the vault key `alias/warden-<env>-vault` and the HMAC key
+   `alias/warden-<env>-pseudonym` (about US$1 a month each, plus US$0.03 per 10,000 requests), their role policies,
+   and the route `GET /r/{incident}/masked`.
 2. Run the migrate Lambda, which creates the `vault` table and its grants (`runtime.yml` already runs it after
    apply).
-3. Make the pseudonym key:
-   `aws kms generate-data-key-without-plaintext --key-id alias/warden-<env>-vault --key-spec AES_256 --encryption-context purpose=pseudonym,environment=<env> --query CiphertextBlob --output text`
-   then
-   `aws ssm put-parameter --name /warden/<env>/env/WARDEN_PSEUDONYM_KEY_SEALED --type String --value <that output>`.
-4. After the next incident, check four things:
+3. After the next incident, check four things:
    - Logs Insights shows `egress` rows and no unexpected `BLOCK`;
    - the record shows "Masked values (n)";
    - a reveal writes `incident.reveal`;
-   - CloudTrail shows `GenerateDataKey` only from `warden-<env>-read` and `Decrypt` only from
-     `warden-<env>-approval-lambda`.
+   - CloudTrail shows `GenerateDataKey` and `GenerateMac` only from `warden-<env>-read` and `Decrypt` on the vault
+     key only from `warden-<env>-approval-lambda`.
+4. Datadog (the lab): after the next deploy, emit a test line with a made-up email and card number from a shop pod
+   and search Datadog Logs for it - it must read `[masked:email]` and `[masked:card]`, for a container line and for an
+   OpenTelemetry one.
