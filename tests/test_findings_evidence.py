@@ -76,7 +76,10 @@ class _GitHub:
                else "alerts" if "/code-scanning/" in url.path else url.path.rsplit("/", 1)[-1])
         if key in self.fail:
             raise self.fail[key]
-        return _Resp(json.dumps(self.pages[key]).encode())
+        page = self.pages[key]
+        if key == "pulls":  # GitHub returns at most per_page (default 30)
+            page = page[:int(urllib.parse.parse_qs(url.query).get("per_page", ["30"])[0])]
+        return _Resp(json.dumps(page).encode())
 
 
 class _Base:
@@ -442,4 +445,11 @@ def test_every_finding_value_is_shown_in_inline_code_only_warden_s_own_labels_ar
     assert "[click]" not in outside_code
     assert section.count(untrusted_inline(hostile)) == 9  # severity, category, pr twice, read, shown, found, held, review
     assert "SonarCloud, rule `python:S1`" in md
+
+
+def test_every_pull_request_of_the_deployed_commit_up_to_max_prs_is_read():
+    """The commit's pull requests are asked for max_prs at a time, so the limit is what bounds them (CodeRabbit)."""
+    for max_prs, want in ((10, 7), (3, 3)):
+        lines = _read(_GitHub(prs=range(1, 8)), max_prs=max_prs)
+        assert sum(ln.startswith("FINDINGS ") for ln in lines) == want
 
