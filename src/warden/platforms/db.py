@@ -514,9 +514,9 @@ class DatabasePlatform:
         return f"closed {closed} session(s) idle in a transaction for {idle}s or more in {name} " \
                f"({self._engine}; ids {', '.join(map(str, ids))})"
 
-    def rollback(self, entry: str, _params: dict[str, Any], _snapshot: dict[str, Any]) -> str:
+    def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
         """Every platform's rollback takes (entry, params, snapshot); closing sessions changed nothing to restore, so
-        this one reads neither."""
+        this one reads neither params nor snapshot here."""
         if entry not in _ENTRIES:
             raise DatabasePlatformError(f"{entry} is not something the database platform does")
         return "nothing to roll back: a closed session's transaction rolled back, and the application reconnects"

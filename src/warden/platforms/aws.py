@@ -845,8 +845,10 @@ class AwsPlatform:
                 break
         return out
 
-    def knows(self, _service: str) -> bool:
-        return False  # health is asked by entry (healthy_for), never by a bare name that two kinds could share
+    def knows(self, service: str) -> bool:
+        """The platform interface asks whether a service is known by name; this platform never reads service
+        because health is asked by entry (healthy_for), never by a bare name that two kinds could share."""
+        return False
 
     def alarm_state(self, alarm: str) -> str | None:
         """The alarm's state as CloudWatch reports it, through this environment's reader; None when it is not found."""
@@ -2264,13 +2266,15 @@ class AwsPlatform:
     def _published_since(self, name: str, e: dict[str, Any]) -> str:
         """Why a configuration revert is refused when a version published after the change holds it - else ""."""
         versions, marker = [], None
-        for _ in range(10):  # 50 a page; a function with more than 500 versions reads its newest 500
+        for _ in range(10):  # 50 a page, at most 500 versions read
             page = self._read("lambda").list_versions_by_function(
                 FunctionName=name, **({"Marker": marker} if marker else {}))
             versions += page.get("Versions") or []
             marker = page.get("NextMarker")
             if not marker:
                 break
+        else:  # pages left unread: a version among them may hold the change, so nothing is reverted (fail closed)
+            return "the function has more versions than WARDEN reads: a version not read may hold the change"
         later = [v for v in versions if v.get("Version") != "$LATEST" and
                  (_when(v.get("LastModified")) or e["at"]) > e["at"]]
         if later:

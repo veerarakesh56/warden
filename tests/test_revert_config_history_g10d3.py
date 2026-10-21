@@ -391,6 +391,20 @@ def test_a_settings_change_wardens_restore_may_not_undo_is_refused(fake, why):
     assert why in live["refused"], live.get("refused")
 
 
+class ManyVersions(Settings):
+    """More versions than WARDEN reads: every page says there is another."""
+
+    def list_versions_by_function(self, FunctionName, Marker=None):
+        return {"Versions": [{"Version": "3", "LastModified": (ONSET - timedelta(days=3)).isoformat()}],
+                "NextMarker": "more"}
+
+
+def test_a_settings_restore_is_refused_when_not_every_version_could_be_read():
+    live = _p(ManyVersions()).live("lambda_restore_settings", LAM)
+    assert live["settings"] == set(), live.get("refused")
+    assert "more versions than WARDEN reads" in live["refused"]
+
+
 def test_a_settings_restore_is_refused_when_the_function_moved_since():
     f = Settings()
     p = _p(f)
