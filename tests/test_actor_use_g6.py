@@ -103,7 +103,8 @@ def test_the_lambda_pages_an_unapproved_session_and_records_it(cloudwatch, monke
     log = Audit()
     monkeypatch.setattr("warden.runtime.open_audit", lambda: log)
     out = lambdas.actor_use({"detail": _detail()})
-    assert out["approved"] is False and "holds no accepted approval" in out["problems"][0]
+    assert out["approved"] is False
+    assert "holds no accepted approval" in out["problems"][0]
     assert cloudwatch == [{"Namespace": "WARDEN/ops", "MetricData": [
         {"MetricName": lambdas.UNAPPROVED_METRIC, "Value": 1, "Unit": "Count"}]}]
     ((incident, kind, body),) = log.appended
@@ -112,14 +113,18 @@ def test_the_lambda_pages_an_unapproved_session_and_records_it(cloudwatch, monke
 
 def test_the_lambda_lets_an_approved_session_pass_and_pages_when_it_cannot_check(cloudwatch, monkeypatch):
     monkeypatch.setattr("warden.runtime.open_audit", lambda: Audit([_accepted()]))
-    assert lambdas.actor_use({"detail": _detail()}) == {"approved": True} and cloudwatch == []
+    assert lambdas.actor_use({"detail": _detail()}) == {"approved": True}
+    assert cloudwatch == []
 
     def down():
         raise ConnectionError("audit database unreachable")
     monkeypatch.setattr("warden.runtime.open_audit", down)
     out = lambdas.actor_use({"detail": _detail()})
-    assert out["approved"] is False and "could not be read" in out["problems"][0] and len(cloudwatch) == 1
-    assert lambdas.actor_use({"detail": _detail(error="AccessDenied")})["ignored"] and len(cloudwatch) == 1
+    assert out["approved"] is False
+    assert "could not be read" in out["problems"][0]
+    assert len(cloudwatch) == 1
+    assert lambdas.actor_use({"detail": _detail(error="AccessDenied")})["ignored"]
+    assert len(cloudwatch) == 1
 
 
 def test_the_lambda_loads_no_secret_at_all():
@@ -132,17 +137,22 @@ def test_the_rule_the_trail_and_the_page_are_wired():
     tf = (MODULE / "witness.tf").read_text(encoding="utf-8")
     rule = tf[tf.index('resource "aws_cloudwatch_event_rule" "actor_use"'):tf.index('resource "aws_cloudwatch_event_target"')]
     assert 'state = "ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS"' in rule
-    assert 'source        = ["aws.sts"]' in rule and 'eventName         = ["AssumeRole"]' in rule
+    assert 'source        = ["aws.sts"]' in rule
+    assert 'eventName         = ["AssumeRole"]' in rule
     assert '{ suffix = ":role/warden-${e}-actor" }' in rule  # every watched environment's actor, nothing else
-    assert 'arn  = aws_lambda_function.front_door["actor-use"].arn' in tf and "arn = aws_sqs_queue.alarm_dlq.arn" in tf
+    assert 'arn  = aws_lambda_function.front_door["actor-use"].arn' in tf
+    assert "arn = aws_sqs_queue.alarm_dlq.arn" in tf
     assert 'actor-use    = { handler = "warden.lambdas.actor_use"' in (MODULE / "frontdoor.tf").read_text(encoding="utf-8")
     alarm = tf[tf.index('"unapproved_actor"'):]
     assert f'metric_name         = "{lambdas.UNAPPROVED_METRIC}"' in alarm
     assert 'namespace           = "WARDEN/${var.environment}"' in alarm  # where the Lambda puts it (WARDEN_ENV)
-    assert "alarm_actions       = [var.page_topic_arn]" in alarm and 'treat_missing_data  = "notBreaching"' in alarm
+    assert "alarm_actions       = [var.page_topic_arn]" in alarm
+    assert 'treat_missing_data  = "notBreaching"' in alarm
     trail = tf[tf.index('resource "aws_cloudtrail" "witness"'):]
-    assert "enable_log_file_validation    = true" in trail and "s3_bucket_name                = aws_s3_bucket.witness.id" in trail
-    assert 'mode = "COMPLIANCE"' in tf and "object_lock_enabled = true" in tf
+    assert "enable_log_file_validation    = true" in trail
+    assert "s3_bucket_name                = aws_s3_bucket.witness.id" in trail
+    assert 'mode = "COMPLIANCE"' in tf
+    assert "object_lock_enabled = true" in tf
     assert tf.count(':trail/${local.witness_trail}"') == 2  # CloudTrail writes for this trail only
     assert 'witness_trail = "warden-${var.environment}-witness"' in tf
 
@@ -167,20 +177,25 @@ def test_every_write_to_the_approver_list_is_recorded_and_pages_made_or_refused(
     assert lambdas.actor_use({"detail": _list_write("DeleteParameter", error="AccessDenied")})["refused"] is True
     assert [m["MetricData"][0]["MetricName"] for m in cloudwatch] == [lambdas.APPROVERS_METRIC] * 2
     (_, kind, made), (_, _, refused) = log.appended
-    assert kind == "approvers.changed" and (made["event"], made["by_kind"], made["by"]) == (
-        "PutParameter", "AssumedRole", "console-admin") and made["refused"] == ""
-    assert refused["refused"] == "AccessDenied" and "ignored" not in str(log.appended)  # never the caller-chosen ARN
+    assert kind == "approvers.changed"
+    assert (made["event"], made["by_kind"], made["by"]) == (
+        "PutParameter", "AssumedRole", "console-admin")
+    assert made["refused"] == ""
+    assert refused["refused"] == "AccessDenied"
+    assert "ignored" not in str(log.appended)
     # Another parameter, another environment's list, a read: none of them is the list being written.
     for other in (_list_write(name="/warden/ops/tf/paused"), _list_write(name="/warden/dev/approvers"),
                   _list_write("GetParameter")):
-        assert lambdas.actor_use({"detail": other}).get("ignored") and len(cloudwatch) == 2
+        assert lambdas.actor_use({"detail": other}).get("ignored")
+        assert len(cloudwatch) == 2
 
 
 def test_a_list_write_still_pages_when_the_audit_cannot_be_written(cloudwatch, monkeypatch):
     def down():
         raise ConnectionError("audit database unreachable")
     monkeypatch.setattr("warden.runtime.open_audit", down)
-    assert lambdas.actor_use({"detail": _list_write()})["approver_list_changed"] is True and len(cloudwatch) == 1
+    assert lambdas.actor_use({"detail": _list_write()})["approver_list_changed"] is True
+    assert len(cloudwatch) == 1
 
 
 def test_the_runtime_watches_its_own_approver_list_and_each_approval_names_the_list_it_was_checked_against():
@@ -192,13 +207,17 @@ def test_the_runtime_watches_its_own_approver_list_and_each_approval_names_the_l
     tf = (root / "terraform" / "modules" / "warden-runtime" / "witness.tf").read_text(encoding="utf-8")
     rule = tf[tf.index('resource "aws_cloudwatch_event_rule" "approvers_changed"'):]
     assert 'requestParameters = { name = ["/warden/${var.environment}/approvers"] }' in rule
-    assert all(name in rule for name in lambdas._LIST_WRITES) and 'eventSource       = ["ssm.amazonaws.com"]' in rule
-    assert 'aws_lambda_function.front_door["actor-use"].arn' in rule and "aws_sqs_queue.alarm_dlq.arn" in rule
+    assert all(name in rule for name in lambdas._LIST_WRITES)
+    assert 'eventSource       = ["ssm.amazonaws.com"]' in rule
+    assert 'aws_lambda_function.front_door["actor-use"].arn' in rule
+    assert "aws_sqs_queue.alarm_dlq.arn" in rule
     alarm = tf[tf.index('resource "aws_cloudwatch_metric_alarm" "approvers_changed"'):]
-    assert f'metric_name         = "{lambdas.APPROVERS_METRIC}"' in alarm and "alarm_actions       = [var.page_topic_arn]" in alarm
+    assert f'metric_name         = "{lambdas.APPROVERS_METRIC}"' in alarm
+    assert "alarm_actions       = [var.page_topic_arn]" in alarm
     one = approvals.ApproverPolicy(approvers={"owner": approvals.Approver(public_key="k", tiers=["T1"])})
     two = one.model_copy(deep=True)
     two.approvers["owner"].name = "Someone Else"
-    assert one.fingerprint() != two.fingerprint() and one.fingerprint() == one.model_copy(deep=True).fingerprint()
+    assert one.fingerprint() != two.fingerprint()
+    assert one.fingerprint() == one.model_copy(deep=True).fingerprint()
     acts = (root / "src" / "warden" / "activities.py").read_text(encoding="utf-8")
     assert acts.count('"approver_list": self.policy.fingerprint()') == 2  # the passkey's row and the signing key's

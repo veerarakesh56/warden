@@ -90,7 +90,8 @@ def test_build_lambdas_zips_every_function_deterministically(tmp_path):
         assert zipfile.ZipFile(path).namelist() == ["app.py"]
         assert path.read_bytes() == second[fn].read_bytes(), f"{fn} zip is not reproducible"
     pips = [c for c in run.cmds if "pip" in c]
-    assert pips and all("manylinux2014_x86_64" in c and "--only-binary=:all:" in c for c in pips)
+    assert pips
+    assert all("manylinux2014_x86_64" in c and "--only-binary=:all:" in c for c in pips)
 
 
 def test_deploy_lambdas_publishes_and_moves_the_alias_for_checkout_only(tmp_path):
@@ -101,7 +102,8 @@ def test_deploy_lambdas_publishes_and_moves_the_alias_for_checkout_only(tmp_path
     done = tool.deploy_lambdas(STACK, tmp_path, aws_factory(clients))
     assert done == {"checkout": "7", "notifier": "$LATEST"}
     names = [c[0] for c in clients["lambda"].calls]
-    assert names.count("update_function_code") == 2 and names.count("publish_version") == 1
+    assert names.count("update_function_code") == 2
+    assert names.count("publish_version") == 1
     assert ("update_alias", {"FunctionName": "warden-dev-checkout", "Name": "live", "FunctionVersion": "7"}) \
         in clients["lambda"].calls
 
@@ -127,7 +129,8 @@ def test_out_inside_the_repo_is_refused():
 def test_ecs_task_definition_logs_in_with_the_task_role_and_still_resolves_a_secret():
     td = tool.task_definition(STACK, "repo:tag")
     c = td["containerDefinitions"][0]
-    assert c["image"] == "repo:tag" and td["family"] == STACK["ecs_task_family"]
+    assert c["image"] == "repo:tag"
+    assert td["family"] == STACK["ecs_task_family"]
     assert td["taskRoleArn"] == STACK["ecs_task_role_arn"]   # signs the IAM tokens; fs-21 revokes it
     env = {e["name"]: e["value"] for e in c["environment"]}
     assert (env["DB_HOST"], env["DB_NAME"], env["AWS_REGION"]) == ("writer.internal", "shop", "ap-south-2")
@@ -189,11 +192,13 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     assert any(c[:4] == ["helm", "upgrade", "--install", "argocd"] for c in run.cmds)  # Argo CD always (2026-10-16)
     applied = next(i for c, i in zip(run.cmds, run.inputs) if "apply" in c and i and "kind: ClusterRole" in i)
     assert not tool.PLACEHOLDER.search(applied)
-    assert "kind: ClusterRole" in applied and "name: warden-readonly" in applied
+    assert "kind: ClusterRole" in applied
+    assert "name: warden-readonly" in applied
     docs = [d for d in yaml.safe_load_all(applied) if d]
     key = next(d for d in docs if d["kind"] == "Secret")["stringData"]["CATALOG_SIGNING_KEY"]
     config = next(d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "shop-infra")["data"]
-    assert len(key) == 64 and (config["DB_USER"], config["DB_HOST"], config["AWS_REGION"]) == (
+    assert len(key) == 64
+    assert (config["DB_USER"], config["DB_HOST"], config["AWS_REGION"]) == (
         "warden_dev_catalog", "reader.internal", "ap-south-2")
     assert next(d for d in docs if d["kind"] == "Namespace")["metadata"]["labels"]["environment"] == "dev"
     assert all(key not in " ".join(c) for c in run.cmds)
@@ -226,7 +231,8 @@ def test_datadogs_agent_goes_on_first_with_its_key_over_stdin_and_a_pinned_chart
     assert all(key not in " ".join(c) for c in run.cmds)  # never on argv
     assert {"Name": "/warden/dev/tf/datadog_site"} in [kw for _, kw in clients["ssm"].calls]  # the deploy role's path
     secret_in = next(i for c, i in zip(run.cmds, run.inputs) if i and "datadog-secret" in i)
-    assert base64.b64encode(key.encode()).decode() in secret_in and "namespace: datadog" in secret_in
+    assert base64.b64encode(key.encode()).decode() in secret_in
+    assert "namespace: datadog" in secret_in
     helm = next(c for c in run.cmds if c[:3] == ["helm", "upgrade", "--install"])
     assert helm[helm.index("--version") + 1] == tool.DATADOG_CHART == "3.250.3"
     for value in ("datadog.site=ap1.datadoghq.com", "datadog.apiKeyExistingSecret=datadog-secret",
@@ -284,12 +290,15 @@ def test_bootstrap_db_logs_in_as_postgres_with_an_iam_token_and_sends_the_file_a
     opened, statements = _bootstrap(db_exists=True)
     assert [kw["dbname"] for kw in opened] == ["postgres", STACK["db_name"]]
     for kw in opened:
-        assert kw["user"] == "postgres" and kw["password"] == "token-SENTINEL"
-        assert kw["host"] == "writer.internal" and kw["sslmode"] == "require"
+        assert kw["user"] == "postgres"
+        assert kw["password"] == "token-SENTINEL"
+        assert kw["host"] == "writer.internal"
+        assert kw["sslmode"] == "require"
     assert not any("CREATE DATABASE" in q for q in statements["postgres"])
     sent = statements[STACK["db_name"]]
     assert sent == [tool.bootstrap_sql(STACK["db_users"])]
-    assert "CREATE ROLE warden_dev_app LOGIN" in sent[0] and "__" not in sent[0].replace("____", "")
+    assert "CREATE ROLE warden_dev_app LOGIN" in sent[0]
+    assert "__" not in sent[0].replace("____", "")
 
 
 def test_bootstrap_db_creates_the_database_express_could_not():
@@ -308,7 +317,8 @@ def test_run_decodes_tool_output_as_utf8_not_the_locale(monkeypatch):
         return tool.subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
     monkeypatch.setattr(tool.subprocess, "run", fake_run)
     tool.run(["docker", "build"])
-    assert seen.get("encoding") == "utf-8" and seen.get("errors") == "replace"
+    assert seen.get("encoding") == "utf-8"
+    assert seen.get("errors") == "replace"
 
 
 def _dist(target, name, requires=()):
@@ -392,7 +402,8 @@ def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_p
     assert {p: v["exporters"] for p, v in config["service"]["pipelines"].items()} == {
         "traces": ["otlp/datadog"], "metrics": ["otlp/datadog"], "logs": ["otlp/datadog"]}
     docs = list(yaml.safe_load_all(run.inputs[0]))
-    assert not [d for d in docs if d["kind"] == "Secret"] and "grafana" not in run.inputs[0].lower()
+    assert not [d for d in docs if d["kind"] == "Secret"]
+    assert "grafana" not in run.inputs[0].lower()
     dep = next(d for d in docs if d["kind"] == "Deployment")
     assert dep["spec"]["template"]["spec"]["containers"][0]["image"] == tool.OTEL_IMAGE.replace(":v", ":v")
     assert tool.OTEL_IMAGE.endswith(":v0.50.0")
@@ -431,8 +442,10 @@ def test_argocd_is_installed_from_the_checked_package_with_its_settings(tmp_path
     run = Runner({})
     tool.deploy_argocd("kc", tmp_path, run)
     helm = next(c for c in run.cmds if c[:3] == ["helm", "upgrade", "--install"])
-    assert helm[3] == "argocd" and helm[4] == str(tmp_path / f"argo-cd-{tool.ARGOCD_CHART}.tgz")
-    assert helm[helm.index("--namespace") + 1] == "argocd" and helm[helm.index("--values") + 1] == str(tool.ARGOCD_VALUES)
+    assert helm[3] == "argocd"
+    assert helm[4] == str(tmp_path / f"argo-cd-{tool.ARGOCD_CHART}.tgz")
+    assert helm[helm.index("--namespace") + 1] == "argocd"
+    assert helm[helm.index("--values") + 1] == str(tool.ARGOCD_VALUES)
     assert (tmp_path / f"argo-cd-{tool.ARGOCD_CHART}.tgz").read_bytes() == b"argo-cd chart package"
     assert tool.ARGOCD_CHART == "10.10.5"
     assert tool.ARGOCD_CHART_URL.startswith("https://github.com/argoproj/argo-helm/")
@@ -453,11 +466,15 @@ def test_argocd_settings_name_no_login_no_load_balancer_and_deny_by_default():
     import yaml
 
     v = yaml.safe_load(tool.ARGOCD_VALUES.read_text(encoding="utf-8"))
-    assert v["configs"]["cm"]["admin.enabled"] is False and v["dex"]["enabled"] is False
-    assert v["configs"]["cm"]["exec.enabled"] is False and v["configs"]["rbac"]["policy.default"] == ""
-    assert v["server"]["service"]["type"] == "ClusterIP" and v["notifications"]["enabled"] is False
+    assert v["configs"]["cm"]["admin.enabled"] is False
+    assert v["dex"]["enabled"] is False
+    assert v["configs"]["cm"]["exec.enabled"] is False
+    assert v["configs"]["rbac"]["policy.default"] == ""
+    assert v["server"]["service"]["type"] == "ClusterIP"
+    assert v["notifications"]["enabled"] is False
     for part in ("controller", "repoServer", "server", "applicationSet", "redis"):
-        assert v[part]["resources"]["requests"] and v[part]["resources"]["limits"]["memory"], part
+        assert v[part]["resources"]["requests"], part
+        assert v[part]["resources"]["limits"]["memory"], part
 
 
 def test_a_sync_that_failed_or_never_reached_the_commit_fails_the_deploy(monkeypatch):
@@ -480,15 +497,18 @@ def test_the_shops_workloads_render_for_dev_with_no_placeholder_and_the_hpa_owns
         pytest.skip("kubectl renders kustomize")
     out = subprocess.run(["kubectl", "kustomize", str(ROOT / "manifests" / "shop" / "dev")], capture_output=True,
                          text=True, check=True).stdout
-    assert not tool.PLACEHOLDER.search(out) and "unset" not in out
+    assert not tool.PLACEHOLDER.search(out)
+    assert "unset" not in out
     docs = {(d["kind"], d["metadata"]["name"]): d for d in yaml.safe_load_all(out) if d}
     catalog, worker = docs[("Deployment", "catalog-api")], docs[("Deployment", "cart-worker")]
-    assert "replicas" not in catalog["spec"] and worker["spec"]["replicas"] == 2
+    assert "replicas" not in catalog["spec"]
+    assert worker["spec"]["replicas"] == 2
     for dep in (catalog, worker):
         assert dep["metadata"]["labels"]["environment"] == "dev"  # WARDEN reads it before any change (P18)
         assert dep["spec"]["template"]["metadata"]["labels"]["tags.datadoghq.com/env"] == "dev"
         c = dep["spec"]["template"]["spec"]["containers"][0]
-        assert c["image"] == "shop-app" and {"catalog-config", "shop-infra", "otel-config"} == {
+        assert c["image"] == "shop-app"
+        assert {"catalog-config", "shop-infra", "otel-config"} == {
             e["configMapRef"]["name"] for e in c["envFrom"]}
     assert docs[("ConfigMap", "otel-config")]["data"]["OTEL_RESOURCE_ATTRIBUTES"] == "deployment.environment=dev"
     assert not any(k == "Secret" or k == "Namespace" for k, _ in docs)  # the pipeline's, never Git's

@@ -116,7 +116,8 @@ def test_no_path_is_exempt_from_the_scan(tmp_path):
     refuse each one. A path exemption, for a file or a directory, fails this."""
     tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True,
                              check=True).stdout.splitlines()
-    assert "src/warden/redaction.py" in tracked and "tests/test_redaction.py" in tracked
+    assert "src/warden/redaction.py" in tracked
+    assert "tests/test_redaction.py" in tracked
     key = _synth("AKIA", "Q3RZ7XKM", "2PLW5NBT")
     for rel in tracked:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -228,7 +229,8 @@ def test_new_files_not_yet_git_added_are_scanned(monkeypatch):
     monkeypatch.setattr(cp.subprocess, "run", fake_run)
     cp._tracked_files(staged=False)
     assert seen["cmd"][:2] == ["git", "ls-files"]
-    assert "--others" in seen["cmd"] and "--exclude-standard" in seen["cmd"]
+    assert "--others" in seen["cmd"]
+    assert "--exclude-standard" in seen["cmd"]
 
 
 
@@ -242,7 +244,8 @@ def _scan_one(tmp_path, sub, name, content):
 def test_a_personal_email_is_refused_and_a_fixture_domain_is_not(tmp_path):
     """Owner rule R3. The scanner had no email pattern at all (independent review, 2026-09-28)."""
     code, out = _scan_one(tmp_path, "a", "notes.md", "contact: someone.real@" + "gmail.com\n")  # split
-    assert code != 0 and "personal email" in out.lower(), out
+    assert code != 0, out
+    assert "personal email" in out.lower(), out
     code, out = _scan_one(tmp_path, "b", "notes.md", "contact: some%40" + "outlook.com\n")
     assert code != 0, out
     code, out = _scan_one(tmp_path, "c", "fixture.md", "user priya.nair@corp.io logged in\n")
@@ -251,7 +254,8 @@ def test_a_personal_email_is_refused_and_a_fixture_domain_is_not(tmp_path):
 
 def test_a_bare_account_id_is_refused_and_the_documented_example_is_not(tmp_path):
     code, out = _scan_one(tmp_path, "a", "a.md", "account " + "4444" + "55556666" + " owns it\n")  # split
-    assert code != 0 and "account id" in out.lower(), out
+    assert code != 0, out
+    assert "account id" in out.lower(), out
     code, out = _scan_one(tmp_path, "b", "b.md", "account 123456789012 is the AWS docs example\n")
     assert code == 0, out
 

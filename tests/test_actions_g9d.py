@@ -62,7 +62,9 @@ def test_a_disabled_rule_is_resumed_through_its_entry():
         RemediationProposal(action=ActionKind.resume_flow, target="warden-dev-nightly", reasoning="r",
                             expected_effect="e", blast_radius="single_service", reversible=True),
         lambda e, p: {"rule": {"warden-dev-nightly"}})
-    assert why == "" and req["entry"] == "events_enable_rule" and req["params"] == {"rule": "warden-dev-nightly"}
+    assert why == ""
+    assert req["entry"] == "events_enable_rule"
+    assert req["params"] == {"rule": "warden-dev-nightly"}
     # Review H1 closed raise_limit's weak evidence words; G10-B maps it to the reserved concurrency again.
     assert catalog.for_action(ActionKind.raise_limit, "lambda").name == "lambda_set_reserved_concurrency"
     assert catalog.for_action(ActionKind.scale_up, "lambda").name == "lambda_set_reserved_concurrency"
@@ -109,7 +111,8 @@ def test_an_answer_cut_off_at_the_output_cap_is_charged_said_plainly_and_not_ask
     client = LLMClient(provider=p, mock=False)
     with pytest.raises(ModelRefused, match="cut off"):
         client.structured(system="s", user="u", schema=Diagnosis)
-    assert len(sent) == 1 and client.cost.usd > 0  # asked once, and charged
+    assert len(sent) == 1
+    assert client.cost.usd > 0
     assert sent[0]["max_tokens"] == providers.MAX_OUTPUT_TOKENS >= 16384  # room for thinking and the answer
     # The model's own price (2026-10-15): Sonnet 5.5 at $2 in / $10 out per million, not one price for every model.
     assert client.cost.usd == pytest.approx(1000 / 1e6 * 2.0 + 4096 / 1e6 * 10.0)

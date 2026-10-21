@@ -77,7 +77,8 @@ SECRETS = ("priya.nair@corp.io", "10.2.3.4", "acme-42")
 
 def test_slack_really_posts_and_what_crosses_the_wire_is_redacted(server):
     note = SlackWebhookSink(server, live=True).send("hello", {})
-    assert note.delivered is True and note.detail == "HTTP 200"
+    assert note.delivered is True
+    assert note.detail == "HTTP 200"
     assert len(RECEIVED) == 1
     assert RECEIVED[0]["content_type"] == "application/json"
     # unfurling off: a URL in the message must not make Slack's servers fetch it (outbound gate v0)
@@ -125,5 +126,6 @@ def test_dry_run_opens_no_socket_at_all(server):
     for sink in (SlackWebhookSink(server, live=False), TeamsWebhookSink(server, live=False),
                  GenericWebhookSink(server, live=False)):
         note = sink.send("hello", {"a": 1})
-        assert note.delivered is False and "dry-run" in note.detail
+        assert note.delivered is False
+        assert "dry-run" in note.detail
     assert RECEIVED == [], "a dry run reached the network"

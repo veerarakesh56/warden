@@ -110,7 +110,8 @@ def test_a_service_it_cannot_list_is_blind_and_the_run_is_not_clean(capsys):
     assert sweep_mod.main(["--no-assume"], session=session) == 2
     out = capsys.readouterr().out
     assert "BLIND ap-south-2 sqs.list_queues: AccessDenied" in out
-    assert "NOT a clean result" in out and "clean - nothing" not in out
+    assert "NOT a clean result" in out
+    assert "clean - nothing" not in out
 
 
 def test_every_region_is_swept_not_only_the_home_region():
@@ -139,7 +140,8 @@ def test_the_sweep_role_policy_allows_every_call_the_sweep_makes_and_nothing_els
     listed = set(policy["Statement"][0]["Action"])
     assert listed == wanted, (wanted - listed, listed - wanted)
     api = policy["Statement"][1]
-    assert api["Action"] == "apigateway:GET" and all(r.endswith(("/restapis", "/apis")) for r in api["Resource"])
+    assert api["Action"] == "apigateway:GET"
+    assert all(r.endswith(("/restapis", "/apis")) for r in api["Resource"])
 
 
 

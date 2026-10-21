@@ -31,10 +31,13 @@ def _read(ecs=None):
 def test_each_deployment_its_events_and_the_stopped_tasks_are_read_as_wardens_own_lines():
     lines, metrics = _read()
     deploy = [line for line in lines if line.startswith(f"STATE ecs/{P}orders-api deployment PRIMARY")]
-    assert deploy and "revision=orders-api:8" in deploy[0], lines
+    assert deploy, lines
+    assert "revision=orders-api:8" in deploy[0], lines
     [stopped] = [line for line in lines if " stopped task " in line and line.startswith("STATE")]
-    assert "stop=TaskFailedToStart cause=secret_missing" in stopped and "revision=orders-api:8" in stopped
-    assert metrics["ecs_stopped_secret_missing"] == 1 and metrics["ecs_tasks_failed_to_start"] == 1
+    assert "stop=TaskFailedToStart cause=secret_missing" in stopped
+    assert "revision=orders-api:8" in stopped
+    assert metrics["ecs_stopped_secret_missing"] == 1
+    assert metrics["ecs_tasks_failed_to_start"] == 1
 
 
 def test_the_reason_text_reaches_the_model_only_through_the_quarantine():
@@ -151,5 +154,7 @@ def test_a_long_stop_reason_keeps_its_decisive_end():
               " InvalidRequestException: You can't perform this operation on the secret because it was marked for "
               "deletion.")
     cut = _head_and_tail(reason, 400)
-    assert len(cut) <= 400 and cut.startswith("ResourceInitializationError") and cut.endswith("marked for deletion.")
+    assert len(cut) <= 400
+    assert cut.startswith("ResourceInitializationError")
+    assert cut.endswith("marked for deletion.")
     assert _head_and_tail("short", 400) == "short"

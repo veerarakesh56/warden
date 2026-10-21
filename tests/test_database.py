@@ -87,7 +87,9 @@ def test_an_unknown_backend_lists_what_is_available():
     with pytest.raises(ToolError) as exc:
         resolve_backend("cassandra")
     message = str(exc.value)
-    assert "postgres" in message and "mssql" in message and "k8s" in message
+    assert "postgres" in message
+    assert "mssql" in message
+    assert "k8s" in message
 
 
 def test_databases_have_no_deploys_so_p5_cannot_be_satisfied_by_one():
@@ -185,14 +187,16 @@ def test_aurora_refusing_the_replay_function_loses_no_other_metric():
             "Function pg_last_xact_replay_timestamp() is currently not supported for Aurora"),
     })
     m = _Postgres.metrics(conn)
-    assert m["active_connections"] == 830.0 and m["max_connections"] == 844.0
+    assert m["active_connections"] == 830.0
+    assert m["max_connections"] == 844.0
     assert "replica_lag_seconds" not in m
 
 
 def test_postgres_problem_ops_excludes_own_backend_and_redacts_query_text():
     conn = _SqlStub({"pg_stat_activity": [(101, "idle in transaction", 900, "SELECT * FROM users WHERE email='a@b.io'")]})
     lines = _Postgres.problem_ops(conn, 300)
-    assert lines and "pid=101" in lines[0]
+    assert lines
+    assert "pid=101" in lines[0]
     assert "pid <> pg_backend_pid()" in conn.asked[0]
     # Query text can carry PII. Since audit A-C-5 the backend returns it raw, like every other
     # backend's lines, and node_redact scrubs it with the run's ONE placeholder map (a separate map
@@ -272,7 +276,8 @@ def test_redis_problem_ops_never_lists_its_own_client():
     conn = _RedisStub(clients=[{"id": "1", "idle": "900", "addr": "x"},
                                {"id": "2", "idle": "900", "addr": "y"}])
     lines = _Redis.problem_ops(conn, 300)
-    assert len(lines) == 1 and "id=2" in lines[0], "client id 1 is this connection"
+    assert len(lines) == 1, "client id 1 is this connection"
+    assert "id=2" in lines[0], "client id 1 is this connection"
 
 
 class _MongoStub:
@@ -307,7 +312,8 @@ def test_mongo_metrics_count_long_running_ops():
 def test_logs_prefix_each_stuck_connection_with_the_engine():
     conn = _SqlStub({"pg_stat_activity": [(101, "idle in transaction", 900, "SELECT 1")]})
     lines = DatabaseBackend(engine="postgres", conn=conn).logs(_alert())
-    assert lines and lines[0].startswith("postgres stuck connection:")
+    assert lines
+    assert lines[0].startswith("postgres stuck connection:")
 
 
 def test_a_failed_problem_op_read_is_a_PARTIAL_not_evidence():
@@ -318,7 +324,8 @@ def test_a_failed_problem_op_read_is_a_PARTIAL_not_evidence():
             raise RuntimeError("permission denied for pg_stat_activity")
 
     lines = DatabaseBackend(engine="postgres", conn=Boom()).logs(_alert())
-    assert len(lines) == 1 and lines[0].startswith(PARTIAL_PREFIX)
+    assert len(lines) == 1
+    assert lines[0].startswith(PARTIAL_PREFIX)
     assert "permission denied" in lines[0]
 
 
@@ -535,7 +542,8 @@ def test_connections_whose_age_cannot_be_judged_are_reported_as_a_partial():
     lines = _Postgres.problem_ops(conn, 300)
     partials = [line for line in lines if line.startswith(PARTIAL_PREFIX)]
     assert len(partials) == 1, f"clock-skewed connections must be surfaced: {lines}"
-    assert "future" in partials[0] and "clock skew" in partials[0]
+    assert "future" in partials[0]
+    assert "clock skew" in partials[0]
 
 
 def test_no_clock_skew_means_no_noise():
@@ -659,7 +667,8 @@ def test_postgres_counts_only_sessions_idle_in_a_transaction_past_the_threshold(
     conn = _SqlStub({"idle in transaction": [(0,)], "SHOW max_connections": [(100,)], "count(*)": [(3,)]})
     _Postgres.metrics(conn)
     idle = [q for q in conn.asked if "idle in transaction" in q]
-    assert idle and all("state_change < now() - make_interval" in q for q in idle), idle
+    assert idle, idle
+    assert all("state_change < now() - make_interval" in q for q in idle), idle
 
 
 def test_every_connection_a_read_opens_is_closed(monkeypatch):
@@ -693,5 +702,6 @@ def test_every_connection_a_read_opens_is_closed(monkeypatch):
     with pytest.raises(Exception):  # noqa: B017 - the failed read still closes
         backend.metrics(_alert())
     backend.logs(_alert())
-    assert len(opened) == 2 and closed == opened
+    assert len(opened) == 2
+    assert closed == opened
 

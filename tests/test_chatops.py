@@ -55,7 +55,8 @@ def test_no_webhook_configured_falls_back_to_console(monkeypatch):
     for var in ("WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL"):
         monkeypatch.delenv(var, raising=False)
     sinks = resolve_sinks()
-    assert len(sinks) == 1 and isinstance(sinks[0], ConsoleSink)
+    assert len(sinks) == 1
+    assert isinstance(sinks[0], ConsoleSink)
 
 
 def test_slack_sink_is_dry_run_unless_explicitly_armed(monkeypatch):
@@ -64,7 +65,8 @@ def test_slack_sink_is_dry_run_unless_explicitly_armed(monkeypatch):
     [sink] = resolve_sinks()
     assert isinstance(sink, SlackWebhookSink)
     note = sink.send("hi", {})
-    assert note.delivered is False and "dry-run" in note.detail  # never actually POSTed
+    assert note.delivered is False
+    assert "dry-run" in note.detail
 
 
 def test_the_transmitted_text_is_redacted_even_if_the_report_had_a_hole():
@@ -85,7 +87,8 @@ def test_notify_delivers_a_redacted_report_to_a_live_sink():
     cap = _CaptureSink()
     notes = notify(_report(), sinks=[cap])
     assert notes[0].delivered is True
-    assert "priya.nair@corp.io" not in cap.text and "10.2.3.4" not in cap.text
+    assert "priya.nair@corp.io" not in cap.text
+    assert "10.2.3.4" not in cap.text
 
 
 def test_a_transport_failure_is_a_status_not_an_exception():
@@ -98,7 +101,8 @@ def test_a_transport_failure_is_a_status_not_an_exception():
 
 def test_console_sink_transmits_nothing():
     note = ConsoleSink().send("x", {})
-    assert note.delivered is True and "not transmitted" in note.detail
+    assert note.delivered is True
+    assert "not transmitted" in note.detail
 
 
 def test_the_transmitted_json_data_is_recursively_redacted():
@@ -108,10 +112,12 @@ def test_the_transmitted_json_data_is_recursively_redacted():
     cap = _CaptureSink()
     notify(_report(), sinks=[cap])
     blob = str(cap.data)
-    assert "priya.nair@corp.io" not in blob and "10.2.3.4" not in blob
+    assert "priya.nair@corp.io" not in blob
+    assert "10.2.3.4" not in blob
     # nested structures are walked, not just top-level keys
     nested, _ = _scrub({"x": ["ip 10.0.0.1", {"y": "u@e.io"}]}, {})
-    assert "10.0.0.1" not in str(nested) and "u@e.io" not in str(nested)
+    assert "10.0.0.1" not in str(nested)
+    assert "u@e.io" not in str(nested)
 
 
 # --------------------------------------------------------------------------- identifiers + Slack format
@@ -174,14 +180,16 @@ def test_with_identifiers_off_slack_gets_none_of_them():
     cap = _SlackCapture()
     notify(_evidence_report(show=False), sinks=[cap])
     for identifier in ("initech-4", "priya.nair@corp.io", "10.0.7.22"):
-        assert identifier not in cap.text and identifier not in str(cap.data)
+        assert identifier not in cap.text
+        assert identifier not in str(cap.data)
 
 
 @pytest.mark.parametrize("show", [True, False])
 def test_a_secret_never_reaches_slack_whatever_the_setting(show):
     cap = _SlackCapture()
     notify(_evidence_report(show=show), sinks=[cap])
-    assert HUNTER2 + "-Sup3r-s3cret" not in cap.text and HUNTER2 + "-Sup3r-s3cret" not in str(cap.data)
+    assert HUNTER2 + "-Sup3r-s3cret" not in cap.text
+    assert HUNTER2 + "-Sup3r-s3cret" not in str(cap.data)
 
 
 def test_slack_gets_mrkdwn_not_github_markdown():
@@ -192,8 +200,11 @@ def test_slack_gets_mrkdwn_not_github_markdown():
     out = to_slack_mrkdwn(md)
     assert "**" not in out
     assert not any(line.startswith("#") for line in out.splitlines())
-    assert "*Title*" in out and "*Section*" in out and "*Service*" in out
-    assert "&lt;TENANT_1&gt;" in out and "&amp; co" in out
+    assert "*Title*" in out
+    assert "*Section*" in out
+    assert "*Service*" in out
+    assert "&lt;TENANT_1&gt;" in out
+    assert "&amp; co" in out
     assert "```\nSELECT 1 WHERE a &lt; 2;\n```" in out, "code blocks keep their lines (escaped)"
 
 
@@ -257,5 +268,8 @@ def test_the_slack_sink_posts_every_part_and_fails_if_any_part_fails(monkeypatch
 
     monkeypatch.setattr(chatops, "_post_json", post)
     note = chatops.SlackWebhookSink("https://example.invalid/hook", live=True).send(_long_report_text(), {})
-    assert len(sent) > 1 and all(t.startswith("_(part ") for t in sent)
-    assert note.delivered is False and "1 of" in note.detail and "HTTP 500" in note.detail
+    assert len(sent) > 1
+    assert all(t.startswith("_(part ") for t in sent)
+    assert note.delivered is False
+    assert "1 of" in note.detail
+    assert "HTTP 500" in note.detail

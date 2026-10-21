@@ -223,7 +223,8 @@ def test_a_missing_log_group_is_a_partial_failure_not_a_crash_and_not_silence():
     would look like a service that simply logged nothing."""
     logs = FakeLogs(raises=RuntimeError("ResourceNotFoundException: log group does not exist"))
     lines = _backend(logs=logs).logs(_alert())
-    assert len(lines) == 1 and lines[0].startswith(PARTIAL_PREFIX)
+    assert len(lines) == 1
+    assert lines[0].startswith(PARTIAL_PREFIX)
 
 
 def test_log_truncation_announces_itself_as_a_partial():
@@ -377,7 +378,8 @@ def test_an_unreadable_previous_revision_reports_a_gap_and_NO_deploy():
     ecs = FakeEcs(services=[_service()], task_defs={"checkout:7": ["repo/checkout:v2"]})
     out = _backend(ecs=ecs).deploys(_alert())
     assert len(out) == 1
-    assert isinstance(out[0], str) and out[0].startswith(PARTIAL_PREFIX)
+    assert isinstance(out[0], str)
+    assert out[0].startswith(PARTIAL_PREFIX)
     assert "cannot prove" in out[0]
     assert not any(isinstance(x, dict) for x in out), "no deploy may be reported"
 
@@ -395,7 +397,8 @@ def test_the_first_revision_is_a_deploy_with_no_previous_image():
     ecs = FakeEcs(services=[_service(deployments=deployments)],
                   task_defs={"checkout:1": ["repo/checkout:v1"]})
     out = _backend(ecs=ecs).deploys(_alert())
-    assert len(out) == 1 and out[0]["previous_image"] == ""
+    assert len(out) == 1
+    assert out[0]["previous_image"] == ""
 
 
 def test_an_old_deployment_is_outside_the_window():
@@ -440,7 +443,9 @@ def test_an_unparseable_task_definition_is_a_partial_not_a_traceback():
     deployments = [{"status": "PRIMARY", "createdAt": NOW, "taskDefinition": "garbage"}]
     ecs = FakeEcs(services=[_service(deployments=deployments)])
     out = _backend(ecs=ecs).deploys(_alert())
-    assert out and isinstance(out[0], str) and out[0].startswith(PARTIAL_PREFIX)
+    assert out
+    assert isinstance(out[0], str)
+    assert out[0].startswith(PARTIAL_PREFIX)
 
 
 # --------------------------------------------------------------------------- the boundary
@@ -629,7 +634,8 @@ def test_it_falls_back_to_the_previous_revision_when_the_service_is_steady():
         "checkout:7": ["repo/checkout:v2"], "checkout:6": ["repo/checkout:v1"],
     })
     out = _backend(ecs=ecs).deploys(_alert())
-    assert len(out) == 1 and out[0]["previous_image"] == "repo/checkout:v1"
+    assert len(out) == 1
+    assert out[0]["previous_image"] == "repo/checkout:v1"
 
 
 def test_the_proving_ground_reader_grants_exactly_what_the_code_calls():
@@ -707,8 +713,10 @@ def test_a_rollback_is_reported_with_nothing_to_roll_back_to():
             "checkout:5": ["repo/checkout:older"]}
     ecs = FakeEcs(services=[_service(deployments=_rollout(6, 7))], task_defs=defs)
     [d] = _backend(ecs=ecs).deploys(_alert())
-    assert d["rolled_back_from"] == "checkout:7" and d["previous_task_definition"] == "", d
-    assert d["task_definition"] == "checkout:6" and d["previous_image"] == "repo/checkout:broken"
+    assert d["rolled_back_from"] == "checkout:7", d
+    assert d["previous_task_definition"] == "", d
+    assert d["task_definition"] == "checkout:6"
+    assert d["previous_image"] == "repo/checkout:broken"
     assert "checkout:5" not in str(d)  # nor one step further back
 
 
@@ -734,7 +742,8 @@ def test_the_watched_environments_reader_role_grants_every_call_the_code_makes()
 
     doc = {"Statement": reader_iam.statements()}
     granted = reader_iam.granted()
-    assert called and called <= granted, sorted(called - granted)
+    assert called, sorted(called - granted)
+    assert called <= granted, sorted(called - granted)
     logs = next(st for st in doc["Statement"] if "logs:FilterLogEvents" in st["Action"])["Resource"]
     assert all("warden-${env}-" in r for r in logs)  # this environment's log groups only
 
@@ -766,7 +775,9 @@ def test_a_configuration_only_revision_is_a_deploy_naming_what_changed_never_its
     ecs = _RichEcs({"checkout:7": _td(["run", "--big"], pool="50", password=_NEW_SECRET),
                     "checkout:6": _td(["run"])})
     [d] = _backend(ecs=ecs).deploys(_alert())
-    assert d["kind"] == "config" and d["changed"] == "app.command,app.environment:DB_PASSWORD,app.environment:DB_POOL"
-    assert "secret-value" not in str(d) and "50" not in d["changed"]
+    assert d["kind"] == "config"
+    assert d["changed"] == "app.command,app.environment:DB_PASSWORD,app.environment:DB_POOL"
+    assert "secret-value" not in str(d)
+    assert "50" not in d["changed"]
     same = _RichEcs({"checkout:7": _td(["run"]), "checkout:6": _td(["run"])})
     assert _backend(ecs=same).deploys(_alert()) == []  # identical settings: a restart, not a deploy

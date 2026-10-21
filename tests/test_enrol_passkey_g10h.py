@@ -53,13 +53,16 @@ def test_the_approvers_own_key_enrols_a_passkey_and_only_the_saved_list_makes_it
     page, key, _ = setup
     device, token = SoftAuthenticator(), invite(key, "owner", now=T0)
     shell = page.handle("GET", f"/e/{token}")
-    assert shell.status == 200 and "frame-ancestors 'none'" in shell.headers["Content-Security-Policy"]
-    assert "owner" not in shell.body and token not in shell.body
+    assert shell.status == 200
+    assert "frame-ancestors 'none'" in shell.headers["Content-Security-Policy"]
+    assert "owner" not in shell.body
+    assert token not in shell.body
     done = _finish(page, token, device.register(_options(page, token)))
     assert done.status == 200, done.body
     said = json.loads(done.body)
     listed = approvals.ApproverPolicy.loads(said["approvers"])
-    assert said["approver"] == "owner" and said["device_bound"] is True
+    assert said["approver"] == "owner"
+    assert said["device_bound"] is True
     assert [c.credential_id for c in listed.approvers["owner"].passkeys] == [bytes_to_base64url(device.credential_id)]
     # Everything else in the list is as it was: the same break-glass key, tiers and rules.
     assert listed.model_copy(update={"approvers": page.policy.approvers}) == page.policy
@@ -103,7 +106,8 @@ def test_a_link_nobody_entitled_signed_for_now_invites_nobody(setup, case):
                                                "nonce": "n"}).encode()) + "." + signature
     for r in (page.handle("GET", f"/e/{token}"), page.handle("POST", f"/e/{token}/options"),
               page.handle("POST", f"/e/{token}/finish", "{}")):
-        assert r.status == 404 and json.loads(r.body) == {"error": "this enrolment link is not valid"}
+        assert r.status == 404
+        assert json.loads(r.body) == {"error": "this enrolment link is not valid"}
 
 
 def test_a_ceremony_that_does_not_verify_enrols_nothing_and_a_link_works_once(setup):
@@ -117,7 +121,8 @@ def test_a_ceremony_that_does_not_verify_enrols_nothing_and_a_link_works_once(se
     device = SoftAuthenticator()
     answer = device.register(_options(page, token))
     assert _finish(page, token, answer).status == 200
-    assert _finish(page, token, answer).status == 404 and page.handle("GET", f"/e/{token}").status == 404
+    assert _finish(page, token, answer).status == 404
+    assert page.handle("GET", f"/e/{token}").status == 404
 
 
 def test_an_answer_needs_its_own_challenge_and_an_enrolled_passkey_is_not_listed_twice(setup):
@@ -158,12 +163,14 @@ def test_the_command_signs_a_link_the_page_accepts_and_opens_it_without_printing
 
     opened = []
     monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url) or True)
-    assert cli.main(["enrol", "--approver", "owner", "--key", str(pem)]) == 1 and not opened  # no domain, no link
+    assert cli.main(["enrol", "--approver", "owner", "--key", str(pem)]) == 1
+    assert not opened
     monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", RP)
     assert cli.main(["enrol", "--approver", "owner", "--key", str(pem)]) == 0
     (link,) = opened
     printed = capsys.readouterr()
-    assert link.startswith(f"https://{RP}/e/") and link.split("/e/")[1] not in printed.out + printed.err
+    assert link.startswith(f"https://{RP}/e/")
+    assert link.split("/e/")[1] not in printed.out + printed.err
     clock.now = cli.datetime.now(cli.UTC)
     assert page.handle("GET", link.removeprefix(f"https://{RP}")).status == 200
 
@@ -173,7 +180,8 @@ def test_the_api_routes_the_enrolment_steps_the_page_serves():
     assert '"GET /e/{token}", "POST /e/{token}/{step}"' in tf
     src = (ROOT / "src" / "warden" / "approval_page.py").read_text(encoding="utf-8")
     assert set(re.findall(r'post\("([a-z]+)"', src.split("_ENROL = ")[1].split("_PAGE = ")[0])) == {"options", "finish"}
-    assert '("POST", "options")' in src and '("POST", "finish")' in src
+    assert '("POST", "options")' in src
+    assert '("POST", "finish")' in src
 
 
 def test_the_enrolment_page_can_be_cleared_and_says_what_the_list_and_its_risk_levels_are():
@@ -185,7 +193,8 @@ def test_the_enrolment_page_can_be_cleared_and_says_what_the_list_and_its_risk_l
     page = " ".join(_ENROL.split())
     assert '<button id="clear" type="button" hidden>Done: clear this page</button>' in page
     # Cleared by the button, and when the page is left: nothing comes back with the browser's Back button.
-    assert 'const wipe = () => { $("list").value = "";' in page and 'window.addEventListener("pagehide", wipe)' in page
+    assert 'const wipe = () => { $("list").value = "";' in page
+    assert 'window.addEventListener("pagehide", wipe)' in page
     assert '$("clear").addEventListener("click", () => { wipe();' in page
     assert "public half only: the key itself never leaves your device" in page
     for tier, meaning in approvals.TIER_MEANS.items():  # the page's words are the ones every message uses

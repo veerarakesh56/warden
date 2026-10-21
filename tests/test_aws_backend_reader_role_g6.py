@@ -44,7 +44,8 @@ def test_each_incident_is_read_in_its_own_environments_reader_role_named_by_the_
     assert set(made) == {"logs", "cloudwatch", "ecs"}
     (call,) = session.sts.calls
     assert call["RoleArn"] == TEMPLATE.format(env="dev", role="platform-reader")
-    assert call["SourceIdentity"] == "inc-abc-1" and call["RoleSessionName"] == "inc-abc-1"
+    assert call["SourceIdentity"] == "inc-abc-1"
+    assert call["RoleSessionName"] == "inc-abc-1"
     assert clients("dev", "inc-abc-1") is made  # held, not assumed again
     clients("dev", "inc-abc-2")
     assert len(session.sts.calls) == 2  # another incident, its own session
@@ -86,7 +87,8 @@ def test_a_bound_incidents_clients_are_its_threads_own():
     t = threading.Thread(target=other)
     t.start()
     t.join()
-    assert b._logs == "dev-logs" and seen["logs"] == "base-logs"
+    assert b._logs == "dev-logs"
+    assert seen["logs"] == "base-logs"
 
 
 def test_only_the_read_zone_reads_live_aws():
