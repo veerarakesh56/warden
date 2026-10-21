@@ -94,6 +94,9 @@ resource "aws_ecs_task_definition" "zone" {
       # AWS's documentation on the evidence's error codes, as reference - fetched where the evidence is read
       # (aws_docs.py, owner decision 2026-10-10). Over the 443 egress the group already has.
       each.key == "read" ? { WARDEN_AWS_DOCS = "on" } : {},
+      # B35: the core zone's beat needs every other zone's worker polling its queue (runtime.zones_polling), so a
+      # dead read, llm, notify or act task - or one whose Temporal key stopped working - pages through the heartbeat.
+      each.key == "core" ? { WARDEN_HEARTBEAT_ZONES = join(",", sort([for z in keys(local.zones) : z if z != "core"])) } : {},
       # The read zone gathers the evidence: every resource the alarm names, through each watched environment's reader
       # role (aws_stack.py, G9-A2b; it reuses aws_backend for ECS).
       each.key == "read" ? { WARDEN_BACKEND = "stack" } : {},
