@@ -70,6 +70,47 @@ NOT_APPROVER = ("Only an enrolled approver can ask WARDEN for a new plan, and th
 REPLAN_SOON = "WARDEN made a new plan for `{incident}` less than an hour ago; ask again after that, or read its record."
 
 
+# U3-8: an enrolled approver who may approve the waiting plan extends its wait (extend.py): "extend the wait",
+# "extend by 12h", "extend approval". By EXTEND_MAX_HOURS unless they say how long, and at most that at a time.
+EXTEND = re.compile(r"(?i)\bextend\b[^.?!\n]{0,40}?\b(?:wait|waiting|approval|plan|time|deadline|it|by|\d{1,3}\s*(?:h|hrs?|hours?))\b")
+_HOURS = re.compile(r"(?i)\bextend\b[^.?!\n]{0,40}?\b(\d{1,4})\s*(?:h|hrs?|hours?)\b")
+EXTENDED = ("The wait for WARDEN's plan `{workflow}` is extended by {hours} h, to {until}{capped}. Nothing else "
+            "changes: it still needs an approver's passkey, and WARDEN reads the target again before applying it. When "
+            "the approval links already posted run out, fresh ones come to the alerts channel; the incident's record "
+            "page opens the plan at any time.")
+NOT_EXTENDED = {
+    "not an approver": "Only an enrolled approver can extend a fix plan's wait.",
+    "not this plan's approver": ("Only an approver who may approve this plan - its risk level and its environment - "
+                                 "can extend its wait."),
+    "no plan waiting": "`{incident}` has no fix plan waiting for an approval, so there is nothing to extend.",
+    "hours out of range": "A plan's wait is extended by 1 to {most} hours at a time; ask again with that.",
+    "at the limit": ("WARDEN's plan `{workflow}` already waits as long as a plan can: until {until}, {ceiling} hours "
+                     "from when it was made. A new plan can be asked for with \"new plan\"."),
+}
+
+
+def hours_asked(text: str) -> int:
+    """The hours an "extend" asks for: the number it names, else EXTEND_MAX_HOURS."""
+    from .extend import EXTEND_MAX_HOURS
+
+    m = _HOURS.search(text or "")
+    return int(m.group(1)) if m else EXTEND_MAX_HOURS
+
+
+def extended_said(got: Mapping[str, Any], incident: str) -> str:
+    """The thread's reply to an "extend": a fixed text with WARDEN's own values in it - nothing a person wrote."""
+    from .extend import CEILING_HOURS, EXTEND_MAX_HOURS
+
+    why = str(got.get("why") or "")
+    values = {"incident": incident, "workflow": got.get("workflow_id", ""), "until": got.get("until_said", ""),
+              "hours": got.get("hours", ""), "ceiling": CEILING_HOURS, "most": EXTEND_MAX_HOURS,
+              "capped": f" - the most it can wait, {CEILING_HOURS} hours from when it was made" if got.get("capped")
+              else ""}
+    if why:
+        return NOT_EXTENDED.get(why, NOT_READ).format(**values)
+    return EXTENDED.format(**values)
+
+
 LIMIT = ("This incident's discussion has reached today's limit of WARDEN's answers; ask again tomorrow, or read the "
          "incident's report in the alerts channel.")
 # Whether the incident exists in another environment is not said: that would itself be the other environment's record.

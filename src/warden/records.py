@@ -57,6 +57,7 @@ STEP = {
     "remediation.rollback_failed": "Undoing the fix failed", "remediation.refused": "Apply refused",
     "workflow.end": "Fix run ended", "change.recorded": "Change recorded", "discuss.turn": "Asked about in the discussion",
     "discuss.answer": "WARDEN answered in the discussion", "discuss.reply": "Answer posted",
+    "approval.extended": "The approval wait was extended by an approver (from the discussion)",
 }
 # What each message about a fix plan was, by its `what` (activities.announce).
 TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Denied", "expired": "Expired",
