@@ -106,6 +106,8 @@ def test_each_app_group_allows_exactly_the_egress_its_code_needs(name):
     for r in rules:
         assert r["protocol"] == '"tcp"', (name, r)
         assert r["from_port"] == r["to_port"], (name, r)  # one port, never a range
+        # One destination per rule: the provider accepts both keys in one block and opens both (review, PR 129).
+        assert ("cidr_blocks" in r) != ("security_groups" in r), (name, r)
     got = {(r["from_port"], r.get("cidr_blocks") or r.get("security_groups")) for r in rules}
     assert got == SHOP_EGRESS[name], (name, got)
     assert len(rules) == len(got), (name, rules)

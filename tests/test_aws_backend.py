@@ -770,6 +770,7 @@ def test_a_configuration_only_revision_is_a_deploy_naming_what_changed_never_its
     assert d["kind"] == "config" and d["changed"] == "app.command,app.environment:DB_PASSWORD,app.environment:DB_POOL"
     assert _OLD_SECRET not in str(d)
     assert _NEW_SECRET not in str(d)
+    assert secret_value("") not in str(d)  # no made-up secret of any kind: "-secret-value" (review, PR 129)
     assert "50" not in d["changed"]
     same = _RichEcs({"checkout:7": _td(["run"]), "checkout:6": _td(["run"])})
     assert _backend(ecs=same).deploys(_alert()) == []  # identical settings: a restart, not a deploy

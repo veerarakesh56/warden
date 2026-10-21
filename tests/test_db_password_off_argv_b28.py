@@ -35,3 +35,11 @@ def test_the_harness_hands_the_password_to_terraform_alone():
     for line in runs:
         assert 'TF_VAR_db_password="$DB_PASSWORD" terraform -chdir=' in line, line
     assert not re.search(r"^\s*export\s+TF_VAR_db_password", text, re.MULTILINE)  # not for the whole run
+
+
+def test_no_script_or_doc_exports_the_password_to_a_whole_shell():
+    """Review, PR 129: an exported TF_VAR_db_password reaches every later program the shell starts."""
+    found = [f"{p.relative_to(ROOT)}:{n}" for p in _tracked() if p.is_file() and p != pathlib.Path(__file__)
+             for n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), start=1)
+             if re.search(r"\bexport\s+TF_VAR_db_password", line)]
+    assert found == [], found
