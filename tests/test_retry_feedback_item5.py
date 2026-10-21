@@ -14,7 +14,10 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from pydantic_core import PydanticCustomError
 
 from warden import llm
+from warden.cli import DEMO_ALERTS
+from warden.graph import run
 from warden.llm import RETRY_FEEDBACK, BudgetExceeded, LLMClient, ModelRefused, validation_feedback
+from warden.models import Alert
 from warden.providers import Completion
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -195,3 +198,37 @@ def test_the_retry_text_is_part_of_the_qualified_prompt(monkeypatch):
     before = qualify.prompt_fingerprint()
     monkeypatch.setattr(llm, "RETRY_FEEDBACK", RETRY_FEEDBACK + " ")
     assert qualify.prompt_fingerprint() != before
+
+
+# ------------------------------------------------------------------ ModelRefused's text (PR 132, coordinator 2026-10-21)
+# graph.node_diagnose puts str(ModelRefused) (first 200 characters) into the diagnose audit row ("degraded"), the
+# rules-only root cause the report and Slack show, and the workflow's ApplicationError. pydantic's own text quoted the
+# answer's values there.
+
+
+def test_a_refusal_names_paths_and_types_never_values():
+    p = Scripted(BAD, BAD, BAD)
+    with pytest.raises(ModelRefused) as caught:
+        _ask(p)
+    text = str(caught.value)
+    assert "after 3 attempts: 4 validation errors for Answer: " in text
+    assert "cause (value_error)" in text
+    for value in (PLANTED, PLANTED_KEY, str(PLANTED_NUMBER), "input_value"):
+        assert value not in text
+
+
+def test_a_refusal_for_any_other_reason_keeps_its_words():
+    assert llm.refusal_reason(RuntimeError("status 503"), Answer) == "status 503"
+
+
+def test_an_answer_that_never_validates_leaves_no_value_in_the_audit_or_the_report():
+    # One error only, so pydantic's text would quote the value well inside the 200 characters node_diagnose keeps.
+    proposal = {"action": "escalate_to_human", "target": "checkout", "reasoning": "r", "expected_effect": "e",
+                "blast_radius": "single_service", "reversible": True}
+    bad = json.dumps({"root_cause": {"hypothesis": "h", "confidence": PLANTED}, "proposal": proposal})
+    report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(provider=Scripted(bad, bad, bad), mock=False))
+    degraded = next(s["degraded"] for s in report.audit if s.get("node") == "diagnose")
+    assert degraded.startswith("ModelRefused: Diagnosis not produced after 3 attempts")
+    assert "input_value" not in degraded  # pydantic's text quoted the value here, cut at 200 characters
+    assert PLANTED not in json.dumps(report.audit)
+    assert PLANTED not in report.root_cause.hypothesis

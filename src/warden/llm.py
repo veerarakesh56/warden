@@ -98,16 +98,31 @@ def _error_type(error: Any) -> str:
     return kind if _ERROR_TYPE.fullmatch(kind) else "invalid"
 
 
+def _paths_and_types(exc: ValidationError, schema: Any) -> str:
+    """Each error's field path and pydantic error type, the first _MAX_FED_BACK of them: never an input value."""
+    names = _schema_names(schema)
+    errors = exc.errors(include_url=False, include_context=False, include_input=False)
+    shown = [f"{_path(tuple(e.get('loc') or ()), names)} ({_error_type(e)})" for e in errors[:_MAX_FED_BACK]]
+    more = len(errors) - len(shown)
+    return "; ".join(shown) + (f"; and {more} more" if more > 0 else "")
+
+
+def refusal_reason(exc: BaseException | None, schema: Any) -> str:
+    """Why no answer came, as ModelRefused says it. Its text reaches the diagnose audit row, the rules-only root cause
+    in the report and the workflow's failure (graph.node_diagnose): a validation error is told by its paths and types,
+    never by pydantic's own text, which quotes the answer (`input_value=...`), and the answer echoes evidence."""
+    if not isinstance(exc, ValidationError):
+        return str(exc)
+    n = exc.error_count()
+    return f"{n} validation error{'' if n == 1 else 's'} for {schema.__name__}: {_paths_and_types(exc, schema)}"
+
+
 def validation_feedback(exc: Exception, schema: Any) -> str:
     """What a retry tells the model about its last answer: each error's field path and pydantic error type, or the
     JSON parser's own fixed message and position. Never an input value, a quote of the answer or a validator's own
     message (which may carry one)."""
     if isinstance(exc, ValidationError):
-        names = _schema_names(schema)
-        errors = exc.errors(include_url=False, include_context=False, include_input=False)
-        shown = [f"{_path(tuple(e.get('loc') or ()), names)} ({_error_type(e)})" for e in errors[:_MAX_FED_BACK]]
-        more = len(errors) - len(shown)
-        text = "; ".join(shown) + (f"; and {more} more" if more > 0 else "")
+        text = _paths_and_types(exc, schema)
     elif isinstance(exc, json.JSONDecodeError):
         text = f"not valid JSON ({exc.msg}, line {exc.lineno} column {exc.colno})"
     else:
@@ -346,7 +361,7 @@ class LLMClient:
                 if not _is_transient(exc):
                     break
         plural = "attempt" if attempts == 1 else "attempts"
-        raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {last}")
+        raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {refusal_reason(last, schema)}")
 
 
 def _max_calls(max_calls: int | None) -> int:
