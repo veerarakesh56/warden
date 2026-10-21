@@ -24,7 +24,6 @@ SRC = ROOT / "src" / "warden"
 _AUTONOMY, _ELDANE, _ACTIVITIES = "autonomy.py", "eldane.py", "activities.py"
 _NEVER = "    if False:"
 
-# (label, file, find, replace, why this mutation matters)
 # The files more than one mutation changes (relative to src/warden).
 VERIFIER = "verifier.py"
 K8S_BACKEND = "k8s_backend.py"
@@ -32,6 +31,7 @@ K8S_RBAC = "../../k8s/rbac.yaml"
 K8S_PLATFORM = "platforms/k8s.py"
 DB_PLATFORM = "platforms/db.py"
 
+# (label, file, find, replace, why this mutation matters)
 MUTATIONS = [
     (
         "P11 action-contradicts-evidence removed",

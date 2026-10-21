@@ -201,5 +201,6 @@ def main(argv: list[str] | None = None) -> int:
         return _read_record(domain, key, args.record)
     return _decide_on_plan(domain, key, args)
 
+
 if __name__ == "__main__":
     sys.exit(main())
