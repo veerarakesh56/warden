@@ -118,6 +118,12 @@ def symptoms(context) -> list[str]:
     to stop "nothing is wrong" being waved through when the evidence says otherwise.
     """
     m = context.metrics
+    return [*_workload_symptoms(context), *_database_symptoms(context), *_idle_queues(m), *_counted_symptoms(m)]
+
+
+def _workload_symptoms(context) -> list[str]:
+    """Containers, pods, replicas, tasks and deployments the evidence counts as broken."""
+    m = context.metrics
     out: list[str] = []
     if _oom_seen(context):
         out.append("containers were OOM-killed")
@@ -137,6 +143,13 @@ def symptoms(context) -> list[str]:
         out.append(f"{m['tasks_pending']:.0f} task(s) pending, not started")
     if m.get("deployments_failed", 0) > 0 or m.get("deployment_failed_tasks", 0) > 0:
         out.append("a deployment has failed tasks")
+    return out
+
+
+def _database_symptoms(context) -> list[str]:
+    """A full connection pool, stuck or waiting sessions, long queries and replica lag."""
+    m = context.metrics
+    out: list[str] = []
     # A full pool is an explicit state, not a rate: every connection the server (or the app's pool)
     # allows is taken. Live backends report `connections_used_pct`; recorded incidents the pool pair.
     # Added 2026-09-25: inc-005's report said "no failing component" beside a 100/100 pool.
@@ -153,15 +166,27 @@ def symptoms(context) -> list[str]:
         out.append(f"{n} quer{'ies have' if n != 1 else 'y has'} been running over 60s")
     if (replica_lag_s(m) or 0) >= REPLICA_LAG_SYMPTOM_S:
         out.append(f"replica lag is {replica_lag_s(m):.0f}s")
-    # The full stack (docs/FULLSTACK-LAB.md section 4 B): counts of failures and explicit off states, each
-    # possibly suffixed `__<short>` per resource. Only counts > 0 and states == 0 - no thresholds.
+    return out
+
+
+# The full stack (docs/FULLSTACK-LAB.md section 4 B): counts of failures and explicit off states, each
+# possibly suffixed `__<short>` per resource. Only counts > 0 and states == 0 - no thresholds.
+def _idle_queues(m: dict[str, float]) -> list[str]:
+    """Queues with messages waiting that nothing is receiving."""
     # Messages waiting and none being received: an explicit state, counted - the queue is not being consumed.
+    out: list[str] = []
     for key, value in m.items():
         if (key == "sqs_visible" or key.startswith("sqs_visible__")) and value > 0:
             sfx = key[len("sqs_visible"):]
             if m.get(f"sqs_in_flight{sfx}") == 0:
                 who = f" ({sfx[2:]})" if sfx else ""
                 out.append(f"{value:.0f} message(s) waiting in the queue{who}, none being processed")
+    return out
+
+
+def _counted_symptoms(m: dict[str, float]) -> list[str]:
+    """Each _STACK_SYMPTOMS metric (or its per-resource `__<short>` copy) whose value says broken."""
+    out: list[str] = []
     for base, what, broken in _STACK_SYMPTOMS:
         for key, value in m.items():
             if (key == base or key.startswith(base + "__")) and broken(value):
@@ -387,6 +412,12 @@ def _contradiction(proposal, context) -> str | None:
     where the action demonstrably leaves the evidenced cause in place, or harms what is working.
     """
     a, m = proposal.action, context.metrics
+    return (_capacity_contradiction(a, m, context) or _memory_contradiction(a, m, context)
+            or _task_contradiction(a, m, context) or _session_contradiction(a, m))
+
+
+def _capacity_contradiction(a: ActionKind, m: dict[str, float], context) -> str | None:
+    """An autoscaler owns the count, ECS cannot place more tasks, or the role is denied the call it would rerun."""
     if a in _SCALES and any(k in m or any(x.startswith(k + "__") for x in m) for k in _HPA_KEYS):
         lo, hi = m.get("hpa_min_replicas"), m.get("hpa_max_replicas")
         bounds = f" (min {lo:.0f}, max {hi:.0f})" if lo is not None and hi is not None else ""
@@ -405,6 +436,11 @@ def _contradiction(proposal, context) -> str | None:
             return (f"{a.value} runs the workload again under the same role, and the IAM policy simulator says the "
                     f"role's own policies deny {denied.group(2)} ({denied.group(3)} for {denied.group(1)}): the "
                     "same call is denied again. The role's permissions are what a person must change.")
+    return None
+
+
+def _memory_contradiction(a: ActionKind, m: dict[str, float], context) -> str | None:
+    """Out-of-memory kills, replica lag or an image that cannot be pulled, which the action leaves in place."""
     # scale_up on OOM is NOT always wrong: when memory grows with load, more replicas mean less load,
     # and less memory, per replica (the bundled inc-002 is that case). It is wrong when no replica is
     # failing (none ready, or every pod crash-looping / backing off - see _every_pod_failing) - then
@@ -431,6 +467,11 @@ def _contradiction(proposal, context) -> str | None:
                 "of the load, so the lagging replica falls further behind.")
     if a is ActionKind.restart_pods and _log_has(context, "ErrImagePull", "ImagePullBackOff"):
         return "restart_pods re-pulls the same image, and the evidence shows that image cannot be pulled."
+    return None
+
+
+def _task_contradiction(a: ActionKind, m: dict[str, float], context) -> str | None:
+    """ECS tasks that die of what the action does not change."""
     # G10-C1: what ECS's own stopped tasks say they died of (aws_stack._read_ecs_tasks). A rollback changes the task
     # definition: it cannot fix tasks that die on the network - a route, a security group, DNS (recorded ecs-13 proposed
     # one) - nor on a permission the deploy did not change. Fresh or more tasks fail to start the same way.
@@ -445,6 +486,11 @@ def _contradiction(proposal, context) -> str | None:
             and failing & {"secret_missing", "permission", "network", "image"}):
         return (f"{a.value} starts more tasks, but tasks fail to start ({', '.join(sorted(failing))}): every new one "
                 "fails the same way.")
+    return None
+
+
+def _session_contradiction(a: ActionKind, m: dict[str, float]) -> str | None:
+    """Database sessions doing work, or no replica lag to fail over from."""
     if (a is ActionKind.terminate_connections and "long_running_queries" in m
             and m.get("long_running_queries", 0) > 0 and m.get("idle_in_transaction", 0) == 0
             and m.get("locks_waiting", 0) == 0):
@@ -454,6 +500,7 @@ def _contradiction(proposal, context) -> str | None:
     # ⛔ Only when lag was MEASURED. An absent metric is not zero lag: ECS, Kubernetes and Redis report
     # none, and the MCP gate got none at all, so until 2026-09-25 every failover proposal from those
     # escalated with a false reason ("no replica lag in the evidence").
+    lag = replica_lag_s(m) or 0.0
     if a is ActionKind.failover_replica and replica_lag_s(m) is not None and lag < 1:
         return "failover_replica with no replica lag in the evidence - there is nothing lagging to fail over from."
     return None
@@ -667,26 +714,61 @@ def _enforce(
     """
     env_policies = policies_config or default_environment_policies()
     env = env_policies.for_env(alert.environment)
+    f = _Findings()
+    _environment_policies(f, alert, proposal, env_policies, env)
+    _evidence_policies(f, alert, context, root_cause, proposal)
+    _proposal_policies(f, alert, context, proposal)
+    _action_policies(f, context, proposal)
+    if proposal.action is ActionKind.no_action:
+        _no_action_policies(f, alert, context)
+    if check_grounding and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
+        _grounding_policies(f, context, root_cause)
+    _ranking_policies(f, context, root_cause, proposal, check_grounding)
+    _tripwire_policies(f, context, env)
 
-    reasons: list[str] = []
-    policies: list[str] = []
-    rejected = False
-    escalate = False
+    # P14 - the target must be a resource WARDEN knows exists. Rejects: acting on a name the
+    # evidence does not contain is acting on a guess.
+    if check_grounding and proposal.action not in AUTO_SAFE_ACTIONS:
+        problem = _target_problem(alert, context, proposal)
+        if problem:
+            f.reject("P14-TARGET-NOT-IN-EVIDENCE", problem + ".")
 
+    _plan_policies(f, alert, context, root_cause, proposal)
+    return _verdict(f, proposal)
+
+
+class _Findings:
+    """The policies a proposal trips, in the order they are checked, each with its reason; and whether any rejects
+    the proposal or hands it to a person."""
+
+    def __init__(self) -> None:
+        self.reasons: list[str] = []
+        self.policies: list[str] = []
+        self.rejected = False
+        self.escalated = False
+
+    def reject(self, policy: str, reason: str) -> None:
+        self.rejected = True
+        self.policies.append(policy)
+        self.reasons.append(reason)
+
+    def escalate(self, policy: str, reason: str) -> None:
+        self.escalated = True
+        self.policies.append(policy)
+        self.reasons.append(reason)
+
+
+def _environment_policies(f: _Findings, alert: Alert, proposal: RemediationProposal,
+                          env_policies: EnvironmentPolicies, env) -> None:
     # P22 — WARDEN does not act on WARDEN (register N7): an alert about its own runtime environment goes to a person,
     # whatever the proposal - a broken WARDEN diagnosing itself is the case it can be least trusted in.
     if env_policies.runtime_environment and alert.environment == env_policies.runtime_environment:
-        escalate = True
-        policies.append("P22-SELF-TARGET")
-        reasons.append(f"{alert.environment} is WARDEN's own runtime: a person handles it, WARDEN never acts on itself.")
+        f.escalate("P22-SELF-TARGET",
+                   f"{alert.environment} is WARDEN's own runtime: a person handles it, WARDEN never acts on itself.")
 
     # P1 — the action must be permitted in this environment at all (from environments.yaml).
     if not env.permits(proposal.action):
-        rejected = True
-        policies.append("P1-ENV-ALLOWLIST")
-        reasons.append(
-            f"{proposal.action.value} is not permitted in {alert.environment}."
-        )
+        f.reject("P1-ENV-ALLOWLIST", f"{proposal.action.value} is not permitted in {alert.environment}.")
 
     # P2 — nothing irreversible in a production-tier environment, ever, regardless of confidence.
     #
@@ -696,68 +778,55 @@ def _enforce(
     # opposite verdicts (the live-model run of 2026-09-06). The claim is not discarded — P10
     # escalates when it contradicts the table.
     if env.tier == "prod" and not proposal.table_reversible:
-        rejected = True
-        policies.append("P2-IRREVERSIBLE-IN-PROD")
-        reasons.append(
-            f"{proposal.action.value} is classified irreversible in WARDEN's action table, and "
-            f"{alert.environment} is production-tier. The proposal claimed "
-            f"reversible={proposal.reversible}; the table decided, not the claim."
-        )
+        f.reject("P2-IRREVERSIBLE-IN-PROD",
+                 f"{proposal.action.value} is classified irreversible in WARDEN's action table, and "
+                 f"{alert.environment} is production-tier. The proposal claimed "
+                 f"reversible={proposal.reversible}; the table decided, not the claim.")
 
+
+def _evidence_policies(f: _Findings, alert: Alert, context: ContextBundle, root_cause: RootCause,
+                       proposal: RemediationProposal) -> None:
     # P3 — evidence is a precondition for action, not an optional extra.
     if context.is_empty() and proposal.action not in AUTO_SAFE_ACTIONS:
-        rejected = True
-        policies.append("P3-NO-EVIDENCE")
-        reasons.append("No logs, metrics or deploy history were gathered; refusing to act blind.")
+        f.reject("P3-NO-EVIDENCE", "No logs, metrics or deploy history were gathered; refusing to act blind.")
 
     # P4 — a low-confidence hypothesis is a question, not a plan.
     if root_cause.confidence < MIN_CONFIDENCE and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
-        escalate = True
-        policies.append("P4-LOW-CONFIDENCE")
-        reasons.append(
-            f"Confidence {root_cause.confidence:.2f} is below the {MIN_CONFIDENCE} threshold."
-        )
+        f.escalate("P4-LOW-CONFIDENCE", f"Confidence {root_cause.confidence:.2f} is below the {MIN_CONFIDENCE} threshold.")
 
     # P5 — you cannot roll back a deploy that the evidence does not show. The deploy must be OF the
     # target (audit A-C-25): a deploy of any other service used to count.
     if proposal.action is ActionKind.rollback_deploy and not _deploy_of_target(alert, context, proposal.target):
-        rejected = True
-        policies.append("P5-NO-DEPLOY-TO-ROLL-BACK")
-        reasons.append("Rollback proposed but no recent deploy of the target appears in the gathered context."
-                       if context.recent_deploys else
-                       "Rollback proposed but no recent deploy appears in the gathered context.")
+        f.reject("P5-NO-DEPLOY-TO-ROLL-BACK",
+                 "Rollback proposed but no recent deploy of the target appears in the gathered context."
+                 if context.recent_deploys else
+                 "Rollback proposed but no recent deploy appears in the gathered context.")
 
+
+def _proposal_policies(f: _Findings, alert: Alert, context: ContextBundle, proposal: RemediationProposal) -> None:
     # P6 — wide blast radius is always a human's call. The table sets a FLOOR per action and the
     # proposal may only ever widen it: a model asking for a human is always allowed to, while
     # understating the reach of an action must buy it nothing.
     effective_radius = proposal.effective_blast_radius
     if effective_radius in ("multi_service", "region"):
-        escalate = True
-        policies.append("P6-BLAST-RADIUS")
         floor = ACTION_FACTS[proposal.action][1]
-        reasons.append(
-            f"Blast radius '{effective_radius}' exceeds the unattended limit (WARDEN's floor for "
-            f"{proposal.action.value} is '{floor}', the proposal claimed "
-            f"'{proposal.blast_radius}'; the wider of the two applies)."
-        )
+        f.escalate("P6-BLAST-RADIUS",
+                   f"Blast radius '{effective_radius}' exceeds the unattended limit (WARDEN's floor for "
+                   f"{proposal.action.value} is '{floor}', the proposal claimed "
+                   f"'{proposal.blast_radius}'; the wider of the two applies).")
 
     # P7 — proportionality. Don't fail over a database because something is 'low'.
     heavy = {ActionKind.failover_replica, ActionKind.rollback_deploy}
     if proposal.action in heavy and alert.severity.value in ("low", "medium"):
-        escalate = True
-        policies.append("P7-DISPROPORTIONATE")
-        reasons.append(
-            f"{proposal.action.value} is disproportionate to a {alert.severity.value} alert."
-        )
+        f.escalate("P7-DISPROPORTIONATE",
+                   f"{proposal.action.value} is disproportionate to a {alert.severity.value} alert.")
 
     # P8 — a tool failing means the picture is partial. Say so rather than pretending.
     # Only a MATERIAL failed read (owner, 2026-10-11 - P29 enforced after three held-out runs: 19, 22 and 21 more right
     # fix plans, no wrong one): WARDEN's own sampling notice on a busy service's logs is not a missing picture.
     material = [e for e in context.tool_errors if not _benign_partial(e)]
     if material and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
-        escalate = True
-        policies.append("P8-PARTIAL-CONTEXT")
-        reasons.append(f"{len(material)} context tool(s) failed; evidence is incomplete.")
+        f.escalate("P8-PARTIAL-CONTEXT", f"{len(material)} context tool(s) failed; evidence is incomplete.")
 
     # P9 — evidence measured by US, not confidence reported by the model.
     #
@@ -769,12 +838,9 @@ def _enforce(
     #
     # This counts what was actually gathered. It cannot be talked around by a confident tone.
     if proposal.action not in EVIDENCE_EXEMPT_ACTIONS and not _evidence_is_substantial(context):
-        escalate = True
-        policies.append("P9-THIN-EVIDENCE")
-        reasons.append(
-            f"Evidence is thin ({len(context.logs)} log line(s), {len(context.metrics)} metric(s), "
-            f"{len(context.recent_deploys)} deploy(s)); a human should look before acting."
-        )
+        f.escalate("P9-THIN-EVIDENCE",
+                   f"Evidence is thin ({len(context.logs)} log line(s), {len(context.metrics)} metric(s), "
+                   f"{len(context.recent_deploys)} deploy(s)); a human should look before acting.")
 
     # P10 — the proposal warns that this cannot be undone while the table says it can.
     #
@@ -782,13 +848,12 @@ def _enforce(
     # refusing to obey one. `escalated` and `rejected` both mean nothing runs and both require a
     # person, so escalating here preserves the warning without handing the decision back.
     if proposal.claim_contradicts_table:
-        escalate = True
-        policies.append("P10-CLAIM-CONTRADICTS-TABLE")
-        reasons.append(
-            f"The proposal claims {proposal.action.value} is irreversible; WARDEN's action table "
-            "classifies it reversible. A human should reconcile that before anything runs."
-        )
+        f.escalate("P10-CLAIM-CONTRADICTS-TABLE",
+                   f"The proposal claims {proposal.action.value} is irreversible; WARDEN's action table "
+                   "classifies it reversible. A human should reconcile that before anything runs.")
 
+
+def _action_policies(f: _Findings, context: ContextBundle, proposal: RemediationProposal) -> None:
     # P11 — the action cannot fix what the evidence shows.
     #
     # ⛔ Added 2026-09-25 from measured failures, which is disclosed with it: all three runs the EKS
@@ -798,234 +863,217 @@ def _enforce(
     # policy. Escalates, never rejects: the rules are how the actions work, but a human decides.
     contradiction = _contradiction(proposal, context)
     if contradiction:
-        escalate = True
-        policies.append("P11-ACTION-CONTRADICTS-EVIDENCE")
-        reasons.append(contradiction)
+        f.escalate("P11-ACTION-CONTRADICTS-EVIDENCE", contradiction)
 
     # P33 - undoing a deliberate change by a security, cost or compliance identity (held-out G10, 2026-10-15).
     deliberate = _deliberate(proposal, context)
     if deliberate:
-        escalate = True
-        policies.append("P33-DELIBERATE-CHANGE")
-        reasons.append(deliberate)
+        f.escalate("P33-DELIBERATE-CHANGE", deliberate)
 
     # P23 — "nothing to do" because a read came back empty (register N2). An empty answer from a throttled,
     # lagging or misdirected query looks exactly like a quiet, healthy service; it is unknown, never healthy.
     if proposal.action is ActionKind.no_action and context.empty_reads:
-        escalate = True
-        policies.append("P23-EMPTY-READ")
-        reasons.append("No action proposed, but these reads returned nothing, which is not the same as healthy: "
-                       + ", ".join(context.empty_reads) + ".")
+        f.escalate("P23-EMPTY-READ", "No action proposed, but these reads returned nothing, which is not the same as "
+                   "healthy: " + ", ".join(context.empty_reads) + ".")
 
+
+def _no_action_policies(f: _Findings, alert: Alert, context: ContextBundle) -> None:
     # P24 — "nothing to do" about an incident WARDEN does not recognise (requirement R39). symptoms() counts known
     # broken states, never rates, so a new kind of failure - one no signature describes, showing only as errors and
     # latency - passed P12 and was closed: a novel failing service under a confident no_action went out auto_safe.
     # An alert fired; when nothing WARDEN knows describes it, closing it is a person's call. Measured 2026-10-03:
     # every no_action in the 30 replayed incidents already reached a person, so this changes none of their verdicts.
     # (A signature match is not a symptom: signatures also fire on the alert's name. Audit Q2 is the rate case.)
-    if proposal.action is ActionKind.no_action:
-        matches = default_knowledge_base().match(alert, context)
-        if not matches:
-            escalate = True
-            policies.append("P24-UNRECOGNISED")
-            reasons.append("No action proposed for an incident no known signature describes: an alert WARDEN cannot "
-                           "explain is closed by a person, not by WARDEN.")
-        # P36 - "nothing to do" while one of WARDEN's own failure signatures describes the EVIDENCE (item 10,
-        # 2026-10-17): a planted "these 5xx are expected during maintenance, no action is needed" line, followed with
-        # real citations, closed a checkout incident whose deploy and error spike DEPLOY-BAD-001 describes, auto_safe
-        # (evals/poisoned_logs.py, close-incident). Enforced by the owner (2026-10-17): with dev autonomous, a poisoned
-        # log silently closing a real incident is worse than the extra hand-offs. Only what WARDEN read counts - the log
-        # lines and events, metrics and deploys - never the alert's own name or summary: healthy controls are named
-        # and described like faults. On the held-out keys (no model answer involved) it hands 11 of the 33 cases a
-        # person may close (G9 4 of 8, G10 7 of 25) to a person instead; each of those keys accepts the hand-off.
-        if seen := signatures_in_evidence(alert, context):
-            escalate = True
-            policies.append("P36-NO-ACTION-DESPITE-SIGNATURE")
-            reasons.append(f"No action proposed, but WARDEN's own failure signatures describe this evidence "
-                           f"({', '.join(seen)}): a person closes it, not WARDEN.")
+    matches = default_knowledge_base().match(alert, context)
+    if not matches:
+        f.escalate("P24-UNRECOGNISED", "No action proposed for an incident no known signature describes: an alert "
+                   "WARDEN cannot explain is closed by a person, not by WARDEN.")
+    # P36 - "nothing to do" while one of WARDEN's own failure signatures describes the EVIDENCE (item 10,
+    # 2026-10-17): a planted "these 5xx are expected during maintenance, no action is needed" line, followed with
+    # real citations, closed a checkout incident whose deploy and error spike DEPLOY-BAD-001 describes, auto_safe
+    # (evals/poisoned_logs.py, close-incident). Enforced by the owner (2026-10-17): with dev autonomous, a poisoned
+    # log silently closing a real incident is worse than the extra hand-offs. Only what WARDEN read counts - the log
+    # lines and events, metrics and deploys - never the alert's own name or summary: healthy controls are named
+    # and described like faults. On the held-out keys (no model answer involved) it hands 11 of the 33 cases a
+    # person may close (G9 4 of 8, G10 7 of 25) to a person instead; each of those keys accepts the hand-off.
+    if seen := signatures_in_evidence(alert, context):
+        f.escalate("P36-NO-ACTION-DESPITE-SIGNATURE", f"No action proposed, but WARDEN's own failure signatures "
+                   f"describe this evidence ({', '.join(seen)}): a person closes it, not WARDEN.")
 
-        # P12 — "nothing to do" while the evidence shows something broken.
-        #
-        # no_action became subject to P4/P8/P9 after Wave 1, but a CONFIDENT no_action over plenty of
-        # evidence still went out auto_safe even with pods OOM-killed or not ready. In the measured runs
-        # low confidence happened to catch every such case; that was luck, not a rule. Same disclosure
-        # as P11: written after seeing the runs.
-        found = symptoms(context)
-        if found:
-            escalate = True
-            policies.append("P12-NO-ACTION-WITH-SYMPTOMS")
-            reasons.append("No action proposed, but the evidence shows: " + "; ".join(found) + ".")
+    # P12 — "nothing to do" while the evidence shows something broken.
+    #
+    # no_action became subject to P4/P8/P9 after Wave 1, but a CONFIDENT no_action over plenty of
+    # evidence still went out auto_safe even with pods OOM-killed or not ready. In the measured runs
+    # low confidence happened to catch every such case; that was luck, not a rule. Same disclosure
+    # as P11: written after seeing the runs.
+    found = symptoms(context)
+    if found:
+        f.escalate("P12-NO-ACTION-WITH-SYMPTOMS", "No action proposed, but the evidence shows: " + "; ".join(found) + ".")
 
+
+def _grounding_policies(f: _Findings, context: ContextBundle, root_cause: RootCause) -> None:
     # P13 - the diagnosis must be grounded: every citation names a real evidence id and quotes it
     # verbatim (grounding.py). Escalates: an ungrounded diagnosis may still be right, a person checks.
-    if check_grounding and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
-        problems = citation_problems(root_cause, evidence.view(context))
-        if problems:
-            escalate = True
-            policies.append("P13-UNGROUNDED")
-            reasons.append("The diagnosis is not grounded in the evidence: " + "; ".join(problems) + ".")
+    problems = citation_problems(root_cause, evidence.view(context))
+    if problems:
+        f.escalate("P13-UNGROUNDED", "The diagnosis is not grounded in the evidence: " + "; ".join(problems) + ".")
 
     # P34 / P35 - item 7 (2026-10-17): a fix only on a cause the evidence WARDEN read itself decides, and only when that
     # cause clearly beats its rivals by WARDEN's own count of their citations - never by the model's confidence.
     # Escalates: the diagnosis may be right; a person reads both causes.
-    if check_grounding and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
-        items = evidence.view(context)
-        if why := decisive_problem(root_cause, items):
-            escalate = True
-            policies.append("P34-NO-DECISIVE-EVIDENCE")
-            reasons.append(f"{why[0].upper()}{why[1:]}.")
-        if close := margin_problem(root_cause, items):
-            escalate = True
-            if close[0] == "no_rival":
-                policies.append("P35-NO-RIVAL-HYPOTHESIS")
-            else:
-                policies.append("P35-HYPOTHESES-TOO-CLOSE")
-            reasons.append(f"{close[1][0].upper()}{close[1][1:]}.")
+    items = evidence.view(context)
+    if why := decisive_problem(root_cause, items):
+        f.escalate("P34-NO-DECISIVE-EVIDENCE", f"{why[0].upper()}{why[1:]}.")
+    if close := margin_problem(root_cause, items):
+        if close[0] == "no_rival":
+            f.escalate("P35-NO-RIVAL-HYPOTHESIS", f"{close[1][0].upper()}{close[1][1:]}.")
+        else:
+            f.escalate("P35-HYPOTHESES-TOO-CLOSE", f"{close[1][0].upper()}{close[1][1:]}.")
 
+
+def _ranking_policies(f: _Findings, context: ContextBundle, root_cause: RootCause, proposal: RemediationProposal,
+                      check_grounding: bool) -> None:
     # P38 - the stated root cause is the one the hypotheses ranked first (review, PR 47): otherwise the count and the
     # remediation's evidence describe another cause. Escalates; nothing is rewritten.
     if why := ranked_problem(root_cause):
-        escalate = True
-        policies.append("P38-HYPOTHESIS-NOT-RANKED-FIRST")
-        reasons.append(f"{why[0].upper()}{why[1:]}: a person reads both.")
+        f.escalate("P38-HYPOTHESIS-NOT-RANKED-FIRST", f"{why[0].upper()}{why[1:]}: a person reads both.")
     # P37 - the typed outcome against the proposal (owner U3-1, 2026-10-17): "no fault" with a change, or "could not
     # determine" with anything but a hand-off. Escalates: the diagnosis contradicts its own remediation.
     if why := outcome_problem(root_cause, proposal):
-        escalate = True
-        policies.append("P37-OUTCOME-CONTRADICTS-PROPOSAL")
-        reasons.append(f"{why[0].upper()}{why[1:]}: a person decides.")
+        f.escalate("P37-OUTCOME-CONTRADICTS-PROPOSAL", f"{why[0].upper()}{why[1:]}: a person decides.")
 
     # P15 - the citations must bear on the ACTION, not merely exist (grounding.ACTION_EVIDENCE).
     # Escalates: a person checks whether the evidence supports this fix at all.
     if check_grounding and proposal.action not in AUTO_SAFE_ACTIONS:
         problem = action_support_problem(root_cause, proposal, evidence.view(context))
         if problem:
-            escalate = True
-            policies.append("P15-CITATIONS-DO-NOT-SUPPORT-ACTION")
-            reasons.append(problem + ".")
+            f.escalate("P15-CITATIONS-DO-NOT-SUPPORT-ACTION", problem + ".")
 
+
+def _tripwire_policies(f: _Findings, context: ContextBundle, env) -> None:
     # P16 - the trained injection detector (tripwire.py) flagged untrusted evidence, or it was
     # required and could not run. Escalates: a flagged line may be an attack or a false alarm, and
     # a person decides which - nothing runs automatically on evidence that looks like one.
     if context.suspected:
-        escalate = True
-        policies.append("P16-SUSPECTED-INJECTION")
         if set(context.suspected) == {tripwire.TOO_MUCH_TEXT}:
-            reasons.append(f"The text the model reads is larger than the injection detector's budget "
-                           f"({tripwire.MAX_SCAN_TOKENS} tokens), so it was not scanned; a person reads it.")
+            reason = (f"The text the model reads is larger than the injection detector's budget "
+                      f"({tripwire.MAX_SCAN_TOKENS} tokens), so it was not scanned; a person reads it.")
         else:
             flagged = ", ".join(f"{i} ({s:.2f})" for i, s in sorted(context.suspected.items()))
-            reasons.append(f"The injection detector flagged untrusted evidence: {flagged}.")
+            reason = f"The injection detector flagged untrusted evidence: {flagged}."
+        f.escalate("P16-SUSPECTED-INJECTION", reason)
     # ⛔ Audit A-C-12: in `required` mode ANY status but "ran" escalates - "off" (evidence handed in
     # by a caller that never ran the detector) used to pass.
     # "ran-partial" is a run: the alert, the labels and the trusted items the model reads were scanned; only
     # raw log lines went past the budget - the model never sees them, but it does see their typed facts,
     # which then only the quarantine's filters cover (fifth review, 2026-10-01).
     elif tripwire.mode(env.tripwire) == "required" and not tripwire.ran(context.tripwire):
-        escalate = True
-        policies.append("P16-SUSPECTED-INJECTION")
-        reasons.append(f"The injection detector is required here and could not run ({context.tripwire}).")
+        f.escalate("P16-SUSPECTED-INJECTION",
+                   f"The injection detector is required here and could not run ({context.tripwire}).")
 
-    # P14 - the target must be a resource WARDEN knows exists. Rejects: acting on a name the
-    # evidence does not contain is acting on a guess.
-    if check_grounding and proposal.action not in AUTO_SAFE_ACTIONS:
-        # Every label that names a whole namespace or cluster, each value of a list (fifth review, 2026-10-01:
-        # `ecs_cluster=warden-dev-cluster` let the cluster itself through as a target).
-        # Any spelling of a namespace or cluster label - `NAMESPACE`, `k8s_namespace`, `aurora_cluster`, an
-        # ElastiCache group (sixth review, 2026-10-01).
-        # A database or cache cluster is the resource of a data action - clearing a cache, closing sessions, a
-        # failover, scaling it - and scopes only an action on pods: rejecting it as a scope refused the natural
-        # targets of clear_cache and terminate_connections (seventh review, 2026-10-01). A namespace or a compute
-        # cluster is never a failover's target.
-        # Keys in any spelling - `ClusterName`, `k8s.namespace.name`, `cache-cluster` - read as words (eighth
-        # review: those were not scopes at all, and `sandbox_namespace` held "db").
-        def words(k: str) -> list[str]:
-            # At a lower-to-upper change and at an acronym's end: `ECSCluster` is ecs + cluster, `K8SNamespace` k8s +
-            # namespace (ninth review: split at the first only, they were one word and no scope).
-            split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z0-9])(?=[A-Z][a-z])", "_", k)
-            return [w for w in re.split(r"[^a-z0-9]+", split.lower()) if w]
 
-        def values(keep, *, but_the_service: bool = True) -> set[str]:
-            found = {v.strip() for k, value in alert.labels.items() if value and keep(words(k))
-                     for v in str(value).split(",") if v.strip()}
-            return found - {alert.service} if but_the_service else found
+# Every label that names a whole namespace or cluster, each value of a list (fifth review, 2026-10-01:
+# `ecs_cluster=warden-dev-cluster` let the cluster itself through as a target).
+# Any spelling of a namespace or cluster label - `NAMESPACE`, `k8s_namespace`, `aurora_cluster`, an
+# ElastiCache group (sixth review, 2026-10-01).
+# A database or cache cluster is the resource of a data action - clearing a cache, closing sessions, a
+# failover, scaling it - and scopes only an action on pods: rejecting it as a scope refused the natural
+# targets of clear_cache and terminate_connections (seventh review, 2026-10-01). A namespace or a compute
+# cluster is never a failover's target.
+# Keys in any spelling - `ClusterName`, `k8s.namespace.name`, `cache-cluster` - read as words (eighth
+# review: those were not scopes at all, and `sandbox_namespace` held "db").
+def _label_words(k: str) -> list[str]:
+    # At a lower-to-upper change and at an acronym's end: `ECSCluster` is ecs + cluster, `K8SNamespace` k8s +
+    # namespace (ninth review: split at the first only, they were one word and no scope).
+    split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z0-9])(?=[A-Z][a-z])", "_", k)
+    return [w for w in re.split(r"[^a-z0-9]+", split.lower()) if w]
 
-        def is_namespace(w: list[str]) -> bool:
-            return w[-1:] == ["ns"] or bool({"namespace", "namespaces"} & set(w[-2:]))
 
-        def is_scope(w: list[str]) -> bool:
-            # A key that is only a platform's name (`ecs=...`) names its cluster (ninth review).
-            return (is_namespace(w) or bool({"cluster", "clusters"} & set(w[-2:])) or w == ["elasticache"]
-                    or (len(w) == 1 and _compute(w[0])))
+def _label_values(alert: Alert, keep, *, but_the_service: bool = True) -> set[str]:
+    found = {v.strip() for k, value in alert.labels.items() if value and keep(_label_words(k))
+             for v in str(value).split(",") if v.strip()}
+    return found - {alert.service} if but_the_service else found
 
-        def is_data(w: list[str]) -> bool:
-            return not is_namespace(w) and bool(set(w) & _DATA_WORDS)
 
-        data_action = proposal.action in _DATA_ACTIONS
-        # A bare `cluster` key stays a scope for a database or cache action: on an ECS alert it is the ECS cluster
-        # (wave 1). Unless WARDEN's OWN reads show the name is a data store - a metric of a database or a cache
-        # (`rds_connections__orders-db`) - it is not taken for one: `cluster=orders-db` was refused as a target
-        # of terminate_connections even then (register R9-O3). Label text alone never makes a name a database.
-        stores = {k.split("__", 1)[1] for k in context.metrics
-                  if "__" in k and set(re.split(r"[^a-z0-9]+", k.split("__", 1)[0].lower())) & _DATA_WORDS}
-        scopes = values(lambda w: is_scope(w) and not (data_action and is_data(w)))
-        if data_action:
-            scopes -= stores
-        # A failover never targets a namespace or a compute cluster - not even one named like the service (the
-        # recorded fs-01 alert's namespace is `shop`, its service `shop`).
-        containers = values(lambda w: is_namespace(w) or (is_scope(w) and any(_compute(x) for x in w)),
-                            but_the_service=False)
-        # `kind:name`, where the alert's own label of that kind holds the name, is that one resource - as the
-        # resolver reads it (G10 held-out, 2026-10-11: `elasticache_serverless:pricing-cache` was refused as a list).
-        kind, sep, rest = proposal.target.partition(":")
-        named = proposal.model_copy(update={"target": rest}) if sep and alert.labels.get(kind) == rest else proposal
-        problem = target_problem(named, evidence.inventory(alert, context), scopes, containers)
-        if problem:
-            rejected = True
-            policies.append("P14-TARGET-NOT-IN-EVIDENCE")
-            reasons.append(problem + ".")
+def _is_namespace(w: list[str]) -> bool:
+    return w[-1:] == ["ns"] or bool({"namespace", "namespaces"} & set(w[-2:]))
 
+
+def _is_scope(w: list[str]) -> bool:
+    # A key that is only a platform's name (`ecs=...`) names its cluster (ninth review).
+    return (_is_namespace(w) or bool({"cluster", "clusters"} & set(w[-2:])) or w == ["elasticache"]
+            or (len(w) == 1 and _compute(w[0])))
+
+
+def _is_data(w: list[str]) -> bool:
+    return not _is_namespace(w) and bool(set(w) & _DATA_WORDS)
+
+
+def _target_problem(alert: Alert, context: ContextBundle, proposal: RemediationProposal) -> str | None:
+    """P14: why the proposal's target is not one resource WARDEN knows exists - or None."""
+    data_action = proposal.action in _DATA_ACTIONS
+    # A bare `cluster` key stays a scope for a database or cache action: on an ECS alert it is the ECS cluster
+    # (wave 1). Unless WARDEN's OWN reads show the name is a data store - a metric of a database or a cache
+    # (`rds_connections__orders-db`) - it is not taken for one: `cluster=orders-db` was refused as a target
+    # of terminate_connections even then (register R9-O3). Label text alone never makes a name a database.
+    stores = {k.split("__", 1)[1] for k in context.metrics
+              if "__" in k and set(re.split(r"[^a-z0-9]+", k.split("__", 1)[0].lower())) & _DATA_WORDS}
+    scopes = _label_values(alert, lambda w: _is_scope(w) and not (data_action and _is_data(w)))
+    if data_action:
+        scopes -= stores
+    # A failover never targets a namespace or a compute cluster - not even one named like the service (the
+    # recorded fs-01 alert's namespace is `shop`, its service `shop`).
+    containers = _label_values(alert, lambda w: _is_namespace(w) or (_is_scope(w) and any(_compute(x) for x in w)),
+                               but_the_service=False)
+    # `kind:name`, where the alert's own label of that kind holds the name, is that one resource - as the
+    # resolver reads it (G10 held-out, 2026-10-11: `elasticache_serverless:pricing-cache` was refused as a list).
+    kind, sep, rest = proposal.target.partition(":")
+    named = proposal.model_copy(update={"target": rest}) if sep and alert.labels.get(kind) == rest else proposal
+    return target_problem(named, evidence.inventory(alert, context), scopes, containers)
+
+
+def _plan_policies(f: _Findings, alert: Alert, context: ContextBundle, root_cause: RootCause,
+                   proposal: RemediationProposal) -> None:
     # P30 - a fix nothing in the catalogue can carry out is advice for a person, never a plan put to the approver
     # (G10-B). Held-out G9-F, 2026-10-10: scale_up on a NAT gateway reached a person as approved_for_human, with no
     # entry that acts on a NAT gateway - the one wrong answer the gate let through. Decided only for a target the
     # alarm's labels name (resolver.no_fix_path); the right fix may well be what it says, done by a person.
     if why := no_fix_path(alert, proposal):
-        escalate = True
-        policies.append("P30-NO-FIX-PATH")
-        reasons.append(f"{why[0].upper()}{why[1:]}: the proposal is advice for a person to carry out, not a plan.")
+        f.escalate("P30-NO-FIX-PATH",
+                   f"{why[0].upper()}{why[1:]}: the proposal is advice for a person to carry out, not a plan.")
 
     # P31 - a person's recent write to the alerting resource that the fix ignores (owner decision 2026-10-10, after it
     # was measured in observe mode: on the G10 held-out answers it named only wrong ones - the one wrong answer that
     # reached a person in every run, a restart that ignored a desired-count cut - and none of 132 right ones).
     if why := _p31_unaddressed_change(alert, context, root_cause, proposal):
-        escalate = True
-        policies.append("P31-UNADDRESSED-CHANGE")
-        reasons.append(f"{why[0].upper()}{why[1:]}: a person looks at that change before any fix.")
+        f.escalate("P31-UNADDRESSED-CHANGE", f"{why[0].upper()}{why[1:]}: a person looks at that change before any fix.")
 
-    if rejected:
+
+def _verdict(f: _Findings, proposal: RemediationProposal) -> Verdict:
+    if f.rejected:
         return Verdict(
             status=VerdictStatus.rejected,
-            reasons=reasons,
-            policy_ids=policies,
+            reasons=f.reasons,
+            policy_ids=f.policies,
             requires_approval=True,
         )
-    if escalate:
+    if f.escalated:
         return Verdict(
             status=VerdictStatus.escalated,
-            reasons=reasons or ["Escalated for human judgement."],
-            policy_ids=policies,
+            reasons=f.reasons or ["Escalated for human judgement."],
+            policy_ids=f.policies,
             requires_approval=True,
         )
     if proposal.action in AUTO_SAFE_ACTIONS:
         return Verdict(
             status=VerdictStatus.auto_safe,
             reasons=["Action is inert or advisory; no approval required."],
-            policy_ids=policies,
+            policy_ids=f.policies,
             requires_approval=False,
         )
     return Verdict(
         status=VerdictStatus.approved_for_human,
         reasons=["Passed all policies. Held for operator approval before execution."],
-        policy_ids=policies,
+        policy_ids=f.policies,
         requires_approval=True,
     )
