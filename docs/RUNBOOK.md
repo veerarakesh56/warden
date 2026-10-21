@@ -51,7 +51,7 @@ re-enables it with `warden autonomy enable` ([OPERATIONS.md](OPERATIONS.md), "De
   (`providers.yaml` says in the cloud runtime) and its row is recorded in `providers.yaml`. Read the current hash from
   `providers.yaml`; this page does not repeat it.
 - **No model is qualified today.** The one row left in `providers.yaml` `qualified` is historical: Claude Sonnet 5.5, 17
-  of 30 (the bar exactly), measured on 2026-10-15 on an earlier prompt, so it qualifies nothing on today's. Claude Opus
+  of 30 (the bar exactly), measured on 2026-10-15 on an earlier prompt, so it qualifies nothing on today's prompt. Claude Opus
   5.5 scored 15 of 30 in the same run, below the bar. Before that, Claude Sonnet 5 (18-22 of 30 across its runs) and
   Claude Fable 5 and 5.1 (20 of 30) met the bar on older prompts; the Sonnet 5 row was retired on 2026-10-15. The golden
   set is 30 incidents, and two runs of one model differ by about 2 ([USE-CASE.md](USE-CASE.md)).

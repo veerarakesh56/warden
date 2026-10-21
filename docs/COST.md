@@ -76,8 +76,8 @@ estimates at the then default $3 / $15.
 | `tests/fixtures/bench/wave3-2026-09-25T044307Z/reports/*.json` | 2026-09-25 | 18 | 23,103 | 8,245 |
 | **All three** | | **90** | **392,476** | **54,399** |
 
-That averages about 4,361 input and 604 output tokens per incident (estimated). At Sonnet 5.5's prices, that is
-4,361 x $2 / 1M + 604 x $10 / 1M = **$0.0148 per incident**. It lands near the measured $0.0140 to $0.0183. Treat that
+That averages about 4,361 input and 604 output tokens per diagnosis run (estimated). At Sonnet 5.5's prices, that is
+4,361 x $2 / 1M + 604 x $10 / 1M = **$0.0148 per diagnosis run**. It lands near the measured $0.0140 to $0.0183. Treat that
 as a sanity check only: the token counts are estimates from a different provider path, prompt and possibly model. The
 earlier run `wave1-2026-09-11T052533Z` is left out because BENCHMARKS.md marks it invalid as a measurement.
 
@@ -106,9 +106,10 @@ python -c "import json,glob; r=[json.load(open(f))['cost'] for d in ('wave1-2026
     (`WARDEN_MAX_CALLS=6`, `WARDEN_MAX_USD=0.25`, `terraform/modules/warden-runtime/compute.tf`). This replaces the
     client default of $0.50 (`WARDEN_MAX_USD` in `src/warden/llm.py`), which applies only where nothing sets it, such
     as a laptop.
-  - Per day, `WARDEN_DAILY_MAX_USD` ($10) and `WARDEN_DAILY_MAX_TOKENS` (2,000,000) in `src/warden/activities.py`.
+  - Per day, `WARDEN_DAILY_MAX_USD` and `WARDEN_DAILY_MAX_TOKENS`. They default to $10 and 2,000,000
+    (`src/warden/activities.py`) where nothing sets them; a deployment can set its own values in the runtime's environment.
   - At 50 incidents a day, the spend at the measured cost per incident ($0.70 to $0.92 a day on Sonnet 5.5) is far below
-    the daily cap.
+    the default daily cap.
 
 In production the real figures come from the audit: `warden usage --days 30` prints model calls, tokens and cost per
 day ([RUNBOOK.md](RUNBOOK.md#monitoring)). The cloud audit database is reachable only from inside the runtime's VPC,
