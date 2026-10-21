@@ -30,6 +30,9 @@ locals {
   # Every function a person's page or WARDEN's intake depends on: the front doors, Slack's answer, the pager itself.
   # Paused (B35), the front doors have no way out of the VPC and no audit database on purpose: a webhook or a visit
   # to the approval page fails there and pages nobody. Slack's answer and the pager still run, and still page.
+  # On purpose, an actor-role session during a pause still pages: the actor-use rule stays on (witness.tf), the
+  # check fails without its database, and after Lambda's retries the event lands in the dead-letter queue, whose
+  # alarm (alarm_dlq) is never paused - nothing of WARDEN's should use an actor role while it is paused.
   paged_functions = merge(var.paused ? {} : { for k, f in aws_lambda_function.front_door : k => f.function_name },
   { ack = aws_lambda_function.ack.function_name, pager = aws_lambda_function.pager.function_name })
   audit_db_dimensions = var.aws_free_plan ? { DBInstanceIdentifier = "warden-${var.environment}-audit" } : {

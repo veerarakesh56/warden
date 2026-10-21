@@ -287,8 +287,13 @@ def _store(error: Exception, pg: bool = True) -> Any:
     return store
 
 
+class _Class44(psycopg.OperationalError):
+    """An OperationalError in SQLSTATE class 4x but not class 40: only class 40 is retried and left unsaid."""
+    sqlstate = "44000"
+
+
 @pytest.mark.parametrize("error", [psycopg.OperationalError("gone"), psycopg.errors.DiskFull("full"),
-                                   psycopg.errors.AdminShutdown("stopped")])
+                                   psycopg.errors.AdminShutdown("stopped"), _Class44("gone")])
 def test_the_audit_database_gone_or_full_is_one_error_line(caplog, error):
     caplog.set_level(logging.INFO)
     store = _store(error)
@@ -332,8 +337,10 @@ def test_the_audit_database_unreachable_at_start_or_at_commit_is_said_too(caplog
 @pytest.mark.parametrize(("error", "pg"), [(psycopg.errors.DeadlockDetected("retry"), True),
                                            (psycopg.errors.SerializationFailure("retry"), True),
                                            (psycopg.errors.UniqueViolation("dup"), True),
+                                           (psycopg.errors.QueryCanceled("one statement"), True),
+                                           (psycopg.errors.LockNotAvailable("one lock"), True),
                                            (psycopg.OperationalError("not postgres"), False)])
-def test_a_retried_conflict_a_bad_row_or_sqlite_pages_nobody(caplog, error, pg):
+def test_a_retried_conflict_a_cancelled_statement_a_bad_row_or_sqlite_pages_nobody(caplog, error, pg):
     store = _store(error, pg)
     with pytest.raises(type(error)):
         store.run("SELECT 1")
@@ -388,3 +395,17 @@ def test_paused_no_front_door_or_stopped_worker_pages_and_the_pager_still_does()
     paused_part = self_alarms[:self_alarms.index("], [")]
     for name in ("heartbeat", "synthetic", "worker_errors"):
         assert f"aws_cloudwatch_metric_alarm.{name}.alarm_name" in paused_part
+
+
+def test_paused_an_actor_session_still_pages_through_the_dead_letter_queue():
+    """Paused, the actor-use check still runs on every actor-role session and fails there (no audit database): the
+    event goes to the dead-letter queue, whose alarm stays on - a session during a pause is suspicious, so it pages."""
+    dlq = _resource(_tf("frontdoor.tf"), 'resource "aws_cloudwatch_metric_alarm" "alarm_dlq"')
+    assert "actions_enabled" not in dlq
+    assert "alarm_actions       = [var.page_topic_arn]" in dlq
+    actor_rule = _resource(_tf("witness.tf"), 'resource "aws_cloudwatch_event_rule" "actor_use"')
+    assert "var.paused" not in actor_rule
+    paging = _tf("paging.tf")
+    self_alarms = paging[paging.index("self_alarms = "):paging.index("paged_functions")]
+    assert "aws_cloudwatch_metric_alarm.alarm_dlq.alarm_name" in self_alarms[self_alarms.index("], ["):]
+    assert "an actor-role session during a pause still pages" in paging

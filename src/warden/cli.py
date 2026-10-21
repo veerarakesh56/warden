@@ -501,7 +501,7 @@ def _platform(choice: str | frozenset[str]):
 async def _workflow_command(args: argparse.Namespace) -> int:
     from . import runtime
 
-    if args.cmd == "worker" and not _worker_settings_ok(args.zone):
+    if args.cmd == "worker" and not _worker_settings_ok(args):
         return 1
     client = await runtime.connect()
     if args.cmd == "worker":
@@ -520,7 +520,7 @@ async def _workflow_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def _worker_settings_ok(zone: str) -> bool:
+def _worker_settings_ok(args: argparse.Namespace) -> bool:
     """`warden worker` starts only with a well-formed channel map for every environment and, for the core zone, only
     zones WARDEN has to vouch for (B35, runtime.heartbeat_zones)."""
     from . import discuss, runtime
@@ -529,7 +529,7 @@ def _worker_settings_ok(zone: str) -> bool:
     try:  # each environment's own channels: a malformed map refuses to start, never routes a guess
         by_environment("WARDEN_SLACK_CHANNELS")
         discuss.channels()
-        runtime.heartbeat_zones(zone)
+        runtime.heartbeat_zones(args.zone)
     except ValueError as exc:
         _out(f"error: {exc}", err=True)
         return False

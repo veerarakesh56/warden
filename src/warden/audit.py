@@ -126,6 +126,7 @@ def migrate(dsn: str, writer_role: str | None = None, *, iam_login: bool = False
 
 
 _LOG = logging.getLogger("warden.audit")
+_NOT_GONE = frozenset({"57014", "55P03"})  # query_canceled, lock_not_available
 
 
 @contextlib.contextmanager
@@ -150,8 +151,10 @@ def _say_unreachable(exc: Exception) -> None:
     """The ERROR line, once per error, by the error's kind only. No traceback on purpose: the driver's text can name
     the database's host and user, and the error is raised on, so the activity's own WARNING keeps the traceback.
     SQLSTATE class 40, "transaction rollback" (a deadlock or a serialization failure), is retried by Temporal and
-    not said."""
-    if str(getattr(exc, "sqlstate", None) or "").startswith("40") or getattr(exc, "warden_said", False):
+    not said; nor a statement cancelled (57014) or a lock not taken (55P03) - one statement, not the database gone.
+    A failover or a restart (AdminShutdown, a dropped connection) is said: it pages, though Temporal may retry it."""
+    state = str(getattr(exc, "sqlstate", None) or "")
+    if state.startswith("40") or state in _NOT_GONE or getattr(exc, "warden_said", False):
         return
     exc.warden_said = True
     _LOG.error("the audit database could not be reached or could not write (%s): every record, approval and fix "
