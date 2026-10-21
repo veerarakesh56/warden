@@ -31,7 +31,7 @@ import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
@@ -79,7 +79,32 @@ class Response:
     body: str
 
 
-class MemoryLinkStore:
+class LinkStore(Protocol):
+    """Where an approval page keeps its links, who Slack said was at the page for each, and passkey challenges."""
+
+    def add_link(self, token: str, link: Link) -> None: ...
+
+    def link(self, token: str) -> Link | None: ...
+
+    def mark_viewed(self, token: str) -> None: ...
+
+    def use_link(self, token: str) -> None: ...
+
+    def used(self, token: str) -> bool: ...
+
+    # Who Slack said was at the page for this link (`member`), for the approver the link was made for.
+    def note_slack(self, token: str, approver: str, member: dict[str, str]) -> None: ...
+
+    def slack_of(self, token: str) -> str: ...
+
+    def put_challenge(self, key: str, pending: passkeys.Pending) -> None: ...
+
+    def challenge(self, key: str) -> passkeys.Pending | None: ...
+
+    def take_challenge(self, key: str) -> passkeys.Pending | None: ...
+
+
+class MemoryLinkStore(LinkStore):
     """Links and passkey challenges in this process: one long-running server, or a test."""
 
     def __init__(self) -> None:
@@ -119,7 +144,7 @@ class MemoryLinkStore:
         return self.pending.pop(key, None)
 
 
-class AuditLinkStore:
+class AuditLinkStore(LinkStore):
     """Links and challenges as rows of the shared audit (G6): the page runs as a Lambda, and one invocation's memory
     is gone by the next. Append-only - a link viewed or used, a challenge taken, is a later row - and every token is
     kept only as its SHA-256, so the record never holds a live link."""
@@ -146,7 +171,7 @@ class AuditLinkStore:
     def link(self, token: str) -> Link | None:
         key = self._key(token)
         made = self._rows("approval.link", key)
-        if not made or self._rows("approval.link_used", key):
+        if not made or self._rows(_LINK_USED, key):
             return None
         b = made[-1]
         return Link(b["workflow_id"], b["approver"], datetime.fromisoformat(b["expires_at"]),
@@ -161,10 +186,10 @@ class AuditLinkStore:
 
     def use_link(self, token: str) -> None:
         link = self.link(token)
-        self.log.append(link.workflow_id if link else "approval", "approval.link_used", {"key": self._key(token)})
+        self.log.append(link.workflow_id if link else "approval", _LINK_USED, {"key": self._key(token)})
 
     def used(self, token: str) -> bool:
-        return bool(self._rows("approval.link_used", self._key(token)))
+        return bool(self._rows(_LINK_USED, self._key(token)))
 
     def note_slack(self, token: str, approver: str, member: dict[str, str]) -> None:
         # Who Slack said was at the page for this link, on the record with the approver it was made for.
@@ -211,7 +236,7 @@ class ApprovalPage:
     plan_of: Callable[[str], Any]  # workflow id -> its Plan, or None (a Temporal query in the runtime)
     signal: Callable[[str, PasskeyAssertion], None]  # workflow id, assertion -> sent
     # Where links and challenges live: memory for one long-running server, the audit for the Lambda (AuditLinkStore).
-    store: Any = field(default_factory=MemoryLinkStore)
+    store: LinkStore = field(default_factory=MemoryLinkStore)
     # workflow id, Denial -> sent (requirement R28); None: this page offers no deny.
     deny: Callable[[str, Any], None] | None = None
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
@@ -238,24 +263,28 @@ class ApprovalPage:
     # ------------------------------------------------------------------ routing
 
     def handle(self, method: str, path: str, body: str = "", query: str = "", cookies: Any = ()) -> Response:
-        parts = path.strip("/").split("/")
+        parts, verb = path.strip("/").split("/"), method.upper()
         if parts[0] == "s":
-            return self._slack(method.upper(), parts[1:], query, cookies)
+            return self._slack(verb, parts[1:], query, cookies)
         if parts[0] == "r":
-            return self._records(method.upper(), parts[1:], cookies, query)
+            return self._records(verb, parts[1:], cookies, query)
         if parts[0] == "p":
-            return self._pages(method.upper(), parts[1:], body, cookies)
+            return self._pages(verb, parts[1:], body, cookies)
         if self.slack is not None and len(parts) >= 2:
             self._recognise(parts[0], parts[1], cookies)
-        if len(parts) >= 2 and parts[0] == "e":
-            return self._enrol(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
-        if len(parts) >= 2 and parts[0] == "k":
-            return self._reset(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
-        if len(parts) >= 2 and parts[0] == "x":
-            return self._stop(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
-        if len(parts) < 2 or parts[0] != "a":
-            return _json(404, {"error": "not found"})
-        if parts[1] == "signed" and len(parts) == 3 and method.upper() == "POST":
+        if len(parts) < 2:
+            return _json(404, {"error": _NOT_FOUND})
+        # A signed link's own step: an enrolment (e), a kill switch reset (k) or stop (x).
+        invited = {"e": self._enrol, "k": self._reset, "x": self._stop}.get(parts[0])
+        if invited is not None:
+            return invited(verb, parts[1], parts[2] if len(parts) > 2 else "", body)
+        if parts[0] != "a":
+            return _json(404, {"error": _NOT_FOUND})
+        return self._approval(verb, parts, body)
+
+    def _approval(self, verb: str, parts: list[str], body: str) -> Response:
+        """`/a/<token>[/<step>]`: an approval link's page and its steps; `/a/signed/<step>`: a limited approver's."""
+        if parts[1] == "signed" and len(parts) == 3 and verb == "POST":
             return self._signed_request(parts[2], body)
         token, action = parts[1], (parts[2] if len(parts) > 2 else "")
         link = self.store.link(token)
@@ -270,10 +299,10 @@ class ApprovalPage:
                   ("POST", "login"): self._login, ("POST", "approve-options"): self._approve_options,
                   ("POST", "approve"): self._approve, ("POST", "deny-options"): self._deny_options,
                   ("POST", "deny"): self._deny}
-        route = routes.get((method.upper(), action))
+        route = routes.get((verb, action))
         if route not in (None, self._shell) and not self._signed_in(token, link.approver):
-            return _json(403, {"error": "sign in with Slack first"})
-        return route(token, link, data) if route else _json(404, {"error": "not found"})
+            return _json(403, {"error": _SIGN_IN_FIRST})
+        return route(token, link, data) if route else _json(404, {"error": _NOT_FOUND})
 
     # ------------------------------------------------------------------ a limited approver's signed approval
 
@@ -285,7 +314,7 @@ class ApprovalPage:
         environments, read only (owner, 2026-10-15: access to WARDEN's incidents and records, for dev)."""
         if (self.log is None or step not in ("plan", "approve", "record", "deny")
                 or (step in ("plan", "approve") and self.signed is None) or (step == "deny" and self.deny is None)):
-            return _json(404, {"error": "not found"})
+            return _json(404, {"error": _NOT_FOUND})
         try:
             data = json.loads(body) if body else {}
         except ValueError:
@@ -320,7 +349,7 @@ class ApprovalPage:
         try:
             at = datetime.fromisoformat(str(data.get("issued_at", "")))
             self.policy.key_of(name).verify(bytes.fromhex(str(data.get("signature", ""))), message)
-        except Exception:  # noqa: BLE001 - an unparsable time, an unknown key or a bad signature: refused the same
+        except Exception:  # noqa: BLE001 - an unparsable time; an unknown key or a bad signature: refused the same
             return _json(403, {"error": "the request is not signed by that approver"})
         if abs(self.clock() - at) > timedelta(minutes=5):
             return _json(403, {"error": "the request is too old"})
@@ -342,7 +371,7 @@ class ApprovalPage:
             return _json(404, {"error": "no plan this approver may deny is waiting under that id and hash"})
         try:
             denial = approvals.Denial(approver=name, workflow_id=wid, plan_hash=ph, reason=reason)
-        except Exception:  # noqa: BLE001 - a reason past NOTE_MAX, or a malformed name: refused whole
+        except Exception:  # noqa: BLE001 - a reason past NOTE_MAX; or a malformed name: refused whole
             return _json(400, {"error": "not a denial"})
         self.deny(wid, denial)
         return _json(202, {"denied": wid})
@@ -437,46 +466,52 @@ class ApprovalPage:
         """`/s/a/<token>`, `/s/e/<token>` and `/s/k/<token>` send the browser to Slack's sign-in; `/s/callback` takes
         its answer. The link's token never goes to Slack: it stays in a cookie of this site, and Slack carries only
         that cookie's hash as the state."""
-        import hashlib
-        import urllib.parse
-
-        from .slack_login import REMEMBER_S, SlackLoginError, remember
-
         if (method, parts) == ("POST", ["interact"]):
             # Slack tells an app of every button click, a link button's too, and marks the button as failed unless
             # that is answered. Answered, unread: the click opened the page, and nothing is decided here.
             return Response(200, {"Content-Type": "text/plain", "Cache-Control": "no-store"}, "")
         if self.slack is None or method != "GET":
-            return _json(404, {"error": "not found"})
+            return _json(404, {"error": _NOT_FOUND})
         redirect = f"{self.origin}/s/callback"
+        started = self._slack_start(parts, redirect)
+        if started is not None:
+            return started
+        if parts != ["callback"]:
+            return _json(404, {"error": _NOT_FOUND})
+        return self._slack_callback(query, cookies, redirect)
+
+    def _slack_start(self, parts: list[str], redirect: str) -> Response | None:
+        """To Slack's sign-in, for WARDEN's own pages, the records or a link; None where `parts` names none of them."""
         if parts == ["p"]:
             # WARDEN's own pages: no link, the reader's own sign-in, then back to `/p`.
-            nonce = secrets.token_urlsafe(16)
-            value = f"p/pages.{nonce}"
-            state = hashlib.sha256(value.encode()).hexdigest()
-            return Response(302, {"Location": self.slack.authorize_url(redirect_uri=redirect, state=state, nonce=nonce),
-                                  "Set-Cookie": f"{_COOKIE}={value}; Max-Age=600; Path=/s; Secure; HttpOnly; SameSite=Lax",
-                                  "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, "")
+            return self._to_slack(redirect, "p/pages")
         if parts == ["r"] or (len(parts) == 2 and parts[0] == "r" and _INCIDENT_ID.fullmatch(parts[1])):
             # The records: no link, the reader's own sign-in (records.py) - and the incident to come back to, if any.
-            nonce = secrets.token_urlsafe(16)
-            value = f"r/{parts[1] if len(parts) == 2 else 'records'}.{nonce}"
-            state = hashlib.sha256(value.encode()).hexdigest()
-            return Response(302, {"Location": self.slack.authorize_url(redirect_uri=redirect, state=state, nonce=nonce),
-                                  "Set-Cookie": f"{_COOKIE}={value}; Max-Age=600; Path=/s; Secure; HttpOnly; SameSite=Lax",
-                                  "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, "")
+            return self._to_slack(redirect, f"r/{parts[1] if len(parts) == 2 else 'records'}")
         if len(parts) == 2 and parts[0] in ("a", "e", "k", "x"):
             kind, token = parts
             if self._approver_of(kind, token) is None:
                 return _notice(404, "This link is not valid.")
-            nonce = secrets.token_urlsafe(16)
-            value = f"{kind}/{token}.{nonce}"
-            state = hashlib.sha256(value.encode()).hexdigest()
-            return Response(302, {"Location": self.slack.authorize_url(redirect_uri=redirect, state=state, nonce=nonce),
-                                  "Set-Cookie": f"{_COOKIE}={value}; Max-Age=600; Path=/s; Secure; HttpOnly; SameSite=Lax",
-                                  "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, "")
-        if parts != ["callback"]:
-            return _json(404, {"error": "not found"})
+            return self._to_slack(redirect, f"{kind}/{token}")
+        return None
+
+    def _to_slack(self, redirect: str, where: str) -> Response:
+        """The browser to Slack's sign-in: `where` to come back to, with a fresh nonce, in this site's cookie for ten
+        minutes - and only that cookie's hash to Slack, as the state."""
+        nonce = secrets.token_urlsafe(16)
+        value = f"{where}.{nonce}"
+        state = hashlib.sha256(value.encode()).hexdigest()
+        return Response(302, {"Location": self.slack.authorize_url(redirect_uri=redirect, state=state, nonce=nonce),
+                              "Set-Cookie": f"{_COOKIE}={value}; Max-Age=600; Path=/s; Secure; HttpOnly; SameSite=Lax",
+                              "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, "")
+
+    def _slack_callback(self, query: str, cookies: Any, redirect: str) -> Response:
+        """Slack's answer: only for the sign-in this browser started here (its cookie's hash is the state), and for a
+        link only when Slack names the member its approver is."""
+        import urllib.parse
+
+        from .slack_login import SlackLoginError
+
         asked = urllib.parse.parse_qs(query)
         value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_COOKIE + "=")), "")
         code, state = (asked.get(k, [""])[0] for k in ("code", "state"))
@@ -485,21 +520,7 @@ class ApprovalPage:
         where, nonce = value.rsplit(".", 1)
         kind, _, token = where.partition("/")
         if kind in ("r", "p"):
-            try:
-                member = self.slack.member(code, redirect_uri=redirect, nonce=nonce)
-            except SlackLoginError as exc:
-                return _notice(403, f"Slack sign-in failed: {exc}.")
-            if not self._may_read(member["user"]):
-                from .records import refused_page
-
-                return self._served_html(403, refused_page())
-            back = token if kind == "r" and token != "records" and _INCIDENT_ID.fullmatch(token) else ""
-            to = f"/r/{back}" if back else "/r"
-            if kind == "p":
-                to = "/p"
-            return Response(302, {"Location": to, "Cache-Control": "no-store",
-                                  "Set-Cookie": (f"{_WHO}={remember(self.slack, member['user'])}; Max-Age={REMEMBER_S}; "
-                                                 "Path=/; Secure; HttpOnly; SameSite=Lax")}, "")
+            return self._reader_signed_in(kind, token, code, redirect, nonce)
         approver = self._approver_of(kind, token)
         if approver is None or approver not in self.policy.approvers:
             return _notice(404, "This link is not valid.")
@@ -517,7 +538,32 @@ class ApprovalPage:
         self.store.note_slack(token, approver, member)
         # This browser is remembered, so the next link does not ask Slack again; the sign-in's own cookie ends by
         # itself in ten minutes and opens nothing alone (its code is spent).
-        return Response(302, {"Location": f"/{kind}/{token}", "Cache-Control": "no-store",
+        return self._remembered(f"/{kind}/{token}", member)
+
+    def _reader_signed_in(self, kind: str, token: str, code: str, redirect: str, nonce: str) -> Response:
+        """A reader of the records (r) or of WARDEN's own pages (p) Slack named: back to where they were going, when
+        they may read it."""
+        from .slack_login import SlackLoginError
+
+        try:
+            member = self.slack.member(code, redirect_uri=redirect, nonce=nonce)
+        except SlackLoginError as exc:
+            return _notice(403, f"Slack sign-in failed: {exc}.")
+        if not self._may_read(member["user"]):
+            from .records import refused_page
+
+            return self._served_html(403, refused_page())
+        back = token if kind == "r" and token != "records" and _INCIDENT_ID.fullmatch(token) else ""
+        to = f"/r/{back}" if back else "/r"
+        if kind == "p":
+            to = "/p"
+        return self._remembered(to, member)
+
+    def _remembered(self, to: str, member: dict[str, str]) -> Response:
+        """On to `to`, with this browser remembered as the member Slack named (slack_login.remember)."""
+        from .slack_login import REMEMBER_S, remember
+
+        return Response(302, {"Location": to, "Cache-Control": "no-store",
                               "Set-Cookie": (f"{_WHO}={remember(self.slack, member['user'])}; Max-Age={REMEMBER_S}; "
                                              "Path=/; Secure; HttpOnly; SameSite=Lax")}, "")
 
@@ -534,39 +580,62 @@ class ApprovalPage:
         named in this browser who may read them; anyone else is asked to sign in, and is not shown that an incident
         exists."""
         from . import records
-        from .slack_login import remembered
 
         if method != "GET" or len(parts) > 1:
-            return _json(404, {"error": "not found"})
+            return _json(404, {"error": _NOT_FOUND})
         if self.slack is None:
             # The records have no passkey behind them: with no Slack sign-in to say who is reading, nobody reads them
             # (independent check, 2026-10-14: they were open to anyone where the runtime had no Slack app).
             return self._served_html(503, records.unavailable_page())
-        value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
-        member = remembered(self.slack, value) if value else ""
+        member = self._reader(cookies)
         if not member:
-            # Back to the page the reader opened after Slack's sign-in, not to the list (2026-10-15: a report's "Full
-            # record" button landed on every incident once signed in). Only an incident id's shape travels.
-            back = parts[0] if parts and _INCIDENT_ID.fullmatch(parts[0] or "") else ""
-            return self._served_html(200, records.signed_out_page(f"/s/r/{back}" if back else "/s/r"))
+            return self._signed_out(parts)
         if not self._may_read(member):
             return self._served_html(403, records.refused_page())
         if self.log is None:
             return _json(503, {"error": "the record cannot be read here"})
         allowed = self._environments_for(member)
         if not parts or not parts[0]:
-            asked = records.parse_query(query)
-            if asked is None:
-                return self._served_html(400, records.bad_query_page())
-            ids, loaded, seen = records.matching(self.log, asked, allowed, self.policy)
-            pages = max(1, -(-len(ids) // asked.size))
-            page = min(asked.page, pages)  # past the end: the last page
-            shown = ids[(page - 1) * asked.size:page * asked.size]
-            found = [loaded.get(i) or records.record(self.log, i, self.policy, light=True) for i in shown]
-            return self._served_html(200, records.list_page(
-                [r for r in found if r is not None], page=page, pages=pages, total=seen, matched=len(ids),
-                asked=asked, envs=self._environment_choices(allowed)), form=True)
-        one = records.record(self.log, parts[0], self.policy) if not parts[0].startswith("discuss-") else None
+            return self._record_list(query, allowed)
+        return self._record_page(parts[0], member, allowed, query)
+
+    def _reader(self, cookies: Any) -> str:
+        """The member Slack named in this browser in the last hours (slack_login.remember) - or ''."""
+        from .slack_login import remembered
+
+        value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
+        return remembered(self.slack, value) if value else ""
+
+    def _signed_out(self, parts: list[str]) -> Response:
+        """The way to sign in, for a reader Slack has not named in this browser."""
+        from . import records
+
+        # Back to the page the reader opened after Slack's sign-in, not to the list (2026-10-15: a report's "Full
+        # record" button landed on every incident once signed in). Only an incident id's shape travels.
+        back = parts[0] if parts and _INCIDENT_ID.fullmatch(parts[0] or "") else ""
+        return self._served_html(200, records.signed_out_page(f"/s/r/{back}" if back else "/s/r"))
+
+    def _record_list(self, query: str, allowed: set[str] | None) -> Response:
+        """`/r`: one page of the list, as the query reads it - only the incidents in `allowed` (None: every one)."""
+        from . import records
+
+        asked = records.parse_query(query)
+        if asked is None:
+            return self._served_html(400, records.bad_query_page())
+        ids, loaded, seen = records.matching(self.log, asked, allowed, self.policy)
+        pages = max(1, -(-len(ids) // asked.size))
+        page = min(asked.page, pages)  # past the end: the last page
+        shown = ids[(page - 1) * asked.size:page * asked.size]
+        found = [loaded.get(i) or records.record(self.log, i, self.policy, light=True) for i in shown]
+        return self._served_html(200, records.list_page(
+            [r for r in found if r is not None], page=page, pages=pages, total=seen, matched=len(ids),
+            asked=asked, envs=self._environment_choices(allowed)), form=True)
+
+    def _record_page(self, incident: str, member: str, allowed: set[str] | None, query: str) -> Response:
+        """`/r/<incident>`: one incident, whole - and, with `?approve=1`, a fresh link to its plan for this reader."""
+        from . import records
+
+        one = records.record(self.log, incident, self.policy) if not incident.startswith("discuss-") else None
         if one is None or (allowed is not None and one.environment not in allowed):
             # One answer for "none" and "not yours": a reader limited to some environments is not told of the others.
             return self._served_html(404, records.missing_page())
@@ -623,8 +692,8 @@ class ApprovalPage:
 
     def _served_html(self, status: int, page: str, *, form: bool = False) -> Response:
         nonce = secrets.token_urlsafe(16)
-        return Response(status, _headers(nonce, "text/html; charset=utf-8",
-                                         f"{self.origin}/r" if form else "'none'"), page.replace("{{NONCE}}", nonce))
+        return Response(status, _headers(nonce, _HTML,
+                                         f"{self.origin}/r" if form else "'none'"), page.replace(_NONCE, nonce))
 
     # ------------------------------------------------------------------ enrolment
 
@@ -638,7 +707,7 @@ class ApprovalPage:
             self.policy.key_of(approver).verify(signature, purpose + claim)
             now = self.clock()
             return approver if now < expires <= now + LINK_TTL and not self.store.used(token) else None
-        except Exception:  # noqa: BLE001 - whatever is wrong with a link, it invites nobody
+        except Exception:  # noqa: BLE001 - whatever is wrong with a link; it invites nobody
             return None
 
     def _enrol(self, method: str, token: str, step: str, body: str) -> Response:
@@ -649,7 +718,7 @@ class ApprovalPage:
         if (method, step) == ("GET", ""):
             return self._served(_ENROL, not self._signed_in(token, approver, enrolling=True))
         if not self._signed_in(token, approver, enrolling=True):
-            return _json(403, {"error": "sign in with Slack first"})
+            return _json(403, {"error": _SIGN_IN_FIRST})
         if (method, step) == ("POST", "options"):
             options, challenge = passkeys.registration_options(rp_id=self.rp_id, rp_name="WARDEN", approver=approver)
             self.store.put_challenge(key, passkeys.Pending(
@@ -657,7 +726,7 @@ class ApprovalPage:
                 expires_at=self.clock() + LINK_TTL, challenge=bytes_to_base64url(challenge)))
             return _json(200, {"options": json.loads(options)})
         if (method, step) != ("POST", "finish"):
-            return _json(404, {"error": "not found"})
+            return _json(404, {"error": _NOT_FOUND})
         pending = self.store.take_challenge(key)
         if pending is None or self.clock() >= pending.expires_at:
             return _json(403, {"error": "no challenge is waiting for this answer"})
@@ -665,8 +734,8 @@ class ApprovalPage:
             made = passkeys.finish_registration(json.loads(body)["response"], approver=approver,
                                                 challenge=base64url_to_bytes(pending.challenge), rp_id=self.rp_id,
                                                 origin=self.origin)
-        except Exception:  # noqa: BLE001 - a ceremony that does not verify enrols nothing, whatever the reason
-            return _json(403, {"error": "the passkey was not accepted"})
+        except Exception:  # noqa: BLE001 - a ceremony that does not verify enrols nothing; whatever the reason
+            return _json(403, {"error": _NOT_ACCEPTED})
         listed = self.policy.model_copy(deep=True)
         if any(c.credential_id == made.credential_id for c in listed.approvers[approver].passkeys):
             return _json(409, {"error": "this passkey is already enrolled"})
@@ -696,21 +765,11 @@ class ApprovalPage:
         if (method, step) == ("GET", ""):
             return self._served(_RESET, not self._signed_in(token, approver))
         if not self._signed_in(token, approver):
-            return _json(403, {"error": "sign in with Slack first"})
+            return _json(403, {"error": _SIGN_IN_FIRST})
         if (method, step) == ("POST", "trips"):
-            rows = bounds.trips(self.log)
-            if bounds.killswitch(self.log) is None or not rows:
-                return _json(200, {"on": False})
-            options, pending = passkeys.approval_options(
-                rp_id=self.rp_id, credentials=self._credentials(approver), workflow_id=KILLSWITCH,
-                plan_hash=bounds.trips_hash(self.log), tier="T3", now=now)
-            self.store.put_challenge(key, pending)
-            ready = rows[-1]["at"] + timedelta(minutes=self.policy.cooling_off_minutes.get("T3", 0))
-            return _json(200, {"on": True, "options": json.loads(options), "wait": both_times(ready) if ready > now else "",
-                               "trips": [{"at": both_times(r["at"]), "reason": str(r["body"].get("reason", ""))[:600]}
-                                         for r in rows]})
+            return self._reset_trips(approver, key, now)
         if (method, step) != ("POST", "reset"):
-            return _json(404, {"error": "not found"})
+            return _json(404, {"error": _NOT_FOUND})
         pending = self.store.take_challenge(key)
         try:
             response = json.loads(body)["response"]
@@ -719,7 +778,7 @@ class ApprovalPage:
         credential = next((c for c in self._credentials(approver)
                            if isinstance(response, dict) and c.credential_id == response.get("id")), None)
         if pending is None or credential is None:
-            return _json(403, {"error": "the passkey was not accepted"})
+            return _json(403, {"error": _NOT_ACCEPTED})
         verified, problems = passkeys.verify_approval(response, pending=pending, credential=credential,
                                                       rp_id=self.rp_id, origin=self.origin, now=now, used_nonces=set())
         if verified is not None:
@@ -729,6 +788,22 @@ class ApprovalPage:
         self.store.use_link(token)  # used once
         self.log.checkpoint()  # the reset signed the record; the link's last row is signed too
         return _json(200, {"reset": True})
+
+    def _reset_trips(self, approver: str, key: str, now: datetime) -> Response:
+        """The trips a reset would clear, and the passkey challenge over exactly them - or that the switch is off."""
+        from . import bounds
+
+        rows = bounds.trips(self.log)
+        if bounds.killswitch(self.log) is None or not rows:
+            return _json(200, {"on": False})
+        options, pending = passkeys.approval_options(
+            rp_id=self.rp_id, credentials=self._credentials(approver), workflow_id=KILLSWITCH,
+            plan_hash=bounds.trips_hash(self.log), tier="T3", now=now)
+        self.store.put_challenge(key, pending)
+        ready = rows[-1]["at"] + timedelta(minutes=self.policy.cooling_off_minutes.get("T3", 0))
+        return _json(200, {"on": True, "options": json.loads(options), "wait": both_times(ready) if ready > now else "",
+                           "trips": [{"at": both_times(r["at"]), "reason": str(r["body"].get("reason", ""))[:600]}
+                                     for r in rows]})
 
     # ------------------------------------------------------------------ the kill switch's stop
 
@@ -746,7 +821,7 @@ class ApprovalPage:
         if (method, step) == ("GET", ""):
             return self._served(_STOP, not self._signed_in(token, approver))
         if not self._signed_in(token, approver):
-            return _json(403, {"error": "sign in with Slack first"})
+            return _json(403, {"error": _SIGN_IN_FIRST})
         try:
             reason = " ".join(str(json.loads(body or "{}").get("reason", "")).split())
         except Exception:  # noqa: BLE001 - a request that cannot be read stops nothing
@@ -761,7 +836,7 @@ class ApprovalPage:
             self.store.put_challenge(key, pending)
             return _json(200, {"options": json.loads(options), "already": bounds.killswitch(self.log) is not None})
         if (method, step) != ("POST", "on"):
-            return _json(404, {"error": "not found"})
+            return _json(404, {"error": _NOT_FOUND})
         pending = self.store.take_challenge(key)
         try:
             response = json.loads(body)["response"]
@@ -771,7 +846,7 @@ class ApprovalPage:
                            if isinstance(response, dict) and c.credential_id == response.get("id")), None)
         if pending is None or credential is None or pending.plan_hash != signed_for:
             # The reason recorded is the one the passkey signed, never one sent after it.
-            return _json(403, {"error": "the passkey was not accepted"})
+            return _json(403, {"error": _NOT_ACCEPTED})
         verified, problems = passkeys.verify_approval(response, pending=pending, credential=credential,
                                                       rp_id=self.rp_id, origin=self.origin, now=now, used_nonces=set())
         if verified is None:
@@ -796,7 +871,7 @@ class ApprovalPage:
         from .slack_login import remembered
 
         if self.pages is None or self.log is None:
-            return _json(404, {"error": "not found"})
+            return _json(404, {"error": _NOT_FOUND})
         if self.slack is None:
             # The pages name WARDEN's own faults and have no link behind them: with no Slack sign-in to say who is
             # reading, nobody reads them, as the records (CodeRabbit, PR 43: anyone could list them).
@@ -807,7 +882,7 @@ class ApprovalPage:
         if (method, parts) == ("GET", []):
             return self._served(_ACK, not member)
         if not member:
-            return _json(403, {"error": "sign in with Slack first"})
+            return _json(403, {"error": _SIGN_IN_FIRST})
         approvers = self._page_approvers(member)
         if not approvers:
             return _json(403, {"error": "only an approver with a passkey acknowledges WARDEN's pages"})
@@ -815,7 +890,7 @@ class ApprovalPage:
         if (method, parts) == ("POST", ["pages"]):
             return self._pages_shown(credentials, member)
         if (method, parts) != ("POST", ["ack"]):
-            return _json(404, {"error": "not found"})
+            return _json(404, {"error": _NOT_FOUND})
         return self._pages_ack(credentials, member, body)
 
     def _pages_shown(self, credentials: list[passkeys.Credential], member: str) -> Response:
@@ -852,7 +927,7 @@ class ApprovalPage:
         pending = (self.store.take_challenge(f"pages:{member}:{ask}")
                    if credential is not None and _ASK.fullmatch(ask) else None)
         if pending is None or credential is None:
-            return _json(403, {"error": "the passkey was not accepted"})
+            return _json(403, {"error": _NOT_ACCEPTED})
         used = {e["body"].get("nonce") for e in self.log.entries(kinds=(paging.ACK,))}
         verified, problems = passkeys.verify_approval(response, pending=pending, credential=credential,
                                                       rp_id=self.rp_id, origin=self.origin, now=now, used_nonces=used)
@@ -875,8 +950,8 @@ class ApprovalPage:
 
     def _served(self, page: str, slack_first: bool) -> Response:
         nonce = secrets.token_urlsafe(16)
-        return Response(200, _headers(nonce, "text/html; charset=utf-8"),
-                        page.replace("{{NONCE}}", nonce).replace("{{SLACK}}", "1" if slack_first else "0"))
+        return Response(200, _headers(nonce, _HTML),
+                        page.replace(_NONCE, nonce).replace("{{SLACK}}", "1" if slack_first else "0"))
 
     def _shell(self, token: str, link: Link, data: dict) -> Response:
         return self._served(_PAGE, not self._signed_in(token, link.approver))
@@ -904,7 +979,7 @@ class ApprovalPage:
     def _login(self, token: str, link: Link, data: dict) -> Response:
         problems = self._verify(f"{token}:{VIEW}", link, data.get("response"))
         if problems:
-            return _json(403, {"error": "the passkey was not accepted", "problems": problems})
+            return _json(403, {"error": _NOT_ACCEPTED, "problems": problems})
         plan = self.plan_of(link.workflow_id)
         if plan is None or plan.problems:
             return _json(409, {"error": "this plan is no longer waiting for an approval"})
@@ -944,7 +1019,7 @@ class ApprovalPage:
     def _approve_options(self, token: str, link: Link, data: dict) -> Response:
         plan = self.plan_of(link.workflow_id)
         if not link.viewed or plan is None:
-            return _json(403, {"error": "show the plan first"})
+            return _json(403, {"error": _PLAN_FIRST})
         options, pending = passkeys.approval_options(rp_id=self.rp_id, credentials=self._credentials(link.approver),
                                                      workflow_id=plan.workflow_id, plan_hash=plan.plan_hash,
                                                      tier=plan.tier, now=self.clock())
@@ -954,7 +1029,7 @@ class ApprovalPage:
     def _deny_options(self, token: str, link: Link, data: dict) -> Response:
         plan = self.plan_of(link.workflow_id)
         if self.deny is None or not link.viewed or plan is None:
-            return _json(403, {"error": "show the plan first"})
+            return _json(403, {"error": _PLAN_FIRST})
         options, pending = passkeys.approval_options(rp_id=self.rp_id, credentials=self._credentials(link.approver),
                                                      workflow_id=plan.workflow_id, plan_hash=f"deny:{plan.plan_hash}",
                                                      tier="deny", now=self.clock())
@@ -967,10 +1042,10 @@ class ApprovalPage:
 
         plan = self.plan_of(link.workflow_id)
         if self.deny is None or not link.viewed or plan is None:
-            return _json(403, {"error": "show the plan first"})
+            return _json(403, {"error": _PLAN_FIRST})
         problems = self._verify(f"{token}:deny", link, data.get("response"))
         if problems:
-            return _json(403, {"error": "the passkey was not accepted", "problems": problems})
+            return _json(403, {"error": _NOT_ACCEPTED, "problems": problems})
         self.deny(plan.workflow_id, Denial(approver=link.approver, workflow_id=plan.workflow_id,
                                            plan_hash=plan.plan_hash, reason=approvals.note(data.get("note"), incoming=True)))
         self.store.use_link(token)  # used once, either way
@@ -979,13 +1054,13 @@ class ApprovalPage:
     def _approve(self, token: str, link: Link, data: dict) -> Response:
         plan = self.plan_of(link.workflow_id)
         if not link.viewed or plan is None:
-            return _json(403, {"error": "show the plan first"})
+            return _json(403, {"error": _PLAN_FIRST})
         if plan.tier in TYPED_TIERS and data.get("typed_target") != plan.target:
             return _json(400, {"error": f"a {plan.tier} approval needs the target typed exactly"})
         pending = self.store.challenge(f"{token}:approve")
         problems = self._verify(f"{token}:approve", link, data.get("response"))
         if problems or pending is None:
-            return _json(403, {"error": "the passkey was not accepted", "problems": problems})
+            return _json(403, {"error": _NOT_ACCEPTED, "problems": problems})
         self.signal(plan.workflow_id, PasskeyAssertion(
             approver=link.approver, workflow_id=pending.workflow_id, plan_hash=pending.plan_hash, tier=pending.tier,
             nonce=pending.nonce, expires_at=pending.expires_at, challenge=pending.challenge, response=data["response"],
@@ -1009,6 +1084,14 @@ def _headers(nonce: str, content_type: str, form_action: str = "'none'") -> dict
     }
 
 
+# Words and values the page says in more than one place.
+_LINK_USED = "approval.link_used"
+_NOT_FOUND = "not found"
+_SIGN_IN_FIRST = "sign in with Slack first"
+_NOT_ACCEPTED = "the passkey was not accepted"
+_PLAN_FIRST = "show the plan first"
+_HTML = "text/html; charset=utf-8"
+_NONCE = "{{NONCE}}"
 _COOKIE = "warden_s"  # holds the link while the browser is at Slack: this site's only, ten minutes, /s alone
 # A limited approver's signed read (/a/signed/record): the latest this many incidents in its environments, found among
 # the newest RECORD_SCAN on the record.
@@ -1042,8 +1125,8 @@ def _notice(status: int, text: str) -> Response:
     nonce = secrets.token_urlsafe(16)
     # Escaped: a sign-in's failure can quote what Slack said.
     shown = html.escape(text, quote=False).replace("{", "&#123;").replace("}", "&#125;")
-    return Response(status, _headers(nonce, "text/html; charset=utf-8"),
-                    _NOTICE.replace("{{NONCE}}", nonce).replace("{{SLACK}}", "0").replace("{{TEXT}}", shown))
+    return Response(status, _headers(nonce, _HTML),
+                    _NOTICE.replace(_NONCE, nonce).replace("{{SLACK}}", "0").replace("{{TEXT}}", shown))
 
 
 def _json(status: int, payload: dict) -> Response:

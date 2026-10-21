@@ -161,6 +161,8 @@ class _StderrHandler(logging.StreamHandler):
 
     @stream.setter
     def stream(self, _value) -> None:
+        # Ignored on purpose: the handler always writes to the current sys.stderr (read by the getter above), so
+        # nothing - logging.StreamHandler.setStream included - can pin it to a stream that is later replaced.
         pass
 
 
