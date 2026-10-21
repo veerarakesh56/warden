@@ -71,7 +71,8 @@ def _run(tmp_path: pathlib.Path, *, fresh: bool, empty_first: bool) -> tuple[int
 
 def test_a_fresh_alert_with_an_empty_source_is_read_once_more_and_the_lag_is_recorded(tmp_path):
     reads, rows = _run(tmp_path, fresh=True, empty_first=True)
-    assert reads == 2 and len(rows) == 1
+    assert reads == 2
+    assert len(rows) == 1
     row = rows[0]
     assert (row["empty_first"], row["filled"], row["still_empty"]) == (["logs"], ["logs"], [])
     assert row["alert_age_s"] >= 0

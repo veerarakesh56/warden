@@ -567,16 +567,18 @@ class DatabaseBackend:
         if hasattr(adapter, "activity"):
             try:
                 lines += adapter.activity(conn)
-            except Exception as exc:  # noqa: BLE001 - partial, reported as such
+            except Exception as exc:  # noqa: BLE001 - partial; reported as such
                 lines.append(f"{PARTIAL_PREFIX}activity: {failure(exc)}")
         if hasattr(adapter, "access"):  # which databases exist and who may connect (research 2026-10-15, item 8)
             try:
                 lines += adapter.access(conn)
-            except Exception as exc:  # noqa: BLE001 - partial, reported as such
+            except Exception as exc:  # noqa: BLE001 - partial; reported as such
                 lines.append(f"{PARTIAL_PREFIX}access: {failure(exc)}")
         return lines
 
     def deploys(self, alert: Alert) -> list[dict[str, str]]:
+        """The evidence-source contract's third view. Databases don't "deploy" in the rollout sense P5 checks for, so
+        nothing about the alert is read and no deploy is returned."""
         # Databases don't "deploy" in the rollout sense P5 checks for.
         return []
 

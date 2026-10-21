@@ -28,9 +28,11 @@ DOCKERFILE = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
 
 def test_the_image_installs_the_detector_with_cpu_only_torch():
     sync = next(line for line in DOCKERFILE.splitlines() if line.startswith("RUN uv sync"))
-    assert "--locked" in sync and "--extra guard" in sync
+    assert "--locked" in sync
+    assert "--extra guard" in sync
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'url = "https://download.pytorch.org/whl/cpu"' in pyproject and "explicit = true" in pyproject
+    assert 'url = "https://download.pytorch.org/whl/cpu"' in pyproject
+    assert "explicit = true" in pyproject
     assert 'torch = [{ index = "pytorch-cpu", marker = "sys_platform == \'linux\'" }]' in pyproject
     lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
     assert 'version = "2.14.1+cpu"' in lock
@@ -44,7 +46,8 @@ def test_the_weights_are_baked_at_build_from_the_pinned_revision_with_the_token_
     assert "WORKDIR /app" in DOCKERFILE.split("bake_tripwire.py hf")[0].splitlines()  # so hf/ is /app/hf, copied below
     # The script reaches the build: .dockerignore keeps scripts/ out but these two (a deploy failed on it, 2026-10-14).
     assert "!scripts/bake_tripwire.py" in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
-    assert "ARG HF" not in DOCKERFILE and "HF_TOKEN" not in DOCKERFILE  # never a build argument or an image variable
+    assert "ARG HF" not in DOCKERFILE
+    assert "HF_TOKEN" not in DOCKERFILE  # never a build argument or an image variable
     assert "COPY --from=build /app/hf /opt/hf" in DOCKERFILE
     for setting in ("HF_HUB_CACHE=/opt/hf", "HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1", "HF_HOME=/tmp/hf"):
         assert setting in DOCKERFILE, setting
@@ -93,7 +96,8 @@ def test_the_bake_without_a_token_fails_unless_the_build_says_absent(tmp_path, m
     else:
         raise AssertionError("a bake without a token passed")
     assert bake_tripwire.main(["bake_tripwire.py", str(tmp_path / "hf"), "absent"]) == 0
-    assert "NOT baked" in capsys.readouterr().out and not any((tmp_path / "hf").iterdir())
+    assert "NOT baked" in capsys.readouterr().out
+    assert not any((tmp_path / "hf").iterdir())
     # The cache dir comes from the command line: one outside the working directory and the temp folder is refused.
     # A folder of its own, named for this run only: a regression harms nothing, and only what it wrote is removed.
     outside = pathlib.Path.home() / f".warden-test-outside-bake-{uuid.uuid4().hex}"
@@ -118,10 +122,12 @@ def test_the_bake_without_a_token_fails_unless_the_build_says_absent(tmp_path, m
 def test_the_read_zone_has_room_for_the_model():
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "variables.tf").read_text(encoding="utf-8")
     read = re.search(r"read\s*=\s*\{\s*cpu\s*=\s*(\d+),\s*memory\s*=\s*(\d+)\s*\}", tf)
-    assert int(read.group(1)) >= 1024 and int(read.group(2)) >= 3072  # 1.1 GB of weights, torch, the worker
+    assert int(read.group(1)) >= 1024
+    assert int(read.group(2)) >= 3072  # 1.1 GB of weights, torch, the worker
 
 
 def test_every_environment_scans():
     envs = yaml.safe_load((ROOT / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8"))
     modes = {name: e.get("tripwire") for name, e in envs["environments"].items()}
-    assert modes and all(m in ("on", "required") for m in modes.values()), modes
+    assert modes, modes
+    assert all(m in ("on", "required") for m in modes.values()), modes

@@ -25,8 +25,11 @@ def test_a_number_read_in_the_right_unit_passes():
 def test_a_misread_unit_or_scale_is_named():
     found = problems(["error rate 42%", "p99 21 s", "cpu 90 percent"], METRICS)
     assert len(found) == 3, found
-    assert "'42%'" in found[0] and "error_rate" in found[0]
-    assert "'21 s'" in found[1] and "p99_latency_ms" in found[1] and "cpu_utilisation" in found[2]
+    assert "'42%'" in found[0]
+    assert "error_rate" in found[0]
+    assert "'21 s'" in found[1]
+    assert "p99_latency_ms" in found[1]
+    assert "cpu_utilisation" in found[2]
 
 
 def test_on_the_published_runs_it_fires_on_none():

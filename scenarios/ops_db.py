@@ -221,7 +221,7 @@ def op_db_take_blocking_lock(clients: Clients, target: Target, *, waiters: int =
                 with conn.cursor() as c:
                     c.execute("BEGIN")
                     c.execute("LOCK TABLE " + SENTINEL_TABLE + " IN ACCESS EXCLUSIVE MODE")
-            except Exception:  # noqa: BLE001, S110 - a waiter is meant to block, then die
+            except Exception:  # noqa: BLE001, S110 - a waiter is meant to block; then die
                 pass           # with the connection when the revert closes it
 
         threading.Thread(target=wait, daemon=True, name="warden-bench-lock-waiter").start()
@@ -256,7 +256,7 @@ def op_db_release_everything(clients: Clients, target: Target, *, account: str =
         try:
             conn.close()
             closed += 1
-        except Exception:  # noqa: BLE001, S110 - a session already gone is still gone, and a
+        except Exception:  # noqa: BLE001, S110 - a session already gone is still gone; and a
             pass           # revert that stops half way would leave the rest of them open
     return {"closed_sessions": closed, "cancelled_long_queries": cancelled}
 

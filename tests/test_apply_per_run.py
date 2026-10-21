@@ -63,7 +63,8 @@ def test_a_second_approved_run_of_the_same_plan_really_applies():
 
     outs = asyncio.run(main())
     assert [o.status for o in outs] == ["rolled_back", "rolled_back"], [o.status for o in outs]
-    assert len(platform.applied) == 2 and len(platform.rolled_back) == 2, (platform.applied, platform.rolled_back)
+    assert len(platform.applied) == 2, (platform.applied, platform.rolled_back)
+    assert len(platform.rolled_back) == 2, (platform.applied, platform.rolled_back)
 
 
 def test_a_refused_apply_says_nothing_was_changed(monkeypatch):
@@ -71,7 +72,7 @@ def test_a_refused_apply_says_nothing_was_changed(monkeypatch):
     It is its own outcome now: nothing was applied or rolled back."""
     platform = FakePlatform(healthy_after=1)
     owner, _log, acts = _world(platform)
-    monkeypatch.setattr(RemediationActivities, "_not_approved", lambda self, plan, service: ["refused for the test"])
+    monkeypatch.setattr(RemediationActivities, "_not_approved", lambda self, plan: ["refused for the test"])
 
     async def main():
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
@@ -80,7 +81,8 @@ def test_a_refused_apply_says_nothing_was_changed(monkeypatch):
 
     out = asyncio.run(main())
     assert out.status == "refused_at_apply", out.status
-    assert platform.applied == [] and platform.rolled_back == []
+    assert platform.applied == []
+    assert platform.rolled_back == []
 
 
 def test_the_signed_end_row_states_what_the_audit_shows():
@@ -93,8 +95,10 @@ def test_the_signed_end_row_states_what_the_audit_shows():
                          plan_hash="h")
     acts.finish("inc-42", WID, claimed)
     row = log.entries("inc-42", kinds=("workflow.end",))[-1]["body"]
-    assert row["checklist"]["approved"] is False and row["checklist"]["applied"] is False
-    assert row["checklist"]["verified"] is False and row["claimed_checklist"]["approved"] is True
+    assert row["checklist"]["approved"] is False
+    assert row["checklist"]["applied"] is False
+    assert row["checklist"]["verified"] is False
+    assert row["claimed_checklist"]["approved"] is True
 
 
 def test_one_signature_of_a_two_person_tier_is_not_recorded_as_approved():
@@ -110,7 +114,8 @@ def test_one_signature_of_a_two_person_tier_is_not_recorded_as_approved():
             return await _run_once(env, owner, acts)
 
     out = asyncio.run(main())
-    assert out.status != "recovered" and platform.applied == [], out.status
+    assert out.status != "recovered", out.status
+    assert platform.applied == [], out.status
     row = log.entries("inc-42", kinds=("workflow.end",))[-1]["body"]
     assert row["checklist"]["approved"] is False, row["checklist"]
 

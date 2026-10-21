@@ -56,37 +56,52 @@ def _conninfo(dsn: str) -> dict[str, str]:
     out: dict[str, str] = {}
     i, n = 0, len(dsn)
     while i < n:
-        while i < n and dsn[i].isspace():
-            i += 1
-        j = i
-        while j < n and (dsn[j].isalnum() or dsn[j] == "_"):
-            j += 1
-        key = dsn[i:j]
-        while j < n and dsn[j].isspace():
-            j += 1
+        key, j = _conninfo_key(dsn, _past_space(dsn, i))
+        j = _past_space(dsn, j)
         if not key or j >= n or dsn[j] != "=":
             break  # not a conninfo string libpq would accept: show nothing rather than guess
-        j += 1
-        while j < n and dsn[j].isspace():
-            j += 1
-        value = []
-        if j < n and dsn[j] == "'":
-            j += 1
-            while j < n and dsn[j] != "'":
-                if dsn[j] == "\\" and j + 1 < n:
-                    j += 1
-                value.append(dsn[j])
-                j += 1
-            j += 1
-        else:
-            while j < n and not dsn[j].isspace():
-                if dsn[j] == "\\" and j + 1 < n:
-                    j += 1
-                value.append(dsn[j])
-                j += 1
-        out[key] = "".join(value)
-        i = j
+        out[key], i = _conninfo_value(dsn, _past_space(dsn, j + 1))
     return out
+
+
+def _past_space(dsn: str, i: int) -> int:
+    """The index of the first character at or after `i` that is not whitespace."""
+    while i < len(dsn) and dsn[i].isspace():
+        i += 1
+    return i
+
+
+def _conninfo_key(dsn: str, i: int) -> tuple[str, int]:
+    """(the keyword starting at `i` - letters, digits and _ - and the index just past it)."""
+    j = i
+    while j < len(dsn) and (dsn[j].isalnum() or dsn[j] == "_"):
+        j += 1
+    return dsn[i:j], j
+
+
+def _conninfo_value(dsn: str, j: int) -> tuple[str, int]:
+    """(the value starting at `j`, the index just past it): quoted up to its closing ', or bare up to whitespace; a
+    backslash takes the character after it as it is."""
+    n = len(dsn)
+    quoted = j < n and dsn[j] == "'"
+    if quoted:
+        j += 1
+    value = []
+    while j < n and not _ends_value(dsn[j], quoted):
+        if dsn[j] == "\\" and j + 1 < n:
+            j += 1
+        value.append(dsn[j])
+        j += 1
+    if quoted:
+        j += 1  # past the closing quote
+    return "".join(value), j
+
+
+def _ends_value(c: str, quoted: bool) -> bool:
+    """A quoted value ends at its closing quote; a bare one at whitespace."""
+    if quoted:
+        return c == "'"
+    return c.isspace()
 
 
 class DatabasePlatformError(RuntimeError):
@@ -500,6 +515,8 @@ class DatabasePlatform:
                f"({self._engine}; ids {', '.join(map(str, ids))})"
 
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
+        """Every platform's rollback takes (entry, params, snapshot); closing sessions changed nothing to restore, so
+        this one reads neither params nor snapshot here."""
         if entry not in _ENTRIES:
             raise DatabasePlatformError(f"{entry} is not something the database platform does")
         return "nothing to roll back: a closed session's transaction rolled back, and the application reconnects"
