@@ -1,5 +1,5 @@
 """B19 (audit retention) needed room in the runtime boundary, which sits near IAM's 6,144-character limit. The room
-came from shorter, exact-equivalent wildcards for IAM role actions: the boundary grants and denies exactly what it
+came from shorter, exact-equivalent wildcards for IAM role actions and Lambda URL configs: the boundary grants and denies exactly what it
 did before. These tests expand each statement's IAM patterns, the old ones and today's, over every IAM action and
 compare the sets."""
 
@@ -97,3 +97,16 @@ def test_the_ceiling_allows_exactly_the_role_actions_it_did():
 def test_the_deploy_role_still_cannot_edit_itself():
     assert _reach(_iam_patterns("DenySelfEdit")) == _reach(BEFORE["DenySelfEdit"])
     assert _statement("DenySelfEdit")["Resource"] == "arn:aws:iam::*:role/warden-${env}-deploy"
+
+
+# Every Lambda action whose name ends in "FunctionUrlConfig" (AWS Service Reference and botocore 1.43.109, read
+# 2026-10-21); the pattern ends so, so no other Lambda action can match it.
+URL_CONFIG_ACTIONS = frozenset(["CreateFunctionUrlConfig", "DeleteFunctionUrlConfig", "GetFunctionUrlConfig",
+                                "UpdateFunctionUrlConfig"])
+
+
+def test_a_public_function_url_is_still_refused_exactly_as_before():
+    patterns = [a.split(":", 1)[1].lower() for a in _statement("DenyFnUrls")["Action"]]
+    reached = {a for a in URL_CONFIG_ACTIONS if any(fnmatch.fnmatchcase(a.lower(), p) for p in patterns)}
+    assert reached == {"CreateFunctionUrlConfig", "UpdateFunctionUrlConfig"}
+    assert _statement("DenyFnUrls")["Condition"] == {"StringEquals": {"lambda:FunctionUrlAuthType": "NONE"}}

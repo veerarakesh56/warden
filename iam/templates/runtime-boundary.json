@@ -162,6 +162,7 @@
       "Action": [
         "iam:DeleteRolePermissionsBoundary",
         "rds:DeleteDB*Snapshot",
+        "backup:DeleteRecoveryPoint",
         "ec2:RunScheduledInstances",
         "ec2:RequestSpot*",
         "ec2:Purchase*",
@@ -345,8 +346,7 @@
       "Sid": "DenyFnUrls",
       "Effect": "Deny",
       "Action": [
-        "lambda:CreateFunctionUrlConfig",
-        "lambda:UpdateFunctionUrlConfig"
+        "lambda:*ateFunctionUrlConfig"
       ],
       "Resource": "*",
       "Condition": {

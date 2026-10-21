@@ -225,6 +225,14 @@ def test_the_deploy_role_manages_only_the_audit_vault_and_plan_from_its_own_poli
     used |= {"DescribeBackupVault", "CopyIntoBackupVault", "TagResource"}  # the backup role's (backup.tf)
     assert used <= BACKUP_ACTIONS
     assert allowed == used
+    # DeleteBackupVault is used: terraform destroys the vault (teardown, or the Free plan's count 0) - AWS refuses it
+    # while the vault holds a copy. The direct guard of the 180 days stays an explicit deny, so a later, wider ceiling
+    # cannot quietly let a copy be deleted (there is no Vault Lock).
+    assert "backup:DeleteBackupVault" in by_sid["TheAuditVaultPlanAndSelection"]["Action"]
+    always = next(st for st in boundary["Statement"] if st.get("Sid") == "DenyAlways")
+    assert "backup:DeleteRecoveryPoint" in always["Action"]
+    assert not re.search(r'resource "aws_backup_vault_lock_configuration"', _code((RUNTIME / "backup.tf").read_text(
+        encoding="utf-8")))
 
 
 def r_region() -> str:
