@@ -120,7 +120,7 @@ class _Postgres:
         # lag comes from CloudWatch (AuroraReplicaLag) instead. Autocommit: the failure poisons nothing.
         try:
             lag = r(conn, "SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))")[0][0]
-        except Exception:  # noqa: BLE001 - an engine without the function has no lag to report here
+        except Exception:  # noqa: BLE001  # expected on Aurora (no such function): its lag is read from CloudWatch
             lag = None
         if lag is not None:  # NULL on a primary — omit rather than report 0 (which reads as "no lag")
             out["replica_lag_seconds"] = float(lag)
@@ -552,7 +552,7 @@ class DatabaseBackend:
     def _logs(adapter, conn) -> list[str]:
         try:
             ops = adapter.problem_ops(conn, IDLE_SECS)
-        except Exception as exc:  # noqa: BLE001 - partial: metrics may still be usable
+        except Exception as exc:  # noqa: BLE001  # each engine's driver has its own errors; a PARTIAL line
             return [f"{PARTIAL_PREFIX}problem_ops: {failure(exc)}"]
         # An adapter may report a PARTIAL of its own (e.g. connections whose age cannot be judged
         # because of clock skew). Those must reach `gather()` with the prefix INTACT — prefixing them

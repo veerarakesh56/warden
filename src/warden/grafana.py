@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import urllib.error
@@ -29,6 +30,8 @@ from typing import Any
 
 from . import web
 from .models import Alert
+
+_LOG = logging.getLogger("warden.evidence")
 
 TIMEOUT_S = 8.0
 LOG_LOOKBACK = timedelta(minutes=15)
@@ -237,7 +240,7 @@ class WithSources:
             for read in (reader.logs, reader.traces):
                 try:
                     lines += read(alert)
-                except Exception as exc:  # noqa: BLE001 - a second source never takes another down
+                except Exception as exc:  # noqa: BLE001  # a second source never takes another down; a PARTIAL line
                     lines.append(f"{PARTIAL}{reader.source}: {type(exc).__name__} - not read")
         return lines
 
@@ -246,8 +249,8 @@ class WithSources:
         for reader in self.readers:
             try:
                 out.update({k: v for k, v in reader.metrics(alert).items() if k not in out})
-            except Exception:  # noqa: BLE001, S112 - the other sources' metrics stand
-                continue
+            except Exception as exc:  # noqa: BLE001  # a second source never takes another down
+                _LOG.warning("%s metrics not read (%s): the other sources' stand", reader.source, type(exc).__name__)
         return out
 
     def deploys(self, alert: Alert) -> list[dict]:

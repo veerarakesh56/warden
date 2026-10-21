@@ -452,7 +452,7 @@ class AwsBackend:
                 EndTime=started + METRIC_WINDOW,
                 ScanBy="TimestampDescending",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  # supporting evidence: the failure is said below (A-B-M18)
             # Utilisation is supporting evidence; the exact task counts above are the load-bearing
             # part. Losing it must not lose them, and an omitted key reads as absent, not as zero -
             # but the failure is said (audit A-B-M18), so absent is not mistaken for "not elevated".

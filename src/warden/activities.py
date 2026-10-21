@@ -674,7 +674,9 @@ class RemediationActivities:
         try:
             steps = [e["body"] for e in self.audit.entries(incident, kinds=("incident.own_fixes",))]
             diag = [e["body"] for e in self.audit.entries(incident, kinds=("incident.diagnose",))]
-        except Exception:  # noqa: BLE001 - the request goes out without it
+        except Exception as exc:  # noqa: BLE001  # optional context: the request goes out without it
+            _LOG.warning("earlier fixes not read for %s (%s): the request goes without them", incident,
+                         type(exc).__name__)
             return ""
         if not steps:
             return ""
@@ -1014,7 +1016,9 @@ class RemediationActivities:
         if healthy and alarm and read:
             try:
                 state = read(alarm, **_env(read, plan.environment))
-            except Exception:  # noqa: BLE001 - unknown keeps the fix's own verdict
+            except Exception as exc:  # noqa: BLE001  # optional check: unknown keeps the fix's own verdict
+                _LOG.warning("alarm state not read for %s (%s): the fix's own check stands", plan.incident_id,
+                             type(exc).__name__)
                 state = None
             if state == "ALARM":
                 healthy = False
@@ -1124,7 +1128,7 @@ class RemediationActivities:
             takes = inspect.signature(self.platform.rollback).parameters
             extra = {k: v for k, v in (("who", self._who(plan, run)), ("environment", plan.environment)) if k in takes}
             detail = self.platform.rollback(plan.entry, plan.params, plan.snapshot, **extra)
-        except Exception as exc:  # noqa: BLE001 - every failure is the same fact: WARDEN's change may still be there
+        except Exception as exc:  # noqa: BLE001  # any failure means the change may remain; recorded below
             if getattr(exc, "nothing_changed", False) and getattr(exc, "own_check", False):
                 # WARDEN's own check refused the undo before any write: the target is no longer as the fix left it
                 # (someone changed it since - or put it back). Nothing is half-made and nothing is unknown, so this is
@@ -1466,7 +1470,7 @@ class IncidentActivities:
 
         try:
             llm, refused = (self.llm_factory or LLMClient)(), ""
-        except Exception as exc:  # noqa: BLE001 - any model that cannot be built is the rules-only diagnosis
+        except Exception as exc:  # noqa: BLE001  # any unbuildable model: rules-only diagnosis; noted below
             # Live, 2026-10-15: the runtime named a model that was no longer qualified (register M20 refused it, as it
             # must) - and the incident failed here, before any path that tells a person, so it reached nobody. Now it
             # is the degraded, rules-only diagnosis with the reason said (register M19); no model is asked.
@@ -1615,7 +1619,9 @@ class IncidentActivities:
         read = getattr(self.backend, "alarm_firing", None)
         try:
             firing = read(alert) if read else None
-        except Exception:  # noqa: BLE001 - a failed read leaves the record to say
+        except Exception as exc:  # noqa: BLE001  # optional read: the record says instead
+            _LOG.warning("alarm not read after the hold of %s (%s): the record says", alert.alert_id,
+                         type(exc).__name__)
             firing = None
         if firing is None:
             seen = self.audit.entries(f"intake-{alert.alert_id.rsplit('-', 1)[0]}", kinds=("intake.event",))
@@ -1815,7 +1821,8 @@ class IncidentActivities:
         fix, once (owner, 2026-10-15: investigate and link; security review M1: never for an alarm merely starting)."""
         try:
             steps = [e["body"] for e in self.audit.entries(alert_id, kinds=("incident.own_fixes",))]
-        except Exception:  # noqa: BLE001 - nothing to link
+        except Exception as exc:  # noqa: BLE001  # best effort: an unread record links nothing
+            _LOG.warning("earlier fixes not read for %s (%s): nothing linked", alert_id, type(exc).__name__)
             return
         cited = {c.id for c in diagnosed.root_cause.citations}
         for fix in (steps[-1].get("fixes") or []) if steps else []:
@@ -2012,7 +2019,9 @@ class DiscussActivities:
 
         try:
             seen = history.similar_text(history.similar(self.audit, incident))
-        except Exception:  # noqa: BLE001 - the answer goes ahead on this incident's own record
+        except Exception as exc:  # noqa: BLE001  # optional context: the answer goes on this incident's record
+            _LOG.warning("similar incidents not read for %s (%s): answered without them", incident,
+                         type(exc).__name__)
             seen = ""
         return {"evidence": prompt, "diagnosis": ("\n".join(said)[-3000:] + ("\n\n" + seen[:3000] if seen else ""))}
 

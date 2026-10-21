@@ -234,7 +234,7 @@ async def listen(client: Any, *, task_queue: str) -> None:  # pragma: no cover -
             return  # Slack sent it again: answered once
         try:
             await sock.web_client.chat_postMessage(channel=turn.channel, thread_ts=turn.thread_ts, text=HEARD)
-        except Exception as exc:  # noqa: BLE001 - the answer still comes; only the "looking into it" did not
+        except Exception as exc:  # noqa: BLE001  # best effort: the answer still comes; logged below
             log.warning("discuss: could not say it heard %s (%s)", turn.ts, type(exc).__name__)
 
     socket.socket_mode_request_listeners.append(on_request)

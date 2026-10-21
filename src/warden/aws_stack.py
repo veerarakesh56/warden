@@ -997,7 +997,7 @@ class StackBackend:
             out = _Out()
             try:
                 fn(out)
-            except Exception as exc:  # noqa: BLE001 - one reader failing is data (note 1)
+            except Exception as exc:  # noqa: BLE001  # note 1: one reader failing is data; kept as a PARTIAL line
                 out.lines.append(_partial(name, exc))
             return out
 
@@ -1012,7 +1012,7 @@ class StackBackend:
             total.deploys += r.deploys
         try:
             self._simulate_denials(total, alert)
-        except Exception as exc:  # noqa: BLE001 - the evidence read stands without it
+        except Exception as exc:  # noqa: BLE001  # optional read: a PARTIAL line; the evidence stands without it
             total.lines.append(_partial("iam-simulate", exc))
         return total
 
@@ -1167,7 +1167,7 @@ class StackBackend:
             got = self._cw.describe_alarm_history(AlarmName=name, StartDate=started - ALARM_HISTORY,
                                                   EndDate=started + timedelta(minutes=5), MaxRecords=100,
                                                   ScanBy="TimestampDescending")
-        except Exception as exc:  # noqa: BLE001 - the alarm and its metric stand without it
+        except Exception as exc:  # noqa: BLE001  # optional read: a PARTIAL line; the alarm and metric stand
             out.lines.append(_partial("alarm history", exc))
             return
         items = got.get("AlarmHistoryItems") or []
@@ -1204,7 +1204,7 @@ class StackBackend:
                         f"deployment={d.get('DeploymentNumber')} state={_safe(d.get('State'))} "
                         f"version={_safe(d.get('VersionLabel') or d.get('ConfigurationVersion'))} completed="
                         f"{done.strftime('%Y-%m-%dT%H:%M:%SZ') if hasattr(done, 'strftime') else 'not yet'}")
-        except Exception as exc:  # noqa: BLE001 - the alarm's own evidence stands without it
+        except Exception as exc:  # noqa: BLE001  # optional read: a PARTIAL line; the alarm's evidence stands
             out.lines.append(_partial("appconfig", exc))
 
     def _read_state(self, out: _Out, key: str, name: str) -> None:
@@ -1485,7 +1485,7 @@ class StackBackend:
         try:
             esms, _ = _pages(self._lambda.list_event_source_mappings, "EventSourceMappings", next_token="NextMarker",
                              EventSourceArn=arn)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  # note 1: one read failing is data; kept as a PARTIAL line
             out.lines.append(_partial(f"sqs/{q} consumers", exc))
             return
         named = set(_names(alert, "lambda"))
@@ -1515,7 +1515,7 @@ class StackBackend:
             try:
                 dlq_visible = self._queue_attrs(dlq, ["ApproximateNumberOfMessages"])["ApproximateNumberOfMessages"]
                 out.metrics[f"dlq_visible{sfx}"] = float(dlq_visible)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001  # note 1: one read failing is data; kept as a PARTIAL line
                 out.lines.append(_partial(f"sqs/{q} dlq {dlq}", exc))
         out.lines.append(f"QUEUE {q} visible={visible} in_flight={in_flight} dlq={dlq} "
                          f"dlq_visible={dlq_visible} max_receive={max_receive}")
@@ -1650,7 +1650,7 @@ class StackBackend:
             data = self._rds.download_db_log_file_portion(
                 DBInstanceIdentifier=instance, LogFileName=newest["LogFileName"], NumberOfLines=DB_LOG_LINES
             ).get("LogFileData") or ""
-        except Exception as exc:  # noqa: BLE001 - the other reads go on
+        except Exception as exc:  # noqa: BLE001  # note 1: one read failing is data; the other reads go on
             out.lines.append(_partial("aurora logs", exc))
             return
         hits = [ln for ln in data.splitlines() if _DB_LOG_ERROR.search(ln)][-DB_LOG_KEEP:]
@@ -1731,7 +1731,7 @@ class StackBackend:
         role = "reader" if prefix else "writer"
         try:
             out.metrics.update({f"{prefix}{k}": v for k, v in db.metrics(alert).items()})
-        except Exception as exc:  # noqa: BLE001 - the session lines below may still read
+        except Exception as exc:  # noqa: BLE001  # note 1: a PARTIAL line; the session lines below may still read
             out.lines.append(_partial(f"aurora-db-{role} metrics", exc))
         for line in db.logs(alert):
             if line.startswith(PARTIAL_PREFIX):
@@ -1949,7 +1949,7 @@ class StackBackend:
                                      f"issues=[{codes}]")
                     out.lines += [f"EVENT eks/{cluster} nodegroup issue: {str(i.get('message', ''))[:300]}"
                                   for i in issues[:3] if i.get("message")]
-        except Exception as exc:  # noqa: BLE001 - the cluster's other evidence stands
+        except Exception as exc:  # noqa: BLE001  # note 1: a PARTIAL line; the cluster's other evidence stands
             out.lines.append(_partial("eks nodegroups", exc))
 
     def _read_asg_activity(self, out: _Out, alert: Alert, group: str) -> None:
@@ -2033,7 +2033,7 @@ class StackBackend:
                 policy = self._queue_attrs(queue, ["Policy"]).get("Policy")
                 ok = _policy_allows_topic(policy, arn)
                 out.lines.append(f"POLICY sqs {queue} allows_sns_topic={topic}:{'yes' if ok else 'no'}")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001  # note 1: one read failing is data; kept as a PARTIAL line
                 out.lines.append(_partial(f"sns policy {queue}", exc))
         out.metrics.update(self._cw_read(out, "sns", alert, {
             "sns_notifications_failed": ("AWS/SNS", "NumberOfNotificationsFailed", {"TopicName": topic}, "Sum"),
