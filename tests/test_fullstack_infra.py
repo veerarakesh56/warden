@@ -830,11 +830,11 @@ OWN_FINAL_SNAPSHOT = "arn:aws:rds:ap-south-2:111122223333:cluster-snapshot:warde
 
 
 def _deploy_allows(action: str, resource: str) -> bool:
-    """Does the dev deploy policy grant (action, resource) through a statement with no condition?"""
+    """Does the dev deploy role (its two policies) grant (action, resource) through a statement with no condition?"""
     return any(st["Effect"] == "Allow" and "Condition" not in st
                and any(fnmatch.fnmatchcase(action.lower(), a.lower()) for a in _list(st["Action"]))
                and any(fnmatch.fnmatchcase(resource, r) for r in _list(st.get("Resource")))
-               for st in _stmts(ENV_DEPLOY))
+               for st in [*_stmts(ENV_DEPLOY), *_stmts(ENV_DEPLOY.with_name("deploy-ec2.json"))])
 
 
 @pytest.mark.parametrize("action", ["rds:DeleteDBCluster", "rds:CreateDBClusterSnapshot", "rds:AddTagsToResource"])
@@ -857,7 +857,9 @@ def test_nothing_in_the_environment_may_delete_or_share_a_final_snapshot(action)
     flat = [a for st in _stmts(ENV_BOUNDARY) if st["Effect"] == "Deny" and "Condition" not in st
             and st.get("Resource") == "*" for a in _list(st["Action"])]
     assert any(fnmatch.fnmatchcase(action.lower(), a.lower()) for a in flat), f"{action} is not flatly denied"
-    assert _deploy_allows(action, OWN_FINAL_SNAPSHOT), "the deploy policy grants it, so the deny is what stops it"
+    # Two layers (CodeRabbit, PR 88): the deploy role is not granted it either - only the snapshot actions a destroy
+    # and a restore make (deploy-ec2's OwnClusterSnapshots).
+    assert not _deploy_allows(action, OWN_FINAL_SNAPSHOT)
 
 
 @pytest.mark.parametrize("cmd", ["create", "status", "destroy"])

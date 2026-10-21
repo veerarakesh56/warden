@@ -30,6 +30,8 @@ def pr():
     mod = _load("pause_resume", ROOT / "scripts" / "pause_resume.py")
     mod.ax.use("dev")
     mod.BACKUP_WAIT = {"Delay": 0, "MaxAttempts": 3}
+    mod.SETTLE_MARGIN_S = 0
+    mod.DRAIN_WAIT = {"Delay": 0, "MaxAttempts": 10}
     return mod
 
 
@@ -167,6 +169,10 @@ class FakeWriters:
 
     def delete_function_concurrency(self, FunctionName):
         self._act("free", FunctionName)
+
+    def get_function_configuration(self, FunctionName):
+        self._act("timeout", FunctionName)
+        return {"Timeout": 0}
 
     def get_queue_url(self, QueueName):
         self._act("queue", QueueName)
@@ -344,7 +350,9 @@ def test_pause_stops_every_writer_and_drains_the_queue_before_the_first_copy(pr)
     assert {("disable_rule", "warden-dev-traffic-1m"), ("disable_rule", "warden-dev-reconcile-5m")} <= set(log[:first_copy])
     assert kinds.index("hold") < kinds.index("poll")  # traffic and checkout stop before the drain
     polls = [i for i, k in enumerate(kinds) if k == "poll"]
-    assert len(polls) == 3  # 2 waiting, 1 waiting, drained
+    assert len(polls) == 2 + pr.DRAIN_ZEROS  # 2 waiting, 1 waiting, then DRAIN_ZEROS empty readings in a row
+    # The entry functions' running invocations are waited out before the queue is judged (CodeRabbit, PR 88).
+    assert max(i for i, k in enumerate(kinds) if k == "timeout") < polls[0]
     held = {n for k, n in log[polls[-1]:first_copy] if k == "hold"}
     assert held == {f"warden-dev-{f}" for f in pr.FUNCTIONS}  # every function held after the drain, before a copy
 
@@ -524,6 +532,33 @@ def test_aurora_resume_restores_the_newest_pause_snapshot_as_an_express_cluster(
     writer = next(kw for n, kw in rds.calls if n == "create_db_instance")
     assert writer["DBInstanceIdentifier"] == "warden-dev-aurora-instance-1"
     assert writer["DBInstanceClass"] == "db.serverless"
+
+
+def test_aurora_resume_refuses_latest_when_a_destroy_came_after_the_last_pause(pr):
+    """CodeRabbit (PR 88): pause, resume, writes, then a plain destroy - its final snapshot is newer than every pause
+    copy, and `latest` would bring back older data. Refused, both named."""
+    rds = FakeRds(snapshots=[_csnap("warden-dev-aurora-pause-20261017", 17),
+                             _csnap("warden-dev-aurora-final-20261019t090000z", 19)])
+    with pytest.raises(SystemExit, match="final-20261019t090000z .* newer than the newest pause copy .*pause-20261017"):
+        pr.ax.restore(rds, "warden-dev-aurora", "latest", log=lambda *_: None)
+
+
+def test_a_pauses_own_final_snapshot_does_not_count_as_newer(pr):
+    """A pause makes its pause copy, then destroy's final snapshot minutes later: that is not a later destroy."""
+    pause = _csnap("warden-dev-aurora-pause-20261020t090000z", 20) | {"SnapshotCreateTime": _t(20, 9)}
+    final = _csnap("warden-dev-aurora-final-20261020t091500z", 20) | {
+        "SnapshotCreateTime": _t(20, 9) + datetime.timedelta(minutes=15)}
+    rds = FakeRds(snapshots=[pause, final])
+    assert pr.ax.restore(rds, "warden-dev-aurora", "latest", log=lambda *_: None) == pause["DBClusterSnapshotIdentifier"]
+
+
+def test_the_tables_are_not_restored_from_a_pause_older_than_a_later_destroy(pr):
+    rds = FakeRds(snapshots=[_csnap("warden-dev-aurora-pause-20261017", 17),
+                             _csnap("warden-dev-aurora-final-20261019t090000z", 19)])
+    ddb = FakeDdb(backups=[_backup("warden-dev-carts-pause-20261017", 17)])
+    with pytest.raises(SystemExit, match="refusing `latest`"):
+        pr.restore_tables(ddb, log=lambda *_: None, rds=rds)
+    assert not [c for c in ddb.calls if c[0] == "restore_table_from_backup"]
 
 
 def test_aurora_resume_on_a_first_install_creates_it_empty(pr):
@@ -730,6 +765,23 @@ def test_the_runtime_deploy_policy_writes_the_pause_switch_alone():
                                                                      else s["Action"])]
     assert [(w["Sid"], w["Resource"].rsplit(":parameter", 1)[1]) for w in writes] == [
         ("ThePauseSwitch", "/warden/ops/tf/paused")]
+
+
+@pytest.mark.parametrize("env", ["dev", "prod"])
+@pytest.mark.parametrize("kind", ["pause-20261017", "pause-20261020t062500z", "final-20261020t062500z"])
+def test_the_snapshot_grants_stay_narrow(env, kind):
+    """CodeRabbit (PR 88): the deploy role may make, tag, restore from and delete a cluster with a final snapshot of its
+    OWN environment's clusters - nothing else on a snapshot (no copy, share, delete), and nothing on another's."""
+    ev = _evaluator()
+    region = ev.r.names(env).region
+    other = "prod" if env == "dev" else "dev"
+    ctx = {"aws:RequestedRegion": region, "aws:RequestTag/Environment": env}
+    own = f"arn:aws:rds:{region}:{ev.ACCOUNT}:cluster-snapshot:warden-{env}-aurora-{kind}"
+    for action in ("rds:CreateDBClusterSnapshot", "rds:RestoreDBClusterFromSnapshot", "rds:AddTagsToResource"):
+        assert ev.refusal(env, action, [own], ctx) is None, action
+        assert ev.refusal(env, action, [own.replace(f"warden-{env}-", f"warden-{other}-")], ctx), action
+    for action in ("rds:DeleteDBClusterSnapshot", "rds:ModifyDBClusterSnapshotAttribute", "rds:CopyDBClusterSnapshot"):
+        assert ev.refusal(env, action, [own], ctx), action
 
 
 @pytest.mark.parametrize("env", ["dev", "prod", "ops"])

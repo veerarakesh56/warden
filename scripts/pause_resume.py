@@ -63,6 +63,9 @@ ENTRY_FUNCTIONS = ("checkout", "traffic")
 DRAINED_QUEUES = ("orders",)
 FUNCTIONS = ("checkout", "notifier", "ops", "order-processor", "reconciler", "traffic")
 DRAIN_WAIT = {"Delay": 15, "MaxAttempts": 60}  # 15 minutes: order-processor's batches, retried at most 3 times
+# SQS's counters are approximate: "drained" is this many zero readings in a row, a Delay apart (CodeRabbit, PR 88).
+DRAIN_ZEROS = 3
+SETTLE_MARGIN_S = 5  # past the longest entry function's timeout: an invocation that began before the hold has ended
 _IN_QUEUE = ("ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed")
 # USD per GB-month in the environments' region (environments.yaml aws_region), from the AWS Price List API, read
 # 2026-10-17 (RDS offer of 2026-10-06, DynamoDB offer of 2026-09-11). An estimate: Billing is the ground truth.
@@ -139,13 +142,16 @@ def _drain(sqs, queue: str, log) -> None:
     except sqs.exceptions.QueueDoesNotExist:
         log(f"{queue}: does not exist")
         return
+    zeros = 0
     for _ in range(DRAIN_WAIT["MaxAttempts"]):
         attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=list(_IN_QUEUE))["Attributes"]
         left = sum(int(attrs.get(k, 0)) for k in _IN_QUEUE)
-        if left == 0:
-            log(f"{queue}: drained")
+        zeros = zeros + 1 if left == 0 else 0
+        if zeros >= DRAIN_ZEROS:
+            log(f"{queue}: drained ({DRAIN_ZEROS} empty readings in a row)")
             return
-        log(f"{queue}: {left} message(s) still to be written")
+        if left:
+            log(f"{queue}: {left} message(s) still to be written")
         time.sleep(DRAIN_WAIT["Delay"])
     raise SystemExit(f"{queue} did not drain in 15 minutes: nothing is copied or deleted (run `wake` to undo the stop)")
 
@@ -160,10 +166,25 @@ def _rules(events, enable: bool, log) -> None:
     log(f"schedules {', '.join(SCHEDULES)}: {'enabled' if enable else 'disabled'}")
 
 
+def _settle(lam, names, log) -> None:
+    """A hold stops NEW invocations only: wait out the longest timeout of `names`, so one that began just before it -
+    traffic queueing an order, checkout writing a cart - has ended before the drain is judged (CodeRabbit, PR 88)."""
+    longest = 0
+    for fn in names:
+        try:
+            longest = max(longest, int(lam.get_function_configuration(FunctionName=ax.PREFIX + fn).get("Timeout", 0)))
+        except lam.exceptions.ResourceNotFoundException:
+            continue
+    if longest:
+        log(f"waiting {longest + SETTLE_MARGIN_S} s for running {', '.join(names)} invocations to end")
+        time.sleep(longest + SETTLE_MARGIN_S)
+
+
 def quiesce(clients: dict, log=print) -> None:
     """⛔ Fullstack pause, before any copy: nothing writes the data kept from here on (module docstring)."""
     _rules(clients["events"], False, log)
     _hold(clients["lambda"], ENTRY_FUNCTIONS, log, 0)
+    _settle(clients["lambda"], ENTRY_FUNCTIONS, log)
     for queue in DRAINED_QUEUES:
         _drain(clients["sqs"], ax.PREFIX + queue, log)
     _hold(clients["lambda"], FUNCTIONS, log, 0)
@@ -314,7 +335,7 @@ def start_db(rds, log=print) -> None:
     log(f"{ident}: available")
 
 
-def restore_tables(ddb, log=print) -> tuple[dict[str, str], list[str]]:
+def restore_tables(ddb, log=print, rds=None) -> tuple[dict[str, str], list[str]]:
     """Fullstack resume, before `terraform apply`: each table that does not exist is restored from its newest pause
     backup; every table that exists is returned as `<terraform address> <name>` for the pipeline to import
     into Terraform's state if it is not there yet. No backup: Terraform creates the table empty (a first install)."""
@@ -322,7 +343,11 @@ def restore_tables(ddb, log=print) -> tuple[dict[str, str], list[str]]:
     for suffix, address in TABLES.items():
         table = ax.PREFIX + suffix
         if _table(ddb, table) is None:
-            backups = _backups(ddb) if backups is None else backups
+            if backups is None:
+                # A destroy after the last pause holds newer data than any pause copy: refused, never restored stale.
+                if rds is not None:
+                    ax.refuse_a_stale_pause(ax.cluster_snapshots(rds), ax.CLUSTER)
+                backups = _backups(ddb)
             newest = ax.newest_pause(backups, table, "name", "time", "status")
             if newest is None:
                 log(f"{table}: no pause backup - Terraform creates it empty (a first install)")
@@ -411,7 +436,7 @@ def main(argv: list[str] | None = None, *, clients=None) -> int:
     elif args.cmd == "restore-tables":
         # stdout carries only the tables to import (the pipeline reads it); what happened goes to stderr. No path is
         # taken from the command line, so nothing is written anywhere but where the caller redirects it.
-        _, lines = restore_tables(clients["dynamodb"], log=lambda s: print(s, file=sys.stderr))
+        _, lines = restore_tables(clients["dynamodb"], log=lambda s: print(s, file=sys.stderr), rds=clients["rds"])
         print("\n".join(lines))
     elif args.cmd == "wake":
         wake(clients)
