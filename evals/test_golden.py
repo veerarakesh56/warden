@@ -210,6 +210,13 @@ def _paid_stand_in(monkeypatch, out_tokens: int):
     monkeypatch.setattr(golden, "LLMClient", client)
 
 
+def _run_until_stopped(spend, runs: int) -> None:
+    """Runs one no-fault case again and again on the budget's clients; BudgetStop ends it."""
+    case = golden.no_fault_cases()[0]
+    for _ in range(runs):
+        golden.run_case(case, spend.client())
+
+
 def test_the_budget_is_a_hard_ceiling_even_when_every_answer_is_as_long_as_it_can_be(monkeypatch, capsys):
     from warden.providers import MAX_OUTPUT_TOKENS
 
@@ -220,8 +227,7 @@ def test_the_budget_is_a_hard_ceiling_even_when_every_answer_is_as_long_as_it_ca
     assert "stopped" in capsys.readouterr().err
     spend = golden.Spend(budget, 10.0, 0.01)
     with pytest.raises(golden.BudgetStop):
-        for _ in range(1000):
-            golden.run_case(golden.no_fault_cases()[0], spend.client())
+        _run_until_stopped(spend, 1000)
     assert 0 < spend.spent() <= budget
 
 
@@ -246,6 +252,5 @@ def test_a_run_that_retries_cannot_spend_past_the_budget(monkeypatch):
     budget = 1.0
     spend = golden.Spend(budget, 10.0, 0.01)
     with pytest.raises(golden.BudgetStop):
-        for _ in range(100):
-            golden.run_case(golden.no_fault_cases()[0], spend.client())
+        _run_until_stopped(spend, 100)
     assert 0 < spend.spent() <= budget
