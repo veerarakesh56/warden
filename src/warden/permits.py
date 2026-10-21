@@ -15,7 +15,14 @@ Honest limits:
   does not read resource policies (a KMS key policy, a queue policy) - a call those deny still fails at apply.
 - A condition key WARDEN cannot supply leaves a call "unconfirmed": recorded and kept beside the plan, not a refusal.
   The keys supplied: the session's SourceIdentity (`inc-<id>`), the target's own environment tag (P18 already made it
-  the plan's environment), and every key in the session's own condition.
+  the plan's environment), every key in the session's own condition, and the IAM kill switch's tag
+  (`aws:PrincipalTag/warden-kill-switch` = `off`, B18). The simulator does not read the role's own tags, and the
+  switch's deny (iam/templates/kill-switch.json, `StringNotEqualsIfExists`) matches when the key is absent - so without
+  it every call would read as denied or undecidable. The question asked is therefore "allowed while the switch is
+  off": whether the switch is on is WARDEN's and the person's to see (scripts/iam_kill_switch.py status), not B12's.
+- The check has a budget (BUDGET_S, run by `within`): a simulator or a read that hangs past it leaves the plan
+  unconfirmed, so it never holds up resolve_plan (60 s). A read still running then sends nothing: the trace writes
+  nothing, and the simulator only reads.
 - A plan whose write code refuses while being traced is unconfirmed too: its apply refuses on its own.
 - Only the AWS platform is checked: the Kubernetes and database platforms say "not checked".
 """
@@ -23,6 +30,7 @@ Honest limits:
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -30,6 +38,10 @@ from . import identity
 from .observability import _safe_error
 
 ALLOWED = "allowed"
+# The IAM kill switch's tag (B18: iam/templates/kill-switch.json, scripts/iam_kill_switch.py TAG), asked as "off".
+KILL_SWITCH_TAG = "warden-kill-switch"
+# Seconds the whole check may take inside resolve_plan, whose start-to-close is 60 s (workflows.QUICK).
+BUDGET_S = 20.0
 DENIED = "ACTOR-PERMISSION"
 _PUT_CONCURRENCY = "lambda:PutFunctionConcurrency"
 # The undo is another action: forward action -> the undo's actions, per entry (platforms/aws.py, `back=True`).
@@ -155,7 +167,8 @@ def actor_role_arn(environment: str) -> str:
 
 def _context(incident: str, environment: str, env_tag: str, condition: dict[str, Any]) -> list[dict[str, Any]]:
     keys: dict[str, str] = {"aws:SourceIdentity": identity.correlation(incident),
-                            f"aws:ResourceTag/{env_tag}": environment}
+                            f"aws:ResourceTag/{env_tag}": environment,
+                            f"aws:PrincipalTag/{KILL_SWITCH_TAG}": "off"}
     for values in condition.values():
         for key, value in (values or {}).items():
             keys[str(key)] = str(value)
@@ -210,7 +223,7 @@ def _unanswered(session: dict[str, Any], results: list[dict[str, Any]]) -> list[
     return out
 
 
-def _aws_errors() -> tuple[type[Exception], ...]:
+def aws_errors() -> tuple[type[Exception], ...]:
     """What a call to AWS raises when it fails: botocore's own errors, a refused session, a lost connection."""
     errors: list[type[Exception]] = [RuntimeError, OSError]
     try:
@@ -233,7 +246,7 @@ def check(entry: str, *, run: Callable[[Callable[..., Any]], Any], iam: Callable
         return record
     try:
         applies = trace(run)
-    except RuntimeError as exc:  # the write code refused (AwsPlatform._change raises only its own errors)
+    except aws_errors() as exc:  # the write code refused, or a read before its first write failed
         record["unconfirmed"].append(f"the fix's calls could not be traced: {_safe_error(exc)}")
         return record
     if not applies:
@@ -249,7 +262,7 @@ def check(entry: str, *, run: Callable[[Callable[..., Any]], Any], iam: Callable
             results = _results(client, role, s, _context(incident, environment, env_tag, s["condition"]))
             verdicts += [(step, v) for v in _verdicts(results)]
             unanswered += [f"{step}: the simulator gave no decision for {u}" for u in _unanswered(s, results)]
-    except _aws_errors() as exc:
+    except aws_errors() as exc:
         record["unconfirmed"].append(f"the policy simulator could not be read: {_safe_error(exc)}")
         return record
     record["unconfirmed"] += unanswered
@@ -266,3 +279,25 @@ def check(entry: str, *, run: Callable[[Callable[..., Any]], Any], iam: Callable
                                     f"which the fix's {step} needs; a person grants it before this plan is made")
     record["checked"] = not unanswered  # every action and resource asked about has its decision
     return record
+
+
+def within(run: Callable[[], Any], seconds: float | None = None) -> Any:
+    """`run()`, or TimeoutError when it has not finished in `seconds` (BUDGET_S by default). The check runs on a
+    thread of its own that is left to finish on its own: it only reads, so nothing is half-made by leaving it."""
+    seconds = BUDGET_S if seconds is None else seconds
+    box: dict[str, Any] = {}
+
+    def go() -> None:
+        try:
+            box["value"] = run()
+        except Exception as exc:  # noqa: BLE001  # handed to the caller, which raises it
+            box["error"] = exc
+
+    worker = threading.Thread(target=go, name="warden-permits", daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise TimeoutError(f"the permission check did not finish within {seconds:g} s")
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")

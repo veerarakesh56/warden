@@ -498,13 +498,16 @@ class RemediationActivities:
     def _permissions(self, req: FixRequest, snapshot: dict[str, Any], workflow_id: str) -> list[str]:
         """B12: the actor role's own permissions for this plan's calls, read before anyone is asked to approve it
         (permits.py). On the record always; only a call the role's policies deny refuses the plan - one the check
-        cannot decide, or a check that fails, is said in the row and changes nothing. A platform without the check
-        (Kubernetes, a database) writes no row."""
+        cannot decide, or a check that fails or runs past its budget, is said in the row and changes nothing. A
+        platform without the check (Kubernetes, a database) writes no row."""
+        from . import permits
+
         check = getattr(self.platform, "permitted", None)
         try:
-            got = check(req.entry, req.params, snapshot, incident=req.incident_id,
-                        environment=req.environment) if check else None
-        except (RuntimeError, OSError, LookupError, ValueError) as exc:  # the check failed: the plan goes on
+            # Within its own budget (permits.BUDGET_S): a hung read leaves the plan unconfirmed, never late.
+            got = permits.within(lambda: check(req.entry, req.params, snapshot, incident=req.incident_id,
+                                               environment=req.environment)) if check else None
+        except (*permits.aws_errors(), LookupError, ValueError) as exc:  # the check failed: the plan goes on
             got = {"checked": False, "denied": [], "unconfirmed": [f"the check failed: {_safe_error(exc)}"]}
         if got is None:  # a platform with no such check (Kubernetes, a database, a test's): nothing to record
             return []

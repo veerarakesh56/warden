@@ -5,6 +5,9 @@ entry's own write code, which sends nothing while traced."""
 from __future__ import annotations
 
 import json
+import pathlib
+import threading
+import time
 
 import pytest
 
@@ -70,7 +73,8 @@ def test_the_apply_and_its_undo_are_checked_and_nothing_is_sent(aws):
     assert asked["PolicySourceArn"] == ROLE
     assert asked["ResourceArns"] == [f.rule["Arn"]]
     context = {c["ContextKeyName"]: c["ContextKeyValues"] for c in asked["ContextEntries"]}
-    assert context == {"aws:SourceIdentity": ["inc-7"], "aws:ResourceTag/Environment": ["dev"]}
+    assert context == {"aws:SourceIdentity": ["inc-7"], "aws:ResourceTag/Environment": ["dev"],
+                       "aws:PrincipalTag/warden-kill-switch": ["off"]}
 
 
 def test_an_undo_the_role_does_not_allow_refuses_the_plan(aws):
@@ -326,3 +330,109 @@ def test_a_refused_plans_parameters_are_kept_redacted():
     [row] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.plan",))
     assert row["body"]["problems"]
     assert secret not in json.dumps(row["body"])
+
+
+KILL_SWITCH = pathlib.Path(__file__).resolve().parents[1] / "iam" / "templates" / "kill-switch.json"
+
+
+class PolicySimulator(Iam):
+    """The simulator over the IAM kill switch's own policy, as the repository writes it, beside an allow for `allow`:
+    a Deny statement whose StringNotEqualsIfExists conditions all match - a key absent from the context, or present
+    with another value - denies, as IAM evaluates it."""
+
+    def __init__(self, allow):
+        super().__init__(allow=allow)
+        self.statements = json.loads(KILL_SWITCH.read_text(encoding="utf-8"))["Statement"]
+
+    def _denied(self, action, context):
+        for st in self.statements:
+            actions = st["Action"] if isinstance(st["Action"], list) else [st["Action"]]
+            if st["Effect"] != "Deny" or not ("*" in actions or action in actions):
+                continue
+            conditions = (st.get("Condition") or {}).get("StringNotEqualsIfExists") or {}
+            if all(context.get(k) != v for k, v in conditions.items()):
+                return True
+        return False
+
+    def simulate_principal_policy(self, **kw):
+        self.asked.append(kw)
+        context = {c["ContextKeyName"]: c["ContextKeyValues"][0] for c in kw["ContextEntries"]}
+        results = []
+        for a in kw["ActionNames"]:
+            decision = ("explicitDeny" if self._denied(a, context) else
+                        "allowed" if a in self.allow else "implicitDeny")
+            results.append({"EvalActionName": a, "EvalDecision": decision, "ResourceSpecificResults": [
+                {"EvalResourceName": r, "EvalResourceDecision": decision} for r in kw["ResourceArns"]]})
+        return {"EvaluationResults": results, "IsTruncated": False}
+
+
+def test_the_iam_kill_switch_as_written_is_asked_as_off_and_refuses_nothing(aws):
+    """B18's deny (iam/templates/kill-switch.json) matches when its tag is absent; the simulator reads no role tag, so
+    the check asks "allowed while the switch is off" - else every plan would read as denied."""
+    f, p = aws
+    got = _rule(f, p, PolicySimulator(allow={"events:EnableRule", "events:DisableRule"}))
+    assert got["denied"] == []
+    assert got["checked"] is True
+
+
+def test_a_failed_read_while_tracing_is_unconfirmed_not_a_failure(aws):
+    from botocore.exceptions import ClientError
+
+    f, p = aws
+    f.iam = Iam(allow={"events:EnableRule", "events:DisableRule"})
+    params = {"rule": f.rule["Name"]}
+    snap = p.live("events_enable_rule", params)["state"]
+
+    def throttled(service):
+        if service == "iam":
+            return f.iam
+        raise ClientError({"Error": {"Code": "ThrottlingException", "Message": "slow down"}}, "DescribeRule")
+
+    p._read = throttled
+    got = p.permitted("events_enable_rule", params, snap, incident="7", environment="dev")
+    assert got["denied"] == []
+    assert got["checked"] is False
+    assert got["unconfirmed"][0].startswith("the fix's calls could not be traced")
+
+
+def test_a_raw_botocore_error_while_tracing_is_unconfirmed_not_raised():
+    """A read the write code makes before its first write may raise botocore's own error, not the platform's."""
+    from botocore.exceptions import ClientError
+
+    def run(_actor):
+        raise ClientError({"Error": {"Code": "ThrottlingException", "Message": "slow down"}}, "DescribeRule")
+
+    got = permits.check("events_enable_rule", run=run, iam=lambda: Iam(), incident="7", environment="dev", role=ROLE)
+    assert got["checked"] is False
+    assert got["unconfirmed"][0].startswith("the fix's calls could not be traced")
+
+
+def test_a_botocore_error_from_the_check_never_fails_resolve_plan():
+    from botocore.exceptions import ClientError
+
+    acts, platform, _ = _acts()
+
+    def throttled(*a, **k):
+        raise ClientError({"Error": {"Code": "ThrottlingException", "Message": "slow down"}}, "GetRule")
+
+    platform.permitted = throttled
+    assert acts.resolve_plan(FixRequest(**REQ), "rem-1").problems == []
+    [row] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.permissions",))
+    assert row["body"]["checked"] is False
+
+
+def test_a_check_past_its_budget_leaves_the_plan_unconfirmed_and_on_time(monkeypatch):
+    acts, platform, _ = _acts()
+    release = threading.Event()
+    platform.permitted = lambda *a, **k: release.wait(5) and {"checked": True, "denied": ["ACTOR-PERMISSION: x"],
+                                                               "unconfirmed": []}
+    monkeypatch.setattr(permits, "BUDGET_S", 0.2)
+    started = time.monotonic()
+    try:
+        plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
+    finally:
+        release.set()
+    assert time.monotonic() - started < 3
+    assert plan.problems == []
+    [row] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.permissions",))
+    assert "did not finish within 0.2 s" in row["body"]["unconfirmed"][0]
