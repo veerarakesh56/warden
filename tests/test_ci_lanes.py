@@ -158,9 +158,10 @@ def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_tri
         ".github/workflows": (flows / "scan-workflows.yml").read_text(encoding="utf-8"),
     }
     # Named in a string only, not read: the register's reason for a module-level skip, this test's own table (it
-    # runs in the workflow scan), and the code gate's and code fix's sample paths (they read no file under them).
+    # runs in the workflow scan), the code gate's and code fix's sample paths, and the prefix CI · autofix's test
+    # matches workflow triggers against (they read no file under them).
     exempt = {"test_register.py", "test_ci_lanes.py", "test_code_gate.py", "test_code_fix.py",
-              "test_autofix_check.py"}
+              "test_autofix_check.py", "test_autofix_workflow.py"}
     # Joined spellings read as one path: `ROOT / "k8s" / "fullstack"` named no path the table knew, and
     # the test could leave the apps check unnoticed (fifth review, 2026-10-01).
     joined = re.compile(r'''(["'])\s*/\s*(["'])''')
