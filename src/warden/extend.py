@@ -70,14 +70,24 @@ def waiting(log: Any, incident: str) -> dict[str, Any] | None:
                                 .approval_wait_hours)
     later = extended_until(log, incident, wid, str(b.get("plan_hash") or ""), made)
     return {"workflow_id": wid, "plan_hash": str(b.get("plan_hash") or ""), "tier": str(b.get("tier") or ""),
-            "environment": env, "made": made, "until": max(base, later) if later else base}
+            "environment": env, "made": made, "until": max(base, later) if later else base, "seq": last["seq"]}
+
+
+def ai_approved(log: Any, policy: Any, incident: str, plan: dict[str, Any]) -> bool:
+    """Eldane, the AI critic, approved this plan (#42): it no longer waits for a person, and its wait is not extended -
+    a person's "no" still stops it until it is applied (lane C, U3-8)."""
+    is_ai = getattr(policy, "is_ai", None)
+    return bool(is_ai) and any(
+        e["seq"] > plan["seq"] and e["body"].get("workflow_id") == plan["workflow_id"]
+        and e["body"].get("plan_hash") == plan["plan_hash"] and is_ai(str(e["body"].get("approver")))
+        for e in log.entries(incident, kinds=("approval.accepted",)))
 
 
 def approver_of(policy: Any, user: str, tier: str, environment: str) -> str:
     """The approver this Slack member is on the list as, when their entry may approve a plan of this tier in this
     environment; "" otherwise."""
     for name, a in sorted(getattr(policy, "approvers", {}).items()):
-        if (user and a.slack == user and tier in a.tiers
+        if (user and a.slack == user and tier in a.tiers and not getattr(a, "ai", False)
                 and (not a.environments or environment in a.environments)):
             return name
     return ""
@@ -90,6 +100,8 @@ def request(log: Any, policy: Any, *, incident: str, user: str, hours: int, now:
     plan = waiting(log, incident)
     if plan is None or plan["until"] <= now:
         return {"why": "no plan waiting"}
+    if ai_approved(log, policy, incident, plan):
+        return {"why": "approved by Eldane", "workflow_id": plan["workflow_id"]}
     if not 1 <= hours <= EXTEND_MAX_HOURS:
         return {"why": "hours out of range"}
     if not any(getattr(a, "slack", "") == user for a in getattr(policy, "approvers", {}).values()):
