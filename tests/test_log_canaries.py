@@ -148,8 +148,9 @@ def test_with_no_root_handler_a_lambdas_error_is_still_gated(monkeypatch, capsys
     def handler(event, context=None):
         raise ValueError(f"cannot parse {event['detail']}")
 
+    gated, event = lambdas._gated(handler), {"detail": "alarm from " + EMAIL}
     with pytest.raises(lambdas.HandlerFailed):
-        lambdas._gated(handler)({"detail": "alarm from " + EMAIL})
+        gated(event)
     err = capsys.readouterr().err
     assert EMAIL not in err
     assert "handler failed" in err
