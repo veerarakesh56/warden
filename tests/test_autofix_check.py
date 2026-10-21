@@ -353,6 +353,8 @@ def test_the_merge_is_wired_in_the_act_zone_and_asked_once_each_time():
     # No act-zone worker: each ask gives up after two minutes, so the day's tries still end and a person is told.
     assert workflows.MERGE_ASK["schedule_to_start_timeout"].total_seconds() == 120
     assert workflows.MERGE_TRIES * workflows.MERGE_EVERY.total_seconds() <= 24 * 3600
+    assert workflows.MERGE_FOR.total_seconds() == 24 * 3600
+    assert "deadline = workflow.now() + MERGE_FOR" in src
     assert "await IncidentWorkflow._code_fix_merge(first, pack, opened)" in inspect.getsource(
         workflows.IncidentWorkflow._code_fix_revert)
     incident = inspect.getsource(workflows.IncidentWorkflow._code_fix_merge)
@@ -362,7 +364,7 @@ def test_the_merge_is_wired_in_the_act_zone_and_asked_once_each_time():
 
 # ------------------------------------------------------------------------------------- the workflow (Temporal, CI)
 
-def _merge_run(answers: list[dict]) -> tuple[dict, int]:
+def _merge_run(answers: list[dict], times: list | None = None) -> tuple[dict, int]:
     import asyncio
     import os
     from concurrent.futures import ThreadPoolExecutor
@@ -379,6 +381,8 @@ def _merge_run(answers: list[dict]) -> tuple[dict, int]:
     @activity.defn(name="code_fix_merge")
     def merge(incident: str, environment: str, number: int) -> dict:
         asked.append((incident, environment, number))
+        if times is not None:
+            times.append(activity.info().current_attempt_scheduled_time)
         return answers[min(len(asked), len(answers)) - 1]
 
     async def main() -> dict:
@@ -406,6 +410,8 @@ def test_the_merge_workflow_stops_at_a_refusal():
 def test_the_merge_workflow_gives_up_after_a_day():
     from warden import workflows
 
-    out, asked = _merge_run([{"status": "waiting", "reasons": ["Eldane has not approved"]}])
+    times: list = []
+    out, asked = _merge_run([{"status": "waiting", "reasons": ["Eldane has not approved"]}], times)
     assert out["status"] == "given_up"
     assert asked == workflows.MERGE_TRIES
+    assert times[-1] - times[0] < workflows.MERGE_FOR  # asks and waits together stay inside the day

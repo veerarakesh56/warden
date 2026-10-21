@@ -76,6 +76,7 @@ CODE_FIX = {"schedule_to_start_timeout": timedelta(minutes=2), "start_to_close_t
 MERGE_ASK = {"schedule_to_start_timeout": timedelta(minutes=2), "start_to_close_timeout": timedelta(minutes=5),
              "retry_policy": RetryPolicy(maximum_attempts=1)}
 MERGE_EVERY = timedelta(minutes=10)
+MERGE_FOR = timedelta(hours=24)  # the deadline, from the workflow's start: asks and the waits between them
 MERGE_TRIES = 144
 # prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
@@ -758,14 +759,15 @@ class ClockWorkflow:
 @workflow.defn
 class CodeFixMergeWorkflow:
     """Register B4, phase 4: one code-fix pull request, asked about every MERGE_EVERY until it is merged, can never
-    merge (refused), or MERGE_TRIES have passed - then it is a person's. Each ask is the act zone's code_fix_merge,
+    merge (refused), or MERGE_TRIES asks or MERGE_FOR (asks and waits together) have passed - then it is a person's. Each ask is the act zone's code_fix_merge,
     which merges only when every condition holds (code_fix.merge_refusals)."""
 
     @workflow.run
     async def run(self, incident_id: str, environment: str, number: int) -> dict[str, Any]:
         ask = CodeFixActivities.code_fix_merge
         out: dict[str, Any] = {}
-        for _ in range(MERGE_TRIES):
+        deadline = workflow.now() + MERGE_FOR
+        for attempt in range(MERGE_TRIES):
             try:
                 out = await workflow.execute_activity_method(ask, **_zoned(ask), args=[incident_id, environment, number],
                                                              **MERGE_ASK)  # asked once; the loop asks again
@@ -773,6 +775,8 @@ class CodeFixMergeWorkflow:
                 out = {"status": "waiting", "reasons": ["the merge step could not run"]}
             if out.get("status") in ("merged", "refused"):
                 return out
+            if attempt == MERGE_TRIES - 1 or workflow.now() + MERGE_EVERY >= deadline:
+                break  # no wait after the last ask
             await workflow.sleep(MERGE_EVERY)
         return {"status": "given_up", "pull_request": number, "reasons": out.get("reasons", [])}
 
