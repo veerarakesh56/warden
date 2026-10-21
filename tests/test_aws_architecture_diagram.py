@@ -128,8 +128,14 @@ def _resource_types(stack: str) -> set[str]:
 ENV = r"(?:ops|dev|prod|<env>)"
 
 
-def _corpus() -> str:
-    """The repository's own words, with every way of writing an environment's prefix made one: warden-<env>-."""
+def _normal(text: str) -> str:
+    """Every way of writing an environment's prefix made one: warden-<env>-."""
+    text = text.replace("${count.index}", "0")
+    return re.sub(r"warden-(?:\$\{[^}]+\}|\{[^}]+\}|ops|dev|prod|<env>|<ENV>)-", "warden-<env>-", text)
+
+
+def _corpus() -> list[str]:
+    """The repository's own words: one entry per Terraform stack (its .tf and .py files together), one per other file."""
     parts = []
     for d in TF.rglob("*"):
         if d.is_dir() and any(d.glob("*.tf")):
@@ -142,20 +148,28 @@ def _corpus() -> str:
     globs = ("iam/**/*.json", "src/**/*.py", "src/**/*.yaml", "scripts/*.py", "scenarios/**/*.py", "k8s/**/*.yaml",
              "manifests/**/*.yaml", "helm/**/*.yaml", ".github/workflows/*.yml", "docs/*.md")
     parts += [f.read_text(encoding="utf-8") for g in globs for f in ROOT.glob(g)]
-    text = "\n".join(parts).replace("${count.index}", "0")
-    return re.sub(r"warden-(?:\$\{[^}]+\}|\{[^}]+\}|ops|dev|prod|<env>|<ENV>)-", "warden-<env>-", text)
+    return [_normal(t) for t in parts]
 
 
-def _known(name: str, corpus: str) -> bool:
+def _known(name: str, corpus: list[str]) -> bool:
+    """A whole name the code writes (a name ending in * is a prefix), or a for_each name whose template and key are in
+    the same stack: warden-<env>-${each.key}<rest>, and the key as a map's key or a set's element there."""
+    wild = name.endswith("*")
     norm = re.sub(rf"warden-{ENV}-", "warden-<env>-", name).rstrip("*")
-    if norm in corpus:
+    whole = re.compile(re.escape(norm) + ("" if wild else r"(?![a-z0-9-])"))
+    if any(whole.search(text) for text in corpus):
         return True
-    # A for_each name: warden-<env>-${each.key}<rest>, with the key in the same stack.
     suffix = norm.removeprefix("warden-<env>-")
     for i in range(1, len(suffix) + 1):
         key, rest = suffix[:i], suffix[i:]
-        if (rest == "" or rest.startswith("-")) and f"warden-<env>-${{each.key}}{rest}" in corpus and \
-                re.search(rf'(^|[\s"{{\[,(]){re.escape(key)}"?\s*[=:,\]]', corpus, re.MULTILINE):
+        if rest and not rest.startswith("-"):
+            continue
+        template = f"warden-<env>-${{each.key}}{rest}\""
+        # A map's key (`key = {`, `key = jsonencode(`, `key = 120`) or a set's element (`toset(["key", ...])`); an
+        # attribute (`name = "..."`) is neither.
+        as_key = re.compile(rf'^\s+"?{re.escape(key)}"?\s*=\s*(?:\{{|jsonencode\(|\d)|toset\(\[[^\]]*"{re.escape(key)}"',
+                            re.MULTILINE)
+        if any(template in text and as_key.search(text) for text in corpus):
             return True
     return False
 
@@ -192,8 +206,8 @@ def test_every_name_the_diagram_gives_is_made_or_read_by_the_code():
     for path in re.findall(r"/warden/(?:ops|dev|<env>)/[a-z_/]+[a-z_]", _diagram_text(with_prs=False)):
         norm = re.sub(r"^/warden/[^/]+/", "/warden/<env>/", path)
         stem = norm.removeprefix("/warden/<env>/").split("/")[0]
-        assert re.search(rf"/warden/(?:<env>|\$\{{[^}}]+\}}|ops|dev|\{{[a-z_]+\}})/{stem}\b", corpus) or \
-            f"/warden/<env>/{stem}" in corpus, path
+        joined = "\n".join(corpus)
+        assert re.search(rf"/warden/(?:<env>|\$\{{[^}}]+\}}|ops|dev|\{{[a-z_]+\}})/{stem}\b", joined), path
 
 
 def test_every_setting_it_cites_is_read():
@@ -223,12 +237,16 @@ def test_every_resource_type_of_the_deployed_stacks_is_shown_or_left_out_with_a_
 def test_the_stacks_it_leaves_out_are_applied_by_no_pipeline():
     deploy = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
     stacks = re.search(r'case "\$STACK" in ([\w|-]+)\)', deploy)
-    assert stacks and set(stacks.group(1).split("|")) == {"fullstack", "undo-lab"}
+    assert stacks, "_infra-deploy.yml no longer names its stacks in one case statement"
+    assert set(stacks.group(1).split("|")) == {"fullstack", "undo-lab"}
     assert "terraform -chdir=terraform/runtime apply" in (ROOT / ".github" / "workflows" / "runtime.yml").read_text()
     for wf in (ROOT / ".github" / "workflows").glob("*.yml"):
         for line in wf.read_text(encoding="utf-8").splitlines():
-            if re.search(r"-chdir=terraform(/proving-ground)?(\s|$)", line):
+            # -chdir=terraform, "terraform/proving-ground/", 'terraform' ...: quoted or not, with or without a slash.
+            if re.search(r"""-chdir=["']?terraform(/proving-ground)?/?["']?(\s|$)""", line):
                 assert re.search(r"\b(init|validate|fmt)\b", line), (wf.name, line)
+            assert not re.search(r"""working-directory:\s*["']?(\./)?terraform(/proving-ground)?/?["']?\s*$""", line), \
+                (wf.name, line)
     assert all((TF / s).is_dir() for s in NOT_DEPLOYED)
 
 
@@ -290,7 +308,8 @@ def test_open_pull_requests_are_marked_and_never_drawn_as_built():
         if cid.startswith("pr") and not cid.endswith("-i"):
             value = _plain(cell.get("value", ""))
             if cell.get("vertex") == "1" and not cid.endswith("-w"):
-                assert re.search(r"open PR #\d+", value) and "not built" in value, cid
+                assert re.search(r"open PR #\d+", value), cid
+                assert "not built" in value, cid
             elif cid.endswith("-w"):
                 assert re.search(r"open PR #\d+", value), cid
             if cell.get("edge") == "1":
@@ -310,7 +329,8 @@ def test_the_exports_exist(ext):
 def test_the_svg_is_an_export_of_this_source_on_white():
     svg = (DIAGRAMS / "aws-architecture.svg").read_text(encoding="utf-8")
     head = svg[:svg.index("<g")]
-    assert "background-color: #FFFFFF" in head and '<rect fill="#FFFFFF" width="100%" height="100%"' in head
+    assert "background-color: #FFFFFF" in head
+    assert '<rect fill="#FFFFFF" width="100%" height="100%"' in head
     assert "color-scheme: light" in head  # exported with --theme light: no colours swapped in a dark theme
     exported = set(re.findall(r'data-cell-id="([^"]+)"', svg))
     assert exported == {c.get("id") for c in _cells()}
