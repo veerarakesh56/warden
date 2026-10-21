@@ -66,8 +66,10 @@ def test_a_failed_read_is_unknown_never_healthy(log):
 def test_a_step_missing_from_the_record_is_said_missing_not_guessed(log):
     _incident(log, "inc-a")
     card = _card(log, "inc-a")
-    assert card["Read"] == "No evidence read is on the record" and card["Diagnosis"] == "None on the record"
-    assert "Proposed" not in card and "Rules" not in card
+    assert card["Read"] == "No evidence read is on the record"
+    assert card["Diagnosis"] == "None on the record"
+    assert "Proposed" not in card
+    assert "Rules" not in card
 
 
 @pytest.mark.parametrize(("action", "said"), [("no_action", "nothing to change"),
@@ -76,7 +78,8 @@ def test_an_inert_proposal_is_said_in_words(log, action, said):
     _incident(log, "inc-a")
     _investigated(log, "inc-a", action=action, target="oncall", status="auto_safe")
     card = _card(log, "inc-a")
-    assert card["Proposed"] == said and card["Rules"] == "auto safe - no policy fired"
+    assert card["Proposed"] == said
+    assert card["Rules"] == "auto safe - no policy fired"
 
 
 def test_nothing_cited_is_said_plainly(log):
@@ -86,13 +89,22 @@ def test_nothing_cited_is_said_plainly(log):
     assert _card(log, "inc-a")["Cited"] == "0 evidence items - nothing the rules could check"
 
 
+def test_a_diagnosis_without_an_action_is_said_to_propose_nothing(log):
+    _incident(log, "inc-a")
+    log.append("inc-a", "incident.diagnose", {"node": "diagnose", "target": "checkout", "cited": ["D1"]})
+    assert _card(log, "inc-a")["Proposed"] == "No proposal"
+
+
 def test_the_card_redacts_and_escapes_what_it_shows(log):
     _incident(log, "inc-a")
     _investigated(log, "inc-a", target=f"<script>x</script> {AWS_ACCESS_KEY_ID}", policies=("<b>P1</b>",))
     r = records.record(log, "inc-a")
     card = cards.section(r)  # the record's other parts are written redacted; the card redacts again what it shows
-    assert AWS_ACCESS_KEY_ID not in card and "<APIKEY_1>" in records.html.unescape(card)
-    assert "<script>x</script>" not in card and "&lt;script&gt;" in card and "<b>P1</b>" not in card
+    assert AWS_ACCESS_KEY_ID not in card
+    assert "<APIKEY_1>" in records.html.unescape(card)
+    assert "<script>x</script>" not in card
+    assert "&lt;script&gt;" in card
+    assert "<b>P1</b>" not in card
     assert card in records.incident_page(r)
 
 
@@ -107,12 +119,14 @@ def test_notes_say_how_related_records_ended_and_add_them_up(log):
     r = records.record(log, "inc-now")
     by = {n["with"]: n for n in r.learned}
     assert set(by) == {"inc-old1", "inc-old2", "inc-old3"}  # found: the same resource, one environment
-    assert by["inc-old1"]["status"] == "Fixed and held" and by["inc-old1"]["fix"] == "k8s_rollout_undo"
+    assert by["inc-old1"]["status"] == "Fixed and held"
+    assert by["inc-old1"]["fix"] == "k8s_rollout_undo"
     assert by["inc-old2"]["kind"] == "bad"
     assert cards.lesson(r.learned) == ("Of 3 related records: 1 fixed (by k8s_rollout_undo); 1 where the fix did not "
                                        "work; 1 cleared during a planned shutdown.")
     page = records.incident_page(r)
-    assert "<h2>Learned from related records</h2>" in page and "WARDEN acts on none of it" in page
+    assert "<h2>Learned from related records</h2>" in page
+    assert "WARDEN acts on none of it" in page
     assert 'href="/r/inc-old1"' in page
 
 
@@ -140,7 +154,8 @@ def test_a_related_record_of_another_environment_is_never_a_note(log):
 def test_no_related_record_shows_no_notes(log):
     _incident(log, "inc-a", service="alone")
     r = records.record(log, "inc-a")
-    assert r.learned == [] and cards.lesson([]) == ""
+    assert r.learned == []
+    assert cards.lesson([]) == ""
     assert "Learned from related records" not in records.incident_page(r)
 
 
@@ -155,11 +170,15 @@ def test_a_note_is_escaped(log):
             "fix": "<u>f</u>", "action": ""}
     r = records.Record(id="inc-y", first=None, last=None, learned=[note])
     html = cards.section(r)
-    assert "<i>" not in html and "<b>Fixed" not in html and "<u>" not in html and "&lt;b&gt;Fixed" in html
+    assert "<i>" not in html
+    assert "<b>Fixed" not in html
+    assert "<u>" not in html
+    assert "&lt;b&gt;Fixed" in html
 
 
 def test_an_odd_row_leaves_the_card_saying_so_and_the_page_up(log):
     _incident(log, "inc-a")
     log.append("inc-a", "incident.diagnose", {"node": "diagnose", "action": "restart_pods", "cited": 5})
     page = records.incident_page(records.record(log, "inc-a"))
-    assert "The investigation card could not be drawn from this record" in page and "Every step on the record" in page
+    assert "The investigation card could not be drawn from this record" in page
+    assert "Every step on the record" in page

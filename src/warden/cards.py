@@ -41,42 +41,60 @@ def _count(n: Any, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
-def card_rows(r: Any) -> list[tuple[str, str]]:
-    """The card's lines, plain text (the page escapes them): what the incident's own rows say, step by step."""
+def _read_row(g: dict[str, Any] | None) -> tuple[str, str]:
+    """What WARDEN read (incident.gather), and whether any read failed."""
+    if g is None:
+        return ("Read", "No evidence read is on the record")
+    read = ", ".join((_count(g.get("logs"), "log line", "log lines"), _count(g.get("metrics"), "metric", "metrics"),
+                      _count(g.get("deploys"), "recent deploy", "recent deploys")))
+    failed = g.get("tool_errors") or 0
+    if failed:
+        return ("Read", f"{read}; {_count(failed, 'read', 'reads')} FAILED - unknown, not healthy")
+    return ("Read", f"{read}; no read failed")
+
+
+def _proposal(d: dict[str, Any]) -> str:
+    action = str(d.get("action") or "")
+    if action in INERT:
+        return INERT[action]
+    if not action:
+        return "No proposal"
+    return f"{action.replace('_', ' ')} on {_scrub(d.get('target') or '')}"
+
+
+def _diagnosis_rows(d: dict[str, Any] | None) -> list[tuple[str, str]]:
+    """What the diagnosis cited, asked to read more of, and proposed (incident.diagnose)."""
+    if d is None:
+        return [("Diagnosis", "None on the record")]
+    cited = [str(c) for c in d.get("cited") or []]
+    found = f": {', '.join(cited[:12])}" if cited else " - nothing the rules could check"
+    out = [("Cited", f"{_count(len(cited), 'evidence item', 'evidence items')}{found}")]
+    if d.get("need_evidence"):
+        out.append(("Asked for", _count(len(d["need_evidence"]), "more resource to read", "more resources to read")))
+    out.append(("Proposed", _proposal(d)))
+    return out
+
+
+def _rules_row(v: dict[str, Any]) -> tuple[str, str]:
+    """What the deterministic rules decided (incident.verify)."""
     from .records import PLAIN
 
-    out: list[tuple[str, str]] = []
-    g = _last(r, "incident.gather")
-    if g is None:
-        out.append(("Read", "No evidence read is on the record"))
-    else:
-        read = ", ".join((_count(g.get("logs"), "log line", "log lines"), _count(g.get("metrics"), "metric", "metrics"),
-                          _count(g.get("deploys"), "recent deploy", "recent deploys")))
-        failed = g.get("tool_errors") or 0
-        out.append(("Read", read + (f"; {_count(failed, 'read', 'reads')} FAILED - unknown, not healthy" if failed
-                                    else "; no read failed")))
+    status = str(v.get("status") or "")
+    policies = [str(p) for p in v.get("policies") or []]
+    fired = f" ({', '.join(policies)})" if policies else " - no policy fired"
+    return ("Rules", PLAIN.get(status, status.replace("_", " ")) + fired)
+
+
+def card_rows(r: Any) -> list[tuple[str, str]]:
+    """The card's lines, plain text (the page escapes them): what the incident's own rows say, step by step."""
+    out = [_read_row(_last(r, "incident.gather"))]
     more = sum(1 for e in r.rows if e["kind"] == "incident.investigate")
     if more:
         out.append(("Read more", f"{_count(more, 'more read', 'more reads')} of what the alarm names"))
-    d = _last(r, "incident.diagnose")
-    if d is None:
-        out.append(("Diagnosis", "None on the record"))
-    else:
-        cited = [str(c) for c in d.get("cited") or []]
-        out.append(("Cited", f"{_count(len(cited), 'evidence item', 'evidence items')}"
-                    + (f": {', '.join(cited[:12])}" if cited else " - nothing the rules could check")))
-        if d.get("need_evidence"):
-            out.append(("Asked for", _count(len(d["need_evidence"]), "more resource to read", "more resources to read")))
-        action = str(d.get("action") or "")
-        target = _scrub(d.get("target") or "")
-        out.append(("Proposed", INERT.get(action) or (f"{action.replace('_', ' ')} on {target}" if action
-                                                       else "No proposal")))
+    out += _diagnosis_rows(_last(r, "incident.diagnose"))
     v = _last(r, "incident.verify")
     if v is not None:
-        status = str(v.get("status") or "")
-        policies = [str(p) for p in v.get("policies") or []]
-        out.append(("Rules", PLAIN.get(status, status.replace("_", " ")) + (f" ({', '.join(policies)})" if policies
-                                                                            else " - no policy fired")))
+        out.append(_rules_row(v))
     out.append(("Ended", r.status))
     return out
 
@@ -115,7 +133,8 @@ def lesson(notes: list[dict[str, Any]]) -> str:
     planned = [n for n in notes if n["status"] == PLANNED]
     handed = [n for n in notes if n["action"] == "escalate_to_human" and n not in held + bad + planned]
     fixes = sorted({n["fix"] for n in held if n["fix"]})
-    parts = [f"{len(held)} fixed" + (f" (by {', '.join(fixes)})" if fixes else "") if held else "",
+    by = f" (by {', '.join(fixes)})" if fixes else ""
+    parts = [f"{len(held)} fixed{by}" if held else "",
              f"{len(bad)} where the fix did not work" if bad else "",
              f"{len(planned)} cleared during a planned shutdown" if planned else "",
              f"{len(handed)} handed to a person" if handed else ""]
