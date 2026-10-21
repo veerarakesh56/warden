@@ -84,7 +84,7 @@ jobs:
           exit 1
       - name: A known action
         run: |
-          case "$ACTION" in plan|apply|apply-plan|destroy|pause|resume|eldane-apply) ;; *) echo "::error::unknown action: $ACTION"; exit 1 ;; esac
+          case "$ACTION" in eldane-apply|plan|apply|apply-plan|destroy|pause|resume) ;; *) echo "::error::unknown action: $ACTION"; exit 1 ;; esac
           # An AI approves an infra plan in dev only (owner, 2026-10-17): every other environment needs a person.
           case "$ACTION/$WARDEN_ENV" in eldane-apply/dev) ;; eldane-apply/*)
             echo "::error::eldane-apply is for dev only: in $WARDEN_ENV a person reviews every plan (apply-plan)"; exit 1 ;; esac
