@@ -386,6 +386,11 @@ Version 0.10.0. Measured, as of 2026-10-16:
 - **Generalising.** On 172 synthetic held-out incidents written by independent authors, WARDEN chose the right action
   in 132-138 of 172 across three runs, against a floor of 103 for an answer that always escalates; the gate stopped
   all but one harmful or wrong proposal in each run. The cases are synthetic and the runs are single runs.
+<!-- eldane-bench-readme:begin -->
+- **The AI critic.** How often Eldane approves a right fix, catches a wrong or harmful one, and blocks a right one is
+  **not yet measured**: run `python scripts/eldane_bench.py` with the cloud runtime's key
+  ([docs/BENCHMARKS.md](docs/BENCHMARKS.md#the-ai-critic-eldane-on-the-g10-held-out-set)).
+<!-- eldane-bench-readme:end -->
 - **Choosing the model.** The production model, Claude Sonnet 5.5, scored 17 of 30 on the replay set with no wrong
   answer let through (2026-10-15). The bar is 17.
 - **Applying fixes.** The write platforms are exercised in CI against a real k3d Kubernetes cluster and real
