@@ -65,7 +65,10 @@ def _rounding(number: str, unit: str) -> float:
     """Half the last written digit, in canonical units: "0.005%" may be any value from 0.0045% to 0.0055%."""
     decimals = len(number.split(".", 1)[1]) if "." in number else 0
     kind, _ = _claim(number, unit)
-    per = 0.01 if kind == "fraction" else (0.001 if unit.lower().startswith(("ms", "milli")) else 1.0)
+    if kind == "fraction":
+        per = 0.01
+    else:
+        per = 0.001 if unit.lower().startswith(("ms", "milli")) else 1.0
     return 0.5 * 10 ** -decimals * per
 
 
