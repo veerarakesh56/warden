@@ -11,7 +11,9 @@ from warden.models import ActionKind
 
 def test_every_entry_is_well_formed_and_nothing_forbidden_is_in_it():
     for name, entry in catalog.CATALOG.items():
-        assert entry.tier in TIERS and entry.params and entry.restores
+        assert entry.tier in TIERS
+        assert entry.params
+        assert entry.restores
         assert not any(bad in name for bad in catalog.EXCLUDED)
     assert catalog.CATALOG["aurora_failover"].tier == "T3"
     assert catalog.CATALOG["infra_restore_baseline"].tier == "T3"

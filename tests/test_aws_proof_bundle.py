@@ -193,3 +193,31 @@ def test_an_rds_endpoints_account_segment_is_masked():
     out = _redact(f"postgres:warden@{host}/warden", "")
     assert "c7x9k2qabcde" not in out
     assert out == "postgres:warden@warden-pg-2f486c.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden"
+
+
+def test_a_report_is_summarised_line_by_line():
+    """Characterisation (before the cognitive-complexity split of _summarise): each line and its order, and the
+    lines left out when their part of the report is empty."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("aws_proof_bundle", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    full = {"context": {"logs": ["a", "b"], "metrics": {"mem": 0.5, "cpu": 12.0}, "recent_deploys": [{}],
+                        "tool_errors": ["logs: timeout", "metrics: denied"]},
+            "root_cause": {"hypothesis": "OOM", "confidence": 0.876},
+            "proposal": {"action": "rollback", "target": "svc", "blast_radius": "single_service"},
+            "verdict": {"status": "approved_for_human", "policy_ids": ["P1", "P8"]},
+            "cost": {"usd": 0.01234, "calls": 2}}
+    assert mod._summarise(full) == [
+        "- **evidence read**: 2 log lines, 2 metrics, 1 deploy(s)",
+        "- **metrics**: `cpu`=12, `mem`=0.5",
+        "- **partial context** (policy P8 sees this): logs: timeout; metrics: denied",
+        "- **hypothesis**: OOM (confidence 0.88)",
+        "- **proposed**: `rollback` -> `svc`, blast radius `single_service`",
+        "- **verdict**: **APPROVED_FOR_HUMAN** (P1, P8)",
+        "- **model cost**: $0.0123 over 2 call(s)"]
+    assert mod._summarise({}) == ["- **evidence read**: 0 log lines, 0 metrics, 0 deploy(s)"]
+    assert mod._summarise({"root_cause": {"x": 1}, "verdict": {"policy_ids": []}, "cost": {"calls": 1}})[1:] == [
+        "- **hypothesis**: ? (confidence 0.00)", "- **verdict**: **?** (none fired)",
+        "- **model cost**: $0.0000 over 1 call(s)"]

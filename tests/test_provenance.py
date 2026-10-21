@@ -28,9 +28,11 @@ def test_the_diagnose_row_names_the_model_the_prompt_the_answer_and_the_code(mon
         return hashlib.sha256(text.encode()).hexdigest()
 
     assert (p["provider"], p["model"]) == ("mock", "mock")
-    assert p["system_sha256"] == sha(seen["system"]) and p["prompt_sha256"] == sha(seen["user"])
+    assert p["system_sha256"] == sha(seen["system"])
+    assert p["prompt_sha256"] == sha(seen["user"])
     assert p["response_sha256"] == sha(seen["response"])
-    assert p["code"] == audit.code_version() and len(p["code"]) == 64
+    assert p["code"] == audit.code_version()
+    assert len(p["code"]) == 64
     assert seen["user"] not in str(row)  # hashes only: no prompt text in the record
 
 

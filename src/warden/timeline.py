@@ -21,6 +21,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from . import web
 from .environments import both_times
 
 BEFORE = timedelta(hours=6)  # how far before the alert a change is still a suspect
@@ -39,12 +40,12 @@ def _when(value: Any) -> datetime | None:
 
 
 def github_deployments(repo: str, token: str, environment: str, since: datetime, until: datetime,
-                       opener: Any = urllib.request.urlopen) -> list[dict[str, Any]]:
+                       opener: Any = web.urlopen) -> list[dict[str, Any]]:
     """Deployments of `repo` to `environment` in the window: when, the commit, who. Raises on a failed read."""
     url = f"{_API}/repos/{repo}/deployments?environment={environment}&per_page=30"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
                                                "X-GitHub-Api-Version": "2022-11-28"})
-    with opener(req, timeout=_TIMEOUT_S) as resp:  # nosec B310 - a fixed https host
+    with opener(req, timeout=_TIMEOUT_S) as resp:
         rows = json.loads(resp.read())
     out = []
     for d in rows if isinstance(rows, list) else []:
@@ -174,7 +175,7 @@ class CommitReader:
 
     source = "github"
 
-    def __init__(self, base: Any, *, repo: str = "", token: str = "", opener: Any = urllib.request.urlopen) -> None:
+    def __init__(self, base: Any, *, repo: str = "", token: str = "", opener: Any = web.urlopen) -> None:
         self.base, self.repo, self.token, self._open = base, repo, token, opener
 
     def _get(self, path: str) -> Any:
@@ -182,7 +183,7 @@ class CommitReader:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         req = urllib.request.Request(f"{_API}{path}", headers=headers)
-        with self._open(req, timeout=_TIMEOUT_S) as resp:  # nosec B310 - a fixed https host
+        with self._open(req, timeout=_TIMEOUT_S) as resp:
             return json.loads(resp.read())
 
     def logs(self, alert: Any) -> list[str]:

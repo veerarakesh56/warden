@@ -88,15 +88,18 @@ def test_start_request_and_read_through_the_tools(tmp_path, monkeypatch):
             asked = (await call("request_remediation", req, env.client)).structured_content
             # keyed on the resource and environment, not the service name (register C3)
             wid = "rem-dev-" + hashlib.sha256(b"k8s:shop/orders").hexdigest()[:16]
-            assert asked["workflow_id"] == wid and "cannot" in asked["next"]
+            assert asked["workflow_id"] == wid
+            assert "cannot" in asked["next"]
             again = await call("request_remediation", req, env.client)
-            assert again.is_error and "already open" in again.content[0].text
+            assert again.is_error
+            assert "already open" in again.content[0].text
             for _ in range(200):
                 status = (await call("workflow_status", {"workflow_id": wid}, env.client)).structured_content
                 if status.get("stage") == "awaiting_approval":
                     break
                 await asyncio.sleep(0.05)
-            assert status["plan"]["entry"] == "k8s_rollout_undo" and len(status["plan"]["plan_hash"]) == 64
+            assert status["plan"]["entry"] == "k8s_rollout_undo"
+            assert len(status["plan"]["plan_hash"]) == 64
             # the only way forward is a person's signature, outside the MCP server:
             await runtime.approve(env.client, wid, plan_hash=status["plan"]["plan_hash"], key=owner,
                                   approver="owner", typed_target=status["plan"]["target"])
@@ -114,7 +117,8 @@ def test_a_bad_request_is_an_error_not_a_crash(monkeypatch):
     async def main():
         return await mcp_server.call_workflow_tool("request_remediation", {"entry": "shell"}, client=None)
     result = asyncio.run(main())
-    assert result.is_error and "ValidationError" in result.content[0].text
+    assert result.is_error
+    assert "ValidationError" in result.content[0].text
 
 
 @pytest.mark.parametrize("entry", ["shell", "raw_sql", "put_role_policy", "purge_queue"])
@@ -135,8 +139,10 @@ def test_the_default_client_may_not_request_a_remediation(monkeypatch):
     async def main():
         return await mcp_server.call_workflow_tool("request_remediation", {"entry": "k8s_restart"}, client=None)
     refused = asyncio.run(main())
-    assert refused.is_error and "not allowed for this client" in refused.content[0].text
-    assert "request_remediation" not in mcp_server.profile() and "workflow_status" in mcp_server.profile()
+    assert refused.is_error
+    assert "not allowed for this client" in refused.content[0].text
+    assert "request_remediation" not in mcp_server.profile()
+    assert "workflow_status" in mcp_server.profile()
 
 
 def test_status_answers_only_for_workflows_this_server_started():
@@ -144,7 +150,8 @@ def test_status_answers_only_for_workflows_this_server_started():
     async def main():
         return await mcp_server.call_workflow_tool("workflow_status", {"workflow_id": "inc-someone-elses"}, client=None)
     result = asyncio.run(main())
-    assert result.is_error and "did not start" in result.content[0].text
+    assert result.is_error
+    assert "did not start" in result.content[0].text
 
 
 def test_a_caller_cannot_steer_reads_outside_the_allowlist(tmp_path, monkeypatch):
@@ -157,7 +164,8 @@ def test_a_caller_cannot_steer_reads_outside_the_allowlist(tmp_path, monkeypatch
     alert = Alert(alert_id="a1", name="n", service="orders", environment="dev", severity="high", summary="s",
                   labels={"namespace": "kube-system", "log_group": "/aws/lambda/prod-payments", "team": "core"})
     kept, dropped = read_scope.restrict(alert, read_scope.load(str(scopes)))
-    assert kept.labels == {"team": "core"} and dropped == ["log_group", "namespace"]
+    assert kept.labels == {"team": "core"}
+    assert dropped == ["log_group", "namespace"]
     ok = alert.model_copy(update={"labels": {"namespace": "shop"}})
     assert read_scope.restrict(ok, read_scope.load(str(scopes)))[0].labels == {"namespace": "shop"}
     both = alert.model_copy(update={"labels": {"namespace": "shop,kube-system"}})
@@ -181,6 +189,7 @@ def test_the_workflow_starts_with_only_the_labels_the_allowlist_names(monkeypatc
     out = asyncio.run(mcp_server.call_workflow_tool("start_incident_diagnosis", {"alert": alert},
                                                     client=types.SimpleNamespace(start_workflow=start_workflow)))
     assert not out.is_error, out.content[0].text
-    assert seen["alert"].labels == {"team": "core"} and seen["id"] == "inc-mcp-a9"
+    assert seen["alert"].labels == {"team": "core"}
+    assert seen["id"] == "inc-mcp-a9"
     assert out.structured_content["labels_not_followed"] == ["namespace"]
 

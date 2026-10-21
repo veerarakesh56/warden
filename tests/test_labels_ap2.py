@@ -79,5 +79,6 @@ def test_the_command_records_a_label_and_refuses_a_wrong_key(tmp_path, monkeypat
     assert main([*args, "--key", str(key_file)]) == 0
     assert main([*args, "--key", str(other_file)]) == 1
     rows = labels.export(audit.AuditLog(pathlib.Path(tmp_path / "audit.db")))
-    assert len(rows) == 1 and rows[0]["action"] == "unsure"
+    assert len(rows) == 1
+    assert rows[0]["action"] == "unsure"
     assert "label not recorded" in capsys.readouterr().err

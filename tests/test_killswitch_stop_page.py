@@ -38,7 +38,9 @@ def test_an_approvers_passkey_turns_the_switch_on_with_the_reason_it_signed(tmp_
     token = w.link(STOP_INVITE)
     assert w.page.handle("GET", f"/x/{token}").status == 200
     done = _stop(w, token)
-    assert done.status == 200 and json.loads(done.body) == {"on": True} and bounds.killswitch(w.log) is not None
+    assert done.status == 200
+    assert json.loads(done.body) == {"on": True}
+    assert bounds.killswitch(w.log) is not None
     [row] = [r["body"]["reason"] for r in bounds.trips(w.log)]
     assert row == f"turned on by owner with their passkey: {WHY}"
     assert w.page.handle("GET", f"/x/{token}").status == 404  # used once
@@ -48,7 +50,8 @@ def test_the_reason_recorded_is_the_one_the_passkey_signed(tmp_path):
     w = World(tmp_path)
     _off(w)
     done = _stop(w, w.link(STOP_INVITE), sent="something else entirely")
-    assert done.status == 403 and bounds.killswitch(w.log) is None
+    assert done.status == 403
+    assert bounds.killswitch(w.log) is None
 
 
 def test_a_stop_needs_a_reason_and_its_own_link(tmp_path):
@@ -69,7 +72,8 @@ def test_the_cli_never_says_on_for_a_switch_it_did_not_reach(tmp_path, monkeypat
     for argv in (["killswitch", "status"], ["killswitch", "reset", "--approver", "owner", "--key", "k", "--trips", "1"]):
         assert cli.main(argv) == 1
         assert "does not reach the cloud runtime's audit" in capsys.readouterr().err
-    assert cli.main(["killswitch", "on", "--reason", "x"]) == 1 and "--approver and --key" in capsys.readouterr().err
+    assert cli.main(["killswitch", "on", "--reason", "x"]) == 1
+    assert "--approver and --key" in capsys.readouterr().err
     assert not (tmp_path / "local.db").exists()  # nothing written on this machine
     w = World(tmp_path)
     key = tmp_path / "k.pem"
@@ -78,8 +82,10 @@ def test_the_cli_never_says_on_for_a_switch_it_did_not_reach(tmp_path, monkeypat
     key.write_bytes(w.key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                                         serialization.NoEncryption()))
     assert cli.main(["killswitch", "on", "--approver", "owner", "--key", str(key)]) == 0
-    assert len(opened) == 1 and opened[0].startswith("https://approve.example.test/x/")
-    assert not (tmp_path / "local.db").exists() and "kill switch: ON" not in capsys.readouterr().out
+    assert len(opened) == 1
+    assert opened[0].startswith("https://approve.example.test/x/")
+    assert not (tmp_path / "local.db").exists()
+    assert "kill switch: ON" not in capsys.readouterr().out
 
 
 def test_the_front_door_routes_the_stop():
