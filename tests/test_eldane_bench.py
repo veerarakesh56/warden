@@ -187,13 +187,17 @@ def test_the_runtime_task_s_own_key_is_used(bench):
         "ECS_CONTAINER_METADATA_URI_V4": "http://169.254.170.2/v4/x",
         "WARDEN_ENV": bench.runtime_environment(),
     }
-    assert "runtime task" in bench.runtime_key(env, FakeSecrets())
+    secrets = FakeSecrets()
+    bench.runtime_key(env, secrets)
+    assert secrets.asked == []
+    assert "runtime task" in bench.key_source(env)
 
 
 def test_the_key_is_read_from_the_runtime_s_slot_and_never_said(bench):
     env: dict[str, str] = {}
     secrets = FakeSecrets()
-    said = bench.runtime_key(env, secrets)
+    said = bench.key_source(env)
+    bench.runtime_key(env, secrets)
     assert secrets.asked == [f"warden/{bench.runtime_environment()}/anthropic-api-key"]
     assert env["ANTHROPIC_API_KEY"] == FAKE_KEY
     assert FAKE_KEY not in said

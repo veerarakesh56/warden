@@ -432,24 +432,35 @@ def runtime_environment() -> str:
     return env
 
 
-def runtime_key(environ: dict[str, str] | Any = os.environ, secrets_client: Any = None) -> str:
-    """Put the cloud runtime's own Anthropic key in `environ`, or refuse. Returns where it came from, in words - never
-    the key. A key already in `environ` is accepted only inside the runtime's own ECS task."""
+def _in_runtime_task(environ: Any, env: str) -> bool:
+    return bool(environ.get("ECS_CONTAINER_METADATA_URI_V4")) and environ.get("WARDEN_ENV") == env
+
+
+def key_source(environ: Any = os.environ) -> str:
+    """Where the key will come from, in words - computed without reading any key, so nothing said can carry one."""
+    env = runtime_environment()
+    from warden.settings import secret_id
+
+    if str(environ.get(KEY_SLOT, "")).strip() and _in_runtime_task(environ, env):
+        return "the runtime task's own key (injected by ECS)"
+    return f"Secrets Manager {secret_id(env, KEY_SLOT)}"
+
+
+def runtime_key(environ: Any = os.environ, secrets_client: Any = None) -> None:
+    """Put the cloud runtime's own Anthropic key in `environ`, or refuse. A key already in `environ` is accepted only
+    inside the runtime's own ECS task. Nothing is returned or printed: the key stays in `environ`."""
     env = runtime_environment()
     from warden.settings import secret_id
 
     slot = secret_id(env, KEY_SLOT)
     if str(environ.get(KEY_SLOT, "")).strip():
-        in_task = (
-            bool(environ.get("ECS_CONTAINER_METADATA_URI_V4")) and environ.get("WARDEN_ENV") == env
-        )
-        if not in_task:
+        if not _in_runtime_task(environ, env):
             raise Refused(
                 f"REFUSED: {KEY_SLOT} is set in this shell and this is not a cloud runtime task. A paid "
                 f"Eldane bench uses the runtime's own key only ({slot}); unset {KEY_SLOT} and run it "
                 "with an AWS identity that may read that slot."
             )
-        return "the runtime task's own key (injected by ECS)"
+        return
     try:
         if secrets_client is None:
             import boto3
@@ -466,7 +477,6 @@ def runtime_key(environ: dict[str, str] | Any = os.environ, secrets_client: Any 
     if not value:
         raise Refused(f"REFUSED: {slot} is empty")
     environ[KEY_SLOT] = value
-    return f"Secrets Manager {slot}"
 
 
 # --------------------------------------------------------------------------------------------- the run
@@ -641,7 +651,8 @@ def paid(
         raise Refused(f"REFUSED: --cap-usd {a.cap_usd} does not cover even one call's worst case")
     for name in ("WARDEN_PRICE_IN", "WARDEN_PRICE_OUT", "WARDEN_MODEL_EFFORT"):
         os.environ.pop(name, None)  # the model's own price row and effort, as production runs it
-    print("key:", runtime_key(os.environ))
+    print("key:", key_source(os.environ))
+    runtime_key(os.environ)
     from warden import providers
 
     provider = providers._REGISTRY["anthropic"](model=providers.pinned(a.model))
