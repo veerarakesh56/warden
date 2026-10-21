@@ -30,7 +30,6 @@ fallback is a richer typed vocabulary, never raw text.
 from __future__ import annotations
 
 import base64
-import binascii
 import functools
 import re
 
@@ -151,7 +150,7 @@ def _encoded_prose(value: str) -> bool:
     for alt in (None, b"-_"):
         try:
             raw = base64.b64decode(value + "=" * (-len(value) % 4), altchars=alt, validate=True)
-        except (binascii.Error, ValueError):
+        except ValueError:  # binascii.Error, a bad base64 string, is a ValueError
             continue
         if len(raw) >= 8 and all(32 <= b < 127 for b in raw) and b" " in raw:
             return True
@@ -168,14 +167,18 @@ _L_FOLD = str.maketrans("1I|", "lll")
 _SQUASHED_KEY_DENY = re.compile(r"cause|remediat|instruct|command|verdict|recommend|suggest|proposal|advice")
 
 
+# Everything but a lower-case letter: dropped to read a value's words run together.
+_NOT_LETTER = re.compile(r"[^a-z]")
+
+
 def _plain(value: str, limit: int) -> bool:
     # ASCII only (third review, 2026-09-30): Cyrillic look-alikes (`іgnоrе`), fullwidth letters and
     # zero-width joins spelled steering words the word checks could not see. A measurement is ASCII.
     if not value.isascii():
         return False
-    squashed = re.sub(r"[^a-z]", "", value.lower())
-    folded = re.sub(r"[^a-z]", "", value.lower().translate(_DIGIT_FOLD))
-    folded_l = re.sub(r"[^a-z]", "", value.translate(_L_FOLD).lower().translate(_DIGIT_FOLD))
+    squashed = _NOT_LETTER.sub("", value.lower())
+    folded = _NOT_LETTER.sub("", value.lower().translate(_DIGIT_FOLD))
+    folded_l = _NOT_LETTER.sub("", value.translate(_L_FOLD).lower().translate(_DIGIT_FOLD))
     return (len(value) <= limit and not _STEER.search(value)
             and not any(_SQUASHED_STEER.search(w) or _ACTION_WORDS.search(w) for w in (squashed, folded, folded_l))
             and not _encoded_prose(value))
@@ -183,7 +186,7 @@ def _plain(value: str, limit: int) -> bool:
 
 def _key_ok(key: str) -> bool:
     return (_plain(key, 40) and not {w.lower() for w in _KEY_WORD.findall(key)} & _DENY_KEY_WORDS
-            and not _SQUASHED_KEY_DENY.search(re.sub(r"[^a-z]", "", key.lower())))
+            and not _SQUASHED_KEY_DENY.search(_NOT_LETTER.sub("", key.lower())))
 
 
 @functools.cache
@@ -307,6 +310,23 @@ def _span(values: set[str]) -> str:
 def reduce(items: dict[str, Item]) -> dict[str, Item]:
     """F items: the untrusted items grouped by the shape of their facts. Each F item lists the facts
     (a numeric one as its value or its range), how many lines had them, and up to five of their ids."""
+    groups, seen = _grouped(items)
+    ranked = sorted(groups.items(), key=_rank) if len(groups) > MAX_FACT_GROUPS else list(groups.items())
+    shown_groups, hidden = ranked[:MAX_FACT_GROUPS], ranked[MAX_FACT_GROUPS:]
+    out: dict[str, Item] = {}
+    for n, (shape, members) in enumerate(shown_groups, start=1):
+        out[f"F{n}"] = _fact_item(f"F{n}", shape, members, sorted(seen.get(shape, [])))
+    if hidden:
+        n = len(out) + 1
+        lines = sum(len(m) for _, m in hidden)
+        out[f"F{n}"] = Item(f"F{n}", f"{len(hidden)} more fact group(s) not shown (x{lines} lines)")
+    return out
+
+
+def _grouped(items: dict[str, Item]) -> tuple[dict[tuple[str, ...], list[tuple[str, list[str]]]],
+                                                dict[tuple[str, ...], list[str]]]:
+    """The untrusted items' facts by shape: ({shape: [(item id, its facts)]}, {shape: the times its lines were
+    logged}). A `missing_key=` fact counts only when a SOURCE line quotes the key."""
     groups: dict[tuple[str, ...], list[tuple[str, list[str]]]] = {}
     seen: dict[tuple[str, ...], list[str]] = {}
     source = "\n".join(i.text for i in items.values() if i.text.startswith("SOURCE "))
@@ -325,30 +345,36 @@ def reduce(items: dict[str, Item]) -> dict[str, Item]:
         groups.setdefault(shape, []).append((item.id, found))
         if stamp := _STAMP.match(item.text):
             seen.setdefault(shape, []).append(stamp.group(1) + "Z")
+    return groups, seen
+
+
+def _rank(kv: tuple[tuple[str, ...], list]) -> tuple[bool, int]:
+    """The order fact groups are shown in when not all fit."""
     # When there are too many to show (10k distinct lines made 10k items): groups carrying an error
     # level or an error code first, however rare - one decisive line must not lose to a thousand
     # heartbeats - then the largest.
-    def rank(kv: tuple[tuple[str, ...], list]) -> tuple[bool, int]:
-        erring = any(f.startswith(("code=", "level=ERROR", "level=FATAL", "level=CRITICAL", "level=PANIC"))
-                     for f in kv[0])
-        return (not erring, -len(kv[1]))
+    erring = any(f.startswith(("code=", "level=ERROR", "level=FATAL", "level=CRITICAL", "level=PANIC"))
+                 for f in kv[0])
+    return (not erring, -len(kv[1]))
 
-    ranked = sorted(groups.items(), key=rank) if len(groups) > MAX_FACT_GROUPS else list(groups.items())
-    shown_groups, hidden = ranked[:MAX_FACT_GROUPS], ranked[MAX_FACT_GROUPS:]
-    out: dict[str, Item] = {}
-    for n, (shape, members) in enumerate(shown_groups, start=1):
-        values: dict[str, set[str]] = {f: set() for f in shape}
-        for _, found in members:
-            for f in found:
-                values[_NUM.sub("#", f)].add(f)
-        ids = [i for i, _ in members]
-        shown = ", ".join(ids[:5]) + (f" and {len(ids) - 5} more" if len(ids) > 5 else "")
-        body = "; ".join(_span(values[f]) for f in shape) if shape else "no recognised fact"
-        stamps = sorted(seen.get(shape, []))
-        when = (f"; seen {stamps[0]}" + (f" .. {stamps[-1]}" if stamps[-1] != stamps[0] else "")) if stamps else ""
-        out[f"F{n}"] = Item(f"F{n}", f"{body}{when} (x{len(ids)}: {shown})")
-    if hidden:
-        n = len(out) + 1
-        lines = sum(len(m) for _, m in hidden)
-        out[f"F{n}"] = Item(f"F{n}", f"{len(hidden)} more fact group(s) not shown (x{lines} lines)")
-    return out
+
+def _fact_item(item_id: str, shape: tuple[str, ...], members: list[tuple[str, list[str]]], stamps: list[str]) -> Item:
+    """One F item: the group's facts (a numeric one as its value or its range), when its lines were logged, how many
+    lines had them, and up to five of their ids."""
+    values: dict[str, set[str]] = {f: set() for f in shape}
+    for _, found in members:
+        for f in found:
+            values[_NUM.sub("#", f)].add(f)
+    ids = [i for i, _ in members]
+    shown = ", ".join(ids[:5]) + (f" and {len(ids) - 5} more" if len(ids) > 5 else "")
+    body = "; ".join(_span(values[f]) for f in shape) if shape else "no recognised fact"
+    return Item(item_id, f"{body}{_seen(stamps)} (x{len(ids)}: {shown})")
+
+
+def _seen(stamps: list[str]) -> str:
+    """When a group's lines were logged: the first time, and the last when it differs ("" when none says)."""
+    if not stamps:
+        return ""
+    if stamps[-1] != stamps[0]:
+        return f"; seen {stamps[0]} .. {stamps[-1]}"
+    return f"; seen {stamps[0]}"
