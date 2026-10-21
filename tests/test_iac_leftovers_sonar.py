@@ -136,7 +136,11 @@ def test_the_environments_may_write_the_policy_of_their_alb_log_bucket_and_no_ot
         assert denies[0]["NotResource"] == f"arn:aws:s3:::warden-{env}-alb-logs-*", denies
         grant = next(st for st in _iam(env, "deploy-ec2")["Statement"] if st.get("Sid") == "AlbLogsBucket")
         assert "s3:*" not in grant["Action"]  # what the bucket's resources and force_destroy use, nothing more
-        assert grant["Resource"] == [f"arn:aws:s3:::warden-{env}-alb-logs-*", f"arn:aws:s3:::warden-{env}-alb-logs-*/*"]
+        assert grant["Resource"] == f"arn:aws:s3:::warden-{env}-alb-logs-*"  # the bucket: its settings, never an object
+        assert not [a for a in grant["Action"] if a in ("s3:Get*", "s3:GetObject", "s3:List*")]  # CodeRabbit, PR 62
+        empty = next(st for st in _iam(env, "deploy-ec2")["Statement"] if st.get("Sid") == "AlbLogsEmptiedAtDestroy")
+        assert empty["Action"] == ["s3:DeleteObject", "s3:DeleteObjectVersion"]  # force_destroy's, and no read
+        assert empty["Resource"] == f"arn:aws:s3:::warden-{env}-alb-logs-*/*"
 
 
 # ----------------------------------------------------------------- S6327: the order-events topic
@@ -368,6 +372,22 @@ def test_the_webhook_gate_with_no_secret_admits_nothing(monkeypatch):
     assert calls.count("warden/ops/datadog-webhook-token") == 3  # a missing secret is asked again, never remembered
 
 
+def test_a_secret_rotated_out_stops_opening_its_route_at_once(monkeypatch):
+    """CodeRabbit (PR 62): nothing is remembered between requests, so the old token fails on the very next request."""
+    old, new = "o" * 40, "n" * 40
+    stored, calls = {"warden/ops/datadog-webhook-token": old}, []
+    gate = _webhook_gate(monkeypatch, stored, calls)
+
+    def ask(token):
+        return gate.handler({"routeKey": "POST /datadog", "headers": {"authorization": f"Bearer {token}"}}, None)
+
+    assert ask(old) == {"isAuthorized": True}
+    stored["warden/ops/datadog-webhook-token"] = new
+    assert ask(old) == {"isAuthorized": False}
+    assert ask(new) == {"isAuthorized": True}
+    assert len(calls) == 3
+
+
 def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
     """S6428 (owner, 2026-10-20: fixed, not kept by design): the negative Pod Security test is unchanged, but its pod is
     built when the test runs (scripts/negative_pod.py) - no manifest in the tree asks for a privileged container, so
@@ -395,6 +415,18 @@ def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
             for line in p.read_text(encoding="utf-8", errors="replace").splitlines()
             if "negative_pod.py" in line and not line.strip().startswith("#")]
     assert len(uses) == 2, uses
-    assert all("| kubectl apply --dry-run=server -f -" in u for u in uses), uses
     ci = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")
+    assert "python3 scripts/negative_pod.py | kubectl apply --dry-run=server -f - 2>err.txt" in ci
     assert 'grep -q "violates PodSecurity" err.txt' in ci
+    # The proof run builds it on its own first (a generator failure stops the run, never reads as a refusal), sends
+    # it to the same dry run and reports enforcement only on Pod Security's own reason (CodeRabbit, PR 62).
+    proof = (ROOT / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")
+    assert '"$PY" "$HERE/scripts/negative_pod.py" > "$OUT/privileged-pod.json" || die' in proof
+    assert 'kubectl apply --dry-run=server -f "$OUT/privileged-pod.json"' in proof
+    lines = [line.strip() for line in proof.splitlines()]
+    at = lines.index('if kubectl apply --dry-run=server -f "$OUT/privileged-pod.json" 2>"$OUT/reports/D-privileged-rejected.txt"; then')
+    assert lines[at + 1].startswith('note "⛔ EKS ACCEPTED')
+    assert lines[at + 2] == 'elif grep -q "violates PodSecurity" "$OUT/reports/D-privileged-rejected.txt"; then'
+    assert lines[at + 3].startswith('note "✅ EKS rejected')
+    assert lines[at + 4] == "else"
+    assert "Pod Security NOT shown" in lines[at + 5]

@@ -12,7 +12,6 @@ Standard library and boto3 (in Lambda's Python runtime) only; no VPC, no image.
 
 import hmac
 import os
-import time
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
@@ -22,23 +21,18 @@ ROUTE_SECRETS = {
     "POST /alertmanager": ("alertmanager-token", "alertmanager-token-previous"),
     "POST /datadog": ("datadog-webhook-token",),
 }
-_TTL_S = 300  # a rotated secret is seen within five minutes
-_CACHE = {}
 _CLIENT = []
 
 
 def _secret(name):
-    hit = _CACHE.get(name)
-    if hit and time.monotonic() - hit[1] < _TTL_S:
-        return hit[0]
+    """Read for every request, never remembered: a secret rotated out stops opening the route at once (the gateway's
+    own result cache is off too, TTL 0). A webhook comes a few times an hour; the read costs a few milliseconds."""
     if not _CLIENT:
         _CLIENT.append(boto3.client("secretsmanager"))
     try:
-        value = _CLIENT[0].get_secret_value(SecretId=f"warden/{os.environ['WARDEN_ENV']}/{name}")["SecretString"]
-    except (ClientError, BotoCoreError):  # missing, not readable or unreachable: nothing matches it; asked again next time
+        return _CLIENT[0].get_secret_value(SecretId=f"warden/{os.environ['WARDEN_ENV']}/{name}")["SecretString"]
+    except (ClientError, BotoCoreError):  # missing, not readable or unreachable: nothing matches it
         return ""
-    _CACHE[name] = (value, time.monotonic())
-    return value
 
 
 def handler(event, context):
