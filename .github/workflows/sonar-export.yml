@@ -4,8 +4,8 @@ name: "Temp · Sonar export (never merged)"
 # SonarCloud issues of main from Sonar's public API into the job log. No checkout, no secrets, no third-party action.
 # This pull request is closed without merging once the list is read.
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [sonar-export]
     paths: [".github/workflows/sonar-export.yml"]
 
 # Read-only: the code-scanning alerts of main, counted per tool.
@@ -40,6 +40,10 @@ jobs:
                   except Exception as e:
                       print("retry", attempt, e); time.sleep(5)
               raise SystemExit("sonar api unreachable")
+          an = get("https://sonarcloud.io/api/project_analyses/search?project=veerarakesh56_warden&branch=main&ps=3")
+          for x in an.get("analyses", []):
+              print(f"=== ANALYSIS {x.get('date')} revision={x.get('revision')}")
+          # export run for main e467109 (#164: the owner's 27)
           for quality in ("SECURITY", "RELIABILITY", "MAINTAINABILITY"):
               page, seen = 1, 0
               while True:
