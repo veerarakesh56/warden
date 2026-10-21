@@ -245,9 +245,11 @@ aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --d
 
    ```
    aws sqs get-queue-attributes --queue-url <queue-url> --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible ApproximateNumberOfMessagesDelayed
-   ``` WARDEN does not replay them
-   itself. (The `alarm` Lambda takes the same EventBridge event, so it can be invoked by hand with a message's body;
-   this has not been tried live.)
+   ```
+
+   The counts are approximate: treat the queue as clear only when two checks at least 15 minutes apart both show `0`
+   for all three. WARDEN does not replay these messages itself. (The `alarm` Lambda takes the same EventBridge
+   event, so it can be invoked by hand with a message's body; this has not been tried live.)
 5. Alarms that went into ALARM during the outage and are still in ALARM: CloudWatch sends a change only once, so
    WARDEN will not see them again until they change state. Handle them by hand.
 6. Write down what happened (times in UTC and IST, what was down, how long, which incidents people handled) and add

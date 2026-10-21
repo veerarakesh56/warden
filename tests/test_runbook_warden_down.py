@@ -100,6 +100,14 @@ def test_the_runbook_has_what_a_person_needs_when_warden_is_down():
         assert needed in joined, needed
 
 
+def test_every_code_fence_opens_and_closes_on_a_line_of_its_own():
+    """PR 86 review: text after a closing fence left the block open, and the rest of the runbook rendered as code."""
+    fences = [line.strip() for line in _text().splitlines() if "```" in line]
+    assert fences, "no command block"
+    assert all(f == "```" for f in fences), [f for f in fences if f != "```"]
+    assert len(fences) % 2 == 0, len(fences)
+
+
 def test_a_shared_key_rotation_renews_each_front_door_lambda_and_waits_for_it():
     """PR 86 review: a warm Lambda keeps the old Temporal key, and a configuration update returns before it is done.
     Each Lambda that reads the shared key is named, and the runbook waits for each update."""
