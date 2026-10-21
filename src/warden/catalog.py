@@ -127,12 +127,15 @@ def _scale_up_by_two(p: dict, live: dict) -> list[str]:
     return [] if cur < p["replicas"] <= cur + 2 else [f"replicas must be above {cur} and at most {cur + 2}"]
 
 
+# What a bounded increase restores: nothing - it only raises a limit within its cap.
+BOUNDED_INCREASE = "n/a (bounded increase)"
+
 CATALOG: dict[str, Entry] = {e.name: e for e in [
     Entry("lambda_move_alias", "T2", "lambda", "the version the alias served before the incident",
           _ref("function", "alias", "to_version")),
     Entry("lambda_restore_config", "T2", "lambda", "the configuration of the previous published version",
           _ref("function", "from_version")),
-    Entry("lambda_set_reserved_concurrency", "T1", "lambda", "n/a (bounded increase)",
+    Entry("lambda_set_reserved_concurrency", "T1", "lambda", BOUNDED_INCREASE,
           {**_ref("function"), "concurrency": Param("int", 1, 1000)}, _raise_concurrency),
     # The function names the mapping's owner: a mapping of another function is never in the allowed set (G9-D).
     Entry("lambda_enable_esm", "T1", "lambda", "the event source mapping's enabled state", _ref("function", "mapping"),
@@ -155,7 +158,7 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     Entry("athena_stop_query", "T1", "athena", "n/a (the query can be run again)", _ref("workgroup", "query")),
     # G9-D: a REST API stage's all-methods throttle, only where one is already set (AWS can replace it, not remove a
     # new one); above the current, at most double, within the account's limits.
-    Entry("apigw_raise_stage_throttle", "T1", "apigw", "n/a (bounded increase)",
+    Entry("apigw_raise_stage_throttle", "T1", "apigw", BOUNDED_INCREASE,
           {**_ref("api", "stage"), "rate_limit": Param("int", 1, 10000), "burst_limit": Param("int", 1, 5000)},
           _raise_throttle),
     # G9-D: traffic away from the load balancer's ONE impaired zone for a set time (ARC ends it at its expiry; the
@@ -171,19 +174,19 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     # service's own `warden:pipeline` tag names (AWS has no link of its own from a service to its pipeline).
     Entry("codepipeline_freeze", "T1", "codepipeline", "the stage's inbound transition, enabled again",
           _ref("resource", "pipeline", "stage")),
-    Entry("dynamodb_raise_capacity", "T1", "dynamodb", "n/a (bounded increase)",
+    Entry("dynamodb_raise_capacity", "T1", "dynamodb", BOUNDED_INCREASE,
           {**_ref("table"), "capacity": Param("int", 1, 40000)}, _at_most_double),
     Entry("ecs_rollback_service", "T2", "ecs", "the service's previous steady task definition",
           _ref("cluster", "service", "to_task_definition")),
     # G9-D: a restart only when every container image is pinned by digest - forcing a new deployment pulls whatever
     # a tag points to now, which would roll out new code (AWS ECS API reference, read 2026-10-10).
     Entry("ecs_restart_service", "T1", "ecs", "n/a (same task definition, new tasks)", _ref("cluster", "service")),
-    Entry("ecs_scale_service", "T1", "ecs", "n/a (bounded increase)",
+    Entry("ecs_scale_service", "T1", "ecs", BOUNDED_INCREASE,
           {**_ref("cluster", "service"), "replicas": Param("int", 1, 100)}, _scale_up_by_two),
     Entry("k8s_rollout_undo", "T2", "k8s", "the last revision that was Ready",
           _ref("namespace", "deployment", "to_revision")),
     Entry("k8s_restart", "T1", "k8s", "n/a (same spec, new pods)", _ref("namespace", "deployment")),
-    Entry("k8s_scale", "T1", "k8s", "n/a (bounded increase)",
+    Entry("k8s_scale", "T1", "k8s", BOUNDED_INCREASE,
           {**_ref("namespace", "deployment"), "replicas": Param("int", 1, 50)}, _scale_up_by_two),
     Entry("db_terminate_idle_in_tx", "T1", "db", "n/a (the session is closed, the data is untouched)",
           {**_ref("database"), "min_idle_seconds": Param("int", 300, 86400), "max_sessions": Param("int", 1, 20)}),
@@ -515,40 +518,67 @@ def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[st
     entry = CATALOG[name]
     problems = [f"unexpected parameter {p!r}" for p in params if p not in entry.params]
     for pname, spec in entry.params.items():
-        if pname not in params:
-            problems.append(f"missing parameter {pname!r}")
-            continue
-        value = params[pname]
-        if spec.kind == "ref":
-            allowed = live.get(pname)
-            if not isinstance(value, str) or not isinstance(allowed, set | frozenset) or value not in allowed:
-                problems.append(f"{pname}={value!r} is not something WARDEN read from live state")
-        elif not isinstance(value, int) or isinstance(value, bool) or not spec.lo <= value <= spec.hi:
-            problems.append(f"{pname}={value!r} is outside {spec.lo}..{spec.hi}")
+        problem = _param_problem(pname, spec, params, live)
+        if problem:
+            problems.append(problem)
     if not problems and entry.relative:
         problems += entry.relative(params, live)
     if not problems and name in ROLLS_PODS:
-        # Register C10: a restart goes through the target's own rolling settings, so those settings must keep most of
-        # it serving - never Recreate, never more than half the pods down together, and never unknown.
-        at_once, replicas = live.get("at_once"), live.get("current_replicas")
-        if not isinstance(at_once, int) or not isinstance(replicas, int):
-            problems.append("C10: the target's rollout strategy could not be read; a restart is not sent blind")
-        elif replicas > 1 and at_once * 2 > replicas:
-            problems.append(f"C10: the target's strategy would take {at_once} of {replicas} pods down at once; a "
-                            "restart is refused until it keeps most of them serving")
-    if not problems and live.get("gitops") and not (name == "k8s_restart" and live["gitops"] == "Argo CD"
-                                                    and live.get("gitops_ignores_restart") is True):
-        # Register C4: Argo CD or Flux would revert the change at its next sync - the fix belongs in Git. The one
-        # exception (owner decision 2026-10-17): a restart of a Deployment whose Argo CD Application was read live
-        # and ignores the restart annotation - self-heal leaves it, and a restart changes nothing Git holds. A scale,
-        # an undo or anything else on a Git-managed workload would fight Git, and stays refused.
+        problems += _rolling_problems(live)
+    if not problems and _gitops_reverts(name, live):
         problems.append(f"C4: {live['gitops']} manages this target and reverts a direct change; make the change in Git")
-    if not problems and name in SCALES and "autoscaled" in live and live["autoscaled"] is not False:
-        problems.append("C4: an autoscaler (a HorizontalPodAutoscaler, Application Auto Scaling) owns this target's "
-                        "count; a manual change would be undone" if live["autoscaled"] else
-                        "C4: whether an autoscaler owns this target's count could not be read; no change is sent")
+    if not problems and name in SCALES:
+        problems += _autoscaler_problems(live)
     if live.get("rollout") == "progressing":
         # Register C5: a change made mid-rollout fights the rollout, and the next read cannot tell which did what.
         problems.append("P21-ROLLOUT-IN-PROGRESS: a rollout of this target is under way; act after it completes "
                         "or misses its deadline")
     return problems
+
+
+def _param_problem(pname: str, spec: Param, params: dict[str, Any], live: dict[str, Any]) -> str | None:
+    """Why one declared parameter is missing or out of bounds, or None when it is fine."""
+    if pname not in params:
+        return f"missing parameter {pname!r}"
+    value = params[pname]
+    if spec.kind == "ref":
+        allowed = live.get(pname)
+        if not isinstance(value, str) or not isinstance(allowed, set | frozenset) or value not in allowed:
+            return f"{pname}={value!r} is not something WARDEN read from live state"
+    elif not isinstance(value, int) or isinstance(value, bool) or not spec.lo <= value <= spec.hi:
+        return f"{pname}={value!r} is outside {spec.lo}..{spec.hi}"
+    return None
+
+
+def _rolling_problems(live: dict[str, Any]) -> list[str]:
+    """Register C10: a rollout strategy that keeps most of the target serving."""
+    # Register C10: a restart goes through the target's own rolling settings, so those settings must keep most of
+    # it serving - never Recreate, never more than half the pods down together, and never unknown.
+    at_once, replicas = live.get("at_once"), live.get("current_replicas")
+    if not isinstance(at_once, int) or not isinstance(replicas, int):
+        return ["C10: the target's rollout strategy could not be read; a restart is not sent blind"]
+    if replicas > 1 and at_once * 2 > replicas:
+        return [(f"C10: the target's strategy would take {at_once} of {replicas} pods down at once; a "
+                 "restart is refused until it keeps most of them serving")]
+    return []
+
+
+def _autoscaler_problems(live: dict[str, Any]) -> list[str]:
+    """Register C4: an autoscaler that owns the count (or may: it could not be read) would undo a manual change."""
+    if "autoscaled" not in live or live["autoscaled"] is False:
+        return []
+    if live["autoscaled"]:
+        return [("C4: an autoscaler (a HorizontalPodAutoscaler, Application Auto Scaling) owns this target's "
+                 "count; a manual change would be undone")]
+    return ["C4: whether an autoscaler owns this target's count could not be read; no change is sent"]
+
+
+def _gitops_reverts(name: str, live: dict[str, Any]) -> bool:
+    """Whether a GitOps controller manages the target and would revert a direct change."""
+    # Register C4: Argo CD or Flux would revert the change at its next sync - the fix belongs in Git. The one
+    # exception (owner decision 2026-10-17): a restart of a Deployment whose Argo CD Application was read live
+    # and ignores the restart annotation - self-heal leaves it, and a restart changes nothing Git holds. A scale,
+    # an undo or anything else on a Git-managed workload would fight Git, and stays refused.
+    if not live.get("gitops"):
+        return False
+    return not (name == "k8s_restart" and live["gitops"] == "Argo CD" and live.get("gitops_ignores_restart") is True)
