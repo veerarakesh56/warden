@@ -30,8 +30,14 @@ What each number means (docs/OPERATIONS.md, "Pilot metrics", says the same):
 - **Median**: the middle value, the mean of the two middle ones for an even count (statistics.median). **p90**: the
   nearest rank - the smallest value at least 90% of the values are at or below: sorted[ceil(0.9 * n) - 1].
 - **Model calls**: the `calls` of every `incident.llm_spend` row of the incident and of its discussion
-  (`discuss-<id>`), plus one per `eldane.call` row. **Cost**: the `usd` of the same `incident.llm_spend` rows. Eldane's
-  calls record tokens, not US dollars: their cost is NOT RECORDED, and the report says so.
+  (`discuss-<id>`), plus one per `eldane.call` row. **Spend ledger**: the `usd` of the same rows. Eldane's
+  calls record tokens, not US dollars: they are not in that ledger.
+- **Cost per incident**: the `cost` (US dollars) of the `llm.call` rows of the incident and its discussion, over
+  incidents. A call row with no cost is NOT RECORDED for that call (counted and said, never estimated); with no
+  `llm.call` or `llm.fallback` row anywhere in the verified audit, cost and fallbacks are NOT RECORDED, never 0.
+- **Fallbacks**: `llm.fallback` rows of the incident and its discussion, by `reason` (rules_only, model_refused,
+  budget_cap, provider_unavailable; any other reason is listed by name). Per incident: fallbacks / incidents. Per
+  model call: fallbacks / `llm.call` rows.
 - **Undo count**: `remediation.rollback` rows with `undone` true, one per plan run; `remediation.rollback_failed`
   rows are counted beside it.
 - A rate with nothing to divide by is "n/a". All times are UTC.
@@ -42,7 +48,7 @@ from __future__ import annotations
 import json
 import math
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -73,6 +79,11 @@ OUTCOMES = (
 )  # of a plan, in the order the report says them
 NA = "n/a"
 NOT_RECORDED = "not recorded"
+# One row per model call, with `cost` (US dollars), `latency_ms`, `prompt_tokens` and `completion_tokens`; one row per
+# fall-back from the model, with its `reason` (lane FDE-F, 2026-10-21). An audit with neither row was written before
+# they existed: its cost and fallbacks are NOT RECORDED, never 0.
+LLM_CALL, FALLBACK = "llm.call", "llm.fallback"
+FALLBACK_REASONS = ("rules_only", "model_refused", "budget_cap", "provider_unavailable")
 
 
 # ------------------------------------------------------------------ the rows, checked
@@ -231,6 +242,10 @@ class Incident:
     calls: int = 0
     usd: float = 0.0
     critic_calls: int = 0
+    llm_calls: int = 0
+    llm_cost: float = 0.0
+    uncosted: int = 0  # llm.call rows with no cost
+    fallbacks: Counter = field(default_factory=Counter)
     undone: int = 0
     undo_failed: int = 0
 
@@ -242,6 +257,7 @@ class Report:
     checked: Checked
     incidents: list[Incident] = field(default_factory=list)
     negative_times: int = 0
+    llm_recorded: bool = False  # any llm.call or llm.fallback row in the verified audit
 
     @property
     def plans(self) -> list[Plan]:
@@ -368,6 +384,24 @@ def _spend(i: Incident, rows: list[dict[str, Any]]) -> None:
             i.usd += float(e["body"].get("usd") or 0.0)
         elif e["kind"] == "eldane.call":
             i.critic_calls += 1
+        elif e["kind"] == LLM_CALL:
+            _call(i, e["body"])
+        elif e["kind"] == FALLBACK:
+            i.fallbacks[str(e["body"].get("reason") or "unstated")] += 1
+
+
+def _call(i: Incident, body: dict[str, Any]) -> None:
+    i.llm_calls += 1
+    cost = body.get("cost")
+    if (
+        isinstance(cost, int | float)
+        and not isinstance(cost, bool)
+        and math.isfinite(cost)
+        and cost >= 0
+    ):
+        i.llm_cost += float(cost)
+    else:
+        i.uncosted += 1  # never estimated: this row's cost is not recorded
 
 
 def _undo(i: Incident, rows: list[dict[str, Any]]) -> None:
@@ -392,7 +426,7 @@ def _incident(cid: str, rows: list[dict[str, Any]], discussed: list[dict[str, An
     i.plans = _plans(rows)
     _new_plan_asked(i.plans, discussed)
     i.fixed, i.escalated = _fixed_at(rows, i.plans), _escalated(rows)
-    _spend(i, rows + [e for e in discussed if e["kind"] == SPEND])
+    _spend(i, rows + [e for e in discussed if e["kind"] in (SPEND, LLM_CALL, FALLBACK)])
     _undo(i, rows)
     return i
 
@@ -421,6 +455,7 @@ def report(
         if i.first >= out.since and (allowed is None or i.environment in allowed):
             out.incidents.append(i)
     out.incidents.sort(key=lambda i: i.first)
+    out.llm_recorded = any(e["kind"] in (LLM_CALL, FALLBACK) for e in checked.rows)
     plan_times = sum(1 for i in out.incidents if i.alarm and i.plans and i.plans[0].at < i.alarm)
     fixed_times = sum(1 for i in out.incidents if i.alarm and i.fixed and i.fixed < i.alarm)
     out.negative_times = plan_times + fixed_times
@@ -497,27 +532,59 @@ def lines(r: Report, *, detail: bool = True) -> list[tuple[str, str]]:
         )
     esc = sum(1 for i in r.incidents if i.escalated)
     out.append(("Escalation rate", f"{esc} of {n} incidents ({rate(esc, n)})"))
-    calls = sum(i.calls + i.critic_calls for i in r.incidents)
-    critic = sum(i.critic_calls for i in r.incidents)
-    usd = sum(i.usd for i in r.incidents)
-    out.append(
-        (
-            "Model calls per incident",
-            (f"{calls / n:.2f}" if n else NA) + f" ({calls} in all, {critic} of them Eldane's)",
-        )
-    )
-    out.append(
-        (
-            "Cost per incident",
-            (f"US${usd / n:.4f}" if n else NA)
-            + f" (US${usd:.4f} in all; Eldane's calls: {NOT_RECORDED} - the audit keeps their tokens, not dollars)",
-        )
-    )
+    out += _model_lines(r, n)
     undone, undo_failed = (
         sum(i.undone for i in r.incidents),
         sum(i.undo_failed for i in r.incidents),
     )
     out.append(("Undo count", f"{undone} (undo failed: {undo_failed})"))
+    return out
+
+
+def _model_lines(r: Report, n: int) -> list[tuple[str, str]]:
+    """Model calls, cost and fallbacks. Cost and fallbacks come only from llm.call and llm.fallback rows: with none in
+    the audit they are "not recorded"; a call row without a cost is not recorded for that call, never estimated."""
+    calls = sum(i.calls + i.critic_calls for i in r.incidents)
+    critic = sum(i.critic_calls for i in r.incidents)
+    ledger = sum(i.usd for i in r.incidents)
+    out = [
+        (
+            "Model calls per incident",
+            (f"{calls / n:.2f}" if n else NA)
+            + f" ({calls} in all from incident.llm_spend and eldane.call, {critic} of them Eldane's)",
+        ),
+        (
+            "Spend ledger (incident.llm_spend)",
+            f"US${ledger:.4f} in all (the budget ledger; Eldane's calls are not in it)",
+        ),
+    ]
+    if not r.llm_recorded:
+        why = f"{NOT_RECORDED} (no {LLM_CALL} or {FALLBACK} rows in the audit)"
+        return [*out, ("Cost per incident", why), ("Fallbacks", why)]
+    rows = sum(i.llm_calls for i in r.incidents)
+    uncosted = sum(i.uncosted for i in r.incidents)
+    cost = sum(i.llm_cost for i in r.incidents)
+    said = f"US${cost / n:.4f}" if n else NA
+    said += f" (US${cost:.4f} in all over {rows - uncosted} {LLM_CALL} row(s) with a cost"
+    said += f"; {uncosted} row(s) without one: {NOT_RECORDED} for those)" if uncosted else ")"
+    out.append(("Cost per incident", said))
+    seen: Counter = Counter()
+    for i in r.incidents:
+        seen.update(i.fallbacks)
+    total = sum(seen.values())
+    out.append(
+        (
+            "Fallbacks",
+            f"{total}; per incident {total / n:.2f} ({total} / {n} incidents)"
+            if n
+            else f"{total}; per incident {NA} (0 incidents)",
+        )
+    )
+    out.append(
+        ("Fallback rate per model call", f"{rate(total, rows)} ({total} / {rows} {LLM_CALL} rows)")
+    )
+    names = [*FALLBACK_REASONS, *sorted(set(seen) - set(FALLBACK_REASONS))]
+    out.append(("Fallbacks by reason", ", ".join(f"{k} {seen[k]}" for k in names)))
     return out
 
 

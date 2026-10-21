@@ -140,7 +140,9 @@ checkpoint are not signed yet and are not counted either. All times are UTC.
 | Alarm to plan | the first `incident.alert` row's `alert.started_at` to the first `remediation.plan` row |
 | Alarm to fixed | the same alarm time to the first `remediation.result` with `ok` true of a run that ended `recovered` or `verified`; open and unfixed incidents are not in it |
 | Model calls | `calls` of `incident.llm_spend` rows (the incident's and its discussion's) plus one per `eldane.call` row |
-| Cost | `usd` of the same `incident.llm_spend` rows |
+| Spend ledger | `usd` of the same `incident.llm_spend` rows (the budget ledger) |
+| Cost per incident | `cost` (US dollars) of `llm.call` rows (the incident's and its discussion's), over incidents; a row with no `cost` is "not recorded" for that call, never estimated |
+| Fallbacks | `llm.fallback` rows by `reason` (rules_only, model_refused, budget_cap, provider_unavailable; others by name); per incident = fallbacks / incidents, per model call = fallbacks / `llm.call` rows |
 | Undo count | runs with a `remediation.rollback` row whose `undone` is true; `remediation.rollback_failed` runs beside it |
 
 The four plan outcomes are rates over ENDED plans, and one plan can be two of them (approved, then drifted and planned
@@ -148,8 +150,11 @@ again). Median is the middle value (the mean of the two middle ones for an even 
 sorted[ceil(0.9 x n) - 1]. A rate with nothing to divide by is "n/a". A time whose alarm is later than its plan or fix
 (the alarm source's clock ahead) is left out and counted.
 
-Not in the audit, so not in the report: the cost of Eldane's calls (`eldane.call` records tokens, not US dollars: the
-report says "not recorded"); and any time a person spent outside WARDEN.
+`llm.call` and `llm.fallback` rows are new (lane FDE-F, 2026-10-21): an audit with neither row anywhere says cost and
+fallbacks are "not recorded", never 0. Once either row exists, no fallback in the window is a measured 0.
+
+Not in the audit, so not in the report: a cost for a call row without one, the cost of Eldane's `eldane.call` rows in
+the spend ledger (they record tokens, not US dollars), and any time a person spent outside WARDEN.
 
 ## Pause and resume to save money (owner update 5, 2026-10-17)
 

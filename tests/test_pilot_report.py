@@ -25,6 +25,7 @@ CHANGED = "changed after it was written"
 DAY, DB, PAGE, QUERY = "2026-10-14", "audit.db", "/r/pilot", "since=2026-10-14"
 # B's end row, rewritten as a fix.
 FORGED = '{"checklist":{"approved":true},"run_id":"r1","status":"recovered","workflow_id":"rem-b"}'
+NOT_RECORDED_YET = "not recorded (no llm.call or llm.fallback rows in the audit)"
 SPEND, ESCALATED = "incident.llm_spend", "1 of 7 incidents (14.3%)"
 
 
@@ -225,15 +226,74 @@ def test_every_metric_from_the_fixture_is_exact(made):
     assert got["Alarm to fixed"] == "median 30.0 min, p90 40.0 min (2 incident(s))"
     assert got["Not fixed (open or ended otherwise)"] == "5"
     assert got["Escalation rate"] == ESCALATED
-    assert got["Model calls per incident"] == "1.71 (12 in all, 1 of them Eldane's)"
-    assert got["Cost per incident"].startswith(
-        "US$0.0329 (US$0.2300 in all; Eldane's calls: not recorded"
-    )
+    assert got["Model calls per incident"].startswith("1.71 (12 in all from incident.llm_spend")
+    assert got["Spend ledger (incident.llm_spend)"].startswith("US$0.2300 in all")
+    # No llm.call or llm.fallback row in this audit: not recorded, never 0.
+    assert got["Cost per incident"] == NOT_RECORDED_YET
+    assert got["Fallbacks"] == NOT_RECORDED_YET
+    assert "Fallback rate per model call" not in got
     assert got["Undo count"] == "1 (undo failed: 0)"  # two rollback rows of one run: one undo
     assert got["Audit rows"].startswith(
         f"{log.signed_through()} read; {log.signed_through()} verified"
     )
     assert "Times left out" not in got
+
+
+def _llm_rows(log):
+    """llm.call and llm.fallback rows (lane FDE-F's shapes) beside the fixture's incidents, then signed."""
+
+    def call(cid, cost=None):
+        body = {"latency_ms": 900, "prompt_tokens": 1000, "completion_tokens": 200}
+        log.append(cid, pilot.LLM_CALL, body if cost is None else {**body, "cost": cost})
+
+    for cid, cost in (
+        ("old", 9.0),
+        ("a", 0.05),
+        ("a", 0.03),
+        ("c", 0.10),
+        ("c", None),
+        ("discuss-c", 0.02),
+        ("g", 0.01),
+    ):
+        call(cid, cost)
+    for cid, reason in (
+        ("old", "budget_cap"),
+        ("a", "model_refused"),
+        ("c", "budget_cap"),
+        ("d", "rules_only"),
+        ("d", "rules_only"),
+        ("e", "weird_reason"),
+    ):
+        log.append(cid, pilot.FALLBACK, {"reason": reason})
+    log.checkpoint()
+
+
+def test_cost_and_fallbacks_come_from_llm_rows_and_a_missing_cost_is_not_recorded(made):
+    log, key, _ = made
+    _llm_rows(log)
+    got = _lines(log, key)
+    # 0.05 + 0.03 + 0.10 + 0.02 (its discussion) + 0.01 = 0.21 over 7 incidents; c's second call has no cost
+    assert got["Cost per incident"] == (
+        "US$0.0300 (US$0.2100 in all over 5 llm.call row(s) with a cost; "
+        "1 row(s) without one: not recorded for those)"
+    )
+    assert got["Fallbacks"] == "5; per incident 0.71 (5 / 7 incidents)"
+    assert got["Fallback rate per model call"] == "83.3% (5 / 6 llm.call rows)"
+    assert got["Fallbacks by reason"] == (
+        "rules_only 2, model_refused 1, budget_cap 1, provider_unavailable 0, weird_reason 1"
+    )
+
+
+def test_once_llm_rows_exist_no_fallback_is_a_measured_zero(made):
+    log, key, _ = made
+    log.append("a", pilot.LLM_CALL, {"cost": 0.04})
+    log.checkpoint()
+    got = _lines(log, key)
+    assert got["Fallbacks"] == "0; per incident 0.00 (0 / 7 incidents)"
+    assert got["Fallback rate per model call"] == "0.0% (0 / 1 llm.call rows)"
+    assert got["Cost per incident"].startswith(
+        "US$0.0057 (US$0.0400 in all over 1 llm.call row(s) with a cost)"
+    )
 
 
 def test_p90_is_the_nearest_rank_and_the_median_the_middle():
@@ -289,6 +349,7 @@ def test_the_since_filter_leaves_out_earlier_incidents(made):
 
 def test_no_incidents_gives_n_a_and_never_divides_by_zero(made):
     log, key, _ = made
+    _llm_rows(log)
     got = _lines(log, key, since=NOW)
     assert got["Incidents"] == "0"
     assert got["Plans"] == "0 (0 ended, 0 open)"
@@ -297,6 +358,8 @@ def test_no_incidents_gives_n_a_and_never_divides_by_zero(made):
     assert got["Escalation rate"] == "0 of 0 incidents (n/a)"
     assert got["Model calls per incident"].startswith("n/a")
     assert got["Cost per incident"].startswith("n/a")
+    assert got["Fallbacks"] == "0; per incident n/a (0 incidents)"
+    assert got["Fallback rate per model call"] == "n/a (0 / 0 llm.call rows)"
     assert got["Alarm to fixed"] == "median n/a, p90 n/a (0 incident(s))"
 
 
@@ -399,7 +462,7 @@ def test_the_command_prints_the_report_and_fails_on_a_tampered_row(
     out = capsys.readouterr().out
     assert "Escalation rate" in out
     assert ESCALATED in out
-    assert "Eldane's calls: not recorded" in out
+    assert NOT_RECORDED_YET in out
     seq = _seq(log, "a", SPEND)
     _raw(path).execute("UPDATE entries SET body = ? WHERE seq = ?", ('{"calls":0,"usd":0}', seq))
     assert _command(pub) == 1
@@ -445,6 +508,7 @@ def test_the_page_shows_the_numbers_to_a_reader_of_the_records_only(page_setup, 
     out = _as(page)
     assert out.status == 200
     assert ESCALATED in out.body
+    assert '<th scope="row">Fallbacks</th><td>not recorded' in out.body
     assert "frame-ancestors 'none'" in out.headers["Content-Security-Policy"]
     assert out.body.count("<script") == 1
     assert "{{" not in out.body
