@@ -40,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
         RemediationActivities,
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
+    from .autonomy import L2, VETO
     from .catalog import MITIGATES
     from .code_fix import CodeFixActivities, revert_target
     from .discuss import (
@@ -75,6 +76,13 @@ MERGE_TRIES = 144
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
+# Eldane's review: two model calls and perhaps a catch trial, once. A critic zone that is not running holds nobody up
+# (CodeRabbit, PR 42): unstarted within 30 seconds, or not done in four minutes, the plan goes to a person as before.
+CRITIC = {"schedule_to_start_timeout": timedelta(seconds=30), "start_to_close_timeout": timedelta(minutes=4),
+          "retry_policy": RetryPolicy(maximum_attempts=1)}
+# Whether Eldane may approve here at all (the environment's autonomy ceiling), asked once: no answer is "no", and the
+# person is asked first, as everywhere Eldane cannot approve.
+CEILING = {"start_to_close_timeout": timedelta(seconds=30), "retry_policy": RetryPolicy(maximum_attempts=1)}
 # Register S15, the trust zones: each activity runs where its credentials are. The read zone holds the watched
 # environments' readers, the llm zone the model, the notify zone the paging, chat and change-record secrets (and so a
 # run's end, which resolves its page and records the change), the act zone the actors;
@@ -85,7 +93,9 @@ ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan"
                   "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
          "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
-         "act": ("apply", "rollback", "code_fix_revert", "code_fix_merge")}
+         "act": ("apply", "rollback", "code_fix_revert", "code_fix_merge"),
+         # Eldane, the AI critic (eldane.py): its own model, its own signing key, no other zone's credentials.
+         "critic": ("critic_review",)}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
 
@@ -107,6 +117,15 @@ CHECK_EVERY = timedelta(seconds=30)
 # Recovered = this many healthy checks in a row; then re-checked this long after, the run open until the last.
 CONSECUTIVE_HEALTHY = 3
 RECHECK_AFTER = (timedelta(minutes=15), timedelta(minutes=60))
+
+
+def rechecks(req: FixRequest) -> tuple[timedelta, ...]:
+    """The watch's re-checks: RECHECK_AFTER, then the soak's end when it is longer (item 11). A request from before the
+    soak had none and replays as it ran: its default is RECHECK_AFTER's last."""
+    soak = timedelta(minutes=req.soak_minutes)
+    return RECHECK_AFTER + ((soak,) if soak > RECHECK_AFTER[-1] else ())
+
+
 # Stages that are ends: a failure there is the end row's own (finish), with nothing left to record.
 # Decision D7: when the target, or WARDEN itself, changed under an approved plan, the plan is made again from what
 # WARDEN reads now and put to the approvers again - never applied unseen. Live, 2026-10-12: a deploy a minute before
@@ -223,6 +242,11 @@ class RemediationWorkflow:
                 await end("failed_after_apply" if self._applying else "failed", [f"a step failed: {exc.cause or exc}"])
             raise
 
+    def _vetoed(self, wid: str, plan: Plan) -> Denial | None:
+        """A person's "no" to exactly this plan, if one has come."""
+        return next((d for d in self._inbox if isinstance(d, Denial) and d.workflow_id == wid
+                     and d.plan_hash == plan.plan_hash), None)
+
     async def _side_effects_end(self, req: FixRequest, acts, plan: Plan, end) -> FixOutcome | None:
         """The fix passed its own checks, and other alarms started after it: not called fixed, and not undone either -
         they may be unrelated; each alarm's own incident says whether it is connected. What they were is read from the
@@ -265,22 +289,63 @@ class RemediationWorkflow:
             return await end("blocked", blocked or ["the gate's answer could not be read"])
         done["policy"] = True
 
+        accepted: list[SignedApproval] = []
+        auto = False
+        # Eldane, the AI critic (owner, 2026-10-16), after the gate: it can only add a "no". It reviews the plan in its
+        # own zone; where the plan's class is at L2 (autonomy.py; dev, not demoted) its signed approval comes back and is
+        # checked like any other approval. Anything else, or no answer in time, and a person decides as before.
+        opened = False
+        if workflow.patched("eldane-critic"):
+            # Where Eldane can never approve (prod, or an environment with no L2 ceiling) the person is asked first,
+            # and the review - shadow, scored - follows: it never holds the request back (CodeRabbit, PR 42).
+            may_approve = False
+            with contextlib.suppress(ActivityError):
+                state = await workflow.execute_activity_method(acts.autonomy_state, args=[req.environment],
+                                                               **CEILING)
+                may_approve = state.get("ceiling") == L2
+            if not may_approve and workflow.patched("h6-links"):
+                with contextlib.suppress(ActivityError):
+                    await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "opening"],
+                                                           **NOTIFY)
+                opened = True
+            offered = None
+            with contextlib.suppress(ActivityError):
+                offered = await workflow.execute_activity_method(acts.critic_review, **_zoned(acts.critic_review),
+                                                                 args=[plan], **CRITIC)
+            if may_approve and isinstance(offered, SignedApproval):
+                result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
+                                                                args=[plan, offered, []], **QUICK)
+                if not result.problems:
+                    accepted.append(offered)
+                    auto = result.enough
+        if auto:
+            # A person's decision always overrides Eldane's (owner, 2026-10-17): the channel is told Eldane approved,
+            # with the page's links, and a person's "no" in the next VETO minutes - or later, until the apply step starts - ends the
+            # plan with nothing changed.
+            with contextlib.suppress(ActivityError):
+                await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "autonomous"],
+                                                       **NOTIFY)
+            self._stage = "awaiting_veto"
+            with contextlib.suppress(TimeoutError):
+                await workflow.wait_condition(lambda: self._vetoed(wid, plan) is not None, timeout=VETO)
+            if (no := self._vetoed(wid, plan)) is not None:
+                return await end("denied", [f"denied by {no.approver}" + (f": {no.reason}" if no.reason else "")])
+
         # Registers H6/R28: the approvers are told as the wait starts - with the approval links when the runtime has an
         # approval domain - not only at the halfway reminder. Sent before the stage reads "awaiting_approval", so
         # whoever sees the plan waiting can already have its links.
-        if workflow.patched("h6-links"):
+        if not auto and not opened and workflow.patched("h6-links"):
             with contextlib.suppress(ActivityError):
                 await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "opening"], **NOTIFY)
         self._stage = "awaiting_approval"
         deadline = workflow.now() + timedelta(minutes=req.approval_ttl_minutes)
-        accepted: list[SignedApproval] = []
         refused: list[str] = []
         seen = 0
         # Register H10: halfway through the wait a person is reminded, and at the end told that nothing was done -
         # an approval request that only expires is one nobody may ever have seen. A failed message changes nothing.
         ladder = workflow.patched("h10-ladder")
         halfway, reminded = workflow.now() + timedelta(minutes=req.approval_ttl_minutes) / 2, False
-        while True:
+        while not auto:
             until = halfway if ladder and not reminded and not accepted else deadline
             try:
                 await workflow.wait_condition(lambda n=seen: len(self._inbox) > n,
@@ -330,6 +395,8 @@ class RemediationWorkflow:
                 workflow.continue_as_new(req.model_copy(update={"replans": req.replans + 1}))
             return outcome
         done["prechecked"] = True
+        if auto and (no := self._vetoed(wid, plan)) is not None:  # a person said no while it was checked
+            return await end("denied", [f"denied by {no.approver}" + (f": {no.reason}" if no.reason else "")])
 
         self._stage = "applying"
         self._applying = True
@@ -384,7 +451,7 @@ class RemediationWorkflow:
                     with contextlib.suppress(ActivityError):
                         await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "verified"], **NOTIFY)
                 now_too = workflow.patched("g10-relapse-now")
-                for after in RECHECK_AFTER:
+                for after in rechecks(req):
                     wait = max(since + after - workflow.now(), timedelta(0))
                     if now_too and wait > timedelta(0):
                         # The alarm firing again ends the watch at once (intake signals it): the people are told of the
@@ -438,6 +505,36 @@ class RemediationWorkflow:
         if str(undone).startswith(("nothing to roll back", "not rolled back")):
             return await end("not_recovered", [why, str(undone)])
         return await end("rolled_back", [why])
+
+
+@workflow.defn
+class AutonomyWorkflow:
+    """A person turns autonomy back on in an environment after a demotion (autonomy.enable, owner 2026-10-17): the
+    demotions are read from the record and shown (`state`), the person signs exactly those with their own key (T3,
+    never an AI's) and signals it, and the core zone checks and records it. `warden autonomy enable` drives it."""
+
+    def __init__(self) -> None:
+        self._approval: SignedApproval | None = None
+        self._state: dict | None = None
+
+    @workflow.signal
+    def enable(self, approval: SignedApproval) -> None:
+        self._approval = approval
+
+    @workflow.query
+    def state(self) -> dict | None:
+        return self._state
+
+    @workflow.run
+    async def run(self, environment: str) -> list[str]:
+        acts = RemediationActivities
+        self._state = await workflow.execute_activity_method(acts.autonomy_state, args=[environment], **QUICK)
+        try:
+            await workflow.wait_condition(lambda: self._approval is not None, timeout=timedelta(minutes=30))
+        except TimeoutError:
+            return ["no signed re-enable arrived within 30 minutes: nothing changed"]
+        return await workflow.execute_activity_method(acts.autonomy_enable, args=[environment, self._approval],
+                                                      **QUICK)
 
 
 @workflow.defn

@@ -174,7 +174,7 @@ approval for it.
 | Change freeze | `freeze.py` | No fix is applied inside a declared freeze window; a window that cannot be read refuses the change. |
 | Audit | `audit.py` | A hash chain with signed checkpoints. In the cloud the signer is an AWS KMS Ed25519 key and checkpoints are anchored in S3 Object Lock. `warden audit verify` checks it offline. |
 | Payload encryption | `codec.py` | AES-256-GCM over every Temporal payload, bound to its namespace and workflow, so the Temporal server holds only ciphertext. |
-| Code gate | `code_gate.py` | Built ahead of the code-fix pull requests it will hold (register B4): plain rules over a change WARDEN would write. It refuses anything outside `data/code_fix.yaml`'s allowed paths and size limits; CODEOWNERS, workflows and CI configuration, IAM and infrastructure, secrets, dependency manifests and WARDEN's own code whatever that file says; a new dependency or suppression; a fix without a test; and a revert that is not exactly the inverse of the deployed commit. `code_fix: off \| propose \| auto` per environment (environments.yaml); the prod tier is never `auto`. Nothing writes code yet. |
+| Code gate | `code_gate.py` | Built ahead of the code-fix pull requests it will hold (register B4): plain rules over a change WARDEN would write. It refuses anything outside `data/code_fix.yaml`'s allowed paths and size limits; CODEOWNERS, workflows and CI configuration, IAM and infrastructure, secrets, dependency manifests and WARDEN's own code whatever that file says; a new dependency or suppression; a fix without a test; and a revert that is not exactly the inverse of the deployed diff it is given (fetching that diff and binding it to the deployed commit is the revert pull requests' work, phase 3). `code_fix: off \| propose \| auto` per environment (environments.yaml); the prod tier is never `auto`. Nothing writes code yet. |
 
 The verifier's verdicts, by precedence: `rejected` (nothing runs) > `escalated` (a person decides) >
 `auto_safe` (only `no_action` or `escalate_to_human`, which change nothing) > `approved_for_human` (a fix a
@@ -193,6 +193,12 @@ failure each one prevents are listed in [`ai-boundary.md`](ai-boundary.md).
   ended, read from the signed audit. Nothing on them is written back. The list pages (10, 25, 50 or 100 a page)
   and filters by environment, status, service, days and title text; a reader whose approver entries are limited
   to some environments sees only those. Every page has a light, dark or system theme and WARDEN's logo.
+- **Linked records** (`links.py`): an approver links two incidents with their key (`warden link`, typed:
+  same root cause, a recurrence, caused by), one signed row read from either record. An incident's page then shows its links
+  and the proven fix they lead to - a fix on a linked record that was applied and verified - as a fact for a
+  person; WARDEN never applies a fix on that account.
+  The page also lists the related records WARDEN finds in its own rows (a re-diagnosis, an alarm after a fix, a
+  relapse, the same alarm or resource), marked as WARDEN's finding.
 - **Discussion** (`discuss.py`): anyone in a second Slack channel can ask WARDEN about an incident; WARDEN
   answers from the incident's own evidence. Only an enrolled approver may ask for a new plan, and that plan
   still needs a passkey approval.
@@ -216,6 +222,17 @@ Grafana's keys have no slot there and are read only from the process environment
 Every read runs under a deadline (`WARDEN_TOOL_TIMEOUT`). A failed or timed-out read becomes an entry in
 `context.tool_errors`, which policy P8 reads, so a partial picture is visible to the verifier instead of
 looking complete. A timed-out thread is abandoned, not killed; Python cannot stop one.
+
+Beside the backend, `tools.evidence_tools` adds readers that are switched on (X-Ray, Grafana, Datadog, the deploy's
+commits, and code review's findings on the deploy's pull request - `findings.py`, register G10-59). The findings are
+text a pull request's author or a bot wrote, so they enter only as typed lines (evidence kind R): one `FINDING` line per
+finding and one `FINDINGS` summary line per pull request (what was read, shown, found and held back). The model is
+shown them between data markers and may cite them, and grounding never lets one support an action on its own. A
+CodeRabbit comment whose own prose reads as an instruction, or a finding whose rule id or file path fails its shape, is
+held back and counted; a severity, category or line outside its closed set or range is shown as `unknown`, `comment`
+or no line instead.
+
+### `KubernetesBackend` — what it is honest about
 
 **Kubernetes access** is a ClusterRole holding six reads (list pods, get pod logs, list events, get
 deployments, list replicasets, list horizontalpodautoscalers), granted by a RoleBinding in each namespace

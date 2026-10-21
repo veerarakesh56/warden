@@ -29,8 +29,10 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_SLACK_APP_TOKEN` | the discussion channel's Socket Mode connection (discuss.py; the notify zone's alone) | in the Slack app's Basic Information, App-Level Tokens: generate a new token with `connections:write`, store it, restart the notify workers, then revoke the old token | both work until the old one is revoked |
 | `WARDEN_SLACK_WEBHOOK`, `WARDEN_TEAMS_WEBHOOK`, `WARDEN_WEBHOOK_URL` | posting through an incoming webhook | create a new webhook, store it, restart, delete the old one | both work until the old one is deleted |
 | `WARDEN_GITHUB_TOKEN` | opening change-record issues in one repository | create a new fine-grained token limited to issues on that repository, with an expiry; store it, restart, revoke the old one | both work until the old one is revoked |
+| `WARDEN_GITHUB_READ_TOKEN` | reading one repository's pull requests, their review comments and reviews, code scanning alerts and the deploy's commits (tools.py; the read zone's alone, `warden/<env>/github-read-token`) | create a new fine-grained token on that repository alone, read-only (Pull requests, Code scanning alerts, Contents, Metadata), with an expiry; store it in `warden/<env>/github-read-token`, restart the read workers, then revoke the old one | both work until the old one is revoked |
 | `WARDEN_DB_DSN`, `WARDEN_DB_TERMINATE_DSN`, `WARDEN_STACK_DB_PRIMARY_RO_DSN`, `WARDEN_STACK_DB_REPLICA_RO_DSN` | the database readers and the narrow terminate role (renamed 2026-10-16 from `WARDEN_DB_ADMIN_DSN`, `WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN`, which are still read for one release with a warning; the Secrets Manager slots keep the old names `db-admin-dsn`, `stack-db-writer-dsn` and `stack-db-reader-dsn` until the runtime module renames them) | change the role's password (or let RDS rotate the managed secret), store the new DSN, restart | a database role has one password: rotate, then restart promptly |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock (`ANTHROPIC_API_KEY`: read by the llm zone and by Eldane's critic zone - one key, owner 2026-10-17) | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
+| `WARDEN_ELDANE_KEY` | Eldane's own Ed25519 signing key (eldane.py; the critic zone's alone): its approvals in dev | `warden audit keygen --private eldane.pem --public eldane.pub.pem --unencrypted` a new pair; put the public key in the approver list's AI entry (a reviewed change) and the private PEM in `warden/<env>/eldane-key`; restart the critic worker; destroy the old private key | Eldane's approvals stop until both halves match: rotate between incidents |
 
 Keys that are not environment secrets:
 
@@ -41,6 +43,65 @@ Keys that are not environment secrets:
 | An approver's passkey | `warden enrol --approver <name> --key ~/.warden/<name>.pem` (key files are read only from the key folder, `WARDEN_KEY_DIR`, default `~/.warden`) opens a 15-minute link in the browser; the approval page creates the passkey and shows the approver list with it; save that list as the `approvers` parameter and restart the workers (`runtime.yml`, action `restart`). Remove the old credential from the list the same way; a lost device is removed at once. |
 | The webhook's bearer secret (webhooks.py) | add the new secret beside the old one (both are accepted), change Alertmanager's `http_config.authorization`, then remove the old one. |
 | The operator's IAM Roles Anywhere certificate (if you use one) | before it expires, run `python scripts/roles_anywhere_cert.py issue` and at once replace the trust anchor's certificate bundle with the new CA (sign-ins fail between the two steps); see [SETUP.md](SETUP.md), section 3d. |
+
+## Dev autonomy: Eldane, demotions and a person's re-enable (owner, 2026-10-17)
+
+Who approves a fix:
+
+- **prod:** a person, with a passkey (or the signed CLI key), always. Eldane, the AI critic, reviews the plan and
+  says so beside the request; it never approves there.
+- **dev:** Eldane alone, from the first plan, when it agrees with the plan on both of its passes and nothing in
+  the gate, the bounds, the self-guard or the kill switch stands. The channel gets "Eldane · AI critic (an AI)
+  approved ..." with the approval page's buttons. A person can still say no - on the page, with their passkey
+  and a note - for five minutes, and after that until the apply step starts (WARDEN reads every "no" that has
+  arrived right before it applies; one that arrives once the apply step has started is too late for that run); a person's decision always overrides
+  Eldane's. People keep the rest too: they can ask WARDEN anything in the dev discussion channel, and an approver
+  can ask there for a new plan.
+
+Dev drops to **L1** - Eldane reviews, a person approves - the moment any of these is on the record:
+
+- a fix of that action class ended badly (rolled back, relapsed, not recovered, or left in an unknown state);
+- a person said no to a plan Eldane said yes to;
+- the diagnosing model, Eldane's model or Eldane's prompt changed;
+- Eldane said yes to a planted bad plan (a catch trial: about one review in ten, more while its model is new;
+  each is labelled a test on the record and never applied) - this one stops its approvals for every class;
+- the kill switch is on (dev returns when an approver resets the switch).
+
+It goes back to L2 only when a person turns it back on, signed and recorded:
+
+1. `warden autonomy status --environment dev` lists every demotion since autonomy was last enabled.
+2. Read each one. When the cause is understood (and fixed, if it needed a fix), run
+   `warden autonomy enable --environment dev --approver YOU --key YOUR.pem --demotions N`, where N is how many you
+   read. Your key signs exactly those demotions (a T3 approval, so the newest must be at least ten minutes old);
+   one added after you read the list makes the signature not match, and nothing changes.
+3. The runtime's `AutonomyWorkflow` checks the signature in the core zone and records `autonomy.enabled` with
+   your name and the demotions it covers. Eldane can never do this step: an AI approver has no T3 and is refused by
+   name.
+
+Prod has nothing to re-enable: it is never autonomous.
+
+## Code review's findings as incident evidence (register G10-59)
+
+When an incident follows a deploy, WARDEN can read what code review flagged on that deploy's pull request and use it
+as evidence: "unresolved finding in the deployed change: SonarCloud python:S6466 at src/orders.py:212". A finding is a
+lead for the developers, never proof: WARDEN's gate never lets one justify a fix on its own. It reads, in the read
+zone, with GET requests only: the deployed commit's pull requests (`/repos/{repo}/commits/{sha}/pulls`), CodeRabbit's
+review comments and reviews on each, GitHub code scanning's alerts on the pull request's merge ref, and SonarCloud's
+issues for the pull request (`sonarcloud.io/api/issues/search?componentKeys=<project>&pullRequest=<n>`). Nothing is
+read for an incident with no deploy in its window, and a failed read is shown as not read, never as no findings. No
+finding's text reaches the model, the report or Slack: only typed fields.
+
+| Setting | What it does |
+|---|---|
+| `WARDEN_FINDINGS` | `1` turns the read on (plain value) |
+| `WARDEN_CHANGE_REPO` | the repository, `owner/name` (otherwise environments.yaml's `github.repository`) |
+| `WARDEN_SONAR_PROJECT` | the SonarCloud project key; unset, SonarCloud is not read (plain value) |
+| `WARDEN_FINDINGS_MAX_PRS`, `WARDEN_FINDINGS_MAX_PER_PR` | at most this many pull requests (2) and findings a pull request (20); never more than 10 and 100 (GitHub's largest page: the reader does not page on) |
+| `WARDEN_GITHUB_READ_TOKEN` | optional for a public repository's pull requests and comments; needed for code scanning. A fine-grained token on that one repository, read-only: **Pull requests: Read**, **Code scanning alerts: Read**, and **Contents: Read** for the deploy's commits (`WARDEN_COMMITS`, the same token), plus Metadata: Read, which GitHub adds; with an expiry. In the cloud runtime it is the Secrets Manager secret `warden/<env>/github-read-token`, read by the read zone's worker only (set its value in the console, then restart the workers); a GitHub App's installation token replaces it when the App exists (B4) |
+| `WARDEN_SONAR_TOKEN` | only for a private SonarCloud project: a token of a user who can browse it |
+
+`WARDEN_SONAR_TOKEN` has no Secrets Manager slot yet (terraform/modules/warden-runtime would need one, granted to the
+read zone alone): today it is set in the read worker's own environment, or left unset for a public project.
 
 ## WARDEN's records (registers G10-46, G10-47)
 
@@ -54,6 +115,90 @@ A reader whose approver entries are all limited to some environments sees only t
 Sign in with Slack; it opens for the approvers and for the Slack members in the plain setting
 `/warden/<env>/env/WARDEN_RECORD_VIEWERS` (comma-separated member ids). Slack gets one message per incident; approved,
 denied and fixed are on the record, not posted.
+
+## Pause and resume to save money (owner update 5, 2026-10-17)
+
+Between uses, pause instead of destroy: every data store is copied first, and resume brings it back from the newest
+copy. On a first install there is no copy, and resume simply builds everything empty, as apply does.
+
+**From the pipelines (one run each):**
+
+| What | Run | Keeps | Stops paying for |
+|---|---|---|---|
+| The full stack (dev) | Actions → *Deploy · dev* → `part: infra`, `infra_action: pause` | Aurora as a cluster snapshot, each DynamoDB table as an on-demand backup, named `<name>-pause-<UTC time>` | everything else: the whole stack is destroyed after the copies are available |
+| | `infra_action: resume` | restores the tables (and imports them into Terraform's state) before the apply, Aurora from its newest pause snapshot after it, then redeploys the Lambdas, ECS and the cluster's add-ons (Argo CD, the Datadog agent, the shop) in the same run, waiting until each is healthy | |
+| WARDEN's runtime (ops) | Actions → *Runtime · ops* → `action: pause` | the audit database (a snapshot, then STOPPED, not deleted), its keys, the secrets, the witness | the workers, the NAT, the alarm intake; the self-alarms' actions are off, so a planned pause pages nobody |
+| | `action: resume` | starts the audit database, then applies, migrates and checks every zone as `apply` does | |
+
+What each step guarantees: the writers stop first - the schedules are disabled, checkout and traffic are held at
+a reserved concurrency of 0 and their running invocations are waited out (their timeout), the orders queue is
+drained by its consumer (three empty readings in a row: SQS's counters are approximate), then every function of the
+stack is held
+(only these Lambdas write the data kept; the ECS orders-api and the shop's pods only read it or write the Redis cache).
+A queue that does not drain in 15 minutes stops the pause before any copy; `python scripts/pause_resume.py wake`
+(also run by resume) turns them on again. Nothing is deleted or stopped until every copy is **available** (the step
+fails otherwise, and no later step runs). Resume takes the newest available `-pause-` copy by the time AWS made it, so the
+copies made by hand on 2026-10-17 (`warden-dev-aurora-pause-20261017`, `warden-dev-carts-pause-20261017`,
+`warden-ops-audit-pause-20261017`, a date only) are found too. An existing database or table is never overwritten. If a plain `destroy` came after the last pause (its final
+snapshot is newer than every pause copy), `latest` is refused and both are named: pick one with
+`aurora_express.py create --from-snapshot <id>` and restore the tables by hand, so older data is never brought back
+silently.
+If the audit database is gone while a pause snapshot of it exists, resume refuses rather than let Terraform create
+an empty audit: restore it by hand (below). Nothing deletes a copy: the run's summary lists the newest
+`PAUSE_KEEP_SNAPSHOTS` per data store (a repository variable, default 3) and the older ones for a person to delete.
+
+**Cost while paused** (AWS Price List API for the region, read 2026-10-17; Billing is the ground truth):
+Aurora snapshot storage USD 0.023 per GB-month, an RDS (Free plan audit) snapshot USD 0.095, a DynamoDB on-demand
+backup USD 0.114; a stopped RDS instance still bills its storage (20 GB gp3 at USD 0.131 per GB-month, about USD
+0.09 a day); each secret USD 0.40 a month and each customer-managed KMS key USD 1 a month stay. For this lab's sizes
+that is cents a day; the pause run prints its own estimate.
+
+**How long resume takes:** not measured yet; expect most of an hour - the EKS cluster and the Aurora restore are the
+slow parts, then the apps redeploy. The first live resume will give the number.
+
+⛔ **AWS starts a stopped RDS database again by itself after 7 days** (StopDBInstance / StopDBCluster), and it bills
+from then. Pause the runtime again before the seventh day, or start it on purpose.
+
+**By hand (console and CLI), e.g. when the pipelines cannot run.** `$T` is the UTC time, `T=$(date -u +%Y%m%dt%H%M%Sz)`.
+
+- Aurora snapshot - console: RDS → Databases → `warden-dev-aurora` → Actions → Take snapshot, name
+  `warden-dev-aurora-pause-$T`. CLI: `aws rds create-db-cluster-snapshot --db-cluster-identifier warden-dev-aurora
+  --db-cluster-snapshot-identifier warden-dev-aurora-pause-$T --tags Key=Project,Value=warden Key=Environment,Value=dev`,
+  then `aws rds wait db-cluster-snapshot-available --db-cluster-snapshot-identifier warden-dev-aurora-pause-$T`.
+- DynamoDB backup - console: DynamoDB → Tables → `warden-dev-carts` → Backups → Create backup → Create on-demand
+  backup, name `warden-dev-carts-pause-$T`. CLI: `aws dynamodb create-backup --table-name warden-dev-carts
+  --backup-name warden-dev-carts-pause-$T` (wait until `aws dynamodb describe-backup --backup-arn <arn>` says
+  `AVAILABLE`).
+- Audit snapshot and stop - console: RDS → Databases → `warden-ops-audit` → Actions → Take snapshot
+  (`warden-ops-audit-pause-$T`), then Actions → Stop temporarily. CLI: `aws rds create-db-snapshot
+  --db-instance-identifier warden-ops-audit --db-snapshot-identifier warden-ops-audit-pause-$T`, `aws rds wait
+  db-snapshot-available --db-snapshot-identifier warden-ops-audit-pause-$T`, `aws rds stop-db-instance
+  --db-instance-identifier warden-ops-audit` (an Aurora audit: `create-db-cluster-snapshot` / `stop-db-cluster`).
+- The runtime's switch - console: Systems Manager → Parameter Store → `/warden/ops/tf/paused` → Edit → `true` (or
+  `false`). CLI: `aws ssm put-parameter --name /warden/ops/tf/paused --value true --overwrite`; then *Runtime · ops*
+  `apply`.
+- Start the audit again - console: Actions → Start. CLI (an Aurora audit: `aws rds start-db-cluster
+  --db-cluster-identifier warden-ops-audit` and `aws rds wait db-cluster-available --db-cluster-identifier
+  warden-ops-audit`; the Free plan's instance:) `aws rds start-db-instance --db-instance-identifier
+  warden-ops-audit` and `aws rds wait db-instance-available --db-instance-identifier warden-ops-audit`.
+- Restore a lost audit database (resume refuses to do it): console: RDS → Snapshots → the newest
+  `warden-ops-audit-pause-...` → Actions → Restore snapshot, identifier `warden-ops-audit`, the audit's subnet group and
+  security group. CLI: `aws rds restore-db-instance-from-db-snapshot --db-instance-identifier warden-ops-audit
+  --db-snapshot-identifier <snapshot> --db-subnet-group-name <the audit's> --vpc-security-group-ids <the audit's>
+  --no-publicly-accessible`. Then adopt it into Terraform's state:
+  `terraform -chdir=terraform/runtime import 'module.runtime.aws_db_instance.audit[0]' warden-ops-audit`, and run
+  `apply`. An Aurora audit is a cluster and its instance:
+  `aws rds restore-db-cluster-from-snapshot --db-cluster-identifier warden-ops-audit --snapshot-identifier <snapshot>
+  --engine aurora-postgresql --db-subnet-group-name <the audit's> --vpc-security-group-ids <the audit's>
+  --enable-iam-database-authentication --serverless-v2-scaling-configuration MinCapacity=0,MaxCapacity=<audit_db_max_acu>
+  --deletion-protection --copy-tags-to-snapshot`, `aws rds wait db-cluster-available --db-cluster-identifier
+  warden-ops-audit`, then `aws rds create-db-instance --db-instance-identifier warden-ops-audit-0 --db-cluster-identifier
+  warden-ops-audit --engine aurora-postgresql --db-instance-class db.serverless` (and `-1`, as many as
+  `audit_db_instances`); import `module.runtime.aws_rds_cluster.audit[0]` and each
+  `module.runtime.aws_rds_cluster_instance.audit[N]`, and run `apply`.
+- Delete an old copy (never automatic; the environment's own roles may not): with the operator's credentials,
+  `aws rds delete-db-cluster-snapshot --db-cluster-snapshot-identifier <name>`, `aws rds delete-db-snapshot
+  --db-snapshot-identifier <name>`, `aws dynamodb delete-backup --backup-arn <arn>`.
 
 ## Talking to WARDEN about an incident in Slack (register G10-45)
 
@@ -196,3 +341,34 @@ Owner steps for the rulesets (later; WARDEN never changes a ruleset or a reposit
    **Require approval of the most recent reviewable push** and a required reviewer: a person, always.
 4. Then, and only then, set `code_fix: auto` for `dev` in environments.yaml (a reviewed pull request; prod is refused
    at load).
+
+## Optional: Claude's security review on pull requests
+
+`.github/workflows/security-review.yml` runs Anthropic's Claude Code security review
+(`anthropics/claude-code-security-review`, MIT, pinned by its commit) on a pull request into `main` and comments its
+findings on the pull request. It is **off by default**: it calls the Claude API on your key, so it costs money per pull
+request. It is advisory - it is not a required check, and CodeRabbit, SonarCloud and CodeQL stay the gates.
+
+To turn it on (once, in the repository's Settings):
+
+1. Create an Anthropic API key for this alone, in its own workspace with a monthly spend limit (Claude Console,
+   Workspaces and Limits) - not WARDEN's runtime key. Store it as the Actions secret
+   `SECURITY_REVIEW_ANTHROPIC_API_KEY` (Settings, Secrets and variables, Actions, Secrets).
+2. Set the Actions variable `WARDEN_SECURITY_REVIEW` to `on` (same page, Variables). Any other value, or none, turns
+   it off. Optionally set `WARDEN_SECURITY_REVIEW_MODEL` to `claude-sonnet-5-5` for a cheaper review; the default is
+   `claude-opus-5-5`.
+3. Keep Settings, Actions, General, "Fork pull request workflows from outside collaborators" at **Require approval for
+   all external contributors**. The action is not hardened against prompt injection (its README): it runs only on
+   pull requests from this repository's own branches, never on a fork's code with the key.
+
+What it costs: Claude API tokens only (Actions minutes are free on a public repository). It reviews a pull request
+once; later pushes to the same pull request are skipped unless it is run again. Claude Code reads the change and the
+code around it, then a second, smaller call filters false positives. At Claude Opus 5.5's list price ($4 per million
+input tokens, $20 per million output, read 2026-10-17) an estimated $1 to $3 per pull request for a change of a few
+hundred lines, about half that with Claude Sonnet 5.5 ($2 / $10) - an estimate, not measured here: read the real
+figure in the Claude Console's usage page after the first runs, and let the workspace's spend limit cap it. To turn
+it off, set `WARDEN_SECURITY_REVIEW` to anything but `on`, or delete it.
+
+Known limit, not verified here: the action's false-positive filter checks its API access with a fixed older model
+(`claude-3-5-haiku-20241022` in its code). If that model is retired, the filter step may fail and its findings may
+arrive unfiltered; read the first run's log.
