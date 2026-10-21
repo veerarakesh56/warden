@@ -803,3 +803,18 @@ def test_the_whole_review_runs_as_a_scheduled_workflow_reading_only(world):
     body_ = flow[flow.index("class DependencyWatchWorkflow"):flow.index("class ClockWorkflow")]
     for never in ("start_child_workflow", "RemediationWorkflow", "IncidentWorkflow", "signal"):
         assert never not in body_, never
+
+
+def test_the_github_client_sends_its_token_only_through_wardens_redirect_safe_opener():
+    """main's web.py: every credentialed call goes through web.urlopen, whose redirect to another host is refused as an
+    HTTPError that still carries the Location - so GitHub.get follows GitHub's own archive host itself, tokenless."""
+    import urllib.request
+
+    from warden import web
+
+    assert GitHub(REPO, TOKEN)._open is web.urlopen
+    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/tarball", headers={"Authorization": "x"})
+    archive = "https://codeload.github.com/example-owner/example-repo/legacy.tar.gz/main"
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        web._Redirects().redirect_request(req, None, 302, "Found", {"Location": archive}, archive)
+    assert refused.value.headers.get("Location") == archive

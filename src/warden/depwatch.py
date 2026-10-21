@@ -42,6 +42,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from temporalio import activity
 
+from . import web
 from .models import ModelProse, ModelText, inert
 
 SCHEDULE_ID = "warden-dependency-watch"
@@ -102,11 +103,6 @@ class GitHubError(RuntimeError):
     """A read that failed: its HTTP status or error kind only - never a URL, a token or an answer's text."""
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
-        return None  # a redirect is followed by GitHub.get itself, only to GitHub's own archive host
-
-
 class GitHub:
     """GET only, on `https://api.github.com/repos/<repo>/...`: there is no method that writes. The archive
     (`tarball`) is served by a redirect to codeload.github.com, followed once and without the token."""
@@ -115,7 +111,10 @@ class GitHub:
         if not _REPO.fullmatch(repo_name):
             raise ValueError("the repository must be owner/name")
         self.repo, self._token = repo_name, token
-        self._open = opener or urllib.request.build_opener(_NoRedirect).open
+        # Through web.urlopen, as every credentialed call (main's web.py): a redirect to another host is refused as an
+        # HTTPError with its Location, so the token never follows it; _fetch then follows GitHub's own archive
+        # redirect itself, once and without the token.
+        self._open = opener or web.urlopen
 
     def get(self, path: str, *, limit: int = MAX_JSON) -> bytes:
         return self._fetch(f"{_API}/repos/{self.repo}/{path}", auth=True, limit=limit, hops=0)
