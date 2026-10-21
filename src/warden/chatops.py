@@ -458,7 +458,7 @@ def approval_links(actions: tuple[tuple[str, str], ...]) -> list[tuple[str, str]
     if not rp:
         return []
     url = re.compile(rf"https://{re.escape(rp)}/a/[A-Za-z0-9_-]{{43}}")
-    record = re.compile(rf"https://{re.escape(rp)}/r/[A-Za-z0-9._-]{{1,120}}")
+    record = re.compile(rf"https://{re.escape(rp)}/r/[A-Za-z0-9._-]{{1,128}}")  # an alert id's length (models.Alert)
     return [(label, link) for label, link in actions
             if (_APPROVAL_LABEL.fullmatch(label) and url.fullmatch(link))
             or (label == RECORD_LABEL and record.fullmatch(link))

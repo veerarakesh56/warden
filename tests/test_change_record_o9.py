@@ -150,6 +150,25 @@ def test_only_wardens_own_record_link_is_added(monkeypatch):
     assert _sent_body(monkeypatch, (("Full record", f"https://{RP}/r/inc-42"),)) == "body text"
 
 
+def test_an_incident_id_of_any_length_an_alert_may_have_keeps_its_record_link(monkeypatch):
+    """CodeRabbit, PR 114: an alert id may be 128 characters (models.Alert), the record link allowed 120 - a longer id's
+    change record lost its link. 128 links; 129, which no alert id can be, does not."""
+    from warden.activities import IncidentActivities
+
+    monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", RP)
+    longest, too_long = "i" * 128, "i" * 129
+    body = _sent_body(monkeypatch, IncidentActivities._record_link(longest), incident=longest)
+    assert body.endswith(f"[Full record of the incident](https://{RP}/r/{longest})")
+    assert _sent_body(monkeypatch, IncidentActivities._record_link(too_long), incident=too_long) == "body text"
+
+
+def test_the_record_page_opens_for_an_id_of_the_longest_alert_id():
+    from warden import approval_page
+
+    assert approval_page._INCIDENT_ID.fullmatch("i" * 128)
+    assert not approval_page._INCIDENT_ID.fullmatch("i" * 129)
+
+
 def test_an_applied_change_passes_its_record_link(world, owner, monkeypatch):  # noqa: F811 - pytest fixtures
     monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", RP)
     world["changes"] = rec = _Recorder()
