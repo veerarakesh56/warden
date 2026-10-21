@@ -322,7 +322,7 @@ def test_an_approvers_new_plan_is_a_fresh_diagnosis_once_an_hour_and_anyone_else
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="discuss-test", workflows=[DiscussWorkflow],
                                activities=[acts.discuss_thread, acts.discuss_evidence, acts.discuss_answer,
-                                           acts.discuss_reply, acts.discuss_replan],
+                                           acts.discuss_reply, acts.discuss_replan, acts.discuss_extend],
                                activity_executor=ThreadPoolExecutor(2)):
             said = await env.client.execute_workflow(DiscussWorkflow.run, _turn(text, user=user), id=wid,
                                                      task_queue="discuss-test")
@@ -374,3 +374,32 @@ def test_the_runtime_gives_the_listener_its_token_in_the_notify_zone_alone():
     assert guard.index("try:") < guard.index("await discuss.listen(") < guard.index("except Exception")
     # Slack's async web client; 3.14.4 is the first release without CVE-2026-111063/-111064 (PR 98).
     assert '"aiohttp>=3.14.4"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+
+def test_an_approver_extends_a_waiting_plan_from_the_thread_and_anyone_else_is_refused(world):
+    """U3-8: "the discussion thread can extend it" - recorded in the audit, where the plan's own run reads it; the
+    DiscussWorkflow signals and starts nothing for it."""
+    from datetime import UTC, datetime, timedelta
+
+    acts, log = world["acts"], world["log"]
+    log.append(INCIDENT, "remediation.plan", {"workflow_id": "rem-dev-1", "tier": "T1", "environment": "dev",
+                                              "plan_hash": "h", "approval_until":
+                                                  (datetime.now(UTC) + timedelta(hours=1)).isoformat()})
+
+    async def main(text, user, wid):
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        async with env, Worker(env.client, task_queue="discuss-test", workflows=[DiscussWorkflow],
+                               activities=[acts.discuss_thread, acts.discuss_evidence, acts.discuss_answer,
+                                           acts.discuss_reply, acts.discuss_replan, acts.discuss_extend],
+                               activity_executor=ThreadPoolExecutor(2)):
+            return await env.client.execute_workflow(DiscussWorkflow.run, _turn(text, user=user), id=wid,
+                                                     task_queue="discuss-test")
+
+    said = asyncio.run(main("<@UWARDEN> extend the wait", PERSON, "e1"))
+    assert said == discuss.NOT_EXTENDED["not an approver"]
+    said = asyncio.run(main("<@UWARDEN> extend by 12h", APPROVER, "e2"))
+    assert said.startswith("The wait for WARDEN's plan `rem-dev-1` is extended by 12") and "passkey" in said
+    [row] = log.entries(INCIDENT, kinds=("approval.extended",))
+    assert row["body"]["approver"] == "owner" and row["body"]["hours"] == 12
+    said = asyncio.run(main("<@UWARDEN> extend by 30h", APPROVER, "e3"))
+    assert said.startswith("A plan's wait is extended by 1 to 24 hours")

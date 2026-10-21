@@ -95,7 +95,8 @@ def _run(world, drive, **req):
         acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"],
                                      limits=world.get("limits", bounds.DEFAULT_LIMITS), changes=world.get("changes"))
         methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
-                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert, acts.side_effects]
+                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert, acts.side_effects,
+                   acts.approval_extension]
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[RemediationWorkflow], activities=methods,
                                activity_executor=ThreadPoolExecutor(4)):
             handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**{**REQ, **req}),
@@ -554,3 +555,76 @@ def test_how_a_plan_ended_is_on_the_workers_log_with_no_typed_reason(world, capl
     with caplog.at_level(logging.INFO, logger="warden.incident"):
         acts.finish("inc-42", "rem-x", FixOutcome(status="denied", reasons=["denied by owner: typed words"], checklist={}))
     assert [r.getMessage() for r in caplog.records] == ["inc-42 fix plan rem-x ended denied approvers=-"]
+
+
+# ------------------------------------------------------------------ U3-8: an approver extends the wait
+
+
+SLACK_ID = "U" + "0" * 3 + "APPROV1"
+
+
+def _extended_run(world, owner, *, ask, approve_after):
+    """A plan that waits an hour; `ask(plan)` may record an extension while it waits; the clock is moved past the
+    hour; then, if `approve_after`, the owner approves it."""
+    world["policy"].approvers["owner"].slack = SLACK_ID
+
+    async def main():
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=CONVERTER)
+        acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
+        methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
+                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert,
+                   acts.side_effects, acts.approval_extension]
+        async with env, Worker(env.client, task_queue=QUEUE, workflows=[RemediationWorkflow], activities=methods,
+                               activity_executor=ThreadPoolExecutor(4)):
+            handle = await env.client.start_workflow(RemediationWorkflow.run,
+                                                     FixRequest(**REQ, approval_ttl_minutes=60),
+                                                     id=f"rem-{uuid.uuid4()}", task_queue=QUEUE)
+            plan = await _until_awaiting_approval(handle)
+            ask(plan)
+            await env.sleep(timedelta(minutes=90))  # past the plan's own hour
+            still = await handle.query(RemediationWorkflow.stage)
+            later = await handle.query(RemediationWorkflow.plan)
+            if approve_after and still == "awaiting_approval":
+                await _approve_with(owner)(handle)
+            outcome = await handle.result()
+            world["history"] = await handle.fetch_history()
+            world["namespace"] = env.client.namespace
+            return still, later, outcome
+    return asyncio.run(main())
+
+
+def _extend(world, hours=24):
+    from warden import extend
+
+    def ask(plan):
+        got = extend.request(world["log"], world["policy"], incident="inc-42", user=SLACK_ID, hours=hours,
+                             now=datetime.now(UTC))
+        assert not got.get("why"), got
+    return ask
+
+
+def test_an_approvers_extension_keeps_the_plan_waiting_past_its_time_and_it_is_still_checked_before_apply(world,
+                                                                                                         owner):
+    still, later, out = _extended_run(world, owner, ask=_extend(world), approve_after=True)
+    assert still == "awaiting_approval" and later.approval_ttl_minutes > 60 * 24  # it says its new time
+    assert out.status == "recovered" and out.checklist["prechecked"]  # the precheck still ran before apply
+    kinds = [e["kind"] for e in world["log"].entries("inc-42")]
+    assert kinds.index("approval.extended") < kinds.index("approval.accepted") < kinds.index("remediation.precheck")
+    # The plan said its new time with fresh links when its first hour ran out.
+    assert sum(1 for e in world["log"].entries("inc-42", kinds=("remediation.announce",))
+               if e["body"].get("what") == "waiting") >= 2  # the halfway reminder, then the new time
+    asyncio.run(Replayer(workflows=[RemediationWorkflow], data_converter=CONVERTER, namespace=world["namespace"])
+                .replay_workflow(world["history"]))
+
+
+def test_without_an_extension_the_plan_expires_at_its_time(world, owner):
+    still, _, out = _extended_run(world, owner, ask=lambda plan: None, approve_after=True)
+    assert still == "expired" and out.status == "expired" and world["platform"].applied == []
+
+
+def test_an_extension_of_another_plan_does_not_keep_this_one(world, owner):
+    def ask(plan):
+        world["log"].append("inc-42", "approval.extended", {"workflow_id": plan.workflow_id, "plan_hash": "other",
+                                                            "until": (datetime.now(UTC) + timedelta(days=2)).isoformat()})
+    still, _, out = _extended_run(world, owner, ask=ask, approve_after=True)
+    assert still == "expired" and out.status == "expired" and world["platform"].applied == []

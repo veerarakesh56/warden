@@ -44,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
     from .catalog import MITIGATES
     from .discuss import (
         ELSEWHERE,
+        EXTEND,
         LIMIT,
         NEW_PLAN,
         NO_ANSWER,
@@ -55,7 +56,9 @@ with workflow.unsafe.imports_passed_through():
         REPLANNED,
         Thread,
         Turn,
+        extended_said,
     )
+    from .extend import ceiling
     from .models import Alert, ContextBundle, RunReport, ingestion_wait, reread_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
@@ -327,6 +330,18 @@ class RemediationWorkflow:
         return [(f"WARDEN diagnoses the incident again from what it reads now, as `{got['new']}`, with this fix "
                  "beside its evidence: any fix it finds is a new plan for an approver")]
 
+    @staticmethod
+    async def _extended(acts, plan: Plan, deadline: datetime) -> datetime | None:
+        """The later time an approver extended this plan's wait to (extend.py), when it is later than `deadline` and
+        now, and never past the plan's ceiling; None otherwise - an unreadable answer extends nothing."""
+        try:
+            got = await workflow.execute_activity_method(acts.approval_extension, **_zoned(acts.approval_extension),
+                                                         args=[plan], **NOTIFY)  # unread: the wait ends
+            later = min(datetime.fromisoformat(str(got)), ceiling(plan.created_at))
+        except (ActivityError, ValueError, TypeError):
+            return None
+        return later if later > deadline and later > workflow.now() else None
+
     async def _steps(self, req: FixRequest, acts, wid: str, done: dict, end) -> FixOutcome:
         plan = self._plan = await workflow.execute_activity_method(acts.resolve_plan, **_zoned(acts.resolve_plan), args=[req, wid], **QUICK)
         if plan.problems:
@@ -350,6 +365,7 @@ class RemediationWorkflow:
         if not auto and not opened and workflow.patched("h6-links"):
             await _announce(acts, plan, "opening")
         unapproved = await self._approvals(req, acts, wid, plan, end, accepted, auto=auto)
+        plan = self._plan or plan  # an extended wait (U3-8) gave the plan its new time
         if unapproved is not None:
             return unapproved
         done["approved"] = True
@@ -425,6 +441,11 @@ class RemediationWorkflow:
         while not auto:
             until = halfway if ladder and not reminded and not accepted else deadline
             if not await self._arrived(seen, until):
+                at_end = until != halfway or workflow.now() >= deadline  # not the halfway reminder
+                if at_end and (moved := await self._extend_wait(acts, plan, deadline)):
+                    plan, deadline = moved
+                    reminded = True
+                    continue
                 expired = await _remind_or_expire(acts, plan, end, refused, reminder=until == halfway,
                                                   deadline=deadline, ladder=ladder)
                 if expired is not None:
@@ -438,6 +459,17 @@ class RemediationWorkflow:
             if taken:
                 break
         return None
+
+    async def _extend_wait(self, acts, plan: Plan, deadline: datetime) -> tuple[Plan, datetime] | None:
+        """U3-8: an approver extended the wait from the discussion thread - read from the record, never from a
+        message, bounded by the plan's ceiling (patch u38-extend). The plan then says its new time, and its new links
+        last it: (the plan with its new time, the new deadline). None: no extension, and the wait ends."""
+        if not workflow.patched("u38-extend") or not (later := await self._extended(acts, plan, deadline)):
+            return None
+        minutes = -(-(later - plan.created_at) // timedelta(minutes=1))
+        plan = self._plan = plan.model_copy(update={"approval_ttl_minutes": minutes})
+        await _announce(acts, plan, "waiting")
+        return plan, later
 
     async def _arrived(self, seen: int, until: datetime) -> bool:
         """Whether something new reached the inbox (past its first `seen` items) before `until`."""
@@ -694,7 +726,20 @@ class DiscussWorkflow:
         """The reply to a mention about a known incident: an approver's "new plan", or the model's answer."""
         if NEW_PLAN.search(turn.text) and workflow.patched("g10-discuss-replan"):
             return await self._replan(acts, turn, thread)
+        if EXTEND.search(turn.text) and workflow.patched("u38-discuss-extend"):
+            return await self._extend(acts, turn, thread)
         return await self._evidence_answer(acts, turn, thread)
+
+    @staticmethod
+    async def _extend(acts, turn: Turn, thread: Thread) -> str:
+        """U3-8: an approver extends a waiting plan's wait. Recorded in the audit; the fix's own run reads it there
+        when its time runs out. Nothing here signals or starts a fix."""
+        try:
+            got = await workflow.execute_activity_method(
+                acts.discuss_extend, **_zoned(acts.discuss_extend), args=[turn, thread.incident], **QUICK)
+        except ActivityError:
+            return NOT_READ
+        return extended_said(got, thread.incident)
 
     @staticmethod
     async def _replan(acts, turn: Turn, thread: Thread) -> str:

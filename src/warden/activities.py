@@ -436,8 +436,18 @@ class RemediationActivities:
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
                            "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
-                           "problems": problems, "soak_minutes": req.soak_minutes})
+                           "problems": problems, "soak_minutes": req.soak_minutes,
+                           "approval_until": _deadline(plan).isoformat()})  # until when it waits (U3-8, extend.py)
         return plan
+
+    @activity.defn
+    def approval_extension(self, plan: Plan) -> str:
+        """Until when an approver extended this exact plan's wait from its discussion (extend.py), bounded by its
+        ceiling, as ISO text; "" when nobody did. From the signed record only (U3-8)."""
+        from . import extend
+
+        later = extend.extended_until(self.audit, plan.incident_id, plan.workflow_id, plan.plan_hash, plan.created_at)
+        return later.isoformat() if later else ""
 
     @activity.defn
     def gate(self, plan: Plan, service: str) -> list[str]:
@@ -1985,6 +1995,24 @@ class DiscussActivities:
         alert = Alert.model_validate(rows[0]["body"]["alert"]).model_copy(
             update={"alert_id": new, "started_at": now.isoformat()})
         return {"alert": alert.model_dump(mode="json"), "new": new}
+
+    @activity.defn
+    def discuss_extend(self, turn: Any, incident: str) -> dict[str, Any]:
+        """An approver's "extend" for the incident's waiting plan (extend.py): how far, or why not. Recorded either way
+        on the discussion's record; an extension also on the incident's, where the plan's run reads it (U3-8)."""
+        from . import extend
+        from .discuss import Turn, hours_asked
+
+        turn = Turn.model_validate(turn)
+        hours = hours_asked(turn.text)
+        got = extend.request(self.audit, self.policy, incident=incident, user=turn.user, hours=hours,
+                             now=datetime.now(UTC))
+        self.audit.append(f"discuss-{incident}", "discuss.extend", {
+            "run_id": _run_id(), "user": turn.user, "ts": turn.ts, "hours": hours, "why": got.get("why", ""),
+            "workflow_id": got.get("workflow_id", ""), "until": got.get("until", "")})
+        if got.get("until"):
+            got["until_said"] = environments.both_times(datetime.fromisoformat(got["until"]), seconds=False)
+        return got
 
     @activity.defn
     def discuss_evidence(self, incident: str, fresh: bool) -> Any:

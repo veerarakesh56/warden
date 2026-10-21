@@ -89,7 +89,8 @@ def _watched_then(signal, signal_with_log=False):
         env = await WorkflowEnvironment.start_time_skipping(data_converter=CONVERTER)
         acts = RemediationActivities(audit=log, policy=policy, platform=FakePlatform(healthy_after=1))
         methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
-                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.side_effects]
+                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.side_effects,
+                   acts.approval_extension]
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[RemediationWorkflow], activities=methods,
                                activity_executor=ThreadPoolExecutor(4)):
             handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**REQ),
