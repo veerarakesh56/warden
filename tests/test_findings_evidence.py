@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import urllib.error
 import urllib.parse
 
@@ -419,3 +420,25 @@ def test_the_read_token_has_one_slot_the_read_zones_alone_and_one_place_it_is_ta
     readers = {r.source: r for r in tools.evidence_tools(object())}
     assert readers["github"].token == "gh-app"
     assert readers["findings"].token == "gh-app"
+
+
+def test_every_finding_value_is_shown_in_inline_code_only_warden_s_own_labels_are_not():
+    """A log line of a finding's shape can carry any printable character: each value is rendered inert (CodeRabbit)."""
+    from warden.cli import DEMO_ALERTS
+    from warden.reporting import build_report, untrusted_inline
+
+    hostile = "<!channel>**[click](https://evil.example)**"
+    ctx = ContextBundle(logs=[
+        (f"FINDING sonarcloud rule=python:S1 severity={hostile} category={hostile} file=src/a.py line=3 status=open "
+         f"pr={hostile} commit={SHA}"),
+        (f"FINDINGS pr={hostile} read={hostile} shown={hostile} found={hostile} held={hostile} "
+         f"coderabbit_review={hostile}"),
+    ])
+    md = build_report(Alert(**DEMO_ALERTS["inc-001"]), context=ctx).markdown
+    assert "Code review's findings on the deployed change" in md
+    section = md.split("## Code review's findings on the deployed change", 1)[1].split("\n## ", 1)[0]
+    outside_code = re.sub(r"`[^`]*`", "", section)
+    assert "<!channel>" not in md and "[click]" not in outside_code
+    assert section.count(untrusted_inline(hostile)) == 9  # severity, category, pr twice, read, shown, found, held, review
+    assert "SonarCloud, rule `python:S1`" in md
+
