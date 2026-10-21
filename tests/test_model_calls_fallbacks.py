@@ -178,8 +178,8 @@ def test_no_log_line_holds_the_prompt_or_the_answer(tmp_path, caplog, request):
     _review(critic_world)
     assert caplog.records  # the run did log - the scan is not of nothing
     text = _logged(caplog)
-    assert CANARY_PROMPT not in text
-    assert CANARY_ANSWER not in text
+    assert text.count(CANARY_PROMPT) == 0
+    assert text.count(CANARY_ANSWER) == 0
 
 
 # --------------------------------------------------------------------------- (3) exactly one llm.fallback row
