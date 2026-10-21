@@ -84,6 +84,9 @@ RUNAWAY_QUERY = timedelta(minutes=15)
 # strategy, CANARY or LINEAR, which the plan shows; WARDEN does not change a service's strategy.)
 CANARY_WEIGHT = 0.1
 CANARY_FOR = timedelta(minutes=2)
+# B17: an undo of lambda_restore_config is done when Lambda says its update finished - read every UNDO_POLL_S, up to
+# UNDO_POLLS times (2 minutes: inside the rollback activity's 5), never on the request being accepted (PR 107).
+UNDO_POLLS, UNDO_POLL_S = 24, 5
 _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lambda", "lambda_enable_esm": "lambda",
           "lambda_disable_esm": "lambda", "events_enable_rule": "events", "events_disable_rule": "events",
           "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs", "ecs_restart_service": "ecs",
@@ -2157,8 +2160,25 @@ class AwsPlatform:
         lam = self._actor(who, ["lambda:UpdateFunctionConfiguration"], [now["arn"]], None)("lambda")
         lam.update_function_configuration(FunctionName=p["function"], RevisionId=now.get("revision"),
                                           **_config_call(to, want_now))
+        if back:  # an undo reported done must be done: a failed or unfinished update is a failed undo (CodeRabbit)
+            self._lambda_update_finished(p["function"])
         return (f"set lambda {p['function']} $LATEST {_config_text(want_now)} -> {_config_text(to)}"
                 + ("" if back else f" (version {p['from_version']}'s)"))
+
+    def _lambda_update_finished(self, fn: str) -> None:
+        """Lambda's own word that the update finished (LastUpdateStatus Successful), read with the reader - the actor
+        session may only write. Failed, or not finished in time, raises: the undo is not reported as done."""
+        lam = self._read("lambda")
+        for _ in range(UNDO_POLLS):
+            status = lam.get_function_configuration(FunctionName=fn).get("LastUpdateStatus")
+            if status == "Successful":
+                return
+            if status == "Failed":
+                raise AwsPlatformError(f"lambda {fn}: Lambda reports the undo's update Failed; the fix's settings may "
+                                       "still be in place")
+            self._sleep(UNDO_POLL_S)
+        raise AwsPlatformError(f"lambda {fn}: the undo's update did not finish in {UNDO_POLLS * UNDO_POLL_S} s; whether "
+                               "it took effect is unknown")
 
     def _lambda_config_restored(self, function: str, params: dict[str, Any]) -> bool:
         """The settings are the version's, the update finished, and the function serves without errors (a metric

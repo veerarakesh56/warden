@@ -13,7 +13,7 @@ import pytest
 from test_aws_platform_g6 import ACCT, FN, FN_ARN, WHO, Fake
 from warden import catalog
 from warden.models import ActionKind
-from warden.platforms.aws import AwsPlatform, AwsPlatformRefused
+from warden.platforms.aws import UNDO_POLLS, AwsPlatform, AwsPlatformError, AwsPlatformRefused
 
 BASE = {"FunctionArn": FN_ARN, "FunctionName": FN, "CodeSha256": "c0de", "Timeout": 30, "MemorySize": 512,
         "EphemeralStorage": {"Size": 512}, "Handler": "app.handler", "Runtime": "python3.13",
@@ -215,3 +215,44 @@ def test_an_update_not_known_to_have_finished_is_not_healthy(aws):
     f, p = aws
     f.latest = {**f.latest, "Timeout": 30, "MemorySize": 512, "LastUpdateStatus": None}
     assert p.healthy(FN, entry="lambda_restore_config", params={"function": FN, "from_version": "7"}) is False
+
+
+class UpdatingFake(LambdaFake):
+    """$LATEST's LastUpdateStatus as Lambda reports it on each read after the undo's write."""
+
+    def __init__(self, statuses):
+        super().__init__()
+        self.statuses = list(statuses)
+
+    def get_function_configuration(self, FunctionName, Qualifier=None):
+        conf = super().get_function_configuration(FunctionName, Qualifier)
+        if Qualifier is None and self.writes and self.statuses:
+            conf["LastUpdateStatus"] = self.statuses.pop(0)
+        return conf
+
+
+def _undo(statuses):
+    f = UpdatingFake(statuses)
+    naps = []
+    p = AwsPlatform(reader=lambda service: f, actor=f.actor, sleep=naps.append)
+    live, params = _plan(p)
+    f.latest = {**f.latest, "Timeout": 30, "MemorySize": 512, "RevisionId": "r2"}  # as the fix left it
+    return f, p, live, params, naps
+
+
+def test_an_undo_is_done_only_when_lambda_says_its_update_finished():
+    f, p, live, params, naps = _undo(["InProgress", "InProgress", "Successful"])
+    p.rollback("lambda_restore_config", params, live["state"], who=WHO)
+    assert f.writes[-1][0] == "update_function_configuration"
+    assert len(naps) == 2  # waited twice, then Lambda said Successful
+
+
+@pytest.mark.parametrize(("statuses", "said"), [(["InProgress", "Failed"], "Failed"),
+                                                (["InProgress"] * (UNDO_POLLS + 1), "did not finish")],
+                         ids=["failed", "never-finished"])
+def test_an_undo_whose_update_failed_or_never_finished_is_not_reported_done(statuses, said):
+    f, p, live, params, _ = _undo(statuses)
+    with pytest.raises(AwsPlatformError, match=said) as raised:
+        p.rollback("lambda_restore_config", params, live["state"], who=WHO)
+    assert not isinstance(raised.value, AwsPlatformRefused)  # the write was sent: not "nothing changed"
+    assert f.writes  # it was sent
