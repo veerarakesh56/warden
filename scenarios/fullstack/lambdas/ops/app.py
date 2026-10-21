@@ -28,6 +28,37 @@ def _info(r):
     return {k: info.get(k) for k in keys}
 
 
+def _fill(r, prefix, mb):
+    total = int(mb) * 1024 * 1024 // CHUNK
+    value = b"x" * CHUNK
+    written = 0
+    try:
+        for start in range(0, total, 50):
+            pipe = r.pipeline(transaction=False)
+            for i in range(start, min(start + 50, total)):
+                pipe.set(f"{prefix}{i}", value, ex=3600)
+            pipe.execute()
+            written = min(start + 50, total)
+    except redis.exceptions.ResponseError:
+        log.exception("fill stopped by the server after %d keys", written)
+    log.info("fill prefix=%s keys=%d", prefix, written)
+    return {"written": written, **_info(r)}
+
+
+def _flush_prefix(r, prefix):
+    deleted = 0
+    batch = []
+    for key in r.scan_iter(match=f"{prefix}*", count=1000):
+        batch.append(key)
+        if len(batch) >= 500:
+            deleted += r.delete(*batch)
+            batch = []
+    if batch:
+        deleted += r.delete(*batch)
+    log.info("flush prefix=%s deleted=%d", prefix, deleted)
+    return {"deleted": deleted, **_info(r)}
+
+
 def handler(event, context):
     # Every option set, not left to redis-py's defaults (8.0: RESP3, 10 retries with backoff, keepalive, 5 s
     # timeouts): RESP2, one try, no keepalive, the timeouts below. TLS checks the certificate and host name.
@@ -42,30 +73,7 @@ def handler(event, context):
     if cmd == "info":
         return _info(r)
     if cmd == "fill":
-        total = int(event.get("mb", 400)) * 1024 * 1024 // CHUNK
-        value = b"x" * CHUNK
-        written = 0
-        try:
-            for start in range(0, total, 50):
-                pipe = r.pipeline(transaction=False)
-                for i in range(start, min(start + 50, total)):
-                    pipe.set(f"{prefix}{i}", value, ex=3600)
-                pipe.execute()
-                written = min(start + 50, total)
-        except redis.exceptions.ResponseError:
-            log.exception("fill stopped by the server after %d keys", written)
-        log.info("fill prefix=%s keys=%d", prefix, written)
-        return {"written": written, **_info(r)}
+        return _fill(r, prefix, event.get("mb", 400))
     if cmd == "flush_prefix":
-        deleted = 0
-        batch = []
-        for key in r.scan_iter(match=f"{prefix}*", count=1000):
-            batch.append(key)
-            if len(batch) >= 500:
-                deleted += r.delete(*batch)
-                batch = []
-        if batch:
-            deleted += r.delete(*batch)
-        log.info("flush prefix=%s deleted=%d", prefix, deleted)
-        return {"deleted": deleted, **_info(r)}
+        return _flush_prefix(r, prefix)
     raise ValueError(f"unknown op {cmd!r}: expected info, fill or flush_prefix")

@@ -38,7 +38,10 @@ def _raw(path):
 def test_an_untouched_log_verifies_and_is_fully_signed(tmp_path, key):
     path = _log(tmp_path, key)
     result = audit.verify(path, key.public_key())
-    assert result.ok and result.rows == 5 and result.signed_through == 5 and result.unsigned_tail == 0
+    assert result.ok
+    assert result.rows == 5
+    assert result.signed_through == 5
+    assert result.unsigned_tail == 0
     assert [e["body"]["n"] for e in audit.AuditLog(path).entries("inc-1")] == [0, 1, 2, 3, 4]
 
 
@@ -102,7 +105,8 @@ def test_rows_after_the_last_checkpoint_are_reported_as_unsigned(tmp_path, key):
     log.append("inc-2", "step", {})
     log.close()
     result = audit.verify(path, key.public_key())
-    assert result.ok and result.unsigned_tail == 1
+    assert result.ok
+    assert result.unsigned_tail == 1
 
 
 def test_a_checkpoint_is_written_automatically_every_n_rows(tmp_path, key):
@@ -117,7 +121,8 @@ def test_a_damaged_file_is_a_finding_not_a_crash(tmp_path, key):
     data[:16] = b"X" * 16  # destroy the SQLite header
     path.write_bytes(bytes(data))
     result = audit.verify(path, key.public_key())
-    assert not result.ok and "cannot be read" in result.problems[0]
+    assert not result.ok
+    assert "cannot be read" in result.problems[0]
 
 
 def test_keys_round_trip_and_a_passphrase_is_required_when_set(tmp_path):
@@ -143,4 +148,5 @@ def test_the_cli_creates_a_key_refuses_to_overwrite_it_and_verifies(tmp_path, ca
     _raw(path).execute("UPDATE entries SET kind = 'nothing' WHERE seq = 1")
     assert cli.main(["audit", "verify", "--db", str(path), "--public-key", str(pub)]) == 1
     out = capsys.readouterr().out
-    assert "TAMPERED: row 1 was changed after it was written" in out and "NOT intact" in out
+    assert "TAMPERED: row 1 was changed after it was written" in out
+    assert "NOT intact" in out

@@ -75,20 +75,17 @@ def _gone(count, seconds=10.0):
     return count() == 0
 
 
-def _connect_or_fail(adapter, dsn, label):
-    """A configured-but-unreachable database is a FAILURE. Skipping here would turn a broken
-    integration run into a green one."""
-    try:
-        return adapter.connect(dsn)
-    except Exception as exc:  # re-raised: any failure to reach it fails the run
-        raise AssertionError(f"{label} DSN is set but the server did not answer: {exc}") from exc
+def _connect_or_fail(adapter, dsn):
+    """A configured-but-unreachable database is a FAILURE: the connect error propagates and fails the test (its
+    traceback names the adapter). Skipping here would turn a broken integration run into a green one."""
+    return adapter.connect(dsn)
 
 
 # ------------------------------------------------------------------ PostgreSQL
 
 @needs_pg
 def test_postgres_metrics_come_back_from_a_real_server():
-    conn = _connect_or_fail(_Postgres, PG_DSN, "postgres")
+    conn = _connect_or_fail(_Postgres, PG_DSN)
     m = _Postgres.metrics(conn)
     # These keys only exist if the real catalog queries parsed and returned.
     for key in ("active_connections", "idle_in_transaction", "max_connections", "locks_waiting"):
@@ -102,15 +99,17 @@ def test_postgres_metrics_come_back_from_a_real_server():
 def test_postgres_access_lists_the_real_databases_and_who_may_connect():
     """Research 2026-10-15, item 8: the catalog read parses on a real server, names the database the test is in and
     the login it connects as, and says a database that does not exist is not there."""
-    conn = _connect_or_fail(_Postgres, PG_DSN, "postgres")
+    conn = _connect_or_fail(_Postgres, PG_DSN)
     lines = _Postgres.access(conn)
     with conn.cursor() as cur:
         cur.execute("SELECT current_database()")
         here = cur.fetchone()[0]
     conn.close()
-    assert lines[0].startswith("STATE postgres login_roles=") and PG_USER in lines[0].split("=", 1)[1].split(","), lines
+    assert lines[0].startswith("STATE postgres login_roles="), lines
+    assert PG_USER in lines[0].split("=", 1)[1].split(","), lines
     mine = [ln for ln in lines if ln.startswith(f"STATE postgres database {here} ")]
-    assert mine and PG_USER in mine[0].split("connect_roles=", 1)[1].split(","), lines
+    assert mine, lines
+    assert PG_USER in mine[0].split("connect_roles=", 1)[1].split(","), lines
     assert not any(" database warden_no_such_db " in ln for ln in lines)
 
 
@@ -125,7 +124,7 @@ def test_postgres_activity_names_a_blocked_session_and_its_blocker_on_a_real_ser
     import warden.database as db
 
     monkeypatch.setattr(db, "POOL_PRESSURE", 0.0)  # always list who holds the connections
-    admin = _connect_or_fail(_Postgres, PG_DSN, "postgres")
+    admin = _connect_or_fail(_Postgres, PG_DSN)
     blocker = psycopg.connect(PG_DSN, autocommit=False)
     waiter = psycopg.connect(PG_DSN, autocommit=False)
     with admin.cursor() as cur:
@@ -166,7 +165,7 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
     then genuinely disappears from pg_stat_activity."""
     import psycopg
 
-    admin = _connect_or_fail(_Postgres, PG_DSN, "postgres")
+    admin = _connect_or_fail(_Postgres, PG_DSN)
     victim = psycopg.connect(PG_DSN, autocommit=False)
     try:
         # Leave the victim idle INSIDE a transaction - the exact state that holds pool slots + locks.
@@ -251,7 +250,7 @@ def test_postgres_blocker_close_finds_and_closes_only_the_session_still_blocking
     re-check must parse and select exactly the blocking session - and a stale backend start closes nothing."""
     import psycopg
 
-    admin = _connect_or_fail(_Postgres, PG_DSN, "postgres")
+    admin = _connect_or_fail(_Postgres, PG_DSN)
     blocker = psycopg.connect(PG_DSN, autocommit=False)
     waiter = psycopg.connect(PG_DSN, autocommit=False)
     with admin.cursor() as cur:
@@ -274,7 +273,8 @@ def test_postgres_blocker_close_finds_and_closes_only_the_session_still_blocking
             time.sleep(0.25)
         assert [pid for pid, _, _ in found] == [blocker_pid], found
         (_, started, blocking), = found
-        assert blocking == 1 and started
+        assert blocking == 1
+        assert started
         assert platform_db._Postgres.blockers(admin, ["someone_else"], 1, 20) == []
         assert platform_db._Postgres.blockers(admin, [PG_USER], 3600, 20) == [], "a wait of seconds is not an hour's"
         # The close re-checks on the real server: another backend start, or another login, closes nothing.
@@ -303,7 +303,7 @@ def test_postgres_blocker_close_finds_and_closes_only_the_session_still_blocking
 
 @needs_mysql
 def test_mysql_metrics_come_back_from_a_real_server():
-    conn = _connect_or_fail(_MySQL, MYSQL_DSN, "mysql")
+    conn = _connect_or_fail(_MySQL, MYSQL_DSN)
     m = _MySQL.metrics(conn)
     for key in ("active_connections", "max_connections", "idle_in_transaction"):
         assert key in m, f"{key} missing from a real MySQL read: {m}"
@@ -317,7 +317,7 @@ def test_mysql_terminate_actually_kills_the_sleeping_transaction():
 
     import pymysql
 
-    admin = _connect_or_fail(_MySQL, MYSQL_DSN, "mysql")
+    admin = _connect_or_fail(_MySQL, MYSQL_DSN)
     u = urlparse(MYSQL_DSN)
     victim = pymysql.connect(
         host=u.hostname, port=u.port or 3306, user=u.username, password=u.password or "",
@@ -389,7 +389,7 @@ def test_mysql_terminate_actually_kills_the_sleeping_transaction():
 
 @needs_redis
 def test_redis_metrics_come_back_from_a_real_server():
-    conn = _connect_or_fail(_Redis, REDIS_DSN, "redis")
+    conn = _connect_or_fail(_Redis, REDIS_DSN)
     m = _Redis.metrics(conn)
     for key in ("connected_clients", "maxclients", "used_memory", "idle_in_transaction"):
         assert key in m, f"{key} missing from a real Redis read: {m}"
@@ -400,7 +400,7 @@ def test_redis_metrics_come_back_from_a_real_server():
 
 @needs_mongo
 def test_mongo_metrics_come_back_from_a_real_server():
-    conn = _connect_or_fail(_Mongo, MONGO_DSN, "mongo")
+    conn = _connect_or_fail(_Mongo, MONGO_DSN)
     m = _Mongo.metrics(conn)
     for key in ("current_connections", "available_connections", "long_running_ops"):
         assert key in m, f"{key} missing from a real Mongo read: {m}"
@@ -412,7 +412,7 @@ def test_mongo_metrics_come_back_from_a_real_server():
 def test_mongo_metrics_do_not_count_the_servers_own_heartbeats_as_long_running_ops():
     """An idle MongoDB must read as idle. Before the fix, its own `hello` heartbeats were counted,
     so a healthy server reported long-running operations every single time."""
-    conn = _connect_or_fail(_Mongo, MONGO_DSN, "mongo")
+    conn = _connect_or_fail(_Mongo, MONGO_DSN)
     try:
         m = _Mongo.metrics(conn)
         assert m["long_running_ops"] == 0.0, f"a quiet server reported long-running ops: {m}"
@@ -425,7 +425,7 @@ def test_mongo_metrics_do_not_count_the_servers_own_heartbeats_as_long_running_o
 
 @needs_mssql
 def test_mssql_metrics_come_back_from_a_real_server():
-    conn = _connect_or_fail(_MSSQL, MSSQL_DSN, "mssql")
+    conn = _connect_or_fail(_MSSQL, MSSQL_DSN)
     try:
         m = _MSSQL.metrics(conn)
         for key in ("active_connections", "idle_in_transaction", "long_running_queries"):
@@ -443,7 +443,7 @@ def test_mssql_does_not_count_its_own_background_tasks_as_long_running_queries()
     XE TIMER...), which have been running since startup. Before the join to `dm_exec_sessions`, a
     freshly started, completely idle server reported 28 long-running queries.
     """
-    conn = _connect_or_fail(_MSSQL, MSSQL_DSN, "mssql")
+    conn = _connect_or_fail(_MSSQL, MSSQL_DSN)
     try:
         assert _MSSQL.metrics(conn)["long_running_queries"] == 0.0, (
             "an idle server reported long-running queries - background tasks are being counted"
@@ -458,7 +458,7 @@ def test_mssql_terminate_actually_kills_the_sleeping_transaction():
 
     import pymssql
 
-    admin = _connect_or_fail(_MSSQL, MSSQL_DSN, "mssql")
+    admin = _connect_or_fail(_MSSQL, MSSQL_DSN)
     u = urlparse(MSSQL_DSN)
     victim = pymssql.connect(
         server=u.hostname, port=str(u.port or 1433), user=u.username, password=u.password or "",

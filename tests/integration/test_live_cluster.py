@@ -40,10 +40,7 @@ from warden.tools import PARTIAL_PREFIX, gather
 
 @pytest.fixture(scope="module")
 def backend():
-    try:
-        return KubernetesBackend()
-    except Exception as exc:  # re-raised: any failure to reach it fails the run
-        raise AssertionError(f"WARDEN_K8S_INTEGRATION=1 but no cluster is reachable: {exc}") from exc
+    return KubernetesBackend()  # WARDEN_K8S_INTEGRATION=1 and no reachable cluster: the error fails every test
 
 
 @pytest.fixture(scope="module")
@@ -89,7 +86,8 @@ def test_a_recent_template_change_is_reported_as_a_deploy(backend, alert):
     """The workload was created minutes ago: first rollout, so it counts. A later
     `kubectl rollout restart` would NOT - see the unit test for that case."""
     d = backend.deploys(alert)
-    assert len(d) == 1 and d[0]["deployment"] == "checkout"
+    assert len(d) == 1
+    assert d[0]["deployment"] == "checkout"
     assert "busybox" in d[0]["image"]
 
 
