@@ -43,6 +43,7 @@ def test_a_lambda_rollback_moves_the_alias_to_the_one_known_good_version_the_liv
                                     _proposal(ActionKind.rollback_deploy, "warden-dev-orders"), live)
     assert why == "" and req == {"entry": "lambda_move_alias", "service": "warden-dev-orders", "environment": "dev",
                                  "incident_id": "a1", "approval_ttl_minutes": 72 * 60,  # the environment's wait
+                                 "soak_minutes": 60,  # WARDEN_SOAK_MINUTES's default (item 11)
                                  "params": {"function": "warden-dev-orders", "alias": "live", "to_version": "3"}}
     assert seen == [("lambda_move_alias", {"function": "warden-dev-orders", "alias": "live"})]
     assert resolver.workflow_id(req).startswith("rem-dev-")

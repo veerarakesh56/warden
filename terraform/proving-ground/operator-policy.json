@@ -317,7 +317,6 @@
         "s3:PutBucketPolicy",
         "kms:ScheduleKeyDeletion",
         "kms:DisableKey",
-        "ec2:TerminateInstances",
         "rds:DeleteDBSnapshot"
       ],
       "Resource": "*"

@@ -210,7 +210,7 @@ def sweep(ecs: Any, logs: Any, tagging: Any, family: str, log_group: str,
 
 def _cluster_inactive(ecs: Any, cluster: str) -> bool:
     clusters = ecs.describe_clusters(clusters=[cluster]).get("clusters") or []
-    return bool(clusters) and clusters[0].get("status") == "INACTIVE"
+    return next(iter(clusters), {}).get("status") == "INACTIVE"
 
 
 def main(argv: list[str] | None = None, *, session: Any = None) -> int:

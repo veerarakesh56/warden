@@ -76,7 +76,7 @@ def test_every_action_the_runtimes_own_roles_hold_fits_the_boundary():
 
 def test_the_worker_reaches_other_environments_only_through_their_reader_and_actor():
     boundary = _load("boundary")
-    assert _sid(boundary, "CeilingWatchedRoles")["Resource"] == [
+    assert _sid(boundary, "CeilingWatched")["Resource"] == [
         "arn:aws:iam::*:role/warden-*-platform-reader", "arn:aws:iam::*:role/warden-*-actor"]
     other = _sid(boundary, "DenyOtherEnvResources")
     assert other["NotAction"] == "sts:*" and "Action" not in other  # every other service stays out

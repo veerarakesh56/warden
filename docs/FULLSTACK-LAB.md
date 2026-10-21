@@ -225,8 +225,9 @@ patched. Since 2026-10-16 the report prints no command at all: a fix is a typed 
 applied by WARDEN's own remediation workflow after a signed approval. The lab's `fix` step therefore records
 `execution_disabled` for an approved fix, `blocked_by_gate` for a rejected one and `not_approved` otherwise.
 
-Tear-down: `aurora_express.py destroy` first (Terraform does not know the cluster exists), then
-`terraform destroy`, then `python scripts/account_sweep.py`, which must end clean.
+Tear-down: `aurora_express.py destroy` first (Terraform does not know the cluster exists; it keeps a final
+snapshot, `<cluster>-final-<UTC time>`, and never skips it), then `terraform destroy`, then
+`python scripts/account_sweep.py`, which must end clean apart from the final snapshots the owner chose to keep.
 
 ## 7. Status and what the lab has shown
 
