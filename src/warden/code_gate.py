@@ -287,7 +287,7 @@ def is_test_line(line: str) -> bool:
 
 
 def code_part(line: str) -> str:
-    """A line up to its comment: a `#` inside a quoted string (`x = "#"; import requests`) does not start one. A quote
+    """A line up to its comment: a `#` inside a quoted string (`x = "#"; import leftpad`) does not start one. A quote
     the scan reads wrongly can only keep more of the line, which can only add a refusal, never hide an import."""
     quote = ""
     escaped = False
