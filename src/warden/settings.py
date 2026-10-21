@@ -75,6 +75,9 @@ LOADABLE = frozenset({
     # Whose changes WARDEN never proposes to undo - a security team, a break-glass identity (platforms/aws.py): plain,
     # comma-separated. Not loadable before 2026-10-14, so the cloud runtime could never be told (gap audit).
     "WARDEN_NEVER_REVERT_PRINCIPALS",
+    # The AWS updates watch (awswatch.py): `on` to read AWS's two public feeds once a day, and the digest's time of day
+    # in the display zone (HH:MM). Plain: no credential.
+    "WARDEN_AWSWATCH", "WARDEN_AWSWATCH_AT",
     # Service quotas and their usage as evidence (quotas.py, B14): plain, "1" reads them.
     "WARDEN_QUOTAS",
     # Each environment's EKS cluster, `env=cluster[,env=cluster]` (aws_stack.eks_cluster_of): a Kubernetes alert that

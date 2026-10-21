@@ -41,6 +41,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .autonomy import L2, VETO
+    from .awswatch import AwsWatchActivities
     from .catalog import MITIGATES
     from .discuss import (
         ELSEWHERE,
@@ -84,9 +85,10 @@ CEILING = {"start_to_close_timeout": timedelta(seconds=30), "retry_policy": Retr
 # queue sends each zoned activity to its zone's queue; one on any other queue (a test's) keeps them all with it.
 MAIN_QUEUE = "warden"
 ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold",
-                  "discuss_evidence", "discuss_replan"),
+                  "discuss_evidence", "discuss_replan", "awswatch_read"),
          "llm": ("diagnose", "discuss_answer"),
-         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
+         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed",
+                    "awswatch_post"),
          "act": ("apply", "rollback"),
          # Eldane, the AI critic (eldane.py): its own model, its own signing key, no other zone's credentials.
          "critic": ("critic_review",)}
@@ -1000,3 +1002,23 @@ class IncidentWorkflow:
             with contextlib.suppress(ActivityError):
                 await workflow.execute_activity_method(acts.no_plan, **_zoned(acts.no_plan),
                                                        args=[first.alert_id, held], **NOTIFY)
+
+
+@workflow.defn
+class AwsWatchWorkflow:
+    """The AWS updates watch (awswatch.py), started by its Temporal Schedule once a day: the feeds read and reduced to
+    facts in read, the rules and the record in core, the digest and the alarms posted from notify. It changes nothing
+    and starts nothing: no step of it writes to AWS or opens an incident or a plan."""
+
+    @workflow.run
+    async def run(self) -> str:
+        acts = AwsWatchActivities
+        digest = f"awswatch-{workflow.now():%Y%m%dT%H%M%SZ}"
+        snap = await workflow.execute_activity_method(
+            acts.awswatch_read, **_zoned(acts.awswatch_read), args=[digest],
+            start_to_close_timeout=timedelta(minutes=5), retry_policy=RetryPolicy(maximum_attempts=3))
+        made = await workflow.execute_activity_method(acts.awswatch_review, **_zoned(acts.awswatch_review),
+                                                      args=[digest, snap], **QUICK)
+        await workflow.execute_activity_method(acts.awswatch_post, **_zoned(acts.awswatch_post),
+                                               args=[digest, made], **NOTIFY)
+        return digest

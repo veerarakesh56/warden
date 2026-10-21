@@ -428,6 +428,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Where a command-line path may point - `paths.py`: the standard library's `pathlib` (resolve, is_relative_to) and
   a list of the tools' own folders; a sandboxing library would confine the whole process, not one argument
   (2026-10-16, Sonar pythonsecurity:S8707).
+- The AWS updates watch - `awswatch.py`: built. AWS Health already sends scheduled changes through EventBridge
+  (adopted: a rule, no code), and feed readers exist; what none does is weigh an announcement against WARDEN's own
+  Terraform, or keep AWS's text out of the message as quarantine keeps a log line out of a prompt. The RSS is read
+  with the standard library's expat, refusing any document type, as defusedxml does, so no new dependency.
 
 **Evidence through the AWS MCP servers or the Agent Toolkit: not adopted.** Each lets a model choose its
 calls (free-form API calls, Python, SQL or log queries), which WARDEN's design forbids; each returns raw text the

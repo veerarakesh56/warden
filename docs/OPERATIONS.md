@@ -267,6 +267,47 @@ cover ends WARDEN looks at the alarm again: still firing, it is an incident from
 cannot be read covers nothing and is said in the intake's log: a typing mistake brings alarms back, it never hides
 one. A person who asks for a diagnosis (CLI, MCP) always gets one.
 
+## The AWS updates watch (owner item B6)
+
+Once a day, at 09:00 in the display zone (environments.yaml `display_zone`, Asia/Kolkata: 03:30 UTC, 09:00 IST), WARDEN reads
+what AWS announced and posts a digest in the discussion channel: each item about a service WARDEN uses, with what it
+means for WARDEN. An item that affects WARDEN, or that a person must check, also gets one alarm in the alerts channel,
+once. Each run looks at the last 7 days and leaves out what a delivered digest already showed, so a feed that could
+not be read one day is read the next; an alarm or a digest that could not be delivered is made again the next day.
+WARDEN reads, and changes nothing.
+
+- **What it reads.** AWS's What's New feed (`https://aws.amazon.com/about-aws/whats-new/recent/feed/`) and the AWS News
+  Blog (`https://aws.amazon.com/blogs/aws/feed/`), from the read worker; and AWS Health's scheduled changes for the
+  account (maintenance, planned lifecycle events such as a Lambda runtime's end of support), through the EventBridge
+  rule `warden-<env>-healthchanges-events` and the alarm Lambda, which records each on WARDEN's record and starts no
+  incident.
+- **How it decides** (`awswatch.verdict`, plain rules, no model). WARDEN's inventory - its services, Lambda runtimes,
+  database and Kubernetes versions and Regions - is `src/warden/data/aws_inventory.json`, made from its own Terraform
+  by `python scripts/aws_inventory.py` (a test fails when they differ: run it after a Terraform change). An end of
+  support or security item names versions: one WARDEN runs is **affected**; none of them, with all of WARDEN's
+  versions known, **not affected**; a version WARDEN has not pinned, or no version named, **a person checks**. Other
+  items on a service WARDEN uses are **of interest**, unless they are about other Regions only. An item about nothing
+  WARDEN uses is only counted.
+- **AWS's text is not shown.** It is outside text: redacted, scanned by the injection tripwire (a flagged item is held
+  back), and reduced to facts. The digest shows the facts and AWS's own link, to read the item on AWS's site.
+- **Where it posts.** The discussion and alerts channels of the nonprod environment, from `WARDEN_DISCUSS_CHANNELS` /
+  `WARDEN_SLACK_CHANNELS` (or the single `WARDEN_DISCUSS_CHANNEL` / `WARDEN_SLACK_CHANNEL`); a Health notice naming
+  watched resources alarms in the channel of each environment it names, and again when AWS updates it (its status,
+  its start or the resources it names). A malformed map sends nothing and says so on the
+  record (`awswatch.post`).
+- **Network.** The only new egress: HTTPS (443) from the read worker to `aws.amazon.com`, two fixed URLs, no redirect
+  followed, at most 5 MB each, 20 seconds each. The runtime's security group already allows 443 out; a security
+  group cannot name a host, so the code holds the rest. A firewall or proxy in front of WARDEN (a laptop running the
+  worker) must allow `aws.amazon.com:443`. AWS Health needs no egress: EventBridge brings it.
+- **Cost.** None: AWS's own events on the default event bus are free, and the Lambda runs a few times a month.
+
+Setup, once: set the plain setting `/warden/<env>/env/WARDEN_AWSWATCH` to `on` (and, to change the time,
+`WARDEN_AWSWATCH_AT` as `HH:MM` in the display zone), apply the runtime Terraform (the EventBridge rule), and restart
+the core worker: it makes the Temporal Schedule `warden-aws-updates` or brings it up to date, and logs which. To run
+one now: `temporal schedule trigger --schedule-id warden-aws-updates`. To turn it off: set `WARDEN_AWSWATCH` to `off`
+and restart the core worker - it deletes the schedule. Every digest is on WARDEN's record (`awswatch.digest`, under
+`awswatch-<time>`), every alarm too (`awswatch.alarm`), and each Health notice (`awswatch.health`).
+
 ## Optional: Claude's security review on pull requests
 
 `.github/workflows/security-review.yml` runs Anthropic's Claude Code security review

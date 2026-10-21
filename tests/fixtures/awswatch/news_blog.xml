@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The shape of https://aws.amazon.com/blogs/aws/feed/ (WordPress RSS 2.0: title, link, dc:creator, pubDate, one
+     category per element, guid, description), as captured in public test fixtures of May 2026. The posts are WARDEN's
+     test cases, not AWS's words. -->
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>AWS News Blog</title><link>https://aws.amazon.com/blogs/aws/</link>
+<item><title>Amazon EKS: Kubernetes 1.31 end of standard support is coming</title><link>https://aws.amazon.com/blogs/aws/amazon-eks-kubernetes-1-31-end-of-standard-support/</link><dc:creator><![CDATA[A Writer]]></dc:creator><pubDate>Thu, 15 Oct 2026 18:00:00 +0000</pubDate><category><![CDATA[Amazon Elastic Kubernetes Service]]></category><category><![CDATA[Containers]]></category><guid isPermaLink="false">warden-test-post-one</guid><description><![CDATA[<p>Kubernetes version 1.31 on Amazon EKS reaches end of standard support on November 26, 2026.</p>]]></description></item>
+<item><title>ElastiCache for Redis 6 moves to extended support</title><link>https://aws.amazon.com/blogs/aws/elasticache-redis-6-extended-support/</link><dc:creator><![CDATA[A Writer]]></dc:creator><pubDate>Thu, 15 Oct 2026 19:00:00 +0000</pubDate><category><![CDATA[Amazon ElastiCache]]></category><guid isPermaLink="false">warden-test-post-two</guid><description><![CDATA[<p>Amazon ElastiCache for Redis OSS 6 reaches end of standard support and moves to extended support on January 31, 2027.</p>]]></description></item>
+</channel></rss>

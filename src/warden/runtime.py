@@ -33,6 +33,7 @@ from temporalio.worker import Worker
 
 from . import approvals, audit
 from .activities import DiscussActivities, IncidentActivities, Plan, RemediationActivities
+from .awswatch import AwsWatchActivities
 from .runtime_base import (  # noqa: F401 - re-exported: runtime.connect; runtime.open_audit; ... as before
     _path,
     approver_policy,
@@ -46,6 +47,7 @@ from .workflows import (
     MAIN_QUEUE,
     ZONES,
     AutonomyWorkflow,
+    AwsWatchWorkflow,
     ClockWorkflow,
     DiscussWorkflow,
     IncidentWorkflow,
@@ -228,11 +230,13 @@ def _activities(log: audit.AuditLog, policy: approvals.ApproverPolicy, platform:
 
     rem = RemediationActivities(audit=log, policy=policy, platform=platform or NoPlatform(), changes=from_environment())
     talk = DiscussActivities(audit=log, incident=inc, policy=policy)
+    aws = AwsWatchActivities(audit=log)
     return [inc.after_hold, inc.prepare, inc.reread, inc.investigate, inc.plan_fix, inc.diagnose, inc.verify, inc.second_opinion, inc.notify, inc.no_plan,
             rem.resolve_plan, rem.gate, rem.announce, rem.check_approval, rem.check_passkey, rem.precheck, rem.apply,
             rem.check_success, rem.record_result, rem.rollback, rem.finish, rem.summary_owed, rem.again_alert, rem.side_effects,
             rem.critic_review, rem.autonomy_state, rem.autonomy_enable,
-            talk.discuss_thread, talk.discuss_facts, talk.discuss_evidence, talk.discuss_answer, talk.discuss_reply, talk.discuss_replan]
+            talk.discuss_thread, talk.discuss_facts, talk.discuss_evidence, talk.discuss_answer, talk.discuss_reply, talk.discuss_replan,
+            aws.awswatch_read, aws.awswatch_review, aws.awswatch_post]
 
 
 def worker(client: Client, *, log: audit.AuditLog, policy: approvals.ApproverPolicy, platform: Any = None,
@@ -240,7 +244,7 @@ def worker(client: Client, *, log: audit.AuditLog, policy: approvals.ApproverPol
     """The workflows and every activity on one queue. On the main queue the workflows send zoned activities to the
     zones' queues: run serving(zone="all") there instead."""
     return Worker(client, task_queue=task_queue, workflows=[IncidentWorkflow, RemediationWorkflow, ClockWorkflow,
-                                                         DiscussWorkflow, AutonomyWorkflow],
+                                                         DiscussWorkflow, AutonomyWorkflow, AwsWatchWorkflow],
                   activities=_activities(log, policy, platform, backend, llm_factory),
                   # ponytail: one thread per activity; the model call is the slow one (one at a time
                   # is what Claude Max allows anyway).
@@ -263,7 +267,7 @@ def workers(client: Client, *, zone: str = "all", log: audit.AuditLog, policy: a
     if zone == "core":
         zoned = {n for names in ZONES.values() for n in names}
         return [Worker(client, task_queue=MAIN_QUEUE, workflows=[IncidentWorkflow, RemediationWorkflow, ClockWorkflow,
-                                                                 DiscussWorkflow, AutonomyWorkflow],
+                                                                 DiscussWorkflow, AutonomyWorkflow, AwsWatchWorkflow],
                        activities=[a for a in acts if a.__name__ not in zoned], activity_executor=ThreadPoolExecutor(4))]
     if zone not in ZONES:
         raise ValueError(f"unknown zone {zone!r} (one of {', '.join(ZONE_CHOICES)})")
