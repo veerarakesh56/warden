@@ -348,7 +348,7 @@ def _items_of(context: ContextBundle | None) -> dict[str, Any]:
 
     try:
         return evidence.view(context) if context is not None else {}
-    except Exception:  # a view that cannot be built checks nothing: all unchecked, every count 0  # noqa: BLE001
+    except Exception:  # noqa: BLE001  # a view that cannot be built checks nothing: all unchecked and every count 0
         return {}
 
 

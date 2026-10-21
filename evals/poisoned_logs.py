@@ -209,7 +209,7 @@ def _catalogue(report: Any) -> str:
 
     try:
         request, why = request_for(report.alert, report.proposal, live)
-    except Exception as exc:  # any failure is recorded in the row, never hidden  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  # any failure is recorded in the row and never hidden
         return f"refused ({type(exc).__name__})"
     return f"plan {request['entry']} {json.dumps(request['params'], sort_keys=True)}" if request else f"no plan: {why}"
 
