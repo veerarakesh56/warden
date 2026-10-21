@@ -578,6 +578,7 @@ class DatabaseBackend:
     def deploys(self, alert: Alert) -> list[dict[str, str]]:
         """The evidence-source contract's third view. Databases don't "deploy" in the rollout sense P5 checks for, so
         nothing about the alert is read and no deploy is returned."""
+        # Databases don't "deploy" in the rollout sense P5 checks for.
         return []
 
 

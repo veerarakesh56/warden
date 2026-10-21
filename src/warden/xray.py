@@ -33,7 +33,7 @@ class XRayReader:
     def logs(self, alert: Alert) -> list[str]:
         """The evidence-source contract's logs view. X-Ray holds traces: the logs for the alert are CloudWatch's, read
         by the AWS backend, so none come from here."""
-        return []
+        return []  # X-Ray holds traces; the logs are CloudWatch's, read by the AWS backend
 
     def metrics(self, alert: Alert) -> dict[str, float]:
         """The evidence-source contract's metrics view. X-Ray holds traces: the metrics for the alert are CloudWatch's,

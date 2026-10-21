@@ -267,9 +267,9 @@ class KubernetesBackend:
         return lines
 
     def _events(self, ns: str, lines: list[str]) -> list:
-        """The namespace's events, every page (audit A-B-M7: a busy namespace's first page could hold none of this
-        workload's events) up to EVENT_MAX_PAGES. A failed or cut-short read adds a TOOL-PARTIAL to `lines` and keeps
-        the events read before it."""
+        """The namespace's events, up to EVENT_MAX_PAGES pages. A failed or cut-short read adds a TOOL-PARTIAL to
+        `lines` and keeps the events read before it."""
+        # Every page (audit A-B-M7): a busy namespace's first page could hold none of this workload's events.
         events: list = []
         try:
             token = None
@@ -504,11 +504,9 @@ def _container_status_lines(pods: list) -> list[str]:
 
 
 def _container_status_line(pod, cs) -> str:
-    """One container's STATUS line, or "" when it has not restarted and is neither waiting nor terminated.
-
-    getattr throughout: a status missing one field must cost that field, never the whole
-    logs() read - a raise here would turn every log line into a partial-context failure.
-    """
+    """One container's STATUS line, or "" when it has not restarted and is neither waiting nor terminated."""
+    # getattr throughout: a status missing one field must cost that field, never the whole
+    # logs() read - a raise here would turn every log line into a partial-context failure.
     restarts = getattr(cs, "restart_count", 0) or 0
     last = getattr(cs.last_state, "terminated", None)
     waiting = getattr(cs.state, "waiting", None)
@@ -548,11 +546,11 @@ def _event_line(ev, pod_names: set[str], deployment: str, oldest: datetime) -> s
 def _this_workloads(kind: str, name: str, pod_names: set[str], deployment: str) -> bool:
     """Whether an event's object is this workload's pod, ReplicaSet or Deployment, or a node."""
     if kind == "Pod":
-        return name in pod_names  # else another workload's pod
+        return name in pod_names  # another workload's pod
     # Its own name, not a prefix of it (audit A-B-L6): `checkout` took `checkout-api`'s rollout. A ReplicaSet is
     # `<deployment>-<pod-template-hash>`, and the hash holds no dash.
     if kind == "Deployment":
-        return name == deployment  # else another workload's rollout
+        return name == deployment  # another workload's rollout
     if kind == "ReplicaSet":
         return bool(re.fullmatch(re.escape(deployment) + r"-[a-z0-9]{4,12}", name or ""))
     return kind == "Node"

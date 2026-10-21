@@ -508,10 +508,11 @@ def _elasticache_queries(members: list[str]) -> dict[str, tuple]:
 
 
 def _ingress_sources(g: dict, port: int) -> list[str]:
-    """Who security group `g` lets in on tcp/`port`, sorted: groups, CIDR ranges and prefix lists alike (audit
-    A-B-L5: a rule opening the port to a CIDR or a prefix list was read as no rule at all)."""
+    """Who security group `g` lets in on tcp/`port`, sorted."""
     rules = [r for r in g.get("IpPermissions") or [] if r.get("IpProtocol") in ("-1", "tcp")
              and (r.get("IpProtocol") == "-1" or r.get("FromPort", 0) <= port <= r.get("ToPort", 0))]
+    # Groups, CIDR ranges and prefix lists alike (audit A-B-L5): a rule opening the port to a CIDR or a
+    # prefix list was read as no rule at all.
     return sorted({p["GroupId"] for r in rules for p in r.get("UserIdGroupPairs") or []}
                   | {x["CidrIp"] for r in rules for x in r.get("IpRanges") or [] if x.get("CidrIp")}
                   | {x["CidrIpv6"] for r in rules for x in r.get("Ipv6Ranges") or [] if x.get("CidrIpv6")}
@@ -562,8 +563,8 @@ def _insights_counts(got: dict) -> list[float]:
 
 
 def _ecs_deploy(service: str, d: dict) -> dict:
-    """One ECS deploy as evidence. `version`/`previous` are family:revision (what a rollback aims at); the images ride
-    along."""
+    """One ECS deploy as evidence."""
+    # `version`/`previous` are family:revision (what a rollback aims at); the images ride along.
     return {"kind": "ecs", "service": service, "at": _z(_parse_time(d["at"])),
             "version": d.get("task_definition", ""),
             "previous": d.get("previous_task_definition", ""),
@@ -640,7 +641,9 @@ def _simulated_resource(resource: str, account: str, prefix: str) -> str:
     if resource == "*":
         return resource
     in_account = f":{account}:" in resource or ":::" in resource
-    return resource if in_account and prefix in resource else "*"
+    if in_account and prefix in resource:
+        return resource
+    return "*"  # another account's, or not this environment's: the action alone is asked
 
 
 def _partial(reader: str, line_or_exc) -> str:
@@ -1123,9 +1126,9 @@ class StackBackend:
         self._read_changes(out, alert, dims)
 
     def _read_math_alarm(self, out: _Out, alert: Alert, a: dict, threshold: str) -> None:
-        """_read_alarm for a metric-math alarm. Its parts are AWS's structured fields, read like a plain alarm's metric
-        (G10 review, 2026-10-10: an API Gateway fault behind a math alarm showed no symptom at all). AWS's own
-        namespaces only, as for a plain alarm."""
+        """_read_alarm for a metric-math alarm: the expression is the owner's text, not read."""
+        # Its parts are AWS's structured fields, read like a plain alarm's metric (G10 review, 2026-10-10: an API
+        # Gateway fault behind a math alarm showed no symptom at all). AWS's own namespaces only, as below.
         parts = [q["MetricStat"] for q in a.get("Metrics") or [] if isinstance(q.get("MetricStat"), dict)]
         out.lines.append(f"ALARM metric-math parts={len(parts)} {threshold}")
         reads: dict[str, tuple] = {}
@@ -1398,8 +1401,9 @@ class StackBackend:
             out.metrics[f"lambda_esm_enabled{sfx}"] = float(all(m.get("State") == "Enabled" for m in esms))
 
     def _lambda_deploy(self, out: _Out, alert: Alert, fn: str, versions: list[dict], live: str | None) -> None:
-        """A deploy: the version `live` points at (else the newest published one) was published
-        inside the window. Its publish time stands in for the alias move, which has no timestamp."""
+        """The function's deploy in the window, if any."""
+        # A deploy: the version `live` points at (else the newest published one) was published
+        # inside the window. Its publish time stands in for the alias move, which has no timestamp.
         if live:
             target = next((v for v in versions if v["Version"] == live), None)
         else:
@@ -1839,8 +1843,9 @@ class StackBackend:
                 out.deploys.append(_ecs_deploy(service, d))
 
     def _ecs_task_role(self, out: _Out, service: str, svc: dict) -> None:
-        """The identity the service's code runs as (not the execution role): what a denied database
-        login or API call must be granted back to. Absent when the task definition has none."""
+        """The service's task role: a TASKROLE line."""
+        # The identity the service's code runs as (not the execution role): what a denied database
+        # login or API call must be granted back to. Absent when the task definition has none.
         if svc.get("taskDefinition"):
             td = self._ecs.describe_task_definition(taskDefinition=svc["taskDefinition"]).get("taskDefinition") or {}
             if td.get("taskRoleArn"):

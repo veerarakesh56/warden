@@ -97,9 +97,9 @@ def _alarm_metrics(detail: dict[str, Any]) -> tuple[dict[str, str], list[tuple[s
 
 def _alarm_service(dims: dict[str, str], name: str) -> str:
     """The service an alarm watches: the most specific dimension whose value is a plain name, else the alarm's name
-    when it is one, else "unknown". Only a value that is a plain name: a hostile dimension value made the Alert invalid
-    and the Lambda crash, losing the incident (G9-A1, 2026-10-10). Its label is still dropped and reported by the
-    Alert's own check."""
+    when it is one, else "unknown"."""
+    # Only a value that is a plain name: a hostile dimension value made the Alert invalid and the Lambda crash, losing
+    # the incident (G9-A1, 2026-10-10). Its label is still dropped and reported by the Alert's own check.
     named = re.compile(NAME_PATTERN)
     return next((dims[k] for k in _SERVICE_DIMENSIONS if dims.get(k) and named.match(dims[k])),
                 name if named.match(name) else "unknown")
