@@ -109,14 +109,20 @@ resource "aws_ecs_task_definition" "orders_api" {
   execution_role_arn       = aws_iam_role.ecs_execution.arn
 
   container_definitions = jsonencode([{
-    name         = "orders-api"
-    image        = "public.ecr.aws/docker/library/python:3.12-alpine@sha256:4c47124a8391cb7a9f571164147d154777cf012a4ece5f86097130d7a4478111"
+    name = "orders-api"
+    # The app image's own base (scenarios/fullstack/app/Dockerfile), for its openssl: the placeholder serves HTTPS like
+    # the app (Sonar python:S5332, owner row 25), with a certificate it makes for itself at start.
+    image        = "public.ecr.aws/docker/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f"
     essential    = true
     portMappings = [{ containerPort = 8080, protocol = "tcp" }]
     command = [
-      "python", "-u", "-c",
-      "import http.server as h\nclass H(h.BaseHTTPRequestHandler):\n    def do_GET(s):\n        s.send_response(200); s.end_headers(); s.wfile.write(b'placeholder')\nh.HTTPServer(('', 8080), H).serve_forever()\n",
+      "sh", "-c",
+      "openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /CN=placeholder -days 365 -keyout /tmp/k.pem -out /tmp/c.pem 2>/dev/null && exec python -u -c \"$PLACEHOLDER\"",
     ]
+    environment = [{
+      name  = "PLACEHOLDER"
+      value = "import http.server as h, ssl\nclass H(h.BaseHTTPRequestHandler):\n    def do_GET(s):\n        s.send_response(200); s.end_headers(); s.wfile.write(b'placeholder')\nc = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)\nc.minimum_version = ssl.TLSVersion.TLSv1_2\nc.load_cert_chain('/tmp/c.pem', '/tmp/k.pem')\ns = h.HTTPServer(('', 8080), H)\ns.socket = c.wrap_socket(s.socket, server_side=True)\ns.serve_forever()\n"
+    }]
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -256,11 +262,12 @@ resource "aws_s3_bucket_logging" "alb_logs" {
 resource "aws_lb_target_group" "orders" {
   name                 = "${local.name}-orders"
   port                 = 8080
-  protocol             = "HTTP"
+  protocol             = "HTTPS" # the tasks serve HTTPS themselves (owner row 25); the ALB does not verify their certificate
   target_type          = "ip"
   vpc_id               = aws_vpc.this.id
   deregistration_delay = 10
   health_check {
+    protocol            = "HTTPS"
     path                = "/health" # fs-19 changes it to /healthz
     matcher             = "200"
     interval            = 15
