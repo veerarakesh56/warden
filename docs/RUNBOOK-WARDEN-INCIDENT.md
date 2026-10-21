@@ -10,7 +10,7 @@ Times: give every time in UTC and in the install's display zone (IST here), as W
 
 ## 0. First minute, whatever happened: stop all changes
 
-In the cloud runtime (the switch lives in its audit, which no laptop reaches):
+In the cloud runtime (the switch lives in its audit, which an operator's workstation does not reach):
 
 ```
 warden killswitch on --approver <your-id> --key ~/.warden/<your-id>.pem
@@ -27,7 +27,7 @@ warden killswitch status
 The kill switch is checked inside every apply, right before the change; with it on, nothing WARDEN plans is applied,
 and only a signed approval resets it. Diagnosis keeps running and keeps reporting: a person decides with it, not
 WARDEN. With the cloud runtime's page set (`WARDEN_APPROVAL_RP_ID`) and no audit DSN, `status` and `reset` refuse
-rather than read this machine's own file (2026-10-16: `on` used to print ON here while the cloud kept applying).
+rather than read this machine's own file (else `on` would print ON here while the cloud kept applying).
 
 If the approval page cannot be reached, stop the worker that applies changes, which does not depend on WARDEN: AWS
 console → ECS → cluster `warden-ops-runtime` → service `warden-ops-act` → Update service → Desired tasks `0` (or

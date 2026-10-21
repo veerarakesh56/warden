@@ -1,4 +1,4 @@
-"""Research 2026-10-16, "who will change this field back, and when?": a runtime fix lasts only as long as whatever else
+"""Who will change this field back, and when? A runtime fix lasts only as long as whatever else
 owns the field leaves it - a rollback the next deploy undoes, a value the next infrastructure apply sets back. Every
 catalogue entry says how long its fix lasts and what must follow, and the approver reads it before deciding."""
 

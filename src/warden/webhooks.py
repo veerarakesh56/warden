@@ -137,8 +137,8 @@ def alertmanager_active(base_url: str, *, timeout: float = 5.0) -> Callable[[], 
 
 
 # ------------------------------------------------------------------ Datadog monitors (register G10-53)
-# Owner, 2026-10-14: alerts from Datadog "for warden to see and immediately work on them". A Datadog webhook carries
-# WARDEN's own payload template (DATADOG_PAYLOAD, read 2026-10-14 from docs.datadoghq.com/integrations/webhooks) and a
+# Alerts from Datadog, for WARDEN to see and work on at once. A Datadog webhook carries
+# WARDEN's own payload template (DATADOG_PAYLOAD, per docs.datadoghq.com/integrations/webhooks, read 2026-10-14) and a
 # bearer secret in a custom header - the same who / how much / is it real as Alertmanager's: the secret compared in
 # constant time, the same size limits, and before intake acts the monitor is asked of Datadog itself.
 DATADOG_PAYLOAD = {"event": "$ID", "monitor": "$ALERT_ID", "transition": "$ALERT_TRANSITION", "title": "$EVENT_TITLE",

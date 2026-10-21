@@ -1,4 +1,4 @@
-"""Pause an environment to save money, and resume it, without losing its data (owner update 5, 2026-10-17).
+"""Pause an environment to save money, and resume it, without losing its data.
 
     WARDEN_ENV=<env> python scripts/pause_resume.py snapshot --stack fullstack|runtime   # pause, BEFORE anything goes
     WARDEN_ENV=<env> python scripts/pause_resume.py restore-tables > imports.txt          # fullstack resume, before apply

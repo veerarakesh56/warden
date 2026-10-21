@@ -1,4 +1,4 @@
-"""Owner requirement R10: every paid item is flagged with its cost. Each AWS call the evidence readers make is either
+"""Every paid item is flagged with its cost. Each AWS call the evidence readers make is either
 free or billed, and every billed one has its price in docs/SYSTEM-COMPONENTS.md - a new call must be classified."""
 
 from __future__ import annotations

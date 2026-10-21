@@ -218,7 +218,7 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
 
 
 def test_datadogs_agent_goes_on_first_with_its_key_over_stdin_and_a_pinned_chart(tmp_path, monkeypatch):
-    """Owner, 2026-10-14: Datadog beside AWS. Its agent is installed before the collector and the apps (it receives
+    """Datadog beside AWS. Its agent is installed before the collector and the apps (it receives
     their OpenTelemetry data and collects their logs), its key read from the persistent secret and sent to the cluster
     over stdin, never on a command line; the chart pinned; a site that is not Datadog's installs nothing."""
     import base64
@@ -303,7 +303,7 @@ def test_bootstrap_db_logs_in_as_postgres_with_an_iam_token_and_sends_the_file_a
 
 
 def test_bootstrap_db_creates_the_database_express_could_not():
-    """Aurora express refuses an initial database name (seen 2026-09-26), so bootstrap creates it."""
+    """Aurora express refuses an initial database name, so bootstrap creates it."""
     pytest.importorskip("psycopg")  # the apps pipeline installs it; the tool CI does not
     _, statements = _bootstrap(db_exists=False)
     assert any(q.startswith("CREATE DATABASE") and STACK["db_name"] in q for q in statements["postgres"])
@@ -344,7 +344,7 @@ def test_the_task_definition_revision_carries_project_and_environment_tags():
 
 
 def test_an_extra_the_lambda_asks_for_is_checked(tmp_path):
-    """Fifth review: `psycopg[binary]` without psycopg-binary passed the check, and the Lambda would
+    """`psycopg[binary]` without psycopg-binary passed the check, and the Lambda would
     die on import."""
     _dist(tmp_path, "psycopg", ['psycopg-binary==3.3.5; extra == "binary"', 'psycopg-pool; extra == "pool"'])
     assert tool.missing_dependencies(tmp_path) == []
@@ -360,11 +360,11 @@ def test_the_build_reads_the_extras_each_lambda_asks_for():
 @pytest.mark.parametrize("users", [None, {"app": "app", "catalog": "warden_dev_catalog", "ro": "warden_dev_ro"},
                                    {"app": "warden_dev_app; DROP TABLE orders", "catalog": "x", "ro": "y"},
                                    {"app": "warden_dev_app", "catalog": "warden_dev_catalog"},
-                                   # seventh review: another environment's users, one name for all three
+                                   # Another environment's users, one name for all three
                                    {"app": "warden_prod_app", "catalog": "warden_dev_catalog", "ro": "warden_dev_ro"},
                                    {"app": "warden_dev_app", "catalog": "warden_dev_app", "ro": "warden_dev_app"}])
 def test_the_database_users_must_be_the_environments_own(users):
-    """Audit A-I-2: users carry the environment, and nothing that is not a plain user name reaches the SQL."""
+    """Users carry the environment, and nothing that is not a plain user name reaches the SQL."""
     stack = {**STACK, "db_users": users} if users is not None else {k: v for k, v in STACK.items() if k != "db_users"}
     with pytest.raises(SystemExit):
         tool.db_users(stack)
@@ -383,7 +383,7 @@ def test_an_extra_a_requirement_asks_for_is_followed(tmp_path):
 
 def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_path):
     """One OpenTelemetry collector: Datadog when its agent is on the cluster, else X-Ray (by the pod's IAM role) - not
-    both (cost plan, 2026-10-17: nothing read the X-Ray copy). No Grafana (owner, 2026-10-16: Datadog only), and so no
+    both (nothing read the X-Ray copy). No Grafana (Datadog only), and so no
     key in the collector at all."""
     import yaml
 
@@ -414,7 +414,7 @@ def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_p
 
 
 def test_the_collector_sends_in_plaintext_only_to_the_agent_on_its_own_node():
-    """Naming audit item 19: `tls: insecure` is right only for the node-local hop to the Datadog agent's
+    """`tls: insecure` is right only for the node-local hop to the Datadog agent's
     OTLP receiver. HOST_IP must be the pod's own node, and every other exporter keeps TLS."""
     import yaml
 
@@ -438,7 +438,7 @@ def _no_chart_download(monkeypatch):
 
 
 def test_argocd_is_installed_from_the_checked_package_with_its_settings(tmp_path):
-    """Owner, 2026-10-16: GitOps for the cluster. Argo CD v3.5.5 (chart 10.10.5, B26) from the argo-helm release's own
+    """GitOps for the cluster. Argo CD v3.5.5 (chart 10.10.5, B26) from the argo-helm release's own
     package - installed only if its sha256 is the pinned one - with helm/argo-cd/values.yaml."""
     run = Runner({})
     tool.deploy_argocd("kc", tmp_path, run)
@@ -546,7 +546,7 @@ def test_an_image_without_a_sha256_digest_is_never_deployed(found):
 
 
 def test_ecs_runs_the_digest_the_push_answered_not_one_read_back_by_the_tag():
-    """CodeRabbit: between the push and a read-back the mutable tag could move; the push's own digest is used."""
+    """Between the push and a read-back the mutable tag could move; the push's own digest is used."""
     pushed = "sha256:" + "fedcba9876543210" * 4
     token = base64.b64encode(b"AWS:pw").decode()
     clients = {"ecr": Fake({"get_authorization_token": {"authorizationData": [
@@ -560,6 +560,6 @@ def test_ecs_runs_the_digest_the_push_answered_not_one_read_back_by_the_tag():
 
 
 def test_a_venv_symlink_is_ignored_too():
-    """PR 90: `.venv/` matches a directory only; a `.venv` symlink was committed and CI's `uv venv` failed."""
+    """`.venv/` matches a directory only; a `.venv` symlink was committed and CI's `uv venv` failed."""
     lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ".venv" in lines

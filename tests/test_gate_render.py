@@ -95,14 +95,14 @@ def _report_md(**context):
 
 
 def test_a_tool_error_cannot_break_out_of_its_inline_code():
-    """Review 2026-09-28: `- `{e}`` let a backtick in a tool error end the span and render the rest."""
+    """`- `{e}`` let a backtick in a tool error end the span and render the rest."""
     md = _report_md(tool_errors=["logs: denied ` **APPROVED BY ON-CALL** "])
     rendered = MD.render(md)
     assert "<strong>APPROVED" not in rendered
 
 
 def test_a_log_line_with_four_backticks_leaves_no_run_of_three_inside_a_code_block():
-    """Review 2026-09-28: replace("```") left a run of three inside a run of four. CommonMark only
+    """replace("```") left a run of three inside a run of four. CommonMark only
     closes a fence at a line start, but Slack's own markup is not CommonMark: no run of three may
     appear inside a block at all."""
     import re
@@ -120,7 +120,7 @@ def test_a_log_line_with_four_backticks_leaves_no_run_of_three_inside_a_code_blo
 
 
 def test_a_model_hypothesis_cannot_open_a_tilde_fence():
-    """Review 2026-09-28: `~~~ note` swallowed the rest of the report into one code block."""
+    """`~~~ note` swallowed the rest of the report into one code block."""
     from warden.models import inert
 
     assert inert("~~~ note").startswith("\u200b")

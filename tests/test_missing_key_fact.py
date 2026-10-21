@@ -1,4 +1,4 @@
-"""Live, 2026-10-16 (fs-01, twice): WARDEN read `KeyError` in the checkout function's logs and never which key - the
+"""Scenario fs-01, live, twice: WARDEN read `KeyError` in the checkout function's logs and never which key - the
 quarantine hid the message, and the model wrote "the missing key itself is not visible". Python's `KeyError: 'name'`
 now gives one typed fact, missing_key=<name> - kept only where WARDEN's own read of the deployed source uses that key
 in quotes. A log writer can name a key; it cannot put it in the code."""

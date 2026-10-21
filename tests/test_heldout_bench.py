@@ -60,7 +60,7 @@ def test_a_fix_is_counted_apart_from_a_safe_escalation_and_the_always_escalate_f
 
 
 def test_the_outcome_is_what_the_person_gets_whatever_the_model_said():
-    """2026-10-11: "correct action" counted what the model said. A wrong proposal the gate turned into a hand-off is
+    """"Correct action" once counted what the model said. A wrong proposal the gate turned into a hand-off is
     a right outcome where the key accepts a hand-off; a right proposal the gate held back is not one where it does
     not."""
     fix_only, either, healthy = ({"correct_actions": ["rollback_deploy"]},
@@ -103,7 +103,7 @@ def test_a_reverified_report_carries_todays_verdict_and_an_unanswered_one_is_lef
 
 
 def test_the_answer_key_is_named_as_one_and_an_old_copy_still_reads_with_a_warning(tmp_path, capsys):
-    """Naming audit item 8: `key.json` is the usual name of a GCP service-account key, so the committed
+    """`key.json` is the usual name of a GCP service-account key, so the committed
     sets name theirs answer-key.json; a set outside the repository still named key.json reads, and says so."""
     for name in ("heldout-g9-2026-10-10", "heldout-g10-2026-10-10"):
         cases = ROOT / "docs" / "bench" / name

@@ -1,4 +1,4 @@
-"""Report lines the S19 refactor of reporting._render_markdown and _timeline moved into helpers, which no other test
+"""Report lines the refactor of reporting._render_markdown and _timeline moved into helpers, which no other test
 pinned: the impact a report states when WARDEN could read nothing, what a deploy replaced, the latest error, and each
 section helper's own branch."""
 

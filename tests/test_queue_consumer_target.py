@@ -1,4 +1,4 @@
-"""fs-07, live, 2026-10-15: a queue's age alarm, its consumer switched off. The diagnosis was right and named the
+"""Scenario fs-07, live: a queue's age alarm, its consumer switched off. The diagnosis was right and named the
 consumer's function, which the alarm does not name, so no plan was opened. The plan is still on what the alarm names
 - the queue, whose one switched-off mapping the live read finds by the queue's ARN - and only when that mapping's
 function is the one the diagnosis named."""

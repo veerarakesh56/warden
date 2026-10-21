@@ -6,7 +6,7 @@ warden-<env>-actor, denies every action unless the role carries the tag `warden-
 then refuses every fix, whatever WARDEN's code, its database or its model do.
 
     python scripts/iam_kill_switch.py status --env dev     # anyone who may read the role (the operator may)
-    python scripts/iam_kill_switch.py on --env dev         # a person with iam:TagRole (the owner's console/CloudShell)
+    python scripts/iam_kill_switch.py on --env dev         # a person with iam:TagRole (the console or CloudShell)
     python scripts/iam_kill_switch.py off --env dev --confirm
 
 - Fail closed: no tag, or any value other than `off`, is ON. Removing the tag stops every fix too.

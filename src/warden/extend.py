@@ -1,5 +1,4 @@
-"""An approver extends a waiting fix plan's approval time from the discussion thread (owner update 3, U3-8: "the
-discussion thread can extend it").
+"""An approver extends a waiting fix plan's approval time from the discussion thread.
 
 A plan already waits for its approval as long as its environment says (`approval_wait_hours`: three days unless set,
 at most a week, environments.py); the discussion can run longer than a plan made at night. An enrolled approver who
@@ -18,9 +17,9 @@ nothing.
 Who asks is checked first, so someone who may not extend learns nothing about the plan. A plan whose approvals
 already reach its quorum - people's, or Eldane's on its own - waits for nobody and is not extended. An extension
 counts from the run's own deadline (WAIT, recorded when its wait began), so it always moves it; and the whole decision
-is taken again inside the write's lock (review, PR 182).
+is taken again inside the write's lock.
 
-One message extends at most once (CodeRabbit, PR 150): each row names the Slack message that asked (`asked`: its channel
+One message extends at most once: each row names the Slack message that asked (`asked`: its channel
 and ts) beside the plan it extended (workflow id and plan hash), written by a check-and-set inside the audit's write
 lock (AuditLog.append_unless). A retried activity - the row written, then the reply or the activity's completion lost -
 finds its row and gets that first result again; it never adds the hours twice.
@@ -36,7 +35,7 @@ from . import environments
 EXTENDED = "approval.extended"
 # Until when the plan's run really waits, from when its wait began (RemediationWorkflow, patch u38-wait): later than the
 # plan's own approval_until by the gate and the critic's time. Extensions count from it, so each one moves the run's
-# real deadline (review, PR 182).
+# real deadline.
 WAIT = "approval.wait"
 EXTEND_MAX_HOURS = 24
 CEILING_HOURS = environments.MAX_APPROVAL_WAIT_HOURS
@@ -115,7 +114,7 @@ def _accepted(log: Any, incident: str, plan: dict[str, Any]) -> list[dict[str, A
 def ai_approved(log: Any, policy: Any, incident: str, plan: dict[str, Any]) -> bool:
     """Eldane, the AI critic, approved this plan on its own (#42): its approval alone met the tier's quorum, as the run
     went by it (RemediationWorkflow._critic: enough with no other approval), so the plan no longer waits for a person
-    and its wait is not extended - a person's "no" still stops it until it is applied (lane C, U3-8). An Eldane
+    and its wait is not extended - a person's "no" still stops it until it is applied. An Eldane
     approval that was not enough on its own leaves the plan waiting for a person: that wait may be extended."""
     is_ai = getattr(policy, "is_ai", None)
     need = getattr(policy, "required", {}).get(plan["tier"], 1)
@@ -166,7 +165,7 @@ def _result(body: dict[str, Any]) -> dict[str, Any]:
 def _refusal(log: Any, policy: Any, incident: str, user: str, hours: int | None, now: datetime, *,
              said_no: bool = False) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """(why not, None) when this person may not extend this incident's wait now, else ({}, the waiting plan). Who
-    asks is checked first: someone who may not extend learns nothing about the plan (review, PR 182)."""
+    asks is checked first: someone who may not extend learns nothing about the plan."""
     if not _person(policy, user):
         return {"why": "not an approver"}, None
     plan = waiting(log, incident)
@@ -232,7 +231,7 @@ def _stale(log: Any, policy: Any, incident: str, user: str, hours: int | None, n
     """Read inside the write's lock: "moved" unless the same decision, taken again now, gives exactly `body` - an
     extension landed in between (another approver's, or this same message's from an attempt running beside this one),
     the plan was approved, by Eldane or by people, it ended, or the list changed. request() then reads again, and finds
-    that message's row if it was this one. "" when it still holds (review, PR 182: every check, not only the time)."""
+    that message's row if it was this one. "" when it still holds (every check, not only the time)."""
     _, again = _decide(log, policy, incident, user, hours, now)
     return "" if again is not None and {**again, "asked": body.get("asked")} == body else "moved"
 

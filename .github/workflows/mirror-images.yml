@@ -2,7 +2,7 @@ name: "Mirror · base images"
 
 # Copies each base and service image CI and the Dockerfiles use, BY DIGEST, from AWS's public mirror into this
 # repository's GitHub Container Registry. Anonymous pulls from public.ecr.aws on GitHub's shared runners failed six
-# times with "429 toomanyrequests: Data limit exceeded" (2026-10-10 to 2026-10-15); a package this repository's
+# times with "429 toomanyrequests: Data limit exceeded"; a package this repository's
 # workflow pushes takes the repository's visibility (public), and the pin by digest means the same bytes from either
 # registry. Run it by hand when a digest changes; tests/test_base_image_mirror.py holds the list and the references
 # equal.

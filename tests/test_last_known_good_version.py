@@ -1,4 +1,4 @@
-"""Live, 2026-10-16 (fs-01): WARDEN made no rollback plan - "no single known-good to_version was read". The version to
+"""Scenario fs-01, live: WARDEN made no rollback plan - "no single known-good to_version was read". The version to
 go back to was the one that served the MOST in the lookback, refused unless known-good: the broken version 4 had served
 3.5 erroring hours, the good version 3 two clean hours right up to the change, so 4 was taken and refused. The
 version taken is now the one whose known-good stretch ended latest - the state just before the change."""

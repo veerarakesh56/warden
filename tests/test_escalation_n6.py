@@ -1,4 +1,4 @@
-"""Register N6 / audit A-N-6: escalating everything is safe and useless, so it is measured. Every scored run reports
+"""Register N6: escalating everything is safe and useless, so it is measured. Every scored run reports
 how many incidents went to a person and whether acting or abstaining was right; qualification checks the result
 against an SLO set from the production model's measured numbers (data/providers.yaml `slo`)."""
 

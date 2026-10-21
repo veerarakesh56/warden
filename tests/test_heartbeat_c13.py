@@ -90,7 +90,7 @@ def test_the_synthetic_incident_passes_only_when_the_model_answered_and_the_repo
 
 
 def test_the_synthetic_incident_reads_its_recording_and_fails_when_it_reads_nothing(monkeypatch):
-    """fs-22 run 2, 2026-10-15: the day's incident id was looked up as the fixture's name, so the synthetic read no
+    """Scenario fs-22: the day's incident id was looked up as the fixture's name, so the synthetic read no
     evidence from its first day, and passed."""
     from warden import graph
 
@@ -116,7 +116,7 @@ def test_the_synthetic_incident_reads_its_recording_and_fails_when_it_reads_noth
 
 def test_the_synthetic_incident_fails_when_the_injection_detector_did_not_scan(monkeypatch):
     """Register R47: every environment scans, and the daily synthetic incident proves the detector loads where it runs -
-    the cloud's llm zone loaded it there on 2026-10-14 - not only that the model answers."""
+    the cloud's llm zone loads it there - not only that the model answers."""
     from warden import graph
 
     real = graph.run

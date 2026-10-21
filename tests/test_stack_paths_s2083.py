@@ -1,5 +1,5 @@
 """stack.json is read and written back only where the tools work (Sonar pythonsecurity:S2083 on
-aurora_express.merge_stack and deploy_fullstack_apps.record_in_stack, 2026-10-17). --stack and --out come from the
+aurora_express.merge_stack and deploy_fullstack_apps.record_in_stack). --stack and --out come from the
 command line, which an agent can drive: a path outside the checkout, the temp folder (RUNNER_TEMP) and
 ~/warden-fullstack-build is refused before anything is read, created or written (warden.paths)."""
 

@@ -1,5 +1,5 @@
 """G10-C2: the fields where AWS itself names a cause - a scaling activity's Cause, a node group's health issue codes, a
-failed execution's error, a Lambda function's state reason (AWS-native research 2026-10-10, section 1.8; field names
+failed execution's error, a Lambda function's state reason (AWS's own documentation; field names
 checked against the botocore 1.43.90 service models). Codes are WARDEN's STATE lines; AWS's prose is quarantined."""
 
 from __future__ import annotations

@@ -5,12 +5,12 @@
 # Deployment or scale it up by at most two. This ServiceAccount is the boundary for that: it can `get`
 # and `patch` deployments and no other verb or resource.
 #
-# AUDIT 2026-09-28: `patch deployments` alone is NOT "restart or scale only" - it could rewrite
+# `patch deployments` alone is NOT "restart or scale only" - it could rewrite
 # the whole pod template (image, command, serviceAccountName, secret mounts). The ValidatingAdmissionPolicy
 # at the end of this file narrows it: for this ServiceAccount, an update may change the replica count by at
 # most two, between one and ten (up for a scale, down for its rollback), and the template's restartedAt
 # annotation; every other field of the Deployment is held - except metadata.managedFields, which the API
-# server itself rewrites when a field changes owner, so it cannot be compared (eighth review, 2026-10-01: a
+# server itself rewrites when a field changes owner, so it cannot be compared (a
 # patch of managedFields alone could hand a field to a server-side-apply manager). A step up records the count it
 # replaced in the `warden.io/scaled-from` annotation, and a step down goes only back to that count, clearing it: no
 # series of patches takes a Deployment below where WARDEN found it (register R7-O3). Proven in CI against the
@@ -78,7 +78,7 @@ roleRef:
   name: warden-remediator
   apiGroup: rbac.authorization.k8s.io
 ---
-# A-I-11: what the remediator's patches may change. Matched only for its own requests; everyone else's
+# What the remediator's patches may change. Matched only for its own requests; everyone else's
 # updates are untouched. Fail closed: if the policy cannot be evaluated, the update is refused.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy

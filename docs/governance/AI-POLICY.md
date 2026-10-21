@@ -47,4 +47,4 @@ causes, with the date recorded below.
 
 | Reviewed | By | Notes |
 |---|---|---|
-| 2026-10-03 | owner (single maintainer) | first version |
+| 2026-10-03 | maintainers | first version |

@@ -35,7 +35,7 @@ def test_no_evidence_word_is_a_trusted_lines_own_first_word():
 
 
 def test_what_cannot_be_undone_is_not_called_reversible_and_a_zonal_shift_is_never_narrow():
-    """Independent review 2026-10-10, M4: a redrive's moved messages and a cancelled query are not undone - P2 keeps
+    """A redrive's moved messages and a cancelled query are not undone - P2 keeps
     both a person's in production."""
     assert {a for a in NEW if not ACTION_FACTS[a][0]} == {ActionKind.redrive_messages, ActionKind.cancel_query}
     assert ACTION_FACTS[ActionKind.shift_traffic][1] == "multi_service"
@@ -43,7 +43,7 @@ def test_what_cannot_be_undone_is_not_called_reversible_and_a_zonal_shift_is_nev
 
 def test_the_new_classes_are_allowed_wherever_a_person_approves():
     """In prod every one (P2 then keeps the two irreversible ones a person's). Dev is not of the prod tier, so P2 does
-    not reach it, and it denies those two itself (owner, 2026-10-16: dev is run as production)."""
+    not reach it, and it denies those two itself (dev is run as production)."""
     policies = default_environment_policies()
     assert all(policies.for_env("prod").permits(a) for a in NEW)
     dev = policies.for_env("dev")
@@ -72,7 +72,7 @@ def test_a_disabled_rule_is_resumed_through_its_entry():
 
 
 def test_raise_limit_is_never_a_memory_limit():
-    """Qualification 2026-10-10: raise_limit for an OOM after a config change lowered a container's memory limit was
+    """In qualification, raise_limit for an OOM after a config change lowered a container's memory limit was
     allowed. The model is told what the action means; the gate rejects it next to an OOM kill, and "memory limit" is
     no longer support for it."""
     from warden.graph import Diagnosis
@@ -89,8 +89,8 @@ def test_raise_limit_is_never_a_memory_limit():
 
 
 def test_an_answer_cut_off_at_the_output_cap_is_charged_said_plainly_and_not_asked_again():
-    """Qualification 2026-10-10: an answer cut off at 1500 output tokens read as "invalid JSON" three times. Review M7:
-    raised inside the provider it was billed but counted as $0, and still retried."""
+    """In qualification, an answer cut off at 1500 output tokens read as "invalid JSON" three times. Raised
+    inside the provider it was billed but counted as $0, and still retried."""
     import types
 
     import pytest

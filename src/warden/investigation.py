@@ -1,11 +1,11 @@
-"""Which more resources an investigation may read (G9-B, 2026-10-10; tightened after the independent review).
+"""Which more resources an investigation may read (G9-B).
 
 The model may ask, after a diagnosis, to read up to three related resources before deciding again, each a resource
 kind and a name. A request is read only when every rule holds:
 
 - the kind is one WARDEN reads through the environment's reader role (READABLE): never a database (its readers use
   the runtime's connection string), a Kubernetes namespace or deployment (read with the worker's own credentials), a
-  secret, a log group or the alarm itself (independent review 2026-10-10, F2/F9);
+  secret, a log group or the alarm itself;
 - the name is WARDEN's own knowledge for that kind: an alert label of THAT kind (a label's value is never re-read
   under another kind - review F1), a `STATE <kind> <name>` line of that kind, or a token of another trusted,
   structured evidence item (kind C: CONFIG, ALARM, CHANGE ... lines from AWS's API responses);

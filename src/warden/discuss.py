@@ -6,7 +6,7 @@ channel with an incident's id (from any of its messages); WARDEN answers in that
 evidence - read again, as the diagnosis read it, or now when they ask about now - and from what its record says it
 decided. Follow-ups mention @WARDEN in the same thread; WARDEN reads the whole thread for what was said.
 
-Who may do what (owner's rule): anyone in the channel may ask, discuss, and ask WARDEN to check or investigate - all
+Who may do what: anyone in the channel may ask, discuss, and ask WARDEN to check or investigate - all
 of it reads only. Only an enrolled approver may ask for a new plan or anything else that leads to a change, and that
 plan still needs an approver's passkey in the alerts channel (step two; until it is built WARDEN says so).
 
@@ -70,17 +70,17 @@ NOT_APPROVER = ("Only an enrolled approver can ask WARDEN for a new plan, and th
 REPLAN_SOON = "WARDEN made a new plan for `{incident}` less than an hour ago; ask again after that, or read its record."
 
 
-# U3-8: an enrolled approver who may approve the waiting plan extends its wait (extend.py): "extend the wait",
+# An enrolled approver who may approve the waiting plan extends its wait (extend.py): "extend the wait",
 # "extend by 12h", "extend approval". By EXTEND_MAX_HOURS unless they say how long, and at most that at a time.
-# Not "it" or "time" alone (CodeRabbit, PR 182: "will the restart extend it?" became 24 h), and never a question: the
+# Not "it" or "time" alone ("will the restart extend it?" once became 24 h), and never a question: the
 # clause with "extend" ending in "?" is asked about, not asked for - it gets an answer, and nothing is extended.
 EXTEND = re.compile(r"(?i)\bextend\b([^.?!\n]{0,40})")
 _EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|deadline)\b")
 # Or how long, right after "extend" ("extend 12h", "extend it by 6h", "extend for six hours") - never a bare "by", nor
-# "by" after something else ("extend the outage by 2h"): CodeRabbit, PR 182.
+# "by" after something else ("extend the outage by 2h").
 _LEAD = re.compile(r"(?i)^\s*(?:it\b\s*)?(?:(?:by|for)\b\s*)?")
 _CLAUSE_END = re.compile(r"(?i)\bextend\b[^.?!\n]*([.?!\n]*)")  # the whole run: "...?" is a question too
-# A "no" beside "extend" (review, PR 182: "don't extend the wait" and "extend the wait - no, don't" became 24 h): a
+# A "no" beside "extend" ("don't extend the wait" and "extend the wait - no, don't" became 24 h): a
 # negator - not, never, no, don't, cancel, stop... - anywhere after "extend", or before it in the same sentence, makes
 # the message unclear: nothing is extended, and the approver is asked again (said_no; fail closed). Only a "no" in an
 # earlier sentence ("no rush. extend the wait") leaves the request standing.
@@ -92,16 +92,16 @@ _EXTEND_WORD = re.compile(r"(?i)\bextend\b")
 # asks_to_extend): what they match decides which branch a discussion takes. Once a release with them has run, a change
 # to any of them changes what a replayed DiscussWorkflow history does - put such a change behind a new
 # workflow.patched id, as u38-discuss-extend is.
-# How long: read strictly from the whole message (CodeRabbit, PR 150: a "6 hours" past a fixed window became 24). One
+# How long: read strictly from the whole message (a "6 hours" past a fixed window became 24). One
 # whole number of hours said once ("12h", "12 hours") is that many; no number and no word about time is
 # EXTEND_MAX_HOURS; anything else - a second duration, another unit, a number standing alone, a decimal or a spelled-out
 # number, a clock time, "until tomorrow" - is not guessed at: the approver is asked again and nothing is extended.
 # A number touching a word character, ".", ":", "/" or "-" is part of an id, a time or a link, not a duration. After the
-# unit, a "." ends the sentence unless a word character follows it (CodeRabbit, PR 182: "extend by 6h." became 24 h).
+# unit, a "." ends the sentence unless a word character follows it ("extend by 6h." once became 24 h).
 _DURATION = re.compile(r"(?i)(?<![\w.:/-])(\d{1,4})\s*(?:h|hrs?|hours?)(?![\w:/-]|\.\w)")
 _NUMBER = re.compile(r"(?<![\w.:/-])\d+(?![\w/-])")
 # A number with a unit written against it that _DURATION did not take as hours - "30m", "45min", "2days", "1wk",
-# "6h-ish", "6h:", "6h.Thanks" - is not a whole number of hours (review, PR 182: each became 24 h). An id that starts
+# "6h-ish", "6h:", "6h.Thanks" - is not a whole number of hours (each became 24 h). An id that starts
 # with digits and goes on in other letters ("50ac32d0...") is not one.
 _UNIT_LEFT = re.compile(r"(?i)(?<![\w.:/-])\d+\s*(?:h|hrs?|hours?|m|mins?|minutes?|s|secs?|seconds?|d|days?|w|wks?"
                         r"|weeks?|mo|months?|y|yrs?|years?)(?![a-z])|(?<![\w.:/-])\d+\s*(?:h|hrs?|hours?)")
@@ -208,7 +208,7 @@ ELSEWHERE = ("WARDEN has no {environment} incident by that id. Each environment'
              "environment's own discussion channel.")
 NO_ANSWER = "WARDEN could not get an answer from its model just now; ask again in a few minutes."
 NOT_READ = "WARDEN could not read this incident's evidence just now; ask again in a few minutes."
-# WARDEN keeps an incident's alarm for its discussion from the day the channel began (incident.alert, 2026-10-14):
+# WARDEN keeps an incident's alarm for its discussion (incident.alert):
 # an older incident, or an id it never saw, gets this - not a bare "no record", which reads as "it never happened".
 NO_RECORD = ("WARDEN has nothing on record to read again for `{incident}`: it keeps an incident's alarm for this "
              "channel only from 2026-10-14 on, and the id may also be mistyped. Ask about a newer incident, or read "
@@ -292,10 +292,9 @@ def configured() -> bool:
         channels())
 
 
-# Said in the thread the moment a mention is heard, before anything is read (owner, 2026-10-14: "I don't even know
-# if it has checked it or not"). A fixed text: nothing a person wrote is in it.
-# Said at once, so nobody is left wondering whether WARDEN heard (owner, 2026-10-15: "at least a message in the thread
-# saying this is what I am looking at, will update ... in a professional way").
+# Said in the thread the moment a mention is heard, before anything is read, so the person knows it was seen. A
+# fixed text: nothing a person wrote is in it.
+# Said at once, so nobody is left wondering whether WARDEN heard: what it is looking at, and that it will update.
 HEARD = ("On it. WARDEN is reading this incident's record and its evidence. Its record - this incident and any like it "
          "before - comes first, within seconds; the full answer from the evidence follows. WARDEN answers in this thread.")
 

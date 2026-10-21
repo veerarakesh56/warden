@@ -1,4 +1,4 @@
-"""Live, 2026-10-15: the discussion's facts card named a past fix plan by its target key - an event source mapping's
+"""The discussion's facts card named a past fix plan by its target key - an event source mapping's
 UUID, masked as a key's shape - so the outbound gate withheld the whole card. Every history text now names the target
 as a person reads it (catalog.shown_target); the key still matches plans to each other."""
 

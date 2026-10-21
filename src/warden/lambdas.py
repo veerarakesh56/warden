@@ -1,4 +1,5 @@
-"""The runtime's Lambda entry points (G6): how alarms, Alertmanager and approvers reach WARDEN with the laptop off.
+"""The runtime's Lambda entry points (G6): how alarms, Alertmanager and approvers reach WARDEN with no operator machine
+on.
 
 - `alarm`: an EventBridge rule on CloudWatch's "Alarm State Change" events. The event becomes an intake event and
   goes through `intake.submit` - grouped, flap-checked, capped, and a workflow started or signalled.
@@ -116,9 +117,9 @@ _RDS_ID = re.compile(r"RDS-EVENT-\d{4}")
 
 
 def service_event(event: dict[str, Any], default_environment: str) -> AlarmEvent | None:
-    """An AWS service's own event that something is wrong, as an intake event; None for anything else. Owner,
-    2026-10-12: WARDEN woke only on an alarm someone had made - a service that cannot start its tasks, a deployment
-    its circuit breaker failed, a database that failed over or ran out of storage were never seen without one.
+    """An AWS service's own event that something is wrong, as an intake event; None for anything else. Without
+    these, WARDEN wakes only on an alarm someone has made - a service that cannot start its tasks, a deployment
+    its circuit breaker failed, a database that failed over or ran out of storage would never be seen without one.
     ECS: a WARN or ERROR service event. RDS: an instance's or a cluster's failure, failover or low-storage event.
     The event's own text (a reason, a message) is the alert's summary: untrusted, as an alarm's description is."""
     source, kind = event.get("source"), event.get("detail-type")
@@ -169,7 +170,7 @@ def _rds_event(kind: str, detail: dict[str, Any]) -> tuple[str, str, str, dict[s
 
 def health_event(event: dict[str, Any], default_environment: str) -> AlarmEvent | None:
     """An AWS Health notice that one of the watched environments' own resources is affected by an AWS-side issue,
-    as an intake event; None for anything else (owner, 2026-10-12: triggers beyond the alarms someone made). Only an
+    as an intake event; None for anything else (a trigger beyond the alarms someone made). Only an
     open `issue` scoped to this account, and only for an affected resource whose name says which watched environment
     it is in: a public notice names no resource of ours, and an instance id names no environment. It goes to a person
     on the rules alone - no change of WARDEN's mends AWS's own fault - with WARDEN's reads of the resource. The notice's
@@ -298,7 +299,7 @@ def approval_page() -> Any:
     """The page as the runtime runs it: links and challenges in the audit, the plan read from the workflow, the
     approval sent to it as a signal. The workflow's query and signals are called by name, so the
     worker, the activities and the workflows are never imported here: they were most of a cold start's page time
-    (2.5 s, live 2026-10-14)."""
+    (2.5 s, measured live)."""
     from . import runtime_base as runtime  # runtime.py's light half
     from .approval_page import ApprovalPage, AuditLinkStore
     from .approvals import Plan
@@ -344,8 +345,8 @@ def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     method, path, _, body = _http(event)
     if (method.upper(), path.rstrip("/")) == ("POST", "/s/interact"):
         # Slack's note of a button click, answered before anything is loaded: Slack allows three seconds, and a cold
-        # start that first read its settings and opened the audit took 6.5 (live, 2026-10-12 - "Operation timed
-        # out" beside the button). Nothing is read from it and nothing is decided by it (approval_page._slack).
+        # start that first read its settings and opened the audit took 6.5 ("Operation timed out" beside the
+        # button). Nothing is read from it and nothing is decided by it (approval_page._slack).
         return {"statusCode": 200, "headers": {"Content-Type": "text/plain", "Cache-Control": "no-store"}, "body": ""}
     cold, t0 = "lambda-approval" not in _CONFIGURED, time.perf_counter()
     _configure("lambda-approval")

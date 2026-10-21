@@ -1,6 +1,6 @@
 """The harness's guards follow the tags Terraform actually applies to the proving ground.
 
-Second review: the stack's tags moved to Project=warden + Environment (owner rule R53) and
+The stack's tags moved to Project=warden + Environment and
 every guard kept checking Project=warden-proving-ground. Every fault injection would have refused, and
 the teardown sweep's tag filter would have found nothing - while CI stayed green, because every fake
 used the old tag too. This reads terraform/proving-ground/main.tf itself.
@@ -46,7 +46,7 @@ def test_every_guard_checks_the_tag_terraform_applies():
 
 
 def test_what_the_harness_creates_carries_what_terraform_puts_on_its_own():
-    """No literal tags in the harness or the probe (owner rule: no hardcoding): Terraform outputs the
+    """No literal tags in the harness or the probe (no hardcoding): Terraform outputs the
     tags it applies, and both put exactly those on what they create."""
     outputs = (ROOT / "terraform" / "proving-ground" / "outputs.tf").read_text(encoding="utf-8")
     assert re.search(r'output "resource_tags" \{\s+value = \{ for key in \["Project", "Environment", "Stack"\] : '
@@ -66,7 +66,7 @@ def test_nothing_is_created_without_the_stacks_tags():
 
 
 def test_the_proof_script_looks_for_leftovers_by_the_tag_terraform_applies():
-    """Review 3: scripts/aws_proof.sh still filtered Key=Project,Values=warden-proving-ground
+    """scripts/aws_proof.sh still filtered Key=Project,Values=warden-proving-ground
     after the tags changed, so its post-destroy check always found 0 leftovers - a false "clean"."""
     stack = _terraform_tags()["Stack"]
     proof = (ROOT / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")

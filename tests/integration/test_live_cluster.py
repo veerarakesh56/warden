@@ -101,8 +101,8 @@ def test_end_to_end_scale_up_on_an_oom_crash_loop_is_escalated_by_p11(backend, a
     """The whole claim of the project, against a real cluster, in one assertion block.
 
     The workload is one pod OOM-killed at startup, so every pod is failing and scaling out cannot
-    help: since 2026-09-25 P11 escalates the scale_up the mock model proposes. This asserted
-    approved_for_human until then - the exact shape of all three EKS runs the gate wrongly allowed.
+    help: P11 escalates the scale_up the mock model proposes. This once asserted
+    approved_for_human - the exact shape of all three EKS runs the gate wrongly allowed.
     """
     # The ingestion wait (requirement R23, tests/test_ingest_lag_r23.py) would sleep up to 2 minutes for this alert,
     # which fires as the module starts; this test is about the gate, so it reads at once.

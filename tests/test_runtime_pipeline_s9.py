@@ -2,7 +2,7 @@
 before the job holds a credential, pushed by the commit's SHA, signed by digest with cosign (keyless, this workflow's
 own identity) and given build provenance; the deploy verifies both - signed by this workflow on the runtime branch -
 before it plans, and applies only the plan it made, with that digest. terraform/runtime takes every per-install value
-from SSM. The pipeline runs from environments.yaml `github.runtime_branch` only (owner, 2026-10-16: dev, until prod
+from SSM. The pipeline runs from environments.yaml `github.runtime_branch` only (dev, until prod
 exists), at a commit promoted onto it from its upstream branch."""
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ def _runtime_branch() -> str:
 
 
 def test_the_runtime_runs_only_from_its_branch_at_a_promoted_commit_and_signs_as_it():
-    """Owner, 2026-10-16: main deploys nothing; the runtime runs from environments.yaml `github.runtime_branch` (dev,
+    """Main deploys nothing; the runtime runs from environments.yaml `github.runtime_branch` (dev,
     until prod exists). Every job refuses any other ref first; the image job checks that the commit was promoted onto
     the branch, as the deploys do, before it holds the Hugging Face token or an AWS credential; and the signing
     identity both jobs check is this workflow on that branch."""
@@ -68,10 +68,10 @@ def test_the_image_is_built_before_any_credential_and_pushed_by_the_commit():
     assert "needs.image.outputs.image" not in FLOW
     assert "IMAGE: ${{ secrets.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}" in DEPLOY_JOB
     # Tags are immutable: a commit already pushed keeps its image and signature, and is neither re-signed nor re-attested
-    # here (2026-10-09: the apply after a plan of the same commit failed on the push). The deploy verifies it regardless.
+    # here (the apply after a plan of the same commit failed on the push). The deploy verifies it regardless.
     assert '--image-ids imageTag="$GITHUB_SHA"' in IMAGE_JOB
     assert 'echo "existing=true"' in IMAGE_JOB
-    # ...unless the run that pushed it died before signing (2026-10-12: the signing tool's download failed after the
+    # ...unless the run that pushed it died before signing (the signing tool's download failed after the
     # push, and the commit could never be deployed): an image found without a valid signature and provenance is signed
     # and attested by this run, and the tool is installed before anything is pushed.
     assert IMAGE_JOB.count("if: steps.push.outputs.existing != 'true' || steps.check.outputs.signed != 'true'") == 2
@@ -123,7 +123,7 @@ def test_the_pipeline_is_by_hand_into_ops_only():
 
 
 def test_restart_redeploys_the_zone_services_without_an_image_or_a_plan():
-    """After a secret is set or rotated the workers must start again (they read secrets at start; 2026-10-09 every
+    """After a secret is set or rotated the workers must start again (they read secrets at start; once every
     service had stopped retrying before its secrets were set). restart builds nothing and plans nothing."""
     restart = FLOW[FLOW.index("\n  restart:"):]
     assert "if: inputs.action == 'restart'" in restart
@@ -164,7 +164,7 @@ EIP_ERROR = "Error: disassociating EC2 EIP (eipassoc-0abc): operation error EC2:
     ("Error: disassociating EC2 EIP|" + EIP_ERROR, "ok", 1, ["apply"]),
 ])
 def test_a_pause_retries_only_the_one_known_address_error_and_only_once(tmp_path, first, second, exit_code, calls):
-    """2026-10-11: a pause removed everything in order and still ended red - EC2 answered the release of the NAT
+    """A pause removed everything in order and still ended red - EC2 answered the release of the NAT
     gateway's address with UnauthorizedOperation while it still listed the address as associated. The apply step runs
     here as written, against a stand-in terraform: it applies what is left once, only for that one error."""
     import shutil
@@ -200,7 +200,7 @@ def test_a_pause_retries_only_the_one_known_address_error_and_only_once(tmp_path
 
 
 def test_the_pipeline_names_its_environment_once_as_the_configuration_does_and_no_workflow_names_a_resource():
-    """Owner, 2026-10-12: nothing in the repository is hardcoded. The runtime's environment is environments.yaml
+    """Nothing in the repository is hardcoded. The runtime's environment is environments.yaml
     `runtime`; this workflow names it once (RUNTIME_ENV, and the `environment:` keys GitHub needs written out), and no
     workflow line names a resource of one environment (`warden-ops-runtime`)."""
     import yaml
@@ -224,7 +224,7 @@ def test_the_pipeline_names_its_environment_once_as_the_configuration_does_and_n
 
 
 def test_a_deploy_fails_unless_every_zone_runs_the_new_image():
-    """2026-10-15: the apply succeeded, ECS could not start the new tasks (the account's Fargate vCPU limit), rolled
+    """The apply succeeded, ECS could not start the new tasks (the account's Fargate vCPU limit), rolled
     every zone back - and the workflow said success. The deploy now ends only when each service has one deployment,
     COMPLETED, on the image just built."""
     deploy = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]

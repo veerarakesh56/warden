@@ -43,7 +43,7 @@ def test_the_accepted_failures_excuse_nothing_once_the_stack_exists():
 
 
 def test_a_create_that_stopped_part_way_is_judged_by_today_for_what_exists_and_accepted_for_the_rest():
-    """2026-10-14: IAM refused the EKS node group mid-create; the re-run was refused because the zone loss fails the
+    """IAM refused the EKS node group mid-create; the re-run was refused because the zone loss fails the
     node group the half-built stack does not have. What exists is still held to today; what does not, to the accepted
     failures - so the earlier fix (accepted failures hid an existing resource's new one) still holds."""
     today = {"aws_vpc.this", "aws_nat_gateway.this", "aws_lb.app"}
@@ -55,12 +55,12 @@ def test_a_create_that_stopped_part_way_is_judged_by_today_for_what_exists_and_a
 
 
 def test_a_regression_the_owner_chose_passes_named_and_nothing_else_rides_on_it():
-    """2026-10-17 (cost plan): one EKS node and one cache node fail a zone loss the stack survives today. The owner's
+    """One EKS node and one cache node fail a zone loss the stack survives today. The owner's
     choice, in helios/regressions.json, lets exactly those through - per scenario kind, named in the summary."""
     taken = {"az-outage": ["aws_eks_node_group.this"]}
     verdict, why = gate.judge("lose-z1", {"aws_eks_node_group.this"}, set(), {}, {"aws_eks_node_group.this"}, taken)
     assert verdict == "ok"
-    assert "taken on by the owner: aws_eks_node_group.this" in why
+    assert "accepted in regressions.json: aws_eks_node_group.this" in why
     assert gate.judge("lose-z1", {"aws_eks_node_group.this", "aws_lb.app"}, set(), {}, None, taken)[0] == "refuse"
     assert gate.judge("nodegroup-loss", {"aws_eks_node_group.this"}, set(), {}, None, taken)[0] == "refuse"
     assert "taken on" not in gate.judge("lose-z1", {"aws_lb.app"}, {"aws_lb.app"}, {}, None, taken)[1]
@@ -71,7 +71,7 @@ def test_a_regression_the_owner_chose_passes_named_and_nothing_else_rides_on_it(
 @pytest.mark.parametrize("text", ['["aws_eks_node_group.this"]', '{"az-outage": "aws_eks_node_group.this"}',
                                   '{"az-outage": [1]}', '{"az-outage": [["x"]]}', "null", "not json", ""])
 def test_a_malformed_regressions_file_is_refused_cleanly(tmp_path, monkeypatch, capsys, text):
-    """PR 44 review: regressions.json is checked before any scenario runs - an object of lists of addresses, or the
+    """regressions.json is checked before any scenario runs - an object of lists of addresses, or the
     change is refused with a reason, never a traceback (a string would have excused every address it contains)."""
     own = tmp_path / "terraform" / "other" / "helios"
     (own / "scenarios").mkdir(parents=True)
@@ -162,7 +162,7 @@ def test_every_scenario_and_accepted_failure_names_a_resource_the_stack_declares
 
 
 def test_each_stack_is_judged_by_its_own_scenarios_and_one_that_declares_none_is_refused(tmp_path, monkeypatch, capsys):
-    """2026-10-11: the undo lab's first plan was refused for not holding the full stack's node group, queue and cache.
+    """The undo lab's first plan was refused for not holding the full stack's node group, queue and cache.
     A stack says what it accepts in its own terraform/<stack>/helios/accepted.json - the lab accepts nothing and names
     no scenario (it exists to be broken); a stack with no such file, or a name that is no stack's, is refused."""
     plan = tmp_path / "plan.json"

@@ -1,4 +1,4 @@
-"""P15 reads what a key reports (fourth review, 2026-09-30, C-4; the reviewer's tables). A transition's
+"""P15 reads what a key reports (a reviewer's tables). A transition's
 last value counts, a zero said any way supports nothing, a negation reaches only its own clause, and a
 zero of something good is a shortage."""
 
@@ -122,7 +122,7 @@ def test_a_zero_supports_nothing(action, quote):
     assert not _supports(action, quote)
 
 
-# Fifth review: the next field read as "what was counted", "not a single", time-ago zeros,
+# The next field read as "what was counted", "not a single", time-ago zeros,
 # "then" transitions, and a zero of USE as scale_down's evidence.
 FIFTH_NONE = [
     (A.restart_pods, "pod=orders restarts=0 ready=1/1"),
@@ -154,7 +154,7 @@ def test_a_time_ago_a_then_and_zero_use_for_scale_down_support(action, quote):
     assert _supports(action, quote)
 
 
-# Sixth review: 7c0dd34's P15 changes read another field after "then", took a missing value or
+# 7c0dd34's P15 changes read another field after "then", took a missing value or
 # headroom as scale_down's idle use, and hid "0 free" shortages.
 SIXTH = [
     (A.scale_down, "cpu: null", False), (A.scale_down, "cpu: none", False),
@@ -172,7 +172,7 @@ SIXTH = [
     (A.scale_up, "pool: 0 left", True), (A.restart_pods, "restarts=0 ok", False),
 ]
 
-# Seventh review: the quantity rule read a zero of ANY key as a shortage, so none of a bad thing
+# The quantity rule read a zero of ANY key as a shortage, so none of a bad thing
 # supported an action that 9d01dfd refused (a regression from e94365a).
 SEVENTH = [
     (A.scale_up, "queue: 0 remaining", False), (A.scale_up, "backlog: 0 left", False),
@@ -197,7 +197,7 @@ def test_the_sixth_reviews_p15_quotes(action, quote, supports):
     assert _supports(action, quote) is supports
 
 
-# Eighth review: a capacity keyword inside a count of something bad still read as a shortage, and "idle"
+# A capacity keyword inside a count of something bad still read as a shortage, and "idle"
 # left the quantity words for every action - an exhausted pool stopped supporting scale_up.
 EIGHTH = [
     (A.terminate_connections, "blocked connections: 0 remaining", False),
@@ -216,12 +216,12 @@ def test_the_eighth_reviews_p15_quotes(action, quote, supports):
 
 @pytest.mark.parametrize(("action", "quote"), [(A.scale_up, "cpu: 0 free"), (A.scale_up, "memory: 0 left")])
 def test_memory_and_cpu_are_capacity(action, quote):
-    """Eighth review (test strength): dropping memory and cpu from the capacity words passed every test."""
+    """Test strength: dropping memory and cpu from the capacity words passed every test."""
     assert _supports(action, quote) is True
 
 
 def test_a_citation_id_in_brackets_is_its_item():
-    """Models write `[C1]`: the id is read without the brackets, as P13 reads it (a plant check found no test, S19)."""
+    """Models write `[C1]`: the id is read without the brackets, as P13 reads it (a plant check found no test)."""
     rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="[C1]", quote="OOMKilled: 0 -> 3")])
     p = RemediationProposal(action=A.restart_pods, target="orders", reasoning="r", expected_effect="e",
                             blast_radius="single_service", reversible=True)
@@ -229,7 +229,7 @@ def test_a_citation_id_in_brackets_is_its_item():
 
 
 def test_a_revert_is_not_supported_by_wardens_own_words():
-    """A T item is WARDEN's own wording, never support for a fix - for a revert too (a plant check found no test, S19)."""
+    """A T item is WARDEN's own wording, never support for a fix - for a revert too (a plant check found no test)."""
     quote = "AuthorizeSecurityGroupIngress on sg-0d4c"
     rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="T1", quote=quote)])
     p = RemediationProposal(action=A.revert_change, target="sg-0d4c", reasoning="r", expected_effect="e",

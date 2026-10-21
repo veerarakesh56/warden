@@ -59,7 +59,7 @@ RIGHT_OUTCOMES = OUTCOMES[:3]
 
 
 def outcome(action: str, status: str, reached: bool, key: dict) -> str:
-    """What the person gets (2026-10-11: "correct action" counts what the model said, and most of the difference is
+    """What the person gets ("correct action" counts what the model said, and most of the difference is
     WARDEN's own gate - in both directions).
 
     right plan      a keyed-right fix reached the approver
@@ -97,7 +97,7 @@ def score(report: dict, key: dict) -> dict:
     status, pids = verdict["status"], set(verdict.get("policy_ids") or [])
     grade = grade_action(action, key)
     reached = status == "approved_for_human" or (status == "escalated" and pids == {"P6-BLAST-RADIUS"})
-    # A key may accept escalate_to_human beside a fix (review of G10, 2026-10-10: an always-escalate answer scored 86%
+    # A key may accept escalate_to_human beside a fix (an always-escalate answer would score 86%
     # on one group). "fixed" counts only a fix where the key holds one; an escalation there is safe, not a fix.
     fixable = any(a not in PASSIVE for a in key.get("correct_actions", []))
     return {"action": action, "grade": grade, "cited_cause": cited_cause(report, key), "gate": status,
@@ -150,7 +150,7 @@ def always_escalate(keys: dict[str, dict]) -> dict[str, int]:
 
 
 def answer_key(cases: pathlib.Path) -> dict:
-    """The set's answer key. Named `key.json` until 2026-10-16, the usual name of a GCP service-account key, so
+    """The set's answer key. Formerly `key.json`, the usual name of a GCP service-account key, so
     scanners and readers took it for a leaked credential; a copy outside the repository
     still named so is read, with a warning, for one release."""
     path = cases / "answer-key.json"

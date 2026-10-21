@@ -1,4 +1,4 @@
-"""Every researched AI failure mode is covered. The failure classes of the 2026-09-28 research map are held to the
+"""Every researched AI failure mode is covered. The failure classes of the research map are held to the
 register's coverage list: no class missing or renamed, and every row the list names exists in the register."""
 
 from __future__ import annotations

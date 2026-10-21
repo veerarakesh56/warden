@@ -85,8 +85,8 @@ DB_HELP = "a SQLite audit file (or set WARDEN_AUDIT_DSN)"
 def _out(text: object, *, err: bool = False) -> None:
     """stdout is an egress too - a terminal, a CI log, a pasted ticket: no secret, and no
     control character (an ESC sequence in model- or alert-written text can rewrite what the operator
-    sees). EVERY line this CLI prints goes through here (independent review 2026-09-28: `warden
-    status` printed an agent-controlled field raw)."""
+    sees). EVERY line this CLI prints goes through here (else `warden
+    status` prints an agent-controlled field raw)."""
     print(gate.for_terminal(str(text)), file=sys.stderr if err else sys.stdout)
 
 
@@ -312,7 +312,7 @@ def _audit_keygen(args: argparse.Namespace) -> int:
     if args.private.exists():
         _out(f"{args.private} exists; refusing to overwrite a signing key")
         return 1
-    # Encrypted unless asked otherwise (naming audit item 4, 2026-10-16: with no passphrase set, keygen wrote the
+    # Encrypted unless asked otherwise (with no passphrase set, keygen would write the
     # key in the clear and only said so, while approvals.py promised an encrypted one - and a signature is only
     # as strong as the key file at rest). The passphrase comes from the environment (Secrets Manager in the
     # cloud) or is typed at a prompt, never from the command line (shell history).
@@ -369,7 +369,7 @@ def _approver_key(path: pathlib.Path):
 
 
 async def _autonomy_command(args: argparse.Namespace) -> int:
-    """A person turns autonomy back on in an environment after a demotion (autonomy.enable, owner 2026-10-17), through
+    """A person turns autonomy back on in an environment after a demotion (autonomy.enable), through
     the runtime's own AutonomyWorkflow: every demotion is shown first, and the approver states how many they read - the
     signature covers exactly those, as a kill switch reset does."""
     import uuid
@@ -453,8 +453,8 @@ def _install_log_gate() -> None:
     install_log_gate(logging.INFO)
 
 
-# Every catalogue platform the AWS platform carries out (review 2026-10-10, M1: sqs, athena and apigw were missing, so
-# their plans could never be made). tests/test_actions_g9d.py holds it to the AWS platform's own entries.
+# Every catalogue platform the AWS platform carries out (a missing one, such as sqs, athena or apigw, means
+# its plans can never be made). tests/test_actions_g9d.py holds it to the AWS platform's own entries.
 AWS_PLATFORMS = ("lambda", "events", "dynamodb", "ecs", "rds", "sqs", "athena", "apigw", "elb", "appconfig", "codepipeline",
                  "ec2", "asg", "kms", "secretsmanager", "kinesis")
 
@@ -656,7 +656,7 @@ def _usage_command(args: argparse.Namespace) -> int:
 
 def metric_line(name: str, value: str) -> str:
     """One report line. A value the outbound gate withholds is replaced alone: the metric's name stays on screen,
-    so a line never silently disappears (CodeRabbit, PR 175)."""
+    so a line never silently disappears."""
     shown = gate.for_terminal(value)
     if shown.startswith("[withheld"):
         shown = "[value withheld by the outbound gate]"
@@ -682,7 +682,7 @@ def _report_command(args: argparse.Namespace) -> int:
     try:
         key = audit.load_public_key(_key_file(args.public_key))
     except (ValueError, TypeError, OSError) as e:
-        # A key that cannot be read is the operator's input, never a failed verification (exit 1): CodeRabbit, PR 175.
+        # A key that cannot be read is the operator's input, never a failed verification (exit 1).
         _out(f"error: --public-key is not an Ed25519 public key that can be read: {type(e).__name__}", err=True)
         return 2
     try:
@@ -696,7 +696,7 @@ def _report_command(args: argparse.Namespace) -> int:
 
 
 def _offer_again_command(args: argparse.Namespace) -> int:
-    """Item 11: a fix that did not hold is offered again only after an approver signs that it may be - each fix of
+    """A fix that did not hold is offered again only after an approver signs that it may be - each fix of
     this incident that is still held back, whether its alarm came back in the soak or a re-check failed."""
     from . import approvals, history, runtime
 
@@ -729,7 +729,7 @@ def _offer_again_command(args: argparse.Namespace) -> int:
 
 
 def _label_command(args: argparse.Namespace) -> int:
-    """Audit A-P-2: the approver's signed verdict on a diagnosis and its action, recorded for calibration."""
+    """The approver's signed verdict on a diagnosis and its action, recorded for calibration."""
     from . import labels, runtime
 
     policy = runtime.approver_policy()
@@ -760,8 +760,8 @@ def _link_command(args: argparse.Namespace) -> int:
 def _killswitch_command(args: argparse.Namespace) -> int:
     from . import runtime
 
-    # Live, 2026-10-16: with the cloud runtime's approval page configured and no audit DSN, `on` wrote this machine's
-    # own audit file and printed ON while the cloud kept applying. The cloud's switch is reached only on the page.
+    # With the cloud runtime's approval page configured and no audit DSN, `on` would write this machine's
+    # own audit file and print ON while the cloud kept applying. The cloud's switch is reached only on the page.
     cloud = bool(os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()) and not os.environ.get("WARDEN_AUDIT_DSN", "").strip()
     if cloud and args.kill_cmd in ("status", "reset"):
         _out("error: this machine does not reach the cloud runtime's audit. `warden killswitch link` shows why the "
@@ -871,8 +871,8 @@ _KEY_HELP = "your Ed25519 private key (PEM)"
 
 
 class _Parser(argparse.ArgumentParser):
-    """argparse writes a bad argument back to stderr raw - an escape sequence, or a key typed on the command line
-    (sixth review NEW-3, seventh review). Its error becomes SystemExit text, which main() prints through the gate
+    """argparse writes a bad argument back to stderr raw - an escape sequence, or a key typed on the command line.
+    Its error becomes SystemExit text, which main() prints through the gate
     like every other error; the usage line holds nothing typed and is printed as argparse does."""
 
     def error(self, message: str):  # type: ignore[override]
@@ -888,8 +888,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _main(argv)
     except SystemExit as exc:
-        # A message Python would print raw - an --alert file's content, or a tuple or exception (fifth
-        # review, 2026-10-01).
+        # A message Python would print raw - an --alert file's content, or a tuple or exception.
         message = exit_message(exc.code)
         if message is not None:
             _out(f"error: {_one(message)}", err=True)

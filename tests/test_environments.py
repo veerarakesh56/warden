@@ -14,7 +14,7 @@ from warden.models import ActionKind
 # ------------------------------------------------------------------ the shipped policy
 
 def test_bundled_policy_is_dev_then_prod():
-    """Owner, 2026-10-16: two environments, in promotion order (main -> dev -> prod; tests/test_ci_lanes.py reads the
+    """Two environments, in promotion order (main -> dev -> prod; tests/test_ci_lanes.py reads the
     order from here)."""
     pol = default_environment_policies()
     assert pol.known_environments == ("dev", "prod")
@@ -22,7 +22,7 @@ def test_bundled_policy_is_dev_then_prod():
 
 
 def test_no_shipped_environment_auto_remediates_or_skips_a_person():
-    """Owner rule "dev is prod" (2026-10-16; audit: dev auto-remediated anything for anyone)."""
+    """Rule "dev is prod" (dev once auto-remediated anything for anyone)."""
     pol = default_environment_policies()
     for env in pol.known_environments:
         assert pol.for_env(env).auto_remediate is False, env
@@ -162,7 +162,7 @@ def test_credentials_ref_is_a_pointer_per_environment_and_none_when_unknown():
 
 
 def test_wardens_own_runtime_environment_has_names_but_no_app_role():
-    """Second review: the W0-now owner steps tag the runtime's secrets Environment=ops,
+    """The W0-now owner steps tag the runtime's secrets Environment=ops,
     and `ops` existed nowhere. It is WARDEN's OWN environment - named, tag-audited, and never one an
     app pipeline deploys to or WARDEN remediates."""
     from warden.environments import names
@@ -178,7 +178,7 @@ def test_wardens_own_runtime_environment_has_names_but_no_app_role():
 
 @pytest.mark.parametrize("value", ["false", "no", 0, "off", None])
 def test_a_flag_that_is_not_a_yaml_boolean_is_refused(tmp_path, value):
-    """Audit A-B-L12: `bool("false")` is True - a quoted "false" armed auto_remediate."""
+    """`bool("false")` is True - a quoted "false" armed auto_remediate."""
     import yaml
 
     from warden.environments import EnvironmentPolicies, EnvironmentPolicyError
@@ -191,7 +191,7 @@ def test_a_flag_that_is_not_a_yaml_boolean_is_refused(tmp_path, value):
 
 @pytest.mark.parametrize("name", ["Prod", "prod;x", "pre prod", "-dev", "a" * 40, "x_y"])
 def test_an_environment_name_that_cannot_be_an_aws_name_is_refused(tmp_path, name):
-    """Audit A-B-L12: the name becomes `warden-<env>-...` AWS names, a role and an SSM path."""
+    """The name becomes `warden-<env>-...` AWS names, a role and an SSM path."""
     import yaml
 
     from warden.environments import EnvironmentPolicies, EnvironmentPolicyError

@@ -1,6 +1,6 @@
 name: "Deploy · prod · on merge"
 
-# Owner, 2026-10-16: an environment deploys only from the branch of its own name, and main deploys nothing. A commit
+# An environment deploys only from the branch of its own name, and main deploys nothing. A commit
 # promoted onto the branch prod (from its upstream branch, `upstream` below) reaches the environment prod with no hand
 # on a button; every job then waits for the environment's required reviewers, where it has any.
 # - The push that CREATES the branch deploys nothing: there is no earlier commit of it to compare with.
@@ -61,7 +61,7 @@ jobs:
           infra=0; apps=0; others=0
           while IFS= read -r f; do
             case "$f" in
-              *.md) ;;  # documentation changes nothing deployed (2026-10-16: a README held back a deploy)
+              *.md) ;;  # documentation changes nothing deployed
               terraform/fullstack/*) infra=1 ;;
               scenarios/fullstack/lambdas/*) apps=1 ;;
               scenarios/fullstack/app/*|k8s/*|manifests/*|helm/*) apps=1; others=1 ;;

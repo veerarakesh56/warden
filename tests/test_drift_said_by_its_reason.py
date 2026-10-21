@@ -1,4 +1,4 @@
-"""Live, 2026-10-16: a plan voided because WARDEN's own code was deployed after it was made reached the channel as
+"""A plan voided because WARDEN's own code was deployed after it was made reached the channel as
 "`dev/lambda:warden-dev-checkout` changed after the plan ..." and the record said "Target changed" - the target had
 not changed. The words for a voided plan no longer name a cause; the reason that follows says what changed."""
 

@@ -33,7 +33,7 @@ def test_new_failure_wording_yields_facts(line, want):
 
 
 def test_short_phrases_match_whole_words_only():
-    """Independent review 2026-10-10, F7: `oom` matched oom_score_adj, `lag` lagos, `flag` flagship, `dns` dnsPolicy."""
+    """`oom` matched oom_score_adj, `lag` lagos, `flag` flagship, `dns` dnsPolicy."""
     got = q.facts("ERROR oom_score_adj=0 lagos flagship dnsPolicy deployment")
     assert not any(f.startswith("phrase=") and f.split('"')[1] in {"oom", "lag", "flag", "dns", "deploy"} for f in got), got
     assert {'phrase="oom"', 'phrase="lag"'} <= set(q.facts("ERROR OOM killed, replica lag 30s"))

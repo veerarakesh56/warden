@@ -42,7 +42,7 @@ def test_the_committed_files_are_exactly_the_render():
 
 
 def test_only_the_runtime_pipeline_on_its_branch_may_assume_the_deploy_role():
-    """Owner, 2026-10-16: the runtime pipeline runs from environments.yaml `github.runtime_branch` (dev until prod
+    """The runtime pipeline runs from environments.yaml `github.runtime_branch` (dev until prod
     exists), never from main."""
     from warden.environments import EnvironmentPolicies
 
@@ -99,7 +99,7 @@ def test_instances_launch_only_from_a_template_with_imdsv2():
     assert "ec2:RunInstances" not in _sid(boundary, "DenyAlways")["Action"]
     assert _sid(_load("deploy-ec2"), "LaunchFromATemplate")["Condition"] == {
         "ArnLike": {"ec2:LaunchTemplate": f"arn:aws:ec2:{r.names(RUNTIME).region}:*:launch-template/*"}}
-    # The runtime runs no instance since 2026-10-14 (Fargate); the grant stays template-and-IMDSv2-only until it goes.
+    # The runtime runs no instance since it moved to Fargate; the grant stays template-and-IMDSv2-only until it goes.
 
 
 def test_the_deploy_role_never_reads_or_writes_a_secret_value_or_signs():

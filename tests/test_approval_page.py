@@ -201,7 +201,7 @@ def test_a_challenge_in_the_audit_is_taken_once(setup, tmp_path):
 
 
 def test_the_page_shows_what_the_plan_changes_before_and_after(setup):
-    """G9-D (owner decision 2026-10-10): a dry-run diff on the approval screen, from the plan's snapshot and values -
+    """G9-D: a dry-run diff on the approval screen, from the plan's snapshot and values -
     both in the hash the approver signs - shown first, before the entry's name."""
     page, device, _, _ = setup
     global PLAN
@@ -233,7 +233,7 @@ def test_every_catalogue_entry_says_what_it_changes():
 
 
 def test_the_page_says_what_it_is_doing_and_asks_for_the_target_only_when_the_tier_needs_it(setup):
-    """The owner's first live approval: the page gave no sign while it sent the approval, the status was
+    """The first live approval: the page gave no sign while it sent the approval, the status was
     out of sight above the plan, a second click read "link is not valid", and a T1 plan showed the target box."""
     page, _, _, _ = setup
     shell = page.handle("GET", f"/a/{page.new_link('rem-dev-1', 'owner')}").body
@@ -249,7 +249,7 @@ def test_the_page_says_what_it_is_doing_and_asks_for_the_target_only_when_the_ti
 
 
 def test_both_pages_need_nothing_their_content_security_policy_refuses_and_keep_the_basics_of_access(setup):
-    """The redesign (owner, 2026-10-12: "they look like some poor pages") must stay inside the policy the page is
+    """The redesign must stay inside the policy the page is
     served with - one nonced style, one nonced script, nothing from anywhere else, no style attribute - and keep what
     a person using a keyboard, a screen reader, a phone or 200% zoom needs."""
     import re
@@ -283,14 +283,14 @@ def test_both_pages_need_nothing_their_content_security_policy_refuses_and_keep_
             assert f'<label for="{control}">' in html, control  # every control is labelled
         assert "#000" not in html
         assert "#fff" not in html.lower()
-    # Owner, same day: the denial sat behind an arrow. Both decisions are in view once the plan is shown.
+    # The denial sat behind an arrow. Both decisions are in view once the plan is shown.
     assert "<details" not in approval_page._PAGE
     assert 'id="ok"' in approval_page._PAGE
     assert 'id="no"' in approval_page._PAGE
 
 
 def test_the_page_counts_the_link_down_and_says_where_the_fresh_one_is(setup):
-    """Live, 2026-10-12: an approver read the plan past the end of its 15-minute link, clicked, and was told "this
+    """An approver read the plan past the end of its 15-minute link, clicked, and was told "this
     approval link is not valid" - while the plan still had a quarter of an hour and a fresh link was in the channel."""
     page, device, _, clock = setup
     token = page.new_link("rem-dev-1", "owner")

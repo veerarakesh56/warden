@@ -1,6 +1,6 @@
 """scripts/replay_diagnose.py: one recorded run is one row. A log that fails after the report was written makes that
-run's row an ERROR row - never a success row and an ERROR row both, which counted the run twice (audit A-B-M16:
-the denominators must be the recorded run's)."""
+run's row an ERROR row - never a success row and an ERROR row both, which counted the run twice (the
+denominators must be the recorded run's)."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
-"""G10-D1: undo ONE security group change CloudTrail recorded before the alarm (research g10-undo-change.md, owner
-decisions 2026-10-10). The event decides the write - a revoke is undone by authorizing exactly its rules, an
-authorize by revoking exactly the rules it created - and every refusal the research names holds: a change after the
+"""G10-D1: undo ONE security group change CloudTrail recorded before the alarm. The event decides the write - a
+revoke is undone by authorizing exactly its rules, an authorize by revoking exactly the rules it created - and every
+refusal holds: a change after the
 alarm, by root, by an AWS service, by WARDEN, by a named security principal, more than one write, ingress from the
 whole internet, a record CloudTrail cut short, rules already back."""
 
@@ -139,7 +139,7 @@ def test_an_added_ingress_rule_is_revoked_by_the_rule_it_created_only():
     (lambda f: f.sg_rules.append({"GroupId": SG, "IsEgress": True, "IpProtocol": "tcp", "FromPort": 443,
                                   "ToPort": 443, "CidrIpv4": "0.0.0.0/0"}), "back already"),
     (lambda f: setattr(f, "alarm_state", "OK"), "not in ALARM"),
-    # Infrastructure as code: its next apply would undo the undo (owner decision, 2026-10-10 - every family).
+    # Infrastructure as code: its next apply would undo the undo (every family).
     (lambda f: f.sg_events.__setitem__(0, _with_agent(_event("RevokeSecurityGroupEgress"),
                                                       "APN/1.0 HashiCorp/1.0 Terraform/1.9.8")), "infrastructure as code"),
 ])
@@ -213,7 +213,7 @@ def test_a_disabled_rule_is_reverted_through_its_enable_entry_and_a_function_thr
     ("ModifyTargetGroupAttributes on tg", False), ("TagResource on x", False), ("error rate went up", False),
     ("disable-feature flag on", False)])
 def test_a_revert_is_supported_by_the_event_name_it_undoes(quote, supported):
-    """G10 held-out baseline: P15 held back every revert WARDEN can carry out - its keys are run-together
+    """P15 held back every revert WARDEN can carry out - its keys are run-together
     event names, quotes were split at camelCase first, and the "none" rule read `sg-0d4c` as a zero."""
     from warden import grounding
     from warden.evidence import Item
@@ -235,7 +235,7 @@ def test_a_revert_is_supported_by_the_event_name_it_undoes(quote, supported):
      True),
     ("CHANGE t ec2.amazonaws.com RevokeSecurityGroupEgress on sg-1 by role/x request=groupId,ipPermissions", True)])
 def test_a_revert_is_supported_only_when_the_request_set_what_the_family_undoes(line, supported):
-    """G10 held-out (2026-10-10, g10-085): the model proposed undoing a forced redeploy's UpdateService; only the live
+    """G10 held-out case g10-085: the model proposed undoing a forced redeploy's UpdateService; only the live
     read refused it. The CHANGE line now names the request's fields, and the revert needs one its family undoes."""
     from warden import grounding
     from warden.evidence import Item
@@ -253,7 +253,7 @@ def test_a_revert_is_supported_only_when_the_request_set_what_the_family_undoes(
     ("C5", "UpdateFunctionCode20150331v2 on thumbnailer", True), ("C5", "PublishVersion20150331 on fn", True),
     ("C5", "lambda_errors=4", False), ("C5", "code=ImportModuleError", False)])
 def test_a_rollback_is_supported_by_the_deploy_record_or_the_deploys_own_event(cid, quote, supported):
-    """G10 held-out (2026-10-10, g10-117 and g10-171): right rollbacks citing the deploy record (`previous=41`) and the
+    """G10 held-out cases g10-117 and g10-171: right rollbacks citing the deploy record (`previous=41`) and the
     code update's CloudTrail event were held back - P15 looked for "deploy" or "version" inside the quote only."""
     from warden import grounding
     from warden.evidence import Item
@@ -266,7 +266,7 @@ def test_a_rollback_is_supported_by_the_deploy_record_or_the_deploys_own_event(c
 
 
 def test_only_the_latest_change_to_a_resource_is_undone():
-    """G10 held-out (2026-10-10, g10-082): a configuration change was published as a new version and an alias moved to
+    """G10 held-out case g10-082: a configuration change was published as a new version and an alias moved to
     it; undoing the configuration change reached a person. A cited change written over since is not undone - unless
     another cited change the revert holds is the latest (g10-172: the stage move after its deployment)."""
     from warden import grounding

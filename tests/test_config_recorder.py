@@ -1,4 +1,4 @@
-"""AWS Config records what WARDEN's undo reads (owner, 2026-10-15: "make them perfect"): the owner's console steps
+"""AWS Config records what WARDEN's undo reads: the setup's console steps
 name every type the code reads, and the live check finds what is missing."""
 
 from __future__ import annotations

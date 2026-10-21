@@ -29,7 +29,7 @@ def test_ordinary_markdown_and_wardens_own_metrics_still_pass(text):
     assert gate.enforce(text).verdict != "BLOCK", text
 
 
-# The ninth review's probe (review9r/A/probe_stub9.py): ids that overlap a withheld value or vary it.
+# A review's probe: ids that overlap a withheld value or vary it.
 STUB_CASES = [
     ("overlap, not contained", "password=" + PW, None, "b4dor-x9q-prod"),
     ("upper-cased copy", "password=" + PW, None, PW.upper()),
@@ -52,7 +52,7 @@ def test_an_id_that_could_be_part_of_a_withheld_value_is_named_by_a_hash(name, b
 
 
 def test_an_id_clear_of_every_withheld_value_is_still_named():
-    """Audit A-C-24: the notice names its alert, so a person can find the report."""
+    """The notice names its alert, so a person can find the report."""
     r = gate.enforce("report", before_redaction="password=" + PW, alert_id="inc-7")
     assert r.verdict == "BLOCK", r.text
     assert "about inc-7 " in r.text, r.text

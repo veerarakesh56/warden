@@ -36,11 +36,11 @@ def test_only_the_llm_zone_is_told_the_model_and_only_by_the_deploy():
 
 
 def test_the_workers_way_out_outlives_them_when_the_runtime_is_paused():
-    """2026-10-11 (run 38121022138): pausing removed the services and the NAT route in one apply; the tasks, told to
+    """In one pipeline run, pausing removed the services and the NAT route in one apply; the tasks, told to
     stop on instances that had lost their route, never heard it, the services stayed DRAINING until Terraform gave up
     after twenty minutes, and the instances kept running. The module now depends on the route, so on a pause its
     services and instances are removed before the route and the NAT."""
-    module = MAIN[MAIN.index('module "runtime" {'):MAIN.index("# A slot the owner made by hand")]
+    module = MAIN[MAIN.index('module "runtime" {'):MAIN.index("# A slot made by hand")]
     assert re.search(r"depends_on\s+= \[terraform_data\.environment_is_known, aws_route\.private_out\]", module)
     route = NET[NET.index('resource "aws_route" "private_out"'):NET.index('resource "aws_route_table_association" "private"')]
     assert "count                  = local.paused ? 0 : 2" in route

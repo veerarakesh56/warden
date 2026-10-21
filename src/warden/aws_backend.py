@@ -246,8 +246,7 @@ class AwsBackend:
     def _bind(self, alert: Alert) -> None:
         """In the cloud runtime (WARDEN_AWS_ROLE_ARN_TEMPLATE) every read of an incident runs in its own environment's
         reader role, `warden-<env>-platform-reader`, under the incident's name (SourceIdentity) - never the worker's
-        own role, which may read no watched environment (2026-10-09: the evidence reader used the worker's
-        credentials). An environment the policy does not know is refused before any call."""
+        own role, which may read no watched environment. An environment the policy does not know is refused before any call."""
         if vars(self).get("_per_env") is not None:
             self._bound.clients = self._per_env(alert.environment, alert.alert_id)
 
@@ -323,7 +322,7 @@ class AwsBackend:
         windows = [(near_ms, end_ms), (start_ms, near_ms - 1)] if start_ms < near_ms < end_ms else [(start_ms, end_ms)]
 
         # ⛔ The WHOLE window, then the NEWEST lines. filter_log_events pages oldest-first, and this
-        # used to keep the first page's first 120 lines: in Wave 4 (fs-05, 2026-09-26) every kept line
+        # used to keep the first page's first 120 lines: in Wave 4 (fs-05) every kept line
         # predated the fault, and the AccessDenied lines that named the cause were the ones dropped.
         events: list[dict] = []
         partial: list[str] = []
@@ -393,7 +392,7 @@ class AwsBackend:
         out["deployments_in_flight"] = float(len(deployments))
         # rolloutState FAILED means ECS gave up rolling forward — the strongest single signal here. Only when ECS can
         # set it - the deployment circuit breaker or deployment alarms on: otherwise it is always 0, and the model read
-        # that 0 as "no failed deploy" in ecs-06, -07, -09 and -12 (miss analysis, 2026-10-10). Absent, not zero.
+        # that 0 as "no failed deploy" in ecs-06, -07, -09 and -12. Absent, not zero.
         config = service.get("deploymentConfiguration") or {}
         if (config.get("deploymentCircuitBreaker") or {}).get("enable") or (config.get("alarms") or {}).get("enable"):
             out["deployments_failed"] = float(

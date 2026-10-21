@@ -1,6 +1,6 @@
 """The light half of runtime.py: connect to Temporal, read the approver policy, open the audit - without importing the
 worker, the activities or the workflows. The approval Lambda (lambdas.approval_page, which also serves the records
-pages) needs only these, and importing the rest cost its cold start most of its page time (2.5 s, live 2026-10-14).
+pages) needs only these, and importing the rest cost its cold start most of its page time (2.5 s, measured live).
 runtime.py re-exports every name here; the configuration is documented there."""
 
 from __future__ import annotations

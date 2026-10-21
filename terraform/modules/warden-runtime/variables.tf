@@ -25,7 +25,7 @@ variable "missed_beats_to_page" {
 }
 
 variable "page_repeat_minutes" {
-  description = "How often an open page of WARDEN's own is said again, Slack and email, until a person acknowledges it (owner, 2026-10-16: 15)."
+  description = "How often an open page of WARDEN's own is said again, Slack and email, until a person acknowledges it."
   type        = number
   default     = 15
   validation {
@@ -107,7 +107,7 @@ variable "audit_db_backup_days" {
   default     = 7
   nullable    = false
   validation {
-    # The AWS Free plan refuses longer retention (FreeTierRestrictionError, 2026-10-09): a lab on it keeps 1 day.
+    # The AWS Free plan refuses longer retention (FreeTierRestrictionError): a lab on it keeps 1 day.
     condition     = var.audit_db_backup_days >= 7 || (var.aws_free_plan && var.audit_db_backup_days >= 1)
     error_message = "keep at least 7 days of point-in-time recovery for the audit (1 only on the AWS Free plan)."
   }
@@ -190,11 +190,11 @@ variable "zone_sizes" {
   description = "CPU units and memory (MiB) of each trust zone's task (register S15). The read zone holds the tripwire model."
   type        = map(object({ cpu = number, memory = number }))
   # llm: its synthetic incidents run the whole pipeline, detector included - peak 774 MiB over 72 h with a synthetic run
-  # in 30 of them (2026-10-14..17), so 2048 is 2.6x the peak (cost plan, 2026-10-17; was 3072). read peaked at 1368 MiB:
+  # in 30 of them, so 2048 is 2.6x the peak (was 3072). read peaked at 1368 MiB:
   # 2048 would be under 1.5x, so it stays at 3072.
   default = {
     core   = { cpu = 256, memory = 512 }
-    read   = { cpu = 1024, memory = 3072 } # Prompt Guard 2 (1.1 GB of weights) and torch: R47, 2026-10-14
+    read   = { cpu = 1024, memory = 3072 } # Prompt Guard 2 (1.1 GB of weights) and torch
     llm    = { cpu = 512, memory = 2048 }
     notify = { cpu = 256, memory = 512 } # Fargate's least memory for a quarter vCPU
     act    = { cpu = 256, memory = 512 }
@@ -238,7 +238,7 @@ variable "model" {
   }
 }
 
-# Item 7b: WARDEN's spans (observability.py) over OTLP/HTTP to a collector of the owner's choosing. Off by default:
+# WARDEN's spans (observability.py) over OTLP/HTTP to a collector of the operator's choosing. Off by default:
 # nothing leaves the workers but what they send today. On, every zone gets OTEL_EXPORTER_OTLP_ENDPOINT and nothing
 # else - the app reads it only when it is set, and the image carries the official exporter (pyproject's `otlp` extra,
 # already in uv.lock). HTTPS on 443 only, through the egress the workers already have: no new port or rule. A

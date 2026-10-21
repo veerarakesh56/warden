@@ -1,4 +1,4 @@
-"""The optional Claude security review (owner, 2026-10-17; .github/workflows/security-review.yml): off unless the owner
+"""The optional Claude security review (.github/workflows/security-review.yml): off unless a maintainer
 turns it on, never on a fork's code with the key, least privilege, Anthropic's own action pinned by a full commit."""
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ def _flow() -> tuple[str, dict]:
 
 
 def test_it_runs_only_when_switched_on_and_only_on_this_repositorys_own_pull_requests():
-    """It spends the owner's API key: off unless WARDEN_SECURITY_REVIEW is "on". The action is not hardened against
+    """It spends the repository's API key: off unless WARDEN_SECURITY_REVIEW is "on". The action is not hardened against
     prompt injection, so a fork's pull request - code nobody here wrote - never runs it with the key: the trigger is
     pull_request (a fork gets no secrets there), never pull_request_target, and the job also requires the head branch
     to be this repository's."""
@@ -56,7 +56,7 @@ def test_anthropics_action_is_pinned_by_a_full_commit_and_names_its_model():
     (job,) = wf["jobs"].values()
     (review,) = [s for s in job["steps"] if str(s.get("uses", "")).startswith(ACTION + "@")]
     assert re.fullmatch(rf"{re.escape(ACTION)}@[0-9a-f]{{40}}", review["uses"])
-    # The action's own default is an older model; the model is named, and the owner can change it with a variable.
+    # The action's own default is an older model; the model is named, and a maintainer can change it with a variable.
     assert review["with"]["claude-model"] == "${{ vars.WARDEN_SECURITY_REVIEW_MODEL || 'claude-opus-5-5' }}"
     assert review["with"]["claude-api-key"] == "${{ secrets.SECURITY_REVIEW_ANTHROPIC_API_KEY }}"
 

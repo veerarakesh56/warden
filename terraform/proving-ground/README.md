@@ -41,7 +41,7 @@ Line by line, so the numbers can be checked rather than believed:
 > a NAT Gateway is both the largest cost here and the most common source of a surprise AWS bill.
 > Access is restricted to your own IP (`var.my_ip_cidr`) rather than left open, and the production
 > module one directory up uses private subnets. **The database is the exception: it is private** (Sonar
-> terraform:S8793, owner 2026-10-21). `db_dsn` points at `127.0.0.1`, and `terraform output -raw db_tunnel_command`
+> terraform:S8793). `db_dsn` points at `127.0.0.1`, and `terraform output -raw db_tunnel_command`
 > opens an SSM port-forward to it through a `t4g.nano` (`db_tunnel.tf`) - no SSH key, no inbound rule, no public
 > address, IMDSv2 - which exists only while `enable_rds = true`. It needs the AWS CLI's Session Manager plugin.
 

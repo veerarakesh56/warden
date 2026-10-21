@@ -6,10 +6,10 @@
 The cache dir lies in the working directory or the temp folder (warden.paths): the build writes it under /app and the
 image's last stage copies it to /opt/hf.
 
-Prompt Guard 2 is a gated model: the owner accepted Meta's licence on Hugging Face, and their read token is a build
+Prompt Guard 2 is a gated model: the installation accepts Meta's licence on Hugging Face, and its read token is a build
 secret (BuildKit mounts it at /run/secrets/hf_token; it is in no layer and never printed). The pinned revision
 (warden.tripwire.REVISION) is fetched, every file is checked against the hashes of the copy every measurement in
-tripwire.py was made on (hashed 2026-10-14 from the cache of 2026-09-29), and the model is then loaded the way the
+tripwire.py was made on, and the model is then loaded the way the
 worker loads it - offline, from this cache - and run once: an injection must score at or over the threshold and a plain
 alert under it, or the build fails. The worker never reaches Hugging Face and holds no token.
 """

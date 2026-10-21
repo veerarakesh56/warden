@@ -1,4 +1,4 @@
-"""The cloud runtime reads an EKS cluster in the incident's own reader role (2026-10-15: every pod, event and log read
+"""The cloud runtime reads an EKS cluster in the incident's own reader role (every pod, event and log read
 there failed "credentials rejected or missing" - no kubeconfig and no in-cluster identity in a Fargate task)."""
 
 from __future__ import annotations

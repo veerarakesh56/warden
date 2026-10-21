@@ -1,8 +1,8 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# CodeRabbit for this repository (advisory only; owner, 2026-10-15/16).
+# CodeRabbit for this repository (advisory only).
 # Goal: CodeRabbit is ADVISORY ONLY - it comments; it never approves, never commits or pushes,
 # never merges, never edits labels/reviewers, and keeps no learned memory about the repo.
-# Checked against the live schema.v2.json on 2026-10-16 (see notes.md).
+# Checked against the live schema.v2.json (read 2026-10-16).
 language: en-GB
 tone_instructions: "Plain British English, short sentences, no emojis, no praise. Lead with the risk and the exact line."
 early_access: false
@@ -43,7 +43,7 @@ reviews:
       enabled: false
     simplify:
       enabled: false
-    autofix:                       # "Fix comments" (renamed 2026-10-14)
+    autofix:                       # "Fix comments"
       enabled: false
     fix_ci:
       enabled: false
@@ -93,7 +93,7 @@ reviews:
         widening of `id-token: write` or `contents: write`.
   tools:
     ruff:
-      enabled: false               # CI runs ruff (owner, 2026-10-15: no doubled findings)
+      enabled: false               # CI runs ruff (no doubled findings)
     zizmor:
       enabled: false               # CI's workflow scan runs zizmor at a locked version
     actionlint:

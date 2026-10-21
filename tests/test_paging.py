@@ -1,5 +1,5 @@
-"""WARDEN's own pages repeat every 15 minutes until a person acknowledges them, and keep repeating with WARDEN down
-: the kill switch going on, the heartbeat or synthetic missing, the dead-letter queue, an
+"""WARDEN's own pages repeat every 15 minutes until a person acknowledges them, and keep repeating with WARDEN down:
+the kill switch going on, the heartbeat or synthetic missing, the dead-letter queue, an
 unapproved actor, a worker's or a front door's errors, the audit database, a Temporal key about to expire.
 
 The pager is a function of its own (terraform/modules/warden-runtime/pager/pager.py: boto3 and the standard library,
@@ -326,7 +326,7 @@ def _page(store, key="warden-ops-heartbeat-missing", opened="2026-10-16T01:00:00
 
 
 def _ack_world(tmp_path, **kw):
-    """The approval page with its pages, Slack's sign-in, and the owner's entry naming the Slack member who reads."""
+    """The approval page with its pages, Slack's sign-in, and an approver entry naming the Slack member who reads."""
     import dataclasses
 
     from test_slack_login_g10q import MEMBER, _login
@@ -417,10 +417,10 @@ def test_an_acknowledgements_challenge_answers_once_even_if_a_store_gave_it_back
     assert len(w.log.entries(kinds=(paging.ACK,))) == 1
 
 
-# ------------------------------------------------------------------ PR 43 review: who reads `/p`, and its challenges
+# ------------------------------------------------------------------ who reads `/p`, and its challenges
 
 def test_with_no_slack_sign_in_nobody_reads_or_acknowledges_the_pages(tmp_path):
-    """CodeRabbit, PR 43 (CWE-306): with no Slack sign-in, anyone could list the pages and their reasons."""
+    """CWE-306: with no Slack sign-in, anyone could list the pages and their reasons."""
     import dataclasses
 
     w = _ack_world(tmp_path)
@@ -450,7 +450,7 @@ def test_only_a_signed_in_approver_sees_the_pages(tmp_path):
 
 
 def test_each_look_has_its_own_challenge_and_a_bad_answer_takes_none(tmp_path):
-    """CodeRabbit, PR 43: one shared challenge let any look replace another's, and a malformed answer consume it."""
+    """One shared challenge let any look replace another's, and a malformed answer consume it."""
     w = _ack_world(tmp_path)
     _page(w.page.pages)
     first, second = _show(w), _show(w)
@@ -465,7 +465,7 @@ def test_each_look_has_its_own_challenge_and_a_bad_answer_takes_none(tmp_path):
 
 
 def test_a_malformed_page_never_stops_the_others_being_acknowledged(tmp_path):
-    """CodeRabbit, PR 43: one bad object in `pages/` stopped `/p` showing any."""
+    """One bad object in `pages/` stopped `/p` showing any."""
     w = _ack_world(tmp_path)
     _page(w.page.pages)
     _page(w.page.pages, key="warden-ops-alarm-dlq")
@@ -491,7 +491,7 @@ def test_a_malformed_page_never_stops_the_others_being_acknowledged(tmp_path):
 
 
 def test_one_unreadable_page_never_stops_the_others_repeating(caplog):
-    """CodeRabbit, PR 43: one page with a bad time made every tick fail, and no page repeated."""
+    """One page with a bad time made every tick fail, and no page repeated."""
     p, s3, clock, said = _world()
     pager.handler(_alarm(), pager=p)
     pager.handler(_alarm(name="warden-ops-alarm-dlq"), pager=p)
@@ -510,7 +510,7 @@ def test_one_unreadable_page_never_stops_the_others_repeating(caplog):
 
 
 def test_the_page_state_is_in_the_anchors_bucket_tls_only_and_under_object_lock():
-    """SonarCloud, PR 43: a bucket of its own had no TLS-only policy and no access log - and the boundary lets only
+    """SonarCloud: a bucket of its own had no TLS-only policy and no access log - and the boundary lets only
     the anchors and witness buckets have a policy. The anchors bucket has both TLS-only and Object Lock."""
     tf = (MODULE / "paging.tf").read_text(encoding="utf-8")
     assert 'resource "aws_s3_bucket"' not in tf
@@ -524,7 +524,7 @@ def test_the_page_state_is_in_the_anchors_bucket_tls_only_and_under_object_lock(
     assert "WARDEN_PAGES_BUCKET        = aws_s3_bucket.anchors.bucket" in front
 
 
-# ------------------------------------------------------------------ PR 43 review: the pager never goes quiet
+# ------------------------------------------------------------------ the pager never goes quiet
 
 def _failing(fail):
     """A channel that fails while `fail[0]` is true."""
@@ -538,7 +538,7 @@ def _failing(fail):
 
 
 def test_a_page_whose_first_saying_failed_everywhere_is_said_at_the_next_tick_and_on_the_retry():
-    """CodeRabbit, PR 43: the page was written as said before it was, and waited a whole repeat when it was not."""
+    """The page was written as said before it was, and waited a whole repeat when it was not."""
     s3, clock, down = FakeS3(), Clock(), [True]
     slack, said = _failing(down)
     p = pager.Pager(pager.Pages("b", s3=s3), env="ops", repeat_minutes=15, ack_url="", slack=slack, email=slack,
@@ -568,7 +568,7 @@ def test_an_unsaid_page_is_due_at_the_next_tick():
 
 
 def test_a_repeat_no_channel_took_is_not_recorded_as_sent():
-    """CodeRabbit, PR 43: `last_sent` and `sent` were written before the send, so a failed repeat waited 15 minutes."""
+    """`last_sent` and `sent` were written before the send, so a failed repeat waited 15 minutes."""
     p, s3, clock, _ = _world()
     pager.handler(_alarm(), pager=p)
     down = [True]
@@ -583,7 +583,7 @@ def test_a_repeat_no_channel_took_is_not_recorded_as_sent():
 
 
 def test_an_alarm_state_or_acknowledgement_that_cannot_be_read_never_stops_the_repeats(caplog):
-    """CodeRabbit, PR 43: a DescribeAlarms failure, or an unreadable `acks/` object, aborted the whole tick."""
+    """A DescribeAlarms failure, or an unreadable `acks/` object, aborted the whole tick."""
     p, s3, clock, said = _world()
     pager.handler(_alarm(), pager=p)
     pager.handler(_alarm(name="warden-ops-alarm-dlq"), pager=p)
@@ -599,7 +599,7 @@ def test_an_alarm_state_or_acknowledgement_that_cannot_be_read_never_stops_the_r
 
 
 def test_a_worker_stop_reason_never_carries_an_account_id(monkeypatch):
-    """CodeRabbit, PR 43: ECS's stoppedReason went into Slack and email unredacted."""
+    """ECS's stoppedReason went into Slack and email unredacted."""
     account = "1234" + "5678" + "9012"  # a placeholder, built from parts
     event = {"source": "aws.ecs", "detail-type": "ECS Task State Change", "detail": {
         "clusterArn": "arn:cluster", "lastStatus": "STOPPED", "stopCode": "TaskFailedToStart", "group": "service:w",
@@ -610,7 +610,7 @@ def test_a_worker_stop_reason_never_carries_an_account_id(monkeypatch):
 
 
 def test_an_expiry_parameter_that_cannot_be_read_pages_and_is_never_silence():
-    """CodeRabbit, PR 43: an AccessDenied on the expiry parameter read as "nothing recorded", and no page opened."""
+    """An AccessDenied on the expiry parameter read as "nothing recorded", and no page opened."""
     about, why = pager.key_expiry("/p", T0, 7, ssm=_Ssm(None, code="AccessDeniedException"))
     assert about == "unreadable-AccessDeniedException"
     assert "could not be read (AccessDeniedException)" in why
@@ -618,7 +618,7 @@ def test_an_expiry_parameter_that_cannot_be_read_pages_and_is_never_silence():
 
 
 def test_a_broken_key_expiry_page_never_stops_the_other_repeats(monkeypatch):
-    """CodeRabbit, PR 43: the key-expiry page was opened before the repeats, and a failure there stopped them all."""
+    """The key-expiry page was opened before the repeats, and a failure there stopped them all."""
     monkeypatch.setenv("KEY_EXPIRY_PARAM", "/warden/ops/env/WARDEN_TEMPORAL_KEY_EXPIRES")
     monkeypatch.setattr(pager, "key_expiry", lambda *a, **k: ("2026-10-20T00:00:00+00:00", "a key ends soon"))
     p, s3, clock, said = _world()
@@ -631,7 +631,7 @@ def test_a_broken_key_expiry_page_never_stops_the_other_repeats(monkeypatch):
 
 
 def test_a_cut_email_keeps_every_page_and_the_link_to_acknowledge():
-    """CodeRabbit, PR 43: the email's reason is cut at 1023 characters, and the details came first - with three long
+    """The email's reason is cut at 1023 characters, and the details came first - with three long
     pages the email lost pages and the acknowledgement link, and email is what is left when Slack fails."""
     p, _, clock, said = _world()
     for name in ("warden-ops-killswitch-on", "warden-ops-alarm-dlq", "warden-ops-heartbeat-missing"):

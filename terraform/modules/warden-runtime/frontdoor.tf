@@ -1,4 +1,4 @@
-# How alarms, Alertmanager and approvers reach WARDEN with the laptop off (G6), all from the one runtime image:
+# How alarms, Alertmanager and approvers reach WARDEN with no operator machine on (G6), all from the one runtime image:
 # - CloudWatch alarm state changes of the watched environments' alarms -> EventBridge -> the `alarm` Lambda (retried,
 #   then kept in a dead-letter queue that pages);
 # - Alertmanager -> POST /alertmanager (and Datadog -> POST /datadog) -> the bearer gate at the gateway (webhook_auth)
@@ -94,7 +94,7 @@ locals {
     })
     # Security findings (security_findings.py): GuardDuty's at Medium and above, Security Hub CSPM's active, open,
     # Medium and above. Each goes to a person on the rules alone, never to a fix. A rule on a service that is not
-    # turned on receives nothing and costs nothing; turning GuardDuty or Security Hub on is the owner's choice.
+    # turned on receives nothing and costs nothing; turning GuardDuty or Security Hub on is the account's choice.
     guardduty = jsonencode({
       source        = ["aws.guardduty"]
       "detail-type" = ["GuardDuty Finding"]
@@ -275,7 +275,7 @@ resource "aws_apigatewayv2_integration" "front" {
   payload_format_version = "2.0"
 }
 
-# The webhooks (Sonar terraform:S6333, owner 2026-10-20): an alert source on the internet must reach them, so each route
+# The webhooks (Sonar terraform:S6333): an alert source on the internet must reach them, so each route
 # carries a Lambda REQUEST authorizer that lets a request through only with that route's bearer secret, compared in
 # constant time (webhook_auth/webhook_auth.py). The function keeps its own check (webhooks.authorized) and then asks the
 # source whether the alert is real - the gate adds a layer and weakens nothing. A request without an Authorization
@@ -388,7 +388,7 @@ resource "aws_apigatewayv2_route" "approval" {
 }
 
 # Slack shows "Operation timed out" beside a button unless its note of the click is answered within three seconds.
-# The approval function, started cold, took 2.7 s to answer even with nothing loaded (measured 2026-10-12): a
+# The approval function, started cold, took 2.7 s to answer even with nothing loaded: a
 # container image, in the VPC. So the answer is its own function - a few lines of Python, no image, no VPC, no
 # permission at all (its role has no policy), nothing read and nothing decided (ack/ack.py).
 resource "aws_iam_role" "ack" {

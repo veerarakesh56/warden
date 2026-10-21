@@ -1,4 +1,4 @@
-"""Inventory review, 2026-10-15: the cloud's stack read - every resource the alert names, a Logs Insights wait of up to
+"""The cloud's stack read - every resource the alert names, a Logs Insights wait of up to
 10 s among them, then each outside source - ran under the 5 s per-tool default, which could cut it off and lose the
 logs view. A backend now says how long its whole read may take, and gather waits that long."""
 

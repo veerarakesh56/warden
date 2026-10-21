@@ -1,4 +1,4 @@
-"""fs-07, live, 2026-10-15: "Impact: no errors and no failing component" over a queue whose only consumer was switched
+"""Scenario fs-07, live: "Impact: no errors and no failing component" over a queue whose only consumer was switched
 off and 95 orders waiting. A queue's consumers switched off, and messages waiting with none being processed, are
 counted states - impact."""
 

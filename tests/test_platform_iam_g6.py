@@ -86,7 +86,7 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
         p.healthy(params[catalog.CATALOG[entry].target_param], entry=entry,
                   params=params)
     p.changes(NOW, NOW, "dev")  # the change timeline's CloudTrail read (requirement R38)
-    # An alarm that names the function only: its one alias is read live (fs-01, 2026-10-15).
+    # An alarm that names the function only: its one alias is read live (scenario fs-01).
     f.list_aliases = lambda FunctionName, **kw: {"Aliases": [{"Name": "live"}]}
     p.live("lambda_move_alias", {"function": FN})
     # The rollbacks, each from the state its apply left.
@@ -161,7 +161,7 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
             (Queue(), "sqs_restore_attributes", {**QP, "event": "q-1", "attributes": "VisibilityTimeout=300"},
              ("attrs", {"QueueArn": Q_ARN, "QueueName": Q, "VisibilityTimeout": "300"})),
             (Stream(), "kinesis_restore_retention", {**SP, "event": "k-1", "hours": "168"}, ("hours", 168)),
-            # G10 v2 routes (owner decision 2026-10-10)
+            # G10 v2 routes
             (Routes(), "ec2_restore_route", {**RP, "event": "r-1"},
              ("routes", [{"DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": NAT, "State": "active"}])),
             (Routes(event="ReplaceRoute"), "ec2_restore_route", {**RP, "event": "r-1"},

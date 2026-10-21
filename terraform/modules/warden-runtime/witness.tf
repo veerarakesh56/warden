@@ -142,7 +142,7 @@ resource "aws_lambda_permission" "actor_use" {
 }
 
 # ----------------------------------------------------------------- the approver list -> the same check -> a page
-# The approver list decides who may approve (owner, 2026-10-12: whoever writes it can give an approver any name, or add
+# The approver list decides who may approve (whoever writes it can give an approver any name, or add
 # a passkey). Every write to it - made or refused - is recorded and pages a person.
 
 resource "aws_cloudwatch_event_rule" "approvers_changed" {

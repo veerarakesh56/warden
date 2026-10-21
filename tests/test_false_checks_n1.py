@@ -1,4 +1,4 @@
-"""Register N1 / audit A-N-1: a plausible report that claims checks which never ran. What WARDEN read is said from
+"""Register N1: a plausible report that claims checks which never ran. What WARDEN read is said from
 the gathered record - including what came back empty or failed - and a check the model says it ran is marked:
 the model reads evidence and runs nothing, so such a claim is false by construction."""
 

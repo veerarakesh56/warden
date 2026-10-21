@@ -235,7 +235,7 @@ def test_an_approved_scale_runs_through_the_workflow_end_to_end(world, owner):  
 
 
 def test_healthy_needs_the_current_spec_seen_and_a_rollout_not_stalled():
-    """Sixth review: counts from before the change (observedGeneration behind) or from a rollout past
+    """Counts from before the change (observedGeneration behind) or from a rollout past
     its deadline (Progressing=False) read healthy."""
     apps = _Apps(replicas=2)
     p = _platform(apps)
@@ -251,7 +251,7 @@ def test_healthy_needs_the_current_spec_seen_and_a_rollout_not_stalled():
 
 
 def test_an_admission_policy_narrows_what_the_remediator_may_patch():
-    """Audit A-I-11: get+patch on deployments could rewrite the pod template. The policy, applied with the
+    """get+patch on deployments could rewrite the pod template. The policy, applied with the
     ServiceAccount, holds the pod spec, selector, labels, strategy and other annotations to what they were, and the
     replica count to within two (the live test proves it on a real API server)."""
     import pathlib
@@ -272,8 +272,8 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
                  "object.spec.replicas <= oldObject.spec.replicas + 2", "object.spec.replicas >= 1"):
         assert held in rules, held
     # Every field the API defines is held, or named here as the remediator's (replicas, the restart annotation) or
-    # the server's. A string check let a rule be deleted unseen, and missed metadata entirely (seventh review:
-    # a dangling ownerReference has the garbage collector delete the Deployment). A field Kubernetes adds later
+    # the server's. A string check let a rule be deleted unseen, and missed metadata entirely (a
+    # dangling ownerReference has the garbage collector delete the Deployment). A field Kubernetes adds later
     # fails this until it is placed.
     from kubernetes.client import V1DeploymentSpec, V1ObjectMeta
 
@@ -309,7 +309,7 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
 
 
 def test_the_plan_names_the_api_server_it_writes_to():
-    """Sixth review: staging's plan and prod's looked the same to the approver."""
+    """staging's plan and prod's looked the same to the approver."""
     import types
 
     apps = _Apps(replicas=2)
@@ -319,7 +319,7 @@ def test_the_plan_names_the_api_server_it_writes_to():
 
 
 def test_a_count_that_moved_after_the_approval_is_refused_not_stepped_from():
-    """Sixth review: approved on 3, the count moved to 2 before the write; the scale wrote 2 -> 4 and a
+    """Approved on 3, the count moved to 2 before the write; the scale wrote 2 -> 4 and a
     rollback returned to 3. The platform now holds the write to the count the plan was approved on."""
     apps = _Apps(replicas=2)
     p = _platform(apps)
@@ -331,7 +331,7 @@ def test_a_count_that_moved_after_the_approval_is_refused_not_stepped_from():
 
 
 def test_a_write_the_api_server_refused_changed_nothing():
-    """Seventh review: an RBAC or admission-policy refusal (403, or a policy's 422) is never persisted,
+    """An RBAC or admission-policy refusal (403, or a policy's 422) is never persisted,
     but a refused restart ended "apply_failed - may be half-made" and a refused scale said "something else scaled
     it". Both end refused, saying what refused them."""
     class _Denied(Exception):
@@ -360,7 +360,7 @@ def test_a_write_the_api_server_refused_changed_nothing():
 
 
 def test_in_a_cluster_the_plan_names_the_cluster_it_was_told(monkeypatch):
-    """Seventh review: in a cluster the API server is the `kubernetes` Service's IP, the same in staging and prod."""
+    """In a cluster the API server is the `kubernetes` Service's IP, the same in staging and prod."""
     import types
 
     apps = _Apps(replicas=2)
@@ -371,7 +371,7 @@ def test_in_a_cluster_the_plan_names_the_cluster_it_was_told(monkeypatch):
 
 
 def test_a_policy_refusal_is_not_read_as_a_moved_count_whatever_the_deployment_is_called():
-    """Eighth review: `"test" in str(exc)` took the admission policy's 422 for a JSON Patch test failure when the
+    """`"test" in str(exc)` took the admission policy's 422 for a JSON Patch test failure when the
     Deployment's name held "test" - the signed reason said "something else scaled it"."""
     class _Denied(Exception):
         def __init__(self, status, text):
@@ -400,7 +400,7 @@ def test_a_policy_refusal_is_not_read_as_a_moved_count_whatever_the_deployment_i
 
 
 def test_a_write_that_never_reached_the_api_server_changed_nothing():
-    """Eighth review: a refused connection - nothing sent - ended apply_failed and tripped the global kill switch."""
+    """A refused connection - nothing sent - ended apply_failed and tripped the global kill switch."""
     import urllib3
 
     class _Down(_Apps):

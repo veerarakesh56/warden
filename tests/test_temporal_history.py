@@ -164,7 +164,7 @@ def test_history_reads_one_workflow_and_decrypts_in_its_context():
 
 
 def test_the_cli_loads_what_status_loads_and_dispatches_history(monkeypatch):
-    """Through cli.main (review, PR 154): `history` loads exactly what `status` loads, with no zone, and runs as a
+    """Through cli.main: `history` loads exactly what `status` loads, with no zone, and runs as a
     workflow command for the workflow named."""
     from warden import cli
 
@@ -201,7 +201,7 @@ def test_the_workflow_command_reads_that_workflow_s_history(monkeypatch):
 
 
 def test_a_secret_is_masked_whole_before_its_value_is_cut(monkeypatch):
-    """Review, PR 154: cut first, the key's first characters were a fragment no pattern knows."""
+    """Cut first, the key's first characters were a fragment no pattern knows."""
     monkeypatch.setattr(
         temporal_history, "MAX_VALUE_CHARS", 14
     )  # '{"k":"' + the key's first 8 characters
@@ -251,7 +251,7 @@ def test_control_characters_never_reach_the_terminal():
 
 
 def test_a_payload_over_the_size_limit_is_never_decrypted(monkeypatch):
-    """Review, PR 154: a payload over MAX_PAYLOAD_BYTES is shown by its size; it is not decrypted, parsed or redacted."""
+    """A payload over MAX_PAYLOAD_BYTES is shown by its size; it is not decrypted, parsed or redacted."""
     small, big = encrypted({"ok": True}), encrypted({"secret": "y" * 400})
     monkeypatch.setattr(temporal_history, "MAX_PAYLOAD_BYTES", len(small.data))
     asked = []

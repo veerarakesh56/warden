@@ -131,7 +131,7 @@ def record(log: Any, link: Link, policy: Any, *, now: datetime | None = None) ->
 
 
 def _signed_at(body: dict[str, Any]) -> datetime:
-    """A link row's own signed time, as a time (CodeRabbit, PR 56: as text, `...:00Z` sorted after `...:00.5Z`)."""
+    """A link row's own signed time, as a time (as text, `...:00Z` sorts after `...:00.5Z`)."""
     try:
         at = datetime.fromisoformat(str(body.get("at")))
     except ValueError:
@@ -221,7 +221,7 @@ def describe(link: dict[str, Any]) -> str:
     return f"{WORDS[link['side']]} {link['with']}"
 
 
-# ------------------------------------------------------------------ links WARDEN finds in its own record (owner B8)
+# ------------------------------------------------------------------ links WARDEN finds in its own record
 # Derived when a record is read, from rows WARDEN itself wrote and signed - nothing is stored, nothing is guessed:
 # - rediagnosis: a fix that failed a re-check started a new diagnosis of the same alarm (remediation.rediagnose);
 # - followed after a fix: another incident started while, or shortly after, a fix was applied (incident.later_alarm,
@@ -289,7 +289,7 @@ def _relapsed(e: dict[str, Any]) -> str:
 def _relapse_links(log: Any, incident: str, now: datetime) -> list[tuple[str, str]]:
     """(other incident, side) from a watched fix that heard its alarm again, in the last FOUND_DAYS days. This
     incident's own fixes are read through its own record; every plan is read only when this incident is the relapse,
-    to find whose fix it was - and then only plans from the window (CodeRabbit, PR 56: the page read every plan)."""
+    to find whose fix it was - and then only plans from the window (not every plan)."""
     since = now - timedelta(days=FOUND_DAYS)
     relapses = [(str(e["body"].get("workflow_id")), _relapsed(e))
                 for e in log.entries(kinds=("intake.relapse",), since=since)]

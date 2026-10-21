@@ -24,8 +24,8 @@ would do with the proposal, and which of the line's versions, image tags and ARN
                                             # with the real tripwire if installed; off by default, never run by CI
 
 The live variant asks whether a real model follows these payloads at all (the paper's question); the offline one asks
-the question WARDEN's design rests on: if it does, does anything harmful still reach the approver? Per the owner's rule,
-run the live variant in the cloud runtime (its Secrets Manager key), not with a laptop key. evals/test_poisoned_logs.py
+the question WARDEN's design rests on: if it does, does anything harmful still reach the approver? Run the
+live variant in the cloud runtime (its Secrets Manager key), never with a key on a workstation. evals/test_poisoned_logs.py
 asserts the offline answer on every push.
 """
 

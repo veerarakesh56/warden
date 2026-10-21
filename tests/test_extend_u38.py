@@ -1,4 +1,4 @@
-"""U3-8 (owner update 3): "the discussion thread can extend" a waiting fix plan's approval time - an approver who may
+"""The discussion thread can extend a waiting fix plan's approval time - an approver who may
 approve that plan, bounded per extension and in total, recorded in the signed audit; the precheck before apply is
 untouched (the workflow tests in test_remediation_workflow.py run on Temporal, in CI)."""
 
@@ -162,7 +162,7 @@ def test_the_thread_asks_in_plain_words_and_is_answered_in_fixed_ones():
                         ("extend the wait... thanks", 24), ("extend it by 6h", 6), ("extend 12h", 12)):
         assert discuss.asks_to_extend(text), text
         assert discuss.hours_asked(text) == hours, text
-    # A question about what something extends is answered, not taken as a request (CodeRabbit, PR 182).
+    # A question about what something extends is answered, not taken as a request.
     for text in ("will this extend the outage", "what is the plan?", "extend", "can you extend it",
                  "will the restart extend it?", "does this extend the time to recover?",
                  "can you extend the wait by 6h?", "can you extend the wait...?", "extend the wait?!",
@@ -185,14 +185,14 @@ def test_the_thread_asks_in_plain_words_and_is_answered_in_fixed_ones():
     "no need to extend the wait", "dont extend the wait", "don\u2019t extend the wait", "we can't extend the wait",
     "cannot extend the wait", "cancel: extend the wait", "stop, extend the wait", "we won't extend the plan by 6h",
     "I don't think we should extend the wait.", "no; extend the wait", "no - extend the wait",
-    # After "extend", anywhere in the message (review, PR 182: "extend the wait - no, don't" became 24 h).
+    # After "extend", anywhere in the message ("extend the wait - no, don't" once became 24 h).
     "extend the wait - no, don't", "extend the wait. no, don't", "extend the wait, do not apply anything yet",
     "extend by 6h, never mind", "extend the wait; no", "extend the wait.\nActually no.", "extend the wait. Not now.",
     "extend by 12h - cancel that", "extend the wait, stop", "extend the wait or not",
 ])
 def test_a_no_beside_extend_is_unclear_and_asked_again(text):
     """Fail closed: a "no" after "extend", or before it in its sentence, extends nothing - the approver is asked
-    again (review, PR 182: "don't extend the wait" became a 24-hour extension signed in the approver's name)."""
+    again ("don't extend the wait" once became a 24-hour extension signed in the approver's name)."""
     assert discuss.said_no(text)
     assert discuss.asks_to_extend(text)  # it reaches the extension step, which asks again; it is never extended
 
@@ -233,7 +233,7 @@ def _with_eldane(policy):
 
 
 def test_a_plan_eldane_approved_is_not_extended(world):
-    """Eldane's approval that was enough on its own ended the wait for a person: never extended (lane C, U3-8)."""
+    """Eldane's approval that was enough on its own ended the wait for a person: never extended."""
     log, policy = world
     policy = _with_eldane(policy)
     row = _plan(log)
@@ -248,7 +248,7 @@ def test_a_plan_eldane_approved_is_not_extended(world):
 
 def test_an_eldane_approval_that_was_not_enough_leaves_the_wait_to_extend(world):
     """Where the tier needs two approvers, Eldane's approval did not end the wait (the run's _critic: not enough on
-    its own): the plan still waits for a person, and an approver may extend that wait (review, PR 182)."""
+    its own): the plan still waits for a person, and an approver may extend that wait."""
     log, policy = world
     policy = _with_eldane(policy)
     _plan(log)
@@ -258,7 +258,7 @@ def test_an_eldane_approval_that_was_not_enough_leaves_the_wait_to_extend(world)
 
 
 def test_a_plan_people_already_approved_is_not_waiting(world):
-    """Its approvals reached the quorum: it is being checked and applied, not waiting (review, PR 182)."""
+    """Its approvals reached the quorum: it is being checked and applied, not waiting."""
     log, policy = world
     _plan(log)
     _accept(log, "t2only", required=2)  # one of the two it needs: still waiting for the second
@@ -274,7 +274,7 @@ def test_a_plan_people_already_approved_is_not_waiting(world):
 
 def test_who_asks_is_checked_before_anything_about_the_plan_is_said(world):
     """Someone who may not extend learns nothing: not whether a plan waits, nor its id, nor that Eldane approved it,
-    nor whether their hours were clear (review, PR 182)."""
+    nor whether their hours were clear."""
     log, policy = world
     policy = _with_eldane(policy)
     talk = DiscussActivities(audit=log, incident=None, policy=policy)
@@ -290,7 +290,7 @@ def test_who_asks_is_checked_before_anything_about_the_plan_is_said(world):
 def test_the_run_s_own_deadline_is_what_an_extension_moves(world):
     """The run waits from when its wait began, after the gate and the critic - later than the plan's approval_until.
     Recorded (approval_wait), an extension counts from it, so it always moves the run's deadline; and the plan is
-    waiting until then, not only until its approval_until (review, PR 182)."""
+    waiting until then, not only until its approval_until."""
     log, policy = world
     row = _plan(log)
     base = datetime.fromisoformat(row["body"]["approval_until"])
@@ -323,7 +323,7 @@ def test_the_ceiling_counts_from_the_plan_s_own_creation(world):
 
 def test_the_whole_decision_is_taken_again_inside_the_write_s_lock(world):
     """An Eldane approval, or the people's last approval, landing between the read and the write: nothing is written
-    (review, PR 182: only the plan and its time were checked again)."""
+    (only the plan and its time were checked again)."""
     log, policy = world
     policy = _with_eldane(policy)
     _plan(log)
@@ -365,7 +365,7 @@ def test_eldane_itself_never_extends_a_wait(world):
     assert _rows(log) == []
 
 
-# --- How long: read strictly from the whole message (CodeRabbit, PR 150) ---
+# --- How long: read strictly from the whole message ---
 
 @pytest.mark.parametrize(("text", "hours"), [
     ("<@UWARDEN> extend the wait", extend.EXTEND_MAX_HOURS),
@@ -379,7 +379,7 @@ def test_eldane_itself_never_extends_a_wait(world):
     ("<@U0123ABC> extend the wait on 50ac32d0fe243384-20261021T071413Z (rem-dev-1) by 3h", 3),
     (f"<@{ID_WITH_H}> extend the wait", extend.EXTEND_MAX_HOURS),  # an "H" inside a member's id is not "h"
     ("extend by 30h", 30),  # read as said; the request then refuses it as out of range
-    # A full stop that ends the sentence ends the duration (CodeRabbit, PR 182: "6h." became 24).
+    # A full stop that ends the sentence ends the duration ("6h." once became 24).
     ("extend by 6h.", 6),
     ("extend by 12 hours.", 12),
     ("extend by 6hours. Thanks", 6),
@@ -400,7 +400,7 @@ def test_the_hours_said_are_the_hours_asked(text, hours):
     "extend by 6 more hours", "extend by six hours", "extend for an hour", "extend by 2 days", "extend 90 minutes",
     "extend by 1.5h", "extend by 1.5h.", "extend by 12h and 30 minutes", "extend by 12h, then 6h", "extend by 12", "extend to 14:00",
     "extend the wait until tomorrow", "extend the wait till tonight", "extend the wait half a day",
-    # Another unit, or text, written against the number (review, PR 182: each of these became 24 h).
+    # Another unit, or text, written against the number (each of these became 24 h).
     "extend by 30m", "extend by 45min", "extend by 90mins", "extend the wait 2days", "extend the wait by 1wk",
     "extend by 6h-ish", "extend by 6h:", "extend the wait 6h.Thanks", "extend the wait by 3d", "extend by 10s",
     "extend for 2 more hours", "extend by six", "extend the plan by 6h and the other by 2h",
@@ -424,7 +424,7 @@ def test_unclear_hours_extend_nothing_and_the_approver_is_asked_again(world):
     assert f"1 to {extend.EXTEND_MAX_HOURS}" in said
 
 
-# --- One message extends once: a retried activity adds no hours (CodeRabbit, PR 150) ---
+# --- One message extends once: a retried activity adds no hours ---
 
 def test_the_same_message_asked_again_answers_as_first_and_adds_nothing(world):
     log, policy = world
@@ -528,7 +528,7 @@ def test_no_message_no_extension(world):
 
 
 def test_a_refused_message_asked_again_stays_refused_even_once_a_plan_waits(world):
-    """A retried "extend" that was refused does not extend a plan made since (CodeRabbit, PR 182)."""
+    """A retried "extend" that was refused does not extend a plan made since."""
     log, policy = world
     talk = DiscussActivities(audit=log, incident=None, policy=policy)
     turn = _turn("<@UWARDEN> extend the wait by 6 hours", ts="1760000000.000400")

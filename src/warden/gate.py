@@ -1,19 +1,19 @@
 """The outbound gate: the last check on what WARDEN says before it leaves the process.
 
-v0 (Phase 0 of the v2 re-architecture, 2026-09-27). Two of the planned rules:
+The rules:
 
 - **G3, untrusted text.** Outside code blocks, markdown images, raw HTML, markdown links and bare
   URLs are removed. The model's hypothesis and reasoning are rendered as markdown, and they can
   repeat text an attacker planted in a log line - an image or a link whose URL carries data out.
   The report's own templates contain no URLs, so nothing legitimate is lost. Inside code blocks the
-  text is shown verbatim and nothing is followed. Since G1, G3 also:
+  text is shown verbatim and nothing is followed. G3 also:
   - removes protocol-relative `//host` links and link reference definitions;
   - catches `<img/src=...>`;
   - defangs bare domains (`evil[.]com`);
   - strips terminal and text-direction control characters;
   - tracks fences the CommonMark way, so an indented or `~~~` line cannot switch sanitising off;
   - sanitises what follows a fence that is never closed.
-  Since the second review, G3 never writes text it did not inspect:
+  G3 never writes text it did not inspect:
   - an HTML/character reference is neutralised (`&#96;` -> `&amp;#96;`), never decoded: decoding it
     and writing the result out turned `&#96;&#96;&#96;` into a real fence the gate had never seen;
   - `<` becomes `‹` outside `<KIND_n>` placeholders, so no HTML block, comment or autolink starts;
@@ -23,7 +23,7 @@ v0 (Phase 0 of the v2 re-architecture, 2026-09-27). Two of the planned rules:
   - a run of three backticks or tildes inside a line is broken - Slack opens code at one anywhere;
   - the inside of a `~~~` block is sanitised like prose: Slack has no `~~~` fences;
   - every domain outside inline code is defanged, whatever its top-level domain, emails included.
-  Since the third review:
+  And:
   - code regions come from a CommonMark parser (markdown-it-py), not a line tracker: a fence inside
     a list item ends with the item, and Python's `strip()` closed fences CommonMark keeps open. Only
     the body of a CLOSED backtick fence stays verbatim. The gate parses its own output again, and if
@@ -41,7 +41,7 @@ v0 (Phase 0 of the v2 re-architecture, 2026-09-27). Two of the planned rules:
   marked `[unverified: ...]` where it stands. "The root cause is" is not marked: the report already
   heads the model's text as its hypothesis, with its confidence.
 
-- **G4, commands** (`withhold_commands`, 2026-10-16). WARDEN prints no command for a person to run:
+- **G4, commands** (`withhold_commands`). WARDEN prints no command for a person to run:
   its reports carry none, and a write command (aws, kubectl, helm, terraform, SQL, `rm -r`,
   `curl | sh`) in model-written prose is withheld where it stands, as the model's answer is read
   (models.ModelProse, discuss.Answer). A change goes only through a catalogue plan and a signed
@@ -80,11 +80,11 @@ _IMAGE = re.compile(r"!" + _LABEL + r"\([^)]*\)")
 # `https://` does.
 _MDLINK = re.compile(_LABEL + r"\(\s*[^)\s]+[^)]*\)")
 # A link reference definition `[x]: target`, also inside a list item or a quote, and with an escaped
-# label - CommonMark accepts all three (independent review 2026-09-28: `- [r]: h&#116;tps://...`
-# plus `![x][r]` rendered a zero-click image with verdict PASS).
+# label - CommonMark accepts all three (`- [r]: h&#116;tps://...` plus `![x][r]` would render a zero-click
+# image with verdict PASS).
 _REFDEF = re.compile(r"^\s{0,3}(?:(?:[-*+]|\d{1,9}[.)])\s+|>\s*)*" + _LABEL + r":\s*\S")
 # Any scheme with `//`, the schemes that act without one, and protocol-relative `//host.`.
-# Any scheme, one letter too (`p://evil.com` - ninth review), and a bare `://host`.
+# Any scheme, one letter too (`p://evil.com`), and a bare `://host`.
 _URL = re.compile(r"(?:\b[a-z][a-z0-9+.\-]{0,30}://|(?<![\w:])://[\w-]+(?:\.|%2e)|\b(?:https?|mailto|data|javascript|vbscript|tel|slack|"
                   r"ms-teams|vscode|ssh|smb|file|sms|facetime|skype|zoommtg|itms-services):"
                   r"|(?<![\w:/])//[\w-]+(?:\.|%2e))[^\s)>\]'\"`]*", re.IGNORECASE)
@@ -108,7 +108,7 @@ _TLDS = r"[a-z]{2,24}|xn--[a-z0-9-]+|[^\x00-\x7f\W\d_]{2,}"
 # Not an email's local part (`priya.nair@`): only what follows the `@` is a host.
 _DOMAIN = re.compile(rf"(?<![\w.\[/-])((?:[\w-]+\.)+)({_TLDS})(?![\w@-])", re.IGNORECASE)
 # Labels holding a non-ASCII character. Bounded as DNS bounds a name (labels of 63, at most 127 of them; Sonar
-# python:S8786, 2026-10-16): unbounded, a long run of such letters was split every way it could be. A longer one is
+# python:S8786): unbounded, a long run of such letters was split every way it could be. A longer one is
 # no host, and what passes the bounds is defanged in pieces.
 _NON_ASCII_HOST = re.compile(r"(?<![\w@.\[/-])((?:[\w-]{0,62}[^\x00-\x7f][\w-]{0,62}\.){1,127})([\w-]{1,63})")
 # CommonMark fences: at most 3 spaces of indent, ``` or ~~~, closed by the same character at least as
@@ -124,8 +124,8 @@ _ENTITY = re.compile(r"&(?!amp;)(#\d{1,7};|#[xX][0-9a-fA-F]{1,6};|[A-Za-z][A-Za-
 _LT = re.compile(r"<(?![A-Z][A-Z0-9]*_\d+>)")
 _RUN = re.compile(r"`{3,}|~{3,}")
 _BLOCK_START = re.compile(r"^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[`~]{3})")
-# Any block a line can start: heading, quote, list item, fence, indented code (third review: removing
-# `<b>` from `<b>## Fix - approved` left a real heading).
+# Any block a line can start: heading, quote, list item, fence, indented code (removing
+# `<b>` from `<b>## Fix - approved` leaves a real heading).
 _ANY_BLOCK = re.compile(r"^(?: {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|[`~]{3})"
                         r"| {4}|[ ]{0,3}\t)")
 _MD = MarkdownIt("commonmark")
@@ -157,13 +157,12 @@ def _break_runs(line: str) -> str:
     return _RUN.sub(lambda m: "\u200b".join(m.group(0)), line)
 
 
-# Dots a browser turns into "." when a link is opened (fifth review, 2026-10-01: `evil` + U+3002 + `com`
-# passed): written as ASCII dots, so the domain is defanged like any other.
+# Dots a browser turns into "." when a link is opened (`evil` + U+3002 + `com`): written as ASCII dots, so the domain is defanged like any other.
 _WIDE_DOTS = re.compile("[\u3002\uff0e\uff61]")
-# An invisible character next to a dot keeps a domain whole to the matcher, not to a reader or a browser (sixth
-# review, 2026-10-01: `evil.<ZWSP>com`, `evil.c<SHY>om`). Removed inside a name before a domain is matched.
-# The code points a WHATWG URL parser drops from a host (Node 22's, over all 1.1M code points; seventh review,
-# 2026-10-01): a browser joins `evil.<U+FE0F>com` into one domain. Not ZWNJ/ZWJ: the parser keeps those, and
+# An invisible character next to a dot keeps a domain whole to the matcher, not to a reader or a browser
+# (`evil.<ZWSP>com`, `evil.c<SHY>om`). Removed inside a name before a domain is matched.
+# The code points a WHATWG URL parser drops from a host (Node 22's, over all 1.1M code points): a browser joins
+# `evil.<U+FE0F>com` into one domain. Not ZWNJ/ZWJ: the parser keeps those, and
 # removing them rewrote Persian text.
 # The two astral ranges (shorthand format controls, variation selectors 17-256) are added with chr(): SonarCloud
 # reads an 8-digit \U escape in a character class as separate characters and reports duplicates Python does not have.
@@ -216,12 +215,11 @@ def _defang_outside_code(line: str) -> str:
 
 
 def _clean_line(line: str) -> str:
-    # ⛔ Nothing here decodes: the gate writes out exactly the text it checked (second review,
-    # 2026-09-30). A reference is neutralised below instead, so `h&#116;tps://` is never a link and
+    # ⛔ Nothing here decodes: the gate writes out exactly the text it checked. A reference is neutralised below instead, so `h&#116;tps://` is never a link and
     # `&#96;&#96;&#96;` never a fence, in any renderer.
     line = normalise(line)
-    # To a fixed point: removing one token can join what is left into a new one (third review:
-    # `![a]<!here>(//evil%2Ecom/p.png)` became an image once `<!here>` was gone).
+    # To a fixed point: removing one token can join what is left into a new one
+    # (`![a]<!here>(//evil%2Ecom/p.png)` becomes an image once `<!here>` is gone).
     for _ in range(50):
         if _REFDEF.match(line):
             return "[link definition removed]"
@@ -259,8 +257,8 @@ def _clean_prose(lines: list[str]) -> list[str]:
 
 def _closed_fences(text: str) -> list[tuple[int, int, str]]:
     """(opener line, closer line, marker character) of every CLOSED fence, as CommonMark reads the
-    text - inside lists and quotes too, where a fence ends with its container (third review,
-    2026-09-30). An unclosed fence is not listed: Slack shows its marker as text, so it is prose."""
+    text - inside lists and quotes too, where a fence ends with its container. An unclosed fence is not listed: Slack
+    shows its marker as text, so it is prose."""
     lines = text.split("\n")
     spans = []
     for t in _MD.parse(text):
@@ -355,11 +353,11 @@ def hedge(text: str) -> str:
 # (any `delete`, `drop`, `rm`, `kill`) is for a one-name target - in prose it would mark plain English.
 # A command, not the story of one: the model often says what happened ("a Terraform apply at 07:31 rewrote the
 # schedules", "a 'kubectl rollout restart' replaced the pods", "queued behind a DDL on invoices"). Measured on
-# the 2,035 recorded model strings in the repository (docs/bench, evals, tests; 2026-10-16), a looser first version
+# the 2,035 recorded model strings in the repository (docs/bench, evals, tests), a looser first version
 # withheld 8 of those and no command; so each shape here needs what makes it runnable - the program in lower case,
 # an aws verb-noun operation, a kubectl object, a terraform or helm flag or line end, an SQL object and clause in
 # capitals ("update its set of rules" is English), a call's parenthesis.
-# Linear on any input (review, 2026-10-16: `--?[\w-]+` read "--a" two ways, and 24 flags took 19 s - model text is
+# Linear on any input (`--?[\w-]+` read "--a" two ways, and 24 flags took 19 s - model text is
 # attacker-shaped, so that was a way to stall the worker). One reading per flag - after its dashes a letter or digit -
 # inside an atomic group, which is never re-entered.
 _FLAGS = r"(?>(?:-{1,2}[A-Za-z0-9][\w-]*(?:[= ][^\s-]\S*)?\s+)*)"
@@ -438,8 +436,8 @@ def assembled_kinds(original: str, sent: str) -> list[str]:
 
 def where_withheld(text: str, limit: int = 5) -> list[dict[str, Any]]:
     """Where a text G5 holds back carries what it found: each line's number, the section it is under and the kinds -
-    never the value (2026-10-16: reports were withheld with nothing on the record to say where or why, so the cause
-    could only be guessed). A heading that itself carries a kind is not named."""
+    never the value (otherwise a report is withheld with nothing on the record to say where or why, and the cause
+    can only be guessed). A heading that itself carries a kind is not named."""
     out, heading = [], ""
     for n, line in enumerate(text.splitlines(), 1):
         if line.startswith("#"):
@@ -456,20 +454,20 @@ def where_withheld(text: str, limit: int = 5) -> list[dict[str, Any]]:
 def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = None,
             data_before_redaction: Any = None) -> GateResult:
     """The gate over one outgoing text. `before_redaction`, when the caller re-redacts on the way
-    out, is the text as it was built: G5 checks THAT, or it could never fire (audit A-C-8 - the
-    re-redaction masked every leak first, and the gate then found none)."""
+    out, is the text as it was built: G5 checks THAT, or it could never fire (the re-redaction would mask every
+    leak first, and the gate then find none)."""
     leaks = sorted(set(leaked_kinds(text)) | set(leaked_kinds(before_redaction or ""))
                    | set(data_leaks(data_before_redaction)) | set(assembled_kinds(text, sanitise_text(text))))
     if leaks:
         # The id through the same cleaning as any text: `click.evil.example` is a valid alert id and was a
         # link in the stub.
         # Redacted WITH the blocked text, so a value found there is masked in the id too: an id that is a secret
-        # only in context went out in the stub; a key-shaped one too (sixth).
-        # With the blocked DATA too, normalised, and left out when it is part of a value withheld (eighth review:
+        # only in context went out in the stub; a key-shaped one too.
+        # With the blocked DATA too, normalised, and left out when it is part of a value withheld (else
         # a secret in the data, an invisible inside the id, or a prefix of the secret went out in the stub).
-        # The id, cleaned like any text (audit A-C-24: the notice names its alert) - unless any part of it could
+        # The id, cleaned like any text (the notice names its alert) - unless any part of it could
         # be part of a withheld value: masked itself, or sharing four characters, in any case or width, with one.
-        # Then a hash names it (register R9-O1: an overlap, an upper-cased copy and a fullwidth variant each showed
+        # Then a hash names it (an overlap, an upper-cased copy and a fullwidth variant would each show
         # part of the value). `ref-` keeps the hash from starting a number.
         label = ""
         if alert_id:

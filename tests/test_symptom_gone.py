@@ -1,4 +1,4 @@
-"""Research 2026-10-15, item 12: a fix succeeds when the symptom is gone, not only when the change landed - the
+"""A fix succeeds when the symptom is gone, not only when the change landed - the
 CloudWatch alarm that opened the incident, read live, must not still be in ALARM. Unknown never blocks: a good fix
 is not rolled back for want of a reading."""
 

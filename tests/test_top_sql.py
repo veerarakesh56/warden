@@ -1,5 +1,5 @@
 """Performance Insights' heaviest statements reach the evidence as numbers and names only - load, share, kind,
-tables - never their text (2026-10-15, owner: "do you even see all those rds performance insights the queries")."""
+tables - never their text."""
 
 from __future__ import annotations
 

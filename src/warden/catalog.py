@@ -65,8 +65,7 @@ class Entry:
 
 
 # Per platform: the parameters that together name the changed resource, outermost first. The request's `service`
-# must be the last, or the success check would judge another object than the one changed (sixth review,
-# 2026-10-01); all of them key the bounds and the per-target mutex (target_key).
+# must be the last, or the success check would judge another object than the one changed; all of them key the bounds and the per-target mutex (target_key).
 TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "sqs": ("queue",), "athena": ("workgroup",),
                  "elb": ("load_balancer",), "appconfig": ("application", "config_env"),
                  "codepipeline": ("pipeline", "stage"),
@@ -196,11 +195,11 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     # G10-D: undo the ONE security group write CloudTrail recorded in the hours before the alarm went into ALARM -
     # re-authorize exactly the rules a revoke removed (AWS's own response lists them), or revoke only the rule ids an
     # authorize created. T3: network and security-adjacent. Refusals (platforms/aws.py): ingress from the whole
-    # internet, a change by root, by an AWS service, by WARDEN or by a principal the owner named, any other write to
+    # internet, a change by root, by an AWS service, by WARDEN or by a principal the operator named, any other write to
     # the group since, a change after the alarm went off (it may be the fix).
     Entry("ec2_revert_sg_change", "T3", "ec2", "the group's rules as CloudTrail recorded them before the change",
           _ref("alarm", "group", "event"), target=("group",)),
-    # G10 v2, owner decision 2026-10-10: a route deleted or replaced, back to the target AWS Config recorded before the
+    # G10 v2: a route deleted or replaced, back to the target AWS Config recorded before the
     # change - routes only (a network ACL is a security control, and stays with a person). T3: a passkey approves.
     Entry("ec2_restore_route", "T3", "ec2", "the route AWS Config recorded before the change",
           _ref("alarm", "route_table", "event"), target=("route_table",)),
@@ -220,14 +219,14 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
           _ref("alarm", "queue", "event", "attributes")),
     Entry("kinesis_restore_retention", "T2", "kinesis", "the retention AWS Config recorded before the change",
           _ref("alarm", "stream", "event", "hours")),
-    # G10 held-out (2026-10-11, three cases of a person's cut): a table's provisioned read and write capacity back to
+    # G10 held-out (three cases of a person's cut): a table's provisioned read and write capacity back to
     # what AWS Config recorded before the ONE recorded UpdateTable that only cut it - never a billing mode, an index, a
     # raise, or a table an autoscaler owns.
     Entry("dynamodb_restore_capacity", "T2", "dynamodb",
           "the provisioned capacity AWS Config recorded before the change", _ref("alarm", "table", "event", "throughput")),
     Entry("asg_restore_capacity", "T2", "asg", "the desired capacity AWS Config recorded before the change",
           _ref("alarm", "asg", "event", "desired")),
-    # G10 held-out (2026-10-11, g10-103): the processes ONE recorded SuspendProcesses stopped, resumed - the event
+    # G10 held-out (g10-103): the processes ONE recorded SuspendProcesses stopped, resumed - the event
     # itself holds the undo. The group then acts again: it replaces unhealthy instances, and those are not brought back.
     Entry("asg_resume_processes", "T2", "asg",
           "the processes suspended again (instances the group replaced meanwhile stay replaced)",
@@ -257,7 +256,7 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     ActionKind.failover_replica: {"rds": "aurora_failover"},
     # G9-D: the generic classes, as far as an entry carries them out today.
     ActionKind.pause_flow: {"lambda": "lambda_disable_esm", "events": "events_disable_rule"},
-    # A queue's own alarm too (first live run, 2026-10-12): its one switched-off consumer mapping, which the
+    # A queue's own alarm too: its one switched-off consumer mapping, which the
     # platform's live read finds by the queue's ARN (AwsPlatform._live_esm).
     ActionKind.resume_flow: {"lambda": "lambda_enable_esm", "events": "events_enable_rule",
                              "sqs": "lambda_enable_esm"},
@@ -403,7 +402,7 @@ def target_key(name: str, params: dict[str, Any]) -> str:
 
 
 # A target named by an id a person cannot read is shown by its owner: an event source mapping's UUID - also the shape
-# of many API keys, so the outbound gate withheld the whole approval request that named it (fs-07, live, 2026-10-15).
+# of many API keys, so the outbound gate would withhold the whole approval request that named it (scenario fs-07).
 _SHOWN_BY = {"mapping": ("function", "event source mapping of {}")}
 
 
@@ -417,7 +416,7 @@ def shown_target(environment: str, name: str, params: dict[str, Any]) -> str:
     return f"{environment}/{entry.platform}:" + "/".join(parts)
 
 
-# Research 2026-10-16 ("who will change this field back, and when?"): a runtime fix lasts only as long as whatever else
+# Who will change this field back, and when? A runtime fix lasts only as long as whatever else
 # owns the field leaves it. Each entry says how long its fix lasts and what has to follow, and the approver reads it
 # before deciding - a rollback the next deploy undoes, or a value the next infrastructure apply sets back, is not a fix
 # that holds. A new entry without one fails tests/test_fix_lasts.py.
@@ -471,7 +470,7 @@ def fingerprint() -> str:
 # and refuses when more than one did (WARDEN does not choose between two changes).
 REVERT_ALSO = {"lambda": ("lambda_restore_settings",), "asg": ("asg_resume_processes",)}
 # When none of them found a recorded change: a consumer a change switched off is undone by switching it on - the same
-# write as resume_flow (G10 held-out, 2026-10-11: the undo of a disabled event source mapping was never planned).
+# write as resume_flow (else the undo of a disabled event source mapping is never planned).
 REVERT_ELSE = {"lambda": ("lambda_enable_esm", "mapping")}
 
 
@@ -564,7 +563,7 @@ def _autoscaler_problems(live: dict[str, Any]) -> list[str]:
 def _gitops_reverts(name: str, live: dict[str, Any]) -> bool:
     """Whether a GitOps controller manages the target and would revert a direct change."""
     # Register C4: Argo CD or Flux would revert the change at its next sync - the fix belongs in Git. The one
-    # exception (owner decision 2026-10-17): a restart of a Deployment whose Argo CD Application was read live
+    # exception: a restart of a Deployment whose Argo CD Application was read live
     # and ignores the restart annotation - self-heal leaves it, and a restart changes nothing Git holds. A scale,
     # an undo or anything else on a Git-managed workload would fight Git, and stays refused.
     if not live.get("gitops"):

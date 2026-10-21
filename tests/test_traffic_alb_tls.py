@@ -1,6 +1,6 @@
-"""The traffic Lambda's calls to the internal ALB trust the ALB's own certificate and nothing else (Sonar terraform:S5332,
-2026-10-17: the ALB answers HTTPS only, with a self-signed ECDSA P-256 certificate the dev stack makes and imports into
-ACM). Runs in the apps lane, where neither WARDEN nor cryptography is installed: the test certificates come from the
+"""The traffic Lambda's calls to the internal ALB trust the ALB's own certificate and nothing else (Sonar terraform:S5332:
+the ALB answers HTTPS only, with a self-signed ECDSA P-256 certificate the dev stack makes and imports into
+ACM). Runs in the apps CI job, where neither WARDEN nor cryptography is installed: the test certificates come from the
 openssl command, as terraform's tls provider would make them (server auth, CA:FALSE, the ALB's DNS name)."""
 
 from __future__ import annotations

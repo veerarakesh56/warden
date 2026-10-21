@@ -35,7 +35,7 @@ Four independent reviewers each tried to refute one claim about the Kubernetes w
 was attacked by a second reviewer, and the upheld ones were fixed, not noted:
 
 - **RBAC was read-only but not minimal** — 12 of 16 granted verb/resource pairs had no caller. Cut
-  to the exact five the code makes (six since 2026-09-25, with `list horizontalpodautoscalers`); CI now asserts `watch pods` and `get pods` are *denied*.
+  to the exact five the code made (six since, with `list horizontalpodautoscalers`); CI now asserts `watch pods` and `get pods` are *denied*.
 - **The RBAC unit test passed with `roleRef: cluster-admin`.** Now a structural check, not a grep.
 - **The Job could hang forever** (no deadline; a stalled read left a thread joined at exit —
   reproduced live) and **deleted its own evidence** after an hour. Fixed with socket timeouts, a Job
@@ -160,7 +160,7 @@ CI creates a **k3d** cluster on every push and:
    48Mi limit) — and waits for the kubelet to record `lastState.terminated.reason: OOMKilled`.
 4. Runs WARDEN against it from outside and asserts the *output*: `"backend": "kubernetes"`,
    `scale_up`, `VERDICT : ESCALATED`, `P11-ACTION-CONTRADICTS-EVIDENCE`, `"tool_errors": []`, and
-   no `TOOL-PARTIAL` line. (Until 2026-09-25, when P11 was added, it asserted `APPROVED_FOR_HUMAN`.)
+   no `TOOL-PARTIAL` line. (Before P11 was added, it asserted `APPROVED_FOR_HUMAN`.)
 5. Imports the image and runs WARDEN **inside** the cluster as the Job, under the read-only
    ServiceAccount, and asserts the same `scale_up` / `ESCALATED` / P11 / empty-`tool_errors` from its
    logs. That the process runs as uid 10001 on a read-only root filesystem is asserted separately,

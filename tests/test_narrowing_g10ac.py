@@ -1,8 +1,7 @@
 """How WARDEN narrowed it down (register G10-57): each cause the model rules out comes with why and its citations,
 checked like the hypothesis's; the report lays them out, and a reason it cannot check is shown as unchecked.
 
-Owner's report bar, 2026-10-12: "narrow to the real root cause". Qualified 2026-10-14 (providers.yaml): 22/30, 0
-wrong-and-allowed."""
+The report narrows to the real root cause. Qualified (providers.yaml): 22/30, 0 wrong-and-allowed."""
 
 from __future__ import annotations
 

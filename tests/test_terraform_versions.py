@@ -1,4 +1,4 @@
-"""Terraform and its providers are bounded, and what CI runs satisfies every bound (audit A-I-22: `>= 1.10` and
+"""Terraform and its providers are bounded, and what CI runs satisfies every bound (`>= 1.10` and
 `>= 5.80` let any future release in)."""
 from __future__ import annotations
 

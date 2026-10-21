@@ -1,4 +1,4 @@
-"""Research 2026-10-15, item 8: the database and its roles as the server lists them. On 2026-10-14 the real cause -
+"""The database and its roles as the server lists them. Once the real cause -
 the application's database and roles had never been created - was in no evidence item."""
 
 from __future__ import annotations

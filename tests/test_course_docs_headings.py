@@ -1,4 +1,4 @@
-"""The course docs keep their required sections (FDE course, 2026-10-21): USE-CASE.md has Problem, Users, Success
+"""The course docs keep their required sections: USE-CASE.md has Problem, Users, Success
 criteria and Risks; the runbook has How to run, Monitoring, Known limitations and Escalation; and every page they link
 inside the repository exists."""
 

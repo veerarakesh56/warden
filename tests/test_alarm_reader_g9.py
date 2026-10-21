@@ -97,7 +97,7 @@ def test_writes_that_happened_are_changes_by_principal_kind_never_the_session_na
 
 
 def test_a_datadog_monitors_alert_is_never_read_as_a_cloudwatch_alarm():
-    """fs-22, 2026-10-15: a Datadog alert's `alarm` label is the monitor (`datadog-<id>`); read as a CloudWatch alarm
+    """Scenario fs-22: a Datadog alert's `alarm` label is the monitor (`datadog-<id>`); read as a CloudWatch alarm
     it was refused - the reader role may read only the environment's own alarms - and counted as a failed read."""
     b, cw, _ = _backend(_alarm())
     alert = _alert(datadog_monitor="123", alarm="datadog-123")
@@ -107,7 +107,7 @@ def test_a_datadog_monitors_alert_is_never_read_as_a_cloudwatch_alarm():
 
 
 def test_no_write_on_a_fresh_alert_is_not_yet_no_change(monkeypatch):
-    """CloudTrail lists a write about 5 minutes after it (research 2026-10-15): read at the alert's +2 min, "CHANGE none"
+    """CloudTrail lists a write about 5 minutes after it: read at the alert's +2 min, "CHANGE none"
     ruled out the change made just before the alarm. Until the alert is CLOUDTRAIL_DELIVERY old it says so."""
     from datetime import UTC, datetime, timedelta
 
@@ -192,9 +192,9 @@ def test_the_configuration_an_alarm_guards_and_its_latest_deployment_are_read():
 
 
 def test_a_metric_math_alarm_reads_the_metrics_it_is_made_of_never_its_expression():
-    """G10 review: a metric-math alarm read nothing but its threshold, so an API Gateway fault behind one
+    """A metric-math alarm read nothing but its threshold, so an API Gateway fault behind one
     showed no symptom. Each part's metric is AWS's structured fields and is read like a plain alarm's; the expression
-    is the owner's text and never is. A custom namespace's part is shown, never keyed (H2)."""
+    is the alarm author's text and never is. A custom namespace's part is shown, never keyed (H2)."""
     def part(qid, ns, metric, stat="Sum"):
         return {"Id": qid, "ReturnData": False, "MetricStat": {
             "Metric": {"Namespace": ns, "MetricName": metric, "Dimensions": [{"Name": "ApiName", "Value": "warden-dev-api"}]},
@@ -217,7 +217,7 @@ def test_a_metric_math_alarm_reads_the_metrics_it_is_made_of_never_its_expressio
 
 
 def test_a_change_line_names_the_fields_its_request_set_never_their_values():
-    """G10 held-out baseline: a CHANGE line named the API call only, so a forced redeploy and a cut of the
+    """A CHANGE line named the API call only, so a forced redeploy and a cut of the
     desired count read alike - the model missed a person's cut (g10-135), and a redeploy read as a change WARDEN could
     undo. The request's top-level field names are shown; values never are, and nothing but a field name passes."""
     e = _event("SetQueueAttributes")
@@ -235,7 +235,7 @@ def test_a_change_line_names_the_fields_its_request_set_never_their_values():
 
 
 def test_a_change_cloudtrail_files_without_the_resources_name_is_still_found():
-    """Live, 2026-10-12 (register G10-31): a schedule was switched off nine minutes before its alarm. EventBridge's
+    """Register G10-31: a schedule was switched off nine minutes before its alarm. EventBridge's
     write events carry no resource name, so the lookup by resource name found nothing, the reader said "CHANGE none",
     and the report ruled a recent change out. Such writes are also looked up by event name, kept when their request
     names the rule."""

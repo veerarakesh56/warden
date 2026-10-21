@@ -15,12 +15,12 @@ NEEDS_A_TOKEN = {("job.yaml", "Job")}
 
 
 def _docs():
-    # And what Argo CD syncs (manifests/, 2026-10-16): a token mounted there is mounted all the same.
+    # And what Argo CD syncs (manifests/): a token mounted there is mounted all the same.
     for path in sorted([*(ROOT / "k8s").rglob("*.yaml"), *(ROOT / "manifests").rglob("*.yaml")]):
         for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")):
             if doc:
                 yield path, doc
-    # And the negative Pod Security test's pod, built when the test runs (2026-10-20; was a manifest under k8s/test).
+    # And the negative Pod Security test's pod, built when the test runs (formerly a manifest under k8s/test).
     script = ROOT / "scripts" / "negative_pod.py"
     built = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, check=True).stdout
     yield script, json.loads(built)
@@ -37,7 +37,7 @@ def test_every_pod_says_whether_it_gets_a_token_and_only_the_job_does():
     pods = []
     for path, doc in _docs():
         kind = doc["kind"]
-        # Every kind that makes pods, a CronJob through its job template (seventh review: ReplicaSet and CronJob
+        # Every kind that makes pods, a CronJob through its job template (ReplicaSet and CronJob
         # were not read).
         spec = doc["spec"]["template"]["spec"] if kind in ("Deployment", "StatefulSet", "DaemonSet", "Job",
                                                            "ReplicaSet") else \

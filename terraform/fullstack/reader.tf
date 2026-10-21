@@ -17,13 +17,13 @@ data "aws_iam_policy_document" "fs_reader_assume" {
     effect = "Allow"
     # SetSourceIdentity and TagSession: the harness's session carries the operator's source identity and its
     # certificate's transitive session tags, which AWS passes on to every role it assumes - without both the harness
-    # could not assume this role at all (SetSourceIdentity 2026-10-14, TagSession 2026-10-15).
+    # could not assume this role at all (SetSourceIdentity, TagSession).
     actions = ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
 
     principals {
       type = "AWS"
       # Any principal in this account that is itself allowed to assume it - same trust as the
-      # proving-ground reader, for the same reason (laptop or CI OIDC role, no per-run edits).
+      # proving-ground reader, for the same reason (workstation or CI OIDC role, no per-run edits).
       identifiers = [data.aws_caller_identity.current.account_id]
     }
   }
@@ -35,14 +35,14 @@ locals {
 
 data "aws_iam_policy_document" "fs_reader" {
   # Scoped to the stack's own names wherever the action takes a resource AND the code passes its identity -
-  # AWS's Service Reference, read 2026-10-01 (audit A-I-19: every read was Resource "*"). The arn local is
+  # AWS's Service Reference, read 2026-10-01 (never Resource "*" for every read). The arn local is
   # the region and account this stack lives in.
   statement {
     sid    = "ReadOwnStack"
     effect = "Allow"
     actions = [
       "cloudwatch:DescribeAlarms",
-      # The alarm's own history before the alert (aws_stack._alarm_history, research 2026-10-15).
+      # The alarm's own history before the alert (aws_stack._alarm_history).
       "cloudwatch:DescribeAlarmHistory",
       "dynamodb:DescribeTable",
       "ecs:DescribeServices",
@@ -78,7 +78,7 @@ data "aws_iam_policy_document" "fs_reader" {
       "arn:aws:logs:${local.reader_arn}:log-group:/aws/lambda/${local.name}-*",
       "arn:aws:logs:${local.reader_arn}:log-group:/ecs/${local.name}-*",
       "arn:aws:rds:${local.reader_arn}:cluster:${local.name}-*",
-      # The database instances' own error logs (aws_stack._db_log, 2026-10-15).
+      # The database instances' own error logs (aws_stack._db_log).
       "arn:aws:rds:${local.reader_arn}:db:${local.name}-*",
       "arn:aws:secretsmanager:${local.reader_arn}:secret:${local.name}-*",
       "arn:aws:sns:${local.reader_arn}:${local.name}-*",
@@ -194,7 +194,7 @@ resource "aws_iam_role_policy" "fs_reader" {
   role   = aws_iam_role.fs_reader.id
   policy = data.aws_iam_policy_document.fs_reader.json
   # A new name replaces the policy: the new one is put before the old one goes, so WARDEN's reads never
-  # lose their grant mid-apply (renamed 2026-10-16 so the name carries its environment).
+  # lose their grant mid-apply (the name carries its environment).
   lifecycle {
     create_before_destroy = true
   }

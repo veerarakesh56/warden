@@ -220,8 +220,8 @@ Cost and where it runs: 359 calls. Expected about **$19.80 with Claude Opus 5.5*
 The most it could cost, if every answer used the whole 16,384-token output cap and every byte of input were a token,
 is $123.49 or $61.74. `--cap-usd` is a hard ceiling: a call is made only while that worst case still fits, so the run
 stops at the cap, and each answer is saved as it is paid for. It uses only the
-cloud runtime's own key, from its Secrets Manager slot (or inside a runtime task); a key set in a laptop's shell is
-refused.
+cloud runtime's own key, from its Secrets Manager slot (or inside a runtime task); a key set in a workstation's shell
+is refused.
 
 ```bash
 python scripts/eldane_bench.py --model claude-opus-5-5 --dry-run       # no key, no call: the plans and the cost
@@ -229,7 +229,7 @@ python scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd 25 --out <a new
 python scripts/eldane_bench.py --record <that directory>/eldane-bench-<date>.json   # adds the row here and in README
 ```
 
-What changes after PR #166 (Eldane's typed objections and WARDEN's answers, not merged on 2026-10-21): it changes
+What changes once Eldane's typed objections and WARDEN's answers land (not yet merged): it changes
 Eldane's prompt (so its prompt hash, shown in the table) and adds "risks if approved" to the plan it is shown. The
 blind first pass this measures stays one call per plan; #166's debate rounds come after a blind "no" and need WARDEN's
 diagnosing model to answer, which this benchmark does not have. A run after #166 measures the new prompt's blind pass.

@@ -20,7 +20,7 @@ Written 2026-10-21 from the code on `main`. Nothing here was filmed or run live 
 | Eldane may approve it: an AI approver may approve T1 and T2 only | `src/warden/approvals.py`: `AI_TIERS = ("T1", "T2")` |
 | No data is touched: orders wait in the queue and are processed once the consumer is back | `scenarios/ops_fullstack.py`: `fs07_inject` / `fs07_revert` change only `Enabled` on one mapping |
 | The harness saves the exact prior state and puts it back | `fs07_inject` saves `{"uuid", "enabled"}` before its one write; `fs07_revert` restores it |
-| It has run live on dev before (2026-10-15) and the gaps found were fixed | comments marked "fs-07, live, 2026-10-15" in `src/warden/resolver.py`, `src/warden/aws_stack.py`, `src/warden/verifier.py`, `src/warden/catalog.py`, `src/warden/activities.py` |
+| It has run live on dev before and the gaps found were fixed | comments naming scenario fs-07 in `src/warden/resolver.py`, `src/warden/aws_stack.py`, `src/warden/verifier.py`, `src/warden/catalog.py` |
 
 Rejected: fs-27 (rule disabled) is also T1, but its alarm needs a 10-minute window (`reconciler-invocations-low`,
 `terraform/fullstack/alarms.tf`) and the fix shows only at the next 5-minute run. fs-09 (DynamoDB capacity) is T1
@@ -124,7 +124,7 @@ python -m scenarios.fullstack_cli status           # every step of this run, and
 ```
 
 Do not run `diagnose` or `fix` for the film: those run a local copy of WARDEN as the reader identity (a model call on
-the laptop's provider) and record a benchmark outcome. In the film, the cloud runtime handles the alarm on its own
+the workstation's provider) and record a benchmark outcome. In the film, the cloud runtime handles the alarm on its own
 (the `warden-<env>-alarm-changes` rule, `terraform/modules/warden-runtime/frontdoor.tf`). After the last fault, the
 lab's rules still apply: `python -m scenarios.fullstack_cli watch` (30 minutes) before anyone pauses or destroys the
 stack.
@@ -140,7 +140,7 @@ stack.
   `warden audit show <incident-id> --public-key <key>` recompute every hash and check every signature. `verify` checks
   the S3 anchors only when `--anchor-bucket` is given ([RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md)
   section 2). In the
-  cloud they need `WARDEN_AUDIT_DSN`, and the audit database is reachable only from inside the runtime's VPC; no laptop
+  cloud they need `WARDEN_AUDIT_DSN`, and the audit database is reachable only from inside the runtime's VPC; no workstation
   step for that exists in the repository today. Do not claim the film shows an offline verification.
 
 ## Sample variant (AWS off)

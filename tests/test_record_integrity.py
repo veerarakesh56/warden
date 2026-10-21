@@ -1,4 +1,4 @@
-"""Owner, 2026-10-15: "warden audit show ... where can we use it ... is it really working". Nobody could run it (the
+"""`warden audit show` was the only way to check the record, and nobody could run it (the
 audit database is private, the runtime's containers take no shell). The Full record page now shows the incident's
 audit head - the hash every Slack footer names - and what the signatures say, checked when the page opens."""
 

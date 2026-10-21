@@ -97,7 +97,7 @@ def test_postgres_metrics_come_back_from_a_real_server():
 
 @needs_pg
 def test_postgres_access_lists_the_real_databases_and_who_may_connect():
-    """Research 2026-10-15, item 8: the catalog read parses on a real server, names the database the test is in and
+    """The catalog read parses on a real server, names the database the test is in and
     the login it connects as, and says a database that does not exist is not there."""
     conn = _connect_or_fail(_Postgres, PG_DSN)
     lines = _Postgres.access(conn)
@@ -209,7 +209,7 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
             own_pid = cur.fetchone()[0]
         assert own_pid not in candidates, "it selected its OWN connection for termination"
         # Idle time is what counts, and only an idle-in-transaction session is selected - a session running a
-        # statement inside its transaction never is (eighth review: both could be dropped with every test green).
+        # statement inside its transaction never is (both could be dropped with every test green).
         assert victim_pid not in platform_db._Postgres.candidates(admin, 3600, 20, [PG_USER]), \
             "a session idle for a second was selected at an hour's threshold"
         busy = psycopg.connect(PG_DSN, autocommit=False)
@@ -342,8 +342,8 @@ def test_mysql_terminate_actually_kills_the_sleeping_transaction():
             cur.execute("SELECT CONNECTION_ID()")
             own_id = cur.fetchone()[0]
         assert own_id not in candidates, "it selected its OWN session to KILL"
-        # Idle time, not the transaction's age, and only while the session sleeps (sixth review; seventh: removing
-        # the Sleep filter passed every test). A session running a statement in a transaction is never selected.
+        # Idle time, not the transaction's age, and only while the session sleeps (removing the Sleep
+        # filter once passed every test). A session running a statement in a transaction is never selected.
         assert victim_id not in platform_db._MySQL.candidates(admin, 3600, 20, [MYSQL_USER]), \
             "a session idle for a second was selected at an hour's threshold"
         busy = pymysql.connect(
@@ -481,8 +481,8 @@ def test_mssql_terminate_actually_kills_the_sleeping_transaction():
         ac.execute("SELECT @@SPID")
         own_spid = int(ac.fetchone()[0])
         assert own_spid not in candidates, "it selected its OWN session to KILL"
-        # Idle time, a sleeping session, and an open transaction - each filter can be seen to hold (eighth review:
-        # each could be dropped with every test green).
+        # Idle time, a sleeping session, and an open transaction - each filter can be seen to hold (each
+        # could once be dropped with every test green).
         assert victim_spid not in platform_db._MSSQL.candidates(admin, 3600, 20, [MSSQL_USER]), \
             "a session idle for two seconds was selected at an hour's threshold"
 

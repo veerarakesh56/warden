@@ -71,7 +71,7 @@ def test_the_region_comes_from_the_config_and_aws_region_overrides_it(monkeypatc
         environments.region()
 
 
-# ---------------------------------------------------------------- owner, 2026-10-12: nothing in the repository is
+# ---------------------------------------------------------------- nothing in the repository is
 # hardcoded. An audit of every tracked code file found no secret and no account number, and these: environment names
 # written into scripts and Terraform, the runtime's and the repository's names in the IAM templates, model ids as code
 # defaults, the harness's resource names. Each now comes from environments.yaml or providers.yaml; these tests keep it so.
@@ -166,7 +166,7 @@ def test_the_repository_is_named_in_the_configuration_and_nowhere_in_code(tmp_pa
     trust = (ROOT / "iam" / "templates" / "trust.json").read_text(encoding="utf-8")
     assert "repo:${github_subject}:environment:${env}" in trust
     assert "${github_repository}/.github/workflows/" in trust
-    # Owner, 2026-10-16: each environment deploys from the branch of its own name, the runtime from
+    # Each environment deploys from the branch of its own name, the runtime from
     # `github.runtime_branch` - no template names a branch of its own.
     assert trust.count("refs/heads/${env}") == 3
     runtime_trust = (ROOT / "iam" / "templates" / "runtime-trust.json").read_text(encoding="utf-8")
@@ -208,13 +208,13 @@ def test_no_code_names_a_model_and_every_default_is_configuration():
     assert 'os.environ.get("WARDEN_MODEL", ' not in source
 
 
-# ---------------------------------------------------------------- audit 2026-10-16: legacy names and region literals in
+# ---------------------------------------------------------------- legacy names and region literals in
 # any tracked file. `warden-pg` is the Wave 1-3 proving ground's prefix (and `warden-pg-fs` the retired user-era operator
 # policy's): a name with no environment in it. Every other name is built from environments.yaml, and a region is
-# configuration (R17). The tests above hold Python, Terraform and the IAM templates; this holds everything else that is
+# configuration. The tests above hold Python, Terraform and the IAM templates; this holds everything else that is
 # tracked - JSON policies, k8s and workflow YAML, shell, example files. History (docs/, *.md) and test data are out of
 # scope. Each exception is named, file by file, with why; a stale one fails too, so retiring the proving ground
-# (owner decision pending; it is kept for Wave 1-3 re-runs, R52/R53, 2026-10-02) shrinks this list to nothing.
+# (not yet decided; it is kept for Wave 1-3 re-runs) shrinks this list to nothing.
 LEGACY_NAME = re.compile(r"\bwarden-pg\b")
 PROVING_GROUND = "the Wave 1-3 proving ground and what drives it, kept for re-runs (R52/R53, owner 2026-10-02)"
 LEGACY_OR_REGION_ALLOWED = {

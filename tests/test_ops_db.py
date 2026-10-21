@@ -2,7 +2,7 @@
 
 ⛔ The one that matters most is the guard pair: `test_a_database_that_is_not_the_proving_ground_is_refused`
 and its POSITIVE control. These ops open dozens of sessions, take exclusive locks and revoke a
-security group. A Postgres reachable from this laptop could be anyone's, and the k8s guard already
+security group. A Postgres reachable from this machine could be anyone's, and the k8s guard already
 taught this project that a guard which refuses *everything* looks identical to one that works until
 something has to be allowed through.
 """

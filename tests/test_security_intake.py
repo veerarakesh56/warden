@@ -1,4 +1,4 @@
-"""Item 15: GuardDuty and Security Hub findings come in through intake, and every one goes to a person, never to a fix.
+"""GuardDuty and Security Hub findings come in through intake, and every one goes to a person, never to a fix.
 
 The events are built from AWS's documented shapes: GuardDuty's "GuardDuty Finding" event (its detail is one finding as
 GetFindings returns it) and Security Hub CSPM's "Security Hub Findings - Imported" (ASFF), as the GuardDuty and
@@ -236,7 +236,7 @@ def test_intake_refuses_a_security_event_without_its_reason_to_go_to_a_person():
 
 
 def test_an_ordinary_alarm_on_the_same_resource_is_never_folded_into_a_security_incident():
-    """CodeRabbit, PR 52: a security incident records no resources to group by, so a later ordinary alarm on the same
+    """A security incident records no resources to group by, so a later ordinary alarm on the same
     resource starts its own incident rather than signalling the security one."""
     log, now = _log(), datetime.now(UTC)
     sec = asyncio.run(intake.submit(_Client(), security_findings.finding_event(_guardduty(updatedAt=now.isoformat())), log))

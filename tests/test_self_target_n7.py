@@ -1,4 +1,4 @@
-"""Register N7 / audit A-N-7: WARDEN does not act on its own components (P22-SELF-TARGET)."""
+"""Register N7: WARDEN does not act on its own components (P22-SELF-TARGET)."""
 
 from __future__ import annotations
 

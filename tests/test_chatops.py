@@ -165,13 +165,13 @@ def _evidence_report(show: bool):
 
 
 def test_identifiers_the_operator_asked_to_see_survive_the_trip_to_slack():
-    """⛔ notify() re-redacts before sending. Until 2026-09-25 that silently re-masked every identifier
+    """⛔ notify() re-redacts before sending. That once silently re-masked every identifier
     WARDEN_REPORT_SHOW_IDENTIFIERS had revealed, so the switch did nothing in Slack."""
     cap = _SlackCapture()
     notify(_evidence_report(show=True), sinks=[cap])
     for identifier in ("initech-4", "priya.nair@corp.io", "10.0.7.22"):
         assert identifier in cap.text, f"{identifier} was re-masked on the way to Slack"
-        # In the data a domain is defanged (second review, 2026-09-30: a consumer may linkify it);
+        # In the data a domain is defanged (a consumer may linkify it);
         # the identifier is still shown, not masked.
         assert identifier.replace("corp.io", "corp[.]io") in str(cap.data)
 

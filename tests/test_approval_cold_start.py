@@ -1,5 +1,5 @@
 """The approval Lambda (which also serves the records pages) builds its page without importing the worker, the
-activities or the workflows: live, 2026-10-14, those imports were most of a cold start's 2.5 s page time. It calls the
+activities or the workflows: live, those imports were most of a cold start's 2.5 s page time. It calls the
 workflow's query and signals by name instead, and the names are the ones RemediationWorkflow registers."""
 
 from __future__ import annotations

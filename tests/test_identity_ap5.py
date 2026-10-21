@@ -1,4 +1,4 @@
-"""Audit A-P-5: the approver's identity is carried into the actor session. The session that makes a change names
+"""The approver's identity is carried into the actor session. The session that makes a change names
 who approved it (a session tag CloudTrail records on every call), the incident (SourceIdentity, which the actor
 role's trust requires), the plan, and allows only the plan's actions on its exact resources for 900 s."""
 

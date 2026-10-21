@@ -33,8 +33,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExport
 from . import __version__
 
 # At module level, not inside the formatter: a record logged from workflow code is formatted under
-# Temporal's sandbox importer, where a lazy import is re-done and warned about (third review work,
-# 2026-09-30).
+# Temporal's sandbox importer, where a lazy import is re-done and warned about.
 from .gate import normalise
 from .redaction import redact
 
@@ -84,8 +83,7 @@ def span(name: str, **attrs: Any) -> Iterator[trace.Span]:
     """Open a span with attributes, and record an exception properly if one escapes."""
     # ⛔ Spans leave the process for a tracing backend. The exception's TEXT can quote evidence, a key
     # or an escape sequence (a model refusal carries 400 characters of the CLI's output), and the SDK
-    # records it raw by default - twice. It is recorded here scrubbed and bounded instead
-    # (independent review 2026-09-28, audit A-C-8).
+    # records it raw by default - twice. It is recorded here scrubbed and bounded instead.
     with tracer().start_as_current_span(name, record_exception=False, set_status_on_exception=False) as sp:
         for key, value in attrs.items():
             if value is not None:
@@ -101,7 +99,7 @@ def span(name: str, **attrs: Any) -> Iterator[trace.Span]:
 
 def _redact_then_cut(text: str, limit: int) -> str:
     """Redacted FIRST, then cut: cut first, a secret straddling the cut left a prefix the redactor no
-    longer recognised (`AKIAIOSFO`, third review 2026-09-30). The raw text is bounded far above the
+    longer recognised (`AKIAIOSFO`). The raw text is bounded far above the
     limit to keep redaction cheap, and the token that bound cuts is dropped whole."""
     if len(text) > 8 * limit:
         cut = text[: 8 * limit]
@@ -116,7 +114,7 @@ def _redact_then_cut(text: str, limit: int) -> str:
 
 def _safe_error(exc: BaseException) -> str:
     try:
-        # Redacted as written, then normalised (ninth review: stripping controls first glued text to a key).
+        # Redacted as written, then normalised (stripping controls first would glue text to a key).
         return _redact_then_cut(" ".join(normalise(redact(str(exc)).text).split()), 300)
     except Exception:  # noqa: BLE001 - a redaction failure must not hide the original error
         return "(error text withheld)"
@@ -124,7 +122,7 @@ def _safe_error(exc: BaseException) -> str:
 
 def gated(text: str, limit: int = 8000) -> str:
     """`text` as the log gate lets it out (GatedFormatter): redacted as written, normalised, redacted again, bounded -
-    for a line written with print(), where no handler is (the Lambdas' own lines, inventory review 2026-10-15)."""
+    for a line written with print(), where no handler is (the Lambdas' own lines)."""
     try:
         return _redact_then_cut(normalise(redact(text).text), limit)
     except Exception:  # noqa: BLE001 - a redaction failure must not print the raw text instead
@@ -146,9 +144,8 @@ class GatedFormatter(logging.Formatter):
         except Exception:  # noqa: BLE001 - a redaction failure must not print the raw text instead
             return f"{record.levelname} {record.name}: (log text withheld)"
         # Every further line is indented, so text inside a record cannot pass for a record of its own
-        # (third review: a message carrying "\n<date> INFO ...: approved" forged a line). Line and
-        # paragraph separators break lines for some viewers, so they are line breaks here too (fourth
-        # review, 2026-09-30, A-4).
+        # (a message carrying "\n<date> INFO ...: approved" would forge a line). Line and
+        # paragraph separators break lines for some viewers, so they are line breaks here too.
         return text.replace("\u2028", "\n").replace("\u2029", "\n").replace("\n", "\n    ")
 
 
@@ -169,7 +166,7 @@ class _StderrHandler(logging.StreamHandler):
 def install_log_gate(level: int | None = None) -> None:
     """Every log record the process writes goes out through GatedFormatter, on stderr. Without a
     handler, Python's last-resort one prints a warning's raw text - exception text included - so every
-    CLI command and the MCP server install this first (third review: only `warden worker` did)."""
+    CLI command and the MCP server install this first, not only `warden worker`."""
     root = logging.getLogger()
     # A marker, not the class: after a module reload the old handler's class is another object, and a
     # second handler printed every record twice.
@@ -201,7 +198,7 @@ def install_log_gate(level: int | None = None) -> None:
         for hook in (excepthook, thread_hook, unraisable_hook):
             hook.warden_log_gate = True
         # Only where Python's own default is in place: a hook another program installed - pytest's, or a host
-        # embedding cli.main - is that program's to keep (sixth review, 2026-10-01: pytest stopped seeing thread
+        # embedding cli.main - is that program's to keep (else pytest stops seeing thread
         # and unraisable errors after any in-process CLI test). WARDEN's own processes start with the defaults.
         if sys.excepthook is sys.__excepthook__:
             sys.excepthook = excepthook

@@ -1,6 +1,6 @@
 """Wave 4 report side: the markdown shows the code-level finding and what each stack reader read - and
 nothing leaks or arrives as a placeholder. (The runbook and the fix commands it aimed at the stack's
-components were removed on 2026-10-16; tests/test_no_commands.py holds that no report carries a command.)
+components were removed; tests/test_no_commands.py holds that no report carries a command.)
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def test_what_warden_read_lists_each_component_and_each_failed_reader():
     assert "Not read: the data inside the Redis cache itself" in section  # this alert names a cache and containers
     assert "the program code inside the container images" in section
     assert "VPC-only" not in section
-    # An alert that names neither says nothing of them (owner, 2026-10-14: a schedule's alarm listed Redis).
+    # An alert that names neither says nothing of them (a schedule's alarm listed Redis).
     from warden.models import Alert
     from warden.reporting import _stack_sources
 

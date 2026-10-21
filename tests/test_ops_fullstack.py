@@ -807,8 +807,8 @@ def test_lambda_verifier_needs_real_invocations_and_no_errors():
     ("rejected", "blocked_by_gate"), ("approved_for_human", "execution_disabled"), ("escalated", "not_approved"),
     ("auto_safe", "not_approved"), (None, "not_approved")])
 def test_the_fix_outcome_is_the_verdicts_and_nothing_runs(verdict, outcome):
-    """2026-09-27 audit: the harness runs no fix command at all; `--prof admin` beat the allow-list. Since
-    2026-10-16 the report prints no command, so there is nothing to count or check either."""
+    """The harness runs no fix command at all; `--prof admin` beat the allow-list. Now
+    the report prints no command, so there is nothing to count or check either."""
     assert fs.decide_fix(verdict) == outcome
     assert not hasattr(fs, "execute_fix")
     assert not hasattr(fs, "undo_fix_effects")
@@ -934,7 +934,7 @@ def test_fs12_revert_still_fails_loudly_when_sessions_never_go(monkeypatch):
 
 
 def test_a_fault_on_what_argo_cd_syncs_is_refused_and_the_pipelines_secret_still_breaks():
-    """2026-10-16: the shop is synced by Argo CD, whose self-heal undoes a direct change within seconds - a fault
+    """The shop is synced by Argo CD, whose self-heal undoes a direct change within seconds - a fault
     injected that way would heal itself before WARDEN saw it. fs-22, 24, 25 and 26 refuse, changing nothing; fs-23
     breaks the Secret, which the apps pipeline owns, not Argo CD."""
     w, c, t = make()

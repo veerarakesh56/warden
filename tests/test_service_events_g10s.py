@@ -1,6 +1,6 @@
 """A service's own word that something is wrong starts an incident with no alarm on it (register G10-40).
 
-Owner, 2026-10-12: WARDEN woke only on an alarm someone had made; an ECS service that cannot start its tasks, a
+WARDEN once woke only on an alarm someone had made; an ECS service that cannot start its tasks, a
 deployment its circuit breaker failed, a database that failed over or ran out of storage were never seen without one.
 
 The events are AWS's own examples (ECS "service action events" and "service deployment state change events", RDS

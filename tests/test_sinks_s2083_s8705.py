@@ -1,5 +1,5 @@
 """The checks sit beside the writes and the command they guard (Sonar pythonsecurity:S2083/S8707 on runner._write_json,
-S8705 on helios_gate.simulate; main's analysis, 2026-10-20). A path that enters from a command line is checked in
+S8705 on helios_gate.simulate). A path that enters from a command line is checked in
 main(); these hold the ones built later, from a file the run reads back (a scenario id in manifest.json, a report path
 in a record), and the command line handed to Helios."""
 

@@ -1,6 +1,6 @@
 """The kill switch is turned ON where the audit is.
 
-`warden killswitch on` on a laptop wrote that machine's own audit file and printed "kill switch: ON" while the cloud
+`warden killswitch on` on a workstation wrote that machine's own audit file and printed "kill switch: ON" while the cloud
 runtime kept applying fixes - and the approval page could only reset the switch, so no person could stop WARDEN. Now
 an approver opens a stop link their own key signed (`warden killswitch on --approver ... --key ...`), types why, and
 any of their passkeys signs exactly that reason; the trip names them. Stopping is the safe direction, so it is T1's

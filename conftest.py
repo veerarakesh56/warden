@@ -1,10 +1,10 @@
 """Shared by tests/ and evals/: the injection detector is a stand-in that flags nothing, unless a test sets its own.
 
-Every environment scans for injections (src/warden/data/environments.yaml tripwire "on",
-register R47, 2026-10-14). Without this, every pipeline test would load the real Prompt Guard 2 where it is cached
-(minutes per run) and report it unavailable where it is not (CI), so no test would depend on what it names. For the
-whole session: module-wide fixtures run the pipeline before any per-test fixture. Tests of the detector patch it
-themselves; `real_classifier` hands one the real loader.
+Every environment scans for injections (src/warden/data/environments.yaml tripwire "on"; the runtime image bakes Prompt
+Guard 2). Without this, every pipeline test would load the real Prompt Guard 2 where it is cached (minutes per run) and
+report it unavailable where it is not (CI), so no test would depend on what it names. For the whole session: module-wide
+fixtures run the pipeline before any per-test fixture. Tests of the detector patch it themselves; `real_classifier`
+hands one the real loader.
 """
 
 import pytest

@@ -1,4 +1,4 @@
-"""Registers S9, A-P-7: a software and model bill of materials, and the detector's weights pinned by commit."""
+"""Register S9: a software and model bill of materials, and the detector's weights pinned by commit."""
 
 from __future__ import annotations
 

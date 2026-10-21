@@ -60,7 +60,7 @@ def _count(args: dict, key: str, ceiling: int = 1000) -> int:
     except (TypeError, ValueError):
         return 0
 
-# What each tool does to the world, as MCP's tool annotations say it (research 2026-10-15, item 16): a client may
+# What each tool does to the world, as MCP's tool annotations say it: a client may
 # warn on, or refuse, a tool that is not read-only. Hints only - WARDEN's own checks decide - and every tool has
 # one: tests/test_mcp_annotations.py holds this table to the tools served.
 ANNOTATIONS = {
@@ -233,8 +233,8 @@ def profile() -> frozenset[str]:
     return PROFILES[name]
 
 
-# The workflows THIS server started: `workflow_status` answers for those only (audit A-B-H4: it read any incident's
-# report by id). ponytail: in memory, so a restarted server forgets them - its client starts again.
+# The workflows THIS server started: `workflow_status` answers for those only (never any incident's
+# report by id). Known limit: in memory, so a restarted server forgets them - its client starts again.
 _STARTED: set[str] = set()
 
 
@@ -334,8 +334,8 @@ async def _start_incident_diagnosis(args: dict[str, Any], client: Any) -> types.
     wid = f"inc-mcp-{alert.alert_id}"
     _STARTED.add(wid)
     try:
-        # One alert is one incident, with one model budget: a completed run is not started again (fifth
-        # review, 2026-10-01: each new run got a fresh budget); a FAILED run may be.
+        # One alert is one incident, with one model budget: a completed run is not started again (each new run
+        # would get a fresh budget); a FAILED run may be.
         await client.start_workflow(IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE,
                                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
     except WorkflowAlreadyStartedError:
@@ -394,13 +394,13 @@ def _finished_result(result: Any) -> Any:
     """A finished workflow's result, as JSON."""
     out = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
     if isinstance(out, dict):
-        # The verdict and the proposal, never the evidence read (audit A-B-H4: raw context).
+        # The verdict and the proposal, never the evidence read (raw context).
         out.pop("context", None)
     return out
 
 
 def _ok(payload: dict[str, Any], *, scrub_links: bool = True) -> types.CallToolResult:
-    # ⛔ Audit A-C-8: an MCP result goes to another program, often another model. Same gate.
+    # ⛔ An MCP result goes to another program, often another model. Same gate.
     # `scrub_links=False` only for redact_text, whose whole purpose is to hand back the caller's own
     # text with identifiers masked: its links are the caller's data. G5 and control stripping still apply.
     if scrub_links:
@@ -468,7 +468,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
             # ⛔ The evidence here is the CALLER's claim (counts padded into synthetic lines): claiming
             # log_lines=5, metric_count=4 satisfied P9 without WARDEN reading anything. So the verdict
             # that authorises a mutating action is never given on claims - a person checks the real
-            # evidence (Phase 0, 2026-09-27). auto_safe covers only inert actions and stays.
+            # evidence. auto_safe covers only inert actions and stays.
             status = on_claims
             if on_claims == "approved_for_human":
                 status = "escalated"
@@ -523,8 +523,8 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
             # recent_deploys must be scrubbed too. This handler reads the bundled fixtures only, whose
             # deploys carry identifiers; a live backend's would carry ECR refs (the host embeds the
             # account id) and role ARNs. This payload goes to the external MCP client/model; returning deploys raw was the same leak
-            # the graph path had (fixed there), on a second code path. Tool errors share the map
-            #; metrics are floats.
+            # the graph path had (fixed there), on a second code path. Tool errors share the map;
+            # metrics are floats.
             return _ok(
                 {
                     "logs": redacted,
@@ -731,8 +731,8 @@ def build_server() -> Server:
 
 def main() -> int:
     """The MCP server. An uncaught error - at startup or while serving - is one gated line on stderr,
-    never a raw traceback: stdout is the protocol, and the text can quote evidence or a key (fourth
-    review, 2026-09-30, A-8). Warnings go through the same gate."""
+    never a raw traceback: stdout is the protocol, and the text can quote evidence or a key.
+    Warnings go through the same gate."""
     import logging
 
     from .observability import exit_message, install_log_gate

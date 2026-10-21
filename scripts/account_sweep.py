@@ -47,7 +47,7 @@ AWS_GLOBAL_REGION = EnvironmentPolicies.load().aws_global_region
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 _POLICIES = EnvironmentPolicies.load()
-# The operator's helper, so it is named in WARDEN's own environment, like the operator (renamed 2026-10-16).
+# The operator's helper, so it is named in WARDEN's own environment, like the operator.
 ROLE = f"{environments.names(_POLICIES.runtime_environment).prefix}-sweep"
 TRUST_FILE = ROOT / "iam" / "operator" / "sweep-trust.local.json"
 ENVIRONMENTS = set(_POLICIES.known_environments) | ({_POLICIES.runtime_environment} - {None})
@@ -283,7 +283,7 @@ def main(argv: list[str] | None = None, *, session: Any = None) -> int:
         TRUST_FILE.write_text(json.dumps({"Version": "2012-10-17", "Statement": [{
             # The operator's Roles Anywhere session always carries a source identity (the certificate
             # CN) and session tags from the certificate; a chained AssumeRole must be allowed to keep
-            # both, or it is refused (TagSession: seen live in W0-now, 2026-10-02).
+            # both, or it is refused (TagSession, as seen live).
             "Sid": "OnlyTheOperator", "Effect": "Allow",
             "Action": ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"],
             "Principal": {"AWS": f"arn:aws:iam::{account}:role/warden-{EnvironmentPolicies.load().runtime_environment}-operator"}}]}, indent=2) + "\n",

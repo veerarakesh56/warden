@@ -1,4 +1,4 @@
-"""The helpers split out of mcp_server, settings, timeline and tools for SonarCloud (S19): the conditions a plant
+"""The helpers split out of mcp_server, settings, timeline and tools for SonarCloud: the conditions a plant
 check found no local test for (the MCP workflow tools' own tests need a Temporal server)."""
 
 from __future__ import annotations

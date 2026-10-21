@@ -122,7 +122,7 @@ def test_closing_sessions_is_refused_unless_the_connection_is_that_server(server
 
 
 def test_a_custom_bus_rule_is_planned_with_its_bus():
-    """G10 review: the rule parameter carries `bus/rule` when the alarm names a custom bus, so the fix is
+    """The rule parameter carries `bus/rule` when the alarm names a custom bus, so the fix is
     applied to that bus's rule and not looked for on the default one."""
     from warden import resolver
     from warden.models import Alert, Severity
@@ -137,9 +137,9 @@ def test_a_custom_bus_rule_is_planned_with_its_bus():
 
 
 def test_a_persons_recent_write_to_the_alerts_resource_left_unaddressed_escalates():
-    """G10 held-out set (2026-10-10, g10-135): a person cut an ECS service's desired count ten minutes before its
+    """G10 held-out set (g10-135): a person cut an ECS service's desired count ten minutes before its
     memory alarm; the diagnosis named only a memory leak and a restart reached the approver. P31, measured in observe
-    mode first (it named 2 wrong answers and none of 132 right ones), escalates (owner decision, 2026-10-10)."""
+    mode first (it named 2 wrong answers and none of 132 right ones), escalates."""
     from warden import verifier
     from warden.models import (
         ActionKind,

@@ -1,9 +1,8 @@
-"""The operator identity after W0-now: a role the laptop reaches through IAM Roles Anywhere with a
-TPM-held key, replacing the IAM user and its long-lived access key (audit A-I-4, owner rule "no
-long-lived keys").
+"""The operator identity: a role the operator workstation reaches through IAM Roles Anywhere with a
+TPM-held key, replacing the IAM user and its long-lived access key (no long-lived keys).
 
 What must hold: the role can read and check, and nothing else. Its one write-shaped action is
-assuming the read-only sweep role. No database login, no IAM change, no self-edit. Only the laptop's
+assuming the read-only sweep role. No database login, no IAM change, no self-edit. Only the workstation's
 certificate, through the one trust anchor, can assume it.
 """
 
@@ -56,9 +55,9 @@ def test_every_allowed_action_only_reads_except_assuming_the_sweep_role():
 
 
 def test_the_sweep_role_is_assumed_only_in_the_callers_own_account():
-    """Fourth review (2026-09-30, D #4): `arn:aws:iam::*:role/<sweep>` let the operator assume a role of that
+    """`arn:aws:iam::*:role/<sweep>` let the operator assume a role of that
     name in ANY account. The account is the caller's own, with no account number in the repo. And the role the
-    policy lets it assume is the one the sweep script assumes: the runtime environment's (renamed 2026-10-16)."""
+    policy lets it assume is the one the sweep script assumes: the runtime environment's."""
     sweep = next(st for st in _allow_statements() if st["Sid"] == "SweepEveryRegionReadOnly")
     assert sweep.get("Condition") == {"StringEquals": {"aws:ResourceAccount": "${aws:PrincipalAccount}"}}
     spec = importlib.util.spec_from_file_location("account_sweep", ROOT / "scripts" / "account_sweep.py")
@@ -73,7 +72,7 @@ def test_chaining_into_the_sweep_role_keeps_the_source_identity():
     """A Roles Anywhere session always has a source identity (the certificate CN). IAM: when a role
     assumes another, sts:SetSourceIdentity must be allowed in the caller's policy AND the target's
     trust policy, or the AssumeRole fails. The session's certificate tags
-    are carried along too, so the trust must also allow sts:TagSession (refused without it, live 2026-10-02)."""
+    are carried along too, so the trust must also allow sts:TagSession (refused without it, live)."""
     import importlib.util
     import types
 
@@ -105,7 +104,7 @@ def test_no_database_login_no_iam_change_no_model_call(forbidden):
 
 
 def test_secrets_are_only_the_ops_ones_and_never_their_values():
-    """Secrets audit, 2026-10-16: the laptop read the value of every warden/ops/* secret, and nothing it runs needs one
+    """The workstation could read the value of every warden/ops/* secret, and nothing it runs needs one
     (the benchmarks read their tools' keys in the cloud runtime). It may see that a secret is there, not what it is.
     No Bedrock either."""
     granted = [a for st in _allow_statements() for a in _list(st["Action"]) if a.startswith("secretsmanager:")]

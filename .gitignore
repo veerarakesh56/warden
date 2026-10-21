@@ -1,5 +1,5 @@
 # Python, caches and build output
-# No slash: a .venv that is a symlink is a file to git, and `.venv/` let one be committed (PR 90, CI's uv venv failed).
+# No slash: a .venv that is a symlink is a file to git, and `.venv/` would let one be committed.
 .venv
 __pycache__/
 *.py[cod]
@@ -21,7 +21,7 @@ mutants/
 .mutation-restore.json
 *.log
 
-# Local-only working material: per-machine notes, reports and assistant settings. Never published;
+# Local-only working material: per-machine notes, reports and editor or tool settings. Never published;
 # tests/test_local_only_paths.py fails if any of these is ever tracked.
 /research_notes/
 /reports/

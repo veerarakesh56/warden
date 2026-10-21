@@ -63,7 +63,7 @@ def test_verify_rejects_a_rollback_with_no_deploy_in_evidence():
 
 def test_verify_rejects_irreversible_production_actions_whatever_the_caller_claims():
     """⛔ The MCP surface is the untrusted one: these fields come from a CLIENT, not from WARDEN's
-    own model. Until 2026-09-12 a caller got past P2 simply by sending "reversible": true. It now
+    own model. A caller once got past P2 simply by sending "reversible": true. It now
     reads the per-action table, so the claim buys nothing."""
     out = _payload(call_tool("verify_remediation", {
         "environment": "prod", "severity": "critical", "service": "checkout",
@@ -154,9 +154,9 @@ def test_gather_over_mcp_redacts_deploy_identifiers(monkeypatch):
 def test_describe_policy_lists_every_policy():
     out = _payload(call_tool("describe_policy", {}))
     # Derived from the gate's own source, not a number: this test said `== 10` while the gate grew to
-    # twelve, and the MCP tool went on describing a gate without P11/P12 (found 2026-09-25).
+    # twelve, and the MCP tool went on describing a gate without P11/P12.
     src = pathlib.Path(verifier.__file__).read_text(encoding="utf-8")
-    # The gate records a policy as `f.reject("P..", why)` or `f.escalate("P..", why)` (S19 split of _enforce).
+    # The gate records a policy as `f.reject("P..", why)` or `f.escalate("P..", why)` (the split of _enforce).
     gate_ids = set(re.findall(r'\.(?:reject|escalate)\(\s*"(P\d+-[A-Z-]+)"', src))
     assert len(gate_ids) >= 12
     # Observe-mode policies are described too: a caller sees what is being measured.
@@ -207,7 +207,7 @@ def _scale_up(**extra):
 
 
 def test_p11_is_evaluable_over_mcp_when_the_caller_passes_the_evidence():
-    """Until 2026-09-25 the MCP gate built anonymous zero metrics, so P11/P12 could never see evidence."""
+    """The MCP gate once built anonymous zero metrics, so P11/P12 could never see evidence."""
     out = _payload(call_tool("verify_remediation", _scale_up(
         metrics={"oom_killed_containers": 2, "pods_ready": 0, "pods_total": 2})))
     assert out["verdict"] == "escalated"
@@ -230,7 +230,7 @@ def test_named_metrics_count_toward_metric_count_not_on_top_of_it():
 
 
 def test_gather_incident_context_says_it_reads_only_the_bundled_recordings():
-    """Owner B27: the description promised "evidence for a known incident id", and an agent would read that as a live
+    """The description promised "evidence for a known incident id", and an agent would read that as a live
     incident. It reads the bundled recordings only (FixtureBackend): the description says so, names exactly the
     bundled ids, and an id with no recording comes back as tool_errors, never as a quiet, healthy-looking picture."""
     from warden.tools import FIXTURES

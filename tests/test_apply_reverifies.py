@@ -1,5 +1,5 @@
 """`apply` trusts nothing the workflow hands it: the plan must be one WARDEN made, and the approvals
-must be in WARDEN's own audit log (second review, 2026-09-30: a forged or replayed activity result
+must be in WARDEN's own audit log (a forged or replayed activity result
 could otherwise carry a workflow past the approval wait)."""
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def _ready(acts, owner):
 
 
 def test_apply_needs_a_clean_precheck_of_this_plan_after_the_approval():
-    """Third review: a precheck result replayed from another slot skipped the drift check;
+    """A precheck result replayed from another slot skipped the drift check;
     apply never looked. Now it needs WARDEN's own clean precheck row, after the approvals."""
     acts, platform, owner = _acts()
     plan = _ready(acts, owner)
@@ -109,7 +109,7 @@ def test_apply_needs_a_clean_precheck_of_this_plan_after_the_approval():
 
 
 def test_a_kill_switch_tripped_while_waiting_for_approval_stops_the_apply():
-    """Third review: the gate ran once, before the approval wait (up to its TTL); a kill switch tripped
+    """The gate ran once, before the approval wait (up to its TTL); a kill switch tripped
     during the wait did not stop the apply. No attacker needed."""
     from warden import bounds
 
@@ -125,7 +125,7 @@ def test_a_kill_switch_tripped_while_waiting_for_approval_stops_the_apply():
 
 
 def test_rows_of_another_run_of_the_same_workflow_do_not_count(monkeypatch):
-    """Third review: `rem-<service>` is reused, and a replay of run 1's approval and results into run 2
+    """`rem-<service>` is reused, and a replay of run 1's approval and results into run 2
     applied with nobody approving run 2. Every row now carries the Temporal run id."""
     from warden import activities
 

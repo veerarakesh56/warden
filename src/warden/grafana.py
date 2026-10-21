@@ -1,11 +1,10 @@
-"""Grafana Cloud - or a company's own Loki, Tempo and Prometheus - as a second evidence source beside AWS (owner,
-2026-10-14: "most companies use them ... connect to ours ... logs, traces, metrics ... timestamps can be a bit
-different so need to be careful").
+"""Grafana Cloud - or a company's own Loki, Tempo and Prometheus - as a second evidence source beside AWS: logs,
+traces and metrics, whose timestamps may differ slightly from AWS's.
 
-Researched the same day: Grafana Cloud's Free tier is free for ever, has a Mumbai region, and answers the open
+Grafana Cloud's Free tier is free for ever, has a Mumbai region, and answers the open
 query APIs - LogQL (Loki), TraceQL (Tempo), PromQL (Prometheus) - to an access-policy token with read scopes only.
-The same calls work against self-hosted Loki, Tempo and Prometheus/Mimir. Read live beside Datadog and X-Ray in the
-owner's comparison (2026-10-14: "use all 3 of them ... compare"); off unless its settings are given.
+The same calls work against self-hosted Loki, Tempo and Prometheus/Mimir. Read live beside Datadog and X-Ray for
+comparison; off unless its settings are given.
 
 What it reads, around the alarm, for the service the alert names: the service's error log lines, its failed traces
 (and from them which downstream service failed first - the dependency walk), and a few fixed metrics. Every line it

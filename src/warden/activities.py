@@ -52,8 +52,8 @@ _LOG = logging.getLogger("warden.incident")
 
 def _note(text: str) -> None:
     """One line on the worker's own log for whoever operates WARDEN: what it decided. The audit is the record; this
-    is so a decision can be seen without the database or the chat (live window, 2026-10-11: the only sign of an
-    incident in the log was the model's HTTP request). WARDEN's own words only - a status, policy ids, an entry's
+    is so a decision can be seen without the database or the chat (otherwise the only sign of an incident in the
+    log is the model's HTTP request). WARDEN's own words only - a status, policy ids, an entry's
     name, its own refusal - on one line, cut short, through the logging gate like every other line."""
     _LOG.info("%s", " ".join(text.split())[:300])
 
@@ -62,7 +62,7 @@ def _note(text: str) -> None:
 _PLAN_ROW = "remediation.plan"
 _END_ROW = "workflow.end"
 _ACCEPTED_ROW = "approval.accepted"
-_EXTEND_ASKED = "discuss.extend"  # one row per Slack message that asked for an extension (U3-8)
+_EXTEND_ASKED = "discuss.extend"  # one row per Slack message that asked for an extension
 _REPORT_ROW = "incident.report"
 _ANNOUNCE_ROW = "remediation.announce"
 _ALERT_ROW = "incident.alert"
@@ -74,8 +74,8 @@ _LLM_SPEND_ROW = "incident.llm_spend"
 _PLAN_FIX_ROW = "incident.plan_fix"
 
 OFFERED_UNDO = "WARDEN's own offer: the undo of the change the proposal left unaddressed"
-# How an approved plan went, said to the people who approved it (owner's first live approvals, 2026-10-12: one fix
-# was refused by AWS, one applied and verified, and Slack said nothing after "waiting for an approval").
+# How an approved plan went, said to the people who approved it: without these, a fix refused by AWS and a fix applied
+# and verified both left the channel at "waiting for an approval".
 OUTCOME = {
     "verified": ("WARDEN applied `{entry}` on `{target}` and it passed its health checks. WARDEN keeps re-checking it "
                  "and says so if it fails again."),
@@ -90,7 +90,7 @@ OUTCOME = {
                         "unknown."),
     "refused_at_apply": "WARDEN did not apply the approved plan `{entry}` on `{target}`: nothing was changed.",
     "apply_failed": "Applying `{entry}` on `{target}` failed part-way: the target's state is unknown.",
-    # Live, 2026-10-16: a plan voided by a WARDEN deploy was said as "`target` changed" - the target had not. What
+    # A plan voided by a WARDEN deploy must not be said as "`target` changed" - the target has not. What
     # changed is said by the reason that follows ("Why: ..."), never assumed here.
     "drifted": ("Something the plan `{entry}` on `{target}` was made against changed before it could be applied (the "
                 "reason is below), so WARDEN did not apply it: nothing was changed."),
@@ -125,7 +125,7 @@ class FixRequest(BaseModel):
     # How many times this fix has been planned again after the target or WARDEN itself changed under an approved plan
     # (decision D7: re-plan and ask again, at most REPLAN_MAX times; workflows.RemediationWorkflow).
     replans: int = Field(0, ge=0, le=2)
-    # How long a verified fix is watched before it is called held (item 11, owner 2026-10-16): re-checked at 15 and
+    # How long a verified fix is watched before it is called held: re-checked at 15 and
     # 60 minutes, and at the soak's end when it is longer. The same alarm returning inside it reopens the incident
     # (intake.held_fix). Bounded as the verify window is (register O3).
     soak_minutes: int = Field(60, ge=60, le=MAX_SOAK_MINUTES)
@@ -207,7 +207,7 @@ def slack_summary(markdown: str) -> str:
     return (markdown[:cut] if cut > 0 else markdown[:2400]).rstrip()
 
 
-# Owner, 2026-10-15: a fix can break something else. WARDEN's own fixes applied in an alarm's environment this long
+# A fix can break something else. WARDEN's own fixes applied in an alarm's environment this long
 # before it are put beside its evidence as changes, like a person's deploy: the diagnosis weighs them - cites one as
 # the cause, or finds another - and nothing is assumed either way.
 OWN_FIX_WINDOW = timedelta(minutes=int(os.environ.get("WARDEN_OWN_FIX_WINDOW_MIN", "60")))
@@ -240,7 +240,7 @@ def _said_after(what: str, did: list[str]) -> str:
     """Who approved a plan whose run ended, and, when a person takes over, the command that resets the kill switch."""
     said = f" Approved by {' and '.join(did)}." if did and what in OUTCOME else ""
     if what in PERSON_TAKES_OVER:
-        # The command in full (2026-10-16 audit: without --approver and --key it failed as written).
+        # The command in full: without --approver and --key it fails as written.
         said += (" Every automatic fix is stopped until an approver resets the kill switch: `warden killswitch "
                  "link --approver YOU --key YOUR.pem` opens the page that shows why it is on and resets it.")
     return said
@@ -369,7 +369,7 @@ def _cite_own_fixes(context: ContextBundle, own_step: dict[str, Any]) -> None:
 
 def _refused_before(log: audit.AuditLog, thread: str, asked: str) -> dict[str, Any]:
     """The refusal this Slack message already got, from the discussion's record ({} when none): a retried "extend"
-    that was refused stays refused - it does not extend a plan made since (CodeRabbit, PR 182). An extension it got
+    that was refused stays refused - it does not extend a plan made since. An extension it got
     is answered from its own row (extend.answered)."""
     for e in log.entries(thread, kinds=(_EXTEND_ASKED,)):
         if e["body"].get("asked") == asked and e["body"].get("why"):
@@ -389,7 +389,7 @@ def _basis_now(plan: Plan) -> dict[str, str]:
 class AuditThreads:
     """Which Slack thread each incident has (register H3), kept in the audit so every worker continues the same one:
     a `chatops.thread` row per incident, the latest wins: {ts, channel} - the channel it is in (chatops.SlackBotSink);
-    a row from before 2026-10-16 has only its ts."""
+    an older row may hold only its ts."""
 
     def __init__(self, audit: AuditLog) -> None:
         self.audit = audit
@@ -464,8 +464,8 @@ class RemediationActivities:
         problems = catalog.validate(req.entry, req.params, live)
         target = req.params.get(entry.target_param) if entry else None
         if entry and target != req.service:
-            # The health check keys on `service`: it must be what the fix changes (sixth review, 2026-10-01: a
-            # scale of `payments` filed under `orders` was judged by `orders`).
+            # The health check keys on `service`: it must be what the fix changes (else a scale of `payments` filed
+            # under `orders` is judged by `orders`).
             problems.append(f"the fix changes {entry.target_param} {target!r}, not the service {req.service!r} "
                             "its health would be judged by")
         if entry:
@@ -484,13 +484,13 @@ class RemediationActivities:
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
                            "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
                            "problems": problems, "soak_minutes": req.soak_minutes,
-                           # Until when it waits, and from when its ceiling counts (U3-8, extend.py).
+                           # Until when it waits, and from when its ceiling counts (extend.py).
                            "approval_until": _deadline(plan).isoformat(), "made": plan.created_at.isoformat()})
         return plan
 
     @activity.defn
     def approval_wait(self, plan: Plan, until: str) -> None:
-        """Until when this plan's run really waits for its approval (U3-8, patch u38-wait): its own deadline, set when
+        """Until when this plan's run really waits for its approval (patch u38-wait): its own deadline, set when
         the wait began - later than the plan's approval_until by the gate and the critic's time. An approver's
         extension counts from it (extend.waiting), so it always moves the run's deadline. Once per plan."""
         from . import extend
@@ -504,7 +504,7 @@ class RemediationActivities:
     @activity.defn
     def approval_extension(self, plan: Plan) -> str:
         """Until when an approver extended this exact plan's wait from its discussion (extend.py), bounded by its
-        ceiling, as ISO text; "" when nobody did. From the signed record only (U3-8)."""
+        ceiling, as ISO text; "" when nobody did. From the signed record only."""
         from . import extend
 
         later = extend.extended_until(self.audit, plan.incident_id, plan.workflow_id, plan.plan_hash, plan.created_at)
@@ -536,7 +536,7 @@ class RemediationActivities:
         actions = self._approval_links(plan) if what in ("opening", "waiting", "autonomous") else ()
         if what == "opening":
             # With no approval domain the request still goes, without its buttons: the incident's one message is
-            # never nothing (independent check, 2026-10-14).
+            # never nothing.
             what = "waiting"
         end = None
         if what == "ended":
@@ -580,8 +580,8 @@ class RemediationActivities:
             why = []
         said += self._said_beside(plan, what) + _said_after(what, did)
         # The person's own words go only where the gate lets the whole message go: should it hold them back, the
-        # decision is still said - who, how, when - and only their words are not (live, 2026-10-14: a whole denial
-        # message was withheld for the note in it).
+        # decision is still said - who, how, when - and only their words are not (else a whole denial message is
+        # withheld for the note in it).
         if words:
             said = _hold_back(said, words)
         if why:
@@ -611,12 +611,13 @@ class RemediationActivities:
 
     def _plan_said(self, plan: Plan, what: str, shown: str, *, did: list[str], noted: str) -> str:
         """The sentence that says where the plan stands."""
-        # Who may approve this tier, and who did (owner, 2026-10-12: "anyone in the channel can click it, and nobody
-        # can see who approved"). Both from WARDEN's own record: the approver list, and this run's accepted approvals.
+        # Who may approve this tier, and who did: anyone in the channel can click the button, so the message says
+        # who may approve and who did. Both from WARDEN's own record: the approver list, and this run's accepted
+        # approvals.
         tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
         need = self.policy.required.get(plan.tier, 1)
         # The plan's id, for whoever looks it up - not a command to type, in a message most readers act on by its
-        # button (owner's bar, 2026-10-12: no unexplained jargon).
+        # button, so no unexplained jargon.
         return {"waiting": (f"WARDEN's plan `{plan.entry}` on `{shown}` ({tier}) is waiting for an approval "
                             f"(plan `{plan.workflow_id}`). It waits until "
                             f"{environments.both_times(_deadline(plan), seconds=False)}; unapproved by then, it expires "
@@ -630,7 +631,7 @@ class RemediationActivities:
                              "applies it." + noted),
                 "expired": (f"WARDEN's plan `{plan.entry}` on `{shown}` expired without an approval. No action "
                             "was taken; the incident is still open."),
-                # Owner, 2026-10-17: dev is autonomous through Eldane, and a person's "no" still wins.
+                # dev is autonomous through Eldane, and a person's "no" still wins.
                 "autonomous": (f"{approvals.AI_LABEL} (an AI) approved WARDEN's plan `{plan.entry}` on `{shown}` ({tier}) "
                                f"at autonomy level {autonomy.L2} in {plan.environment}: {autonomy.MEANS[autonomy.L2]}. "
                                f"WARDEN applies it after "
@@ -642,8 +643,8 @@ class RemediationActivities:
 
     def _denial_said(self, plan: Plan, shown: str, why: list[str], end: _End | None) -> tuple[str, str] | None:
         """A denial, said with who and when and their reason. None: the end row names no approver."""
-        # Who said no, how and when - said as an approval is (2026-10-14: a denial did not show
-        # who denied it; the message read "was denied ... Why: denied by owner"). A denial reaches the
+        # Who said no, how and when - said as an approval is, never a bare "was denied ... Why: denied by owner".
+        # A denial reaches the
         # workflow only from the approval page, after the approver's passkey over this exact plan
         # (approval_page._deny); who it was is this run's own signed end row.
         who = next((n for n in self.policy.approvers
@@ -702,8 +703,8 @@ class RemediationActivities:
         if actions and what != "autonomous":
             said += " Approve with your passkey on the page below; it shows the exact plan first."
         # The incident's summary leads the first message about it that reaches the channel - the request for approval,
-        # or how the run ended if it ended first (independent check, 2026-10-14: a refused or blocked run sent one
-        # line, and the incident's summary never reached anyone).
+        # or how the run ended if it ended first (otherwise a refused or blocked run sends one line, and the
+        # incident's summary never reaches anyone).
         reports = [e["body"].get("markdown", "") for e in self.audit.entries(plan.incident_id, kinds=(_REPORT_ROW,))]
         owed = bool(what not in RECORDED_ONLY and reports and reports[-1] and not self._summary_said(plan.incident_id))
         if owed:
@@ -728,8 +729,8 @@ class RemediationActivities:
     def _record_only(self, plan: Plan, what: str, head: str, said: str) -> None:
         """A decision kept on the record only, not sent."""
         # Approved, denied, fixed: written as ever, through the same gate, and kept for WARDEN's records page -
-        # who, how, when and their note - not sent as another message in the channel (owner, 2026-10-14: "i
-        # dont want that records coming here in slack everytime").
+        # who, how, when and their note - not sent as another message in the channel, which would fill it with
+        # records.
         from .chatops import name_people
         from .gate import enforce
 
@@ -768,8 +769,8 @@ class RemediationActivities:
     def side_effects(self, plan: Plan) -> list[str]:
         """Other alarms intake recorded as starting in this fix's environment after this run applied it (intake.side_
         effect, kept under the fix's workflow id) - from the record, never from the signal that said so. Each is a
-        failure for the breaker: they may be unrelated, and an alarm anyone can raise must not trip the kill switch
-       . The fix is counted as failed only when a later incident's diagnosis cites it
+        failure for the breaker: they may be unrelated, and an alarm anyone can raise must not trip the kill switch.
+        The fix is counted as failed only when a later incident's diagnosis cites it
         (IncidentActivities._connected). Recorded once per run. Empty: none on the record."""
         from .reporting import untrusted_inline
 
@@ -815,8 +816,7 @@ class RemediationActivities:
     @activity.defn
     def summary_owed(self, incident_id: str, status: str) -> list[str]:
         """The incident's one message, when its fix run ended in a way that tells nobody (failed, cancelled, or before
-        a plan was made) and no message has carried its summary yet (independent check, 2026-10-14: the channel was
-        left with nothing at all)."""
+        a plan was made) and no message has carried its summary yet, so the channel is never left with nothing."""
         from .reporting import Report
 
         reports = [e["body"].get("markdown", "") for e in self.audit.entries(incident_id, kinds=(_REPORT_ROW,))]
@@ -856,8 +856,8 @@ class RemediationActivities:
         for name in who:
             token = _secrets.token_urlsafe(32)
             store.add_link(token, Link(plan.workflow_id, name, max(_deadline(plan), now + LINK_TTL)))
-            # A request names nobody (owner, 2026-10-12: "it should not ask like this: Approve as owner ... only the
-            # person when approved"): who decided is said when they have. Only where several approvers each have
+            # A request names nobody ("Approve as owner ..." reads as an instruction to one person): who decided is
+            # said when they have. Only where several approvers each have
             # their own link does a label say whose it is - a link opens for nobody else.
             out.append((LINK_LABEL + (f" (link of {name})" if len(who) > 1 else ""), f"https://{rp}/a/{token}"))
         return tuple(out)
@@ -971,7 +971,7 @@ class RemediationActivities:
     def _not_approved(self, plan: Plan) -> list[str]:
         """Why `plan` may not be applied, from WARDEN's OWN audit log - never from what the workflow
         says, and only rows of THIS run (a replayed or forged activity result can carry a workflow past
-        any of its steps: second and third reviews, 2026-09-30):
+        any of its steps):
         - the plan resolve_plan made for this workflow and run, same entry and parameters, no problems;
         - as many distinct approvers of that plan hash, in this run, as its tier needs;
         - a clean precheck of that plan hash, in this run, AFTER the approvals (drift);
@@ -1046,8 +1046,8 @@ class RemediationActivities:
         self.audit.append(plan.incident_id, "remediation.intent", {"workflow_id": plan.workflow_id,
                                                                    "run_id": run, "plan_hash": plan.plan_hash})
         try:
-            # The approved snapshot goes to a platform that can hold the write to it (sixth review: a count that
-            # moved after the precheck was stepped from).
+            # The approved snapshot goes to a platform that can hold the write to it (else a count that moved after
+            # the precheck is stepped from).
             takes = inspect.signature(self.platform.apply).parameters
             extra = {k: v for k, v in (("snapshot", plan.snapshot), ("who", self._who(plan, run)),
                                        ("environment", plan.environment)) if k in takes}
@@ -1075,7 +1075,7 @@ class RemediationActivities:
             healthy = bool(routed(plan.entry, service, params=params, **_env(routed, plan.environment)))
         else:
             healthy = bool(routed(plan.entry, service) if routed else self.platform.healthy(service))
-        # Success is the symptom gone, not only the change landed (research 2026-10-15, item 12): the CloudWatch
+        # Success is the symptom gone, not only the change landed: the CloudWatch
         # alarm that opened the incident, read live, must not still be in ALARM. Read only when the fix's own check
         # passed; a state that cannot be read, or INSUFFICIENT_DATA, keeps the check's verdict - a good fix is never
         # rolled back for want of a reading. CloudWatch's intake forwards ALARM transitions only, so the record
@@ -1093,8 +1093,8 @@ class RemediationActivities:
         # error class - for a Datadog monitor too. "present" fails the check; "unknown" keeps its verdict.
         healthy, symptom = self._symptom_check(plan, applied, healthy)
         # Every real check is on the record with its run: the verdict is taken from these rows, never from
-        # what an activity result or the workflow claims (fourth review, 2026-09-30: run 1's "healthy"
-        # replayed into run 2 marked a fix verified with no health check made).
+        # what an activity result or the workflow claims (else run 1's "healthy" replayed into run 2 marks a fix
+        # verified with no health check made).
         self.audit.append(plan.incident_id, "remediation.check",
                           {"workflow_id": plan.workflow_id, "run_id": _run_id(), "plan_hash": plan.plan_hash,
                            "healthy": healthy, **({"alarm": alarm, "alarm_state": state} if alarm else {}),
@@ -1199,8 +1199,8 @@ class RemediationActivities:
             if getattr(exc, "nothing_changed", False) and getattr(exc, "own_check", False):
                 # WARDEN's own check refused the undo before any write: the target is no longer as the fix left it
                 # (someone changed it since - or put it back). Nothing is half-made and nothing is unknown, so this is
-                # not a failed rollback and the kill switch stays off: a person takes over (first live rollback,
-                # 2026-10-12: a rule already switched off again was reported "undoing it FAILED, state unknown").
+                # not a failed rollback and the kill switch stays off: a person takes over (a rule already switched off
+                # again must not be reported as "undoing it FAILED, state unknown").
                 detail = f"not rolled back: {_safe_error(exc)}"
                 self.audit.append(plan.incident_id, _ROLLBACK_ROW, {**row, "detail": detail})
                 return detail
@@ -1210,7 +1210,7 @@ class RemediationActivities:
             bounds.trip(self.audit, plan.incident_id, reason, workflow_id=plan.workflow_id, run_id=_run_id())
             raise ApplicationError(reason, type=ROLLBACK_FAILED, non_retryable=True) from None
         # Whether the target was really changed back: WARDEN's own undo is a change beside a later alarm's evidence, as
-        # its fix is (live, 2026-10-16: the undo broke checkout again, and the next diagnosis never saw it).
+        # its fix is: an undo can break the service again, and the next diagnosis must see it.
         undone = not str(detail).startswith(("nothing to roll back", "not rolled back"))
         self.audit.append(plan.incident_id, _ROLLBACK_ROW, {**row, "detail": detail, "undone": undone})
         return detail
@@ -1263,8 +1263,8 @@ class RemediationActivities:
 
     @activity.defn
     def finish(self, incident_id: str, workflow_id: str, outcome: FixOutcome) -> None:
-        # The signed end row states what THIS run's audit rows show, not what the workflow claims (fourth
-        # review: a refused apply was recorded with approved and prechecked True).
+        # The signed end row states what THIS run's audit rows show, not what the workflow claims (a refused
+        # apply was once recorded with approved and prechecked True).
         run = _run_id()
         # Once per run: Temporal retries this activity when a step after the end row fails, and a second end row
         # was written.
@@ -1358,7 +1358,7 @@ class Diagnosed(BaseModel):
     model_unavailable: str = ""  # why the model was not used: verify then escalates (register M19)
 
 
-# A cap across incidents (registers M18, A-P-4): a storm of incidents, each within its own budget, still spent without
+# A cap across incidents (register M18): a storm of incidents, each within its own budget, still spent without
 # end. Counted from the audit over the last 24 hours, reservations of unfinished calls included.
 MAX_PLANS_PER_HOUR = int(os.environ.get("WARDEN_MAX_PLANS_PER_HOUR", "6"))
 HASTY_S = 10.0  # an approval signed this soon after the plan was made was not read (register H1)
@@ -1413,9 +1413,9 @@ class IncidentActivities:
             update={"summary": redact(alert.summary).text, "name": redact(alert.name).text}).model_dump(mode="json")})
         # The evidence exactly as the model is shown it - redacted, its untrusted text quarantined, scanned by the
         # tripwire - kept with the incident, so a question about it later is answered from these same items (the
-        # same ids the diagnosis cited) without reading everything again (owner, 2026-10-14: "why read evidence
-        # again, it should be memory"). Nothing writes into it but this step; the model never does.
-        # ponytail: in the audit row itself (Aurora, encrypted at rest); a separate store if packs grow past ~1 MB.
+        # same ids the diagnosis cited) without reading everything again. Nothing writes into it but this step; the
+        # model never does.
+        # Known limit: in the audit row itself (Aurora, encrypted at rest); a separate store if packs grow past ~1 MB.
         self.audit.append(alert.alert_id, "incident.evidence", {
             "run_id": _run_id(), "prompt": prompt, "sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest()})
         return EvidencePack(alert=state["alert"], context=state["context"], prompt=prompt,
@@ -1445,7 +1445,7 @@ class IncidentActivities:
             shown, past = [], ""
         if not past:
             return prompt
-        # Which past runs the model was shown, on the record beside its diagnosis (research 2026-10-15): a
+        # Which past runs the model was shown, on the record beside its diagnosis: a
         # wrong diagnosis that followed history can be traced to the rows that led it.
         steps.append({"node": "history_shown", "seqs": [s for r in shown for s in r["seqs"]]})
         return f"{prompt}\n\n{past}"
@@ -1476,7 +1476,7 @@ class IncidentActivities:
         reopened_by = {r["body"].get("workflow_id")
                        for r in self.audit.entries(alert.alert_id, kinds=("remediation.did_not_hold",))}
         # The fix that did not hold and reopened this incident, from its own record however long its soak was
-        # (CodeRabbit, PR 43: a soak longer than OWN_FIX_WINDOW left it out of the reopened diagnosis).
+        # (a soak longer than OWN_FIX_WINDOW must not leave it out of the reopened diagnosis).
         seen = {e["seq"] for e in applied}
         applied += [e for e in self.audit.entries(alert.alert_id, kinds=(bounds.APPLIED,))
                     if reopened_by and e["body"].get("workflow_id") in reopened_by and e["seq"] not in seen]
@@ -1539,8 +1539,8 @@ class IncidentActivities:
         try:
             llm, refused = (self.llm_factory or LLMClient)(), ""
         except Exception as exc:  # noqa: BLE001 - any model that cannot be built is the rules-only diagnosis
-            # Live, 2026-10-15: the runtime named a model that was no longer qualified (register M20 refused it, as it
-            # must) - and the incident failed here, before any path that tells a person, so it reached nobody. Now it
+            # The runtime can name a model that is no longer qualified (register M20 refuses it, as it must); failing
+            # here, before any path that tells a person, would leave the incident with nobody. So it
             # is the degraded, rules-only diagnosis with the reason said (register M19); no model is asked.
             llm, refused = LLMClient(mock=True), f"no qualified model could be used ({_safe_error(exc)})"
             _note(f"ERROR {pack.alert.alert_id}: {refused} - rules-only diagnosis (security review L4)")
@@ -1609,7 +1609,7 @@ class IncidentActivities:
         p6_only = held_by == {"P6-BLAST-RADIUS"}
         # Held by P31 alone: the fix passed every other policy and left a person's recent change to the alert's own
         # resource unaddressed. WARDEN offers the undo of THAT change instead - same target, the platform's live read
-        # decides which change and whether it may be undone, a person approves it. (First live fault, 2026-10-11: a
+        # decides which change and whether it may be undone, a person approves it. (Without it, a
         # cut table got "raise the capacity", P31 held it, and the person received no plan although the undo has an
         # entry; held-out g10-135 the same.) The model's own proposal stays in the report as it was.
         offer = held_by == {"P31-UNADDRESSED-CHANGE"}
@@ -1650,7 +1650,7 @@ class IncidentActivities:
             return None, f"the live read failed ({type(exc).__name__})"
 
     def _not_again(self, req: dict[str, Any]) -> tuple[str, str]:
-        """Item 11: a fix that was verified and did not hold is not offered again for the same
+        """A fix that was verified and did not hold is not offered again for the same
         target on WARDEN's own - a person decides (`warden offer-again`; the MCP and CLI paths, a person's, may still
         ask for it). (incident, why), or ("", "")."""
         from . import history
@@ -1660,8 +1660,8 @@ class IncidentActivities:
 
     @activity.defn
     def no_plan(self, alert_id: str, why: str = "") -> list[str]:
-        """Tell a person that the fix their report holds for approval has no plan to approve, and why (owner's live
-        run, 2026-10-12: the report said "held for approval", the plan was never opened, and nothing said so). `why`:
+        """Tell a person that the fix their report holds for approval has no plan to approve, and why (else the report
+        says "held for approval" while no plan was ever opened, and nothing says so). `why`:
         the workflow's own reason; else this run's plan_fix row gives it. Nothing to say when a plan was opened."""
         from .reporting import Report
 
@@ -1723,9 +1723,9 @@ class IncidentActivities:
 
     @activity.defn
     def reread(self, pack: EvidencePack) -> EvidencePack:
-        """The incident's evidence read again, once, because a source answered with nothing right after the alert
-        (research 2026-10-15, item 3). Which sources the second read filled and the alert's age at it go on the
-        record: the measured lag of each source, where a later "nothing found" can be weighed against it."""
+        """The incident's evidence read again, once, because a source answered with nothing right after the alert.
+        Which sources the second read filled and the alert's age at it go on the record: the measured lag of each
+        source, where a later "nothing found" can be weighed against it."""
         again = self.prepare(pack.alert)
         before, after = set(pack.context.empty_reads), set(again.context.empty_reads)
         age = (datetime.now(UTC) - datetime.fromisoformat(pack.alert.started_at)).total_seconds() \
@@ -1805,8 +1805,8 @@ class IncidentActivities:
             before = history.past(pack.alert, self.audit)
         except Exception:  # noqa: BLE001 - a record that cannot be read is not a report that cannot be sent
             before = []
-        # Before the report's closing line, not after it (owner, 2026-10-12, reading a live message: "things are not
-        # right in place" - both sections stood under "WARDEN proposes and gates").
+        # Before the report's closing line, not after it (after it, both sections read as part of "WARDEN proposes
+        # and gates").
         from .reporting import CLOSING
 
         body, closed = report.markdown.removesuffix(CLOSING), report.markdown.endswith(CLOSING)
@@ -1875,7 +1875,7 @@ class IncidentActivities:
         if not why:
             return slack_summary(markdown)
         # The on-call line was written for a plan to approve; with none, it must not say there is a button
-        # (fs-07, live, 2026-10-15: "approve or deny ... with the button in this message" above "No fix plan").
+        # (never "approve or deny ... with the button in this message" above "No fix plan").
         markdown = markdown.replace(
             "approve or deny the fix plan with the button in this message - or, where there is none, read why "
             "here", "no fix plan could be opened (why below): decide what to do; WARDEN runs nothing here")
@@ -1891,7 +1891,7 @@ class IncidentActivities:
 
     def _connected(self, alert_id: str, diagnosed: Diagnosed) -> None:
         """An earlier fix of WARDEN's that this diagnosis cites as part of the cause is counted as a failed result of that
-        fix, once (owner, 2026-10-15: investigate and link; security review M1: never for an alarm merely starting)."""
+        fix, once - investigated and linked, and never for an alarm merely starting."""
         try:
             steps = [e["body"] for e in self.audit.entries(alert_id, kinds=("incident.own_fixes",))]
         except Exception:  # noqa: BLE001 - nothing to link
@@ -2068,8 +2068,8 @@ class DiscussActivities:
     @activity.defn
     def discuss_extend(self, turn: Any, incident: str) -> dict[str, Any]:
         """An approver's "extend" for the incident's waiting plan (extend.py): how far, or why not. Recorded either way
-        on the discussion's record; an extension also on the incident's, where the plan's run reads it (U3-8). Keyed
-        on the Slack message that asked: retried, it answers as it first did and adds no hours (CodeRabbit, PR 150)."""
+        on the discussion's record; an extension also on the incident's, where the plan's run reads it. Keyed
+        on the Slack message that asked: retried, it answers as it first did and adds no hours."""
         from . import extend
         from .discuss import Turn, hours_asked, said_no
 
@@ -2124,8 +2124,8 @@ class DiscussActivities:
     @activity.defn
     def discuss_facts(self, incident: str) -> str:
         """WARDEN's record of the incident and of the incidents like it - what was done, how it ended, whether it held,
-        the pattern - posted in the thread at once, before the model's answer (owner, 2026-10-15: "the responses from
-        WARDEN in discussions should be immediate ... within 1 or 2 seconds"). No model: facts from the signed record."""
+        the pattern - posted in the thread at once, before the model's answer, so a discussion gets a reply within a
+        second or two. No model: facts from the signed record."""
         from . import history
 
         rp = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
@@ -2155,7 +2155,7 @@ class DiscussActivities:
         try:
             llm = (self.incident.llm_factory or LLMClient)()
         except Exception as exc:  # noqa: BLE001  # a model that cannot be built is no answer: the person is told
-            # Review, PR 47: a prompt not yet qualified refuses the model; the person is told, never left waiting.
+            # A prompt not yet qualified refuses the model; the person is told, never left waiting.
             _note(f"discuss: no model could be used ({type(exc).__name__})")
             fallback(self.audit, key, llm_mod.RULES_ONLY, "discuss")
             return discuss.NO_ANSWER

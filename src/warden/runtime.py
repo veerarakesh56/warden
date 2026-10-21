@@ -125,7 +125,7 @@ ZONE_POLL_FRESH = timedelta(minutes=2)
 
 def heartbeat_zones(zone: str = "core") -> tuple[str, ...]:
     """The zones the core zone's beat vouches for (WARDEN_HEARTBEAT_ZONES, comma-separated); none when unset - a
-    laptop's `--zone all` runs every zone in its own process - and none for any worker but the core zone's. A zone
+    workstation's `--zone all` runs every zone in its own process - and none for any worker but the core zone's. A zone
     WARDEN does not have refuses the worker's start: a beat that checks a queue nobody serves would page for ever,
     and one that skipped it would vouch for nothing."""
     if zone != "core":
@@ -217,7 +217,7 @@ def synthetic() -> str:
     class _Recording(FixtureBackend):
         """The bundled recording, under the day's own incident id. Looked up by that id, it was never found: from
         the first day the synthetic read no evidence at all, passed anyway, and logged three failed reads at every
-        worker start (fs-22 run 2, 2026-10-15)."""
+        worker start."""
 
         def _load(self, alert_id: str) -> dict:
             return super()._load(SYNTHETIC_INCIDENT)
@@ -323,7 +323,7 @@ def worker(client: Client, *, log: audit.AuditLog, policy: approvals.ApproverPol
     return Worker(client, task_queue=task_queue, workflows=[IncidentWorkflow, RemediationWorkflow, ClockWorkflow,
                                                          DiscussWorkflow, AutonomyWorkflow],
                   activities=_activities(log, policy, platform, backend, llm_factory),
-                  # ponytail: one thread per activity; the model call is the slow one (one at a time
+                  # Known limit: one thread per activity; the model call is the slow one (one at a time
                   # is what Claude Max allows anyway).
                   activity_executor=ThreadPoolExecutor(4))
 
@@ -335,7 +335,7 @@ def workers(client: Client, *, zone: str = "all", log: audit.AuditLog, policy: a
             platform: Any = None, backend: Any = None, llm_factory: Any = None) -> list[Worker]:
     """The workers of one trust zone (register S15): `core` - the workflows and the audit's own steps on the main
     queue; `read`, `llm`, `notify`, `act` - only that zone's activities, on its queue, so a zone's process holds only
-    that zone's credentials. `all` runs every zone in one process (a laptop, a test)."""
+    that zone's credentials. `all` runs every zone in one process (a workstation, a test)."""
     acts = _activities(log, policy, platform, backend, llm_factory)
     if zone == "all":
         return [worker(client, log=log, policy=policy, platform=platform, backend=backend, llm_factory=llm_factory),

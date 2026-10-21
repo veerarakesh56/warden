@@ -1,6 +1,6 @@
 """Every mutation in scripts/mutation_check.py must still find its anchor.
 
-The mutation check is slow, so CI does not run it. On 2026-09-27 approval became a digest and the
+The mutation check is slow, so CI does not run it. When approval became a digest, the
 approval-gate mutation's anchor stopped existing, so that mutation silently stopped being tested.
 This fast test runs in CI and fails as soon as any anchor goes stale.
 """
@@ -44,7 +44,7 @@ def test_a_multi_line_anchor_is_found_in_a_crlf_file():
 
 
 def test_an_interrupted_run_stops_its_workers(monkeypatch):
-    """Sixth review: on Ctrl-C the run - in its own session on POSIX - kept its workers going while
+    """On Ctrl-C the run - in its own session on POSIX - kept its workers going while
     the mutated file was restored under them."""
     stopped = []
 

@@ -1,6 +1,6 @@
-"""Datadog as an evidence source beside AWS and Grafana (owner, 2026-10-14: "do both at once grafana datadog" -
-Datadog is the observability tool companies buy most; researched the same day: its full product is a 14-day trial,
-read through scoped application keys - logs_read_data, apm_read, timeseries_query - on the account's own site).
+"""Datadog as an evidence source beside AWS and Grafana. Datadog is the observability tool companies buy most; its
+full product is a 14-day trial, read through scoped application keys - logs_read_data, apm_read, timeseries_query -
+on the account's own site.
 
 What it reads, around the alarm, for the service the alert names: its error logs (Logs Search), its failed spans and
 where they fail downstream (Spans Search - the dependency walk), and a few fixed metrics (timeseries query). Every

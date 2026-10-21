@@ -32,8 +32,7 @@ Nothing here can see a secret no pattern matched.
 
 The check that CAN fail is the outbound gate's G5, which re-runs every pattern on what leaves and
 blocks the message (`tests/test_gate.py`, `tests/test_cli.py`). An earlier re-scan inside `redact()`
-used the sweep's own rule, so it could never fire on a real leak; the second independent review
- found that, and it was removed.
+used the sweep's own rule, so it could never fire on a real leak; a review found that, and it was removed.
 
 ⚠ Honest limit: it is regex-based. Strong against accidental leakage, not a guarantee against a
 determined adversary.
@@ -78,8 +77,8 @@ Three, all found by running it, all now regression tests:
 Three findings:
 
 1. **Confidence came back at 0.85 on all four incidents** — including the one whose evidence is two
-   vague log lines. (That was an earlier run over the then-four bundled incidents; a recorded run on
-   2026-09-06 over five showed the same 0.85 on all.) `P4` escalates below 0.55, so with that model it would never fire. **A model's
+   vague log lines. (That was an earlier run over the then-four bundled incidents; a later recorded run
+   over five showed the same 0.85 on all.) `P4` escalates below 0.55, so with that model it would never fire. **A model's
    self-reported confidence is a token sequence that looks like a measurement.** That is why `P9`
    exists: it counts gathered evidence, which the model cannot influence by sounding sure.
 2. **The live model picked a different action from the mock** on the replica incident. So the eval
@@ -93,7 +92,7 @@ Four independent reviewers each tried to *refute* one claim about the Kubernetes
 was then attacked by a second reviewer; the upheld ones were fixed rather than filed.
 
 - **RBAC was read-only but not *minimal*** — 12 of 16 granted verb/resource pairs had no caller. Cut
-  to the exact five the code makes (six since 2026-09-25, when `list horizontalpodautoscalers` was
+  to the exact five the code made (six since `list horizontalpodautoscalers` was
   added), and CI now asserts the unused verbs (`watch pods`, `get pods`)
   are *denied*, not just that writes are.
 - **The RBAC test passed with `roleRef: cluster-admin`** — it was a grep for the word "delete". Now
@@ -107,12 +106,12 @@ A green test suite proves the tests ran, not that they would notice a real regre
 and the mutation check (which deliberately breaks the code and asserts the suite goes red), are how
 the tests themselves are checked. Mutations have survived twice, and the two cases are different in
 kind. On an earlier run two survived because the mutation *script* was anchored on code since
-rewritten, not because of test holes; they were re-anchored and are now caught. On 2026-09-06 one
+rewritten, not because of test holes; they were re-anchored and are now caught. In a later run one
 survived that **was** a genuine hole in a test: the AST tripwire asserting this module is read-only
 was collecting zero statements out of `database.py` — every adapter hands its SQL to a helper rather
 than to `.execute()` directly — so the test asserted `not []` and had always been green. The checker
 now follows that indirection, two tests pin it, and a full re-run then reported 31 caught, 0 survived (the list has since grown to 35, all
-caught on a run on 2026-09-25).
+caught).
 
 ## 10. What broke while building against a real cluster
 
@@ -134,7 +133,7 @@ Now a `KubernetesBackend` reads pod status, events, log tails and Deployment rev
 **real k3d cluster** on every push, deploys a pod that **really OOM-kills itself**, and asserts
 WARDEN proposes `scale_up` and that `P11-ACTION-CONTRADICTS-EVIDENCE` escalates it (`ESCALATED`) —
 run from **outside** the cluster *and* from **inside** it as a Job under a read-only
-ServiceAccount. Until 2026-09-25, when P11 was added, the asserted verdict was `APPROVED_FOR_HUMAN`.
+ServiceAccount. Before P11 was added, the asserted verdict was `APPROVED_FOR_HUMAN`.
 
 ⭐ **Two bugs only the real cluster could surface:**
 - The "OOM workload" **wasn't OOMing**. busybox `head -c 300M` rejects the `M` suffix; nothing was
@@ -226,8 +225,8 @@ quality, not cost.
   plan as session tags, a session policy naming the plan's exact resources, and AWS's own record of each session held
   to the audit (actor_use.py) - comes from STS and CloudTrail, free and in the account. A company that runs Teleport
   can add it as an adapter; nothing in WARDEN requires it.
-- **Claude Sonnet 5.5, effort high, on the Claude API** (owner, 2026-10-15: only Sonnet 5.5 and Opus 5.5, never
-  Sonnet 5 again). Both measured at effort high on today's code. The 30 recorded incidents (the qualification bar):
+- **Claude Sonnet 5.5, effort high, on the Claude API** (2026-10-15: only Sonnet 5.5 and Opus 5.5 are candidates,
+  not Sonnet 5). Both measured at effort high on today's code. The 30 recorded incidents (the qualification bar):
   Sonnet 5.5 17 correct, none wrong and allowed - qualified; Opus 5.5 15 - below the bar of 17, not qualified. The 172
   held-out cases, re-scored under today's gate: Sonnet 5.5 160 correct, 6 harmful proposals (every one stopped),
   77 right fixes put to a person, 137 right outcomes, $3.15; Opus 5.5 162, 1, 72, 136, $9.00; neither let a harm
@@ -236,7 +235,7 @@ quality, not cost.
   a time, so the qualification check refused it and one incident failed without saying why. It now names Sonnet 5.5,
   the deploy refuses an unqualified model, and a model that cannot be built gives the rules-only diagnosis, said
   plainly.
-- *(Superseded 2026-10-15)* **Claude Sonnet 5 on the Claude API for the cloud window** (owner, 2026-10-09: the owner's API credits; replaces the
+- *(Superseded 2026-10-15)* **Claude Sonnet 5 on the Claude API for the cloud window** (2026-10-09; replaces the
   Gemini choice below). Qualified on the API the same day with the SDK the runtime image ships - 20 of 30 correct,
   none wrong and allowed, every incident answered, $0.48; an earlier run on an older SDK scored 18 (both pass;
   src/warden/data/providers.yaml). Sonnet 5, not the newer Sonnet 5.5, which failed the same bar.
@@ -263,7 +262,7 @@ quality, not cost.
   - The CA is discarded after signing.
   - Roles Anywhere has no additional cost and is available in ap-south-2 (checked 2026-09-28).
   - The operator role only reads (`iam/operator/`).
-- **One AWS account, hardened, for the lab** (owner decision). Separate accounts per environment are
+- **One AWS account, hardened, for the lab.** Separate accounts per environment are
   the production recommendation, and the IaC supports them.
 - **Quarantine keys are filtered word by word, not by an allowlist**.
   The plan said "allowlist". Measured over every recorded run (4,722 distinct untrusted lines), the
@@ -281,7 +280,7 @@ quality, not cost.
 ## 17. Built or adopted, per component (2026-10-03, kept current)
 
 The rule: use a ready-made production tool wherever one does the job; build only where none does, and say
-why. The options were researched live on 2026-10-03 (the research notes are not published).
+why. The options were researched live on 2026-10-03.
 `tests/test_build_or_adopt_r9.py` requires every module in `src/warden/` to be named here.
 
 **Adopted** (WARDEN's code is the wiring around them):
@@ -317,7 +316,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
-- Reading one workflow's encrypted Temporal history: built - `temporal_history.py` (register B36, 2026-10-21). A
+- Reading one workflow's encrypted Temporal history: built - `temporal_history.py` (register B36). A
   Temporal codec server for the web UI cannot decrypt WARDEN's payloads (each is bound to its workflow, which the UI
   does not send) and would be one more holder of the key; the SDK's own history read and WARDEN's own codec, in the
   workflow's context, need neither.
@@ -339,7 +338,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   dependency for those two calls; the ID token comes straight from Slack's token endpoint over TLS, which OpenID
   Connect Core 3.1.3.7 accepts in place of checking its signature.
 - Observability tools beside AWS: built - `datadog.py` (Datadog's Logs and Spans Search and timeseries query, one
-  scoped read-only application key; the live proof, owner's choice 2026-10-14 - the tool companies buy most) and
+  scoped read-only application key; the tool companies buy most) and
   `grafana.py` (LogQL, TraceQL and PromQL - Grafana Cloud, or a company's own Loki, Tempo and Prometheus; tested on
   recorded answers, off unless configured), and `xray.py` (X-Ray's trace summaries with its own root causes, in
   the incident's reader role - the apps' traces sent there with OpenTelemetry). Each is a few reads; their vendors' agents and SDKs write
@@ -352,7 +351,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - WARDEN's records pages: built - `records.py`, two server-rendered pages read from the signed audit, on the
   approval page's own domain, sign-in and Content-Security-Policy. A dashboard product (Grafana, Backstage) would be
   a second service to run and secure, reading a copy of the record; the record already holds every fact.
-- Pilot metrics: built - `pilot.py` (owner item 3, 2026-10-21), the client's weekly numbers counted from audit rows
+- Pilot metrics: built - `pilot.py`, the client's weekly numbers counted from audit rows
   whose hash chain and checkpoint signatures verify, on the command line and as a records page. A BI tool would count
   from an unverified copy of the rows; the counting is a few hundred lines over the record itself.
 - The pages' look: built - `brand.py` (the logo, inline SVG) and the shared style and script in the approval page:
@@ -393,14 +392,14 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   (section 16 records why not OPA or Cedar).
 - The confidence a person reads - `confidence.py`: a level from checks WARDEN can show (grounded, decisive,
   separated, complete reads, a consistent outcome), each a rule over results the verifier already computed; a
-  calibration library would score the model's own number, which is what it must not use (owner U3-1).
+  calibration library would score the model's own number, which is what it must not use.
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
 - Autonomy and the AI critic - `autonomy.py`, `eldane.py`: dev's level is read from
   WARDEN's own signed audit rows (its demotions since a person's signed re-enable), so a feature-flag service would
   be a second, mutable store beside the record. Dev is autonomous through Eldane from the first plan; prod always
   needs a person's passkey. The critic is one call through `providers.py` to the other Claude model from the one
-  that diagnosed the incident (Opus 5.5 or Sonnet 5.5, same key, owner 2026-10-17), whose verdict the code checks
+  that diagnosed the incident (Opus 5.5 or Sonnet 5.5, same key), whose verdict the code checks
   against the evidence ids. One family carries a known self-preference risk; the mitigations - another model per
   incident, a blind first pass, code-checked citations, catch trials that demote at once, a "no" that only adds, a
   person's veto - are in `eldane.py`. No agent framework is needed for either.

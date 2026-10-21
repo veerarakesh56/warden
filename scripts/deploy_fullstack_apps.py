@@ -138,7 +138,7 @@ def missing_dependencies(target: pathlib.Path, python_version: str = LAMBDA_PYTH
 
     ⛔ Why: pip evaluates markers for the interpreter RUNNING it. Built on Python 3.13, psycopg's
     `typing-extensions; python_version < "3.13"` was skipped and both database Lambdas died on import in
-    AWS (Runtime.ImportModuleError, 2026-09-26). This makes that a build failure instead.
+    AWS (Runtime.ImportModuleError). This makes that a build failure instead.
     """
     from importlib.metadata import PathDistribution
 
@@ -250,7 +250,7 @@ _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 def image_by_digest(stack: dict, tag: str, aws) -> str:
-    """The pushed image named by its digest, `<repository>@sha256:...` (owner B26): the repository's tags are mutable
+    """The pushed image named by its digest, `<repository>@sha256:...`: the repository's tags are mutable
     (terraform/fullstack/ecs.tf), so a tag can name other bytes tomorrow; the digest is exactly what was built."""
     repo = stack["ecr_repository_url"]
     found = aws("ecr").describe_images(repositoryName=repo.split("/", 1)[1],
@@ -351,7 +351,7 @@ def cluster_role() -> str:
     return yaml.safe_dump_all([role, *remediation], sort_keys=False)
 
 
-# Datadog's agent on the test cluster (owner, 2026-10-14: Datadog as the observability tool WARDEN reads beside AWS):
+# Datadog's agent on the test cluster (the observability tool WARDEN reads beside AWS):
 # logs from every container, Kubernetes metrics, and APM traces by single-step instrumentation in the shop namespace -
 # no code change in the apps. Chart 3.250.3, released 2026-09-29 (github.com/DataDog/helm-charts), two weeks old when
 # pinned; its values as docs.datadoghq.com documents them for single-step APM (read 2026-10-14).
@@ -361,10 +361,10 @@ DATADOG_SITES = frozenset({"datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.
                            "us2.ddog-gov.com"})
 
 
-# Argo CD (owner, 2026-10-16: GitOps for the cluster - the shop is synced from manifests/ in this repository). The
+# Argo CD (GitOps for the cluster - the shop is synced from manifests/ in this repository). The
 # chart's own package, fetched from the argo-helm release and installed only if its bytes are these: a pinned version
 # number alone would install whatever the repository serves under it. Settings: helm/argo-cd/values.yaml (why each).
-ARGOCD_CHART = "10.10.5"  # Argo CD v3.5.5 (owner B26, 2026-10-17); v3.5.4 fixed the Critical advisories of 2026-10-07
+ARGOCD_CHART = "10.10.5"  # Argo CD v3.5.5; v3.5.4 fixed the Critical advisories of 2026-10-07
 ARGOCD_CHART_URL = f"https://github.com/argoproj/argo-helm/releases/download/argo-cd-{ARGOCD_CHART}/argo-cd-{ARGOCD_CHART}.tgz"
 ARGOCD_CHART_SHA256 = "ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a"
 ARGOCD_VALUES = ROOT / "helm" / "argo-cd" / "values.yaml"
@@ -395,7 +395,7 @@ def deploy_argocd(kubeconfig: str, out: pathlib.Path, run=run) -> None:
 
 def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
     """Install Datadog's agent before the apps roll out, so their pods start traced. Its API key is the persistent
-    secret `warden-<env>-datadog-api-key` (pasted once by the owner; never in Terraform state), its site the plain
+    secret `warden-<env>-datadog-api-key` (pasted once by the operator; never in Terraform state), its site the plain
     setting `/warden/<env>/tf/datadog_site` (the deploy role reads that path alone). Neither set: nothing is installed, and it says so."""
     import base64
 
@@ -427,7 +427,7 @@ def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
          "--set", "datadog.otlp.receiver.protocols.grpc.enabled=true",
          "--set", "datadog.otlp.receiver.protocols.grpc.endpoint=0.0.0.0:4317",
          # The apps' OpenTelemetry logs too, with their severity: the apps log to stdout, which Datadog files as info,
-         # so without these no log is ever status:error (both checked against chart 3.250.3's values, 2026-10-14).
+         # so without these no log is ever status:error (both checked against chart 3.250.3's values).
          "--set", "datadog.otlp.logs.enabled=true"])
     return True
 
@@ -440,10 +440,10 @@ DATADOG_EXPORTER = "otlp/datadog"  # the collector exporter that hands traces, m
 
 def otel_config(region: str, *, datadog: bool = False) -> dict:
     """The collector's configuration for the tools that are set up: Datadog when its agent is on the cluster, else
-    X-Ray (traces, by the pod's IAM role). No Grafana (owner, 2026-10-16: Datadog only).
+    X-Ray (traces, by the pod's IAM role). No Grafana: Datadog only.
 
-    Not both (cost plan, 2026-10-17: the owner's last ~USD 104 of credits): with Datadog on, the X-Ray copy cost about
-    USD 8.5 a month in stored traces (USD 3 more of Application Signals, expected to stop with them), and nothing read it - the runtime's
+    Not both, for cost: with Datadog on, the X-Ray copy cost about USD 8.5 a month in stored traces (USD 3 more of
+    Application Signals, expected to stop with them), and nothing read it - the runtime's
     WARDEN_EVIDENCE_TOOLS names datadog and github, which leaves X-Ray's reader out (tools.evidence_tools). The X-Ray
     arm of scripts/compare_evidence.py needs the apps deployed without Datadog."""
     exporters: dict = {} if datadog else {"awsxray": {"region": region}}
@@ -598,7 +598,7 @@ _DB_USER = re.compile(r"warden_[a-z0-9_]{1,40}_(?:app|catalog|ro|terminate)")
 
 
 def db_users(stack: dict) -> dict[str, str]:
-    """The environment's database users from stack.json (Terraform's `db_users`; audit A-I-2), each checked to
+    """The environment's database users from stack.json (Terraform's `db_users`), each checked to
     be a plain identifier before it goes into SQL or a manifest."""
     users = stack.get("db_users")
     if not isinstance(users, dict) or set(users) != {"app", "catalog", "ro", "terminate"}:
@@ -659,7 +659,7 @@ def _checked_paths(out_arg: pathlib.Path, stack_arg: pathlib.Path | None) -> tup
     """(--out, --stack) as checked paths."""
     # --out and --stack come from the command line, and deploy ecs writes stack.json back: each must lie where the
     # tools work - ~/warden-fullstack-build, the temp folder (RUNNER_TEMP in CI) or the working directory
-    # (warden.paths; Sonar pythonsecurity:S2083, 2026-10-17). Both are used through the checked path only.
+    # (warden.paths; Sonar pythonsecurity:S2083). Both are used through the checked path only.
     try:
         out = paths.inside(out_arg)
         # The default is checked too: a stack.json in --out that links elsewhere is refused.

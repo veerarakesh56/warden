@@ -39,7 +39,7 @@ _CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----\r?\n([A-Za-z0-9+/=\r\n]+
 
 
 def _x509(body: str) -> bool:
-    """`body` (a PEM block's base64) decodes to one X.509 certificate OpenSSL parses (review, PR 48: `AA==` is base64,
+    """`body` (a PEM block's base64) decodes to one X.509 certificate OpenSSL parses (`AA==` is base64,
     not a certificate). Loaded into a throwaway trust store - the same parser verify-full's trust store uses."""
     import base64
     import ssl
@@ -54,8 +54,8 @@ def _x509(body: str) -> bool:
 
 def only_certificates(text: str) -> bool:
     """`text` is one or more complete CERTIFICATE blocks - each with its END line and a body that parses as an X.509
-    certificate - and nothing after them but whitespace (review, PR 48: a lone BEGIN line or text after a block
-    passed). Plain text before the first block, which RFC 7468 allows and PEM readers skip, is the bundle's
+    certificate - and nothing after them but whitespace (a lone BEGIN line or text after a block
+    must not pass). Plain text before the first block, which RFC 7468 allows and PEM readers skip, is the bundle's
     provenance; it holds no `-----`."""
     start = text.find("-----")
     if start < 0:

@@ -1,5 +1,5 @@
-"""The people asked to approve a plan are told how it went (register G10-24; the owner's first live approvals,
-2026-10-12). One approved fix was refused by AWS, one was applied and verified, one plan was never opened because an
+"""The people asked to approve a plan are told how it went (register G10-24; the first live approvals). One approved
+fix was refused by AWS, one was applied and verified, one plan was never opened because an
 earlier one on the same resource was still being watched - and after "waiting for an approval" Slack said nothing.
 
 Now: a verified fix and every end of a run are said, from the run's own signed end row; a report that held a fix for
@@ -215,7 +215,7 @@ def test_each_told_end_is_a_sentence_a_person_can_act_on(status):
 
 
 def test_the_page_tells_someone_it_was_not_made_for_that_they_cannot_approve(page_setup):  # noqa: F811
-    """Owner, 2026-10-12: "anyone who has access to that Slack can do that, right?" - no, and the page now says so."""
+    """Not anyone with access to the Slack channel can approve - and the page says so."""
     page, _, _, _ = page_setup
     token = page.new_link("rem-dev-1", "owner")
     shell = page.handle("GET", f"/a/{token}").body
@@ -239,7 +239,7 @@ def test_who_approved_is_read_from_the_record_and_nothing_is_claimed_without_one
 
 
 def test_a_confirmed_approver_is_shown_by_name_and_who_saw_the_plan_is_on_the_record(page_setup, tmp_path):  # noqa: F811
-    """Owner, 2026-10-12: once the passkey has said who it is, the page should give the name - and who looked at,
+    """Once the passkey has said who it is, the page should give the name - and who looked at,
     approved or denied a plan should be on the record."""
     import dataclasses
 
@@ -319,7 +319,7 @@ def test_the_aws_platform_marks_its_own_refusal_of_an_undo_and_not_awss():
 
 
 def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(world, owner, sink, monkeypatch):  # noqa: F811
-    """2026-10-12: a message names the approver with an @-mention, so people can see in Slack who that person is."""
+    """A message names the approver with an @-mention, so people can see in Slack who that person is."""
     from warden import chatops
 
     member = "U" + "0" * 3 + "ABCDEFG"  # a placeholder id, built from parts
@@ -333,7 +333,7 @@ def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(worl
     assert out.status == "recovered", [r.people for r in seen]
     assert all(r.people == (row,) for r in seen), [r.people for r in seen]
     # A reader outside Slack gets the person's name where the sentence names them - never the list's id for them
-    # (owner, 2026-10-12: "don't use owner at all anywhere ... it feels unprofessional").
+    # (a list id such as "owner" reads badly in a message).
     # Approved and fixed are kept for the records page (G10-46), named the same way as any reader but Slack.
     told = recorded(world["log"])
     assert len(sink.texts) == 1
@@ -360,8 +360,7 @@ def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(worl
 
 
 def test_the_slack_sinks_name_the_approver_where_the_sentence_does_and_nowhere_else(monkeypatch):
-    """Owner, 2026-10-12, reading a live message: it said "approved by owner" and the mention stood alone under the
-    footer - "name owner things are not right in place"."""
+    """A live message once said "approved by owner" and the mention stood alone under the footer."""
     from warden import chatops
 
     member, posted = "W" + "A1B2C3D4", []
@@ -393,7 +392,7 @@ def test_the_slack_sinks_name_the_approver_where_the_sentence_does_and_nowhere_e
 
 @pytest.mark.parametrize("typed", ["not now", ""])
 def test_a_denial_says_who_denied_how_and_when_as_an_approval_does(world, sink, typed):  # noqa: F811
-    """2026-10-14: a denial must say who denied, how and when, as an approval does. The message read
+    """A denial must say who denied, how and when, as an approval does. The message read
     "was denied: nothing was changed. Why: denied by owner"."""
     import re
 

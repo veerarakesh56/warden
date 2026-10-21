@@ -137,8 +137,8 @@ def _estimate_tokens(text: str) -> int:
 
 # Register M15: an alias - `sonnet`, `opus`, `*-latest`, ollama's `:latest` - moves when the vendor ships a new model,
 # so the same WARDEN, unchanged, diagnosed with a different model from one day to the next. Only an exact id is
-# accepted. Verified 2026-10-02 on the Claude models page: every Claude API id is a pinned snapshot, the dateless
-# ones from the 4.6 generation on included; the CLI's `sonnet` resolved to claude-sonnet-5-5 that day - a model that
+# accepted. Per the Claude models page (read 2026-10-02), every Claude API id is a pinned snapshot, the dateless
+# ones from the 4.6 generation on included; the CLI's `sonnet` alias resolved to claude-sonnet-5-5 then - a model that
 # then failed WARDEN's replay qualification (register M20), which is the drift this refuses.
 _FLOATING = re.compile(r"(?i)^(?:sonnet|opus|haiku|fable|default|best|opusplan)(?:\[1m\])?$|[-:]latest$")
 
@@ -187,7 +187,7 @@ def call_timeout_s(provider: Any = None) -> float:
 
 
 # Room for the whole answer: at 1500 one incident's answer was cut off three times in a row, and at 4096
-# a cloud incident's (warden-dev-orders-age, 2026-10-14 20:39 UTC) - it went to a person with no diagnosis. Claude's
+# a cloud incident's - it went to a person with no diagnosis. Claude's
 # 5.5 models think before they answer (adaptive thinking, on by default) and the thinking counts against this cap:
 # 16384 leaves room for both. Output is charged as used, and the incident's USD cap (llm.py) still stops
 # the run.
@@ -233,7 +233,7 @@ class AnthropicProvider:
         # Thinking blocks are the model's working, never its answer: only text is read.
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         # A cut-off answer read as "invalid JSON" three times, and the incident went to a person as "model
-        # unavailable" (qualification 2026-10-10, ecs-07, at 1500 tokens). Returned flagged: the client charges it and
+        # unavailable" (qualification case ecs-07, at 1500 tokens). Returned flagged: the client charges it and
         # says so, never asking again for the same cut-off. A refusal is an HTTP 200 too, and is flagged the same way.
         stop = getattr(resp, "stop_reason", None)
         return Completion(text, resp.usage.input_tokens, resp.usage.output_tokens, cut_off=stop in CUT_OFF_STOPS,
@@ -401,7 +401,7 @@ def _cli_failure(code: int, text: str, stderr: str | None, result: dict[str, Any
     used to report stderr only. So when the limit was hit mid-wave every failure read `claude CLI exited 1:` followed
     by nothing at all, and the one fact that explained five ERROR rows had been thrown away. As JSON, the reason is the
     result's text, which comes last in the object: the first 400 characters of the JSON never held it."""
-    # Every check reads the whole of both streams; only the message is cut (PR 65 review: a reason past the first 400
+    # Every check reads the whole of both streams; only the message is cut (a reason past the first 400
     # characters - the usage limit after a long stderr - was not recognised).
     full = " | ".join(part.strip() for part in (text, stderr) if part and part.strip())
     detail = full[:400]
@@ -409,7 +409,7 @@ def _cli_failure(code: int, text: str, stderr: str | None, result: dict[str, Any
         return ProviderExhausted(f"claude CLI usage limit: {detail}")
     error = ProviderError(f"claude CLI exited {code}: {detail or '(no output)'}")
     # What the CLI says of the API, so a Claude outage reads as one: an error status is not billed, and a connection
-    # that never opened sent nothing (ninth review - neither is carried to the next run).
+    # that never opened sent nothing (neither is carried to the next run).
     status = result.get("api_error_status") if result else None
     if not isinstance(status, int):
         api = _CLI_API_ERROR.search(full)
@@ -489,12 +489,12 @@ class ClaudeCliProvider:
     # XDG_CONFIG_HOME are never passed. What keeps the operator's CLAUDE.md, hooks, skills and modes
     # out of the model is the flags in complete() - no setting sources, no tools, no MCP servers -
     # not the environment: the CLI finds the home directory without HOME/USERPROFILE (Node falls back
-    # to the OS profile), which is why stripping them "did not hide it" (found 2026-09-26).
+    # to the OS profile), which is why stripping them "did not hide it".
     #
-    # History (A-C-19, decided 2026-09-30 on evidence; owner: "whichever is best"). HOME/USERPROFILE
-    # were stripped after a 2026-09 measurement: with USERPROFILE set a run loaded the operator's
+    # History (decided on evidence). HOME/USERPROFILE
+    # were stripped after an earlier measurement: with USERPROFILE set a run loaded the operator's
     # configuration (26 s and a refusal vs 11 s and clean JSON). That measurement predates the
-    # isolation flags. Re-measured 2026-09-30 through this provider, same prompt, both ways: no
+    # isolation flags. Re-measured through this provider, same prompt, both ways: no
     # instructions loaded either way, 6.8 s vs 7.1 s. Stripping them now isolates nothing and can
     # break the CLI where the home directory is not otherwise resolvable (a minimal container whose
     # user has no passwd entry), so they pass. tests/test_claude_cli_provider.py pins the flags.
@@ -502,7 +502,7 @@ class ClaudeCliProvider:
     # ⛔ An ALLOWLIST, not a denylist. The child is a model: it gets only what a process needs to start,
     # find its home and temp directories, and authenticate. WARDEN's own environment holds cloud
     # credentials, database DSNs and a kubeconfig (the harness puts them there for the evidence
-    # readers); a denylist let every one of them into the model's process (found 2026-09-27).
+    # readers); a denylist let every one of them into the model's process.
     #
     # - Proxy and CA-bundle variables: behind a corporate proxy or a private CA the CLI
     #   could not reach its API at all.
@@ -529,10 +529,10 @@ class ClaudeCliProvider:
             "--model", self.model,
             "--system-prompt", system,
             "--disallowed-tools", *self._NO_TOOLS,
-            # ⛔ The deny list alone left 25 tools callable on the owner's machine (Skill, Workflow,
+            # ⛔ The deny list alone left 25 tools callable on an operator's machine (Skill, Workflow,
             # CronCreate, the claude.ai Docs MCP *write* tools...) and still loaded the operator's
             # CLAUDE.md, hooks and skills - the CLI finds the profile without HOME/USERPROFILE, so
-            # stripping env did not hide it (found 2026-09-26 building Helios's copy of this
+            # stripping env did not hide it (found building Helios's copy of this
             # provider). An empty tool list, no MCP servers and no setting sources close all three.
             "--tools", "",
             "--strict-mcp-config",
@@ -542,7 +542,7 @@ class ClaudeCliProvider:
             "--no-session-persistence",
             # The result as JSON, so WHY the answer ended is read, not guessed: its stop_reason says "refusal" when the
             # model declined and "max_tokens" when it was cut off (Agent SDK docs, "Handle the result", read
-            # 2026-10-17; checked against CLI 2.1.302 that day). Plain text hid both behind an answer that only failed
+            # 2026-10-17; checked against CLI 2.1.302). Plain text hid both behind an answer that only failed
             # to parse (B11).
             "--output-format", "json",
         ]
@@ -709,7 +709,7 @@ _REGISTRY = {
     "ollama": OpenAICompatProvider,
 }
 
-# ⛔ Audit A-C-18: OPENAI_API_KEY used to go to whichever host the client pointed at - Groq,
+# ⛔ OPENAI_API_KEY used to go to whichever host the client pointed at - Groq,
 # OpenRouter, or any custom WARDEN_BASE_URL. A key is a credential for ONE vendor; each host reads
 # its own variable, and only a loopback host needs none.
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"

@@ -1,6 +1,6 @@
 name: "Deploy · prod"
 
-# The prod environment, by hand, from the branch prod only (Use workflow from: prod; owner, 2026-10-16). infra: plan,
+# The prod environment, by hand, from the branch prod only (Use workflow from: prod). infra: plan,
 # apply or destroy the full stack. apps: deploy the code that runs on it. The steps are shared (_infra-*.yml,
 # _apps-*.yml); this file only names the environment and the branch it is promoted from (`upstream`) -
 # tests/test_ci_lanes.py keeps the deploy files identical apart from those two names.

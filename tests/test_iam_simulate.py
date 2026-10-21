@@ -1,4 +1,4 @@
-"""Research 2026-10-15, item 9: an AccessDenied in the evidence, checked against the role's own policies with the IAM
+"""An AccessDenied in the evidence, checked against the role's own policies with the IAM
 policy simulator - only for a role the trusted configuration names (a TASKROLE line) in the incident's environment."""
 
 from __future__ import annotations

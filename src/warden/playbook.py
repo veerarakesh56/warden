@@ -266,7 +266,7 @@ def _db_long_query(ctx: ContextBundle) -> list[Pattern]:
             "migration, a backfill) or a runaway (a missing index, a bad plan) - WARDEN cannot tell which.",
             oncall=[("Do NOT terminate it until its owner is known: it is doing work, and terminating "
                     "loses that work. Check who runs it (user, application in the evidence)."),
-                    # WARDEN never changes a schema (owner decision 2026-09-27), and the table and column come
+                    # WARDEN never changes a schema, and the table and column come
                     # from query TEXT, which whoever issues the query controls: a hint for a DBA, never more.
                     ("WARDEN never changes a schema. "
                      + (f"The query filters by {index_hint(long_line)}: a DBA decides whether an index helps."
@@ -592,7 +592,7 @@ def _db_host(ctx: ContextBundle, fn: str, cluster: str, instances: list[str]) ->
     _, values = _env(_config(ctx, fn))
     for var, val in (values or {}).items():
         # The whole value an RDS hostname, not one that merely contains the suffix: `....rds.amazonaws.com.evil.example`
-        # made the advice point the database at another domain (CodeQL, 2026-10-02).
+        # would make the advice point the database at another domain (CodeQL).
         new = _writer_host(val, cluster, instances) if _RDS_HOST.fullmatch(val) else None
         if new:
             return f"{var} is `{val}`, not the cluster writer endpoint `{new}`."
@@ -935,7 +935,7 @@ def _cache_memory(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     mem = max((v for _, v in _per(m, "redis_memory_pct")), default=0.0)
     if ev > 0 or mem >= 90:
         group = labels.get("elasticache", "")
-        # ⛔ Audit A-C-14: the node type comes only from WARDEN's own REPLGROUP read, never from any
+        # ⛔ The node type comes only from WARDEN's own REPLGROUP read, never from any
         # line that mentions one - an application can log `node_type=` too.
         rg = _first(ctx, f"REPLGROUP {group} ") if group else None
         nt = _kv(rg).get("node_type") if rg else None
@@ -1036,7 +1036,7 @@ def _lb_health_check(ctx: ContextBundle) -> list[Pattern]:
         tg = tgt.split()[1]
         tgl = _first(ctx, f"TARGETGROUP {tg} ")
         bad = _kv(tgl).get("health_path") if tgl else None
-        # ⛔ Audit A-C-14: the working path used to be read from the application's access log, which
+        # ⛔ The working path used to be read from the application's access log, which
         # any client writes by requesting a path. It is restored from where it is declared.
         _add(out, "lb_health_check", "Load balancer health check failing", tgt,
             "Targets fail the target group's health check with an unexpected status code: the check's path or "
@@ -1115,7 +1115,7 @@ def _schedule_off(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     if rule or off:
         _add(out, "schedule_off", "Scheduled rule disabled", rule or "rule_enabled = 0",
             "The EventBridge rule is disabled, so its target is never invoked.",
-            # Not where the alert IS such an alarm (live, 2026-10-12: the follow-up asked for the alarm that fired).
+            # Not where the alert IS such an alarm (the follow-up would ask for the alarm that fired).
             platform=[] if alert.labels.get("alarm") else [
                 "Alarm on the target's Invocations dropping to zero for scheduled work."])
     return out

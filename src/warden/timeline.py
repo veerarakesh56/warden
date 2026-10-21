@@ -118,7 +118,7 @@ def with_evidence(changes: list[dict], logs: list[str], alert: Any) -> list[dict
 def section(changes: list[dict], unread: list[str]) -> str:
     """The report's section: suspects, not causes. Every entry is WARDEN's own read (the platform's CloudTrail lookup,
     or a CHANGE line only WARDEN's readers write); a resource or principal name in one is still someone else's word,
-    so a command in it is withheld as in the model's prose (G4, review PR 47)."""
+    so a command in it is withheld as in the model's prose (G4)."""
     from .gate import withhold_commands
 
     if not changes and not unread:
@@ -134,7 +134,7 @@ def section(changes: list[dict], unread: list[str]) -> str:
 
 
 # ------------------------------------------------------------------ what changed in the code (register G10-55)
-# Owner, 2026-10-14: what WARDEN misses outside AWS - the code change behind a deploy. For each commit a deploy near
+# What WARDEN would miss outside AWS - the code change behind a deploy. For each commit a deploy near
 # the alarm carries (an image tag, a deployment's sha), the files it changed and its message, from GitHub. The message
 # and the file names are written by people: untrusted lines (GITHUB ...), redacted and quarantined like any log.
 # A commit id: 7 to 40 hex characters with at least one letter - never all digits, so an AWS account id (12 digits, in

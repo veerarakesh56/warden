@@ -142,9 +142,9 @@ class _Postgres:
         ]
         return lines + cls._unageable(conn)
 
-    # Research 2026-10-15, item 8: the database and its roles as the server itself lists them. On 2026-10-14 the
-    # real cause - the application's database and roles had never been created - was in no evidence item: WARDEN
-    # read sessions and counts, never whether what the application connects to exists. Names come from the
+    # The database and its roles as the server itself lists them. Without them, a real cause - the application's
+    # database and roles never created - is in no evidence item: WARDEN would read sessions and counts, never whether
+    # what the application connects to exists. Names come from the
     # server's catalog, never from a log line, and only plain identifiers are shown.
     _NAME = re.compile(r"[A-Za-z0-9_.-]{1,63}")
     ACCESS_LIMIT = 20
@@ -520,8 +520,8 @@ class DatabaseBackend:
 
     @contextlib.contextmanager
     def _resolve(self, alert: Alert):
-        """The adapter and a connection, closed after the read when this opened it (audit A-B-L7: every read opened a
-        connection and left it open - the very pool exhaustion WARDEN is asked to diagnose)."""
+        """The adapter and a connection, closed after the read when this opened it (else every read opens a
+        connection and leaves it open - the very pool exhaustion WARDEN is asked to diagnose)."""
         # An injected connection needs no DSN — it is already open, and demanding credentials for a
         # connection somebody else supplied (a pool, a test) would be a pointless failure. It is the caller's.
         if self._injected is not None:

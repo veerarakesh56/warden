@@ -1,4 +1,4 @@
-"""Per-incident AWS sessions (decision D14, audit A-P-5): who approved a change travels with the credentials
+"""Per-incident AWS sessions (decision D14): who approved a change travels with the credentials
 that make it.
 
 `actor_session` assumes an environment's actor role for one approved plan: at most 900 s, SourceIdentity the
@@ -32,8 +32,8 @@ class IdentityError(ValueError):
 
 def correlation(incident: str) -> str:
     """The one name an incident goes by in AWS: `inc-<id>`. The watched environments' roles trust that SourceIdentity
-    and no other (iam/templates/*-trust.json), and the audit's own id may come without the prefix - the bare id was
-    refused for the reader on 2026-10-09 and for the actor, at the first live apply, on 2026-10-12."""
+    and no other (iam/templates/*-trust.json), and the audit's own id may come without the prefix - the bare id is
+    refused for both the reader and the actor."""
     return (incident if incident.startswith("inc-") else f"inc-{incident}")[:64]
 
 
@@ -72,7 +72,7 @@ def actor_session(sts: Any, *, role_arn: str, incident: str, plan_hash: str, app
                   actions: Sequence[str], resources: Sequence[str],
                   condition: dict[str, Any] | None = None,
                   also: Sequence[tuple[Sequence[str], Sequence[str]]] = ()) -> dict[str, str]:
-    """Credentials for one approved plan, naming who approved it (register A-P-5)."""
+    """Credentials for one approved plan, naming who approved it."""
     if not approvers:
         raise IdentityError("an actor session is minted only for a plan someone approved")
     who = "+".join(sorted(set(approvers)))

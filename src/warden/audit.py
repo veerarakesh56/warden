@@ -179,8 +179,8 @@ class _Rows:
 class _Store:
     """The few statements the log runs, on SQLite (a file) or PostgreSQL (a `postgresql://` DSN). One connection, used
     by every activity thread of a worker: each statement and each transaction holds the lock, so no thread's read
-    lands inside another's BEGIN ... COMMIT (2026-10-15: "cannot rollback - no transaction is active" and "bad
-    parameter or other API misuse" failed a workflow test twice in CI)."""
+    lands inside another's BEGIN ... COMMIT (else "cannot rollback - no transaction is active" and "bad
+    parameter or other API misuse" fail workflows)."""
 
     def __init__(self, target: str | pathlib.Path) -> None:
         self._lock = threading.RLock()
@@ -252,7 +252,7 @@ ANCHOR_RETENTION = timedelta(days=1)
 def short(digest: str) -> str:
     """A hash as a person sees it, in a footer, on a record page or in `warden audit show`: its first 16 hex characters - longer when
     those are all digits, up to the first letter. Sixteen digits read as a phone or card number to redaction and
-    the outbound gate, which then blocked the whole message (about one hash in 2,000; CI, 2026-10-03)."""
+    the outbound gate, which then blocked the whole message (about one hash in 2,000)."""
     end = 16
     while end < len(digest) and digest[:end].isdigit():
         end += 1
@@ -372,8 +372,8 @@ class AuditLog:
     def intact(self, seqs: Any) -> set[int]:
         """The rows among `seqs` whose stored hash is their own content's, which link to the row before them, and
         which a signed checkpoint already covers: facts a later diagnosis is shown were not written or changed after
-        the fact (research 2026-10-15: a memory read must verify where it came from; `history.plans` read rows
-        without checking). ponytail: two rows read per seq and the checkpoint's signature not re-checked here - the
+        the fact (a memory read must verify where it came from; `history.plans` read rows
+        without checking). Known limit: two rows read per seq and the checkpoint's signature not re-checked here - the
         whole chain and every signature is `warden audit verify`."""
         want = sorted({int(s) for s in seqs if isinstance(s, int) and s > 0})
         if not want:
@@ -573,8 +573,8 @@ def _create(real: pathlib.Path, data: bytes, mode: int) -> None:
 
 def write_private_key(path: pathlib.Path, pem: bytes, base: pathlib.Path | None = None) -> None:
     """Create `path` holding `pem`, inside `base` (default: the key folder): never over an existing file, and never
-    readable by others for an instant (2026-10-16: write_bytes then chmod left a window, and replaced a key a racing
-    writer had just made). On POSIX the file is created mode 0600. Windows ignores the mode (beyond the read-only flag);
+    readable by others for an instant (write_bytes then chmod leaves a window, and replaces a key a racing
+    writer has just made). On POSIX the file is created mode 0600. Windows ignores the mode (beyond the read-only flag);
     what keeps other accounts out is the folder's ACL - under the user's profile (%USERPROFILE%) only that user, SYSTEM
     and Administrators can read - and, for a key encrypted with a passphrase, the passphrase."""
     _create(key_path(path, base), pem, 0o600)

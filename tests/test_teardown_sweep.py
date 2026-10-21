@@ -301,7 +301,7 @@ def test_a_free_orphan_is_reported_without_failing_the_sweep():
 
 
 def test_a_listing_that_fails_is_never_clean():
-    """Audit A-B-M19: a failed EC2 listing read as an empty one, and the sweep said "clean" for what it never saw."""
+    """A failed EC2 listing read as an empty one, and the sweep said "clean" for what it never saw."""
     class Denied(FakeEc2):
         def describe_nat_gateways(self, **_):
             raise PermissionError("AccessDenied")

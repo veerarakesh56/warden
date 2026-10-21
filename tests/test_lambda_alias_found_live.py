@@ -1,4 +1,4 @@
-"""fs-01, live, 2026-10-15: the checkout function's Errors alarm names the function only (FunctionName). The diagnosis
+"""Scenario fs-01, live: the checkout function's Errors alarm names the function only (FunctionName). The diagnosis
 was right - version 4, now live, broke it - and proposed rollback_deploy, but no plan was opened: "the alarm names no
 Lambda alias to move". The function's own aliases are now read live: exactly one is the one moved back (to the version
 that served before, as ever); more than one, and WARDEN does not choose."""

@@ -9,7 +9,7 @@ day-two operations are in [OPERATIONS.md](OPERATIONS.md), and what to do when WA
 | What | How | Details |
 |---|---|---|
 | Try it with no cloud and no key | `WARDEN_MOCK=1 warden demo --verbose` (five recorded incidents, a mock model) | README.md, "Quick start" |
-| The workflows on a laptop | a local Temporal server, `WARDEN_MOCK=1 warden worker`, then `warden intake event.json` | README.md, "Run the workflows locally" |
+| The workflows on a workstation | a local Temporal server, `WARDEN_MOCK=1 warden worker`, then `warden intake event.json` | README.md, "Run the workflows locally" |
 | Set it up in your own AWS and GitHub | roles, environments, secrets, Temporal Cloud, Slack | [SETUP.md](SETUP.md) |
 | WARDEN's cloud runtime (`ops`) | Actions -> *Runtime · ops* -> `image`, `plan`, `apply`, `restart`, `pause` or `resume` | `.github/workflows/runtime.yml`; [OPERATIONS.md](OPERATIONS.md), "Pause and resume" |
 | The dev full-stack lab | Actions -> *Deploy · dev* -> `part: infra`, `infra_action: pause` or `resume` | [OPERATIONS.md](OPERATIONS.md); [FULLSTACK-LAB.md](FULLSTACK-LAB.md) |
@@ -43,7 +43,7 @@ re-enables it with `warden autonomy enable` ([OPERATIONS.md](OPERATIONS.md), "De
 ## Known limitations
 
 - **Production is rules-only until a model is qualified again on the pinned prompt.** The diagnosis prompt pinned in
-  `src/warden/data/providers.yaml` (`prompt.sha`) is marked "NOT YET QUALIFIED". It already includes PR #132's changes
+  `src/warden/data/providers.yaml` (`prompt.sha`) is marked "NOT YET QUALIFIED". It already includes the retry-feedback changes
   (merged): a typed outcome, tagged sections, and a retry that names the failed fields. Every `qualified` row was
   measured on an earlier prompt, and a row counts only for the prompt it was measured with (`src/warden/providers.py`
   `qualified()`). So every model is refused, and each incident gets the rules-only diagnosis and goes to a person with

@@ -27,7 +27,7 @@ It is a reference build, measured honestly, not a product to adopt as-is (README
 | Approvers (the approver list) | decide T1/T2/T3 plans in their environments; reset the kill switch; re-enable dev autonomy after a demotion | approval page; `warden killswitch`, `warden autonomy` ([OPERATIONS.md](OPERATIONS.md)) |
 | Anyone on the team | asks WARDEN about an incident in the discussion channel; WARDEN changes nothing from there | [OPERATIONS.md](OPERATIONS.md), "Talking to WARDEN about an incident in Slack" |
 | Eldane, the AI critic | reviews every plan; in dev approves T1/T2 plans alone (L2), always labelled an AI; never acts in prod | `src/warden/eldane.py`, `src/warden/autonomy.py` |
-| The operator (the owner) | deploys, pauses and resumes, rotates keys, runs the fault lab, and starts paid qualification (`providers.yaml`: in the cloud runtime) | [OPERATIONS.md](OPERATIONS.md), [SETUP.md](SETUP.md), [FULLSTACK-LAB.md](FULLSTACK-LAB.md) |
+| The operator | deploys, pauses and resumes, rotates keys, runs the fault lab, and starts paid qualification (`providers.yaml`: in the cloud runtime) | [OPERATIONS.md](OPERATIONS.md), [SETUP.md](SETUP.md), [FULLSTACK-LAB.md](FULLSTACK-LAB.md) |
 
 ## Success criteria
 

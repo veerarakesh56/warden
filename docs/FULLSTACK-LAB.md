@@ -26,13 +26,13 @@ and every resource is tagged `Project=warden` and `Environment=<env>`. A workspa
 
 | Component | Shape |
 |---|---|
-| Network | one VPC over two availability zones; private subnets for everything except the NAT gateway; one NAT gateway; free gateway endpoints for S3 and DynamoDB; no interface endpoints (Secrets Manager and SQS calls go through the NAT, since 2026-10-16) |
+| Network | one VPC over two availability zones; private subnets for everything except the NAT gateway; one NAT gateway; free gateway endpoints for S3 and DynamoDB; no interface endpoints (Secrets Manager and SQS calls go through the NAT) |
 | Lambda | `checkout` (the API, alias `live`), `order-processor` (SQS consumer, in the VPC, writes to Aurora), `notifier`, `reconciler` (every 5 minutes, in the VPC, reads Aurora and Redis), `traffic` (a load generator, every minute), `ops` (harness-only admin commands for Redis) |
 | API Gateway | an HTTP API: `POST /checkout` (bearer token, from Secrets Manager) and `GET /health`, with access logs |
 | ECS | `orders-api` on Fargate (2 tasks) behind an **internal** ALB |
-| EKS | one cluster, a managed node group of 1 x m7i-flex.large (min 1, max 2; two, one per zone, before the 2026-10-17 cost plan); namespace `shop` with `catalog-api` (2 replicas, HPA 2-4) and `cart-worker` |
+| EKS | one cluster, a managed node group of 1 x m7i-flex.large (min 1, max 2; production shape is two, one per zone); namespace `shop` with `catalog-api` (2 replicas, HPA 2-4) and `cart-worker` |
 | Aurora PostgreSQL | Serverless v2 in express configuration, 0.5-2 ACU, a writer and a reader; IAM database authentication only, so **no database password exists** |
-| ElastiCache Redis | one node, `cache.t4g.micro` (a primary and one replica before the 2026-10-17 cost plan) |
+| ElastiCache Redis | one node, `cache.t4g.micro` (production shape is a primary and one replica) |
 | DynamoDB | `carts`, provisioned 5 RCU / 5 WCU with no autoscaling, so a capacity fault stays a capacity fault; point-in-time recovery on (any second of the last 35 days can be restored), deletion protection off so the stack can be destroyed on purpose |
 | SQS / SNS | `orders` and `notifications` queues, each with a dead-letter queue; topic `order-events` |
 | Secrets Manager | connection **metadata** for the app's database user (no password), the API token |
@@ -219,20 +219,20 @@ only shows later (a dead-letter queue fills after three receives; a rollout stal
 keeps a quiet gap longer than WARDEN's evidence windows, so one fault's evidence cannot leak into the next.
 
 **The harness applies no fix.** It used to run the fix commands an approved report printed, through an
-allow-list. A security review on 2026-09-27 found the allow-list could be bypassed (the AWS CLI accepts
+allow-list. A security review found the allow-list could be bypassed (the AWS CLI accepts
 abbreviated flags, so `--prof admin` ran as another profile), and the capability was removed rather than
-patched. Since 2026-10-16 the report prints no command at all: a fix is a typed plan from WARDEN's catalogue,
+patched. The report prints no command at all: a fix is a typed plan from WARDEN's catalogue,
 applied by WARDEN's own remediation workflow after a signed approval. The lab's `fix` step therefore records
 `execution_disabled` for an approved fix, `blocked_by_gate` for a rejected one and `not_approved` otherwise.
 
 Tear-down: `aurora_express.py destroy` first (Terraform does not know the cluster exists; it keeps a final
 snapshot, `<cluster>-final-<UTC time>`, and never skips it), then `terraform destroy`, then
-`python scripts/account_sweep.py`, which must end clean apart from the final snapshots the owner chose to keep.
+`python scripts/account_sweep.py`, which must end clean apart from the final snapshots chosen to be kept.
 
 ## 7. Status and what the lab has shown
 
 - **2026-09-26:** a preflight injected and reverted every fault fs-01 to fs-27 once on the real stack, with a
-  clean baseline after each revert. The measured run then ran fs-00 to fs-05 and was **stopped at the owner's
+  clean baseline after each revert. The measured run then ran fs-00 to fs-05 and was **stopped by
   decision**; the stack was destroyed. **No full-stack score is published**, and none is claimed.
 - What those six faults found, each fixed with a test: WARDEN's Kubernetes events and pod logs had no time
   window, so the healthy control read the preflight's rollouts; the Lambda rollback target was the numerically

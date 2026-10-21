@@ -1,5 +1,5 @@
-"""What WARDEN's own record says was done to this resource before (owner, 2026-10-12: "is there memory - what was
-done, what went wrong, what worked - so it helps to make right decisions later?").
+"""What WARDEN's own record says was done to this resource before - what was done, what went wrong, what worked - so
+later decisions can learn from it.
 
 Facts from the signed audit and nothing else: which fix, on what, how it ended, who approved. Never a past
 diagnosis's prose - a model that is shown its own old opinions repeats them with growing confidence (register N9).
@@ -73,7 +73,7 @@ OFFER_AGAIN_WORKFLOW = "offer-again"  # what an approver's signature to clear it
 
 def failures(log: Any, entry: str, target: str) -> list[tuple[datetime, str]]:
     """Every time the fix `entry` on `target` was verified and did not hold - on the whole record, with no time limit
-    (CodeRabbit, PR 43: a 30-day window let the same fix be offered again with no person deciding)."""
+    (a 30-day window would let the same fix be offered again with no person deciding)."""
     markers = [e for e in log.entries(kinds=(DID_NOT_HOLD,))
                if e["body"].get("entry") == entry and e["body"].get("target") == target]
     # A marked run that then ends `relapsed` is the same failure, kept at the marker's time: a
@@ -85,8 +85,7 @@ def failures(log: Any, entry: str, target: str) -> list[tuple[datetime, str]]:
 
 def _relapsed(log: Any, incident: str | None = None) -> list[tuple[datetime, str, str, str, tuple[Any, Any]]]:
     """(ended at, incident, entry, target, (workflow id, run id)) of every fix run that ended `relapsed` - a re-check
-    failed - read from the end rows and each one's own plan row, never the whole plan history rebuilt (CodeRabbit,
-    PR 43)."""
+    failed - read from the end rows and each one's own plan row, never the whole plan history rebuilt."""
     out = []
     for e in log.entries(incident, kinds=("workflow.end",)):
         b = e["body"]
@@ -197,8 +196,8 @@ def _line(row: dict[str, Any]) -> str:
     who = f" · approved by {', '.join(f'@@{a}@@' for a in row['approvers'])}" if row["approvers"] else ""
     if row.get("denied_by"):
         who = f" · by @@{row['denied_by']}@@"  # "was denied · by <the person>"
-    # Why a fix did not last or was not applied - "worked, then failed again" alone said nothing of what happened
-    #. WARDEN's own reason, cut short and inert; a denial's is the person's words and is not
+    # Why a fix did not last or was not applied - "worked, then failed again" alone said nothing of what happened.
+    # WARDEN's own reason, cut short and inert; a denial's is the person's words and is not
     # repeated here.
     why = str(row.get("why") or "")
     if why and row["status"] not in ("denied", "recovered", "open"):
@@ -209,7 +208,7 @@ def _line(row: dict[str, Any]) -> str:
 
 
 # The earlier fixes that make this incident a failure AGAIN: one that worked (or worked and failed again) on this
-# resource in LOOKBACK. Owner, 2026-10-15: when something breaks again after a fix, Slack must say so, not only the
+# resource in LOOKBACK. When something breaks again after a fix, Slack must say so, not only the
 # record page.
 FIXED_BEFORE = frozenset({"recovered", "relapsed", "mitigated"})
 
@@ -354,7 +353,7 @@ def warning(rows: list[dict[str, Any]], *, entry: str, target: str, plan_hash: s
     if not again:
         return ""
     # The latest one's own ending, and how many did not last - not "applied at" its ending's time, nor every one
-    # counted as the latest's kind (live, 2026-10-12: "worked, then failed again - 4 times", of which one had).
+    # counted as the latest's kind (never "worked, then failed again - 4 times" when only one had).
     latest = f"most recently it {ENDED[again[0]['status']]} ({both_times(again[0]['at'], seconds=False)})"
     times = "once" if len(again) == 1 else f"{len(again)} times"
     # ...and what did hold is said too: "none lasted" stood beside a run of the same fix that had worked an hour
@@ -368,7 +367,7 @@ def warning(rows: list[dict[str, Any]], *, entry: str, target: str, plan_hash: s
 
 _TARGET = __import__("re").compile(r"[A-Za-z0-9:/._@+=,-]{1,200}")
 # What the model may be shown of a past run: a fix that ran to an end. Not one still open, and not a denial - a
-# person's "no" is not a fact about the resource (research 2026-10-15).
+# person's "no" is not a fact about the resource.
 _SHOWN = frozenset(ENDED) - {"denied"}
 
 
@@ -385,8 +384,8 @@ def for_prompt(rows: list[dict[str, Any]], log: Any) -> list[dict[str, Any]]:
 
 
 def prompt_facts(rows: list[dict[str, Any]]) -> str:
-    """Past fix plans on this resource for the model (owner, 2026-10-14: show past incidents to the model; off unless
-    WARDEN_HISTORY_IN_PROMPT=1, measured live first). Facts in a fixed vocabulary from the signed record only: when,
+    """Past fix plans on this resource for the model (off unless
+    WARDEN_HISTORY_IN_PROMPT=1, to be measured live first). Facts in a fixed vocabulary from the signed record only: when,
     the catalogue entry, the target, how its run ended - never a reason, a note, a name or a past diagnosis's words
     (registers N9, G10-48), so nothing a person or a model wrote reaches a later diagnosis."""
     if not rows:

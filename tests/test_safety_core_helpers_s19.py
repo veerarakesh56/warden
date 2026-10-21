@@ -1,4 +1,4 @@
-"""Plant checks (S19, lane SE) broke each of these helper rules and no existing test failed: each is pinned here."""
+"""Plant checks broke each of these helper rules and no existing test failed: each is pinned here."""
 
 from __future__ import annotations
 

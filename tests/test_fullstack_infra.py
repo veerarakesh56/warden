@@ -94,7 +94,7 @@ def _tf_text() -> str:
 
 
 def test_aurora_is_not_terraform_and_no_database_password_exists():
-    """2026-09-26: the Free plan creates Aurora only in express configuration, which the provider
+    """The Free plan creates Aurora only in express configuration, which the provider
     cannot do and which has IAM authentication only (aurora_express.py creates it)."""
     text = _tf_text()
     for gone in ('resource "aws_rds_cluster', 'resource "aws_db_subnet_group"', 'resource "random_password"',
@@ -504,9 +504,9 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     wf = _workflow("ci-infra.yml")
     # Its destroy-permission check (B40) reads the IAM files and terraform/fullstack: an infra input too.
     own = {"tests/test_destroy_permissions.py"}
-    # Pause and resume (owner update 5): its script restores the stack's data stores, its test reads the IAM and terraform.
+    # Pause and resume: its script restores the stack's data stores, its test reads the IAM and terraform.
     own |= {"tests/test_pause_resume.py", "scripts/pause_resume.py"}
-    # The infra pipeline's own inputs count as infra: its test files (every one its check runs - ninth review CI),
+    # The infra pipeline's own inputs count as infra: its test files (every one its check runs),
     # the IAM files it validates and what they render from. Its jobs install from uv.lock, so the lock and
     # pyproject.toml trigger it too. Nothing of the tool's or the apps' own code.
     checks = {"tests/test_fullstack_infra.py", "tests/test_aws_stack.py", "tests/test_docs_honesty.py",
@@ -533,8 +533,8 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
 
 @pytest.mark.parametrize("name", ["ci-apps.yml", "ci-infra.yml"])
 def test_a_lane_that_runs_a_script_importing_warden_paths_also_runs_when_paths_changes(name):
-    """deploy_fullstack_apps.py, aurora_express.py and helios_gate.py read their path rule from src/warden/paths.py
-   : a change to that file alone must run the lanes that run them, or a broken rule reaches a deploy unseen."""
+    """deploy_fullstack_apps.py, aurora_express.py and helios_gate.py read their path rule from src/warden/paths.py:
+    a change to that file alone must run the lanes that run them, or a broken rule reaches a deploy unseen."""
     import fnmatch
 
     wf = _workflow(name)
@@ -563,7 +563,7 @@ def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform(
 
 
 def test_bootstrap_sql_has_no_password_and_no_placeholder():
-    """2026-09-26: IAM authentication only. Every role gets rds_iam; no PASSWORD clause. The only placeholders
+    """IAM authentication only. Every role gets rds_iam; no PASSWORD clause. The only placeholders
     are the four users, named for the environment when the file is sent."""
     text = (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
@@ -591,13 +591,13 @@ def test_the_stack_carries_its_own_budget_alarm():
     assert 'name = "/warden/${local.env}/tf/budget_email"' in tf
     assert "subscriber_email_addresses = [data.aws_ssm_parameter.budget_email.value]" in tf
     # Gross spend: counted with credits, a Free-plan account reads USD 0.00 until the credits that keep it open are
-    # gone (2026-10-16: ActualSpend 0.0 while about USD 24 a day burned them).
+    # gone (ActualSpend 0.0 while about USD 24 a day burned them).
     budget_block = tf[tf.index('resource "aws_budgets_budget" "guard"'):]
     assert re.search(r"cost_types\s*\{\s*include_credit\s*=\s*false\s*\}", budget_block)
 
 
 def test_no_interface_endpoint_is_paid_for_by_the_hour():
-    """Cost plan 2026-10-16: two interface endpoints were ~USD 19 a month for calls the NAT carries for cents."""
+    """Two interface endpoints were ~USD 19 a month for calls the NAT carries for cents."""
     assert '"Interface"' not in _tf_text()
 
 
@@ -753,7 +753,7 @@ def test_aurora_create_makes_an_express_cluster_with_a_reader_and_records_it(tmp
 
 
 def test_aurora_create_goes_on_without_a_reader_only_when_the_plan_allows_no_more_instances(tmp_path):
-    """The AWS Free plan refused the reader (InstanceQuotaExceeded, 2026-10-14): the writer and its records are kept
+    """The AWS Free plan refused the reader (InstanceQuotaExceeded): the writer and its records are kept
     and the build goes on, said plainly; any other refusal still stops it."""
     class Refused(Exception):
         def __init__(self, code):
@@ -945,11 +945,11 @@ def test_aurora_status_says_whether_the_cluster_is_up():
 def test_the_infra_pipeline_creates_aurora_after_apply_and_destroys_it_first():
     text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
     # One workflow, two stacks: Aurora is the full stack's only, and the undo lab never reaches it.
-    # The stack.json upload (a plan kept for review is copied to the bucket earlier, 2026-10-16).
+    # The stack.json upload (a plan kept for review is copied to the bucket earlier).
     assert (text.index('"terraform/$STACK" apply') < text.index("aurora_express.py create")
             < text.index('aws s3 cp "$RUNNER_TEMP/stack.json"'))
     assert text.index("aurora_express.py destroy") < text.index('"terraform/$STACK" destroy')
-    # A re-apply keeps the apps deploy's baseline revision (lost once, 2026-10-15), merged in before the upload.
+    # A re-apply keeps the apps deploy's baseline revision (lost once), merged in before the upload.
     keep = text.index('select(.key == "ecs_baseline_task_definition")')
     assert text.index("aurora_express.py create") < keep < text.index('aws s3 cp "$RUNNER_TEMP/stack.json"')
     for step in ("aurora_express.py create", "aurora_express.py destroy"):
@@ -987,7 +987,7 @@ def test_aurora_create_waits_until_the_capacity_change_has_landed(tmp_path, monk
 
 def test_aurora_touches_no_other_cluster_even_in_its_own_environment(tmp_path):
     """Only warden-<env>-aurora: the reader is named after it (the create test), and another name - even one with
-    the environment's prefix - is refused before any call (seventh review: a prefix let qa reach qa-prod)."""
+    the environment's prefix - is refused before any call (a prefix let qa reach qa-prod)."""
     ax, rds, sm = _aurora(), FakeRds(), FakeSm()
     stack = _wrapped_stack(tmp_path)
     with pytest.raises(SystemExit, match="not this environment's cluster"):
@@ -1009,7 +1009,7 @@ def test_aurora_destroy_waits_for_an_instance_still_being_created():
 
 def test_workloads_opt_out_of_the_observability_addons_auto_instrumentation():
     """The CloudWatch Observability add-on injected a Java OTel agent that the restricted Pod Security
-    rejected - no catalog-api pod could be created (first real deploy, 2026-09-26)."""
+    rejected - no catalog-api pod could be created (seen on the first real deploy)."""
     import yaml as _yaml
     for name in ("catalog-api.yaml", "cart-worker.yaml"):
         for doc in _yaml.safe_load_all((ROOT / "manifests" / "shop" / "base" / name).read_text(encoding="utf-8")):
@@ -1020,7 +1020,7 @@ def test_workloads_opt_out_of_the_observability_addons_auto_instrumentation():
 
 
 def test_only_the_nat_lives_in_a_public_subnet_and_nothing_is_open_to_the_internet():
-    """2026-09-27 network review: compute (ECS tasks, EKS nodes and control-plane ENIs, Lambdas) and
+    """Compute (ECS tasks, EKS nodes and control-plane ENIs, Lambdas) and
     the load balancer are in private subnets; public subnets hold the NAT gateway only and hand out no
     public IPs; the ALB is internal; no security group accepts traffic from 0.0.0.0/0."""
     text = _tf_text()
@@ -1041,7 +1041,7 @@ def test_only_the_nat_lives_in_a_public_subnet_and_nothing_is_open_to_the_intern
 
 
 def test_everything_the_stack_creates_carries_project_and_environment_tags():
-    """2026-09-28 tag review. default_tags covers what terraform creates itself; four things escape
+    """default_tags covers what terraform creates itself; four things escape
     it and each is closed here: the EKS node (instance, disk, network interface - a managed node
     group does not pass tags down), the security group EKS creates for the cluster, and ECS tasks."""
     text = _tf_text()
@@ -1080,7 +1080,7 @@ def _all_tf(directory):
 
 @pytest.mark.parametrize("name", sorted(ROOTS))
 def test_no_terraform_root_accepts_the_internet_in_any_ingress_form(name):
-    """Owner rule R52, widened after the 2026-09-28 review: the check covered only inline `ingress {}`
+    """No ingress from the internet; the check once covered only inline `ingress {}`
     blocks of one stack. Egress to 0.0.0.0/0 is allowed (narrowing it is G6 work); ingress never."""
     text = _all_tf(ROOTS[name])
     for block in re.findall(r"ingress \{(.*?)\n  \}", text, re.DOTALL):
@@ -1097,7 +1097,7 @@ def test_no_terraform_root_accepts_the_internet_in_any_ingress_form(name):
 
 @pytest.mark.parametrize("name", sorted(ROOTS))
 def test_every_terraform_root_tags_project_and_environment(name):
-    """Owner rule R53: the root module and the proving ground carried neither."""
+    """Project and Environment tags: the root module and the proving ground once carried neither."""
     text = _all_tf(ROOTS[name])
     assert re.search(r'Project\s*=\s*"warden"', text), name
     assert re.search(r"Environment\s*=\s*(?:coalesce\(var\.environment, yamldecode\(|local\.env)", text), name
@@ -1105,7 +1105,7 @@ def test_every_terraform_root_tags_project_and_environment(name):
 
 @pytest.mark.parametrize("cmd", ["create", "status", "destroy"])
 def test_aurora_script_needs_its_environment_said(cmd, tmp_path, monkeypatch):
-    """Audit A-I-23: with no WARDEN_ENV the script acted on dev, whatever stack it was handed."""
+    """With no WARDEN_ENV the script acted on dev, whatever stack it was handed."""
     monkeypatch.delenv("WARDEN_ENV", raising=False)
     ax, rds = _aurora(), FakeRds()
     argv = [cmd, "--stack", str(tmp_path / "s.json")]
@@ -1142,14 +1142,14 @@ def test_aurora_script_writes_no_region():
 
 
 def test_the_owners_address_is_never_printed_in_a_plan():
-    """Audit A-I-14: `insecure_value` printed the owner's IP in plan logs, which a public repo's CI publishes."""
+    """`insecure_value` printed the operator's IP in plan logs, which a public repo's CI publishes."""
     main = (TF / "main.tf").read_text(encoding="utf-8")
     assert re.search(r"my_ip_cidr\s*=\s*sensitive\(data\.aws_ssm_parameter\.my_ip_cidr\.insecure_value\)", main)
     assert all("insecure_value" not in line or "sensitive(" in line for line in main.splitlines())
 
 
 def test_a_pod_cannot_reach_the_nodes_credentials():
-    """Audit A-I-12: hop limit 2 let any pod read the node role's credentials from IMDS."""
+    """Hop limit 2 let any pod read the node role's credentials from IMDS."""
     eks = (TF / "eks.tf").read_text(encoding="utf-8")
     block = re.search(r"metadata_options\s*\{([^}]*)\}", eks).group(1)
     assert re.search(r'http_tokens\s*=\s*"required"', block)
@@ -1159,7 +1159,7 @@ def test_a_pod_cannot_reach_the_nodes_credentials():
 @pytest.mark.parametrize("env, cluster", [("qa", "warden-qa-prod-aurora"), ("qa", "warden-qa-staging-aurora"),
                                           ("pre", "warden-pre-prod-aurora"), ("dev", "warden-dev-aurora-old")])
 def test_aurora_acts_only_on_its_own_environments_cluster(tmp_path, monkeypatch, env, cluster):
-    """Seventh review: the guard was a name prefix, so WARDEN_ENV=qa accepted
+    """The guard was a name prefix, so WARDEN_ENV=qa accepted
     warden-qa-prod-aurora and `destroy` deleted it."""
     ax = _aurora()
     monkeypatch.setenv("WARDEN_ENV", env)
@@ -1170,7 +1170,7 @@ def test_aurora_acts_only_on_its_own_environments_cluster(tmp_path, monkeypatch,
 
 
 def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
-    """Seventh review: the secret's username was "app" - the ECS task signs its IAM token for that user, which no
+    """The secret's username was "app" - the ECS task signs its IAM token for that user, which no
     grant names. It is data.tf's db_users["app"], and a stack.json naming another is refused."""
     import re
 
@@ -1190,7 +1190,7 @@ def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
 
 
 def test_the_public_api_writes_access_logs_to_a_vended_log_group():
-    """Audit A-I-13: the public HTTP API had no access logs. The group is under /aws/vendedlogs/, which the owner's
+    """The public HTTP API had no access logs. The group is under /aws/vendedlogs/, which the account's
     one account-level delivery policy covers (docs/SETUP.md, 3e), so nothing writes a resource policy."""
     text = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
     assert 'name              = "/aws/vendedlogs/${local.name}-api-access"' in text
@@ -1212,7 +1212,7 @@ def test_aurora_create_refuses_a_cluster_without_iam_authentication(tmp_path):
 
 
 def test_a_fault_flag_names_nothing_and_its_value_is_never_shown():
-    """Audit A-B-M12: `DDB_EXTRA_LATENCY_MS=2000` named the injected cause, and with a configuration-shaped name its
+    """`DDB_EXTRA_LATENCY_MS=2000` named the injected cause, and with a configuration-shaped name its
     value reached the evidence too. Flag names are opaque, and not names whose values WARDEN shows."""
     from scenarios.ops_fullstack import FLAGS
 
@@ -1222,7 +1222,7 @@ def test_a_fault_flag_names_nothing_and_its_value_is_never_shown():
 
 
 def test_the_deployed_apps_carry_no_scenario_ids_or_fault_talk():
-    """Audit A-B-L16: a comment beside the code a traceback points at reaches the model as a SOURCE line -
+    """A comment beside the code a traceback points at reaches the model as a SOURCE line -
     `# fs-20: memory that is never released` named the scenario."""
     for path in [*(APPS / "lambdas").glob("*/app.py"), APPS / "app" / "app.py"]:
         if path.parent.name == "ops":  # the harness's own tool, never an incident's target
@@ -1267,7 +1267,7 @@ def test_the_act_and_read_zones_start_with_kubernetes_and_the_database():
              for z, body in re.findall(r"^\s+(\w+)\s+= \{(.*)\}$", iam[iam.index("  zones = {"):], re.MULTILINE)
              if "platforms" in body}
     got = {z: set(re.findall(r'"(\w+)"', v)) for z, v in zones.items()}
-    # The critic zone (Eldane, PR 42) reaches no platform at all: it reads the audit and calls its model, nothing else.
+    # The critic zone (Eldane) reaches no platform at all: it reads the audit and calls its model, nothing else.
     assert got == {"core": set(), "read": {"aws", "k8s", "db"}, "llm": set(), "notify": {"aws"},
                    "act": {"aws", "k8s", "db"}, "critic": set()}
 

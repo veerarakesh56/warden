@@ -1,7 +1,7 @@
 """Talk to WARDEN about an incident in a Slack channel of its own (register G10-45).
 
-Owner, 2026-10-14: a second channel where "a developer, a tester or anyone else" asks WARDEN about an issue, discusses
-it, asks it to check or investigate; "anyone can ask, discuss ... but only approvers can ask for a new plan". Nothing
+A second channel where a developer, a tester or anyone else asks WARDEN about an issue, discusses it, asks it to
+check or investigate; anyone can ask and discuss, but only approvers can ask for a new plan. Nothing
 typed there can make WARDEN act: the thread is data, the model has no tool, the reply leaves through the gate."""
 
 from __future__ import annotations
@@ -208,7 +208,7 @@ def test_a_model_that_cannot_answer_is_said_in_the_thread_and_its_call_is_on_the
 
 
 def test_a_model_that_is_refused_is_said_in_the_thread_and_nothing_is_reserved(world):
-    """Review, PR 47: until a changed prompt is qualified, the model is refused when it is built (register M20). The
+    """Until a changed prompt is qualified, the model is refused when it is built (register M20). The
     person is told there is no answer; the activity does not fail, and no budget is reserved for a call never made."""
     from warden.providers import ProviderError
 
@@ -235,7 +235,7 @@ def test_the_reply_goes_into_the_thread_through_the_gate(world):
 
 
 def test_a_model_answer_with_a_fenced_command_is_posted_without_a_code_block(world):
-    """Audit A12: the prompt's "no commands for anyone to run" was the only guard, and the gate keeps a
+    """The prompt's "no commands for anyone to run" was the only guard, and the gate keeps a
     closed fence verbatim - a hijacked model's fenced `kubectl delete` reached the thread as a code block to paste."""
     from unittest import mock
 
@@ -309,7 +309,7 @@ def test_the_whole_conversation_runs_as_a_workflow_and_changes_nothing(world):
 
 
 def test_an_approvers_new_plan_is_a_fresh_diagnosis_once_an_hour_and_anyone_elses_is_refused(world):
-    """Step two (owner, 2026-10-14: "only approvers can ask for new plan"): their words reach no model; the incident is
+    """Step two (only approvers can ask for a new plan): their words reach no model; the incident is
     diagnosed again from what WARDEN reads now, as a new incident whose plan, if any, waits for a passkey."""
     acts, log = world["acts"], world["log"]
     pack = world["inc"].prepare(Alert(**{**DEMO_ALERTS["inc-002"], "alert_id": INCIDENT}))
@@ -377,7 +377,7 @@ def test_the_runtime_gives_the_listener_its_token_in_the_notify_zone_alone():
 
 
 def test_an_approver_extends_a_waiting_plan_from_the_thread_and_anyone_else_is_refused(world):
-    """U3-8: "the discussion thread can extend it" - recorded in the audit, where the plan's own run reads it; the
+    """The discussion thread can extend a wait - recorded in the audit, where the plan's own run reads it; the
     DiscussWorkflow signals and starts nothing for it."""
     from datetime import UTC, datetime, timedelta
 
@@ -404,7 +404,7 @@ def test_an_approver_extends_a_waiting_plan_from_the_thread_and_anyone_else_is_r
     assert row["body"]["approver"] == "owner"
     assert row["body"]["hours"] == 12
     again = asyncio.run(main("<@UWARDEN> extend by 12h", APPROVER, "e2-again", "1760000000.000302"))
-    assert again == said  # the same message once more: its first answer, no more hours (CodeRabbit, PR 150)
+    assert again == said  # the same message once more: its first answer, no more hours
     assert len(log.entries(INCIDENT, kinds=("approval.extended",))) == 1
     said = asyncio.run(main("<@UWARDEN> extend by 30h", APPROVER, "e3", "1760000000.000303"))
     assert said.startswith("A plan's wait is extended by 1 to 24 hours")

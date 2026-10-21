@@ -1,6 +1,6 @@
 """Every WARDEN policy and trust, live, against its file in iam/ - so a paste into the wrong policy is caught the same
-day (2026-10-15: the boundary's statements had been pasted into WardenPlatformReader-dev on 2026-10-14, and the cloud
-read role was no longer read-only).
+day (the boundary's statements pasted into WardenPlatformReader-dev would leave the cloud read role no longer
+read-only).
 
     AWS_PROFILE=warden python scripts/check_live_iam.py [--env NAME ...]
 

@@ -1,5 +1,5 @@
 """brand._drop_xmlns removes what the old regex removed - every xmlns attribute that follows white space, with that white
-space - in time that grows with the text's length (Sonar python:S8786, 2026-10-17: 20,000 spaces took the regex 1.7 s,
+space - in time that grows with the text's length (Sonar python:S8786: 20,000 spaces took the regex 1.7 s,
 the square of the run). Timed in this process's own CPU time, so a busy machine does not count. It was compared with
 the regex on 400,000 random strings when it was written (PR text)."""
 

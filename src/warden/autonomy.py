@@ -1,4 +1,4 @@
-"""Autonomy (owner, 2026-10-16, changed 2026-10-17): per (environment, action class) a level, derived from the audit -
+"""Autonomy: per (environment, action class) a level, derived from the audit -
 never a flag.
 
     L0  escalate only: WARDEN proposes, a person decides. The environment's ceiling is L0.
@@ -6,7 +6,7 @@ never a flag.
         scored against the person's. Prod (a person's passkey, always), and dev after a demotion.
     L2  autonomous: Eldane's signed approval is enough. Only below prod.
 
-Owner, 2026-10-17: dev is autonomous through Eldane from the first plan - every action class there STARTS at L2, with
+dev is autonomous through Eldane from the first plan - every action class there STARTS at L2, with
 no shadow period and no minimum of catch trials (decide.tier_enabled stays available, required by nothing). What keeps:
 - the environment's ceiling (environments.yaml `autonomy`); prod-tier never above L1 (refused at load, capped here);
 - demotion, at once, to L1: a failed fix of that class there (rolled back, relapsed, not recovered, unknown state), a
@@ -41,7 +41,7 @@ OUTCOME = "autonomy.outcome"  # one per fix run with a plan, written by its sign
 TRIAL = "eldane.trial"  # a planted known-bad plan shown to Eldane, and whether it said no (eldane.py)
 VERDICT = "eldane.verdict"  # Eldane's review of a real plan
 ENABLED = "autonomy.enabled"  # a person's signed re-enable of an environment after a demotion (enable)
-# How long an Eldane-approved plan waits for a person's "no" before WARDEN applies it (owner, 2026-10-17: a person's
+# How long an Eldane-approved plan waits for a person's "no" before WARDEN applies it (a person's
 # decision always overrides Eldane's). A "no" that has arrived before the apply step starts still
 # stops it (workflows.RemediationWorkflow reads it right before apply); one after that is too late for that run.
 VETO = timedelta(minutes=5)

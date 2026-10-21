@@ -11,7 +11,7 @@ import pytest
 
 from warden.aws_stack import _sql_verb, sql_shape
 
-# What the replaced regex answered, read from it on 2026-10-16 before it was removed.
+# What the replaced regex answered, read from it before it was removed.
 OLD_ANSWERS = [
     ("SELECT 1", "SELECT"), ("  select * from t", "select"), ("/* hint */ UPDATE t SET a=1", "UPDATE"),
     ("/* a */ /* b */\n INSERT INTO x", "INSERT"), ("/*multi\nline*/DELETE FROM y", "DELETE"), ("", ""), ("   ", ""),

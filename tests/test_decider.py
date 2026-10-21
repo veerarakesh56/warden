@@ -48,7 +48,7 @@ def test_its_measured_quality_is_recorded_and_it_is_not_trusted_beyond_it():
     held = json.loads(DECIDER.read_text(encoding="utf-8"))["held_out_by_fault_class"]
     assert held["runs"] >= 100
     assert {"brier", "ece", "auc", "self_reported_confidence", "base_rate_brier"} <= set(held)
-    # Measured 2026-10-03: held out by fault class it does not beat the base rate, so nothing decides on it.
+    # Measured: held out by fault class it does not beat the base rate, so nothing decides on it.
     if held["brier"] >= held["base_rate_brier"]:
         from warden.verifier import OBSERVED
 

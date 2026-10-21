@@ -1,4 +1,4 @@
-"""AWS's own documentation for an error code the model may not know (G10-C6; owner decision 2026-10-10).
+"""AWS's own documentation for an error code the model may not know (G10-C6).
 
 Held-out G9-F: novel kinds were missed for want of AWS knowledge, not evidence - a clock skew rejecting SigV4, an
 AppConfig deployment AWS had already rolled back. WARDEN asks the AWS Knowledge MCP server (free, no sign-in, AWS's

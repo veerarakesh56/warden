@@ -1,4 +1,4 @@
-"""Audit A-B-L14: a start time must be a real date and time with its zone."""
+"""A start time must be a real date and time with its zone."""
 
 from __future__ import annotations
 

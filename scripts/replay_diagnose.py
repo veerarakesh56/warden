@@ -31,8 +31,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def rediagnose(report: dict, llm: LLMClient) -> RunReport:
-    """redact -> tripwire -> diagnose -> verify over a recorded context, as production runs them (audit A-B-M16:
-    the tripwire was skipped, so a replay could never show P16). gather is skipped: its output IS the recorded
+    """redact -> tripwire -> diagnose -> verify over a recorded context, as production runs them (without
+    the tripwire, a replay could never show P16). gather is skipped: its output IS the recorded
     context, byte for byte, which re-reading through a backend would not guarantee."""
     state: dict = {"alert": Alert(**report["alert"]), "context": ContextBundle(**report["context"]),
                    "llm": llm, "audit": []}

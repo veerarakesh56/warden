@@ -1,6 +1,6 @@
 """Credential-shaped test fixtures, each built from parts at run time.
 
-2026-10-16: a test that proves a secret is masked needs a value with the secret's
+A test that proves a secret is masked needs a value with the secret's
 shape, and a literal of that shape in a tracked file is exactly what gitleaks, trufflehog, GitHub push protection
 and scripts/check_publishable.py exist to stop. The publish check used to skip seven whole files to make room for
 such literals, so a real secret pasted into any of those files would have been published unscanned. Joining the

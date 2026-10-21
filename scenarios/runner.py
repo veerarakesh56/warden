@@ -20,9 +20,9 @@ contaminated account while looking like a perfectly normal run, and nothing in t
 so.
 
 ⛔ RUN IT DETACHED, AND IF IT STOPS, RESUME IT. A 14-scenario wave takes about seven hours, and
-most of it is the 18-minute quiet period before each inject (see QUIET_SECONDS). Twice, the wave was
-launched as a child of an interactive Claude Code session and died with it - the second time
-because the session ran out of usage, which the wave's own `claude -p` calls had helped exhaust. The
+most of it is the 18-minute quiet period before each inject (see QUIET_SECONDS). A wave
+launched as a child of an interactive terminal session dies with it - and when the provider runs out of
+usage, which the wave's own `claude -p` calls help exhaust, so does that session. The
 runner now stops cleanly on an exhausted provider, and `--resume DIR` continues from where it
 stopped, re-running only incomplete scenarios. Launch it so it does not share the session's life:
 
@@ -325,7 +325,7 @@ def _sha256(path: pathlib.Path) -> str:
     """Hash of the file's CONTENT, independent of the platform's line endings.
 
     ⛔ This hashed raw bytes, and git on Windows checks text files out with CRLF. So the rubric hash
-    recorded in a manifest described this laptop's checkout, not the rubric: anyone re-scoring a
+    recorded in a manifest described one Windows checkout, not the rubric: anyone re-scoring a
     published bundle from a Linux or macOS clone would get a different hash, and the scorer's drift
     check would announce "THE RUBRIC CHANGED AFTER THIS RUN" about results that were never touched.
     A tamper check that fires on honest data is worse than none. Normalising to LF makes the hash
@@ -341,8 +341,8 @@ def _now() -> str:
 def _contained(path: pathlib.Path, roots: list[pathlib.Path] | None = None) -> pathlib.Path:
     """The real location of `path` when it lies inside one of `roots` (default: where the tools work, warden.paths);
     else ValueError. Checked here, beside each write, and not only where a path enters: a scenario id read back from
-    manifest.json or a record, or named by --rerun / --only, also builds a path (Sonar pythonsecurity:S2083/S8707,
-    2026-10-20). A root that is a whole filesystem counts as none, as in warden.paths."""
+    manifest.json or a record, or named by --rerun / --only, also builds a path (Sonar pythonsecurity:S2083/S8707).
+    A root that is a whole filesystem counts as none, as in warden.paths."""
     real = pathlib.Path(path).expanduser().resolve()
     bases = [pathlib.Path(root).expanduser().resolve() for root in (roots or paths.work_roots())]
     for base in bases:
@@ -1422,8 +1422,8 @@ class _FakeDbEc2:
 
 
 def _reader_dsn(harness_dsn: str) -> str:
-    """WARDEN's own DSN for a database wave: a read-only `pg_monitor` login, never the harness's master one (audit
-    A-B-M13 - WARDEN was handed the master credentials the injectors use). Refused when missing or the same login."""
+    """WARDEN's own DSN for a database wave: a read-only `pg_monitor` login, never the harness's master one (never
+    the master credentials the injectors use). Refused when missing or the same login."""
     reader = os.environ.get("WARDEN_BENCH_DB_READER_DSN", "").strip()
     if not reader:
         raise RunnerError("set WARDEN_BENCH_DB_READER_DSN: WARDEN reads as a pg_monitor login, never as the master "
@@ -1731,7 +1731,7 @@ def _wave_scenarios(wave: int, only: str) -> tuple[dict, list[dict]]:
     """The wave's catalog and its scenarios, narrowed by --only (id prefixes, comma-separated)."""
     doc, scenarios = load_wave(wave)
     if doc.get("service") == "fullstack":
-        # ⛔ Wave 4 is operator-driven by the owner's decision: no loop, no terraform,
+        # ⛔ Wave 4 is operator-driven by design: no loop, no terraform,
         # WARDEN run by hand one fault at a time. Refused here rather than half-supported.
         raise SystemExit(
             "Wave 4 is run step by step: python -m scenarios.fullstack_cli --help "

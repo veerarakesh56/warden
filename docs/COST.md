@@ -105,7 +105,7 @@ python -c "import json,glob; r=[json.load(open(f))['cost'] for d in ('wave1-2026
   - In the cloud runtime, the llm zone allows **6 model calls and $0.25 per incident**, across rounds
     (`WARDEN_MAX_CALLS=6`, `WARDEN_MAX_USD=0.25`, `terraform/modules/warden-runtime/compute.tf`). This replaces the
     client default of $0.50 (`WARDEN_MAX_USD` in `src/warden/llm.py`), which applies only where nothing sets it, such
-    as a laptop.
+    as a workstation.
   - Per day, `WARDEN_DAILY_MAX_USD` and `WARDEN_DAILY_MAX_TOKENS`. They default to $10 and 2,000,000
     (`src/warden/activities.py`) where nothing sets them; a deployment can set its own values in the runtime's environment.
   - At 50 incidents a day, the spend at the measured cost per incident ($0.70 to $0.92 a day on Sonnet 5.5) is far below

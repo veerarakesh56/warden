@@ -29,7 +29,7 @@ on:
   schedule:
     - cron: "17 3 * * 1"
   pull_request:
-    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # A draft pull request runs no CI (it saves the shared Actions queue); it runs when it is
     # marked ready for review, and on every push after that.
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
@@ -52,13 +52,13 @@ on:
 env:
   WARDEN_MOCK: "1"
 
-# Least privilege for every job's GITHUB_TOKEN (zizmor, 2026-09-27).
+# Least privilege for every job's GITHUB_TOKEN (zizmor).
 permissions:
   contents: read
 
 # A newer push to the same pull request cancels the run it supersedes. On main each commit is its own
 # group, so none is dropped or cancelled: a red main must be traceable to one commit (a shared group
-# cancels the PENDING run when a third commit arrives - fourth review, 2026-09-30).
+# cancels the PENDING run when a third commit arrives).
 concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -76,7 +76,7 @@ jobs:
         with:
           persist-credentials: false
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
-      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+      # (no unpinned install runs while a job holds cloud credentials).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
@@ -107,7 +107,7 @@ jobs:
           persist-credentials: false
 
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
-      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+      # (no unpinned install runs while a job holds cloud credentials).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
@@ -162,7 +162,7 @@ jobs:
           out=$(warden demo)
           echo "$out"
           echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::no APPROVED_FOR_HUMAN verdict"; exit 1; }
-          # inc-003 is REJECTED since 2026-09-12: WARDEN's action table classifies a promoted
+          # inc-003 is REJECTED: WARDEN's action table classifies a promoted
           # replica irreversible whatever the proposal claims, so P2 fires in prod. Stronger than
           # the escalation this replaces - the demo now shows a hard no.
           echo "$out" | grep -q "REJECTED"           || { echo "::error::no REJECTED verdict"; exit 1; }
@@ -231,7 +231,7 @@ jobs:
           persist-credentials: false
 
       # The image builds in the background while the cluster starts and the job installs. The host's network,
-      # not Docker's bridge: here the build's downloads crawled (3m49s-4m44s for 48 packages, fifth review E).
+      # not Docker's bridge: here the build's downloads crawled (3m49s-4m44s for 48 packages).
       - name: Start the image build
         run: |
           (docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/warden-mirror" -t warden:local . > "$RUNNER_TEMP/build.log" 2>&1; echo $? > "$RUNNER_TEMP/build.rc") &
@@ -244,7 +244,7 @@ jobs:
           activate-environment: true
           cache-suffix: "ci-tool-k8s"  # one cache per job: jobs sharing a key raced to save it
 
-      # Seconds with uv; pip took 98 s here (measured 2026-10-01).
+      # Seconds with uv; pip took 98 s here.
       - name: Install with the k8s extra (locked)
         run: uv sync --locked --no-build --extra dev --extra k8s
 
@@ -264,9 +264,9 @@ jobs:
       - name: Create cluster
         run: |
           k3d cluster create warden-ci --image "$K3S_IMAGE" --no-lb --wait --timeout 300s
-          # k3d reports the cluster before its API server serves: the first kubectl call got ServiceUnavailable
-          # (CI on 71790df, 2026-10-01). And one ready answer is not a settled server: on 287fb45 /readyz and
-          # `get nodes` answered, then the node wait got ServiceUnavailable 3 s later. Five ready answers in a
+          # k3d reports the cluster before its API server serves: the first kubectl call can get ServiceUnavailable.
+          # And one ready answer is not a settled server: /readyz and
+          # `get nodes` have answered, then the node wait got ServiceUnavailable 3 s later. Five ready answers in a
           # row, then the wait - retried on a passing outage, and still failing loudly on one that lasts.
           ok=0
           for _ in $(seq 1 90); do
@@ -446,7 +446,7 @@ jobs:
           echo "$out" | grep -q '"backend": "kubernetes"'   || { echo "::error::evidence did not come from the cluster"; exit 1; }
           echo "$out" | grep -q 'scale_up'                   || { echo "::error::expected scale_up"; exit 1; }
           # The workload is a single pod OOM-killed at startup: every pod is failing, so scaling out
-          # cannot help and P11 escalates. Until 2026-09-25 this asserted APPROVED_FOR_HUMAN; the
+          # cannot help and P11 escalates. This once asserted APPROVED_FOR_HUMAN; the
           # first P11 keyed on pods_ready == 0 and fired here only when the read landed between
           # crashes (ready=1 outside the cluster, ready=0 inside, seconds apart). It now keys on
           # "every pod failing", which a back-off record proves whatever readiness says.
@@ -468,7 +468,7 @@ jobs:
           # container runtime, retry, and fail HERE, at the cause, if the image never arrives.
           present() { docker exec k3d-warden-ci-server-0 crictl images | grep -qE 'warden[[:space:]]+local'; }
           for attempt in 1 2 3; do
-            # Bounded: an import hung for the job's whole 25 minutes (CI on 41ba1f0, 2026-10-01); a hang is a retry.
+            # Bounded: an import has hung for the job's whole 25 minutes; a hang is a retry.
             timeout 180 k3d image import warden:local -c warden-ci || true
             if present; then echo "warden:local is in the node (attempt $attempt)"; break; fi
             echo "::warning::k3d reported the import but the image is not in the node (attempt $attempt)"

@@ -1,4 +1,4 @@
-"""Audit A-B-M16: a replay runs the production pipeline, tripwire included, and keeps the recorded run's ERROR rows.
+"""A replay runs the production pipeline, tripwire included, and keeps the recorded run's ERROR rows.
 The published run it replays is tracked in the repository, so nothing here is skipped."""
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ RUN = ROOT / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z"
 
 
 def test_the_tripwire_runs_in_a_replay_as_in_production(tmp_path):
-    """Audit A-B-M16: a replay skipped the tripwire, so it could never show P16."""
+    """A replay skipped the tripwire, so it could never show P16."""
     out = tmp_path / "replay"
     rd.replay(RUN, out, per_scenario=1, only={"ecs-03-oom-new-revision"}, llm_factory=lambda: LLMClient(mock=True),
               log=lambda _: None)
@@ -28,7 +28,7 @@ def test_the_tripwire_runs_in_a_replay_as_in_production(tmp_path):
 
 
 def test_a_run_that_failed_in_the_recorded_wave_stays_an_error_row(tmp_path):
-    """Audit A-B-M16: runs with no report were dropped, and the replay's denominators were not the run's."""
+    """Runs with no report were dropped, and the replay's denominators were not the run's."""
     src = tmp_path / "src"
     import shutil
     shutil.copytree(RUN, src)

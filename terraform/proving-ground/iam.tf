@@ -24,7 +24,7 @@ data "aws_iam_policy_document" "reader_assume" {
       type = "AWS"
       # Any principal in this account that is itself permitted to assume it. Scoping to the caller's
       # exact ARN breaks the moment the benchmark runs from GitHub Actions under an OIDC role
-      # instead of from a laptop, and a trust policy that has to be edited per run is a trust policy
+      # instead of from a workstation, and a trust policy that has to be edited per run is a trust policy
       # people widen.
       identifiers = [data.aws_caller_identity.current.account_id]
     }
@@ -38,7 +38,7 @@ data "aws_iam_policy_document" "reader" {
 
     # ⭐ EXACTLY the four calls src/warden/aws_backend.py makes, and the same four the deployment
     # module one directory up grants. tests/test_aws_backend.py asserts set equality with the code for
-    # BOTH lists, in both directions (this one since 2026-09-25), so neither can drift silently.
+    # BOTH lists, in both directions, so neither can drift silently.
     actions = [
       "cloudwatch:GetMetricData",
       "ecs:DescribeServices",

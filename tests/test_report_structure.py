@@ -1,6 +1,6 @@
 """The incident report as an on-call engineer, a developer and a DBA would use it.
 
-Written after the owner's review of real reports in Slack: placeholders like `<namespace>`, warnings
+Written after a review of real reports in Slack: placeholders like `<namespace>`, warnings
 printed AFTER the command they warn about, no statement of what was read or when, and nothing for
 any team but on-call. Each test pins one of those.
 """
@@ -26,7 +26,7 @@ from warden.playbook import detect
 from warden.reporting import build_report
 
 # A real redaction placeholder looks like <EMAIL_1>. Anything else in angle brackets is a hole the
-# reader has to fill in - which is what the owner asked never to see.
+# reader has to fill in - which a report must never show.
 _HOLE = re.compile(r"<(?![A-Z]+_\d+>)[^>\n]{1,40}>")
 
 
@@ -73,7 +73,7 @@ def test_no_report_contains_a_placeholder_to_fill_in(action, backend, labels):
     (None, ["recorded demo incident"], ["CloudWatch Logs"]),
 ])
 def test_every_report_says_what_was_read_and_over_what_window(backend, must, must_not, monkeypatch):
-    """The owner asked whether WARDEN reads CloudWatch around the alert time. For ECS it does, for a
+    """Does WARDEN read CloudWatch around the alert time? For ECS it does, for a
     window the report now states in clock time; for Kubernetes and PostgreSQL it does not, and the
     report says so instead of leaving it to be assumed."""
     monkeypatch.delenv("WARDEN_BACKEND", raising=False)
@@ -172,8 +172,8 @@ LIVE = ContextBundle(
 
 
 def test_the_checks_warden_ran_are_shown_as_results_not_as_homework():
-    """⛔ The owner: "why all kubectl commands in suggestions - aren't you using them yourself?" WARDEN
-    now reads container status, the crashed container's output and the rollout history itself, and
+    """⛔ Not a list of kubectl commands for a person to run when WARDEN can run them itself: WARDEN
+    reads container status, the crashed container's output and the rollout history itself, and
     the report shows what it found."""
     md = _report(ctx=LIVE, backend="k8s", namespace="shop", deployment="checkout").markdown
     section = md[md.index("## Checked by WARDEN"):md.index("## Metrics at the time")]

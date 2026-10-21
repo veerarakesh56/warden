@@ -85,7 +85,7 @@ OUTCOMES = (
 NA = "n/a"
 NOT_RECORDED = "not recorded"
 # One row per model request (retries, unanswered requests and Eldane's trials included), with `cost` (US dollars), `latency_ms`, `prompt_tokens` and `completion_tokens`; one row per
-# fall-back from the model, with its `reason` (lane FDE-F, 2026-10-21). An audit with neither row was written before
+# fall-back from the model, with its `reason`. An audit with neither row was written before
 # they existed: its cost and fallbacks are NOT RECORDED, never 0.
 LLM_CALL, FALLBACK = "llm.call", "llm.fallback"
 SCOPED = (
@@ -173,7 +173,7 @@ def check(rows: list[Any], checkpoints: list[Any], public_key: Any) -> Checked:
         else:
             out.failed.append((seq, "no valid signature covers it"))
         if seq in unlinked or seq in changed:
-            # A broken link, or a row whose own hash fails (its `prev` is then unproven, CodeRabbit PR 175): no
+            # A broken link, or a row whose own hash fails (its `prev` is then unproven): no
             # checkpoint above it reaches the rows before it.
             covered = False
     out.rows = [r for r in reversed(kept) if r]
@@ -227,7 +227,7 @@ def _pg_rows(dsn: str) -> tuple[list[Any], list[Any]]:
     try:
         with audit._pg_connect(dsn) as db:
             # Autocommit, so the SET is its own statement and every SELECT after it starts a READ ONLY transaction
-            # (CodeRabbit, PR 175) - whatever the connection factory's default.
+            # - whatever the connection factory's default.
             db.autocommit = True
             db.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
             return db.execute(ROWS_SQL).fetchall(), db.execute(CHECKPOINTS_SQL).fetchall()

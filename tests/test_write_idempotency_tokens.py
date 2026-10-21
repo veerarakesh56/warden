@@ -1,7 +1,7 @@
-"""Research 2026-10-15, item 13: every write WARDEN may make passes the idempotency or concurrency token its API
+"""Every write WARDEN may make passes the idempotency or concurrency token its API
 offers, so a retried apply cannot act twice or over a change made since the plan's read. Read from AWS's own API
-models (botocore), not from memory: on 2026-10-15 none of the actor role's writes took a ClientToken, and Lambda's
-two (UpdateAlias, UpdateFunctionConfiguration) took RevisionId - which the platform passes. A write added later
+models (botocore), not from memory: when this was written none of the actor role's writes took a ClientToken, and
+Lambda's two (UpdateAlias, UpdateFunctionConfiguration) took RevisionId - which the platform passes. A write added later
 whose API takes a token fails here until the platform passes it."""
 
 from __future__ import annotations

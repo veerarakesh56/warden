@@ -1,4 +1,4 @@
-"""What WARDEN decided, on one line of its own log (live window, 2026-10-11): the only sign of an incident in the
+"""What WARDEN decided, on one line of its own log (seen in a live window): the only sign of an incident in the
 worker's log was the model's HTTP request, so whether a verdict passed or a fix plan opened could be seen only in the
 chat or the database. One line for the verdict's plan, in WARDEN's own words, never more than one line."""
 

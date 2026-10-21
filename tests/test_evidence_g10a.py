@@ -1,4 +1,4 @@
-"""G10-A: evidence the model was not shown (miss analysis, 2026-10-10) - the time the alert fired, when each group of
+"""G10-A: evidence the model was not shown (miss analysis) - the time the alert fired, when each group of
 log lines was seen, and the numbers in a line (counts, ratios, a scale-down's before and after, exit codes, JSON
 fields). Each new fact is still a number or a word from a closed set: never a sentence a log writer chose."""
 
@@ -104,7 +104,7 @@ FORGED_LINES = [
 
 
 def test_aws_own_field_event_and_metric_names_keep_a_line_trusted_and_forged_words_do_not():
-    """G10 held-out set: real STATE, CHANGE and ALARM lines were demoted to untrusted for AWS's own
+    """Real STATE, CHANGE and ALARM lines were demoted to untrusted for AWS's own
     `disableExecuteApiEndpoint`, `FailoverDBCluster` and `StatusCheckFailed_System`, and the model lost them. A
     steering word anywhere else - or in a made-up event name's CamelCase words - still demotes the line."""
     assert [evidence._kind(x) for x in AWS_WORD_LINES] == ["C"] * len(AWS_WORD_LINES)
@@ -132,7 +132,7 @@ def _stack_source() -> str:
 
 
 def test_every_reader_tag_keeps_the_outcome_of_a_failed_read():
-    """G10 review: `ecs stopped tasks`, `network changes`, `alb zones`, `eks nodegroups`,
+    """`ecs stopped tasks`, `network changes`, `alb zones`, `eks nodegroups`,
     `lambda/<fn> versions` and the network workload reader did not fit the tag shape, so every failure there reached the
     model as "failed (unclassified)". Each tag the stack readers write - read from their source - must keep it."""
     import re
@@ -195,7 +195,7 @@ def test_every_read_operation_the_readers_call_is_known():
 
 
 def test_the_alerts_own_resource_name_does_not_demote_its_structured_lines():
-    """G10 held-out set: a state machine named `refund-approval` squashes to "approv", so every
+    """A state machine named `refund-approval` squashes to "approv", so every
     structured line about it was demoted and the model lost them. The alert's resource-label values (carried in the
     context, so every reading assigns the same ids) are skipped by the run-together check - as whole tokens only, and
     still checked word by word. Any other steering on the line, or a name that is steering words, still demotes."""
@@ -214,7 +214,7 @@ def test_the_alerts_own_resource_name_does_not_demote_its_structured_lines():
 
 
 def test_the_facts_are_the_same_in_every_process():
-    """G10 held-out baseline: a range of values with the same first number (`client=<IPV4_1> ..
+    """A range of values with the same first number (`client=<IPV4_1> ..
     client=<IPV4_3>`) took its ends from set order, which changes with each process's hash seed - so the diagnose and
     the verify step, in different worker processes, saw different facts and a right citation read as ungrounded."""
     import os

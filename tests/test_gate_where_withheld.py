@@ -1,4 +1,4 @@
-"""Live, 2026-10-16: the fs-01 re-diagnosis's report reached the channel as "The report was held back by the outbound
+"""The fs-01 re-diagnosis's report reached the channel as "The report was held back by the outbound
 gate." - and nothing on its record or in the log said where, so the cause could only be guessed. A withheld text now
 says where it was withheld - line, section and kind, never the value - on the incident's record and in the log."""
 

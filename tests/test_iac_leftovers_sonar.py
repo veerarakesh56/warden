@@ -1,10 +1,10 @@
-"""SonarCloud's IaC findings PR 46 left open, each fixed - with an equivalent that costs nothing where
-there is one (owner, 2026-10-20: none stays open by design):
+"""SonarCloud's IaC findings, each fixed - with an equivalent that costs nothing where
+there is one (none stays open by design):
 
 - S6258: the runtime's anchors and witness buckets log every access; the dev stack's ALB logs every request.
 - S6327: the order-events topic is encrypted with the AWS-managed key, and its one publisher may use it through SNS.
 - S5332: the internal ALB answers over HTTPS only, with the stack's own certificate (its caller's side, a real
-  handshake included, is tests/test_traffic_alb_tls.py, in the apps lane).
+  handshake included, is tests/test_traffic_alb_tls.py, in the apps CI).
 - S6413: the proving ground keeps its logs 14 days.
 - S6364: the lab database keeps 7 days of backups, deleted with it.
 - S2612: no image grants write to others; the runtime image checks Debian's sticky /tmp at build.
@@ -337,7 +337,7 @@ def test_the_proof_run_reaches_the_database_through_the_tunnel_and_closes_it():
 
 
 def test_the_lab_database_keeps_seven_days_of_backups_and_leaves_none_behind_a_destroy():
-    """S6364 (owner, 2026-10-20: fixed, not kept): the rule's 7 days. Free: backup storage up to the database's size
+    """S6364 (fixed, not kept): the rule's 7 days. Free: backup storage up to the database's size
     costs nothing, and a destroy deletes the automated backups with the instance and takes no final snapshot."""
     db = _flat(_block(LAB / "rds.tf", "aws_db_instance", "this"))
     retention = int(re.search(r"backup_retention_period = (\d+)", db).group(1))
@@ -372,7 +372,7 @@ def test_no_image_grants_write_to_others_and_the_runtimes_tmp_stays_debians_stic
 
 
 def test_the_webhook_routes_pass_the_gateway_only_with_their_bearer_secret():
-    """S6333 (owner, 2026-10-20: fixed, not kept): /alertmanager and /datadog carry a Lambda REQUEST authorizer that
+    """S6333 (fixed, not kept): /alertmanager and /datadog carry a Lambda REQUEST authorizer that
     checks the route's bearer secret at the gateway; the function keeps its own check. The approval page's routes keep
     their own gate - Slack sign-in and the approver's passkey - which an authorizer could not express."""
     front = (RUNTIME / "frontdoor.tf").read_text(encoding="utf-8")
@@ -408,7 +408,7 @@ def _webhook_gate(monkeypatch, stored: dict, calls: list):
     import zipfile
 
     class ClientError(Exception):
-        """botocore's, as far as the gate uses it (the workflow scan's lane has no botocore)."""
+        """botocore's, as far as the gate uses it (the workflow scan's CI job has no botocore)."""
 
         def __init__(self, error_response, operation_name):
             super().__init__(operation_name)
@@ -473,7 +473,7 @@ def test_the_webhook_gate_with_no_secret_admits_nothing(monkeypatch):
 
 
 def test_a_secret_rotated_out_stops_opening_its_route_at_once(monkeypatch):
-    """CodeRabbit: nothing is remembered between requests, so the old token fails on the very next request."""
+    """Nothing is remembered between requests, so the old token fails on the very next request."""
     old, new = "o" * 40, "n" * 40
     stored, calls = {"warden/ops/datadog-webhook-token": old}, []
     gate = _webhook_gate(monkeypatch, stored, calls)
@@ -489,7 +489,7 @@ def test_a_secret_rotated_out_stops_opening_its_route_at_once(monkeypatch):
 
 
 def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
-    """S6428 (owner, 2026-10-20: fixed, not kept by design): the negative Pod Security test is unchanged, but its pod is
+    """S6428 (fixed, not kept by design): the negative Pod Security test is unchanged, but its pod is
     built when the test runs (scripts/negative_pod.py) - no manifest in the tree asks for a privileged container, so
     nothing applies one by mistake and no linter needs a skip. It only ever goes to a server-side dry run."""
     import json
@@ -532,7 +532,7 @@ def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
     assert "Pod Security NOT shown" in lines[at + 5]
 
 
-# ----------------------------------------------------------------- the shop's own HTTPS (owner row 25)
+# ----------------------------------------------------------------- the shop's own HTTPS
 
 def test_the_alb_reaches_the_orders_tasks_over_https_and_checks_their_health_over_https():
     """Sonar python:S5332 (row 25): the tasks serve HTTPS themselves (tests/test_shop_https_s5332.py), so the target
@@ -552,7 +552,7 @@ def test_the_alb_reaches_the_orders_tasks_over_https_and_checks_their_health_ove
 def test_nothing_reaches_the_alb_or_the_orders_tasks_except_through_their_own_security_groups():
     """The tasks' certificate is unverified by design of the ALB, so nothing but the ALB may reach them, and nothing
     but the in-VPC Lambdas the ALB: no CIDR on either group, inline or in a separate rule in any .tf file
-    (CodeRabbit, via lane H). Rules that only *name* these groups as a source (redis_apps) are fine."""
+    Rules that only *name* these groups as a source (redis_apps) are fine."""
     main = FULLSTACK / "main.tf"
     alb, ecs = _flat(_block(main, "aws_security_group", "alb")), _flat(_block(main, "aws_security_group", "ecs"))
     for body in (alb, ecs):

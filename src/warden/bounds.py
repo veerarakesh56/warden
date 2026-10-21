@@ -1,8 +1,7 @@
 """Bounds, the kill switch and the circuit breaker - all read from the audit log.
 
 `blocked()` lists every reason an apply must not happen. It runs at the gate, before the approval wait,
-AND again inside `apply` itself - a kill switch tripped during the wait used to be missed (third review,
-2026-09-30):
+AND again inside `apply` itself - a kill switch tripped during the wait must not be missed:
 - the kill switch is on;
 - this service already had `per_service_per_hour` applies in the last hour;
 - this action class already had `per_class_per_day` applies in the last day.
@@ -17,7 +16,7 @@ hash of the trip row itself - an approval for one trip cannot clear another.
 The state lives in the audit log, so it is as tamper-evident as the rest of the record, and there is
 no second store to fall out of step with it.
 
-ponytail: counts are read by scanning the audit rows in the window; an index on (kind, at) when the
+Known limit: counts are read by scanning the audit rows in the window; an index on (kind, at) when the
 log gets large.
 """
 
@@ -56,8 +55,8 @@ def killswitch(log: AuditLog) -> dict | None:
 
 def trip(log: AuditLog, correlation_id: str, reason: str, **run: str) -> None:
     """Every trip is a row, the switch on or not: a second run ending in an unknown state while it was on left no
-    row, and one reset - signed for the first trip, its reason the only one the approver saw - cleared both (eighth
-    review, 2026-10-01). A reset names the latest trip."""
+    row, and one reset - signed for the first trip, its reason the only one the approver saw - cleared both. A reset
+    names the latest trip."""
     log.append(correlation_id, TRIPPED, {"reason": reason, **run})
     log.checkpoint()
     # A person is paged, and paged again until one acknowledges: the count's alarm does it.

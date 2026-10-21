@@ -1,5 +1,5 @@
 """The Slack sign-in for WARDEN's own pages (`/s/p`) brings the reader back to `/p`, remembered - the branch of
-ApprovalPage._reader_signed_in (S19) no other test pinned."""
+ApprovalPage._reader_signed_in that no other test pinned."""
 
 from __future__ import annotations
 

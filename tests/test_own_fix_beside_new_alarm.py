@@ -1,4 +1,4 @@
-"""Owner, 2026-10-15: "in real time the fixes might break things or cause even bigger other problems". An alarm in
+"""In real time a fix might break things or cause a bigger problem. An alarm in
 the same environment within the hour after one of WARDEN's own applied fixes gets that fix beside its evidence, as a
 change - like a person's deploy - so the diagnosis weighs it: cites it as the cause, or finds another. Nothing is
 assumed. Both records keep the link."""

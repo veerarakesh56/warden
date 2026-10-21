@@ -1,4 +1,4 @@
-"""Item 7 leftovers (owner, 2026-10-21).
+"""The model path's audit rows, fallbacks and spans.
 
 (2) One metadata-only `llm.call` row per model request - ts, model, prompt_tokens, completion_tokens, latency_ms,
 cost (USD: the usage at the model's prices, llm.model_prices) - for the diagnosis, the discussion and Eldane; and no
@@ -154,7 +154,7 @@ def test_no_log_line_holds_the_prompt_or_the_answer(tmp_path, caplog, request):
     critic_world = _eldane(request)
     caplog.set_level(logging.DEBUG)  # the root, so every logger's record is captured
     for name in list(logging.root.manager.loggerDict):
-        caplog.set_level(logging.DEBUG, logger=name)  # restored at teardown, as the root's is (CodeRabbit, PR 176)
+        caplog.set_level(logging.DEBUG, logger=name)  # restored at teardown, as the root's is
     answer = f'{{"answer": "{CANARY_ANSWER}", "cites": []}}'
     # The client itself: an invalid answer twice (each retried), then a valid one.
     client = LLMClient(provider=Scripted(f"no json {CANARY_ANSWER}", _status(503), answer), mock=False)
@@ -193,7 +193,7 @@ def _exported(exporter) -> str:
 
 
 def test_no_exported_span_holds_the_prompt_or_the_answer(tmp_path, monkeypatch, request):
-    """With otlp_exporter on, spans leave the account for the owner's collector (item 7b): a new destination. What
+    """With otlp_exporter on, spans leave the account for the operator's collector: a new destination. What
     they carry is metadata - never the prompt or the answer, not even inside an error's text."""
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -332,11 +332,11 @@ def test_the_reasons_are_a_closed_set(tmp_path):
         activities.fallback(log, "k", "something else", DIAGNOSE)
 
 
-# --------------------------------------------------------------------------- the pilot report's contract (PR 175)
+# --------------------------------------------------------------------------- the pilot report's contract
 
 
 def test_the_rows_have_the_shape_the_pilot_report_reads(tmp_path):
-    """PR 175 (the pilot report) counts these by name: `llm.call` with model, prompt_tokens, completion_tokens,
+    """The pilot report counts these by name: `llm.call` with model, prompt_tokens, completion_tokens,
     latency_ms and cost - a float in US dollars, not cents - and `llm.fallback` with a reason from the closed set.
     It is not on main yet, so this holds the shape; a test that runs the report over these rows comes with it."""
     client = LLMClient(provider=Scripted(_status(503)), mock=False)  # one failed call, then a fallback

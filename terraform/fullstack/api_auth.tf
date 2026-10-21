@@ -1,4 +1,4 @@
-# Audit A-I-13: the shop's public HTTP API takes a bearer token on POST /checkout (GET /health stays open: it touches
+# The shop's public HTTP API takes a bearer token on POST /checkout (GET /health stays open: it touches
 # nothing). The token is made by an ephemeral random_password and written through Secrets Manager's write-only
 # argument, so it is in neither the plan nor the state; the checkout Lambda checks it, the traffic Lambda - the only
 # caller - sends it, each reading it from Secrets Manager. Bump api_token_version to rotate it.
@@ -20,7 +20,7 @@ resource "aws_secretsmanager_secret_version" "api_token" {
 }
 
 variable "api_token_version" {
-  description = "Raise to rotate the API's bearer token (A-I-13)."
+  description = "Raise to rotate the API's bearer token."
   type        = number
   default     = 1
 }

@@ -139,7 +139,7 @@ resource "aws_ecs_task_definition" "orders_api" {
 resource "aws_lb" "orders" {
   name               = "${local.name}-alb"
   load_balancer_type = "application"
-  # ⛔ INTERNAL, in private subnets (2026-09-27 network review). Its only caller is the traffic
+  # ⛔ INTERNAL, in private subnets. Its only caller is the traffic
   # Lambda inside the VPC; nothing on the internet can reach it. A production app with a domain puts
   # a public ALB here with HTTPS (a free ACM certificate) - this lab has no domain, so it has no TLS
   # to terminate, and the safe answer is not to be public at all.
@@ -206,8 +206,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "alb_logs" {
 }
 
 # ELB's log delivery writes as the logdelivery.elasticloadbalancing service principal, AWS's policy for regions available
-# from August 2022 - this stack's region (environments.yaml) among them. AWS's ALB guide (as quoted in search results,
-# 2026-10-21; the page itself is not reachable from here) names it the current policy and keeps an older one, the
+# from August 2022 - this stack's region (environments.yaml) among them. AWS's ALB guide (as quoted in search results;
+# the page itself was not reachable) names it the current policy and keeps an older one, the
 # region's ELB account as principal, for regions available before August 2022. That form cannot be written for this
 # region at all: the provider's aws_elb_service_account has no account for regions after August 2022 and fails there
 # (terraform-provider-aws v6.66.0, internal/service/elb/service_account_data_source.go, read 2026-10-21). An apply in
@@ -262,7 +262,7 @@ resource "aws_s3_bucket_logging" "alb_logs" {
 resource "aws_lb_target_group" "orders" {
   name                 = "${local.name}-orders"
   port                 = 8080
-  protocol             = "HTTPS" # the tasks serve HTTPS themselves (owner row 25); the ALB does not verify their certificate
+  protocol             = "HTTPS" # the tasks serve HTTPS themselves; the ALB does not verify their certificate
   target_type          = "ip"
   vpc_id               = aws_vpc.this.id
   deregistration_delay = 10

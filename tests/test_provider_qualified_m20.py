@@ -53,7 +53,7 @@ def test_only_the_exact_model_that_passed_the_bar_is_admitted(monkeypatch):
 
 
 def test_a_row_measured_on_another_prompt_admits_nothing(monkeypatch):
-    """Review, PR 47: a changed diagnosis prompt is a model nobody has measured. The row of the same model on the
+    """A changed diagnosis prompt is a model nobody has measured. The row of the same model on the
     previous prompt - or a row that names no prompt - does not admit it."""
     passed = {"provider": "claude_cli", "model": "claude-sonnet-5-5", "correct": 20, "wrong_and_allowed": 0,
               "prompt": PROMPT}
@@ -74,7 +74,7 @@ def test_the_shipped_list_loads_and_every_entry_meets_its_bar():
 
 
 def test_the_production_default_is_a_qualified_model_and_sonnet_5_is_gone(monkeypatch):
-    """Owner, 2026-10-15: only Claude Sonnet 5.5 and Opus 5.5 - never Sonnet 5 again. The cloud names no model, so it
+    """Only Claude Sonnet 5.5 and Opus 5.5 - never Sonnet 5 again. The cloud names no model, so it
     runs the anthropic default: that is Sonnet 5.5, qualified; Sonnet 5 is neither a default nor qualified anywhere."""
     doc = providers.load_qualified()
     assert doc["defaults"]["anthropic"] == "claude-sonnet-5-5"

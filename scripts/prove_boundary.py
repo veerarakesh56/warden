@@ -8,8 +8,8 @@
 1. Control BEFORE: sqs:ListQueues (boundary allows, operator policy does not) -> must be denied.
 2. Self-edit a temporary version = repo policy + a statement granting: sqs:ListQueues (control),
    iam:CreatePolicyVersion on the BOUNDARY, iam:PutUserPermissionsBoundary on this user. Created
-   NOT default, and made default only inside the block whose `finally` restores (audit A-B-L21: it
-   was created as default before that block, so an interruption between the two left it in place).
+   NOT default, and made default only inside the block whose `finally` restores (created as default before
+   that block, an interruption between the two would leave it in place).
 3. Wait until the control SUCCEEDS - proof the temporary grant is in effect, so any denial after it
    comes from the boundary and not from propagation delay.
 4. Escalation probes, each must be AccessDenied:
@@ -122,7 +122,7 @@ def main() -> int:
     acct = s.client("sts").get_caller_identity()["Account"]
     op = f"arn:aws:iam::{acct}:policy/WardenProvingGroundOperator"
     boundary = f"arn:aws:iam::{acct}:policy/WardenProvingGroundBoundary"
-    # The stack's own tags (terraform output `resource_tags`), never literals (owner rule: no hardcoding).
+    # The stack's own tags (terraform output `resource_tags`), never literals: nothing is hardcoded.
     tags = json.loads(subprocess.run(["terraform", "output", "-json", "resource_tags"], cwd=REPO, check=True,
                                      capture_output=True, text=True).stdout)
     tags = [{"Key": k, "Value": v} for k, v in tags.items()] + [{"Key": "Purpose", "Value": "boundary-probe"}]

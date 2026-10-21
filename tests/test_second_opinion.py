@@ -1,4 +1,4 @@
-"""Owner, 2026-10-15: "better and more double checks ... the model sometimes makes mistakes". Before any fix reaches
+"""The model sometimes makes mistakes, so it is checked twice. Before any fix reaches
 a person, the model is asked once more on the same evidence; when the two answers name another action or another
 target - or no second answer can be had - the fix is escalated and nothing is offered for approval."""
 

@@ -483,7 +483,7 @@ def _scale_up_verdict_on_oom(*, ready: bool, backoff: bool = True):
 def test_live_shaped_oom_evidence_reaches_scale_up_verdict():
     """The plumbing claim: live-shaped OOM evidence travels through gather() to a real verdict, not
     a thin-evidence refusal. With the only pod OOM-killed and NOT ready, scaling out cannot help - no
-    replica serves traffic, so load is not filling memory - and since 2026-09-25 P11 escalates it.
+    replica serves traffic, so load is not filling memory - and P11 escalates it.
     That was the shape of all three EKS runs the gate wrongly let through; this test asserted
     approved_for_human for it until then."""
     verdict = _scale_up_verdict_on_oom(ready=False)
@@ -500,7 +500,7 @@ def test_scale_up_on_oom_still_passes_when_a_pod_is_serving():
 
 
 def test_a_crash_looping_pod_that_is_ready_between_crashes_is_still_failing():
-    """⛔ CI, 2026-09-25: the same OOM workload read ready=1 from outside the cluster and ready=0 from
+    """⛔ Seen in CI: the same OOM workload read ready=1 from outside the cluster and ready=0 from
     inside it seconds apart - a pod with no readiness probe is Ready between crashes - so P11 fired on
     one run and not the other. A back-off record means failing, whatever readiness says."""
     v = _scale_up_verdict_on_oom(ready=True, backoff=True)
@@ -871,7 +871,7 @@ def test_an_earlier_incidents_events_and_logs_are_not_this_ones_evidence():
 
 
 def test_every_page_of_the_namespaces_events_is_read():
-    """Audit A-B-M7: one page of a busy namespace's events could hold none of this workload's."""
+    """One page of a busy namespace's events could hold none of this workload's."""
     class Paged(FakeCore):
         def list_namespaced_event(self, ns, **kw):
             self.calls.append(f"events {kw.get('_continue')}")
@@ -886,7 +886,7 @@ def test_every_page_of_the_namespaces_events_is_read():
 
 
 def test_another_deployment_sharing_the_name_prefix_lends_no_events():
-    """Audit A-B-L6: events were matched by name prefix, so `checkout` took `checkout-api`'s rollout events."""
+    """Events were matched by name prefix, so `checkout` took `checkout-api`'s rollout events."""
     events = [_event("ScalingReplicaSet", "ours", kind="Deployment", name="checkout"),
               _event("ScalingReplicaSet", "theirs", kind="Deployment", name="checkout-api"),
               _event("FailedCreate", "our rs", kind="ReplicaSet", name="checkout-7d9f8b6c4"),

@@ -1,4 +1,4 @@
-"""A DynamoDB table's provisioned capacity back to what AWS Config recorded before ONE recorded cut (2026-10-11; held-out
+"""A DynamoDB table's provisioned capacity back to what AWS Config recorded before ONE recorded cut (held-out
 g10-092, g10-107, g10-130: a person cut a table's write capacity and the undo had no entry). Only a cut is undone, only
 of the table's own read and write units: never a billing mode, an index, a raise, or a table an autoscaler owns.
 Field names: AWS::DynamoDB::Table configuration.provisionedThroughput.readCapacityUnits / .writeCapacityUnits
@@ -163,7 +163,7 @@ def test_the_resolver_plans_the_restore_from_the_tables_label_and_it_has_a_fix_p
 
 
 def test_every_config_type_a_restore_reads_is_in_the_owners_recorder_step():
-    """A type the recorder does not record is a restore that always refuses (the table's was missing, 2026-10-11)."""
+    """A type the recorder does not record is a restore that always refuses (the table's was once missing)."""
     import pathlib
     import re
 

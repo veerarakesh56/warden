@@ -1,4 +1,4 @@
-"""The webhook routes' gate at the API Gateway (Sonar terraform:S6333, owner 2026-10-20): an HTTP API Lambda REQUEST
+"""The webhook routes' gate at the API Gateway (Sonar terraform:S6333): an HTTP API Lambda REQUEST
 authorizer in front of POST /alertmanager and POST /datadog.
 
 A request reaches the alertmanager function only if its Authorization header is `Bearer <the route's secret>`, compared

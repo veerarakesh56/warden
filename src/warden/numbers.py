@@ -6,7 +6,7 @@ percentage or a duration - that comes right after the words of a metric's name i
 seconds) and must match that metric within 5%. A number that names no metric is left alone (an interval, a window,
 a count), and so is one without a unit.
 
-Measured 2026-10-03 on the published runs: compared with every metric of its kind, the check fired on 85 of 132
+Measured on the published runs: compared with every metric of its kind, the check fired on 85 of 132
 answers - mostly a CloudWatch percentage below one (CPU 0.0047 means 0.0047%) read as a fraction, and intervals
 ("15s") that are not metrics. Hence only named metrics, named by the words since the previous number ("cpu 43%, mem
 65%": the 65% is not the CPU's); a value under one is accepted as either a fraction or a percentage; and a number

@@ -1,6 +1,5 @@
-"""Pause and resume without losing data (owner update 5, 2026-10-17): scripts/pause_resume.py, aurora_express.py's
-restore, the pipelines' order and the permissions they need. Fake AWS clients only; every guard here was plant-checked
-(the PR lists them)."""
+"""Pause and resume without losing data: scripts/pause_resume.py, aurora_express.py's
+restore, the pipelines' order and the permissions they need. Fake AWS clients only; every guard here was plant-checked."""
 
 from __future__ import annotations
 
@@ -255,7 +254,7 @@ def test_a_pause_copy_is_named_after_its_data_store_and_the_utc_time(pr):
 
 
 @pytest.mark.parametrize("name, ok", [
-    ("warden-dev-aurora-pause-20261017", True),            # the laptop's, by hand: a date only
+    ("warden-dev-aurora-pause-20261017", True),            # an operator's, by hand: a date only
     ("warden-dev-aurora-pause-20261020t062500z", True),
     ("WARDEN-DEV-AURORA-PAUSE-20261017", True),            # RDS is case-insensitive
     ("warden-dev-aurora-final-20261017t062500z", False),   # a teardown's, not a pause
@@ -315,7 +314,7 @@ def test_pause_fails_when_a_table_backup_does_not_become_available(pr):
 
 
 def test_pause_refuses_an_aurora_cluster_it_cannot_copy_before_any_writer_stops(pr):
-    """CodeRabbit: found before quiesce(), so a refused pause leaves the shop running."""
+    """Found before quiesce(), so a refused pause leaves the shop running."""
     writers = FakeWriters()
     clients = _full(FakeRds(cluster=_cluster("modifying")), FakeDdb(), writers)
     with pytest.raises(SystemExit, match="no snapshot can be taken, so nothing is deleted"):
@@ -428,7 +427,7 @@ def test_runtime_pause_snapshots_the_audit_database_then_stop_db_stops_it(pr):
 
 
 def test_runtime_pause_of_a_stopped_database_keeps_its_newest_pause_snapshot(pr):
-    """The laptop's pause of 2026-10-17: stopped, with warden-ops-audit-pause-20261017 made by hand."""
+    """A pause run from an operator's machine: stopped, with a warden-ops-audit-pause-<date> snapshot made by hand."""
     pr = _ops(pr)
     snap = {"DBSnapshotIdentifier": "warden-ops-audit-pause-20261017", "Status": "available",
             "SnapshotCreateTime": _t(17), "AllocatedStorage": 20}
@@ -464,7 +463,7 @@ def test_runtime_resume_starts_the_database_and_waits_for_it(pr):
 
 
 def test_a_resume_right_after_a_pause_waits_for_the_stop_then_starts(pr):
-    """CodeRabbit: a database still `stopping` is waited for, then started - not waited on as if starting."""
+    """A database still `stopping` is waited for, then started - not waited on as if starting."""
     pr = _ops(pr)
 
     class Stopping(FakeRds):
@@ -482,7 +481,7 @@ def test_a_resume_right_after_a_pause_waits_for_the_stop_then_starts(pr):
 
 
 def test_a_failure_that_is_not_ours_after_the_writers_stop_still_says_wake(pr):
-    """CodeRabbit: a waiter's or AWS's own error (not SystemExit) gets the wake hint too."""
+    """A waiter's or AWS's own error (not SystemExit) gets the wake hint too."""
     class Throttled(FakeDdb):
         def create_backup(self, TableName, BackupName):
             raise RuntimeError("ThrottlingException")
@@ -587,7 +586,7 @@ def test_aurora_resume_restores_the_newest_pause_snapshot_as_an_express_cluster(
 
 
 def test_aurora_resume_refuses_latest_when_a_destroy_came_after_the_last_pause(pr):
-    """CodeRabbit: pause, resume, writes, then a plain destroy - its final snapshot is newer than every pause
+    """Pause, resume, writes, then a plain destroy - its final snapshot is newer than every pause
     copy, and `latest` would bring back older data. Refused, both named."""
     rds = FakeRds(snapshots=[_csnap("warden-dev-aurora-pause-20261017", 17),
                              _csnap("warden-dev-aurora-final-20261019t090000z", 19)])
@@ -800,7 +799,7 @@ def test_the_runtime_pause_switch_is_the_only_parameter_the_role_may_write():
 
 
 def test_the_runtime_boundary_lets_no_role_write_any_parameter_but_the_pause_switch():
-    """CodeRabbit: the ceiling, not only the deploy policy, names tf/paused alone - a role under this boundary
+    """The ceiling, not only the deploy policy, names tf/paused alone - a role under this boundary
     whose own policy granted more still could not rewrite the model or the approvers."""
     boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
     writes = [s for s in boundary["Statement"] if s["Effect"] == "Allow"
@@ -823,7 +822,7 @@ def test_the_runtime_deploy_policy_writes_the_pause_switch_alone():
 @pytest.mark.parametrize("action", ["rds:DeleteDBClusterSnapshot", "rds:ModifyDBClusterSnapshotAttribute",
                                     "rds:CopyDBClusterSnapshot"])
 def test_the_deploy_policies_alone_grant_no_snapshot_delete_copy_or_share(env, action):
-    """CodeRabbit: the identity layer on its own, conditions evaluated (not only unconditional statements),
+    """The identity layer on its own, conditions evaluated (not only unconditional statements),
     the boundary left out - so the second layer holds whatever the boundary says."""
     ev = _evaluator()
     region = ev.r.names(env).region
@@ -837,7 +836,7 @@ def test_the_deploy_policies_alone_grant_no_snapshot_delete_copy_or_share(env, a
 @pytest.mark.parametrize("env", ["dev", "prod"])
 @pytest.mark.parametrize("kind", ["pause-20261017", "pause-20261020t062500z", "final-20261020t062500z"])
 def test_the_snapshot_grants_stay_narrow(env, kind):
-    """CodeRabbit: the deploy role may make, tag, restore from and delete a cluster with a final snapshot of its
+    """The deploy role may make, tag, restore from and delete a cluster with a final snapshot of its
     OWN environment's clusters - nothing else on a snapshot (no copy, share, delete), and nothing on another's."""
     ev = _evaluator()
     region = ev.r.names(env).region

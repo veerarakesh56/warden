@@ -7,7 +7,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # A draft pull request runs no CI (it saves the shared Actions queue); it runs when it is
     # marked ready for review, and on every push after that.
     types: [opened, synchronize, reopened, ready_for_review]
 
@@ -28,7 +28,7 @@ jobs:
         with:
           persist-credentials: false
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
-      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+      # (no unpinned install runs while a job holds cloud credentials).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"

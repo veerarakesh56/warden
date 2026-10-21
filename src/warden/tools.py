@@ -89,7 +89,7 @@ OUTCOMES = (ACCESS_DENIED, CREDENTIALS_REJECTED, "throttled", TIMED_OUT, CONNECT
             "failed (unclassified)")
 # Structured codes and exception type names -> outcome. Matched against a botocore error CODE, a
 # database SQLSTATE class or an exception's class names - never against a message, which can quote a
-# log line (second independent review, 2026-09-30).
+# log line.
 _CODE_OUTCOMES = (
     (ACCESS_DENIED, r"AccessDenied|UnauthorizedOperation|Forbidden|AuthorizationError|NotAuthorized"),
     (CREDENTIALS_REJECTED, (r"ExpiredToken|InvalidClientTokenId|UnrecognizedClient|"
@@ -148,8 +148,8 @@ def failure_tag(exc: BaseException) -> str:
 
 
 def status_tag(status: str) -> str:
-    """The tag for a GetMetricData series CloudWatch did not finish, from its StatusCode (G10 review, 2026-10-10: an
-    untagged `PartialData` reached the model as "failed (unclassified)")."""
+    """The tag for a GetMetricData series CloudWatch did not finish, from its StatusCode: an
+    untagged `PartialData` would reach the model as "failed (unclassified)"."""
     outcome = {"PartialData": "output truncated", "Forbidden": ACCESS_DENIED}.get(status, "failed (unclassified)")
     return f"[{outcome} on GetMetricData]"
 
@@ -446,7 +446,7 @@ def _numbers(metrics: object) -> dict[str, float]:
 # A third-party source that answered and found nothing (datadog.py, grafana.py, xray.py: "no error lines for ...",
 # "no failed traces/spans for ..."). Not a failed read: an EMPTY one - unknown, never a sign of health (P23 still
 # refuses "no action" on it), re-read once while the alert is young, and no longer a reason for P8 to hold
-# every fix (fs-22 run 2, 2026-10-15: Grafana's empty answer held the plan). The segments before it are WARDEN's own
+# every fix (an empty Grafana answer used to hold the plan). The segments before it are WARDEN's own
 # reader tags; an application's text never starts a TOOL-PARTIAL line.
 _NOTHING_FOUND = re.compile(r"^(?:[a-z0-9/_.-]+(?: [a-z]+)?: )*?(datadog|grafana|xray) (logs|traces): "
                             r"no (?:error lines|failed traces|failed spans) for \S+ between ")
@@ -454,8 +454,8 @@ _NOTHING_FOUND = re.compile(r"^(?:[a-z0-9/_.-]+(?: [a-z]+)?: )*?(datadog|grafana
 
 def _log_failed_reads(errors: list[str]) -> None:
     """One WARNING per incident naming each read that failed and how, in OUTCOMES' words only - never the error's
-    text, which can quote a log line. The cloud's failed reads were visible only inside each incident's record
-    (2026-10-15: "every log/telemetry source failed", with nothing in the worker's log)."""
+    text, which can quote a log line. Without it, failed reads are visible only inside each incident's record
+    ("every log/telemetry source failed", with nothing in the worker's log)."""
     from .evidence import tool_error_text
 
     failed, cut = set(), set()
@@ -467,7 +467,7 @@ def _log_failed_reads(errors: list[str]) -> None:
             failed.add(text)
         else:
             # A cut or partial read: no outcome to name, but the verifier counts it (P8), so the log names WHERE -
-            # 2026-10-15, fs-22 run 2: P8-PARTIAL-CONTEXT fired and the worker's log said nothing at all.
+            # otherwise P8-PARTIAL-CONTEXT can fire while the worker's log says nothing at all.
             cut.add(text.removesuffix(": failed (unclassified)"))
     said = ([f"{len(failed)} read(s) failed: {'; '.join(sorted(failed))}"] if failed else []) + \
         ([f"{len(cut)} read(s) incomplete: {'; '.join(sorted(cut))}"] if cut else [])
@@ -489,7 +489,7 @@ def _without_partials(name: str, result: list, bundle: ContextBundle) -> tuple[l
     partial = [x for x in result if isinstance(x, str) and x.startswith(PARTIAL_PREFIX)]
     result = [x for x in result if x not in partial]
     for p in partial:
-        # ⛔ Audit A-C-5: raw here, like the logs. node_redact scrubs tool errors with
+        # ⛔ Raw here, like the logs. node_redact scrubs tool errors with
         # the run's ONE placeholder map; scrubbing them here with a fresh map gave
         # `<IPV4_1>` two meanings - one host in a tool error, another in the logs.
         text = p[len(PARTIAL_PREFIX):]

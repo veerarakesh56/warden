@@ -18,8 +18,8 @@ on:
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-infra.yml"
       - ".github/workflows/_infra-validate.yml"
-      # Its jobs install from these: a stale lock must run them (2026-10-01: it did not, so a lock
-      # older than pyproject.toml stayed hidden until an apps or infra path changed).
+      # Its jobs install from these: a stale lock must run them (else a lock older than pyproject.toml
+      # stays hidden until an apps or infra path changes).
       - "uv.lock"
       - "pyproject.toml"
       - "tests/test_aws_stack.py"
@@ -47,7 +47,7 @@ on:
       - "src/warden/data/environments.yaml"
   # Pull requests into main only: dev and prod receive commits main has already checked.
   pull_request:
-    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # A draft pull request runs no CI (it saves the shared Actions queue); it runs when it is
     # marked ready for review, and on every push after that.
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
@@ -64,8 +64,8 @@ on:
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-infra.yml"
       - ".github/workflows/_infra-validate.yml"
-      # Its jobs install from these: a stale lock must run them (2026-10-01: it did not, so a lock
-      # older than pyproject.toml stayed hidden until an apps or infra path changed).
+      # Its jobs install from these: a stale lock must run them (else a lock older than pyproject.toml
+      # stays hidden until an apps or infra path changes).
       - "uv.lock"
       - "pyproject.toml"
       - "tests/test_aws_stack.py"

@@ -138,7 +138,7 @@ def test_a_thread_is_continued_and_updated_only_in_the_channel_it_is_in(slack, t
     chatops.SlackBotSink(TOKEN, DEV, live=True, threads=old).send("x", {"alert": {"id": "inc-1"}})
     assert slack[0] == ("chat.update", {"channel": DEV, "ts": "1.000001", "text": "WARDEN · inc-1 · x"})
     # The old single channel is not this one, or is not known any more: a new thread, the old ts is never used here
-    # (CodeRabbit, PR 36: chat.update and replies with another channel's ts fail).
+    # (chat.update and replies with another channel's ts fail).
     for single in (PROD, None):
         if single:
             monkeypatch.setenv("WARDEN_SLACK_CHANNEL", single)

@@ -27,7 +27,7 @@ RUNTIME = r.runtime_environment()  # iam/<runtime>/: same kinds, from the runtim
 LIMIT = 6144
 # Actions no policy grants or denies: GetCallerIdentity "requires no permissions ... you can still perform this
 # operation" under an explicit deny (STS API reference, read 2026-10-14). The deploy policy names it; the environment
-# boundary need not (its statement was dropped on 2026-10-14 to fit LIMIT once instances could be launched).
+# boundary need not (its statement was dropped to fit LIMIT once instances could be launched).
 NEEDS_NO_PERMISSION = {"sts:GetCallerIdentity"}
 
 
@@ -54,7 +54,7 @@ def _allows(doc):
 def test_every_environment_has_its_files_and_nothing_else_exists():
     dirs = {p.name for p in (ROOT / "iam").iterdir() if p.is_dir()} - {"templates", "operator"}
     assert dirs == {*ENVS, RUNTIME}
-    assert len(ENVS) == 2  # dev and prod (owner, 2026-10-16: staging, qa-staging, pre-prod and qa-prod went)
+    assert len(ENVS) == 2  # dev and prod (staging, qa-staging, pre-prod and qa-prod went)
 
 
 @pytest.mark.parametrize("env", ENVS)
@@ -88,8 +88,7 @@ def test_parameters_and_buckets_are_only_its_own(env):
         for st in _load(env, kind)["Statement"]:
             for res in _list(st.get("Resource")):
                 if ":ssm:" in res:
-                    # Only what Terraform reads: the Slack webhook and other runtime values live beside it
-                    # (audit A-I-17).
+                    # Only what Terraform reads: the Slack webhook and other runtime values live beside it.
                     assert res.endswith(f":parameter/warden/{env}/tf/*"), (kind, res)
                 if res.startswith("arn:aws:s3:::"):
                     assert res.startswith(f"arn:aws:s3:::warden-{env}-"), (kind, res)
@@ -165,7 +164,7 @@ def test_templates_use_only_the_known_placeholders():
 
 @pytest.mark.parametrize("env", ENVS)
 def test_no_role_trust_can_be_rewritten(env):
-    """Audit A-I-21: UpdateAssumeRolePolicy let the deploy role make one of its roles trust any principal after
+    """UpdateAssumeRolePolicy let the deploy role make one of its roles trust any principal after
     creation, past the checks on CreateRole. A trust change is a replacement of the role."""
     for kind in ("boundary", *DEPLOY):
         assert "iam:UpdateAssumeRolePolicy" not in _allows(_load(env, kind)), kind
@@ -173,7 +172,7 @@ def test_no_role_trust_can_be_rewritten(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_a_tag_cannot_make_another_resource_its_own(env):
-    """Audit A-I-7: ec2:CreateTags on any resource let the role tag an untagged resource Environment=<env> and
+    """ec2:CreateTags on any resource let the role tag an untagged resource Environment=<env> and
     then delete it. It may tag only while creating, its own environment's resources, and its own EKS cluster's
     security group (created and tagged by EKS)."""
     grants = [st for st in _deploy(env)["Statement"] if st["Effect"] == "Allow"
@@ -186,7 +185,7 @@ def test_a_tag_cannot_make_another_resource_its_own(env):
         eks = cond.get("StringLike", {}).get("aws:ResourceTag/aws:eks:cluster-name") == f"warden-{env}-eks"
         assert on_create or own or eks, st.get("Sid")
         if on_create:
-            # RunInstances: the node group's instances, tagged as they are made (EKS needs it, 2026-10-14).
+            # RunInstances: the node group's instances, tagged as they are made (EKS needs it).
             assert all(a.startswith(("Create", "AllocateAddress", "AuthorizeSecurityGroup")) or a == "RunInstances"
                        for a in on_create)
         if eks:
@@ -195,7 +194,7 @@ def test_a_tag_cannot_make_another_resource_its_own(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_only_the_managed_policies_terraform_uses_can_be_attached(env):
-    """Audit A-I-3: AttachRolePolicy with no condition let the deploy role give one of its roles any managed
+    """AttachRolePolicy with no condition let the deploy role give one of its roles any managed
     policy. It may attach exactly the AWS-managed policies Terraform attaches."""
     import re
 
@@ -211,13 +210,13 @@ def test_only_the_managed_policies_terraform_uses_can_be_attached(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_the_boundary_carries_every_guardrail_its_roles_could_break(env):
-    """Audit A-I-3/A-I-20: the guardrails were attached to the deploy role only, so a role it created - bound
+    """The guardrails were attached to the deploy role only, so a role it created - bound
     only by the boundary - could make a bucket, snapshot or function public. Every guardrail action the
     boundary's ceiling grants is denied in the boundary too, under the same condition."""
     guard = json.loads((ROOT / "terraform" / "proving-ground" / "operator-guardrails.json").read_text(encoding="utf-8"))
     boundary = _load(env, "boundary")
     ceiling = _allows(boundary)
-    # A deny on every resource, or on every resource but this environment's ALB access-log buckets (2026-10-17, Sonar
+    # A deny on every resource, or on every resource but this environment's ALB access-log buckets (Sonar
     # terraform:S6258: the stack writes that bucket's policy and public access block itself). An account-level action
     # names no bucket, so such a deny still covers it.
     alb_logs = [f"arn:aws:s3:::warden-{env}-alb-logs-*"]
@@ -243,7 +242,7 @@ def test_the_boundary_carries_every_guardrail_its_roles_could_break(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_a_role_connects_only_as_its_own_environments_database_users(env):
-    """Audit A-I-1/A-I-2: rds-db:connect was in the region-wide ceiling - any database user, the master
+    """rds-db:connect was in the region-wide ceiling - any database user, the master
     `postgres` included, in any environment's cluster. Now only warden_<env>_* users, and never postgres."""
     boundary = _load(env, "boundary")
     grants = [st for st in boundary["Statement"] if st["Effect"] == "Allow"
@@ -263,7 +262,7 @@ def _region():
 
 @pytest.mark.parametrize("env", ENVS)
 def test_the_deploy_role_can_do_what_the_first_real_deploy_needed(env):
-    """Audit A-I-5/A-I-6: Aurora express authorises CreateDBCluster against the `default` subnet group and needs
+    """Aurora express authorises CreateDBCluster against the `default` subnet group and needs
     EnableInternetAccessGateway; default_tags tag every event source mapping. The operator got these after the
     first real deploy; the per-environment deploy role did not, so CI's apply would fail the same way."""
     grants = [(a, r) for st in _deploy(env)["Statement"] if st["Effect"] == "Allow"
@@ -281,12 +280,11 @@ def test_the_deploy_role_can_do_what_the_first_real_deploy_needed(env):
 
 
 @pytest.mark.parametrize("env", ENVS)
-# The name predates the branch model: docs/AUDIT-2026-09-28.md row A-I-10 cites the test by it, so the
-# two are renamed together (research_notes "Branch and pipeline model", doc-changes.md).
+# The name predates the branch model; it is kept so earlier references to it still resolve.
 def test_only_main_and_the_two_deploy_workflows_may_assume(env):
-    """Audit A-I-10: any workflow run in the repository's `<env>` environment - from any branch - could assume the
-    deploy role. The trust now also requires `ref` = the branch of the environment's own name (owner, 2026-10-16:
-    main deploys nothing) and a `job_workflow_ref` of one of the two reusable deploy workflows on that branch (IAM
+    """Any workflow run in the repository's `<env>` environment - from any branch - could assume the
+    deploy role. The trust now also requires `ref` = the branch of the environment's own name (main
+    deploys nothing) and a `job_workflow_ref` of one of the two reusable deploy workflows on that branch (IAM
     condition keys for GitHub's tokens, read 2026-10-01)."""
     cond = _load(env, "trust")["Statement"][0]["Condition"]
     assert cond["StringEquals"]["token.actions.githubusercontent.com:ref"] == f"refs/heads/{env}"
@@ -297,7 +295,7 @@ def test_only_main_and_the_two_deploy_workflows_may_assume(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_mappings_and_task_definitions_are_the_environments_own(env):
-    """Audit A-I-8: event-source-mapping and task-definition grants were Resource "*" with a region condition only.
+    """event-source-mapping and task-definition grants were Resource "*" with a region condition only.
     The mappings are bound to this environment's functions (lambda:FunctionArn), task definitions to its families;
     DeregisterTaskDefinition has no resource and no condition key (AWS Service Reference, read 2026-10-01)."""
     by_sid = {st["Sid"]: st for st in _deploy(env)["Statement"]}
@@ -312,11 +310,11 @@ def test_mappings_and_task_definitions_are_the_environments_own(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_ecs_writes_stay_in_the_environments_own_clusters(env):
-    """Seventh review (2026-10-01, HIGH): an ECS service's ARN is service/<cluster>/<name>, so `*/warden-dev-*`
+    """HIGH: an ECS service's ARN is service/<cluster>/<name>, so `*/warden-dev-*`
     matched a dev-named service in prod's cluster, and CreateService authorizes the new, untagged service - the tag
     deny never fired; RunTask authorizes only the task definition. The boundary - binding every role the deploy
     role creates too - denies ECS writes into any cluster but the environment's own, on `ecs:cluster`, which every
-    action these patterns match carries (Service Reference, 2026-10-01)."""
+    action these patterns match carries (Service Reference)."""
     st = {s["Sid"]: s for s in _load(env, "boundary")["Statement"]}
     deny = st["DenyOtherClusters"]
     assert deny["Effect"] == "Deny"
@@ -340,7 +338,7 @@ def test_ecs_writes_stay_in_the_environments_own_clusters(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_the_deploy_role_turns_on_api_access_logs_without_writing_a_logs_resource_policy(env):
-    """Audit A-I-13 (owner's choice, 2026-10-01): API Gateway's access logs use vended log delivery. The owner creates
+    """API Gateway's access logs use vended log delivery. An operator creates
     the account's delivery policy for /aws/vendedlogs/warden-* once; the deploy role creates its own group and the
     delivery, and may never write a CloudWatch Logs resource policy - one can share logs with another account."""
     grants = [(a, r) for st in _deploy(env)["Statement"] if st["Effect"] == "Allow"
@@ -365,8 +363,8 @@ def test_the_deploy_role_turns_on_api_access_logs_without_writing_a_logs_resourc
 
 @pytest.mark.parametrize("env", ENVS)
 def test_no_role_shares_an_event_bus_or_the_image_registry_outside(env):
-    """Seventh review: roles inside the boundary could share outside the account through resource
-    policies. IAM Access Analyzer's external-access analyzer (the owner's, since 2026-09-27) reports role trusts,
+    """Roles inside the boundary could share outside the account through resource
+    policies. IAM Access Analyzer's external-access analyzer reports role trusts,
     Lambda, SQS, SNS, ECR repositories and DynamoDB; it does not analyze an EventBridge bus's permissions or the ECR
     registry's policy and replication (AWS docs, read 2026-10-01) - so those are denied outright."""
     denied = [a for st in _load(env, "boundary")["Statement"] if st["Effect"] == "Deny" and "Condition" not in st
@@ -379,7 +377,7 @@ def test_no_role_shares_an_event_bus_or_the_image_registry_outside(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functions(env):
-    """Eighth review: RunTask and StartTask carry no subnet key, and ECS's own role makes the task's
+    """RunTask and StartTask carry no subnet key, and ECS's own role makes the task's
     network interface - a dev role could run a task with prod's subnets and security groups (HIGH). Nothing in the
     stack runs one, so both are denied. Also: daemons in another cluster, EventBridge's bus policy API, account-wide
     log policies, and a function permission for another account (by id, or on an alias Access Analyzer misses)."""
@@ -390,7 +388,7 @@ def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functio
                    "events:PutResourcePolicy", "logs:PutAccountPolicy"):
         assert any(fnmatch.fnmatchcase(action, p) for p in flat), action
     # An EKS node group with a launch template needs its caller to hold ec2:RunInstances (AWS's EKS guide,
-    # "Customize managed nodes with launch templates", read 2026-10-14): the 2026-10-14 apply failed on it. Unlike a
+    # "Customize managed nodes with launch templates", read 2026-10-14): an apply failed on it. Unlike a
     # task, an instance names its subnet, security groups and template as resources, so the boundary's tag denies
     # reach them. The boundary denies an instance without IMDSv2 to every role; the deploy role may launch only from
     # a launch template (its grant's ArnLike needs the key) - the boundary has no room for that deny too (6,144).
@@ -416,7 +414,7 @@ def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functio
 
 
 def test_no_environment_name_is_another_ones_prefix():
-    """Eighth review: every IAM pattern is `warden-<env>-*`, so an environment `qa` beside `qa-prod` would
+    """Every IAM pattern is `warden-<env>-*`, so an environment `qa` beside `qa-prod` would
     match the other's resources - the hazard R7-D5 fixed in the Aurora script, latent in IAM."""
     for a in ENVS:
         for b in ENVS:
@@ -436,7 +434,7 @@ def _denied_untagged(boundary: dict, action: str, resource: str, tags: dict) -> 
 
 @pytest.mark.parametrize("env", ENVS)
 def test_no_role_changes_a_vpcs_untagged_defaults(env):
-    """Ninth review (2026-10-01, HIGH, pre-existing): a VPC's default network ACL, default security group and main
+    """HIGH, pre-existing: a VPC's default network ACL, default security group and main
     route table are made by AWS untagged, so the other-environment deny never applied - any environment's role
     could rewrite prod's default NACL. Scoped to the ACL, group and table themselves: a security-group RULE is
     untagged when it is made, and the stack's own rules must still go through; reads are never denied."""
@@ -460,7 +458,7 @@ def test_no_role_changes_a_vpcs_untagged_defaults(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_no_role_changes_account_settings_opens_a_way_out_or_buys_capacity(env):
-    """Ninth review: an environment's role could change account- and region-wide settings every
+    """An environment's role could change account- and region-wide settings every
     environment lives under (EBS encryption by default, instance metadata defaults, block public access for images,
     snapshots and the VPC, ECS account defaults, account log policies), open a way out (another account's access to
     a queue, topic or layer; peering; accepting an attachment) or commit money (reservations, purchases). Nothing in
@@ -513,7 +511,7 @@ def test_every_deploy_grant_lies_inside_the_boundary_on_resources_too(env):
 
 
 def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, monkeypatch):
-    """Audit A-I-18: the operator runs the Wave 4 harness from the laptop, in dev only. Its policy
+    """The operator runs the Wave 4 harness from a workstation, in dev only. Its policy
     writes only dev's named or tagged resources, and logs in to Aurora - as the master user, which the faults need -
     only on dev's cluster, named by its resource id: `dbuser:*` would reach every environment's database."""
     assert [e for e in ENVS if (ROOT / "iam" / e / "harness.json").exists()] == list(r.HARNESS_ENVS) == ["dev"]
@@ -544,7 +542,7 @@ def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, mon
 def test_only_the_operator_role_of_this_account_may_assume_the_harness_role():
     """Register R18: the harness is its own identity, warden-dev-harness - not permissions added to
     the read-only operator role. Only that role may assume it, in this account, keeping its source identity and
-    its certificate's session tags (a chained AssumeRole without sts:TagSession was refused live, 2026-10-02)."""
+    its certificate's session tags (a chained AssumeRole without sts:TagSession was refused live)."""
     trust = json.loads((ROOT / "iam" / "dev" / "harness-trust.json").read_text(encoding="utf-8"))
     [st] = trust["Statement"]
     assert st["Effect"] == "Allow"
@@ -613,8 +611,8 @@ def test_the_harness_can_carry_the_operators_source_identity_to_the_reader():
 
 @pytest.mark.parametrize("env", ENVS)
 def test_the_deploy_role_never_writes_the_owners_datadog_key(env):
-    """Secrets audit, 2026-10-16: the deploy role holds secretsmanager:* on warden-<env>-*, and so could overwrite or
-    delete warden-<env>-datadog-api-key - the agent's key, which the owner's setup script sets. Its guard denies the
+    """The deploy role holds secretsmanager:* on warden-<env>-*, and so could overwrite or
+    delete warden-<env>-datadog-api-key - the agent's key, which the setup script sets. Its guard denies the
     writes; the deploy still reads the key to install the agent (deploy_fullstack_apps.deploy_datadog)."""
     deploy = _load(env, "deploy")
     assert any("secretsmanager:*" in _list(s["Action"]) and f"arn:aws:secretsmanager:*:*:secret:warden-{env}-*"
@@ -622,7 +620,7 @@ def test_the_deploy_role_never_writes_the_owners_datadog_key(env):
     st = next(s for s in _load(env, "deploy-guard")["Statement"] if s.get("Sid") == "NeverWriteTheOwnersDatadogKey")
     assert st["Effect"] == "Deny"
     assert "Condition" not in st
-    # Everything but reading it is denied (CodeRabbit, PR 38: three named writes left RotateSecret, replication,
+    # Everything but reading it is denied (three named writes left RotateSecret, replication,
     # version stages and PutResourcePolicy - which could grant read to anyone - open).
     assert "Action" not in st
     assert sorted(_list(st["NotAction"])) == ["secretsmanager:DescribeSecret", "secretsmanager:GetResourcePolicy",
@@ -640,7 +638,7 @@ def test_the_runtime_deploy_role_has_no_ecs_image_lookup_and_its_boundary_no_mod
 
 
 def test_the_actor_connects_only_as_this_accounts_terminate_login_and_its_render_names_the_account(tmp_path, monkeypatch):
-    """Review, PR 48: the actor's rds-db:connect names the account, not `*`. The committed file keeps <ACCOUNT_ID>; the
+    """The actor's rds-db:connect names the account, not `*`. The committed file keeps <ACCOUNT_ID>; the
     git-ignored actor.local.json that --account writes carries the real one (and check_live_iam compares it)."""
     import sys
     import types

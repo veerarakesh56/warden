@@ -1,4 +1,4 @@
-"""Audit, 2026-10-16 (proven with IAM's own policy simulator): two paths to full account admin.
+"""An audit (proven with IAM's own policy simulator) found two paths to full account admin.
 
 1. The harness role (no permissions boundary) could write an inline policy on any `warden-<env>-*` role - itself
    included - so whoever held its session could make it an administrator. Its IAM writes now reach only the three roles

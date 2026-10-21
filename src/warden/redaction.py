@@ -3,12 +3,11 @@
 Every string is scrubbed before it can reach the model. Patterns FIND values; a final sweep then masks
 the other copies of each found value - every copy of a SECRET, every standalone copy of an identifier
 (see _sweep). Strings that belong together (one incident's lines, labels, errors) are redacted as ONE
-text: a value found in any of them is masked in all of them (redact_many, second review 2026-09-30).
+text: a value found in any of them is masked in all of them (redact_many).
 
 ⚠ What this is not: nothing here can see a secret NO pattern matches. The patterns are
 the control; HIGHENTROPY is their backstop; the outbound gate's G5 re-runs them, independently, on
-everything that leaves. (A re-scan inside redact() used the sweep's own rule and could never fire, so
-it was removed - second review, 2026-09-30.)
+everything that leaves. (A re-scan inside redact() would use the sweep's own rule and could never fire.)
 """
 
 from __future__ import annotations
@@ -50,8 +49,8 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # PuTTY: the key lines - at least one character, then up to the Private-MAC line or the end of the text.
     ("PRIVKEY", re.compile(r"Private-Lines:[ \t]*\d+[ \t]*\r?\n([\s\S](?:(?!\r?\nPrivate-MAC)[\s\S])*)")),
     ("ARN", re.compile(r"arn:aws:[a-z0-9\-]*:[a-z0-9\-]*:\d{12}:[^\s\"']+")),
-    # Three segments (a JWS) to five (a JWE, whose second may be empty): a JWE's last two parts were left in clear
-    # (eighth review, 2026-10-01).
+    # Three segments (a JWS) to five (a JWE, whose second may be empty): a JWE's last two parts must not be left
+    # in clear.
     ("JWT", re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*\.[A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]*){0,2}")),
     # Vendor key prefixes: OpenAI/Anthropic (sk-), GitHub classic (ghp_/gho_/ghu_/ghs_/ghr_) and
     # fine-grained (github_pat_), AWS permanent (AKIA) and STS temporary (ASIA) access-key ids,
@@ -59,7 +58,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # AKIA/ASIA share one shape (prefix + 16 base32); ASIA is the temporary sibling that travels
     # with a session token in AssumeRole/SSO bundles and appears bare in botocore errors.
     ("APIKEY", re.compile(r"\b(?:" + "|".join(_KEY_PREFIXES) + r")[A-Za-z0-9_\-]{8,}\b")),
-    # 2026-09-27 audit: shapes that passed unredacted. SendGrid keys carry dots.
+    # More key shapes. SendGrid keys carry dots.
     ("APIKEY", re.compile(r"\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}")),
     ("APIKEY", re.compile(r"\bwhsec_[A-Za-z0-9+/=_\-]{8,}")),  # Stripe webhook secrets carry + and /
     # Legacy Vault tokens: s. (service), b. (batch), r. (recovery), with a digit somewhere.
@@ -137,7 +136,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # The negative lookahead stops an ISO-8601 date (YYYY-MM-DD, which every log line starts with)
     # being masked as a phone number — that was masking timestamps and losing evidence.
     #
-    # ⛔ Two more guards, added 2026-09-25 after reports reached Slack reading
+    # ⛔ Two more guards, added after reports reached Slack reading
     # `node=ip-<PHONE_1>-08-21T14:12:03Z` and `wave<PHONE_1>T115746Z`:
     #   - the separator class is `[ \-]`, not `\s` - `\s` matched the NEWLINE between two log lines,
     #     so one "phone number" swallowed the end of one line and the timestamp of the next;
@@ -146,7 +145,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # A phone number written as a phone number (`+1 415-555-0132`, `phone=4155550132`) still starts
     # at a boundary and is still masked; so is a contiguous card number, which relies on this rule.
     #   - nor may it END inside one: digits followed by a letter or `_` are the start of a name - a SHA-256 in
-    #     a report or a plan hash beginning `3851007894...` was withheld as a phone number (CI, 2026-10-02).
+    #     a report or a plan hash beginning `3851007894...` was withheld as a phone number.
     #   - nor may it run INTO a date: `task 4471 2026-09-11T18:09:10Z` lost its number and half its timestamp to
     #     `<PHONE_1>-11T18:09:10Z` (the 30 recorded incidents, read 2026-10-11). A phone number before a date is still
     #     masked, up to the date.
@@ -175,8 +174,8 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("SECRET", re.compile(r"(?<![\w-])(?:--cookie|-b)(?:\s+|=)(?:\"([^\"\r\n]{4,})\"|'([^'\r\n]{4,})'|([^\s\"'-][^\s\"']{3,}))")),
     ("SECRET", re.compile(r"<Cookie\s+([^\s=<>]+=[^\s<>]{4,})")),
     ("SECRET", re.compile(r"\b(?:mysql|mariadb)(?:-?dump|-?admin)?\b[^\r\n]*?\s-p([^\s\"']{3,})")),
-    # A credential passed as a command-line flag. EXACT flag names (independent review 2026-09-28:
-    # `--secret-name`, `--token-file`, `--token-ttl` are not credentials, and masking them removed
+    # A credential passed as a command-line flag. EXACT flag names
+    # (`--secret-name`, `--token-file`, `--token-ttl` are not credentials, and masking them removed
     # resource names from the evidence). Same line only; a value never starts with `-` or a quote.
     # `=` or whitespace before the opening quote: in JSON argv `"--password","x"` the quote right
     # after the flag is the flag's own closing quote, not the value's opening one.
@@ -224,8 +223,8 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"((?:[^\s\"';,&]|,(?!\s*[\w.\-]+\s*[:=]))+)"
     )),
     # A hex key under a credential's name no pattern above lists - `ENCRYPTION_KEY=`, `hmac_key=`,
-    # `signing_key:`, `DD_APP_KEY=`, `Ocp-Apim-Subscription-Key:` - 32 or more hex characters (fourth
-    # review, 2026-09-30, B-N8; HIGHENTROPY below needs upper case, lower case and a digit). Only these
+    # `signing_key:`, `DD_APP_KEY=`, `Ocp-Apim-Subscription-Key:` - 32 or more hex characters
+    # (HIGHENTROPY below needs upper case, lower case and a digit). Only these
     # names: "any name ending in key" also took `cache_key=<sha>` and `object_key=<digest>`, and a SECRET is
     # swept from every line, so a commit sha vanished from WARDEN's own deploy record.
     ("SECRET", re.compile(r"(?i)(?:^|[\s\"',;{(\[?&])[\w.\-]{0,40}?(?:encryption|encrypt|crypt|hmac|signing|"
@@ -237,7 +236,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # private key logged line by line (a pod log splits it), a base64 credential. Upper, lower AND a
     # digit, so hex digests, ids and plain words do not match.
     # It may start right after `=`: the lookbehind used to exclude it, so a secret after `blob=` (a key
-    # no credential pattern names) was never masked (found 2026-09-30).
+    # no credential pattern names) was never masked.
     ("HIGHENTROPY", re.compile(
         r"(?<![A-Za-z0-9+/_\-])(?=[A-Za-z0-9+/=_\-]*[A-Z])(?=[A-Za-z0-9+/=_\-]*[a-z])"
         r"(?=[A-Za-z0-9+/=_\-]*\d)[A-Za-z0-9+/_\-]{40,}={0,2}(?![A-Za-z0-9+/=_\-])")),
@@ -246,7 +245,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 # Words that follow a credential key or flag in prose - "--token not set", "password: field
 # required", "api_key=true", usage text "--password PASSWORD" - and are not its value. Masked, each
-# was also swept from every other line ("invalidating" -> "<SECRET_1>ating", second review 2026-09-30).
+# was also swept from every other line ("invalidating" -> "<SECRET_1>ating").
 # A password that IS one of these words is not protected by redaction anyway.
 _NOT_A_VALUE = frozenset({
     "not", "set", "unset", "flag", "flags", "argument", "arguments", "option", "options", "is", "was",
@@ -258,7 +257,7 @@ _NOT_A_VALUE = frozenset({
     "credential", "credentials", "redacted", "hidden", "masked", "file", "env", "stdin", "absent",
 })
 # A value written as a word in angle brackets is a tool saying there is none: Go's `<nil>`, kubectl's `<none>` and
-# `<set to the key ...>` (ninth review: since values may hold `<`, each was a secret swept from every line).
+# `<set to the key ...>` (since values may hold `<`, each would be a secret swept from every line).
 _SAYS_NONE = re.compile(r"<[a-z][a-z -]*>?")
 # The pieces of a compound value (`_gh_sess=...; theme=dark`, `<uuid>.<secret>`): one with a letter and a digit is
 # swept on its own too - masked only as the whole, the same secret echoed alone elsewhere stayed in clear (ninth).
@@ -351,7 +350,7 @@ class _Redactor:
             return m.group(0)
         # A value holding placeholders already placed (`Cookie: a=<JWT_1>; sid=...`) is stored restored,
         # so restore() gives the original back in one step; one that is nothing but placeholders is
-        # masked already (seventh review: excluding `<` instead left the cookies after it in clear).
+        # masked already (excluding `<` instead leaves the cookies after it in clear).
         full = _PLACEHOLDER.sub(lambda p: self.mapping.get(p.group(1), p.group(1)), original)
         # By its shape, not the map: the gate re-scans with a fresh one, and took `Cookie: <SECRET_1>` for a
         # new secret - every report quoting a masked cookie was withheld.
@@ -383,8 +382,8 @@ class _Redactor:
         # Values nested deeper than _MAX_NESTING (a planted chain like `aaaaZ`, `aaaaaZ`, ...) would nest one
         # finder's groups past the recursion limit. They are split into groups, round-robin in sorted order,
         # until every group is shallow enough for a finder of its own: checking them one by one against every
-        # segment was quadratic - a comb of 8,008 values within the log caps took 126-144 s a pass (fifth
-        # review, 2026-10-01). Only if no split works are they checked one by one.
+        # segment was quadratic - a comb of 8,008 values within the log caps took 126-144 s a pass.
+        # Only if no split works are they checked one by one.
         trie = _trie(self._rules)
         deep = {w for w in self._rules if _nesting(trie, w) > _MAX_NESTING}
         fast = [w for w in self._rules if w not in deep]
@@ -507,10 +506,10 @@ def _trie_regex(root: dict[str, dict]) -> str:
     return build(root)
 
 
-# ⛔ Audit A-C-4: the sweep replaced every copy of every found value, so a TENANT `user_id=500` turned
+# ⛔ The sweep once replaced every copy of every found value, so a TENANT `user_id=500` turned
 # every HTTP 500 in the text into <TENANT_1>. The first fix (length thresholds) let SHORT SECRETS
-# survive in other lines - URL-encoded, glued, repeated - and made the leak check vacuous
-#. The rule now depends on what the value is:
+# survive in other lines - URL-encoded, glued, repeated - and made the leak check vacuous.
+# The rule now depends on what the value is:
 #   - a SECRET (a key, token, password, credential): every copy, anywhere, from 4 characters. A
 #     secret must never survive; rewriting a stray substring is the lesser harm.
 #   - an IDENTIFIER (tenant, IP, email, account id, ...): every copy that stands as its own token.

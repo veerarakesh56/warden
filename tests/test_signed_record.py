@@ -1,4 +1,4 @@
-"""Owner, 2026-10-15: access to WARDEN's incidents and records, for dev. The bench approver (dev only) reads an
+"""Access to WARDEN's incidents and records, for dev. The bench approver (dev only) reads an
 incident's record with a signed request - only incidents in its environments, read only - and a person's approver, a
 forged signature or a stale request reads nothing."""
 

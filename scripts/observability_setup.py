@@ -7,7 +7,7 @@ Asks for three keys, in this order, each typed at a prompt that does not echo it
 application keys (`user_app_keys`; used only here); and a second, different Datadog API key the test stack's agent
 sends with. Two API keys, not one: the agent's key sits in the test stack's cluster, and
 one leaked there must not also be the runtime's - each is revoked in Datadog without touching the other. Nothing is
-read from disk by default (naming audit item 24, 2026-10-16: these used to be plaintext files in ~/.warden, which
+read from disk by default (these used to be plaintext files in ~/.warden, which
 outlived "revoke after" whenever that was forgotten); --keys-dir still names a folder of the old files -
 datadog-api-key.txt and datadog-app-key.txt - for one release, read with a warning (the agent's key is always asked
 for). Then, every step safe to run again - each object found by its name, a new key replacing the old, never a second
@@ -90,7 +90,7 @@ def _tags(env: str) -> list[dict[str, str]]:
 
 def datadog_key(dd: Datadog) -> tuple[str, list[str]]:
     """A new `warden-read` key; returns its value and the ids of older ones still to delete (none: see below)."""
-    # Datadog refuses a second key of the same name (409, live 2026-10-14), and a key whose value was never stored -
+    # Datadog refuses a second key of the same name (409), and a key whose value was never stored -
     # an earlier run that stopped half-way - can never be used: so the older ones go first, then the new one is made.
     listed = dd.call("GET", "/api/v2/current_user/application_keys?"
                      + urllib.parse.urlencode({"filter": NAME, "page[size]": 100})).get("data") or []
@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None, *, aws: Any = None, dd_call: Any = None)
     p.add_argument("--site", required=True, help="the Datadog site, e.g. the one in the account's address")
     p.add_argument("--region", help="the AWS region (default: the profile's)")
     p.add_argument("--keys-dir", default=None,
-                   help="deprecated: a folder of the plaintext key files used before 2026-10-16, read with a warning; "
+                   help="deprecated: a folder of the plaintext key files earlier versions used, read with a warning; "
                         "without it each key is asked for")
     args = p.parse_args(argv)
     keys = pathlib.Path(args.keys_dir) if args.keys_dir else None

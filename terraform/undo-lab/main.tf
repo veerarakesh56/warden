@@ -156,7 +156,7 @@ data "archive_file" "producer" {
           started = time.monotonic()
           for i in range(int(os.environ["WRITES"])):
               # A throttled write answers slowly: without this the run outlasted its timeout, and the function's
-              # error alarm fired for the table's fault (seen live, 2026-10-11).
+              # error alarm fired for the table's fault (seen live).
               if time.monotonic() - started > float(os.environ["WRITE_SECONDS"]):
                   break
               try:
@@ -345,7 +345,7 @@ resource "aws_cloudwatch_metric_alarm" "orders_write_throttles" {
 }
 
 # The schedule invokes the producer asynchronously: with no concurrency left Lambda DROPS those events and counts no
-# throttle (seen live 2026-10-12: Throttles stayed empty, AsyncEventsDropped read 1 a minute).
+# throttle (seen live: Throttles stayed empty, AsyncEventsDropped read 1 a minute).
 resource "aws_cloudwatch_metric_alarm" "producer_dropped" {
   alarm_name          = "${local.name}-producer-dropped"
   alarm_description   = "Events sent to the lab's producer are being dropped."

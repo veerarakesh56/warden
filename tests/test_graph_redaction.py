@@ -112,7 +112,7 @@ def test_the_model_is_told_which_evidence_could_not_be_read():
 
 
 def test_a_read_failure_reaches_the_model_as_fixed_words_never_its_message():
-    """Audit A-C-2: the exception text of a failed read can quote log content (a KeyError names
+    """The exception text of a failed read can quote log content (a KeyError names
     the key it looked up), and T items are trusted. Only the reader and a fixed outcome pass."""
     alert = Alert(alert_id="x", name="n", severity=Severity.high, service="checkout",
                   environment="prod", summary="s", started_at="2026-09-25T05:29:12Z")

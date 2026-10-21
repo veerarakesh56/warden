@@ -445,7 +445,7 @@ def test_the_resolver_uses_the_lambda_revert_that_found_the_recorded_change_and_
 
 
 def test_a_settings_revert_is_refused_when_a_version_published_after_the_change_holds_it():
-    """G10 held-out re-check (2026-10-10, g10-082): the configuration change was published as a new version and an alias
+    """G10 held-out re-check (g10-082): the configuration change was published as a new version and an alias
     moved to it; changing $LATEST again would not reach what serves traffic - a rollback would."""
     f = Settings()
     f.published_after = True
@@ -455,7 +455,7 @@ def test_a_settings_revert_is_refused_when_a_version_published_after_the_change_
 
 
 def test_a_change_made_by_infrastructure_as_code_is_left_to_the_code():
-    """Its next apply would undo WARDEN's undo (G10 held-out re-check, 2026-10-10: g10-158 proposed undoing Terraform)."""
+    """Its next apply would undo WARDEN's undo (g10-158 proposed undoing Terraform)."""
     f = Settings()
     detail = json.loads(f.events[0]["CloudTrailEvent"])
     detail["userAgent"] = "APN/1.0 HashiCorp/1.0 Terraform/1.9.8 (+https://www.terraform.io) terraform-provider-aws/5.80.0"

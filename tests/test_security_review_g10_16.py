@@ -1,4 +1,4 @@
-"""Independent security review of 2026-10-16 (6efcabb..HEAD): its medium findings, each held by a test.
+"""An independent security review's medium findings, each held by a test.
 
 M1 - an alarm merely starting after a fix no longer counts as the fix failing (anyone who can raise an alarm could trip
      the kill switch); the fix counts as failed only when a later incident's diagnosis cites it - once.

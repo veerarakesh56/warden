@@ -168,7 +168,7 @@ def _list_write(event="PutParameter", name="/warden/ops/approvers", error="", wh
 
 
 def test_every_write_to_the_approver_list_is_recorded_and_pages_made_or_refused(cloudwatch, monkeypatch):
-    """Register G10-33 (owner, 2026-10-12: "if they wanted to, they would write a different name"): whoever writes the
+    """Register G10-33 (whoever can write the list could write a different name): whoever writes the
     approver list decides who may approve. Every write to it - and every refused attempt - is on the record with who
     made it, and pages."""
     log = Audit()

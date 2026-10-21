@@ -30,7 +30,7 @@ def _keys_only_in_the_test_temp_folder(tmp_path_factory):
 @pytest.fixture(autouse=True)
 def _root_logger_restored():
     """Every CLI command installs the log gate on the root logger. Each test starts and ends with the
-    root logger as it was, so no test depends on which ran before it (fourth review: one did)."""
+    root logger as it was, so no test depends on which ran before it (one did)."""
     root = logging.getLogger()
     handlers, level = root.handlers[:], root.level
     yield
@@ -38,8 +38,7 @@ def _root_logger_restored():
     root.setLevel(level)
 
 
-# A nonprod environment that permits every reversible action class - the shipped `staging` until 2026-10-16, when the
-# owner kept only dev and prod. The tests that need such an environment make one for themselves: test-only, never
+# A nonprod environment that permits every reversible action class - the shipped policy has only dev and prod. The tests that need such an environment make one for themselves: test-only, never
 # shipped.
 _STAGING = {
     "tier": "nonprod", "auto_remediate": True, "require_human_approval": False,
@@ -78,7 +77,7 @@ _DATA_KEY = pytest.StashKey[dict]()
 def pytest_configure(config):
     """Under pytest-xdist, start Temporal's time-skipping test server once in the controller, before any
     worker exists: the SDK downloads its binary on first use to one shared path, and several workers doing
-    that at once failed with "Text file busy" (CI, 2026-09-30, commit 14e32e1). Workers then find it."""
+    that at once failed with "Text file busy" (commit 14e32e1). Workers then find it."""
     if not hasattr(config, "workerinput"):
         # Register N9: nothing WARDEN runs writes into its own data/ (held for the whole run, controller only).
         from data_snapshot import snapshot
@@ -135,7 +134,7 @@ _MONITORING = getattr(sys, "monitoring", None)
 _TOOLS = (4, 3)  # free sys.monitoring tool ids: 0-2 and 5 are the debugger, coverage, profiler and optimizer
 _DEFINED: dict[str, dict[str, list]] = {}
 # The guard's own verdicts, kept here and put on the reports by its own hook - not in user_properties, which any
-# fixture can append to or strip (ninth review: an autouse fixture appending ("warden_body_ran", True) passed).
+# fixture can append to or strip (an autouse fixture appending ("warden_body_ran", True) passed).
 _GENUINE: dict[str, bool] = {}
 _RAN: dict[str, bool | None] = {}
 
@@ -166,8 +165,8 @@ def _defined(module, config) -> dict[str, list]:
 
 @pytest.hookimpl(wrapper=True)
 def pytest_pyfunc_call(pyfuncitem):
-    """Did the body the file defines run, return and never raise? Judged at collection, a rebound name passed
-   ; judged by a start of code with the def's file, line and name, a fake code object, or a body
+    """Did the body the file defines run, return and never raise? Judged at collection, a rebound name passed;
+    judged by a start of code with the def's file, line and name, a fake code object, or a body
     that raised with the failure swallowed by a wrapper, a hook or a thread passed (seventh and eighth reviews).
     Only cited tests are watched, during their call: the start, return and unwind of the code objects equal to
     those the file defines."""
@@ -246,7 +245,7 @@ def pytest_runtest_logreport(report):
 
 def _full_run(config) -> bool:
     """Judged: a run of the whole `tests` directory - however the path is spelled (`tests`, `tests/.`, `.`, an
-    absolute path; sixth review, 2026-10-01) - nothing filtered, and something actually run."""
+    absolute path) - nothing filtered, and something actually run."""
     here = pathlib.Path(__file__).resolve().parent
     base = pathlib.Path(getattr(getattr(config, "invocation_params", None), "dir", None) or pathlib.Path.cwd())
 
@@ -255,7 +254,7 @@ def _full_run(config) -> bool:
         return path in (here, here.parent)
 
     # Modes that run no test bodies are not judged: they printed the red evidence line (`--fixtures`) or failed the
-    # run (`--setup-plan`) - eighth review.
+    # run (`--setup-plan`).
     if any(config.getoption(o, default=False) for o in ("showfixtures", "show_fixtures_per_test", "setuponly",
                                                         "setupplan", "cacheshow")):
         return False

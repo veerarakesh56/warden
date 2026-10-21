@@ -1,4 +1,4 @@
-"""Item 11: a fix that was verified and then did not hold.
+"""A fix that was verified and then did not hold.
 
 The fix is watched through its soak (WARDEN_SOAK_MINUTES, 60 by default: re-checks at +15 and +60, and at the soak's
 end when it is longer). When the same alarm - or one on a resource the fix changed - comes back inside it, intake
@@ -192,7 +192,7 @@ def test_the_plan_row_carries_its_soak_for_intake(world, owner):
     assert plan["soak_minutes"] == 90
 
 
-# ------------------------------------------------------------------ PR 43 review
+# ------------------------------------------------------------------ marks, clearances and windows
 
 def test_an_alarm_that_transitioned_before_the_fix_was_verified_reopens_nothing():
     log = _log()
@@ -320,7 +320,7 @@ def test_the_own_fix_that_did_not_hold_is_beside_the_reopened_diagnosis(tmp_path
 
 
 def _cli_owner(tmp_path, monkeypatch):
-    """The CLI's world for `warden offer-again`: an approver list with the owner, an audit, and the owner's own key
+    """The CLI's world for `warden offer-again`: an approver list with one approver, an audit, and that approver's own key
     file, which this returns."""
     import yaml
     from cryptography.hazmat.primitives import serialization
@@ -373,7 +373,7 @@ def test_the_offer_again_command_clears_a_fix_with_the_approvers_own_key(tmp_pat
 
 
 def test_a_fix_verified_long_after_its_plan_is_watched_through_its_whole_soak(tmp_path):
-    """CodeRabbit, PR 43: the plan row is written before the approval wait (up to a week); a one-day look-back for it
+    """The plan row is written before the approval wait (up to a week); a one-day look-back for it
     lost the fix late in a long soak, and its relapse was never recorded."""
     clock = [datetime.now(UTC) - timedelta(days=3)]
     log = AuditLog(tmp_path / "a.db", key=None, clock=lambda: clock[0])
@@ -393,7 +393,7 @@ def test_a_fix_verified_long_after_its_plan_is_watched_through_its_whole_soak(tm
 
 
 def test_a_long_soaks_own_fix_is_beside_the_reopened_diagnosis(tmp_path):
-    """CodeRabbit, PR 43: the fix that reopened the incident was read only inside OWN_FIX_WINDOW (60 min), and a
+    """The fix that reopened the incident was read only inside OWN_FIX_WINDOW (60 min), and a
     soak runs up to a day."""
     from warden.activities import OWN_FIX_WINDOW
 
@@ -412,7 +412,7 @@ def test_a_long_soaks_own_fix_is_beside_the_reopened_diagnosis(tmp_path):
 
 
 def test_a_reopen_cut_off_before_its_marker_still_marks_the_fix_on_the_retry():
-    """CodeRabbit, PR 43: the reopen's intent and the did-not-hold marker are two rows; a retry of
+    """The reopen's intent and the did-not-hold marker are two rows; a retry of
     an intent recorded without its marker writes the marker, so the fix is never offered again unmarked."""
     log = _log()
     ev = _ev(at=LATER())
@@ -433,7 +433,7 @@ def test_a_reopen_cut_off_before_its_marker_still_marks_the_fix_on_the_retry():
 
 
 def test_offer_again_never_clears_a_later_failure_of_another_incident(tmp_path, monkeypatch, capsys):
-    """CodeRabbit, PR 43: `warden offer-again inc-9` cleared the same fix's later failure in inc-10, which the approver
+    """`warden offer-again inc-9` cleared the same fix's later failure in inc-10, which the approver
     never named nor read. Each failure is cleared by its own incident's name."""
     from warden import audit
     from warden.cli import main
@@ -450,7 +450,7 @@ def test_offer_again_never_clears_a_later_failure_of_another_incident(tmp_path, 
 
 
 def test_a_marked_run_that_then_ends_relapsed_is_one_failure_and_its_clearance_stands(tmp_path):
-    """CodeRabbit, PR 43 (outside the diff): intake marks the fix as not holding, then its run ends `relapsed`. Counted
+    """Intake marks the fix as not holding, then its run ends `relapsed`. Counted
     twice, a clearance signed between the two was undone by the run's own end."""
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey

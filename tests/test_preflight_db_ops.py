@@ -49,7 +49,7 @@ class FakeDb:
             raise ConnectionError("timeout")
         return self.counts[sql]
 
-    def baseline(self, clients, *_target):  # with or without the target (PR 60 drops it)
+    def baseline(self, clients, *_target):  # with or without the target (later callers drop it)
         if self.last in self.dirty_after:
             return [f"left over from {self.last}"]
         return []

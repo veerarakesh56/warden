@@ -1,4 +1,4 @@
-"""One fault, one incident (fs-22, 2026-10-15: a broken config became three incidents - two Datadog monitors and a
+"""One fault, one incident (scenario fs-22: a broken config became three incidents - two Datadog monitors and a
 CloudWatch alarm on the same workload). An alarm naming a resource an incident opened in the last GROUP_WINDOW also
 names, in the same environment, joins that incident; its record says which alert said the same, and from where."""
 

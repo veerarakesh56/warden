@@ -1,9 +1,9 @@
-"""The outbound gate against the third independent review's render harness.
+"""The outbound gate against an independent review's render harness.
 
 Every input is a prefix x payload x template from the review, plus its targeted cases. The gate's
 output is rendered by CommonMark and read as Slack would, and must show: no link, no image, no raw
 HTML, no heading or code block the input did not already have, no live URL or domain in prose - and
-the gate must be idempotent. The review found 223 of 5,725 inputs failing (A-C-9 FALSE).
+the gate must be idempotent. The review found 223 of 5,725 inputs failing.
 """
 
 from __future__ import annotations

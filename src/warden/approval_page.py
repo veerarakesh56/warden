@@ -14,7 +14,7 @@ Framework-free on purpose: one function from (method, path, body) to (status, he
 in tests and behind API Gateway and Lambda (G6). The stores - links, pending challenges - are mappings handed in:
 in memory here, the runtime's database in G6. Every response carries a strict Content-Security-Policy (no
 third-party script, nothing framed), HSTS, no caching and no referrer. The relying-party id is configuration
-(WARDEN_APPROVAL_RP_ID: a subdomain of the owner's domain, decision D17), never a literal.
+(WARDEN_APPROVAL_RP_ID: a subdomain of the installation's domain, decision D17), never a literal.
 
 Enrolling a passkey is `/e/<token>`: a link the approver's own Ed25519 key signed (`warden enrol`, made where that key
 is and opened there, never printed), valid 15 minutes, used once. The page runs the ceremony and shows the approver list with the new passkey in it.
@@ -178,8 +178,7 @@ class AuditLinkStore(LinkStore):
                     viewed=bool(self._rows("approval.link_viewed", key)))
 
     def mark_viewed(self, token: str) -> None:
-        # Who confirmed who they are and was shown which plan, on the record (owner, 2026-10-12: "tracked, so that
-        # later we can look at who did it").
+        # Who confirmed who they are and was shown which plan, on the record, so it can be traced later.
         link = self.link(token)
         self.log.append(link.workflow_id if link else "approval", "approval.link_viewed", {
             "key": self._key(token), **({"approver": link.approver, "workflow_id": link.workflow_id} if link else {})})
@@ -245,8 +244,8 @@ class ApprovalPage:
     # Sign in with Slack (slack_login.SlackLogin), when the runtime has a Slack app: then a link opens only for the
     # Slack member its approver is, before the passkey. None: the passkey alone, as before.
     slack: Any = None
-    # workflow id, SignedApproval -> sent: a LIMITED approver's signed approval (the bench approver, owner
-    # 2026-10-15). None: this page takes no signed approval.
+    # workflow id, SignedApproval -> sent: a LIMITED approver's signed approval (the bench approver).
+    # None: this page takes no signed approval.
     signed: Callable[[str, Any], None] | None = None
     # WARDEN's own pages (paging.S3Pages): the ones the pager repeats, and an approver's acknowledgement. None: no `/p`.
     pages: Any = None
@@ -307,11 +306,11 @@ class ApprovalPage:
     # ------------------------------------------------------------------ a limited approver's signed approval
 
     def _signed_request(self, step: str, body: str) -> Response:
-        """`/a/signed/plan` and `/a/signed/approve`: an approver limited to some environments (the bench approver,
-        owner 2026-10-15) asks for an incident's waiting plan with a signed request, then sends a signed approval of
+        """`/a/signed/plan` and `/a/signed/approve`: an approver limited to some environments (the bench approver)
+        asks for an incident's waiting plan with a signed request, then sends a signed approval of
         it. Every check of approvals.check runs here and again in the workflow; an approver with no environment list
         - a person - never uses this path. `/a/signed/record`: that approver reads the record of an incident in its
-        environments, read only (owner, 2026-10-15: access to WARDEN's incidents and records, for dev)."""
+        environments, read only (access to WARDEN's incidents and records, for dev)."""
         if (self.log is None or step not in ("plan", "approve", "record", "deny")
                 or (step in ("plan", "approve") and self.signed is None) or (step == "deny" and self.deny is None)):
             return _json(404, {"error": _NOT_FOUND})
@@ -585,7 +584,7 @@ class ApprovalPage:
             return _json(404, {"error": _NOT_FOUND})
         if self.slack is None:
             # The records have no passkey behind them: with no Slack sign-in to say who is reading, nobody reads them
-            # (independent check, 2026-10-14: they were open to anyone where the runtime had no Slack app).
+            # (otherwise they would be open to anyone where the runtime has no Slack app).
             return self._served_html(503, records.unavailable_page())
         member = self._reader(cookies)
         if not member:
@@ -612,8 +611,8 @@ class ApprovalPage:
         """The way to sign in, for a reader Slack has not named in this browser."""
         from . import records
 
-        # Back to the page the reader opened after Slack's sign-in, not to the list (2026-10-15: a report's "Full
-        # record" button landed on every incident once signed in). Only an incident id's shape travels.
+        # Back to the page the reader opened after Slack's sign-in, not to the list (a report's "Full
+        # record" button must land on that incident once signed in). Only an incident id's shape travels.
         back = parts[0] if parts and _INCIDENT_ID.fullmatch(parts[0] or "") else ""
         return self._served_html(200, records.signed_out_page(f"/s/r/{back}" if back else "/s/r"))
 
@@ -679,7 +678,7 @@ class ApprovalPage:
     def _environments_for(self, member: str) -> set[str] | None:
         """The environments a reader may read the records of: None for every one - a viewer, or an approver with no
         environment list - else those of the approver entries this member is, every one of them limited (the bench
-        approver, owner 2026-10-15: dev only)."""
+        approver: dev only)."""
         mine = [a for a in self.policy.approvers.values() if a.slack and a.slack == member]
         if member in self._viewers() or not mine or any(not a.environments for a in mine):
             return None
@@ -768,8 +767,8 @@ class ApprovalPage:
     # ------------------------------------------------------------------ the kill switch's reset
 
     def _reset(self, method: str, token: str, step: str, body: str) -> Response:
-        """Resetting the kill switch where the audit is (first live trip, 2026-10-12: the only reset was a command
-        that needs the audit database, which no laptop reaches in the cloud runtime). The link is signed by the
+        """Resetting the kill switch where the audit is (a reset command needs the audit database, which an
+        operator's workstation does not reach in the cloud runtime). The link is signed by the
         approver's own key; the reset is their passkey over exactly the trips shown - the riskiest tier's rules
         (bounds.reset_by_passkey): a device-bound passkey, an approver of T3, and the wait after the latest trip."""
         from . import bounds
@@ -824,8 +823,8 @@ class ApprovalPage:
     # ------------------------------------------------------------------ the kill switch's stop
 
     def _stop(self, method: str, token: str, step: str, body: str) -> Response:
-        """Turning the kill switch ON where the audit is (live, 2026-10-16: `warden killswitch on` on a laptop wrote a
-        local file and printed ON while the cloud runtime kept applying - no person could stop it). Stopping is the
+        """Turning the kill switch ON where the audit is (`warden killswitch on` on a workstation writes a
+        local file and prints ON while the cloud runtime keeps applying - no person could stop it). Stopping is the
         safe direction, so any approver may, with any of their passkeys; the passkey signs the reason they typed, and
         the trip names them. Resetting stays the riskiest tier's decision (`_reset`)."""
         from . import bounds
@@ -890,7 +889,7 @@ class ApprovalPage:
             return _json(404, {"error": _NOT_FOUND})
         if self.slack is None:
             # The pages name WARDEN's own faults and have no link behind them: with no Slack sign-in to say who is
-            # reading, nobody reads them, as the records (CodeRabbit, PR 43: anyone could list them).
+            # reading, nobody reads them, as the records (else anyone could list them).
             return _json(503, {"error": "WARDEN's pages are acknowledged after Slack's sign-in, and this runtime "
                                         "has none: acknowledge them where it does, or end what they name"})
         value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
@@ -1150,8 +1149,7 @@ def _json(status: int, payload: dict) -> Response:
 
 
 # ------------------------------------------------------------------ the pages
-# One look for every page (owner, 2026-10-12: "they look like some poor pages"; 2026-10-16: themes, a sci-fi
-# background, a wave on touch). Everything is in the page: the Content-Security-Policy admits no font, image, frame or
+# One look for every page: themes, a sci-fi background, a wave on touch. Everything is in the page: the Content-Security-Policy admits no font, image, frame or
 # script from anywhere, and no style attribute - so the system font, classes only, and a nonce on the one style and
 # the one script. Colours are custom properties, light and dark, chosen by the reader (remembered in this browser) or
 # by the device; every pair of text and ground passes WCAG 2.2 AA (tests/test_pages_ux.py measures them). The

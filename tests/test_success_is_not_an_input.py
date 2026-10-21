@@ -1,4 +1,4 @@
-"""A fix is verified only by WARDEN's own health checks of the same run (fourth review, 2026-09-30, B-N2).
+"""A fix is verified only by WARDEN's own health checks of the same run.
 
 `rem-<service>` is reused, and the payload codec binds a result to the workflow id, not the run. Run 1's
 "healthy" result, completed into run 2's check_success by anyone who can complete activity tasks, marked run 2

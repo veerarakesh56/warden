@@ -1,4 +1,4 @@
-"""Eldane, the AI critic, measured on the G10 held-out set (owner item 4, 2026-10-21): does it approve the right fix,
+"""Eldane, the AI critic, measured on the G10 held-out set: does it approve the right fix,
 catch the wrong or harmful one, and how often does it block a right one?
 
     python scripts/eldane_bench.py --model <a providers.yaml critic model> --dry-run   # no key, no call: counts, cost
@@ -39,7 +39,7 @@ marked incomplete):
 Money and where it runs. A paid run uses the cloud runtime's own Anthropic key only (`runtime_key`): the secret slot
 `warden/<runtime environment>/anthropic-api-key` read from Secrets Manager with the caller's AWS identity, or the key
 ECS injected into a runtime task (WARDEN_ENV is the runtime environment and ECS_CONTAINER_METADATA_URI_V4 is set, as
-Fargate 1.4.0+ sets it in every container). A key set in the shell anywhere else - a laptop's own - is refused, and so
+Fargate 1.4.0+ sets it in every container). A key set in the shell anywhere else - a workstation's own - is refused, and so
 is a run that cannot read the slot. The key is never printed or written. `--cap-usd` is a hard ceiling: a call is made
 only while what was spent plus that call's WORST case (every byte of its input counted as a token, plus
 FRAMING_TOKENS, and providers.MAX_OUTPUT_TOKENS of output, thinking included) stays within it; a failed call is

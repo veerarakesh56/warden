@@ -1,6 +1,6 @@
 """B40: every AWS call `terraform destroy` makes for the stacks the deploy role runs is allowed - conditions included.
 
-2026-10-17: the dev full-stack destroy failed. The deploy role was refused lambda:GetEventSourceMapping,
+A dev full-stack destroy once failed. The deploy role was refused lambda:GetEventSourceMapping,
 ec2:DeleteTags and ec2:DisassociateAddress. All three actions were already in the policy. Their conditions were the
 problem, and the older check (tests/test_env_iam.py) compared action and resource names only:
 - lambda:GetEventSourceMapping was granted only with `lambda:FunctionArn` = one of this environment's functions. The
@@ -9,7 +9,7 @@ problem, and the older check (tests/test_env_iam.py) compared action and resourc
 - ec2:DisassociateAddress was granted only on resources tagged Environment=<env>. The call is authorised on the
   address AND on the network interface it is attached to (AWS Service Reference: resource types elastic-ip and
   network-interface). A NAT gateway's interface is created by AWS and carries no tag. The runtime stack hit the
-  same refusal on 2026-10-10 (tests/test_runtime_iam_g6.py).
+  same refusal (tests/test_runtime_iam_g6.py).
 - ec2:DeleteTags: `aws_ec2_tag` puts the stack's tags, one resource per key, on the security group EKS creates for
   the cluster. Destroy removes the keys in parallel. Once `Environment` is gone the group no longer matches the
   Environment-tag grant, so the remaining keys are refused.
@@ -174,7 +174,7 @@ ARNS = {
     "vpce": "arn:aws:ec2:{r}:{a}:vpc-endpoint/vpce-0a1b2c3d",
     "lt": "arn:aws:ec2:{r}:{a}:launch-template/lt-0a1b2c3d",
     "param": "arn:aws:ssm:{r}:{a}:parameter/warden/{env}/tf/my_ip_cidr",
-    # The ALB's imported certificate and its access-log bucket (Sonar S5332 / S6258, PR 62).
+    # The ALB's imported certificate and its access-log bucket (Sonar S5332 / S6258).
     "cert": "arn:aws:acm:{r}:{a}:certificate/0a1b2c3d-aaaa-bbbb-cccc-ddddeeeeffff",
     "alb-logs": "arn:aws:s3:::{p}-alb-logs-20261021000000000000000001",
     "alb-logs-obj": "arn:aws:s3:::{p}-alb-logs-20261021000000000000000001/AWSLogs/{a}/elasticloadbalancing/x.log.gz",
@@ -449,7 +449,7 @@ def test_the_provider_version_the_calls_were_read_from_is_the_one_locked():
 REQUIRED_CALLS = {
     "destroy": [c for group in (*DESTROY_CALLS.values(), *DATA_CALLS.values(), BACKEND_CALLS) for c in group],
 }
-# Pause and resume (owner update 5): scripts/pause_resume.py and aurora_express.py's restore, beside the destroy and
+# Pause and resume: scripts/pause_resume.py and aurora_express.py's restore, beside the destroy and
 # the apply. A copy being made, a cluster or table being restored and AWS's own default subnet group carry no
 # Environment tag yet; a request that tags names this environment (aws:RequestTag).
 ARNS |= {

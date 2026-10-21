@@ -1,8 +1,8 @@
 """An alarm on something a person declared down, or not in use, is not an incident (register G10-39).
 
-Owner, 2026-10-12: non-production environments are shut down at night - "that is expected state, not an incident" -
-and "not only night shutdown, even sometimes on holidays and weekends and some other times when not needed, and
-maybe even complete or temporary not using those environments or AWS services or application services".
+Non-production environments are often shut down at night, at weekends, on holidays and whenever not needed, and
+environments, AWS services or application services may be out of use for a while or for good. That is an expected
+state, not an incident.
 
 While a declaration covers an alarm no incident starts. When the cover ends the alarm is looked at again: a
 shutdown that did not come back is an incident then, dated then."""
@@ -30,8 +30,8 @@ from warden.models import Alert, Severity
 from warden.workflows import ZONES, IncidentWorkflow
 
 IST = timedelta(hours=5, minutes=30)
-# `staging` and `qa-staging` stand for nonprod environments beside dev: test-only since 2026-10-16, when the shipped
-# policy kept dev and prod (tests/conftest.py; an unknown `qa-staging` is the restrictive default, never nonprod).
+# `staging` and `qa-staging` stand for nonprod environments beside dev: test-only, as the shipped
+# policy keeps dev and prod (tests/conftest.py; an unknown `qa-staging` is the restrictive default, never nonprod).
 pytestmark = pytest.mark.usefixtures("staging_policy")
 DECLARED = """
 - name: staging nights
@@ -283,7 +283,7 @@ def test_an_alarm_still_firing_or_unreadable_when_its_cover_ends_is_an_incident_
 
 
 def test_what_intake_decided_and_what_a_held_alarm_turned_out_to_be_are_each_one_log_line(monkeypatch, caplog, tmp_path):
-    """2026-10-14: an alarm held as expected down left no sign anywhere but the audit, which no laptop reaches."""
+    """An alarm held as expected down left no sign anywhere but the audit, which an operator's workstation does not reach."""
     import logging
 
     from test_lambdas_g6 import EVENT
@@ -340,7 +340,7 @@ def test_an_incident_from_a_held_alarm_says_so_under_its_title(tmp_path, monkeyp
 
 
 def test_a_production_environment_is_never_declared_down_forever():
-    """Owner, 2026-10-14 (the proposed guard): with no hours, days, dates or end, a declaration may name only nonprod
+    """With no hours, days, dates or end, a declaration may name only nonprod
     environments - one naming prod or an unknown environment covers nothing and is said in the log."""
     forever = expected.declarations
     assert [d["name"] for d in forever("- {name: idle, environments: [dev, staging]}")] == ["idle"]

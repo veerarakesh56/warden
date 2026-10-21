@@ -60,7 +60,7 @@ def test_an_unsupported_scheme_is_refused_with_the_known_list():
 
 
 def test_the_dsn_comes_from_the_environment_never_an_alert_label(monkeypatch):
-    """2026-09-27 audit: a `dsn` label chose which database WARDEN connects to and terminates on."""
+    """A `dsn` label chose which database WARDEN connects to and terminates on."""
     monkeypatch.setenv("WARDEN_DB_DSN", "postgresql://env/db")
     assert dsn_of(_alert(dsn="postgresql://label/db")) == "postgresql://env/db"
     assert dsn_of(_alert()) == "postgresql://env/db"
@@ -199,7 +199,7 @@ def test_postgres_problem_ops_excludes_own_backend_and_redacts_query_text():
     assert lines
     assert "pid=101" in lines[0]
     assert "pid <> pg_backend_pid()" in conn.asked[0]
-    # Query text can carry PII. Since audit A-C-5 the backend returns it raw, like every other
+    # Query text can carry PII. The backend returns it raw, like every other
     # backend's lines, and node_redact scrubs it with the run's ONE placeholder map (a separate map
     # here gave one placeholder two meanings). Nothing reads backend lines before node_redact.
     from warden.graph import node_redact
@@ -650,7 +650,7 @@ def test_a_lock_waiter_is_not_counted_as_a_long_running_query():
 
 
 def test_mongo_asks_the_server_for_long_running_ops_only():
-    """Audit A-B-L8: currentOp came back unfiltered - one document, capped at 16 MB - and was filtered here."""
+    """currentOp came back unfiltered - one document, capped at 16 MB - and was filtered here."""
     asked = []
 
     class Recording(_MongoStub):
@@ -666,7 +666,7 @@ def test_mongo_asks_the_server_for_long_running_ops_only():
 
 
 def test_postgres_counts_only_sessions_idle_in_a_transaction_past_the_threshold():
-    """Audit A-B-L9: a session between two statements of a transaction is idle for milliseconds."""
+    """A session between two statements of a transaction is idle for milliseconds."""
     conn = _SqlStub({"idle in transaction": [(0,)], "SHOW max_connections": [(100,)], "count(*)": [(3,)]})
     _Postgres.metrics(conn)
     idle = [q for q in conn.asked if "idle in transaction" in q]
@@ -675,7 +675,7 @@ def test_postgres_counts_only_sessions_idle_in_a_transaction_past_the_threshold(
 
 
 def test_every_connection_a_read_opens_is_closed(monkeypatch):
-    """Audit A-B-L7: each metrics() and logs() call opened a connection and never closed it."""
+    """Each metrics() and logs() call opened a connection and never closed it."""
     from warden import database
 
     opened, closed = [], []

@@ -1,9 +1,9 @@
 """Sign in with Slack, for the approval page: WHICH person is at the page, said by Slack - never typed.
 
-Owner, 2026-10-12: "it should automatically be linked to the Slack user id plus this passkey, so the tracking, the
-authentication and the authorisation are all in place". A passkey proves that a present person holds the enrolled
+An approval is linked to the person's Slack member id as well as their passkey, so tracking, authentication and
+authorisation are all in place. A passkey proves that a present person holds the enrolled
 key and approves exactly this plan; it does not say which colleague that is. A name or a member id typed into the
-approver list proves nothing ("if they wanted to, they would write a different name"). Slack's OpenID Connect
+approver list proves nothing (anyone could type a different name). Slack's OpenID Connect
 sign-in gives the member id from Slack itself; the page then requires it to be the approver the link was made for,
 before the passkey.
 
@@ -39,8 +39,8 @@ ISSUER = "https://slack.com"
 USER_CLAIM = "https://slack.com/user_id"
 TEAM_CLAIM = "https://slack.com/team_id"
 _TIMEOUT_S = 8.0
-# How long a browser that signed in is remembered (owner, 2026-10-12: "why do I see that Slack thing again and
-# again ... it should be only the first time"; Slack shows its own consent page at every sign-in). Slack is asked
+# How long a browser that signed in is remembered, so Slack's sign-in is asked for once, not on every visit (Slack
+# shows its own consent page at every sign-in). Slack is asked
 # once in that time per browser, not once per link; the passkey is still asked for every decision, and an approver
 # taken off the list approves nothing whatever a browser remembers.
 REMEMBER_S = 30 * 24 * 3600

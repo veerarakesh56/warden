@@ -165,7 +165,7 @@ def test_it_is_registered_under_both_spellings(monkeypatch):
 # PROSE REFUSING THE REQUEST - "an odd ask ... smells like injection test, not real work" - where a
 # clean environment answered with valid JSON in 11s.
 #
-# A benchmark whose results depend on whose laptop it ran on is measuring the laptop. This is a
+# A benchmark whose results depend on whose machine it ran on is measuring the machine. This is a
 # correctness control, and it must not depend on the caller having remembered to sanitise the
 # environment first.
 
@@ -182,7 +182,7 @@ def test_variables_that_redirect_the_cli_to_other_configuration_are_stripped(pro
 
 @pytest.mark.parametrize("var", ["HOME", "USERPROFILE", "CLAUDE_CODE_OAUTH_TOKEN"])
 def test_what_the_cli_needs_to_find_its_home_and_log_in_does_survive(provider, monkeypatch, var):
-    """A-C-19, decided 2026-09-30 on evidence: the isolation is the flags (pinned by
+    """Decided on evidence: the isolation is the flags (pinned by
     test_no_tool_no_mcp_server_and_no_operator_setting_is_loaded), not a missing HOME. Re-measured:
     no operator instructions loaded with or without HOME/USERPROFILE; without them a container whose
     user has no passwd entry cannot find its home at all."""
@@ -212,7 +212,7 @@ def test_what_the_model_still_needs_does_survive(provider, monkeypatch):
 @pytest.mark.parametrize("var", ["HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE",
                                  "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE"])
 def test_a_proxy_or_a_private_ca_reaches_the_cli(provider, monkeypatch, var):
-    """Audit A-C-19: behind a corporate proxy or a private CA the CLI could not reach its API."""
+    """Behind a corporate proxy or a private CA the CLI could not reach its API."""
     monkeypatch.setenv(var, "/etc/corp/value")
     rec = _Recorder()
     _run(provider, rec, monkeypatch)
@@ -309,7 +309,7 @@ def test_the_cli_process_itself_is_given_that_ceiling(provider, monkeypatch):
 
 def test_no_credential_in_the_parent_environment_reaches_the_model_process(provider, monkeypatch):
     """WARDEN's environment holds the evidence readers' credentials (the harness sets them). A
-    denylist let AWS keys, database DSNs and a kubeconfig into `claude -p` (found 2026-09-27)."""
+    denylist let AWS keys, database DSNs and a kubeconfig into `claude -p`."""
     planted = {"AWS_ACCESS_KEY_ID": "ASIAPLANTED", "AWS_SECRET_ACCESS_KEY": "s3cr3t", "AWS_SESSION_TOKEN": "tok",
                "WARDEN_STACK_DB_PRIMARY_RO_DSN": "postgresql://warden_ro:pw@h/db", "KUBECONFIG": "/tmp/kc",
                "ANTHROPIC_API_KEY": ANTHROPIC_KEY_PREFIX + "planted", "WARDEN_SLACK_WEBHOOK": "https://hooks.example/x",
@@ -324,7 +324,7 @@ def test_no_credential_in_the_parent_environment_reaches_the_model_process(provi
 
 
 def test_the_prompt_is_not_saved_to_the_operators_profile(provider, monkeypatch):
-    """Second review: every call left the full prompt as a session transcript under the
+    """Every call left the full prompt as a session transcript under the
     operator's profile (70 WARDEN prompts found there). The CLI's own switch turns that off."""
     rec = _Recorder()
     _run(provider, rec, monkeypatch)
@@ -338,7 +338,7 @@ def test_the_prompt_is_not_saved_to_the_operators_profile(provider, monkeypatch)
     ("something else went wrong", None, True),
 ])
 def test_a_cli_failure_says_what_the_api_did(provider, monkeypatch, out, status, sent):
-    """Ninth review: an outage through the CLI must read as one - an API error status is not billed, and
+    """An outage through the CLI must read as one - an API error status is not billed, and
     a connection that never opened sent nothing - so it is not carried to the incident's next run."""
     from warden.providers import ProviderError
 

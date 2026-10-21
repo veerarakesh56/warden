@@ -1,5 +1,5 @@
-"""Held by P31 alone, WARDEN offers the undo of the change the proposal left unaddressed (first live fault,
-2026-10-11). A person cut a table's write capacity; the model proposed raising it - which WARDEN's bounded raise could
+"""Held by P31 alone, WARDEN offers the undo of the change the proposal left unaddressed (first live
+fault). A person cut a table's write capacity; the model proposed raising it - which WARDEN's bounded raise could
 not even reach - P31 held that, and the person received a hand-off and no plan, although the undo of that very change
 has an entry. The offer goes through the same resolver and the same live read as a proposed revert, and a person
 approves it; beside any other policy nothing is offered."""

@@ -1,4 +1,4 @@
-"""Research 2026-10-15, item 3 (owner: "5 to 20 minutes of delay"): a source that answered with nothing right after the
+"""Sources can lag by 5 to 20 minutes: a source that answered with nothing right after the
 alert may only be early, so the incident reads once more when the alert is old enough for its slowest source - one
 re-read at most, on a durable timer, with what it filled and the alert's age on the record."""
 

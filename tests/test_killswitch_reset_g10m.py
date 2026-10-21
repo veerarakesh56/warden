@@ -1,9 +1,10 @@
-"""The kill switch is reset where the audit is (register G10-30; the first live trip, 2026-10-12).
+"""The kill switch is reset where the audit is (register G10-30).
 
 The switch tripped in the cloud runtime and could not be reset: the only reset was a command that opens the audit
-database, which no laptop reaches there. Now an approver opens a link their own key signed (`warden killswitch link`),
-the approval page shows every trip since the last reset, and their passkey resets it - under the riskiest tier's
-rules: an approver of T3, a device-bound passkey, exactly the trips shown, and the wait after the latest trip."""
+database, which no operator's machine reaches there. Now an approver opens a link their own key signed (`warden
+killswitch link`), the approval page shows every trip since the last reset, and their passkey resets it - under the
+riskiest tier's rules: an approver of T3, a device-bound passkey, exactly the trips shown, and the wait after the latest
+trip."""
 
 from __future__ import annotations
 

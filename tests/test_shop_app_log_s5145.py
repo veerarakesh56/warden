@@ -1,5 +1,5 @@
 """The demo shop logs a failed request by its route, never by the request line the client wrote (Sonar
-pythonsecurity:S5145, 2026-10-16): the query string reached the log as sent."""
+pythonsecurity:S5145): the query string reached the log as sent."""
 
 from __future__ import annotations
 

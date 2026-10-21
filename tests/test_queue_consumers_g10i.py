@@ -1,4 +1,4 @@
-"""A queue's own alarm reaches the queue's consumer (first live run of the lab, 2026-10-12, register G10-23).
+"""A queue's own alarm reaches the queue's consumer (register G10-23).
 
 The lab's consumer mapping was switched off; the alarm named only the queue. WARDEN read the queue's counters and
 nothing of who reads the queue, the model proposed a restart, and no plan was opened. Now the reader shows the event
@@ -115,9 +115,9 @@ def test_resume_flow_on_the_alarms_queue_is_planned_as_switching_its_mapping_on(
     req, why = resolver.request_for(alert, proposal, lambda e, params: _platform(f).live(e, params))
     assert req is None
     assert "no single known-good" in why
-    # Independent review 2026-10-10, F6: what the model names never becomes a target. A function it names on a queue's
-    # alarm leads to no plan of its own: when that function IS the queue's one switched-off consumer (fs-07, live,
-    # 2026-10-15), the plan is exactly the queue's - read by the queue's ARN, the same entry, function and mapping as
+    # What the model names never becomes a target. A function it names on a queue's
+    # alarm leads to no plan of its own: when that function IS the queue's one switched-off consumer (scenario
+    # fs-07), the plan is exactly the queue's - read by the queue's ARN, the same entry, function and mapping as
     # the queue-named proposal above; any other function, nothing.
     queue_plan = resolver.request_for(alert, proposal, lambda e, params: _platform(Queue()).live(e, params))[0]
     req, why = resolver.request_for(alert, _prop(ActionKind.resume_flow, FN), lambda e, params: _platform(Queue()).live(e, params))

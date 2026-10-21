@@ -43,7 +43,7 @@ def _soaked(run: pathlib.Path) -> None:
 
 @pytest.fixture(autouse=True)
 def _every_run_dir_is_soaked(tmp_path):
-    """Inject refuses a run with no soak (the owner's order); the tests start after one."""
+    """Inject refuses a run with no soak (the benchmark's rule); the tests start after one."""
     _soaked(tmp_path)
 
 
@@ -289,7 +289,7 @@ def test_the_alert_template_names_no_cause():
 
 
 @pytest.mark.parametrize("kw,outcome,ran", [
-    # ⛔ 2026-09-27: an approved, allowed fix is recorded, never run - whatever the verifier says.
+    # ⛔ An approved, allowed fix is recorded, never run - whatever the verifier says.
     ({}, "execution_disabled", False),
     ({"verify_ok": False}, "execution_disabled", False),
     ({"verdict": "rejected"}, "blocked_by_gate", False),
@@ -660,7 +660,7 @@ def test_the_report_is_rebuilt_with_identifiers_shown(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("prefix", ["warden-dev-", "warden-qa-staging-"])
 def test_the_alert_names_the_runs_own_environments_stack(tmp_path, monkeypatch, prefix):
-    """Seventh review: the template named dev's stack and nothing rewrote it, while the reader is scoped
+    """The template named dev's stack and nothing rewrote it, while the reader is scoped
     to its own environment's stack - outside dev every scoped read of the alert's labels was AccessDenied."""
     monkeypatch.setattr(cli.fs, "PREFIX", prefix)
     path = cli._alert_file(tmp_path, {"id": "fs-01", "alarm": "a", "severity": "high"}, {})
@@ -673,7 +673,7 @@ def test_the_alert_names_the_runs_own_environments_stack(tmp_path, monkeypatch, 
 
 
 def test_a_fault_needs_a_full_soak_and_a_destroy_a_full_watch_after_the_last_activity(tmp_path):
-    """Requirement R12, the owner's order: 30 unbroken healthy minutes before any fault - a shorter soak (the
+    """The benchmark's rule: 30 unbroken healthy minutes before any fault - a shorter soak (the
     --min-minutes override) is recorded and refused at inject - and 30 minutes of watching after the last fault
     before the stack is destroyed (destroy-check reads what the watch recorded)."""
     import json as _json
@@ -732,7 +732,7 @@ def test_the_verify_command_runs_the_verify_step(tmp_path, capsys):
     assert capsys.readouterr().err == "STOPPED: fs-05-lambda-iam-missing was never injected\n"
 
 
-# ---- main's dispatch, the alarm's settle time, verify's --timeout and the console (review of lane SH)
+# ---- main's dispatch, the alarm's settle time, verify's --timeout and the console
 
 
 @pytest.mark.parametrize(("argv", "step", "called"), [

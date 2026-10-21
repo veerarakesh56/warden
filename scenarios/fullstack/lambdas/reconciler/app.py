@@ -38,8 +38,8 @@ FROM unnest(%s::text[]) AS c(customer_id)
 def _meta():
     return json.loads(SECRETS.get_secret_value(SecretId=os.environ["SECRET_ARN"])["SecretString"])
 
-# The load picks (which customer or order id to look up) come from the operating system's CSPRNG (Sonar python:S2245,
-# 2026-10-20): never seeded, so nothing can replay or predict them, and nothing here needs them reproducible.
+# The load picks (which customer or order id to look up) come from the operating system's CSPRNG (Sonar python:S2245):
+# never seeded, so nothing can replay or predict them, and nothing here needs them reproducible.
 _RNG = random.SystemRandom()
 
 

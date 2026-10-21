@@ -1,5 +1,5 @@
-"""WARDEN's own reader segments keep their outcome tag whatever their case (fourth review, 2026-09-30,
-B-N5, a regression in 932d515): strings shaped exactly as the producers write them."""
+"""WARDEN's own reader segments keep their outcome tag whatever their case (a regression once lost it): strings
+shaped exactly as the producers write them."""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ def test_free_text_still_cannot_place_a_tag(raw):
      "access denied on DescribeRule"),
 ])
 def test_more_warden_reader_tags_keep_their_outcome(raw, expected):
-    """Fifth review: these readers' tags still read "failed (unclassified)"."""
+    """These readers' tags still read "failed (unclassified)"."""
     out = evidence.tool_error_text(raw)
     assert "unclassified" not in out, (raw, out)
     assert out.endswith(expected), (raw, out)

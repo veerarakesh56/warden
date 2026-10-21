@@ -32,7 +32,7 @@ MATH = {"EvaluationPeriods": 2, "Metrics": [{"Id": "e", "Expression": "a/b"}, {"
     ({"Period": 60, "EvaluationPeriods": 1}, 10),
     ({"Period": 90, "EvaluationPeriods": 1}, 14),  # 10.5 minutes: a part of a minute is a whole one
     (MATH, 48),  # a metric-math alarm: its slowest metric
-    # Seen live 2026-10-12: this alarm read OK 8.4 minutes after the fix, with its metric silent from the first one.
+    # Seen live: this alarm read OK 8.4 minutes after the fix, with its metric silent from the first one.
     ({"Period": 60, "EvaluationPeriods": 2}, 12),
     ({}, None), ({"Period": 300}, None), ({"Period": 0, "EvaluationPeriods": 3}, None),
     ({"Period": 300, "EvaluationPeriods": 0}, None), ({"Period": "300", "EvaluationPeriods": 3}, None),

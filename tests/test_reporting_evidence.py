@@ -183,7 +183,7 @@ def test_the_timeline_puts_the_deploy_before_the_first_error():
 
 def test_pids_named_in_the_evidence_are_listed_as_affected():
     """The PID is in the evidence, and only from the fixed prefix WARDEN's own database reads write. (The report used
-    to print a terminate statement for it; a fix is now a catalogue plan, 2026-10-16.)"""
+    to print a terminate statement for it; a fix is now a catalogue plan.)"""
     rep = _report(show=False)[0]
     assert rep.data["evidence"]["affected"]["pid"] == [["4242", 1]]
     assert "- **pid**: `4242` (1 line)" in rep.markdown

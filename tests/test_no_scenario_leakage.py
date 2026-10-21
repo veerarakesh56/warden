@@ -183,7 +183,7 @@ def test_a_scenario_skipping_its_revert_says_what_puts_it_back():
 
     ⚠ `wave1-ecs.yaml` is grandfathered, and not out of convenience: every published run records
     that file's hash in its manifest, so adding a field to it would make already-published results
-    report catalog drift. The rule binds every catalog written from 2026-09-12 onward.
+    report catalog drift. The rule binds every catalog written since the field was frozen.
     """
     silent = [
         s["id"] for s in _scenarios()
