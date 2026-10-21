@@ -80,7 +80,7 @@ def recent(alert: Any, *, log: Any, platform: Any = None, now: datetime | None =
     if repo and token:
         try:
             changes += github_deployments(repo, token, alert.environment, since, until)
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        except (OSError, ValueError):  # URLError and timeouts are OSErrors
             unread.append("GitHub deployments")
     reader = getattr(platform, "for_environment", None)
     if reader is not None:
@@ -149,7 +149,7 @@ def deploy_shas(base: Any, alert: Any) -> list[str]:
     deploy's sha, or an image's tag - the part after its last ':' - never the image's address. None read: none."""
     try:
         deploys = base.deploys(alert)
-    except Exception:  # noqa: BLE001 - no deploys read: no commits to look up, and the AWS read says why
+    except Exception:  # noqa: BLE001 - no deploys read: no commits to look up; and the AWS read says why
         deploys = []
     shas: list[str] = []
     for d in deploys if isinstance(deploys, list) else []:
@@ -189,27 +189,28 @@ class CommitReader:
     def logs(self, alert: Any) -> list[str]:
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", self.repo or ""):
             return []
-        out: list[str] = []
-        for sha in deploy_shas(self.base, alert)[:MAX_COMMITS]:
-            try:
-                c = self._get(f"/repos/{self.repo}/commits/{sha}")
-            except urllib.error.HTTPError as exc:
-                out.append(f"TOOL-PARTIAL github commit {sha[:12]}: HTTP {exc.code} - not read")
-                continue
-            except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-                out.append(f"TOOL-PARTIAL github commit {sha[:12]}: {type(exc).__name__} - not read")
-                continue
-            info = c.get("commit") or {}
-            when = _when((info.get("committer") or {}).get("date"))
-            files = ", ".join(f"{str(f.get('filename'))[:120]}(+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
-                              for f in (c.get("files") or [])[:MAX_FILES])
-            first = " ".join(str(info.get("message") or "").splitlines()[:1])[:200]
-            out.append(f"GITHUB commit {str(c.get('sha') or sha)[:12]} {when.isoformat() if when else '?'} "
-                       f"files: {files or '-'} message: {first}")
-        return out
+        return [self._commit_line(sha) for sha in deploy_shas(self.base, alert)[:MAX_COMMITS]]
+
+    def _commit_line(self, sha: str) -> str:
+        """One deployed commit as an evidence line, or a TOOL-PARTIAL line saying why it was not read."""
+        try:
+            c = self._get(f"/repos/{self.repo}/commits/{sha}")
+        except urllib.error.HTTPError as exc:
+            return f"TOOL-PARTIAL github commit {sha[:12]}: HTTP {exc.code} - not read"
+        except (OSError, ValueError) as exc:  # URLError and timeouts are OSErrors
+            return f"TOOL-PARTIAL github commit {sha[:12]}: {type(exc).__name__} - not read"
+        info = c.get("commit") or {}
+        when = _when((info.get("committer") or {}).get("date"))
+        files = ", ".join(f"{str(f.get('filename'))[:120]}(+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
+                          for f in (c.get("files") or [])[:MAX_FILES])
+        first = " ".join(str(info.get("message") or "").splitlines()[:1])[:200]
+        return (f"GITHUB commit {str(c.get('sha') or sha)[:12]} {when.isoformat() if when else '?'} "
+                f"files: {files or '-'} message: {first}")
 
     def traces(self, alert: Any) -> list[str]:
+        # The evidence-source signature: a deploy timeline holds no traces, whatever the alert is.
         return []
 
     def metrics(self, alert: Any) -> dict[str, float]:
+        # The evidence-source signature: a deploy timeline holds no metrics, whatever the alert is.
         return {}

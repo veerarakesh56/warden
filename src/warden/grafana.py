@@ -111,7 +111,7 @@ class GrafanaReader:
             return self._get(f"{base}{path}?{urllib.parse.urlencode(params)}", user), ""
         except urllib.error.HTTPError as exc:
             return None, f"{PARTIAL}grafana {source.lower()}: HTTP {exc.code} - not read (late, limited or refused)"
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        except (OSError, ValueError) as exc:  # URLError and timeouts are OSErrors
             return None, f"{PARTIAL}grafana {source.lower()}: {type(exc).__name__} - not read"
 
     # ------------------------------------------------------------------ logs
