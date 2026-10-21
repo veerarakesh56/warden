@@ -20,6 +20,7 @@ from .grounding import (
     citation_problems,
     decisive_problem,
     margin_problem,
+    outcome_problem,
     ranked_problem,
     target_problem,
 )
@@ -887,6 +888,12 @@ def _enforce(
         escalate = True
         policies.append("P38-HYPOTHESIS-NOT-RANKED-FIRST")
         reasons.append(f"{why[0].upper()}{why[1:]}: a person reads both.")
+    # P37 - the typed outcome against the proposal (owner U3-1, 2026-10-17): "no fault" with a change, or "could not
+    # determine" with anything but a hand-off. Escalates: the diagnosis contradicts its own remediation.
+    if why := outcome_problem(root_cause, proposal):
+        escalate = True
+        policies.append("P37-OUTCOME-CONTRADICTS-PROPOSAL")
+        reasons.append(f"{why[0].upper()}{why[1:]}: a person decides.")
 
     # P15 - the citations must bear on the ACTION, not merely exist (grounding.ACTION_EVIDENCE).
     # Escalates: a person checks whether the evidence supports this fix at all.
