@@ -158,3 +158,12 @@ def test_a_kubernetes_harness_dispatches_kubernetes_ops():
 def test_the_default_registry_is_still_the_ecs_one():
     """Wave 1 must be unaffected by Wave 2 existing."""
     assert runner._dry_harness().registry is ops.OPS
+
+
+def test_an_unreadable_cluster_role_stops_the_wave_rather_than_passing():
+    class NoRbac(FakeK8s):
+        def read_cluster_role(self, **_kw):
+            raise RuntimeError("forbidden")
+
+    problems = runner.check_baseline_k8s(_clients(NoRbac()), _target())
+    assert problems == [f"cannot read ClusterRole {_target().cluster_role!r}: RuntimeError"]

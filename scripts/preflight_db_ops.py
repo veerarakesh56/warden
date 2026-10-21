@@ -59,10 +59,10 @@ CHECKS = [
 ]
 
 
-def _settle_to_baseline(clients, target, seconds: int = 30) -> list[str]:
+def _settle_to_baseline(clients, seconds: int = 30) -> list[str]:
     deadline = time.monotonic() + seconds
     while True:
-        problems = check_baseline_db(clients, target)
+        problems = check_baseline_db(clients)
         if not problems or time.monotonic() > deadline:
             return problems
         time.sleep(2)
@@ -81,7 +81,7 @@ def _op_verified(clients, target, label: str, op_args: tuple[str, dict], landed)
         ok = False
         print(f"   inject raised {type(exc).__name__}: {exc}")
     ops_db.OPS["db_release_everything"](clients, target)
-    left = _settle_to_baseline(clients, target)
+    left = _settle_to_baseline(clients)
     verdict = "OK  " if ok and not left else "FAIL"
     print(f"{verdict} {label}: fault {'landed' if ok else 'DID NOT LAND'}; "
           f"after revert {'baseline clean' if not left else left}")
@@ -107,7 +107,7 @@ def _ingress_verified(clients, target) -> bool:
     finally:
         ops_db.OPS["db_restore_ingress"](clients, target)
     back = _reconnects(clients)
-    left = _settle_to_baseline(clients, target) if back else ["still unreachable after restore"]
+    left = _settle_to_baseline(clients) if back else ["still unreachable after restore"]
     verdict = "OK  " if cut and back and not left else "FAIL"
     print(f"{verdict} security-group revoke: connection {'cut' if cut else 'NOT cut'}; "
           f"restore {'reconnected' if back else 'DID NOT reconnect'}; {left or 'baseline clean'}")
@@ -120,7 +120,7 @@ def main() -> int:
     clients, target = harness.clients, harness.target
     failed = 0
 
-    problems = check_baseline_db(clients, target)
+    problems = check_baseline_db(clients)
     if problems:
         print(f"NOT AT BASELINE before starting: {problems}")
         return 1

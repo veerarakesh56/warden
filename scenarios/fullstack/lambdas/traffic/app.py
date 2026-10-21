@@ -60,8 +60,8 @@ def _call(method, url, body=None, headers=None):
             return resp.status
     except urllib.error.HTTPError as exc:
         return exc.code
-    except OSError as exc:
-        log.error("%s %s failed: %s", method, url, exc)
+    except OSError:
+        log.exception("%s %s failed", method, url)
         return 0
 
 
