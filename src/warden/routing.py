@@ -6,8 +6,8 @@ its own claim that a case is difficult). Each signal is computed from data WARDE
     risk tier         the proposed fix's catalogue tier is one of HARD_TIERS (T2, T3)
     prod              the incident's environment is of the prod tier (environments.yaml)
     disagreement      the two independent diagnoses of the same evidence name another action or another target
-    too close         WARDEN's count of the top two hypotheses' held citations differs by less than the margin
-                      (needs ranked hypotheses; until they exist the signal is recorded as not available)
+    too close         WARDEN's count of the top two hypotheses' held citations (grounding.hypothesis_score) differs by
+                      less than grounding.MARGIN - the count and margin P35 escalates on
     weak evidence     fewer than MIN_OWN_READS of the diagnosis's held citations are WARDEN's own reads (a metric,
                       a deploy, a configuration or state read), or the gathered evidence is thin by P9's own count
     re-investigation  a person asked for one in the discussion channel: a "new plan" (the new incident's alarm is on
@@ -219,7 +219,7 @@ def weak_evidence_signal(context: Any, root_cause: Any = None) -> Signal:
     """P9's own count of what was gathered, and - once there is an answer - how many of its citations that hold are
     WARDEN's own reads."""
     from . import evidence, verifier
-    from .grounding import _citation_problem
+    from .grounding import _held, chosen_support
 
     substantial = verifier._evidence_is_substantial(context)
     value: dict[str, Any] = {"substantial": substantial, "logs": len(context.logs), "metrics": len(context.metrics),
@@ -228,7 +228,8 @@ def weak_evidence_signal(context: Any, root_cause: Any = None) -> Signal:
     rule = (f"P9's floor ({verifier.MIN_LOG_LINES} log lines, {verifier.MIN_METRICS} metrics, a deploy: two kinds)")
     if root_cause is not None:
         items = evidence.view(context)
-        held = sorted({c.id.strip().strip("[]") for c in root_cause.citations if not _citation_problem(c, items)})
+        # The chosen cause's support (PR 47): the diagnosis's citations and its first hypothesis's, each that holds once.
+        held = sorted(_held(chosen_support(root_cause), items))
         own = [i for i in held if i[:1] in OWN_READ_KINDS]
         value.update(held_citations=held, own_reads=own)
         weak = weak or len(own) < MIN_OWN_READS
@@ -237,11 +238,23 @@ def weak_evidence_signal(context: Any, root_cause: Any = None) -> Signal:
 
 
 def too_close_signal(root_cause: Any, context: Any) -> Signal:
-    """The top two ranked hypotheses by WARDEN's count of their held citations. Ranked hypotheses are not in this
-    version yet: recorded as not available, never as fired."""
+    """The top two ranked hypotheses by WARDEN's own count of their held citations (grounding.hypothesis_score, PR 47:
+    an own read weighs 2, a log fact 1, evidence against subtracts), never the model's confidence. Fires when the chosen
+    cause leads its best rival by less than grounding.MARGIN - the same count and margin P35 escalates on. An answer
+    recorded before ranked hypotheses (None) or with no rival has nothing to compare: not fired."""
+    from . import evidence
+    from .grounding import MARGIN, hypothesis_score
+
+    rule = f"the chosen cause leads its best rival by at least {MARGIN} in WARDEN's count of held citations"
     hypotheses = getattr(root_cause, "hypotheses", None)
-    return Signal("too_close", False, {"available": hypotheses is not None, "hypotheses": len(hypotheses or [])},
-                  "ranked hypotheses compared by WARDEN's count (not available in this version)")
+    if not hypotheses or len(hypotheses) < 2:
+        return Signal("too_close", False, {"hypotheses": len(hypotheses or [])}, rule)
+    items = evidence.view(context)
+    top = hypothesis_score(hypotheses[0], items, root_cause.citations)
+    rival = max(hypotheses[1:], key=lambda h: hypothesis_score(h, items))
+    second = hypothesis_score(rival, items)
+    return Signal("too_close", top - second < MARGIN, {"hypotheses": len(hypotheses), "chosen": top, "rival": second,
+                                                        "gap": top - second, "margin": MARGIN}, rule)
 
 
 def disagreement_signal(first: Any, second: Any) -> Signal:

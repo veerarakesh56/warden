@@ -111,8 +111,14 @@ class Critic:
         self._made: dict[str, Any] = {}
 
     def choose(self, diagnosed_by: str) -> tuple[str, str]:
-        """The model for this incident, and why (model_for)."""
-        return model_for(diagnosed_by, self.models)
+        """The model for this incident, and why (model_for) - only one data/providers.yaml `roles` lists for the critic
+        role (routing.py; owner, 2026-10-17: Opus 5.5 is the critic and the deep-chat model until it qualifies)."""
+        from . import routing
+
+        model, why = model_for(diagnosed_by, self.models)
+        if model and routing.CRITIC not in routing.roles(model):
+            return "", f"{model} is not listed for the critic role in data/providers.yaml `roles`"
+        return model, why
 
     def provider(self, model: str) -> Any:
         if model not in self._made:

@@ -121,9 +121,18 @@ def test_two_diagnoses_disagreeing_alone_makes_the_case_hard(world):
     assert _route(world, second=same).fired == []
 
 
+def _citing(world, cites: list) -> object:
+    """The easy answer citing only `cites`, its first hypothesis supported by the same (its rival cites nothing)."""
+    rc = world["easy"].root_cause
+    hs = rc.hypotheses or []
+    ranked = [hs[0].model_copy(update={"supporting": cites}), *hs[1:]] if hs else hs
+    return world["easy"].model_copy(update={"root_cause": rc.model_copy(update={"citations": cites,
+                                                                                "hypotheses": ranked})})
+
+
 def test_weak_evidence_alone_makes_the_case_hard(world):
     rc = world["easy"].root_cause
-    one = world["easy"].model_copy(update={"root_cause": rc.model_copy(update={"citations": rc.citations[:1]})})
+    one = _citing(world, rc.citations[:1])
     route = _route(world, one)
     assert route.fired == ['weak_evidence']
     assert route.model == OPUS
@@ -132,7 +141,7 @@ def test_weak_evidence_alone_makes_the_case_hard(world):
     assert value['substantial'] is True
     # A citation that does not hold counts for nothing (P13's own test).
     bad = rc.citations[1].model_copy(update={"quote": "words that are not in the item"})
-    forged = world["easy"].model_copy(update={"root_cause": rc.model_copy(update={"citations": [rc.citations[0], bad]})})
+    forged = _citing(world, [rc.citations[0], bad])
     assert _route(world, forged).fired == ["weak_evidence"]
     # Thin gathered evidence (P9's own count) alone, before any answer.
     thin = world["pack"].model_copy(update={"context": world["pack"].context.model_copy(update={"logs": [], "metrics": {}})})
@@ -150,9 +159,42 @@ def test_a_reinvestigation_asked_in_chat_alone_makes_the_case_hard(world):
     assert not routing.replan_signal(world["log"], "another-incident").fired
 
 
-def test_too_close_never_fires_until_it_is_wired_to_the_hypotheses_scores(world):
-    signal = routing.too_close_signal(world["easy"].root_cause, world["pack"].context)
-    assert signal.fired is False
+def _ranked(world, rival_support: list) -> object:
+    """The easy answer with two ranked hypotheses: the chosen cause cites what the diagnosis cites; the rival cites
+    `rival_support`."""
+    from warden.models import Hypothesis
+
+    rc = world["easy"].root_cause
+    return rc.model_copy(update={"hypotheses": [
+        Hypothesis(cause=rc.hypothesis, supporting=list(rc.citations)),
+        Hypothesis(cause="Another cause.", supporting=rival_support, why_rejected="less evidence")]})
+
+
+def test_top_hypotheses_too_close_alone_makes_the_case_hard(world):
+    rc = world["easy"].root_cause
+    # The rival cites the same held own reads as the chosen cause: WARDEN's count cannot separate them.
+    close = world["easy"].model_copy(update={"root_cause": _ranked(world, list(rc.citations))})
+    route = _route(world, close)
+    assert route.fired == ["too_close"]
+    assert route.model == OPUS
+    value = next(s for s in route.signals if s.name == "too_close").value
+    assert value["gap"] < value["margin"]
+    # A rival with no held evidence is separated by the chosen cause's own reads.
+    clear = world["easy"].model_copy(update={"root_cause": _ranked(world, [])})
+    assert _route(world, clear).fired == []
+    # Nothing to compare: no rival, or an answer from before ranked hypotheses.
+    assert not routing.too_close_signal(rc.model_copy(update={"hypotheses": []}), world["pack"].context).fired
+    assert not routing.too_close_signal(rc.model_copy(update={"hypotheses": None}), world["pack"].context).fired
+
+
+def test_weak_evidence_counts_the_first_hypothesis_s_support_too(world):
+    rc = world["easy"].root_cause
+    from warden.models import Hypothesis
+
+    # The diagnosis cites one own read; its first hypothesis cites the other: two held own reads, not weak.
+    split = rc.model_copy(update={"citations": rc.citations[:1], "hypotheses": [
+        Hypothesis(cause=rc.hypothesis, supporting=rc.citations[1:2]), Hypothesis(cause="x", why_rejected="y")]})
+    assert not routing.weak_evidence_signal(world["pack"].context, split).fired
 
 
 def test_the_models_own_confidence_never_moves_the_choice(world):
@@ -644,3 +686,34 @@ def test_a_row_on_an_earlier_prompt_never_lets_opus_diagnose_or_take_over(world,
     monkeypatch.delenv("WARDEN_MOCK")
     with pytest.raises(providers.ProviderError):
         routing.client(OPUS, role=routing.DIAGNOSE)
+# ------------------------------------------------------------------ Eldane and autonomy (PR 42) on the roles
+
+
+def test_eldane_never_uses_a_model_providers_yaml_does_not_list_for_the_critic_role(monkeypatch):
+    from warden import eldane
+
+    for name in ("WARDEN_MODEL", "WARDEN_PROVIDER"):
+        monkeypatch.delenv(name, raising=False)
+    critic = eldane.Critic(provider_for=lambda m: None, models=(OPUS, SONNET))
+    monkeypatch.setattr(providers, "load_qualified", lambda: SHIPPED)
+    assert critic.choose(SONNET)[0] == OPUS
+    assert critic.choose(OPUS)[0] == SONNET
+    _opus_qualified(monkeypatch, False, roles=["chat"])
+    model, why = critic.choose(SONNET)
+    assert model == ""
+    assert "critic role" in why
+
+
+def test_no_ai_approves_a_case_that_needs_a_person(tmp_path):
+    from datetime import UTC, datetime
+
+    from warden import approvals, autonomy
+
+    log = audit.AuditLog(tmp_path / "a.db", key=Ed25519PrivateKey.generate())
+    nonprod = next(e for e, tier in routing_envs() if tier == "nonprod")
+    plan = approvals.Plan(workflow_id="rem-1", incident_id="inc-1", entry="events_enable_rule", tier="T1", params={},
+                          plan_hash="h", created_at=datetime.now(UTC), environment=nonprod)
+    held = "this incident is a hard case its hard model could not answer: a person approves its fix"
+    assert held not in autonomy.ai_problems(log, plan, "")
+    log.append("inc-1", "incident.route", {"stage": "verify", "needs_person": True})
+    assert held in autonomy.ai_problems(log, plan, "")

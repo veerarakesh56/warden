@@ -274,6 +274,12 @@ def ai_problems(log: Any, plan: Any, run_id: str) -> list[str]:
     if (row := bounds.killswitch(log)) is not None:
         problems.append(f"the kill switch is on, which stops autonomous approvals: {row['body'].get('reason', '')}")
     problems += self_guard(plan)
+    # A hard case its hard model could not answer (not qualified, routing.needs_person) is a person's to approve: no AI
+    # approves it alone (owner, 2026-10-17).
+    from . import routing
+
+    if routing.needs_person(log, plan.incident_id):
+        problems.append("this incident is a hard case its hard model could not answer: a person approves its fix")
     verdict = verdict_of(log, plan, run_id)
     if verdict is None or verdict.get("agree") is not True or not verdict.get("second_pass"):
         problems.append("Eldane's record holds no agreement with this exact plan from both of its passes")

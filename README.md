@@ -353,8 +353,8 @@ hard, and "hard" is decided by facts WARDEN can check itself, never by how sure 
 - the fix it proposes is of risk tier T2 or T3 (service-wide, or not reversible);
 - the incident is in production;
 - two diagnoses of the same evidence disagree (another fix, or another target);
-- the two most likely causes are too close to call, counting the evidence for and against each (not yet wired to
-  the ranked causes, so in this version it never fires);
+- the two most likely causes are too close to call: WARDEN counts the evidence for and against each of the ranked
+  causes (a reading of its own counts twice a log fact) and the chosen one leads its best rival by less than 2;
 - the evidence is weak: fewer than 2 of the cited facts are WARDEN's own readings (a metric, a deploy, a resource's
   state), or too little was gathered at all;
 - someone asked in the discussion channel for a new plan, or to investigate again.
