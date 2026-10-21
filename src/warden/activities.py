@@ -1999,17 +1999,25 @@ class DiscussActivities:
     @activity.defn
     def discuss_extend(self, turn: Any, incident: str) -> dict[str, Any]:
         """An approver's "extend" for the incident's waiting plan (extend.py): how far, or why not. Recorded either way
-        on the discussion's record; an extension also on the incident's, where the plan's run reads it (U3-8)."""
+        on the discussion's record; an extension also on the incident's, where the plan's run reads it (U3-8). Keyed
+        on the Slack message that asked: retried, it answers as it first did and adds no hours (CodeRabbit, PR 150)."""
         from . import extend
         from .discuss import Turn, hours_asked
 
         turn = Turn.model_validate(turn)
+        asked = f"{turn.channel}/{turn.ts}"
         hours = hours_asked(turn.text)
-        got = extend.request(self.audit, self.policy, incident=incident, user=turn.user, hours=hours,
-                             now=datetime.now(UTC))
-        self.audit.append(f"discuss-{incident}", "discuss.extend", {
-            "run_id": _run_id(), "user": turn.user, "ts": turn.ts, "hours": hours, "why": got.get("why", ""),
-            "workflow_id": got.get("workflow_id", ""), "until": got.get("until", "")})
+        if hours is None:  # not exactly one whole number of hours: asked again, never guessed
+            got: dict[str, Any] = {"why": "hours unclear"}
+        else:
+            got = extend.request(self.audit, self.policy, incident=incident, user=turn.user, hours=hours,
+                                 now=datetime.now(UTC), asked=asked)
+        thread = f"discuss-{incident}"
+        self.audit.append_unless(thread, "discuss.extend", {
+            "run_id": _run_id(), "user": turn.user, "asked": asked, "ts": turn.ts, "hours": hours,
+            "why": got.get("why", ""), "workflow_id": got.get("workflow_id", ""), "until": got.get("until", "")},
+            lambda: "recorded" if any(e["body"].get("asked") == asked
+                                      for e in self.audit.entries(thread, kinds=("discuss.extend",))) else "")
         if got.get("until"):
             got["until_said"] = environments.both_times(datetime.fromisoformat(got["until"]), seconds=False)
         return got

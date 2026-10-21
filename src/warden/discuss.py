@@ -74,7 +74,21 @@ REPLAN_SOON = "WARDEN made a new plan for `{incident}` less than an hour ago; as
 # "extend by 12h", "extend approval". By EXTEND_MAX_HOURS unless they say how long, and at most that at a time.
 EXTEND = re.compile(r"(?i)\bextend\b([^.?!\n]{0,40})")
 _EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|time|deadline|it|by)\b|\d\s*h")
-_HOURS = re.compile(r"(?i)\bextend\b[^.?!\n]{0,40}?\b(\d{1,4})\s*(?:h|hrs?|hours?)\b")
+# How long: read strictly from the whole message (CodeRabbit, PR 150: a "6 hours" past a fixed window became 24). One
+# whole number of hours said once ("12h", "12 hours") is that many; no number and no word about time is
+# EXTEND_MAX_HOURS; anything else - a second duration, another unit, a number standing alone, a decimal or a spelled-out
+# number, a clock time, "until tomorrow" - is not guessed at: the approver is asked again and nothing is extended.
+_EDGE = r"\w.:/-"  # a number touching one of these is part of an id, a time or a link, not a duration
+_DURATION = re.compile(rf"(?i)(?<![{_EDGE}])(\d{{1,4}})\s*(?:h|hrs?|hours?)(?![{_EDGE}])")
+_NUMBER = re.compile(rf"(?<![{_EDGE}])\d+(?![\w/-])")
+_WORD = re.compile(r"\b[a-z]+\b")
+# Words about time, and spelled-out numbers ("...teen" too): said beside "extend", they are not a whole number of hours.
+_TIME_WORDS = frozenset((
+    "h", "hr", "hrs", "hour", "hours", "min", "mins", "minute", "minutes", "day", "days", "week", "weeks", "tonight",
+    "tomorrow", "today", "morning", "afternoon", "evening", "noon", "midnight", "until", "till", "half", "quarter",
+    "dozen", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+    "twenty", "thirty", "forty", "fifty", "sixty"))
+
 EXTENDED = ("The wait for WARDEN's plan `{workflow}` is extended by {hours} h, to {until}{capped}. Nothing else "
             "changes: it still needs an approver's passkey, and WARDEN reads the target again before applying it. When "
             "the approval links already posted run out, fresh ones come to the alerts channel; the incident's record "
@@ -88,9 +102,18 @@ NOT_EXTENDED = {
                            "a person, so its wait is not extended. A person's \"no\" on the approval page still stops "
                            "it until it is applied."),
     "hours out of range": "A plan's wait is extended by 1 to {most} hours at a time; ask again with that.",
+    "hours unclear": ("WARDEN could not tell for how long, so nothing was extended. Ask again with one whole number of "
+                      "hours, 1 to {most} - \"extend by 12h\" - or just \"extend the wait\" for {most} hours."),
+    "busy": ("Another extension of WARDEN's plan `{workflow}` was being recorded at the same moment, so this one was "
+             "not; ask again."),
     "at the limit": ("WARDEN's plan `{workflow}` already waits as long as a plan can: until {until}, {ceiling} hours "
                      "from when it was made. A new plan can be asked for with \"new plan\"."),
 }
+
+
+def _says_time(text: str) -> bool:
+    """A whole word about time or a spelled-out number - not letters inside an id such as a Slack member's."""
+    return any(w in _TIME_WORDS or w.endswith("teen") for w in _WORD.findall(text.lower()))
 
 
 def asks_to_extend(text: str) -> bool:
@@ -99,12 +122,17 @@ def asks_to_extend(text: str) -> bool:
     return bool(m and _EXTEND_WHAT.search(m.group(1)))
 
 
-def hours_asked(text: str) -> int:
-    """The hours an "extend" asks for: the number it names, else EXTEND_MAX_HOURS."""
+def hours_asked(text: str) -> int | None:
+    """The hours an "extend" asks for: the one whole number of hours it says, EXTEND_MAX_HOURS when it says nothing
+    about time, None when what it says is not exactly that (_DURATION) - never a guess."""
     from .extend import EXTEND_MAX_HOURS
 
-    m = _HOURS.search(text or "")
-    return int(m.group(1)) if m else EXTEND_MAX_HOURS
+    text = text or ""
+    said = _DURATION.findall(text)
+    rest = _DURATION.sub(" ", text)
+    if len(said) > 1 or _NUMBER.search(rest) or _says_time(rest):
+        return None
+    return int(said[0]) if said else EXTEND_MAX_HOURS
 
 
 def extended_said(got: Mapping[str, Any], incident: str) -> str:

@@ -118,8 +118,8 @@ def world(tmp_path, monkeypatch):
     return {"log": log, "posted": posted, "inc": inc, "acts": DiscussActivities(audit=log, incident=inc, policy=policy)}
 
 
-def _turn(text, user=PERSON):
-    return discuss.Turn(channel=CHANNEL, thread_ts="1760000000.000100", ts="1760000000.000200", user=user, text=text)
+def _turn(text, user=PERSON, ts="1760000000.000200"):
+    return discuss.Turn(channel=CHANNEL, thread_ts="1760000000.000100", ts=ts, user=user, text=text)
 
 
 def test_the_thread_is_read_its_incident_found_and_who_wrote_what_said_without_their_ids(world):
@@ -386,22 +386,28 @@ def test_an_approver_extends_a_waiting_plan_from_the_thread_and_anyone_else_is_r
                                               "plan_hash": "h", "approval_until":
                                                   (datetime.now(UTC) + timedelta(hours=1)).isoformat()})
 
-    async def main(text, user, wid):
+    async def main(text, user, wid, ts):
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="discuss-test", workflows=[DiscussWorkflow],
                                activities=[acts.discuss_thread, acts.discuss_evidence, acts.discuss_answer,
                                            acts.discuss_reply, acts.discuss_replan, acts.discuss_extend],
                                activity_executor=ThreadPoolExecutor(2)):
-            return await env.client.execute_workflow(DiscussWorkflow.run, _turn(text, user=user), id=wid,
+            return await env.client.execute_workflow(DiscussWorkflow.run, _turn(text, user=user, ts=ts), id=wid,
                                                      task_queue="discuss-test")
 
-    said = asyncio.run(main("<@UWARDEN> extend the wait", PERSON, "e1"))
+    said = asyncio.run(main("<@UWARDEN> extend the wait", PERSON, "e1", "1760000000.000301"))
     assert said == discuss.NOT_EXTENDED["not an approver"]
-    said = asyncio.run(main("<@UWARDEN> extend by 12h", APPROVER, "e2"))
+    said = asyncio.run(main("<@UWARDEN> extend by 12h", APPROVER, "e2", "1760000000.000302"))
     assert said.startswith("The wait for WARDEN's plan `rem-dev-1` is extended by 12")
     assert "passkey" in said
     [row] = log.entries(INCIDENT, kinds=("approval.extended",))
     assert row["body"]["approver"] == "owner"
     assert row["body"]["hours"] == 12
-    said = asyncio.run(main("<@UWARDEN> extend by 30h", APPROVER, "e3"))
+    again = asyncio.run(main("<@UWARDEN> extend by 12h", APPROVER, "e2-again", "1760000000.000302"))
+    assert again == said  # the same message once more: its first answer, no more hours (CodeRabbit, PR 150)
+    assert len(log.entries(INCIDENT, kinds=("approval.extended",))) == 1
+    said = asyncio.run(main("<@UWARDEN> extend by 30h", APPROVER, "e3", "1760000000.000303"))
     assert said.startswith("A plan's wait is extended by 1 to 24 hours")
+    said = asyncio.run(main("<@UWARDEN> extend by 6 more hours", APPROVER, "e4", "1760000000.000304"))
+    assert said == discuss.NOT_EXTENDED["hours unclear"].format(most=24)
+    assert len(log.entries(INCIDENT, kinds=("approval.extended",))) == 1

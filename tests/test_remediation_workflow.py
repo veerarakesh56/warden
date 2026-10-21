@@ -598,7 +598,7 @@ def _extend(world, hours=24):
 
     def ask(plan):
         got = extend.request(world["log"], world["policy"], incident="inc-42", user=SLACK_ID, hours=hours,
-                             now=datetime.now(UTC))
+                             now=datetime.now(UTC), asked="C" + "0" * 3 + "CHAN1/1760000000.000200")
         assert not got.get("why"), got
     return ask
 
