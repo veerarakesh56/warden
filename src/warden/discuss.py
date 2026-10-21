@@ -80,12 +80,15 @@ _EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|deadline)\b")
 # "by" after something else ("extend the outage by 2h"): CodeRabbit, PR 182.
 _LEAD = re.compile(r"(?i)^\s*(?:it\b\s*)?(?:(?:by|for)\b\s*)?")
 _CLAUSE_END = re.compile(r"(?i)\bextend\b[^.?!\n]*([.?!\n]*)")  # the whole run: "...?" is a question too
-# Nor an "extend" its own clause says no to (review, PR 182: "don't extend the wait" became 24 h): a negator before
-# "extend" in the same clause - not, never, no, don't, cancel, stop... - and it is answered, never taken as a request.
+# A "no" beside "extend" (review, PR 182: "don't extend the wait" and "extend the wait - no, don't" became 24 h): a
+# negator - not, never, no, don't, cancel, stop... - anywhere after "extend", or before it in the same sentence, makes
+# the message unclear: nothing is extended, and the approver is asked again (said_no; fail closed). Only a "no" in an
+# earlier sentence ("no rush. extend the wait") leaves the request standing.
 _NEGATOR = re.compile(r"(?i)\b(?:not|never|no|nor|cancel|stop|without|instead|neither|dont|doesnt|didnt|wont|cant"
                       r"|shouldnt|mustnt|cannot)\b|n['\u2019]t\b")
-_CLAUSE_START = re.compile(r"[.?!;\n]")
-# Workflow code reads EXTEND, _EXTEND_WHAT, _LEAD, _CLAUSE_END and _NEGATOR (DiscussWorkflow._answer, through
+_SENTENCE_END = re.compile(r"[.?!\n]")
+_EXTEND_WORD = re.compile(r"(?i)\bextend\b")
+# Workflow code reads EXTEND, _EXTEND_WHAT, _LEAD and _CLAUSE_END (DiscussWorkflow._answer, through
 # asks_to_extend): what they match decides which branch a discussion takes. Once a release with them has run, a change
 # to any of them changes what a replayed DiscussWorkflow history does - put such a change behind a new
 # workflow.patched id, as u38-discuss-extend is.
@@ -125,6 +128,8 @@ NOT_EXTENDED = {
     "already approved": ("WARDEN's plan `{workflow}` already has the approvals it needs: it is not waiting, so there "
                          "is no wait to extend. WARDEN reads the target again before applying it."),
     "hours out of range": "A plan's wait is extended by 1 to {most} hours at a time; ask again with that.",
+    "said no": ("WARDEN read a \"no\" beside \"extend\" in that message, so nothing was extended. To extend the wait, "
+                "ask again without it - \"extend the wait\" or \"extend by 12h\"."),
     "hours unclear": ("WARDEN could not tell for how long, so nothing was extended. Ask again with one whole number of "
                       "hours, 1 to {most} - \"extend by 12h\" - or just \"extend the wait\" for {most} hours."),
     "busy": ("Another extension of WARDEN's plan `{workflow}` was being recorded at the same moment, so this one was "
@@ -151,14 +156,22 @@ def asks_to_extend(text: str) -> bool:
     m = EXTEND.search(text or "")
     end = _CLAUSE_END.search(text or "")
     named = bool(m) and (_EXTEND_WHAT.search(m.group(1)) is not None or _says_how_long(m.group(1)))
-    return bool(named and end and "?" not in end.group(1)) and not _negated(text, m.start())
+    return bool(named and end and "?" not in end.group(1))
 
 
-def _negated(text: str, at: int) -> bool:
-    """Whether the clause holding the "extend" at `at` says no before it ("do not extend", "no need to extend")."""
-    before = text[:at]
-    starts = [s.end() for s in _CLAUSE_START.finditer(before)]
-    return _NEGATOR.search(before[starts[-1] if starts else 0:]) is not None
+def said_no(text: str) -> bool:
+    """Whether the message says no beside its "extend": a negator anywhere after the first "extend" ("extend the wait -
+    no, don't"), or before it in the same sentence ("do not extend", "no need to extend"). Fail closed: such a message
+    extends nothing, and the approver is asked again. A "no" in an earlier sentence ("no rush. extend the wait") is
+    not one. Read by the activity (discuss_extend), never by workflow code."""
+    text = text or ""
+    m = _EXTEND_WORD.search(text)
+    if m is None:
+        return False
+    before = text[:m.start()]
+    starts = [s.end() for s in _SENTENCE_END.finditer(before)]
+    return (_NEGATOR.search(text[m.end():]) is not None
+            or _NEGATOR.search(before[starts[-1] if starts else 0:]) is not None)
 
 
 def hours_asked(text: str) -> int | None:

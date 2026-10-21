@@ -2027,7 +2027,7 @@ class DiscussActivities:
         on the discussion's record; an extension also on the incident's, where the plan's run reads it (U3-8). Keyed
         on the Slack message that asked: retried, it answers as it first did and adds no hours (CodeRabbit, PR 150)."""
         from . import extend
-        from .discuss import Turn, hours_asked
+        from .discuss import Turn, hours_asked, said_no
 
         turn = Turn.model_validate(turn)
         asked = f"{turn.channel}/{turn.ts}"
@@ -2036,7 +2036,8 @@ class DiscussActivities:
         # Retried: its first "no", not a new decision. Hours not said plainly (None) are refused by extend.request,
         # after who asks is checked - asked again, never guessed.
         got: dict[str, Any] = _refused_before(self.audit, thread, asked) or extend.request(
-            self.audit, self.policy, incident=incident, user=turn.user, hours=hours, now=datetime.now(UTC), asked=asked)
+            self.audit, self.policy, incident=incident, user=turn.user, hours=hours, now=datetime.now(UTC), asked=asked,
+            said_no=said_no(turn.text))
         self.audit.append_unless(thread, _EXTEND_ASKED, {
             "run_id": _run_id(), "user": turn.user, "asked": asked, "ts": turn.ts, "hours": hours,
             "why": got.get("why", ""), "workflow_id": got.get("workflow_id", ""), "until": got.get("until", "")},

@@ -163,8 +163,8 @@ def _result(body: dict[str, Any]) -> dict[str, Any]:
             "hours": hours, "capped": body.get("until") == body.get("ceiling")}
 
 
-def _refusal(log: Any, policy: Any, incident: str, user: str, hours: int | None,
-             now: datetime) -> tuple[dict[str, Any], dict[str, Any] | None]:
+def _refusal(log: Any, policy: Any, incident: str, user: str, hours: int | None, now: datetime, *,
+             said_no: bool = False) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """(why not, None) when this person may not extend this incident's wait now, else ({}, the waiting plan). Who
     asks is checked first: someone who may not extend learns nothing about the plan (review, PR 182)."""
     if not _person(policy, user):
@@ -178,6 +178,8 @@ def _refusal(log: Any, policy: Any, incident: str, user: str, hours: int | None,
         return {"why": "approved by Eldane", "workflow_id": plan["workflow_id"]}, None
     if people_approved(log, policy, incident, plan):
         return {"why": "already approved", "workflow_id": plan["workflow_id"]}, None
+    if said_no:  # a "no" beside "extend" (discuss.said_no): unclear, asked again - never extended
+        return {"why": "said no"}, None
     if hours is None:
         return {"why": "hours unclear"}, None
     if not 1 <= hours <= EXTEND_MAX_HOURS:
@@ -185,10 +187,10 @@ def _refusal(log: Any, policy: Any, incident: str, user: str, hours: int | None,
     return {}, plan
 
 
-def _decide(log: Any, policy: Any, incident: str, user: str, hours: int | None,
-            now: datetime) -> tuple[dict[str, Any], dict[str, Any] | None]:
+def _decide(log: Any, policy: Any, incident: str, user: str, hours: int | None, now: datetime, *,
+            said_no: bool = False) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """(the answer, the row to write): the row is None when nothing is extended, and the answer says why."""
-    why, plan = _refusal(log, policy, incident, user, hours, now)
+    why, plan = _refusal(log, policy, incident, user, hours, now, said_no=said_no)
     if plan is None or hours is None:
         return why, None
     top = ceiling(plan["made"])
@@ -202,19 +204,19 @@ def _decide(log: Any, policy: Any, incident: str, user: str, hours: int | None,
 
 
 def request(log: Any, policy: Any, *, incident: str, user: str, hours: int | None, now: datetime,
-            asked: str) -> dict[str, Any]:
+            asked: str, said_no: bool = False) -> dict[str, Any]:
     """An approver's "extend" for the incident's waiting plan: recorded and how far, or why not (`why`). Refused for
-    anyone who may not approve that plan, for no plan waiting (or one already approved), for hours not said plainly
-    (None) or out of 1..EXTEND_MAX_HOURS, and at the ceiling. Writes the extension row only when it extends, and once
-    per message `asked` (its Slack channel and ts): asked again - an activity retried - it answers what it first did
-    and writes nothing. The whole decision is taken again inside the write's lock (_stale)."""
+    anyone who may not approve that plan, for no plan waiting (or one already approved), for a message that says no
+    beside "extend" (`said_no`), for hours not said plainly (None) or out of 1..EXTEND_MAX_HOURS, and at the ceiling.
+    Writes the extension row only when it extends, and once per message `asked` (its Slack channel and ts): asked
+    again - an activity retried - it answers what it first did and writes nothing. The whole decision is taken again inside the write's lock (_stale)."""
     if not asked:
         return {"why": "no message"}
     wid = ""
     for _ in range(_TRIES):
         if (done := answered(log, incident, asked)) is not None:
             return done
-        got, body = _decide(log, policy, incident, user, hours, now)
+        got, body = _decide(log, policy, incident, user, hours, now, said_no=said_no)
         if body is None:
             return got
         wid, body["asked"] = body["workflow_id"], asked

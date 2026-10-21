@@ -180,23 +180,46 @@ def test_the_thread_asks_in_plain_words_and_is_answered_in_fixed_ones():
 
 
 @pytest.mark.parametrize("text", [
+    # Before "extend", in the same sentence.
     "do not extend the wait", "don't extend the wait", "please don't extend the approval", "never extend the plan",
     "no need to extend the wait", "dont extend the wait", "don\u2019t extend the wait", "we can't extend the wait",
     "cannot extend the wait", "cancel: extend the wait", "stop, extend the wait", "we won't extend the plan by 6h",
-    "I don't think we should extend the wait.",
+    "I don't think we should extend the wait.", "no; extend the wait", "no - extend the wait",
+    # After "extend", anywhere in the message (review, PR 182: "extend the wait - no, don't" became 24 h).
+    "extend the wait - no, don't", "extend the wait. no, don't", "extend the wait, do not apply anything yet",
+    "extend by 6h, never mind", "extend the wait; no", "extend the wait.\nActually no.", "extend the wait. Not now.",
+    "extend by 12h - cancel that", "extend the wait, stop", "extend the wait or not",
 ])
-def test_an_extend_its_own_clause_says_no_to_is_not_a_request(text):
-    """Review, PR 182: "don't extend the wait" became a 24-hour extension signed in the approver's name."""
-    assert not discuss.asks_to_extend(text)
+def test_a_no_beside_extend_is_unclear_and_asked_again(text):
+    """Fail closed: a "no" after "extend", or before it in its sentence, extends nothing - the approver is asked
+    again (review, PR 182: "don't extend the wait" became a 24-hour extension signed in the approver's name)."""
+    assert discuss.said_no(text)
+    assert discuss.asks_to_extend(text)  # it reaches the extension step, which asks again; it is never extended
 
 
 @pytest.mark.parametrize("text", [
-    "extend the wait", "please extend the approval.", "no rush. extend the wait", "I want you to extend the wait",
-    "the incident: extend the wait", "urgent, extend the wait", "extend the wait, do not apply anything yet",
-    "extend the wait, nothing else",
+    "extend the wait", "please extend the approval.", "no rush. extend the wait", "No rush!\nextend the wait",
+    "Not urgent? extend the wait by 6h", "I want you to extend the wait", "the incident: extend the wait",
+    "urgent, extend the wait", "extend the wait, nothing else", "extend by 6h, the incident notes are attached",
 ])
-def test_a_no_in_another_clause_or_inside_a_word_does_not_stop_a_request(text):
+def test_a_no_only_in_an_earlier_sentence_or_inside_a_word_leaves_the_request(text):
+    assert not discuss.said_no(text)
     assert discuss.asks_to_extend(text)
+
+
+def test_a_message_that_says_no_extends_nothing_and_is_asked_again(world):
+    log, policy = world
+    _plan(log)
+    talk = DiscussActivities(audit=log, incident=None, policy=policy)
+    got = talk.discuss_extend(_turn("<@UWARDEN> extend the wait - no, don't", ts="1760000000.000600"), INC)
+    assert got == {"why": "said no"}
+    assert _rows(log) == []
+    assert discuss.extended_said(got, INC).startswith("WARDEN read a \"no\" beside \"extend\"")
+    # Who asks is still checked first.
+    got = talk.discuss_extend(_turn("<@UWARDEN> don't extend the wait", user=PERSON, ts="1760000000.000601"), INC)
+    assert got == {"why": "not an approver"}
+    assert not _ask(log, policy, hours=6).get("why")  # the same plan, asked plainly: extended
+    assert len(_rows(log)) == 1
 
 
 def _accept(log, approver, *, plan_hash="h1", required=1):

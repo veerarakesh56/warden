@@ -215,8 +215,10 @@ and its environment - mentions `@WARDEN` in the incident's thread with "extend t
 hours unless said, at most 24 at a time). How long is read strictly: one whole number of hours, said once ("12h",
 "12 hours"); a message that says anything else about time - "6 more hours", "six hours", "1.5h", "2 days", "30m",
 "until tomorrow", two durations - extends nothing, and WARDEN asks again for a whole number of hours. A question ("will
-the restart extend it?", "can you extend the wait by 6h?") and an "extend" its sentence says no to ("don't extend the
-wait") are answered, never taken as a request. Who asks is checked first: anyone else learns nothing about the plan. A
+the restart extend it?", "can you extend the wait by 6h?") is answered, never taken as a request. A "no" beside
+"extend" - anywhere after it ("extend the wait - no, don't"), or before it in the same sentence ("don't extend the
+wait") - extends nothing, and WARDEN asks again; only a "no" in an earlier sentence ("no rush. extend the wait") leaves
+the request standing. Who asks is checked first: anyone else learns nothing about the plan. A
 plan whose approvals are already in (a person's, or Eldane's on its own) is not waiting, and is not extended. An
 extension counts from the run's own deadline (`approval.wait`, recorded when its wait began), so it always moves it.
 WARDEN records it in the
