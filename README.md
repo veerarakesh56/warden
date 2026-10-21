@@ -396,6 +396,13 @@ Version 0.10.0. Measured, as of 2026-10-16:
   of 172 right actions (Claude Sonnet 5, 2026-10-10), and Claude Sonnet 5.5's answers, re-scored under the gate of
   2026-10-15, let 0 harmful answers through. Both were measured on earlier prompts, not the pinned one, and must be
   measured again once a model is qualified on it.
+<!-- eldane-bench-readme:begin -->
+- **The AI critic.** How often Eldane approves a right fix, catches a wrong or harmful one, and blocks a right one is
+  **not yet measured**: with the cloud runtime's key, run
+  `python scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd <cap> --out <a new directory>`, after the same
+  command with `--dry-run` in place of the last two
+  ([docs/BENCHMARKS.md](docs/BENCHMARKS.md#the-ai-critic-eldane-on-the-g10-held-out-set)).
+<!-- eldane-bench-readme:end -->
 - **Choosing the model.** A model diagnoses only once it is qualified on the pinned prompt (the status line under
   **Models** above); until then production falls back to the rules alone. Claude Sonnet 5.5 scored 17 of 30 on the
   replay set with no wrong answer let through on 2026-10-15, on an earlier prompt. The bar is 17.
