@@ -38,9 +38,13 @@ def _receive(body, token=TOKEN):
 def test_a_triggered_monitor_is_an_alarm_with_wardens_labels_and_datadogs_own_time():
     got = _receive(_delivery())
     [ev] = got.events
-    assert got.status == 202 and ev.state == "ALARM" and ev.transitioned_at == WHEN
-    assert ev.alert.alert_id == "datadog-12345" and ev.rule == "datadog-12345"
-    assert ev.alert.name == "warden dev: catalog-api error logs" and ev.alert.severity == Severity.critical
+    assert got.status == 202
+    assert ev.state == "ALARM"
+    assert ev.transitioned_at == WHEN
+    assert ev.alert.alert_id == "datadog-12345"
+    assert ev.rule == "datadog-12345"
+    assert ev.alert.name == "warden dev: catalog-api error logs"
+    assert ev.alert.severity == Severity.critical
     assert (ev.alert.service, ev.alert.environment) == ("catalog-api", "dev")
     assert ev.alert.labels == {"environment": "dev", "service": "catalog-api", "deployment": "catalog-api",
                                "namespace": "shop", "datadog_monitor": "12345", "alarm": "datadog-12345", "via": "datadog"}
@@ -54,9 +58,12 @@ def test_who_how_much_and_what_is_refused():
     assert webhooks.receive_datadog({}, b"{}", secrets=[TOKEN], environment="dev").status == 401
     assert webhooks.receive_datadog({"Authorization": f"Bearer {TOKEN}"}, b"x", secrets=[""], environment="dev").status == 401
     assert _receive(b"x" * (webhooks.MAX_BODY + 1)).status == 413
-    assert _receive(b"not json").status == 400 and _receive(b"[]").status == 400
+    assert _receive(b"not json").status == 400
+    assert _receive(b"[]").status == 400
     bad = _receive(_delivery(monitor="12 OR 1=1"))
-    assert bad.status == 202 and bad.events == [] and bad.refused == ["datadog monitor 12 OR 1=1: ValueError"]
+    assert bad.status == 202
+    assert bad.events == []
+    assert bad.refused == ["datadog monitor 12 OR 1=1: ValueError"]
 
 
 def test_only_a_monitor_datadog_itself_says_is_alerting_starts_anything():
@@ -67,7 +74,8 @@ def test_only_a_monitor_datadog_itself_says_is_alerting_starts_anything():
         return {"overall_state": "Alert" if url.endswith("/12345") else "OK"}
 
     alerting = webhooks.datadog_alerting("ap1.datadoghq.com", "k", "a", get=get)
-    assert alerting("12345") and not alerting("999")
+    assert alerting("12345")
+    assert not alerting("999")
     assert asked[0][0] == "https://api.ap1.datadoghq.com/api/v1/monitor/12345"
     assert asked[0][1]["DD-APPLICATION-KEY"] == "a"
     assert not webhooks.datadog_alerting("evil.example", "k", "a", get=get)("12345")  # not Datadog's site
@@ -78,7 +86,8 @@ def test_only_a_monitor_datadog_itself_says_is_alerting_starts_anything():
     assert not webhooks.datadog_alerting("ap1.datadoghq.com", "k", "a", get=down)("12345")  # a failed check confirms nothing
     events = _receive(_delivery()).events + _receive(_delivery(monitor="999")).events + _receive(_delivery("Recovered", monitor="999")).events
     kept, dropped = webhooks.confirm_datadog(events, alerting)
-    assert [e.alert.alert_id for e in kept] == ["datadog-12345", "datadog-999"] and kept[1].state == "OK"
+    assert [e.alert.alert_id for e in kept] == ["datadog-12345", "datadog-999"]
+    assert kept[1].state == "OK"
     assert dropped == ["datadog monitor 999: Datadog does not say it is alerting - not acted on"]
 
 
@@ -96,7 +105,9 @@ def test_the_route_reaches_intake_with_its_own_secret(monkeypatch):
                                      "requestContext": {"http": {"method": "POST", "path": "/datadog"}}})
     assert call(_delivery(), token="the-alertmanager-one")["statusCode"] == 401  # each webhook its own secret
     r = call(_delivery())
-    assert r["statusCode"] == 202 and json.loads(r["body"]) == {"accepted": 1, "dropped": 0} and len(got) == 1
+    assert r["statusCode"] == 202
+    assert json.loads(r["body"]) == {"accepted": 1, "dropped": 0}
+    assert len(got) == 1
     assert json.loads(call(_delivery(monitor="999"))["body"]) == {"accepted": 0, "dropped": 1}
     assert settings.RESTRICTED["WARDEN_DATADOG_WEBHOOK_TOKEN"] == {"lambda-alertmanager"}
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
@@ -187,20 +198,27 @@ def test_setup_makes_the_webhook_monitors_and_dashboard_once_and_never_prints_th
     dd = DD(aws.stored)
     assert mod.main(["--env", "ops", "--stack", "dev"], aws=aws, call=dd) == 0
     token = aws.stored["warden/ops/datadog-webhook-token"]
-    assert len(token) >= 40 and dd.webhook["url"] == "https://approve.example.test/datadog"
+    assert len(token) >= 40
+    assert dd.webhook["url"] == "https://approve.example.test/datadog"
     assert json.loads(dd.webhook["custom_headers"]) == {"Authorization": f"Bearer {token}"}
-    assert json.loads(dd.webhook["payload"]) == webhooks.DATADOG_PAYLOAD and dd.webhook["encode_as"] == "json"
-    assert len(dd.monitors) == 4 and all("@webhook-warden" in m["message"] for m in dd.monitors.values())
+    assert json.loads(dd.webhook["payload"]) == webhooks.DATADOG_PAYLOAD
+    assert dd.webhook["encode_as"] == "json"
+    assert len(dd.monitors) == 4
+    assert all("@webhook-warden" in m["message"] for m in dd.monitors.values())
     assert all("env:dev" in m["tags"] and "managed-by:warden" in m["tags"] for m in dd.monitors.values())
     assert len(dd.boards) == 1
     # Stored before the webhook carries it (DD checks that as each webhook write arrives).
     out = capsys.readouterr().out
-    assert token not in out and "dd-app-" not in out and "dd-api-" not in out
+    assert token not in out
+    assert "dd-app-" not in out
+    assert "dd-api-" not in out
     # Again: everything updated by its name, nothing duplicated; a new token, stored and carried.
     assert mod.main(["--env", "ops", "--stack", "dev"], aws=aws, call=dd) == 0
-    assert len(dd.monitors) == 4 and len(dd.boards) == 1
+    assert len(dd.monitors) == 4
+    assert len(dd.boards) == 1
     again = aws.stored["warden/ops/datadog-webhook-token"]
-    assert again != token and json.loads(dd.webhook["custom_headers"]) == {"Authorization": f"Bearer {again}"}
+    assert again != token
+    assert json.loads(dd.webhook["custom_headers"]) == {"Authorization": f"Bearer {again}"}
     with pytest.raises(SystemExit):
         mod.Datadog("evil.example", "k", "a")
 
@@ -216,7 +234,9 @@ def test_monitors_only_updates_the_monitors_and_leaves_the_webhook_and_its_token
         monkeypatch.setenv(name, str(f))
     aws, dd = Aws(), DD()
     assert mod.main(["--env", "ops", "--stack", "dev", "--monitors-only"], aws=aws, call=dd) == 0
-    assert aws.stored == {} and dd.webhook is None and not dd.boards
+    assert aws.stored == {}
+    assert dd.webhook is None
+    assert not dd.boards
     assert len(dd.monitors) == 4
     assert all("kube_cluster_name" in m["query"] for m in dd.monitors.values() if m["type"] == "query alert")
 
@@ -231,5 +251,7 @@ def test_a_report_says_where_its_alert_came_from_in_wardens_own_words():
         a = Alert(alert_id="a", name="n", service="s", environment="dev", severity=Severity.high, summary="",
                   started_at="2026-10-15T00:00:00+00:00", labels={"via": via} if via else {})
         return reporting.build_report(a).markdown
-    assert "Source **Datadog monitor**" in header("datadog") and "Source **CloudWatch alarm**" in header("cloudwatch")
-    assert "Source" not in header("") and "Source" not in header("grafana-forged")
+    assert "Source **Datadog monitor**" in header("datadog")
+    assert "Source **CloudWatch alarm**" in header("cloudwatch")
+    assert "Source" not in header("")
+    assert "Source" not in header("grafana-forged")

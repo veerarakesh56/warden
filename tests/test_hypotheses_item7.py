@@ -36,7 +36,8 @@ class _Scripted:
 
 
 def _run(root_cause: dict, proposal: dict = ROLLBACK):
-    provider = _Scripted({"root_cause": {"confidence": 0.9, **root_cause}, "proposal": proposal})
+    # The outcome the answer states (U3-1); a fix on an undetermined one is P37's, not these tests'.
+    provider = _Scripted({"root_cause": {"confidence": 0.9, "outcome": "decided", **root_cause}, "proposal": proposal})
     report = run(INC, llm=LLMClient(provider=provider, mock=False))
     return report, provider
 

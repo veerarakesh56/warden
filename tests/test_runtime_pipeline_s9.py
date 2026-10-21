@@ -37,11 +37,13 @@ def test_the_runtime_runs_only_from_its_branch_at_a_promoted_commit_and_signs_as
     doc = yaml.safe_load(FLOW)
     for job_id, job in doc["jobs"].items():
         first = job["steps"][0]
-        assert first["name"] == GUARD and first["if"] == f"github.ref != 'refs/heads/{branch}'", job_id
+        assert first["name"] == GUARD, job_id
+        assert first["if"] == f"github.ref != 'refs/heads/{branch}'", job_id
         assert "exit 1" in first["run"], job_id
     signer = f"${{{{ github.server_url }}}}/${{{{ github.repository }}}}/.github/workflows/runtime.yml@refs/heads/{branch}"
     signers = [s["env"]["SIGNER"] for s in doc["jobs"]["image"]["steps"] if "SIGNER" in s.get("env", {})]
-    assert signers == [signer] and doc["jobs"]["deploy"]["env"]["SIGNER"] == signer
+    assert signers == [signer]
+    assert doc["jobs"]["deploy"]["env"]["SIGNER"] == signer
     assert FLOW.count("runtime.yml@refs/heads/") == 2
     steps = doc["jobs"]["image"]["steps"]
     at = {s.get("name") or s.get("uses", "").split("@")[0]: i for i, s in enumerate(steps)}
@@ -57,32 +59,40 @@ def test_the_runtime_runs_only_from_its_branch_at_a_promoted_commit_and_signs_as
 def test_the_image_is_built_before_any_credential_and_pushed_by_the_commit():
     assert IMAGE_JOB.index(GUARD) < IMAGE_JOB.index("configure-aws-credentials")
     assert IMAGE_JOB.index("docker build") < IMAGE_JOB.index("configure-aws-credentials")
-    assert "-f Dockerfile.runtime" in IMAGE_JOB and 'docker push "$REPOSITORY:$GITHUB_SHA"' in IMAGE_JOB
+    assert "-f Dockerfile.runtime" in IMAGE_JOB
+    assert 'docker push "$REPOSITORY:$GITHUB_SHA"' in IMAGE_JOB
     assert 'echo "image=$REPOSITORY@$digest"' in IMAGE_JOB  # everything after works on the digest, never a tag
     # Only the digest crosses jobs: an output holding the repository's address (the masked account id) is dropped by
     # GitHub, and the deploy job verified an empty image (2026-10-09).
-    assert "digest: ${{ steps.push.outputs.digest }}" in IMAGE_JOB and "needs.image.outputs.image" not in FLOW
+    assert "digest: ${{ steps.push.outputs.digest }}" in IMAGE_JOB
+    assert "needs.image.outputs.image" not in FLOW
     assert "IMAGE: ${{ secrets.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}" in DEPLOY_JOB
     # Tags are immutable: a commit already pushed keeps its image and signature, and is neither re-signed nor re-attested
     # here (2026-10-09: the apply after a plan of the same commit failed on the push). The deploy verifies it regardless.
-    assert '--image-ids imageTag="$GITHUB_SHA"' in IMAGE_JOB and 'echo "existing=true"' in IMAGE_JOB
+    assert '--image-ids imageTag="$GITHUB_SHA"' in IMAGE_JOB
+    assert 'echo "existing=true"' in IMAGE_JOB
     # ...unless the run that pushed it died before signing (2026-10-12: the signing tool's download failed after the
     # push, and the commit could never be deployed): an image found without a valid signature and provenance is signed
     # and attested by this run, and the tool is installed before anything is pushed.
     assert IMAGE_JOB.count("if: steps.push.outputs.existing != 'true' || steps.check.outputs.signed != 'true'") == 2
-    assert "if: steps.push.outputs.existing == 'true'" in IMAGE_JOB and 'echo "signed=true"' in IMAGE_JOB
+    assert "if: steps.push.outputs.existing == 'true'" in IMAGE_JOB
+    assert 'echo "signed=true"' in IMAGE_JOB
     assert IMAGE_JOB.index("sigstore/cosign-installer@") < IMAGE_JOB.index('docker push "$REPOSITORY:$GITHUB_SHA"')
     assert IMAGE_JOB.count("sigstore/cosign-installer@") == 1
     check = IMAGE_JOB[IMAGE_JOB.index("id: check"):IMAGE_JOB.index("Sign the digest")]
-    assert 'cosign verify "$IMAGE" --certificate-identity "$SIGNER"' in check and "gh attestation verify" in check
+    assert 'cosign verify "$IMAGE" --certificate-identity "$SIGNER"' in check
+    assert "gh attestation verify" in check
     assert "if:" not in DEPLOY_JOB[DEPLOY_JOB.index("Verify the signature"):DEPLOY_JOB.index("cosign verify")]
 
 
 def test_the_digest_is_signed_and_given_provenance():
-    assert re.search(r'cosign sign --yes "\$IMAGE"', IMAGE_JOB) and "IMAGE: ${{ steps.push.outputs.image }}" in IMAGE_JOB
-    assert "actions/attest-build-provenance@" in IMAGE_JOB and "subject-digest: ${{ steps.push.outputs.digest }}" in IMAGE_JOB
+    assert re.search(r'cosign sign --yes "\$IMAGE"', IMAGE_JOB)
+    assert "IMAGE: ${{ steps.push.outputs.image }}" in IMAGE_JOB
+    assert "actions/attest-build-provenance@" in IMAGE_JOB
+    assert "subject-digest: ${{ steps.push.outputs.digest }}" in IMAGE_JOB
     assert "push-to-registry: true" in IMAGE_JOB
-    assert "attestations: write" in IMAGE_JOB and "attestations: write" not in DEPLOY_JOB
+    assert "attestations: write" in IMAGE_JOB
+    assert "attestations: write" not in DEPLOY_JOB
 
 
 def test_nothing_is_deployed_that_this_workflow_did_not_sign_and_attest():
@@ -92,19 +102,23 @@ def test_nothing_is_deployed_that_this_workflow_did_not_sign_and_attest():
     assert "--certificate-oidc-issuer https://token.actions.githubusercontent.com" in DEPLOY_JOB
     assert f"/.github/workflows/runtime.yml@refs/heads/{_runtime_branch()}" in DEPLOY_JOB  # this workflow, its branch
     assert 'gh attestation verify "oci://$IMAGE" --repo "$REPO"' in DEPLOY_JOB
-    assert '-var "runtime_image=$IMAGE"' in DEPLOY_JOB and 'apply -input=false -no-color "$RUNNER_TEMP/tfplan"' in DEPLOY_JOB
+    assert '-var "runtime_image=$IMAGE"' in DEPLOY_JOB
+    assert 'apply -input=false -no-color "$RUNNER_TEMP/tfplan"' in DEPLOY_JOB
     assert "-auto-approve" not in DEPLOY_JOB
     # After an apply, the audit's schema and writer login, from inside the VPC; a failure fails the deploy.
     assert DEPLOY_JOB.index("apply -input=false") < DEPLOY_JOB.index("jq -r .migrate_function")
     assert '!= "None" ]; then' in DEPLOY_JOB
     # Paused there is no way out of the VPC: the migrate step is skipped, and only then (2026-10-10).
-    assert '--name "/warden/$RUNTIME_ENV/tf/paused"' in DEPLOY_JOB and DEPLOY_JOB.index("tf/paused") < DEPLOY_JOB.index("jq -r .migrate_function")
+    assert '--name "/warden/$RUNTIME_ENV/tf/paused"' in DEPLOY_JOB
+    assert DEPLOY_JOB.index("tf/paused") < DEPLOY_JOB.index("jq -r .migrate_function")
     assert DEPLOY_JOB.index(GUARD) < DEPLOY_JOB.index("configure-aws-credentials")
 
 
 def test_the_pipeline_is_by_hand_into_ops_only():
     on = FLOW[FLOW.index("\non:"):FLOW.index("\npermissions:")]
-    assert "workflow_dispatch" in on and "push" not in on and "pull_request" not in on
+    assert "workflow_dispatch" in on
+    assert "push" not in on
+    assert "pull_request" not in on
     assert FLOW.count("environment: ops") == 3
 
 
@@ -115,15 +129,18 @@ def test_restart_redeploys_the_zone_services_without_an_image_or_a_plan():
     assert "if: inputs.action == 'restart'" in restart
     assert "if: inputs.action != 'restart'" in IMAGE_JOB
     assert "if: inputs.action != 'image' && inputs.action != 'restart'" in DEPLOY_JOB
-    assert "--force-new-deployment" in restart and "aws ecs wait services-stable" in restart
+    assert "--force-new-deployment" in restart
+    assert "aws ecs wait services-stable" in restart
     assert restart.index(GUARD) < restart.index("configure-aws-credentials")
-    assert "terraform" not in restart and "docker" not in restart
+    assert "terraform" not in restart
+    assert "docker" not in restart
 
 
 def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     tf = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert re.search(r'\n  source\s+= "\.\./modules/warden-runtime"\n', tf)
-    assert 'path = "/warden/${local.env}/tf"' in tf and re.search(r"\n  env\s+= terraform\.workspace\n", tf)
+    assert 'path = "/warden/${local.env}/tf"' in tf
+    assert re.search(r"\n  env\s+= terraform\.workspace\n", tf)
     assert re.search(r"condition\s+= local\.env == local\.runtime\n", tf)  # WARDEN's own environment, nothing else
     assert re.search(r"\n  runtime\s+= local\.config\.runtime\n", tf)
     assert "WardenEnvBoundary-${local.env}" in tf
@@ -195,7 +212,8 @@ def test_the_pipeline_names_its_environment_once_as_the_configuration_does_and_n
     assert doc["env"]["RUNTIME_ENV"] == cfg.runtime_environment
     assert {job["environment"] for job in doc["jobs"].values()} == {cfg.runtime_environment}
     shell = "\n".join(step.get("run", "") for job in doc["jobs"].values() for step in job["steps"])
-    assert 'cluster="warden-$RUNTIME_ENV-runtime"' in shell and '"/warden/$RUNTIME_ENV/tf/paused"' in shell
+    assert 'cluster="warden-$RUNTIME_ENV-runtime"' in shell
+    assert '"/warden/$RUNTIME_ENV/tf/paused"' in shell
     named = re.compile("warden-(?:" + "|".join(map(re.escape, (*cfg.known_environments, cfg.runtime_environment)))
                        + ")-[a-z0-9]|/warden/(?:" + "|".join(map(re.escape, cfg.known_environments)) + "|"
                        + re.escape(cfg.runtime_environment) + ")/")
