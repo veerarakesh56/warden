@@ -218,3 +218,20 @@ def test_the_eighth_reviews_p15_quotes(action, quote, supports):
 def test_memory_and_cpu_are_capacity(action, quote):
     """Eighth review (test strength): dropping memory and cpu from the capacity words passed every test."""
     assert _supports(action, quote) is True
+
+
+def test_a_citation_id_in_brackets_is_its_item():
+    """Models write `[C1]`: the id is read without the brackets, as P13 reads it (a plant check found no test, S19)."""
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="[C1]", quote="OOMKilled: 0 -> 3")])
+    p = RemediationProposal(action=A.restart_pods, target="orders", reasoning="r", expected_effect="e",
+                            blast_radius="single_service", reversible=True)
+    assert action_support_problem(rc, p, {"C1": evidence.Item(id="C1", text="OOMKilled: 0 -> 3")}) is None
+
+
+def test_a_revert_is_not_supported_by_wardens_own_words():
+    """A T item is WARDEN's own wording, never support for a fix - for a revert too (a plant check found no test, S19)."""
+    quote = "AuthorizeSecurityGroupIngress on sg-0d4c"
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="T1", quote=quote)])
+    p = RemediationProposal(action=A.revert_change, target="sg-0d4c", reasoning="r", expected_effect="e",
+                            blast_radius="single_service", reversible=True)
+    assert action_support_problem(rc, p, {"T1": evidence.Item(id="T1", text=quote)}) is not None
