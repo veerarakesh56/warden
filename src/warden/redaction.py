@@ -318,6 +318,12 @@ def redact(text: str, *, mapping: dict[str, str] | None = None, _sweep_copies: b
     return RedactionResult(text=out, mapping=r.mapping)
 
 
+def _countable(suffix: str) -> bool:
+    """A placeholder number the counter can take: ASCII digits, at most 18 of them. A longer one (a record can hold any text)
+    would make int() refuse it past 4,300 digits, and no counter reaches it (CodeRabbit, PR 147)."""
+    return suffix.isascii() and suffix.isdigit() and len(suffix) <= 18
+
+
 class _Redactor:
     """One placeholder namespace (map, reverse map, counters) shared by every text of one call."""
 
@@ -331,7 +337,7 @@ class _Redactor:
                 # After the highest number given, not only the count: a map with `<EMAIL_5>` alone must not hand out
                 # `<EMAIL_5>` again (CodeRabbit, PR 147). For a map numbered 1..n, as the pipeline's are, it is n.
                 suffix = k.strip("<>").rsplit("_", 1)[-1]
-                self.counters[kind] = max(self.counters[kind] + 1, int(suffix) if suffix.isdigit() else 0)
+                self.counters[kind] = max(self.counters[kind] + 1, int(suffix) if _countable(suffix) else 0)
         self._built_for = -1
         self._rules: dict[str, tuple[int, str, Any]] = {}
         self._finders: list[tuple[re.Pattern[str], dict[str, list[str]]]] = []

@@ -272,3 +272,13 @@ def test_an_incident_id_as_long_as_an_alert_id_may_be_is_asked_for():
 
     assert records_cli._INCIDENT.fullmatch("a" * 128)
     assert not records_cli._INCIDENT.fullmatch("a" * 129)
+
+
+
+def test_a_placeholder_number_no_counter_can_take_never_stops_the_masking():
+    """CodeRabbit, PR 147: int() refuses a number past 4,300 digits, so one in a record stopped `warden records` with
+    a ValueError."""
+    from warden import records_cli
+
+    said = records_cli.masked({"summary": f"<EMAIL_{'9' * 5000}> wrote to ops@example.com"})["summary"]
+    assert "ops@example.com" not in said
