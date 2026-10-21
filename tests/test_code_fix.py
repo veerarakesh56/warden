@@ -266,6 +266,39 @@ def test_a_failed_commit_removes_its_branch(tmp_path):
     assert not any(c[0] == "pull" for c in writer.calls)
 
 
+def test_a_failed_pull_request_removes_its_branch_and_says_what_was_written(tmp_path):
+    writer = FakeWriter(git_diff(tmp_path, {APP: BEFORE}, {APP: AFTER}), {APP: AFTER})
+
+    def refused(**kw):
+        writer.calls.append(("pull", kw))
+        raise GitHubAppError("the pull request into main: HTTP 422")
+
+    writer.open_pull_request = refused
+    out = open_revert(request(), writer=writer)
+    assert out.status == "failed"
+    assert out.revert_commit == NEW
+    assert "was not opened" in out.reason
+    assert ("delete_branch", f"warden/revert/dev/inc-42-{SHA[:12]}") in writer.calls
+
+
+def test_an_unexpected_error_is_still_an_audit_row(tmp_path):
+    def broken(_repo):
+        raise KeyError("x")
+
+    audit = Audit()
+    row = CodeFixActivities(audit=audit, app=broken).code_fix_revert("inc-42", "dev", SHA)
+    assert row["status"] == "failed"
+    assert row["reason"] == "an unexpected error (KeyError)"
+    assert [kind for _incident, kind, _body in audit.rows] == [code_fix.AUDIT_KIND]
+
+
+@pytest.mark.parametrize("sep", ["\r", "\x0c", "\u2028"])
+def test_take_back_keeps_other_line_separators_as_they_are(sep):
+    current = f"a = 1{sep}\nb = 2\nc = 3\n"
+    change = parse_diff("diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n@@ -2 +2 @@\n-b = 0\n+b = 2\n")[0]
+    assert take_back(current, change) == f"a = 1{sep}\nb = 0\nc = 3\n"
+
+
 def test_a_github_failure_is_an_outcome_not_an_exception():
     def app(_repo):
         raise GitHubAppError("the App's installation on the repository: HTTP 404")
@@ -331,6 +364,27 @@ def test_the_workflow_asks_for_a_revert_only_after_a_rollback_diagnosis():
     assert 'workflow.patched("b4-code-fix-revert")' in src
     assert "revert_target(diagnosed.proposal.action.value, pack.context.recent_deploys)" in src
     assert workflows.CODE_FIX["retry_policy"].maximum_attempts == 1
+    # No act-zone worker: the incident stops waiting after two minutes, it is never held by the step.
+    assert workflows.CODE_FIX["schedule_to_start_timeout"].total_seconds() == 120
+
+
+@pytest.mark.parametrize("status, unavailable, want", [
+    ("approved_for_human", "", True),
+    ("escalated", "", False),
+    ("rejected", "", False),
+    ("auto_safe", "", False),
+    ("approved_for_human", "the model did not answer", False),
+])
+def test_a_revert_only_for_a_diagnosis_passed_for_a_persons_approval(status, unavailable, want):
+    import inspect
+    from types import SimpleNamespace
+
+    from warden import workflows
+
+    diagnosed = SimpleNamespace(model_unavailable=unavailable)
+    verified = SimpleNamespace(verdict=SimpleNamespace(status=SimpleNamespace(value=status)))
+    assert workflows._revert_wanted(diagnosed, verified) is want
+    assert "_revert_wanted(diagnosed, verified)" in inspect.getsource(workflows.IncidentWorkflow._code_fix_revert)
 
 
 def test_a_deleted_file_that_exists_again_is_refused(tmp_path):

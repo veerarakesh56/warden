@@ -298,16 +298,16 @@ Owner steps (once; WARDEN never creates or changes the App, a ruleset or a repos
 
 Rotation is in the table at the top of this page.
 
-**Revert pull requests (phase 3).** When an incident's diagnosis is "roll back the deploy" and its evidence names
-exactly one deployed commit, the act zone also opens a pull request that reverts that commit, from
-`warden/revert/<environment>/<incident>-<commit>` into the repository's default branch, where CI runs (the
-environment receives it by the usual promotion), unless that environment's `code_fix` is `off` or no App is
+**Revert pull requests (phase 3).** When an incident's diagnosis is "roll back the deploy", the verifier passed it for a
+person's approval and its evidence names exactly one deployed commit, the act zone also opens a pull request that
+reverts that commit, from `warden/revert/<environment>/<incident>-<commit>` into the repository's default branch, where
+CI runs (the environment receives it by the usual promotion), unless that environment's `code_fix` is `off` or no App is
 configured. No model writes any line of it: the commit's own diff is taken back where its exact lines are found once,
-and the result must pass the code gate as exactly the commit's inverse. A merge commit, a rename, a binary file, code that moved on
-since, or anything the gate refuses goes to a person, and nothing is written. Every attempt is an audit row of kind
-`code_fix` (opened, skipped, refused or failed, with the reason and the gate's rules). The rollback of the running
-service stays its own plan with its own approval; the pull request only keeps the next deploy from bringing the fault
-back.
+and the result must pass the code gate as exactly the commit's inverse. A merge commit, a rename, a binary file, code
+that moved on since, or anything the gate refuses goes to a person, and nothing is written. Every attempt is an audit
+row of kind `code_fix` (opened, skipped, refused or failed, with the reason and the gate's rules). The rollback of the
+running service stays its own plan with its own approval; the pull request only keeps the next deploy from bringing the
+fault back.
 
 ## Optional: Claude's security review on pull requests
 

@@ -68,7 +68,9 @@ QUICK = {"start_to_close_timeout": timedelta(seconds=60),
 ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPolicy(maximum_attempts=1)}
 NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": RetryPolicy(maximum_attempts=3)}
 # One attempt: a revert pull request is written once or not at all (a retry after a half-done write could open two).
-CODE_FIX = {"start_to_close_timeout": timedelta(minutes=3), "retry_policy": RetryPolicy(maximum_attempts=1)}
+# Two minutes to be picked up: with no act-zone worker the incident does not wait for it (it never blocks the run).
+CODE_FIX = {"schedule_to_start_timeout": timedelta(minutes=2), "start_to_close_timeout": timedelta(minutes=3),
+            "retry_policy": RetryPolicy(maximum_attempts=1)}
 # prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
@@ -789,6 +791,12 @@ def _for_a_person(verified: Any) -> bool:
     return str(getattr(verified.verdict.status, "value", verified.verdict.status)) == "approved_for_human"
 
 
+def _revert_wanted(diagnosed: Any, verified: Any) -> bool:
+    """A revert pull request only for a diagnosis the model made and the verifier passed for a person's approval:
+    never for one that was rejected, escalated or held (B4)."""
+    return not diagnosed.model_unavailable and _for_a_person(verified)
+
+
 def _plannable(verified: Any) -> bool:
     """Whether the verified proposal opens a fix plan. Patched: histories recorded before each case replay unchanged."""
     # Review-e M5: also a proposal escalated by P6 ALONE - its reach is wide, which is exactly what the signed approval
@@ -909,8 +917,7 @@ class IncidentWorkflow:
         the GitHub App, through the code gate; a person (or, outside prod, every check) merges it. It never blocks
         or fails the incident. Patched: histories recorded before it replay unchanged."""
         sha = revert_target(diagnosed.proposal.action.value, pack.context.recent_deploys)
-        if (sha and not diagnosed.model_unavailable and verified.verdict.status.value != "rejected"
-                and workflow.patched("b4-code-fix-revert")):
+        if sha and _revert_wanted(diagnosed, verified) and workflow.patched("b4-code-fix-revert"):
             fix = CodeFixActivities.code_fix_revert
             with contextlib.suppress(ActivityError):
                 await workflow.execute_activity_method(fix, **_zoned(fix), args=[first.alert_id, pack.alert.environment,
