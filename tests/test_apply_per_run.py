@@ -71,7 +71,7 @@ def test_a_refused_apply_says_nothing_was_changed(monkeypatch):
     It is its own outcome now: nothing was applied or rolled back."""
     platform = FakePlatform(healthy_after=1)
     owner, _log, acts = _world(platform)
-    monkeypatch.setattr(RemediationActivities, "_not_approved", lambda self, plan, service: ["refused for the test"])
+    monkeypatch.setattr(RemediationActivities, "_not_approved", lambda self, plan: ["refused for the test"])
 
     async def main():
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
