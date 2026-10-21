@@ -28,7 +28,8 @@ def _restored():
 def test_the_snapshot_keeps_its_values_when_config_has_recorded_a_later_one():
     _, p, snap = _restored()
     live = p.live("ecs_restore_desired", PLAN)
-    assert live["event"] == set() and "changed again" in live["refused"]  # no new plan is made from it
+    assert live["event"] == set()
+    assert "changed again" in live["refused"]  # no new plan is made from it
     assert (live["state"]["before"], live["state"]["after"]) == (snap["before"], snap["after"]) == (2, 0)
 
 
@@ -61,4 +62,5 @@ def test_the_same_holds_for_a_group_whose_restore_config_recorded():
     f.capacity = 6
     f.history["AWS::AutoScaling::AutoScalingGroup"].append(_ci(-3, {"desiredCapacity": 6}))
     p.rollback("asg_restore_capacity", plan, snap, who=WHO)
-    assert f.writes[-1][0] == "set_desired_capacity" and f.writes[-1][1]["DesiredCapacity"] == 2
+    assert f.writes[-1][0] == "set_desired_capacity"
+    assert f.writes[-1][1]["DesiredCapacity"] == 2

@@ -46,7 +46,8 @@ def test_the_committed_decider_is_what_training_on_the_published_runs_produces()
 
 def test_its_measured_quality_is_recorded_and_it_is_not_trusted_beyond_it():
     held = json.loads(DECIDER.read_text(encoding="utf-8"))["held_out_by_fault_class"]
-    assert held["runs"] >= 100 and {"brier", "ece", "auc", "self_reported_confidence", "base_rate_brier"} <= set(held)
+    assert held["runs"] >= 100
+    assert {"brier", "ece", "auc", "self_reported_confidence", "base_rate_brier"} <= set(held)
     # Measured 2026-10-03: held out by fault class it does not beat the base rate, so nothing decides on it.
     if held["brier"] >= held["base_rate_brier"]:
         from warden.verifier import OBSERVED
@@ -64,8 +65,9 @@ def test_its_measured_quality_is_recorded_and_it_is_not_trusted_beyond_it():
 def test_a_bad_decider_is_refused_before_use(change, why):
     doc = json.loads(DECIDER.read_text(encoding="utf-8"))
     change(doc)
+    text = json.dumps(doc)
     with pytest.raises(decide.DeciderError, match=why):
-        decide.load_text(json.dumps(doc))
+        decide.load_text(text)
     with pytest.raises(decide.DeciderError, match="larger"):
         decide.load_text(" " * (decide.MAX_BYTES + 1))
 
