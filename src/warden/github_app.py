@@ -378,15 +378,9 @@ class RepoWriter:
                                      body={"query": _REVIEWS, "variables": {"owner": owner, "name": name,
                                                                             "number": _number(number)}})
         _expect(status, 200, f"the reviews of #{number}")
-        pr = (((got or {}).get("data") or {}).get("repository") or {}).get("pullRequest") if isinstance(got, dict) \
-            else None
-        if not isinstance(pr, dict) or got.get("errors"):
-            raise GitHubAppError(f"the reviews of #{number} could not be read")
-        threads = (pr.get("reviewThreads") or {}).get("nodes") or []
-        reviews = [r for r in (pr.get("reviews") or {}).get("nodes") or []
-                   if isinstance(r, dict) and _login(r) == reviewer]
-        mine = [t for t in threads if isinstance(t, dict) and _login(((t.get("comments") or {}).get("nodes") or [{}])[0])
-                == reviewer]
+        pr = _pull_request_node(got, number)
+        reviews = [r for r in _nodes(pr, "reviews") if _login(r) == reviewer]
+        mine = [t for t in _nodes(pr, "reviewThreads") if _login(_first_comment(t)) == reviewer]
         return {"reviewed_head": any((r.get("commit") or {}).get("oid") == head for r in reviews),
                 "changes_requested": bool(reviews) and reviews[-1].get("state") == "CHANGES_REQUESTED",
                 "open_threads": sum(1 for t in mine if not t.get("isResolved"))}
@@ -404,6 +398,23 @@ _REVIEWS = """query($owner: String!, $name: String!, $number: Int!) {
     reviews(last: 50) { nodes { state commit { oid } author { login } } }
   } }
 }"""
+
+
+def _pull_request_node(got: Any, number: int) -> dict[str, Any]:
+    data = got.get("data") if isinstance(got, dict) and not got.get("errors") else None
+    pr = ((data or {}).get("repository") or {}).get("pullRequest") if isinstance(data, dict) else None
+    if not isinstance(pr, dict):
+        raise GitHubAppError(f"the reviews of #{number} could not be read")
+    return pr
+
+
+def _nodes(node: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    return [n for n in (node.get(key) or {}).get("nodes") or [] if isinstance(n, dict)]
+
+
+def _first_comment(thread: dict[str, Any]) -> Any:
+    comments = _nodes(thread, "comments")
+    return comments[0] if comments else {}
 
 
 def _login(node: Any) -> str:

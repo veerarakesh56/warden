@@ -377,3 +377,62 @@ def test_default_branch_is_read_and_checked():
     for _ in range(2):
         with pytest.raises(GitHubAppError, match="not a plain branch name"):
             writer.default_branch()
+
+
+def _reviews_reply(reviews, threads, errors=None):
+    reply = {"data": {"repository": {"pullRequest": {"reviews": {"nodes": reviews},
+                                                       "reviewThreads": {"nodes": threads}}}}}
+    return {**reply, "errors": errors} if errors else reply
+
+
+def _thread(login, resolved):
+    return {"isResolved": resolved, "comments": {"nodes": [{"author": {"login": login}}]}}
+
+
+def test_review_state_reads_one_reviewer_on_one_head():
+    reviews = [{"state": "COMMENTED", "commit": {"oid": SHA}, "author": {"login": "coderabbitai"}},
+               {"state": "APPROVED", "commit": {"oid": NEW}, "author": {"login": "someone"}}]
+    threads = [_thread("coderabbitai", True), _thread("coderabbitai", False), _thread("someone", False), {"comments": {}}]
+    api, log = fake_api((200, _reviews_reply(reviews, threads)))
+    got = RepoWriter(token(), api=api).review_state(7, SHA)
+    assert got == {"reviewed_head": True, "changes_requested": False, "open_threads": 1}
+    assert log[0]["body"]["variables"] == {"owner": "example-owner", "name": "example-repo", "number": 7}
+
+
+def test_review_state_another_head_or_changes_requested():
+    reviews = [{"state": "CHANGES_REQUESTED", "commit": {"oid": NEW}, "author": {"login": "coderabbitai[bot]"}}]
+    api, _ = fake_api((200, _reviews_reply(reviews, [])))
+    got = RepoWriter(token(), api=api).review_state(7, SHA)
+    assert got["reviewed_head"] is False
+    assert got["changes_requested"] is True
+
+
+@pytest.mark.parametrize("reply", [_reviews_reply([], [], errors=[{"message": "x"}]), {"data": None}, []])
+def test_review_state_that_cannot_be_read_raises(reply):
+    writer = RepoWriter(token(), api=fake_api((200, reply))[0])
+    with pytest.raises(GitHubAppError, match="could not be read"):
+        writer.review_state(7, SHA)
+
+
+def test_check_runs_refuses_a_partial_page():
+    runs = [{"name": "a", "status": "completed", "conclusion": "success"}]
+    api, _ = fake_api((200, {"total_count": 1, "check_runs": runs}), (200, {"total_count": 120, "check_runs": runs}))
+    writer = RepoWriter(token(), api=api)
+    assert writer.check_runs(SHA) == [("a", "completed", "success")]
+    with pytest.raises(GitHubAppError, match="could not all be read"):
+        writer.check_runs(SHA)
+
+
+def test_merge_names_the_commit_and_rebases():
+    api, log = fake_api((200, {"merged": True}))
+    RepoWriter(token(), api=api).merge(7, SHA)
+    assert (log[0]["method"], log[0]["path"]) == ("PUT", f"/repos/{REPO}/pulls/7/merge")
+    assert log[0]["body"] == {"sha": SHA, "merge_method": "rebase"}
+
+
+def test_pull_state_reads_the_merge_facts():
+    reply = {"state": "open", "merged": False, "draft": False, "mergeable": True,
+             "head": {"ref": "warden/revert/dev/x", "sha": SHA}, "base": {"ref": "main"}}
+    got = RepoWriter(token(), api=fake_api((200, reply))[0]).pull_state(7)
+    assert got == {"number": 7, "state": "open", "merged": False, "draft": False, "head_ref": "warden/revert/dev/x",
+                   "head_sha": SHA, "base_ref": "main", "mergeable": True}

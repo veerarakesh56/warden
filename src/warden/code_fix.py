@@ -338,26 +338,29 @@ class CodeFixActivities:
             writer = (self._app or _app_writer)(repo)
             if writer is None:
                 return {"status": "waiting", "reasons": ["no GitHub App is configured"]}
-            got = writer.pull_state(number)
-            pull = PullState(**got)
-            if pull.merged:  # merged already - by an earlier ask whose answer was lost, or by a person
-                return self._merge_row(incident_id, number, "merged", [f"{pull.head_sha[:12]} is merged"])
-            # Every fact read for WARDEN's own commit (`wrote`), not whatever the head is now: a head that moved fails
-            # head_is_warden_s, and the merge itself names the commit too.
-            reasons = merge_refusals(MergeFacts(
-                mode=policy.code_fix, tier=policy.tier, wrote=wrote, base=base, pull=pull,
-                checks=writer.check_runs(wrote) if _SHA.fullmatch(wrote) else [], required=default_merge_checks(),
-                review=ReviewState(**writer.review_state(number, wrote)),
-                critic=critic_approved(self.audit, incident_id, number, wrote)))
-            if reasons:
-                final = (effective_mode(policy.code_fix, policy.tier) is not CodeFixMode.auto or pull.state != "open"
-                         or pull.head_sha != wrote)
-                return (self._merge_row(incident_id, number, "refused", reasons) if final
-                        else {"status": "waiting", "reasons": reasons})
-            writer.merge(number, wrote)
+            return self._decide(writer, policy, incident_id, number, wrote, base)
         except GitHubAppError as exc:
             return {"status": "waiting", "reasons": [str(exc)]}
-        return self._merge_row(incident_id, number, "merged", [f"merged {wrote[:12]} into {base}"])
+
+    def _decide(self, writer: RepoWriter, policy: Any, incident_id: str, number: int, wrote: str,
+                base: str) -> dict[str, Any]:
+        pull = PullState(**writer.pull_state(number))
+        if pull.merged:  # merged already - by an earlier ask whose answer was lost, or by a person
+            return self._merge_row(incident_id, number, "merged", [f"{pull.head_sha[:12]} is merged"])
+        # Every fact read for WARDEN's own commit (`wrote`), not whatever the head is now: a head that moved fails
+        # head_is_warden_s, and the merge itself names the commit too.
+        reasons = merge_refusals(MergeFacts(
+            mode=policy.code_fix, tier=policy.tier, wrote=wrote, base=base, pull=pull,
+            checks=writer.check_runs(wrote) if _SHA.fullmatch(wrote) else [], required=default_merge_checks(),
+            review=ReviewState(**writer.review_state(number, wrote)),
+            critic=critic_approved(self.audit, incident_id, number, wrote)))
+        if not reasons:
+            writer.merge(number, wrote)
+            return self._merge_row(incident_id, number, "merged", [f"merged {wrote[:12]} into {base}"])
+        final = (effective_mode(policy.code_fix, policy.tier) is not CodeFixMode.auto or pull.state != "open"
+                 or pull.head_sha != wrote)
+        return self._merge_row(incident_id, number, "refused", reasons) if final else {"status": "waiting",
+                                                                                       "reasons": reasons}
 
     def _merge_row(self, incident_id: str, number: int, status: str, reasons: list[str]) -> dict[str, Any]:
         row = {"status": status, "pull_request": number, "reasons": reasons}
