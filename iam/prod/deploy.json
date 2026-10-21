@@ -285,7 +285,8 @@
       "Action": [
         "rds:CreateDBCluster",
         "rds:CreateDBInstance",
-        "rds:EnableInternetAccessGateway"
+        "rds:EnableInternetAccessGateway",
+        "rds:RestoreDBClusterFromSnapshot"
       ],
       "Resource": "arn:aws:rds:*:*:subgrp:default"
     },

@@ -27,6 +27,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from . import web
 from .models import Alert
 
 TIMEOUT_S = 8.0
@@ -94,7 +95,7 @@ class GrafanaReader:
     def _http(self, url: str, user: str) -> dict:
         auth = base64.b64encode(f"{user}:{self.token}".encode()).decode()
         req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}", "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:  # nosec B310 - an https URL from settings
+        with web.urlopen(req, timeout=TIMEOUT_S) as resp:
             return json.loads(resp.read() or b"{}")
 
     def _ask(self, source: str, path: str, params: dict[str, Any]) -> tuple[dict | None, str]:

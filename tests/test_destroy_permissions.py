@@ -174,6 +174,10 @@ ARNS = {
     "vpce": "arn:aws:ec2:{r}:{a}:vpc-endpoint/vpce-0a1b2c3d",
     "lt": "arn:aws:ec2:{r}:{a}:launch-template/lt-0a1b2c3d",
     "param": "arn:aws:ssm:{r}:{a}:parameter/warden/{env}/tf/my_ip_cidr",
+    # The ALB's imported certificate and its access-log bucket (Sonar S5332 / S6258, PR 62).
+    "cert": "arn:aws:acm:{r}:{a}:certificate/0a1b2c3d-aaaa-bbbb-cccc-ddddeeeeffff",
+    "alb-logs": "arn:aws:s3:::{p}-alb-logs-20261021000000000000000001",
+    "alb-logs-obj": "arn:aws:s3:::{p}-alb-logs-20261021000000000000000001/AWSLogs/{a}/elasticloadbalancing/x.log.gz",
     # The S3 backend keeps a workspace's state at env:/<workspace>/<key>; _infra-deploy.yml sets key=<stack>/... and
     # the workspace to the environment; use_lockfile writes <state>.tflock beside it.
     **{f"state-{stack}": f"arn:aws:s3:::{{p}}-tfstate-abc/env:/{{env}}/{stack}/terraform.tfstate" for stack in STACKS},
@@ -189,7 +193,7 @@ ARNS = {
 }
 UNTAGGED = {"nat-eni", "eks-sg", "*", "esm-gone", "state-bucket", "param", "deploy-role",
             *(f"{kind}-{stack}" for kind in ("state", "lock") for stack in STACKS),
-            "api-tags"}
+            "api-tags", "alb-logs-obj"}
 # IAM and Budgets are global services: their calls go to the global region (environments.yaml aws_global_region).
 GLOBAL = ("iam:", "budgets:")
 
@@ -202,6 +206,9 @@ def call(action, *kinds, **extra):
 # Each SDK operation as its IAM action (Service Reference). The provider's tag interceptor lists tags on Read for a
 # resource with tags (`@Tags` in its source); EC2 and Secrets Manager return tags in the describe call itself.
 DESTROY_CALLS = {
+    # Read: DescribeCertificate and the tag interceptor; Delete retries while the listener still holds it.
+    "aws_acm_certificate": [call("acm:DescribeCertificate", "cert"), call("acm:ListTagsForCertificate", "cert"),
+                            call("acm:DeleteCertificate", "cert")],
     "aws_apigatewayv2_api": [call("apigateway:GET", "api"), call("apigateway:GET", "api-tags"),
                              call("apigateway:DELETE", "api")],
     "aws_apigatewayv2_integration": [call("apigateway:GET", "api-int"), call("apigateway:DELETE", "api-int")],
@@ -296,6 +303,23 @@ DESTROY_CALLS = {
     "aws_route_table": [call("ec2:DescribeRouteTables", "*"), call("ec2:DescribeNetworkInterfaces", "*"),
                         call("ec2:DisassociateRouteTable", "rtb", "subnet"), call("ec2:DeleteRouteTable", "rtb")],
     "aws_route_table_association": [call("ec2:DescribeRouteTables", "*"), call("ec2:DisassociateRouteTable", "rtb", "subnet")],
+    # The ALB's log bucket (force_destroy: every object version goes first). The bucket's Read asks for each of its
+    # sub-configurations; a sub-resource's Delete is a Put of the empty configuration where S3 has no Delete action.
+    "aws_s3_bucket": [call(a, "alb-logs") for a in (
+        "s3:ListBucket", "s3:GetBucketPolicy", "s3:GetBucketAcl", "s3:GetBucketCORS", "s3:GetBucketWebsite",
+        "s3:GetBucketVersioning", "s3:GetAccelerateConfiguration", "s3:GetBucketRequestPayment", "s3:GetBucketLogging",
+        "s3:GetLifecycleConfiguration", "s3:GetReplicationConfiguration", "s3:GetEncryptionConfiguration",
+        "s3:GetBucketObjectLockConfiguration", "s3:GetBucketTagging", "s3:ListBucketVersions", "s3:DeleteBucket")]
+    + [call("s3:DeleteObjectVersion", "alb-logs-obj"), call("s3:DeleteObject", "alb-logs-obj")],
+    "aws_s3_bucket_lifecycle_configuration": [call("s3:GetLifecycleConfiguration", "alb-logs"),
+                                              call("s3:PutLifecycleConfiguration", "alb-logs")],
+    "aws_s3_bucket_logging": [call("s3:GetBucketLogging", "alb-logs"), call("s3:PutBucketLogging", "alb-logs")],
+    "aws_s3_bucket_policy": [call("s3:GetBucketPolicy", "alb-logs"), call("s3:DeleteBucketPolicy", "alb-logs")],
+    "aws_s3_bucket_public_access_block": [call("s3:GetBucketPublicAccessBlock", "alb-logs"),
+                                          call("s3:PutBucketPublicAccessBlock", "alb-logs")],
+    "aws_s3_bucket_server_side_encryption_configuration": [call("s3:GetEncryptionConfiguration", "alb-logs"),
+                                                           call("s3:PutEncryptionConfiguration", "alb-logs")],
+    "aws_s3_bucket_versioning": [call("s3:GetBucketVersioning", "alb-logs"), call("s3:PutBucketVersioning", "alb-logs")],
     "aws_secretsmanager_secret": [call("secretsmanager:DescribeSecret", "secret"),
                                   call("secretsmanager:DeleteSecret", "secret")],
     "aws_secretsmanager_secret_version": [call("secretsmanager:GetSecretValue", "secret"),
@@ -325,6 +349,8 @@ DESTROY_CALLS = {
 DATA_CALLS = {
     "aws_availability_zones": [call("ec2:DescribeAvailabilityZones", "*")],
     "aws_caller_identity": [call("sts:GetCallerIdentity", "*")],
+    # v6.66.0 ec2_eips_data_source.go -> findEIPs: one DescribeAddresses (filtered by tag; fullstack's runtime NAT).
+    "aws_eips": [call("ec2:DescribeAddresses", "*")],
     "aws_iam_policy_document": [],
     "aws_iam_session_context": [call("iam:GetRole", "deploy-role")],
     "aws_ssm_parameter": [call("ssm:GetParameter", "param")],
@@ -346,6 +372,12 @@ AURORA_ARNS = {"rds:DescribeDBInstances": "arn:aws:rds:{r}:{a}:db:{p}-aurora-ins
                "rds:DescribeDBClusters": "arn:aws:rds:{r}:{a}:cluster:{p}-aurora",
                "rds:DeleteDBCluster": "arn:aws:rds:{r}:{a}:cluster:{p}-aurora",
                "rds:ModifyDBCluster": "arn:aws:rds:{r}:{a}:cluster:{p}-aurora"}
+# B9: destroy keeps a final snapshot of the cluster, checks it exists and tags it (the delete itself is authorised on
+# the snapshot too: REQUIRED_CALLS["pause"] below covers it, pause being a destroy that copies the data first).
+AURORA_CALLS |= {"describe_db_cluster_snapshots": "rds:DescribeDBClusterSnapshots",
+                 "add_tags_to_resource": "rds:AddTagsToResource"}
+AURORA_ARNS |= {"rds:DescribeDBClusterSnapshots": "arn:aws:rds:{r}:{a}:cluster-snapshot:{p}-aurora-final-20261017t113509z",
+                "rds:AddTagsToResource": "arn:aws:rds:{r}:{a}:cluster-snapshot:{p}-aurora-final-20261017t113509z"}
 # Reached in the provider only for a setting these stacks do not use (v6.66.0 source).
 NOT_REACHED = {
     "ec2:GetIpamPoolAllocations": "aws_eip / aws_subnet / aws_vpc: only with an IPAM pool (ipam_pool_id)",
@@ -417,6 +449,52 @@ def test_the_provider_version_the_calls_were_read_from_is_the_one_locked():
 REQUIRED_CALLS = {
     "destroy": [c for group in (*DESTROY_CALLS.values(), *DATA_CALLS.values(), BACKEND_CALLS) for c in group],
 }
+# Pause and resume (owner update 5): scripts/pause_resume.py and aurora_express.py's restore, beside the destroy and
+# the apply. A copy being made, a cluster or table being restored and AWS's own default subnet group carry no
+# Environment tag yet; a request that tags names this environment (aws:RequestTag).
+ARNS |= {
+    "aurora": "arn:aws:rds:{r}:{a}:cluster:{p}-aurora",
+    "aurora-new": "arn:aws:rds:{r}:{a}:cluster:{p}-aurora",
+    "aurora-writer": "arn:aws:rds:{r}:{a}:db:{p}-aurora-instance-1",
+    "aurora-pause": "arn:aws:rds:{r}:{a}:cluster-snapshot:{p}-aurora-pause-20261017t113509z",
+    "aurora-pause-by-hand": "arn:aws:rds:{r}:{a}:cluster-snapshot:{p}-aurora-pause-20261017",
+    "aurora-final": "arn:aws:rds:{r}:{a}:cluster-snapshot:{p}-aurora-final-20261017t113509z",
+    "default-subnets": "arn:aws:rds:{r}:{a}:subgrp:default",
+    "carts": "arn:aws:dynamodb:{r}:{a}:table/{p}-carts",
+    "carts-new": "arn:aws:dynamodb:{r}:{a}:table/{p}-carts",
+    "carts-backup": "arn:aws:dynamodb:{r}:{a}:table/{p}-carts/backup/01760000000000-abcdef12",
+    "schedule": "arn:aws:events:{r}:{a}:rule/{p}-traffic-1m",
+    "orders-queue": "arn:aws:sqs:{r}:{a}:{p}-orders",
+}
+UNTAGGED |= {"aurora-new", "aurora-pause", "aurora-pause-by-hand", "aurora-final", "default-subnets", "carts-new",
+             "carts-backup"}
+_TAGGING = {"aws:RequestTag/Environment": "{env}"}
+# The writers stopped before the copies, started again on resume (pause_resume.py quiesce / wake).
+_WRITERS_OFF = [call("events:DisableRule", "schedule"), call("lambda:PutFunctionConcurrency", "function"),
+                call("lambda:GetFunctionConfiguration", "function"),
+                call("sqs:GetQueueUrl", "orders-queue"), call("sqs:GetQueueAttributes", "orders-queue")]
+_WRITERS_ON = [call("events:EnableRule", "schedule"), call("lambda:DeleteFunctionConcurrency", "function")]
+REQUIRED_CALLS["pause"] = REQUIRED_CALLS["destroy"] + _WRITERS_OFF + _WRITERS_ON + [
+    call("rds:DescribeDBClusters", "aurora"), call("rds:DescribeDBClusterSnapshots", "*"),
+    call("rds:CreateDBClusterSnapshot", "aurora", "aurora-pause", **_TAGGING),
+    call("rds:AddTagsToResource", "aurora-pause", **_TAGGING),
+    call("dynamodb:DescribeTable", "carts"), call("dynamodb:CreateBackup", "carts"),
+    call("dynamodb:DescribeBackup", "carts-backup"), call("dynamodb:ListBackups", "*"),
+    # aurora_express.py destroy: the delete names the final snapshot it makes, which is then checked and tagged.
+    call("rds:DeleteDBInstance", "aurora-writer"),
+    call("rds:DeleteDBCluster", "aurora", "aurora-final"), call("rds:CreateDBClusterSnapshot", "aurora", "aurora-final"),
+    call("rds:AddTagsToResource", "aurora-final", **_TAGGING)]
+REQUIRED_CALLS["resume"] = _WRITERS_ON + [
+    call("dynamodb:DescribeTable", "carts"), call("dynamodb:ListBackups", "*"),
+    call("dynamodb:RestoreTableFromBackup", "carts-backup", "carts-new"),
+    # RestoreTableFromBackup writes the items into the new table (DynamoDB's restore permissions).
+    *[call(a, "carts-new") for a in ("dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
+                                       "dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchWriteItem")],
+    call("rds:DescribeDBClusterSnapshots", "*"),
+    *[call("rds:RestoreDBClusterFromSnapshot", "aurora-new", snap, "default-subnets", **_TAGGING)
+      for snap in ("aurora-pause", "aurora-pause-by-hand")],
+    call("rds:AddTagsToResource", "aurora-new", **_TAGGING), call("rds:ModifyDBCluster", "aurora"),
+    call("rds:CreateDBInstance", "aurora", "aurora-writer", "default-subnets", **_TAGGING)]
 
 
 @pytest.mark.parametrize("stack_action", sorted(REQUIRED_CALLS))

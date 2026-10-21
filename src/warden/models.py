@@ -228,6 +228,24 @@ class RuledOut(BaseModel):
                                       description="Evidence that rules it out: an id and an exact quote, as above")
 
 
+MAX_HYPOTHESES = 4
+
+
+class Hypothesis(BaseModel):
+    """One candidate cause (item 7, 2026-10-17: strict evidence-backed root cause analysis is where the best models
+    fail most, and a fix can "work" with the wrong diagnosis). Ranked: the first is the one the proposal acts on. Its
+    evidence for and against are citations, checked like the diagnosis's; WARDEN weighs them itself
+    (grounding.hypothesis_score) - never the model's confidence."""
+
+    cause: ModelProse
+    supporting: list[Citation] = Field(default_factory=list, max_length=8,
+                                       description="Evidence FOR this cause: an id and an exact quote, as above")
+    against: list[Citation] = Field(default_factory=list, max_length=8,
+                                    description="Evidence AGAINST this cause: an id and an exact quote, as above")
+    why_rejected: ModelProse = Field(default="", description="Every hypothesis but the first: why it lost, in one "
+                                                             "sentence")
+
+
 class RootCause(BaseModel):
     """The model's reading of the evidence. A hypothesis — never a verdict."""
 
@@ -247,6 +265,31 @@ class RootCause(BaseModel):
         max_length=20,
         description="The evidence items that support the hypothesis: each an id and an exact quote",
     )
+    # Fail closed (review, PR 47): a root cause built anywhere without hypotheses has [] - no rival weighed, and P35
+    # escalates it. None means only "recorded before ranked hypotheses existed", and only `recorded()` sets it, where a
+    # stored answer is read back; P35 does not apply to those. A model's explicit null is made [] (graph._diagnose).
+    hypotheses: list[Hypothesis] | None = Field(
+        default_factory=list,
+        description="2 to 4 candidate causes, most likely first. The first is your hypothesis above and the one the "
+                    "remediation acts on")
+
+    @classmethod
+    def recorded(cls, data: dict[str, Any]) -> RootCause:
+        """A stored answer read back (a report, a replay): one written before `hypotheses` existed keeps None."""
+        return cls(**{"hypotheses": None, **data})
+
+    @field_validator("hypotheses", mode="before")
+    @classmethod
+    def _at_most_four(cls, v: Any) -> Any:
+        """A fifth hypothesis is dropped, never the answer: a refused answer costs a paid retry."""
+        return v[:MAX_HYPOTHESES] if isinstance(v, list) else v
+
+    @model_validator(mode="after")
+    def _cited_by_the_first(self) -> RootCause:
+        """With no citations of its own, the diagnosis cites what its first hypothesis cites (P13 and P15 read them)."""
+        if self.hypotheses and not self.citations:
+            self.citations = list(self.hypotheses[0].supporting)
+        return self
 
 
 class ActionKind(str, Enum):

@@ -148,7 +148,7 @@ def reverify(out: pathlib.Path) -> int:
         d = json.loads(f.read_text(encoding="utf-8"))
         if not d.get("proposal") or not d.get("root_cause"):
             continue
-        v = verify(Alert(**d["alert"]), ContextBundle(**d["context"]), RootCause(**d["root_cause"]),
+        v = verify(Alert(**d["alert"]), ContextBundle(**d["context"]), RootCause.recorded(d["root_cause"]),
                    RemediationProposal(**d["proposal"]))
         if v.model_dump(mode="json") != d["verdict"]:
             changed += 1

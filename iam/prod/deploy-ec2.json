@@ -2,6 +2,28 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "PauseFindsItsBackups",
+      "Effect": "Allow",
+      "Action": "dynamodb:ListBackups",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "OwnClusterSnapshots",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBClusterSnapshot",
+        "rds:DeleteDBCluster",
+        "rds:AddTagsToResource",
+        "rds:RestoreDBClusterFromSnapshot"
+      ],
+      "Resource": "arn:aws:rds:ap-south-2:*:cluster-snapshot:warden-prod-*"
+    },
+    {
       "Sid": "Ec2ReadCreate",
       "Effect": "Allow",
       "Action": [
@@ -163,6 +185,71 @@
       "Condition": {
         "StringEquals": {
           "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "AlbLogsBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:GetBucket*",
+        "s3:GetAccelerateConfiguration",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetReplicationConfiguration",
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketLogging",
+        "s3:PutBucketTagging",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutLifecycleConfiguration"
+      ],
+      "Resource": "arn:aws:s3:::warden-prod-alb-logs-*"
+    },
+    {
+      "Sid": "AlbLogsEmptiedAtDestroy",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::warden-prod-alb-logs-*/*"
+    },
+    {
+      "Sid": "AlbCertificateImport",
+      "Effect": "Allow",
+      "Action": "acm:ImportCertificate",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2",
+          "aws:RequestTag/Environment": "prod"
+        }
+      }
+    },
+    {
+      "Sid": "AlbCertificateOwn",
+      "Effect": "Allow",
+      "Action": [
+        "acm:ImportCertificate",
+        "acm:AddTagsToCertificate",
+        "acm:DescribeCertificate",
+        "acm:GetCertificate",
+        "acm:ListTagsForCertificate",
+        "acm:RemoveTagsFromCertificate",
+        "acm:DeleteCertificate"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2",
+          "aws:ResourceTag/Environment": "prod"
         }
       }
     },

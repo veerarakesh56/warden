@@ -426,6 +426,31 @@ def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
                "warden/fixtures/inc-001.json", "warden/data/mcp_manifest.sha256", "warden/CLI.PY"]
     assert mod.outside(shipped) == []
     assert mod.main([str(ROOT / "src" / "warden")]) == 0  # the real package passes
+    # One certificate file by its exact path (PR 48), holding certificates only; no other .crt, and no key in it.
+    assert mod.outside(["warden/data/rds-ca-bundle.crt"]) == []
+    assert mod.outside(["warden/data/other.crt", "warden/rds-ca-bundle.crt"]) == ["warden/data/other.crt",
+                                                                                 "warden/rds-ca-bundle.crt"]
+    from fakes import private_key_block
+
+    bundle = (ROOT / "src" / "warden" / "data" / "rds-ca-bundle.crt").read_text(encoding="ascii")
+    assert mod.only_certificates(bundle)
+    # One real certificate (the bundle's first) for the cases below; `AA==` is base64 but no certificate.
+    first = bundle.index("-----BEGIN CERTIFICATE-----")
+    cert = bundle[first:bundle.index("-----END CERTIFICATE-----", first)] + "-----END CERTIFICATE-----\n"
+    junk = "-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n"
+    assert mod.only_certificates(cert)
+    assert not mod.only_certificates(junk)
+    assert not mod.only_certificates(cert + junk)
+    assert not mod.only_certificates(cert + private_key_block("RSA", "AA=="))
+    assert not mod.only_certificates("no PEM at all")
+    # Complete blocks only, and nothing after them (review, PR 48).
+    assert mod.only_certificates("Where it came from.\n\n" + cert + cert)
+    assert not mod.only_certificates("-----BEGIN CERTIFICATE-----")
+    assert not mod.only_certificates(cert[:-len("-----END CERTIFICATE-----\n")])
+    assert not mod.only_certificates(cert + "trailing text\n")
+    assert not mod.only_certificates(cert + "-----BEGIN CERTIFICATE-----\nAA==\n")
+    assert not mod.only_certificates("-----BEGIN CERTIFICATE-----\nnot base64!\n-----END CERTIFICATE-----\n")
+    assert not mod.only_certificates("header\n" + private_key_block("RSA", "AA==") + cert)
     stages = (ROOT / "Dockerfile").read_text(encoding="utf-8").split(chr(10) + "FROM ")
     [build] = [st for st in stages if " AS build" in st]
     sync = build.index("RUN uv sync")
@@ -445,3 +470,22 @@ def test_an_install_outside_the_lock_cannot_take_a_known_vulnerable_aiohttp():
     lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
     (locked,) = [p["version"] for p in lock["package"] if p["name"] == "aiohttp"]
     assert locked in aiohttp.specifier, (locked, str(aiohttp.specifier))
+
+
+DRAFT_SKIP = "github.event_name != 'pull_request' || github.event.pull_request.draft == false"
+
+
+def test_a_draft_pull_request_runs_no_ci_and_a_ready_one_does():
+    """Owner, 2026-10-21: the Actions queue was the bottleneck. Every workflow a pull request starts lists the event
+    types it runs on - ready_for_review among them, so marking a draft ready runs its CI - and every job in it is
+    skipped while the pull request is a draft (push and schedule runs are untouched)."""
+    flows = {wf.name: yaml.safe_load(wf.read_text(encoding="utf-8")) for wf in WORKFLOWS}
+    on_pr = {name: doc for name, doc in flows.items() if "pull_request" in (doc.get(True) or {})}
+    assert on_pr
+    for name, doc in on_pr.items():
+        trigger = doc[True]["pull_request"] or {}
+        assert trigger.get("types") == ["opened", "synchronize", "reopened", "ready_for_review"], name
+        for job_id, job in doc["jobs"].items():
+            condition = " ".join(str(job.get("if", "")).split())
+            assert DRAFT_SKIP in condition or condition.startswith("github.event.pull_request.draft == false &&"), \
+                (name, job_id, condition)
