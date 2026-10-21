@@ -314,7 +314,7 @@ def _audit_keygen(args: argparse.Namespace) -> int:
     # as strong as the key file at rest). The passphrase comes from the environment (Secrets Manager in the
     # cloud) or is typed at a prompt, never from the command line (shell history).
     passphrase = _new_key_passphrase(args)
-    if passphrase == b"":
+    if not args.unencrypted and not passphrase:
         _out("error: no passphrase, so no key was written: type one at the prompt (a terminal), or set "
              "WARDEN_AUDIT_KEY_PASSPHRASE without echoing it; --unencrypted writes the key in the clear",
              err=True)

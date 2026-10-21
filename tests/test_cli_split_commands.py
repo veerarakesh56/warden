@@ -7,6 +7,7 @@ import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from warden import audit, catalog, cli, intake, runtime
@@ -129,3 +130,42 @@ def test_the_json_report_carries_no_control_character(tmp_path):
 def test_the_json_report_is_written_where_asked(tmp_path):
     report = SimpleNamespace(model_dump=lambda mode: {"note": "fine"}, redaction_map={})
     assert cli._write_json_report(report, str(tmp_path / "report.json")) == (tmp_path / "report.json").resolve()
+
+
+def test_a_browser_that_cannot_be_opened_is_said_on_stderr(monkeypatch, capsys):
+    monkeypatch.setattr("webbrowser.open", lambda url: False)
+    cli._opened("https://example.invalid/x")
+    assert "error: no browser could be opened on this machine" in capsys.readouterr().err
+
+
+def test_a_label_with_an_empty_key_is_refused():
+    """As on main: `--label =v` names no label, so it stops the command."""
+    with pytest.raises(SystemExit, match="--label must be K=V, got '=v'"):
+        cli._with_labels({}, ["=v"])
+
+
+@pytest.mark.parametrize("none", [None, b""])
+def test_keygen_without_a_passphrase_writes_no_key(none, tmp_path, monkeypatch):
+    """No passphrase - nothing typed (b""), or a None from the prompt - is refused unless --unencrypted, as on
+    main: a None must never mean "write it in the clear"."""
+    monkeypatch.delenv("WARDEN_AUDIT_KEY_PASSPHRASE", raising=False)
+    monkeypatch.setattr(cli, "_typed_passphrase", lambda: none)
+    priv = tmp_path / "k.pem"
+    cli.main(["audit", "keygen", "--private", str(priv), "--public", str(tmp_path / "k.pub")])
+    assert not priv.exists()
+
+
+@pytest.mark.parametrize("none", [None, b""])
+def test_keygen_without_a_passphrase_exits_1(none, tmp_path, monkeypatch):
+    monkeypatch.delenv("WARDEN_AUDIT_KEY_PASSPHRASE", raising=False)
+    monkeypatch.setattr(cli, "_typed_passphrase", lambda: none)
+    code = cli.main(["audit", "keygen", "--private", str(tmp_path / "k.pem"), "--public", str(tmp_path / "k.pub")])
+    assert code == 1
+
+
+def test_keygen_unencrypted_still_writes_a_key_with_no_passphrase(tmp_path, monkeypatch):
+    monkeypatch.delenv("WARDEN_AUDIT_KEY_PASSPHRASE", raising=False)
+    monkeypatch.setattr(cli, "_typed_passphrase", lambda: None)
+    priv = tmp_path / "k.pem"
+    cli.main(["audit", "keygen", "--private", str(priv), "--public", str(tmp_path / "k.pub"), "--unencrypted"])
+    assert priv.exists()

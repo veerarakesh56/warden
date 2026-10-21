@@ -13,7 +13,7 @@ import pytest
 
 from warden import mcp_server, settings
 from warden.models import Alert
-from warden.timeline import CommitReader
+from warden.timeline import MAX_FILES, CommitReader
 from warden.tools import MAX_LINE_CHARS, gather, outcome_of
 
 
@@ -153,6 +153,17 @@ def test_a_commit_that_could_not_be_reached_is_named_partial():
 
     assert _reader([{"sha": "abc1234def"}], opener).logs(_alert()) == [
         "TOOL-PARTIAL github commit abc1234def: URLError - not read"]
+
+
+class _ManyFiles(_Resp):
+    def read(self):
+        files = [{"filename": f"f{i}.py", "additions": 1, "deletions": 0} for i in range(MAX_FILES + 5)]
+        return json.dumps({"sha": self.sha, "commit": {"message": "m"}, "files": files}).encode()
+
+
+def test_a_commit_line_names_at_most_max_files_files():
+    lines = _reader([{"sha": "abc1234def"}], lambda req, timeout: _ManyFiles("abc1234def")).logs(_alert())
+    assert lines[0].count("(+1/-0)") == MAX_FILES
 
 
 class _DatabaseError(Exception):

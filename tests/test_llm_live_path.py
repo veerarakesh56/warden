@@ -271,6 +271,14 @@ def test_a_base_exception_in_the_call_thread_logs_nothing_through_the_gate(kind)
     assert (child.returncode, child.stderr) == (0, "")
 
 
+def test_mock_mode_keeps_the_call_ceiling():
+    """A mock run counts its calls against the same ceiling as a live one (_mock_answer -> _before_a_call)."""
+    c = LLMClient(mock=True, max_calls=1)
+    c.structured(system="s", user="u", schema=Toy, mock_factory=lambda: Toy(answer="a", score=1))
+    with pytest.raises(BudgetExceeded, match="the ceiling is 1"):
+        c.structured(system="s", user="u", schema=Toy, mock_factory=lambda: Toy(answer="a", score=1))
+
+
 class _FlakyProvider:
     """Raises a transient error on the first N calls, then returns valid JSON — a 503/429/reset."""
 
