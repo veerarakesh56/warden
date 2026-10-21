@@ -256,9 +256,12 @@ in this version). Diagnosing needs the model's `diagnose` role in
 `providers.yaml` and a passing replay-qualification row; reviewing (Eldane) and the discussion channel need only their
 role, `critic` or `chat`, because neither changes anything on its own - so today Opus reviews and answers deep chat
 questions but never diagnoses.
-Signals known before the first answer pick the model for it (`diagnose`); the rest are computed by `verify` and
-`second_opinion` on the verified answer, and when they mark the case hard the workflow asks Opus on the same evidence,
-verifies its answer and gives it its own second opinion (`IncidentWorkflow._take_over`). Each choice and its signals'
+The signals known before the first answer - prod, a new plan asked for in chat, thin gathered evidence - pick the model
+for it (`diagnose`, `routing.for_diagnosis`). The fix's tier, a disagreement, the cited evidence and the causes' count
+are computed by `verify` and `second_opinion` on the verified answer (`routing.after_answer`). The workflow asks Opus to
+take over (`IncidentWorkflow._take_over`: the same evidence, its answer verified and given its own second opinion) only
+when the route sets `take_over`: the case is hard, Opus may diagnose (the role and a passing row, so no fallback was
+recorded), the answer so far was the default model's, and it had a model at all. Each choice and its signals'
 values are on the audit (`incident.route`, `discuss.route`).
 
 ## Tracing
