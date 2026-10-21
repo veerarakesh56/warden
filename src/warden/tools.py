@@ -204,11 +204,16 @@ def evidence_tools(base: Any) -> list[Any]:
     if os.environ.get("WARDEN_FINDINGS", "").strip() == "1":
         # Code review's findings on the deploy's pull request (findings.py), read in the read zone like the commits.
         from .environments import default_environment_policies
-        from .findings import MAX_PER_PR, MAX_PRS, FindingsReader
+        from .findings import CEILING_PER_PR, CEILING_PRS, MAX_PER_PR, MAX_PRS, FindingsReader
 
-        def number(name: str, default: int) -> int:
+        def number(name: str, default: int, ceiling: int) -> int:
+            """ASCII digits only (`isdigit` also takes "²", which int() refuses), at most `ceiling`; a long string is
+            never converted to find out (CodeRabbit, PR 41)."""
             raw = os.environ.get(name, "").strip()
-            return int(raw) if raw.isdigit() else default
+            if not (raw.isascii() and raw.isdecimal()):
+                return default
+            digits = raw.lstrip("0") or "0"
+            return ceiling if len(digits) > len(str(ceiling)) else min(int(digits), ceiling)
 
         repo = (os.environ.get("WARDEN_CHANGE_REPO", "").strip()
                 or str(default_environment_policies().github.get("repository", "")))
@@ -216,7 +221,8 @@ def evidence_tools(base: Any) -> list[Any]:
             base, repo=repo, token=github_read_token(),
             sonar_project=os.environ.get("WARDEN_SONAR_PROJECT", "").strip(),
             sonar_token=os.environ.get("WARDEN_SONAR_TOKEN", "").strip(),
-            max_prs=number("WARDEN_FINDINGS_MAX_PRS", MAX_PRS), max_per_pr=number("WARDEN_FINDINGS_MAX_PER_PR", MAX_PER_PR)))
+            max_prs=number("WARDEN_FINDINGS_MAX_PRS", MAX_PRS, CEILING_PRS),
+            max_per_pr=number("WARDEN_FINDINGS_MAX_PER_PR", MAX_PER_PR, CEILING_PER_PR)))
     if grafana.configured():
         readers.append(grafana.GrafanaReader())
     if datadog.configured():

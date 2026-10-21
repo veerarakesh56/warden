@@ -39,6 +39,9 @@ SONAR = "https://sonarcloud.io"
 BUDGET_S = 30.0  # the whole read, every pull request: it runs inside the evidence read's own deadline
 CODERABBIT = "coderabbitai[bot]"
 MAX_PRS, MAX_PER_PR = 2, 20  # defaults of WARDEN_FINDINGS_MAX_PRS and WARDEN_FINDINGS_MAX_PER_PR
+# Their ceilings: GitHub's largest page (the reader does not page on, so more would drop alerts silently), and as many
+# pull requests as their four reads each fit the read's 30 s budget.
+CEILING_PRS, CEILING_PER_PR = 10, 100
 _FAILED = (urllib.error.URLError, TimeoutError, OSError, ValueError)
 _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 _RULE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,79}")
