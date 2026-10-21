@@ -20,7 +20,9 @@ import json
 import math
 import os
 import threading
+import time
 import typing
+from datetime import UTC, datetime
 from types import TracebackType
 from typing import Any
 
@@ -28,6 +30,8 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core.core_schema import ErrorType
 
 from .models import CostRecord
+from .paging import BUDGET as BUDGET_REACHED
+from .paging import PROVIDER_UNAVAILABLE
 from .providers import Provider, ProviderExhausted, resolve
 
 # USD per 1M tokens. ⚠ Configuration, not fact — vendors change pricing and the free tiers cost
@@ -202,6 +206,48 @@ class ModelDeclined(ModelCutOff):
     again - the same prompt would be declined again - and the incident goes to a person on the evidence alone."""
 
 
+# Why the model could not be used, when it is a condition that pages a person (paging.model_condition, item 7c):
+# the provider down, out of capacity or hung, or this incident's budget spent - PROVIDER_UNAVAILABLE and
+# BUDGET_REACHED, paging's own names (one source). An answer that was not valid JSON, a refusal, a cut-off, a prompt
+# over the size ceiling or one transient error a retry got past is a normal error and pages nobody.
+
+# The audit rows of the model path (owner item 7, leftovers 2 and 3). `llm.call`: one per request sent, metadata only -
+# ts, model, prompt_tokens, completion_tokens, latency_ms, cost (USD, from the usage and model_prices) and ok; never
+# the prompt or the answer. `llm.fallback`: one each time WARDEN went on without the model's answer, with one reason.
+CALL = "llm.call"
+FALLBACK = "llm.fallback"
+RULES_ONLY, MODEL_REFUSED, BUDGET_CAP = "rules_only", "model_refused", "budget_cap"
+FALLBACK_REASONS = frozenset({RULES_ONLY, MODEL_REFUSED, BUDGET_CAP, PROVIDER_UNAVAILABLE})
+
+
+def fallback_reason(stopped_by: str) -> str:
+    """The fallback reason of a failed model call, from its client's `stopped_by`: a spent budget, the provider down -
+    else the model's own failure (no valid answer, a refusal, a cut-off, a permanent 4xx, a prompt too large)."""
+    return {BUDGET_REACHED: BUDGET_CAP, PROVIDER_UNAVAILABLE: PROVIDER_UNAVAILABLE}.get(stopped_by, MODEL_REFUSED)
+
+
+def call_record(*, model: str, ts: str, started: float, prompt_tokens: int, completion_tokens: int, cost: float,
+                ok: bool) -> dict[str, Any]:
+    """One `llm.call` row's body: metadata only."""
+    return {"ts": ts, "model": model, "prompt_tokens": int(prompt_tokens), "completion_tokens": int(completion_tokens),
+            "latency_ms": elapsed_ms(started), "cost": round(float(cost), 8), "ok": bool(ok)}
+
+
+def usd(prices: tuple[float, float], prompt_tokens: int, completion_tokens: int) -> float:
+    """What tokens cost at (input, output) USD per 1M tokens - model_prices(model): the one formula every cost uses."""
+    return (prompt_tokens / 1e6) * prices[0] + (completion_tokens / 1e6) * prices[1]
+
+
+def failure_reason(exc: Exception) -> str:
+    """The fallback reason of a provider error: the provider unavailable (a connection error, a 429, a 5xx), else the
+    model refused (a permanent 4xx)."""
+    return PROVIDER_UNAVAILABLE if _is_transient(exc) else MODEL_REFUSED
+
+
+def now_iso() -> str:
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
 class LLMClient:
     def __init__(
         self,
@@ -224,6 +270,12 @@ class LLMClient:
         # Requests that failed without an answer (a refused connection, a 5xx): counted against this run's call
         # ceiling, but not carried to the incident's next run - they reached no model (eighth review, 2026-10-01).
         self.unanswered = 0
+        # How long each request took, in whole milliseconds, in the order they were sent - an answer, a failure and
+        # every retry alike (item 7a). Measured with the monotonic clock in the process that makes the call (the
+        # activity's, never workflow code), so a clock step cannot make one negative or replay differently.
+        self.calls: list[dict[str, Any]] = []  # each request's call_record, in order
+        # The last call's paging condition (PROVIDER_UNAVAILABLE or BUDGET_REACHED), "" when none: read by the activity.
+        self.stopped_by = ""
         # The (system, user) text last handed to the provider; None until a real call is sent (never in mock mode).
         self.last_request: tuple[str, str] | None = None
         self.last_appended = ""  # what that call appended to the prompt it was built from: the retry feedback, or nothing
@@ -264,22 +316,37 @@ class LLMClient:
         """The CLI or SDK version that made the call (register M15)."""
         return "mock" if self.mock else str(getattr(self._provider, "version", "unknown"))
 
+    @property
+    def latencies_ms(self) -> list[int]:
+        return [c["latency_ms"] for c in self.calls]
+
+    def _note_call(self, ts: str, started: float, in_tok: int, out_tok: int, *, ok: bool) -> None:
+        self.calls.append(call_record(model=self.model, ts=ts, started=started, prompt_tokens=in_tok,
+                                      completion_tokens=out_tok, cost=self._usd(in_tok, out_tok), ok=ok))
+
     # ------------------------------------------------------------------ budget
 
+    def _usd(self, in_tok: int, out_tok: int) -> float:
+        """What tokens cost at this model's prices (model_prices: data/providers.yaml `prices`): the one formula."""
+        return usd((self.price_in, self.price_out), in_tok, out_tok)
+
     def _charge(self, in_tok: int, out_tok: int) -> None:
-        usd = (in_tok / 1e6) * self.price_in + (out_tok / 1e6) * self.price_out
-        self.cost.add(in_tok, out_tok, usd)
+        self.cost.add(in_tok, out_tok, self._usd(in_tok, out_tok))
         if self.cost.usd > self.max_usd:
+            self.stopped_by = BUDGET_REACHED
             raise BudgetExceeded(
                 f"run cost ${self.cost.usd:.4f} exceeded the ${self.max_usd:.2f} ceiling"
             )
         if self.cost.calls > self.max_calls:
+            self.stopped_by = BUDGET_REACHED
             raise BudgetExceeded(f"run made {self.cost.calls} calls, ceiling is {self.max_calls}")
 
     def _before_a_call(self, est_usd: float) -> None:
         if self.cost.calls + 1 > self.max_calls:
+            self.stopped_by = BUDGET_REACHED
             raise BudgetExceeded(f"a call would be number {self.cost.calls + 1}; the ceiling is {self.max_calls}")
         if self.cost.usd + est_usd > self.max_usd:
+            self.stopped_by = BUDGET_REACHED
             raise BudgetExceeded(f"this call (~${est_usd:.4f} of input) would take the run past ${self.max_usd:.2f}")
 
     # ------------------------------------------------------------------ public
@@ -293,7 +360,9 @@ class LLMClient:
         mock_factory: Any = None,
         retries: int = 2,
     ) -> T:
-        """Ask for one typed object. Raises rather than returning something unvalidated."""
+        """Ask for one typed object. Raises rather than returning something unvalidated. A failure that is a paging
+        condition is named in `stopped_by`; the error itself is raised unchanged."""
+        self.stopped_by = ""
         if self.mock:
             return self._mock_answer(system=system, user=user, schema=schema, mock_factory=mock_factory)
 
@@ -302,6 +371,8 @@ class LLMClient:
         # could spend past max_usd before the budget ever looked. ~4 characters per token.
         est_in = (len(system) + len(prompt)) // 4
         if est_in > MAX_PROMPT_TOKENS:
+            # Not a spent budget: this prompt is too large for any budget. No page, and its fallback is model_refused
+            # (stopped_by stays "", item 7 review).
             raise BudgetExceeded(f"prompt of ~{est_in} tokens exceeds the {MAX_PROMPT_TOKENS} ceiling")
 
         last: Exception | None = None
@@ -314,6 +385,7 @@ class LLMClient:
                 return answer
             if sent is None:
                 break
+        self.stopped_by = _provider_down(last)
         plural = "attempt" if attempts == 1 else "attempts"
         raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {refusal_reason(last, schema)}")
 
@@ -321,12 +393,19 @@ class LLMClient:
         if mock_factory is None:
             raise ModelRefused(f"mock mode needs a mock_factory for {schema.__name__}")
         self._before_a_call(0.0)
-        self._charge(len(system) // 4 + len(user) // 4, 120)
+        ts, started, mock_in = now_iso(), time.monotonic(), len(system) // 4 + len(user) // 4
+        self._charge(mock_in, 120)
         # Called with NO arguments on purpose. An earlier version passed the prompt text and
         # the mock branched on substrings in it - which matched the field LABELS ("RECENT
         # DEPLOYS:", "error_rate") rather than the values, so every incident produced the same
         # hypothesis. Mocks read typed state through a closure now; text matching is banned.
-        return mock_factory()
+        answered = False
+        try:
+            answer = mock_factory()
+            answered = True
+            return answer
+        finally:
+            self._note_call(ts, started, mock_in, 120, ok=answered)  # a factory that raised answered nothing
 
     def _attempt[T: BaseModel](self, *, system: str, prompt: str, sent: str,
                  schema: type[T]) -> tuple[T | None, Exception | None, str | None]:
@@ -350,23 +429,22 @@ class LLMClient:
             # exit. This wall-clock is a BACKSTOP set just after it, for the rare case the SDK
             # timeout does not fire (e.g. an OAuth-style key whose validation hangs below the
             # request layer).
-            completion = _complete_within(
-                self._provider, system=system, user=sent,
-                seconds=self.call_timeout_s + 2.0, schema=schema,
-            )
+            completion = self._timed(system=system, sent=sent, schema=schema)
             return self._validated(completion, schema), None, sent
         except ModelCallTimeout:
             # Fatal by design: a hung call must stop the run, not be retried into three hangs. It was sent
             # and may still be billed: it counts as a call, its cost unknown (eighth review: it counted
             # nowhere, so restarts of a hanging model were never bounded).
             self.cost.add(0, 0, 0.0)
+            self.stopped_by = PROVIDER_UNAVAILABLE
             raise
         except ModelCutOff as exc:
             return None, exc, None  # charged above; the same prompt would be cut off (or declined) the same way
-        except (BudgetExceeded, ProviderExhausted):
+        except (BudgetExceeded, ProviderExhausted) as exc:
             # Fatal by design: a blown budget must stop the run immediately, not be retried into an
             # overspend. An exhausted provider likewise: it has no error code, so _is_transient() would
             # call it transient and retry it twice more against a pool that has nothing left.
+            self.stopped_by = _stop_of(exc)
             raise
         except (ValidationError, ValueError) as exc:
             # the model answered, it just was not valid JSON — retry
@@ -389,6 +467,20 @@ class LLMClient:
                 self.unanswered += 1
             return None, exc, sent if _is_transient(exc) else None
 
+    def _timed(self, *, system: str, sent: str, schema: Any) -> Any:
+        """One provider request, its `llm.call` row noted whatever happens (item 7a): the monotonic clock around the
+        provider call alone; its usage when it answered, (0, 0) when it did not - unknown, never estimated."""
+        ts, started = now_iso(), time.monotonic()
+        completion = None
+        try:
+            completion = _complete_within(
+                self._provider, system=system, user=sent,
+                seconds=self.call_timeout_s + 2.0, schema=schema,
+            )
+            return completion
+        finally:
+            self._note_call(ts, started, *usage(completion), ok=completion is not None)
+
     def _validated[T: BaseModel](self, completion: Any, schema: type[T]) -> T:
         # Charged BEFORE validation: a malformed response still costs money, and a budget
         # that only counts successful calls can be exhausted by a model that keeps failing.
@@ -400,6 +492,32 @@ class LLMClient:
         if getattr(completion, "cut_off", False):
             raise ModelCutOff("the answer was cut off at the output cap; asking again would cut it off again")
         return schema.model_validate_json(extract_json(completion.text))
+
+
+def usage(completion: Any) -> tuple[int, int]:
+    """(prompt, completion) tokens of an answer; (0, 0) for a request that failed - its usage is unknown."""
+    if completion is None:
+        return 0, 0
+    return int(completion.input_tokens or 0), int(completion.output_tokens or 0)
+
+
+def elapsed_ms(started: float) -> int:
+    """Whole milliseconds since `started`, a `time.monotonic()` reading: never negative."""
+    return max(0, round((time.monotonic() - started) * 1000))
+
+
+def _stop_of(exc: Exception) -> str:
+    """The paging condition of a fatal error: a spent budget, or the provider out of capacity."""
+    return BUDGET_REACHED if isinstance(exc, BudgetExceeded) else PROVIDER_UNAVAILABLE
+
+
+def _provider_down(last: Exception | None) -> str:
+    """PROVIDER_UNAVAILABLE when the provider itself failed - the last attempt ended by a connection error, a 429 or a
+    5xx - rather than the model answering badly; "" otherwise. An answer that was not valid JSON, a cut-off and a
+    refusal are the model's; a permanent 4xx is a configuration error, not an outage."""
+    if last is None or isinstance(last, (ValidationError, ValueError, ModelCutOff)) or not _is_transient(last):
+        return ""
+    return PROVIDER_UNAVAILABLE
 
 
 def ask_for(user: str, schema: Any) -> str:
