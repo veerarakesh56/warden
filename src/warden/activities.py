@@ -1223,6 +1223,9 @@ class RemediationActivities:
             bounds.trip(self.audit, incident_id, f"{workflow_id} ended {outcome.status}: {'; '.join(outcome.reasons)}",
                         workflow_id=workflow_id, run_id=run)
         self.audit.append(incident_id, _END_ROW, body)
+        # The head at the end row itself, before a score or page.resolved row moves it on: the change record names
+        # this one (CodeRabbit, PR 114).
+        end_head = self.audit.head(incident_id)
         self._score(incident_id, workflow_id, run, outcome)
         self.audit.checkpoint()
         # How every plan ended, in the worker's log beside how it opened: a denied or expired plan left no line, and
@@ -1231,7 +1234,7 @@ class RemediationActivities:
         if outcome.status == "recovered":
             self._resolve_page(incident_id, workflow_id, run)
         if recorded["applied"] and self.changes is not None and plans:
-            self._record_change(incident_id, workflow_id, run, end=body, plan=plans[-1])
+            self._record_change(incident_id, workflow_id, run, end=body, plan=plans[-1], head=end_head)
 
     def _resolve_page(self, incident_id: str, workflow_id: str, run: str) -> None:
         """The incident's page resolved, on the record."""
@@ -1245,15 +1248,15 @@ class RemediationActivities:
                                                              "detail": resolved.detail})
 
     def _record_change(self, incident_id: str, workflow_id: str, run: str, *, end: dict[str, Any],
-                       plan: dict[str, Any]) -> None:
-        """The applied change recorded where the team looks for changes."""
+                       plan: dict[str, Any], head: str) -> None:
+        """The applied change recorded where the team looks for changes, naming the head of its end row."""
         # Register O9: a change to a live system is recorded where the team looks for changes - once per run,
         # after the signed end row it cites. A record that could not be written is itself recorded.
         from .changes import issue_text
 
-        title, text = issue_text(incident_id=incident_id, end=end, plan=plan,
-                                 head=self.audit.head(incident_id), at=datetime.now(UTC))
-        url, detail = self.changes.open(title, text)
+        title, text = issue_text(incident_id=incident_id, end=end, plan=plan, head=head, at=datetime.now(UTC))
+        url, detail = self.changes.open(title, text, links=IncidentActivities._record_link(incident_id),
+                                        incident=incident_id)
         self.audit.append(incident_id, "change.recorded", {"workflow_id": workflow_id, "run_id": run,
                                                            "url": url, "detail": detail})
         self.audit.checkpoint()

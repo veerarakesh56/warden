@@ -1015,7 +1015,7 @@ _COOKIE = "warden_s"  # holds the link while the browser is at Slack: this site'
 RECORD_LIST, RECORD_SCAN = 20, 200
 _WHO = "warden_who"  # the member Slack named in this browser, sealed (slack_login.remember): no script can read it
 # An incident id's shape (chatops: the "Full record" link's): all that travels through Slack's sign-in, and back.
-_INCIDENT_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
+_INCIDENT_ID = re.compile(r"[A-Za-z0-9._-]{1,128}")
 _ASK = re.compile(r"[A-Za-z0-9_-]{16,64}")  # a `/p` challenge's own id (secrets.token_urlsafe)
 
 

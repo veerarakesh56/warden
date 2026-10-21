@@ -258,7 +258,7 @@ def test_only_wardens_own_record_link_leaves_beside_the_approval_and_it_never_lo
     good = (chatops.RECORD_LABEL, f"https://approve.example.test/r/{INC}")
     token = "a" * 43
     bad = [(chatops.RECORD_LABEL, "https://evil.example/r/x"), (chatops.RECORD_LABEL, "https://approve.example.test/r/a/b"),
-           ("Full record!", good[1]), (chatops.RECORD_LABEL, "https://approve.example.test/r/" + "x" * 121)]
+           ("Full record!", good[1]), (chatops.RECORD_LABEL, "https://approve.example.test/r/" + "x" * 129)]
     approve = (chatops.LINK_LABEL, f"https://approve.example.test/a/{token}")
     every = (chatops.ALL_LABEL, "https://approve.example.test/r")
     bad += [(chatops.ALL_LABEL, "https://approve.example.test/r/x"), (chatops.ALL_LABEL, "https://evil.example/r")]

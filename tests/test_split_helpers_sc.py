@@ -177,9 +177,12 @@ def test_the_first_message_of_a_plan_carries_the_incidents_summary(monkeypatch):
 
 
 def test_an_applied_change_is_recorded_where_the_team_looks(monkeypatch):
-    monkeypatch.setattr(changes, "issue_text", lambda **_k: ("title", "text"))
-    me = SimpleNamespace(audit=_Log(), changes=SimpleNamespace(open=lambda _t, _x: ("https://example.test/1", "ok")))
-    RemediationActivities._record_change(me, "inc-1", "rem-1", "run", end={}, plan={})
+    said = {}
+    monkeypatch.setattr(changes, "issue_text", lambda **k: said.update(k) or ("title", "text"))
+    me = SimpleNamespace(audit=_Log(), changes=SimpleNamespace(open=lambda _t, _x, **_k: ("https://example.test/1", "ok")))
+    RemediationActivities._record_change(me, "inc-1", "rem-1", "run", end={}, plan={}, head="h" * 64)
+    # The head of the end row, as finish took it (PR 114): never one read again here, after later rows.
+    assert said["head"] == "h" * 64
     assert me.audit.appended == [("inc-1", "change.recorded", {"workflow_id": "rem-1", "run_id": "run",
                                                                  "url": "https://example.test/1", "detail": "ok"})]
 
