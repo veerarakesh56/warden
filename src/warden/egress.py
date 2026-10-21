@@ -97,6 +97,8 @@ STATIC: tuple[Destination, ...] = (
     Destination("pagerduty", True, ("events.pagerduty.com",), "a page: the gated report's first line",
                 credentials=frozenset({"routing_key"})),
     Destination("aws-docs", True, ("knowledge-mcp.global.api.aws",), _DOCS),
+    # AWS's What's New and blog feeds (the AWS updates watch, register B6): a GET, no payload; the text read is untrusted.
+    Destination("aws-news", True, ("aws.amazon.com",), "reads only: AWS's What's New and blog RSS feeds (GET)"),
     Destination("temporal", True, ("*.tmprl.cloud",), "encrypted workflow payloads (codec.py); ids and names in clear"),
     # The AWS account WARDEN runs in and watches: its own APIs, not a third party.
     # A name under AWS's domains may be another account's (a bucket, an API): WARDEN's own AWS calls go through boto3,

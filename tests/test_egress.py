@@ -383,3 +383,13 @@ def test_a_security_findings_text_reaches_no_outbound_payload_raw():
         assert all(c not in text for c in CANARIES)
     assert egress.kinds_in(pack.prompt) == []
     egress.check_request(SLACK_API, _slack(ev.alert.summary), JSON, "POST")  # what the report would carry passes
+
+
+def test_aws_service_endpoints_are_looked_up_and_the_news_feeds_are_read():
+    """The reachability analysis (#92) resolves a database endpoint to an address - a lookup, nothing sent; the AWS
+    updates watch (#83) reads AWS's feeds with a GET and no payload."""
+    egress.check_host("orders.cluster-ro-c1x2y3z4.ap-south-2.rds.amazonaws.com")
+    for feed in ("https://aws.amazon.com/about-aws/whats-new/recent/feed/", "https://aws.amazon.com/blogs/aws/feed/"):
+        egress.check_request(feed, None, {"User-Agent": "warden"}, "GET")
+    assert egress.destination_of("aws.amazon.com").name == "aws-news"
+    assert egress.destination_of("evil.amazon.com") is None
