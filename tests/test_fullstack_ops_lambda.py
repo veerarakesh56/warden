@@ -8,7 +8,6 @@ import logging
 import pathlib
 import sys
 import types
-import urllib.request
 
 import pytest
 
@@ -155,10 +154,11 @@ def test_a_traffic_call_that_cannot_connect_logs_the_error_with_its_traceback_an
     app = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(app)
 
-    def refused(*_a, **_k):
-        raise ConnectionRefusedError("nobody home")
+    class Refused:
+        def open(self, *_a, **_k):
+            raise ConnectionRefusedError("nobody home")
 
-    monkeypatch.setattr(urllib.request, "urlopen", refused)
+    monkeypatch.setattr(app, "_opener", lambda _url: Refused())
     with caplog.at_level(logging.ERROR):
         status = app._call("GET", "https://api.example/orders")
     assert status == 0
