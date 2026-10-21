@@ -131,7 +131,7 @@ def _ask(src: pathlib.Path, out: pathlib.Path, scenario: str, run: dict, quota: 
         log(f"{scenario}.{run['index']}: {new.proposal.action.value} "
             f"{new.verdict.status.value} {new.verdict.policy_ids} calls={new.cost.calls}")
         return {**run, "exit_code": 0, "report_written": True, "stderr_tail": ""}
-    except Exception as exc:  # noqa: BLE001  # a failed replay is an ERROR row, never skipped
+    except Exception as exc:  # noqa: BLE001  # a failed replay is an ERROR row; never skipped
         log(f"{scenario}.{run['index']}: ERROR {exc}")
         return {**run, "exit_code": 1, "report_written": False, "stderr_tail": str(exc)[:500]}
 

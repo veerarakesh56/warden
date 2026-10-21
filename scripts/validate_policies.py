@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
             import boto3
 
             client = boto3.Session(region_name=args.region).client("accessanalyzer")
-        except Exception as exc:  # noqa: BLE001  # any failure to make the client is exit 2 (could not run), never clean
+        except Exception as exc:  # noqa: BLE001  # any failure to make the client is exit 2 (could not run); never clean
             print(f"could not create an Access Analyzer client: {type(exc).__name__}: {exc}")
             return 2
 

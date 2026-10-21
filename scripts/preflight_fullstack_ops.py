@@ -86,7 +86,7 @@ def _inject(env: cli.Env, fault: fs.Fault) -> tuple[list[str], str]:
         fault.inject(env.clients, env.target)
         env.sleep(10)
         return (fs.check_baseline(env.clients, env.target, [fault.area]) if not env.dry_run else ["dry"]), ""
-    except Exception as exc:  # noqa: BLE001  # reported, then reverted regardless
+    except Exception as exc:  # noqa: BLE001  # reported; then reverted regardless
         return [], f"inject raised {type(exc).__name__}: {exc}"
 
 
