@@ -842,7 +842,7 @@ def pilot_page(r: Any) -> str:
     rows = "".join(f'<tr><th scope="row">{_e(k)}</th><td>{_e(v)}</td></tr>' for k, v in pilot.lines(r, detail=False))
     chips = "".join(f'<a class="chip" href="/r/{PILOT}?since={pilot.default_since(r.until, d).date().isoformat()}">'
                     f"{d} days</a>" for d in PILOT_DAYS)
-    failed = len(r.checked.failed)
+    failed = 0 if r.scoped else len(r.checked.failed)  # audit-wide: only for readers of every environment
     warn = (f'<p class="lede"><span class="badge bad">Not counted</span>{_e(failed)} row(s) of the record failed '
             "verification and are left out of every number below. <code>warden audit verify</code> names them.</p>"
             if failed else "")

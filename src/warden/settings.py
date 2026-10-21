@@ -136,6 +136,11 @@ RESTRICTED: dict[str, frozenset[str]] = {
 }
 
 
+# Commands that load ONLY these names, not every unrestricted one: `warden report` reads the audit and nothing else, so
+# a laptop running it holds no Slack, model or Datadog key - not even for a moment (the same rule as `records`, PR 147).
+ONLY: dict[str, frozenset[str]] = {"report": frozenset({"WARDEN_AUDIT_DSN"})}
+
+
 # The loadable names that are secrets (decision D5): read from Secrets Manager only, never from SSM. One line per
 # service, each service's webhooks before its tokens (Sonar secrets:S7314, 2026-10-16, took a webhook's name written
 # after a token's for a PagerDuty token).
@@ -281,6 +286,8 @@ def loadable_for(command: str, zone: str | None = None) -> frozenset[str]:
     """The names a command may load: every LOADABLE one, less the restricted ones it does not use - and for one trust
     zone's worker, less every secret another zone holds (S15)."""
     allowed = frozenset(n for n in LOADABLE if command in RESTRICTED.get(n, (command,)))
+    if command in ONLY:
+        allowed &= ONLY[command]
     if command.startswith("lambda-"):
         allowed -= SECRETS - LAMBDA_SECRETS.get(command.removeprefix("lambda-"), frozenset())
     return allowed - (SECRETS - ZONE_SECRETS[zone]) if zone in ZONE_SECRETS else allowed

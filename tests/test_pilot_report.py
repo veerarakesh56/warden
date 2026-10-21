@@ -280,7 +280,7 @@ def test_cost_and_fallbacks_come_from_llm_rows_and_a_missing_cost_is_not_recorde
     assert got["Fallbacks"] == "5; per incident 0.71 (5 / 7 incidents)"
     assert got["Fallback rate per model call"] == "83.3% (5 / 6 llm.call rows)"
     assert got["Fallbacks by reason"] == (
-        "rules_only 2, model_refused 1, budget_cap 1, provider_unavailable 0, weird_reason 1"
+        "rules_only 2, model_refused 1, budget_cap 1, provider_unavailable 0, other 1"
     )
 
 
@@ -574,3 +574,86 @@ def test_the_page_counts_a_tampered_row_without_naming_it(page_setup, made):  # 
         f"{seq} row(s) of the record failed verification" in out.body
     )  # it and every row before it
     assert CHANGED not in out.body
+
+
+# ------------------------------------------------------------------ least privilege and read-only
+
+
+def test_the_report_command_loads_only_the_audit_dsn():
+    from warden import settings
+
+    assert settings.loadable_for("report") == frozenset({"WARDEN_AUDIT_DSN"})
+    assert "WARDEN_SLACK_BOT_TOKEN" in settings.loadable_for("worker")  # others keep theirs
+
+
+def _digest(path):
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_the_command_never_writes_the_audit_it_reads(made, tmp_path, monkeypatch, capsys):
+    _, key, path = made
+    pub = _keys(tmp_path, monkeypatch, key)
+    before = _digest(path)
+    path.chmod(0o444)
+    try:
+        assert _command(pub) == 0
+    finally:
+        path.chmod(0o644)
+    assert _digest(path) == before
+    empty = tmp_path / "empty.db"
+    empty.touch()
+    assert _command(pub, db="empty.db") == 2  # no table: refused, and none is created
+    assert empty.stat().st_size == 0
+    assert "cannot be read" in capsys.readouterr().err
+    assert _command(pub, db="none.db") == 2
+    assert not (tmp_path / "none.db").exists()
+
+
+def test_a_postgres_audit_is_read_in_a_read_only_session(monkeypatch):
+    said = []
+
+    class Db:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, sql):
+            said.append(sql)
+            return self
+
+        def fetchall(self):
+            return []
+
+    monkeypatch.setattr(audit, "_pg_connect", lambda dsn: Db())
+    checked = pilot.read_only(
+        "postgresql://reader@db/audit", Ed25519PrivateKey.generate().public_key()
+    )
+    assert checked.total == 0
+    assert said[0] == "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"
+    assert all(s.startswith("SELECT") for s in said[1:])
+
+
+def test_a_reader_limited_to_some_environments_sees_no_audit_wide_count(page_setup, made):  # noqa: F811
+    log, _, path = made
+    _raw(path).execute("UPDATE entries SET body = '{}' WHERE seq = ?", (_seq(log, "a", SPEND),))
+    page = _page(page_setup, made)
+    page.policy.approvers["owner"].environments = ["dev"]
+    out = _as(page)
+    assert out.status == 200
+    assert "failed verification" not in out.body
+    assert "integrity counts are shown only to readers of every environment" in out.body
+
+
+def test_a_withheld_value_keeps_its_metric_on_the_line():
+    from fakes import AWS_ACCESS_KEY_ID
+    from warden.cli import metric_line
+
+    line = metric_line("Fallbacks by reason", f"other {AWS_ACCESS_KEY_ID}")
+    assert line.startswith("Fallbacks by reason")
+    assert line.endswith("[value withheld by the outbound gate]")
+    assert AWS_ACCESS_KEY_ID not in line
+    assert metric_line("Incidents", "7") == f"{'Incidents':<36} 7"

@@ -566,10 +566,21 @@ def _usage_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def metric_line(name: str, value: str) -> str:
+    """One report line. A value the outbound gate withholds is replaced alone: the metric's name stays on screen,
+    so a line never silently disappears (CodeRabbit, PR 175)."""
+    shown = gate.for_terminal(value)
+    if shown.startswith("[withheld"):
+        shown = "[value withheld by the outbound gate]"
+    return f"{name:<36} {shown}"
+
+
 def _report_command(args: argparse.Namespace) -> int:
     """`warden report pilot`: the pilot metrics (pilot.py), read only from audit rows whose hash chain and checkpoint
     signatures check out against --public-key. Exit 1 when any row failed verification (it is not counted), 2 when the
     command was given something it cannot read."""
+    import sqlite3
+
     from . import audit, pilot
 
     try:
@@ -579,17 +590,17 @@ def _report_command(args: argparse.Namespace) -> int:
         return 2
     # As `warden audit verify`: the DSN from the environment (a secret), never the command line; else the --db file.
     target = os.environ.get("WARDEN_AUDIT_DSN", "").strip() or (_contained(args.db, "--db") if args.db else None)
-    if target is None or (not audit._is_postgres(target) and not pathlib.Path(target).is_file()):
+    if target is None:
         _out("error: give --db naming an existing audit file, or set WARDEN_AUDIT_DSN", err=True)
         return 2
     key = audit.load_public_key(_key_file(args.public_key))
-    log = audit.AuditLog(target)
     try:
-        checked = pilot.read(log, key)
-    finally:
-        log.close()
+        checked = pilot.read_only(target, key)  # read-only: never creates or writes the audit
+    except (FileNotFoundError, sqlite3.Error) as e:
+        _out(f"error: the audit cannot be read: {e}", err=True)
+        return 2
     for name, value in pilot.lines(pilot.report(checked, since)):
-        _out(f"{name:<36} {value}")
+        _out(metric_line(name, value))
     return 1 if checked.failed else 0
 
 

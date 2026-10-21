@@ -36,7 +36,7 @@ What each number means (docs/OPERATIONS.md, "Pilot metrics", says the same):
   incidents. A call row with no cost is NOT RECORDED for that call (counted and said, never estimated); with no
   `llm.call` or `llm.fallback` row anywhere in the verified audit, cost and fallbacks are NOT RECORDED, never 0.
 - **Fallbacks**: `llm.fallback` rows of the incident and its discussion, by `reason` (rules_only, model_refused,
-  budget_cap, provider_unavailable; any other reason is listed by name). Per incident: fallbacks / incidents. Per
+  budget_cap, provider_unavailable; any other reason is counted as "other", its text never printed). Per incident: fallbacks / incidents. Per
   model call: fallbacks / `llm.call` rows.
 - **Undo count**: `remediation.rollback` rows with `undone` true, one per plan run; `remediation.rollback_failed`
   rows are counted beside it.
@@ -47,6 +47,8 @@ from __future__ import annotations
 
 import json
 import math
+import pathlib
+import sqlite3
 import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -83,6 +85,10 @@ NOT_RECORDED = "not recorded"
 # fall-back from the model, with its `reason` (lane FDE-F, 2026-10-21). An audit with neither row was written before
 # they existed: its cost and fallbacks are NOT RECORDED, never 0.
 LLM_CALL, FALLBACK = "llm.call", "llm.fallback"
+SCOPED = (
+    "every row was verified before counting; the whole record's integrity counts are shown only to readers of "
+    "every environment"
+)
 FALLBACK_REASONS = ("rules_only", "model_refused", "budget_cap", "provider_unavailable")
 
 
@@ -177,16 +183,44 @@ def _row(seq: int, at: str, cid: str, kind: str, body: str, out: Checked) -> dic
     }
 
 
+ROWS_SQL = "SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries ORDER BY seq"
+CHECKPOINTS_SQL = "SELECT seq, hash, signature FROM checkpoints ORDER BY seq"
+
+
 def read(log: Any, public_key: Any) -> Checked:
-    """Every row of `log` (an AuditLog, SQLite or PostgreSQL), checked against `public_key`.
+    """Every row of `log` (an AuditLog already open - the records page's own), checked against `public_key`. SELECT
+    only.
     ponytail: reads the whole log on every call - the chain is only checkable from its start; a cached verified
     prefix when the audit holds millions of rows."""
-    rows = log.store.run(
-        "SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries ORDER BY seq"
-    ).fetchall()
-    checkpoints = log.store.run(
-        "SELECT seq, hash, signature FROM checkpoints ORDER BY seq"
-    ).fetchall()
+    rows = log.store.run(ROWS_SQL).fetchall()
+    checkpoints = log.store.run(CHECKPOINTS_SQL).fetchall()
+    return check([tuple(r) for r in rows], [tuple(c) for c in checkpoints], public_key)
+
+
+def read_only(target: Any, public_key: Any) -> Checked:
+    """Every row of the audit at `target`, opened READ-ONLY, checked against `public_key`: a SQLite file through a
+    `mode=ro` URI (FileNotFoundError when it is missing - never created), or a PostgreSQL DSN whose session is set
+    READ ONLY before the first query. SELECT only; nothing is created or written (an AuditLog would create the tables
+    on an empty file)."""
+    if audit._is_postgres(target):
+        with audit._pg_connect(str(target)) as db:
+            db.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
+            rows, checkpoints = (
+                db.execute(ROWS_SQL).fetchall(),
+                db.execute(CHECKPOINTS_SQL).fetchall(),
+            )
+    else:
+        path = pathlib.Path(target)
+        if not path.is_file():
+            raise FileNotFoundError(f"no audit file at {path}")
+        db = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+        try:
+            rows, checkpoints = (
+                db.execute(ROWS_SQL).fetchall(),
+                db.execute(CHECKPOINTS_SQL).fetchall(),
+            )
+        finally:
+            db.close()
     return check([tuple(r) for r in rows], [tuple(c) for c in checkpoints], public_key)
 
 
@@ -258,6 +292,9 @@ class Report:
     incidents: list[Incident] = field(default_factory=list)
     negative_times: int = 0
     llm_recorded: bool = False  # any llm.call or llm.fallback row in the verified audit
+    scoped: bool = (
+        False  # a reader limited to some environments: no audit-wide count is shown to them
+    )
 
     @property
     def plans(self) -> list[Plan]:
@@ -458,6 +495,7 @@ def report(
             out.incidents.append(i)
     out.incidents.sort(key=lambda i: i.first)
     out.llm_recorded = any(e["kind"] in (LLM_CALL, FALLBACK) for e in checked.rows)
+    out.scoped = allowed is not None
     plan_times = sum(1 for i in out.incidents if i.alarm and i.plans and i.plans[0].at < i.alarm)
     fixed_times = sum(1 for i in out.incidents if i.alarm and i.fixed and i.fixed < i.alarm)
     out.negative_times = plan_times + fixed_times
@@ -499,18 +537,18 @@ def lines(r: Report, *, detail: bool = True) -> list[tuple[str, str]]:
             + "; ".join(f"row {s} {why}" for s, why in c.failed[:20])
             + (" ..." if len(c.failed) > 20 else "")
         )
+    audit_rows = (
+        f"{c.total} read; {len(c.rows)} verified and counted; {failed}; "
+        f"{c.unsigned} not signed yet (not counted)"
+    )
+    if r.scoped:
+        audit_rows = SCOPED
     out = [
         (
             "Window",
             f"incidents first seen from {r.since:%Y-%m-%d %H:%M} UTC to {r.until:%Y-%m-%d %H:%M} UTC",
         ),
-        (
-            "Audit rows",
-            (
-                f"{c.total} read; {len(c.rows)} verified and counted; {failed}; "
-                f"{c.unsigned} not signed yet (not counted)"
-            ),
-        ),
+        ("Audit rows", audit_rows),
         ("Incidents", str(n)),
         ("Plans", f"{len(r.plans)} ({ended} ended, {len(r.plans) - ended} open)"),
     ]
@@ -585,8 +623,14 @@ def _model_lines(r: Report, n: int) -> list[tuple[str, str]]:
     out.append(
         ("Fallback rate per model call", f"{rate(total, rows)} ({total} / {rows} {LLM_CALL} rows)")
     )
-    names = [*FALLBACK_REASONS, *sorted(set(seen) - set(FALLBACK_REASONS))]
-    out.append(("Fallbacks by reason", ", ".join(f"{k} {seen[k]}" for k in names)))
+    # The closed set by name; any other reason only counted, never printed (its text is the writer's, not ours).
+    other = sum(v for k, v in seen.items() if k not in FALLBACK_REASONS)
+    out.append(
+        (
+            "Fallbacks by reason",
+            ", ".join(f"{k} {seen[k]}" for k in FALLBACK_REASONS) + f", other {other}",
+        )
+    )
     return out
 
 
