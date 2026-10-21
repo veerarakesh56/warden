@@ -34,18 +34,23 @@ import json
 import os
 import re
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 
-from . import approvals, autonomy, catalog
+from . import approvals, autonomy, catalog, llm, paging
 
 # The only audit rows Eldane reads (register R12): the evidence as the diagnosis saw it, and the diagnosis.
 READS = ("incident.evidence", "incident.diagnose")
 CALL = "eldane.call"
 DAILY_CALLS = int(os.environ.get("WARDEN_ELDANE_DAILY_CALLS", "60"))  # register R25: a ceiling of its own
+# Why Eldane did not review a plan: a code each, and the words the record shows. AT_CEILING is the one that is a
+# fallback (its daily call ceiling: a budget cap) and pages.
+AT_CEILING = "at_ceiling"
+TRIAL = "trial"  # the purpose of a catch trial's question: a planted test plan, never a fallback of a real decision
 RATE = float(os.environ.get("WARDEN_ELDANE_TRIAL_RATE", "0.1"))  # register R11: about 5-10% of volume
 WARM_RATE, WARM_TRIALS = 0.5, 20  # more trials while its current model has answered fewer than WARM_TRIALS
 MAX_EVIDENCE = 60_000
@@ -203,19 +208,43 @@ def _calls_today(log: Any) -> int:
     return len(log.entries(kinds=(CALL,), since=datetime.now(UTC) - timedelta(hours=24)))
 
 
+def _model_call(log: Any, incident: str, provider: Any, ts: str, started: float, got: Any, row: dict[str, Any]) -> None:
+    """Eldane's `llm.call` row: the same metadata as every model call's (llm.call_record), its cost at the model's
+    prices (llm.model_prices) - never the question or the answer."""
+    model = str(getattr(provider, "model", "") or "unknown")
+    p_tok, c_tok = llm.usage(got)
+    record = llm.call_record(model=model, ts=ts, started=started, prompt_tokens=p_tok, completion_tokens=c_tok,
+                             cost=llm.usd(llm.model_prices(model), p_tok, c_tok), ok=got is not None)
+    log.append(incident, llm.CALL, {**record, "where": "eldane", "run_id": row.get("run_id", "")})
+
+
+def _fallback(log: Any, incident: str, reason: str, row: dict[str, Any]) -> None:
+    """The `llm.fallback` row of a real question Eldane could not answer. A catch trial's question asks about a planted
+    plan WARDEN never acts on: its failure is unscored (autonomy.TRIAL), not a fallback - one plan, one row at most."""
+    if row.get("purpose") != TRIAL:
+        log.append(incident, llm.FALLBACK, {"reason": reason, "where": "eldane", "run_id": row.get("run_id", "")})
+
+
 def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], **row: Any) -> CriticVerdict:
     """One question to Eldane. Fail-closed: an error, an unreadable answer or a citation of anything not in the
     evidence is a "no", with why."""
+    # How long the call took (item 7a): the monotonic clock, in this activity - never workflow time.
+    ts, started = llm.now_iso(), time.monotonic()
     try:
         got = provider.complete(system=SYSTEM, user=user, schema=CriticVerdict)
     except Exception as exc:  # noqa: BLE001 - any provider error means Eldane said nothing and so agrees to nothing
-        log.append(incident, CALL, {**row, "ok": False, "error": type(exc).__name__})
+        log.append(incident, CALL, {**row, "ok": False, "error": type(exc).__name__, "latency_ms": llm.elapsed_ms(started)})
+        _model_call(log, incident, provider, ts, started, None, row)
+        _fallback(log, incident, llm.failure_reason(exc), row)
         return CriticVerdict(agree=False, reasons=[Reason(text=f"Eldane could not be asked ({type(exc).__name__})")])
-    log.append(incident, CALL, {**row, "ok": True, "input_tokens": got.input_tokens, "output_tokens": got.output_tokens})
+    log.append(incident, CALL, {**row, "ok": True, "input_tokens": got.input_tokens, "output_tokens": got.output_tokens,
+                                "latency_ms": llm.elapsed_ms(started)})
+    _model_call(log, incident, provider, ts, started, got, row)
     text = got.text or ""
     try:
         verdict = CriticVerdict.model_validate(json.loads(text[text.find("{"):text.rfind("}") + 1]))
     except (ValueError, ValidationError):
+        _fallback(log, incident, llm.MODEL_REFUSED, row)
         return CriticVerdict(agree=False, reasons=[Reason(text="Eldane's answer could not be read as its verdict")])
     cited = {i for r in verdict.reasons for i in r.evidence}
     verdict._said_yes, verdict._grounded = verdict.agree, not cited - ids
@@ -261,7 +290,7 @@ def _trial(log: Any, plan: Any, critic: Critic, model: str, evidence: str, ids: 
     kind = PLANTS[chance(len(PLANTS))]
     bad = plant(plan, kind)
     user = evidence + "\n\n" + describe(bad["entry"], bad["params"], environment=plan.environment, tier=bad["tier"])
-    verdict = ask(log, plan.incident_id, critic.provider(model), user, ids, **row, purpose="trial")
+    verdict = ask(log, plan.incident_id, critic.provider(model), user, ids, **row, purpose=TRIAL)
     # Scored only from a real answer (PR 42 review): any "yes" to a planted plan is a miss, a grounded "no" a catch.
     # No answer (an error, an unreadable reply), or a "no" resting on evidence that is not there, is not scored: an
     # outage must never raise the catch rate, nor count as a trial answered.
@@ -292,7 +321,11 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
     diagnoser = f"{prov.get('provider', 'none')}/{prov.get('model', 'none')}@{str(prov.get('system_sha256', ''))[:12]}"
     model, chosen = critic.choose(str(prov.get("model", "")))
     models = {"critic": critic.identity(model), "diagnoser": diagnoser}
-    skip = _skip(log, diagnosis, prov, model, chosen, evidence_rows)
+    code, skip = _skip(log, diagnosis, prov, model, chosen, evidence_rows)
+    if code == AT_CEILING:
+        # The daily call cap: one fallback row for this plan, and the day's page once (item 7, leftovers 3 and 7c).
+        log.append(plan.incident_id, llm.FALLBACK, {"reason": llm.BUDGET_CAP, "where": "eldane", "run_id": run_id})
+        paging.model_condition(log, paging.DAILY_CAP)
     if skip:
         log.append(plan.incident_id, autonomy.VERDICT, {**base, "agree": None, "skipped": skip, "models": models,
                                                         "model": model, "model_reason": chosen})
@@ -324,23 +357,23 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
 
 
 def _skip(log: Any, diagnosis: dict[str, Any], prov: dict[str, Any], model: str, chosen: str,
-          evidence_rows: list[dict[str, Any]]) -> str:
-    """Why Eldane does not review this plan at all, or "" when it does."""
+          evidence_rows: list[dict[str, Any]]) -> tuple[str, str]:
+    """Why Eldane does not review this plan at all, as (code, the words on the record), or ("", "") when it does."""
     if not diagnosis or not prov:
         # PR 42 review (CWE-636): no diagnosis, or none saying which model made it, is a model that cannot be told:
         # refused, never reviewed as if independent (register R10).
-        return "the incident's diagnosis, or the model that made it, is not on the record (register R10)"
+        return "no_provenance", "the incident's diagnosis, or the model that made it, is not on the record (register R10)"
     if not model:
-        return f"{chosen}: its review would not be independent"
+        return "no_model", f"{chosen}: its review would not be independent"
     if model == prov.get("model"):
         # Owner, 2026-10-17: the same family, never the same model - its agreement would be the diagnosis agreeing
         # with itself.
-        return f"Eldane's model is the diagnosis's own ({model}): its review would not be independent"
+        return "same_model", f"Eldane's model is the diagnosis's own ({model}): its review would not be independent"
     if not evidence_rows:
-        return "the incident's evidence is not on the record"
+        return "no_evidence", "the incident's evidence is not on the record"
     if _calls_today(log) + 3 > DAILY_CALLS:
-        return f"Eldane's daily ceiling of {DAILY_CALLS} calls is reached (WARDEN_ELDANE_DAILY_CALLS)"
-    return ""
+        return AT_CEILING, f"Eldane's daily ceiling of {DAILY_CALLS} calls is reached (WARDEN_ELDANE_DAILY_CALLS)"
+    return "", ""
 
 
 def _signer(policy: approvals.ApproverPolicy, critic: Critic) -> str | None:
