@@ -4,10 +4,12 @@ state); the checkout Lambda refuses a call without it, and the traffic Lambda - 
 
 from __future__ import annotations
 
+import http.server
 import importlib.util
 import json
 import pathlib
 import sys
+import threading
 import types
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -77,6 +79,42 @@ def test_the_traffic_lambda_sends_the_token(monkeypatch):
     monkeypatch.setenv("ORDERS_PER_MIN", "0")
     app.handler({}, None)
     assert ("https://api.example/checkout", {"Authorization": f"Bearer {TOKEN}"}) in seen
+
+
+def test_the_traffic_lambda_follows_no_redirect_so_the_token_goes_nowhere_else(monkeypatch):
+    """urllib copies every header, the bearer token among them, to wherever a redirect points: the Lambda follows
+    none, and a redirect is a failed call (its 3xx), not a success."""
+    app, _ = _load("traffic", monkeypatch)
+    for proxy in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(proxy, raising=False)
+    seen, location = [], []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen.append((self.server.server_address[1], self.path, self.headers.get("Authorization")))
+            self.send_response(302 if self.path == "/checkout" else 200)
+            self.send_header("Location", location[0])
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        do_GET = do_POST
+
+        def log_message(self, *args):
+            pass
+
+    api, other = (http.server.HTTPServer(("127.0.0.1", 0), Handler) for _ in range(2))
+    for server in (api, other):
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        location.append(f"http://localhost:{other.server_address[1]}/steal")
+        status = app._call("POST", f"http://127.0.0.1:{api.server_address[1]}/checkout", {"cart": 1},
+                           {"Authorization": f"Bearer {TOKEN}"})
+    finally:
+        for server in (api, other):
+            server.shutdown()
+            server.server_close()
+    assert status == 302
+    assert seen == [(api.server_address[1], "/checkout", f"Bearer {TOKEN}")]
 
 
 def test_the_token_is_in_no_plan_or_state_and_only_its_two_lambdas_read_it():

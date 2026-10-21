@@ -109,13 +109,18 @@ def load_key():
 
 
 def _post(domain: str, step: str, body: dict) -> tuple[int, dict]:
-    req = urllib.request.Request(f"https://{domain}/a/signed/{step}", data=json.dumps(body).encode(),  # nosec B310
+    from warden import web
+
+    req = urllib.request.Request(f"https://{domain}/a/signed/{step}", data=json.dumps(body).encode(),
                                  method="POST", headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:  # nosec B310 - https to the approval domain only
+        with web.urlopen(req, timeout=30) as r:
             return r.status, json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read() or b"{}")
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except ValueError:  # not JSON: a redirect web refused, or a proxy's HTML page - the status still answers
+            return e.code, {}
 
 
 def _read_record(domain: str, key, record: str) -> int:

@@ -71,7 +71,7 @@ def test_the_issue_goes_to_the_one_repository_with_the_token_and_through_the_gat
         sent.append(req)
         return _Resp(json.dumps({"html_url": "https://github.com/o/r/issues/7"}).encode())
 
-    monkeypatch.setattr(changes.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(changes.web, "urlopen", urlopen)
     token = "github" + "_pat_" + "0" * 12
     url, detail = changes.GitHubIssues("o/r", token).open("WARDEN change: x", "body text")
     req = sent[0]

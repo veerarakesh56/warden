@@ -103,7 +103,7 @@ def test_a_rate_limit_is_waited_out_once_and_slack_errors_are_failures(monkeypat
             raise a
         return a
 
-    monkeypatch.setattr(chatops.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(chatops.web, "urlopen", urlopen)
     monkeypatch.setattr(chatops.time, "sleep", slept.append)
     assert chatops._slack_call("chat.postMessage", {}, TOKEN) == ({"ok": True, "ts": "1.2"}, "ok")
     assert slept == [2.0]
