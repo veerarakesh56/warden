@@ -37,8 +37,8 @@ What each number means (docs/OPERATIONS.md, "Pilot metrics", says the same):
   incidents. A call row with no cost is NOT RECORDED for that call (counted and said, never estimated); with no
   `llm.call` or `llm.fallback` row anywhere in the verified audit, cost and fallbacks are NOT RECORDED, never 0.
 - **Fallbacks**: `llm.fallback` rows of the incident and its discussion, by `reason` (rules_only, model_refused,
-  budget_cap, provider_unavailable; any other reason is counted as "other", its text never printed). Per incident:
-  fallbacks / incidents. Per model request: fallbacks / `llm.call` rows.
+  budget_cap, provider_unavailable, egress_blocked; any other reason is counted as "other", its text never
+  printed). Per incident: fallbacks / incidents. Per model request: fallbacks / `llm.call` rows.
 - **Model requests**: `llm.call` rows, one per request sent - retries, unanswered requests and Eldane's trials
   included. NOT the same count as model calls (the spend ledger's), so the two are named apart and never compared.
 - **Undo count**: `remediation.rollback` rows with `undone` true, one per plan run; `remediation.rollback_failed`
@@ -92,7 +92,7 @@ SCOPED = (
     "every row was verified before counting; the whole record's integrity counts are shown only to readers of "
     "every environment"
 )
-FALLBACK_REASONS = ("rules_only", "model_refused", "budget_cap", "provider_unavailable")
+FALLBACK_REASONS = ("rules_only", "model_refused", "budget_cap", "provider_unavailable", "egress_blocked")
 MODEL_REQUESTS = "Model requests (llm.call rows)"
 REQUESTS_ARE = "every request sent, retries, unanswered ones and Eldane's trials included"
 
