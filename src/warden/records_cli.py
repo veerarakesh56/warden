@@ -109,42 +109,59 @@ def summary(r: records.Record) -> dict[str, Any]:
             "environment": r.environment, "service": r.service, "alarm": r.alarm, "flagged": bool(r.flags)}
 
 
+def _named(r: records.Record, text: str) -> str:
+    return r.named(text) if r.named else text
+
+
+def _where(b: dict[str, Any]) -> str:
+    if b.get("recorded_only"):
+        return "kept here, not posted"
+    return "posted in the alerts channel" if b.get("delivered") else "not delivered"
+
+
+def _told(r: records.Record) -> list[dict[str, Any]]:
+    """What WARDEN told people about the fix plan, and where it went."""
+    return [{"at": _iso(e["at"]), "what": records.TOLD.get(str(e["body"].get("what")), "How the fix ended"),
+             "where": _where(e["body"]), "said": _named(r, str(e["body"].get("said") or ""))}
+            for e in r.rows if e["kind"] == "remediation.announce"]
+
+
+def _step_of(e: dict[str, Any]) -> str:
+    if e["kind"] == "remediation.announce":
+        return records.TOLD.get(str(e["body"].get("what")), "Told people how the fix ended")
+    return records._step(e)
+
+
+def _steps(r: records.Record) -> list[dict[str, Any]]:
+    """Every step on the record as its page lists it (not the quiet ones), each with its short facts."""
+    return [{"at": _iso(e["at"]), "step": _step_of(e), "details": _named(r, records._brief(e, r.shown))}
+            for e in r.rows if e["kind"] not in records._QUIET]
+
+
+def _proven(r: records.Record) -> dict[str, Any] | None:
+    if not r.proven:
+        return None
+    at = r.proven.get("verified_at")
+    return {"entry": r.proven.get("entry"), "target": r.proven.get("target"), "with": r.proven.get("incident"),
+            "at": _iso(at) if isinstance(at, datetime) else str(at or ""),
+            "links_away": len(r.proven.get("path") or ())}
+
+
 def detail(r: records.Record, *, evidence: bool = False) -> dict[str, Any]:
     """One incident as its page shows it: the summary, the decisions (approvers by name), what tried to steer WARDEN,
     what WARDEN told people, every step, the report - and with `evidence`, what its model was shown."""
-    steps, told = [], []
-    for e in r.rows:
-        if e["kind"] == "remediation.announce":
-            b = e["body"]
-            where = ("kept here, not posted" if b.get("recorded_only")
-                     else "posted in the alerts channel" if b.get("delivered") else "not delivered")
-            said = str(b.get("said") or "")
-            told.append({"at": _iso(e["at"]), "what": records.TOLD.get(str(b.get("what")), "How the fix ended"),
-                         "where": where, "said": r.named(said) if r.named else said})
-        if e["kind"] in records._QUIET:
-            continue
-        step = (records.TOLD.get(str(e["body"].get("what")), "Told people how the fix ended")
-                if e["kind"] == "remediation.announce" else records._step(e))
-        brief = records._brief(e, r.shown)
-        steps.append({"at": _iso(e["at"]), "step": step, "details": r.named(brief) if r.named else brief})
-    plan = {k: v for k, v in r.plan.items() if k != "made"}
     linked = [{"words": links.WORDS.get(k.get("side"), str(k.get("side"))), "with": str(k.get("with")),
                "by": _who(r, str(k.get("approver"))), "at": str(k.get("at") or ""), "note": str(k.get("note") or "")}
               for k in r.links]
-    found = [{"words": str(k.get("words")), "with": str(k.get("with"))} for k in r.found]
-    proven = None
-    if r.proven:
-        at = r.proven.get("verified_at")
-        proven = {"entry": r.proven.get("entry"), "target": r.proven.get("target"), "with": r.proven.get("incident"),
-                  "at": _iso(at) if isinstance(at, datetime) else str(at or ""),
-                  "links_away": len(r.proven.get("path") or ())}
     out = {**summary(r), "severity": r.severity, "alert_says": r.summary, "hypothesis": r.hypothesis,
            "confidence": r.confidence, "action": r.action, "target": r.target, "verdict": r.verdict,
-           "policies": r.policies, "plan": plan, "no_plan": r.no_plan, "also": r.also, "questions": r.asked,
-           "decisions": [{**d, "at": _iso(d.get("at"))} for d in r.decisions], "links": linked, "proven": proven,
-           "found": found, "flags": r.flags, "told": told,
-           "steps": steps, "report": r.report, "integrity": records.integrity(r), "audit_head": r.head,
-           "signed_ok": r.signed_ok, "unsigned": r.unsigned, "broken": r.broken}
+           "policies": r.policies, "plan": {k: v for k, v in r.plan.items() if k != "made"}, "no_plan": r.no_plan,
+           "also": r.also, "questions": r.asked, "decisions": [{**d, "at": _iso(d.get("at"))} for d in r.decisions],
+           "links": linked, "proven": _proven(r),
+           "found": [{"words": str(k.get("words")), "with": str(k.get("with"))} for k in r.found],
+           "flags": r.flags, "told": _told(r), "steps": _steps(r), "report": r.report,
+           "integrity": records.integrity(r), "audit_head": r.head, "signed_ok": r.signed_ok, "unsigned": r.unsigned,
+           "broken": r.broken}
     if evidence:
         out["evidence"] = r.evidence
     return out
