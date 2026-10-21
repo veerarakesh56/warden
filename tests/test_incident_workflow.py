@@ -89,14 +89,17 @@ def results(tmp_path_factory):
 
 def test_every_bundled_incident_gets_the_same_verdict_as_the_graph(results, by_graph):
     by_workflow, _ = results
-    assert set(by_workflow) == set(by_graph) and len(by_graph) == len(DEMO_ALERTS)
+    assert set(by_workflow) == set(by_graph)
+    assert len(by_graph) == len(DEMO_ALERTS)
     for alert_id, (report, _) in by_workflow.items():
         old = by_graph[alert_id]
         assert report.verdict == old.verdict, alert_id
-        assert report.root_cause == old.root_cause and report.proposal == old.proposal, alert_id
+        assert report.root_cause == old.root_cause, alert_id
+        assert report.proposal == old.proposal, alert_id
         assert report.halted_reason == old.halted_reason, alert_id
         assert report.redaction_map_size == old.redaction_map_size, alert_id
-        assert report.context == old.context and report.alert == old.alert, alert_id
+        assert report.context == old.context, alert_id
+        assert report.alert == old.alert, alert_id
         assert [s["node"] for s in report.audit] == [s["node"] for s in old.audit], alert_id
 
 
@@ -167,8 +170,9 @@ def test_a_prepare_that_keeps_failing_ends_the_incident_instead_of_retrying_fore
                                activity_executor=ThreadPoolExecutor(2)):
             handle = await env.client.start_workflow(IncidentWorkflow.run, Alert(**DEMO_ALERTS["inc-002"]),
                                                      id="inc-broken", task_queue=QUEUE)
+            result = handle.result()
             with pytest.raises(WorkflowFailureError):
-                await asyncio.wait_for(handle.result(), 120)
+                await asyncio.wait_for(result, 120)
 
     asyncio.run(main())
     assert 1 <= _Broken.attempts <= 3

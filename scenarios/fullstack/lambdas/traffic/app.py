@@ -49,6 +49,21 @@ def _tls_for(url):
     return _ALB_TLS[0]
 
 
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """A redirect is never followed. urllib would copy every header, the API's bearer token among them, to wherever
+    it points; the two endpoints called here answer directly, so a redirect is counted as a failed call."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, "a redirect was refused", headers, fp)
+
+
+def _opener(url):
+    """urllib's own opener (http and https - the scheme is checked in _call), with redirects refused and the ALB's
+    trust for a call to the ALB."""
+    tls = _tls_for(url)
+    return urllib.request.build_opener(_NoRedirects, *([urllib.request.HTTPSHandler(context=tls)] if tls else []))
+
+
 def _call(method, url, body=None, headers=None):
     if not url.startswith(("http://", "https://")):
         raise ValueError("only http(s) URLs are called")
@@ -56,12 +71,12 @@ def _call(method, url, body=None, headers=None):
     req = urllib.request.Request(url, data=data, method=method,
                                  headers={"Content-Type": "application/json", **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=5, context=_tls_for(url)) as resp:  # nosec B310  # scheme checked above
+        with _opener(url).open(req, timeout=5) as resp:
             return resp.status
     except urllib.error.HTTPError as exc:
         return exc.code
-    except OSError as exc:
-        log.error("%s %s failed: %s", method, url, exc)
+    except OSError:
+        log.exception("%s %s failed", method, url)
         return 0
 
 

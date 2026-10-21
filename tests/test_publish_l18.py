@@ -23,13 +23,15 @@ def test_every_account_of_a_run_is_found(tmp_path):
     found = publish_bench_run._account_from(tmp_path)
     assert set(found.split("|")) == {FIRST, SECOND}
     redacted = aws_proof_bundle._redact(f"x{FIRST}y and {SECOND}", found)
-    assert FIRST not in redacted and SECOND not in redacted
+    assert FIRST not in redacted
+    assert SECOND not in redacted
 
 
 def test_a_password_holding_an_at_sign_is_masked_whole():
     pw = "p" + "@ss" + "word"
     out = aws_proof_bundle._redact(f"postgresql://app:{pw}@db.example:5432/x", "")
-    assert "ss" + "word" not in out and out == "postgresql://app:" + "*" * 8 + "@db.example:5432/x", out
+    assert "ss" + "word" not in out, out
+    assert out == "postgresql://app:" + "*" * 8 + "@db.example:5432/x", out
 
 
 def test_into_must_stay_inside_the_repository(tmp_path, monkeypatch):

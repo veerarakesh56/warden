@@ -623,7 +623,7 @@ def test_neither_eldane_nor_the_bench_satisfies_a_needs_person_case_even_at_appl
                                              "tier": plan.tier, "environment": plan.environment, "problems": []})
     log.append("inc-1", "approval.accepted", {**ids, "approver": "bench", "nonce": uuid.uuid4().hex})
     log.append("inc-1", "remediation.precheck", {**ids, "problems": []})
-    refused = acts._not_approved(plan, "r")
+    refused = acts._not_approved(plan)
     assert any("a person approves its fix" in p for p in refused), refused
 
 

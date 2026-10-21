@@ -48,37 +48,42 @@ def test_the_answer_is_forced_through_one_tool_whose_schema_is_the_answer_schema
     stub = _Converse(ANSWER)
     out = BedrockProvider(model=PROFILE, client=stub).complete(system="sys", user="evidence", schema=Diagnosis)
     req = stub.requests[0]
-    assert req["modelId"] == PROFILE and req["system"] == [{"text": "sys"}]
+    assert req["modelId"] == PROFILE
+    assert req["system"] == [{"text": "sys"}]
     assert req["messages"] == [{"role": "user", "content": [{"text": "evidence"}]}]
     tool = req["toolConfig"]["tools"][0]["toolSpec"]
     assert req["toolConfig"]["toolChoice"] == {"tool": {"name": tool["name"]}}
     assert tool["inputSchema"]["json"] == Diagnosis.model_json_schema()
-    assert json.loads(out.text) == ANSWER and (out.input_tokens, out.output_tokens) == (1234, 56)
+    assert json.loads(out.text) == ANSWER
+    assert (out.input_tokens, out.output_tokens) == (1234, 56)
 
 
 def test_a_whole_incident_runs_through_bedrock_and_its_answer_is_typed():
     stub = _Converse(ANSWER)
     report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(provider=BedrockProvider(model=PROFILE, client=stub),
                                                                   mock=False))
-    assert len(stub.requests) == 1 and report.proposal.action.value == "escalate_to_human"
+    assert len(stub.requests) == 1
+    assert report.proposal.action.value == "escalate_to_human"
 
 
 def test_throttling_waits_and_other_errors_are_failures():
+    throttled = BedrockProvider(model=PROFILE, client=_Converse(error=_ClientError("ThrottlingException")))
     with pytest.raises(ProviderExhausted):
-        BedrockProvider(model=PROFILE, client=_Converse(error=_ClientError("ThrottlingException"))).complete(
-            system="s", user="u", schema=Diagnosis)
+        throttled.complete(system="s", user="u", schema=Diagnosis)
+    refused = BedrockProvider(model=PROFILE, client=_Converse(error=_ClientError("AccessDeniedException")))
     with pytest.raises(ProviderError) as denied:
-        BedrockProvider(model=PROFILE, client=_Converse(error=_ClientError("AccessDeniedException"))).complete(
-            system="s", user="u", schema=Diagnosis)
-    assert not isinstance(denied.value, ProviderExhausted) and "AccessDeniedException" in str(denied.value)
+        refused.complete(system="s", user="u", schema=Diagnosis)
+    assert not isinstance(denied.value, ProviderExhausted)
+    assert "AccessDeniedException" in str(denied.value)
 
 
 def test_a_model_must_be_named_exactly_and_pass_qualification(monkeypatch):
     monkeypatch.delenv("WARDEN_BEDROCK_MODEL", raising=False)
+    client = _Converse()
     with pytest.raises(ProviderError, match="WARDEN_BEDROCK_MODEL"):
-        BedrockProvider(client=_Converse())
+        BedrockProvider(client=client)
     with pytest.raises(ProviderError, match="alias"):
-        BedrockProvider(model="sonnet", client=_Converse())
+        BedrockProvider(model="sonnet", client=client)
     monkeypatch.setenv("WARDEN_BEDROCK_MODEL", PROFILE)
     monkeypatch.setattr(providers, "BedrockProvider", lambda: BedrockProvider(client=_Converse()))
     monkeypatch.setitem(providers._REGISTRY, "bedrock", providers.BedrockProvider)
@@ -113,7 +118,8 @@ def test_a_family_converse_cannot_force_answers_in_text_and_is_still_typed():
     stub = _TextConverse(json.dumps(ANSWER))
     provider = BedrockProvider(model="global.openai.gpt-6-sol", client=stub)
     out = provider.complete(system="s", user="u", schema=Diagnosis)
-    assert "toolConfig" not in stub.requests[0] and json.loads(out.text) == ANSWER
+    assert "toolConfig" not in stub.requests[0]
+    assert json.loads(out.text) == ANSWER
     report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(provider=BedrockProvider(
         model="global.openai.gpt-6-sol", client=_TextConverse(json.dumps(ANSWER))), mock=False))
     assert report.proposal.action.value == "escalate_to_human"
