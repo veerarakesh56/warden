@@ -46,6 +46,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
+      max-parallel: 4  # eight jobs fetching Temporal's test server at once were answered 429 (see the warm step)
       matrix:
         # pyproject.toml [tool.mutmut] only_mutate, by stem - tests/test_mutation_config.py holds the two lists equal.
         module: [gate, verifier, catalog, approvals, autonomy, bounds, audit, redaction]
@@ -85,6 +86,8 @@ jobs:
             exit 0
           fi
           echo "mutating: warden.$MODULE"
+          # Temporal's test server, fetched once before the suite needs it - retried: the download rate-limits.
+          python scripts/mutation_ci.py warm-temporal
           # This job's checkout mutates only its module; a name pattern would make mutmut run its clean tests by node
           # id, which some parametrized ids (newlines, brackets) break.
           python scripts/mutation_ci.py narrow "$MODULE"

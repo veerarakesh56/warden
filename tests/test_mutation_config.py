@@ -152,6 +152,32 @@ def test_narrowed_leaves_one_module_and_nothing_else_changed():
         mutation_ci.narrowed(text, "llm")
 
 
+def test_warm_temporal_retries_with_a_growing_wait_then_gives_up():
+    """PR 179: parallel jobs fetching Temporal's test server were answered 429; the fetch is retried."""
+    waits, calls = [], []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise RuntimeError("429 Too Many Requests")
+
+    assert mutation_ci.warm_temporal(flaky, attempts=5, wait_s=10, sleep=waits.append) == 3
+    assert waits == [10, 20]
+
+    def down():
+        raise RuntimeError("429 Too Many Requests")
+
+    with pytest.raises(RuntimeError, match="after 2 attempts"):
+        mutation_ci.warm_temporal(down, attempts=2, wait_s=1, sleep=waits.append)
+
+
+def test_each_job_fetches_temporals_test_server_before_mutmut_runs():
+    job = _workflow()["jobs"]["mutmut"]
+    mutate = next(st for st in job["steps"] if str(st.get("name", "")).startswith("Mutate"))["run"]
+    assert mutate.index("mutation_ci.py warm-temporal") < mutate.index("mutmut run")
+    assert job["strategy"]["max-parallel"] <= 4
+
+
 def test_shard_from_the_command_line():
     run = [sys.executable, str(ROOT / "scripts" / "mutation_ci.py"), "shard"]
     skip = subprocess.run([*run, "bounds"], input="src/warden/gate.py\n", capture_output=True, text=True, check=True)

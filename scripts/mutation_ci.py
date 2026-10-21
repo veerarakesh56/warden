@@ -3,6 +3,9 @@
     git diff --name-only <base>...HEAD | python scripts/mutation_ci.py shard <module>
         # "run" or "skip" for one shard of the workflow's matrix (one safety module per job): a pull request
         # mutates only the modules it changed, or all of them when it changed the setup
+    python scripts/mutation_ci.py warm-temporal
+        # fetch Temporal's time-skipping test server once, retried with backoff: eight jobs fetching it at once were
+        # answered 429 Too Many Requests (PR 179), and every Temporal test in that job's run then failed
     python scripts/mutation_ci.py narrow <module>
         # in a CI job's own checkout: pyproject's only_mutate becomes that one module, so a plain `mutmut run` mutates
         # it. (A name pattern - `mutmut run "warden.gate*"` - makes mutmut run its clean tests by node id, and ids
@@ -24,7 +27,9 @@ import json
 import pathlib
 import re
 import sys
+import time
 import tomllib
+from collections.abc import Callable
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # A change to any of these changes how every module is mutated: the whole set runs.
@@ -67,6 +72,34 @@ def narrowed(pyproject_text: str, module: str) -> str:
 
 def safety_modules_from(pyproject_text: str) -> list[str]:
     return list(tomllib.loads(pyproject_text)["tool"]["mutmut"]["only_mutate"])
+
+
+def warm_temporal(start: Callable[[], None], attempts: int = 5, wait_s: float = 30.0,
+                  sleep: Callable[[float], None] = time.sleep) -> int:
+    """Run `start` (fetch and start the test server once) until it succeeds, waiting longer after each failure;
+    the attempt that succeeded, or RuntimeError after the last one."""
+    for attempt in range(1, attempts + 1):
+        try:
+            start()
+            return attempt
+        except RuntimeError as exc:
+            if attempt == attempts:
+                raise RuntimeError(f"Temporal's test server could not be fetched after {attempts} attempts") from exc
+            print(f"attempt {attempt}: {exc}; trying again in {wait_s * attempt:.0f} s", file=sys.stderr)
+            sleep(wait_s * attempt)
+    raise AssertionError("unreachable")
+
+
+def _start_test_server() -> None:
+    import asyncio
+
+    from temporalio.testing import WorkflowEnvironment
+
+    async def once() -> None:
+        env = await WorkflowEnvironment.start_time_skipping()
+        await env.shutdown()
+
+    asyncio.run(once())
 
 
 def score(stats: dict[str, int]) -> float | None:
@@ -122,17 +155,24 @@ def _summary(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     return 0
 
 
+def _warm(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    print(f"Temporal's test server is ready (attempt {warm_temporal(_start_test_server)})")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("targets")
     sub.add_parser("shard").add_argument("module")
     sub.add_parser("narrow").add_argument("module")
+    sub.add_parser("warm-temporal")
     s = sub.add_parser("summary")
     s.add_argument("stats", type=pathlib.Path)
     s.add_argument("--min-score", type=float)
     args = parser.parse_args(argv)
-    run = {"targets": _targets, "narrow": _narrow, "shard": _shard, "summary": _summary}[args.cmd]
+    run = {"targets": _targets, "narrow": _narrow, "shard": _shard, "summary": _summary,
+           "warm-temporal": _warm}[args.cmd]
     return run(args, parser)
 
 
