@@ -163,7 +163,7 @@ class _Postgres:
     def blockers(conn: Any, users: list[str], wait: int, limit: int) -> list[tuple[int, str, int]]:
         """(pid, backend start, sessions it blocks), the most blocking first."""
         with conn.cursor() as cur:
-            cur.execute("SELECT b.pid, b.backend_start::text, count(w.pid) FROM pg_stat_activity w "  # nosec B608 - constant SQL; every value is a parameter
+            cur.execute("SELECT b.pid, b.backend_start::text, count(w.pid) FROM pg_stat_activity w "  # nosec B608  # BLOCKING is a class constant; every value is a parameter
                         "JOIN pg_stat_activity b ON true WHERE " + _Postgres.BLOCKING +
                         " GROUP BY b.pid, b.backend_start ORDER BY count(w.pid) DESC, b.pid LIMIT %s",
                         (users, wait, limit))
@@ -173,7 +173,7 @@ class _Postgres:
     def terminate_blocker(conn: Any, pid: int, started: str, users: list[str], wait: int) -> bool:
         # The selection again in the same statement (register R7-O1): still blocking, still the same backend.
         with conn.cursor() as cur:
-            cur.execute("SELECT pg_terminate_backend(b.pid) FROM pg_stat_activity b WHERE b.pid = %s AND "  # nosec B608 - constant SQL; every value is a parameter
+            cur.execute("SELECT pg_terminate_backend(b.pid) FROM pg_stat_activity b WHERE b.pid = %s AND "  # nosec B608  # BLOCKING is a class constant; every value is a parameter
                         "b.backend_start::text = %s AND EXISTS (SELECT 1 FROM pg_stat_activity w WHERE " +
                         _Postgres.BLOCKING + ")", (int(pid), started, users, wait))
             row = cur.fetchone()
@@ -213,7 +213,7 @@ class _MySQL:
                             "WHERE p.id = %s AND p.command = 'Sleep' AND p.db = DATABASE() AND p.user IN %s "
                             "AND p.time >= %s AND p.id <> CONNECTION_ID()", (int(tid), tuple(users), idle_secs))
                 if cur.fetchall():
-                    cur.execute(f"KILL {int(tid)}")  # nosec B608 - an int; KILL takes no placeholders
+                    cur.execute(f"KILL {int(tid)}")  # an int: KILL takes no placeholders
                     killed += 1
         return killed
 
@@ -230,29 +230,29 @@ class _MSSQL:
     @staticmethod
     def candidates(conn: Any, idle_secs: int, limit: int, users: list[str]) -> list[int]:
         cur = conn.cursor()
-        marks = ", ".join(["%s"] * len(users))
-        # TOP (n) and DATEADD's offset cannot be parameterised by pymssql: both are ints.
-        cur.execute(f"SELECT TOP ({int(limit)}) session_id FROM sys.dm_exec_sessions "  # nosec B608
+        # pymssql substitutes parameters in the client: %d an int, %s a tuple as a quoted list (N'a',N'b') - so TOP (n)
+        # and DATEADD's offset are parameters too, and the statement is a constant.
+        cur.execute("SELECT TOP (%d) session_id FROM sys.dm_exec_sessions "
                     "WHERE is_user_process = 1 AND open_transaction_count > 0 AND status = 'sleeping' "
-                    f"AND database_id = DB_ID() AND login_name IN ({marks}) "
-                    f"AND last_request_end_time < DATEADD(second, -{int(idle_secs)}, GETDATE()) "
-                    "AND session_id <> @@SPID ORDER BY last_request_end_time", tuple(users))
+                    "AND database_id = DB_ID() AND login_name IN %s "
+                    "AND last_request_end_time < DATEADD(second, -%d, GETDATE()) "
+                    "AND session_id <> @@SPID ORDER BY last_request_end_time",
+                    (int(limit), tuple(users), int(idle_secs)))
         return _as_ids(cur.fetchall())
 
     @staticmethod
     def terminate(conn: Any, ids: list[int], idle_secs: int, users: list[str]) -> int:
         # As for MySQL: checked again right before each KILL (register R7-O1).
         cur = conn.cursor()
-        marks = ", ".join(["%s"] * len(users))
         killed = 0
         for spid in ids:
-            cur.execute(f"SELECT session_id FROM sys.dm_exec_sessions WHERE session_id = {int(spid)} "  # nosec B608
+            cur.execute("SELECT session_id FROM sys.dm_exec_sessions WHERE session_id = %d "
                         "AND is_user_process = 1 AND open_transaction_count > 0 AND status = 'sleeping' "
-                        f"AND database_id = DB_ID() AND login_name IN ({marks}) "
-                        f"AND last_request_end_time < DATEADD(second, -{int(idle_secs)}, GETDATE()) "
-                        "AND session_id <> @@SPID", tuple(users))
+                        "AND database_id = DB_ID() AND login_name IN %s "
+                        "AND last_request_end_time < DATEADD(second, -%d, GETDATE()) "
+                        "AND session_id <> @@SPID", (int(spid), tuple(users), int(idle_secs)))
             if cur.fetchall():
-                cur.execute(f"KILL {int(spid)}")  # nosec B608 - an int; KILL takes no placeholders
+                cur.execute(f"KILL {int(spid)}")  # an int: KILL takes no placeholders
                 killed += 1
         return killed
 

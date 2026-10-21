@@ -474,15 +474,16 @@ class _MSSQL:
 
     @classmethod
     def problem_ops(cls, conn, idle_secs: int) -> list[str]:
-        # TOP (n) and DATEADD's offset cannot be parameterised by pymssql; both are int()-coerced.
+        # pymssql substitutes parameters in the client, %d as an int: TOP (n) and DATEADD's offset are parameters too.
         rows = cls._rows(
             conn,
-            f"SELECT TOP ({int(PROBLEM_OP_LIMIT)}) session_id, "  # nosec B608
+            "SELECT TOP (%d) session_id, "
             "DATEDIFF(second, last_request_end_time, GETDATE()) "
             "FROM sys.dm_exec_sessions WHERE is_user_process = 1 AND open_transaction_count > 0 "
             "AND status = 'sleeping' "
-            f"AND last_request_end_time < DATEADD(second, -{int(idle_secs)}, GETDATE()) "
+            "AND last_request_end_time < DATEADD(second, -%d, GETDATE()) "
             "AND session_id <> @@SPID ORDER BY last_request_end_time",
+            (int(PROBLEM_OP_LIMIT), int(idle_secs)),
         )
         return [f"spid={sid} idle-in-trx {age}s" for sid, age in rows]
 
