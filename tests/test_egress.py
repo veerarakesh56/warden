@@ -421,3 +421,24 @@ def test_a_client_other_than_urllib_is_held_by_the_name_lookup():
     lines = dict(line.split() for line in got.stdout.strip().splitlines())
     assert lines["otlp.collector.example"] == "False"  # looked up (and then unreachable here), not refused
     assert lines["exfil.example.net"] == "True"
+
+
+def test_review_round_three_lookups_mapped_addresses_and_record_links(monkeypatch):
+    """A mapped public IPv4 is that IPv4; a listener's own lookup is no egress; every socket lookup event is held; a
+    record link's id is scanned like text."""
+    import socket
+
+    public = str(ipaddress.IPv4Address(0x09090909))
+    # As on the Python releases that call a mapped public address non-global: it is judged as its IPv4.
+    monkeypatch.setattr(ipaddress.IPv6Address, "is_global", property(lambda self: False))
+    assert egress.destination_of("::ffff:" + public) is None
+    egress.check_host(None)
+    egress.check_host("")
+    assert {"socket.gethostbyname", "socket.gethostbyname_ex", "socket.gethostbyaddr"} <= egress._EVENTS
+    assert socket.gethostbyname  # the events these name exist in this Python
+    monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", "approve.example.org")
+    hidden = json.dumps({"text": "see https://approve.example.org/r/" + "10.0.4." + "21"}).encode()
+    with pytest.raises(EgressBlocked):
+        egress.check_request(SLACK_API, hidden, JSON, "POST")
+    fine = json.dumps({"text": "see https://approve.example.org/r/50ac32d0fe243384-20261014T071413Z"}).encode()
+    egress.check_request(SLACK_API, fine, JSON, "POST")

@@ -23,6 +23,9 @@ and a row on the signed audit (`egress.sent` / `egress.blocked`) where the proce
 Honest limits:
 - Temporal's client is Rust (temporalio's core): its connections raise no Python audit event. Its payloads are
   encrypted (codec.py) and the runtime's network rules limit where it can connect (terraform, register B23).
+- Behind a proxy (HTTPS_PROXY), a client other than urllib looks up the proxy's name, not its target's: the name
+  check cannot see where such a client goes through the proxy (urllib's requests are still checked by their real
+  address). The runtime sets no proxy; a laptop that does keeps that limit.
 - A raw socket connected to an IP address without a lookup bypasses the name check; nothing in src/warden does that
   (tests/test_egress.py holds the static inventory of every module that opens a network client).
 - The hook is installed by the processes that talk to a real environment (`warden ...` with WARDEN_ENV set, every
@@ -186,6 +189,8 @@ def destination_of(host: str | bytes | None, env: dict[str, str] | None = None) 
         address = ipaddress.ip_address(name.split("%", 1)[0])
     except ValueError:
         address = None
+    if address is not None and address.version == 6 and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped  # `::ffff:<public IPv4>` is that IPv4 (some Python releases call it non-global)
     if address is not None:
         # Not globally routable (private, loopback, link-local, shared, reserved): it cannot be a host on the
         # internet, so it is the private network's - or nobody's.
@@ -227,7 +232,9 @@ def _own_links() -> re.Pattern[str] | None:
     rp = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
     if not rp:
         return None
-    return re.compile(rf"https://{re.escape(rp)}/(?:a/[A-Za-z0-9_-]{{43}}|r(?:/[A-Za-z0-9._-]{{1,120}})?)")
+    # The approval link's token is a capability and is exempt whole. A record link's incident id is NOT: only the
+    # address before it is taken out, and the id is scanned like any text (review: `/r/<an address>` hid the address).
+    return re.compile(rf"https://{re.escape(rp)}/(?:a/[A-Za-z0-9_-]{{43}}(?![A-Za-z0-9_-])|r/?)")
 
 
 def _strings(value: Any, skip: frozenset[str]) -> Iterable[str]:
@@ -437,6 +444,8 @@ def check_request(url: str, data: bytes | str | None, headers: dict[str, str] | 
 def check_host(host: Any) -> None:
     """The check every name lookup passes (install): a host on no destination is refused. The first lookup of each
     destination in a process is on the ledger."""
+    if host is None or host in ("", b""):
+        return  # a listener's own address (getaddrinfo(None, port)): nothing is looked up, nothing leaves
     dest = destination_of(host)
     shown = redact(str(host.decode("ascii", "replace") if isinstance(host, bytes) else host)).text[:120]
     if dest is None:
@@ -446,8 +455,13 @@ def check_host(host: Any) -> None:
         _LOG.info(_LINE, json.dumps({"destination": dest.name, "outside": dest.outside, "connect": shown}))
 
 
+# Every lookup the socket module offers (review: gethostbyname bypassed getaddrinfo's event), and urllib's request.
+_EVENTS = frozenset({"urllib.Request", "socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyname_ex",
+                     "socket.gethostbyaddr"})
+
+
 def _hook(event: str, args: tuple) -> None:
-    if event not in ("urllib.Request", "socket.getaddrinfo") or getattr(_GUARD, "hooked", False):
+    if event not in _EVENTS or getattr(_GUARD, "hooked", False):
         return
     _GUARD.hooked = True  # the ledger's own writes (the audit, KMS) pass the hook too, unchecked twice
     try:
