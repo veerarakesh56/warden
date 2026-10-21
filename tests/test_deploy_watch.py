@@ -87,7 +87,8 @@ def test_an_appconfig_deployment_is_watched_and_one_still_deploying_is_a_suspect
     assert (done["kind"], done["service"], done["version"], done["minutes"], done["deploying"]) == (
         "appconfig", "checkout/dev-flags", "3", 20, False)
     [going] = deploy_watch.suspects(ALERT, _ctx(logs=[_appconfig("not yet")]), window=HOUR)
-    assert going["deploying"] is True and going["minutes"] == 0
+    assert going["deploying"] is True
+    assert going["minutes"] == 0
     assert deploy_watch.suspects(ALERT, _ctx(logs=[_appconfig("2026-10-21T07:00:00Z")]), window=HOUR) == []
     assert deploy_watch.suspects(ALERT, _ctx(logs=["CONFIG appconfig x monitors this alarm: junk"]), window=HOUR) == []
 
@@ -130,7 +131,8 @@ def test_names_in_the_banner_are_inert_text():
     """A service or version name is text WARDEN did not write: it never becomes markup or a mention."""
     found = deploy_watch.suspects(ALERT, _ctx(_deploy(5, service="x`<!channel>`", version="**1**")), window=HOUR)
     text = deploy_watch.banner(found, HOUR)
-    assert "<!channel>" not in text and "xˋ‹!channel›ˋ" in text
+    assert "<!channel>" not in text
+    assert "x\u02cb\u2039!channel\u203a\u02cb" in text
 
 
 def test_the_report_carries_the_banner_under_its_title_and_the_record_its_row(tmp_path, monkeypatch):
@@ -139,9 +141,10 @@ def test_the_report_carries_the_banner_under_its_title_and_the_record_its_row(tm
     report = "# Incident title\n\nbody"
     out = deploy_watch.mark(log, "w-1", ALERT, _ctx(_deploy(12)), report, run_id="r1")
     title, blank, line, rest = out.split("\n", 3)
-    assert (title, blank, rest) == ("# Incident title", "", "\nbody") and line.startswith("**After a deploy:**")
+    assert (title, blank, rest) == ("# Incident title", "", "\nbody")
+    assert line.startswith("**After a deploy:**")
     [row] = [e["body"] for e in log.entries("w-1", kinds=(deploy_watch.KIND,))]
-    assert row["run_id"] == "r1" and row["role"] == "suspect" and row["watch_minutes"] == 60
+    assert (row["run_id"], row["role"], row["watch_minutes"]) == ("r1", "suspect", 60)
     assert [(d["kind"], d["version"], d["minutes"], d["at"]) for d in row["deploys"]] == [
         ("ecs", "checkout:14", 12, "2026-10-21T09:48:00+00:00")]
 
@@ -166,7 +169,8 @@ def test_only_the_message_reads_the_watch():
     assert readers == ["activities.py"]
     text = (ROOT / "src" / "warden" / "activities.py").read_text(encoding="utf-8")
     notify = text[text.index("    def notify(self"):text.index("    @activity.defn", text.index("    def notify(self"))]
-    assert text.count("deploy_watch.mark(") == 1 and "deploy_watch.mark(" in notify
+    assert text.count("deploy_watch.mark(") == 1
+    assert "deploy_watch.mark(" in notify
 
 
 def test_an_incident_after_a_deploy_says_so_in_its_message(tmp_path, monkeypatch):
@@ -185,9 +189,10 @@ def test_an_incident_after_a_deploy_says_so_in_its_message(tmp_path, monkeypatch
     diagnosed = acts.diagnose(pack)
     acts.notify(pack, diagnosed, acts.verify(pack, diagnosed), mode="none")
     lines = sent[-1].split("\n")
-    assert lines[0].startswith("# ") and lines[2].startswith("**After a deploy:** this alarm fired inside WARDEN's "
-                                                             "60-min watch after a deploy: ")
-    assert "4 min before it fired" in lines[2] and "a suspect, not the cause" in lines[2]
+    assert lines[0].startswith("# ")
+    assert lines[2].startswith("**After a deploy:** this alarm fired inside WARDEN's 60-min watch after a deploy: ")
+    assert "4 min before it fired" in lines[2]
+    assert "a suspect, not the cause" in lines[2]
     [row] = [e["body"] for e in log.entries(pack.alert.alert_id, kinds=(deploy_watch.KIND,))]
     assert row["deploys"][0]["minutes"] == 4
     # The recorded report (the record page's) carries it too.
