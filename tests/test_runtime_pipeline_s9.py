@@ -248,3 +248,20 @@ def test_apply_deploys_and_restarts_in_one_run():
     # The restart action stays for a secret rotated when nothing else is deployed.
     assert "if: inputs.action == 'restart'" in FLOW
 
+
+def test_the_one_run_restart_is_done_only_when_its_own_deployment_completed():
+    """A circuit-breaker rollback starts a NEW deployment of the old tasks: "one COMPLETED deployment" would pass it.
+    The step keeps the id each restart started and accepts only those, completed and alone (CodeRabbit, PR 103)."""
+    deploy = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]
+    step = deploy[deploy.index("name: Every zone started after this apply"):]
+    assert "--query 'service.deployments[?status==`PRIMARY`].id | [0]' --output text)" in step
+    assert 'wanted="$wanted $dep"' in step
+    assert "ecs-svc/*) ;;" in step  # an unreadable id stops the run
+    check = step[step.index("for _ in $(seq 1 50)"):]
+    assert 'case " $wanted " in' in check
+    assert "rolled back?" in check
+    assert '[ "$state" = FAILED ]' in check
+    assert 'if [ "$state" = COMPLETED ] && [ "$count" = 1 ]; then stable=$((stable + 1)); fi' in check
+    assert '[ "$stable" -eq "$(wc -w <<< "$restarted")" ]' in check
+    assert "rolloutState != `COMPLETED`" not in check  # the old any-deployment test is gone
+
