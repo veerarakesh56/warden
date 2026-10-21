@@ -21,14 +21,12 @@ import math
 import os
 import threading
 from types import TracebackType
-from typing import Any, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from .models import CostRecord
 from .providers import Provider, ProviderExhausted, resolve
-
-T = TypeVar("T", bound=BaseModel)
 
 # USD per 1M tokens. ⚠ Configuration, not fact — vendors change pricing and the free tiers cost
 # nothing at all. Verify before quoting these figures anywhere.
@@ -201,7 +199,7 @@ class LLMClient:
 
     # ------------------------------------------------------------------ public
 
-    def structured(
+    def structured[T: BaseModel](
         self,
         *,
         system: str,
@@ -237,7 +235,7 @@ class LLMClient:
         plural = "attempt" if attempts == 1 else "attempts"
         raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {last}")
 
-    def _mock_answer(self, *, system: str, user: str, schema: type[T], mock_factory: Any) -> T:
+    def _mock_answer[T: BaseModel](self, *, system: str, user: str, schema: type[T], mock_factory: Any) -> T:
         if mock_factory is None:
             raise ModelRefused(f"mock mode needs a mock_factory for {schema.__name__}")
         self._before_a_call(0.0)
@@ -248,7 +246,7 @@ class LLMClient:
         # hypothesis. Mocks read typed state through a closure now; text matching is banned.
         return mock_factory()
 
-    def _attempt(self, *, system: str, prompt: str, schema: type[T],
+    def _attempt[T: BaseModel](self, *, system: str, prompt: str, schema: type[T],
                  est_usd: float) -> tuple[T | None, Exception | None, bool]:
         """One request: (the validated answer, None, True), or (None, why it failed, whether to stop asking)."""
         # Before EVERY attempt, retries included (audit A-C-15, A-C-17): the call over the ceiling
@@ -300,7 +298,7 @@ class LLMClient:
                 self.unanswered += 1
             return None, exc, not _is_transient(exc)
 
-    def _validated(self, completion: Any, schema: type[T]) -> T:
+    def _validated[T: BaseModel](self, completion: Any, schema: type[T]) -> T:
         # Charged BEFORE validation: a malformed response still costs money, and a budget
         # that only counts successful calls can be exhausted by a model that keeps failing.
         self._charge(completion.input_tokens, completion.output_tokens)
