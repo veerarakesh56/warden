@@ -124,3 +124,16 @@ def test_the_ingress_is_restored_even_when_the_revoke_raises(db):
     with pytest.raises(RuntimeError, match="db_revoke_ingress refused"):
         pdb.main()
     assert fake.calls[-2:] == ["db_revoke_ingress", "db_restore_ingress"]
+
+
+def test_a_fault_that_lands_but_leaves_dirt_after_the_revert_fails(db, capsys, monkeypatch):
+    db(dirty_after={"db_release_everything"})
+    monkeypatch.setattr(pdb, "_settle_to_baseline", lambda clients, *rest: pdb.check_baseline_db(clients, *rest))
+    assert pdb.main() == 1
+    assert capsys.readouterr().out == (
+        "FAIL idle-in-transaction session: fault landed; after revert ['left over from db_release_everything']\n"
+        "FAIL connection saturation: fault landed; after revert ['left over from db_release_everything']\n"
+        "FAIL long active query: fault landed; after revert ['left over from db_release_everything']\n"
+        "FAIL blocking lock with a waiter: fault landed; after revert ['left over from db_release_everything']\n"
+        "OK   security-group revoke: connection cut; restore reconnected; baseline clean\n"
+        "\n4 FAILED - do not run the wave\n")

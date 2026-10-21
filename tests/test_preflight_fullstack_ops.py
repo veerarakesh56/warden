@@ -107,3 +107,8 @@ def test_revert_mode_reverts_each_named_fault_then_reports_the_baseline(tmp_path
     assert events == ["revert fs-12", "revert fs-19"]
     assert capsys.readouterr().out == ("revert fs-12: {'reverted': 'fs-12'}\nrevert fs-19: {'reverted': 'fs-19'}\n"
                                        "NOT AT BASELINE: ['still red']\n")
+
+
+def test_revert_without_only_is_refused_before_anything_is_touched():
+    with pytest.raises(SystemExit, match="--revert needs --only: say which fault to put back"):
+        pf.main(["--revert"])
