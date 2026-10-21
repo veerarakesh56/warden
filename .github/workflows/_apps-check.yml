@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -17,13 +17,14 @@ jobs:
           persist-credentials: false
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
       # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.12"
           activate-environment: true
-      - run: uv sync --locked --only-group apps-check --only-group scan
+          cache-suffix: "apps-check-check"  # one cache per job: jobs sharing a key raced to save it
+      - run: uv sync --locked --no-build --only-group apps-check --only-group scan
       - run: ruff check scenarios/fullstack scripts/deploy_fullstack_apps.py tests/test_deploy_fullstack_apps.py
       # What is deployed to AWS, audited and scanned here: the tool CI skips apps-only changes, and its
       # pip-audit reads uv.lock, not these files (fifth review E, 2026-10-01).
@@ -36,7 +37,7 @@ jobs:
         run: bandit -q -r scenarios/fullstack scripts/deploy_fullstack_apps.py -ll
       - run: python -m compileall -q scenarios/fullstack
       # test_fullstack_infra also checks the k8s manifests and the apps' SQL/handlers.
-      - run: pytest tests/test_deploy_fullstack_apps.py tests/test_fullstack_infra.py tests/test_supply_chain.py tests/test_k8s_tokens.py tests/test_redis_tls_r8.py tests/test_api_auth_ai13.py -q
+      - run: pytest tests/test_deploy_fullstack_apps.py tests/test_fullstack_infra.py tests/test_supply_chain.py tests/test_k8s_tokens.py tests/test_redis_tls_r8.py tests/test_api_auth_ai13.py tests/test_shop_app_log_s5145.py tests/test_traffic_alb_tls.py tests/test_load_rng_s2245.py tests/test_stack_paths_s2083.py tests/test_shop_https_s5332.py -q
       - name: build artifacts (zips + image)
         run: python scripts/deploy_fullstack_apps.py --out "$RUNNER_TEMP/build" build --tag "${GITHUB_SHA::12}"
       - name: render the shop (what Argo CD syncs, and what the pipeline applies)

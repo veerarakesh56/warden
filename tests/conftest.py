@@ -22,7 +22,7 @@ os.environ.setdefault("WARDEN_MOCK", "1")
 
 @pytest.fixture(autouse=True, scope="session")
 def _keys_only_in_the_test_temp_folder(tmp_path_factory):
-    """Key files are written only inside WARDEN_KEY_DIR (audit._inside). For the suite that is pytest's own temp root,
+    """Key files are kept only inside WARDEN_KEY_DIR (audit.key_path). For the suite that is pytest's own temp root,
     which holds every test's tmp_path - so a test's key lands beside it, and no test can write into ~/.warden."""
     os.environ["WARDEN_KEY_DIR"] = str(tmp_path_factory.getbasetemp())
 
@@ -38,10 +38,9 @@ def _root_logger_restored():
     root.setLevel(level)
 
 
-# A nonprod environment where WARDEN's in-process gate (remediation.decide_remediation) may carry out an approved fix
-# for a named principal - the shipped `staging` until 2026-10-16, when the owner kept only dev and prod, neither of
-# which auto-remediates. The gate's whole path (authorised, approved, a dry run) can only be shown in such an
-# environment, so the tests that show it make one for themselves: test-only, never shipped.
+# A nonprod environment that permits every reversible action class - the shipped `staging` until 2026-10-16, when the
+# owner kept only dev and prod. The tests that need such an environment make one for themselves: test-only, never
+# shipped.
 _STAGING = {
     "tier": "nonprod", "auto_remediate": True, "require_human_approval": False,
     "allow_actions": ["restart_pods", "scale_up", "scale_down", "rollback_deploy", "clear_cache",

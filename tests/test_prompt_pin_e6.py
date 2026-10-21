@@ -27,7 +27,8 @@ def test_the_prompt_is_the_one_the_models_were_qualified_with():
 
 
 def test_the_fingerprint_is_stable_and_ignores_only_the_random_data_marker():
-    assert qualify.prompt_fingerprint() == qualify.prompt_fingerprint()
+    first, second = qualify.prompt_fingerprint(), qualify.prompt_fingerprint()  # each run draws new data markers
+    assert first == second
 
 
 def test_a_change_is_compared_with_mcnemar():

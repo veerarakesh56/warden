@@ -38,6 +38,10 @@ FROM unnest(%s::text[]) AS c(customer_id)
 def _meta():
     return json.loads(SECRETS.get_secret_value(SecretId=os.environ["SECRET_ARN"])["SecretString"])
 
+# The load picks (which customer or order id to look up) come from the operating system's CSPRNG (Sonar python:S2245,
+# 2026-10-20): never seeded, so nothing can replay or predict them, and nothing here needs them reproducible.
+_RNG = random.SystemRandom()
+
 
 def _token(host, user):
     hit = _tokens.get((host, user))
@@ -58,11 +62,11 @@ def handler(event, context):
         count = conn.execute(
             "SELECT count(*) FROM orders WHERE created_at > now() - interval '1 hour'").fetchone()[0]
         if lookup == "by_customer":
-            customers = [f"cust-{random.randint(1, 50000)}" for _ in range(30)]
+            customers = [f"cust-{_RNG.randint(1, 50000)}" for _ in range(30)]
             checked = len(conn.execute(BY_CUSTOMER, (customers,)).fetchall())
         else:
             checked = len(conn.execute("SELECT order_id FROM orders WHERE order_id = ANY(%s)",
-                                       ([f"seed-{random.randint(1, 3000000)}" for _ in range(30)],)).fetchall())
+                                       ([f"seed-{_RNG.randint(1, 3000000)}" for _ in range(30)],)).fetchall())
     # Every option set, not left to redis-py's defaults (8.0: RESP3, 10 retries with backoff, keepalive, 5 s
     # timeouts): RESP2, one try, no keepalive, 3 s timeouts. TLS checks the certificate and host name.
     cache = redis.Redis(host=os.environ["REDIS_HOST"], port=6379, ssl=True, ssl_cert_reqs="required",

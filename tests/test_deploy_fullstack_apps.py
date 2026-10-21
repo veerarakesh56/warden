@@ -27,7 +27,8 @@ STACK = {
     "db_app_secret_arn": "arn:aws:secretsmanager:ap-south-2:111122223333:secret:warden-dev-db-app-AbC",
     "db_app_secret_name": "warden-dev-db-app",
     "db_name": "shop", "environment": "dev",
-    "db_users": {"app": "warden_dev_app", "catalog": "warden_dev_catalog", "ro": "warden_dev_ro"},
+    "db_users": {"app": "warden_dev_app", "catalog": "warden_dev_catalog", "ro": "warden_dev_ro",
+                 "terminate": "warden_dev_terminate"},
     "db_master_username": "postgres",
     "ecs_task_role_arn": "arn:aws:iam::111122223333:role/warden-dev-orders-api-task",
     "redis_primary_endpoint": "redis.internal",
@@ -55,8 +56,13 @@ class Fake:
         return Fake()
 
 
+# The pushed image's digest, as ECR's describe_images answers (built from parts: a fake, not a real image).
+DIGEST = "sha256:" + "0123456789abcdef" * 4
+ECR_IMAGE = {"describe_images": {"imageDetails": [{"imageDigest": DIGEST, "imageTags": ["abc123"]}]}}
+
+
 def aws_factory(clients):
-    return lambda service: clients.setdefault(service, Fake())
+    return lambda service: clients.setdefault(service, Fake(ECR_IMAGE if service == "ecr" else None))
 
 
 class Runner:
@@ -106,7 +112,7 @@ def test_deploy_ecs_records_the_baseline_revision_in_stack_json(tmp_path):
     token = base64.b64encode(b"AWS:pw").decode()
     clients = {
         "ecr": Fake({"get_authorization_token": {"authorizationData": [
-            {"authorizationToken": token, "proxyEndpoint": "https://registry"}]}}),
+            {"authorizationToken": token, "proxyEndpoint": "https://registry"}]}, **ECR_IMAGE}),
         "ecs": Fake({"register_task_definition": {"taskDefinition": {"taskDefinitionArn": "arn:td:4"}}}),
     }
     assert tool.main(["--out", str(tmp_path), "deploy", "ecs"], aws=aws_factory(clients), runner=Runner()) == 0
@@ -136,7 +142,8 @@ def test_deploy_ecs_logs_in_over_stdin_and_updates_the_service():
     token = base64.b64encode(b"AWS:ecr-pw-SENTINEL").decode()
     clients = {
         "ecr": Fake({"get_authorization_token": {"authorizationData": [
-            {"authorizationToken": token, "proxyEndpoint": "https://111122223333.dkr.ecr.ap-south-2.amazonaws.com"}]}}),
+            {"authorizationToken": token, "proxyEndpoint": "https://111122223333.dkr.ecr.ap-south-2.amazonaws.com"}]},
+            **ECR_IMAGE}),
         "ecs": Fake({"register_task_definition": {"taskDefinition": {"taskDefinitionArn": "arn:td:9"}}}),
     }
     run = Runner()
@@ -144,6 +151,11 @@ def test_deploy_ecs_logs_in_over_stdin_and_updates_the_service():
     assert all("ecr-pw-SENTINEL" not in " ".join(c) for c in run.cmds)
     assert "ecr-pw-SENTINEL" in run.inputs
     assert ["docker", "push", STACK["ecr_repository_url"] + ":abc123"] in run.cmds
+    # B26: the task runs the pushed image by its digest, not by the mutable tag.
+    td = next(kw for name, kw in clients["ecs"].calls if name == "register_task_definition")
+    assert td["containerDefinitions"][0]["image"] == f"{STACK['ecr_repository_url']}@{DIGEST}"
+    assert ("describe_images", {"repositoryName": "warden-dev-app", "imageIds": [{"imageTag": "abc123"}]}) \
+        in clients["ecr"].calls
     assert ("update_service", {"cluster": "warden-dev-ecs", "service": "warden-dev-orders-api",
                                "taskDefinition": "arn:td:9"}) in clients["ecs"].calls
 
@@ -171,7 +183,7 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run, revision=REV, sleep=lambda s: None)
     # catalog-api logs in with an IAM token (Pod Identity): the only secret asked for is Datadog's agent key, which
     # this stack does not have - so no agent, and the apps deploy as before.
-    assert set(clients) <= {"secretsmanager", "ssm"}
+    assert set(clients) <= {"secretsmanager", "ssm", "ecr"}  # ecr: the image's digest (B26)
     assert [kw for name, kw in clients["secretsmanager"].calls] == [{"SecretId": "warden-dev-datadog-api-key"}]
     assert not any(c[:1] == ["helm"] and "datadog" in " ".join(c) for c in run.cmds)  # no key: no agent
     assert any(c[:4] == ["helm", "upgrade", "--install", "argocd"] for c in run.cmds)  # Argo CD always (2026-10-16)
@@ -191,7 +203,8 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     src = app["spec"]["source"]
     assert (src["repoURL"], src["targetRevision"], src["path"]) == ("https://github.com/owner/warden", REV,
                                                                     "manifests/shop/dev")
-    assert src["kustomize"]["images"] == [f"shop-app={STACK['ecr_repository_url']}:abc123"]
+    # B26: by digest - the repository's tags are mutable, the digest names exactly the bytes built.
+    assert src["kustomize"]["images"] == [f"shop-app={STACK['ecr_repository_url']}@{DIGEST}"]
     assert app["spec"]["syncPolicy"]["automated"] == {"enabled": True, "prune": True, "selfHeal": True}
     assert not tool.PLACEHOLDER.search(app_in)
     assert any("get application shop" in " ".join(c) for c in run.cmds)
@@ -384,7 +397,7 @@ def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_p
     assert dep["spec"]["template"]["spec"]["containers"][0]["image"] == tool.OTEL_IMAGE.replace(":v", ":v")
     assert tool.OTEL_IMAGE.endswith(":v0.50.0")
     k8s = (ROOT / "manifests" / "shop" / "base" / "config.yaml").read_text(encoding="utf-8")
-    assert 'OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4318"' in k8s
+    assert 'OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"' in k8s
     assert "OTEL_SDK_DISABLED=true" in (ROOT / "scenarios" / "fullstack" / "app" / "Dockerfile").read_text(encoding="utf-8")
 
 
@@ -413,7 +426,7 @@ def _no_chart_download(monkeypatch):
 
 
 def test_argocd_is_installed_from_the_checked_package_with_its_settings(tmp_path):
-    """Owner, 2026-10-16: GitOps for the cluster. Argo CD v3.5.4 (chart 10.9.7) from the argo-helm release's own
+    """Owner, 2026-10-16: GitOps for the cluster. Argo CD v3.5.5 (chart 10.10.5, B26) from the argo-helm release's own
     package - installed only if its sha256 is the pinned one - with helm/argo-cd/values.yaml."""
     run = Runner({})
     tool.deploy_argocd("kc", tmp_path, run)
@@ -421,7 +434,11 @@ def test_argocd_is_installed_from_the_checked_package_with_its_settings(tmp_path
     assert helm[3] == "argocd" and helm[4] == str(tmp_path / f"argo-cd-{tool.ARGOCD_CHART}.tgz")
     assert helm[helm.index("--namespace") + 1] == "argocd" and helm[helm.index("--values") + 1] == str(tool.ARGOCD_VALUES)
     assert (tmp_path / f"argo-cd-{tool.ARGOCD_CHART}.tgz").read_bytes() == b"argo-cd chart package"
-    assert tool.ARGOCD_CHART == "10.9.7" and tool.ARGOCD_CHART_URL.startswith("https://github.com/argoproj/argo-helm/")
+    assert tool.ARGOCD_CHART == "10.10.5"
+    assert tool.ARGOCD_CHART_URL.startswith("https://github.com/argoproj/argo-helm/")
+    # The pinned bytes of argo-cd-10.10.5.tgz (downloaded and hashed 2026-10-20); the test above patches the constant.
+    assert 'ARGOCD_CHART_SHA256 = "ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a"' in \
+        (ROOT / "scripts" / "deploy_fullstack_apps.py").read_text(encoding="utf-8")
 
 
 def test_a_chart_package_that_is_not_the_pinned_one_installs_nothing(tmp_path, monkeypatch):
@@ -475,3 +492,31 @@ def test_the_shops_workloads_render_for_dev_with_no_placeholder_and_the_hpa_owns
             e["configMapRef"]["name"] for e in c["envFrom"]}
     assert docs[("ConfigMap", "otel-config")]["data"]["OTEL_RESOURCE_ATTRIBUTES"] == "deployment.environment=dev"
     assert not any(k == "Secret" or k == "Namespace" for k, _ in docs)  # the pipeline's, never Git's
+
+
+@pytest.mark.parametrize("found", [{}, {"imageDetails": []}, {"imageDetails": [{"imageDigest": "latest"}]}])
+def test_an_image_without_a_sha256_digest_is_never_deployed(found):
+    """B26: no digest, no deploy - never a fall back to the mutable tag."""
+    aws = aws_factory({"ecr": Fake({"describe_images": found})})
+    with pytest.raises(SystemExit, match="with a sha256 digest"):
+        tool.image_by_digest(STACK, "abc123", aws)
+
+
+def test_ecs_runs_the_digest_the_push_answered_not_one_read_back_by_the_tag():
+    """CodeRabbit (PR 90): between the push and a read-back the mutable tag could move; the push's own digest is used."""
+    pushed = "sha256:" + "fedcba9876543210" * 4
+    token = base64.b64encode(b"AWS:pw").decode()
+    clients = {"ecr": Fake({"get_authorization_token": {"authorizationData": [
+                   {"authorizationToken": token, "proxyEndpoint": "https://registry"}]}, **ECR_IMAGE}),
+               "ecs": Fake({"register_task_definition": {"taskDefinition": {"taskDefinitionArn": "arn:td:5"}}})}
+    run = Runner({"docker push": f"abc123: digest: {pushed} size: 1234"})
+    tool.deploy_ecs(STACK, "abc123", aws_factory(clients), run, wait=False)
+    td = next(kw for name, kw in clients["ecs"].calls if name == "register_task_definition")
+    assert td["containerDefinitions"][0]["image"] == f"{STACK['ecr_repository_url']}@{pushed}"
+    assert not [c for c in clients["ecr"].calls if c[0] == "describe_images"]
+
+
+def test_a_venv_symlink_is_ignored_too():
+    """PR 90: `.venv/` matches a directory only; a `.venv` symlink was committed and CI's `uv venv` failed."""
+    lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert ".venv" in lines

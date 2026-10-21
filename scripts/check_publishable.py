@@ -113,8 +113,9 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
      "a private key"),
     ("slack-webhook", re.compile(r"https://hooks\.slack\.com/(?:services|triggers|workflows)/\S+"),
      "a Slack webhook or workflow-trigger URL, which is a credential on its own"),
+    # The host bounded as DNS bounds one (253 characters; Sonar python:S8786, 2026-10-16).
     ("teams-webhook", re.compile(
-        r"https://[\w.-]+\.(?:webhook\.office\.com/webhookb2|logic\.azure\.com\S*sig=)\S*"),
+        r"https://[\w.-]{1,253}\.(?:webhook\.office\.com/webhookb2|logic\.azure\.com\S*sig=)\S*"),
      "a Microsoft Teams / Power Automate webhook URL, which is a credential on its own"),
     ("huggingface-token", re.compile(r"\bhf_[A-Za-z0-9]{30,}"),
      "a Hugging Face token"),
@@ -134,7 +135,7 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     # flagged it; these shapes had no pattern here. A test builds such values by concatenation.
     ("stripe-secret", re.compile(r"\b(?:whsec|sk_live|sk_test|rk_live|rk_test|pk_live)_[A-Za-z0-9+/=]{12,}"),
      "a Stripe key or webhook signing secret"),
-    ("github-fine-grained-token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "a GitHub fine-grained token"),
+    ("github-fine-grained-token", re.compile(r"\bgithub_pat_(?a:\w{20,})"), "a GitHub fine-grained token"),
     ("gitlab-token", re.compile(r"\bgl(?:pat|rt)-[A-Za-z0-9_-]{16,}"), "a GitLab token"),
     ("npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{30,}"), "an npm token"),
     ("sendgrid-key", re.compile(r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"), "a SendGrid key"),

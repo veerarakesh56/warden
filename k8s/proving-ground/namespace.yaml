@@ -67,6 +67,7 @@ spec:
             requests:
               memory: 24Mi
               cpu: 50m
+              ephemeral-storage: 16Mi  # its logs only (Sonar kubernetes:S6897)
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true

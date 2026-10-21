@@ -40,6 +40,7 @@ from .ops import OpError
 # Kubernetes labels are lowercase/DNS-shaped, so the ECS tag ("Project") becomes this. Same meaning,
 # same job: the one check that must never be relaxed for convenience.
 PROJECT_LABEL = ("project", "warden-proving-ground")
+FAULT_IMAGE_TAG = "3.12.7-alpine"  # the python image every faulty variant runs
 
 
 @dataclass
@@ -141,7 +142,7 @@ _VARIANTS: dict[str, dict[str, Any]] = {
     # Allocates 900 MiB against a 48 MiB limit. The kernel does the rest, and the kubelet records
     # lastState.terminated.reason=OOMKilled, which is exactly what the backend reads.
     "oom": {
-        "image_tag": "3.12.7-alpine",
+        "image_tag": FAULT_IMAGE_TAG,
         "command_key": "oom",
     },
     # ⭐ The pair to `oom`, and the reason both exist. Same IMAGE as the baseline; only the command
@@ -161,13 +162,13 @@ _VARIANTS: dict[str, dict[str, Any]] = {
     # Exits non-zero immediately: CrashLoopBackOff, which the backend surfaces as
     # `crashloop_containers` plus a BackOff event.
     "exit_one": {
-        "image_tag": "3.12.7-alpine",
+        "image_tag": FAULT_IMAGE_TAG,
         "command_key": "exit_one",
     },
     # The container is healthy; its liveness probe is not. The kubelet kills and restarts it, so the
     # symptom is a rising restart_count and Unhealthy events - with the process itself blameless.
     "bad_probe": {
-        "image_tag": "3.12.7-alpine",
+        "image_tag": FAULT_IMAGE_TAG,
         "command_key": "healthy",
         "liveness_probe": {
             "exec": {"command": ["sh", "-c", "exit 1"]},

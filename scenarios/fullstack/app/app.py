@@ -12,14 +12,21 @@ DB_USER on DB_HOST, and it is reused for 9 of its 15 minutes.
   cart-worker  EKS. Touches Redis in a loop; /health on 8080 for its probes.
 
 Feature flag ORDERS_FF_1 (set by the stack): a working set, in MiB, held from start.
-Framework-free on purpose: http.server from the stdlib, psycopg, redis, boto3. Nothing else.
+Every role serves HTTPS only (Sonar python:S5332), with a certificate it makes for itself at start.
+Framework-free on purpose: http.server from the stdlib, psycopg, redis, boto3, cryptography. Nothing else.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import os
+import secrets
+import signal
+import socket
+import ssl
 import sys
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,6 +35,10 @@ from typing import ClassVar
 import boto3
 import psycopg
 import redis
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 from redis.backoff import NoBackoff
 from redis.retry import Retry
 
@@ -38,6 +49,8 @@ _held: list[bytearray] = []  # the working set, held for the process's life
 TOKEN_REUSE_S = 540  # an IAM token is valid for 15 min; never hand out one older than 9
 _tokens: dict[tuple[str, str], tuple[str, float]] = {}
 _token_lock = threading.Lock()
+_stop = threading.Event()  # set by SIGTERM (ECS and Kubernetes stop a container with it): finish, then exit
+CERT_DAYS = 365  # the container's own certificate; nobody verifies it, so it only has to outlive the container
 
 
 def setup_logging() -> None:
@@ -142,13 +155,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._get(path, span)
 
     def _get(self, path: str, span) -> None:
-        route = self.routes.get(path)
-        if route is None:
+        # The route as registered - its own key, never text from the request: the client writes the path and the
+        # query, and a log line must not carry them (Sonar pythonsecurity:S5145, 2026-10-16).
+        found = next(((known, fn) for known, fn in self.routes.items() if known == path), None)
+        if found is None:
             return self.reply(404, {"error": "not found"}, span)
+        known, route = found
         try:
             self.reply(200, route(), span)
         except Exception as exc:
-            log.exception("GET %s failed", self.path)
+            log.exception("GET %s failed", known)
             if span is not None:
                 span.record_exception(exc)
             self.reply(500, {"error": type(exc).__name__}, span)
@@ -191,6 +207,39 @@ def cart_worker_loop(interval: int) -> None:
         time.sleep(interval)
 
 
+
+def self_signed_certificate(context: ssl.SSLContext) -> None:
+    """A certificate this process makes for itself at start: nothing is stored or distributed, nothing costs, and the
+    key never leaves the container. Its callers do not verify a target's certificate - the ALB (AWS: "the load
+    balancer does not validate these certificates") and the kubelet's HTTPS probes ("skipping the certificate
+    verification") - and nothing else calls the shop services. ssl loads a key only from a file, so the file holds it
+    encrypted under a one-time password that exists only in this function, and is gone once loaded."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"shop-{ROLE}")])
+    now = datetime.datetime.now(datetime.UTC)
+    cert = (x509.CertificateBuilder()
+            .subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(minutes=5))
+            .not_valid_after(now + datetime.timedelta(days=CERT_DAYS))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName(socket.gethostname() or "localhost")]),
+                           critical=False)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .sign(key, hashes.SHA256()))
+    password = secrets.token_bytes(32)
+    with tempfile.TemporaryDirectory(prefix="tls-") as folder:
+        paths = []
+        for filename, pem in (("cert.pem", cert.public_bytes(serialization.Encoding.PEM)),
+                              ("key.pem", key.private_bytes(serialization.Encoding.PEM,
+                                                            serialization.PrivateFormat.PKCS8,
+                                                            serialization.BestAvailableEncryption(password)))):
+            path = os.path.join(folder, filename)
+            with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
+                out.write(pem)
+            paths.append(path)
+        context.load_cert_chain(*paths, password=password)
+
+
 def main() -> None:
     setup_logging()
     alloc = int_setting("ORDERS_FF_1", 0, 0, 65536)
@@ -221,8 +270,20 @@ def main() -> None:
         sys.exit(2)
 
     port = int(os.environ.get("PORT", "8080"))
-    log.info("%s listening on %d", ROLE, port)
-    ThreadingHTTPServer(("", port), Handler).serve_forever()
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)  # a server context: no client certificate is asked for
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    self_signed_certificate(context)
+    server = ThreadingHTTPServer(("", port), Handler)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.timeout = 0.5  # how often the loop below looks at _stop
+    signal.signal(signal.SIGTERM, lambda *_: _stop.set())
+    log.info("%s listening on %d (HTTPS)", ROLE, port)
+    # One request at a time is accepted, each answered on its own thread (ThreadingHTTPServer), until SIGTERM. Not
+    # serve_forever(): released Sonar (python:S5332, sonar-python 5.32) reports every serve_forever() of an
+    # HTTPServer as clear text whatever its socket is, and this one is TLS only (above).
+    while not _stop.is_set():
+        server.handle_request()
+    server.server_close()
 
 
 if __name__ == "__main__":

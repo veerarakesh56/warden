@@ -32,7 +32,7 @@ output "alb_dns" {
 }
 
 output "alb_url" {
-  value = "http://${aws_lb.orders.dns_name}"
+  value = "https://${aws_lb.orders.dns_name}"
 }
 
 output "alb_target_group_name" {
