@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 
 import pytest
@@ -57,9 +58,14 @@ def git_diff(tmp_path, before: dict[str, str | None], after: dict[str, str | Non
 
 
 class FakeWriter:
-    def __init__(self, diff: str, files: dict[str, str], parents=(PARENT,), fail_commit=False):
+    def __init__(self, diff: str, files: dict[str, str], parents=(PARENT,), fail_commit=False, ancestor=True):
         self.diff, self.files, self.parents, self.fail_commit = diff, files, list(parents), fail_commit
+        self.ancestor = ancestor
         self.calls: list[tuple] = []
+
+    def is_ancestor(self, sha, head):
+        self.calls.append(("is_ancestor", sha, head))
+        return self.ancestor
 
     def commit_diff(self, sha):
         self.calls.append(("commit_diff", sha))
@@ -158,7 +164,7 @@ def test_a_revert_pull_request_is_opened_from_a_real_git_diff(tmp_path):
     out = open_revert(request(), writer=writer)
     assert out.status == "opened", out.reason
     assert (out.pull_request, out.revert_commit, out.head) == (12, NEW, HEAD)
-    assert out.branch == f"warden/revert/dev/{code_fix.public_ref('inc-42')}-{SHA[:12]}"
+    assert out.branch == f"warden/revert/dev/{out.ref}-{SHA[:12]}"
     created = [c for c in writer.calls if c[0] == "create_branch"]
     assert created == [("create_branch", out.branch, HEAD)]
     (_, branch, kw), = [c for c in writer.calls if c[0] == "commit"]
@@ -262,7 +268,7 @@ def test_a_failed_commit_removes_its_branch(tmp_path):
     out = open_revert(request(), writer=writer)
     assert out.status == "failed"
     assert "was removed" in out.reason
-    assert ("delete_branch", f"warden/revert/dev/{code_fix.public_ref('inc-42')}-{SHA[:12]}") in writer.calls
+    assert ("delete_branch", f"warden/revert/dev/{out.ref}-{SHA[:12]}") in writer.calls
     assert not any(c[0] == "pull" for c in writer.calls)
 
 
@@ -278,7 +284,7 @@ def test_a_failed_pull_request_removes_its_branch_and_says_what_was_written(tmp_
     assert out.status == "failed"
     assert out.revert_commit == NEW
     assert "was not opened" in out.reason
-    assert ("delete_branch", f"warden/revert/dev/{code_fix.public_ref('inc-42')}-{SHA[:12]}") in writer.calls
+    assert ("delete_branch", f"warden/revert/dev/{out.ref}-{SHA[:12]}") in writer.calls
 
 
 def test_an_unexpected_error_is_still_an_audit_row(tmp_path):
@@ -310,14 +316,22 @@ def test_an_import_the_revert_restores_is_not_its_own_baseline(tmp_path):
     assert not writer.wrote()
 
 
-def test_github_sees_a_hashed_incident_reference_never_the_id(tmp_path):
+def test_github_sees_a_random_incident_reference_never_the_id(tmp_path):
+    """Nothing computed from the id reaches GitHub: a hash of a guessable id could be confirmed by guessing. The
+    reference is random, so the same incident twice gets two references; only the audit row ties it to the id."""
     secret_id = "datadog-" + "4" * 9  # a monitor number: not for a public repository
-    writer = FakeWriter(git_diff(tmp_path, {APP: BEFORE}, {APP: AFTER}), {APP: AFTER})
-    out = open_revert(request(incident=secret_id), writer=writer)
-    assert out.status == "opened"
-    sent = repr([c for c in writer.calls if c[0] in ("create_branch", "commit", "pull")])
-    assert secret_id not in sent
-    assert code_fix.public_ref(secret_id) in out.branch
+    refs = []
+    for _ in range(2):
+        writer = FakeWriter(git_diff(tmp_path, {APP: BEFORE}, {APP: AFTER}), {APP: AFTER})
+        out = open_revert(request(incident=secret_id), writer=writer)
+        assert out.status == "opened"
+        sent = repr([c for c in writer.calls if c[0] in ("create_branch", "commit", "pull")])
+        assert secret_id not in sent
+        assert re.fullmatch(r"inc-[0-9a-f]{12}", out.ref)
+        assert out.branch == f"warden/revert/dev/{out.ref}-{SHA[:12]}"
+        assert out.row()["ref"] == out.ref
+        refs.append(out.ref)
+    assert refs[0] != refs[1]
 
 
 def test_the_core_zone_records_a_revert_the_act_zone_never_ran():
@@ -456,4 +470,58 @@ def test_a_rename_or_a_binary_is_reverted_by_a_person(diff, says):
     out = open_revert(request(), writer=writer)
     assert out.status == "refused"
     assert says in out.reason
+    assert not writer.wrote()
+
+
+# ------------------------------------------------------------------------------------- second review (2026-10-21)
+
+def test_a_commit_outside_the_default_branchs_history_is_never_reverted(tmp_path):
+    """A commit only a fork (or another branch) has: GitHub serves it by id, and its "inverse" would be new code. It is
+    refused before its diff is even read."""
+    writer = FakeWriter(git_diff(tmp_path, {APP: BEFORE}, {APP: AFTER}), {APP: AFTER}, ancestor=False)
+    out = open_revert(request(), writer=writer)
+    assert out.status == "refused"
+    assert "not in the history of main" in out.reason
+    assert ("is_ancestor", SHA, HEAD) in writer.calls
+    assert not any(c[0] == "commit_diff" for c in writer.calls)
+    assert not writer.wrote()
+
+
+def test_take_back_searches_forward_never_inside_lines_a_hunk_just_restored():
+    """Hunk 1 brings back `Z`; hunk 2's `Z` is the one further down. Searched from the top, the restored `Z` would
+    make it ambiguous (or the wrong one)."""
+    change = parse_diff("diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n"
+                        "@@ -1,3 +1 @@\n-c\n-Z\n-d\n+Y\n@@ -7 +5 @@\n-W\n+Z\n")[0]
+    current = "Y\nf1\nf2\nf3\nZ\n"
+    assert take_back(current, change) == "c\nZ\nd\nf1\nf2\nf3\nW\n"
+
+
+def test_a_restored_file_keeps_its_last_newline_exactly(tmp_path):
+    gone = "scenarios/fullstack/app/old.py"
+    diff = git_diff(tmp_path, {APP: BEFORE, gone: "a = 1"}, {APP: BEFORE, gone: None})
+    writer = FakeWriter(diff, {APP: BEFORE})
+    out = open_revert(request(), writer=writer)
+    assert out.status == "opened", out.reason
+    (_, _, kw), = [c for c in writer.calls if c[0] == "commit"]
+    assert kw["additions"] == {gone: b"a = 1"}
+
+
+def test_a_commit_that_added_the_last_newline_is_taken_back_without_it(tmp_path):
+    before, after = BEFORE + "x = 1", BEFORE + "x = 2\n"
+    writer = FakeWriter(git_diff(tmp_path, {APP: before}, {APP: after}), {APP: after})
+    out = open_revert(request(), writer=writer)
+    assert out.status == "opened", out.reason
+    (_, _, kw), = [c for c in writer.calls if c[0] == "commit"]
+    assert kw["additions"] == {APP: before.encode()}
+
+
+@pytest.mark.parametrize("mode", ["100755", "120000"])
+def test_a_deleted_file_that_was_not_a_regular_file_is_restored_by_a_person(mode):
+    path = "scenarios/fullstack/app/run.py"
+    diff = (f"diff --git a/{path} b/{path}\ndeleted file mode {mode}\nindex 1a2b3c4..0000000\n--- a/{path}\n"
+            "+++ /dev/null\n@@ -1 +0,0 @@\n-x = 1\n")
+    writer = FakeWriter(diff, {})
+    out = open_revert(request(), writer=writer)
+    assert out.status == "refused"
+    assert f"mode {mode}" in out.reason
     assert not writer.wrote()

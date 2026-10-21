@@ -414,3 +414,24 @@ def test_default_branch_is_read_and_checked():
     for _ in range(2):
         with pytest.raises(GitHubAppError, match="not a plain branch name"):
             writer.default_branch()
+
+
+@pytest.mark.parametrize("reply, want", [
+    ((200, {"status": "ahead", "merge_base_commit": {"sha": SHA}}), True),
+    ((200, {"status": "identical", "merge_base_commit": {"sha": SHA}}), True),
+    ((200, {"status": "diverged", "merge_base_commit": {"sha": NEW}}), False),   # another branch, or only a fork
+    ((200, {"status": "behind", "merge_base_commit": {"sha": NEW}}), False),
+    ((200, {"status": "ahead", "merge_base_commit": {"sha": NEW}}), False),      # ahead of something else
+    ((404, {"message": "Not Found"}), False),                                   # a commit GitHub cannot compare
+    ((200, []), False),
+])
+def test_is_ancestor_asks_compare_and_trusts_only_ahead_of_that_very_commit(reply, want):
+    api, log = fake_api(reply)
+    assert RepoWriter(token(), api=api).is_ancestor(SHA, NEW) is want
+    assert log[0]["path"] == f"/repos/{REPO}/compare/{SHA}...{NEW}?per_page=1"
+
+
+def test_a_diff_that_is_not_utf8_says_so():
+    api, _ = fake_api((200, {"parents": [{"sha": SHA}]}), (200, b"\xff\xfe"))
+    with pytest.raises(GitHubAppError, match="not UTF-8 text"):
+        RepoWriter(token(), api=api).commit_diff(NEW)

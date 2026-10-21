@@ -159,9 +159,12 @@ class Api:
             conn.close()
         if len(raw) > MAX_REPLY:
             raise GitHubAppError(f"{what}: the reply is over {MAX_REPLY} bytes")
-        try:
-            if diff:
+        if diff:
+            try:
                 return status, raw.decode("utf-8")
+            except UnicodeDecodeError:
+                raise GitHubAppError(f"{what}: the diff is not UTF-8 text (HTTP {status})") from None
+        try:
             return status, json.loads(raw) if raw else None
         except ValueError:
             raise GitHubAppError(f"{what}: the reply is not JSON (HTTP {status})") from None
@@ -284,6 +287,20 @@ class RepoWriter:
         if len(data) > MAX_FILE or len(data) != got.get("size"):
             raise GitHubAppError(f"{path}: the file is over {MAX_FILE} bytes or arrived incomplete")
         return data
+
+    def is_ancestor(self, sha: str, head: str) -> bool:
+        """Whether commit `sha` is in `head`'s history: GitHub's compare says `head` is ahead of it (or is it), and their
+        merge base is `sha` itself. A commit only a fork or another branch has is not (GitHub serves a fork network's
+        commits by id). One commit per page, so the commit list stays short; a reply over MAX_REPLY (a huge range of
+        changed files) fails, and the revert is refused, never guessed."""
+        status, got = self._call("GET", f"/compare/{_sha(sha, 'the commit')}...{_sha(head, 'the head')}?per_page=1")
+        if status == 404:
+            return False
+        _expect(status, 200, f"comparing {sha[:12]} with {head[:12]}")
+        if not isinstance(got, dict):
+            return False
+        base = (got.get("merge_base_commit") or {}).get("sha") if isinstance(got.get("merge_base_commit"), dict) else None
+        return got.get("status") in ("ahead", "identical") and base == sha
 
     def commit_diff(self, sha: str) -> tuple[list[str], str]:
         """A commit's parents and its diff as `git diff` writes it."""
