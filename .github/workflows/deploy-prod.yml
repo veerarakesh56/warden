@@ -1,4 +1,7 @@
 name: "Deploy · prod"
+# Each run says what it does - WARDEN finds its own apply-plan run by this title (platforms/infra.py, healthy). Inputs in
+# run-name are only shown, never executed.
+run-name: "Deploy · prod · ${{ inputs.part == 'infra' && format('infra {0} {1} {2}', inputs.infra_action, inputs.infra_stack, inputs.plan_run_id) || format('apps {0}', inputs.apps_target) }}"
 
 # The prod environment, by hand, from the branch prod only (Use workflow from: prod; owner, 2026-10-16). infra: plan,
 # apply or destroy the full stack. apps: deploy the code that runs on it. The steps are shared (_infra-*.yml,

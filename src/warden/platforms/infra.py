@@ -10,7 +10,8 @@ Helios-checked infra workflow (owner decision 2026-10-20, option A). WARDEN runs
   parameters, so the approval binds them: they are in the plan hash and on the approval page. Dispatching needs a
   token that may run workflows (WARDEN_GITHUB_ACTIONS_TOKEN, the act zone's alone; the B4 GitHub App can replace it):
   without one nothing is sent, and the plan is refused before anything changes.
-- healthy: the apply run that followed the dispatch finished successfully.
+- healthy: OUR apply run finished successfully - the dispatched run titled for this apply-plan (the deploy workflow's
+  run-name), at the kept plan's commit, created around the dispatch. None identifiable is not healthy.
 - undo: none. T3: an apply is not reversed automatically; a person decides what follows.
 """
 
@@ -22,7 +23,7 @@ import re
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .. import web
@@ -38,6 +39,9 @@ BUCKETS_ENV = "WARDEN_TF_STATE_BUCKETS"
 API = "https://api.github.com"
 TIMEOUT_S = 8.0
 RUNS_READ = 20
+# An apply is recorded after GitHub answered the dispatch, and a run's created_at has whole seconds: our run may be
+# created up to this long before the record says the fix was applied (healthy).
+APPLY_SLACK = timedelta(seconds=30)
 _RUN_ID = re.compile(r"\d{1,20}", re.ASCII)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
@@ -99,6 +103,7 @@ class InfraPlatform:
         self.environment, self._gh, self._meta = environment, github, plan_meta
         self._token, self._read_token = token, read_token
         self.workflow = f"deploy-{environment}.yml"
+        self.title = f"Deploy · {environment}"  # the workflow's run-name starts with its name
 
     # ------------------------------------------------------------------ reads
 
@@ -148,18 +153,33 @@ class InfraPlatform:
         return False  # health is asked by entry (healthy_for), never by a bare name
 
     def healthy(self, _service: str, entry: str | None = None, params: dict[str, Any] | None = None) -> bool:
-        """The apply run the dispatch started finished successfully: the newest dispatched run of the workflow on the
-        environment's branch, created after the fix was applied (the workflow's concurrency group runs one at a time)."""
+        """OUR apply run finished successfully - never another run that merely came after it (main session's review,
+        PR 113). Ours is the dispatched run titled for exactly this apply-plan (the deploy workflow's run-name:
+        `Deploy · <env> · infra apply-plan <stack> <plan run>`), at the commit the kept plan was made at, created no
+        earlier than APPLY_SLACK before the fix was recorded applied (the record is written after GitHub's 204, and
+        created_at has whole seconds). None identifiable - or anything unreadable - is not healthy."""
         if entry != ENTRY:
             return False
-        since = _when((params or {}).get(APPLIED_AT))
         try:
-            runs = self._gh.get(f"/actions/workflows/{self.workflow}/runs?branch={self.environment}"
-                                f"&event=workflow_dispatch&per_page=5", self._read_token()).get("workflow_runs") or []
-        except (OSError, ValueError):  # URLError and timeouts are OSErrors
+            run = self._our_run(params or {})
+        except (InfraPlatformError, OSError, ValueError, KeyError, TypeError, AttributeError):  # URLError: an OSError
             return False
-        after = [r for r in runs if since is not None and (_when(r.get("created_at")) or since) >= since]
-        return bool(after) and after[0].get("status") == "completed" and after[0].get("conclusion") == "success"
+        return run is not None and run.get("status") == "completed" and run.get("conclusion") == "success"
+
+    def _our_run(self, params: dict[str, Any]) -> dict[str, Any] | None:
+        applied, stack, plan_run = _when(params.get(APPLIED_AT)), params.get("stack"), str(params.get("plan_run", ""))
+        if applied is None or stack not in STACKS or not _RUN_ID.fullmatch(plan_run):
+            return None
+        commit = str((self._meta(str(stack), plan_run) or {}).get("commit", ""))
+        if not commit:
+            return None
+        title = f"{self.title} · infra apply-plan {stack} {plan_run}"
+        runs = self._gh.get(f"/actions/workflows/{self.workflow}/runs?branch={self.environment}"
+                            f"&event=workflow_dispatch&per_page={RUNS_READ}", self._read_token()).get("workflow_runs") or []
+        ours = [(created, r) for r in runs
+                if r.get("display_title") == title and r.get("head_sha") == commit
+                and (created := _when(r.get("created_at"))) is not None and created >= applied - APPLY_SLACK]
+        return min(ours, key=lambda pair: pair[0])[1] if ours else None  # the first one after the dispatch: ours
 
     # ------------------------------------------------------------------ writes
 

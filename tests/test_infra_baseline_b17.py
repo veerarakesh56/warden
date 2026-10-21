@@ -156,18 +156,60 @@ def test_github_refusing_the_dispatch_changed_nothing_and_an_odd_answer_is_unkno
     assert not getattr(err.value, "nothing_changed", False)
 
 
+OURS = "Deploy · dev · infra apply-plan fullstack 902"  # the deploy workflow's run-name for this apply-plan
+HEALTH = {"stack": "fullstack", "plan_run": "902", "plan_sha256": SHA, catalog.APPLIED_AT: APPLIED}
+
+
+def _run(id_, title, created, status="completed", conclusion="success", sha=HEAD):
+    return {"id": id_, "display_title": title, "head_sha": sha, "created_at": created, "status": status,
+            "conclusion": conclusion, "event": "workflow_dispatch"}
+
+
 @pytest.mark.parametrize(("status", "conclusion", "healthy"), [
     ("completed", "success", True), ("in_progress", None, False), ("completed", "failure", False)])
-def test_healthy_is_the_apply_run_after_the_fix_finishing_well(world, status, conclusion, healthy):
+def test_healthy_is_our_apply_run_finishing_well(world, status, conclusion, healthy):
     gh, _, _, p = world
-    gh.runs = [{"id": 903, "status": status, "conclusion": conclusion, "created_at": "2026-10-20T19:00:05+00:00"},
-               *gh.runs]
-    assert p.healthy("fullstack", entry=ENTRY, params={catalog.APPLIED_AT: APPLIED}) is healthy
+    gh.runs = [_run(903, OURS, "2026-10-20T19:00:05Z", status, conclusion), *gh.runs]
+    assert p.healthy("fullstack", entry=ENTRY, params=HEALTH) is healthy
 
 
-def test_no_run_after_the_fix_is_not_healthy(world):
-    _, _, _, p = world
-    assert p.healthy("fullstack", entry=ENTRY, params={catalog.APPLIED_AT: APPLIED}) is False
+def test_our_run_created_in_the_same_second_just_before_the_record_is_found(world):
+    """GitHub answers the dispatch, then WARDEN records the fix applied: our run's created_at (whole seconds) can be
+    before applied_at. It is still ours."""
+    gh, _, _, p = world
+    gh.runs = [_run(903, OURS, "2026-10-20T19:00:00Z"), *gh.runs]
+    assert p.healthy("fullstack", entry=ENTRY, params={**HEALTH, catalog.APPLIED_AT: "2026-10-20T19:00:00.050000+00:00"})
+
+
+def test_a_later_run_by_someone_else_succeeding_never_stands_for_ours(world):
+    """Fail-open before (review, PR 113): the newest run after the fix was taken as ours. A plan run someone dispatched
+    afterwards, succeeding while ours failed, is not ours."""
+    gh, _, _, p = world
+    gh.runs = [_run(905, "Deploy · dev · infra plan fullstack ", "2026-10-20T19:03:00Z"),
+               _run(903, OURS, "2026-10-20T19:00:05Z", conclusion="failure"), *gh.runs]
+    assert p.healthy("fullstack", entry=ENTRY, params=HEALTH) is False
+
+
+@pytest.mark.parametrize("change", ["no-run", "other-title", "other-commit", "long-before", "unreadable-time",
+                                    "no-applied-at"])
+def test_no_identifiable_run_is_not_healthy(world, change):
+    gh, _, _, p = world
+    run = {"no-run": None, "other-title": _run(903, "Deploy · dev · infra apply-plan fullstack 901", "2026-10-20T19:00:05Z"),
+           "other-commit": _run(903, OURS, "2026-10-20T19:00:05Z", sha=OLD),
+           "long-before": _run(903, OURS, "2026-10-20T18:58:00Z"),
+           "unreadable-time": _run(903, OURS, "soon"),
+           "no-applied-at": _run(903, OURS, "2026-10-20T19:00:05Z")}[change]
+    gh.runs = [r for r in (run, *gh.runs) if r]
+    params = {k: v for k, v in HEALTH.items() if change != "no-applied-at" or k != catalog.APPLIED_AT}
+    assert p.healthy("fullstack", entry=ENTRY, params=params) is False
+
+
+def test_the_deploy_workflows_name_each_run_as_healthy_reads_it():
+    for env in ("dev", "prod"):
+        flow = (ROOT / ".github" / "workflows" / f"deploy-{env}.yml").read_text(encoding="utf-8")
+        assert (f'run-name: "Deploy · {env} · ${{{{ inputs.part == \'infra\' && format(\'infra {{0}} {{1}} {{2}}\', '
+                "inputs.infra_action, inputs.infra_stack, inputs.plan_run_id) || format('apps {0}', inputs.apps_target) }}\"") in flow
+        assert InfraPlatform(environment=env, github=FakeGitHub(), plan_meta=_meta({})).title == f"Deploy · {env}"
 
 
 def test_it_is_never_undone_automatically(world):
