@@ -247,7 +247,7 @@ class FindingsReader:
             if len(prs) >= self.max_prs:
                 break
             try:
-                rows = self._get(f"{_API}/repos/{self.repo}/commits/{sha}/pulls?per_page=5", self.token)
+                rows = self._get(f"{_API}/repos/{self.repo}/commits/{sha}/pulls?per_page={self.max_prs}", self.token)
             except _FAILED as exc:
                 out.append(self._unread(exc, f"pull requests of commit {sha[:12]}"))
                 continue
