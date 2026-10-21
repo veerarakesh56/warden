@@ -145,6 +145,7 @@ when WARDEN itself misbehaves is in [docs/RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBO
 | [AWS-SETUP.md](docs/AWS-SETUP.md) | The AWS identities the benchmark stack uses |
 | [PRODUCTION-ARCHITECTURE.md](docs/PRODUCTION-ARCHITECTURE.md), [SYSTEM-COMPONENTS.md](docs/SYSTEM-COMPONENTS.md) | The cloud runtime, its components and their cost |
 | [OPERATIONS.md](docs/OPERATIONS.md), [RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBOOK-WARDEN-INCIDENT.md) | Running it, and what to do when WARDEN itself is the incident |
+| [RUNBOOK.md](docs/RUNBOOK.md), [USE-CASE.md](docs/USE-CASE.md), [COST.md](docs/COST.md), [DEMO.md](docs/DEMO.md) | Where to start running it; who it is for and how success is measured; model cost per month; the filmed demo |
 | [BENCHMARKS.md](docs/BENCHMARKS.md), [scenarios/SCORING.md](scenarios/SCORING.md) | Every measured result, and how it is graded |
 | [FULLSTACK-LAB.md](docs/FULLSTACK-LAB.md) | The full-stack test environment and its injected faults |
 | [FAILURE-MODES.md](docs/FAILURE-MODES.md) | What can go wrong with an automated WARDEN, and what holds each |
@@ -234,7 +235,7 @@ flowchart TB
         PLAN[resolve_plan: catalogue entry -> exact plan<br/>from live state, plan hash; environment<br/>and self-target checks <i>catalog, environments</i>]
         GATE[gate: bounds, cool-down, kill switch,<br/>change freeze, approval-fatigue cap<br/><i>bounds, freeze</i>]
         CRIT["critic_review, when the run has it (patched eldane-critic):<br/>Eldane, the AI critic, in its own zone, the other Claude<br/>model than the diagnosis, blind first pass; signs in dev at L2 (a person's<br/>no still wins) - else a person decides <i>eldane, autonomy</i><br/>critic_say / debate_reply: the debate in the discussion<br/>channel, labelled an AI, its own Slack token <i>eldane_slack</i><br/>autonomy_state / autonomy_enable: a person's signed<br/>re-enable after a demotion (AutonomyWorkflow)"]
-        APPR[check_approval / check_passkey<br/>signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
+        APPR[check_approval / check_passkey<br/>signed approval of the exact plan hash<br/>approval_wait: until when the run waits<br/>approval_extension: a wait an approver extended<br/><i>approvals, passkeys, extend</i>]
         APPLY[precheck - apply - check_success<br/>3 healthy checks, re-checks at T+15 and T+60<br/>record_result; rollback when not recovered<br/>side_effects: other alarms after the fix<br/>again_alert: diagnosed again after a relapse]
         FIN[finish: audit row, change record<br/>summary_owed: the incident's one message<br/>when a run ends before any said it<br/><i>changes.py</i>]
         PLAN --> GATE --> APPR --> APPLY --> FIN

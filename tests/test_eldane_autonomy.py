@@ -373,7 +373,7 @@ def _run(world, drive, **req):
         env = await WorkflowEnvironment.start_time_skipping(data_converter=CONVERTER)
         acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"],
                                      critic=world["critic"])
-        methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
+        methods = [acts.resolve_plan, acts.gate, acts.announce, acts.approval_wait, acts.check_approval, acts.check_passkey, acts.precheck,
                    acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert,
                    acts.side_effects, acts.critic_review, acts.autonomy_state, acts.critic_say, acts.debate_reply]
         async with env, Worker(env.client, task_queue="eldane-test", workflows=[RemediationWorkflow],
