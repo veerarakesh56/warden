@@ -68,6 +68,14 @@ def _condition_holds(op, key, want, ctx):
     """One condition key under one operator, as IAM's condition evaluation documents it: a positive operator is
     false when the key is absent; a negated one (Not...) is true when the key is absent; Null tests absence."""
     have = ctx.get(key)
+    if op.startswith(("ForAllValues:", "ForAnyValue:")):
+        # A multi-valued key (aws:TagKeys): ForAllValues is true when every value matches - and when the key is
+        # absent, which is why the policies pair it with Null; ForAnyValue when at least one does.
+        qualifier, base = op.split(":", 1)
+        if have is None:
+            return qualifier == "ForAllValues"
+        hits = [_condition_holds(base, key, want, {key: v}) for v in _list(have)]
+        return all(hits) if qualifier == "ForAllValues" else any(hits)
     if op.endswith("IfExists"):
         # IfExists: true when the key is absent, else the operator without the suffix.
         return have is None or _condition_holds(op.removesuffix("IfExists"), key, want, ctx)
@@ -215,8 +223,10 @@ DESTROY_CALLS = {
     "aws_dynamodb_table": [call("dynamodb:DescribeTable", "table"), call("dynamodb:DescribeContinuousBackups", "table"),
                            call("dynamodb:DescribeTimeToLive", "table"), call("dynamodb:ListTagsOfResource", "table"),
                            call("dynamodb:DeleteTable", "table")],
-    "aws_ec2_tag": [call("ec2:DescribeTags", "*"),
-                    call("ec2:DeleteTags", "eks-sg", **{"aws:ResourceTag/aws:eks:cluster-name": "{p}-eks"})],
+    # One DeleteTags per key of the stack's default tags (aws_ec2_tag for_each = local.tags), in any order.
+    "aws_ec2_tag": [call("ec2:DescribeTags", "*")] + [
+        call("ec2:DeleteTags", "eks-sg", **{"aws:ResourceTag/aws:eks:cluster-name": "{p}-eks", "aws:TagKeys": [key]})
+        for key in ("Project", "Environment", "ManagedBy", "Lifecycle")],
     "aws_ecr_lifecycle_policy": [call("ecr:GetLifecyclePolicy", "repo"), call("ecr:DeleteLifecyclePolicy", "repo")],
     "aws_ecr_repository": [call("ecr:DescribeRepositories", "repo"), call("ecr:ListTagsForResource", "repo"),
                            call("ecr:DeleteRepository", "repo")],
@@ -362,7 +372,7 @@ def _context(env, action, kind, extra):
         ctx["aws:ResourceTag/Environment"] = env
     if action.startswith("iam:") and kind == "role":
         ctx["iam:PermissionsBoundary"] = f"arn:aws:iam::{ACCOUNT}:policy/WardenEnvBoundary-{env}"
-    ctx.update({k: v.format(**fill) for k, v in extra.items()})
+    ctx.update({k: v.format(**fill) if isinstance(v, str) else v for k, v in extra.items()})
     arn = ARNS["esm"] if kind == "esm-gone" else ARNS[kind]
     return arn.format(**fill), ctx
 
@@ -460,7 +470,8 @@ def test_the_three_destroy_refusals_of_2026_10_17_are_allowed_now(env):
     rows = {action: (resources, ctx) for action, resources, ctx in _rows(env, [
         call("lambda:GetEventSourceMapping", "esm-gone"),
         call("ec2:DisassociateAddress", "eip", "nat-eni"),
-        call("ec2:DeleteTags", "eks-sg", **{"aws:ResourceTag/aws:eks:cluster-name": "{p}-eks"})])}
+        call("ec2:DeleteTags", "eks-sg", **{"aws:ResourceTag/aws:eks:cluster-name": "{p}-eks",
+                                             "aws:TagKeys": ["Environment"]})])}
     for action, (resources, ctx) in rows.items():
         assert refusal(env, action, resources, ctx) is None, action
 
@@ -489,8 +500,38 @@ def test_the_new_grants_stay_narrow(env):
     others = [f"warden-{o}-eks" for o in ENVS if o != env] + [f"warden-{env}-lab-eks", f"warden-{env}-eks2"]
     for cluster in (*others, "warden-other-eks", "someone-elses-eks"):
         assert refusal(env, "ec2:DeleteTags", [ARNS["eks-sg"].format(**fill)],
-                       {**untagged, "aws:ResourceTag/aws:eks:cluster-name": cluster})
-    assert refusal(env, "ec2:DeleteTags", [ARNS["vpc"].format(**fill)], untagged)
+                       {**untagged, "aws:ResourceTag/aws:eks:cluster-name": cluster, "aws:TagKeys": ["Project"]})
+    assert refusal(env, "ec2:DeleteTags", [ARNS["vpc"].format(**fill)], {**untagged, "aws:TagKeys": ["Project"]})
+    # Only the keys the stack sets come off (CodeRabbit, PR 103): never another key, and never every tag at once - a
+    # DeleteTags that names no key removes them all, and ForAllValues alone would let it through (hence Null).
+    sg = {**untagged, "aws:ResourceTag/aws:eks:cluster-name": f"warden-{env}-eks"}
+    own = {**untagged, "aws:ResourceTag/Environment": env}
+    for target, ctx in ((ARNS["eks-sg"], sg), (ARNS["vpc"], own)):
+        assert refusal(env, "ec2:DeleteTags", [target.format(**fill)], {**ctx, "aws:TagKeys": ["Owner"]})
+        assert refusal(env, "ec2:DeleteTags", [target.format(**fill)], {**ctx, "aws:TagKeys": ["Project", "Owner"]})
+        assert refusal(env, "ec2:DeleteTags", [target.format(**fill)], ctx)  # no key named: every tag
+    assert refusal(env, "ec2:DeleteTags", [ARNS["eks-sg"].format(**fill)], {**sg, "aws:TagKeys": ["Name"]})
+    assert refusal(env, "ec2:DeleteTags", [ARNS["vpc"].format(**fill)], {**own, "aws:TagKeys": ["Name"]}) is None
+
+
+def test_every_tag_key_the_stack_sets_can_be_taken_off_again():
+    """An update that drops a key the stack set needs DeleteTags for that key: the untag grant names every key the
+    full stack's EC2 resources carry - the default tags and each resource's own - and no other."""
+    tf = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "fullstack").glob("*.tf"))
+    blocks = []
+    for m in re.finditer(r"\btags\s*=\s*\{", tf):  # each map, to its own closing brace (past any ${...})
+        depth, i = 1, m.end()
+        while depth:
+            depth += {"{": 1, "}": -1}.get(tf[i], 0)
+            i += 1
+        blocks.append(tf[m.end():i - 1])
+    keys = {k.strip('"') for b in blocks for k in re.findall(r'^\s*("[^"]+"|\w+)\s*=', b, re.MULTILINE)}
+    assert {"Project", "Environment", "ManagedBy", "Lifecycle", "Name", "kubernetes.io/role/elb"} <= keys
+    for env in ENVS:
+        st = next(s for s in _load(env, "deploy-ec2")["Statement"] if s.get("Sid") == "Ec2UntagOwnEnvTaggedOnlyTheStacksKeys")
+        allowed = set(st["Condition"]["ForAllValues:StringEquals"]["aws:TagKeys"])
+        assert allowed == keys, (sorted(allowed - keys), sorted(keys - allowed))
+        assert st["Condition"]["Null"] == {"aws:TagKeys": "false"}
 
 
 def test_the_evaluator_reads_conditions_as_iam_does():
@@ -508,5 +549,10 @@ def test_the_evaluator_reads_conditions_as_iam_does():
     assert _condition_holds("ArnLikeIfExists", "missing", "x", ctx)
     assert _condition_holds("ArnLikeIfExists", "k", "warden-dev-*", ctx)
     assert not _condition_holds("ArnLikeIfExists", "k", "warden-prod-*", ctx)
+    assert _condition_holds("ForAllValues:StringEquals", "tags", ["a", "b"], {"tags": ["a"]})
+    assert not _condition_holds("ForAllValues:StringEquals", "tags", ["a"], {"tags": ["a", "c"]})
+    assert _condition_holds("ForAllValues:StringEquals", "tags", ["a"], {})  # absent: true - pair it with Null
+    assert _condition_holds("ForAnyValue:StringEquals", "tags", ["a"], {"tags": ["c", "a"]})
+    assert not _condition_holds("ForAnyValue:StringEquals", "tags", ["a"], {})
     with pytest.raises(AssertionError):
         _condition_holds("NumericLessThan", "k", "1", ctx)
