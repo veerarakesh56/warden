@@ -20,7 +20,9 @@ def _end(w):
 def test_a_change_one_person_approved_says_so(world, owner):
     assert _run(world, _approve_with(owner)).status == "recovered"
     end = _end(world)
-    assert end["single_approver"] is True and end["approvers"] == ["owner"] and end["required"] == 1
+    assert end["single_approver"] is True
+    assert end["approvers"] == ["owner"]
+    assert end["required"] == 1
     accepted = world["log"].entries("inc-42", kinds=("approval.accepted",))
     assert [e["body"]["required"] for e in accepted] == [1]
 
@@ -44,4 +46,6 @@ def test_a_change_two_people_approved_is_not_called_single(world, owner):
 
     assert _run(world, drive).status == "recovered"
     end = _end(world)
-    assert end["single_approver"] is False and end["approvers"] == ["owner", "second"] and end["required"] == 2
+    assert end["single_approver"] is False
+    assert end["approvers"] == ["owner", "second"]
+    assert end["required"] == 2

@@ -21,7 +21,8 @@ def _ends(world):
 
 def test_every_quick_step_has_a_bounded_number_of_tries():
     policy = QUICK["retry_policy"]
-    assert policy.maximum_attempts and 1 < policy.maximum_attempts <= 20
+    assert policy.maximum_attempts
+    assert 1 < policy.maximum_attempts <= 20
 
 
 def test_a_step_that_keeps_failing_before_apply_ends_the_run_on_the_record(world):
@@ -34,7 +35,8 @@ def test_a_step_that_keeps_failing_before_apply_ends_the_run_on_the_record(world
     with pytest.raises(WorkflowFailureError):
         _run(world, nothing)
     [end] = _ends(world)
-    assert end["status"] == "failed" and not end["checklist"]["applied"]
+    assert end["status"] == "failed"
+    assert not end["checklist"]["applied"]
     assert bounds.killswitch(world["log"]) is None  # nothing was changed: no reason to stop every other fix
 
 
@@ -42,10 +44,12 @@ def test_a_step_that_keeps_failing_after_apply_trips_the_kill_switch(world, owne
     def broken(service):
         raise RuntimeError("health cannot be read")
     world["platform"].healthy = broken
+    approve = _approve_with(owner)
     with pytest.raises(WorkflowFailureError):
-        _run(world, _approve_with(owner))
+        _run(world, approve)
     [end] = _ends(world)
-    assert end["status"] == "failed_after_apply" and end["checklist"]["applied"]
+    assert end["status"] == "failed_after_apply"
+    assert end["checklist"]["applied"]
     assert bounds.killswitch(world["log"]) is not None  # a change in an unknown state: a person takes over
 
 

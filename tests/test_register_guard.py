@@ -50,7 +50,7 @@ def test_only_a_whole_run_of_the_suite_is_judged():
     assert not conftest._full_run(_config(["tests/test_a.py"], base=tests.parent))
 
 
-def test_a_rebound_test_is_not_genuine(pytester=None):
+def test_a_rebound_test_is_not_genuine():
     """`globals()["test_x"] = lambda: None` is collected under the name, but it is not the function the file
     defines - and the guard must see that."""
     import inspect
@@ -243,7 +243,8 @@ def test_user_properties_cannot_forge_or_strip_the_guards_verdicts(monkeypatch):
         gen.send(report)
     except StopIteration as done:
         report = done.value
-    assert report.warden_genuine is False and report.warden_body_ran is False
+    assert report.warden_genuine is False
+    assert report.warden_body_ran is False
 
 
 def test_the_guards_callbacks_replayed_by_a_wrapper_are_no_evidence(monkeypatch, request):

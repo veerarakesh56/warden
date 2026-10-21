@@ -23,7 +23,8 @@ def _incident(tmp_path):
 def test_the_link_records_the_evidence_ids_the_model_is_shown(tmp_path):
     log, alert = _incident(tmp_path)
     step = log.entries(alert.alert_id, kinds=("incident.own_fixes",))[-1]["body"]
-    assert len(step["items"]) == 1 and step["items"][0].startswith("C")
+    assert len(step["items"]) == 1
+    assert step["items"][0].startswith("C")
     assert step["fixes"][0]["entry"] == "lambda_enable_esm"
 
 

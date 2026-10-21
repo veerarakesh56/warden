@@ -68,14 +68,16 @@ def test_in_slack_the_link_is_a_button_and_its_address_is_not_printed(rp, monkey
                     actions=((chatops.LINK_LABEL, link), ("Click <here>", link), (chatops.LINK_LABEL, "https://evil.example/x")))
     chatops.notify(report, sinks=[chatops.SlackWebhookSink("https://hooks.example.test/x", live=True)])
     [message] = posted
-    assert "https://" not in message["text"] and message["unfurl_links"] is False
+    assert "https://" not in message["text"]
+    assert message["unfurl_links"] is False
     section, actions = message["blocks"]
     assert section == {"type": "section", "text": {"type": "mrkdwn", "text": message["text"]}}
     assert actions == {"type": "actions", "elements": [{"type": "button", "style": "primary", "url": link,
                                                         "text": {"type": "plain_text", "text": chatops.LINK_LABEL}}]}
     # A text too long for a section keeps its parts as they are; the button is its own message after them.
     long = chatops.slack_messages(["x" * (chatops.SLACK_SECTION_CHARS + 1)], {"links": [[chatops.LINK_LABEL, link]]})
-    assert [sorted(m) for m in long] == [["text"], ["blocks", "text"]] and long[1]["blocks"][0]["type"] == "actions"
+    assert [sorted(m) for m in long] == [["text"], ["blocks", "text"]]
+    assert long[1]["blocks"][0]["type"] == "actions"
     assert chatops.slack_messages(["one", "two"], {}) == [{"text": "one"}, {"text": "two"}]  # no link: no blocks
     # Several approvers, each their own link: each button says whose, and none is the primary one.
     two = chatops.slack_messages(["t"], {"links": [[f"{chatops.LINK_LABEL} (link of a)", link],
@@ -124,7 +126,8 @@ def test_a_link_for_each_approver_who_may_approve_the_tier_and_has_a_passkey(rp,
         PLAN.model_copy(update={"tier": "T1"}))
     assert [label for label, _ in both] == [f"{chatops.LINK_LABEL} (link of owner)", f"{chatops.LINK_LABEL} (link of second)"]
     token = links[0][1].rsplit("/", 1)[1]
-    assert chatops.approval_links(links) and AuditLinkStore(log).link(token).approver == "owner"
+    assert chatops.approval_links(links)
+    assert AuditLinkStore(log).link(token).approver == "owner"
     assert token not in json.dumps([e["body"] for e in log.entries()])
 
 
@@ -154,7 +157,8 @@ def test_the_wait_opens_with_the_links_and_without_a_domain_says_nothing_new(rp,
     _run(world, _no_approval)
     with_links = [r for r in sent if any(label == chatops.LINK_LABEL for label, _ in r.actions)]
     # As the wait opens, and again at the halfway reminder: two messages carry links, each its own fresh one.
-    assert len(with_links) == 2 and all(r.actions[0][0] == chatops.LINK_LABEL for r in with_links)
+    assert len(with_links) == 2
+    assert all(r.actions[0][0] == chatops.LINK_LABEL for r in with_links)
     assert with_links[0].actions[0][1] != with_links[1].actions[0][1]
     # Every message also carries the incident's record (G10-46) - the expiry too, which approves nothing.
     assert all(r.actions[-2:] == ((chatops.RECORD_LABEL, f"https://{RP}/r/inc-42"), (chatops.ALL_LABEL, f"https://{RP}/r"))
@@ -183,7 +187,8 @@ def test_the_note_is_answered_by_a_function_with_nothing_in_it_and_no_permission
     module = pathlib.Path(__file__).resolve().parents[1] / "terraform" / "modules" / "warden-runtime"
     source = (module / "ack" / "ack.py").read_bytes().replace(b"\r\n", b"\n")
     with zipfile.ZipFile(module / "ack.zip") as z:  # what is deployed is exactly the reviewed source, and only it
-        assert z.namelist() == ["ack.py"] and z.read("ack.py") == source
+        assert z.namelist() == ["ack.py"]
+        assert z.read("ack.py") == source
     assert b"import" not in source  # it reads nothing and calls nothing
     spec = importlib.util.spec_from_file_location("ack", module / "ack" / "ack.py")
     ack = importlib.util.module_from_spec(spec)
@@ -192,8 +197,11 @@ def test_the_note_is_answered_by_a_function_with_nothing_in_it_and_no_permission
     assert (answered["statusCode"], answered["body"]) == (200, "")
     tf = (module / "frontdoor.tf").read_text(encoding="utf-8")
     fn = tf[tf.index('resource "aws_lambda_function" "ack"'):tf.index('resource "aws_apigatewayv2_integration" "ack"')]
-    assert 'handler          = "ack.handler"' in fn and "vpc_config" not in fn and "environment {" not in fn
-    assert 'source_code_hash = filebase64sha256("${path.module}/ack.zip")' in fn and "role             = aws_iam_role.ack.arn" in fn
+    assert 'handler          = "ack.handler"' in fn
+    assert "vpc_config" not in fn
+    assert "environment {" not in fn
+    assert 'source_code_hash = filebase64sha256("${path.module}/ack.zip")' in fn
+    assert "role             = aws_iam_role.ack.arn" in fn
     every = "".join(p.read_text(encoding="utf-8") for p in module.glob("*.tf"))
     assert not re.search(r"role\s*=\s*aws_iam_role\.ack\.(id|name)", every)       # no policy is given to its role
     assert "permissions_boundary = var.permissions_boundary_arn" in tf[tf.index('resource "aws_iam_role" "ack"'):tf.index(fn[:40])]
@@ -218,7 +226,8 @@ def test_in_slack_the_footer_is_the_small_line_under_the_message_with_no_rule():
     # Only the last part of a long report carries it, and only the last rule is the footer's.
     report = "part one\n---\nnot a footer"
     parts = chatops.slack_messages([report, "part two\n\n---\n_closing line_\n\n---\n" + foot], {})
-    assert "blocks" not in parts[0] and parts[1]["blocks"][0]["text"]["text"].endswith("_closing line_")
+    assert "blocks" not in parts[0]
+    assert parts[1]["blocks"][0]["text"]["text"].endswith("_closing line_")
     assert parts[1]["blocks"][-1]["elements"][0]["text"] == foot
     # Nothing to set apart, or too long for one block: the text as it is.
     assert chatops.slack_messages(["no footer here"], {}) == [{"text": "no footer here"}]

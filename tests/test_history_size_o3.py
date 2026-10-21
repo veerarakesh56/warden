@@ -23,4 +23,5 @@ def test_the_longest_verify_window_keeps_the_history_far_under_temporals_limits(
     assert out.status == "rolled_back"
     events = world["history"].events
     size = len(world["history"].to_json())
-    assert len(events) < 5_000 and size < 5_000_000, (len(events), size)  # Temporal's hard limits: 50k / 50 MB
+    assert len(events) < 5_000, (len(events), size)
+    assert size < 5_000_000, (len(events), size)  # Temporal's hard limits: 50k / 50 MB

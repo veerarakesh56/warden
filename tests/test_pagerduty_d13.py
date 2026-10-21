@@ -26,16 +26,21 @@ def test_a_report_triggers_one_alert_per_incident(posted):
     sink.send("A reminder about the same incident", data)
     (url, first), (_, second) = posted
     assert url == "https://events.pagerduty.com/v2/enqueue"
-    assert first["event_action"] == "trigger" and first["routing_key"] == KEY
+    assert first["event_action"] == "trigger"
+    assert first["routing_key"] == KEY
     assert first["dedup_key"] == second["dedup_key"] == "inc-42"  # one alert, updated, never a second page
     p = first["payload"]
-    assert p["summary"] == "# Incident inc-42: orders is failing" and p["severity"] == "error"
-    assert p["source"] == "warden/orders" and p["group"] == "dev" and "more text" not in str(first)
+    assert p["summary"] == "# Incident inc-42: orders is failing"
+    assert p["severity"] == "error"
+    assert p["source"] == "warden/orders"
+    assert p["group"] == "dev"
+    assert "more text" not in str(first)
 
 
 def test_an_unarmed_sink_sends_nothing(posted):
     out = chatops.PagerDutySink(KEY, live=False).send("x", {"alert": {"id": "inc-1"}})
-    assert not out.delivered and posted == []
+    assert not out.delivered
+    assert posted == []
 
 
 def test_the_sink_is_configured_by_its_secret_alone(monkeypatch):
@@ -63,7 +68,8 @@ def test_a_verified_fix_resolves_the_page_on_the_record(posted, monkeypatch, tmp
     resolves = [p for _, p in posted if p["event_action"] == "resolve"]
     assert resolves == [{"routing_key": KEY, "event_action": "resolve", "dedup_key": "inc-42"}]
     rows = [e["body"] for e in world["log"].entries("inc-42", kinds=("page.resolved",))]
-    assert rows and rows[0]["delivered"] is True
+    assert rows
+    assert rows[0]["delivered"] is True
 
 
 def test_a_fix_that_did_not_recover_resolves_nothing(posted, monkeypatch, tmp_path):

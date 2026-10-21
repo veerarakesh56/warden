@@ -39,7 +39,8 @@ MATH = {"EvaluationPeriods": 2, "Metrics": [{"Id": "e", "Expression": "a/b"}, {"
 ])
 def test_the_live_read_gives_the_time_its_alarm_can_take_to_clear(alarm, minutes):
     live = _p(Timed(**alarm)).live("ecs_restore_desired", ECS)
-    assert live["event"] == {"e-1"} and live.get("recover_minutes") == minutes
+    assert live["event"] == {"e-1"}
+    assert live.get("recover_minutes") == minutes
 
 
 def test_only_a_read_that_names_an_alarm_is_timed_by_one_and_a_failed_timing_voids_nothing():
@@ -48,12 +49,14 @@ def test_only_a_read_that_names_an_alarm_is_timed_by_one_and_a_failed_timing_voi
     # No alarm names it - but a fix judged by metrics is given the time that takes (live, 2026-10-16).
     from warden.platforms.aws import METRIC_SETTLE_MINUTES
 
-    assert live["function"] == {FN} and live["recover_minutes"] == METRIC_SETTLE_MINUTES
+    assert live["function"] == {FN}
+    assert live["recover_minutes"] == METRIC_SETTLE_MINUTES
     assert "recover_minutes" not in _p(f).live("ecs_restore_desired", {"cluster": "c1", "service": "x"})  # nothing read
     p = _p(f)
     p._alarm_clear_minutes = lambda alarm: 1 / 0
     live = p.live("ecs_restore_desired", ECS)
-    assert live["event"] == {"e-1"} and "recover_minutes" not in live
+    assert live["event"] == {"e-1"}
+    assert "recover_minutes" not in live
 
 
 class SlowGroups(Groups, Timed):
@@ -70,7 +73,9 @@ class SlowGroups(Groups, Timed):
 @pytest.mark.parametrize("grace, minutes", [(300, 17), (301, 18), (0, 12), (None, 12), ("300", 12)])
 def test_a_groups_new_instances_get_their_own_grace_period_on_top(grace, minutes):
     live = _p(SlowGroups(grace, Period=60, EvaluationPeriods=2)).live("asg_restore_capacity", ASG)
-    assert live["event"] == {"a-1"} and live["recover_minutes"] == minutes and "slow_start_s" not in live
+    assert live["event"] == {"a-1"}
+    assert live["recover_minutes"] == minutes
+    assert "slow_start_s" not in live
     assert "slow_start_s" not in _p(SlowGroups(grace)).live("asg_restore_capacity", ASG)  # the alarm's timing unread
 
 
@@ -87,7 +92,8 @@ def _request(minutes):
         return state if minutes is None else {**state, "recover_minutes": minutes}
 
     request, why = resolver.request_for(alert, proposal, live)
-    assert why == "" and request["entry"] == "ecs_restore_desired", why
+    assert why == "", why
+    assert request["entry"] == "ecs_restore_desired", why
     return request
 
 

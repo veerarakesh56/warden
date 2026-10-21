@@ -44,18 +44,23 @@ def test_an_ecs_service_that_cannot_start_its_tasks_or_whose_deployment_failed_i
     assert ev.transitioned_at.isoformat() == "2026-10-12T19:55:38+00:00" == ev.alert.started_at
     failed = lambdas.service_event(_ecs("SERVICE_DEPLOYMENT_FAILED", "ERROR", "ECS Deployment State Change",
                                         reason="ECS deployment circuit breaker: task failed to start."), "ops")
-    assert failed.alert.name == "SERVICE_DEPLOYMENT_FAILED" and failed.alert.summary.startswith("ECS deployment circuit")
+    assert failed.alert.name == "SERVICE_DEPLOYMENT_FAILED"
+    assert failed.alert.summary.startswith("ECS deployment circuit")
     placed = lambdas.service_event(_ecs("SERVICE_TASK_PLACEMENT_FAILURE", "ERROR", reason="RESOURCE:CPU"), "ops")
     assert placed.alert.summary == "RESOURCE:CPU"
     # Two different things said about one service are two alarms; the same thing twice is one.
-    assert intake.fingerprint(ev) != intake.fingerprint(failed) and intake.fingerprint(ev) == intake.fingerprint(
-        lambdas.service_event(_ecs(createdAt="later"), "ops"))
+    assert intake.fingerprint(ev) != intake.fingerprint(failed)
+    assert (intake.fingerprint(ev) == intake.fingerprint(
+        lambdas.service_event(_ecs(createdAt="later"), "ops")))
 
 
 def test_a_database_that_failed_failed_over_or_is_low_on_storage_is_an_incident():
     ev = lambdas.service_event(_rds(), "ops")
-    assert ev.alert.labels == {"rds_instance": "warden-dev-orders", "via": "aws-event"} and ev.rule == "RDS-EVENT-0031:warden-dev-orders"
-    assert ev.alert.environment == "dev" and ev.alert.summary.startswith("DB instance put into") and ev.stateless
+    assert ev.alert.labels == {"rds_instance": "warden-dev-orders", "via": "aws-event"}
+    assert ev.rule == "RDS-EVENT-0031:warden-dev-orders"
+    assert ev.alert.environment == "dev"
+    assert ev.alert.summary.startswith("DB instance put into")
+    assert ev.stateless
     assert lambdas.service_event(_rds(("low storage",), event_id="RDS-EVENT-0007"), "ops") is not None
     assert lambdas.service_event(_rds(("maintenance", "failure")), "ops") is not None
     cluster = lambdas.service_event(_rds(("failover",), "RDS DB Cluster Event", "RDS-EVENT-0069"), "ops")
@@ -79,14 +84,16 @@ def test_everything_else_a_service_says_starts_nothing(event):
 
 
 def test_the_alarm_lambda_takes_both_and_an_expected_down_service_event_is_recorded_and_not_looked_at_again(submitted):
-    assert lambdas.alarm(_ecs())["decisions"] == [{"action": "start"}] and submitted[0].stateless
+    assert lambdas.alarm(_ecs())["decisions"] == [{"action": "start"}]
+    assert submitted[0].stateless
     assert "ignored" in lambdas.alarm(_ecs("SERVICE_STEADY_STATE", "INFO"))
     ev = lambdas.service_event(_ecs(), "ops")
     from datetime import UTC, datetime
 
     held = intake.decide(ev, recent=[], open_incidents={}, verifying={}, open_count=0,
                          expected=("dev nights", datetime(2026, 10, 13, 2, 30, tzinfo=UTC)))
-    assert held.action == "expected" and held.workflow_id == ""  # no state to read when the cover ends
+    assert held.action == "expected"
+    assert held.workflow_id == ""  # no state to read when the cover ends
     assert held.reason == "expected down ('dev nights'): a service's event, not an alarm - not looked at again"
     assert intake.decide(ev, recent=[], open_incidents={}, verifying={}, open_count=0).action == "start"
 
@@ -94,7 +101,8 @@ def test_the_alarm_lambda_takes_both_and_an_expected_down_service_event_is_recor
 def test_the_runtime_subscribes_to_those_events_for_the_watched_environments_resources_only():
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     block = tf[tf.index("  service_events = {"):tf.index('resource "aws_cloudwatch_event_rule" "service_events"')]
-    assert '["ECS Service Action", "ECS Deployment State Change"]' in block and 'eventType = ["WARN", "ERROR"]' in block
+    assert '["ECS Service Action", "ECS Deployment State Change"]' in block
+    assert 'eventType = ["WARN", "ERROR"]' in block
     assert '["RDS DB Instance Event", "RDS DB Cluster Event"]' in block
     listed = re.search(r"EventCategories = (\[[^\]]+\])", block).group(1)
     assert tuple(json.loads(listed)) == lambdas.RDS_CATEGORIES  # the rule and the Lambda take the same events
@@ -103,7 +111,8 @@ def test_the_runtime_subscribes_to_those_events_for_the_watched_environments_res
     for prefix in (":service/warden-${e}-", ":db:warden-${e}-", ":cluster:warden-${e}-"):
         assert prefix in block
     rule = tf[tf.index('resource "aws_cloudwatch_event_rule" "service_events"'):tf.index('resource "aws_sqs_queue" "alarm_dlq"')]
-    assert 'state         = var.paused ? "DISABLED" : "ENABLED"' in rule and "dead_letter_config" in rule
+    assert 'state         = var.paused ? "DISABLED" : "ENABLED"' in rule
+    assert "dead_letter_config" in rule
     assert 'source_arn    = aws_cloudwatch_event_rule.service_events[each.key].arn' in rule
     assert "[for r in aws_cloudwatch_event_rule.service_events : r.arn]" in tf  # an undelivered one reaches the queue
 
@@ -131,7 +140,8 @@ def test_an_aws_health_issue_on_a_watched_resource_goes_to_a_person_on_the_rules
     arn = lambdas.health_event(_health(entities=(f"arn:aws:rds:ap-south-2:{ACCOUNT}:db:warden-dev-orders",)), "ops")
     assert arn.alert.service == "warden-dev-orders"
     d = intake.decide(ev, recent=[], open_incidents={}, verifying={}, open_count=0)
-    assert d.action == "escalate_only" and d.reason == ev.escalate
+    assert d.action == "escalate_only"
+    assert d.reason == ev.escalate
     # ...and a declaration that the environment is expected down holds it, as any event.
     held = intake.decide(ev, recent=[], open_incidents={}, verifying={}, open_count=0,
                          expected=("dev nights", datetime(2026, 10, 14, 6, tzinfo=UTC)))
@@ -151,6 +161,7 @@ def test_every_other_health_notice_starts_nothing(event):
 def test_the_runtime_listens_for_open_account_issues_only():
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     block = tf[tf.index("    health = jsonencode({"):tf.index("    rds = jsonencode({")]
-    assert 'source        = ["aws.health"]' in block and '"detail-type" = ["AWS Health Event"]' in block
+    assert 'source        = ["aws.health"]' in block
+    assert '"detail-type" = ["AWS Health Event"]' in block
     assert 'eventTypeCategory = ["issue"], eventScopeCode = ["ACCOUNT_SPECIFIC"], statusCode = ["open"]' in block
     assert lambdas.alarm.__code__.co_names.count("health_event") == 1

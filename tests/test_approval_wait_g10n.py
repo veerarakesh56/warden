@@ -23,7 +23,8 @@ def test_the_wait_is_an_environments_own_setting_within_a_week():
     policies = environments.default_environment_policies()
     assert policies.for_env("dev").approval_wait_hours == environments.APPROVAL_WAIT_HOURS == 72
     assert policies.for_env("an-unknown-one").approval_wait_hours == 72
-    assert environments.MAX_APPROVAL_WAIT_HOURS == 168 and MAX_APPROVAL_TTL_MINUTES == 168 * 60
+    assert environments.MAX_APPROVAL_WAIT_HOURS == 168
+    assert MAX_APPROVAL_TTL_MINUTES == 168 * 60
     assert FixRequest(**{**REQ, "approval_ttl_minutes": 168 * 60}).approval_ttl_minutes == 10080
     with pytest.raises(ValidationError):
         FixRequest(**{**REQ, "approval_ttl_minutes": 168 * 60 + 1})
@@ -37,14 +38,16 @@ def test_a_plan_made_from_an_incident_waits_as_long_as_its_environment_says():
     req, why = resolver.request_for(_alert(dynamodb_table="warden-dev-carts"),
                                     _proposal(ActionKind.scale_up, "warden-dev-carts"),
                                     lambda e, p: {"table": {"warden-dev-carts"}, "current_capacity": 50})
-    assert why == "" and req["approval_ttl_minutes"] == 72 * 60
+    assert why == ""
+    assert req["approval_ttl_minutes"] == 72 * 60
     assert FixRequest(**{k: v for k, v in req.items() if k != "workflow_id"}).approval_ttl_minutes == 72 * 60
 
 
 def test_the_message_says_until_when_and_the_link_lasts_as_long_as_the_plan(world, sink):
     out = _run(world, _no_approval, approval_ttl_minutes=600)
     assert out.status == "expired"
-    assert "It waits until " in sink.texts[0] and "unapproved by then, it expires and nothing is changed" in sink.texts[0]
+    assert "It waits until " in sink.texts[0]
+    assert "unapproved by then, it expires and nothing is changed" in sink.texts[0]
     plan = Plan(workflow_id="w", incident_id="i", entry="e", params={}, created_at=T0, approval_ttl_minutes=600)
     assert _deadline(plan) == T0 + timedelta(hours=10)
     assert _deadline(plan.model_copy(update={"approval_ttl_minutes": 0})) == T0 + timedelta(minutes=30)  # an old plan
@@ -60,7 +63,8 @@ def test_a_link_hours_old_is_still_found_by_the_lambdas_store_and_ends_with_its_
     store.add_link("t" * 43, approval_page.Link(PLAN.workflow_id, "owner", T0 + timedelta(hours=30)))
     clock.now = T0 + timedelta(hours=29)
     shown = _show(page, device, "t" * 43)
-    assert shown.status == 200 and '"link_seconds": 3600' in shown.body  # an hour left, said to the page
+    assert shown.status == 200
+    assert '"link_seconds": 3600' in shown.body  # an hour left, said to the page
     clock.now = T0 + timedelta(hours=30, seconds=1)
     assert page.handle("GET", "/a/" + "t" * 43).status == 404
     assert approval_page.LINK_LIFE_MAX >= timedelta(hours=environments.MAX_APPROVAL_WAIT_HOURS)

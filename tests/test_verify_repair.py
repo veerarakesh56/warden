@@ -27,7 +27,8 @@ def _held(*ids, reason="L3 is quoted as 'timeout' but says 'time out'"):
 
 
 def test_only_an_answer_held_by_repairable_checks_alone_is_told_why():
-    assert "P13-UNGROUNDED" in repair_note(_held("P13-UNGROUNDED")) and "time out" in repair_note(_held("P13-UNGROUNDED"))
+    assert "P13-UNGROUNDED" in repair_note(_held("P13-UNGROUNDED"))
+    assert "time out" in repair_note(_held("P13-UNGROUNDED"))
     for final in (_held("P16-INJECTION-SUSPECTED"), _held("P13-UNGROUNDED", "P2-IRREVERSIBLE-IN-PROD"),
                   Verdict(status=VerdictStatus.approved_for_human)):
         assert repair_note(final) == "", final.policy_ids

@@ -37,6 +37,7 @@ def test_a_change_is_compared_with_mcnemar():
     assert same == {"incidents": 30, "fixed": 0, "broke": 0, "p": 1.0}
     better = {**before, **{f"i{k}": True for k in range(15, 25)}}  # ten fixed, none broken
     r = qualify.mcnemar(before, better)
-    assert (r["fixed"], r["broke"]) == (10, 0) and r["p"] == pytest.approx(2 / 1024)
+    assert (r["fixed"], r["broke"]) == (10, 0)
+    assert r["p"] == pytest.approx(2 / 1024)
     noise = {**before, "i20": True, "i0": False}  # one fixed, one broken: chance
     assert qualify.mcnemar(before, noise)["p"] == 1.0

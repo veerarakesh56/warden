@@ -36,6 +36,10 @@ def test_the_record_is_posted_first_and_the_answer_after_it(discuss_world):
     said = asyncio.run(main())
     posts = [p for p in discuss_world["posted"] if p[0] == "chat.postMessage"]
     texts = [json.dumps(p[1]) + json.dumps(p[2]) for p in posts]
-    assert len(posts) >= 2 and f"WARDEN's record of `{INCIDENT}`" in texts[0]
-    assert "Seen before" in texts[0] and "(a test answer)" in texts[-1] and said.startswith("(a test answer)")
-    assert "WARDEN answers in this thread" in discuss.HEARD and "comes first, within seconds" in discuss.HEARD
+    assert len(posts) >= 2
+    assert f"WARDEN's record of `{INCIDENT}`" in texts[0]
+    assert "Seen before" in texts[0]
+    assert "(a test answer)" in texts[-1]
+    assert said.startswith("(a test answer)")
+    assert "WARDEN answers in this thread" in discuss.HEARD
+    assert "comes first, within seconds" in discuss.HEARD

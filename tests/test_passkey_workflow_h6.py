@@ -47,7 +47,8 @@ def _approve_by_passkey(device, cred, **kw):
 
 def test_a_passkey_approval_of_the_exact_plan_applies_it(world, phone):
     out = _run(world, _approve_by_passkey(*phone))
-    assert out.status == "recovered" and len(world["platform"].applied) == 1
+    assert out.status == "recovered"
+    assert len(world["platform"].applied) == 1
     accepted = world["log"].entries("inc-42", kinds=("approval.accepted",))
     assert [(e["body"]["method"], e["body"]["sign_count"]) for e in accepted] == [("passkey", 1)]
 
@@ -58,7 +59,8 @@ def test_a_passkey_approval_of_another_plan_is_refused(world, phone):
         await _no_approval(handle)
 
     out = _run(world, drive, approval_ttl_minutes=1)
-    assert out.status == "expired" and world["platform"].applied == []
+    assert out.status == "expired"
+    assert world["platform"].applied == []
     refused = world["log"].entries("inc-42", kinds=("approval.refused",))
     assert any("different plan" in p for p in refused[0]["body"]["problems"])
 
@@ -71,7 +73,8 @@ def test_a_key_the_approver_never_enrolled_is_refused(world, phone):
         await _no_approval(handle)
 
     out = _run(world, drive, approval_ttl_minutes=1)
-    assert out.status == "expired" and world["platform"].applied == []
+    assert out.status == "expired"
+    assert world["platform"].applied == []
     problems = world["log"].entries("inc-42", kinds=("approval.refused",))[0]["body"]["problems"]
     assert any("not one owner enrolled" in p for p in problems)
 
@@ -90,7 +93,8 @@ def _twice(world, phone, fresh):
         await _no_approval(handle)
 
     out = _run(world, drive, approval_ttl_minutes=1)
-    assert out.status == "expired" and world["platform"].applied == []
+    assert out.status == "expired"
+    assert world["platform"].applied == []
     return [p for e in world["log"].entries("inc-42", kinds=("approval.refused",)) for p in e["body"]["problems"]]
 
 
@@ -109,6 +113,7 @@ def test_a_cloned_passkey_whose_counter_restarted_is_refused_in_a_later_run(worl
     assert _run(world, _approve_by_passkey(device, cred)).status == "recovered"  # the counter is now 1, in the audit
     device.count = 0  # a copy of the key, its counter back at the start
     out = _run(world, _approve_by_passkey(device, cred), approval_ttl_minutes=1)
-    assert out.status == "expired" and len(world["platform"].applied) == 1
+    assert out.status == "expired"
+    assert len(world["platform"].applied) == 1
     problems = world["log"].entries("inc-42", kinds=("approval.refused",))[-1]["body"]["problems"]
     assert any("was not greater than current count" in p for p in problems), problems

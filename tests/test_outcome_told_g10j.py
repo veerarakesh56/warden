@@ -45,10 +45,13 @@ def _whats(world):
 def test_a_fix_that_did_not_work_and_was_undone_is_said_with_its_reason(world, owner, sink):
     world["platform"].healthy_after = None
     out = _run(world, _approve_with(owner))
-    assert out.status == "rolled_back" and _whats(world) == ["waiting", "approved", "rolled_back"]
+    assert out.status == "rolled_back"
+    assert _whats(world) == ["waiting", "approved", "rolled_back"]
     assert "Approved by `owner` (with their signing key)." in sink.texts[-1]
-    assert "did not work, so WARDEN undid it" in sink.texts[-1] and "Why: orders did not recover within" in sink.texts[-1]
-    assert "audit head" in sink.texts[-1] and "kill switch" not in sink.texts[-1]
+    assert "did not work, so WARDEN undid it" in sink.texts[-1]
+    assert "Why: orders did not recover within" in sink.texts[-1]
+    assert "audit head" in sink.texts[-1]
+    assert "kill switch" not in sink.texts[-1]
     assert audit.verify(world["db"], world["log"].key.public_key()).unsigned_tail == 0  # the record still ends signed
 
 
@@ -60,23 +63,28 @@ def test_an_approved_plan_the_platform_refused_is_said_as_nothing_changed(world,
 
     world["platform"].apply = refuse
     out = _run(world, _approve_with(owner))
-    assert out.status == "refused_at_apply" and _whats(world) == ["waiting", "approved", "refused_at_apply"]
+    assert out.status == "refused_at_apply"
+    assert _whats(world) == ["waiting", "approved", "refused_at_apply"]
     assert "did not apply the approved plan `k8s_rollout_undo`" in sink.texts[-1]
-    assert "nothing was changed" in sink.texts[-1] and "no longer has 3 replica(s)" in sink.texts[-1]
+    assert "nothing was changed" in sink.texts[-1]
+    assert "no longer has 3 replica(s)" in sink.texts[-1]
 
 
 def test_an_end_that_leaves_the_target_unknown_says_every_fix_is_stopped(world, owner, sink):
     world["platform"].healthy_after = None
     world["platform"].rollback_error = "422 the count moved"
     out = _run(world, _approve_with(owner))
-    assert out.status == "rollback_failed" and bounds.killswitch(world["log"]) is not None
-    assert "undoing it FAILED" in sink.texts[-1] and "`warden killswitch link --approver YOU --key YOUR.pem` opens the page" in sink.texts[-1]
+    assert out.status == "rollback_failed"
+    assert bounds.killswitch(world["log"]) is not None
+    assert "undoing it FAILED" in sink.texts[-1]
+    assert "`warden killswitch link --approver YOU --key YOUR.pem` opens the page" in sink.texts[-1]
 
 
 def test_an_expired_plan_is_said_once_and_the_tier_is_said_in_words(world, sink):
     out = _run(world, _no_approval)
     # The request, its halfway reminder, the expiry - not a further "ended" message.
-    assert out.status == "expired" and _whats(world) == ["waiting", "waiting", "expired"]
+    assert out.status == "expired"
+    assert _whats(world) == ["waiting", "waiting", "expired"]
     assert f"(T2 - {approvals.TIER_MEANS['T2']}) is waiting for an approval" in sink.texts[0]
     # A request names nobody (owner, 2026-10-12): who decided is said when they have.
     assert ("Only an enrolled approver of this risk level can approve it: the link opens for nobody else, and who "
@@ -87,11 +95,13 @@ def test_an_expired_plan_is_said_once_and_the_tier_is_said_in_words(world, sink)
 
 def test_every_end_a_person_is_told_of_has_its_own_words_and_the_unknown_ones_name_the_switch():
     assert TOLD == END_STAGES - {"expired", "cancelled", "cancelled_after_apply", "failed", "failed_after_apply"}
-    assert TOLD <= set(OUTCOME) and "verified" in OUTCOME
+    assert TOLD <= set(OUTCOME)
+    assert "verified" in OUTCOME
     assert PERSON_TAKES_OVER & TOLD == {"rollback_failed", "apply_failed"}
     assert set(approvals.TIER_MEANS) == set(approvals.TIERS)
     for text in OUTCOME.values():
-        assert "{entry}" in text and "{target}" in text
+        assert "{entry}" in text
+        assert "{target}" in text
 
 
 def test_the_message_is_read_from_the_runs_own_end_row_never_from_the_caller(world):
@@ -107,7 +117,8 @@ def test_the_message_is_read_from_the_runs_own_end_row_never_from_the_caller(wor
 def test_the_approval_page_says_the_risk_in_words(page_setup):
     page, device, _, _ = page_setup
     plan = json.loads(_show(page, device, page.new_link("rem-dev-1", "owner")).body)["plan"]
-    assert plan["tier"] == "T2" and plan["risk"] == approvals.TIER_MEANS["T2"]
+    assert plan["tier"] == "T2"
+    assert plan["risk"] == approvals.TIER_MEANS["T2"]
 
 
 # ------------------------------------------------------------------ the incident's side: no plan to approve
@@ -152,13 +163,18 @@ def _incidents(tmp_path, answers):
 def test_a_report_that_held_a_fix_for_approval_is_followed_by_why_there_is_no_plan(tmp_path, sink):
     """One message per incident (G10-46): the report's summary says why no plan was opened - no second message."""
     rows = _incidents(tmp_path, [""])
-    assert rows == [] and len(sink.texts) == 1, sink.texts
+    assert rows == [], sink.texts
+    assert len(sink.texts) == 1, sink.texts
     [said] = sink.texts
-    assert f"**No fix plan:** {WHY}" in said and "nothing to approve" in said and "## Summary" in said
+    assert f"**No fix plan:** {WHY}" in said
+    assert "nothing to approve" in said
+    assert "## Summary" in said
     assert "## What WARDEN read" not in said  # the rest is on the record page
-    assert "incident `inc-002`" in said and "audit head" in said
+    assert "incident `inc-002`" in said
+    assert "audit head" in said
     # With no plan, the on-call line says so - not "approve or deny ... with the button in this message" (fs-07, live).
-    assert "with the button in this message" not in said and "no fix plan could be opened (why below)" in said
+    assert "with the button in this message" not in said
+    assert "no fix plan could be opened (why below)" in said
 
 
 def test_a_plan_that_opened_is_not_followed_by_one_and_a_second_on_the_same_resource_says_the_first_is_open(
@@ -166,8 +182,10 @@ def test_a_plan_that_opened_is_not_followed_by_one_and_a_second_on_the_same_reso
     rows = _incidents(tmp_path, [dict(REQUEST), dict(REQUEST)])
     assert len(rows) == 1, rows  # the first opened its plan; the second met it still open (one per resource, C3)
     assert "an earlier plan for the same resource (`rem-dev-test`) is still open" in rows[0]["why"]
-    assert "records page" in rows[0]["why"] and "warden status" not in rows[0]["why"]
-    assert "opened no fix plan" in sink.texts[-1] and "rem-dev-test" in sink.texts[-1]
+    assert "records page" in rows[0]["why"]
+    assert "warden status" not in rows[0]["why"]
+    assert "opened no fix plan" in sink.texts[-1]
+    assert "rem-dev-test" in sink.texts[-1]
 
 
 def test_no_plan_says_nothing_when_a_plan_was_opened_or_nothing_is_on_the_record(tmp_path):
@@ -175,13 +193,16 @@ def test_no_plan_says_nothing_when_a_plan_was_opened_or_nothing_is_on_the_record
     acts = IncidentActivities(audit=log, llm_factory=lambda: LLMClient(mock=True))
     assert acts.no_plan("inc-7") == []
     log.append("inc-7", "incident.plan_fix", {"run_id": "", "planned": True, "why": "", "entry": "k8s_restart"})
-    assert acts.no_plan("inc-7") == [] and log.entries("inc-7", kinds=("incident.no_plan",)) == []
+    assert acts.no_plan("inc-7") == []
+    assert log.entries("inc-7", kinds=("incident.no_plan",)) == []
 
 
 @pytest.mark.parametrize("status", sorted(TOLD))
 def test_each_told_end_is_a_sentence_a_person_can_act_on(status):
     said = OUTCOME[status].format(entry="e", target="t")
-    assert said.endswith(".") and "`e`" in said and "`t`" in said
+    assert said.endswith(".")
+    assert "`e`" in said
+    assert "`t`" in said
 
 
 def test_the_page_tells_someone_it_was_not_made_for_that_they_cannot_approve(page_setup):
@@ -194,7 +215,8 @@ def test_the_page_tells_someone_it_was_not_made_for_that_they_cannot_approve(pag
     # And it is not only words: an answer from a passkey the approver did not enrol is refused.
     assert page.handle("POST", f"/a/{token}/login-options").status == 200
     stranger = page.handle("POST", f"/a/{token}/login", json.dumps({"response": {"id": "someone-elses"}}))
-    assert stranger.status == 403 and "plan" not in json.loads(stranger.body)
+    assert stranger.status == 403
+    assert "plan" not in json.loads(stranger.body)
 
 
 def test_who_approved_is_read_from_the_record_and_nothing_is_claimed_without_one(world):
@@ -224,9 +246,13 @@ def test_a_confirmed_approver_is_shown_by_name_and_who_saw_the_plan_is_on_the_re
     assert "Asha" not in shell  # nothing of who the link is for before the passkey
     assert json.loads(_show(page, device, token).body)["approver"] == "Asha Rao"  # the name, not the list's id
     [seen] = [e["body"] for e in log.entries(kinds=("approval.link_viewed",))]
-    assert seen["approver"] == "owner" and seen["workflow_id"] == "rem-dev-1"
-    assert "you are " in shell and "Approval sent" in shell and 'sent("Denied"' in shell
-    assert named.shown("owner") == "Asha Rao" and named.shown("nobody") == "nobody"
+    assert seen["approver"] == "owner"
+    assert seen["workflow_id"] == "rem-dev-1"
+    assert "you are " in shell
+    assert "Approval sent" in shell
+    assert 'sent("Denied"' in shell
+    assert named.shown("owner") == "Asha Rao"
+    assert named.shown("nobody") == "nobody"
     assert approvals.ApproverPolicy.loads(__import__("yaml").safe_dump(named.model_dump())).approvers["owner"].name == "Asha Rao"
 
 
@@ -244,10 +270,13 @@ def test_an_undo_wardens_own_check_refuses_is_not_a_failed_rollback_and_the_swit
     world["platform"].healthy_after = None
     world["platform"].rollback = refuse
     out = _run(world, _approve_with(owner))
-    assert out.status == "not_recovered" and bounds.killswitch(world["log"]) is None, out
+    assert out.status == "not_recovered", out
+    assert bounds.killswitch(world["log"]) is None, out
     assert out.reasons[1] == "not rolled back: rule warden-dev-lab-tick is already disabled; nothing was changed"
-    assert "did not work, and WARDEN did not undo it" in sink.texts[-1] and "already disabled" in sink.texts[-1]
-    assert "FAILED" not in sink.texts[-1] and "kill switch" not in sink.texts[-1]
+    assert "did not work, and WARDEN did not undo it" in sink.texts[-1]
+    assert "already disabled" in sink.texts[-1]
+    assert "FAILED" not in sink.texts[-1]
+    assert "kill switch" not in sink.texts[-1]
     assert not world["log"].entries("inc-42", kinds=("remediation.rollback_failed",))
 
 
@@ -261,7 +290,8 @@ def test_an_undo_aws_itself_refuses_is_still_a_failed_rollback(world, owner, sin
     world["platform"].healthy_after = None
     world["platform"].rollback = refuse
     out = _run(world, _approve_with(owner))
-    assert out.status == "rollback_failed" and bounds.killswitch(world["log"]) is not None
+    assert out.status == "rollback_failed"
+    assert bounds.killswitch(world["log"]) is not None
 
 
 def test_the_aws_platform_marks_its_own_refusal_of_an_undo_and_not_awss():
@@ -274,7 +304,8 @@ def test_the_aws_platform_marks_its_own_refusal_of_an_undo_and_not_awss():
     live = p.live("lambda_enable_esm", {"function": FN, "mapping": "u-1"})
     with pytest.raises(AwsPlatformRefused, match="is already disabled") as own:  # never enabled: nothing to undo
         p.rollback("lambda_enable_esm", {"function": FN, "mapping": "u-1"}, live["state"], who=WHO)
-    assert own.value.own_check is True and own.value.nothing_changed is True
+    assert own.value.own_check is True
+    assert own.value.nothing_changed is True
     assert not hasattr(AwsPlatformRefused("AWS refused x; nothing was changed"), "own_check")
 
 
@@ -290,15 +321,19 @@ def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(worl
     monkeypatch.setattr(chatops, "notify", lambda report, **kw: seen.append(report) or real(report, **kw))
     out = _run(world, _approve_with(owner))
     row = ("owner", member, "Asha Rao (Platform)")
-    assert out.status == "recovered" and all(r.people == (row,) for r in seen), [r.people for r in seen]
+    assert out.status == "recovered", [r.people for r in seen]
+    assert all(r.people == (row,) for r in seen), [r.people for r in seen]
     # A reader outside Slack gets the person's name where the sentence names them - never the list's id for them
     # (owner, 2026-10-12: "don't use owner at all anywhere ... it feels unprofessional").
     # Approved and fixed are kept for the records page (G10-46), named the same way as any reader but Slack.
     told = recorded(world["log"])
-    assert len(sink.texts) == 1 and "approved by `Asha Rao (Platform)` (with their signing key)" in told[0]
+    assert len(sink.texts) == 1
+    assert "approved by `Asha Rao (Platform)` (with their signing key)" in told[0]
     assert "owner" not in sink.texts[0].split("---")[0]  # the request names nobody
-    assert "@@" not in "".join(told) and not any("owner" in t for t in told)
-    assert world["policy"].shown("owner") == "Asha Rao (Platform)" and world["policy"].said("owner") == "@@owner@@"
+    assert "@@" not in "".join(told)
+    assert not any("owner" in t for t in told)
+    assert world["policy"].shown("owner") == "Asha Rao (Platform)"
+    assert world["policy"].said("owner") == "@@owner@@"
     world["policy"].approvers["owner"].name = ""
     assert world["policy"].shown("owner") == "owner"  # only where the list gives no name is its id all there is
     world["policy"].approvers["owner"].name = "Asha Rao"
@@ -326,9 +361,12 @@ def test_the_slack_sinks_name_the_approver_where_the_sentence_does_and_nowhere_e
     sink_ = chatops.SlackWebhookSink("https://hooks.example.test/x", live=True)
     sink_.send("**Approved** by @@owner@@ <b>\n\n---\nfooter", {"people": [["owner", member, "Asha Rao"]]})
     sink_.send("no one named, and @@asha@@ is nobody here", {})
-    assert f"by <@{member}> &lt;b&gt;" in posted[0]["text"] and posted[0]["text"].endswith("footer")
-    assert posted[0]["text"].count("<@") == 1 and "owner" not in posted[0]["text"]
-    assert "<@" not in posted[1]["text"] and "`asha` is nobody here" in posted[1]["text"]
+    assert f"by <@{member}> &lt;b&gt;" in posted[0]["text"]
+    assert posted[0]["text"].endswith("footer")
+    assert posted[0]["text"].count("<@") == 1
+    assert "owner" not in posted[0]["text"]
+    assert "<@" not in posted[1]["text"]
+    assert "`asha` is nobody here" in posted[1]["text"]
 
     class Plain:
         name = "plain"
@@ -362,14 +400,19 @@ def test_a_denial_says_who_denied_how_and_when_as_an_approval_does(world, sink, 
                                                             plan_hash=plan.plan_hash, reason=typed))
 
     out = _run(world, deny)
-    assert out.status == "denied" and _whats(world) == ["waiting", "denied"]
+    assert out.status == "denied"
+    assert _whats(world) == ["waiting", "denied"]
     said = recorded(world["log"])[-1]
     assert not any("was denied" in t for t in sink.texts)  # on the records page, not in the channel
     assert re.search(r"was denied by `Asha Rao` \(with their passkey\) at \d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ", said)
-    assert ": nothing was changed." in said and "Why:" not in said and "owner" not in said
-    assert ("Their reason: `not now`" in said) == bool(typed) and ("Their reason" in said) == bool(typed)
+    assert ": nothing was changed." in said
+    assert "Why:" not in said
+    assert "owner" not in said
+    assert ("Their reason: `not now`" in said) == bool(typed)
+    assert ("Their reason" in said) == bool(typed)
     # ...and the resource's record says who, where it said only "was denied".
     [row] = [r for r in history.plans(world["log"]) if r["status"] == "denied"]
-    assert row["denied_by"] == "owner" and history._line(row).endswith("· was denied · by @@owner@@")
+    assert row["denied_by"] == "owner"
+    assert history._line(row).endswith("· was denied · by @@owner@@")
     assert history._denier({"status": "denied", "reasons": ["denied by x; rm -rf"]}) == ""  # only an approver's id
     assert history._denier({"status": "expired", "reasons": ["denied by owner"]}) == ""
