@@ -65,6 +65,9 @@ class FakeWriter:
         self.calls.append(("commit_diff", sha))
         return self.parents, self.diff
 
+    def default_branch(self):
+        return "main"
+
     def head(self, branch):
         self.calls.append(("head", branch))
         return HEAD
@@ -163,7 +166,8 @@ def test_a_revert_pull_request_is_opened_from_a_real_git_diff(tmp_path):
     assert kw["additions"] == {APP: BEFORE.encode()}
     assert kw["deletions"] == ()
     (_, pull), = [c for c in writer.calls if c[0] == "pull"]
-    assert pull["base"] == "dev"
+    assert pull["base"] == "main"  # where CI runs: dev receives it by promotion
+    assert ("head", "main") in writer.calls
     assert pull["head"] == out.branch
     assert "a person reviews and merges it" in pull["body"]
     assert SHA in pull["body"]
@@ -248,7 +252,7 @@ def test_prod_is_never_auto_even_when_asked(tmp_path):
     assert out.mode == "propose"
     assert out.status == "opened"
     (_, pull), = [c for c in writer.calls if c[0] == "pull"]
-    assert pull["base"] == "prod"
+    assert pull["base"] == "main"
     assert "a person reviews and merges it" in pull["body"]
 
 

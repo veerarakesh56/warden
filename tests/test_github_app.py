@@ -365,3 +365,13 @@ def test_delete_branch_only_warden_branches():
     assert (log[0]["method"], log[0]["path"]) == ("DELETE", f"/repos/{REPO}/git/refs/heads/warden/revert/x")
     with pytest.raises(GitHubAppError, match="its own branches"):
         RepoWriter(token(), api=fake_api()[0]).delete_branch("dev")
+
+
+def test_default_branch_is_read_and_checked():
+    api, log = fake_api((200, {"default_branch": "main"}), (200, {"default_branch": "warden/x"}), (200, {}))
+    writer = RepoWriter(token(), api=api)
+    assert writer.default_branch() == "main"
+    assert log[0]["path"] == f"/repos/{REPO}"
+    for _ in range(2):
+        with pytest.raises(GitHubAppError, match="not a plain branch name"):
+            writer.default_branch()

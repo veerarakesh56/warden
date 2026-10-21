@@ -1,8 +1,9 @@
 """Revert pull requests: the first code fix WARDEN writes (register B4, phase 3).
 
 When an incident's diagnosis is "roll back the deploy" and the incident's evidence names exactly one deployed commit,
-WARDEN can also open a pull request that reverts that commit in the environment's own branch - so the next deploy does
-not bring the fault back. The operational fix (the rollback plan) still goes through its own approval; this pull
+WARDEN can also open a pull request that reverts that commit - so the next deploy does not bring the fault back. The
+pull request goes into the repository's default branch, where CI runs (`main`): an environment's branch receives only
+what that branch has checked, so the revert reaches the environment by the same promotion as any other change. The operational fix (the rollback plan) still goes through its own approval; this pull
 request is the code-level follow-up, and it is merged by a person (`code_fix: propose`) or, later and only outside the
 prod tier, by the checks (`auto`, phase 4).
 
@@ -11,13 +12,13 @@ How the revert is made, with no model involved:
 1. The environment's `code_fix` mode (environments.yaml): `off`, or no GitHub App configured, writes nothing.
 2. The commit's own diff is read from GitHub as the App (github_app.py) and parsed strictly (code_gate.parse_diff).
    A merge commit, a rename, a binary file or a diff the parser cannot read is refused.
-3. Each file of the environment's branch, as it is NOW, gets the commit's change taken back: every hunk's "after"
+3. Each file of the default branch, as it is NOW, gets the commit's change taken back: every hunk's "after"
    lines (context and added) must be found exactly once and are replaced by its "before" lines (context and removed).
    A hunk found nowhere or twice - the code moved on since - is refused, never guessed.
 4. The revert's own diff is made from those contents and put through the code gate as a revert (code_gate.check):
    paths, size, secrets, dependencies, suppressions, and CG10, that it is exactly the inverse of the commit.
 5. Only then: a branch `warden/revert/<incident>-<commit>`, one signed commit at the head WARDEN read, and a pull
-   request into the environment's branch. Every outcome - opened, skipped, refused, failed - is one audit row.
+   request into the default branch. Every outcome - opened, skipped, refused, failed - is one audit row.
 """
 
 from __future__ import annotations
@@ -252,7 +253,8 @@ def _open(req: RevertRequest, writer: RepoWriter, mode: CodeFixMode, base: Rever
     if len(parents) != 1:
         raise RevertError("a merge commit (or a root commit) is reverted by a person")
     original = parse_diff(text)
-    head = writer.head(req.environment)
+    base_branch = writer.default_branch()
+    head = writer.head(base_branch)
     plan = _Plan()
     for f in original:
         _revert_file(writer, head, f, plan)
@@ -272,7 +274,7 @@ def _open(req: RevertRequest, writer: RepoWriter, mode: CodeFixMode, base: Rever
                             additions=plan.additions, deletions=tuple(plan.deletions))
     except GitHubAppError as exc:
         raise GitHubAppError(f"{exc}; {_remove(writer, branch)}") from None
-    number, url = writer.open_pull_request(head=branch, base=req.environment, title=title,
+    number, url = writer.open_pull_request(head=branch, base=base_branch, title=title,
                                            body=_body(req.incident, req.sha, req.environment, mode,
                                                       sorted(f.path for f in original)))
     return _with(base, status="opened", head=head, branch=branch, revert_commit=oid, pull_request=number, url=url)

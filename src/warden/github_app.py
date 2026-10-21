@@ -266,6 +266,15 @@ class RepoWriter:
         sha = ((ref or {}).get("object") or {}).get("sha") if isinstance(ref, dict) else None
         return _sha(str(sha or ""), f"the head of {branch}")
 
+    def default_branch(self) -> str:
+        """The repository's default branch: where pull requests go and CI runs."""
+        status, got = self._call("GET", "")
+        _expect(status, 200, "the repository")
+        branch = str((got or {}).get("default_branch") or "") if isinstance(got, dict) else ""
+        if not _BASE.fullmatch(branch) or branch.startswith(BRANCH_PREFIX.rstrip("/")):
+            raise GitHubAppError("the repository's default branch is not a plain branch name")
+        return branch
+
     def read_file(self, path: str, ref: str) -> bytes | None:
         """A file's bytes at commit `ref`; None when the file is not there."""
         (path,) = _paths([path])
