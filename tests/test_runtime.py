@@ -50,7 +50,8 @@ def _session(setup, platform, drive):
 def test_approving_the_reviewed_plan_completes_the_fix(setup):
     async def drive(client, wid, owner):
         stage, plan = await runtime.status(client, wid)
-        assert stage == "awaiting_approval" and plan.entry == "k8s_rollout_undo"
+        assert stage == "awaiting_approval"
+        assert plan.entry == "k8s_rollout_undo"
         await runtime.approve(client, wid, plan_hash=plan.plan_hash, key=owner, approver="owner", typed_target=plan.target)
     assert _session(setup, FakePlatform(), drive).status == "recovered"
 
@@ -61,7 +62,8 @@ def test_a_hash_that_is_not_the_current_plan_sends_nothing(setup):
             await runtime.approve(client, wid, plan_hash="0" * 64, key=owner, approver="owner")
     platform = FakePlatform()
     out = _session(setup, platform, drive)
-    assert out.status == "expired" and platform.applied == []
+    assert out.status == "expired"
+    assert platform.applied == []
     assert setup[2].entries(kinds=("approval.refused", "approval.accepted")) == []  # no signal was sent
 
 
@@ -98,7 +100,8 @@ def test_killswitch_cli_on_status_and_a_signed_reset(tmp_path, monkeypatch, caps
 
     assert cli.main(["killswitch", "on", "--reason", "drill"]) == 0
     out = capsys.readouterr().out
-    assert "kill switch: ON (1 trip since the last reset)" in out and "  - drill" in out
+    assert "kill switch: ON (1 trip since the last reset)" in out
+    assert "  - drill" in out
     policy(10)
     assert cli.main(reset) == 1  # the cooling-off applies to a reset too
     assert "T3 needs the plan to exist for 0:10:00" in capsys.readouterr().out
@@ -107,6 +110,9 @@ def test_killswitch_cli_on_status_and_a_signed_reset(tmp_path, monkeypatch, caps
     capsys.readouterr()
     assert cli.main(reset) == 1  # two trips, one reviewed (register R9-O4): every trip is listed, nothing signed
     out = capsys.readouterr().out
-    assert "  - drill" in out and "  - second" in out and "you reviewed 1, there are 2" in out
-    assert cli.main([*reset[:-1], "2"]) == 0 and "kill switch: off" in capsys.readouterr().out
+    assert "  - drill" in out
+    assert "  - second" in out
+    assert "you reviewed 1, there are 2" in out
+    assert cli.main([*reset[:-1], "2"]) == 0
+    assert "kill switch: off" in capsys.readouterr().out
     assert audit.verify(tmp_path / "audit.db", audit.load_public_key(tmp_path / "audit.pub")).ok

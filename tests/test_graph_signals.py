@@ -32,13 +32,18 @@ def _signals(**metrics) -> Signals:
 
 def test_cluster_metric_keys_map_to_signals():
     s = _signals(oom_killed_containers=2.0, restart_count=9.0, crashloop_containers=1.0, _has_deploy=True)
-    assert s.oom_killed == 2 and s.restarts == 9 and s.crashloop == 1 and s.has_deploy is True
+    assert s.oom_killed == 2
+    assert s.restarts == 9
+    assert s.crashloop == 1
+    assert s.has_deploy is True
 
 
 def test_missing_cluster_keys_default_to_zero():
     """A fixture incident carries none of these; they must not blow up or misfire."""
     s = _signals(error_rate=0.04, _has_deploy=True)
-    assert s.oom_killed == 0 and s.crashloop == 0 and s.restarts == 0
+    assert s.oom_killed == 0
+    assert s.crashloop == 0
+    assert s.restarts == 0
 
 
 def test_non_finite_count_metrics_degrade_to_zero_not_crash():
@@ -49,7 +54,9 @@ def test_non_finite_count_metrics_degrade_to_zero_not_crash():
                 {"restart_count": float("inf")},
                 {"crashloop_containers": float("-inf")}):
         s = _signals(**bad)
-        assert s.oom_killed == 0 and s.restarts == 0 and s.crashloop == 0
+        assert s.oom_killed == 0
+        assert s.restarts == 0
+        assert s.crashloop == 0
         # the derived properties must not raise on the coerced values
         assert s.memory_pressure is False
         assert s.bad_deploy is False

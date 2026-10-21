@@ -16,7 +16,8 @@ def test_the_record_page_shows_the_footers_head_and_what_the_signatures_say(tmp_
     log.checkpoint()
     log.append("inc-1", "incident.report", {"markdown": "# report"})  # after the checkpoint: not signed yet
     r = records.record(log, "inc-1")
-    assert r.head == log.head("inc-1") and (r.signed_ok, r.unsigned, r.broken) == (2, 1, 0)
+    assert r.head == log.head("inc-1")
+    assert (r.signed_ok, r.unsigned, r.broken) == (2, 1, 0)
     said = records.integrity(r)
     assert said.startswith(f"Signed record: audit head {audit.short(log.head('inc-1'))} - 3 row(s), 2 row(s) signed "
                            "and intact, the newest 1 not signed yet")

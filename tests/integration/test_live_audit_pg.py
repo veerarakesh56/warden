@@ -52,11 +52,13 @@ def test_many_writers_build_one_unbroken_chain(fresh):
     logs[0].checkpoint()
     result = audit.verify(fresh, key.public_key())
     assert result.ok, result.problems
-    assert result.rows == 120 and result.unsigned_tail == 0
+    assert result.rows == 120
+    assert result.unsigned_tail == 0
     assert [e["seq"] for e in logs[1].entries()] == list(range(1, 121))
     assert len(logs[2].entries("inc-1", kinds=("test.row",))) == 40
-    assert logs[0].entries(since=datetime.now(UTC) - timedelta(minutes=5)) and not logs[0].entries(
-        since=datetime.now(UTC) + timedelta(minutes=5))
+    assert logs[0].entries(since=datetime.now(UTC) - timedelta(minutes=5))
+    assert (not logs[0].entries(
+        since=datetime.now(UTC) + timedelta(minutes=5)))
     for log in logs:
         log.close()
 
@@ -74,7 +76,9 @@ def test_the_rows_cannot_be_changed_deleted_or_truncated(fresh):
             with pytest.raises(psycopg.Error, match="append-only"):
                 db.execute(statement)
     result = audit.verify(fresh, key.public_key())
-    assert result.ok and result.rows == 1 and result.signed_through == 1
+    assert result.ok
+    assert result.rows == 1
+    assert result.signed_through == 1
     log.close()
 
 

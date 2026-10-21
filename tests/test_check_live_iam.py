@@ -46,7 +46,8 @@ def test_a_policy_holding_another_files_statements_differs_and_a_reordered_one_m
     shuffled = {"Statement": list(reversed(reader["Statement"])), "Version": reader["Version"]}
     iam = _Iam({"WardenPlatformReader-dev": shuffled, "WardenEnvBoundary-dev": boundary}, {})
     got = dict(c.check(iam, ACCOUNT, ["dev"]))
-    assert got["WardenPlatformReader-dev"] == "MATCHES" and got["WardenEnvBoundary-dev"] == "MATCHES"
+    assert got["WardenPlatformReader-dev"] == "MATCHES"
+    assert got["WardenEnvBoundary-dev"] == "MATCHES"
     iam.policies["WardenPlatformReader-dev"] = boundary  # the 2026-10-14 paste
     got = dict(c.check(iam, ACCOUNT, ["dev"]))
     assert got["WardenPlatformReader-dev"] == "DIFFERS"
@@ -59,3 +60,48 @@ def test_the_order_of_a_policys_string_lists_does_not_matter_but_their_content_d
     assert c.norm(a) == c.norm(b)
     b["Statement"][0]["Action"].append("s3:PutObject")
     assert c.norm(a) != c.norm(b)
+
+
+def test_every_verdict_for_policies_and_trusts_in_order(tmp_path, monkeypatch):
+    """Characterisation (before the cognitive-complexity split of check): each verdict for a policy and for a trust -
+    placeholders without a render, a `.local.json` render compared even when it holds `<`/`>`, matches (a trust given
+    URL-encoded as IAM returns it), differs, not in the account, unreadable - in POLICIES then TRUSTS order."""
+    folder = tmp_path / "iam" / "lab"
+    folder.mkdir(parents=True)
+    doc = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}]}
+    angled = {"Statement": [{"Effect": "Deny", "Action": "*", "Resource": "*", "Sid": "x<y>"}]}
+    files = {"boundary.json": {"Statement": [{"Resource": "arn:aws:s3:::<bucket>"}]},
+             "deploy.json": {"Statement": [{"Resource": "<placeholder>"}]}, "deploy.local.json": angled,
+             "actor.json": doc, "harness.json": doc, "deploy-guard.json": doc,
+             "trust.json": {"Statement": [{"Principal": "<account>"}]}, "actor-trust.json": doc,
+             "harness-trust.json": doc, "reader-trust.json": doc, "platform-reader-trust.json": doc}
+    for name, body in files.items():
+        (folder / name).write_text(json.dumps(body), encoding="utf-8")
+    monkeypatch.setattr(c, "ROOT", tmp_path)
+
+    class Broken(_Iam):
+        def get_policy(self, PolicyArn):
+            if PolicyArn.endswith("WardenHarness-lab"):
+                raise RuntimeError("throttled")
+            return super().get_policy(PolicyArn)
+
+        def get_role(self, RoleName):
+            if RoleName == "warden-lab-platform-reader":
+                raise TimeoutError("slow")
+            return super().get_role(RoleName)
+
+    import urllib.parse
+    iam = Broken({"WardenEnvDeploy-lab": angled, "WardenActor-lab": doc, "WardenDeployGuard-lab": angled},
+                 {"warden-lab-harness": angled, "warden-lab-reader": urllib.parse.quote(json.dumps(doc))})
+    assert c.check(iam, ACCOUNT, ["lab"]) == [
+        ("WardenEnvBoundary-lab", "FILE HAS PLACEHOLDERS"),
+        ("WardenEnvDeploy-lab", "MATCHES"),
+        ("WardenActor-lab", "MATCHES"),
+        ("WardenHarness-lab", "UNREADABLE (RuntimeError)"),
+        ("WardenDeployGuard-lab", "DIFFERS"),
+        ("warden-lab-deploy trust", "FILE HAS PLACEHOLDERS"),
+        ("warden-lab-platform-reader trust", "UNREADABLE (TimeoutError)"),
+        ("warden-lab-actor trust", "NOT IN ACCOUNT"),
+        ("warden-lab-harness trust", "DIFFERS"),
+        ("warden-lab-reader trust", "MATCHES"),
+    ]

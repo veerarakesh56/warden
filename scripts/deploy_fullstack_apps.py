@@ -109,6 +109,28 @@ def requested_extras(requirements: pathlib.Path) -> dict[str, set[str]]:
     return out
 
 
+def _applicable_requirements(requires: list[str] | None, env: dict[str, str], extra: str) -> list:
+    """The requirements whose environment markers hold for `env` with this extra ("" for the package itself)."""
+    from packaging.requirements import Requirement
+
+    reqs = [Requirement(raw) for raw in requires or []]
+    return [req for req in reqs if req.marker is None or req.marker.evaluate({**env, "extra": extra})]
+
+
+def _follow(reqs: list, dists: dict, asked: dict[str, set[str]], missing: set[str], queue: list[str]) -> None:
+    """A requirement whose package is not in the target is missing; one that is, but asked for an extra not yet
+    followed, is queued again with that extra added to what it is asked for."""
+    from packaging.utils import canonicalize_name
+
+    for req in reqs:
+        dep = canonicalize_name(req.name)
+        if dep not in dists:
+            missing.add(req.name)
+        elif set(req.extras) - asked.get(dep, set()):
+            asked.setdefault(dep, set()).update(req.extras)
+            queue.append(dep)
+
+
 def missing_dependencies(target: pathlib.Path, python_version: str = LAMBDA_PYTHON,
                          extras: dict[str, set[str]] | None = None) -> list[str]:
     """Requirements of the packages in `target` that are not themselves in `target`, with environment
@@ -120,7 +142,6 @@ def missing_dependencies(target: pathlib.Path, python_version: str = LAMBDA_PYTH
     """
     from importlib.metadata import PathDistribution
 
-    from packaging.requirements import Requirement
     from packaging.utils import canonicalize_name
 
     env = {"python_version": python_version, "python_full_version": f"{python_version}.0",
@@ -141,16 +162,7 @@ def missing_dependencies(target: pathlib.Path, python_version: str = LAMBDA_PYTH
             if (name, extra) in done:
                 continue
             done.add((name, extra))
-            for raw in dists[name].requires or []:
-                req = Requirement(raw)
-                if req.marker is not None and not req.marker.evaluate({**env, "extra": extra}):
-                    continue
-                dep = canonicalize_name(req.name)
-                if dep not in dists:
-                    missing.add(req.name)
-                elif set(req.extras) - asked.get(dep, set()):
-                    asked.setdefault(dep, set()).update(req.extras)
-                    queue.append(dep)
+            _follow(_applicable_requirements(dists[name].requires, env, extra), dists, asked, missing, queue)
     return sorted(missing)
 
 
@@ -426,6 +438,7 @@ def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
 # The OpenTelemetry collector: AWS's distribution, v0.50.0 (released 2026-08-31, github.com/aws-observability/
 # aws-otel-collector; its awsxray, otlp and otlphttp exporters unchanged in it, read 2026-10-14).
 OTEL_IMAGE = "public.ecr.aws/aws-observability/aws-otel-collector:v0.50.0"
+DATADOG_EXPORTER = "otlp/datadog"  # the collector exporter that hands traces, metrics and logs to the Datadog agent
 
 
 # What the collector does to every span and log record before any exporter sees it (owner, 2026-10-21): the attributes
@@ -457,10 +470,10 @@ def otel_config(region: str, *, datadog: bool = False) -> dict:
         # `useHostPort` for that receiver (its values.yaml, read 2026-10-16). TLS on it would mean configuring the
         # agent's embedded OTLP receiver directly and issuing it a certificate the collector trusts. The agent
         # sends on to Datadog over TLS itself.
-        exporters["otlp/datadog"] = {"endpoint": "${env:HOST_IP}:4317", "tls": {"insecure": True}}
-        traces.append("otlp/datadog")
-        metrics.append("otlp/datadog")
-        logs.append("otlp/datadog")
+        exporters[DATADOG_EXPORTER] = {"endpoint": "${env:HOST_IP}:4317", "tls": {"insecure": True}}
+        traces.append(DATADOG_EXPORTER)
+        metrics.append(DATADOG_EXPORTER)
+        logs.append(DATADOG_EXPORTER)
     private = ["memory_limiter", "attributes/privacy", "batch"]
     pipelines = {"traces": {"receivers": ["otlp"], "processors": private, "exporters": traces}}
     if metrics:
@@ -564,6 +577,20 @@ def repo_url() -> str:
     return url
 
 
+def _sync_state(status: dict, revision: str) -> tuple[bool, str]:
+    """(synced at `revision` and Healthy, what Argo CD shows) for one status of the shop Application; a sync of
+    `revision` that failed raises - it is not waited out."""
+    sync, health = status.get("sync") or {}, status.get("health") or {}
+    phase = (status.get("operationState") or {}).get("phase", "")
+    seen = (f"revision {sync.get('revision', '?')[:12]}, sync {sync.get('status', '?')}, health "
+            f"{health.get('status', '?')}, operation {phase or '-'}")
+    if sync.get("revision") == revision and phase in ("Failed", "Error"):
+        raise SystemExit(f"Argo CD's sync of {revision[:12]} failed: {seen}: "
+                         f"{(status.get('operationState') or {}).get('message', '')[:400]}")
+    done = sync.get("revision") == revision and sync.get("status") == "Synced" and health.get("status") == "Healthy"
+    return done, seen
+
+
 def wait_synced(kubeconfig: str, revision: str, run=run, sleep=None) -> None:
     """Until Argo CD has synced exactly `revision` and the shop is Healthy - or say why not. A sync that failed is not
     waited out; one that never reaches the commit fails the deploy (a commit not pushed, a repository Argo CD cannot
@@ -576,14 +603,8 @@ def wait_synced(kubeconfig: str, revision: str, run=run, sleep=None) -> None:
     for _ in range(SYNC_TIMEOUT_S // SYNC_POLL_S):
         raw = run(["kubectl", "--kubeconfig", kubeconfig, "-n", "argocd", "get", "application", "shop", "-o", "json"])
         status = (json.loads(raw) if raw.strip() else {}).get("status") or {}
-        sync, health = status.get("sync") or {}, status.get("health") or {}
-        phase = (status.get("operationState") or {}).get("phase", "")
-        seen = (f"revision {sync.get('revision', '?')[:12]}, sync {sync.get('status', '?')}, health "
-                f"{health.get('status', '?')}, operation {phase or '-'}")
-        if sync.get("revision") == revision and phase in ("Failed", "Error"):
-            raise SystemExit(f"Argo CD's sync of {revision[:12]} failed: {seen}: "
-                             f"{(status.get('operationState') or {}).get('message', '')[:400]}")
-        if sync.get("revision") == revision and sync.get("status") == "Synced" and health.get("status") == "Healthy":
+        done, seen = _sync_state(status, revision)
+        if done:
             print(f"Argo CD: shop synced at {revision[:12]} and Healthy", flush=True)
             return
         sleep(SYNC_POLL_S)
@@ -651,6 +672,48 @@ def bootstrap_db(stack: dict, aws, connect=None) -> None:
 
 # --------------------------------------------------------------------------- cli
 
+def _checked_paths(out_arg: pathlib.Path, stack_arg: pathlib.Path | None) -> tuple[pathlib.Path, pathlib.Path]:
+    """(--out, --stack) as checked paths."""
+    # --out and --stack come from the command line, and deploy ecs writes stack.json back: each must lie where the
+    # tools work - ~/warden-fullstack-build, the temp folder (RUNNER_TEMP in CI) or the working directory
+    # (warden.paths; Sonar pythonsecurity:S2083, 2026-10-17). Both are used through the checked path only.
+    try:
+        out = paths.inside(out_arg)
+        # The default is checked too: a stack.json in --out that links elsewhere is refused (CodeRabbit, PR 63).
+        stack_path = paths.inside(stack_arg if stack_arg else out / "stack.json")
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
+    if out == ROOT or ROOT in out.parents:
+        raise SystemExit(f"--out {out} is inside the repository; build output must live outside it")
+    return out, stack_path
+
+
+def _deploy(args: argparse.Namespace, out: pathlib.Path, stack_path: pathlib.Path, stack: dict, aws, runner) -> None:
+    """`deploy <target>`: the Lambdas, the ECS service (its task definition recorded in stack.json), the k8s shop."""
+    targets = ["lambdas", "ecs", "k8s"] if args.target == "all" else [args.target]
+    tag = None
+    if {"ecs", "k8s"} & set(targets):
+        tag = args.tag or (out / "image-tag.txt").read_text(encoding="utf-8").strip()
+    for target in targets:
+        if target == "lambdas":
+            deploy_lambdas(stack, out, aws)
+        elif target == "ecs":
+            arn = deploy_ecs(stack, tag, aws, runner, wait=not args.no_wait)
+            record_in_stack(stack_path, "ecs_baseline_task_definition", arn)
+        else:
+            deploy_k8s(stack, tag, out, aws, runner)
+
+
+def _on_the_stack(args: argparse.Namespace, out: pathlib.Path, stack_path: pathlib.Path, aws, runner) -> None:
+    """`bootstrap-db` and `deploy`: both read the stack, then do their one job."""
+    stack = load_stack(stack_path)
+    aws = aws or boto_factory(stack["region"])
+    if args.cmd == "bootstrap-db":
+        bootstrap_db(stack, aws)
+    else:
+        _deploy(args, out, stack_path, stack, aws, runner)
+
+
 def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
     # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and this output carries ⛔/⚠.
     for stream in (sys.stdout, sys.stderr):
@@ -670,44 +733,15 @@ def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
     sub.add_parser("bootstrap-db")
     args = p.parse_args(argv)
 
-    # --out and --stack come from the command line, and deploy ecs writes stack.json back: each must lie where the
-    # tools work - ~/warden-fullstack-build, the temp folder (RUNNER_TEMP in CI) or the working directory
-    # (warden.paths; Sonar pythonsecurity:S2083, 2026-10-17). Both are used through the checked path only.
-    try:
-        out = paths.inside(args.out)
-        # The default is checked too: a stack.json in --out that links elsewhere is refused (CodeRabbit, PR 63).
-        stack_path = paths.inside(args.stack if args.stack else out / "stack.json")
-    except ValueError as e:
-        raise SystemExit(f"refused: {e}") from None
-    if out == ROOT or ROOT in out.parents:
-        raise SystemExit(f"--out {out} is inside the repository; build output must live outside it")
+    out, stack_path = _checked_paths(args.out, args.stack)
     out.mkdir(parents=True, exist_ok=True)
 
     if args.cmd == "build" or (args.cmd == "deploy" and args.target == "all"):
         build_lambdas(out, runner)
         if not getattr(args, "skip_image", False):
             build_image(out, getattr(args, "tag", None) or default_tag(runner), runner)
-        if args.cmd == "build":
-            return 0
-
-    stack = load_stack(stack_path)
-    aws = aws or boto_factory(stack["region"])
-    if args.cmd == "bootstrap-db":
-        bootstrap_db(stack, aws)
-        return 0
-
-    targets = ["lambdas", "ecs", "k8s"] if args.target == "all" else [args.target]
-    tag = None
-    if {"ecs", "k8s"} & set(targets):
-        tag = args.tag or (out / "image-tag.txt").read_text(encoding="utf-8").strip()
-    for target in targets:
-        if target == "lambdas":
-            deploy_lambdas(stack, out, aws)
-        elif target == "ecs":
-            arn = deploy_ecs(stack, tag, aws, runner, wait=not args.no_wait)
-            record_in_stack(stack_path, "ecs_baseline_task_definition", arn)
-        else:
-            deploy_k8s(stack, tag, out, aws, runner)
+    if args.cmd != "build":
+        _on_the_stack(args, out, stack_path, aws, runner)
     return 0
 
 

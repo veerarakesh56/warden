@@ -27,11 +27,13 @@ EVENT = {
 
 def test_an_alarm_state_change_becomes_an_intake_event():
     ev = lambdas.alarm_event(EVENT, "unused")
-    assert ev.rule == "warden-dev-checkout-errors" and ev.state == "ALARM"
+    assert ev.rule == "warden-dev-checkout-errors"
+    assert ev.state == "ALARM"
     assert ev.transitioned_at.isoformat() == "2026-10-03T10:00:04.989000+00:00"
     a = ev.alert
     assert (a.service, a.environment) == ("warden-dev-checkout", "dev")  # the dimension, and the name's environment
-    assert a.summary.startswith("Checkout function") and a.labels["FunctionName"] == "warden-dev-checkout"
+    assert a.summary.startswith("Checkout function")
+    assert a.labels["FunctionName"] == "warden-dev-checkout"
     assert lambdas.alarm_event({**EVENT, "detail-type": "CloudWatch Alarm Configuration Change"}, "dev") is None
     assert lambdas.alarm_event({**EVENT, "source": "aws.ec2"}, "dev") is None
     ok = lambdas.alarm_event({**EVENT, "detail": {**EVENT["detail"], "state": {"value": "OK",
@@ -48,7 +50,8 @@ def submitted(monkeypatch):
 
 
 def test_the_alarm_lambda_submits_alarms_and_ignores_the_rest(submitted):
-    assert lambdas.alarm(EVENT)["decisions"] == [{"action": "start"}] and len(submitted) == 1
+    assert lambdas.alarm(EVENT)["decisions"] == [{"action": "start"}]
+    assert len(submitted) == 1
     assert "ignored" in lambdas.alarm({"source": "aws.health"})
 
 
@@ -65,12 +68,16 @@ def test_the_webhook_needs_its_secret_and_drops_what_alertmanager_no_longer_fire
     monkeypatch.setenv("WARDEN_ALERTMANAGER_TOKEN_PREVIOUS", "t-old")
     monkeypatch.setenv("WARDEN_ENV", "dev")
     monkeypatch.delenv("WARDEN_ALERTMANAGER_URL", raising=False)
-    assert lambdas.alertmanager(_am("wrong"))["statusCode"] == 401 and submitted == []
-    assert lambdas.alertmanager(_am("t-old"))["statusCode"] == 202 and len(submitted) == 1  # during a rotation
+    assert lambdas.alertmanager(_am("wrong"))["statusCode"] == 401
+    assert submitted == []
+    assert lambdas.alertmanager(_am("t-old"))["statusCode"] == 202  # during a rotation
+    assert len(submitted) == 1
     monkeypatch.setenv("WARDEN_ALERTMANAGER_URL", "https://alertmanager.example")
     monkeypatch.setattr("warden.webhooks.alertmanager_active", lambda url: (lambda: set()))
     r = lambdas.alertmanager(_am())
-    assert r["statusCode"] == 202 and json.loads(r["body"]) == {"accepted": 0, "dropped": 1} and len(submitted) == 1
+    assert r["statusCode"] == 202
+    assert json.loads(r["body"]) == {"accepted": 0, "dropped": 1}
+    assert len(submitted) == 1
 
 
 def test_the_approval_lambda_serves_the_page(monkeypatch):
@@ -99,8 +106,10 @@ def test_each_lambda_loads_only_its_own_settings(monkeypatch):
         lambdas._configure(name)
         lambdas._configure(name)  # once per container
     alarm, webhook, page = loaded
-    assert "WARDEN_DATADOG_WEBHOOK_TOKEN" in webhook and "WARDEN_DATADOG_WEBHOOK_TOKEN" not in alarm | page
-    assert "WARDEN_SLACK_CLIENT_SECRET" in page and "WARDEN_SLACK_CLIENT_SECRET" not in alarm | webhook
+    assert "WARDEN_DATADOG_WEBHOOK_TOKEN" in webhook
+    assert "WARDEN_DATADOG_WEBHOOK_TOKEN" not in alarm | page
+    assert "WARDEN_SLACK_CLIENT_SECRET" in page
+    assert "WARDEN_SLACK_CLIENT_SECRET" not in alarm | webhook
     assert all("WARDEN_TEMPORAL_API_KEY" in s for s in loaded)
     # The audit's address is each Lambda's own environment (frontdoor.tf), never a secret it reads.
     assert not any("WARDEN_AUDIT_DSN" in s or "WARDEN_AUDIT_KEY_PASSPHRASE" in s for s in loaded)
@@ -128,7 +137,8 @@ def test_the_approver_policy_comes_from_the_file_or_else_from_ssm(monkeypatch, t
     monkeypatch.setenv("WARDEN_ENV", "dev")
     monkeypatch.setattr(boto3, "client", lambda *a, **kw: _Ssm())
     monkeypatch.setattr("warden.environments.region", lambda: "test-region-1")
-    assert runtime.approver_policy().approvers["owner"].tiers == ["T2"] and asked == ["/warden/dev/approvers"]
+    assert runtime.approver_policy().approvers["owner"].tiers == ["T2"]
+    assert asked == ["/warden/dev/approvers"]
     monkeypatch.delenv("WARDEN_ENV")
     with pytest.raises(RuntimeError):
         runtime.approver_policy()
@@ -143,7 +153,8 @@ def test_slacks_note_of_a_button_click_is_answered_before_anything_is_loaded(mon
     monkeypatch.setattr(lambdas, "approval_page", never)
     for path in ("/s/interact", "/s/interact/"):
         out = lambdas.approval({"rawPath": path, "body": "payload=%7B%7D", "requestContext": {"http": {"method": "POST"}}})
-        assert out["statusCode"] == 200 and out["body"] == ""
+        assert out["statusCode"] == 200
+        assert out["body"] == ""
     # every other request is served as before: it reaches `_configure` (the handler's error is told by its type only)
     with pytest.raises(lambdas.HandlerFailed, match=r"\(AssertionError\)"):
         lambdas.approval({"rawPath": "/s/interact", "requestContext": {"http": {"method": "GET"}}})
@@ -173,4 +184,5 @@ def test_a_cold_start_says_where_its_time_went_once_and_the_one_a_person_waits_f
     assert re.fullmatch(r"approval cold start: settings=\d+ms page=\d+ms request=\d+ms", line)  # durations, nothing else
     tf = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert re.search(r'approval\s+= \{ handler = "warden\.lambdas\.approval", timeout = 30, memory = 1769 \}', tf)
-    assert "memory_size   = each.value.memory" in tf and tf.count("memory = 512 }") == 3
+    assert "memory_size   = each.value.memory" in tf
+    assert tf.count("memory = 512 }") == 3

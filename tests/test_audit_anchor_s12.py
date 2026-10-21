@@ -38,7 +38,8 @@ class _FakeAnchors:
         self.objects, self.puts = {}, []
 
     def put_object(self, *, Bucket, Key, Body, ObjectLockMode, ObjectLockRetainUntilDate, ChecksumAlgorithm):
-        assert ObjectLockMode == "COMPLIANCE" and ObjectLockRetainUntilDate > datetime.now(UTC)
+        assert ObjectLockMode == "COMPLIANCE"
+        assert ObjectLockRetainUntilDate > datetime.now(UTC)
         assert Key not in self.objects, "an object under Object Lock cannot be overwritten"
         self.objects[Key] = Body
         self.puts.append(Key)
@@ -134,7 +135,8 @@ def test_audit_verify_checks_the_anchor_bucket_when_named(monkeypatch, capsys, t
     base = ["audit", "verify", "--db", str(db), "--public-key", str(pub), "--anchor-bucket", "anchors-bucket"]
     assert main(base) == 0
     _rewrite_and_resign(db, key)
-    assert main(base) == 1 and "differs from its anchor" in capsys.readouterr().out
+    assert main(base) == 1
+    assert "differs from its anchor" in capsys.readouterr().out
 
 
 _Real = audit.S3Anchor
@@ -155,8 +157,11 @@ def test_the_runtime_signs_with_kms_and_anchors_when_configured(monkeypatch, tmp
     monkeypatch.setenv("WARDEN_AUDIT_ANCHOR_BUCKET", "warden-dev-anchors")
     monkeypatch.setenv("WARDEN_AUDIT_ANCHOR_DAYS", "30")
     signer, anchor = runtime.audit_signer(), runtime.audit_anchor()
-    assert isinstance(signer, audit_mod.KmsSigner) and signer.key_id == "alias/warden-dev-audit"
-    assert isinstance(anchor, audit_mod.S3Anchor) and anchor.bucket == "warden-dev-anchors" and anchor.retain.days == 30
+    assert isinstance(signer, audit_mod.KmsSigner)
+    assert signer.key_id == "alias/warden-dev-audit"
+    assert isinstance(anchor, audit_mod.S3Anchor)
+    assert anchor.bucket == "warden-dev-anchors"
+    assert anchor.retain.days == 30
     assert made == ["kms", "s3"]
     monkeypatch.setenv("WARDEN_AUDIT_ANCHOR_DAYS", "0")
     with pytest.raises(RuntimeError):
@@ -167,4 +172,5 @@ def test_the_runtime_signs_with_kms_and_anchors_when_configured(monkeypatch, tmp
     audit_mod.generate_key(key, tmp_path / "k.pub")
     monkeypatch.setenv("WARDEN_AUDIT_KEY", str(key))
     monkeypatch.delenv("WARDEN_AUDIT_KEY_PASSPHRASE", raising=False)
-    assert not isinstance(runtime.audit_signer(), audit_mod.KmsSigner) and runtime.audit_anchor() is None
+    assert not isinstance(runtime.audit_signer(), audit_mod.KmsSigner)
+    assert runtime.audit_anchor() is None
