@@ -1,4 +1,4 @@
-"""G9-C (2026-10-10): richer typed facts. The audit fed new failure wording through the quarantine and got nothing - a
+"""G9-C: richer typed facts. The audit fed new failure wording through the quarantine and got nothing - a
 KMS failure, "SSL unknown CA", "S3 SlowDown", a feature-flag line, a business error rate. Each now yields facts, and
 none of the new fact kinds can carry an instruction: identifiers, errno names from a closed list, numbers, closed
 phrases, and templates built only from a closed technical vocabulary with every other word reduced to `~`."""

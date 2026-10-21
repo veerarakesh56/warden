@@ -11,7 +11,7 @@
 # backups (deleted with the instance). The first three are wrong for production and right for an instance that lives
 # for an hour. On an
 # account under 12 months old the free tier covers it entirely. Encrypted at rest with the AWS-managed
-# key (2026-10-16, Sonar terraform:S6303): it costs nothing and leaves nothing to clean up.
+# key (Sonar terraform:S6303): it costs nothing and leaves nothing to clean up.
 
 resource "aws_db_subnet_group" "this" {
   count      = var.enable_rds ? 1 : 0
@@ -51,7 +51,7 @@ resource "aws_db_instance" "this" {
   storage_type      = "gp2"
   storage_encrypted = true # aws/rds, the AWS-managed key: no key to create, pay for or delete
   # On an instance created before 2026-10-16 this replaces it with a new, empty database: run
-  # scripts/setup_proving_ground_db.py again, so the harness's sentinel guard marks the new one (CodeRabbit, PR 46).
+  # scripts/setup_proving_ground_db.py again, so the harness's sentinel guard marks the new one.
 
   db_name  = "warden"
   username = "warden"

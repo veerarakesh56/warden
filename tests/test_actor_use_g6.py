@@ -129,7 +129,7 @@ def test_the_lambda_lets_an_approved_session_pass_and_pages_when_it_cannot_check
 
 def test_the_lambda_loads_no_secret_at_all():
     """It reads the audit, whose address the module sets in its environment (frontdoor.tf), and KMS signs: no secret
-    to read, so its role may read none (secrets audit, 2026-10-16)."""
+    to read, so its role may read none."""
     assert settings.loadable_for("lambda-actor-use") & settings.SECRETS == frozenset()
 
 

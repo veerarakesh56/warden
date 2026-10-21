@@ -1,4 +1,4 @@
-"""The bench approver (owner, 2026-10-15): Claude's own test identity - its own Ed25519 key, `dev` only, T1/T2 - shown an
+"""The bench approver: Claude's own test identity - its own Ed25519 key, `dev` only, T1/T2 - shown an
 incident's waiting plan and approving it through the approval page's signed path (approval_page._signed_request).
 
     python scripts/bench_approve.py --new-key --environment <env>  # once: makes the key, prints the approver entry

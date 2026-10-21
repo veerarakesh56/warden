@@ -107,7 +107,7 @@ def test_an_approval_request_says_when_the_same_fix_on_the_same_target_just_ende
     assert "worked, then failed again" not in both
     assert "applied at" not in both
     assert "It held" not in both
-    # A run of the same fix that held is said beside them: "none lasted" stood next to one that had (live, 2026-10-12).
+    # A run of the same fix that held is said beside them: "none lasted" stood next to one that had.
     mixed = [{**plans[0], "status": "recovered", "at": NOW - timedelta(hours=1)}, *twice,
              {**plans[0], "status": "recovered", "at": NOW - timedelta(hours=30)}]  # older than a day: not counted
     said = history.warning(mixed, entry="k8s_rollout_undo", target=target, plan_hash="new", now=NOW)

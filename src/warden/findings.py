@@ -1,4 +1,4 @@
-"""Code-review findings on the deployed change, as incident evidence (owner, 2026-10-16).
+"""Code-review findings on the deployed change, as incident evidence.
 
 When an incident follows a deploy, what code review flagged on that deploy's pull request is a lead: "this release had
 an unresolved SonarCloud finding: possible IndexError in orders.py:212". For each commit a deploy near the alarm
@@ -49,7 +49,7 @@ _FAILED = (urllib.error.URLError, TimeoutError, OSError, ValueError, TypeError) 
 
 class _SameHostRedirects(urllib.request.HTTPRedirectHandler):
     """urllib's redirect keeps the request's headers, the bearer token among them: one is followed only to https on
-    the same host, and any other is refused as a failed read (CodeRabbit, PR 165)."""
+    the same host, and any other is refused as a failed read."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(urllib.parse.urljoin(req.full_url, newurl))

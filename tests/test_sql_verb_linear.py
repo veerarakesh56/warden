@@ -1,4 +1,4 @@
-"""CodeQL py/redos, alert 21 (2026-10-15): the SQL statement's kind was read with a regex that backtracked
+"""CodeQL py/redos, alert 21: the SQL statement's kind was read with a regex that backtracked
 exponentially on a `/*` followed by many `*//*` - and the text is whatever a database client sent, so any client could
 stall WARDEN's reader. The kind is now read in one linear pass, with the same answers - recorded once from the old
 regex, which this file does not keep (a copy of it here was CodeQL alert 22)."""

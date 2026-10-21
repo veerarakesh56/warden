@@ -1,4 +1,4 @@
-"""A deploy counts only if it reached production in the window before the alert started (audit A-B-M10)."""
+"""A deploy counts only if it reached production in the window before the alert started."""
 
 from __future__ import annotations
 

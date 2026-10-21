@@ -104,7 +104,7 @@ FORGED_LINES = [
 
 
 def test_aws_own_field_event_and_metric_names_keep_a_line_trusted_and_forged_words_do_not():
-    """G10 held-out set (2026-10-10): real STATE, CHANGE and ALARM lines were demoted to untrusted for AWS's own
+    """G10 held-out set: real STATE, CHANGE and ALARM lines were demoted to untrusted for AWS's own
     `disableExecuteApiEndpoint`, `FailoverDBCluster` and `StatusCheckFailed_System`, and the model lost them. A
     steering word anywhere else - or in a made-up event name's CamelCase words - still demotes the line."""
     assert [evidence._kind(x) for x in AWS_WORD_LINES] == ["C"] * len(AWS_WORD_LINES)
@@ -132,7 +132,7 @@ def _stack_source() -> str:
 
 
 def test_every_reader_tag_keeps_the_outcome_of_a_failed_read():
-    """G10 review (2026-10-10): `ecs stopped tasks`, `network changes`, `alb zones`, `eks nodegroups`,
+    """G10 review: `ecs stopped tasks`, `network changes`, `alb zones`, `eks nodegroups`,
     `lambda/<fn> versions` and the network workload reader did not fit the tag shape, so every failure there reached the
     model as "failed (unclassified)". Each tag the stack readers write - read from their source - must keep it."""
     import re
@@ -165,7 +165,7 @@ def test_every_text_partial_a_reader_writes_carries_an_outcome_tag():
 
 def test_every_read_operation_the_readers_call_is_known():
     """A failed read names its operation only when it is in READ_OPERATIONS (the list stops a log writer naming a fake
-    one). ListExecutions, StartQuery and 15 more were called but not listed (G10 review, 2026-10-10). Derived from the
+    one). ListExecutions, StartQuery and 15 more were called but not listed. Derived from the
     readers' source and botocore's own operation names, so a new read cannot fall behind."""
     import pathlib
     import re
@@ -195,7 +195,7 @@ def test_every_read_operation_the_readers_call_is_known():
 
 
 def test_the_alerts_own_resource_name_does_not_demote_its_structured_lines():
-    """G10 held-out set (2026-10-10): a state machine named `refund-approval` squashes to "approv", so every
+    """G10 held-out set: a state machine named `refund-approval` squashes to "approv", so every
     structured line about it was demoted and the model lost them. The alert's resource-label values (carried in the
     context, so every reading assigns the same ids) are skipped by the run-together check - as whole tokens only, and
     still checked word by word. Any other steering on the line, or a name that is steering words, still demotes."""
@@ -214,7 +214,7 @@ def test_the_alerts_own_resource_name_does_not_demote_its_structured_lines():
 
 
 def test_the_facts_are_the_same_in_every_process():
-    """G10 held-out baseline (2026-10-10): a range of values with the same first number (`client=<IPV4_1> ..
+    """G10 held-out baseline: a range of values with the same first number (`client=<IPV4_1> ..
     client=<IPV4_3>`) took its ends from set order, which changes with each process's hash seed - so the diagnose and
     the verify step, in different worker processes, saw different facts and a right citation read as ungrounded."""
     import os

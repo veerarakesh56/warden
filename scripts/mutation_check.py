@@ -291,7 +291,7 @@ MUTATIONS = [
             "skips for want of service containers and trips its own zero-skips guard"
         ),
     ),
-    # Eldane, the AI critic, and dev autonomy (owner, 2026-10-16/17): every guard, planted (tests/test_eldane_autonomy.py).
+    # Eldane, the AI critic, and dev autonomy: every guard, planted (tests/test_eldane_autonomy.py).
     (
         "Eldane's approval no longer needs both of its passes",
         _AUTONOMY,
@@ -502,7 +502,7 @@ def run_suite(paths: list[str] | None = None, limit: int = 1800) -> bool | str:
     """True if the suite (or the given test paths) passes, False if it fails, TIMED_OUT if it runs past
     `limit` seconds - then the run and every worker it started are stopped."""
     # Non-zero is the expected, desirable outcome for a mutated build; it is not an error here.
-    # On parallel workers, as CI runs it: serially one run took 17 minutes (2026-10-01). -x still stops
+    # On parallel workers, as CI runs it: serially one run took 17 minutes. -x still stops
     # at the first failure, but waits for tests already running - hence the limit.
     proc = subprocess.Popen(
         [sys.executable, "-m", "pytest", "-q", "-x", "-n", "auto", "--no-header", "-p", "no:cacheprovider",
@@ -519,7 +519,7 @@ def run_suite(paths: list[str] | None = None, limit: int = 1800) -> bool | str:
         return TIMED_OUT
     except BaseException:
         # Ctrl-C: the run is in its own session on POSIX, so the terminal's signal never reaches its workers
-        # (sixth review, 2026-10-01) - stop them before the mutated file is restored.
+        # - stop them before the mutated file is restored.
         _kill_tree(proc)
         raise
 

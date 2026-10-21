@@ -1,4 +1,4 @@
-"""The database's own error log reaches the evidence (2026-10-15): of its newest file's last lines, only ERROR, FATAL
+"""The database's own error log reaches the evidence: of its newest file's last lines, only ERROR, FATAL
 and PANIC ones, as untrusted LOG lines - "password authentication failed for user ..." names a cause the applications'
 logs only echo."""
 

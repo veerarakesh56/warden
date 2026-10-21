@@ -25,7 +25,7 @@ resource "aws_ecr_lifecycle_policy" "app" {
 
 resource "aws_cloudwatch_log_group" "orders_api" {
   name = "/ecs/${local.name}-orders-api"
-  # 14 days (Sonar terraform:S6413, 2026-10-16): enough to look back at an incident found days later.
+  # 14 days (Sonar terraform:S6413): enough to look back at an incident found days later.
   retention_in_days = 14
 }
 
@@ -146,7 +146,7 @@ resource "aws_lb" "orders" {
   internal        = true
   subnets         = aws_subnet.private[*].id
   security_groups = [aws_security_group.alb.id]
-  # Every request, kept 14 days (Sonar terraform:S6258, 2026-10-17): what the ALB answered, to whom and how fast, for an
+  # Every request, kept 14 days (Sonar terraform:S6258): what the ALB answered, to whom and how fast, for an
   # incident found later. ELB charges nothing for access logs; S3 stores a few hundred kilobytes a day.
   access_logs {
     bucket  = aws_s3_bucket.alb_logs.id
@@ -277,7 +277,7 @@ resource "aws_lb_target_group" "orders" {
   }
 }
 
-# HTTPS inside the VPC too (Sonar terraform:S5332, 2026-10-17). The ALB has no domain, so no public certificate: the
+# HTTPS inside the VPC too (Sonar terraform:S5332). The ALB has no domain, so no public certificate: the
 # stack makes its own - a self-signed ECDSA P-256 certificate for the ALB's DNS name - and imports it into ACM, which
 # charges nothing for an imported certificate. Its one caller, the traffic Lambda, trusts exactly this certificate
 # (ALB_CA_PEM, lambda.tf) and verifies the name, so a man in the middle has nothing to offer it. The private key is in

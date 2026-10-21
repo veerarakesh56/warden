@@ -1,4 +1,4 @@
-"""The redaction cases the independent review of 2026-09-28 found (A-C-4, A-C-5, A-C-22).
+"""The redaction cases the independent review of 2026-09-28 found.
 
 Each case is a value a pattern found in one place that must not survive in another, a credential
 shape that passed, or an ordinary word the first fix wrongly masked.

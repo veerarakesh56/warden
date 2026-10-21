@@ -40,7 +40,7 @@ from typing import Any
 # The proving ground's own tag (terraform/proving-ground/main.tf `Stack`), checked before anything is
 # touched. It was `Project=warden-proving-ground` until the stacks moved to Project=warden +
 # Environment (owner rule R53, a7a9b10); the guards did not move with it, so every injection refused
-# and the teardown sweep lost its tag filter (second review, 2026-09-30). tests/test_proving_ground_tags.py
+# and the teardown sweep lost its tag filter. tests/test_proving_ground_tags.py
 # reads main.tf, so the two cannot drift apart again.
 STACK_TAG = ("Stack", "warden-proving-ground")
 FAULT_IMAGE_TAG = "3.12.7-alpine"  # the python image every faulty variant runs (pinned, as the baseline)
@@ -322,7 +322,7 @@ def op_ecs_stop_one_task(clients: Clients, target: Target, **_):
 
 
 def op_logs_delete_group(clients: Clients, target: Target, *, log_group: str, **_):
-    # The proving ground's own group, carrying its tag (audit A-B-L15): an `/ecs/` prefix let any service's group in
+    # The proving ground's own group, carrying its tag: an `/ecs/` prefix let any service's group in
     # the account through - `/ecs/payments` of a real workload included.
     if log_group != target.log_group:
         raise OpError(f"refusing to delete log group {log_group!r} - not the proving ground's {target.log_group!r}")

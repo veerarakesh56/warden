@@ -152,7 +152,7 @@ def test_an_injection_in_a_coderabbit_comment_is_held_back_everywhere():
         assert _read(_GitHub(comments=[planted]))[-1].endswith("held=1 coderabbit_review=changes-requested")
 
 
-# The shape of a real CodeRabbit inline comment (PR 41, 2026-10-16), shortened: its words in the folded blocks and HTML
+# The shape of a real CodeRabbit inline comment, shortened: its words in the folded blocks and HTML
 # comments ("Script executed", "Proposed fix", "Verify each finding") are CodeRabbit's template.
 REAL_RABBIT = (
     "**🎯 Functional Correctness** | **🟠 Major**\n\n"
@@ -385,7 +385,7 @@ def test_the_reader_is_one_of_the_evidence_tools_only_when_switched_on(monkeypat
     monkeypatch.setenv("WARDEN_FINDINGS_MAX_PER_PR", "not a number")
     reader = next(r for r in evidence_tools(object()) if r.source == "findings")
     assert (reader.repo, reader.sonar_project, reader.max_prs, reader.max_per_pr) == ("owner/shop", "owner_shop", 3, 20)
-    # Clamped to their ceilings, ASCII digits only: past GitHub's page of 100 the reader would drop alerts (CodeRabbit).
+    # Clamped to their ceilings, ASCII digits only: past GitHub's page of 100 the reader would drop alerts.
 
     def limits(prs: str, per_pr: str) -> tuple[int, int]:
         monkeypatch.setenv("WARDEN_FINDINGS_MAX_PRS", prs)
@@ -428,7 +428,7 @@ def test_the_read_token_has_one_slot_the_read_zones_alone_and_one_place_it_is_ta
 
 
 def test_every_finding_value_is_shown_in_inline_code_only_warden_s_own_labels_are_not():
-    """A log line of a finding's shape can carry any printable character: each value is rendered inert (CodeRabbit)."""
+    """A log line of a finding's shape can carry any printable character: each value is rendered inert."""
     from warden.cli import DEMO_ALERTS
     from warden.reporting import build_report, untrusted_inline
 
@@ -450,14 +450,14 @@ def test_every_finding_value_is_shown_in_inline_code_only_warden_s_own_labels_ar
 
 
 def test_every_pull_request_of_the_deployed_commit_up_to_max_prs_is_read():
-    """The commit's pull requests are asked for max_prs at a time, so the limit is what bounds them (CodeRabbit)."""
+    """The commit's pull requests are asked for max_prs at a time, so the limit is what bounds them."""
     for max_prs, want in ((10, 7), (3, 3)):
         lines = _read(_GitHub(prs=range(1, 8)), max_prs=max_prs)
         assert sum(ln.startswith("FINDINGS ") for ln in lines) == want
 
 
 def test_a_redirect_carries_the_token_only_to_https_on_the_same_host():
-    """urllib keeps every header on a redirect, the bearer token among them (CodeRabbit, PR 165)."""
+    """urllib keeps every header on a redirect, the bearer token among them."""
     import urllib.request
 
     from warden.findings import _OPENER, _SameHostRedirects
@@ -479,7 +479,7 @@ def test_a_redirect_carries_the_token_only_to_https_on_the_same_host():
 
 
 def test_an_answer_of_the_wrong_shape_is_not_read_never_nothing_found():
-    """Only `[]` says there is nothing; an object or null where a list belongs is a failed read (CodeRabbit, PR 165)."""
+    """Only `[]` says there is nothing; an object or null where a list belongs is a failed read."""
     for key, what in (("alerts", "code scanning alerts for PR #37"), ("comments", "coderabbit review of PR #37"),
                       ("reviews", "coderabbit review of PR #37"), ("issues", "sonarcloud issues for PR #37"),
                       ("pulls", "pull requests of commit 9f2c1ab")):

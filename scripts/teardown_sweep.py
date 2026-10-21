@@ -104,7 +104,7 @@ def plan(ecs: Any, logs: Any, family: str, log_group: str) -> dict[str, list[str
     refused: list[str] = []
     for arn in active + inactive:
         tag = _stack_tag(ecs, arn)
-        # Only revisions carrying the proving ground's tag (audit A-B-M14): an untagged `checkout` revision may be
+        # Only revisions carrying the proving ground's tag: an untagged `checkout` revision may be
         # anyone's, and was removed. Untagged ones are reported for a person to judge.
         if tag != STACK[1]:
             refused.append(f"{arn.rsplit('/', 1)[-1]} (Stack={tag or 'untagged'})")
@@ -179,7 +179,7 @@ def sweep(ecs: Any, logs: Any, tagging: Any, family: str, log_group: str,
     """What is still there, by tag AND by name. Empty lists everywhere means clean."""
     tagged: list[str] = []
     kw: dict[str, Any] = {"TagFilters": [{"Key": STACK[0], "Values": [STACK[1]]}]}
-    while True:  # every page: the first alone could hold none of what is left (audit A-B-M19)
+    while True:  # every page: the first alone could hold none of what is left
         page = tagging.get_resources(**kw)
         tagged += [r["ResourceARN"] for r in page.get("ResourceTagMappingList") or []]
         if not page.get("PaginationToken"):
@@ -193,7 +193,7 @@ def sweep(ecs: Any, logs: Any, tagging: Any, family: str, log_group: str,
     try:
         running = ecs.list_tasks(cluster=cluster).get("taskArns") or []
     except Exception as exc:  # noqa: BLE001
-        # A cluster that no longer exists has no running tasks; any other failure is not "none" (audit A-B-M19).
+        # A cluster that no longer exists has no running tasks; any other failure is not "none".
         if "ClusterNotFound" not in type(exc).__name__ + str(exc):
             running = [f"could not check list_tasks: {type(exc).__name__}"]
     return {

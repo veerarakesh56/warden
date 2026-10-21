@@ -91,7 +91,7 @@ class Completion:
     text: str
     input_tokens: int
     output_tokens: int
-    cut_off: bool = False  # the answer reached the output cap: charged, never retried (review 2026-10-10, M7)
+    cut_off: bool = False  # the answer reached the output cap: charged, never retried (M7)
     # The model declined (stop_reason "refusal", HTTP 200): charged, never retried, escalated like a cut-off (B11).
     refused: bool = False
     refusal_category: str = ""  # stop_details.category when the provider names one ("cyber", "bio", ...)
@@ -186,10 +186,10 @@ def call_timeout_s(provider: Any = None) -> float:
 # --------------------------------------------------------------------------- anthropic
 
 
-# Room for the whole answer: at 1500 one incident's answer was cut off three times in a row (2026-10-10), and at 4096
+# Room for the whole answer: at 1500 one incident's answer was cut off three times in a row, and at 4096
 # a cloud incident's (warden-dev-orders-age, 2026-10-14 20:39 UTC) - it went to a person with no diagnosis. Claude's
 # 5.5 models think before they answer (adaptive thinking, on by default) and the thinking counts against this cap:
-# 16384 leaves room for both (2026-10-15). Output is charged as used, and the incident's USD cap (llm.py) still stops
+# 16384 leaves room for both. Output is charged as used, and the incident's USD cap (llm.py) still stops
 # the run.
 MAX_OUTPUT_TOKENS = 16384
 EFFORTS = ("low", "medium", "high")
@@ -209,7 +209,7 @@ def model_effort(model: str) -> str:
 class AnthropicProvider:
     name = "anthropic"
     # A thinking model writes up to MAX_OUTPUT_TOKENS before its answer is complete: the 45 s default cut such a call
-    # off (2026-10-15). WARDEN_LLM_TIMEOUT still overrides it.
+    # off. WARDEN_LLM_TIMEOUT still overrides it.
     default_timeout_s = 240.0
 
     def __init__(self, model: str | None = None) -> None:
@@ -268,11 +268,11 @@ class GeminiProvider:
         self._client = genai.Client(
             api_key=api_key,
             # ALWAYS explicit: the SDK otherwise reads GOOGLE_GENAI_CLIENT_MODE, where `replay` answers
-            # from files on disk and `record` writes every prompt to disk (third review, 2026-09-30).
+            # from files on disk and `record` writes every prompt to disk.
             debug_config=DebugConfig(client_mode=None, replays_directory=None, replay_id=None),
             http_options=types.HttpOptions(
                 # ALWAYS explicit: the SDK otherwise reads GOOGLE_GEMINI_BASE_URL itself, and the key
-                # went to whatever host that named, plain http included (second review, 2026-09-30).
+                # went to whatever host that named, plain http included.
                 base_url=GEMINI_BASE_URL,
                 timeout=int(_sdk_timeout_s() * 1000),
                 retry_options=types.HttpRetryOptions(attempts=1),
@@ -326,7 +326,7 @@ class OpenAICompatProvider:
         self.version = _sdk_version("openai")
         # Passed in by resolve() for the aliases; falls back to the env for an explicit custom host.
         # ALWAYS an explicit base URL: without one the SDK reads OPENAI_BASE_URL on its own, and the
-        # OpenAI key then went to whatever host that named (independent review 2026-09-28).
+        # OpenAI key then went to whatever host that named.
         base_url = base_url or os.environ.get("WARDEN_BASE_URL") or OPENAI_DEFAULT_BASE_URL
         key_env = key_env_for(base_url)
         if key_env and not base_url.lower().startswith("https://"):
@@ -336,7 +336,7 @@ class OpenAICompatProvider:
         if not api_key:
             raise ProviderError(f"{key_env} is not set (or set WARDEN_BASE_URL for a local model).")
         # The SDK reads OPENAI_CUSTOM_HEADERS itself and sends those headers - Authorization included -
-        # to whatever host it talks to (third review, 2026-09-30). They are meant for OpenAI only.
+        # to whatever host it talks to. They are meant for OpenAI only.
         if os.environ.get("OPENAI_CUSTOM_HEADERS") is not None and base_url.rstrip("/") != OPENAI_DEFAULT_BASE_URL:
             raise ProviderError("OPENAI_CUSTOM_HEADERS is set; the SDK would send those headers to "
                                 f"{urlparse(base_url).hostname}. Unset it for any host but OpenAI.")
@@ -345,7 +345,7 @@ class OpenAICompatProvider:
         self._client = OpenAI(**kw)
         if base_url.rstrip("/") != OPENAI_DEFAULT_BASE_URL:
             # The SDK reads OPENAI_ORG_ID / OPENAI_PROJECT_ID itself and sends them as headers; they
-            # identify the OpenAI account and go to OpenAI only (second review, 2026-09-30).
+            # identify the OpenAI account and go to OpenAI only.
             self._client.organization = self._client.project = None
 
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
@@ -458,7 +458,7 @@ class ClaudeCliProvider:
     """
 
     name = "claude_cli"
-    # ⛔ Measured, not guessed (Wave 4, 2026-09-26): a real full-stack diagnosis (analyse + propose +
+    # ⛔ Measured, not guessed (Wave 4): a real full-stack diagnosis (analyse + propose +
     # verify, ~12k input tokens each) took 69 s end to end, and at the shared 45 s ceiling every
     # attempt of one call timed out - the first measured run got no report at all. A `claude -p`
     # call is a whole process plus the full answer, not a socket read. 180 s is ~3x the need.
@@ -468,7 +468,7 @@ class ClaudeCliProvider:
         import shutil
 
         # The model that passed WARDEN's replay set (data/providers.yaml, register M20). Not claude-sonnet-5-5: the
-        # newer model scored 16 of 30 where this one scored 19 (2026-10-02).
+        # newer model scored 16 of 30 where this one scored 19.
         self.model = pinned(model or (os.environ.get("WARDEN_MODEL") or default_model(self.name)))
         self._version = ""
         self._exe = shutil.which("claude")
@@ -504,7 +504,7 @@ class ClaudeCliProvider:
     # credentials, database DSNs and a kubeconfig (the harness puts them there for the evidence
     # readers); a denylist let every one of them into the model's process (found 2026-09-27).
     #
-    # - Proxy and CA-bundle variables (audit A-C-19): behind a corporate proxy or a private CA the CLI
+    # - Proxy and CA-bundle variables: behind a corporate proxy or a private CA the CLI
     #   could not reach its API at all.
     # - CLAUDE_CODE_OAUTH_TOKEN: the documented credential for the CLI where no browser login exists
     #   (`claude setup-token`; it can only make model requests). Never ANTHROPIC_API_KEY: that would
@@ -538,7 +538,7 @@ class ClaudeCliProvider:
             "--strict-mcp-config",
             "--setting-sources", "",
             # Not saved to the operator's profile: every call used to leave the whole prompt there as
-            # a session transcript (second review, 2026-09-30).
+            # a session transcript.
             "--no-session-persistence",
             # The result as JSON, so WHY the answer ended is read, not guessed: its stop_reason says "refusal" when the
             # model declined and "max_tokens" when it was cut off (Agent SDK docs, "Handle the result", read
@@ -600,7 +600,7 @@ class ClaudeCliProvider:
             except (OSError, subprocess.SubprocessError):
                 out = ""
             # Bounded, and from the start of a digit run: a long run without a dot was searched again from each of
-            # its digits, in time that grew with the square of its length (Sonar python:S8786, 2026-10-16).
+            # its digits, in time that grew with the square of its length (Sonar python:S8786).
             found = re.search(r"(?<!\d)\d{1,20}(?:\.\d{1,20}){1,8}", out)
             self._version = f"claude-cli {found.group(0) if found else 'unknown'}"
         return self._version
@@ -767,7 +767,7 @@ def qualified(provider: Provider) -> Provider:
         return provider
     doc = load_qualified()
     bar = doc["bar"]
-    # A row qualifies the model on the prompt it was measured with, never a later one (review, PR 47): a changed prompt
+    # A row qualifies the model on the prompt it was measured with, never a later one: a changed prompt
     # is a model nobody has measured, so it is refused until scripts/qualify_provider.py records a row on it. Refused,
     # the incident gets the rules-only diagnosis and reaches a person (activities.diagnose, register M19).
     pinned = (doc.get("prompt") or {}).get("sha")

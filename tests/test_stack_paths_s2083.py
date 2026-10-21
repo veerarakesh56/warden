@@ -104,7 +104,7 @@ def test_a_sibling_whose_name_only_starts_like_a_working_place_is_refused(write,
 
 
 def test_apps_refuses_a_default_stack_json_that_links_out_of_the_working_places(tmp_path, monkeypatch):
-    """No --stack: <out>/stack.json is checked too, so a symlink in --out leads nowhere else (CodeRabbit, PR 63)."""
+    """No --stack: <out>/stack.json is checked too, so a symlink in --out leads nowhere else."""
     work, elsewhere = tmp_path / "work", tmp_path / "elsewhere"
     work.mkdir()
     elsewhere.mkdir()

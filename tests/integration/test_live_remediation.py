@@ -60,7 +60,7 @@ def target(apps):
             "selector": {"matchLabels": {"app": NAME}},
             "template": {
                 "metadata": {"labels": {"app": NAME}},
-                # No token: the throwaway pod reads nothing from the API (seventh review, A-I-26).
+                # No token: the throwaway pod reads nothing from the API.
                 "spec": {"automountServiceAccountToken": False, "containers": [{
                     "name": "pause",
                     "image": "registry.k8s.io/pause:3.9",

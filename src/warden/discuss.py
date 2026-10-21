@@ -1,4 +1,4 @@
-"""Talk to WARDEN about an incident, in a Slack channel of its own (owner, 2026-10-14).
+"""Talk to WARDEN about an incident, in a Slack channel of its own.
 
 "What if a developer, a tester or anyone else wants to ask WARDEN something about that issue ... discuss, decide
 whether to approve, point things out, ask it to check this or try that." Someone mentions @WARDEN in the discussion
@@ -58,7 +58,7 @@ class Thread(BaseModel):
     elsewhere: bool = False  # the incident is not this channel's environment's: nothing of it is read here
 
 
-# Step two (owner, 2026-10-14): an enrolled approver asks for a new plan with these words. WARDEN then diagnoses the
+# Step two: an enrolled approver asks for a new plan with these words. WARDEN then diagnoses the
 # incident again from a fresh read - their words reach no model - and a plan, if one comes, goes to the alerts
 # channel for an approver's passkey like any other. Once an hour per incident at most.
 NEW_PLAN = re.compile(r"(?i)\b(new|another|fresh)\s+(fix\s+)?plan\b|\bre-?plan\b|\bdiagnose\s+again\b")
@@ -216,7 +216,7 @@ NO_RECORD = ("WARDEN has nothing on record to read again for `{incident}`: it ke
 
 
 def _inert_lines(text: str) -> str:
-    """A model's answer as inert text that keeps its line breaks (audit A12, 2026-10-16): each line as models.inert
+    """A model's answer as inert text that keeps its line breaks: each line as models.inert
     makes report text - no backtick, so no code fence or code span; no line that starts a block - and G4 over it, so
     a write command it holds is withheld. The prompt's "no commands for anyone to run" was the only guard, and a
     fenced `kubectl delete` from a hijacked model reached the thread as a code block."""
@@ -346,7 +346,7 @@ async def listen(client: Any, *, task_queue: str) -> None:  # pragma: no cover -
                               web_client=AsyncWebClient(token=os.environ["WARDEN_SLACK_BOT_TOKEN"].strip()))
 
     # Not named `heard`: that name is this module's own description of an event, which the line below logs - shadowed,
-    # every event logged a coroutine that was never run (2026-10-15).
+    # every event logged a coroutine that was never run.
     async def on_request(sock: Any, req: Any) -> None:
         await sock.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
         if req.type != "events_api":

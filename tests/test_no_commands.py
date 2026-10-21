@@ -1,6 +1,6 @@
-"""WARDEN prints no runnable write command anywhere a person reads it (owner, 2026-10-16).
+"""WARDEN prints no runnable write command anywhere a person reads it.
 
-The commands audit (2026-10-16) found reports still printing exact aws, kubectl and SQL commands - a runbook's
+The commands audit found reports still printing exact aws, kubectl and SQL commands - a runbook's
 fix and undo, "Fix - exact commands", "Candidate fix - NOT APPROVED", every pattern's `fix` - even under a
 rejected verdict, some with masked values written back into them. All of it went into the records page and the
 webhook's data. A fix now goes only through a catalogue plan and a signed approval, which WARDEN applies itself.
@@ -166,7 +166,7 @@ def test_g4_withholds_each_write_shape_and_leaves_reads_and_plain_words():
             "the deploy will update its set of rules", "we should delete from the queue only after a fix",
             "drop table pressure", "WARDEN could alter the database setting", "the aws Lambda runtime", "rm the file",
             "rollback the kubectl context", "terraform plan shows no change",
-            # What the recorded model runs said of what HAPPENED (2026-10-16): stories of a command, not commands.
+            # What the recorded model runs said of what HAPPENED: stories of a command, not commands.
             "A Terraform apply at 07:31 rewrote hundreds of schedules in billing-reminders",
             "a terraform apply at 07:12 rewrote the rule (PutRule) with State DISABLED",
             "A 'kubectl rollout restart' replaced the four pods one at a time from 07:57:48",
@@ -190,7 +190,7 @@ def test_g4_marks_no_model_text_on_record_in_the_bundled_runs():
 
 
 def test_g4_changes_no_recorded_model_prose_in_the_repository():
-    """The false-positive measure, kept as a test (2026-10-16): every model-written diagnosis, proposal and ruled-out
+    """The false-positive measure, kept as a test: every model-written diagnosis, proposal and ruled-out
     cause recorded in the repository (2,035 strings in docs/bench, evals and tests) passes G4 unchanged. A looser
     first G4 withheld 8 of them - each a story of a command ("a Terraform apply at 07:31 rewrote ..."), none a
     command to run."""

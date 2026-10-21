@@ -1,5 +1,5 @@
 """Regexes that read text a model, a log or an alert wrote run in time that grows with the length of that text, not
-its square (Sonar python:S8786, 2026-10-16). Each input below is the worst case of the pattern it was before: 20,000
+its square (Sonar python:S8786). Each input below is the worst case of the pattern it was before: 20,000
 characters took it seconds - 8,000 already took 0.4-2 s, four times 4,000 - and takes these milliseconds. Timed in this
 process's own CPU time, so other work on a busy machine does not count against the pattern. The matches themselves are
 pinned in each module's own tests; a few here show the rewrite matches what it did."""

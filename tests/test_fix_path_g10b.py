@@ -1,6 +1,6 @@
 """G10-B: a fix WARDEN has no way to carry out is advice for a person, never a plan put to the approver.
 
-Held-out G9-F (2026-10-10): scale_up on a NAT gateway reached a person as approved_for_human although no catalogue
+Held-out G9-F: scale_up on a NAT gateway reached a person as approved_for_human although no catalogue
 entry acts on a NAT gateway - the one wrong answer the gate let through. P30 escalates a mutating proposal whose
 target is a resource the alarm's labels name, when none of that resource's kinds has an entry for the action."""
 
@@ -122,7 +122,7 @@ def test_closing_sessions_is_refused_unless_the_connection_is_that_server(server
 
 
 def test_a_custom_bus_rule_is_planned_with_its_bus():
-    """G10 review (2026-10-10): the rule parameter carries `bus/rule` when the alarm names a custom bus, so the fix is
+    """G10 review: the rule parameter carries `bus/rule` when the alarm names a custom bus, so the fix is
     applied to that bus's rule and not looked for on the default one."""
     from warden import resolver
     from warden.models import Alert, Severity

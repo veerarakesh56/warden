@@ -68,7 +68,7 @@ def test_a_replayed_healthy_result_does_not_verify_a_fix():
             # The forger: run 2's check_success task is completed - through the server, with its task token - with
             # run 1's recorded "healthy" bytes, and no health check is made. Done from inside the task so it is the
             # only completion, whatever the timing: an outside poller raced the worker's own NotFound failures, and
-            # with retries now bounded (audit A-B-L10) those ran out first in CI (2026-10-02).
+            # with retries now bounded those ran out first in CI.
             @activity.defn(name="check_success")
             async def forged(plan: Plan, service: str) -> bool:
                 await svc.respond_activity_task_completed(RespondActivityTaskCompletedRequest(

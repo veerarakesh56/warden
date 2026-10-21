@@ -1,4 +1,4 @@
-"""WARDEN's records, as web pages (owner, 2026-10-14): every incident, its plan, who approved or denied it with their
+"""WARDEN's records, as web pages: every incident, its plan, who approved or denied it with their
 note, anything that tried to steer WARDEN, and how it ended - stored, kept up to date, and readable at any time,
 instead of a stream of Slack messages. The list shows each incident's summary, its details unfold beneath it, and
 each incident has a page of its own with the whole report and every step WARDEN recorded, in UTC and local time.
@@ -20,7 +20,7 @@ from datetime import date, datetime
 from typing import Any
 
 PER_PAGE = 50  # incidents on one page of the list by default; every incident stays on the record, without a time limit
-SIZES = (10, 25, 50, 100)  # the page sizes a reader may choose (owner, 2026-10-16)
+SIZES = (10, 25, 50, 100)  # the page sizes a reader may choose
 REFRESH_S = 60
 # The steps and words the record and its pages look for in more than one place.
 _INGEST, _AFTER_HOLD, _ALERT = "incident.ingest", "incident.after_hold", "incident.alert"
@@ -382,7 +382,7 @@ _READ: dict[str, Callable[[Record, dict[str, Any]], None]] = {
 }
 
 
-# ------------------------------------------------------------------ the list's paging and filters (owner, 2026-10-16)
+# ------------------------------------------------------------------ the list's paging and filters
 # A query string is the reader's own text: each field is read strictly, and anything unknown, repeated or malformed
 # refuses the whole query rather than being guessed at. A page past the end is the last page; a page size not offered
 # is the default one.

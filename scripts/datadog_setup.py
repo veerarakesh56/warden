@@ -77,7 +77,7 @@ def monitors(stack: str) -> list[dict[str, Any]]:
             "options": {"notify_no_data": False, "include_tags": True}} for app in APPS]
     out.append({"name": f"warden {stack}: container restarts", "type": "query alert",
                 # Grouped by the cluster and namespace too: an alert then names the cluster WARDEN signs in to
-                # (webhooks' kube_cluster_name -> eks_cluster), not only the workload (2026-10-15).
+                # (webhooks' kube_cluster_name -> eks_cluster), not only the workload.
                 "query": f"change(max(last_5m),last_5m):sum:kubernetes.containers.restarts{{kube_namespace:shop,"
                          f"env:{stack}}} by {{kube_cluster_name,kube_namespace,kube_deployment,service}} > 0",
                 "message": note, "tags": [TAG, f"env:{stack}"], "priority": 2,

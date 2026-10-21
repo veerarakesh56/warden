@@ -12,7 +12,7 @@
     python -m scenarios.fullstack_cli score              # RESULTS.md over the run directory
     python -m scenarios.fullstack_cli run fs-07          # all five steps chained - only if you ask for it
 
-⛔ OWNER'S DECISIONS (2026-09-25), which shape this module:
+⛔ OWNER'S DECISIONS, which shape this module:
   - It never runs terraform and never reads terraform state. The stack description is a JSON file
     the infra pipeline writes with `terraform output -json` ($WARDEN_FS_STACK, default
     ~/warden-fullstack-build/stack.json). Expected keys: see STACK_KEYS.
@@ -31,7 +31,7 @@ holder's control files).
 kubeconfig for ServiceAccount warden in shop, and DSNs for warden_ro whose IAM token is signed with
 THAT role's credentials (its rds-db:connect grant is what lets WARDEN in) - built from nothing, as
 in every earlier wave (scenarios/runner.py explains why). There are no database passwords: Aurora
-runs in express configuration, IAM authentication only (2026-09-26). The provider comes from the operator's
+runs in express configuration, IAM authentication only. The provider comes from the operator's
 environment (WARDEN_PROVIDER=claude_cli for a Claude subscription).
 """
 
@@ -95,7 +95,7 @@ STACK_KEYS = {
 # Evidence reach of the stack backend, PINNED in WARDEN's environment (fullstack_warden_env), not left
 # to WARDEN's defaults: 15 min of logs and k8s events, 10 of metrics, 30 of deploy history. The quiet
 # period before each inject outlasts the longest by the same 3-minute margin as runner.QUIET_MARGIN_M.
-# ⛔ The deploy window was WARDEN's 6 h default until after fs-00 (2026-09-26): that control run read
+# ⛔ The deploy window was WARDEN's 6 h default until after fs-00: that control run read
 # the preflight's rollouts. 30 min still covers every fault's own change (worst case fs-16: the
 # reconciler's config change, alarm up to 25 min later).
 LOG_LOOKBACK_M, METRIC_WINDOW_M, DEPLOY_WINDOW_M, QUIET_MARGIN_M = 15, 10, 30, 3
@@ -181,7 +181,7 @@ def target_from_stack(stack: dict) -> fs.Target:
     return t
 
 
-RO_USER = f"warden_{fs.ENV.replace('-', '_')}_ro"  # named for the environment (audit A-I-2)
+RO_USER = f"warden_{fs.ENV.replace('-', '_')}_ro"  # named for the environment
 
 
 def pg_dsn(user: str, password: str, host: str, database: str, port: int | str = 5432) -> str:
@@ -267,7 +267,7 @@ def load_kubeconfig(kube_config, default: pathlib.Path | None = None) -> str:
 
     The apps pipeline writes its kubeconfig next to stack.json; use it unless KUBECONFIG says otherwise.
     The default ~/.kube/config may have no current context at all - that crashed the first real `status`
-    with a raw ConfigException (2026-09-26); passing a Path instead of a str crashed the second.
+    with a raw ConfigException; passing a Path instead of a str crashed the second.
     """
     default = default or DEFAULT_KUBECONFIG
     kubeconfig = os.environ.get("KUBECONFIG") or (str(default) if default.is_file() else None)
@@ -277,7 +277,7 @@ def load_kubeconfig(kube_config, default: pathlib.Path | None = None) -> str:
         if kubeconfig:
             # ⛔ The same file for every `kubectl` this process starts (mint_kubeconfig's
             # `create token`): without it kubectl read ~/.kube/config and dialled localhost:8080
-            # in the first measured diagnose (2026-09-26).
+            # in the first measured diagnose.
             os.environ["KUBECONFIG"] = kubeconfig
         return context
     except Exception as exc:  # any kubeconfig problem is an operator setup error
@@ -443,7 +443,7 @@ def dry_env() -> Env:
         return 0, ""
 
     def extract(report, built):
-        data = {"alert": {"id": _DRY_REPORT["alert"]["alert_id"]}}  # a built report holds no command (2026-10-16)
+        data = {"alert": {"id": _DRY_REPORT["alert"]["alert_id"]}}  # a built report holds no command
         _write_json(built, data)
         return data
 
@@ -460,7 +460,7 @@ def dry_env() -> Env:
                     lambda c, t: (True, DRY_RUN), "rule")
     # The live DSNs' shape (warden_dsns: the reader user, a password - there an IAM token - and sslmode), with a
     # placeholder for the token and a host that never resolves (.invalid, RFC 6761). It was a URL with no password,
-    # a shape the live run never has (Sonar python:S2115, 2026-10-16).
+    # a shape the live run never has (Sonar python:S2115).
     dry_dsn = pg_dsn(RO_USER, "dry-run-token", "dry.invalid", "shop")
     return Env(
         clients=fs.Clients(), target=fs.Target(),
@@ -696,7 +696,7 @@ def _alert_file(run: pathlib.Path, scenario: dict, alarm: dict) -> pathlib.Path:
     alert["summary"] = alarm.get("description") or alert["summary"]
     alert["severity"] = scenario.get("severity") or alert["severity"]
     # The run's own stack: the template named dev's, and the reader is scoped to its environment's stack, so every
-    # read was AccessDenied outside dev (seventh review, 2026-10-01).
+    # read was AccessDenied outside dev.
     alert["labels"] = {k: v.replace("warden-__ENV__-", fs.PREFIX) if isinstance(v, str) else v
                        for k, v in alert["labels"].items()}
     path = run / "alerts" / f"{scenario['id']}.yaml"
@@ -745,7 +745,7 @@ def step_diagnose(env: Env, run: pathlib.Path, key: str, *, arm: dict[str, str] 
         entry["provider_exhausted"] = True
     if entry["report_written"]:
         built = run / "reports" / f"{sid}.1.built.json"
-        # The built report is kept as the run's artefact. It holds no command to count (2026-10-16).
+        # The built report is kept as the run's artefact. It holds no command to count.
         env.extract_fix(report, built)
         entry["built"] = f"reports/{built.name}"
     record["runs"] = [entry]
@@ -790,7 +790,7 @@ def step_fix(env: Env, run: pathlib.Path, key: str) -> dict:
         raise StepError(f"{sid}: the fix was already applied ({run0['fix'].get('outcome')})")
     report = json.loads((run / run0["report"]).read_text(encoding="utf-8"))
     verdict = (report.get("verdict") or {}).get("status")
-    # The harness executes nothing (2026-09-27), and the report prints no command (2026-10-16): the outcome is the
+    # The harness executes nothing, and the report prints no command: the outcome is the
     # verdict's.
     outcome = fs.decide_fix(verdict)
     fix: dict[str, Any] = {"verdict": verdict, "at": _now(), "outcome": outcome}

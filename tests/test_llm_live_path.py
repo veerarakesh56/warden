@@ -64,7 +64,7 @@ def _client(provider, **kw):
         'Here is the result:\n{"answer": "yes", "score": 1}\nHope that helps.',
         # reasoning in a ```text fence FIRST, then the JSON in a later fence (Anthropic, no JSON-mode)
         '```text\nlet me think about this\n```\n```json\n{"answer": "yes", "score": 1}\n```',
-        # a draft first, then the final answer: the span from the first "{" to the last "}" joined them (2026-10-15)
+        # a draft first, then the final answer: the span from the first "{" to the last "}" joined them
         'Draft: {"answer": "no", "score": 0}\nOn reflection:\n{"answer": "yes", "score": 1}',
         # braces inside strings and nested objects do not split the answer
         'x {"answer": "yes", "score": 1} and a stray } brace',
@@ -454,7 +454,7 @@ def test_an_explicit_budget_wins_and_a_non_number_is_refused(monkeypatch):
 
 
 
-# Fourth review (2026-09-30): the USD ceiling and the call ceiling could still be switched off or bypassed.
+# Fourth review: the USD ceiling and the call ceiling could still be switched off or bypassed.
 @pytest.mark.parametrize("value", ["nan", "-3", "inf"])
 def test_a_price_that_is_not_a_real_price_is_refused(monkeypatch, value):
     from warden import llm

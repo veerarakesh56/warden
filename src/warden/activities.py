@@ -111,7 +111,7 @@ MAX_SOAK_MINUTES = 24 * 60
 class FixRequest(BaseModel):
     incident_id: str
     # A catalogue entry name, never free text: an agent-supplied entry was printed raw by `warden
-    # status` (independent review 2026-09-28). The catalogue itself decides whether it exists.
+    # status`. The catalogue itself decides whether it exists.
     entry: str = Field(pattern=r"^[a-z][a-z0-9_]{1,60}$")
     params: dict[str, Any]
     # The environment the incident is in. A label anyone sending an alert can write: the target's own
@@ -147,7 +147,7 @@ ROLLBACK_FAILED = "RollbackFailed"
 def _run_id() -> str:
     """The Temporal run this activity belongs to. Every remediation row records it, and apply counts only
     rows of its own run: a workflow id (`rem-<env>-<target hash>`) is reused, and a replay of an earlier run's approval and
-    results applied a later run nobody approved (third review, 2026-09-30). Empty outside an activity."""
+    results applied a later run nobody approved. Empty outside an activity."""
     try:
         return activity.info().workflow_run_id or ""
     except RuntimeError:  # called directly (tests, tools), not by a worker
@@ -356,7 +356,7 @@ def _approver_problems(plan: Plan, name: str, approver: approvals.Approver | Non
 def _cite_own_fixes(context: ContextBundle, own_step: dict[str, Any]) -> None:
     """Each of WARDEN's own fixes matched to the evidence item it is shown as."""
     # The ids the model is shown them by, so a citation of one can be told from a citation of anything else - each
-    # fix's own trusted (C) item only: an application's log line that copies the words is not WARDEN's (review L2).
+    # fix's own trusted (C) item only: an application's log line that copies the words is not WARDEN's.
     from . import evidence
 
     items = [i for i in evidence.index(context).values() if i.id.startswith("C") and _OWN_FIX in i.text]
@@ -512,7 +512,7 @@ class RemediationActivities:
 
     @activity.defn
     def gate(self, plan: Plan, service: str) -> list[str]:
-        # The bounds key on the target the plan changes, not on `service` (audit A-B-M4); _not_approved re-checks
+        # The bounds key on the target the plan changes, not on `service`; _not_approved re-checks
         # the target against the plan row before apply.
         reasons = self._blocked(plan)
         # Register H1: approval fatigue. Past this many requests for approval in an hour, a person approving is
@@ -670,7 +670,7 @@ class RemediationActivities:
         from . import eldane, history
 
         # WARDEN's own earlier fix beside this incident's evidence: said, with whether this diagnosis named it the
-        # cause - the approver decides knowing both (owner, 2026-10-15).
+        # cause - the approver decides knowing both.
         said = self._own_fix_said(plan.incident_id)
         # Eldane's review and the plan's autonomy level, beside the request: said to be an AI (Art. 50).
         said += eldane.said(self.audit, plan, _run_id())
@@ -769,7 +769,7 @@ class RemediationActivities:
         """Other alarms intake recorded as starting in this fix's environment after this run applied it (intake.side_
         effect, kept under the fix's workflow id) - from the record, never from the signal that said so. Each is a
         failure for the breaker: they may be unrelated, and an alarm anyone can raise must not trip the kill switch
-        (security review, 2026-10-16). The fix is counted as failed only when a later incident's diagnosis cites it
+       . The fix is counted as failed only when a later incident's diagnosis cites it
         (IncidentActivities._connected). Recorded once per run. Empty: none on the record."""
         from .reporting import untrusted_inline
 
@@ -787,7 +787,7 @@ class RemediationActivities:
             self.audit.append(plan.incident_id, "remediation.side_effects", {
                 "workflow_id": plan.workflow_id, "run_id": run, "plan_hash": plan.plan_hash,
                 "incidents": [str(r.get("incident", "")) for r in rows]})
-        # An alarm's name is its author's text: said as inert, quoted words (security review M2, 2026-10-16).
+        # An alarm's name is its author's text: said as inert, quoted words.
         return [f"alarm {untrusted_inline(str(r.get('rule', '')), limit=120)} started at {r.get('at')}, diagnosed as "
                 f"incident `{str(r.get('incident', '')).removeprefix('inc-')}`" for r in rows[:5]]
 
@@ -799,7 +799,7 @@ class RemediationActivities:
         rows = self.audit.entries(incident_id, kinds=(_ALERT_ROW,))
         if not rows:
             return {}
-        # One generation only (security review M3, 2026-10-16): a fix made from a re-diagnosis that fails again goes to
+        # One generation only: a fix made from a re-diagnosis that fails again goes to
         # a person, never into another automatic diagnosis - no chain of fixes on fixes.
         if any(e["body"].get("new") == incident_id for e in self.audit.entries(kinds=(_REDIAGNOSE_ROW,))):
             self.audit.append(incident_id, _REDIAGNOSE_ROW, {"run_id": _run_id(), "new": "",
@@ -995,7 +995,7 @@ class RemediationActivities:
         if len({e["body"].get("approver") for e in approved}) < need:
             return [f"{len({e['body'].get('approver') for e in approved})} of {need} approval(s) recorded for this plan"]
         # An AI approval is checked again here: anything may have changed since it arrived (autonomy.ai_problems).
-        # As recorded (PR 42 review, CWE-863): an approval recorded as an AI's is one, whatever the list says now.
+        # As recorded (CWE-863): an approval recorded as an AI's is one, whatever the list says now.
         if any(e["body"].get("ai") is True or self.policy.is_ai(str(e["body"].get("approver"))) for e in approved) and (
                 again := autonomy.ai_problems(self.audit, plan, run)):
             return again
@@ -1006,7 +1006,7 @@ class RemediationActivities:
         return self._blocked(plan)
 
     def _who(self, plan: Plan, run: str) -> dict[str, Any]:
-        """Who approved this plan in this run, from the audit's own rows - never from a caller (audit A-P-5): the
+        """Who approved this plan in this run, from the audit's own rows - never from a caller: the
         actor session that makes the change names them."""
         approvers = {e["body"].get("approver") for e in self.audit.entries(plan.incident_id, kinds=(_ACCEPTED_ROW,))
                      if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
@@ -1022,7 +1022,7 @@ class RemediationActivities:
 
     def _refuse(self, plan: Plan, run: str, why: list[str]) -> None:
         """Apply refused before anything was touched: on the record, and raised as its own type - the workflow reports
-        "nothing was changed", not "may be half-made" (fourth review). Never retried."""
+        "nothing was changed", not "may be half-made". Never retried."""
         self.audit.append(plan.incident_id, "remediation.refused", {"workflow_id": plan.workflow_id, "run_id": run,
                                                                    "plan_hash": plan.plan_hash, "why": why})
         raise ApplicationError("apply refused: " + "; ".join(why), type=APPLY_REFUSED, non_retryable=True)
@@ -1037,7 +1037,7 @@ class RemediationActivities:
                 if e["body"].get("plan_hash") == plan.plan_hash and e["body"].get("workflow_id") == plan.workflow_id
                 and e["body"].get("run_id", "") == run]
         if done:  # idempotent WITHIN this run: a retried activity never applies twice. Scoped to the run
-            return "already applied"  # (fourth review): a later approved run of the same plan applied nothing
+            return "already applied"  #: a later approved run of the same plan applied nothing
         # B20: one writer per target, across every worker - taken here, held until this run's end row (locks.py).
         locked = locks.take(self.audit, plan.incident_id, plan.target, workflow_id=plan.workflow_id, run_id=run,
                             plan_hash=plan.plan_hash, now=datetime.now(UTC))
@@ -1063,9 +1063,9 @@ class RemediationActivities:
     @activity.defn
     def check_success(self, plan: Plan, service: str) -> bool:
         # Asked of the platform that made the change, when it can route by entry: a database of the same name
-        # must not judge a Deployment (sixth review).
+        # must not judge a Deployment.
         routed = getattr(self.platform, "healthy_for", None)
-        # When this run applied the fix: a health check judges what came after it (live, 2026-10-16).
+        # When this run applied the fix: a health check judges what came after it.
         run = _run_id()
         applied = [e["at"] for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
                    if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
@@ -1156,7 +1156,7 @@ class RemediationActivities:
                   if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                   and e["body"].get("plan_hash") == plan.plan_hash]
         # Verified only if THIS run applied the plan: a replayed apply result let a run with nothing applied
-        # end "recovered" and write a success row (fifth review, 2026-10-01).
+        # end "recovered" and write a success row.
         applied = any(e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                       and e["body"].get("plan_hash") == plan.plan_hash
                       for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,)))
@@ -1176,7 +1176,7 @@ class RemediationActivities:
         run = _run_id()
         row = {"workflow_id": plan.workflow_id, "run_id": run, "plan_hash": plan.plan_hash}
         # Only what THIS run applied is undone: after a replayed apply result, a run that changed nothing
-        # rolled the target back anyway (sixth review, 2026-10-01).
+        # rolled the target back anyway.
         if not any(e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                    and e["body"].get("plan_hash") == plan.plan_hash
                    for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))):
@@ -1231,7 +1231,7 @@ class RemediationActivities:
 
         recorded = dict(outcome.checklist)
         # Approved means the tier's quorum of different approvers, as the workflow requires - one signature
-        # of two was recorded as approved (fifth review, 2026-10-01).
+        # of two was recorded as approved.
         plans = ours(_PLAN_ROW)
         tier = plans[-1].get("tier", "") if plans else ""
         approvers = {b.get("approver") for b in ours(_ACCEPTED_ROW)}
@@ -1267,12 +1267,12 @@ class RemediationActivities:
         # review: a refused apply was recorded with approved and prechecked True).
         run = _run_id()
         # Once per run: Temporal retries this activity when a step after the end row fails, and a second end row
-        # was written (eighth review, 2026-10-01).
+        # was written.
         if run and any(e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id") == run
                        for e in self.audit.entries(incident_id, kinds=(_END_ROW,))):
             # Signed even when this try only finds the row: the try that wrote it may have failed before its
             # checkpoint (register R9-O4), and the end of a run must not stay unsigned. Scored too, if the try that
-            # wrote it failed before it could be (PR 42 review): a failed fix that is never scored never demotes.
+            # wrote it failed before it could be: a failed fix that is never scored never demotes.
             self._score(incident_id, workflow_id, run, outcome)
             self.audit.checkpoint()
             return
@@ -1286,7 +1286,7 @@ class RemediationActivities:
             body["claimed_checklist"] = outcome.checklist
         # A run that leaves a target in an unknown state stops every automatic fix until a person resets the
         # switch - whatever ended it. Only the rollback activity's own failure tripped it: a rollback past its
-        # timeout, or on a worker that died, ended rollback_failed with the switch off (seventh review, 2026-10-01).
+        # timeout, or on a worker that died, ended rollback_failed with the switch off.
         # Before the end row, and once per run: the rollback may have tripped it already.
         if outcome.status in PERSON_TAKES_OVER and not any(
                 t["body"].get("workflow_id") == workflow_id and t["body"].get("run_id") == run
@@ -1297,7 +1297,7 @@ class RemediationActivities:
         self._score(incident_id, workflow_id, run, outcome)
         self.audit.checkpoint()
         # How every plan ended, in the worker's log beside how it opened: a denied or expired plan left no line, and
-        # only the audit could say (live, 2026-10-12). The status and who approved - never a typed reason.
+        # only the audit could say. The status and who approved - never a typed reason.
         _note(f"{incident_id} fix plan {workflow_id} ended {outcome.status} approvers={','.join(body['approvers']) or '-'}")
         if outcome.status == "recovered":
             self._resolve_page(incident_id, workflow_id, run)
@@ -1344,7 +1344,7 @@ class EvidencePack(BaseModel):
     masked: int
     steps: list[dict[str, Any]] = Field(default_factory=list)
     # The evidence source the read side used. The report names it, and it is rendered in another zone, whose own
-    # WARDEN_BACKEND is unset: live reads were labelled "a recorded demo incident (fixture)" (2026-10-09).
+    # WARDEN_BACKEND is unset: live reads were labelled "a recorded demo incident (fixture)".
     backend: str = "fixture"
 
 
@@ -1484,7 +1484,7 @@ class IncidentActivities:
 
     def _own_undos(self, started: datetime) -> list[dict[str, Any]]:
         """WARDEN's undos in the window, each as the fix it undid."""
-        # WARDEN's own undos too (live, 2026-10-16): each is told with the fix it undid, at the time of the undo.
+        # WARDEN's own undos too: each is told with the fix it undid, at the time of the undo.
         undos = []
         for r in self.audit.entries(kinds=(_ROLLBACK_ROW,), since=started - OWN_FIX_WINDOW):
             if r["body"].get("undone") is not True:
@@ -1504,7 +1504,7 @@ class IncidentActivities:
         if str(b.get("service", "")).partition("/")[0] != alert.environment or at > started:
             return None
         if e["correlation_id"] == alert.alert_id and b.get("workflow_id") not in reopened_by:
-            return None  # this incident's own fix - unless it did not hold and reopened the incident (item 11)
+            return None  # this incident's own fix - unless it did not hold and reopened the incident
         plan = next((p["body"] for p in self.audit.entries(e["correlation_id"], kinds=(_PLAN_ROW,))
                      if p["body"].get("workflow_id") == b.get("workflow_id")), {})
         on = safe(str(plan.get("service") or "").strip() or "?")
@@ -1546,10 +1546,10 @@ class IncidentActivities:
             _note(f"ERROR {pack.alert.alert_id}: {refused} - rules-only diagnosis (security review L4)")
         # One budget per incident, across its runs. A FAILED run may run again (ALLOW_DUPLICATE_FAILED_ONLY) - also
         # one that failed because it spent its budget - and each run built a fresh client: five restarts spent
-        # $3.00 against a $0.50 cap (seventh review, 2026-10-01). Every run records what it spent, failed or not,
+        # $3.00 against a $0.50 cap. Every run records what it spent, failed or not,
         # and the next one's client starts from the incident's total, so the USD and call ceilings hold. What
         # carries is what may have been billed: answered and timed-out calls, not requests that reached no model -
-        # carrying those let a provider outage use up the ceiling and lock the incident (eighth review).
+        # carrying those let a provider outage use up the ceiling and lock the incident.
         before = self._spent(pack.alert.alert_id)
         llm.cost = before.model_copy()
         today = self._spent_since(datetime.now(UTC) - timedelta(hours=24))
@@ -1598,7 +1598,7 @@ class IncidentActivities:
         """The fix plan request for a proposal the verifier passed for a person (G9-D1), or {} and why, audited. In
         the read zone: the reference parameters come from the platform's live read, in the environment's reader role
         (resolver.py). `alert` is the alarm's own, before any investigation widened it: a resource the model asked to
-        read never becomes a target (independent review 2026-10-10, F6). The plan still waits for a signed human
+        read never becomes a target (F6). The plan still waits for a signed human
         approval."""
         from . import resolver
         from .models import VerdictStatus
@@ -1650,7 +1650,7 @@ class IncidentActivities:
             return None, f"the live read failed ({type(exc).__name__})"
 
     def _not_again(self, req: dict[str, Any]) -> tuple[str, str]:
-        """Item 11 (owner, 2026-10-16): a fix that was verified and did not hold is not offered again for the same
+        """Item 11: a fix that was verified and did not hold is not offered again for the same
         target on WARDEN's own - a person decides (`warden offer-again`; the MCP and CLI paths, a person's, may still
         ask for it). (incident, why), or ("", "")."""
         from . import history
@@ -1813,7 +1813,7 @@ class IncidentActivities:
         markdown = (body.rstrip("\n") + "\n" + timeline.section(changes, unread) + history.section(before)
                     + ("\n\n" + CLOSING if closed else "") + footer)
         markdown = self._held_first(pack, markdown)
-        # Fixed before and failing again (owner, 2026-10-15): said under the title, so the channel's message carries it.
+        # Fixed before and failing again: said under the title, so the channel's message carries it.
         said_again = history.again(before)
         if said_again:
             title, _, rest = markdown.partition("\n")
@@ -1930,7 +1930,7 @@ class IncidentActivities:
     @activity.defn
     def second_opinion(self, pack: EvidencePack, first: Diagnosed, second: Diagnosed, verified: Verified) -> Verified:
         """The first answer's verdict, kept only when a second, independent diagnosis of the same evidence names the
-        same action on the same target (owner, 2026-10-15). Otherwise - or when no second answer could be had - the
+        same action on the same target. Otherwise - or when no second answer could be had - the
         fix is escalated under SECOND_OPINION: a person decides, and nothing is offered for approval. Both answers go
         on the record."""
         a, b = first.proposal, second.proposal

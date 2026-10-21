@@ -122,7 +122,7 @@ def test_a_zero_supports_nothing(action, quote):
     assert not _supports(action, quote)
 
 
-# Fifth review (2026-10-01): the next field read as "what was counted", "not a single", time-ago zeros,
+# Fifth review: the next field read as "what was counted", "not a single", time-ago zeros,
 # "then" transitions, and a zero of USE as scale_down's evidence.
 FIFTH_NONE = [
     (A.restart_pods, "pod=orders restarts=0 ready=1/1"),
@@ -154,7 +154,7 @@ def test_a_time_ago_a_then_and_zero_use_for_scale_down_support(action, quote):
     assert _supports(action, quote)
 
 
-# Sixth review (2026-10-01): 7c0dd34's P15 changes read another field after "then", took a missing value or
+# Sixth review: 7c0dd34's P15 changes read another field after "then", took a missing value or
 # headroom as scale_down's idle use, and hid "0 free" shortages.
 SIXTH = [
     (A.scale_down, "cpu: null", False), (A.scale_down, "cpu: none", False),
@@ -172,7 +172,7 @@ SIXTH = [
     (A.scale_up, "pool: 0 left", True), (A.restart_pods, "restarts=0 ok", False),
 ]
 
-# Seventh review (2026-10-01): the quantity rule read a zero of ANY key as a shortage, so none of a bad thing
+# Seventh review: the quantity rule read a zero of ANY key as a shortage, so none of a bad thing
 # supported an action that 9d01dfd refused (a regression from e94365a).
 SEVENTH = [
     (A.scale_up, "queue: 0 remaining", False), (A.scale_up, "backlog: 0 left", False),
@@ -197,7 +197,7 @@ def test_the_sixth_reviews_p15_quotes(action, quote, supports):
     assert _supports(action, quote) is supports
 
 
-# Eighth review (2026-10-01): a capacity keyword inside a count of something bad still read as a shortage, and "idle"
+# Eighth review: a capacity keyword inside a count of something bad still read as a shortage, and "idle"
 # left the quantity words for every action - an exhausted pool stopped supporting scale_up.
 EIGHTH = [
     (A.terminate_connections, "blocked connections: 0 remaining", False),

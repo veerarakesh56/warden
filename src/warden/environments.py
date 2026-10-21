@@ -173,7 +173,7 @@ class EnvironmentPolicies:
         envs: dict[str, EnvPolicy] = {}
         for name, raw in (doc.get("environments") or {}).items():
             # The name becomes AWS names (`warden-<env>-...`, a role, an SSM path): lower-case letters, digits and
-            # dashes only (audit A-B-L12).
+            # dashes only.
             if not isinstance(name, str) or not _ENV_NAME.fullmatch(name):
                 raise EnvironmentPolicyError(f"environment name {name!r} must match {_ENV_NAME.pattern}")
             envs[name] = cls._parse(name, raw)
@@ -244,7 +244,7 @@ def _github(doc: dict[str, Any], envs: dict[str, EnvPolicy]) -> dict[str, str]:
                           for k, rx in _GITHUB.items()):
         raise EnvironmentPolicyError("`github` needs `repository` (owner/name) and `subject` "
                                      "(owner@owner-id/name@repository-id)")
-    # The runtime pipeline runs from an application environment's own branch (owner, 2026-10-16): the branch the
+    # The runtime pipeline runs from an application environment's own branch: the branch the
     # runtime's deploy role trusts, rendered into iam/<runtime>/trust.json.
     branch = github.get("runtime_branch")
     if github and not (isinstance(branch, str) and branch in envs):

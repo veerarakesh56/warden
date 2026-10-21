@@ -1,11 +1,11 @@
 """Per-environment secrets from Secrets Manager and plain values from SSM Parameter Store - never a file on disk.
 
-Decision D5 / requirement R32 (2026-10-03): every secret is a Secrets Manager secret `warden/<env>/<name>` (for
+Decision D5 / requirement R32: every secret is a Secrets Manager secret `warden/<env>/<name>` (for
 WARDEN_SLACK_WEBHOOK, `warden/<env>/slack-webhook`), so it can be rotated and its reads are in CloudTrail; SSM holds
 only the plain values (cluster, log group, region, model). A secret name in SSM is ignored, never loaded.
 
 
-v2 Phase 1.5 (2026-09-27). `WARDEN_ENV=<env>` makes WARDEN read `/warden/<env>/env/<NAME>` (one
+v2 Phase 1.5. `WARDEN_ENV=<env>` makes WARDEN read `/warden/<env>/env/<NAME>` (one
 paginated call, decrypted) and set each NAME as an environment variable the rest of WARDEN already
 reads. The parameters are SecureString for secrets, String for plain values; standard tier, which is
 free. Access is the caller's IAM identity: in production a worker's task role, in the lab the
@@ -60,12 +60,12 @@ LOADABLE = frozenset({
     "WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_EXPECTED_DOWN",
     "WARDEN_SLACK_APP_TOKEN", "WARDEN_DISCUSS_CHANNEL", "WARDEN_RECORD_VIEWERS",
     # Each environment's own alerts and discussion channels, `env=channel[,env=channel]` (by_environment): a dev
-    # incident is told only in dev's, a prod one only in prod's (owner, 2026-10-16).
+    # incident is told only in dev's, a prod one only in prod's.
     "WARDEN_SLACK_CHANNELS", "WARDEN_DISCUSS_CHANNELS",
     # Datadog (datadog.py): its site is plain; the API key and the scoped, read-only application key are secrets.
     "WARDEN_DATADOG_SITE", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN",
     # X-Ray (xray.py) and which tools a run reads: plain. Grafana's reader (grafana.py) is not loaded from the store:
-    # WARDEN's own runtime reads Datadog only (owner, 2026-10-16); an adopter sets WARDEN_GRAFANA_* in the process.
+    # WARDEN's own runtime reads Datadog only; an adopter sets WARDEN_GRAFANA_* in the process.
     "WARDEN_XRAY", "WARDEN_EVIDENCE_TOOLS", "WARDEN_COMMITS", "WARDEN_HISTORY_IN_PROMPT",
     # Code review's findings on the deploy's pull request (findings.py): plain values. The read-only GitHub token
     # (warden/<env>/github-read-token) is the read zone's alone, one token for the deploy's commits (WARDEN_COMMITS) and
@@ -78,7 +78,7 @@ LOADABLE = frozenset({
     # Service quotas and their usage as evidence (quotas.py, B14): plain, "1" reads them.
     "WARDEN_QUOTAS",
     # Each environment's EKS cluster, `env=cluster[,env=cluster]` (aws_stack.eks_cluster_of): a Kubernetes alert that
-    # does not name its cluster - a Datadog monitor grouped by workload - is read in its environment's (2026-10-15).
+    # does not name its cluster - a Datadog monitor grouped by workload - is read in its environment's.
     "WARDEN_EKS_CLUSTERS",
     # How many periods after a fix the alarm's metric must stay clean for the symptom to be gone (symptom.py, B13).
     "WARDEN_SYMPTOM_PERIODS",
@@ -95,7 +95,7 @@ LOADABLE = frozenset({
 })
 
 
-# Loaded only for the commands that use them (audit A-B-L17): a diagnosis run and the MCP server have no use for the
+# Loaded only for the commands that use them: a diagnosis run and the MCP server have no use for the
 # terminate role's DSN or the audit key's passphrase, and a process that never holds a secret cannot leak it.
 RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_DB_TERMINATE_DSN": frozenset({"worker"}),
@@ -106,7 +106,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_TEMPORAL_KEY_PREVIOUS": frozenset({"worker", "incident", "intake", "status", "approve", "autonomy", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
     "WARDEN_GITHUB_TOKEN": frozenset({"worker"}),
     "WARDEN_GITHUB_READ_TOKEN": frozenset({"worker"}),
-    # Only the worker writes to AWS or beats; no other command needs to know the roles (audit A-P-5, register C13).
+    # Only the worker writes to AWS or beats; no other command needs to know the roles (register C13).
     "WARDEN_AWS_READER_ROLE_ARN": frozenset({"worker"}),
     "WARDEN_AWS_ACTOR_ROLE_ARN": frozenset({"worker"}),
     "WARDEN_AWS_ROLE_ARN_TEMPLATE": frozenset({"worker"}),
@@ -177,7 +177,7 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
                              "WARDEN_GITHUB_TOKEN"},
     # The terminate login's DSN (no password: each close signs in with a token an approved plan's actor signs).
     "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN"},
-    # Eldane, the AI critic (eldane.py): the same Claude API key as the diagnosis (owner, 2026-10-17), and its own
+    # Eldane, the AI critic (eldane.py): the same Claude API key as the diagnosis, and its own
     # signing key, which nobody else holds.
     "critic": _EVERY_ZONE | {"ANTHROPIC_API_KEY", "WARDEN_ELDANE_KEY"},
 }

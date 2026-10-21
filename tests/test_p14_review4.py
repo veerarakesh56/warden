@@ -60,7 +60,7 @@ def test_not_one_named_resource_is_refused(target):
 def test_one_named_resource_passes(target):
     assert _problem(target) is None
 
-# Fifth review (2026-10-01): ordinary prose a model writes - refused once targets had to be ASCII.
+# Fifth review: ordinary prose a model writes - refused once targets had to be ASCII.
 PROSE = [
     'checkout \u2014 revert to revision 6',
     'checkout \u2013 revision 7 to 6',
@@ -83,7 +83,7 @@ def test_a_prose_dash_before_a_word_is_still_a_flag():
 @pytest.mark.parametrize("target", ["orders (kubectl/delete/ns/warden-pg)", "orders(kubectl,delete)", "orders (rm)",
                                     "orders (drop table)"])
 def test_a_command_after_punctuation_is_refused(target):
-    """Fifth review (2026-10-01): a command word not preceded by a space passed."""
+    """Fifth review: a command word not preceded by a space passed."""
     assert _problem(target) is not None
 
 
@@ -92,7 +92,7 @@ def test_an_image_name_holding_a_command_word_still_passes():
 
 
 def test_every_cluster_label_scopes_the_target():
-    """Fifth review (2026-10-01): only `namespace` and `cluster` labels were scopes; `ecs_cluster` let the
+    """Fifth review: only `namespace` and `cluster` labels were scopes; `ecs_cluster` let the
     cluster itself through as a target."""
     from warden.cli import DEMO_ALERTS
     from warden.models import Alert, Citation, ContextBundle, RootCause
@@ -112,7 +112,7 @@ def test_every_cluster_label_scopes_the_target():
                                     "orders " + chr(0x2192) + " payments", "orders everything", "entire orders",
                                     "each pod of orders"])
 def test_a_second_resource_in_parentheses_or_after_an_arrow_is_refused(target):
-    """Fifth review (2026-10-01): parentheses and arrows were read as describing the one target, so a second
+    """Fifth review: parentheses and arrows were read as describing the one target, so a second
     resource written there passed."""
     assert _problem(target) is not None
 
@@ -120,7 +120,7 @@ def test_a_second_resource_in_parentheses_or_after_an_arrow_is_refused(target):
 @pytest.mark.parametrize("target", ["cluster=warden-dev-aurora", "aurora cluster warden-dev-aurora",
                                     "warden-dev-aurora (cluster)"])
 def test_a_failover_names_its_cluster(target):
-    """Fifth review (2026-10-01): a failover's target is a cluster; `cluster=<name>` was refused as a scope."""
+    """Fifth review: a failover's target is a cluster; `cluster=<name>` was refused as a scope."""
     p = RemediationProposal(action=A.failover_replica, target=target, reasoning="r", expected_effect="e",
                             blast_radius="single_service", reversible=True)
     assert target_problem(p, INV | {"warden-dev-aurora"}, SCOPES) is None
@@ -143,14 +143,14 @@ def test_a_word_after_a_colon_is_not_an_image_tag():
                                     "orders (kill)", "orders then terraform destroy", "orders (shutdown)",
                                     "orders (pkill -f app)"])
 def test_more_commands_and_a_command_before_a_period_are_refused(target):
-    """Sixth review (2026-10-01): a trailing period read as part of a name, and unlisted commands passed."""
+    """Sixth review: a trailing period read as part of a name, and unlisted commands passed."""
     assert _problem(target) is not None
 
 
 @pytest.mark.parametrize("key", ["aurora_cluster", "elasticache", "NAMESPACE", "k8s_namespace", "db_cluster",
                                  "Cluster", "kubernetes_namespace"])
 def test_every_spelling_of_a_scope_label_scopes_the_target(key):
-    """Sixth review (2026-10-01): only five exact keys were scopes."""
+    """Sixth review: only five exact keys were scopes."""
     from warden.cli import DEMO_ALERTS
     from warden.models import Alert, Citation, ContextBundle, RootCause
     from warden.verifier import verify
@@ -200,7 +200,7 @@ FS01 = {"elasticache": "warden-pg-fs-redis", "aurora_cluster": "warden-pg-fs-aur
 @pytest.mark.parametrize("action, target", [(A.clear_cache, "warden-pg-fs-redis"), (A.scale_up, "warden-pg-fs-redis"),
                                             (A.terminate_connections, "warden-pg-fs-aurora")])
 def test_a_data_action_may_target_the_database_or_cache_its_alert_labels(action, target):
-    """Seventh review (2026-10-01): on the recorded fs-01 labels these natural targets were rejected as scopes
+    """Seventh review: on the recorded fs-01 labels these natural targets were rejected as scopes
     (a regression from ac1e2ab); 9d01dfd escalated them without P14."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(action, target, FS01)
 
@@ -295,7 +295,7 @@ def _verdict_as(service, action, target, labels):
 
 @pytest.mark.parametrize("action", [A.failover_replica, A.clear_cache, A.terminate_connections])
 def test_a_data_action_on_the_namespace_named_like_the_service_is_refused(action):
-    """Ninth review (2026-10-01): the eighth review's test used service `checkout`, so a failover of `shop` - the
+    """Ninth review: the eighth review's test used service `checkout`, so a failover of `shop` - the
     recorded fs-01 alert's namespace AND service - passed: a resource was named, and the container check ran only
     when none was."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_as("shop", action, "shop", {**FS01, "namespace": "shop"})

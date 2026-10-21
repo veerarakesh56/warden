@@ -107,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _ensure_reader(cur, live: str, *, apply: bool) -> bool:
     """Create the reader login when it is missing (with --apply); False when its password is not set."""
-    # WARDEN's own login for a database wave (audit A-B-M13): it reads pg_stat_activity and locks through
+    # WARDEN's own login for a database wave: it reads pg_stat_activity and locks through
     # pg_monitor and holds no other privilege - not the master the injectors use.
     password = os.environ.get("WARDEN_BENCH_DB_READER_PASSWORD", "")
     if not password:

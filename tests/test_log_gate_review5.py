@@ -1,4 +1,4 @@
-"""Fifth independent review (2026-10-01), area A: every way Python prints raw text goes through the log gate -
+"""Fifth independent review, area A: every way Python prints raw text goes through the log gate -
 warnings, uncaught errors that are not an Exception, errors in threads and in `__del__`, and SystemExit codes
 that are not numbers. The secret is AWS's documented example key."""
 from __future__ import annotations
@@ -74,7 +74,7 @@ def test_a_long_record_joined_by_other_whitespace_is_cut_not_withheld(sep):
 
 
 def test_a_hook_another_program_installed_is_left_alone(monkeypatch):
-    """Sixth review (2026-10-01): the gate replaced pytest's own thread and unraisable hooks for the rest of the
+    """Sixth review: the gate replaced pytest's own thread and unraisable hooks for the rest of the
     worker. It takes only Python's defaults; a program's own hooks stay."""
     import threading
 
@@ -94,7 +94,7 @@ def test_a_hook_another_program_installed_is_left_alone(monkeypatch):
 
 @pytest.mark.parametrize("custom", ["sys.excepthook", "threading.excepthook", "sys.unraisablehook"])
 def test_only_the_hooks_still_pythons_own_are_taken(monkeypatch, custom):
-    """Seventh review (2026-10-01): with all three replaced by one function, a fix that takes all three whenever
+    """Seventh review: with all three replaced by one function, a fix that takes all three whenever
     sys.excepthook is Python's passed - and that is pytest's own case (excepthook default, the other two its own),
     so the sixth-review bug came back with the test green. Each hook is judged by itself."""
     import threading

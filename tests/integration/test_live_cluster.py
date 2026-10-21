@@ -45,7 +45,7 @@ def backend():
 
 @pytest.fixture(scope="module")
 def alert():
-    # Firing now, as a live alert does: a deploy counts only in the window before the alert started (A-B-M10), and the
+    # Firing now, as a live alert does: a deploy counts only in the window before the alert started, and the
     # demo alert's recorded date is weeks before this workload was deployed.
     return Alert(**{**DEMO_ALERTS["inc-002"], "started_at": datetime.now(UTC).isoformat()})
 

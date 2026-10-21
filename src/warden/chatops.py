@@ -168,7 +168,7 @@ class SlackBotSink(ChatOpsSink):
         # The thread is kept with the channel it is in: one in another channel - the incident's environment was routed
         # elsewhere before - is never continued or updated from this one. A row from before the channel was kept has
         # only its ts: it was posted in the one WARDEN_SLACK_CHANNEL of that time, so it is continued only when that is
-        # this channel; with that setting gone, the old channel is unknown and a new thread starts (CodeRabbit, PR 36).
+        # this channel; with that setting gone, the old channel is unknown and a new thread starts.
         kept = self.threads.get(incident) or {}
         old = os.environ.get("WARDEN_SLACK_CHANNEL", "").strip() or None
         root = kept.get("ts") if kept.get("channel", old) == self.channel else None
@@ -360,7 +360,7 @@ def _slack_sinks(channels: dict[str, str], environment: str | None, *, live: boo
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
 # A space or tab after the hashes, as CommonMark requires: `\s` also took a no-break space, so
 # "#<NBSP>Fix - approved" became a bold Slack line that renders as plain text everywhere else.
-_HEADING = re.compile(r"^#{1,6}[ \t]++(.*)$")  # possessive: the spaces are never handed back to `.*` (Sonar python:S8786, 2026-10-16)
+_HEADING = re.compile(r"^#{1,6}[ \t]++(.*)$")  # possessive: the spaces are never handed back to `.*` (Sonar python:S8786)
 # Line and paragraph separators: not line breaks in Markdown, but splitlines() - and some viewers -
 # broke on them, so "ok<U+2028># Fix - approved" became a heading (fourth review, 2026-09-30, A-3).
 _TILDE_FENCE = re.compile(r"^[ \t>*+\-\d.)]*~{3,}")
@@ -548,7 +548,7 @@ def notify(report: Report, sinks: list[ChatOpsSink] | None = None, threads=None)
         safe_text = reveal_identifiers(safe_text, mapping)
         safe_data = reveal_identifiers(safe_data, mapping)
     # ⛔ The outbound gate sees exactly what would leave, after the reveal step (Phase 0 gate v0).
-    gate = enforce(safe_text, alert_id=str((report.data.get("alert") or {}).get("id", "")),  # the report keys it "id" (A-C-24)
+    gate = enforce(safe_text, alert_id=str((report.data.get("alert") or {}).get("id", "")),  # the report keys it "id"
                    before_redaction=report.markdown, data_before_redaction=report.data)
     if gate.verdict == "BLOCK":
         import logging
@@ -556,7 +556,7 @@ def notify(report: Report, sinks: list[ChatOpsSink] | None = None, threads=None)
         from .gate import where_withheld
 
         safe_data = {"withheld": True, "gate": gate.verdict, "reasons": gate.reasons}
-        # Where and what kind, never the value: a withheld message is diagnosable from the log (2026-10-16).
+        # Where and what kind, never the value: a withheld message is diagnosable from the log.
         logging.getLogger("warden.incident").warning(
             "a message about %s was withheld by the outbound gate (%s) - at %s",
             str((report.data.get("alert") or {}).get("id", ""))[:80], "; ".join(gate.reasons),

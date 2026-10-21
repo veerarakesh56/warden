@@ -126,7 +126,7 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
 
 def test_a_secret_the_owner_made_by_hand_is_adopted_not_created_again():
     """The Slack webhook's slot was made in the console before the first apply, which then failed with
-    ResourceExistsException (2026-10-09). The root imports it - only an exact, single name match."""
+    ResourceExistsException. The root imports it - only an exact, single name match."""
     root = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert 'adopt = ["slack-webhook"]' in root
     assert "to = module.runtime.aws_secretsmanager_secret.runtime[each.key]" in root
@@ -469,7 +469,7 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     service = _block(tf, "aws_ecs_service", "zone")
     assert 'capacity_provider = "FARGATE"' in service
     assert "force_new_deployment = true" in service  # the provider needs it
-    # Never Spot (PR 44 review): no fallback to on-demand, and the heartbeat does not see one zone's gap.
+    # Never Spot: no fallback to on-demand, and the heartbeat does not see one zone's gap.
     assert "FARGATE_SPOT" not in "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf"))
     assert "placement_constraints" not in service
     assert "ordered_placement_strategy" not in service  # Fargate refuses them
@@ -543,7 +543,7 @@ def test_on_the_aws_free_plan_the_audit_is_one_private_rds_instance_with_the_sam
 
 
 def test_no_ec2_instance_is_left_to_run_the_workers():
-    """Fargate (owner, 2026-10-14): the EC2 group, its launch template, capacity provider, instance role and profile,
+    """Fargate: the EC2 group, its launch template, capacity provider, instance role and profile,
     the instances' group and the AMI lookup are gone, and the cluster's only provider is FARGATE."""
     module = "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf"))
     for gone in ("aws_autoscaling_group", "aws_launch_template", "aws_ecs_capacity_provider", "aws_iam_instance_profile",
@@ -554,15 +554,15 @@ def test_no_ec2_instance_is_left_to_run_the_workers():
 
 
 def test_the_runtime_reaches_out_on_https_temporal_clouds_port_and_the_audit_only():
-    """Every worker timed out connecting to Temporal Cloud with only 443 open (2026-10-09): its endpoints listen on
+    """Every worker timed out connecting to Temporal Cloud with only 443 open: its endpoints listen on
     7233. Out: 443 and 7233 anywhere, 5432 to the audit database's group, nothing else; in: nothing. Every egress rule
     sits in the group's own blocks - a separate egress rule resource was deleted by the group's next in-place update,
-    and the audit became unreachable (2026-10-09)."""
+    and the audit became unreachable."""
     net = (MODULE / "network.tf").read_text(encoding="utf-8")
     sg = _block(net, "aws_security_group", "runtime")
     ports = sorted(int(p) for p in re.findall(r"from_port\s*=\s*(\d+)", sg))
     assert ports == [443, 5432, 5432, 7233]
-    # The second 5432: the watched databases' public endpoints (Aurora express), only when switched on (2026-10-15).
+    # The second 5432: the watched databases' public endpoints (Aurora express), only when switched on.
     assert 'dynamic "egress"' in sg
     assert "for_each = var.watched_db_egress ? [1] : []" in sg
     assert "security_groups = [aws_security_group.audit_db.id]" in sg
@@ -573,14 +573,14 @@ def test_the_runtime_reaches_out_on_https_temporal_clouds_port_and_the_audit_onl
 
 def test_only_the_notify_zone_posts_for_real():
     """chatops.py is dry-run unless WARDEN_CHATOPS_LIVE=1, which is never loaded from SSM: the runtime's first
-    incident ran end to end and its report was dropped silently (2026-10-09). The notify zone - and no other - has it."""
+    incident ran end to end and its report was dropped silently. The notify zone - and no other - has it."""
     compute = (MODULE / "compute.tf").read_text(encoding="utf-8")
     assert compute.count("WARDEN_CHATOPS_LIVE") == 1
     assert 'each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {}' in compute
 
 
 def test_paused_the_runtime_keeps_its_audit_and_stops_its_spend():
-    """Between test windows (owner, 2026-10-10): no worker task or instance, no NAT gateway, no alarm intake and no
+    """Between test windows: no worker task or instance, no NAT gateway, no alarm intake and no
     self-page for the silent workers; the audit, its key, the secrets, the witness and the anchors are untouched."""
     compute = (MODULE / "compute.tf").read_text(encoding="utf-8")
     # Removed, not scaled: no service and no capacity provider association while paused (Fargate bills per task).

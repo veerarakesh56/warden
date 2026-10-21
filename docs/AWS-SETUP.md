@@ -4,7 +4,7 @@ Read this before running anything in `terraform/proving-ground/`, the single-pla
 ECS, EKS and RDS benchmark runs used. It answers one question: **what do I create in AWS, and with what
 permissions?** For WARDEN's runtime and the per-environment roles, see [SETUP.md](SETUP.md).
 
-> **Status (audit 2026-10-16).** The proving ground is not deployed: none of the `warden-pg-*` roles and
+> **Status.** The proving ground is not deployed: none of the `warden-pg-*` roles and
 > none of the `WardenProvingGround*` policies below exist in the account. They are what a re-run of Waves
 > 1-3 would create (R52/R53, owner 2026-10-02). Today's operator is the role in `iam/operator/`; the
 > per-environment roles are rendered into `iam/<env>/`.

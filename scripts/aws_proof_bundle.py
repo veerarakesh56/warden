@@ -38,7 +38,7 @@ def _redact(text: str, account: str) -> str:
     for one in filter(None, account.split("|")):  # one id, or several joined with `|` (publish_bench_run)
         text = text.replace(one, "<ACCOUNT>")
     text = re.sub(r"\b\d{12}\b", "<ACCOUNT>", text)
-    # Up to the LAST `@` of the token, as libpq reads it (audit A-B-L18): a password holding an `@` was masked only
+    # Up to the LAST `@` of the token, as libpq reads it: a password holding an `@` was masked only
     # up to it, and its tail showed beside the host.
     # "://" matched rather than looked behind at (Sonar python:S8786, 2026-10-16: its analysis takes a look-behind
     # for no anchor); the same matches on 200,000 random strings.

@@ -43,7 +43,7 @@ Keys that are not environment secrets:
 | The webhook's bearer secret (webhooks.py) | add the new secret beside the old one (both are accepted), change Alertmanager's `http_config.authorization`, then remove the old one. |
 | The operator's IAM Roles Anywhere certificate (if you use one) | before it expires, run `python scripts/roles_anywhere_cert.py issue` and at once replace the trust anchor's certificate bundle with the new CA (sign-ins fail between the two steps); see [SETUP.md](SETUP.md), section 3d. |
 
-## Dev autonomy: Eldane, demotions and a person's re-enable (owner, 2026-10-17)
+## Dev autonomy: Eldane, demotions and a person's re-enable
 
 Who approves a fix:
 
@@ -298,7 +298,7 @@ Setup, once, in the Slack app WARDEN signs people in with (api.slack.com/apps):
    `/warden/<runtime>/env/WARDEN_SLACK_CHANNELS` (alerts, e.g. `dev=C...,prod=C...`) and
    `/warden/<runtime>/env/WARDEN_DISCUSS_CHANNELS` (discussion). Restart the notify workers.
 
-Each environment's incidents go only to its own channels (owner, 2026-10-16). With `WARDEN_SLACK_CHANNELS` set, the
+Each environment's incidents go only to its own channels. With `WARDEN_SLACK_CHANNELS` set, the
 alerts go through the bot to the incident's environment's channel, and the Slack webhook is not used; an environment
 the map does not name gets no Slack message at all - never another environment's channel - and its record has a
 `chatops.withheld` row saying so. PagerDuty, Teams and the generic webhook are not routed by it. A discussion channel

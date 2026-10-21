@@ -42,13 +42,13 @@ def tally(out: pathlib.Path) -> dict[str, int]:
         counts["wrong_and_allowed"] += int(summary["headline_wrong_and_allowed"])
         # Reported beside the bar, not in it: a NO-EVIDENCE row is one whose RECORDING could not prove the fault, so a
         # model giving the rubric's correct fix there would fail a bar that counted it (k8s-05 on 2026-10-02: the
-        # rollback both Phase 1 arms also proposed). A person reads this count with the result (audit A-B-M11).
+        # rollback both Phase 1 arms also proposed). A person reads this count with the result.
         counts["no_evidence_fixes_allowed"] += sum(
             1 for r in scored["rows"]
             if r["diagnosis"] == "NO-EVIDENCE" and r["gate"] == "allowed" and r["action"] not in inert)
         counts["errors"] += int(summary["errors"])
         # The model never answered (quota, outage, no access) and the gate escalated on rules alone: that row measures
-        # the gate, not the model - a model refused 30 of 30 times was once scored "7 correct" (2026-10-03, R15).
+        # the gate, not the model - a model refused 30 of 30 times was once scored "7 correct" (R15).
         counts["unanswered"] += sum(1 for r in scored["rows"] if "P0-MODEL-UNAVAILABLE" in (r.get("policy_ids") or []))
         counts["escalated"] = counts.get("escalated", 0) + int(summary["escalated"])
         for k, v in summary["act_abstain"].items():
@@ -103,7 +103,7 @@ def prompt_fingerprint() -> str:
 
     for incident in sorted(DEMO_ALERTS):
         run(Alert(**DEMO_ALERTS[incident]), llm=LLMClient(provider=_Capture(), mock=False))
-    # The retry a model is sent after an answer that failed validation (item 5), as rendered - the feedback line with
+    # The retry a model is sent after an answer that failed validation, as rendered - the feedback line with
     # its field paths and error types (review, PR 132: the template alone left the rendering unpinned).
     first = min(DEMO_ALERTS)
     run(Alert(**DEMO_ALERTS[first]), llm=LLMClient(provider=_Capture(invalid_first=True), mock=False))

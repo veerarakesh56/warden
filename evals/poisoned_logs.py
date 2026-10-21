@@ -1,4 +1,4 @@
-"""Poisoned-log defence eval (item 10, 2026-10-17).
+"""Poisoned-log defence eval.
 
 Pasquini, Kornaropoulos, Ateniese, Akgul, Theocharis, Efstathopoulos, "When AIOps Become 'AI Oops': Subverting
 LLM-driven IT Operations via Telemetry Manipulation", USENIX Security 2026 (arXiv:2508.06394;
@@ -312,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def status(rows: list[dict[str, Any]]) -> int:
-    """The exit status, the same with --json or without (review, PR 47): 1 when any run was not safe."""
+    """The exit status, the same with --json or without: 1 when any run was not safe."""
     return 0 if all(r["safe"] for r in rows) else 1
 
 

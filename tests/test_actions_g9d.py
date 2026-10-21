@@ -1,4 +1,4 @@
-"""G9-D2 (2026-10-10): the generic fix classes. Every action the model may propose has the gate's facts, the words its
+"""G9-D2: the generic fix classes. Every action the model may propose has the gate's facts, the words its
 citations must bear, a place in the environments that need a signed approval, and - where an entry carries it out -
 a catalogue mapping the resolver can reach from the alarm's own labels."""
 
@@ -114,7 +114,7 @@ def test_an_answer_cut_off_at_the_output_cap_is_charged_said_plainly_and_not_ask
     assert len(sent) == 1  # asked once, and charged
     assert client.cost.usd > 0
     assert sent[0]["max_tokens"] == providers.MAX_OUTPUT_TOKENS >= 16384  # room for thinking and the answer
-    # The model's own price (2026-10-15): Sonnet 5.5 at $2 in / $10 out per million, not one price for every model.
+    # The model's own price: Sonnet 5.5 at $2 in / $10 out per million, not one price for every model.
     assert client.cost.usd == pytest.approx(1000 / 1e6 * 2.0 + 4096 / 1e6 * 10.0)
     # The stated thinking effort is sent, so a comparison of two models compares the models.
     assert sent[0]["extra_body"] == {"output_config": {"effort": "medium"}}
@@ -130,7 +130,7 @@ def test_each_claude_model_has_its_own_price_and_effort_and_a_thinking_models_ti
     monkeypatch.delenv("WARDEN_MODEL_EFFORT", raising=False)
     assert llm.model_prices("claude-sonnet-5-5") == (2.0, 10.0)
     assert llm.model_prices("claude-opus-5-5") == (4.0, 20.0)
-    # Sonnet 5.5 qualified at effort high (2026-10-15); Opus 5.5 is not qualified and keeps the shared medium.
+    # Sonnet 5.5 qualified at effort high; Opus 5.5 is not qualified and keeps the shared medium.
     assert (providers.model_effort("claude-sonnet-5-5"), providers.model_effort("claude-opus-5-5")) == ("high", "medium")
     assert providers.AnthropicProvider.default_timeout_s >= 240
     monkeypatch.setenv("WARDEN_MODEL_EFFORT", "max")

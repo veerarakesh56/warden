@@ -1,4 +1,4 @@
-"""Every way out of the process passes the outbound gate (audit A-C-8, A-C-9).
+"""Every way out of the process passes the outbound gate.
 
 Slack/Teams/webhook go through chatops.notify (tests/test_gate.py). This covers the others: stdout,
 the --json report file, MCP results and errors, and the deployed-source block in a report.
@@ -195,7 +195,7 @@ def test_the_worker_log_is_gated(capsys):
         root.setLevel(saved[1])
 
 
-# Third review (2026-09-30), egress residuals.
+# Third review, egress residuals.
 _KEY = AWS_ACCESS_KEY_ID  # AWS's documented example key
 
 

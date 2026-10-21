@@ -109,7 +109,7 @@ def _row_without_asking(out: pathlib.Path, scenario: str, run: dict, prior: dict
     """The row for a run the model is not asked about - failed in the recorded wave, answered on an earlier day, or
     past the quota - or None when it must be asked."""
     if not run.get("report_written"):
-        # A run that failed in the recorded wave stays an ERROR row (audit A-B-M16): dropping it changed the
+        # A run that failed in the recorded wave stays an ERROR row: dropping it changed the
         # denominators, and a replay looked steadier than the run it replays.
         log(f"{scenario}.{run.get('index')}: ERROR in the recorded run, kept")
         return run

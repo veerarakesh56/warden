@@ -114,7 +114,7 @@ def test_mysql_and_mssql_are_scoped_the_same_way():
     assert "p.db = DATABASE()" in sql
     assert "p.user IN %s" in sql
     assert "CONNECTION_ID()" in sql
-    # Idle time, not the transaction's age (sixth review).
+    # Idle time, not the transaction's age.
     assert "p.time >= %s" in sql
     assert "trx_started" not in sql
     assert params == (tuple(APP), 300, 5)
@@ -211,7 +211,7 @@ def test_an_approved_close_runs_through_the_workflow_end_to_end(world, owner, mo
 
 @pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])
 def test_its_own_login_is_never_an_application_login(engine):
-    """Sixth review (2026-10-01): WARDEN_DB_APP_USERS could name the terminate role's own login, so it closed other
+    """Sixth review: WARDEN_DB_APP_USERS could name the terminate role's own login, so it closed other
     WARDEN sessions. Refused before anything is listed or closed."""
     conn = _Conn(me="orders_app")
     platform = _platform(engine, conn, users=["orders_app"])
@@ -223,7 +223,7 @@ def test_its_own_login_is_never_an_application_login(engine):
 
 
 def test_a_broken_connection_is_reopened_and_use_is_one_at_a_time(monkeypatch):
-    """Sixth review (2026-10-01): one connection forever - after a drop `healthy` was False until a restart - and
+    """Sixth review: one connection forever - after a drop `healthy` was False until a restart - and
     shared by the worker's threads without a lock."""
     import threading
     import time
@@ -285,7 +285,7 @@ def test_the_plan_names_the_database_server_but_no_credential():
     ("host=db.prod port=6432 dbname=orders user=u password={pw}", "host=db.prod port=6432"),
 ])
 def test_the_plan_names_where_libpq_really_connects(dsn, where):
-    """Seventh review (2026-10-01): a multi-host DSN made the server lookup raise on every attempt, so no plan was
+    """Seventh review: a multi-host DSN made the server lookup raise on every attempt, so no plan was
     ever written; `?host=` and `hostaddr=` - where libpq connects - were not shown, nor a socket. Never a password."""
     pw = "s3cr3t" + "-pw"
     p = DatabasePlatform(dsn=dsn.format(pw=pw), engine="postgres", conn=_Conn(), app_users=APP)
@@ -297,7 +297,7 @@ def test_the_plan_names_where_libpq_really_connects(dsn, where):
 @pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])
 @pytest.mark.parametrize("named", ["ORDERS_APP", "Orders_App"])
 def test_its_own_login_in_another_letter_case_is_refused_too(engine, named):
-    """Seventh review (2026-10-01): MySQL's processlist.user and SQL Server's login_name match without case, so an
+    """Seventh review: MySQL's processlist.user and SQL Server's login_name match without case, so an
     allowlist naming the platform's own login in capitals had it close its own sessions."""
     conn = _Conn(me="orders_app")
     platform = _platform(engine, conn, users=[named])
@@ -330,7 +330,7 @@ def test_its_own_login_in_another_letter_case_is_refused_too(engine, named):
     ("mysql", "mysql://u:{pw}@db-staging/orders", {"PGHOSTADDR": "10.9.9.9"}, "db-staging"),
 ])
 def test_the_plan_names_the_server_the_driver_really_reaches(monkeypatch, engine, dsn, env, where):
-    """Eighth review (2026-10-01): a service file and PGHOST showed "the local socket"; MySQL with no host is TCP to
+    """Eighth review: a service file and PGHOST showed "the local socket"; MySQL with no host is TCP to
     localhost; pymysql ignores `?host=`; and text inside a password value was read as a host or a port."""
     for k in ("PGHOST", "PGHOSTADDR", "PGPORT", "PGSERVICE"):
         monkeypatch.delenv(k, raising=False)

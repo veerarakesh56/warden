@@ -1,4 +1,4 @@
-"""Approver labels (audit A-P-2): a person's verdict on what WARDEN said, kept for calibration (G7).
+"""Approver labels: a person's verdict on what WARDEN said, kept for calibration (G7).
 
 After an incident the approver records whether the diagnosis and the proposed action were right, wrong or unclear
 to them - `warden label <incident> --diagnosis right --action wrong`. Calibration learns from these, so a label is

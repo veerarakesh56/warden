@@ -235,7 +235,7 @@ def test_an_approved_scale_runs_through_the_workflow_end_to_end(world, owner):  
 
 
 def test_healthy_needs_the_current_spec_seen_and_a_rollout_not_stalled():
-    """Sixth review (2026-10-01): counts from before the change (observedGeneration behind) or from a rollout past
+    """Sixth review: counts from before the change (observedGeneration behind) or from a rollout past
     its deadline (Progressing=False) read healthy."""
     apps = _Apps(replicas=2)
     p = _platform(apps)
@@ -294,7 +294,7 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
     k8s_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "platforms" / "k8s.py").read_text()
     assert '"WARDEN_REMEDIATION_MAX_REPLICAS", "10"' in k8s_src
     assert "object.spec.replicas <= 10 " in rules
-    # The ceiling only when the count changes: a restart of a Deployment above ten was refused (eighth review).
+    # The ceiling only when the count changes: a restart of a Deployment above ten was refused.
     assert "object.spec.replicas == oldObject.spec.replicas ?" in rules
     # R7-O3: a step up records the count it replaced; a step down returns only to it and clears it.
     assert 'variables.meta["warden.io/scaled-from"] == string(oldObject.spec.replicas)' in rules
@@ -309,7 +309,7 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
 
 
 def test_the_plan_names_the_api_server_it_writes_to():
-    """Sixth review (2026-10-01): staging's plan and prod's looked the same to the approver."""
+    """Sixth review: staging's plan and prod's looked the same to the approver."""
     import types
 
     apps = _Apps(replicas=2)
@@ -319,7 +319,7 @@ def test_the_plan_names_the_api_server_it_writes_to():
 
 
 def test_a_count_that_moved_after_the_approval_is_refused_not_stepped_from():
-    """Sixth review (2026-10-01): approved on 3, the count moved to 2 before the write; the scale wrote 2 -> 4 and a
+    """Sixth review: approved on 3, the count moved to 2 before the write; the scale wrote 2 -> 4 and a
     rollback returned to 3. The platform now holds the write to the count the plan was approved on."""
     apps = _Apps(replicas=2)
     p = _platform(apps)
@@ -331,7 +331,7 @@ def test_a_count_that_moved_after_the_approval_is_refused_not_stepped_from():
 
 
 def test_a_write_the_api_server_refused_changed_nothing():
-    """Seventh review (2026-10-01): an RBAC or admission-policy refusal (403, or a policy's 422) is never persisted,
+    """Seventh review: an RBAC or admission-policy refusal (403, or a policy's 422) is never persisted,
     but a refused restart ended "apply_failed - may be half-made" and a refused scale said "something else scaled
     it". Both end refused, saying what refused them."""
     class _Denied(Exception):

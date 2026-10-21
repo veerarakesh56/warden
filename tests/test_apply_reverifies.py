@@ -95,7 +95,7 @@ def _ready(acts, owner):
 
 
 def test_apply_needs_a_clean_precheck_of_this_plan_after_the_approval():
-    """Third review (2026-09-30): a precheck result replayed from another slot skipped the drift check;
+    """Third review: a precheck result replayed from another slot skipped the drift check;
     apply never looked. Now it needs WARDEN's own clean precheck row, after the approvals."""
     acts, platform, owner = _acts()
     plan = _ready(acts, owner)

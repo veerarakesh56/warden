@@ -10,7 +10,7 @@ kind and a name. A request is read only when every rule holds:
   under another kind - review F1), a `STATE <kind> <name>` line of that kind, or a token of another trusted,
   structured evidence item (kind C: CONFIG, ALARM, CHANGE ... lines from AWS's API responses);
 - the name belongs to the incident's environment (its environment prefix): nothing in another environment is read,
-  even where the reader role's grant is not name-scoped (review F9).
+  even where the reader role's grant is not name-scoped.
 A name from a log line, an event, a fact or the model's own words is refused and audited.
 """
 

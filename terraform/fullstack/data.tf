@@ -15,7 +15,7 @@ locals {
   # rds-db:connect is scoped by DATABASE USER. The cluster's resource id (the middle of the ARN) is
   # only known after aurora_express.py runs, so it is `*`: the user name is the scope - and so the user
   # name carries the environment. `app` existed in every environment's cluster, so a role granted
-  # the user `app` in one could log in to another's (audit A-I-2). A Postgres role takes `_`, not `-`.
+  # the user `app` in one could log in to another's. A Postgres role takes `_`, not `-`.
   # `terminate`: WARDEN's session closes (pg_signal_backend), signed in only by an approved plan's actor session.
   db_users = { for k in ["app", "catalog", "ro", "terminate"] : k => "warden_${replace(local.env, "-", "_")}_${k}" }
   dbuser_arn = { for k, u in local.db_users :
@@ -119,7 +119,7 @@ resource "aws_dynamodb_table" "carts" {
     type = "S"
   }
 
-  # Dev is run as production (owner, 2026-10-16): the table can be restored to any second of the last 35 days. Cents
+  # Dev is run as production: the table can be restored to any second of the last 35 days. Cents
   # a month at this size. Deletion protection stays off so the stack can still be destroyed on purpose.
   point_in_time_recovery {
     enabled = true

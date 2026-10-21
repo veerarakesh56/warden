@@ -122,7 +122,7 @@ def test_an_approvals_note_is_on_the_record_and_in_the_message_with_who_and_when
     assert row["note"] == approvals.note(HOSTILE)
     assert row["approver"] == "owner"
     assert row["method"] == "passkey"
-    # On the records page, not in the channel (owner, 2026-10-14) - worded as before, through the same gate.
+    # On the records page, not in the channel - worded as before, through the same gate.
     assert not any("was approved by" in t for t in sink.texts)
     said = next(t for t in recorded(world["log"]) if "was approved by" in t)
     body = said.split("---")[0]

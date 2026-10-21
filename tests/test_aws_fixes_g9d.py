@@ -1,4 +1,4 @@
-"""G9-D2b (2026-10-10): the generic fix classes on AWS. Each entry reads what the catalogue checks, writes only through an
+"""G9-D2b: the generic fix classes on AWS. Each entry reads what the catalogue checks, writes only through an
 actor session for that one plan, refuses when the target moved since the approval, has an inverse, and calls the
 target healthy only on a positive signal - and refuses the cases AWS's own documentation says it cannot undo safely
 (verify-fix-apis.md, 2026-10-10): a stream mapping paused past its retention, an event-pattern rule dropping events,
@@ -99,7 +99,7 @@ def test_an_ecs_restart_needs_digest_pinned_images_and_keeps_most_tasks_serving(
     assert catalog.validate("ecs_restart_service", params, live) == []
     p.apply("ecs_restart_service", params, snapshot=live["state"], who=WHO)
     assert f.writes[-1] == ("update_service", {"cluster": "c1", "service": "orders", "forceNewDeployment": True})
-    # The workflow's own wording (review M5): it ends not_recovered, never rolled_back.
+    # The workflow's own wording: it ends not_recovered, never rolled_back.
     assert p.rollback("ecs_restart_service", params, live["state"], who=WHO).startswith("nothing to roll back")
     f.image = "registry.example/orders:latest"
     live = p.live("ecs_restart_service", params)

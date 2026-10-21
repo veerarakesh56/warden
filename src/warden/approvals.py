@@ -83,7 +83,7 @@ class Approver(BaseModel):
     slack: str = Field(default="", pattern=r"^$|^[UW][A-Z0-9]{6,14}$")
     public_key: str  # PEM: the Ed25519 break-glass key (decision D14)
     tiers: list[str] = Field(default_factory=list)
-    # The environments whose plans this approver may approve; empty: every one. The bench approver (owner, 2026-10-15)
+    # The environments whose plans this approver may approve; empty: every one. The bench approver
     # is `dev` only - a test identity never approves a change anywhere else.
     environments: list[str] = Field(default_factory=list)
     passkeys: list[PasskeyCredential] = Field(default_factory=list)
@@ -331,7 +331,7 @@ def sign(key: Ed25519PrivateKey, *, approver: str, workflow_id: str, plan_hash: 
     return approval
 
 
-# The bench approver (owner, 2026-10-15): a labelled test identity Claude holds (scripts/bench_approve.py), for dev.
+# The bench approver: a labelled test identity Claude holds (scripts/bench_approve.py), for dev.
 # It approves only in an environment of the nonprod tier (environments.yaml), whatever its entry in the approver list
 # names: an edit of that list cannot let a test identity approve in production.
 BENCH = "bench"

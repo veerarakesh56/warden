@@ -656,7 +656,7 @@ def test_the_proving_ground_reader_grants_exactly_what_the_code_calls():
 
 
 def test_a_long_window_keeps_the_newest_lines_and_the_older_errors():
-    """fs-05 (2026-09-26): the first 120 lines of the window were kept - all from before the fault -
+    """fs-05: the first 120 lines of the window were kept - all from before the fault -
     and the AccessDenied lines that named the cause were the ones dropped."""
     ts = int(NOW.timestamp() * 1000)
     old = [{"logStreamName": "s", "timestamp": ts - 600_000 + i, "message": f"ok {i}"} for i in range(300)]
@@ -739,7 +739,7 @@ def test_a_failed_or_partial_metric_read_reaches_the_tool_errors():
 
 def test_the_watched_environments_reader_role_grants_every_call_the_code_makes():
     """In the cloud runtime every read runs in `warden-<env>-platform-reader` (aws_backend._bind): that role must grant
-    each call, or a real incident is read as AccessDenied - the logs read was missing (2026-10-09)."""
+    each call, or a real incident is read as AccessDenied - the logs read was missing."""
     called = {_iam_action(attr, method) for attr, method in _api_calls()}
     import reader_iam
 
@@ -773,7 +773,7 @@ def _td(command, pool="10", password=_OLD_SECRET):
 
 
 def test_a_configuration_only_revision_is_a_deploy_naming_what_changed_never_its_values():
-    """G9-E (audit E3): the same image, another command - the OOM a command change caused (ecs-10). P5 refused the
+    """G9-E: the same image, another command - the OOM a command change caused (ecs-10). P5 refused the
     right rollback because only an image change counted as a deploy."""
     ecs = _RichEcs({"checkout:7": _td(["run", "--big"], pool="50", password=_NEW_SECRET),
                     "checkout:6": _td(["run"])})

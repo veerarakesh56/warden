@@ -3,7 +3,7 @@
 Validates the order JSON, writes it to DynamoDB (TABLE_NAME), publishes an order event to SNS.
 
 Feature flags CHECKOUT_FF_1 and CHECKOUT_FF_2 are set by the stack. POST /checkout requires the bearer token in the
-Secrets Manager secret API_TOKEN_SECRET names (audit A-I-13); GET /health touches nothing and stays open.
+Secrets Manager secret API_TOKEN_SECRET names; GET /health touches nothing and stays open.
 The Lambda runtime's log format already carries level + ISO timestamp; an unhandled exception is
 logged with its traceback by the runtime.
 """

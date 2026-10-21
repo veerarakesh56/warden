@@ -82,7 +82,7 @@ def test_start_request_and_read_through_the_tools(tmp_path, monkeypatch):
                 await asyncio.sleep(0.05)
             assert status["result"]["verdict"]["status"]
             assert "redaction_map" not in status["result"]
-            assert "context" not in status["result"]  # the verdict, never the evidence read (audit A-B-H4)
+            assert "context" not in status["result"]  # the verdict, never the evidence read
 
             req = {k: REQ[k] for k in ("environment", "service", "entry", "params")} | {"incident_id": "inc-inc-001"}
             asked = (await call("request_remediation", req, env.client)).structured_content

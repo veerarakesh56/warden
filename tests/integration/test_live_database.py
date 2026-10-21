@@ -52,7 +52,7 @@ def _user(dsn):
     return urlparse(dsn).username if dsn else ""
 
 
-# The platform closes only the application's own logins in its own database (audit A-B-H1); here the
+# The platform closes only the application's own logins in its own database; here the
 # application is the login the test connects as, and "someone_else" is a login it must never touch.
 PG_USER, MYSQL_USER, MSSQL_USER = _user(PG_DSN), _user(MYSQL_DSN), _user(MSSQL_DSN)
 
@@ -66,7 +66,7 @@ needs_mssql = pytest.mark.skipif(not MSSQL_DSN, reason="WARDEN_TEST_MSSQL_DSN no
 def _gone(count, seconds=10.0):
     """True once `count()` reaches 0. Closing a session is a signal the server acts on a moment later
     (pg_terminate_backend returns before the backend exits): checking once raced, and turned the db job red
-    at c99bc86 (fifth review, 2026-10-01)."""
+    at c99bc86."""
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if count() == 0:
@@ -182,7 +182,7 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
             )
             state, age = cur.fetchone()
         assert state == "idle in transaction", f"victim is {state!r}, not idle in transaction"
-        # A second idle is no stuck session (audit A-B-L9): the count needs the threshold.
+        # A second idle is no stuck session: the count needs the threshold.
         assert platform_db_metrics_idle(admin) == 0, "a session idle for a second was counted as stuck"
 
         if age is not None and float(age) < 0:

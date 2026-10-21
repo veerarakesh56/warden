@@ -394,7 +394,7 @@ Version 0.10.0. Measured, as of 2026-10-16:
   ([docs/BENCHMARKS.md](docs/BENCHMARKS.md#the-ai-critic-eldane-on-the-g10-held-out-set)).
 <!-- eldane-bench-readme:end -->
 - **Choosing the model.** The production model, Claude Sonnet 5.5, scored 17 of 30 on the replay set with no wrong
-  answer let through (2026-10-15). The bar is 17.
+  answer let through. The bar is 17.
 - **Applying fixes.** The write platforms are exercised in CI against a real k3d Kubernetes cluster and real
   PostgreSQL, MySQL and SQL Server servers. **No published run has applied a fix on a live AWS account.**
 

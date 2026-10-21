@@ -1,4 +1,4 @@
-"""Dev is run as production (owner, 2026-10-16): its data can be restored. Every DynamoDB table the dev stack and the
+"""Dev is run as production: its data can be restored. Every DynamoDB table the dev stack and the
 runtime module make has point-in-time recovery on; WARDEN's own audit database keeps backups and cannot be deleted
 by accident."""
 
@@ -13,7 +13,7 @@ STACKS = (ROOT / "terraform" / "fullstack", ROOT / "terraform" / "modules" / "wa
 
 def _code(text: str) -> str:
     """Terraform with its comments removed (`#`, `//` and `/* */`; none of these stacks has them inside a string
-    that matters here): a commented-out block must not count as configured (CodeRabbit, PR 35)."""
+    that matters here): a commented-out block must not count as configured."""
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
     return re.sub(r"(#|//).*", "", text)
 

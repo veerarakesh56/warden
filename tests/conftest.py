@@ -97,7 +97,7 @@ def pytest_configure(config):
     asyncio.run(warm())
 
 
-# Evidence must have run (fifth review, 2026-10-01). tests/test_register.py refuses the skips it can see in
+# Evidence must have run. tests/test_register.py refuses the skips it can see in
 # the source, but pytest has more ways to skip than any source check can list (a decorator split over two
 # lines, `raise unittest.SkipTest`, an empty parametrize, a skipping fixture...). So the full run itself
 # checks: every test a DONE-local register row cites must have run its body and passed - not skipped, not
@@ -108,7 +108,7 @@ _REPORTS: dict[str, set[str]] = {}
 def pytest_collection_modifyitems(session, config, items):
     """Each test says whether it is the function its file defines under its name. A cited test rebound to
     another function - `globals()["test_x"] = lambda: None`, which no linter sees - passed vacuously and the
-    guard counted it (sixth review, 2026-10-01). user_properties reach the controller under xdist too."""
+    guard counted it. user_properties reach the controller under xdist too."""
     import inspect
 
     for item in items:
@@ -130,7 +130,7 @@ def _cited() -> frozenset[tuple[str, str]]:
     return frozenset((file, test) for file, test in cited_tests() if file not in CI_ONLY)
 
 
-# Captured when the suite starts: an autouse fixture deleting `sys.monitoring` turned the check off (eighth review).
+# Captured when the suite starts: an autouse fixture deleting `sys.monitoring` turned the check off.
 _MONITORING = getattr(sys, "monitoring", None)
 _TOOLS = (4, 3)  # free sys.monitoring tool ids: 0-2 and 5 are the debugger, coverage, profiler and optimizer
 _DEFINED: dict[str, dict[str, list]] = {}
@@ -144,8 +144,8 @@ def _defined(module, config) -> dict[str, list]:
     """The code objects the test file itself defines at module level - never a def nested in a function or in a
     class - compiled exactly as pytest loaded the file (its assertion rewriting included). A code object with the
     def's file, line and name but another body (`code.replace(...)`, `compile()` padded to the line, a nested def
-    bound under the name) is not equal to these (eighth review, 2026-10-01). A cited test is `file::name`, so a
-    class's methods were never one - and a class's same-named staticmethod counted (ninth review)."""
+    bound under the name) is not equal to these. A cited test is `file::name`, so a
+    class's methods were never one - and a class's same-named staticmethod counted."""
     import types
 
     origin = str(module.__spec__.origin)
@@ -167,7 +167,7 @@ def _defined(module, config) -> dict[str, list]:
 @pytest.hookimpl(wrapper=True)
 def pytest_pyfunc_call(pyfuncitem):
     """Did the body the file defines run, return and never raise? Judged at collection, a rebound name passed
-    (sixth review); judged by a start of code with the def's file, line and name, a fake code object, or a body
+   ; judged by a start of code with the def's file, line and name, a fake code object, or a body
     that raised with the failure swallowed by a wrapper, a hook or a thread passed (seventh and eighth reviews).
     Only cited tests are watched, during their call: the start, return and unwind of the code objects equal to
     those the file defines."""
@@ -178,7 +178,7 @@ def pytest_pyfunc_call(pyfuncitem):
         return (yield)
     mon, name = _MONITORING, pyfuncitem.originalname
     # A name the file defines twice is no evidence: `def test_x(): assert False`, `del test_x`, `def test_x(): pass`
-    # passed with the second body (ninth review).
+    # passed with the second body.
     expected = _defined(pyfuncitem.module, pyfuncitem.config).get(name, [])
     expected = expected if len(expected) == 1 else []
     seen = {"started": 0, "returned": 0, "unwound": 0}
@@ -192,7 +192,7 @@ def pytest_pyfunc_call(pyfuncitem):
         return mon.DISABLE
 
     # Called by the interpreter, the callback's caller is the frame of the code that returned; a wrapper that took
-    # the callbacks back from register_callback and called them itself is not (ninth review). A replayed start
+    # the callbacks back from register_callback and called them itself is not. A replayed start
     # alone is no evidence: only the body's own return counts.
     def returned(code, _offset, _value):
         if any(code is w for w in watched) and sys._getframe(1).f_code is code:

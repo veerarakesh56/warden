@@ -88,7 +88,7 @@ locals {
       dims = { DBClusterIdentifier = local.aurora_cluster }, # created by aurora_express.py
       desc = "Database connection count is above normal."
     }
-    # The writer's per-minute AVERAGE. Measured on the idle express cluster (2026-09-26): the per-minute
+    # The writer's per-minute AVERAGE. Measured on the idle express cluster: the per-minute
     # Maximum spikes to 100 from Aurora's own processes while the average sits near 22, and the
     # Maximum-based alarm went to ALARM twice with no fault injected - a red herring in WARDEN's evidence.
     aurora-cpu = {

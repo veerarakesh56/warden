@@ -143,7 +143,7 @@ def test_an_approved_fix_is_applied_once_verified_and_fully_audited(world, owner
     assert out.checklist == dict.fromkeys(STEPS, True)
     assert world["platform"].applied == [("k8s_rollout_undo", REQ["params"])]
     kinds = [e["kind"] for e in world["log"].entries("inc-42")]
-    assert "remediation.check" in kinds  # every real health check is on the record (fourth review)
+    assert "remediation.check" in kinds  # every real health check is on the record
     assert [k for k in kinds if k != "remediation.check"] == [
         "remediation.plan", "remediation.gate", "remediation.announce", "approval.wait", "approval.accepted",
         "remediation.announce",
@@ -216,7 +216,7 @@ def test_the_plan_made_again_is_applied_once_it_is_approved_in_its_turn(world, o
         await _approve_with(owner)(handle)
         # The next run of the same workflow makes its own plan: wait for it on WARDEN's record, not by querying a run
         # that is handing over (that query can hang until its deadline), then approve it in its turn. Up to 60 s of
-        # wall time: 20 s ran out once under the gate's four parallel workers (2026-10-14) and approved too early.
+        # wall time: 20 s ran out once under the gate's four parallel workers and approved too early.
         for _ in range(1200):
             made = world["log"].entries("inc-42", kinds=("remediation.plan",))
             if [s for s, _ in _ends(world)] == ["drifted"] and len(made) == 2:
@@ -304,7 +304,7 @@ def test_a_recorded_history_replays_deterministically(world, owner):
 
 
 def test_a_failed_rollback_still_ends_signed_and_trips_the_kill_switch(world, owner):
-    """Sixth review (2026-10-01): a rollback that failed - an HPA moved the count, the API was down - crashed the
+    """Sixth review: a rollback that failed - an HPA moved the count, the API was down - crashed the
     workflow with no end row and no checkpoint. It ends `rollback_failed`, on the record, and no further fix runs
     until a person resets the kill switch: WARDEN's change may still be in place."""
     world["platform"].healthy_after = None
@@ -330,7 +330,7 @@ def test_a_rollback_row_names_its_run_and_plan(world, owner):
 
 
 def test_a_fix_with_nothing_to_undo_is_not_called_rolled_back(world, owner):
-    """Sixth review (2026-10-01): a restart that did not help was recorded `rolled_back`, though nothing was undone
+    """Sixth review: a restart that did not help was recorded `rolled_back`, though nothing was undone
     and the new pods stayed. It ends `not_recovered`, saying why."""
     world["platform"].healthy_after = None
     world["platform"].nothing_to_undo = True
@@ -342,7 +342,7 @@ def test_a_fix_with_nothing_to_undo_is_not_called_rolled_back(world, owner):
 
 
 def test_a_fix_filed_under_another_service_is_refused(world):
-    """Sixth review (2026-10-01): a scale of `payments` filed under service `orders` was judged healthy by `orders`
+    """Sixth review: a scale of `payments` filed under service `orders` was judged healthy by `orders`
     and never rolled back. The service must name what the fix changes."""
     class Both(FakePlatform):
         def live(self, entry, params):
@@ -379,7 +379,7 @@ def test_health_is_asked_only_of_the_platform_that_made_the_change():
 
 
 def test_a_platform_that_refuses_before_writing_reports_nothing_changed(world, owner):
-    """Sixth review (2026-10-01): a platform's own refusal - the count moved, a bound re-checked - was reported
+    """Sixth review: a platform's own refusal - the count moved, a bound re-checked - was reported
     `apply_failed`, "may be half-made", though nothing was written."""
     from warden.platforms.k8s import KubernetesPlatformRefused
 
@@ -395,7 +395,7 @@ def test_a_platform_that_refuses_before_writing_reports_nothing_changed(world, o
 
 @pytest.mark.parametrize("status", ["rollback_failed", "apply_failed"])
 def test_an_end_that_leaves_the_target_unknown_trips_the_kill_switch(world, status):
-    """Seventh review (2026-10-01): only the rollback activity's own failure tripped the switch - a rollback past
+    """Seventh review: only the rollback activity's own failure tripped the switch - a rollback past
     its timeout, or on a worker that died, ended rollback_failed with it off, and later fixes ran. The end row
     trips it, whatever ended the run."""
     from warden import bounds
@@ -420,7 +420,7 @@ def test_an_ordinary_end_leaves_the_kill_switch_alone(world):
 
 
 def test_a_run_cancelled_after_apply_ends_on_the_record_and_trips_the_kill_switch(world, owner):
-    """Eighth review (2026-10-01): cancelled while verifying an applied fix, a run left no end row and the kill
+    """Eighth review: cancelled while verifying an applied fix, a run left no end row and the kill
     switch off - the next fix on the same service was let through."""
     from warden import bounds
 
@@ -503,7 +503,7 @@ def _cancel_once(world, owner, started, release):
 
 
 def test_a_cancel_during_apply_ends_on_the_record_and_trips(world, owner):
-    """Ninth review (2026-10-01): a cancel landing while an activity ran arrives as an ActivityError, not a
+    """Ninth review: a cancel landing while an activity ran arrives as an ActivityError, not a
     CancelledError, so the run left no end row and the switch off; and a cancel during apply read as "cancelled",
     though apply may have acted."""
     started, release = _blocking(world, "apply")

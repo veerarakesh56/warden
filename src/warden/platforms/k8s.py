@@ -15,7 +15,7 @@ no in-cluster identity: reads in the environment's platform-reader role (its acc
 in an actor session minted for that one approved plan, whose access entry maps it to the remediator group - the same
 ClusterRole and admission policy, bound in the served namespace only.
 `k8s_rollout_undo` reads no revisions here yet, so the catalogue refuses it: it needs to read
-ReplicaSets and write a pod template, which waits for a ValidatingAdmissionPolicy (audit A-I-11).
+ReplicaSets and write a pod template, which waits for a ValidatingAdmissionPolicy.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class KubernetesPlatformError(RuntimeError):
 
 
 class KubernetesPlatformRefused(KubernetesPlatformError):
-    """Refused before anything was written: the workflow reports "nothing was changed" (sixth review)."""
+    """Refused before anything was written: the workflow reports "nothing was changed"."""
 
     nothing_changed = True
 
@@ -168,7 +168,7 @@ class KubernetesPlatform:
 
     def _server(self) -> str:
         """The API server this platform writes to, in the plan the approver signs: staging's plan and prod's no
-        longer look the same (sixth review, 2026-10-01). No credential is in it."""
+        longer look the same. No credential is in it."""
         config = getattr(getattr(self._apps, "api_client", None), "configuration", None)
         host = str(getattr(config, "host", "") or "")
         # In a cluster the address is the `kubernetes` Service's IP - the same in every cluster (seventh review,
@@ -193,7 +193,7 @@ class KubernetesPlatform:
         if not status:
             return False
         # The controller must have seen the current spec, and the rollout must not have stalled: counts from
-        # before the change, or from a rollout past its deadline, are not recovery (sixth review, 2026-10-01).
+        # before the change, or from a rollout past its deadline, are not recovery.
         seen, generation = getattr(status, "observed_generation", None), getattr(dep.metadata, "generation", None)
         if generation is not None and (seen is None or seen < generation):
             return False
@@ -308,7 +308,7 @@ class KubernetesPlatform:
                                                    _request_timeout=REQUEST_TIMEOUT)
         except Exception as exc:
             # A 422 is the JSON Patch `test` failing (the count moved) unless the admission policy is what refused it -
-            # "test" in a Deployment's name (`latest-api`) read a policy refusal as a moved count (eighth review).
+            # "test" in a Deployment's name (`latest-api`) read a policy refusal as a moved count.
             if getattr(exc, "status", None) == 409 or (getattr(exc, "status", None) == 422 and not _a_policy(exc)):
                 raise _own_check(KubernetesPlatformRefused(f"deployment/{deployment} no longer has {expect} replica(s): "
                                                            "something else scaled it; nothing was changed")) from exc
@@ -335,7 +335,7 @@ class _Bound:
 class _Fresh:
     """A client made again every `every` seconds. Its EKS token is signed once, when it is made, by the reader session's
     credentials - which platforms.reader_clients hands out with at least 300 s left (a 900 s session renewed after
-    600 s) - so a client is never kept longer than that (review, PR 48)."""
+    600 s) - so a client is never kept longer than that."""
 
     def __init__(self, make: Callable[[], Any], every: float = 240) -> None:
         self._make, self._every, self._held, self._until = make, every, None, 0.0
@@ -423,10 +423,10 @@ def _a_policy(exc: Exception) -> bool:
 
 def _refused_by_the_server(exc: Exception, deployment: str) -> None:
     """A write the API server refused - RBAC (403) or an admission policy (403/422) - was never persisted: nothing
-    changed, and the run ends refused, not "may be half-made" (seventh review, 2026-10-01)."""
+    changed, and the run ends refused, not "may be half-made"."""
     if _never_sent(exc):
         # No connection was made, so nothing was written - and an unreachable API server tripped the global kill
-        # switch through apply_failed (eighth review, 2026-10-01).
+        # switch through apply_failed.
         raise KubernetesPlatformRefused(f"could not reach the API server for deployment/{deployment} "
                                       f"({_one_line(exc)}); nothing was sent") from exc
     if getattr(exc, "status", None) in (403, 422):
@@ -447,7 +447,7 @@ def _ignores_restart(rule: Any, deployment: str, namespace: str) -> bool:
 
 def _covers(pointer: Any) -> bool:
     """A JSON Pointer (RFC 6901) that names the restart annotation or a field holding it, compared by whole segments
-    (review, PR 48): `""` is the whole document, but `"/"` names the key "" at the root and `"/spec/"` the key "" under
+   : `""` is the whole document, but `"/"` names the key "" at the root and `"/spec/"` the key "" under
     `spec` - neither covers the annotation, and Argo CD would not ignore it. Only a pointer that is a strict ancestor or
     the annotation itself counts; the whole document is not taken as proof either."""
     return (isinstance(pointer, str) and pointer.startswith("/") and not pointer.endswith("/")

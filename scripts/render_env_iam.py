@@ -25,7 +25,7 @@ from warden.environments import GITHUB_ENV, EnvironmentPolicies, github_identity
 
 TEMPLATES = ROOT / "iam" / "templates"
 # The deploy role's permissions are two managed policies: one is near IAM's 6,144-character limit. The actor and
-# platform-reader roles are WARDEN's own per-environment identities for its AWS platform (G6, audit A-P-5): the
+# platform-reader roles are WARDEN's own per-environment identities for its AWS platform (G6): the
 # runtime worker assumes the reader to read, and the actor - for one approved plan - to write.
 KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust", "actor", "actor-trust", "platform-reader", "platform-diagnose",
          "platform-reader-trust", "kill-switch")
@@ -34,7 +34,7 @@ TRUSTS = ("trust", "actor-trust", "platform-reader-trust")
 # runtime.yml assumes - and the boundary on every role terraform/runtime makes come from the runtime-* templates (G6).
 RUNTIME_KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust")
 # The benchmark harness and the undo lab run only where environments.yaml `fault_environments` says, as the operator
-# on the laptop (owner, 2026-10-02; audit A-I-18) - the list is configuration, never named here.
+# on the laptop - the list is configuration, never named here.
 HARNESS_ENVS = EnvironmentPolicies.load().fault_environments
 
 

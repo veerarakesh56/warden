@@ -201,7 +201,7 @@ def test_openai_itself_still_gets_the_openai_key(monkeypatch):
 
 
 def test_the_gemini_key_goes_only_to_google(monkeypatch):
-    """Second review (2026-09-30): the Google SDK reads GOOGLE_GEMINI_BASE_URL itself, so the Gemini
+    """Second review: the Google SDK reads GOOGLE_GEMINI_BASE_URL itself, so the Gemini
     key went to whatever host that named - http included. The base URL is now explicit."""
     pytest.importorskip("google.genai", reason="pip install -e '.[gemini]'")
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-construction-only")

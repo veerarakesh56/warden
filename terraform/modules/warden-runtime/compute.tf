@@ -89,7 +89,7 @@ resource "aws_ecs_task_definition" "zone" {
       # Eldane, the AI critic, for the critic zone only - its own model, never loaded from SSM (settings.py).
       each.key == "critic" && var.critic_provider != "" ? { WARDEN_ELDANE_PROVIDER = var.critic_provider } : {},
       # The notify zone posts for real - the only zone that does. chatops.py is dry-run unless this is set, and it is
-      # never loaded from SSM; without it every report was dropped silently (2026-10-09).
+      # never loaded from SSM; without it every report was dropped silently.
       each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {},
       # AWS's documentation on the evidence's error codes, as reference - fetched where the evidence is read
       # (aws_docs.py, owner decision 2026-10-10). Over the 443 egress the group already has.
@@ -121,7 +121,7 @@ resource "aws_ecs_service" "zone" {
   cluster         = aws_ecs_cluster.runtime.id
   task_definition = aws_ecs_task_definition.zone[each.key].arn
   desired_count   = var.worker_instances
-  # On-demand for every zone, never Spot (PR 44 review, 2026-10-17): ECS does not fall back from Spot to on-demand, so
+  # On-demand for every zone, never Spot: ECS does not fall back from Spot to on-demand, so
   # a zone without Spot capacity would simply not run, and the heartbeat - one per task queue - does not see one
   # zone's gap.
   capacity_provider_strategy {

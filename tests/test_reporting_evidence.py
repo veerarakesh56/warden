@@ -209,7 +209,7 @@ def test_bare_placeholders_the_model_wrote_are_revealed_but_never_secrets():
 def test_the_data_keeps_every_stuck_pid_not_just_the_five_displayed():
     """⛔ Found rendering a real Wave 3 report: twelve sessions idle in a transaction, the Affected
     section shows five, and the runbook took its pids from that - terminating five, leaving seven. The
-    runbook is gone (2026-10-16); the data still names every pid, and the display says what it leaves out."""
+    runbook is gone; the data still names every pid, and the display says what it leaves out."""
     pids = [str(3600 + i) for i in range(12)]
     ctx = ContextBundle(logs=[f"postgres stuck connection: pid={p} idle in transaction for 336s: SELECT 1"
                               for p in pids])

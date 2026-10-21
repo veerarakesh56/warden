@@ -1,4 +1,4 @@
-"""The cloud runtime carries the injection tripwire (register R47, 2026-10-14).
+"""The cloud runtime carries the injection tripwire (register R47).
 
 Prompt Guard 2 was measured on a laptop for weeks while the cloud image had no detector and every environment had it
 off (owner, 2026-10-14: "doing things on local and missing them on cloud"). These pin each link: the guard extra in

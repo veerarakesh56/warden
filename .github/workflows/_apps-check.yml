@@ -27,7 +27,7 @@ jobs:
       - run: uv sync --locked --no-build --only-group apps-check --only-group scan
       - run: ruff check scenarios/fullstack scripts/deploy_fullstack_apps.py tests/test_deploy_fullstack_apps.py
       # What is deployed to AWS, audited and scanned here: the tool CI skips apps-only changes, and its
-      # pip-audit reads uv.lock, not these files (fifth review E, 2026-10-01).
+      # pip-audit reads uv.lock, not these files.
       - name: Deployed requirements with known vulnerabilities
         run: |
           for f in scenarios/fullstack/app/requirements.txt scenarios/fullstack/lambdas/*/requirements.txt; do

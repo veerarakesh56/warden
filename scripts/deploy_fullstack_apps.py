@@ -65,7 +65,7 @@ def run(cmd: list[str], *, input: str | None = None) -> str:
     """Run a command; stdin carries anything secret. Only the command is echoed."""
     print("+", " ".join(cmd), flush=True)
     # ⛔ UTF-8, not the locale: on Windows `text=True` decodes as cp1252 and docker's build output
-    # (progress glyphs) crashed the reader thread mid-build (2026-09-26).
+    # (progress glyphs) crashed the reader thread mid-build.
     done = subprocess.run(cmd, input=input, capture_output=True, check=False,
                           encoding="utf-8", errors="replace")
     if done.returncode:
@@ -152,7 +152,7 @@ def missing_dependencies(target: pathlib.Path, python_version: str = LAMBDA_PYTH
              for d in target.glob("*.dist-info")}
     missing = set()
     # The extras the Lambda asks for count too: without `psycopg-binary` a `psycopg[binary]` Lambda dies on import,
-    # and an extra's requirements were never checked (fifth review, 2026-10-01). And the extras those requirements
+    # and an extra's requirements were never checked. And the extras those requirements
     # ask for in turn - `boto3[crt]` asks botocore for its `crt` extra (register R7-O4): followed to the end.
     asked = {canonicalize_name(k): set(v) for k, v in (extras or {}).items()}
     queue, done = list(dists), set()
@@ -179,7 +179,7 @@ def build_lambdas(out: pathlib.Path, run=run) -> dict[str, pathlib.Path]:
                 # requirements.txt is compiled for the Lambda (3.12, x86_64 Linux) and holds every package with
                 # its hash, so pip installs exactly it: --no-deps, because pip evaluates dependency markers
                 # for THIS machine, and on Windows psycopg's `tzdata; sys_platform == "win32"` - absent from
-                # the file - stopped the hash-checked install (2026-10-01).
+                # the file - stopped the hash-checked install.
                 run([sys.executable, "-m", "pip", "install", "--quiet", "--no-deps", "--require-hashes", "-r", str(req),
                      "--target", str(stage), "--platform", "manylinux2014_x86_64", "--only-binary=:all:",
                      "--implementation", "cp", "--python-version", LAMBDA_PYTHON])
@@ -316,7 +316,7 @@ def deploy_ecs(stack: dict, tag: str, aws, run=run, wait: bool = True) -> str:
 
 def record_in_stack(path: pathlib.Path, key: str, value: str) -> None:
     """Add one apps-pipeline fact to stack.json, in the file's own (wrapped or flat) format."""
-    # Checked here too, beside the read and the write (Sonar pythonsecurity:S2083, 2026-10-20).
+    # Checked here too, beside the read and the write (Sonar pythonsecurity:S2083).
     real = pathlib.Path(path).expanduser().resolve()
     bases = [b for b in (pathlib.Path(r).expanduser().resolve() for r in paths.work_roots()) if b.parent != b]
     if not any(real.is_relative_to(b) for b in bases):  # the form audit.key_path uses (S8707 cleared there)
@@ -449,7 +449,7 @@ def otel_config(region: str, *, datadog: bool = False) -> dict:
     exporters: dict = {} if datadog else {"awsxray": {"region": region}}
     traces, metrics, logs = list(exporters), [], []
     if datadog:
-        # Plaintext gRPC on purpose (2026-10-16, naming audit item 19): HOST_IP is the collector pod's own node,
+        # Plaintext gRPC on purpose: HOST_IP is the collector pod's own node,
         # and 4317 there is the Datadog agent's OTLP receiver on its hostPort, so the hop never leaves the node.
         # The agent has no TLS listener to offer: chart 3.250.3 exposes only `enabled`, `endpoint` and
         # `useHostPort` for that receiver (its values.yaml, read 2026-10-16). TLS on it would mean configuring the
@@ -607,7 +607,7 @@ def db_users(stack: dict) -> dict[str, str]:
     if bad:
         raise SystemExit(f"stack.json db_users holds a name that is not a database user: {bad}")
     # Exactly the names Terraform derives for THIS stack's environment: a shape check accepted another
-    # environment's users, or one name for all three - the read-only user merged into the app's (seventh review).
+    # environment's users, or one name for all three - the read-only user merged into the app's.
     env = stack.get("environment")
     want = {k: f"warden_{str(env).replace('-', '_')}_{k}" for k in users}
     if not env or users != want:
@@ -662,7 +662,7 @@ def _checked_paths(out_arg: pathlib.Path, stack_arg: pathlib.Path | None) -> tup
     # (warden.paths; Sonar pythonsecurity:S2083, 2026-10-17). Both are used through the checked path only.
     try:
         out = paths.inside(out_arg)
-        # The default is checked too: a stack.json in --out that links elsewhere is refused (CodeRabbit, PR 63).
+        # The default is checked too: a stack.json in --out that links elsewhere is refused.
         stack_path = paths.inside(stack_arg if stack_arg else out / "stack.json")
     except ValueError as e:
         raise SystemExit(f"refused: {e}") from None

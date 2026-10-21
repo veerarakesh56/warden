@@ -77,7 +77,7 @@ def alarm_event(event: dict[str, Any], default_environment: str) -> AlarmEvent |
                     summary=str((detail.get("configuration") or {}).get("description") or "")[:4000],
                     started_at=when.isoformat(),
                     # The alarm label last, and raw dimension names never a resource label: a dimension named
-                    # `alarm` or `log_group` chose what was read (independent review 2026-10-10, L4).
+                    # `alarm` or `log_group` chose what was read (L4).
                     labels={**{k: v for k, v in dims.items() if k not in RESOURCE_LABELS and k not in _OWN_LABELS},
                             **resources.labels_for(metrics), **elsewhere, "alarm": name, "via": "cloudwatch"}))
 
@@ -99,7 +99,7 @@ def _alarm_service(dims: dict[str, str], name: str) -> str:
     """The service an alarm watches: the most specific dimension whose value is a plain name, else the alarm's name
     when it is one, else "unknown"."""
     # Only a value that is a plain name: a hostile dimension value made the Alert invalid and the Lambda crash, losing
-    # the incident (G9-A1, 2026-10-10). Its label is still dropped and reported by the Alert's own check.
+    # the incident (G9-A1). Its label is still dropped and reported by the Alert's own check.
     named = re.compile(NAME_PATTERN)
     return next((dims[k] for k in _SERVICE_DIMENSIONS if dims.get(k) and named.match(dims[k])),
                 name if named.match(name) else "unknown")
@@ -235,7 +235,7 @@ def alarm(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     decisions = _submit([ev])
     for d in decisions:
         # What intake decided, one line per alarm, where whoever operates WARDEN can see it without the database: an
-        # alarm held as expected down left no sign anywhere but the audit (2026-10-14).
+        # alarm held as expected down left no sign anywhere but the audit.
         _LOG.info("intake: %s %s -> %s: %s", ev.state, " ".join(ev.rule.split())[:120], d.get("action"),
                   " ".join(str(d.get("reason", "")).split())[:240])
     return {"decisions": decisions}
@@ -356,7 +356,7 @@ def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
                     query=str(event.get("rawQueryString") or ""), cookies=event.get("cookies") or [])
     if cold:
         # Where a cold start's seconds go, measured where it happens: the first page after a quiet period took 5.6 s
-        # to 9.5 s (live, 2026-10-12), and the cause is decided from these numbers, not guessed. Durations only.
+        # to 9.5 s, and the cause is decided from these numbers, not guessed. Durations only.
         _LOG.info("approval cold start: settings=%dms page=%dms request=%dms", (t1 - t0) * 1000, (t2 - t1) * 1000,
                   (time.perf_counter() - t2) * 1000)
     return {"statusCode": r.status, "headers": r.headers, "body": r.body}
@@ -379,7 +379,7 @@ def _approver_list_write(detail: dict[str, Any]) -> bool:
 
 def _approvers_changed(detail: dict[str, Any]) -> dict[str, Any]:
     """The approver list is the root of who may approve: whoever writes it can give an approver any name - or add a
-    passkey of their own (owner, 2026-10-12). Every write to it, and every refused attempt, is put on the record and
+    passkey of their own. Every write to it, and every refused attempt, is put on the record and
     counted in `ApproverListChanged`, whose alarm pages a person. Who made it is named by kind and by the name an
     administrator set (a role's, a user's) - never a session name its caller chose."""
     from . import runtime

@@ -53,7 +53,7 @@ was actually run, an argument rather than a result. Running all four incidents a
 
 ⚠ **Provenance.** This section describes an earlier run over the then-four bundled incidents, not
 recorded as an artefact - its figures below (the `restart_pods` on `inc-003`, the 7 identifiers,
-~$0.009) cannot be re-checked. A later recorded run (2026-09-06) covered five incidents and showed the
+~$0.009) cannot be re-checked. A later recorded run covered five incidents and showed the
 same 0.85 on all; there the live model proposed `terminate_connections`
 on `inc-003`, not `restart_pods`, at $0.0065-$0.0089 per incident.
 

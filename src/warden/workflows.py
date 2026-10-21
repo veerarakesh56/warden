@@ -62,7 +62,7 @@ with workflow.unsafe.imports_passed_through():
     from .models import Alert, ContextBundle, RunReport, ingestion_wait, reread_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
-# Bounded (audit A-B-L10): Temporal's default retries an activity forever, so a step that kept failing - an audit
+# Bounded: Temporal's default retries an activity forever, so a step that kept failing - an audit
 # store that cannot be written, a platform that cannot be read - held the run, and the target, with no end row.
 # About ten minutes of tries, then the run ends on the record (FAILED below) and a person looks.
 QUICK = {"start_to_close_timeout": timedelta(seconds=60),
@@ -70,11 +70,11 @@ QUICK = {"start_to_close_timeout": timedelta(seconds=60),
 ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPolicy(maximum_attempts=1)}
 NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": RetryPolicy(maximum_attempts=3)}
 # prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
-# a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
-# 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
+# a few attempts, then the incident FAILS visibly - never an endless retry.
+# 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU.
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
 # Eldane's review: two model calls and perhaps a catch trial, once. A critic zone that is not running holds nobody up
-# (CodeRabbit, PR 42): unstarted within 30 seconds, or not done in four minutes, the plan goes to a person as before.
+#: unstarted within 30 seconds, or not done in four minutes, the plan goes to a person as before.
 CRITIC = {"schedule_to_start_timeout": timedelta(seconds=30), "start_to_close_timeout": timedelta(minutes=4),
           "retry_policy": RetryPolicy(maximum_attempts=1)}
 # Whether Eldane may approve here at all (the environment's autonomy ceiling), asked once: no answer is "no", and the
@@ -117,7 +117,7 @@ RECHECK_AFTER = (timedelta(minutes=15), timedelta(minutes=60))
 
 
 def rechecks(req: FixRequest) -> tuple[timedelta, ...]:
-    """The watch's re-checks: RECHECK_AFTER, then the soak's end when it is longer (item 11). A request from before the
+    """The watch's re-checks: RECHECK_AFTER, then the soak's end when it is longer. A request from before the
     soak had none and replays as it ran: its default is RECHECK_AFTER's last."""
     soak = timedelta(minutes=req.soak_minutes)
     return RECHECK_AFTER + ((soak,) if soak > RECHECK_AFTER[-1] else ())
@@ -202,7 +202,7 @@ def _not_recovered_why(req: FixRequest, alarm_at: str, side_effects: int) -> str
     why = (f"{req.service}'s alarm fired again during the verify window, at {alarm_at} (register C1)"
            if alarm_at else f"{req.service} did not recover within {req.recover_within_minutes} min")
     if side_effects:
-        # A count, never the signal's own words (security review M2): the record says which alarms they were.
+        # A count, never the signal's own words: the record says which alarms they were.
         why += f"; also, {side_effects} other alarm{'s' if side_effects > 1 else ''} started after the fix (see the record)"
     return why
 
@@ -278,11 +278,11 @@ class RemediationWorkflow:
             # A cancelled run still ends on the record, signed - and once apply was SENT, nobody knows what state it
             # left: the kill switch goes on (eighth review, 2026-10-01: a run cancelled while verifying left no end
             # row, the switch off). A cancel during an activity arrives as an ActivityError, not a CancelledError,
-            # and apply may have acted before it returned (ninth review).
+            # and apply may have acted before it returned.
             if isinstance(exc, asyncio.CancelledError) or is_cancelled_exception(exc):
                 await end("cancelled_after_apply" if self._applying else "cancelled", ["the run was cancelled"])
             elif self._stage not in END_STAGES:
-                # A step that failed every try (audit A-B-L10) ends the run on the record too - after apply, as a
+                # A step that failed every try ends the run on the record too - after apply, as a
                 # change in an unknown state: the kill switch goes on. If the end row itself cannot be written, the
                 # run fails visibly.
                 await end("failed_after_apply" if self._applying else "failed", [f"a step failed: {exc.cause or exc}"])
@@ -362,7 +362,7 @@ class RemediationWorkflow:
 
         blocked = await workflow.execute_activity_method(acts.gate, **_zoned(acts.gate), args=[plan, req.service], **QUICK)
         # Only an explicit empty list is "not blocked": an unreadable or forged answer decodes to None,
-        # which `if blocked:` read as a pass (third review, 2026-09-30).
+        # which `if blocked:` read as a pass.
         if blocked != []:
             return await end("blocked", blocked or ["the gate's answer could not be read"])
         done["policy"] = True
@@ -398,13 +398,13 @@ class RemediationWorkflow:
 
     async def _critic(self, req: FixRequest, acts, plan: Plan, accepted: list[SignedApproval]) -> tuple[bool, bool]:
         """Eldane's review of the plan. Returns whether its approval is enough on its own, and whether the request for a person's approval was already sent."""
-        # Eldane, the AI critic (owner, 2026-10-16), after the gate: it can only add a "no". It reviews the plan in its
+        # Eldane, the AI critic, after the gate: it can only add a "no". It reviews the plan in its
         # own zone; where the plan's class is at L2 (autonomy.py; dev, not demoted) its signed approval comes back and is
         # checked like any other approval. Anything else, or no answer in time, and a person decides as before.
         if not workflow.patched("eldane-critic"):
             return False, False
         # Where Eldane can never approve (prod, or an environment with no L2 ceiling) the person is asked first,
-        # and the review - shadow, scored - follows: it never holds the request back (CodeRabbit, PR 42).
+        # and the review - shadow, scored - follows: it never holds the request back.
         auto = opened = may_approve = False
         with contextlib.suppress(ActivityError):
             state = await workflow.execute_activity_method(acts.autonomy_state, args=[req.environment],
@@ -427,7 +427,7 @@ class RemediationWorkflow:
 
     async def _veto_window(self, acts, wid: str, plan: Plan, end) -> FixOutcome | None:
         """The window for a person's "no" to Eldane's approval. None: no "no" came."""
-        # A person's decision always overrides Eldane's (owner, 2026-10-17): the channel is told Eldane approved,
+        # A person's decision always overrides Eldane's: the channel is told Eldane approved,
         # with the page's links, and a person's "no" in the next VETO minutes - or later, until the apply step starts - ends the
         # plan with nothing changed.
         await _announce(acts, plan, "autonomous")
@@ -547,7 +547,7 @@ class RemediationWorkflow:
             await workflow.execute_activity_method(acts.apply, **_zoned(acts.apply), args=[plan, req.service], **ONCE)
         except ActivityError as exc:
             if is_cancelled_exception(exc):
-                raise  # a cancel, not a failed apply: run() ends it, after apply (ninth review)
+                raise  # a cancel, not a failed apply: run() ends it, after apply
             if isinstance(exc.cause, ApplicationError) and exc.cause.type == APPLY_REFUSED:
                 # Refused before anything was touched: nothing to roll back, nothing half-made.
                 again = _plan_again(req, str(exc.cause).removeprefix("apply refused: ").split("; "))
@@ -584,7 +584,7 @@ class RemediationWorkflow:
         if side and self._side_effects and (ended := await self._side_effects_end(req, acts, plan, end)):
             return ended
         if workflow.patched("g9-mitigated") and plan.entry in MITIGATES:
-            # A pause holds the harm and fixes nothing (review H2): the page stays open, a person resumes it.
+            # A pause holds the harm and fixes nothing: the page stays open, a person resumes it.
             return await end("mitigated", [f"{req.service} is mitigated, not fixed: {MITIGATES[plan.entry]}"])
         if workflow.patched("c18a-rechecks"):
             relapse = await self._watch(req, acts, plan, end, side=side)
@@ -650,11 +650,11 @@ class RemediationWorkflow:
             if is_cancelled_exception(exc):
                 raise
             # The run still ends on the record, signed: a failed rollback crashed the workflow with no end row
-            # (sixth review, 2026-10-01). The activity tripped the kill switch; a person takes it from here.
+            #. The activity tripped the kill switch; a person takes it from here.
             return await end("rollback_failed", [f"{req.service} did not recover, and {exc.cause or exc}"])
         why = _not_recovered_why(req, self._alarm_at, len(self._side_effects))
         # A change with nothing to undo (a restart, a closed session) is not "rolled back": the target is as the
-        # fix left it, unhealthy - a person (sixth review, 2026-10-01).
+        # fix left it, unhealthy - a person.
         if str(undone).startswith(("nothing to roll back", "not rolled back")):
             return await end("not_recovered", [why, str(undone)])
         return await end("rolled_back", [why])
@@ -916,14 +916,14 @@ class IncidentWorkflow:
             if cleared is not None:
                 return cleared
         pack = await self._evidence(acts, alert)
-        # ONE attempt (audit A-C-7): the model client retries inside one budget and one call ceiling; a
+        # ONE attempt: the model client retries inside one budget and one call ceiling; a
         # Temporal retry built a fresh client, and so a fresh budget - $1.20 spent against a $0.50 cap
         # (fourth review, 2026-09-30).
         diagnosed = await _diagnose(acts, pack, escalate_only)
         # G9-B: the model may ask to read up to 3 related resources it saw named in trusted evidence, then decide
         # again - at most INVESTIGATE_ROUNDS times; the llm zone's budget (6 calls, US$0.25 per incident, counted
         # from the audit across rounds) stops it sooner. Patched: histories recorded before it replay unchanged.
-        first = pack.alert  # what the alarm itself named: the only targets a fix plan may take (review F6)
+        first = pack.alert  # what the alarm itself named: the only targets a fix plan may take
         if workflow.patched("g9-investigate"):
             pack, diagnosed = await self._investigate(acts, pack, diagnosed, escalate_only)
         verified = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[pack, diagnosed], **QUICK)
@@ -1014,12 +1014,12 @@ class IncidentWorkflow:
                 wider = await workflow.execute_activity_method(
                     acts.investigate, **_zoned(acts.investigate), args=[pack, diagnosed.need_evidence], **PREPARE)
                 if wider.alert.labels == pack.alert.labels:
-                    break  # nothing accepted: no second answer on the same evidence (review F4)
+                    break  # nothing accepted: no second answer on the same evidence
                 again = await _diagnose(acts, wider, escalate_only)
             except ActivityError:
-                break  # a failed read or call: the answer so far stands, and is verified and told (review F8)
+                break  # a failed read or call: the answer so far stands, and is verified and told
             if again.model_unavailable:
-                break  # e.g. the budget is spent: the earlier answer, on its own evidence, stands (review F8)
+                break  # e.g. the budget is spent: the earlier answer, on its own evidence, stands
             pack, diagnosed = wider, again
         return pack, diagnosed
 

@@ -1,5 +1,5 @@
 """WARDEN's own pages repeat every 15 minutes until a person acknowledges them, and keep repeating with WARDEN down
-(owner, 2026-10-16): the kill switch going on, the heartbeat or synthetic missing, the dead-letter queue, an
+: the kill switch going on, the heartbeat or synthetic missing, the dead-letter queue, an
 unapproved actor, a worker's or a front door's errors, the audit database, a Temporal key about to expire.
 
 The pager is a function of its own (terraform/modules/warden-runtime/pager/pager.py: boto3 and the standard library,

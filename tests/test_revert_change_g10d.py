@@ -213,7 +213,7 @@ def test_a_disabled_rule_is_reverted_through_its_enable_entry_and_a_function_thr
     ("ModifyTargetGroupAttributes on tg", False), ("TagResource on x", False), ("error rate went up", False),
     ("disable-feature flag on", False)])
 def test_a_revert_is_supported_by_the_event_name_it_undoes(quote, supported):
-    """G10 held-out baseline (2026-10-10): P15 held back every revert WARDEN can carry out - its keys are run-together
+    """G10 held-out baseline: P15 held back every revert WARDEN can carry out - its keys are run-together
     event names, quotes were split at camelCase first, and the "none" rule read `sg-0d4c` as a zero."""
     from warden import grounding
     from warden.evidence import Item

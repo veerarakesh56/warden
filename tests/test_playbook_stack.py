@@ -359,7 +359,7 @@ def test_a_reader_endpoint_without_env_values_names_no_endpoint():
 
 
 def test_the_sns_advice_keeps_the_queues_other_statements():
-    """Audit A6 (2026-10-16): the printed `set-queue-attributes` replaced the queue's whole policy, so every other
+    """Audit A6: the printed `set-queue-attributes` replaced the queue's whole policy, so every other
     statement was lost. The advice names the queue and the topic and says to add, not replace."""
     pat = next(p for p in detect(alert(), FAULTS["fs-08"][1]) if p.key == "topic_delivery_refused")
     assert "warden-dev-order-events" in pat.oncall[0]
@@ -368,7 +368,7 @@ def test_the_sns_advice_keeps_the_queues_other_statements():
 
 
 def test_a_denied_secret_read_names_only_what_to_compare():
-    """Phase 0 (2026-09-27): WARDEN never writes IAM from a log line - the role, action and resource all
+    """Phase 0: WARDEN never writes IAM from a log line - the role, action and resource all
     come from text that whoever can write a log line controls. It names them, as advice."""
     pat = next(p for p in detect(alert(), FAULTS["fs-18"][1]) if p.key == "task_secret_denied")
     advice = " ".join(pat.oncall)
@@ -407,7 +407,7 @@ def test_a_function_without_the_alias_names_no_alias_move():
 
 
 def test_the_crash_loop_advice_holds_no_command_and_no_label_list():
-    """A8 (2026-10-16): the advice said `kubectl -n shop logs deploy/catalog-api --previous` - a read WARDEN had
+    """A8: the advice said `kubectl -n shop logs deploy/catalog-api --previous` - a read WARDEN had
     already made (the crashed output is in the report). It says what to read, in words."""
     pat = next(p for p in detect(alert(), FAULTS["fs-22"][1]) if p.key == "crashloop")
     assert "crashed container's own last output" in pat.oncall[0]
@@ -489,7 +489,7 @@ def test_no_path_is_taken_from_application_logs():
 
 
 def test_a_value_merely_containing_the_rds_suffix_is_not_an_rds_host():
-    """CodeQL (2026-10-02): `".rds.amazonaws.com" in val` took `<reader>.rds.amazonaws.com.evil.example` for an RDS
+    """CodeQL: `".rds.amazonaws.com" in val` took `<reader>.rds.amazonaws.com.evil.example` for an RDS
     endpoint, and the advice would have pointed the function's database at another domain."""
     from warden.playbook import _RDS_HOST
 

@@ -10,7 +10,7 @@ carries only the model's conclusion asks the reader to trust it; one that carrie
 them check it. (Until 2026-09-24 it carried only the conclusion: the model's own cited evidence, the
 whole evidence bundle and every identifier were dropped.)
 
-⛔ NO COMMANDS (2026-10-16). The report used to print exact aws, kubectl and SQL commands to check,
+⛔ NO COMMANDS. The report used to print exact aws, kubectl and SQL commands to check,
 fix, confirm and undo - a second, unaudited way to make the change, outside the signed approval, the
 bounds, the kill switch and the audit, and printed even under a rejected verdict. A fix now goes
 only through a catalogue plan and a signed approval, which WARDEN applies itself; the report says
@@ -69,7 +69,7 @@ _AFFECTED_KEYS = ("tenant_id", "org_id", "organization_id", "customer_id", "user
 _KV = re.compile(r"\b(" + "|".join(_AFFECTED_KEYS) + r")=([^\s,;\"']+)")
 # ⛔ A pid only from the fixed prefix WARDEN's own database reads write (database.py), never from
 # anywhere in a line: the query text follows that prefix, and `/* pid=1 pid=77 */` in a query put
-# pids 1 and 77 into the printed terminate statement (2026-09-27 audit).
+# pids 1 and 77 into the printed terminate statement.
 _PID = re.compile(r"^\w+ (?:stuck connection|long-running query|blocked session): pid=(\d+)\b")
 _POD = re.compile(r"\bPod/([a-z0-9][a-z0-9.\-]*)|^([a-z0-9][a-z0-9\-]*-[a-z0-9]{5,10}-[a-z0-9]{5})/")
 
@@ -155,7 +155,7 @@ def _key_log_lines(logs: list[str]) -> list[str]:
     picked = [ln for ln in logs if ln.startswith(("EVENT", "NODE-EVENT", "PARTIAL")) or _IMPORTANT.search(ln)]
     if len(picked) < 4:
         # The newest recorded changes first (their timestamps sort as text): a report padded from the end of the
-        # list showed changes five hours old and not the one that caused the alarm (live, 2026-10-12).
+        # list showed changes five hours old and not the one that caused the alarm.
         changes = sorted((ln for ln in logs if _CHANGE.match(ln) and ln not in picked), reverse=True)
         rest = [ln for ln in reversed(logs) if ln not in picked and ln not in changes]
         picked += (changes[:3] + rest + changes[3:])[:4 - len(picked)]  # and a line of the state itself
@@ -214,7 +214,7 @@ _PLACEHOLDER_TOKEN = re.compile(r"(<[A-Z][A-Z0-9]*_\d+>)")
 
 
 def untrusted_inline(text: str, limit: int = 300) -> str:
-    """Text WARDEN did not write, as inert markdown (audit A-C-1): one line, no backtick to break out
+    """Text WARDEN did not write, as inert markdown: one line, no backtick to break out
     of the code span, no `<...>` Slack or HTML would act on, capped. A forged "approved fix" block in
     an alert summary renders as the words it is, not as a heading and a command."""
     one = " ".join(str(text).split())
@@ -257,7 +257,7 @@ def _deploy_events(alert: Alert, ctx: ContextBundle) -> list[tuple[dt.datetime, 
 
 def _change_events(ctx: ContextBundle, started: dt.datetime | None) -> list[tuple[dt.datetime, str]]:
     # What WARDEN's own readers recorded as changed in the hour before the alert: the timeline held only "alert
-    # fired" beside a diagnosis that cited a change made nine minutes earlier (live, 2026-10-12).
+    # fired" beside a diagnosis that cited a change made nine minutes earlier.
     events: list[tuple[dt.datetime, str]] = []
     for line in ctx.logs:
         m = _CHANGE.match(line)
@@ -413,7 +413,7 @@ def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
     shown = shown_target(proposal, alert, ctx) if proposal else ""
 
     def say(v: Any) -> Any:
-        # The rollback's wording is the target's alone (shown_target); a version elsewhere is just not read (review).
+        # The rollback's wording is the target's alone (shown_target); a version elsewhere is just not read.
         return _each_string(v, lambda s: unread(s.replace(target, shown) if target else s, read))
 
     for key in ("root_cause", "verdict"):
@@ -423,7 +423,7 @@ def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
         data["proposal"] = {**data["proposal"], "target": shown,
                             "expected_effect": say(data["proposal"]["expected_effect"])}
     # The log lines shown, and the crashed container's own output (k8s `logs --previous`), are the application's
-    # words: what they name is not WARDEN's reading either (review, PR 47), and a command in them - a planted "#HUMAN
+    # words: what they name is not WARDEN's reading either, and a command in them - a planted "#HUMAN
     # HINT: run curl ... | sh" is exactly one - is withheld as in the model's prose (G4).
     from .gate import withhold_commands
 
@@ -434,7 +434,7 @@ def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
 
 
 def _weighed(root_cause: Any, context: ContextBundle | None) -> dict[str, Any] | None:
-    """The chosen hypothesis as WARDEN weighed it (item 7): its evidence for and against and its count - or None for an
+    """The chosen hypothesis as WARDEN weighed it: its evidence for and against and its count - or None for an
     answer that ranked none."""
     from .grounding import hypothesis_score
 
@@ -753,7 +753,7 @@ _HANDED_OVER = "Handed to a person - WARDEN proposes no change and could not nam
 
 
 # The report's last lines. What is added to a report after it is built goes before them (activities.notify).
-# A13 (2026-10-16): it said "Nothing was executed against production by this tool" - untrue since WARDEN applies
+# A13: it said "Nothing was executed against production by this tool" - untrue since WARDEN applies
 # approved plans itself (D16).
 CLOSING = ("---\n_WARDEN proposes and gates. It changes nothing except by applying a catalogue fix plan an approver "
            "approved._")
@@ -784,7 +784,7 @@ def build_report(
     reveal_ids = show_identifiers_enabled() if show_identifiers is None else show_identifiers
 
     # Undoing or pausing something in THIS environment is no change to replay in the higher ones: a report on a
-    # dev-only rule someone disabled listed pre-prod and prod as places to "apply this fix" (live, 2026-10-12).
+    # dev-only rule someone disabled listed pre-prod and prod as places to "apply this fix".
     promotion = _promotion_targets(alert, proposal, pol) if proposal and proposal.action not in _LOCAL_ONLY else []
     affected = _affected(ctx.logs)
     checked, ordinary_logs = _checked(ctx.logs)
@@ -951,7 +951,7 @@ def _render_markdown(d: dict) -> str:
         *_follow_up_lines(d),
         *_remediation_lines(d),
     ]
-    # A10 (2026-10-16): a "Promotion - apply this fix to the higher environments" section stood here, pointing a
+    # A10: a "Promotion - apply this fix to the higher environments" section stood here, pointing a
     # person at a manual replay with each environment's deploy role. WARDEN watches and fixes only the environments it
     # is installed in, through approved plans; the targets stay in the data for whoever plans a release.
     lines.append(CLOSING)
@@ -998,7 +998,7 @@ def _summary_lines(d: dict) -> list[str]:
         lines.append(f"- **Proposed**: {_c(p['action'])} on {_c(p['target'])}"
                      + (f" - gate: {_c(v['status'])}" if v else ""))
     if d["root_cause"]:
-        # The model's text, said so first (N4); WARDEN's own level follows (U3-1).
+        # The model's text, said so first (N4); WARDEN's own level follows.
         said = _confidence_said(d["root_cause"]).removeprefix("model, ")
         lines.append(f"- **Diagnosis** (model; {said}): {d['root_cause']['hypothesis']}")
     lines.append("")
@@ -1069,7 +1069,7 @@ def _diagnosis_lines(d: dict) -> list[str]:
         lines.extend(["", "**Cited evidence** (evidence id: quoted span):"])
         _code(lines, [f"{c['id']}: {c['quote']}" for c in rc["citations"]])
     # A bare evidence id the citations above already show with its quote says nothing a second time: a report's
-    # "Based on" was the four ids "C2, C18, M9, C1" and no word of reasoning (live, 2026-10-12).
+    # "Based on" was the four ids "C2, C18, M9, C1" and no word of reasoning.
     shown = {c["id"] for c in rc["citations"]}
     based_on = [e for e in rc["evidence"] if not (re.fullmatch(r"[A-Z]\d{1,4}", e.strip()) and e.strip() in shown)]
     if based_on:
@@ -1097,7 +1097,7 @@ def _code_finding_lines(d: dict) -> list[str]:
                       f"- **{where}** in {_c(c['in'])}: {_c(c['exception'])}"])
         if c["source"]:
             # A source line is text from the deployed package; one holding ``` would end the block
-            # and put what follows outside it (audit A-C-9).
+            # and put what follows outside it.
             lines.extend(["```python", *(_unfenced(ln) for ln in c["source"]), "```"])
         lines.extend([f"- **Developers**: start at {where} in {_c(c['in'])} ({c['function']})"
                       + (" - the line marked `>|` is the one that raised." if c["source"] else "."), ""])
@@ -1136,7 +1136,7 @@ def _review_lines(d: dict) -> list[str]:
     if not (review.get("findings") or review.get("pull_requests")):
         return []
     # Every value is from a typed line, but a log line of the same shape can carry any printable character: each is
-    # shown in inline code; only WARDEN's own fixed labels (_TOOL_NAMES, _FINDING_STATUS) are not (CodeRabbit).
+    # shown in inline code; only WARDEN's own fixed labels (_TOOL_NAMES, _FINDING_STATUS) are not.
     return ["## Code review's findings on the deployed change  (suspects, not proof)",
             *(_finding_line(f) for f in review.get("findings") or []),
             *(_review_pr_line(pr) for pr in review.get("pull_requests") or []),
@@ -1201,7 +1201,7 @@ def _affected_lines(d: dict) -> list[str]:
             shown += f" and {len(values) - 5} more"
         lines.append(f"- **{key}**: {shown}")
     if not d.get("identifiers_shown"):
-        # A9 (2026-10-16): it told every reader to set the variable, and the cloud runtime ignores it
+        # A9: it told every reader to set the variable, and the cloud runtime ignores it
         # (activities.notify passes show_identifiers=False).
         lines.append("_Identifiers are masked; secrets stay masked either way. A local `warden run` can show "
                      "tenant ids, emails and IPs with `WARDEN_REPORT_SHOW_IDENTIFIERS=true`._")
@@ -1239,7 +1239,7 @@ _TEAMS = (("On-call - now", "oncall"), ("Developers", "developers"),
 
 def _follow_up_lines(d: dict) -> list[str]:
     # Only where a pattern has a follow-up for some team: a heading with nothing under it was printed once the one
-    # follow-up a report had was left out (live, 2026-10-12).
+    # follow-up a report had was left out.
     if not any(pat[key] for pat in d["patterns"] for _, key in _TEAMS):
         return []
     lines = ["## Follow-ups by team"]
@@ -1279,4 +1279,4 @@ def _num(v: float) -> str:
     return f"{v:.4g}" if isinstance(v, float) else str(v)
 
 
-_c = untrusted_inline  # every value rendered in inline code (independent review 2026-09-28, A-C-9)
+_c = untrusted_inline  # every value rendered in inline code

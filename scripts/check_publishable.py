@@ -57,7 +57,7 @@ ALLOWED = {
     "<ACCOUNT>",
 }
 
-# ⛔ No file is exempt (2026-10-16, naming audit item 5). Seven files used to be skipped whole -
+# ⛔ No file is exempt. Seven files used to be skipped whole -
 # the redaction tests, three other tests, the redaction module and the CI workflow - because their
 # fixtures "had to look real", so a real secret pasted into any of them would have been published
 # unscanned. The fixtures still look real at run time: tests/fakes.py builds each one from parts,
@@ -163,7 +163,7 @@ TEXT_SUFFIXES = {
 def _tracked_files(staged: bool) -> list[pathlib.Path]:
     # ⛔ `--others --exclude-standard`: new files not yet `git add`-ed are scanned too. Without them a
     # check run BEFORE `git add` - the documented order - skipped every new file, and a fixture
-    # password in a new test reached CI (2026-09-25).
+    # password in a new test reached CI.
     cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"] if staged else \
           ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True).stdout
@@ -199,7 +199,7 @@ def _read(path: pathlib.Path) -> str | None:
     if not path.exists():
         return None
     try:
-        # A binary file is read through its bytes (audit A-B-L18): it went unscanned, and a SQLite file or an
+        # A binary file is read through its bytes: it went unscanned, and a SQLite file or an
         # archive holds text as plain bytes.
         return (path.read_text(encoding="utf-8", errors="replace") if _is_text(path)
                 else re.sub(rb"[^\x20-\x7e\n]", b" ", path.read_bytes()).decode("ascii"))

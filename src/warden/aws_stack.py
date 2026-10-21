@@ -155,7 +155,7 @@ def _last_good_end(calls: dict[datetime, float], errors: dict[datetime, float]) 
 
 _TRACEBACK = "Traceback (most recent call last):"
 _FRAME = re.compile(r'File "([^"]+)", line (\d+), in (\S+)')
-_EXCEPTION = re.compile(r"^(?:\[ERROR\]\s++)?([A-Za-z_][\w.]*+)(?::\s*+(.*))?$")  # possessive: nothing to hand back (Sonar python:S8786, 2026-10-16)
+_EXCEPTION = re.compile(r"^(?:\[ERROR\]\s++)?([A-Za-z_][\w.]*+)(?::\s*+(.*))?$")  # possessive: nothing to hand back (Sonar python:S8786)
 _LAMBDA_ERROR = "[ERROR]"  # how the Lambda runtime starts the line naming an unhandled exception
 _STREAM_VERSION = re.compile(r"\[(\d+|\$LATEST)\]")
 
@@ -174,7 +174,7 @@ LIST_MAX_PAGES = int(os.environ.get("WARDEN_AWS_LIST_MAX_PAGES", "20"))
 
 def _pages(call, items: str, *, token: str = "Marker", next_token: str | None = None, **kwargs) -> tuple[list, bool]:
     """Every page of an AWS listing, up to LIST_MAX_PAGES: (items, truncated). One page was read, and a long history
-    or a busy account lost what came after it (audit A-B-M8, A-B-L3, A-B-L4)."""
+    or a busy account lost what came after it."""
     out: list = []
     for _ in range(LIST_MAX_PAGES):
         page = call(**kwargs)
@@ -398,7 +398,7 @@ def _request_fields(e: dict) -> str:
 
 def _principal(e: dict) -> str:
     """Who made a change, by KIND and an administrator-set name (a role's or an IAM user's), never the caller-chosen
-    session name or an SSO e-mail (independent review 2026-10-10, M1)."""
+    session name or an SSO e-mail (M1)."""
     try:
         who = json.loads(e.get("CloudTrailEvent") or "{}").get("userIdentity") or {}
     except ValueError:
@@ -511,7 +511,7 @@ def _ingress_sources(g: dict, port: int) -> list[str]:
     """Who security group `g` lets in on tcp/`port`, sorted."""
     rules = [r for r in g.get("IpPermissions") or [] if r.get("IpProtocol") in ("-1", "tcp")
              and (r.get("IpProtocol") == "-1" or r.get("FromPort", 0) <= port <= r.get("ToPort", 0))]
-    # Groups, CIDR ranges and prefix lists alike (audit A-B-L5): a rule opening the port to a CIDR or a
+    # Groups, CIDR ranges and prefix lists alike: a rule opening the port to a CIDR or a
     # prefix list was read as no rule at all.
     return sorted({p["GroupId"] for r in rules for p in r.get("UserIdGroupPairs") or []}
                   | {x["CidrIp"] for r in rules for x in r.get("IpRanges") or [] if x.get("CidrIp")}
@@ -570,7 +570,7 @@ def _ecs_deploy(service: str, d: dict) -> dict:
             "previous": d.get("previous_task_definition", ""),
             "image": d.get("image", ""), "previous_image": d.get("previous_image", ""),
             "revision": d.get("revision", ""),
-            # a rollback: nothing to roll back to, and the evidence says so (audit A-B-M6)
+            # a rollback: nothing to roll back to, and the evidence says so
             **({"rolled_back_from": d["rolled_back_from"]} if d.get("rolled_back_from") else {}),
             # a config-only revision: the setting NAMES it changed (G10: dropped here before)
             **({"changed": d["changed"]} if d.get("changed") else {})}
@@ -720,7 +720,7 @@ def _exception_after(lines: list, j: int) -> str:
 def source_excerpt(fn: str, package: bytes, path: str, line_no: int) -> list[str]:
     """SOURCE lines, +-SOURCE_CONTEXT_LINES around `line_no`, read from a zip held in memory. Only a Python file of the
     package: the path comes from traceback text in the logs, which anyone writing a log line controls, and a forged
-    `File "/var/task/.env"` read the package's .env into the evidence (audit A-B-M17)."""
+    `File "/var/task/.env"` read the package's .env into the evidence."""
     parts = path.split("/")
     if not path.endswith(".py") or any(p in ("", ".", "..") for p in parts) or "\\" in path:
         raise ValueError(f"not a Python source path: {path!r}")
@@ -757,7 +757,7 @@ _PLAIN_VALUE = re.compile(r"[A-Za-z0-9._:/@-]{0,200}")
 
 
 # The names whose values are configuration a diagnosis needs: which table, host, queue, region, timeout. An allowlist
-# (audit A-B-M9): the name deny-list showed `DATABASE_URL=postgres://user:pw@db/x` and any credential under a name it
+#: the name deny-list showed `DATABASE_URL=postgres://user:pw@db/x` and any credential under a name it
 # did not list. A value is shown only under one of these names, and never with a login in it.
 _SHOWN_NAME = re.compile(r"(?:^|_)(?:NAME|HOST|HOSTNAME|ENDPOINT|TABLE|QUEUE|TOPIC|BUCKET|REGION|PORT|STAGE|ENV|"
                          r"ENVIRONMENT|MODE|LEVEL|TIMEOUT|SECONDS|MS|SIZE|LIMIT|VERSION|SERVICE|DATABASE|DB|SCHEMA|"
@@ -824,7 +824,7 @@ class StackBackend:
         # Injectable clients/factories so the unit tests need no AWS account, cluster or database.
         own = not clients  # nothing injected: this backend makes its clients (and, in the runtime, per incident)
         # A mapping that makes clients on first use is kept as given: copied into a plain dict, every service past
-        # the first eighteen read "no client" in the cloud (independent review 2026-10-10, H1).
+        # the first eighteen read "no client" in the cloud (H1).
         clients = clients if hasattr(clients, "__missing__") else dict(clients or {})
         clients, session, cfg = _sdk_clients(clients, own, region)
         self._lambda = clients["lambda"]
@@ -1078,7 +1078,7 @@ class StackBackend:
         for res in resp.get("MetricDataResults") or []:
             values = res.get("Values") or []
             if res.get("Id") in ids and res.get("StatusCode") not in (None, "Complete"):
-                # A series CloudWatch could not finish is said, not read as complete (audit A-B-M18).
+                # A series CloudWatch could not finish is said, not read as complete.
                 out.lines.append(_partial(f"{reader} metrics", f"{status_tag(res['StatusCode'])} {ids[res['Id']][0]} "
                                           f"{res['StatusCode']} (the series may be incomplete)"))
             if res.get("Id") in ids and values:
@@ -1100,7 +1100,7 @@ class StackBackend:
         """Any alarm, any service (G9-A2a): the alarm exactly as CloudWatch defines it - never its name's or its
         description's text - its own metric over the window, the resource's other recently active metrics, and the
         writes to the resource in CloudTrail. Before this an alarm on anything but the named readers' resources read
-        nothing (audit 2026-10-10)."""
+        nothing."""
         found = self._cw.describe_alarms(AlarmNames=[name], AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
         if not found:
             raise ToolError("no metric alarm by that name (a composite alarm is read through the alarms it names)")
@@ -1118,7 +1118,7 @@ class StackBackend:
                          f"period={a.get('Period')}s {threshold}")
         # Metric KEYS are trusted evidence ids' names (M items): only AWS's own namespaces' metric names become keys.
         # A custom namespace is the application's - anyone who can publish a metric, a log line in CloudWatch's
-        # embedded metric format included, names it (independent review 2026-10-10, H2).
+        # embedded metric format included, names it (H2).
         aws_owned = str(ns).startswith("AWS/")
         out.metrics.update(self._cw_read(out, "alarm", alert, {
             (f"alarm_{_key(metric)}" if aws_owned else "alarm_value"): (ns, metric, dims, stat)}))
@@ -1301,7 +1301,7 @@ class StackBackend:
         version's publish time), or "" when none was (last_known_good: the plan reads the same rule).
 
         ⛔ Not "the numerically previous version". A version that was deployed and rolled back is
-        still the newest older one: Wave 4 (2026-09-26) rolled checkout back onto the previous
+        still the newest older one: Wave 4 rolled checkout back onto the previous
         fault's broken version twice (fs-01 -> 6, fs-02 -> 7) while version 3 had served the traffic
         for hours. Lambda keeps no alias history; its ExecutedVersion metric does.
         """
@@ -1553,7 +1553,7 @@ class StackBackend:
     def _read_elasticache(self, out: _Out, alert: Alert, rg: str) -> None:
         group = self._ec.describe_replication_groups(ReplicationGroupId=rg)["ReplicationGroups"][0]
         members = list(group.get("MemberClusters") or [])
-        # Each member by its id: the account-wide listing was read one page deep (audit A-B-M8).
+        # Each member by its id: the account-wide listing was read one page deep.
         clusters = [c for m in members
                     for c in self._ec.describe_cache_clusters(CacheClusterId=m).get("CacheClusters") or []
                     if c.get("ReplicationGroupId") == rg]
@@ -1586,7 +1586,7 @@ class StackBackend:
     def _cache_events(self, out: _Out, alert: Alert, rg: str, members: list[str]) -> None:
         """ElastiCache's events for the replication group and its nodes around the alert, oldest first."""
         started = AwsBackend._started_at(alert)
-        # By source, every page (audit A-B-L4): the whole account's events, one page of them, could hold none of ours.
+        # By source, every page: the whole account's events, one page of them, could hold none of ours.
         sources = [(rg, "replication-group"), *((m, "cache-cluster") for m in members)]
         events = [e for sid, kind in sources for e in _pages(
             self._ec.describe_events, "Events", SourceIdentifier=sid, SourceType=kind,
@@ -1635,7 +1635,7 @@ class StackBackend:
             out.metrics["aurora_replica_lag_ms"] = max(lags)
 
     def _db_log(self, out: _Out, alert: Alert, instance: str) -> None:
-        """The database's own error log (2026-10-15): the newest file written in the alert window, its last lines, and
+        """The database's own error log: the newest file written in the alert window, its last lines, and
         of those only the ERROR, FATAL and PANIC ones - "password authentication failed for user ...", "database ...
         does not exist" name causes the applications' own logs only echo. Untrusted text, as any log line: redacted,
         quarantined, scanned."""
@@ -2088,7 +2088,7 @@ def _from_sns(principal: Any) -> bool:
 
 def _conditions_hold(st: dict, topic_arn: str, unknown: bool) -> bool:
     """Do a statement's conditions on aws:SourceArn hold for the topic (others are not read)?"""
-    # Each operator by its meaning (audit A-B-L5): `ArnNotEquals` was read as `ArnEquals`, so a Deny of every
+    # Each operator by its meaning: `ArnNotEquals` was read as `ArnEquals`, so a Deny of every
     # topic BUT this one denied this one. An operator not understood here gives `unknown`: an Allow it cannot
     # prove does not allow, and a Deny it cannot read is taken to apply. The conditions all have to hold, so one
     # that does not decides first, wherever it is listed (PR 122 review: the unreadable one used to end the reading).

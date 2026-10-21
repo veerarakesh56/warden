@@ -5,7 +5,7 @@
 # Deployment or scale it up by at most two. This ServiceAccount is the boundary for that: it can `get`
 # and `patch` deployments and no other verb or resource.
 #
-# AUDIT 2026-09-28 (A-I-11): `patch deployments` alone is NOT "restart or scale only" - it could rewrite
+# AUDIT 2026-09-28: `patch deployments` alone is NOT "restart or scale only" - it could rewrite
 # the whole pod template (image, command, serviceAccountName, secret mounts). The ValidatingAdmissionPolicy
 # at the end of this file narrows it: for this ServiceAccount, an update may change the replica count by at
 # most two, between one and ten (up for a scale, down for its rollback), and the template's restartedAt
@@ -72,7 +72,7 @@ subjects:
     name: warden-remediator
     namespace: warden
   # Not the EKS actor's group (warden-remediators): that is bound only where it serves, in shop, by
-  # manifests/shop/base/warden-rbac.yaml. CI binds it in its own test namespace from k8s/ci/ (review, PR 48).
+  # manifests/shop/base/warden-rbac.yaml. CI binds it in its own test namespace from k8s/ci/.
 roleRef:
   kind: ClusterRole
   name: warden-remediator
@@ -129,7 +129,7 @@ spec:
         (has(object.spec.paused) ? object.spec.paused : false) == (has(oldObject.spec.paused) ? oldObject.spec.paused : false)
       message: the remediator may not change the rollout strategy or pause a rollout
     # The Deployment's own metadata: a dangling ownerReference has the garbage collector delete the Deployment and
-    # its pods, a finalizer blocks its deletion (seventh review, 2026-10-01).
+    # its pods, a finalizer blocks its deletion.
     - expression: >-
         has(object.metadata.ownerReferences) == has(oldObject.metadata.ownerReferences) && (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences == oldObject.metadata.ownerReferences) &&
         has(object.metadata.finalizers) == has(oldObject.metadata.finalizers) && (!has(object.metadata.finalizers) || object.metadata.finalizers == oldObject.metadata.finalizers) &&

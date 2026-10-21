@@ -1,4 +1,4 @@
-"""The alert's own text is untrusted (audit A-C-1, A-C-13).
+"""The alert's own text is untrusted.
 
 Whoever configures an alert rule writes its name and summary, and the environment and start time
 travel with it. None of it may steer the model, forge a section of the report, or ping a channel.

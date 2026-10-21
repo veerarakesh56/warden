@@ -1,4 +1,4 @@
-"""G9-A2c (2026-10-10): the state of every main AWS service's resource, from one closed table (aws_describe.py).
+"""G9-A2c: the state of every main AWS service's resource, from one closed table (aws_describe.py).
 Every entry is one read, the reader role grants it, it is classified free or billed (R10), only AWS's structured
 fields are copied, and the stack backend reads it for any alarm whose labels name the resource."""
 
@@ -71,7 +71,7 @@ def test_every_entry_is_one_read_and_the_reader_role_grants_it():
 
 
 # Actions AWS lets a policy scope to a resource, by its name (warden-<env>-*) or, for ID-named resources, by its
-# Environment tag. In one account a grant of these on "*" let the dev reader read prod (independent review, H4).
+# Environment tag. In one account a grant of these on "*" let the dev reader read prod (H4).
 _SCOPABLE = {"kinesis:DescribeStreamSummary", "firehose:DescribeDeliveryStream", "states:DescribeStateMachine",
              "scheduler:GetScheduleGroup", "glue:GetJobRuns", "athena:GetWorkGroup", "memorydb:DescribeClusters",
              "es:DescribeDomain", "synthetics:GetCanary", "s3:GetBucketVersioning", "elasticache:DescribeServerlessCaches",
@@ -180,7 +180,7 @@ def test_the_stack_backend_reads_the_state_of_the_resource_an_alarm_names():
     assert rds.calls == [{"DBInstanceIdentifier": "warden-dev-db"}]
 
 
-# Resource labels with no state read of their own, each with the reason (G10, 2026-10-10). Every other resource label
+# Resource labels with no state read of their own, each with the reason (G10). Every other resource label
 # the alarm mapping gives has a reader: the state table, or one of the stack backend's own readers.
 NOT_READ = {
     "fsx": "DescribeFileSystems takes no resource: it cannot be scoped to one environment",
@@ -228,7 +228,7 @@ def test_every_field_and_path_is_in_awss_own_response_shape():
 
 
 def test_no_row_writes_two_fields_under_one_name():
-    """G10 held-out (2026-10-11): an instance read `Status=impaired Status=ok` - its system check and its instance
+    """G10 held-out: an instance read `Status=impaired Status=ok` - its system check and its instance
     check under one name, so the evidence could not say which had failed."""
     for key, d in aws_describe.TABLE.items():
         names = [aws_describe.field_name(d.fields, f) for f in d.fields]

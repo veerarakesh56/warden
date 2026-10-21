@@ -21,7 +21,7 @@ FALSE_CLAIMS = [
     ("docs/DESIGN-DECISIONS.md", "raises `RedactionLeak` if any original value survived",
      "found values only, by the _sweep rule"),
     ("src/warden/redaction.py", "GUARANTEES none of the found values", "the sweep follows _sweep's rule"),
-    # second review (2026-09-30): the in-redact re-scan could never fire and was removed
+    # second review: the in-redact re-scan could never fire and was removed
     ("README.md", "a re-scan raises if one survived", "the independent check is the gate's G5"),
     ("docs/ai-boundary.md", "raises if a value it found survived", "the independent check is the gate's G5"),
     ("docs/DESIGN-DECISIONS.md", "raises `RedactionLeak` if a value it found survived", "removed; G5 is the check"),
@@ -62,7 +62,7 @@ FALSE_CLAIMS = [
     ("docs/SETUP.md", "it can never touch another environment's resources",
      "tag-based isolation has gaps"),
     ("docs/SETUP.md", "It also runs a negative check", "no negative OIDC check exists yet"),
-    # second review (2026-09-30): the owner steps named a flag helper 1.8.5 does not have, and
+    # second review: the owner steps named a flag helper 1.8.5 does not have, and
     # told the owner to delete a file the proving ground still reads
     ("docs/SETUP.md", "--reuse-latest-expiring-certificate", "the flag is --use-latest-expiring-certificate"),
     ("README.md", "approval-gate case was silently skipped and is being fixed", "fixed; 35/35 caught 2026-09-30"),
@@ -77,7 +77,7 @@ FALSE_CLAIMS = [
     (".github/dependabot.yml", "Every PR still runs the full CI, security job included",
      "paths-ignore skips the security job for infra/apps-only PRs"),
     ("tests/test_fullstack_infra.py", "retired in Phase 1.5 part 5", "the policy is still attached"),
-    # third review (2026-09-30): false records and owner steps
+    # third review: false records and owner steps
     ("docs/SETUP.md", "exists) and `WardenFullstackOperator`, each only if",
      "A-I-18 is undecided; keep WardenFullstackOperator"),
     ("docs/SETUP.md", "Delete the `{}` and paste", "the box holds more than {}; Ctrl+A"),
@@ -125,7 +125,7 @@ def test_the_readme_test_count_is_a_lower_bound(request):
     assert m, "the README no longer states its test count as a lower bound"
     claimed = int(m.group(1).replace(",", ""))
     # The README counts the unit tests; the opt-in live-infrastructure tests and the evals are listed apart
-    # ("plus 23 ... 26 evals"), so they are not counted here (fifth review, 2026-10-01).
+    # ("plus 23 ... 26 evals"), so they are not counted here.
     count = len([i for i in request.session.items
                  if i.nodeid.startswith("tests/") and not i.nodeid.startswith("tests/integration/")])
     if count < claimed:
@@ -138,7 +138,7 @@ def test_the_readme_test_count_is_a_lower_bound(request):
 
 
 def test_the_readme_live_test_counts_are_what_ci_runs():
-    """Eighth review (2026-10-01): the live-test counts went stale twice (efcf115, then the eighth review's cases)
+    """Eighth review: the live-test counts went stale twice (efcf115, then the eighth review's cases)
     with nothing to notice. They are what pytest collects from the live suites."""
     import re as _re
     import subprocess

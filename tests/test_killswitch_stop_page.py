@@ -1,4 +1,4 @@
-"""The kill switch is turned ON where the audit is (live, 2026-10-16).
+"""The kill switch is turned ON where the audit is.
 
 `warden killswitch on` on a laptop wrote that machine's own audit file and printed "kill switch: ON" while the cloud
 runtime kept applying fixes - and the approval page could only reset the switch, so no person could stop WARDEN. Now

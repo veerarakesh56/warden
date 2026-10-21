@@ -40,7 +40,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # --------------------------------------------------------------------------- fakes
 
 
-ALERT_AT = datetime(2026, 8, 22, tzinfo=UTC)  # _alert's started_at: deploys are dated from it (A-B-M10)
+ALERT_AT = datetime(2026, 8, 22, tzinfo=UTC)  # _alert's started_at: deploys are dated from it
 
 
 def _alert(**labels):

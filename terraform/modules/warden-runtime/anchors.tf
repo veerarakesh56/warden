@@ -56,7 +56,7 @@ resource "aws_s3_bucket_policy" "anchors" {
 }
 
 # ----------------------------------------------------------------- server access logs: the anchors' and the witness's
-# Who read or wrote the audit's anchors and AWS's witness record (Sonar terraform:S6258, 2026-10-17): S3 server access
+# Who read or wrote the audit's anchors and AWS's witness record (Sonar terraform:S6258): S3 server access
 # logs for both buckets, delivered here (witness.tf turns on the witness's). Each bucket's logging sits in the bucket's
 # own file, where a reader - and Sonar, which reads one file at a time - finds it. CloudTrail (witness.tf) records
 # management events only, so without these a GetObject or a refused PutObject on either bucket left no trace. Neither

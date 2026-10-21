@@ -52,7 +52,7 @@ _WHERE = ("host", "hostaddr", "port", "service")
 
 def _conninfo(dsn: str) -> dict[str, str]:
     """libpq's key=value DSN, read pair by pair as libpq does - quoted values with \\ escapes, whitespace between
-    pairs - so a value is never searched for keys: `password=S3cr.host=evil` holds no host (eighth review)."""
+    pairs - so a value is never searched for keys: `password=S3cr.host=evil` holds no host."""
     out: dict[str, str] = {}
     i, n = 0, len(dsn)
     while i < n:
@@ -109,7 +109,7 @@ class DatabasePlatformError(RuntimeError):
 
 
 class DatabasePlatformRefused(DatabasePlatformError):
-    """Refused before any session was closed: "nothing was changed" (sixth review)."""
+    """Refused before any session was closed: "nothing was changed"."""
 
     nothing_changed = True
 
@@ -121,7 +121,7 @@ def _as_ids(rows: Any) -> list[int]:
 
 
 class _Postgres:
-    ME = "SELECT session_user"  # the login pg_stat_activity lists; current_user changes with SET ROLE (eighth review)
+    ME = "SELECT session_user"  # the login pg_stat_activity lists; current_user changes with SET ROLE
 
     @staticmethod
     def database(conn: Any) -> str:
@@ -193,7 +193,7 @@ class _MySQL:
     def candidates(conn: Any, idle_secs: int, limit: int, users: list[str]) -> list[int]:
         with conn.cursor() as cur:
             # Idle time is processlist.time while the session sleeps: the transaction's start said nothing
-            # about it, so a busy batch paused for a second between statements was closed (sixth review).
+            # about it, so a busy batch paused for a second between statements was closed.
             cur.execute("SELECT p.id FROM information_schema.innodb_trx t "
                         "JOIN information_schema.processlist p ON t.trx_mysql_thread_id = p.id "
                         "WHERE p.command = 'Sleep' AND p.db = DATABASE() AND p.user IN %s "
@@ -292,7 +292,7 @@ class DatabasePlatform:
         # the one connection reads and closes, as with a DSN that carries its own credentials.
         self._sign, self._writer = sign, writer
         # `writes_to`: the DSN the writer's connections reach. The plan was read through another (the read zone's), so a
-        # close goes ahead only when both name the same Aurora cluster (review, PR 48).
+        # close goes ahead only when both name the same Aurora cluster.
         self._writes_to = writes_to
 
     def _connection(self) -> Any:
@@ -341,9 +341,9 @@ class DatabasePlatform:
         return live
 
     def _server(self) -> str:
-        """Where the connection goes, in the plan the approver signs (sixth review) - never the user or password.
+        """Where the connection goes, in the plan the approver signs - never the user or password.
         Every host libpq may use, and the `host`/`hostaddr`/`port` parameters that override them; it never raises:
-        a multi-host DSN made `.port` raise, and the plan was never written (seventh review, 2026-10-01)."""
+        a multi-host DSN made `.port` raise, and the plan was never written."""
         from urllib.parse import parse_qs
 
         if not self._dsn:
@@ -353,7 +353,7 @@ class DatabasePlatform:
             where = [f"{k}={params[k]}" for k in _WHERE if k in params]
             return " ".join(where + self._env_over(set(params))) if where else self._unstated()
         # After the LAST `@`, cut at the first `/`, `?` or `#`: urlsplit ends the authority at `?` or `#`, so a password
-        # holding one showed the user and the password's start (ninth review); libpq reads to the `@`. The query is
+        # holding one showed the user and the password's start; libpq reads to the `@`. The query is
         # read from there too - never from inside the password. What is left must look like hosts, or it is not shown.
         rest = self._dsn.split("://", 1)[1].rpartition("@")[2]
         hosts = re.split(r"[/?#]", rest, maxsplit=1)[0]
@@ -363,7 +363,7 @@ class DatabasePlatform:
             query = parse_qs(rest.partition("?")[2].partition("#")[0])
         except ValueError:
             return "a DSN that could not be read"
-        if self._engine != "postgres":  # only libpq reads `?host=`; pymysql and pymssql ignore it (eighth review)
+        if self._engine != "postgres":  # only libpq reads `?host=`; pymysql and pymssql ignore it
             return hosts or ("localhost:3306 (TCP)" if self._engine == "mysql" else "localhost (TCP)")
         over = [f"{k}={query[k][-1]}" for k in _WHERE if k in query]
         if not hosts and not over:
@@ -466,8 +466,8 @@ class DatabasePlatform:
             raise DatabasePlatformRefused(f"could not read this platform's own login: {_one_line(exc)}") from exc
         if own.casefold() in {u.casefold() for u in self._users}:
             # The terminate role closing sessions of its own login - other WARDEN workers - is not an application
-            # fix (sixth review, 2026-10-01). In any letter case: MySQL and SQL Server match logins without it
-            # (seventh review); on PostgreSQL this can only refuse more.
+            # fix. In any letter case: MySQL and SQL Server match logins without it
+            #; on PostgreSQL this can only refuse more.
             raise DatabasePlatformRefused(f"WARDEN_DB_APP_USERS names this platform's own login {own!r}; "
                                         "nothing is closed")
         return name, conn
@@ -546,7 +546,7 @@ def db_from_environment() -> Any:
         def sign(dsn: str) -> str:
             if not read_dsn:
                 raise NotConfigured("this worker holds no read login (WARDEN_STACK_DB_PRIMARY_RO_DSN)")
-            return iam_dsn(reader("rds"), dsn, verify=True)  # reads verified as closes are (review, PR 48)
+            return iam_dsn(reader("rds"), dsn, verify=True)  # reads verified as closes are
 
         def writer(who: dict[str, Any]) -> Any:
             if not write_dsn:
@@ -605,7 +605,7 @@ _WRITER_ENDPOINT = re.compile(r"(?<![\w.-])([a-z][a-z0-9-]{0,62}+)\.cluster-([a-
 def aurora_cluster(text: str) -> tuple[str, str, str] | None:
     """(cluster, endpoint id, the rest of the host) of the one Aurora cluster WRITER endpoint `text` names - a DSN, or a plan's
     `server` - or None: none, more than one, or a reader (`cluster-ro-`) or instance endpoint, none of which proves
-    which cluster's writer a session is on. Endpoints, not raw hosts, are compared (review, PR 48)."""
+    which cluster's writer a session is on. Endpoints, not raw hosts, are compared."""
     found = {m.groups() for m in _WRITER_ENDPOINT.finditer(text.lower())}
     return next(iter(found)) if len(found) == 1 else None
 

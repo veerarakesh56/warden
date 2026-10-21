@@ -1,4 +1,4 @@
-"""Owner U3-1 (2026-10-17): a typed outcome (decided / undetermined / no_fault) checked against the remediation (P37),
+"""Owner U3-1: a typed outcome (decided / undetermined / no_fault) checked against the remediation (P37),
 WARDEN's own confidence from checks it can show (confidence.py) - never the model's number - and the diagnosis prompt
 in XML-tagged sections with worked examples."""
 
@@ -57,7 +57,7 @@ def _run(outcome: str | None, action: str = "rollback_deploy", chosen=(D1, M1), 
     ("no_fault", "rollback_deploy"),  # nothing is wrong, yet a change
     ("undetermined", "rollback_deploy"),  # the cause is not known, yet a fix
     ("undetermined", "no_action"),  # not known, yet closed
-    ("decided", "no_action"),  # a cause decided, yet closed (review, PR 132)
+    ("decided", "no_action"),  # a cause decided, yet closed
 ])
 def test_an_outcome_that_contradicts_the_remediation_goes_to_a_person(outcome, action):
     report = _run(outcome, action)

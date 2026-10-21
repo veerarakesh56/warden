@@ -1,4 +1,4 @@
-"""The bench approver (owner, 2026-10-15): a limited approver - its own key, `dev` only, T1/T2 - asks for an incident's
+"""The bench approver: a limited approver - its own key, `dev` only, T1/T2 - asks for an incident's
 waiting plan with a signed request and sends a signed approval of it to the approval page, which checks everything
 approvals.check checks before it signals; a person's approver (no environment list) never uses this path."""
 

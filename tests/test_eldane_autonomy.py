@@ -280,7 +280,7 @@ def test_an_ai_approver_is_bounded_and_always_said_to_be_an_ai(world):
                "eldane": approvals.Approver(public_key=owner_pem, tiers=["T1"], environments=["dev"], ai=True)}
     with pytest.raises(ValueError, match="shares its public key"):
         approvals.ApproverPolicy(approvers=sharing)
-    # The same key, wrapped differently (CRLF line ends, no trailing newline): still the same key (CodeRabbit, PR 42).
+    # The same key, wrapped differently (CRLF line ends, no trailing newline): still the same key.
     rewrapped = owner_pem.strip().replace("\n", "\r\n")
     assert rewrapped != owner_pem.strip()
     sharing["eldane"] = approvals.Approver(public_key=rewrapped, tiers=["T1"], environments=["dev"], ai=True)
@@ -456,7 +456,7 @@ def test_eldane_never_sees_a_plan_the_gate_stopped(world):
     assert not world["log"].entries(INC, kinds=(autonomy.VERDICT,))
 
 
-# ----------------------------------------------------------------------------- PR 42 review (CodeRabbit)
+# ----------------------------------------------------------------------------- PR 42 review
 
 
 def test_a_review_with_no_diagnosis_provenance_is_refused_not_trusted(world):
@@ -673,7 +673,7 @@ def test_the_re_enable_runs_through_its_own_workflow_in_the_core_zone(world):
     assert autonomy.level(world["log"], "dev", "k8s_restart", world["models"]).level == autonomy.L2
 
 
-# ----------------------------------------------------------------------------- PR 42 review (CodeRabbit), second pass
+# ----------------------------------------------------------------------------- PR 42 review, second pass
 
 
 def test_a_re_enable_is_checked_for_its_own_environment(world):
@@ -697,7 +697,7 @@ def test_a_re_enable_is_checked_for_its_own_environment(world):
 
 def test_a_skipped_review_is_never_a_model_change(world):
     """A review skipped for want of the diagnosis's provenance records placeholder models; they are not a change of
-    model, and neither is the end that copied them (CodeRabbit, PR 42)."""
+    model, and neither is the end that copied them."""
     log, models = world["log"], world["models"]
     log.append(INC, autonomy.OUTCOME, {"environment": "dev", "entry": "k8s_rollout_undo", "status": "recovered",
                                        "eldane": True, "models": models})

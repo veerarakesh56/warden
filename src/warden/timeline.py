@@ -96,7 +96,7 @@ def with_evidence(changes: list[dict], logs: list[str], alert: Any) -> list[dict
     """The changes, with the ones WARDEN's own readers recorded for the alert's resources in its evidence (the CHANGE
     lines, by event name). The account-wide read above finds a write by the resource it names, and some services'
     events name none - an EventBridge rule's - so the section listed WARDEN's own earlier fixes and not the
-    DisableRule that caused the alarm (live, 2026-10-12). Newest first, at most MOST, each change once."""
+    DisableRule that caused the alarm. Newest first, at most MOST, each change once."""
     from .reporting import _CHANGE
 
     started = _when(alert.started_at) if getattr(alert, "started_at", "") else None

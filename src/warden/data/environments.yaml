@@ -5,7 +5,7 @@
 # fix to a human. This is DATA an operator edits — adding an environment, an
 # allowlist entry or an authorised principal needs no code change.
 #
-# The environments (owner, 2026-10-16): dev and prod, each deployed only from the branch of its own name; main deploys
+# The environments: dev and prod, each deployed only from the branch of its own name; main deploys
 # nothing. They are listed in promotion order - main is promoted to dev, dev to prod (tests/test_ci_lanes.py holds each
 # deploy workflow's `upstream` to this order).
 #   - dev  : run as production (owner rule "dev is prod"), and the one environment faults are injected into
@@ -17,8 +17,8 @@
 #   - authorized_principals and auto_remediate: read by no path since the CLI's dry-run gate (`warden run
 #     --principal`, remediation.py) was removed (owner B27); kept so a policy file stays loadable. The one path
 #     that changes anything, the Temporal RemediationWorkflow, reads neither: EVERY fix there needs a signed approval
-#     of the exact plan, in every environment (audit 2026-09-28). auto_remediate never makes anything autonomous
-#     (owner, 2026-10-16): only `autonomy` below does, and only through Eldane.
+#     of the exact plan, in every environment. auto_remediate never makes anything autonomous
+#    : only `autonomy` below does, and only through Eldane.
 #   - autonomy (owner, 2026-10-16/17; autonomy.py): the highest level an action class may be at here - L0 escalate
 #     only, L1 shadow (WARDEN and Eldane, the AI critic, decide; a person still approves; the decision is scored), L2
 #     autonomous (Eldane's signed approval is enough; a person's "no" still stops it before apply). Under an L2 ceiling
@@ -73,7 +73,7 @@ aws_global_region: us-east-1
 runtime: ops
 
 # Where faults may be injected - the benchmark harness and the undo lab. Only here does a fault-injection role exist
-# (register R18, audit A-I-18); never an environment of the prod tier. Code and Terraform read this list; none names
+# (register R18); never an environment of the prod tier. Code and Terraform read this list; none names
 # an environment of its own (owner, 2026-10-12: nothing in the repository is hardcoded).
 fault_environments: [dev]
 
@@ -114,7 +114,7 @@ environments:
     # Owner rule "dev is prod" (2026-10-16; audit finding: dev allowed every action, to anyone, with no person in the
     # loop). The CLI path never applies here (auto_remediate), and its principal check accepts prod's responders only.
     # A live fix, as in every environment, waits for a signed approval of its exact plan by an approver on the list -
-    # in dev that includes the labelled bench approver, for T1/T2 (owner, 2026-10-15).
+    # in dev that includes the labelled bench approver, for T1/T2.
     auto_remediate: false
     require_human_approval: true
     # Exactly the action classes that a catalogue entry carries out (catalog.FOR_ACTION), that prod allows, and that
@@ -128,7 +128,7 @@ environments:
     authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]   # prod's
     credentials_ref: warden-dev-deploy
     tripwire: "on"
-    autonomy: L2                 # Eldane approves alone from the first plan (owner, 2026-10-17); L1 when demoted
+    autonomy: L2                 # Eldane approves alone from the first plan; L1 when demoted
 
   prod:
     tier: prod

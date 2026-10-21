@@ -159,7 +159,7 @@ def test_describe_policy_lists_every_policy():
     # The gate records a policy as `f.reject("P..", why)` or `f.escalate("P..", why)` (S19 split of _enforce).
     gate_ids = set(re.findall(r'\.(?:reject|escalate)\(\s*"(P\d+-[A-Z-]+)"', src))
     assert len(gate_ids) >= 12
-    # Observe-mode policies (audit A-P-8) are described too: a caller sees what is being measured.
+    # Observe-mode policies are described too: a caller sees what is being measured.
     observed = {pid for pid, _ in verifier.OBSERVED}
     assert observed
     assert not observed & gate_ids

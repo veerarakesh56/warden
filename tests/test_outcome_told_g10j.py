@@ -95,7 +95,7 @@ def test_an_expired_plan_is_said_once_and_the_tier_is_said_in_words(world, sink)
     assert out.status == "expired"
     assert _whats(world) == ["waiting", "waiting", "expired"]
     assert f"(T2 - {approvals.TIER_MEANS['T2']}) is waiting for an approval" in sink.texts[0]
-    # A request names nobody (owner, 2026-10-12): who decided is said when they have.
+    # A request names nobody: who decided is said when they have.
     assert ("Only an enrolled approver of this risk level can approve it: the link opens for nobody else, and who "
             "decided is said here when they have.") in sink.texts[0]
     assert "owner" not in sink.texts[0].split("---")[0]
@@ -266,7 +266,7 @@ def test_a_confirmed_approver_is_shown_by_name_and_who_saw_the_plan_is_on_the_re
 
 
 def test_an_undo_wardens_own_check_refuses_is_not_a_failed_rollback_and_the_switch_stays_off(world, owner, sink):  # noqa: F811
-    """The first live rollback (2026-10-12): the fix was applied, the rule was switched off again by someone else,
+    """The first live rollback: the fix was applied, the rule was switched off again by someone else,
     and WARDEN's undo found nothing to undo - it said "undoing it FAILED: the target's state is unknown" and stopped
     every automatic fix. The state was known. Only a call that AWS refuses, or one that may be half-made, is that."""
     class Moved(RuntimeError):

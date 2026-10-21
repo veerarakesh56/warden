@@ -324,7 +324,7 @@ def test_no_credential_in_the_parent_environment_reaches_the_model_process(provi
 
 
 def test_the_prompt_is_not_saved_to_the_operators_profile(provider, monkeypatch):
-    """Second review (2026-09-30): every call left the full prompt as a session transcript under the
+    """Second review: every call left the full prompt as a session transcript under the
     operator's profile (70 WARDEN prompts found there). The CLI's own switch turns that off."""
     rec = _Recorder()
     _run(provider, rec, monkeypatch)
@@ -338,7 +338,7 @@ def test_the_prompt_is_not_saved_to_the_operators_profile(provider, monkeypatch)
     ("something else went wrong", None, True),
 ])
 def test_a_cli_failure_says_what_the_api_did(provider, monkeypatch, out, status, sent):
-    """Ninth review (2026-10-01): an outage through the CLI must read as one - an API error status is not billed, and
+    """Ninth review: an outage through the CLI must read as one - an API error status is not billed, and
     a connection that never opened sent nothing - so it is not carried to the incident's next run."""
     from warden.providers import ProviderError
 

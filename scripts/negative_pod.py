@@ -8,7 +8,7 @@ namespace - exactly what its restricted Pod Security must refuse. CI (ci-tool.ym
 pipe it into a server-side dry run and fail if the API server ACCEPTS it, or refuses it for any other reason. It is
 never created.
 
-Built here, not kept as a manifest in the repository (owner, 2026-10-20, Sonar kubernetes:S6428): no file in the tree
+Built here, not kept as a manifest in the repository (Sonar kubernetes:S6428): no file in the tree
 asks for a privileged container, so no linter needs a skip and nothing can apply it by mistake; the test is unchanged.
 Standard library only: it runs before the job installs anything.
 """

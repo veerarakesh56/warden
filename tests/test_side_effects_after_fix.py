@@ -51,7 +51,7 @@ def test_another_alarm_in_the_environment_starts_its_incident_and_tells_the_watc
     assert d.action == "start"
     assert d.after_fix == ["rem-dev-9"]  # not another environment's fix
     told = [c for c in client.calls if c[:3] == ("signal", "rem-dev-9", "side_effect")]
-    # The signal names the incident, never the alarm's own words (security review M2, 2026-10-16).
+    # The signal names the incident, never the alarm's own words.
     assert len(told) == 1
     assert told[0][3].startswith(f"incident {d.workflow_id.removeprefix('inc-')} started at")
     assert ev.rule not in told[0][3]
@@ -124,7 +124,7 @@ def test_a_watched_fix_with_another_alarm_after_it_is_not_called_fixed_nor_undon
     assert out.status == "side_effects", out
     assert out.reasons == [f"orders passed its own checks, but after the fix: {said}"]  # from the record
     assert took < RECHECK_AFTER[0]  # said at once, not at the next re-check
-    # Recorded, not counted (security review M1, 2026-10-16): an alarm anyone can raise must not trip the breaker.
+    # Recorded, not counted: an alarm anyone can raise must not trip the breaker.
     assert [e["body"]["ok"] for e in log.entries(kinds=(bounds.RESULT,))] == [True]
     assert len(log.entries(kinds=("remediation.side_effects",))) == 1
     assert not log.entries(kinds=("remediation.rollback",))  # never undone on its own

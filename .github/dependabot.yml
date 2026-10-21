@@ -1,6 +1,6 @@
-# Weekly update PRs (free). Actions are pinned to commit SHAs (2026-09-27); Dependabot keeps the
+# Weekly update PRs (free). Actions are pinned to commit SHAs; Dependabot keeps the
 # pins current instead of letting them go stale. PRs run CI; the workflow scan (scan-workflows.yml) runs on every
-# change, including PRs that touch only the infra or apps pipelines (audit A-I-15).
+# change, including PRs that touch only the infra or apps pipelines.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -9,7 +9,7 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7  # never propose a release younger than a week: most hijacked releases are caught by then
-  # The package, CI tools and pipeline helpers: one uv.lock, every hash in it (audit A-I-9).
+  # The package, CI tools and pipeline helpers: one uv.lock, every hash in it.
   - package-ecosystem: uv
     directory: /
     schedule:

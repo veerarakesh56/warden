@@ -110,7 +110,7 @@ def test_the_tfvars_example_is_the_one_permitted_exception(tmp_path):
 
 
 def test_no_path_is_exempt_from_the_scan(tmp_path):
-    """Naming audit item 5 (2026-10-16): seven files - the redaction tests and three other tests,
+    """Naming audit item 5: seven files - the redaction tests and three other tests,
     the redaction module, the CI workflow - were skipped whole, so a real secret pasted into one of
     them would have been published. Every path git tracks now gets a planted key, and the scan must
     refuse each one. A path exemption, for a file or a directory, fails this."""
@@ -216,7 +216,7 @@ def test_a_single_line_json_report_is_scanned_all_the_way_along(tmp_path):
 
 def test_new_files_not_yet_git_added_are_scanned(monkeypatch):
     """Run before `git add` (the documented order), the scan used to skip every NEW file: a fixture
-    password in a new test reached CI that way (2026-09-25)."""
+    password in a new test reached CI that way."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("cp_untracked", SCRIPT)
     cp = importlib.util.module_from_spec(spec)
@@ -242,7 +242,7 @@ def _scan_one(tmp_path, sub, name, content):
 
 
 def test_a_personal_email_is_refused_and_a_fixture_domain_is_not(tmp_path):
-    """Owner rule R3. The scanner had no email pattern at all (independent review, 2026-09-28)."""
+    """Owner rule R3. The scanner had no email pattern at all."""
     code, out = _scan_one(tmp_path, "a", "notes.md", "contact: someone.real@" + "gmail.com\n")  # split
     assert code != 0, out
     assert "personal email" in out.lower(), out

@@ -5,7 +5,7 @@ name: "CI · tool"
 #   CI · tool (this)   CI · infra (ci-infra.yml)   CI · apps (ci-apps.yml)   Scan · workflows
 #   Deploy · <env> (deploy-<env>.yml by hand, on-merge-<env>.yml on a push to the branch <env>; one file each per
 #   environment; shared steps in _*.yml)
-# Branches (owner, 2026-10-16): CI runs on main and on pull requests into main. dev and prod receive only commits main
+# Branches: CI runs on main and on pull requests into main. dev and prod receive only commits main
 # has already checked (a fast-forward, or a merge of dev that changes nothing), so a pull request into prod does not
 # run this suite again.
 on:
@@ -64,7 +64,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Free scanners (2026-09-27 security audit), each pinned. pip-audit: known-vulnerable dependencies.
+  # Free scanners, each pinned. pip-audit: known-vulnerable dependencies.
   # bandit: Python security smells at medium severity and up (reviewed false positives carry a
   # `# nosec <id>`). zizmor: workflow injection, unpinned actions, token persistence, permissions.
   security:
@@ -183,7 +183,7 @@ jobs:
       - name: Build the container and assert its output
         run: |
           # The host's network, not Docker's bridge: package downloads inside the build crawled at
-          # ~20-60 KB/s on some runners (fifth review E, 2026-10-01) while the host fetched the same in seconds.
+          # ~20-60 KB/s on some runners while the host fetched the same in seconds.
           docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/warden-mirror" -t warden:ci .
           out=$(docker run --rm -e WARDEN_MOCK=1 -e WARDEN_TRACE=0 warden:ci demo)
           echo "$out"
@@ -220,7 +220,7 @@ jobs:
     name: k8s-regression (k3d, every push; measured on EKS in tests/fixtures/bench)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    # k3d's own images by digest, as every other image here (fifth review E): the node image is k3d 5.9.0's
+    # k3d's own images by digest, as every other image here: the node image is k3d 5.9.0's
     # default k3s, and k3d uses K3D_IMAGE_TOOLS as written for `k3d image import`.
     env:
       K3S_IMAGE: ghcr.io/${{ github.repository_owner }}/warden-mirror/rancher/k3s:v1.35.5-k3s1@sha256:2074403abe1bded11ef3dde09d457e13be8e0b64c218b1c4f8269b4565cfbc65
@@ -248,7 +248,7 @@ jobs:
       - name: Install with the k8s extra (locked)
         run: uv sync --locked --no-build --extra dev --extra k8s
 
-      # A pinned release, checked against a pinned SHA-256 (audit A-I-24): the old step piped the
+      # A pinned release, checked against a pinned SHA-256: the old step piped the
       # install script from k3d's main branch into bash on every push.
       - name: Install k3d (pinned, checksum verified)
         env:
@@ -508,13 +508,13 @@ jobs:
   # Real databases, not stubs. Service containers give every push a PostgreSQL, MySQL, Redis,
   # MongoDB and SQL Server to run against, so "it terminates a stuck connection" is proven against the servers'
   # actual grammar and catalog views rather than against a recorded string.
-  # Service images by digest (audit A-I-24), read 2026-10-01 from the registries. A tag can be moved to
+  # Service images by digest, read 2026-10-01 from the registries. A tag can be moved to
   # other content; a digest cannot.
   db:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # The databases' password, made per run (2026-10-16, naming audit item 17). A fixed one in this file
+    # The databases' password, made per run. A fixed one in this file
     # read as a real credential to every secret scanner and reader. It is not a secret: run_id is public,
     # and the containers live only on this runner VM, which is destroyed with the job. It is just never the
     # same twice, and no fixed credential exists anywhere. Upper- and lower-case letters, digits and well

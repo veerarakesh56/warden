@@ -1,4 +1,4 @@
-"""The outbound gate after the eighth independent review (2026-10-01), area A: the gate normalises first - control
+"""The outbound gate after the eighth independent review, area A: the gate normalises first - control
 characters and the code points a URL parser drops are removed before the leak check and before links are removed."""
 from __future__ import annotations
 

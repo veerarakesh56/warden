@@ -27,7 +27,7 @@ def test_round_trip_and_nothing_readable_on_the_wire():
 
 
 def test_a_changed_byte_is_detected_and_refused_not_raised():
-    """Second review (2026-09-30): raising here failed every task of the workflow the payload
+    """Second review: raising here failed every task of the workflow the payload
     reached. A payload that does not decrypt becomes the refused marker instead."""
     c = codec.EncryptionCodec(os.urandom(32))
     [enc] = asyncio.run(c.encode([_payload("x")]))

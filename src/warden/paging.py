@@ -151,7 +151,7 @@ def from_environment() -> S3Pages | None:
 
 def open_pages(store: Any) -> list[dict[str, Any]]:
     """Every page the pager is still repeating: written, and not acknowledged at its opening time. One object that
-    cannot be read, or is not a page, is skipped and never hides the others (CodeRabbit, PR 43); an acknowledgement
+    cannot be read, or is not a page, is skipped and never hides the others; an acknowledgement
     that cannot be read acknowledges nothing."""
     out = []
     for name in store.list("pages/"):

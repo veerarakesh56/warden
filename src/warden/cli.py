@@ -83,7 +83,7 @@ DB_HELP = "a SQLite audit file (or set WARDEN_AUDIT_DSN)"
 
 
 def _out(text: object, *, err: bool = False) -> None:
-    """stdout is an egress too - a terminal, a CI log, a pasted ticket (audit A-C-8): no secret, and no
+    """stdout is an egress too - a terminal, a CI log, a pasted ticket: no secret, and no
     control character (an ESC sequence in model- or alert-written text can rewrite what the operator
     sees). EVERY line this CLI prints goes through here (independent review 2026-09-28: `warden
     status` printed an agent-controlled field raw)."""
@@ -94,7 +94,7 @@ def _one(text: object) -> str:
     """A field someone else wrote, on one line: a newline in an alert name forged `VERDICT` lines."""
     try:
         return " ".join(str(text).split())
-    except Exception:  # noqa: BLE001 - an exception whose text raises (fifth review; 2026-10-01)
+    except Exception:  # noqa: BLE001 - an exception whose text raises
         return "(text withheld)"
 
 
@@ -222,7 +222,7 @@ def _started_at(when: str) -> str:
         parsed = datetime.fromisoformat(when)
     except ValueError as exc:
         raise SystemExit(f"--started-at must be ISO-8601 or 'now': {exc}") from exc
-    if parsed.tzinfo is None:  # local or UTC? hours apart (audit A-B-L14)
+    if parsed.tzinfo is None:  # local or UTC? hours apart
         raise SystemExit("--started-at needs a zone: end it with Z or an offset such as +05:30")
     return when
 
@@ -705,7 +705,7 @@ def _offer_again_command(args: argparse.Namespace) -> int:
     for entry, target in history.failed_in(log, args.incident):
         by = history.did_not_hold(log, entry, target)[0]
         if by and by != args.incident:
-            # Its latest failure is another incident's (CodeRabbit, PR 43): that one is read and cleared by name.
+            # Its latest failure is another incident's: that one is read and cleared by name.
             _out(f"`{entry}` on `{target}` is held back by a later failure, in incident {by}: read it, then run "
                  f"`warden offer-again {by}`", err=True)
             elsewhere += 1
@@ -882,7 +882,7 @@ class _Parser(argparse.ArgumentParser):
 
 def main(argv: list[str] | None = None) -> int:
     """The CLI. An uncaught error is printed as one gated line, never as a raw traceback: the error
-    text can quote evidence, a key or an escape sequence (independent review 2026-09-28)."""
+    text can quote evidence, a key or an escape sequence."""
     from .observability import exit_message
 
     try:
@@ -909,7 +909,7 @@ def _main(argv: list[str] | None = None) -> int:
     install_log_gate()  # before anything can log: no raw last-resort handler for any command
     args = _parser().parse_args(argv)
     # `history` reads what `status` reads (the payload key and the Temporal API key), nothing more.
-    _load_environment({"link": "label", "history": "status"}.get(args.cmd, args.cmd), getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
+    _load_environment({"link": "label", "history": "status"}.get(args.cmd, args.cmd), getattr(args, "zone", None))  # after parsing: what is loaded depends on the command
     command = {
         "audit": _audit_command,
         **dict.fromkeys(("worker", "intake", "status", "approve", "history"), lambda a: asyncio.run(_workflow_command(a))),
@@ -935,7 +935,7 @@ def _main(argv: list[str] | None = None) -> int:
     for incident in DEMO_ALERTS:
         report = run(_alert_from(incident), llm=LLMClient(), backend=backend)
         _print_report(report, verbose=args.verbose)
-    # A13 (2026-10-16): it ended "a human executes" - WARDEN applies approved plans itself (D16).
+    # A13: it ended "a human executes" - WARDEN applies approved plans itself (D16).
     _out("\nNo action was executed. WARDEN proposes and gates; a change runs only as a fix plan an approver "
          "approved.\n")
     return 0
@@ -983,7 +983,7 @@ def _write_json_report(report, where: str) -> pathlib.Path | None:
     """`run --json`: the full report written to `where`; None, said on stderr, when the outbound gate refused it."""
     path = _contained(where, "--json")
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Redacted once more with the run's own map (audit A-C-8): the artefact gets attached
+    # Redacted once more with the run's own map: the artefact gets attached
     # to tickets, and a value an upstream step missed must not ride along.
     raw = report.model_dump(mode="json")
     data, _ = _scrub(raw, dict(report.redaction_map))

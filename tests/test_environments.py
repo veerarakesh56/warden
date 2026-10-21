@@ -162,7 +162,7 @@ def test_credentials_ref_is_a_pointer_per_environment_and_none_when_unknown():
 
 
 def test_wardens_own_runtime_environment_has_names_but_no_app_role():
-    """Second review (2026-09-30): the W0-now owner steps tag the runtime's secrets Environment=ops,
+    """Second review: the W0-now owner steps tag the runtime's secrets Environment=ops,
     and `ops` existed nowhere. It is WARDEN's OWN environment - named, tag-audited, and never one an
     app pipeline deploys to or WARDEN remediates."""
     from warden.environments import names

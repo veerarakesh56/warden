@@ -1,4 +1,4 @@
-"""G9-D1 (2026-10-10): a proposal the verifier passes for a person opens its fix plan - a RemediationWorkflow that
+"""G9-D1: a proposal the verifier passes for a person opens its fix plan - a RemediationWorkflow that
 still waits for a signed human approval. The request is deterministic: the resource from the alert's labels (the
 proposal must name it), each reference parameter only from a single known-good value the platform's live read gives,
 bounded numbers from the live value. Nothing from text; anything unresolved is a reason, and no plan."""
@@ -44,7 +44,7 @@ def test_a_lambda_rollback_moves_the_alias_to_the_one_known_good_version_the_liv
     assert why == ""
     assert (req == {"entry": "lambda_move_alias", "service": "warden-dev-orders", "environment": "dev",
                     "incident_id": "a1", "approval_ttl_minutes": 72 * 60,  # the environment's wait
-                    "soak_minutes": 60,  # WARDEN_SOAK_MINUTES's default (item 11)
+                    "soak_minutes": 60,  # WARDEN_SOAK_MINUTES's default
                     "params": {"function": "warden-dev-orders", "alias": "live", "to_version": "3"}})
     assert seen == [("lambda_move_alias", {"function": "warden-dev-orders", "alias": "live"})]
     assert resolver.workflow_id(req).startswith("rem-dev-")

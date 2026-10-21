@@ -5,7 +5,7 @@
 Asks for three keys, in this order, each typed at a prompt that does not echo it or given one per line on stdin
 (piped from a secret manager): the Datadog API key the runtime reads with; a Datadog application key that may manage
 application keys (`user_app_keys`; used only here); and a second, different Datadog API key the test stack's agent
-sends with. Two API keys, not one (secrets audit, 2026-10-16): the agent's key sits in the test stack's cluster, and
+sends with. Two API keys, not one: the agent's key sits in the test stack's cluster, and
 one leaked there must not also be the runtime's - each is revoked in Datadog without touching the other. Nothing is
 read from disk by default (naming audit item 24, 2026-10-16: these used to be plaintext files in ~/.warden, which
 outlived "revoke after" whenever that was forgotten); --keys-dir still names a folder of the old files -
@@ -19,7 +19,7 @@ one beside it:
   `warden-<stack>-datadog-api-key` the test stack's agent reads; the site in both environments' settings.
 - X-Ray and the deploy commits as evidence (WARDEN_XRAY=1, WARDEN_COMMITS=1).
 
-WARDEN's own runtime reads Datadog only (owner, 2026-10-16): Grafana is not set up here.
+WARDEN's own runtime reads Datadog only: Grafana is not set up here.
 Prints names and what happened to them, never a key. Revoke the setup application key after.
 """
 

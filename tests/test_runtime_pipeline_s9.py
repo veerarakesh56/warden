@@ -63,7 +63,7 @@ def test_the_image_is_built_before_any_credential_and_pushed_by_the_commit():
     assert 'docker push "$REPOSITORY:$GITHUB_SHA"' in IMAGE_JOB
     assert 'echo "image=$REPOSITORY@$digest"' in IMAGE_JOB  # everything after works on the digest, never a tag
     # Only the digest crosses jobs: an output holding the repository's address (the masked account id) is dropped by
-    # GitHub, and the deploy job verified an empty image (2026-10-09).
+    # GitHub, and the deploy job verified an empty image.
     assert "digest: ${{ steps.push.outputs.digest }}" in IMAGE_JOB
     assert "needs.image.outputs.image" not in FLOW
     assert "IMAGE: ${{ secrets.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}" in DEPLOY_JOB
@@ -108,7 +108,7 @@ def test_nothing_is_deployed_that_this_workflow_did_not_sign_and_attest():
     # After an apply, the audit's schema and writer login, from inside the VPC; a failure fails the deploy.
     assert DEPLOY_JOB.index("apply -input=false") < DEPLOY_JOB.index("jq -r .migrate_function")
     assert '!= "None" ]; then' in DEPLOY_JOB
-    # Paused there is no way out of the VPC: the migrate step is skipped, and only then (2026-10-10).
+    # Paused there is no way out of the VPC: the migrate step is skipped, and only then.
     assert '--name "/warden/$RUNTIME_ENV/tf/paused"' in DEPLOY_JOB
     assert DEPLOY_JOB.index("tf/paused") < DEPLOY_JOB.index("jq -r .migrate_function")
     assert DEPLOY_JOB.index(GUARD) < DEPLOY_JOB.index("configure-aws-credentials")
@@ -149,7 +149,7 @@ def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     module = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "modules" / "warden-runtime").glob("*.tf"))
     # Every role the module makes carries the boundary - counted against the roles themselves.
     assert module.count("permissions_boundary = var.permissions_boundary_arn") == module.count(
-        'resource "aws_iam_role" "') == 7  # the EC2 instance role went with Fargate (2026-10-14); the webhook gate's and the pager's came
+        'resource "aws_iam_role" "') == 7  # the EC2 instance role went with Fargate; the webhook gate's and the pager's came
 
 
 EIP_ERROR = "Error: disassociating EC2 EIP (eipassoc-0abc): operation error EC2: DisassociateAddress, UnauthorizedOperation"
@@ -239,5 +239,5 @@ def test_a_deploy_never_starts_an_extra_task():
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
     assert "deployment_minimum_healthy_percent = var.worker_instances > 1 ? 50 : 0" in tf
     assert "deployment_maximum_percent         = var.worker_instances > 1 ? 150 : 100" in tf
-    # ECS refuses a maximum of 100% while Availability Zone rebalancing is on (2026-10-15).
+    # ECS refuses a maximum of 100% while Availability Zone rebalancing is on.
     assert 'availability_zone_rebalancing      = var.worker_instances > 1 ? "ENABLED" : "DISABLED"' in tf

@@ -1,4 +1,4 @@
-"""SonarCloud's IaC findings PR 46 left open (2026-10-17), each fixed - with an equivalent that costs nothing where
+"""SonarCloud's IaC findings PR 46 left open, each fixed - with an equivalent that costs nothing where
 there is one (owner, 2026-10-20: none stays open by design):
 
 - S6258: the runtime's anchors and witness buckets log every access; the dev stack's ALB logs every request.
@@ -11,7 +11,7 @@ there is one (owner, 2026-10-20: none stays open by design):
 - S6333: the webhook routes pass the gateway only with their bearer secret (a Lambda REQUEST authorizer).
 - S6428: the negative Pod Security test's pod is built when the test runs, never kept as a manifest.
 - S8793 (the lab database's public endpoint): private, reached through an SSM port-forward via a t4g.nano that exists
-  only with the database - no key, no inbound rule, no public address (owner, 2026-10-21).
+  only with the database - no key, no inbound rule, no public address.
 """
 
 from __future__ import annotations
@@ -216,7 +216,7 @@ def test_the_lab_keeps_its_logs_14_days_at_no_cost():
 
 
 def test_the_lab_database_is_private_and_reachable_only_from_the_ssm_tunnel_over_tls():
-    """S8793 (owner, 2026-10-21): no public endpoint. PostgreSQL 16 (rds.force_ssl = 1 by default from 15 on, the
+    """S8793: no public endpoint. PostgreSQL 16 (rds.force_ssl = 1 by default from 15 on, the
     parameter group unchanged), 5432 from the tunnel's security group only, the DSN through the local tunnel."""
     rds, variables = LAB / "rds.tf", (LAB / "variables.tf").read_text(encoding="utf-8")
     db = _block(rds, "aws_db_instance", "this")
@@ -473,7 +473,7 @@ def test_the_webhook_gate_with_no_secret_admits_nothing(monkeypatch):
 
 
 def test_a_secret_rotated_out_stops_opening_its_route_at_once(monkeypatch):
-    """CodeRabbit (PR 62): nothing is remembered between requests, so the old token fails on the very next request."""
+    """CodeRabbit: nothing is remembered between requests, so the old token fails on the very next request."""
     old, new = "o" * 40, "n" * 40
     stored, calls = {"warden/ops/datadog-webhook-token": old}, []
     gate = _webhook_gate(monkeypatch, stored, calls)
@@ -519,7 +519,7 @@ def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
     assert "python3 scripts/negative_pod.py | kubectl apply --dry-run=server -f - 2>err.txt" in ci
     assert 'grep -q "violates PodSecurity" err.txt' in ci
     # The proof run builds it on its own first (a generator failure stops the run, never reads as a refusal), sends
-    # it to the same dry run and reports enforcement only on Pod Security's own reason (CodeRabbit, PR 62).
+    # it to the same dry run and reports enforcement only on Pod Security's own reason.
     proof = (ROOT / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")
     assert '"$PY" "$HERE/scripts/negative_pod.py" > "$OUT/privileged-pod.json" || die' in proof
     assert 'kubectl apply --dry-run=server -f "$OUT/privileged-pod.json"' in proof

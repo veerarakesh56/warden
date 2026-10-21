@@ -15,7 +15,7 @@ import sys
 import zipfile
 
 ALLOWED = (".py", ".pyc", ".yaml", ".json", ".sha256")
-# One file by its exact path, not a kind (review, PR 48): Amazon RDS's public CA bundle, which every database login's
+# One file by its exact path, not a kind: Amazon RDS's public CA bundle, which every database login's
 # TLS (reads and the terminate login) is verified against. It must hold certificates and nothing else (a key in it fails the build).
 CERTIFICATES = ("data/rds-ca-bundle.crt", "warden/data/rds-ca-bundle.crt")
 # The package's own metadata in a wheel.

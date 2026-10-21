@@ -70,7 +70,7 @@ def _run(tmp_path, first: Verdict):
 
 def test_a_misquoted_answer_is_asked_once_more_with_the_checks_words(tmp_path):
     seen = _run(tmp_path, _held("P13-UNGROUNDED"))
-    # The repaired answer is approved, so it gets a second opinion too (2026-10-15): one more diagnosis.
+    # The repaired answer is approved, so it gets a second opinion too: one more diagnosis.
     assert (seen["diagnose"], seen["verify"]) == (2 + 1, 2)
     assert "WARDEN'S CHECKS HELD YOUR PREVIOUS ANSWER (P13-UNGROUNDED)" in seen["prompts"][1]
     assert "HELD YOUR PREVIOUS ANSWER" not in seen["prompts"][0]

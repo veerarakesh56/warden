@@ -1,8 +1,8 @@
-"""Eldane, the AI critic (owner, 2026-10-16/17): a second model that reviews each fix plan and, in dev - where every
+"""Eldane, the AI critic: a second model that reviews each fix plan and, in dev - where every
 action class starts at L2 (autonomy.py) - approves with its own signed approval. Always said to be an AI ("Eldane ·
 AI critic", approvals.AI_LABEL; EU AI Act Art. 50).
 
-Model (owner, 2026-10-17): Claude, on the same Anthropic API key as the diagnosis (`warden/<env>/anthropic-api-key`,
+Model: Claude, on the same Anthropic API key as the diagnosis (`warden/<env>/anthropic-api-key`,
 read by the llm and critic zones), with Claude Opus 5.5 and Claude Sonnet 5.5. For each incident Eldane uses the OTHER
 model from the one this incident's own diagnosis provenance records (Sonnet diagnosed: Opus reviews, and the other way
 round), and the choice is on the record (the verdict's `models`). The same exact model id is refused, and so is a
@@ -68,7 +68,7 @@ class CriticVerdict(BaseModel):
     model_config = ConfigDict(extra="forbid")
     agree: bool
     reasons: list[Reason] = Field(max_length=10)
-    # What the model itself answered - never sent to it, never recorded as its verdict (PR 42 review): its own
+    # What the model itself answered - never sent to it, never recorded as its verdict: its own
     # "agree", None when there was no readable answer, and whether every id it cited is on the record. A catch trial
     # is scored from these: no answer is not a catch.
     _said_yes: bool | None = PrivateAttr(default=None)
@@ -162,7 +162,7 @@ class Critic:
 
 def model_for(diagnosed_by: str, models: tuple[str, ...]) -> tuple[str, str]:
     """Eldane's model for one incident, and why, from the model the incident's diagnosis RECORDED in its provenance -
-    never a setting (owner, 2026-10-17): always the other one (Opus diagnosed: Sonnet reviews, and the reverse) -
+    never a setting: always the other one (Opus diagnosed: Sonnet reviews, and the reverse) -
     the first of `models` that is not the diagnosis's own. ("", why) when there is none: Eldane does not review."""
     if not diagnosed_by:
         return "", "the diagnosis does not say which model made it"
@@ -291,7 +291,7 @@ def _trial(log: Any, plan: Any, critic: Critic, model: str, evidence: str, ids: 
     bad = plant(plan, kind)
     user = evidence + "\n\n" + describe(bad["entry"], bad["params"], environment=plan.environment, tier=bad["tier"])
     verdict = ask(log, plan.incident_id, critic.provider(model), user, ids, **row, purpose=TRIAL)
-    # Scored only from a real answer (PR 42 review): any "yes" to a planted plan is a miss, a grounded "no" a catch.
+    # Scored only from a real answer: any "yes" to a planted plan is a miss, a grounded "no" a catch.
     # No answer (an error, an unreadable reply), or a "no" resting on evidence that is not there, is not scored: an
     # outage must never raise the catch rate, nor count as a trial answered.
     yes = verdict._said_yes
@@ -331,7 +331,7 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
                                                         "model": model, "model_reason": chosen})
         return None
     evidence = "<<EVIDENCE>>\n" + str(evidence_rows[-1].get("prompt", ""))[:MAX_EVIDENCE] + "\n<<END EVIDENCE>>"
-    # Only ids in the evidence Eldane is shown (CodeRabbit, PR 42): one past the cut is not on its record.
+    # Only ids in the evidence Eldane is shown: one past the cut is not on its record.
     ids = set(_EVIDENCE_ID.findall(str(evidence_rows[-1].get("prompt", ""))[:MAX_EVIDENCE]))
     shown = (catalog.shown_target(plan.environment, plan.entry, plan.params) if plan.entry in catalog.CATALOG
              else plan.target)

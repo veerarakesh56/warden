@@ -6,7 +6,7 @@ name: "Runtime · ops"
 # (deployment branch: dev only; required reviewer; its secrets AWS_ROLE_ARN - the role
 # warden-ops-deploy - and RUNTIME_ECR_REPOSITORY - the image repository, immutable tags - and its variables AWS_REGION
 # and TF_STATE_BUCKET: docs/SETUP.md). Both hold the account id, so both are secrets: GitHub prints a
-# variable unmasked in a step's inputs before any masking runs, in a public repository's logs (2026-10-16).
+# variable unmasked in a step's inputs before any masking runs, in a public repository's logs.
 #   image: build Dockerfile.runtime BEFORE the job holds credentials, push it by the commit's SHA, sign its digest
 #          with cosign (keyless: this workflow's own GitHub identity) and attest how it was built (register S9).
 #   plan / apply: verify that signature and attestation, then plan or apply terraform/runtime with that digest -
@@ -51,7 +51,7 @@ jobs:
       attestations: write  # the build provenance
     outputs:
       # The digest alone: the repository's address holds the account id, which the job masks, and GitHub drops an output
-      # holding a masked value - the deploy job rebuilt nothing from an empty image (2026-10-09).
+      # holding a masked value - the deploy job rebuilt nothing from an empty image.
       digest: ${{ steps.push.outputs.digest }}
     env:
       REPOSITORY: ${{ secrets.RUNTIME_ECR_REPOSITORY }}
@@ -131,7 +131,7 @@ jobs:
         if: steps.push.outputs.existing == 'true'
         env:
           IMAGE: ${{ steps.push.outputs.image }}
-          # The runtime branch's identity (2026-10-16): an image signed on main before the move is signed again here.
+          # The runtime branch's identity: an image signed on main before the move is signed again here.
           SIGNER: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/runtime.yml@refs/heads/dev
           GH_TOKEN: ${{ github.token }}
         # A run that pushed and then died before signing (2026-10-12: the signing tool's download answered 504) left
@@ -242,7 +242,7 @@ jobs:
         if: env.ACTION != 'plan'
         run: |
           set -o pipefail
-          # 2>&1: Terraform writes its errors to stderr - the retry's first real run saw none of them (2026-10-11).
+          # 2>&1: Terraform writes its errors to stderr - the retry's first real run saw none of them.
           if terraform -chdir=terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan" 2>&1 \
               | tee "$RUNNER_TEMP/apply.log"; then
             exit 0
@@ -291,7 +291,7 @@ jobs:
           test -n "$services" || { echo "::error::no services in $cluster"; exit 1; }
           # Up to 25 minutes: ECS retries a task it could not place until the old tasks free their vCPUs, and the read
           # zone's 2.5 GB image takes minutes to pull - one 10-minute `wait services-stable` gave up on a rollout that
-          # completed four minutes later (2026-10-15).
+          # completed four minutes later.
           for _ in $(seq 1 50); do
             # shellcheck disable=SC2086
             pending=$(aws ecs describe-services --cluster "$cluster" --services $services \

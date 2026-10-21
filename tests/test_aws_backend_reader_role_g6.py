@@ -1,4 +1,4 @@
-"""G6 (2026-10-09): in the cloud runtime the evidence reader read with the worker's own credentials - which may read no
+"""G6: in the cloud runtime the evidence reader read with the worker's own credentials - which may read no
 watched environment - and the read zone ran the recorded fixtures instead of live AWS. Every read of an incident now runs
 in its environment's reader role, `warden-<env>-platform-reader`, with the incident as SourceIdentity; an environment the
 policy does not know is refused before any call; and the read zone reads live AWS."""

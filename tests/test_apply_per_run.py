@@ -102,7 +102,7 @@ def test_the_signed_end_row_states_what_the_audit_shows():
 
 
 def test_one_signature_of_a_two_person_tier_is_not_recorded_as_approved():
-    """Fifth review (2026-10-01): the signed end row said `approved: True` when one of two required approvers
+    """Fifth review: the signed end row said `approved: True` when one of two required approvers
     had signed and the run expired."""
     platform = FakePlatform(healthy_after=1)
     owner, log, acts = _world(platform)
@@ -121,7 +121,7 @@ def test_one_signature_of_a_two_person_tier_is_not_recorded_as_approved():
 
 
 def test_a_success_needs_this_runs_apply():
-    """Fifth review (2026-10-01): a replayed apply result let a run with nothing applied record a healthy check
+    """Fifth review: a replayed apply result let a run with nothing applied record a healthy check
     as a success. With no APPLIED row of this run, the result is not ok."""
     platform = FakePlatform(healthy_after=1)
     _, log, acts = _world(platform)

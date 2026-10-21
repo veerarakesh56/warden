@@ -52,7 +52,7 @@ jobs:
         run: |
           created=0
           if [[ "$BEFORE" =~ ^0{40}$ ]]; then
-            files=""; created=1  # the branch was created by this push (2026-10-16): nothing is deployed
+            files=""; created=1  # the branch was created by this push: nothing is deployed
           elif [[ ! "$BEFORE" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             files=$(git ls-files)  # no base to compare with: everything counts as changed
           else

@@ -1,4 +1,4 @@
-"""A dry run hands WARDEN DSNs of the live shape (Sonar python:S2115, 2026-10-16): the user, a password - live, an IAM
+"""A dry run hands WARDEN DSNs of the live shape (Sonar python:S2115): the user, a password - live, an IAM
 token or the master password - and a host that never resolves. They were URLs with no password, which no live run has."""
 
 from __future__ import annotations
