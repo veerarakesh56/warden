@@ -131,6 +131,60 @@ Sign in with Slack; it opens for the approvers and for the Slack members in the 
 `/warden/<env>/env/WARDEN_RECORD_VIEWERS` (comma-separated member ids). Slack gets one message per incident; approved,
 denied and fixed are on the record, not posted.
 
+### Pilot metrics (`warden report pilot`, `/r/pilot`)
+
+The weekly numbers for a client, read only from the signed audit (src/warden/pilot.py), on the command line:
+
+    warden report pilot --since 2026-10-14 --db audit.db --public-key audit.pub   # or WARDEN_AUDIT_DSN
+
+and on the records site at `/r/pilot` (the last 7 days; `?since=YYYY-MM-DD`; links for 7, 30 and 90 days), for the
+same readers as the records and only for the environments they may read, by the records' own environment rule
+(`records.environment_of`).
+
+The command's audit is the `--db` SQLite file, or the PostgreSQL DSN in the `WARDEN_AUDIT_DSN` environment variable
+(never on the command line) - the same source as `warden audit verify`. It is opened read-only (SQLite `mode=ro`; a
+PostgreSQL session set READ ONLY before the first query; SELECT only), a missing or empty file is refused and never
+created, and the command loads no setting but `WARDEN_AUDIT_DSN` (settings.ONLY). The page reads through the approval
+Lambda's own audit connection, with SELECT only; when it cannot read the record or check it, it answers 503 and shows
+no number. A reader limited to some environments is shown no audit-wide count (rows read, failed, not signed yet,
+checkpoints that failed): those are for readers of every environment.
+
+Every row is checked first, as `warden audit verify` checks the log: its own hash, its link to the row before it, and
+a checkpoint signature that verifies (the command with `--public-key`; the page with the runtime's own audit signing
+key - no key, no numbers). A row that fails is not counted: the command names it and exits 1, the page says how many.
+A checkpoint whose signature does not verify, or that was signed over a different history, covers no row; the
+command names it and exits 1, the page says how many. Rows after the last checkpoint are not signed yet and are not
+counted either. All times are UTC.
+
+| Number | Read from |
+|---|---|
+| Incidents | ids (not `discuss-...`) whose first `incident.ingest` or `incident.after_hold` row is at or after `--since` |
+| Plans | each fix run: a `remediation.plan` row's `workflow_id` and `run_id`; *open* until its `workflow.end` row |
+| Approved | the end row's `checklist.approved` is true (the tier's quorum) |
+| Denied | end status `denied` |
+| Re-planned | end status `drifted` or `refused_at_apply` and the same workflow planned again, or an approver's new plan (`discuss.replan` with `started`) after it |
+| Escalated (plan) | end status `rollback_failed`, `apply_failed`, `cancelled_after_apply` or `failed_after_apply`: a person takes over |
+| Escalation rate | incidents whose last `incident.verify` says `escalated`, or whose `incident.second_opinion` says the two diagnoses disagree, over incidents |
+| Alarm to plan | the first `incident.alert` row's `alert.started_at` to the first `remediation.plan` row |
+| Alarm to fixed | the same alarm time to the first `remediation.result` with `ok` true of a run that ended `recovered` or `verified`; open and unfixed incidents are not in it |
+| Model calls | `calls` of `incident.llm_spend` rows (the incident's and its discussion's) plus one per `eldane.call` row |
+| Model requests | `llm.call` rows: one per request sent - retries, unanswered requests and Eldane's trials included, so NOT the same count as model calls |
+| Spend ledger | `usd` of the same `incident.llm_spend` rows (the budget ledger) |
+| Cost per incident | `cost` (US dollars) of `llm.call` rows (the incident's and its discussion's), over incidents; a row with no `cost` is "not recorded" for that call, never estimated |
+| Fallbacks | `llm.fallback` rows by `reason` (rules_only, model_refused, budget_cap, provider_unavailable; any other reason counted as "other", its text never printed); per incident = fallbacks / incidents, per model request = fallbacks / `llm.call` rows (requests, retries included) |
+| Undo count | runs with a `remediation.rollback` row whose `undone` is true; `remediation.rollback_failed` runs beside it |
+
+The four plan outcomes are rates over ENDED plans, and one plan can be two of them (approved, then drifted and planned
+again). Median is the middle value (the mean of the two middle ones for an even count); p90 is the nearest rank,
+sorted[ceil(0.9 x n) - 1]. A rate with nothing to divide by is "n/a". A time whose alarm is later than its plan or fix
+(the alarm source's clock ahead) is left out and counted.
+
+`llm.call` and `llm.fallback` rows are new (lane FDE-F, 2026-10-21): an audit with neither row anywhere says cost and
+fallbacks are "not recorded", never 0. Once either row exists, no fallback in the window is a measured 0.
+
+Not in the audit, so not in the report: a cost for a call row without one, the cost of Eldane's `eldane.call` rows in
+the spend ledger (they record tokens, not US dollars), and any time a person spent outside WARDEN.
+
 ## Pause and resume to save money (owner update 5, 2026-10-17)
 
 Between uses, pause instead of destroy: every data store is copied first, and resume brings it back from the newest
@@ -222,7 +276,27 @@ the footer of its messages) and a question; WARDEN answers in that thread from t
 as the diagnosis read it, or around now when the question asks about now ("still", "again", "now") - and from what its
 record says it decided. Follow-ups mention `@WARDEN` in the same thread. Anyone may ask; WARDEN changes nothing from
 this channel, and says who may ask for a new plan (an enrolled approver; the plan still needs their passkey in the alerts
-channel). Its answers are capped at 20 per incident a day and count toward the daily model cap every incident shares.
+channel). The one exception: an approver of a waiting plan may extend how long it waits (below) - its wait only; the
+plan still needs their passkey, and nothing is applied from here. Its answers are capped at 20 per incident a day and count toward the daily model cap every incident shares.
+
+A fix plan waits for its approval as long as its environment says (`approval_wait_hours` in environments.yaml: 72 hours
+unless set, at most 168). When a discussion needs longer (U3-8), an approver who may approve that plan - its risk level
+and its environment - mentions `@WARDEN` in the incident's thread with "extend the wait" or "extend by 12h" (24
+hours unless said, at most 24 at a time). How long is read strictly: one whole number of hours, said once ("12h",
+"12 hours"); a message that says anything else about time - "6 more hours", "six hours", "1.5h", "2 days", "30m",
+"until tomorrow", two durations - extends nothing, and WARDEN asks again for a whole number of hours. A question ("will
+the restart extend it?", "can you extend the wait by 6h?") is answered, never taken as a request. A "no" beside
+"extend" - anywhere after it ("extend the wait - no, don't"), or before it in the same sentence ("don't extend the
+wait") - extends nothing, and WARDEN asks again; only a "no" in an earlier sentence ("no rush. extend the wait") leaves
+the request standing. Who asks is checked first: anyone else learns nothing about the plan. A
+plan whose approvals are already in (a person's, or Eldane's on its own) is not waiting, and is not extended. An
+extension counts from the run's own deadline (`approval.wait`, recorded when its wait began), so it always moves it.
+WARDEN records it in the
+signed audit (`approval.extended`, who, from when to when, and which Slack message asked); the plan's own run reads it
+there when its time runs out, says its new time in the alerts channel with fresh links, and keeps waiting - never past
+168 hours from when it was made. One message extends once: if WARDEN's step that records it is retried, it finds that
+message's row and answers the same, adding no more hours. Anyone else is refused. Nothing else changes: the plan still
+needs a passkey, and its target is read again before anything is applied.
 
 Setup, once, in the Slack app WARDEN signs people in with (api.slack.com/apps):
 

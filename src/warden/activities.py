@@ -25,7 +25,18 @@ from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from . import approvals, audit, autonomy, bounds, catalog, datadog, environments, freeze, locks
+from . import (
+    approvals,
+    audit,
+    autonomy,
+    bounds,
+    catalog,
+    datadog,
+    environments,
+    freeze,
+    locks,
+    paging,
+)
 from . import symptom as symptoms
 from .approvals import Plan  # lives there: the approval page reads a plan without this module
 from .audit import AuditLog
@@ -51,6 +62,7 @@ def _note(text: str) -> None:
 _PLAN_ROW = "remediation.plan"
 _END_ROW = "workflow.end"
 _ACCEPTED_ROW = "approval.accepted"
+_EXTEND_ASKED = "discuss.extend"  # one row per Slack message that asked for an extension (U3-8)
 _REPORT_ROW = "incident.report"
 _ANNOUNCE_ROW = "remediation.announce"
 _ALERT_ROW = "incident.alert"
@@ -140,6 +152,31 @@ def _run_id() -> str:
         return activity.info().workflow_run_id or ""
     except RuntimeError:  # called directly (tests, tools), not by a worker
         return ""
+
+
+def model_calls(log: Any, key: str, llm: Any, where: str) -> None:
+    """One `llm.call` row per request the client sent (llm.call_record: metadata only, never a prompt or an answer),
+    then the day's page if the calls stopped on a paging condition. Written in the activity that made the calls."""
+    from .llm import CALL
+
+    for call in getattr(llm, "calls", None) or []:
+        log.append(key, CALL, {**call, "where": where, "run_id": _run_id()})
+    paging.model_condition(log, getattr(llm, "stopped_by", ""))
+
+
+def fallback(log: Any, key: str, reason: str, where: str) -> None:
+    """The one `llm.fallback` row of a run that went on without the model's answer (llm.FALLBACK_REASONS)."""
+    from .llm import FALLBACK, FALLBACK_REASONS
+
+    if reason not in FALLBACK_REASONS:
+        raise ValueError(f"not a fallback reason: {reason!r}")
+    log.append(key, FALLBACK, {"reason": reason, "where": where, "run_id": _run_id()})
+
+
+def _latencies(llm: Any) -> list[int]:
+    """Each request's time in milliseconds (LLMClient.latencies_ms), for the run's spend row: measured inside this
+    activity on the monotonic clock, never in workflow code. A client that kept none records an empty list."""
+    return [int(ms) for ms in (getattr(llm, "latencies_ms", None) or [])]
 
 
 class ApprovalResult(BaseModel):
@@ -330,6 +367,16 @@ def _cite_own_fixes(context: ContextBundle, own_step: dict[str, Any]) -> None:
     own_step["items"] = [f["item"] for f in own_step["fixes"] if f["item"]]
 
 
+def _refused_before(log: audit.AuditLog, thread: str, asked: str) -> dict[str, Any]:
+    """The refusal this Slack message already got, from the discussion's record ({} when none): a retried "extend"
+    that was refused stays refused - it does not extend a plan made since (CodeRabbit, PR 182). An extension it got
+    is answered from its own row (extend.answered)."""
+    for e in log.entries(thread, kinds=(_EXTEND_ASKED,)):
+        if e["body"].get("asked") == asked and e["body"].get("why"):
+            return {k: e["body"][k] for k in ("why", "workflow_id", "until") if e["body"].get(k)}
+    return {}
+
+
 def _deadline(plan: Plan) -> datetime:
     """Until when this plan waits for its approval. A plan recorded before it carried its own wait: the old half hour."""
     return plan.created_at + timedelta(minutes=plan.approval_ttl_minutes or 30)
@@ -436,8 +483,32 @@ class RemediationActivities:
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
                            "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
-                           "problems": problems, "soak_minutes": req.soak_minutes})
+                           "problems": problems, "soak_minutes": req.soak_minutes,
+                           # Until when it waits, and from when its ceiling counts (U3-8, extend.py).
+                           "approval_until": _deadline(plan).isoformat(), "made": plan.created_at.isoformat()})
         return plan
+
+    @activity.defn
+    def approval_wait(self, plan: Plan, until: str) -> None:
+        """Until when this plan's run really waits for its approval (U3-8, patch u38-wait): its own deadline, set when
+        the wait began - later than the plan's approval_until by the gate and the critic's time. An approver's
+        extension counts from it (extend.waiting), so it always moves the run's deadline. Once per plan."""
+        from . import extend
+
+        body = {"workflow_id": plan.workflow_id, "plan_hash": plan.plan_hash, "until": until,
+                "made": plan.created_at.isoformat(), "run_id": _run_id()}
+        self.audit.append_unless(plan.incident_id, extend.WAIT, body, lambda: "recorded" if any(
+            e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("plan_hash") == plan.plan_hash
+            for e in self.audit.entries(plan.incident_id, kinds=(extend.WAIT,))) else "")
+
+    @activity.defn
+    def approval_extension(self, plan: Plan) -> str:
+        """Until when an approver extended this exact plan's wait from its discussion (extend.py), bounded by its
+        ceiling, as ISO text; "" when nobody did. From the signed record only (U3-8)."""
+        from . import extend
+
+        later = extend.extended_until(self.audit, plan.incident_id, plan.workflow_id, plan.plan_hash, plan.created_at)
+        return later.isoformat() if later else ""
 
     @activity.defn
     def gate(self, plan: Plan, service: str) -> list[str]:
@@ -1462,6 +1533,7 @@ class IncidentActivities:
     @activity.defn
     def diagnose(self, pack: EvidencePack, escalate_only: str = "") -> Diagnosed:
         from . import graph
+        from . import llm as llm_mod
         from .llm import LLMClient
 
         try:
@@ -1483,7 +1555,11 @@ class IncidentActivities:
         today = self._spent_since(datetime.now(UTC) - timedelta(hours=24))
         over = (today.usd + max(llm.max_usd - before.usd, 0.0) > DAILY_MAX_USD
                 or today.input_tokens + today.output_tokens >= DAILY_MAX_TOKENS)
+        if over:
+            paging.model_condition(self.audit, paging.DAILY_CAP)  # one page a day, however many incidents it stops
         if over or escalate_only or refused:
+            fallback(self.audit, pack.alert.alert_id, llm_mod.RULES_ONLY if escalate_only or refused else llm_mod.BUDGET_CAP,
+                     "diagnose")
             reason = escalate_only or refused or (f"the daily model cap is reached (${today.usd:.2f} of ${DAILY_MAX_USD:.2f}, "
                                        f"{today.input_tokens + today.output_tokens} of {DAILY_MAX_TOKENS} tokens in 24 h)")
             state = {"alert": pack.alert, "context": pack.context, "llm": llm, "model_unavailable": reason}
@@ -1508,7 +1584,10 @@ class IncidentActivities:
             self.audit.append(pack.alert.alert_id, _LLM_SPEND_ROW, {
                 "run_id": _run_id(), "attempt": attempt, "usd": now.usd - before.usd, "calls": now.calls - before.calls - unanswered,
                 "unanswered": unanswered, "input_tokens": now.input_tokens - before.input_tokens,
-                "output_tokens": now.output_tokens - before.output_tokens})
+                "output_tokens": now.output_tokens - before.output_tokens, "latency_ms": _latencies(llm)})
+            model_calls(self.audit, pack.alert.alert_id, llm, "diagnose")
+        if state.get("model_unavailable"):
+            fallback(self.audit, pack.alert.alert_id, llm_mod.fallback_reason(getattr(llm, "stopped_by", "")), "diagnose")
         self._record(pack.alert.alert_id, steps)
         return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps,
                          model_unavailable=state.get("model_unavailable", ""),
@@ -1987,6 +2066,32 @@ class DiscussActivities:
         return {"alert": alert.model_dump(mode="json"), "new": new}
 
     @activity.defn
+    def discuss_extend(self, turn: Any, incident: str) -> dict[str, Any]:
+        """An approver's "extend" for the incident's waiting plan (extend.py): how far, or why not. Recorded either way
+        on the discussion's record; an extension also on the incident's, where the plan's run reads it (U3-8). Keyed
+        on the Slack message that asked: retried, it answers as it first did and adds no hours (CodeRabbit, PR 150)."""
+        from . import extend
+        from .discuss import Turn, hours_asked, said_no
+
+        turn = Turn.model_validate(turn)
+        asked = f"{turn.channel}/{turn.ts}"
+        thread = f"discuss-{incident}"
+        hours = hours_asked(turn.text)
+        # Retried: its first "no", not a new decision. Hours not said plainly (None) are refused by extend.request,
+        # after who asks is checked - asked again, never guessed.
+        got: dict[str, Any] = _refused_before(self.audit, thread, asked) or extend.request(
+            self.audit, self.policy, incident=incident, user=turn.user, hours=hours, now=datetime.now(UTC), asked=asked,
+            said_no=said_no(turn.text))
+        self.audit.append_unless(thread, _EXTEND_ASKED, {
+            "run_id": _run_id(), "user": turn.user, "asked": asked, "ts": turn.ts, "hours": hours,
+            "why": got.get("why", ""), "workflow_id": got.get("workflow_id", ""), "until": got.get("until", "")},
+            lambda: "recorded" if any(e["body"].get("asked") == asked
+                                      for e in self.audit.entries(thread, kinds=(_EXTEND_ASKED,))) else "")
+        if got.get("until"):
+            got["until_said"] = environments.both_times(datetime.fromisoformat(got["until"]), seconds=False)
+        return got
+
+    @activity.defn
     def discuss_evidence(self, incident: str, fresh: bool) -> Any:
         """The incident's evidence read again, as the diagnosis read it - or around now, when the question is about now
         - with WARDEN's record of what it decided. None: no alarm on the record by that id."""
@@ -2032,6 +2137,7 @@ class DiscussActivities:
         """The model's answer to the mention, as the reply to post. Capped per incident per day and by the daily cap
         every incident shares; the people's words are data to it (discuss.SYSTEM)."""
         from . import discuss
+        from . import llm as llm_mod
         from .llm import LLMClient
 
         turn, thread = discuss.Turn.model_validate(turn), discuss.Thread.model_validate(thread)
@@ -2041,13 +2147,17 @@ class DiscussActivities:
         calls = sum(int(e["body"].get("calls", 0)) for e in self.audit.entries(key, kinds=(_LLM_SPEND_ROW,),
                                                                                 since=since))
         today = self.incident._spent_since(since)
+        if today.usd >= DAILY_MAX_USD:
+            paging.model_condition(self.audit, paging.DAILY_CAP)
         if calls >= discuss.DAILY_CALLS or today.usd >= DAILY_MAX_USD:
+            fallback(self.audit, key, llm_mod.BUDGET_CAP, "discuss")
             return discuss.LIMIT
         try:
             llm = (self.incident.llm_factory or LLMClient)()
         except Exception as exc:  # noqa: BLE001  # a model that cannot be built is no answer: the person is told
             # Review, PR 47: a prompt not yet qualified refuses the model; the person is told, never left waiting.
             _note(f"discuss: no model could be used ({type(exc).__name__})")
+            fallback(self.audit, key, llm_mod.RULES_ONLY, "discuss")
             return discuss.NO_ANSWER
         attempt = secrets.token_hex(8)
         self.audit.append(key, _LLM_RESERVE_ROW, {"run_id": _run_id(), "attempt": attempt, "usd": llm.max_usd,
@@ -2067,8 +2177,10 @@ class DiscussActivities:
                 "run_id": _run_id(), "attempt": attempt, "usd": now.usd - before.usd,
                 "calls": now.calls - before.calls - unanswered, "unanswered": unanswered,
                 "input_tokens": now.input_tokens - before.input_tokens,
-                "output_tokens": now.output_tokens - before.output_tokens})
+                "output_tokens": now.output_tokens - before.output_tokens, "latency_ms": _latencies(llm)})
+            model_calls(self.audit, key, llm, "discuss")
         if answer is None:
+            fallback(self.audit, key, llm_mod.fallback_reason(getattr(llm, "stopped_by", "")), "discuss")
             return discuss.NO_ANSWER
         self.audit.append(key, "discuss.answer", {"run_id": _run_id(), "ts": turn.ts, "cites": answer.cites[:20],
                                                   "asks_for_change": answer.asks_for_change, "approver": approver})
