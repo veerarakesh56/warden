@@ -314,9 +314,46 @@ def _now() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
 
 
+def _contained(path: pathlib.Path, roots: list[pathlib.Path] | None = None) -> pathlib.Path:
+    """The real location of `path` when it lies inside one of `roots` (default: where the tools work, warden.paths);
+    else ValueError. Checked here, beside each write, and not only where a path enters: a scenario id read back from
+    manifest.json or a record, or named by --rerun / --only, also builds a path (Sonar pythonsecurity:S2083/S8707,
+    2026-10-20). A root that is a whole filesystem counts as none, as in warden.paths."""
+    real = pathlib.Path(path).expanduser().resolve()
+    bases = [pathlib.Path(root).expanduser().resolve() for root in (roots or paths.work_roots())]
+    for base in bases:
+        if base.parent != base and real.is_relative_to(base):  # the form audit.key_path uses (S8707 cleared there)
+            return real
+    raise ValueError(f"{path} lies outside {', '.join(map(str, bases))}")
+
+
 def _write_json(path: pathlib.Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    """Write `payload` through the checked path only: never outside the places the tools work."""
+    real = os.fspath(_contained(path))
+    os.makedirs(os.path.dirname(real), exist_ok=True)
+    with open(real, "w", encoding="utf-8") as out:
+        out.write(json.dumps(payload, indent=2, default=str))
+
+
+def _in_folder(folder: pathlib.Path, name: str) -> pathlib.Path:
+    """`folder / name` for a plain file name: a scenario id read back from a file or named on the command line that
+    holds a separator, `.` or `..` is refused, never followed - even one that would lead back into the folder
+    (`../ground-truth/x`), so no two names reach one file (CodeRabbit, PR 63)."""
+    if not name or name in (".", "..") or os.path.basename(name) != name or "/" in name or "\\" in name:
+        raise SystemExit(f"{name!r}: not a scenario file name - a plain name in {folder} only")
+    try:
+        return _contained(folder / name, [folder])
+    except ValueError:
+        raise SystemExit(f"{name!r}: not a scenario file name - it would lie outside {folder}") from None
+
+
+def _run_part(out: pathlib.Path, part: str, roots: list[pathlib.Path] | None = None) -> pathlib.Path:
+    """`out / part` when it really lies inside the run (or inside `roots`): a symlinked ground-truth/ or a recorded
+    report path that leads elsewhere - another run, the manifest - is refused before anything is read or moved."""
+    try:
+        return _contained(out / part, roots or [out])
+    except ValueError:
+        raise SystemExit(f"{part!r}: refused - it does not lie inside {', '.join(map(str, roots or [out]))}") from None
 
 
 # --------------------------------------------------------------------------- the environment
@@ -460,7 +497,7 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
     and no note of it.
     """
     scenario_id = scenario["id"]
-    ground_truth = out / "ground-truth" / f"{scenario_id}.json"
+    ground_truth = _in_folder(out / "ground-truth", f"{scenario_id}.json")
     record: dict[str, Any] = {
         "scenario_id": scenario_id,
         "fault_class": scenario["fault_class"],
@@ -491,7 +528,7 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
             # permission from this exact role, and "WARDEN ran with four read actions and nothing
             # else" is only a checkable claim if the identity it ran as is in the artefact.
             creds = harness.assume_reader()
-            report = out / "reports" / f"{scenario_id}.{index}.json"
+            report = _in_folder(out / "reports", f"{scenario_id}.{index}.json")
             report.parent.mkdir(parents=True, exist_ok=True)
             # ⛔ Delete any report already at this path before running. `warden.cli` only writes the
             # file when it gets far enough to have something to write, so re-using an --out directory
@@ -1368,6 +1405,7 @@ def _db_live_harness(timeout_s: float) -> Harness:
     marked sensitive would print it into whatever captured the runner's output. The operator
     exports it deliberately:
 
+        $(terraform -chdir=terraform/proving-ground output -raw db_tunnel_command)   # another terminal, kept open
         export WARDEN_BENCH_DB_DSN="$(terraform -chdir=terraform/proving-ground output -raw db_dsn)"
         export WARDEN_BENCH_DB_SG="$(terraform -chdir=terraform/proving-ground output -raw db_security_group_id)"
     """
@@ -1516,24 +1554,27 @@ def supersede(out: pathlib.Path, scenario_id: str) -> str:
     not read - so a re-run scenario is counted once, while the evidence that it WAS re-run, and why,
     stays in the bundle for anyone to read.
     """
-    gt_dir = out / "ground-truth"
-    current = gt_dir / f"{scenario_id}.json"
-    kept = gt_dir / "superseded"
+    # Every folder this moves between is checked to lie inside the run first: a symlinked ground-truth/, reports/ or
+    # superseded/ would carry a record or a report out of it (CodeRabbit, PR 63).
+    gt_dir = _run_part(out, "ground-truth")
+    current = _in_folder(gt_dir, f"{scenario_id}.json")
+    kept = _run_part(gt_dir, "superseded")
     kept.mkdir(parents=True, exist_ok=True)
     attempt = 1
     while (kept / f"{scenario_id}.attempt-{attempt}.json").exists():
         attempt += 1
     record = json.loads(current.read_text(encoding="utf-8"))
-    reports = out / "reports" / "superseded"
+    report_root = _run_part(out, "reports")
+    reports = _run_part(report_root, "superseded")
     reports.mkdir(parents=True, exist_ok=True)
     for run in record.get("runs") or []:
         name = f"{scenario_id}.attempt-{attempt}.{run['index']}.json"
-        src = out / run["report"]
+        src = _run_part(out, str(run["report"]), [report_root])  # read back from the record: a report only
         if src.exists():
-            src.replace(reports / name)
+            src.replace(_in_folder(reports, name))
         run["report"] = f"reports/superseded/{name}"
     record["superseded"] = {"at": _now(), "attempt": attempt}
-    _write_json(kept / f"{scenario_id}.attempt-{attempt}.json", record)
+    _write_json(_in_folder(kept, f"{scenario_id}.attempt-{attempt}.json"), record)
     current.unlink()
     return f"ground-truth/superseded/{scenario_id}.attempt-{attempt}.json"
 
@@ -1726,9 +1767,10 @@ def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] 
     if unmatched:
         raise SystemExit(f"--rerun {unmatched} matched no scenario in this run")
 
+    gt_dir = _run_part(out, "ground-truth")  # a symlink out of the run is refused before any read
     todo, superseded, forced = [], [], []
     for scenario in scenarios:
-        gt = out / "ground-truth" / f"{scenario['id']}.json"
+        gt = _in_folder(gt_dir, f"{scenario['id']}.json")
         force = scenario["id"].startswith(rerun) if rerun else False
         if gt.exists():
             if is_complete(json.loads(gt.read_text(encoding="utf-8")), repeat) and not force:

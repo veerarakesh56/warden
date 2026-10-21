@@ -11,6 +11,10 @@ An alarm is not an incident. `decide` turns one alarm event into one of:
   expected            a person declared this environment, service or resource down or not in use at this time
                       (expected.py): no incident now. When the cover ends the alarm is looked at again and, still
                       firing, is an incident then - a shutdown that did not come back is not missed
+  reopen              WARDEN's fix of this alarm's incident, or of a resource it names, was verified and is still in
+                      its soak (item 11, owner 2026-10-16): the fix did not hold. The SAME incident is opened again -
+                      its record carries the whole story - the fix is marked as not holding, and that fix is not
+                      offered again for the target without a person (history.did_not_hold)
   start               a new incident, whose id is the fingerprint plus the transition time (C20): the same transition
                       twice is one incident, and the next real one after an OK is a new one
 
@@ -39,7 +43,12 @@ FLAP_WINDOW = timedelta(minutes=int(os.environ.get("WARDEN_FLAP_MINUTES", "30"))
 MAX_OPEN = int(os.environ.get("WARDEN_MAX_OPEN_INCIDENTS", "10"))
 LOOKBACK = timedelta(days=1)  # how far back open incidents and remediations are looked for
 
-Action = Literal["ignore", "signal_remediation", "signal_incident", "expected", "escalate_only", "start"]
+Action = Literal["ignore", "signal_remediation", "signal_incident", "expected", "escalate_only", "reopen", "start"]
+# The actions that run an incident: what a later alarm of the same fingerprint joins while it runs.
+RUNS = ("start", "escalate_only", "reopen")
+# A watched fix whose last word was late - a worker restarting at the soak's end - is still in its soak this long.
+SOAK_GRACE = timedelta(minutes=5)
+MAX_SOAK = timedelta(days=1)  # FixRequest.soak_minutes' bound (activities.MAX_SOAK_MINUTES)
 
 
 class AlarmEvent(BaseModel):
@@ -89,6 +98,9 @@ class Decision(BaseModel):
     # told of it (RemediationWorkflow.side_effect). The incident is started as any other - connected or not is for
     # its diagnosis to say (owner, 2026-10-15).
     after_fix: list[str] = Field(default_factory=list)
+    # A reopened incident's reason to go to a person on the rules alone (flapping, a storm, AWS's own fault): carried
+    # into its run as an escalate-only one is (CodeRabbit, PR 43).
+    escalate: str = ""
 
 
 def fingerprint(ev: AlarmEvent) -> str:
@@ -111,14 +123,63 @@ def open_fix(ev: AlarmEvent, fixes: dict[tuple[str, str], str]) -> str | None:
                 None)
 
 
+def held_fix(ev: AlarmEvent, log: AuditLog, now: datetime) -> dict[str, Any] | None:
+    """The newest fix that was verified and is still in its soak - its run has a passing result and no end yet, and
+    the result is no older than the plan's soak - for this alarm's own incident (the fingerprint its id starts with)
+    or a resource the alarm names, in its environment. None: no fix of this is being soaked.
+
+    Driven from the passing results, which are recent: a result older than the longest soak is past any soak. Each
+    one's plan row is read from its incident's record with no time limit (CodeRabbit, PR 43): it is written before
+    the approval wait, up to a week before the fix is verified."""
+    from . import bounds
+    from .resolver import named_resources
+
+    fp, names = fingerprint(ev), named_resources(ev.alert)
+    since = now - MAX_SOAK - SOAK_GRACE
+    ended = {(e["body"].get("workflow_id"), e["body"].get("run_id", "")) for e in log.entries(
+        kinds=("workflow.end",), since=since)}
+    verified: dict[tuple[str, str], tuple[datetime, str]] = {}
+    for e in log.entries(kinds=(bounds.RESULT,), since=since):
+        key = (e["body"].get("workflow_id"), e["body"].get("run_id", ""))
+        if e["body"].get("ok") is True and key not in verified:
+            verified[key] = (e["at"], str(e["correlation_id"]))
+    for key, (at, incident) in sorted(verified.items(), key=lambda kv: kv[1][0], reverse=True):
+        b = None if key in ended else _plan_row(log, incident, key)
+        if b and _in_soak(ev, b, incident, at, now, fp, names):
+            return {"incident": incident, "workflow_id": str(b.get("workflow_id")), "run_id": str(b.get("run_id", "")),
+                    "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
+                    "verified_at": at.isoformat()}
+    return None
+
+
+def _plan_row(log: AuditLog, incident: str, key: tuple[str, str]) -> dict[str, Any] | None:
+    """The plan row of run `key` on its incident's record, however old."""
+    return next((p["body"] for p in reversed(log.entries(incident, kinds=("remediation.plan",)))
+                 if (p["body"].get("workflow_id"), p["body"].get("run_id", "")) == key), None)
+
+
+def _in_soak(ev: AlarmEvent, plan: dict[str, Any], incident: str, verified_at: datetime, now: datetime, fp: str,
+             names: set[str]) -> bool:
+    """Whether this alarm speaks of the fix `plan` - its incident's own, or on a resource it names, in its
+    environment - and came inside its soak: after the fix passed its checks (an alarm from before says nothing of
+    whether it held, PR 43), and no later than the soak's end."""
+    if plan.get("environment") != ev.alert.environment:
+        return False
+    if not (incident.startswith(f"{fp}-") or plan.get("service") in names):
+        return False
+    soak = timedelta(minutes=int(plan.get("soak_minutes") or 60)) + SOAK_GRACE
+    return ev.transitioned_at >= verified_at and now - verified_at <= soak
+
+
 def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict[str, str],
            verifying: dict[tuple[str, str], str], open_count: int,
            expected: tuple[str, datetime | None] | None = None,
-           related: dict[str, tuple[str, set[str]]] | None = None) -> Decision:
+           related: dict[str, tuple[str, set[str]]] | None = None, held: dict[str, Any] | None = None) -> Decision:
     """`recent`: this fingerprint's earlier transitions inside FLAP_WINDOW. `open_incidents`: fingerprint -> running
     incident id. `verifying`: (environment, service) -> remediation id in its verify window. `expected`: the
     declaration that covers this alarm now and when its cover ends (expected.covering). `related`: incident id ->
-    (environment, resources) of each running incident started inside GROUP_WINDOW."""
+    (environment, resources) of each running incident started inside GROUP_WINDOW. `held`: the verified fix in its
+    soak that this alarm says did not hold (held_fix)."""
     fp = fingerprint(ev)
     if ev.state != "ALARM":
         return Decision(action="ignore", fingerprint=fp, reason=f"state {ev.state}: only ALARM starts an incident")
@@ -149,16 +210,61 @@ def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict
                             f" until {until:%Y-%m-%d %H:%M} UTC: looked at again then" if until
                             else ": nothing ends that declaration, so nothing is looked at again"))
     wid = f"inc-{fp}-{ev.transitioned_at:%Y%m%dT%H%M%SZ}"
-    if ev.escalate:
-        return Decision(action="escalate_only", workflow_id=wid, fingerprint=fp, reason=ev.escalate)
-    flips = len(recent) + 1
-    if flips >= FLAP_FLIPS:
-        return Decision(action="escalate_only", workflow_id=wid, fingerprint=fp,
-                        reason=f"the alarm is flapping: {flips} changes in {FLAP_WINDOW.seconds // 60} min")
-    if open_count >= MAX_OPEN:
-        return Decision(action="escalate_only", workflow_id=wid, fingerprint=fp,
-                        reason=f"{open_count} incidents are open, the cap is {MAX_OPEN}: an alarm storm")
+    escalate = _escalation(ev, len(recent) + 1, open_count)
+    if held and ev.source == "alarm":
+        return Decision(action="reopen", workflow_id=f"inc-{held['incident']}", fingerprint=fp, escalate=escalate,
+                        reason=(f"WARDEN's fix `{held['entry']}` of incident {held['incident']} was verified at "
+                                f"{held['verified_at'][:16]}Z and its alarm came back inside the soak: the fix did not "
+                                "hold, and the incident is reopened"))
+    if escalate:
+        return Decision(action="escalate_only", workflow_id=wid, fingerprint=fp, reason=escalate)
     return Decision(action="start", workflow_id=wid, fingerprint=fp, reason="a new alarm")
+
+
+def _escalation(ev: AlarmEvent, flips: int, open_count: int) -> str:
+    """Why this alarm goes to a person on the rules alone - AWS's own fault, flapping (C21), a storm (C2) - or ""."""
+    if ev.escalate:
+        return ev.escalate
+    if flips >= FLAP_FLIPS:
+        return f"the alarm is flapping: {flips} changes in {FLAP_WINDOW.seconds // 60} min"
+    if open_count >= MAX_OPEN:
+        return f"{open_count} incidents are open, the cap is {MAX_OPEN}: an alarm storm"
+    return ""
+
+
+def reopen_pending(ev: AlarmEvent, log: AuditLog, now: datetime) -> dict[str, Any] | None:
+    """The reopen this same transition already decided and recorded, when its incident never started - a start that
+    failed, retried by EventBridge after the fix's run had ended (CodeRabbit, PR 43): the intent outlives the soak."""
+    fp, at = fingerprint(ev), ev.transitioned_at.isoformat()
+    started = {(e["correlation_id"], e["body"].get("at")) for e in log.entries(kinds=(REOPEN_STARTED,),
+                                                                              since=now - LOOKBACK)}
+    for e in reversed(log.entries(kinds=(REOPENED,), since=now - LOOKBACK)):
+        b = e["body"]
+        if b.get("fingerprint") == fp and b.get("at") == at and (e["correlation_id"], at) not in started:
+            return b.get("held") or None
+    return None
+
+
+REOPENED, REOPEN_STARTED = "incident.reopened", "intake.reopen_started"
+
+
+def _did_not_hold(log: AuditLog, incident: str, held: dict[str, Any], at: str, rule: str) -> None:
+    """The fix `held` did not hold, on `incident`'s record for this transition `at` - once, however often the
+    transition is delivered."""
+    from .history import DID_NOT_HOLD
+
+    if not any(e["body"].get("workflow_id") == held["workflow_id"] and e["body"].get("at") == at
+               for e in log.entries(incident, kinds=(DID_NOT_HOLD,))):
+        log.append(incident, DID_NOT_HOLD, {**held, "at": at, "rule": rule})
+
+
+async def _relapse(client: Any, log: AuditLog, fix: str, fp: str, at: str) -> None:
+    """A watched fix whose alarm came back is told: it ends `relapsed` (C18a)."""
+    from .workflows import RemediationWorkflow
+
+    log.append(fix, "intake.relapse", {"workflow_id": fix, "fingerprint": fp, "at": at})
+    with contextlib.suppress(Exception):  # recorded above; a run that ended meanwhile cannot be told
+        await client.get_workflow_handle(fix).signal(RemediationWorkflow.alarm, at)
 
 
 async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str | None = None) -> Decision:
@@ -195,7 +301,7 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
     seen: set[str] = set()
     for e in reversed(log.entries(kinds=("intake.decision",), since=now - LOOKBACK)):
         b = e["body"]
-        if b.get("action") in ("start", "escalate_only") and b["workflow_id"] not in seen:
+        if b.get("action") in RUNS and b["workflow_id"] not in seen:
             seen.add(b["workflow_id"])
             if await running(b["workflow_id"]):
                 open_count += 1
@@ -218,9 +324,11 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
         elif stage == "watching":
             watching[key] = b["workflow_id"]
 
+    pending = reopen_pending(ev, log, now) if ev.source == "alarm" else None
+    held = pending or held_fix(ev, log, now)
     d = decide(ev, recent=recent, open_incidents=open_incidents, verifying=verifying, open_count=open_count,
-               expected=expected.covering(ev.alert, now), related=related)
-    if d.action in ("start", "escalate_only"):
+               expected=expected.covering(ev.alert, now), related=related, held=held)
+    if d.action in RUNS:
         from .resolver import named_resources
 
         names = named_resources(ev.alert)
@@ -238,22 +346,41 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
             "rule": ev.rule[:200], "name": ev.alert.name[:200], "via": ev.alert.labels.get("via", ""),
             "at": ev.transitioned_at.isoformat()})
     at = ev.transitioned_at.isoformat()
-    relapsed = open_fix(ev, watching) if d.action in ("start", "escalate_only") else None
-    if relapsed:
-        log.append(relapsed, "intake.relapse", {"workflow_id": relapsed, "fingerprint": fp, "at": at})
-        await client.get_workflow_handle(relapsed).signal(RemediationWorkflow.alarm, at)
+    relapsed = open_fix(ev, watching) if d.action in RUNS else None
+    if d.action == "reopen" and held:
+        relapsed = relapsed or held["workflow_id"]
+        # On the incident's own record, first, both: the fix it had did not hold, which plan_fix reads before it
+        # offers a fix (history.did_not_hold) - and it is open again, the intent a retry of this transition honours
+        # if the start below fails (reopen_pending). The marker first, and once, on a retry too: an intent is never
+        # on the record without it (CodeRabbit, PR 43). The fix's own run is told once the incident has started.
+        incident = d.workflow_id.removeprefix("inc-")
+        _did_not_hold(log, incident, held, at, ev.rule[:200])
+        if not pending:
+            log.append(incident, REOPENED, {"rule": ev.rule[:200], "at": at, "fingerprint": fp,
+                                            "workflow_id": held["workflow_id"], "held": held})
+    if relapsed and d.action != "reopen":
+        await _relapse(client, log, relapsed, fp, at)
     if d.action == "signal_remediation":
         await client.get_workflow_handle(d.workflow_id).signal(RemediationWorkflow.alarm, at)
     elif d.action == "signal_incident":
         await client.get_workflow_handle(d.workflow_id).signal(IncidentWorkflow.repeat, at)
-    elif d.action in ("start", "escalate_only"):
+    elif d.action in RUNS:
         alert = ev.alert.model_copy(update={"alert_id": d.workflow_id.removeprefix("inc-")})
         try:
-            await client.start_workflow(IncidentWorkflow.run, args=[alert, d.reason if d.action == "escalate_only" else ""],
+            # A reopen runs the incident's own workflow id again, after its first run completed: the same record.
+            await client.start_workflow(IncidentWorkflow.run, args=[alert, d.reason if d.action == "escalate_only" else
+                                                                    d.escalate],
                                         id=d.workflow_id, task_queue=queue,
-                                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
+                                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE if d.action == "reopen"
+                                        else WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
         except WorkflowAlreadyStartedError:
-            pass  # the same transition delivered twice: one incident (C20)
+            if d.action == "reopen":  # its run is still going: it is told, as a repeat is
+                await client.get_workflow_handle(d.workflow_id).signal(IncidentWorkflow.repeat, at)
+            # else the same transition delivered twice: one incident (C20)
+        if d.action == "reopen":
+            log.append(d.workflow_id.removeprefix("inc-"), REOPEN_STARTED, {"at": at, "workflow_id": d.workflow_id})
+            if relapsed:
+                await _relapse(client, log, relapsed, fp, at)
         # Each of WARDEN's fixes in the environment that was being checked is told, after the incident started: a
         # fix that ended meanwhile cannot be told, and that holds no alarm back.
         said = f"incident {d.workflow_id.removeprefix('inc-')} started at {at}"  # never the alarm's own words (M2)

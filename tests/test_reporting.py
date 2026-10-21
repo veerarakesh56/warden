@@ -11,7 +11,6 @@ from warden.models import (
     Verdict,
     VerdictStatus,
 )
-from warden.remediation import RemediationOutcome, RemediationResult
 from warden.reporting import CLOSING, build_report
 
 
@@ -60,17 +59,6 @@ def test_promotion_excludes_environments_that_deny_the_action():
 def test_prod_has_no_promotion_targets():
     rep = build_report(_alert(environment="prod"), proposal=_prop(ActionKind.scale_up))
     assert rep.promotion == () and rep.data["promotion"] == []
-
-
-def test_report_carries_the_remediation_outcome():
-    result = RemediationResult(
-        outcome=RemediationOutcome.dry_run, action=ActionKind.scale_up, target="checkout",
-        environment="staging", principal="role:oncall", detail="applied after approval",
-        applied_change="DRY RUN: would scale_up 'checkout' in staging",
-    )
-    rep = build_report(_alert(), proposal=_prop(), remediation=result)
-    assert rep.data["remediation"]["outcome"] == "dry_run"
-    assert "dry_run" in rep.markdown
 
 
 def test_report_always_carries_the_safety_line():
