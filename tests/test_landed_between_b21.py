@@ -275,3 +275,15 @@ def test_a_trail_longer_than_read_is_unknown():
     found, unread = _since(p.writes_on)
     assert found == []
     assert unread == ["CloudTrail (AwsPlatformError)"]
+
+
+def test_a_lock_refused_for_want_of_a_target_is_on_the_record_too():
+    """CodeRabbit (PR 84, outside the diff): locks.take's early refusal wrote no row."""
+    from test_target_lock_b20 import NOW, _log
+    from warden import locks
+
+    log = _log(clock=lambda: NOW)
+    why = locks.take(log, "inc-a", "", workflow_id="rem-a", run_id="a", plan_hash="h", now=NOW)
+    assert why.startswith("the target's lock needs a target")
+    [row] = log.entries(kinds=(locks.REFUSED,))
+    assert row["body"]["why"] == why
