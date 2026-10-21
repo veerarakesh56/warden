@@ -342,9 +342,10 @@ secrets from AWS Secrets Manager (`src/warden/settings.py`); each trust zone may
 OpenAI-compatible hosts (OpenAI, Groq, OpenRouter, Ollama for fully local use) and the `claude` command-line tool.
 But a model diagnoses only after it passes WARDEN's replay set: `scripts/qualify_provider.py` re-diagnoses 30
 incidents recorded on a live AWS account, and only a model with no wrong answer let through and at least 17 correct
-is listed in [`src/warden/data/providers.yaml`](src/warden/data/providers.yaml). Any other pair is refused. Today the
-one qualified model is **Claude Sonnet 5.5** (`claude-sonnet-5-5`) on the Anthropic API. Qualify another before you
-use it.
+is listed in [`src/warden/data/providers.yaml`](src/warden/data/providers.yaml). Any other pair is refused. The one model
+measured to pass is **Claude Sonnet 5.5** (`claude-sonnet-5-5`) on the Anthropic API, on the diagnosis prompt used until
+2026-10-17. A row qualifies a model only on the prompt it was measured with, so on today's prompt no model is qualified
+yet and every incident is escalated on the rules alone until the paid run below. Qualify another before you use it.
 
 **How a model is chosen.** Claude Sonnet 5.5 answers by default. Claude Opus 5.5 takes over only when the case is
 hard, and "hard" is decided by facts WARDEN can check itself, never by how sure the model says it is:
@@ -368,7 +369,8 @@ values (`incident.route`, `discuss.route`); the rules and their thresholds are i
 [`src/warden/routing.py`](src/warden/routing.py).
 
 A model still has to pass the replay set to diagnose. **Opus 5.5 has not** (15 of 30 on 2026-10-15, below the bar
-of 17): until it does, a hard case is diagnosed by Sonnet, the record says so, and its fix goes to a person. A
+of 17): until it does, a hard case is diagnosed by Sonnet (once Sonnet passes on today's prompt), the record says so,
+and its fix goes to a person. A
 discussion answer and Eldane's review change nothing on their own, so they do not need that bar: `providers.yaml`
 lists what each model may be used for (`roles`), and today Opus is listed for reviewing and for the discussion channel,
 not for diagnosing. Both
@@ -420,8 +422,9 @@ Version 0.10.0. Measured, as of 2026-10-16:
   in 132-138 of 172 across three runs, against a floor of 103 for an answer that always escalates; the gate stopped
   all but one harmful or wrong proposal in each run. The cases are synthetic and the runs are single runs.
 - **Choosing the model.** The production model, Claude Sonnet 5.5, scored 17 of 30 on the replay set with no wrong
-  answer let through (2026-10-15). The bar is 17. Claude Opus 5.5, the model for hard cases, scored 15 and is not
-  qualified: until it is, Sonnet answers hard cases too. Which of the two answered how often has not been measured.
+  answer let through (2026-10-15, on the earlier diagnosis prompt; today's prompt is not yet measured). The bar is 17.
+  Claude Opus 5.5, the model for hard cases, scored 15 and is not qualified: until it is, Sonnet answers hard cases
+  too. Which of the two answered how often has not been measured.
 - **Applying fixes.** The write platforms are exercised in CI against a real k3d Kubernetes cluster and real
   PostgreSQL, MySQL and SQL Server servers. **No published run has applied a fix on a live AWS account.**
 

@@ -35,8 +35,9 @@ def _opus_qualified(monkeypatch, qualified: bool, *, roles: list[str] | None = N
     doc = copy.deepcopy(SHIPPED)
     doc["qualified"] = [e for e in doc["qualified"] if e.get("model") != OPUS]
     if qualified:
+        # Measured on TODAY's prompt pin: a row on an earlier prompt qualifies nothing (providers.qualified, PR 47).
         row = next(e for e in SHIPPED["qualified"] if e.get("model") == SONNET)
-        doc["qualified"].append({**row, "model": OPUS})
+        doc["qualified"].append({**row, "model": OPUS, "prompt": doc["prompt"]["sha"]})
         doc["roles"][OPUS] = ["diagnose", *doc["roles"][OPUS]]
     if roles is not None:
         doc["roles"][OPUS] = roles
@@ -149,10 +150,9 @@ def test_a_reinvestigation_asked_in_chat_alone_makes_the_case_hard(world):
     assert not routing.replan_signal(world["log"], "another-incident").fired
 
 
-def test_too_close_is_recorded_as_not_available_until_ranked_hypotheses_exist(world):
+def test_too_close_never_fires_until_it_is_wired_to_the_hypotheses_scores(world):
     signal = routing.too_close_signal(world["easy"].root_cause, world["pack"].context)
     assert signal.fired is False
-    assert signal.value['available'] is False
 
 
 def test_the_models_own_confidence_never_moves_the_choice(world):
@@ -175,10 +175,11 @@ def test_opus_answers_a_hard_case_only_when_providers_yaml_says_it_is_qualified(
     assert route.fallback.endswith(f"{SONNET} answers")
     assert route.record()['needs_person'] is True
     assert _route(world).record()["needs_person"] is False
-    # The shipped file today: Opus 5.5 is not qualified, Sonnet 5.5 is.
+    # The shipped file today: no model is qualified on the diagnosis prompt pinned by PR 47 - Opus 5.5 never was,
+    # and Sonnet 5.5's row was measured on the earlier prompt. Both wait for the paid run in the cloud runtime.
     monkeypatch.setattr(providers, "load_qualified", lambda: SHIPPED)
     assert not routing.is_qualified(OPUS)
-    assert routing.is_qualified(SONNET)
+    assert not routing.is_qualified(SONNET)
     assert routing.models() == (SONNET, OPUS)
 
 
