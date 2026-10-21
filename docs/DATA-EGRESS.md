@@ -219,6 +219,10 @@ The CloudWatch log groups keep 90 days until lane N's retention change lands.
   codec, and the runtime's network rules are the outer layer (register B23).
 - The database client (libpq) resolves names in C, so database hosts are not checked by the hook. They come only
   from configured DSNs.
+- Behind a proxy (`HTTPS_PROXY`), a client other than urllib (`requests` - the OTLP span exporter since
+  OpenTelemetry 1.45.1 -, boto3, aiohttp) looks up the proxy's name, not its target's, so the name check cannot see
+  where it goes through the proxy. urllib's requests are still checked by their real address. The cloud runtime sets
+  no proxy.
 - A raw socket to an IP address with no name lookup would bypass the name check. Nothing in `src/warden` opens one,
   and the static inventory test catches a new network client.
 - An administrator of the AWS account can change the vault key's policy. CloudTrail records that change, and every
