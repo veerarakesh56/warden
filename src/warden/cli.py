@@ -79,6 +79,9 @@ DEMO_ALERTS: dict[str, dict] = {
 }
 
 
+DB_HELP = "a SQLite audit file (or set WARDEN_AUDIT_DSN)"
+
+
 def _out(text: object, *, err: bool = False) -> None:
     """stdout is an egress too - a terminal, a CI log, a pasted ticket (audit A-C-8): no secret, and no
     control character (an ESC sequence in model- or alert-written text can rewrite what the operator
@@ -824,10 +827,10 @@ def _main(argv: list[str] | None = None) -> int:
                           help="write the private key in the clear (refused otherwise without a passphrase)")
     p_show = audit_sub.add_parser("show", help="one incident's rows and their hashes, after verifying the chain")
     p_show.add_argument("incident")
-    p_show.add_argument("--db", type=pathlib.Path, help="a SQLite audit file (or set WARDEN_AUDIT_DSN)")
+    p_show.add_argument("--db", type=pathlib.Path, help=DB_HELP)
     p_show.add_argument("--public-key", required=True, type=pathlib.Path)
     p_verify = audit_sub.add_parser("verify", help="recompute the hash chain and check every signature")
-    p_verify.add_argument("--db", type=pathlib.Path, help="a SQLite audit file (or set WARDEN_AUDIT_DSN)")
+    p_verify.add_argument("--db", type=pathlib.Path, help=DB_HELP)
     p_verify.add_argument("--public-key", required=True, type=pathlib.Path)
     p_verify.add_argument("--anchor-bucket", help="the S3 Object Lock bucket the checkpoints are anchored in (S12)")
     p_migrate = audit_sub.add_parser("migrate", help="create the PostgreSQL audit tables (migration role only)")
@@ -888,7 +891,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_pilot = report_sub.add_parser("pilot", help="pilot metrics: incidents, plan outcomes, times, model use, undos")
     p_pilot.add_argument("--since", required=True,
                          help="incidents first seen from this day (YYYY-MM-DD, UTC) or time with its zone")
-    p_pilot.add_argument("--db", type=pathlib.Path, help="a SQLite audit file (or set WARDEN_AUDIT_DSN)")
+    p_pilot.add_argument("--db", type=pathlib.Path, help=DB_HELP)
     p_pilot.add_argument("--public-key", required=True, type=pathlib.Path,
                          help="the audit's checkpoint public key (PEM), in the key folder")
     p_link = sub.add_parser("link", help="link two incidents' records, signed: a similar incident then finds the proven fix")

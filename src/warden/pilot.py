@@ -149,10 +149,10 @@ def check(rows: list[Any], checkpoints: list[Any], public_key: Any) -> Checked:
             out.unsigned += 1  # the tail no checkpoint has reached yet
         else:
             out.failed.append((seq, "no valid signature covers it"))
-        if seq in unlinked:
-            covered = (
-                False  # the rows before a broken link are not reached by any checkpoint above it
-            )
+        if seq in unlinked or seq in changed:
+            # A broken link, or a row whose own hash fails (its `prev` is then unproven, CodeRabbit PR 175): no
+            # checkpoint above it reaches the rows before it.
+            covered = False
     out.rows = [r for r in reversed(kept) if r]
     out.failed.sort()
     return out
@@ -287,7 +287,9 @@ class Report:
         """Seconds from each incident's alarm to its first plan (`plan`) or its fix (`fixed`); negatives left out."""
         out = []
         for i in self.incidents:
-            end = (i.plans[0].at if i.plans else None) if to == "plan" else i.fixed
+            end = i.fixed
+            if to == "plan":
+                end = i.plans[0].at if i.plans else None
             if i.alarm is not None and end is not None and end >= i.alarm:
                 out.append((end - i.alarm).total_seconds())
         return out

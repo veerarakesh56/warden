@@ -369,10 +369,15 @@ def test_an_edited_row_is_not_counted_and_is_named(made):
     body = FORGED
     _raw(path).execute("UPDATE entries SET body = ? WHERE seq = ?", (body, seq))
     checked = pilot.read(log, key.public_key())
-    assert checked.failed == [(seq, CHANGED)]
+    reasons = dict(checked.failed)
+    assert reasons.pop(seq) == CHANGED
+    # Its own hash fails, so the `prev` it names proves nothing: no row before it is reached by the checkpoint.
+    assert reasons == dict.fromkeys(range(1, seq), "no valid signature covers it")
+    assert min(e["seq"] for e in checked.rows) == seq + 1
     got = dict(pilot.lines(pilot.report(checked, SINCE, now=NOW)))
-    assert got["Plans"] == "7 (5 ended, 2 open)"  # B's end no longer counts: its plan reads as open
-    assert got["Plans denied"] == "0 of 5 ended (0.0%)"
+    assert got["Incidents"] == "5"  # C D E F G: A and B started before the edited row
+    assert got["Plans"] == "5 (4 ended, 1 open)"  # C's two runs, E, G ended; F open
+    assert got["Plans denied"] == "0 of 4 ended (0.0%)"
     assert f"row {seq} {CHANGED}" in got["Audit rows"]
 
 
@@ -535,8 +540,11 @@ def test_the_page_refuses_any_other_query_and_says_when_it_cannot_check(page_set
 
 def test_the_page_counts_a_tampered_row_without_naming_it(page_setup, made):  # noqa: F811
     log, _, path = made
-    _raw(path).execute("UPDATE entries SET body = '{}' WHERE seq = ?", (_seq(log, "a", SPEND),))
+    seq = _seq(log, "a", SPEND)
+    _raw(path).execute("UPDATE entries SET body = '{}' WHERE seq = ?", (seq,))
     out = _as(_page(page_setup, made))
     assert out.status == 200
-    assert "1 row(s) of the record failed verification" in out.body
+    assert (
+        f"{seq} row(s) of the record failed verification" in out.body
+    )  # it and every row before it
     assert CHANGED not in out.body
