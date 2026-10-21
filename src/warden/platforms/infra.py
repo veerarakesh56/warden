@@ -25,6 +25,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from .. import web
 from ..catalog import APPLIED_AT
 
 ENTRY = "infra_restore_baseline"
@@ -59,7 +60,7 @@ def _when(value: Any) -> datetime | None:
 class GitHub:
     """The few GitHub REST calls the platform makes, on one repository; a token per call (read or dispatch)."""
 
-    def __init__(self, repo: str, opener: Any = urllib.request.urlopen) -> None:
+    def __init__(self, repo: str, opener: Any = web.urlopen) -> None:  # a redirect never carries the token away
         if not _REPO.fullmatch(repo):
             raise InfraPlatformError(f"{repo!r} is not an owner/repository name")
         self.repo, self._open = repo, opener
@@ -69,7 +70,7 @@ class GitHub:
                    **({"Authorization": f"Bearer {token}"} if token else {})}
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(f"{API}/repos/{self.repo}{path}", data=data, method=method, headers=headers)
-        with self._open(req, timeout=TIMEOUT_S) as resp:  # nosec B310 - a fixed https host (API)
+        with self._open(req, timeout=TIMEOUT_S) as resp:
             raw = resp.read()
             return getattr(resp, "status", 200), (json.loads(raw) if raw else None)
 
@@ -223,7 +224,7 @@ class PerEnvironment:
     callable). An environment with no bucket configured reads nothing, so every plan of it is refused."""
 
     def __init__(self, reader: Callable[[str], Callable[[str], Any]], repo: str | None = None,
-                 buckets: str | None = None, opener: Any = urllib.request.urlopen) -> None:
+                 buckets: str | None = None, opener: Any = web.urlopen) -> None:
         self._reader = reader
         self._repo = (repo if repo is not None else os.environ.get("WARDEN_CHANGE_REPO", "")).strip()
         self._buckets = _pairs(buckets if buckets is not None else os.environ.get("WARDEN_TF_STATE_BUCKETS", ""))
