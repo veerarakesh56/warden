@@ -23,6 +23,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SETUP_FILES = frozenset({"pyproject.toml", "uv.lock", ".github/workflows/mutation.yml", "scripts/mutation_ci.py"})
 # Counted against the suite: a mutant no test killed, one that hung, or one that crashed the interpreter oddly.
 NOT_KILLED = ("survived", "timeout", "suspicious", "segfault")
+SUMMARY_TITLE = "## Mutation testing - safety modules\n\n"
 
 
 def safety_modules(pyproject: pathlib.Path = ROOT / "pyproject.toml") -> list[str]:
@@ -48,7 +49,7 @@ def summary(stats: dict[str, int]) -> str:
     s = score(stats)
     rows = "\n".join(f"| {k} | {stats.get(k, 0)} |" for k in ("killed", *NOT_KILLED, "no_tests", "skipped", "total"))
     head = f"Mutation score: **{s:.1%}**" if s is not None else "Mutation score: **no mutant was tested**"
-    return (f"## Mutation testing - safety modules\n\n{head} (killed / tested)\n\n| mutants | count |\n|---|---|\n"
+    return (f"{SUMMARY_TITLE}{head} (killed / tested)\n\n| mutants | count |\n|---|---|\n"
             f"{rows}\n\nA survivor is a change to a guard that no test noticed: `mutmut results` lists them, "
             "`mutmut show <name>` shows one.\n")
 
@@ -64,6 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "targets":
         print(" ".join(targets(sys.stdin.read().splitlines(), safety_modules())))
         return 0
+    if not args.stats.is_file():
+        # mutmut stopped before it wrote any result (a failed install or run): the summary says so, never a score.
+        print(f"{SUMMARY_TITLE}Mutation score: **unavailable** - no mutation data was produced ({args.stats.name} "
+              "is missing); see the run step's log.\n")
+        return 1 if args.min_score is not None else 0
     stats = json.loads(args.stats.read_text(encoding="utf-8"))
     print(summary(stats))
     if args.min_score is not None:

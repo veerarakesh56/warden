@@ -80,6 +80,7 @@ jobs:
       - name: Score
         if: always()
         run: |
-          mutmut export-cicd-stats
+          # No data (mutmut stopped early): the summary says the score is unavailable instead of failing here.
+          mutmut export-cicd-stats || echo "::warning::mutmut export-cicd-stats failed: no mutation data"
           python scripts/mutation_ci.py summary mutants/mutmut-cicd-stats.json | tee -a "$GITHUB_STEP_SUMMARY"
           mutmut results | head -200

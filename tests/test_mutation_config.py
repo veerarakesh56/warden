@@ -122,3 +122,19 @@ def test_the_summary_and_the_optional_minimum(tmp_path, capsys):
     assert "86.7%" in capsys.readouterr().out
     assert mutation_ci.main(["summary", str(stats), "--min-score", "0.9"]) == 1
     assert mutation_ci.main(["summary", str(stats), "--min-score", "0.8"]) == 0
+
+
+def test_no_mutation_data_is_said_unavailable_never_scored(tmp_path, capsys):
+    """Review, PR 179: when mutmut stops before writing its stats, the job summary says so instead of the step
+    failing with no report; under --min-score a missing result is a fail, never a pass."""
+    missing = tmp_path / "mutmut-cicd-stats.json"
+    assert mutation_ci.main(["summary", str(missing)]) == 0
+    out = capsys.readouterr().out
+    assert "Mutation score: **unavailable**" in out
+    assert "%" not in out
+    assert mutation_ci.main(["summary", str(missing), "--min-score", "0.8"]) == 1
+
+
+def test_the_score_step_survives_a_failed_export():
+    score = next(st["run"] for st in _workflow()["jobs"]["mutmut"]["steps"] if st.get("name") == "Score")
+    assert "mutmut export-cicd-stats ||" in score
