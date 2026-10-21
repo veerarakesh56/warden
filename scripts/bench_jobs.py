@@ -18,8 +18,9 @@ Money (no call is made before all of this):
 - the estimate is printed first: each case's prompt is rendered offline (no model, no network) and priced at the
   model's own `prices` row; output at EXPECTED_OUT_TOKENS per answer. A model with no price row is refused.
 - the run is refused when the estimate exceeds --budget-usd, before the key is read.
-- --budget-usd is a hard ceiling while it runs (HardBudget): an answer is asked only while what is left covers one
-  more call at the output cap, so no answer can take the run past it; the rest are counted unanswered, never skipped.
+- --budget-usd is a hard ceiling while it runs (HardBudget): an answer is asked only while what is left covers two
+  calls at the output cap (one to make, one kept back), so no answer can take the run past it; the rest are counted
+  unanswered, never skipped.
 
 A bench MEASURES. It never changes which model diagnoses: providers.yaml (`routing`, `roles`, `qualified`) is not
 written, and a run that finds it changed fails. Measuring a model that is not qualified needs WARDEN_QUALIFYING, as
@@ -171,10 +172,10 @@ def plan(models: list[str], chars: dict[str, int], repeats: int, budget_usd: flo
         return rows, "no case to answer"
     if total > budget_usd:
         return rows, f"the estimate ${total:.2f} exceeds --budget-usd ${budget_usd:.2f}"
-    short = [r["model"] for r in rows if r["budget_usd"] < r["expected_usd"] + r["reserve_usd"]]
+    short = [r["model"] for r in rows if r["budget_usd"] < r["expected_usd"] + 2 * r["reserve_usd"]]
     if short:
-        return rows, (f"the budget leaves {', '.join(short)} less than its estimate plus one call at the output cap; "
-                      "raise --budget-usd")
+        return rows, (f"the budget leaves {', '.join(short)} less than its estimate plus the two calls at the output "
+                      "cap HardBudget keeps room for; raise --budget-usd")
     return rows, ""
 
 
@@ -194,9 +195,9 @@ def say_plan(job: str, rows: list[dict], cases: int, repeats: int, budget_usd: f
 class HardBudget:
     """A hard ceiling across every answer of one model. qualify_provider.Budget gives each answer what is left, so
     the call that crosses the ceiling is still made and paid (its output is priced only after it arrives). Here an
-    answer gets what is left LESS one call at the output cap (`reserve`), and none is asked once that is gone: the
-    run ends at or below the ceiling (up to llm.py's 4-characters-per-token reading of the prompt, which the reserve
-    counts at CHARS_PER_TOKEN)."""
+    answer may spend what is left LESS one call at the output cap (`reserve`, kept back for that overshoot), and one
+    is asked only while that room still holds a whole call: the run ends at or below the ceiling (up to llm.py's
+    4-characters-per-token reading of the prompt, which the reserve counts at CHARS_PER_TOKEN)."""
 
     def __init__(self, total_usd: float, reserve_usd: float, factory: Callable[[], object]) -> None:
         if not total_usd > 0 or reserve_usd < 0:
@@ -210,7 +211,7 @@ class HardBudget:
         from warden.llm import BudgetExceeded
 
         room = self.total - self.spent() - self.reserve
-        if room <= 0:
+        if room <= 0 or room < self.reserve:
             raise BudgetExceeded(f"the bench budget of ${self.total:.2f} is spent (kept back ${self.reserve:.2f}: one "
                                  "call at the output cap)")
         client = self.factory()

@@ -89,7 +89,7 @@ def test_qualify_runs_the_replay_for_exactly_the_named_model_at_its_own_price(tm
     assert seen['price'] is None
     assert '--budget-usd' in seen['argv']
     assert '2.0' in seen['argv']
-    assert set(cloud_run.JOBS) == {"qualify"}
+    assert set(cloud_run.JOBS) == {"qualify", "headtohead", "bench"}
 
 
 @pytest.mark.parametrize("bad", ["nan", "inf", "-inf", "0", "-1"])
