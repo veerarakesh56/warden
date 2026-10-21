@@ -4,11 +4,12 @@ of its source as it is now, on a white page.
 An SVG is matched to its source by name: `<name>.svg` is the one page of `<name>.drawio`, `<name>-<n>.svg` page n of a
 source with several pages. It holds exactly the source page's cells (draw.io writes each cell's id as data-cell-id), so
 a source changed without exporting again fails here. It was exported with --theme light: a white background, and no
-colours that change in a dark theme.
+colours that change in a dark theme. Every label it shows is its source cell's label as it is now.
 """
 
 from __future__ import annotations
 
+import html
 import pathlib
 import re
 import xml.etree.ElementTree as ET
@@ -72,3 +73,32 @@ def test_the_svg_is_an_export_of_its_source_as_it_is_now(svg):
 def test_every_cell_of_the_source_has_an_id_of_its_own(svg):
     ids = [c.get("id") for c in _source_page(svg).iter("mxCell")] + [o.get("id") for o in _source_page(svg).iter("object")]
     assert sorted({i for i in ids if ids.count(i) > 1}) == []  # draw.io renumbers a repeated id when it exports
+
+
+# draw.io ends every SVG with a link shown only by viewers without foreignObject support; it belongs to no cell.
+_FALLBACK = '<switch><g requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility"/><a '
+
+
+def _words(markup: str) -> str:
+    """A label's text with markup and every space removed: draw.io re-flows labels into lines when it exports."""
+    text = re.sub(r"<br\s*/?>", " ", markup or "")
+    return re.sub(r"\s+", "", html.unescape(re.sub(r"<[^>]+>", " ", text)))
+
+
+@pytest.mark.parametrize("svg", SVGS, ids=[s.name for s in SVGS])
+def test_every_label_of_the_source_is_the_one_its_svg_shows(svg):
+    """The same cell ids are not enough: a label edited in the source and not exported again still has its id."""
+    text = svg.read_text(encoding="utf-8")
+    assert text.count(_FALLBACK) == 1
+    text = text[:text.index(_FALLBACK)]
+    page = _source_page(svg)
+    cells = [(c.get("id"), c.get("value")) for c in page.iter("mxCell")] + \
+        [(o.get("id"), o.get("label")) for o in page.iter("object")]
+    stale = []
+    for cell_id, label in cells:
+        if not _words(label):
+            continue
+        shown = re.search(rf'<g data-cell-id="{re.escape(cell_id)}">(.*?)(?=<g data-cell-id="|$)', text, re.DOTALL)
+        if shown is None or _words(shown.group(1)) != _words(label):
+            stale.append(cell_id)
+    assert stale == []

@@ -206,11 +206,11 @@ def test_every_name_the_diagram_gives_is_made_or_read_by_the_code():
     names = _names()
     assert len(names) > 80
     assert sorted(n for n in names if not _known(n, corpus)) == []
+    joined = "\n".join(corpus)
     for path in re.findall(r"/warden/(?:ops|dev|<env>)/[a-z_/]+[a-z_]", _diagram_text(with_prs=False)):
-        norm = re.sub(r"^/warden/[^/]+/", "/warden/<env>/", path)
-        stem = norm.removeprefix("/warden/<env>/").split("/")[0]
-        joined = "\n".join(corpus)
-        assert re.search(rf"/warden/(?:<env>|\$\{{[^}}]+\}}|ops|dev|\{{[a-z_]+\}})/{stem}\b", joined), path
+        # The whole path after the environment, not only its first segment: /warden/ops/tf/<invented> must fail.
+        rest = re.escape(re.sub(r"^/warden/[^/]+/", "", path))
+        assert re.search(rf"/warden/(?:<env>|\$\{{[^}}]+\}}|ops|dev|\{{[a-z_]+\}})/{rest}(?![a-z0-9_/-])", joined), path
 
 
 def test_every_setting_it_cites_is_read():
@@ -245,8 +245,8 @@ def test_the_stacks_it_leaves_out_are_applied_by_no_pipeline():
     assert "terraform -chdir=terraform/runtime apply" in (ROOT / ".github" / "workflows" / "runtime.yml").read_text()
     for wf in (ROOT / ".github" / "workflows").glob("*.yml"):
         for line in wf.read_text(encoding="utf-8").splitlines():
-            # -chdir=terraform, "terraform/proving-ground/", 'terraform' ...: quoted or not, with or without a slash.
-            if re.search(r"""-chdir=["']?terraform(/proving-ground)?/?["']?(\s|$)""", line):
+            # -chdir=terraform, "./terraform/proving-ground/", 'terraform' ...: quoted or not, ./ or not, a slash or not.
+            if re.search(r"""-chdir=["']?(\./)?terraform(/proving-ground)?/?["']?(\s|$)""", line):
                 assert re.search(r"\b(init|validate|fmt)\b", line), (wf.name, line)
             assert not re.search(r"""working-directory:\s*["']?(\./)?terraform(/proving-ground)?/?["']?\s*$""", line), \
                 (wf.name, line)
