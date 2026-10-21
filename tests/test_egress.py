@@ -1014,7 +1014,7 @@ def test_a_refusal_inside_a_model_sdk_is_not_retried():
     assert llm._is_transient(APIConnectionError("Connection error.")) is True
 
 
-def test_a_model_call_the_egress_check_refuses_is_recorded_as_egress_blocked_and_pages_nobody():
+def test_a_model_call_the_egress_check_refuses_is_recorded_as_egress_blocked_and_pages_nobody(caplog):
     """A blocked outbound call is a configuration or security event, not a model answer (owner, 2026-10-21): its
     fallback reason is egress_blocked, never model_refused, and it is no paging condition."""
     from pydantic import BaseModel
@@ -1032,10 +1032,31 @@ def test_a_model_call_the_egress_check_refuses_is_recorded_as_egress_blocked_and
 
     egress.guard_provider(_Prompted)
     client = llm.LLMClient(provider=_Prompted(), max_usd=1.0, mock=False)
+    caplog.set_level(logging.ERROR, logger="warden.llm")
     with pytest.raises(llm.ModelRefused):
         client.structured(system="s", user=f"user {EMAIL}", schema=_Answer)
+    # Not a refused key (#185's B35 ERROR line pages at once): WARDEN's own check refused the call.
+    assert not [r for r in caplog.records if r.name == "warden.llm" and r.levelno >= logging.ERROR]
     assert client.stopped_by == llm.EGRESS_BLOCKED
     assert llm.fallback_reason(client.stopped_by) == llm.EGRESS_BLOCKED
     assert llm.EGRESS_BLOCKED in llm.FALLBACK_REASONS
     assert llm.EGRESS_BLOCKED not in paging.MODEL_METRICS  # nobody is paged for it
     assert llm.failure_reason(EgressBlocked("anthropic", "the prompt is not fully masked")) == llm.EGRESS_BLOCKED
+
+
+def test_an_egress_refusal_never_says_the_key_was_refused(caplog):
+    """#185 says a 401/403 as an ERROR line that pages at once. An egress refusal - even inside an SDK error that
+    carries a 403 - is egress_blocked, never that line."""
+    from warden import llm
+
+    class _Forbidden(Exception):
+        status_code = 403
+
+    caplog.set_level(logging.ERROR, logger="warden.llm")
+    for refused in (EgressBlocked("anthropic", "the prompt is not fully masked"), _Forbidden("Forbidden")):
+        refused.__cause__ = None if isinstance(refused, EgressBlocked) else EgressBlocked("anthropic", "refused")
+        llm._say_if_key_refused(refused)
+        assert llm.failure_reason(refused) == llm.EGRESS_BLOCKED
+    assert not [r for r in caplog.records if r.name == "warden.llm"]
+    llm._say_if_key_refused(_Forbidden("Forbidden"))  # a real refused key is still said
+    assert [r.levelno for r in caplog.records if r.name == "warden.llm"] == [logging.ERROR]

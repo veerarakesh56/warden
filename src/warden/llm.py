@@ -599,6 +599,8 @@ _LOG = logging.getLogger("warden.llm")
 
 
 def _say_if_key_refused(exc: Exception) -> None:
+    if _refused_here(exc):
+        return  # WARDEN's own egress check refused the call: no key was refused (egress_blocked, not this alarm)
     status = getattr(exc, "status_code", None)
     status = getattr(exc, "code", None) if status is None else status
     try:  # some providers give the status as text ("401"), as _is_transient already accepts
