@@ -322,5 +322,5 @@ def test_the_runtime_gives_the_listener_its_token_in_the_notify_zone_alone():
     # A listener that cannot connect is logged; the notify worker - every alert WARDEN sends - keeps running.
     guard = cli[cli.index('if args.zone == "notify" and discuss.configured():'):]
     assert guard.index("try:") < guard.index("await discuss.listen(") < guard.index("except Exception")
-    # Slack's async web client; 3.14.4 is the first release without CVE-2026-111063/-111064 (PR 98).
-    assert '"aiohttp>=3.14.4"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    # Slack's async web client; 3.14.4 is the first release without CVE-2026-111063/-111064 (PR 98); 3.14.5 (PR 160).
+    assert '"aiohttp>=3.14.5"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
