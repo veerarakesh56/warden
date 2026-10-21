@@ -10,6 +10,7 @@ from warden.models import (
     Alert,
     Citation,
     ContextBundle,
+    Hypothesis,
     RemediationProposal,
     RootCause,
     Severity,
@@ -47,8 +48,10 @@ def _ctx(**kw):
 
 def _rc(confidence=0.9):
     # Cites the deploy that _ctx() carries by default, so P13 passes unless a test says otherwise.
+    # A rival weighed and set aside, so P35 passes unless a test says otherwise.
     return RootCause(hypothesis="bad deploy", confidence=confidence, evidence=["err"],
-                     citations=[Citation(id="D1", quote="sha=abc")])
+                     citations=[Citation(id="D1", quote="sha=abc")],
+                     hypotheses=[Hypothesis(cause="bad deploy"), Hypothesis(cause="another cause", why_rejected="nothing in the evidence shows it")])
 
 
 def _prop(**kw):
@@ -196,7 +199,8 @@ def test_clear_cache_in_prod_is_held_for_a_human_not_auto_run():
     """A cache flush can cause a stampede/latency spike, so it is a real action behind approval."""
     ctx = _ctx(metrics={"error_rate": 0.04, "cache_hit_ratio": 0.02})
     rc = RootCause(hypothesis="stale cache", confidence=0.9,
-                   citations=[Citation(id="M2", quote="cache_hit_ratio=0.02")])  # P15: cites the cache
+                   citations=[Citation(id="M2", quote="cache_hit_ratio=0.02")],  # P15: cites the cache
+                   hypotheses=[Hypothesis(cause="stale cache"), Hypothesis(cause="another cause", why_rejected="nothing in the evidence shows it")])
     v = verify(_alert(), ctx, rc, _prop(action=ActionKind.clear_cache))
     assert v.status is VerdictStatus.approved_for_human
     assert v.requires_approval is True
@@ -330,12 +334,45 @@ def test_no_action_with_no_evidence_escalates_rather_than_being_rejected():
     assert "P3-NO-EVIDENCE" not in v.policy_ids
 
 
+# A healthy control: the alarm is named and described like a fault (DEPLOY-BAD-001 matches its name and its summary),
+# and nothing WARDEN read - logs, metrics, deploys - shows one.
+QUIET = dict(logs=["INFO GET /cart 200", "INFO GET /checkout 200", "INFO GET /health 200"],
+             metrics={"error_rate": 0.001, "p99_latency_ms": 120.0}, recent_deploys=[])
+CALM = RootCause(hypothesis="normal traffic, no fault", confidence=0.9, evidence=["error rate 0.1%"],
+                 citations=[Citation(id="M1", quote="error_rate=0.001")],
+                 hypotheses=[Hypothesis(cause="normal traffic, no fault"),
+                             Hypothesis(cause="a bad deploy", why_rejected="no deploy was read")])
+
+
 def test_a_well_evidenced_confident_no_action_is_still_auto_safe():
     """The other side of the change, so it is not simply "escalate everything": the tool looked
     properly, found nothing wrong, and says so without needing a human."""
-    v = verify(_alert(), _ctx(), _rc(confidence=0.9), _prop(action=ActionKind.no_action))
-    assert v.status is VerdictStatus.auto_safe
+    v = verify(_alert(), _ctx(**QUIET), CALM, _prop(action=ActionKind.no_action))
+    assert v.status is VerdictStatus.auto_safe, v
     assert v.requires_approval is False
+
+
+def test_nothing_to_do_while_a_failure_signature_describes_the_evidence_is_a_persons_close():
+    """P36 (enforced, owner 2026-10-17): a deploy, 5xx lines and a 4% error rate - DEPLOY-BAD-001 describes what WARDEN
+    read - and the answer is "nothing to do". A followed poisoned "expected during maintenance" line reads exactly so."""
+    v = verify(_alert(), _ctx(), _rc(confidence=0.9), _prop(action=ActionKind.no_action))
+    assert v.status is VerdictStatus.escalated
+    assert v.requires_approval
+    assert "P36-NO-ACTION-DESPITE-SIGNATURE" in v.policy_ids
+    assert any("(DEPLOY-BAD-001)" in r for r in v.reasons), v.reasons
+
+
+def test_the_alerts_own_name_and_summary_are_not_evidence_for_p36():
+    """The control above matches DEPLOY-BAD-001 by its name and by `5xx` in its summary - the alarm's words, not WARDEN's
+    reading. One 5xx line in what WARDEN read is."""
+    from warden.knowledge import default_knowledge_base
+
+    [match] = [m for m in default_knowledge_base().match(_alert(), _ctx(**QUIET)) if m.signature.id == "DEPLOY-BAD-001"]
+    assert {"name", "log/event:5xx"} <= set(match.signals)  # the summary's 5xx
+    assert "P36-NO-ACTION-DESPITE-SIGNATURE" not in verify(_alert(), _ctx(**QUIET), CALM,
+                                                            _prop(action=ActionKind.no_action)).policy_ids
+    noisy = _ctx(**{**QUIET, "logs": [*QUIET["logs"], "ERROR GET /checkout 502 upstream 5xx"]})
+    assert "P36-NO-ACTION-DESPITE-SIGNATURE" in verify(_alert(), noisy, CALM, _prop(action=ActionKind.no_action)).policy_ids
 
 
 # --------------------------------------------------------------------------- P11 / P12 (2026-09-25)
@@ -468,3 +505,29 @@ def test_a_full_connection_pool_is_a_symptom(metrics, full):
     from warden.models import ContextBundle
     from warden.verifier import symptoms
     assert ("the connection pool is full" in symptoms(ContextBundle(metrics=metrics))) is full
+
+
+def test_name_only_matches_never_crowd_out_one_the_evidence_supports(monkeypatch):
+    """Review, PR 47: P36 read the knowledge base's top three, and three name-only matches ranked ahead of an evidence
+    match (ties break by id) hid it."""
+    from warden import knowledge, verifier
+
+    real = knowledge.default_knowledge_base()
+    deploy = next(s for s in real.signatures if s.id == "DEPLOY-BAD-001")
+    named = [s for s in real.signatures if s.detect.get("name_matches") is not None and s.id != deploy.id][:3]
+    assert len(named) == 3
+    import dataclasses
+    import re
+
+    renamed = [dataclasses.replace(s, id=f"AAA-{i}", detect={"name_matches": re.compile(".*")})
+               for i, s in enumerate(named)]
+    kb = knowledge.KnowledgeBase([*renamed, deploy])
+    monkeypatch.setattr(verifier, "default_knowledge_base", lambda: kb)
+    # One signal only (a recent deploy; no 5xx line, and a name DEPLOY-BAD does not match): a score of 1, tied with the
+    # three name-only matches, whose ids sort first.
+    quiet = _ctx(logs=["INFO GET /cart 200", "INFO GET /health 200"])
+    alert = _alert(name="Xyz", summary="")
+    [only] = [m for m in kb.match(alert, quiet, limit=10) if m.signature.id == "DEPLOY-BAD-001"]
+    assert only.signals == ("deploy_recent",)
+    assert "DEPLOY-BAD-001" not in [m.signature.id for m in kb.match(alert, quiet)]  # what the top three hid
+    assert verifier.signatures_in_evidence(alert, quiet) == ["DEPLOY-BAD-001"]

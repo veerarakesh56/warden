@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS entries (
     seq INTEGER PRIMARY KEY, at TEXT NOT NULL, correlation_id TEXT NOT NULL, kind TEXT NOT NULL,
     body TEXT NOT NULL, prev TEXT NOT NULL, hash TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS checkpoints (seq INTEGER PRIMARY KEY, hash TEXT NOT NULL, signature TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS entries_by_correlation ON entries (correlation_id, seq);
+CREATE INDEX IF NOT EXISTS entries_by_kind ON entries (kind, seq);
 """ + "".join(
     f"CREATE TRIGGER IF NOT EXISTS {t}_no_{op.lower()} BEFORE {op} ON {t} "
     f"BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END;\n"
@@ -168,9 +170,12 @@ class _Store:
             try:
                 yield
                 self.db.execute("COMMIT")
-            except BaseException:
-                self.db.execute("ROLLBACK")
-                raise
+            finally:
+                # The body raised, the generator was closed early, or COMMIT failed: nothing of it is kept. Only a
+                # transaction still open is rolled back - a ROLLBACK with none raised "cannot rollback - no
+                # transaction is active" over the error that ended it (Sonar python:S9152, 2026-10-16).
+                if self.db.in_transaction:
+                    self.db.execute("ROLLBACK")
 
     def insert_checkpoint(self, seq: int, head: str, signature: str) -> int:
         sql = ("INSERT INTO checkpoints VALUES (?, ?, ?) ON CONFLICT (seq) DO NOTHING" if self.pg
@@ -283,9 +288,23 @@ class AuditLog:
 
     def append(self, correlation_id: str, kind: str, body: dict[str, Any]) -> str:
         """Add one row and return its hash."""
+        return self._append(correlation_id, kind, body, None)[0]
+
+    def append_unless(self, correlation_id: str, kind: str, body: dict[str, Any],
+                      refuse: Callable[[], str]) -> tuple[str, str]:
+        """Add one row unless `refuse()` gives a reason: (the row's hash, "") when written, ("", the reason) when not.
+        `refuse` reads inside the write's own transaction, and every writer appends under one lock (a transaction-scoped
+        advisory lock on PostgreSQL, BEGIN IMMEDIATE on SQLite), so no row from any worker lands between its read and
+        the write: a check-and-set across workers (B20, locks.py). `refuse` reads through `entries`, never `append`."""
+        return self._append(correlation_id, kind, body, refuse)
+
+    def _append(self, correlation_id: str, kind: str, body: dict[str, Any],
+                refuse: Callable[[], str] | None) -> tuple[str, str]:
         text = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
         at = self.clock().astimezone(UTC).isoformat(timespec="microseconds")
         with self._lock, self.store.transaction():
+            if refuse is not None and (why := refuse()):
+                return "", why
             last = self.store.run("SELECT seq, hash FROM entries ORDER BY seq DESC LIMIT 1").fetchone()
             seq, prev = (last[0] + 1, last[1]) if last else (1, GENESIS)
             digest = _hash(prev, seq, at, correlation_id, kind, text)
@@ -293,7 +312,7 @@ class AuditLog:
                            (seq, at, correlation_id, kind, text, prev, digest))
         if self.key is not None and seq % self.checkpoint_every == 0:
             self.checkpoint()
-        return digest
+        return digest, ""
 
     def checkpoint(self) -> int | None:
         """Sign the current head. Returns its sequence number (None for an empty log or no key)."""
@@ -466,18 +485,19 @@ def key_dir() -> pathlib.Path:
     return pathlib.Path(os.environ.get(KEY_DIR_ENV) or pathlib.Path.home() / ".warden").expanduser()
 
 
-def _inside(path: pathlib.Path, base: pathlib.Path | None) -> pathlib.Path:
-    """The real location of `path` when it lies directly or deeper inside `base` (created 0700 if missing); else
-    ValueError. The file itself must not be a symlink, and its folder must already exist."""
+def key_path(path: pathlib.Path, base: pathlib.Path | None = None) -> pathlib.Path:
+    """The real location of `path` when it lies directly or deeper inside `base` (default: the key folder, created 0700
+    if missing); else ValueError. The file itself must not be a symlink, and its folder must already exist. Keys are
+    read from there too (cli.py): a --key from the command line names no file outside it."""
     folder = (base or key_dir()).expanduser()
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     folder = folder.resolve(strict=True)
     target = pathlib.Path(path).expanduser()
     if target.is_symlink():
-        raise ValueError(f"{path} is a symlink: a key file is never written through one")
+        raise ValueError(f"{path} is a symlink: a key file is never used through one")
     real = target.parent.resolve(strict=True) / target.name
     if not real.is_relative_to(folder) or real == folder:
-        raise ValueError(f"{path} is outside {folder}: key files are written only there (set {KEY_DIR_ENV} to choose "
+        raise ValueError(f"{path} is outside {folder}: key files are kept only there (set {KEY_DIR_ENV} to choose "
                          f"another folder)")
     return real
 
@@ -500,15 +520,15 @@ def write_private_key(path: pathlib.Path, pem: bytes, base: pathlib.Path | None 
     writer had just made). On POSIX the file is created mode 0600. Windows ignores the mode (beyond the read-only flag);
     what keeps other accounts out is the folder's ACL - under the user's profile (%USERPROFILE%) only that user, SYSTEM
     and Administrators can read - and, for a key encrypted with a passphrase, the passphrase."""
-    _create(_inside(path, base), pem, 0o600)
+    _create(key_path(path, base), pem, 0o600)
 
 
 def generate_key(private_path: pathlib.Path, public_path: pathlib.Path, passphrase: bytes | None = None,
                  base: pathlib.Path | None = None) -> None:
     """A new Ed25519 pair, both files inside `base` (default: the key folder), neither written over an existing file
     (the public key used to be: a path naming any file would have replaced it)."""
-    public_real = _inside(public_path, base)
-    private_real = _inside(private_path, base)
+    public_real = key_path(public_path, base)
+    private_real = key_path(private_path, base)
     if public_real == private_real:
         raise ValueError(f"{private_path} and {public_path} are the same file: the pair needs two")
     if public_real.exists():

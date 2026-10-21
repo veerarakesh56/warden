@@ -27,6 +27,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+MANIFEST = "manifest.json"  # what every runner output directory holds
 
 # The same shapes scripts/aws_proof_bundle.py masks. Deliberately duplicated in behaviour but kept
 # to one implementation here by importing it, so the two cannot drift into disagreeing about what a
@@ -63,7 +64,7 @@ def _account_from(run: pathlib.Path) -> str:
     number of the manifest and the ground truth, not the first one found (audit A-B-L18): a run that touched two
     accounts kept the second one in clear. Several are joined with `|`, one regex alternation."""
     found: set[str] = set()
-    for path in [run / "manifest.json", *(run / "ground-truth").glob("*.json")]:
+    for path in [run / MANIFEST, *(run / "ground-truth").glob("*.json")]:
         if path.exists():
             found |= set(re.findall(r"\b\d{12}\b", path.read_text(encoding="utf-8")))
     return "|".join(sorted(found))
@@ -102,7 +103,7 @@ def _freeze_grading_inputs(run: pathlib.Path, staging: pathlib.Path, account: st
     the hash check exists to catch. The manifest records both the commit and the rubric's hash, so
     the frozen bytes are verified against it and publishing REFUSES on a mismatch.
     """
-    manifest = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((run / MANIFEST).read_text(encoding="utf-8"))
     commit = str(manifest.get("git_commit") or "")
     if not commit:
         raise SystemExit("⛔ the manifest records no git_commit, so the rubric cannot be frozen.")
@@ -155,8 +156,8 @@ def main() -> int:
         print(f"⛔ --into must be a directory inside the repository, not {args.into!r}")
         return 2
     run = pathlib.Path(args.run).resolve()
-    if not (run / "manifest.json").exists():
-        print(f"{run} has no manifest.json - not a runner output directory")
+    if not (run / MANIFEST).exists():
+        print(f"{run} has no {MANIFEST} - not a runner output directory")
         return 1
     if not (run / "RESULTS.md").exists():
         print("no RESULTS.md - score the run first:  python -m scenarios.score --run <dir>")

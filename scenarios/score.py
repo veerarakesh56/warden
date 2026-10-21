@@ -38,6 +38,8 @@ from typing import Any
 
 import yaml
 
+from . import paths
+
 HERE = pathlib.Path(__file__).resolve().parent
 CATALOG = HERE / "catalog"
 SCORING = HERE / "scoring.yaml"
@@ -798,16 +800,23 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="scenarios.score", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run", required=True, help="a directory written by scenarios.runner")
-    parser.add_argument("--rubric", default=str(SCORING),
+    parser.add_argument("--rubric", default=None,
                         help="grade with this scoring.yaml instead of the current one - e.g. the "
                              "rubric as committed before a run, extracted with `git show`")
     parser.add_argument("--suffix", default="",
                         help="write RESULTS.<suffix>.md / results.<suffix>.json, so a second "
                              "grading sits beside the first instead of replacing it")
     args = parser.parse_args(argv)
-
-    run_dir = pathlib.Path(args.run)
-    scored = score_run_dir(run_dir, rubric_path=pathlib.Path(args.rubric))
+    # Every path comes from the command line: the run and the rubric lie where the tools work (warden.paths), and the
+    # suffix is a word, so `results.<suffix>.json` stays in the run directory.
+    if args.suffix and not args.suffix.replace("-", "").replace("_", "").isalnum():
+        raise SystemExit(f"--suffix {args.suffix!r}: letters, digits, - and _ only")
+    try:
+        run_dir = paths.inside(args.run)
+        rubric_path = paths.inside(args.rubric) if args.rubric else SCORING
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
+    scored = score_run_dir(run_dir, rubric_path=rubric_path)
     summary = summarise(scored)
 
     tag = f".{args.suffix}" if args.suffix else ""

@@ -107,7 +107,10 @@ _MENTION = re.compile(r"(?<![\w@])@(here|channel|everyone)\b", re.IGNORECASE)
 _TLDS = r"[a-z]{2,24}|xn--[a-z0-9-]+|[^\x00-\x7f\W\d_]{2,}"
 # Not an email's local part (`priya.nair@`): only what follows the `@` is a host.
 _DOMAIN = re.compile(rf"(?<![\w.\[/-])((?:[\w-]+\.)+)({_TLDS})(?![\w@-])", re.IGNORECASE)
-_NON_ASCII_HOST = re.compile(r"(?<![\w@.\[/-])((?:[\w-]*[^\x00-\x7f][\w-]*\.)+)([\w-]+)")
+# Labels holding a non-ASCII character. Bounded as DNS bounds a name (labels of 63, at most 127 of them; Sonar
+# python:S8786, 2026-10-16): unbounded, a long run of such letters was split every way it could be. A longer one is
+# no host, and what passes the bounds is defanged in pieces.
+_NON_ASCII_HOST = re.compile(r"(?<![\w@.\[/-])((?:[\w-]{0,62}[^\x00-\x7f][\w-]{0,62}\.){1,127})([\w-]{1,63})")
 # CommonMark fences: at most 3 spaces of indent, ``` or ~~~, closed by the same character at least as
 # long. `lstrip().startswith("```")` let a 4-space-indented or ~~~ line flip the state and leave the
 # rest of the message unsanitised (audit A-C-9).
@@ -127,7 +130,7 @@ _ANY_BLOCK = re.compile(r"^(?: {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-*+](?:[ \t]|$)|\d{1
 _MD = MarkdownIt("commonmark")
 # The opener or closer of a fence, after any container markers (list items, quotes). A backtick
 # fence's info string holds no backtick.
-_FENCE_LINE = re.compile(r"^([ \t>*+\-0-9.)]*?)(`{3,}(?=[^`]*$)|~{3,})(.*)$")
+_FENCE_LINE = re.compile(r"^([ \t>*+\-0-9.)]*?)(`{3,}+(?=[^`]*$)|~{3,}+)(.*)$")  # possessive: a fence is all its marks (Sonar python:S8786, 2026-10-16)
 _SETEXT = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
 # Inline code both CommonMark and Slack agree on: single backticks, not escaped, nothing inside.
 _INLINE_CODE = re.compile(r"(?<![`\\])(`[^`\n]+`)(?!`)")
@@ -161,7 +164,10 @@ _WIDE_DOTS = re.compile("[\u3002\uff0e\uff61]")
 # The code points a WHATWG URL parser drops from a host (Node 22's, over all 1.1M code points; seventh review,
 # 2026-10-01): a browser joins `evil.<U+FE0F>com` into one domain. Not ZWNJ/ZWJ: the parser keeps those, and
 # removing them rewrote Persian text.
-_INVISIBLE = re.compile(r"[\u00ad\u034f\u180b-\u180d\u180f\u200b\u2060\u2064\ufe00-\ufe0f\ufeff\U0001bca0-\U0001bca3\U000e0100-\U000e01ef]+")
+# The two astral ranges (shorthand format controls, variation selectors 17-256) are added with chr(): SonarCloud
+# reads an 8-digit \U escape in a character class as separate characters and reports duplicates Python does not have.
+_INVISIBLE = re.compile(r"[\u00ad\u034f\u180b-\u180d\u180f\u200b\u2060\u2064\ufe00-\ufe0f\ufeff"
+                        f"{chr(0x1BCA0)}-{chr(0x1BCA3)}{chr(0xE0100)}-{chr(0xE01EF)}]+")
 
 
 # Only between ASCII name characters - where it hides a link or splits a key - not everywhere: removing U+FE0F
