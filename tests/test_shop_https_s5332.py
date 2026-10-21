@@ -59,6 +59,7 @@ def running_app(monkeypatch):
             servers.append(self)
 
     monkeypatch.setattr(app, "ThreadingHTTPServer", Recorded)
+    monkeypatch.setattr(app.signal, "signal", lambda *_: None)  # only the main thread may install a handler
     thread = threading.Thread(target=app.main, daemon=True)
     thread.start()
     for _ in range(200):
@@ -70,8 +71,9 @@ def running_app(monkeypatch):
                 pass
         threading.Event().wait(0.05)
     yield port
-    servers[0].shutdown()
-    servers[0].server_close()
+    app._stop.set()  # what SIGTERM does in the container
+    thread.join(timeout=5)
+    assert not thread.is_alive()  # the loop ends on its own and closes the socket
 
 
 def _like_the_alb() -> ssl.SSLContext:
@@ -104,11 +106,10 @@ def test_the_app_answers_over_https_with_its_own_certificate(running_app):
 
 def test_the_app_refuses_plain_http(running_app):
     conn = http.client.HTTPConnection("127.0.0.1", running_app, timeout=5)
+    conn.request("GET", "/health")
+    # A TLS server answers a plain request with a TLS alert or a closed connection, never an HTTP response.
     with pytest.raises((http.client.HTTPException, ConnectionError, OSError)):
-        conn.request("GET", "/health")
-        reply = conn.getresponse()
-        # A TLS server answers a plain request with a TLS alert or a closed connection, never an HTTP response.
-        pytest.fail(f"plain HTTP got an HTTP answer: {reply.status}")
+        conn.getresponse()
     conn.close()
 
 
@@ -141,12 +142,13 @@ def test_main_wraps_the_server_socket_before_serving():
     src = [ast.unparse(s) for s in main.body]
     steps = ["ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)", "context.minimum_version = ssl.TLSVersion.TLSv1_2",
              "self_signed_certificate(context)", "server.socket = context.wrap_socket(server.socket, server_side=True)",
-             "server.serve_forever()"]
+             "server.handle_request()"]
     where = [next(i for i, s in enumerate(src) if step in s) for step in steps]
     assert where == sorted(where), where
-    # No other server in the app, and no serve_forever on an unwrapped one.
+    # One server in the app, served only after the wrap.
     calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)]
-    assert [ast.unparse(c) for c in calls if c.func.attr == "serve_forever"] == ["server.serve_forever()"]
+    assert [ast.unparse(c) for c in calls if c.func.attr in ("serve_forever", "handle_request")] == [
+        "server.handle_request()"]
 
 
 def _docs() -> list[dict]:
@@ -177,9 +179,11 @@ def test_the_shop_services_stay_inside_the_cluster():
     for svc in services:
         spec = svc["spec"]
         assert spec.get("type", "ClusterIP") == "ClusterIP", svc["metadata"]["name"]
-        assert not spec.get("externalIPs") and not spec.get("externalName") and not spec.get("loadBalancerIP")
+        for exposure in ("externalIPs", "externalName", "loadBalancerIP"):
+            assert not spec.get(exposure), (svc["metadata"]["name"], exposure)
         for port in spec["ports"]:
-            assert port["name"] == "https" and port.get("appProtocol") == "https", port
+            assert port["name"] == "https", port
+            assert port.get("appProtocol") == "https", port
     assert not [d for d in _docs() if d.get("kind") in ("Ingress", "Gateway", "HTTPRoute")]
 
 

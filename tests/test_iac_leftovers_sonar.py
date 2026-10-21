@@ -457,7 +457,9 @@ def test_nothing_reaches_the_alb_or_the_orders_tasks_except_through_their_own_se
     alb, ecs = _flat(_block(main, "aws_security_group", "alb")), _flat(_block(main, "aws_security_group", "ecs"))
     for body in (alb, ecs):
         ingress = re.findall(r"ingress \{(.*?)\}", body)
-        assert ingress and all("cidr" not in rule and "prefix_list" not in rule for rule in ingress), ingress
+        assert ingress
+        assert not [rule for rule in ingress if "cidr" in rule], ingress
+        assert not [rule for rule in ingress if "prefix_list" in rule], ingress
     assert "security_groups = [aws_security_group.lambda.id]" in alb
     assert "security_groups = [aws_security_group.alb.id]" in ecs
     for tf in sorted(ROOT.joinpath("terraform").rglob("*.tf")):

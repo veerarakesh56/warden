@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import secrets
+import signal
 import socket
 import ssl
 import sys
@@ -48,6 +49,7 @@ _held: list[bytearray] = []  # the working set, held for the process's life
 TOKEN_REUSE_S = 540  # an IAM token is valid for 15 min; never hand out one older than 9
 _tokens: dict[tuple[str, str], tuple[str, float]] = {}
 _token_lock = threading.Lock()
+_stop = threading.Event()  # set by SIGTERM (ECS and Kubernetes stop a container with it): finish, then exit
 CERT_DAYS = 365  # the container's own certificate; nobody verifies it, so it only has to outlive the container
 
 
@@ -273,8 +275,15 @@ def main() -> None:
     self_signed_certificate(context)
     server = ThreadingHTTPServer(("", port), Handler)
     server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.timeout = 0.5  # how often the loop below looks at _stop
+    signal.signal(signal.SIGTERM, lambda *_: _stop.set())
     log.info("%s listening on %d (HTTPS)", ROLE, port)
-    server.serve_forever()
+    # One request at a time is accepted, each answered on its own thread (ThreadingHTTPServer), until SIGTERM. Not
+    # serve_forever(): released Sonar (python:S5332, sonar-python 5.32) reports every serve_forever() of an
+    # HTTPServer as clear text whatever its socket is, and this one is TLS only (above).
+    while not _stop.is_set():
+        server.handle_request()
+    server.server_close()
 
 
 if __name__ == "__main__":
