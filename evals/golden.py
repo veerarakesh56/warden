@@ -18,8 +18,10 @@ injected (healthy log lines, unrelated metrics) must reach the same outcome: the
 Run over the five bundled demo incidents and every no-fault case.
 
     python evals/golden.py            # offline: the deterministic mock model, no network, no cost
-    python evals/golden.py --live     # COSTS MONEY: the configured real model (WARDEN_PROVIDER) answers each
-                                      # case 3 times; off by default, never run by CI (the owner's paid run)
+    python evals/golden.py --live --model claude-sonnet-5-5 --budget-usd 3 [--dry-run]
+                                      # COSTS MONEY: the configured provider (WARDEN_PROVIDER) answers; prints the
+                                      # estimate first, refuses to start over --budget-usd, holds it as a hard
+                                      # ceiling; never run by CI (the owner's paid run, from the cloud runtime)
 
 ⚠ OFFLINE, this measures WARDEN's deterministic half - evidence reading, the mock's routing, the gate - on these
 inputs, exactly like evals/test_evals.py. It is NOT a measure of a live model: that is the `--live` run, whose
@@ -31,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import pathlib
 import re
 import sys
@@ -203,19 +206,157 @@ def perturbation_drift(cases: list[Case], llm_factory: Callable[[], LLMClient]) 
     return drift
 
 
+# --------------------------------------------------------------------------- the paid run: estimate and hard cap
+#
+# The --live run prints its estimate before any call and refuses to start when the estimate is over --budget-usd;
+# while it runs, --budget-usd is a hard ceiling (Spend). Prices are the model's own row in providers.yaml `prices`
+# (Claude API list prices, checked 2026-10-21: Sonnet 5.5 $2/$10, Opus 5.5 $4/$20 per 1M tokens) - never a default.
+
+CHARS_PER_TOKEN = 4.0        # llm.py's own count: the expected estimate
+CHARS_PER_TOKEN_LOW = 3.0    # counted low, so the high end errs high
+EXPECTED_OUT_TOKENS = 2_500  # per answer, thinking included; errs high (lane AB measured ~1,300-2,100 per answer)
+ATTEMPTS_MAX = 3             # llm.structured: one call and at most two retries
+
+
+class BudgetStop(RuntimeError):
+    """The budget left cannot pay for one more run: the paid run stops here."""
+
+
+SUITES = ("all", "no_fault", "perturbation")
+
+
+def planned_runs(suite: str = "all", n: int = K) -> list[Case]:
+    """Every run main() makes for `suite`, in order: each no-fault case n times, then each case and its
+    perturbations once."""
+    nf = no_fault_cases()
+    runs = [c for c in nf for _ in range(n)] if suite in ("all", "no_fault") else []
+    if suite in ("all", "perturbation"):
+        for case in demo_cases() + nf:
+            runs += [case, *(perturb(case) for perturb in PERTURBATIONS.values())]
+    return runs
+
+
+class _Measure:
+    """A stand-in model that records the exact system prompt and prompt each run would send, and hands off."""
+
+    name = "measure"
+    model = "measure"
+
+    def __init__(self) -> None:
+        self.chars: list[int] = []
+
+    def complete(self, *, system: str, user: str, schema=None):
+        from warden.providers import Completion
+
+        self.chars.append(len(system) + len(user))
+        answer = {"root_cause": {"hypothesis": "h", "confidence": 0.1, "evidence": ["e"]},
+                  "proposal": {"action": "escalate_to_human", "target": "oncall", "reasoning": "r",
+                               "expected_effect": "e", "blast_radius": "single_pod", "reversible": True}}
+        return Completion(json.dumps(answer), 0, 0)
+
+
+def prompt_chars(runs: list[Case]) -> list[int]:
+    """The characters each run sends the model, measured by rendering it offline (no model, no network)."""
+    measure = _Measure()
+    for case in runs:
+        run_case(case, LLMClient(provider=measure, mock=False))
+    if len(measure.chars) != len(runs):
+        raise RuntimeError(f"measured {len(measure.chars)} prompts for {len(runs)} runs")
+    return measure.chars
+
+
+def listed_price(model: str) -> tuple[float, float]:
+    """USD per 1M tokens (input, output): the model's own row in providers.yaml `prices`, or the run is refused."""
+    from warden.providers import load_qualified
+
+    row = (load_qualified().get("prices") or {}).get(model)
+    if not (isinstance(row, list) and len(row) == 2 and all(isinstance(v, int | float) and v >= 0 for v in row)):
+        raise SystemExit(f"{model!r} has no row in providers.yaml `prices`: its cost cannot be estimated")
+    return float(row[0]), float(row[1])
+
+
+def estimate(model: str, chars: list[int]) -> dict[str, Any]:
+    """Expected: one answer per run. High: every run retried to its last attempt, tokens counted low."""
+    p_in, p_out = listed_price(model)
+    total = sum(chars)
+    expected = (total / CHARS_PER_TOKEN) * p_in / 1e6 + len(chars) * EXPECTED_OUT_TOKENS * p_out / 1e6
+    high = ATTEMPTS_MAX * ((total / CHARS_PER_TOKEN_LOW) * p_in / 1e6 + len(chars) * EXPECTED_OUT_TOKENS * p_out / 1e6)
+    return {"model": model, "price_per_mtok": [p_in, p_out], "runs": len(chars),
+            "input_tokens": round(total / CHARS_PER_TOKEN), "expected_usd": round(expected, 2),
+            "high_usd": round(high, 2)}
+
+
+class Spend:
+    """--budget-usd as a hard ceiling. Each run's client may spend only what is left minus one call's largest
+    possible output (the one cost known only after a call: llm.py checks a call's input before it, its output after),
+    so the total can never pass the budget; a run is not started when what is left cannot pay for it."""
+
+    def __init__(self, budget_usd: float, price_out: float, per_run_usd: float) -> None:
+        from warden.providers import MAX_OUTPUT_TOKENS
+
+        if not budget_usd > 0:
+            raise ValueError("the budget must be a positive number of USD")
+        self.budget = budget_usd
+        self.reserve = MAX_OUTPUT_TOKENS * price_out / 1e6
+        self.per_run = per_run_usd
+        self.clients: list[LLMClient] = []
+
+    def spent(self) -> float:
+        return sum(c.cost.usd for c in self.clients)
+
+    def client(self) -> LLMClient:
+        left = self.budget - self.spent() - self.reserve
+        if left < self.per_run:
+            raise BudgetStop(f"${self.spent():.2f} of ${self.budget:.2f} spent: what is left cannot pay for another run")
+        made = LLMClient(mock=False, max_usd=left)
+        self.clients.append(made)
+        return made
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--live", action="store_true", help="COSTS MONEY: the configured real model answers")
+    parser.add_argument("--model", help="with --live: the model, one with a row in providers.yaml `prices`")
+    parser.add_argument("--budget-usd", type=float, help="with --live: a hard ceiling; over the estimate, no start")
+    parser.add_argument("--dry-run", action="store_true", help="with --live: print the estimate, make no call")
+    parser.add_argument("--suite", choices=SUITES, default="all", help="the no-fault set, the perturbations, or both")
     args = parser.parse_args(argv)
 
-    def factory() -> LLMClient:
-        return LLMClient(mock=not args.live)
+    factory: Callable[[], LLMClient] = _offline
+    spend = None
+    if args.live:
+        if not args.model or args.budget_usd is None:
+            parser.error("--live needs --model and --budget-usd")
+        est = estimate(args.model, prompt_chars(planned_runs(args.suite)))
+        print(json.dumps({"estimate": est}, indent=1), flush=True)  # before any call
+        if not args.budget_usd > 0 or est["expected_usd"] > args.budget_usd:
+            print(f"refused: the estimate ${est['expected_usd']:.2f} is over --budget-usd ${args.budget_usd:.2f}",
+                  file=sys.stderr)
+            return 2
+        if args.dry_run:
+            return 0
+        os.environ["WARDEN_MODEL"] = args.model
+        spend = Spend(args.budget_usd, est["price_per_mtok"][1], est["expected_usd"] / est["runs"])
+        factory = spend.client
 
-    scored = score_no_fault(no_fault_cases(), factory)
-    drift = perturbation_drift(demo_cases() + no_fault_cases(), factory)
-    print(json.dumps({"model": "live" if args.live else "mock", **{k: v for k, v in scored.items() if k != "rows"},
-                      "perturbation_drift": drift}, indent=1))
-    return 0 if scored["pass_hat_k"] == 1.0 and not drift else 1
+    out: dict[str, Any] = {"model": args.model if args.live else "mock", "suite": args.suite}
+    try:
+        if args.suite in ("all", "no_fault"):
+            out.update({k: v for k, v in score_no_fault(no_fault_cases(), factory).items() if k != "rows"})
+        if args.suite in ("all", "perturbation"):
+            out["perturbation_drift"] = perturbation_drift(demo_cases() + no_fault_cases(), factory)
+    except BudgetStop as exc:
+        print(f"stopped: {exc}", file=sys.stderr)
+        return 3
+    finally:
+        if spend:
+            out.update(spent_usd=round(spend.spent(), 4), budget_usd=spend.budget)
+    print(json.dumps(out, indent=1))
+    return 0 if out.get("pass_hat_k", 1.0) == 1.0 and not out.get("perturbation_drift") else 1
+
+
+def _offline() -> LLMClient:
+    return LLMClient(mock=True)
 
 
 if __name__ == "__main__":

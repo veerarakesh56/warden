@@ -139,3 +139,100 @@ def test_offline_main_reports_a_clean_run(capsys):
 ])
 def test_what_counts_as_no_fix(action, verdict, no_fix):
     assert golden.Outcome(action, verdict).no_fix is no_fix
+
+
+# --------------------------------------------------------------------------- the paid run's estimate and hard cap
+
+def test_the_planned_runs_are_what_main_makes():
+    no_fault, demo = len(golden.no_fault_cases()), len(golden.demo_cases())
+    assert len(golden.planned_runs("no_fault")) == no_fault * golden.K
+    assert len(golden.planned_runs("perturbation")) == (no_fault + demo) * (1 + len(golden.PERTURBATIONS))
+    assert len(golden.planned_runs()) == len(golden.planned_runs("no_fault")) + len(golden.planned_runs("perturbation"))
+
+
+def test_the_estimate_is_measured_from_the_rendered_prompts_at_the_listed_price():
+    from warden.graph import SYSTEM_DIAGNOSE
+
+    runs = golden.planned_runs("no_fault")[:6]
+    chars = golden.prompt_chars(runs)
+    assert len(chars) == 6 and all(c > len(SYSTEM_DIAGNOSE) for c in chars)
+    assert golden.listed_price("claude-sonnet-5-5") == (2.0, 10.0)
+    assert golden.listed_price("claude-opus-5-5") == (4.0, 20.0)
+    est = golden.estimate("claude-opus-5-5", chars)
+    want = sum(chars) / 4 * 4.0 / 1e6 + 6 * golden.EXPECTED_OUT_TOKENS * 20.0 / 1e6
+    assert est["expected_usd"] == pytest.approx(want, abs=0.01) and est["high_usd"] > est["expected_usd"]
+    with pytest.raises(SystemExit, match="no row"):
+        golden.listed_price("some-unpriced-model")
+
+
+def _no_spend(*_a, **_kw):
+    raise AssertionError("a paid client was made")
+
+
+def test_live_needs_a_model_and_a_budget(monkeypatch):
+    monkeypatch.setattr(golden, "Spend", _no_spend)
+    for argv in (["--live"], ["--live", "--model", "claude-sonnet-5-5"], ["--live", "--budget-usd", "5"]):
+        with pytest.raises(SystemExit):
+            golden.main(argv)
+
+
+def test_live_over_the_budget_prints_the_estimate_and_refuses_to_start(monkeypatch, capsys):
+    monkeypatch.setattr(golden, "Spend", _no_spend)
+    assert golden.main(["--live", "--model", "claude-opus-5-5", "--budget-usd", "0.5", "--suite", "no_fault"]) == 2
+    out = capsys.readouterr()
+    assert json.loads(out.out)["estimate"]["expected_usd"] > 0.5 and "refused" in out.err
+    assert golden.main(["--live", "--model", "claude-opus-5-5", "--budget-usd", "1000", "--dry-run"]) == 0
+
+
+def _paid_stand_in(monkeypatch, out_tokens: int):
+    """Spend's clients answer through a stand-in at the listed price, each answer `out_tokens` long."""
+    monkeypatch.setenv("WARDEN_MODEL", "claude-sonnet-5-5")  # main() sets it; restored after the test
+    real = golden.LLMClient
+    model = _Answers(_answer("escalate_to_human", "oncall"))
+    model.model = "claude-sonnet-5-5"
+    model.complete = lambda **_kw: Completion(_answer("escalate_to_human", "oncall"), 3_000, out_tokens)
+
+    def client(**kw):
+        kw.setdefault("provider", model)
+        return real(**kw)
+    monkeypatch.setattr(golden, "LLMClient", client)
+
+
+def test_the_budget_is_a_hard_ceiling_even_when_every_answer_is_as_long_as_it_can_be(monkeypatch, capsys):
+    from warden.providers import MAX_OUTPUT_TOKENS
+
+    _paid_stand_in(monkeypatch, MAX_OUTPUT_TOKENS)
+    budget = 3.0  # over the estimate (it starts), far under what 99 maximal answers cost (it must stop)
+    assert golden.main(["--live", "--model", "claude-sonnet-5-5", "--budget-usd", str(budget),
+                        "--suite", "no_fault"]) == 3
+    assert "stopped" in capsys.readouterr().err
+    spend = golden.Spend(budget, 10.0, 0.01)
+    with pytest.raises(golden.BudgetStop):
+        for _ in range(1000):
+            golden.run_case(golden.no_fault_cases()[0], spend.client())
+    assert 0 < spend.spent() <= budget
+
+
+def test_a_run_within_the_budget_completes_and_reports_what_it_spent(monkeypatch, capsys):
+    _paid_stand_in(monkeypatch, 500)
+    assert golden.main(["--live", "--model", "claude-sonnet-5-5", "--budget-usd", "3", "--suite", "no_fault"]) == 0
+    out = json.loads(capsys.readouterr().out.split("\n}\n", 1)[1])
+    assert out["pass_hat_k"] == 1.0 and 0 < out["spent_usd"] <= out["budget_usd"] == 3.0
+
+
+def test_a_run_that_retries_cannot_spend_past_the_budget(monkeypatch):
+    """A malformed answer is asked again (three attempts per run): each client is capped at what is left."""
+    from warden.providers import MAX_OUTPUT_TOKENS
+
+    monkeypatch.setenv("WARDEN_MODEL", "claude-sonnet-5-5")
+    real = golden.LLMClient
+    model = _Answers("not json")
+    model.model = "claude-sonnet-5-5"
+    model.complete = lambda **_kw: Completion("not json", 3_000, MAX_OUTPUT_TOKENS)
+    monkeypatch.setattr(golden, "LLMClient", lambda **kw: real(**{"provider": model, **kw}))
+    budget = 1.0
+    spend = golden.Spend(budget, 10.0, 0.01)
+    with pytest.raises(golden.BudgetStop):
+        for _ in range(100):
+            golden.run_case(golden.no_fault_cases()[0], spend.client())
+    assert 0 < spend.spent() <= budget
