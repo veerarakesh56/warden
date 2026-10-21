@@ -5,7 +5,10 @@ Each signal below is a fact on the incident's signed record, and the block shows
 the level:
 
 - evidence: what WARDEN read - something was read, and no read failed;
-- grounded: the diagnosis's citations name real evidence and quote it (no P13, P14 or P15);
+- diagnosis: WARDEN's own confidence in the diagnosis, as it was recorded when the rules checked it
+  (`incident.verify`'s `warden_confidence`, confidence.py, PR 132) - high passes, low fails, medium says no more; an
+  incident recorded before WARDEN kept it says "not recorded", and it is never worked out again here, so the page
+  shows one level for the diagnosis, the one on the record;
 - rules: WARDEN's deterministic rules let the answer stand - the verdict was not rejected, and nothing but the model's
   own low confidence (P4, which this block does not count either way) escalated it;
 - second opinion: a second, independent diagnosis of the same evidence named the same action on the same target;
@@ -13,7 +16,8 @@ the level:
 - proven fix: a record this one is linked to as sharing its cause holds a fix that was applied and verified (only when
   the record carries linked records, links.py).
 
-The level: **Low** when any signal failed; **High** when evidence, grounded and rules all passed and at least one of
+The level - the trust in this outcome: **Low** when any signal failed; **High** when evidence, diagnosis and rules all
+passed and at least one of
 second opinion, fix verified and proven fix backs them; **Medium** otherwise - nothing failed, but not enough was
 checked to say more.
 """
@@ -24,15 +28,15 @@ from dataclasses import dataclass
 from typing import Any
 
 LOW, MEDIUM, HIGH = "Low", "Medium", "High"
-EVIDENCE, GROUNDED, RULES = "evidence", "grounded", "rules"  # the signals, by name
+EVIDENCE, DIAGNOSIS, RULES = "evidence", "diagnosis", "rules"  # the signals, by name
 SECOND, FIX, PROVEN = "second opinion", "fix verified", "proven fix"
 COLOUR = {LOW: "bad", MEDIUM: "warn", HIGH: "ok"}  # red, amber, green on the records page
-GROUNDING = frozenset({"P13-UNGROUNDED", "P14-TARGET-NOT-IN-EVIDENCE", "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"})
+RECORDED_LEVELS = ("low", "medium", "high")  # confidence.py's levels, as the verify row records them
 SELF_CONFIDENCE = frozenset({"P4-LOW-CONFIDENCE"})  # the model's own confidence: not a signal here, either way
 NO_DIAGNOSIS = "P0-MODEL-UNAVAILABLE"
 FAILED_FIX = frozenset({"relapsed", "rolled_back", "not_recovered", "rollback_failed", "apply_failed", "side_effects",
                         "failed_after_apply", "cancelled_after_apply"})
-BASE = (EVIDENCE, GROUNDED, RULES)
+BASE = (EVIDENCE, DIAGNOSIS, RULES)
 GATHER = "incident.gather"  # the evidence read; every check below must come after the newest one
 BACKING = (SECOND, FIX, PROVEN)
 
@@ -99,14 +103,30 @@ def _verify(r: Any) -> tuple[str, set[str]] | None:
     return (str(v.get("status") or ""), {str(p) for p in v.get("policies") or []}) if v else None
 
 
-def _grounded(r: Any) -> Signal:
-    v = _verify(r)
-    if v is None or NO_DIAGNOSIS in v[1]:
-        return Signal(GROUNDED, None, "there was no diagnosis to check")
-    fired = sorted(v[1] & GROUNDING)
-    if fired:
-        return Signal(GROUNDED, False, f"the citations did not hold ({', '.join(fired)})")
-    return Signal(GROUNDED, True, "every citation names real evidence and quotes it")
+def recorded(r: Any) -> dict[str, Any] | None:
+    """WARDEN's confidence in the diagnosis exactly as the last verify row recorded it (PR 132): its level and each
+    check's name and whether it held - or None when the row has none in that shape (an incident from before it was
+    recorded, or no diagnosis). Never worked out again here."""
+    v = _last(r, "incident.verify")
+    got = (v or {}).get("warden_confidence")
+    if not isinstance(got, dict) or got.get("level") not in RECORDED_LEVELS:
+        return None
+    checks = [{"name": str(c["name"]), "met": c["met"]} for c in got.get("checks") or []
+              if isinstance(c, dict) and isinstance(c.get("name"), str) and isinstance(c.get("met"), bool)]
+    return {"level": got["level"], "checks": checks}
+
+
+def _diagnosis(r: Any) -> Signal:
+    if _verify(r) is None and _last(r, "incident.verify") is not None:
+        return Signal(DIAGNOSIS, None, "WARDEN's confidence was recorded for evidence read before the newest")
+    got = recorded(r)
+    if got is None:
+        return Signal(DIAGNOSIS, None, "WARDEN's confidence in the diagnosis is not recorded for this incident")
+    if got["level"] == "high":
+        return Signal(DIAGNOSIS, True, "WARDEN's own checks of the diagnosis all held (recorded: high)")
+    if got["level"] == "low":
+        return Signal(DIAGNOSIS, False, "WARDEN's own checks of the diagnosis did not hold (recorded: low)")
+    return Signal(DIAGNOSIS, None, "WARDEN's own checks of the diagnosis held only in part (recorded: medium)")
 
 
 def _rules(r: Any) -> Signal:
@@ -114,7 +134,7 @@ def _rules(r: Any) -> Signal:
     if v is None:
         return Signal(RULES, None, "the rules have not checked a diagnosis of the newest evidence yet")
     status, fired = v
-    others = sorted(fired - SELF_CONFIDENCE - GROUNDING - {NO_DIAGNOSIS})
+    others = sorted(fired - SELF_CONFIDENCE - {NO_DIAGNOSIS})
     if status == "rejected":
         return Signal(RULES, False, f"the rules rejected the answer ({', '.join(others) or 'rejected'})")
     if status == "escalated" and others:
@@ -159,7 +179,7 @@ def _proven(r: Any) -> Signal:
 
 def block(r: Any) -> Block:
     """The confidence block of a record built with its steps (records.record, not `light`)."""
-    signals = [_evidence(r), _grounded(r), _rules(r), _second(r), _fix(r), _proven(r)]
+    signals = [_evidence(r), _diagnosis(r), _rules(r), _second(r), _fix(r), _proven(r)]
     by = {s.name: s for s in signals}
     failed = [s.name for s in signals if s.passed is False]
     if failed:
