@@ -153,7 +153,8 @@ def test_openai_adapter_maps_text_and_usage(monkeypatch):
     out = p.complete(system="s", user="u")
     assert isinstance(out, Completion)
     assert out.text == '{"a":1}'
-    assert out.input_tokens == 111 and out.output_tokens == 22
+    assert out.input_tokens == 111
+    assert out.output_tokens == 22
 
 
 def test_openai_adapter_estimates_when_the_provider_reports_no_usage(monkeypatch):
@@ -231,6 +232,7 @@ def test_openai_org_and_project_ids_stay_with_openai(monkeypatch, alias):
     monkeypatch.setenv("GROQ_API_KEY", "g")
     monkeypatch.setenv("OPENROUTER_API_KEY", "o")
     headers = {k: v for k, v in resolve(alias)._client.default_headers.items() if isinstance(v, str)}
-    assert "org-the-openai-org" not in str(headers) and "proj-the-openai-project" not in str(headers)
+    assert "org-the-openai-org" not in str(headers)
+    assert "proj-the-openai-project" not in str(headers)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-the-openai-key")
     assert OpenAICompatProvider()._client.organization == "org-the-openai-org"
