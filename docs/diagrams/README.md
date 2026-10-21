@@ -10,7 +10,7 @@ Each `.drawio` file is the source. The `.svg` and `.png` files next to it are ex
 | `delivery.drawio` | `delivery.svg`, `.png` | Branches, pipelines, the Helios gate and the OIDC deploy roles |
 | `aws-architecture.drawio` | `aws-architecture.svg`, `.png` | What runs where in AWS: WARDEN's runtime (ops), the watched full stack (dev), the account-wide pieces, the outside services, open pull requests dashed and prod as planned |
 
-Every diagram says in its footer which commit it was drawn from. The README embeds the PNGs, which are lighter than the SVGs (1.6-8.9 MB, as draw.io adds
+Every diagram says in its footer which commit it was drawn from. The README embeds the PNGs, which are lighter than the SVGs (1.6-9.0 MB, as draw.io adds
 an image fallback for every label), and links each one to its SVG. Open pull requests and unmerged branches are
 drawn with a dashed yellow outline and labelled as open; nothing planned is drawn as built.
 
