@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import pathlib
 import re
 import secrets
@@ -304,14 +305,17 @@ def deploy_ecs(stack: dict, tag: str, aws, run=run, wait: bool = True) -> str:
 
 def record_in_stack(path: pathlib.Path, key: str, value: str) -> None:
     """Add one apps-pipeline fact to stack.json, in the file's own (wrapped or flat) format."""
-    real = path.expanduser().resolve()  # checked here too, beside the write (Sonar pythonsecurity:S2083, 2026-10-20)
-    bases = [b for b in (pathlib.Path(r).expanduser().resolve() for r in paths.work_roots()) if b.parent != b]
-    if not any(real.is_relative_to(b) for b in bases):
-        raise SystemExit(f"refused: {path} is outside the places the tools work ({', '.join(map(str, bases))})")
-    raw = json.loads(real.read_text(encoding="utf-8"))
+    # Checked here too, beside the read and the write (Sonar pythonsecurity:S2083, 2026-10-20).
+    real = os.path.realpath(os.path.expanduser(path))
+    bases = [b for b in (os.path.realpath(os.path.expanduser(r)) for r in paths.work_roots()) if os.path.dirname(b) != b]
+    if not any(real.startswith(os.path.join(b, "")) for b in bases):
+        raise SystemExit(f"refused: {path} is outside the places the tools work ({', '.join(bases)})")
+    with open(real, encoding="utf-8") as src:
+        raw = json.loads(src.read())
     wrapped = any(isinstance(v, dict) and "value" in v for v in raw.values())
     raw[key] = {"value": value, "sensitive": False, "type": "string"} if wrapped else value
-    real.write_text(json.dumps(raw, indent=1), encoding="utf-8")
+    with open(real, "w", encoding="utf-8") as out:
+        out.write(json.dumps(raw, indent=1))
 
 
 def render(manifest: str, values: dict[str, str]) -> str:

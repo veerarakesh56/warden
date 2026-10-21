@@ -319,19 +319,20 @@ def _contained(path: pathlib.Path, roots: list[pathlib.Path] | None = None) -> p
     else ValueError. Checked here, beside each write, and not only where a path enters: a scenario id read back from
     manifest.json or a record, or named by --rerun / --only, also builds a path (Sonar pythonsecurity:S2083/S8707,
     2026-10-20). A root that is a whole filesystem counts as none, as in warden.paths."""
-    real = pathlib.Path(path).expanduser().resolve()
-    for root in roots or paths.work_roots():
-        base = pathlib.Path(root).expanduser().resolve()
-        if base.parent != base and real.is_relative_to(base):
-            return real
-    raise ValueError(f"{path} lies outside {', '.join(map(str, roots or paths.work_roots()))}")
+    real = os.path.realpath(os.path.expanduser(path))
+    bases = [os.path.realpath(os.path.expanduser(root)) for root in (roots or paths.work_roots())]
+    for base in bases:
+        if os.path.dirname(base) != base and os.path.commonpath([base, real]) == base:
+            return pathlib.Path(real)
+    raise ValueError(f"{path} lies outside {', '.join(bases)}")
 
 
 def _write_json(path: pathlib.Path, payload: dict) -> None:
     """Write `payload` through the checked path only: never outside the places the tools work."""
-    real = _contained(path)
-    real.parent.mkdir(parents=True, exist_ok=True)
-    real.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    real = os.fspath(_contained(path))
+    os.makedirs(os.path.dirname(real), exist_ok=True)
+    with open(real, "w", encoding="utf-8") as out:
+        out.write(json.dumps(payload, indent=2, default=str))
 
 
 def _in_folder(folder: pathlib.Path, name: str) -> pathlib.Path:

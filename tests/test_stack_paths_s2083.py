@@ -86,3 +86,18 @@ def test_the_write_itself_refuses_a_stack_outside_the_places_the_tools_work(writ
     target = OUTSIDE_DIR / "stack.json"
     with pytest.raises(SystemExit, match="refused: .* is outside the places the tools work"):
         write(target)
+
+
+@pytest.mark.parametrize("write", [lambda p: aurora.merge_stack(p, {"k": "v"}),
+                                   lambda p: apps.record_in_stack(p, "k", "v")], ids=["merge_stack", "record_in_stack"])
+def test_a_sibling_whose_name_only_starts_like_a_working_place_is_refused(write, tmp_path, monkeypatch):
+    """`<root>-evil/x` is not inside `<root>`: the check compares whole path parts, not the first characters."""
+    root, sibling = tmp_path / "work", tmp_path / "work-evil"
+    root.mkdir()
+    sibling.mkdir()
+    (sibling / "stack.json").write_text("{}", encoding="utf-8")
+    for mod in (aurora, apps):
+        monkeypatch.setattr(mod.paths, "work_roots", lambda: [root])
+    with pytest.raises(SystemExit, match="refused: .* is outside the places the tools work"):
+        write(sibling / "stack.json")
+    assert (sibling / "stack.json").read_text(encoding="utf-8") == "{}"
