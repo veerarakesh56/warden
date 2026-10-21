@@ -117,7 +117,10 @@ def _post(domain: str, step: str, body: dict) -> tuple[int, dict]:
         with web.urlopen(req, timeout=30) as r:
             return r.status, json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read() or b"{}")
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except ValueError:  # not JSON: a redirect web refused, or a proxy's HTML page - the status still answers
+            return e.code, {}
 
 
 def main(argv: list[str] | None = None) -> int:
