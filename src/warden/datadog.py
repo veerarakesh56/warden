@@ -77,7 +77,7 @@ class DatadogReader:
             return self._call(method, url, body), ""
         except urllib.error.HTTPError as exc:
             return None, f"{PARTIAL}datadog {what}: HTTP {exc.code} - not read (late, limited or refused)"
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        except (OSError, ValueError) as exc:  # URLError and timeouts are OSErrors
             return None, f"{PARTIAL}datadog {what}: {type(exc).__name__} - not read"
 
     def logs(self, alert: Alert) -> list[str]:
