@@ -232,6 +232,19 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
    opens a 15-minute link where the approver creates a passkey. Save the approver list the page shows as the
    Parameter Store value `/warden/ops/approvers` and restart the workers. [OPERATIONS.md](OPERATIONS.md) covers
    rotating keys and passkeys.
+7. WARDEN's own pages repeat, in Slack and by email, every 15 minutes until an approver acknowledges them with a
+   passkey at `https://<approval domain>/p` (`terraform/modules/warden-runtime/paging.tf`). `/p` needs Sign in with
+   Slack (below) and an approver entry with no `environments` whose `slack` is that person's member id: without the
+   Slack app nobody reads or acknowledges the pages there, and they repeat until it is set up. Confirm the topic's
+   email subscription, and make `warden/ops/slack-webhook` a webhook of the channel to page. Optional:
+   - `/warden/ops/env/WARDEN_TEMPORAL_KEY_EXPIRES`: each Temporal API key's end, ISO times, comma-separated; a key
+     ending within 7 days pages. Update it whenever a key is rotated.
+   - `/warden/ops/tf/page_repeat_minutes`: how often a page repeats (default 15).
+   - `/warden/ops/tf/monthly_budget_usd`: a monthly cost budget before credits, emailing the topic at 80% spent and
+     100% forecast. It needs `budgets:ViewBudget` and `budgets:ModifyBudget` in `WardenEnvBoundary-ops` and
+     `WardenEnvDeploy-ops`, and a statement in the topic's access policy letting `budgets.amazonaws.com` publish.
+   A fix that was verified and did not hold is not offered again on WARDEN's own until an approver signs
+   `warden offer-again <incident> --approver <name> --key <private key file>` where the audit is reached.
 
 ## 6. Temporal Cloud
 
@@ -239,7 +252,7 @@ WARDEN's workflows run on Temporal. Create a namespace in Temporal Cloud and not
 gRPC address (`host:7233`); neither is secret, and they go into the two Parameter Store values above.
 
 Create one namespace-scoped service account per trust zone, so Temporal's audit log names the zone that called:
-`warden-ops-core`, `-read`, `-llm`, `-notify` and `-act`, each with the namespace permission **Write** (a worker
+`warden-ops-core`, `-read`, `-llm`, `-notify`, `-act` and `-critic` (Eldane, below), each with the namespace permission **Write** (a worker
 needs it to poll and complete tasks). Store each API key in its slot `warden/ops/temporal-api-key-<zone>`. Give
 every key an expiry and replace it before then.
 
@@ -250,6 +263,21 @@ base64-encoded, in `warden/ops/temporal-key`, for example from CloudShell withou
 aws secretsmanager put-secret-value --secret-id warden/ops/temporal-key \
   --secret-string "$(head -c 32 /dev/urandom | base64)"
 ```
+
+### Eldane, the AI critic (dev's approver)
+
+The sixth zone, `critic`, runs Eldane (`src/warden/eldane.py`). Until the two steps below are done it does nothing,
+and a person approves every plan in dev as in prod. Its model key is the diagnosis's own
+`warden/ops/anthropic-api-key`, which the critic zone may read too; it uses, for each incident, the other Claude
+model from the one that diagnosed it (`src/warden/data/providers.yaml`, `critic`).
+
+1. Its Temporal key: the service account `warden-ops-critic` above, its key in `warden/ops/temporal-api-key-critic`.
+2. Its signing key, on your own machine: `warden audit keygen --private eldane.pem --public eldane.pub.pem
+   --unencrypted`. Put the whole of `eldane.pem` into `warden/ops/eldane-key`, then delete the file. Add Eldane to the
+   approver list (`/warden/ops/approvers`) with the contents of `eldane.pub.pem`:
+   `eldane: {public_key: "<eldane.pub.pem>", tiers: [T1, T2], environments: [dev], ai: true}`. WARDEN always shows it
+   as "Eldane · AI critic", refuses it for T3 and in prod, and a person's "no" on the approval page stops any plan it
+   approved until the apply step starts. Demotions and a person's re-enable are in [OPERATIONS.md](OPERATIONS.md).
 
 ## 7. Slack
 

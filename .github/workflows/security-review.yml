@@ -8,6 +8,9 @@ name: "Review · security (optional)"
 # It holds no cloud identity and deploys nothing; it reads the diff and comments on the pull request.
 on:
   pull_request:
+    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # marked ready for review, and on every push after that.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
 
 permissions: {}
@@ -19,7 +22,8 @@ concurrency:
 jobs:
   security-review:
     if: >-
-      vars.WARDEN_SECURITY_REVIEW == 'on'
+      github.event.pull_request.draft == false
+      && vars.WARDEN_SECURITY_REVIEW == 'on'
       && github.event.pull_request.head.repo.full_name == github.repository
       && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04

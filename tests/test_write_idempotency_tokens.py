@@ -13,9 +13,10 @@ import re
 import botocore.session
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-# The IAM prefix as botocore names the service (where they differ). apigateway:PATCH is REST, not an operation.
+# The IAM prefix as botocore names the service (where they differ). apigateway:PATCH is REST, not an operation;
+# rds-db:connect is a database sign-in token (platforms/db.py), no API call at all.
 SERVICE = {"elasticloadbalancing": "elbv2"}
-NOT_OPERATIONS = {"apigateway:PATCH"}
+NOT_OPERATIONS = {"apigateway:PATCH", "rds-db:connect"}
 TOKENS = ("ClientToken", "ClientRequestToken", "clientToken", "IdempotencyToken", "RevisionId")
 
 

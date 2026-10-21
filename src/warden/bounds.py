@@ -60,6 +60,10 @@ def trip(log: AuditLog, correlation_id: str, reason: str, **run: str) -> None:
     review, 2026-10-01). A reset names the latest trip."""
     log.append(correlation_id, TRIPPED, {"reason": reason, **run})
     log.checkpoint()
+    # A person is paged, and paged again until one acknowledges (owner, 2026-10-16): the count's alarm does it.
+    from .paging import killswitch_tripped
+
+    killswitch_tripped()
 
 
 def trips(log: AuditLog) -> list[dict]:

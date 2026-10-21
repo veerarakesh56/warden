@@ -333,6 +333,51 @@ def _approver_key(path: pathlib.Path):
     return audit.load_private_key(_key_file(path), os.environ.get("WARDEN_APPROVER_KEY_PASSPHRASE", "").encode() or None)
 
 
+async def _autonomy_command(args: argparse.Namespace) -> int:
+    """A person turns autonomy back on in an environment after a demotion (autonomy.enable, owner 2026-10-17), through
+    the runtime's own AutonomyWorkflow: every demotion is shown first, and the approver states how many they read - the
+    signature covers exactly those, as a kill switch reset does."""
+    import uuid
+
+    from . import approvals, runtime
+    from .workflows import AutonomyWorkflow
+
+    client = await runtime.connect()
+    handle = await client.start_workflow(AutonomyWorkflow.run, args.environment,
+                                         id=f"autonomy-{args.environment}-{uuid.uuid4().hex[:12]}",
+                                         task_queue=runtime.TASK_QUEUE)
+    state = None
+    for _ in range(120):
+        if (state := await handle.query(AutonomyWorkflow.state)) is not None:
+            break
+        await asyncio.sleep(0.5)
+    if state is None:
+        await handle.cancel()
+        _out("error: the runtime did not answer: is a core worker running?", err=True)
+        return 1
+    shown = state["demotions"]
+    _out(f"autonomy in {args.environment}: at most {state['ceiling']}; "
+         f"{len(shown)} demotion{'s' if len(shown) != 1 else ''} since a person last enabled it")
+    for why in shown:
+        _out(f"  - {_one(why)}")
+    if args.autonomy_cmd == "status" or not shown or args.demotions != len(shown):
+        await handle.cancel()
+        if args.autonomy_cmd == "enable" and shown:
+            _out(f"not enabled: you reviewed {args.demotions}, there are {len(shown)}; check them and pass "
+                 f"--demotions {len(shown)}")
+            return 1
+        return 0
+    signed = approvals.sign(_approver_key(args.key), approver=args.approver, workflow_id=f"autonomy-{args.environment}",
+                            plan_hash=state["plan_hash"], tier="T3")
+    await handle.signal(AutonomyWorkflow.enable, signed)
+    problems = await handle.result()
+    for problem in problems:
+        _out(f"not enabled: {_one(problem)}")
+    if not problems:
+        _out(f"autonomy in {args.environment} is enabled again, signed by {args.approver} and recorded")
+    return 1 if problems else 0
+
+
 def _enrol_command(args: argparse.Namespace) -> int:
     """A link for enrolling a passkey on the approval page, signed here with the approver's own key - and opened in
     this machine's browser, never printed: whoever holds the link may use it, and a terminal is an egress (_out)."""
@@ -367,23 +412,41 @@ AWS_PLATFORMS = ("lambda", "events", "dynamodb", "ecs", "rds", "sqs", "athena", 
                  "ec2", "asg", "kms", "secretsmanager", "kinesis")
 
 
-def _platform(choice: str):
-    """The platforms a worker connects (decision D16). Building one reads its credentials now, so a worker
-    that cannot reach what it was told to change fails at start, not in the middle of an approved fix."""
+PLATFORM_KINDS = ("k8s", "db", "aws")
+
+
+def _platform_choice(value: str) -> frozenset[str]:
+    """`none`, `all`, or a comma-separated list of PLATFORM_KINDS (`aws,k8s`)."""
+    if value == "none":
+        return frozenset()
+    kinds = frozenset(PLATFORM_KINDS) if value == "all" else frozenset(v.strip() for v in value.split(","))
+    if not kinds or not kinds <= set(PLATFORM_KINDS):
+        raise argparse.ArgumentTypeError(f"{value!r}: none, all, or a list of {', '.join(PLATFORM_KINDS)}")
+    return kinds
+
+
+def _platform(choice: str | frozenset[str]):
+    """The platforms a worker connects (decision D16). Locally, building one reads its credentials now, so a worker
+    that cannot reach what it was told to change fails at start, not in the middle of an approved fix. In the cloud
+    runtime (WARDEN_AWS_ROLE_ARN_TEMPLATE set) Kubernetes and the database are each watched environment's own, reached
+    through that environment's roles when a plan names it: an environment without an EKS cluster or a database
+    configured reads and changes nothing there, and its plans go to a person."""
     from .platforms import RoutedPlatform
 
-    if choice == "none":
+    kinds = _platform_choice(choice) if isinstance(choice, str) else choice
+    if not kinds:
         return None
+    cloud = bool(os.environ.get("WARDEN_AWS_ROLE_ARN_TEMPLATE", "").strip())
     platforms = {}
-    if choice in ("k8s", "all"):
-        from .platforms.k8s import KubernetesPlatform
+    if "k8s" in kinds:
+        from .platforms.k8s import KubernetesPlatform, eks_from_environment
 
-        platforms["k8s"] = KubernetesPlatform()
-    if choice in ("db", "all"):
-        from .platforms.db import DatabasePlatform
+        platforms["k8s"] = eks_from_environment() if cloud else KubernetesPlatform()
+    if "db" in kinds:
+        from .platforms.db import DatabasePlatform, db_from_environment
 
-        platforms["db"] = DatabasePlatform()
-    if choice in ("aws", "all"):
+        platforms["db"] = db_from_environment() if cloud else DatabasePlatform()
+    if "aws" in kinds:
         from .platforms.aws import from_environment
 
         aws = from_environment()
@@ -428,7 +491,7 @@ async def _workflow_command(args: argparse.Namespace) -> int:
             if problem:
                 _out(f"error: {problem}", err=True)
                 return 1
-            _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {args.platform}); "
+            _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {','.join(sorted(args.platform)) or 'none'}); "
                  "Ctrl+C to stop")
             publish = runtime.cloudwatch_publisher()
             if publish is None:
@@ -498,6 +561,39 @@ def _usage_command(args: argparse.Namespace) -> int:
     if not rows:
         _out(f"no model use recorded in the last {args.days} day(s)")
     return 0
+
+
+def _offer_again_command(args: argparse.Namespace) -> int:
+    """Item 11: a fix that did not hold is offered again only after an approver signs that it may be - each fix of
+    this incident that is still held back, whether its alarm came back in the soak or a re-check failed."""
+    from . import approvals, history, runtime
+
+    log = runtime.open_audit()
+    held, elsewhere = [], 0
+    for entry, target in history.failed_in(log, args.incident):
+        by = history.did_not_hold(log, entry, target)[0]
+        if by and by != args.incident:
+            # Its latest failure is another incident's (CodeRabbit, PR 43): that one is read and cleared by name.
+            _out(f"`{entry}` on `{target}` is held back by a later failure, in incident {by}: read it, then run "
+                 f"`warden offer-again {by}`", err=True)
+            elsewhere += 1
+        elif by:
+            held.append((entry, target))
+    if not held:
+        if not elsewhere:
+            _out(f"nothing to clear: no fix of {args.incident} is held back as not holding", err=True)
+        return 1
+    key, policy = _approver_key(args.key), runtime.approver_policy()
+    for entry, target in held:
+        failed_at = max(history.failures(log, entry, target))[0]
+        signed = approvals.sign(key, approver=args.approver, workflow_id=history.OFFER_AGAIN_WORKFLOW,
+                                plan_hash=history.offer_again_hash(entry, target, failed_at), tier="T2")
+        problems = history.offer_again(log, signed, policy=policy, entry=entry, target=target)
+        if problems:
+            _out(f"`{entry}` on `{target}` not cleared: " + "; ".join(problems), err=True)
+            return 1
+        _out(f"`{entry}` on `{target}` may be offered again; every plan still waits for an approval")
+    return 1 if elsewhere else 0
 
 
 def _label_command(args: argparse.Namespace) -> int:
@@ -714,11 +810,11 @@ def _main(argv: list[str] | None = None) -> int:
     p_migrate.add_argument("--writer-role", required=True, help="the runtime's database role: SELECT and INSERT only")
 
     p_worker = sub.add_parser("worker", help="run the workflow worker against the Temporal server")
-    p_worker.add_argument("--platform", choices=("none", "k8s", "db", "aws", "all"), default="none",
+    p_worker.add_argument("--platform", type=_platform_choice, default="none",
                           help="what this worker may change, behind a signed approval: none (default - every "
                                "remediation is refused), k8s (WARDEN_K8S_NAMESPACE), db (WARDEN_DB_TERMINATE_DSN, "
-                               "WARDEN_DB_APP_USERS), or all")
-    p_worker.add_argument("--zone", choices=("all", "core", "read", "llm", "notify", "act"), default="all",
+                               "WARDEN_DB_APP_USERS), aws, a comma-separated list of those, or all")
+    p_worker.add_argument("--zone", choices=("all", "core", "read", "llm", "notify", "act", "critic"), default="all",
                           help="the trust zone this process serves (register S15): core runs the workflows and the "
                                "audit's steps, read/llm/notify/act only that zone's activities with only its "
                                "credentials; all runs every zone in one process (default)")
@@ -750,6 +846,17 @@ def _main(argv: list[str] | None = None) -> int:
     p_reset.add_argument("--key", required=True, type=pathlib.Path)
     p_reset.add_argument("--trips", required=True, type=int, help="how many trips you reviewed (`warden killswitch status`)")
 
+    p_auto = sub.add_parser("autonomy", help="see an environment's demotions, or re-enable its autonomy (signed, T3)")
+    auto_sub = p_auto.add_subparsers(dest="autonomy_cmd", required=True)
+    p_astatus = auto_sub.add_parser("status")
+    p_astatus.add_argument("--environment", required=True)
+    p_enable = auto_sub.add_parser("enable", help="after a demotion: Eldane approves alone again (never in prod)")
+    p_enable.add_argument("--environment", required=True)
+    p_enable.add_argument("--approver", required=True)
+    p_enable.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_enable.add_argument("--demotions", required=True, type=int,
+                          help="how many demotions you reviewed (`warden autonomy status`)")
+
     p_usage = sub.add_parser("usage", help="model calls, tokens and cost per day, from the audit")
     p_usage.add_argument("--days", type=int, default=30)
     p_link = sub.add_parser("link", help="link two incidents' records, signed: a similar incident then finds the proven fix")
@@ -768,6 +875,10 @@ def _main(argv: list[str] | None = None) -> int:
     p_label.add_argument("--note", help="optional, up to 500 characters")
     p_label.add_argument("--approver", required=True)
     p_label.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_again = sub.add_parser("offer-again", help="let WARDEN offer again a fix that did not hold (your signed decision)")
+    p_again.add_argument("incident")
+    p_again.add_argument("--approver", required=True)
+    p_again.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
 
     args = parser.parse_args(argv)
     _load_environment("label" if args.cmd == "link" else args.cmd, getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
@@ -783,6 +894,10 @@ def _main(argv: list[str] | None = None) -> int:
         return _link_command(args)
     if args.cmd == "label":
         return _label_command(args)
+    if args.cmd == "offer-again":
+        return _offer_again_command(args)
+    if args.cmd == "autonomy":
+        return asyncio.run(_autonomy_command(args))
     if args.cmd == "usage":
         return _usage_command(args)
 
