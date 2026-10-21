@@ -123,7 +123,9 @@ def test_no_pattern_advice_holds_a_command(fid):
     for pat in detect(alert(), FAULTS[fid][1]) + detect(alert(), _OOM):
         advice = " ".join([pat.title, pat.likely_cause, *pat.oncall, *pat.developers, *pat.platform, *pat.dba,
                            *pat.prevention])
-        assert not WRITE.search(advice) and "kubectl " not in advice and "aws " not in advice, (pat.key, advice)
+        assert not WRITE.search(advice), (pat.key, advice)
+        assert "kubectl " not in advice, (pat.key, advice)
+        assert "aws " not in advice, (pat.key, advice)
         assert not hasattr(pat, "fix")
 
 
@@ -137,8 +139,10 @@ def test_a_hijacked_models_commands_are_withheld_in_the_report():
                                                "expected_effect": "terraform apply -auto-approve",
                                                "blast_radius": "single_service", "reversible": True})
     for text in (rc.hypothesis, *rc.evidence, rc.ruled_out[0].cause, prop.reasoning, prop.expected_effect):
-        assert "```" not in text and not WRITE.search(text), text
-    assert rc.hypothesis.count(gate.WITHHELD) == 2 and prop.expected_effect.startswith(gate.WITHHELD)
+        assert "```" not in text, text
+        assert not WRITE.search(text), text
+    assert rc.hypothesis.count(gate.WITHHELD) == 2
+    assert prop.expected_effect.startswith(gate.WITHHELD)
     assert rc.ruled_out[0].why == f"psql -c '{gate.WITHHELD}'"
     rep = build_report(Alert(**DEMO_ALERTS["inc-002"]), root_cause=rc, proposal=prop,
                        verdict=_verdict(VerdictStatus.approved_for_human), context=_OOM)
@@ -234,10 +238,15 @@ def test_a_discussion_answer_can_carry_no_code_block_or_command():
         "answer": "Run this:\n```\nkubectl delete ns prod\n```\n`aws events enable-rule --name x`\nThen check.",
         "cites": ["C2", "```rm -rf /```"]})
     said = discuss.said(answer, approver=False, fresh=False)
-    assert "```" not in said and "`" not in said and not WRITE.search(said), said
-    assert said.count(gate.WITHHELD) == 3 and "Then check." in said and said.splitlines()[0] == "Run this:"
+    assert "```" not in said, said
+    assert "`" not in said, said
+    assert not WRITE.search(said), said
+    assert said.count(gate.WITHHELD) == 3
+    assert "Then check." in said
+    assert said.splitlines()[0] == "Run this:"
     sent = gate.enforce(said)
-    assert sent.verdict == "PASS" and "```" not in sent.text
+    assert sent.verdict == "PASS"
+    assert "```" not in sent.text
 
 
 def test_g4_reads_hostile_text_in_linear_time():

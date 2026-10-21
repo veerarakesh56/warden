@@ -26,7 +26,8 @@ def test_an_approval_signed_seconds_after_the_plan_is_recorded_as_hasty():
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
     assert _signed_after(acts, owner, plan, 3).enough
     [row] = acts.audit.entries(kinds=("approval.accepted",))
-    assert row["body"]["hasty"] is True and row["body"]["latency_s"] == 3.0
+    assert row["body"]["hasty"] is True
+    assert row["body"]["latency_s"] == 3.0
     acts, _, owner = _acts()
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
     _signed_after(acts, owner, plan, 45)

@@ -34,6 +34,40 @@ from warden.reporting import build_report
 _BACKEND = {"k8s": "k8s", "db": "postgres", "ecs": "aws", "fullstack": "stack"}  # WARDEN_BACKEND each wave ran with
 
 
+def _reports(run: pathlib.Path, scenario_ids: list[str], rows: dict, repeat: int, backend: str | None) -> list:
+    """(scenario id, report) for each scenario with a recorded report for `repeat`, headed with the injected fault and
+    the grade; one without is skipped by name."""
+    reports = []
+    for sid in scenario_ids:
+        path = run / "reports" / f"{sid}.{repeat}.json"
+        if not path.exists():
+            print(f"skip {sid}: no report for repeat {repeat}")
+            continue
+        rec = RunReport.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        built = build_report(rec.alert, root_cause=rec.root_cause, proposal=rec.proposal,
+                             verdict=rec.verdict, context=rec.context, backend=backend)
+        row = rows.get((sid, repeat), {})
+        header = (f"**Benchmark scenario `{sid}`** - injected fault: `{row.get('fault_class', '?')}` | "
+                  f"graded **{row.get('diagnosis', '?')}**, gate **{row.get('gate', '?')}** "
+                  f"(WARDEN did not know the injected fault when it wrote this)\n\n")
+        reports.append((sid, dataclasses.replace(built, markdown=header + built.markdown)))
+    return reports
+
+
+def _post(intro: str, reports: list) -> int:
+    """The intro to every sink, then each report through notify; every delivery printed. Returns how many failed."""
+    failed = 0
+    for sink in resolve_sinks():
+        note = sink.send(redact(intro).text, {})
+        print(f"intro -> {sink.name}: {'sent' if note.delivered else 'NOT sent'} ({note.detail})")
+        failed += not note.delivered
+    for sid, report in reports:
+        for note in notify(report):
+            print(f"{sid} -> {note.sink}: {'sent' if note.delivered else 'NOT sent'} ({note.detail})")
+            failed += not note.delivered
+    return failed
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", required=True, type=pathlib.Path)
@@ -52,20 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         os.environ.setdefault("AWS_REGION", manifest["region"])
     s = results["summary"]
 
-    reports = []
-    for sid in manifest["scenario_ids"]:
-        path = run / "reports" / f"{sid}.{args.repeat}.json"
-        if not path.exists():
-            print(f"skip {sid}: no report for repeat {args.repeat}")
-            continue
-        rec = RunReport.model_validate(json.loads(path.read_text(encoding="utf-8")))
-        built = build_report(rec.alert, root_cause=rec.root_cause, proposal=rec.proposal,
-                             verdict=rec.verdict, context=rec.context, backend=backend)
-        row = rows.get((sid, args.repeat), {})
-        header = (f"**Benchmark scenario `{sid}`** - injected fault: `{row.get('fault_class', '?')}` | "
-                  f"graded **{row.get('diagnosis', '?')}**, gate **{row.get('gate', '?')}** "
-                  f"(WARDEN did not know the injected fault when it wrote this)\n\n")
-        reports.append((sid, dataclasses.replace(built, markdown=header + built.markdown)))
+    reports = _reports(run, manifest["scenario_ids"], rows, args.repeat, backend)
 
     if args.show:
         print(reports[0][1].markdown if reports else "no reports")
@@ -77,15 +98,7 @@ def main(argv: list[str] | None = None) -> int:
              f"**Wrong diagnosis and gate allowed: {s['headline_wrong_and_allowed']}.**\n"
              f"Below: repeat {args.repeat} of each scenario, re-rendered from the recorded run - the "
              f"model output and the gate's verdict are exactly what the run recorded.")
-    failed = 0
-    for sink in resolve_sinks():
-        note = sink.send(redact(intro).text, {})
-        print(f"intro -> {sink.name}: {'sent' if note.delivered else 'NOT sent'} ({note.detail})")
-        failed += not note.delivered
-    for sid, report in reports:
-        for note in notify(report):
-            print(f"{sid} -> {note.sink}: {'sent' if note.delivered else 'NOT sent'} ({note.detail})")
-            failed += not note.delivered
+    failed = _post(intro, reports)
     return 1 if failed else 0
 
 
