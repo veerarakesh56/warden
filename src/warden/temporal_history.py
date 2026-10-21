@@ -41,6 +41,13 @@ from .codec import REFUSED, EncryptionCodec
 MAX_EVENTS = 500
 MAX_VALUE_CHARS = 2_000
 UNREADABLE = "[unreadable here: another key, another workflow, or never encrypted]"
+# Bounds on what is decrypted at all (review, PR 154): a payload over MAX_PAYLOAD_BYTES, or one that would take the
+# history past MAX_TOTAL_BYTES, is never decrypted, parsed or redacted - it is shown by its size. 2 MiB is far above
+# the largest payload WARDEN writes (a diagnose input: the prompt, at most llm.MAX_PROMPT_TOKENS (60,000) tokens, about
+# 240 KB, with its evidence); 32 MiB bounds a 500-event history.
+MAX_PAYLOAD_BYTES = 2 * 1024 * 1024
+MAX_TOTAL_BYTES = 32 * 1024 * 1024
+TOO_LARGE = b"binary/warden-not-decrypted-too-large"
 
 
 def _payloads(message: Any) -> list[Payload]:
@@ -86,6 +93,8 @@ def _value(p: Payload) -> str:
     a fragment no pattern recognises (review, PR 154)."""
     if p.metadata.get("encoding") == REFUSED:
         return UNREADABLE
+    if p.metadata.get("encoding") == TOO_LARGE:
+        return f"[{p.metadata['size'].decode('ascii')} bytes encrypted: over the size limit, not decrypted here]"
     try:
         return json.dumps(json.loads(p.data), sort_keys=True, separators=(",", ":"))
     except ValueError:
@@ -108,14 +117,29 @@ class Decoded:
 async def decode(events: Iterable[HistoryEvent], codec: EncryptionCodec) -> list[Decoded]:
     """At most MAX_EVENTS + 1 events (the one past the limit only says there are more), payloads decrypted by `codec`."""
     out: list[Decoded] = []
+    budget = [MAX_TOTAL_BYTES]
     for n, event in enumerate(events):
         if n > MAX_EVENTS:
             break
         attributes = _attributes(event)
         encrypted = _payloads(attributes) if attributes is not None else []
-        out.append(
-            Decoded(event, attributes, list(await codec.decode(encrypted)) if encrypted else [])
-        )
+        out.append(Decoded(event, attributes, await _decrypted(encrypted, codec, budget)))
+    return out
+
+
+async def _decrypted(
+    encrypted: list[Payload], codec: EncryptionCodec, budget: list[int]
+) -> list[Payload]:
+    """Each payload decrypted - unless it is over MAX_PAYLOAD_BYTES or the history's remaining byte `budget`: then a
+    TOO_LARGE marker with its size, never decrypted (it is neither held in clear nor parsed nor redacted)."""
+    out: list[Payload] = []
+    for p in encrypted:
+        size = len(p.data)
+        if size > MAX_PAYLOAD_BYTES or size > budget[0]:
+            out.append(Payload(metadata={"encoding": TOO_LARGE, "size": str(size).encode("ascii")}))
+            continue
+        budget[0] -= size
+        out.extend(await codec.decode([p]))
     return out
 
 
@@ -235,7 +259,10 @@ def what_was_sent(event_id: int, pack: Any, result: Any) -> list[str]:
     head = f"== What the model was sent: {DIAGNOSE} call #{event_id} =="
     prompt = pack.get("prompt") if isinstance(pack, dict) else None
     if not isinstance(prompt, str):
-        return [head, "    its input does not decrypt here: nothing shown"]
+        return [
+            head,
+            "    its input is not readable here (another key or workflow, or over the size limit): nothing shown",
+        ]
     if result is None:
         return [head, f"    {NO_ANSWER}"]
     sent = _provenance(result)

@@ -248,3 +248,31 @@ def test_control_characters_never_reach_the_terminal():
     out = shown(asyncio.run(render([e], bound())))
     assert "\b" not in out
     assert "\x07" not in out
+
+
+def test_a_payload_over_the_size_limit_is_never_decrypted(monkeypatch):
+    """Review, PR 154: a payload over MAX_PAYLOAD_BYTES is shown by its size; it is not decrypted, parsed or redacted."""
+    small, big = encrypted({"ok": True}), encrypted({"secret": "y" * 400})
+    monkeypatch.setattr(temporal_history, "MAX_PAYLOAD_BYTES", len(small.data))
+    asked = []
+    codec = bound()
+    real = codec.decode
+
+    async def spy(payloads):
+        asked.extend(payloads)
+        return await real(payloads)
+
+    monkeypatch.setattr(codec, "decode", spy)
+    out = asyncio.run(render([completed(1, small), completed(2, big)], codec))
+    assert '{"ok":true}' in out
+    assert f"[{len(big.data)} bytes encrypted: over the size limit, not decrypted here]" in out
+    assert asked == [small]
+
+
+def test_the_history_s_total_decrypted_bytes_are_bounded(monkeypatch):
+    first, second = encrypted({"n": 1}), encrypted({"n": 2})
+    monkeypatch.setattr(temporal_history, "MAX_TOTAL_BYTES", len(first.data) + len(second.data) - 1)
+    out = asyncio.run(render([completed(1, first), completed(2, second)], bound()))
+    assert '{"n":1}' in out
+    assert '{"n":2}' not in out
+    assert "over the size limit, not decrypted here" in out

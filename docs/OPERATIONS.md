@@ -310,7 +310,9 @@ and a Temporal API key - with your own identity, so only a person who may read t
 event is shown with its number, time (UTC and local), type and the activity or signal it names, and its payloads as
 JSON; the whole text then goes through the redactor (identifiers and secrets masked) and the terminal's outbound gate.
 A payload that does not decrypt in that workflow's context (another key, another workflow, never encrypted) is shown
-as unreadable, never as data. At most 500 events and 2,000 characters a value. Nothing is written.
+as unreadable, never as data. At most 500 events and 2,000 characters a value (each value is redacted whole
+before it is cut). A payload over 2 MiB, or past 32 MiB for the whole history, is not decrypted: it is shown by its
+size. Nothing is written.
 
 After the events it shows **what the model was sent** for each `diagnose` call: the system text and the user text
 exactly as WARDEN handed them to the model provider. The user text is the redacted prompt recorded in the call's own
