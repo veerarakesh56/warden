@@ -831,3 +831,43 @@ def test_a_negative_or_non_numeric_cost_is_not_recorded_never_counted(made):
         "US$0.0000 (US$0.0000 in all over 0 llm.call row(s) with a cost; "
         "3 row(s) without one: not recorded for those)"
     )
+
+
+def test_rows_written_by_the_model_path_itself_are_read_as_the_report_says(made):
+    """The field contract with PR 176, pinned: `llm.call` rows from llm.call_record through activities.model_calls,
+    and `llm.fallback` rows from activities.fallback - the shapes the runtime writes, not dicts made here."""
+    import time
+    from types import SimpleNamespace
+
+    from warden import llm
+
+    log, key, _ = made
+    assert (pilot.LLM_CALL, pilot.FALLBACK) == (llm.CALL, llm.FALLBACK)
+    assert set(pilot.FALLBACK_REASONS) == llm.FALLBACK_REASONS
+
+    def record(cost):
+        return llm.call_record(
+            model="m",
+            ts=llm.now_iso(),
+            started=time.monotonic(),
+            prompt_tokens=1000,
+            completion_tokens=200,
+            cost=cost,
+            ok=True,
+        )
+
+    client = SimpleNamespace(calls=[record(0.05), record(0.03)], stopped_by="")
+    activities.model_calls(log, "a", client, "diagnose")
+    activities.fallback(log, "d", llm.RULES_ONLY, "diagnose")
+    activities.fallback(log, "c", llm.BUDGET_CAP, "plan")
+    log.checkpoint()
+    got = _lines(log, key)
+    assert (
+        got["Cost per incident"]
+        == "US$0.0114 (US$0.0800 in all over 2 llm.call row(s) with a cost)"
+    )
+    assert got[pilot.MODEL_REQUESTS] == f"2 (llm.call rows: {pilot.REQUESTS_ARE})"
+    assert got["Fallbacks"] == "2; per incident 0.29 (2 / 7 incidents)"
+    assert got["Fallbacks by reason"] == (
+        "rules_only 1, model_refused 0, budget_cap 1, provider_unavailable 0, other 0"
+    )
