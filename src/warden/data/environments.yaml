@@ -13,13 +13,18 @@
 #   - prod : never auto. Authorised responders only.
 #
 # What the code enforces with each key (read 2026-10-16):
-#   - allow_actions / deny_actions: the verifier's policy P1 (verifier.py), on every path, and again
-#     remediation.decide_remediation.
-#   - authorized_principals and auto_remediate: only remediation.decide_remediation - the in-process CLI path
-#     (`warden run --principal`), whose backend is a dry run that changes nothing (audit A-B-H1..H3). The one path
+#   - allow_actions / deny_actions: the verifier's policy P1 (verifier.py), on every path.
+#   - authorized_principals and auto_remediate: read by no path since the CLI's dry-run gate (`warden run
+#     --principal`, remediation.py) was removed (owner B27); kept so a policy file stays loadable. The one path
 #     that changes anything, the Temporal RemediationWorkflow, reads neither: EVERY fix there needs a signed approval
-#     of the exact plan, in every environment, until Phase 3 shadow evidence (policy P17) enables a tier (audit
-#     2026-09-28).
+#     of the exact plan, in every environment (audit 2026-09-28). auto_remediate never makes anything autonomous
+#     (owner, 2026-10-16): only `autonomy` below does, and only through Eldane.
+#   - autonomy (owner, 2026-10-16/17; autonomy.py): the highest level an action class may be at here - L0 escalate
+#     only, L1 shadow (WARDEN and Eldane, the AI critic, decide; a person still approves; the decision is scored), L2
+#     autonomous (Eldane's signed approval is enough; a person's "no" still stops it before apply). Under an L2 ceiling
+#     every class STARTS at L2; a failed fix, rollback, harmful decision, model or prompt change or missed catch trial
+#     demotes it to L1 until a person re-enables it (`warden autonomy enable`, signed, T3). The prod tier is never
+#     above L1 - refused at load, and capped in code: a person's passkey, always.
 #   - require_human_approval: shown in the promotion report (reporting.py); nothing decides on it.
 #   - code_fix: off | propose | auto (code_gate.py, register B4) - whether WARDEN may write code-fix pull requests here:
 #     propose opens one a person merges; auto may merge itself once every check is green. The prod tier is never auto
@@ -124,6 +129,7 @@ environments:
     credentials_ref: warden-dev-deploy
     code_fix: propose            # code-fix pull requests a person merges, until the auto-merge checks land (B4)
     tripwire: "on"
+    autonomy: L2                 # Eldane approves alone from the first plan (owner, 2026-10-17); L1 when demoted
 
   prod:
     tier: prod
@@ -137,3 +143,4 @@ environments:
     credentials_ref: warden-prod-deploy
     code_fix: propose            # never auto: a person merges every code fix in prod (refused at load)
     tripwire: "on"
+    autonomy: L1                 # shadow at most: Eldane advises and is scored; a person's passkey approves

@@ -63,7 +63,7 @@ def replay_one(path: pathlib.Path) -> tuple[str, str, list[str]]:
     verdict = verify(
         Alert(**d["alert"]),
         ContextBundle(**d["context"]),
-        RootCause(**d["root_cause"]),
+        RootCause.recorded(d["root_cause"]),
         RemediationProposal(**d["proposal"]),
         check_grounding="citations" in d["root_cause"],
     )
