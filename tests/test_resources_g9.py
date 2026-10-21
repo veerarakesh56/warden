@@ -125,11 +125,26 @@ def _event(metrics):
 
 def test_the_alarm_intake_labels_the_resource_from_the_metric():
     ev = lambdas.alarm_event(_event([("AWS/Lambda", {"FunctionName": "warden-dev-orders"})]), "dev")
-    assert ev.alert.labels["lambda"] == "warden-dev-orders" and ev.alert.service == "warden-dev-orders"
+    assert ev.alert.labels["lambda"] == "warden-dev-orders"
+    assert ev.alert.service == "warden-dev-orders"
     ev = lambdas.alarm_event(_event([("AWS/RDS", {"DBInstanceIdentifier": "warden-dev-db"})]), "dev")
     assert ev.alert.labels["rds_instance"] == "warden-dev-db"
 
 
 def test_a_hostile_dimension_value_is_dropped_and_reported_not_read():
     ev = lambdas.alarm_event(_event([("AWS/Lambda", {"FunctionName": "--profile=admin"})]), "dev")
-    assert "lambda" not in ev.alert.labels and "lambda" in ev.alert.rejected_labels
+    assert "lambda" not in ev.alert.labels
+    assert "lambda" in ev.alert.rejected_labels
+
+
+def test_an_alarm_with_no_named_dimension_is_the_service_its_own_name_says():
+    """No service dimension that is a plain name: the alarm's own name is the service (plant check for
+    lambdas._alarm_service)."""
+    ev = lambdas.alarm_event(_event([("AWS/Lambda", {"FunctionName": "--profile=admin"})]), "dev")
+    assert ev.alert.service == "warden-dev-orders-errors"
+
+
+def test_an_alarm_whose_name_is_not_a_plain_name_is_an_unknown_service():
+    event = _event([])
+    event["detail"]["alarmName"] = "orders errors > 5"
+    assert lambdas.alarm_event(event, "dev").alert.service == "unknown"

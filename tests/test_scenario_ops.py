@@ -465,7 +465,8 @@ def test_a_registered_variant_is_tagged_so_teardown_can_find_it(clients, target)
 def test_the_recreated_log_group_is_tagged_so_teardown_can_find_it(clients, target):
     ops.op_logs_create_group(clients, target, log_group="/ecs/checkout")
     created = [kw for name, kw in clients.logs.calls if name == "create_log_group"]
-    assert created and created[-1].get("tags") == target.tags
+    assert created
+    assert created[-1].get("tags") == target.tags
 
 
 @pytest.mark.parametrize("group, tags", [("/ecs/payments", {"Stack": "warden-proving-ground"}),

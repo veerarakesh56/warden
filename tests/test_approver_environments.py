@@ -55,7 +55,8 @@ def test_an_approver_with_no_list_keeps_every_environment():
 
 def test_the_bench_approver_never_approves_outside_a_nonprod_environment_whatever_its_entry_says():
     nonprod, prod = _tiers()
-    assert nonprod and prod
+    assert nonprod
+    assert prod
     key = Ed25519PrivateKey.generate()
     # By its id, and by its label under another id: an entry naming production, or naming nothing, does not let it in.
     for name, label in (("bench", ""), ("claude-test", "bench approver (Claude), test")):
