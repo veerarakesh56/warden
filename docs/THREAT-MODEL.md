@@ -35,7 +35,7 @@ is the security view of the same system; where a row of the register covers a th
  Alertmanager / Datadog ─HTTPS─▶ API Gateway ─▶ webhook Lambda ─┤
                                                                 ▼
                                      Temporal Cloud ◀──▶ ECS workers, one per zone
-                                                          core · read · llm · notify · act
+                                                          core · read · llm · notify · act · critic
    watched env ◀── reader role ── read zone                │
    model API   ◀── redacted facts ── llm zone              │
    Slack, GitHub ◀── outbound gate ── notify zone          │
