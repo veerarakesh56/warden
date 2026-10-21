@@ -146,6 +146,18 @@ def test_the_report_and_the_record_carry_wardens_confidence_first():
     [row] = [a for a in report.audit if a.get("node") == "verify"]
     assert row["warden_confidence"]["level"] == "medium"
     assert row["warden_confidence"]["separation"] == [2, 0]
+    assert {"name": "clear_lead", "met": False} in row["warden_confidence"]["checks"]
+
+
+def test_the_signed_record_keeps_no_check_detail_or_model_quote():
+    """Review, PR 132: a check's detail quotes the model's citations (an id and up to 80 characters); the signed audit
+    row keeps only the level, the check names, whether each held, and the counts."""
+    quote = "made-up " + "quote-3309"
+    report = _run("decided", chosen=(D1, {"id": "M1", "quote": quote}), rival_against=())
+    [row] = [a for a in report.audit if a.get("node") == "verify"]
+    assert set(row["warden_confidence"]) == {"level", "checks", "separation"}
+    assert all(set(c) == {"name", "met"} for c in row["warden_confidence"]["checks"])
+    assert quote not in json.dumps(report.audit)
 
 
 # ------------------------------------------------------------------ the prompt

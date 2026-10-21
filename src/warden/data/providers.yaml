@@ -35,13 +35,13 @@ bar:
 prompt:
   # ⚠ NOT YET QUALIFIED (2026-10-17, item 7: 2-4 ranked hypotheses with citations for and against; U3-1: a typed
   # outcome, XML-tagged sections and worked examples, R items named; 2026-10-21, item 5: a retry after an answer that
-  # failed validation names the failed fields, llm.RETRY_FEEDBACK). No model has
+  # failed validation names the failed fields, llm.RETRY_FEEDBACK, hashed as rendered). No model has
   # answered this prompt: the qualified rows below were measured on d435b59f. Neither Claude Sonnet 5.5 nor Claude Opus
   # 5.5 is qualified on it: both must be measured again with scripts/qualify_provider.py in the cloud runtime. A row
   # qualifies a model only on the prompt it was measured with (providers.qualified), so until a row on this prompt is
   # recorded here every model is refused and each incident gets the rules-only diagnosis (escalated to a person,
   # register M19).
-  sha: dd15f561604f6df363c4332f80dce7db6b14e9971e862588da30d1c13d80b600
+  sha: 1fe14308adb82a78b2879c4864da09e52ac84a10e1be74fd36c98043ba83bb96
   pinned: "2026-10-21"  # U3-1 + item 5 (1225fb36 before: item 7; d435b59f before that: G10-57, the last qualified one)
 # Register N6: escalating everything is safe and useless, so it is measured. "Escalated" = the gate refused, or the
 # model itself proposed escalate_to_human. Measured 2026-10-03 (scenarios/score.py act_abstain, stored answers):

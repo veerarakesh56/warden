@@ -19,11 +19,12 @@ from __future__ import annotations
 import json
 import math
 import os
-import re
 import threading
+import typing
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
+from pydantic_core.core_schema import ErrorType
 
 from .models import CostRecord
 from .providers import Provider, ProviderExhausted, resolve
@@ -65,7 +66,9 @@ def model_prices(model: str) -> tuple[float, float]:
 RETRY_FEEDBACK = ("Your last answer failed validation: {errors}. Return ONLY valid JSON for this schema: nothing "
                   "else.")
 _MAX_FED_BACK = 8  # errors named; the rest are counted
-_ERROR_TYPE = re.compile(r"[a-z][a-z_]{0,39}")
+# pydantic's own error types (`missing`, `enum`, `int_parsing` ...): a validator can name a custom one after a value
+# from the answer (PydanticCustomError), so only these are told (review, PR 132); any other is "invalid".
+_ERROR_TYPES = frozenset(typing.get_args(ErrorType))
 
 
 def _schema_names(schema: Any) -> frozenset[str]:
@@ -95,7 +98,7 @@ def _path(loc: tuple[Any, ...], names: frozenset[str]) -> str:
 def _error_type(error: Any) -> str:
     """pydantic's error type (`missing`, `enum`, `too_long`): a fixed word, never the answer's text."""
     kind = str(error.get("type", ""))
-    return kind if _ERROR_TYPE.fullmatch(kind) else "invalid"
+    return kind if kind in _ERROR_TYPES else "invalid"
 
 
 def _paths_and_types(exc: ValidationError, schema: Any) -> str:

@@ -31,7 +31,8 @@ bump may carry a breaking change.
   decided by its own reads, separated from the best rival (twice the margin for high), every read returned, its
   signatures agreeing, the outcome consistent - never the model's number. The report shows it first ("WARDEN's
   confidence medium, from its checks; the model said 0.82") with why it is not higher; the verify audit row carries
-  it for the records page; `grounding.separation` gives model routing the same two numbers.
+  its level, each check's name and result, and the counts for the records page (never a check's detail, which can
+  quote the model's citations); `grounding.separation` gives model routing the same two numbers.
 - **The diagnosis prompt** in XML-tagged sections with three worked examples (one per outcome), naming code review's
   R items as suspects, never proof. **Not qualified on any model yet** (providers.yaml).
 - **A retry says what failed** (owner item 5, 2026-10-21). After an answer that fails validation, the next attempt

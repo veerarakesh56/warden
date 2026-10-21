@@ -74,7 +74,7 @@ def prompt_fingerprint() -> str:
 
     from warden.cli import DEMO_ALERTS
     from warden.graph import run
-    from warden.llm import RETRY_FEEDBACK, LLMClient
+    from warden.llm import LLMClient
     from warden.models import Alert
     from warden.providers import Completion
 
@@ -82,6 +82,9 @@ def prompt_fingerprint() -> str:
 
     class _Capture:
         name, model = "capture", "capture"
+
+        def __init__(self, invalid_first: bool = False) -> None:
+            self.invalid_first = invalid_first
 
         def complete(self, *, system, user, schema=None):
             # The data marker is random per call on purpose (spotlighting: injected text cannot forge the boundary);
@@ -91,13 +94,18 @@ def prompt_fingerprint() -> str:
             body = {"root_cause": {"hypothesis": "x", "confidence": 0.5, "evidence": []},
                     "proposal": {"action": "escalate_to_human", "target": "x", "reasoning": "x",
                                  "expected_effect": "x", "blast_radius": "single_service", "reversible": True}}
+            if self.invalid_first:  # one answer that fails validation: the retry after it is rendered and hashed
+                self.invalid_first = False
+                body = {**body, "root_cause": {**body["root_cause"], "confidence": "x"},
+                        "proposal": {**body["proposal"], "action": "x"}}
             return Completion(json.dumps(body), 1, 1)
 
     for incident in sorted(DEMO_ALERTS):
         run(Alert(**DEMO_ALERTS[incident]), llm=LLMClient(provider=_Capture(), mock=False))
-    # What a retry adds after an answer that failed validation (item 5): the capture answers validly, so no retry is
-    # rendered above, yet a model sees this text whenever one happens.
-    seen.append(["retry after a failed validation", RETRY_FEEDBACK])
+    # The retry a model is sent after an answer that failed validation (item 5), as rendered - the feedback line with
+    # its field paths and error types (review, PR 132: the template alone left the rendering unpinned).
+    first = min(DEMO_ALERTS)
+    run(Alert(**DEMO_ALERTS[first]), llm=LLMClient(provider=_Capture(invalid_first=True), mock=False))
     return hashlib.sha256(json.dumps(seen, sort_keys=True).encode()).hexdigest()
 
 

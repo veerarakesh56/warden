@@ -136,20 +136,22 @@ def test_a_json_error_gives_only_the_parsers_fixed_words():
     assert PLANTED not in fed
 
 
-def test_an_error_type_that_is_not_a_plain_word_is_not_echoed():
-    class Typed(BaseModel):
-        cause: str
+class Typed(BaseModel):
+    cause: str
 
-        @field_validator("cause")
-        @classmethod
-        def _named(cls, v: str) -> str:
-            raise PydanticCustomError(v, "custom")  # a validator that names its error type after the value
+    @field_validator("cause")
+    @classmethod
+    def _named(cls, v: str) -> str:
+        raise PydanticCustomError(v, "custom")  # a validator that names its error type after the value
 
+
+@pytest.mark.parametrize("value", [PLANTED, "secretword"])  # a plain lowercase word too (review, PR 132)
+def test_an_error_type_that_is_not_pydantics_own_is_not_echoed(value):
     with pytest.raises(ValidationError) as caught:
-        Typed.model_validate({"cause": PLANTED})
+        Typed.model_validate({"cause": value})
     fed = validation_feedback(caught.value, Typed)
-    assert "(invalid)" in fed
-    assert PLANTED not in fed
+    assert "cause (invalid)" in fed
+    assert value not in fed
 
 
 def test_the_call_cap_is_kept():
@@ -232,3 +234,15 @@ def test_an_answer_that_never_validates_leaves_no_value_in_the_audit_or_the_repo
     assert "input_value" not in degraded  # pydantic's text quoted the value here, cut at 200 characters
     assert PLANTED not in json.dumps(report.audit)
     assert PLANTED not in report.root_cause.hypothesis
+
+
+def test_the_rendered_retry_is_part_of_the_qualified_prompt(monkeypatch):
+    """Review, PR 132: the hash covers the retry as a model receives it - its paths and error types - not only the
+    template."""
+    spec = importlib.util.spec_from_file_location("qualify_provider_item5b", ROOT / "scripts" / "qualify_provider.py")
+    qualify = importlib.util.module_from_spec(spec)
+    sys.modules["qualify_provider_item5b"] = qualify
+    spec.loader.exec_module(qualify)
+    before = qualify.prompt_fingerprint()
+    monkeypatch.setattr(llm, "_error_type", lambda error: "changed")
+    assert qualify.prompt_fingerprint() != before

@@ -776,12 +776,16 @@ def node_verify(state: WardenState) -> WardenState:
 
 
 def _confidence(state: WardenState) -> dict[str, Any] | None:
-    """confidence.assess on the verified answer; None when there is none to assess (an answer that never came)."""
+    """confidence.assess on the verified answer, as the signed audit row keeps it: the level, each check's name and
+    whether it held, and WARDEN's two counts. Never a check's detail, which can quote the model's citations (review,
+    PR 132): the report builds its own, through the redactor. None when there is no answer to assess."""
     from .confidence import assess
 
     if not state.get("root_cause") or not state.get("proposal") or state.get("context") is None:
         return None
-    return assess(state["alert"], state["context"], state["root_cause"], state["proposal"])
+    got = assess(state["alert"], state["context"], state["root_cause"], state["proposal"])
+    return {"level": got["level"], "checks": [{"name": c["name"], "met": c["met"]} for c in got["checks"]],
+            "separation": got["separation"]}
 
 
 def route_after_verify(state: WardenState) -> str:
