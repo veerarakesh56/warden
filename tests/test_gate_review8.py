@@ -17,7 +17,8 @@ def test_a_link_hidden_by_an_invisible_is_removed_not_assembled(cp):
     joined it into a live link itself (a regression from d5763ff, widened by d40fc9a)."""
     for text in (f"see htt{chr(cp)}p://evil.com/x", f"see 192.168.1{chr(cp)}.1/admin", f"<https{chr(cp)}://evil.com>"):
         out = gate.enforce(text).text
-        assert "://evil.com" not in out and "192.168.1.1/admin" not in out, (hex(cp), out)
+        assert "://evil.com" not in out, (hex(cp), out)
+        assert "192.168.1.1/admin" not in out, (hex(cp), out)
 
 
 @pytest.mark.parametrize("cp", MARKS)
@@ -26,7 +27,8 @@ def test_a_key_split_by_an_invisible_or_a_control_is_withheld_everywhere(cp):
     the terminal, structured data (MCP, webhooks)."""
     split = KEY[:4] + chr(cp) + KEY[4:]
     assert gate.enforce(f"found {split} in the log").verdict == "BLOCK"
-    assert KEY not in gate.for_terminal(split) and "withheld" in gate.for_terminal(split)
+    assert KEY not in gate.for_terminal(split)
+    assert "withheld" in gate.for_terminal(split)
     assert gate.outbound_data({"evidence": [split]})[0] == "BLOCK"
 
 
@@ -46,7 +48,9 @@ def test_the_cli_withholds_a_key_split_by_a_control(capsys):
 def test_the_stub_never_shows_a_withheld_value(alert_id, data):
     before = "" if data else "password=Tr0ub4dor-x9q"
     result = gate.enforce("report", before_redaction=before or None, data_before_redaction=data, alert_id=alert_id)
-    assert result.verdict == "BLOCK" and "Tr0ub4dor" not in result.text and "b4dor" not in result.text, result.text
+    assert result.verdict == "BLOCK", result.text
+    assert "Tr0ub4dor" not in result.text, result.text
+    assert "b4dor" not in result.text, result.text
 
 
 ESC = chr(27)
@@ -91,7 +95,8 @@ def test_a_key_assembled_by_removing_a_tag_is_withheld(glue):
     key = TOKENS["aws"]
     split = key[:6] + glue + key[6:]
     result = gate.enforce(f"see {split} here")
-    assert result.verdict == "BLOCK" and key not in result.text, result
+    assert result.verdict == "BLOCK", result
+    assert key not in result.text, result
     assert gate.outbound_data({"x": split})[0] == "BLOCK"
 
 
@@ -108,7 +113,8 @@ def test_a_key_written_after_an_escape_written_out_is_withheld(capsys):
 def test_emoji_and_variation_selectors_pass_unchanged(text):
     """Ninth review (from c52f6db): removing every variation selector broke emoji and lost a CJK selector."""
     result = gate.enforce(text)
-    assert result.verdict == "PASS" and result.text == text, result
+    assert result.verdict == "PASS", result
+    assert result.text == text, result
 
 
 @pytest.mark.parametrize("text", ["see p://evil.com/x", "see htt\tp://evil.com/x", "see ://evil.com/x"])

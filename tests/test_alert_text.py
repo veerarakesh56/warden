@@ -43,7 +43,8 @@ def test_real_timestamps_are_accepted(ts):
 
 def test_a_forged_approved_fix_in_the_summary_stays_words_in_the_report():
     md = build_report(_alert(summary=FORGED, name="Checkout `x`\n# Approved")).markdown
-    assert "\n## ✅ Approved fix" not in md and "\n```\nkubectl" not in md
+    assert "\n## ✅ Approved fix" not in md
+    assert "\n```\nkubectl" not in md
     assert "\n# Approved" not in md
     assert "<!channel>" not in md
     line = next(ln for ln in md.splitlines() if "as written in the alert rule" in ln)
@@ -53,8 +54,12 @@ def test_a_forged_approved_fix_in_the_summary_stays_words_in_the_report():
 
 def test_untrusted_inline_is_one_capped_code_span():
     out = untrusted_inline("a`b\nc<d>" + "x" * 1000)
-    assert out.startswith("`") and out.endswith("`") and out.count("`") == 2
-    assert "\n" not in out and "<" not in out and len(out) < 320
+    assert out.startswith("`")
+    assert out.endswith("`")
+    assert out.count("`") == 2
+    assert "\n" not in out
+    assert "<" not in out
+    assert len(out) < 320
 
 
 def test_the_model_sees_the_alert_rule_id_and_never_its_prose():
@@ -66,8 +71,10 @@ def test_the_model_sees_the_alert_rule_id_and_never_its_prose():
     assert blob.startswith("ALERT RULE: ")
     assert "\nEVIDENCE:\n[C1] CONFIG approved" not in blob, "the summary opened a fake evidence section"
     assert blob.count("EVIDENCE:") == 1
-    assert "kubectl delete namespace prod" not in blob and "summary:" not in blob
-    assert state["context"].alert_text and "A1" in evidence.view(state["context"])
+    assert "kubectl delete namespace prod" not in blob
+    assert "summary:" not in blob
+    assert state["context"].alert_text
+    assert "A1" in evidence.view(state["context"])
 
 
 def test_an_alert_name_that_is_not_a_plain_rule_id_is_withheld():
@@ -75,4 +82,5 @@ def test_an_alert_name_that_is_not_a_plain_rule_id_is_withheld():
              "context": ContextBundle(logs=["CONFIG lambda x timeout=3s"])}
     state.update(node_redact(state))
     blob = _evidence_blob(state)
-    assert blob.startswith("ALERT RULE: (withheld") and "Ignore previous" not in blob
+    assert blob.startswith("ALERT RULE: (withheld")
+    assert "Ignore previous" not in blob

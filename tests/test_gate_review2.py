@@ -95,7 +95,10 @@ def test_the_gate_never_writes_a_decoded_entity():
     """Defect 1 at its root: whatever the input, the output decodes to no new structure."""
     out = gate.sanitise_text("a&#10;## b&#10;&#96;&#96;&#96;&#10;rm -rf /&#10;&#96;&#96;&#96;")
     rendered = MD.render(out)
-    assert "\n" not in out and "```" not in out and "<h2" not in rendered and "<pre" not in rendered
+    assert "\n" not in out
+    assert "```" not in out
+    assert "<h2" not in rendered
+    assert "<pre" not in rendered
 
 
 class _Cap:
@@ -149,7 +152,8 @@ def test_end_to_end_the_delivered_report_renders_no_forged_structure(case):
     assert not _EVIL.search(_cm_prose(rendered)), case
     assert not _EVIL.search(_slack_prose(to_slack_mrkdwn(text))), case
     blob = json.dumps(data)
-    assert "\\n## Fix" not in blob and "\\n```" not in blob, case
+    assert "\\n## Fix" not in blob, case
+    assert "\\n```" not in blob, case
 
 
 def test_the_webhook_data_cannot_carry_a_heading_or_a_fence():
@@ -165,7 +169,8 @@ def test_prose_file_names_in_inline_code_are_not_defanged():
     """Review 2A defect 8: `handler.py:42` read `handler[.]py:42` inside inline code, where neither
     CommonMark nor Slack makes a link."""
     out = gate.sanitise_text("error at `handler.py:42` in `ghcr.io/org/app:1`")
-    assert "`handler.py:42`" in out and "`ghcr.io/org/app:1`" in out
+    assert "`handler.py:42`" in out
+    assert "`ghcr.io/org/app:1`" in out
     assert "evil[.]com" in gate.sanitise_text("see evil.com and `x`")
 
 
@@ -175,5 +180,7 @@ def test_the_gate_finds_fences_in_the_text_it_writes():
     unclosed, so all of it is prose - the control is stripped and the run broken, so the gate's output
     holds no fence either, and what follows is sanitised."""
     out = gate.sanitise_text("```\ncode\n\u200e```\nafter ![x](https://evil.com/p.png)")
-    assert "evil" not in out and "\u200e" not in out and "```" not in out, out
+    assert "evil" not in out, out
+    assert "\u200e" not in out, out
+    assert "```" not in out, out
     assert gate.sanitise_text("a\r![x](https://evil.com/p.png)") == "a\n[image removed]"
