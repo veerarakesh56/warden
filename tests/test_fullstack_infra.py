@@ -58,8 +58,10 @@ def test_the_names_and_tags_come_from_the_environment():
     main = (TF / "main.tf").read_text(encoding="utf-8")
     assert re.search(r'^\s+env\s+=\s+terraform\.workspace$', main, re.MULTILINE)
     assert re.search(r'^\s+name\s+=\s+"warden-\$\{local\.env\}"$', main, re.MULTILINE)
-    assert re.search(r'Project\s+=\s+"warden"', main) and re.search(r'Environment\s+=\s+local\.env', main)
-    assert "src/warden/data/environments.yaml" in main and "contains(local.environments, local.env)" in main
+    assert re.search(r'Project\s+=\s+"warden"', main)
+    assert re.search(r'Environment\s+=\s+local\.env', main)
+    assert "src/warden/data/environments.yaml" in main
+    assert "contains(local.environments, local.env)" in main
 
 
 def test_every_resource_name_carries_the_warden_pg_fs_prefix():
@@ -113,10 +115,12 @@ def test_catalog_api_gets_its_role_through_pod_identity():
     eks = (TF / "eks.tf").read_text(encoding="utf-8")
     assert "eks-pod-identity-agent = null" in eks
     assoc = next(b for _, n, b in _blocks("aws_eks_pod_identity_association") if n == "catalog")
-    assert 'namespace       = "shop"' in assoc and 'service_account = "catalog-api"' in assoc
+    assert 'namespace       = "shop"' in assoc
+    assert 'service_account = "catalog-api"' in assoc
     assert "aws_iam_role.catalog_pod.arn" in assoc
     role = next(b for _, n, b in _blocks("aws_iam_role") if n == "catalog_pod")
-    assert 'Principal = { Service = "pods.eks.amazonaws.com" }' in role and "sts:TagSession" in role
+    assert 'Principal = { Service = "pods.eks.amazonaws.com" }' in role
+    assert "sts:TagSession" in role
     sa = next(d for d in _k8s_docs() if d["kind"] == "ServiceAccount" and d["metadata"]["name"] == "catalog-api")
     assert sa["metadata"]["namespace"] == "shop"
     dep = next(d for d in _k8s_docs() if d["kind"] == "Deployment" and d["metadata"]["name"] == "catalog-api")
@@ -127,7 +131,8 @@ def test_rds_db_connect_is_scoped_to_one_database_user_per_identity():
     text = _tf_text()
     # Named for the environment (audit A-I-2): `app` existed in every environment's cluster.
     assert 'db_users = { for k in ["app", "catalog", "ro", "terminate", "harness"] : k => "warden_${replace(local.env, "-", "_")}_${k}" }' in text
-    assert "dbuser:*/${u}" in text and "for k, u in local.db_users" in text
+    assert "dbuser:*/${u}" in text
+    assert "for k, u in local.db_users" in text
     assert text.count('"rds-db:connect"') == 5, "one grant per identity: processor, reconciler, task, pod, reader"
     assert not re.search(r"dbuser:[^\s\"]*/\*", text), "a grant for every database user"
     lam = (TF / "lambda.tf").read_text(encoding="utf-8")
@@ -137,17 +142,21 @@ def test_rds_db_connect_is_scoped_to_one_database_user_per_identity():
     assert 'local.dbuser_arn["app"]' in grants["ecs_task_db"]
     assert 'local.dbuser_arn["catalog"]' in grants["catalog_pod_db"]
     reader = (TF / "reader.tf").read_text(encoding="utf-8")
-    assert 'resources = [local.dbuser_arn["ro"]]' in reader and reader.count('"rds-db:connect"') == 1
+    assert 'resources = [local.dbuser_arn["ro"]]' in reader
+    assert reader.count('"rds-db:connect"') == 1
     assert not re.search(r"dbuser:\*/(?:app|catalog|warden_ro)\b", text + reader), "a user not named for its environment"
 
 
 def test_one_nat_gateway_gives_the_private_subnets_their_way_out():
     main = (TF / "main.tf").read_text(encoding="utf-8")
-    assert len(_blocks("aws_nat_gateway")) == 1 and len(_blocks("aws_eip")) == 1
+    assert len(_blocks("aws_nat_gateway")) == 1
+    assert len(_blocks("aws_eip")) == 1
     nat = _blocks("aws_nat_gateway")[0][2]
-    assert "subnet_id     = aws_subnet.public[0].id" in nat and "aws_eip.nat.id" in nat
+    assert "subnet_id     = aws_subnet.public[0].id" in nat
+    assert "aws_eip.nat.id" in nat
     private = next(b for _, n, b in _blocks("aws_route_table") if n == "private")
-    assert 'cidr_block     = "0.0.0.0/0"' in private and "nat_gateway_id = aws_nat_gateway.this.id" in private
+    assert 'cidr_block     = "0.0.0.0/0"' in private
+    assert "nat_gateway_id = aws_nat_gateway.this.id" in private
     assert "single-AZ" in main  # the known weakness is said where the NAT is
 
 
@@ -157,8 +166,9 @@ def test_code_fields_belong_to_the_apps_pipeline():
     assert re.search(r"ignore_changes = \[function_version\]", lam)
     ecs = (TF / "ecs.tf").read_text(encoding="utf-8")
     assert re.search(r"ignore_changes = \[task_definition", ecs)
-    assert not list(TF.glob("*kubernetes*")) and 'resource "kubernetes_' not in "".join(
-        t.read_text(encoding="utf-8") for t in TF_FILES), "k8s objects belong to the apps pipeline"
+    assert not list(TF.glob("*kubernetes*")), "k8s objects belong to the apps pipeline"
+    assert ('resource "kubernetes_' not in "".join(
+        t.read_text(encoding="utf-8") for t in TF_FILES)), "k8s objects belong to the apps pipeline"
 
 
 EC2_DESCRIPTION = re.compile(r"^[0-9A-Za-z_ .:/()#,@\[\]+=&;{}!$*-]*$")
@@ -196,7 +206,8 @@ def test_there_is_an_alarm_for_every_symptom_family():
     catalog = ROOT / "scenarios" / "catalog" / "wave4-fullstack.yaml"
     if catalog.exists():  # every alarm the harness polls must exist
         polled = set(re.findall(r"^\s+alarm: warden-__ENV__-([a-z0-9-]+)", catalog.read_text(encoding="utf-8"), re.MULTILINE))
-        assert polled and polled <= set(alarms), sorted(polled - set(alarms))
+        assert polled, sorted(polled - set(alarms))
+        assert polled <= set(alarms), sorted(polled - set(alarms))
 
 
 @pytest.mark.parametrize("name,desc", sorted(_alarms().items()) if TF_FILES else [])
@@ -340,7 +351,8 @@ def test_the_kustomization_lists_every_manifest():
         assert sorted(kust["resources"]) == sorted(p.name for p in folder.glob("*.yaml") if p.name != "kustomization.yaml")
     # What Argo CD syncs holds no Namespace and no Secret: those are the pipeline's (a Secret's value is never in Git).
     synced = [d["kind"] for f in K8S.glob("*.yaml") for d in yaml.safe_load_all(f.read_text(encoding="utf-8")) if d]
-    assert "Namespace" not in synced and "Secret" not in synced
+    assert "Namespace" not in synced
+    assert "Secret" not in synced
 
 
 def test_the_namespace_enforces_restricted_pod_security():
@@ -354,22 +366,28 @@ def test_the_namespace_enforces_restricted_pod_security():
 @pytest.mark.parametrize("name,replicas", [("catalog-api", None), ("cart-worker", 2)])
 def test_deployments_pass_restricted_pod_security(name, replicas):
     dep = next(d for d in _k8s_docs() if d["kind"] == "Deployment" and d["metadata"]["name"] == name)
-    assert dep["metadata"]["namespace"] == "shop" and dep["spec"].get("replicas") == replicas
+    assert dep["metadata"]["namespace"] == "shop"
+    assert dep["spec"].get("replicas") == replicas
     # WARDEN selects pods by app=<deployment name>.
     assert dep["spec"]["selector"]["matchLabels"] == {"app": name}
     pod = dep["spec"]["template"]["spec"]
     assert dep["spec"]["template"]["metadata"]["labels"]["app"] == name
     assert pod["securityContext"]["runAsNonRoot"] is True
     assert pod["securityContext"]["seccompProfile"]["type"] == "RuntimeDefault"
-    assert not pod.get("hostNetwork") and not pod.get("hostPID") and not pod.get("hostIPC")
+    assert not pod.get("hostNetwork")
+    assert not pod.get("hostPID")
+    assert not pod.get("hostIPC")
     assert all("hostPath" not in v for v in pod.get("volumes", []))
     for c in pod["containers"]:
         sc = c["securityContext"]
-        assert sc["allowPrivilegeEscalation"] is False and sc["readOnlyRootFilesystem"] is True
-        assert sc["capabilities"]["drop"] == ["ALL"] and not sc.get("privileged")
-        assert c["resources"]["requests"] and c["resources"]["limits"]
+        assert sc["allowPrivilegeEscalation"] is False
+        assert sc["readOnlyRootFilesystem"] is True
+        assert sc["capabilities"]["drop"] == ["ALL"]
+        assert not sc.get("privileged")
+        assert c["resources"]["requests"]
+        assert c["resources"]["limits"]
         assert "livenessProbe" in c
-        assert c["image"] == "shop-app"  # the commit's image, set by the shop Application
+        assert c["image"] == "shop-app:set-by-argocd"  # the commit's image, set by the shop Application
 
 
 def test_secret_is_a_template_with_no_real_value():
@@ -523,12 +541,14 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     assert "workflow_dispatch" not in wf["on"]
     for name in ("ci-infra.yml", "_infra-validate.yml"):
         text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
-        assert "id-token" not in text and "configure-aws-credentials" not in text, name
+        assert "id-token" not in text, name
+        assert "configure-aws-credentials" not in text, name
     deploy = _workflow("_infra-deploy.yml")
     assert deploy["on"] == {"workflow_call": deploy["on"]["workflow_call"]}  # only ever called
     assert deploy["jobs"]["run"]["permissions"]["id-token"] == "write"
     text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
-    assert "aws-access-key-id" not in text and "AWS_SECRET_ACCESS_KEY" not in text
+    assert "aws-access-key-id" not in text
+    assert "AWS_SECRET_ACCESS_KEY" not in text
 
 
 @pytest.mark.parametrize("name", ["ci-apps.yml", "ci-infra.yml"])
@@ -552,7 +572,8 @@ def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform(
     wf = _workflow("ci-apps.yml")
     paths = wf["on"]["push"]["paths"]
     assert not any(p.startswith("terraform/") for p in paths)
-    assert "scenarios/fullstack/**" in paths and "manifests/**" in paths
+    assert "scenarios/fullstack/**" in paths
+    assert "manifests/**" in paths
     assert "workflow_dispatch" not in wf["on"]
     deploy = _workflow("_apps-deploy.yml")
     assert deploy["on"] == {"workflow_call": deploy["on"]["workflow_call"]}
@@ -566,7 +587,8 @@ def test_bootstrap_sql_has_no_password_and_no_placeholder():
     are the five users, named for the environment when the file is sent (audit A-I-2)."""
     text = (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
-    assert "{" not in text and "}" not in text
+    assert "{" not in text
+    assert "}" not in text
     assert set(re.findall(r"__[A-Z_]+__", code)) == {"__APP__", "__CATALOG__", "__RO__", "__TERMINATE__", "__HARNESS__"}
     assert not re.search(r"(?i)\bpassword\b", code)
     assert "GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__, __HARNESS__" in code
@@ -577,11 +599,14 @@ def test_bootstrap_sql_has_no_password_and_no_placeholder():
 def test_the_stack_carries_its_own_budget_alarm():
     """The proving ground's budget went with its teardown; a ~USD 0.50/h stack must not run unwatched."""
     tf = (ROOT / "terraform" / "fullstack" / "main.tf").read_text(encoding="utf-8")
-    assert 'resource "aws_budgets_budget" "guard"' in tf and 'name         = "${local.name}-guard"' in tf
-    assert 'type = "FORECASTED"' in tf and 'type = "ACTUAL"' in tf
+    assert 'resource "aws_budgets_budget" "guard"' in tf
+    assert 'name         = "${local.name}-guard"' in tf
+    assert 'type = "FORECASTED"' in tf
+    assert 'type = "ACTUAL"' in tf
     pol = json.loads(ENV_DEPLOY.read_text(encoding="utf-8"))
     budget = [s for s in pol["Statement"] if any(a.startswith("budgets:") for a in s["Action"])]
-    assert budget and all(s["Resource"] == "arn:aws:budgets::*:budget/warden-dev-*" for s in budget)
+    assert budget
+    assert all(s["Resource"] == "arn:aws:budgets::*:budget/warden-dev-*" for s in budget)
     # The alert address is a SecureString in the environment's parameters, never a tfvars file.
     assert 'name = "/warden/${local.env}/tf/budget_email"' in tf
     assert "subscriber_email_addresses = [data.aws_ssm_parameter.budget_email.value]" in tf
@@ -727,8 +752,10 @@ def test_aurora_create_makes_an_express_cluster_with_a_reader_and_records_it(tmp
     assert ("modify_db_cluster", {"DBClusterIdentifier": "warden-dev-aurora", "ApplyImmediately": True,
                                   "ServerlessV2ScalingConfiguration": {"MinCapacity": 0.5, "MaxCapacity": 2.0}}) in rds.calls
     reader = next(kw for n, kw in rds.calls if n == "create_db_instance")
-    assert reader["DBInstanceIdentifier"] == "warden-dev-aurora-2" and reader["PromotionTier"] == 1
-    assert reader["DBInstanceClass"] == "db.serverless" and reader["AvailabilityZone"] == "az-b"  # not the writer's
+    assert reader["DBInstanceIdentifier"] == "warden-dev-aurora-2"
+    assert reader["PromotionTier"] == 1
+    assert reader["DBInstanceClass"] == "db.serverless"
+    assert reader["AvailabilityZone"] == "az-b"  # not the writer's
     assert not any("Password" in k for _, kw in rds.calls for k in kw), "express has no password"
     assert found["aurora_writer_instance"] == "warden-dev-aurora-instance-1"  # whatever express named it
     # What the dev harness policy's rds-db:connect grant names the cluster by (audit A-I-18).
@@ -765,7 +792,8 @@ def test_aurora_create_goes_on_without_a_reader_only_when_the_plan_allows_no_mor
     found = ax.create(rds, sm, stack, log=said.append)
     assert found["aurora_writer_instance"] == "warden-dev-aurora-instance-1"
     assert list(found["aurora_instance_endpoints"]) == ["warden-dev-aurora-instance-1"]
-    assert sm.puts and json.loads(stack.read_text(encoding="utf-8"))["aurora_cluster"]["value"] == "warden-dev-aurora"
+    assert sm.puts
+    assert json.loads(stack.read_text(encoding="utf-8"))["aurora_cluster"]["value"] == "warden-dev-aurora"
     assert any("fs-14, fs-15" in s for s in said)
     other = PlanLimited()
     other.code = "InvalidSubnet"
@@ -913,18 +941,22 @@ def test_nothing_in_the_environment_may_delete_or_share_a_final_snapshot(action)
 def test_aurora_script_refuses_a_cluster_outside_the_stack(cmd, tmp_path, monkeypatch):
     monkeypatch.setenv("WARDEN_ENV", "dev")
     ax, rds = _aurora(), FakeRds()
+    argv = [cmd, "--cluster", "prod-db", "--stack", str(tmp_path / "s.json")]
+    clients = {"rds": rds, "secretsmanager": FakeSm()}
     with pytest.raises(SystemExit, match="refusing"):
-        ax.main([cmd, "--cluster", "prod-db", "--stack", str(tmp_path / "s.json")],
-                clients={"rds": rds, "secretsmanager": FakeSm()})
+        ax.main(argv, clients=clients)
+    command = getattr(ax, cmd)
+    create_args = [FakeSm(), tmp_path / "s.json"] if cmd == "create" else []
     with pytest.raises(SystemExit, match="refusing"):
-        getattr(ax, cmd)(rds, *([FakeSm(), tmp_path / "s.json"] if cmd == "create" else []), "prod-db")
+        command(rds, *create_args, "prod-db")
     assert rds.calls == []
 
 
 def test_aurora_status_says_whether_the_cluster_is_up():
     ax, rds = _aurora(), FakeRds()
     lines = []
-    assert ax.status(rds, log=lines.append) is False and "does not exist" in lines[0]
+    assert ax.status(rds, log=lines.append) is False
+    assert "does not exist" in lines[0]
     rds.create_db_cluster(DBClusterIdentifier="warden-dev-aurora")
     rds.cluster["Status"] = "available"
     assert ax.status(rds, log=lines.append) is True
@@ -942,8 +974,10 @@ def test_the_infra_pipeline_creates_aurora_after_apply_and_destroys_it_first():
     assert text.index("aurora_express.py create") < keep < text.index('aws s3 cp "$RUNNER_TEMP/stack.json"')
     for step in ("aurora_express.py create", "aurora_express.py destroy"):
         assert 'if [ "$STACK" = fullstack ]; then' in text[text.index(step) - 90:text.index(step)], step
-    assert 'case "$STACK" in fullstack|undo-lab) ;;' in text and "terraform/fullstack apply" not in text
-    assert "MASTER_PASSWORD" not in text and "db_master_password" not in text
+    assert 'case "$STACK" in fullstack|undo-lab) ;;' in text
+    assert "terraform/fullstack apply" not in text
+    assert "MASTER_PASSWORD" not in text
+    assert "db_master_password" not in text
 
 
 def test_aurora_create_waits_until_the_capacity_change_has_landed(tmp_path, monkeypatch):
@@ -967,15 +1001,17 @@ def test_aurora_create_waits_until_the_capacity_change_has_landed(tmp_path, monk
     rds.describe_db_clusters = describe
     ax.create(rds, sm, _wrapped_stack(tmp_path), log=lambda *_: None)
     names = [n for n, _ in rds.calls]
-    assert polls["n"] >= 3 and names.index("modify_db_cluster") < names.index("create_db_instance")
+    assert polls["n"] >= 3
+    assert names.index("modify_db_cluster") < names.index("create_db_instance")
 
 
 def test_aurora_touches_no_other_cluster_even_in_its_own_environment(tmp_path):
     """Only warden-<env>-aurora: the reader is named after it (the create test), and another name - even one with
     the environment's prefix - is refused before any call (seventh review: a prefix let qa reach qa-prod)."""
     ax, rds, sm = _aurora(), FakeRds(), FakeSm()
+    stack = _wrapped_stack(tmp_path)
     with pytest.raises(SystemExit, match="not this environment's cluster"):
-        ax.create(rds, sm, _wrapped_stack(tmp_path), cluster="warden-dev-other", log=lambda *_: None)
+        ax.create(rds, sm, stack, cluster="warden-dev-other", log=lambda *_: None)
     assert rds.calls == []
 
 
@@ -1012,10 +1048,13 @@ def test_only_the_nat_lives_in_a_public_subnet_and_nothing_is_open_to_the_intern
     assert uses_public == ["aws_subnet.public[0].id", "aws_subnet.public[count.index].id"], uses_public
     nat = next(b for _, n, b in _blocks("aws_nat_gateway") if n == "this")
     assert "aws_subnet.public[0].id" in nat
-    assert "map_public_ip_on_launch = false" in text and "map_public_ip_on_launch = true" not in text
+    assert "map_public_ip_on_launch = false" in text
+    assert "map_public_ip_on_launch = true" not in text
     alb = next(b for _, n, b in _blocks("aws_lb") if n == "orders")
-    assert re.search(r"internal\s*=\s*true", alb) and "aws_subnet.private[*].id" in alb
-    assert re.search(r"assign_public_ip\s*=\s*false", text) and not re.search(r"assign_public_ip\s*=\s*true", text)
+    assert re.search(r"internal\s*=\s*true", alb)
+    assert "aws_subnet.private[*].id" in alb
+    assert re.search(r"assign_public_ip\s*=\s*false", text)
+    assert not re.search(r"assign_public_ip\s*=\s*true", text)
     for _, name, body in _blocks("aws_security_group"):
         for rule in re.findall(r"ingress \{(.*?)\n  \}", body, re.DOTALL):
             assert "0.0.0.0/0" not in rule, f"security group {name} accepts the internet"
@@ -1027,14 +1066,18 @@ def test_everything_the_stack_creates_carries_project_and_environment_tags():
     group does not pass tags down), the security group EKS creates for the cluster, and ECS tasks."""
     text = _tf_text()
     assert re.search(r"default_tags \{\s*tags = local.tags", text)
-    assert re.search(r'Project\s*= "warden"', text) and re.search(r"Environment\s*= local.env", text)
+    assert re.search(r'Project\s*= "warden"', text)
+    assert re.search(r"Environment\s*= local.env", text)
     lt = next(b for _, n, b in _blocks("aws_launch_template") if n == "nodes")
-    assert '["instance", "volume", "network-interface"]' in lt and "tags          = local.tags" in lt
+    assert '["instance", "volume", "network-interface"]' in lt
+    assert "tags          = local.tags" in lt
     assert 'http_tokens                 = "required"' in lt
     ng = next(b for _, n, b in _blocks("aws_eks_node_group") if n == "this")
-    assert "aws_launch_template.nodes.id" in ng and "disk_size" not in ng
+    assert "aws_launch_template.nodes.id" in ng
+    assert "disk_size" not in ng
     sg = next(b for _, n, b in _blocks("aws_ec2_tag") if n == "cluster_sg")
-    assert "for_each    = local.tags" in sg and "cluster_security_group_id" in sg
+    assert "for_each    = local.tags" in sg
+    assert "cluster_security_group_id" in sg
     svc = next(b for _, n, b in _blocks("aws_ecs_service") if n == "orders_api")
     assert re.search(r'propagate_tags\s*= "SERVICE"', svc)
 
@@ -1061,12 +1104,15 @@ def test_no_terraform_root_accepts_the_internet_in_any_ingress_form(name):
     blocks of one stack. Egress to 0.0.0.0/0 is allowed (narrowing it is G6 work); ingress never."""
     text = _all_tf(ROOTS[name])
     for block in re.findall(r"ingress \{(.*?)\n  \}", text, re.DOTALL):
-        assert "0.0.0.0/0" not in block and "::/0" not in block, (name, block)
+        assert "0.0.0.0/0" not in block, (name, block)
+        assert "::/0" not in block, (name, block)
     for _, rname, body in _blocks_in(text, "aws_vpc_security_group_ingress_rule"):
-        assert "0.0.0.0/0" not in body and "::/0" not in body, (name, rname)
+        assert "0.0.0.0/0" not in body, (name, rname)
+        assert "::/0" not in body, (name, rname)
     for _, rname, body in _blocks_in(text, "aws_security_group_rule"):
         if re.search(r'type\s*=\s*"ingress"', body):
-            assert "0.0.0.0/0" not in body and "::/0" not in body, (name, rname)
+            assert "0.0.0.0/0" not in body, (name, rname)
+            assert "::/0" not in body, (name, rname)
 
 
 @pytest.mark.parametrize("name", sorted(ROOTS))
@@ -1082,8 +1128,10 @@ def test_aurora_script_needs_its_environment_said(cmd, tmp_path, monkeypatch):
     """Audit A-I-23: with no WARDEN_ENV the script acted on dev, whatever stack it was handed."""
     monkeypatch.delenv("WARDEN_ENV", raising=False)
     ax, rds = _aurora(), FakeRds()
+    argv = [cmd, "--stack", str(tmp_path / "s.json")]
+    clients = {"rds": rds, "secretsmanager": FakeSm()}
     with pytest.raises(SystemExit, match="WARDEN_ENV"):
-        ax.main([cmd, "--stack", str(tmp_path / "s.json")], clients={"rds": rds, "secretsmanager": FakeSm()})
+        ax.main(argv, clients=clients)
     assert rds.calls == []
 
 
@@ -1093,8 +1141,10 @@ def test_aurora_script_refuses_a_stack_of_another_environment(tmp_path, monkeypa
     stack.write_text(json.dumps({"environment": {"value": "prod", "sensitive": False, "type": "string"}}),
                      encoding="utf-8")
     ax, rds = _aurora(), FakeRds()
+    argv = ["create", "--stack", str(stack)]
+    clients = {"rds": rds, "secretsmanager": FakeSm()}
     with pytest.raises(SystemExit, match="'prod'"):
-        ax.main(["create", "--stack", str(stack)], clients={"rds": rds, "secretsmanager": FakeSm()})
+        ax.main(argv, clients=clients)
     assert rds.calls == []
 
 
@@ -1133,9 +1183,10 @@ def test_aurora_acts_only_on_its_own_environments_cluster(tmp_path, monkeypatch,
     warden-qa-prod-aurora and `destroy` deleted it."""
     ax = _aurora()
     monkeypatch.setenv("WARDEN_ENV", env)
+    argv = ["destroy", "--cluster", cluster, "--stack", str(tmp_path / "s.json")]
+    clients = {"rds": FakeRds(), "secretsmanager": FakeSm()}
     with pytest.raises(SystemExit, match="refusing"):
-        ax.main(["destroy", "--cluster", cluster, "--stack", str(tmp_path / "s.json")],
-                clients={"rds": FakeRds(), "secretsmanager": FakeSm()})
+        ax.main(argv, clients=clients)
 
 
 def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
@@ -1147,12 +1198,15 @@ def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
     ax.use("qa-staging")
     assert ax.APP_USER == "warden_qa_staging_app"
     tf = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "fullstack" / "data.tf").read_text(encoding="utf-8")
-    assert re.search(r'db_users = \{ for k in \["app"', tf) and '"warden_${replace(local.env, "-", "_")}_${k}"' in tf
+    assert re.search(r'db_users = \{ for k in \["app"', tf)
+    assert '"warden_${replace(local.env, "-", "_")}_${k}"' in tf
     path = tmp_path / "s.json"
     path.write_text(json.dumps({"environment": "dev", "db_users": {"app": "warden_prod_app"}}), encoding="utf-8")
     monkeypatch.setenv("WARDEN_ENV", "dev")
+    argv = ["status", "--stack", str(path)]
+    clients = {"rds": FakeRds(), "secretsmanager": FakeSm()}
     with pytest.raises(SystemExit, match="names the app user"):
-        ax.main(["status", "--stack", str(path)], clients={"rds": FakeRds(), "secretsmanager": FakeSm()})
+        ax.main(argv, clients=clients)
 
 
 def test_the_public_api_writes_access_logs_to_a_vended_log_group():
@@ -1162,7 +1216,8 @@ def test_the_public_api_writes_access_logs_to_a_vended_log_group():
     assert 'name              = "/aws/vendedlogs/${local.name}-api-access"' in text
     stage = text[text.index('resource "aws_apigatewayv2_stage" "default"'):]
     stage = stage[:stage.index("\n}\n")]
-    assert "destination_arn = aws_cloudwatch_log_group.api_access.arn" in stage and "$context.requestId" in stage
+    assert "destination_arn = aws_cloudwatch_log_group.api_access.arn" in stage
+    assert "$context.requestId" in stage
     assert "aws_cloudwatch_log_resource_policy" not in text
 
 
@@ -1277,3 +1332,111 @@ def test_the_runtimes_nat_addresses_reach_the_cluster_endpoint_by_name_not_by_li
     runtime = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert 'tags = { Project = "warden", Environment = local.env, ManagedBy = "terraform" }' in runtime
     assert not re.search(r"\d+\.\d+\.\d+\.\d+/\d+", eks.replace("0.0.0.0/0", ""))
+
+
+# ---- aurora_express.create and main, split into steps (Sonar S3776): the paths no test above reaches
+
+
+class _NeverSettles(FakeRds):
+    """A capacity change that leaves the cluster `modifying` for good."""
+
+    def modify_db_cluster(self, **kw):
+        self._log("modify_db_cluster", **kw)
+        self.cluster["Status"] = "modifying"
+
+
+def test_aurora_create_gives_up_on_a_capacity_change_after_30_minutes_and_adds_no_reader(tmp_path, monkeypatch):
+    ax, rds, sm = _aurora(), _NeverSettles(), FakeSm()
+    slept = []
+    monkeypatch.setattr(ax.time, "sleep", slept.append)
+    stack = _wrapped_stack(tmp_path)
+    with pytest.raises(SystemExit, match=r"capacity change to .* did not complete in 30 minutes"):
+        ax.create(rds, sm, stack, log=lambda *_: None)
+    assert slept == [15] * 120
+    assert "create_db_instance" not in [n for n, _ in rds.calls]
+    assert sm.puts == []
+
+
+def test_aurora_create_names_no_zone_for_the_reader_when_the_writer_holds_the_only_one(tmp_path):
+    class OneZone(FakeRds):
+        def create_db_cluster(self, **kw):
+            super().create_db_cluster(**kw)
+            self.cluster["AvailabilityZones"] = ["az-a"]
+
+    ax, rds, said = _aurora(), OneZone(), []
+    ax.create(rds, FakeSm(), _wrapped_stack(tmp_path), log=said.append)
+    assert "adding reader warden-dev-aurora-2" in said
+    reader = next(kw for n, kw in rds.calls if n == "create_db_instance")
+    assert "AvailabilityZone" not in reader
+
+
+def test_aurora_create_logs_each_step_in_order(tmp_path):
+    ax, rds, said = _aurora(), FakeRds(), []
+    stack = _wrapped_stack(tmp_path)
+    ax.create(rds, FakeSm(), stack, log=said.append)
+    assert said == [
+        "creating warden-dev-aurora (express configuration; bootstrap-db creates database shop)",
+        "serverless v2 capacity default -> {'MinCapacity': 0.5, 'MaxCapacity': 2.0}",
+        "adding reader warden-dev-aurora-2 in az-b",
+        ("writer warden-dev-aurora-instance-1, reader endpoint warden-dev-aurora.cluster-ro-x.rds.example; "
+         f"warden-dev-db-app and {stack} updated")]
+
+
+def _fake_boto3(monkeypatch) -> list:
+    import sys
+    import types
+
+    made = []
+
+    def session(region_name):
+        made.append(region_name)
+        return types.SimpleNamespace(client=lambda name: {"rds": FakeRds(), "secretsmanager": FakeSm()}[name])
+
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(Session=session))
+    return made
+
+
+def test_aurora_main_refuses_with_no_region_before_making_any_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("WARDEN_ENV", "dev")
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    made = _fake_boto3(monkeypatch)
+    ax = _aurora()
+    argv = ["status", "--stack", str(tmp_path / "none.json")]
+    with pytest.raises(SystemExit, match="refusing: no region - set AWS_REGION or pass --region"):
+        ax.main(argv)
+    assert made == []
+
+
+def test_aurora_main_makes_its_clients_in_the_region_asked_for_else_the_stacks(tmp_path, monkeypatch):
+    monkeypatch.setenv("WARDEN_ENV", "dev")
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    made = _fake_boto3(monkeypatch)
+    ax, stack = _aurora(), _wrapped_stack(tmp_path)
+    assert ax.main(["status", "--stack", str(stack)]) == 1  # no cluster yet
+    assert ax.main(["status", "--stack", str(stack), "--region", "eu-x-1"]) == 1
+    assert made == ["ap-south-2", "eu-x-1"]
+
+
+@pytest.mark.parametrize(("before", "after"), [
+    ({"region": "r"}, {"region": "r", "k": "v", "n": {"a": 1}}),
+    ({"region": {"value": "r", "sensitive": False, "type": "string"}},
+     {"region": {"value": "r", "sensitive": False, "type": "string"},
+      "k": {"value": "v", "sensitive": False, "type": "string"},
+      "n": {"value": {"a": 1}, "sensitive": False, "type": "object"}}),
+], ids=["plain", "terraform-output-wrapped"])
+def test_aurora_merge_stack_writes_in_the_files_own_format(tmp_path, before, after):
+    stack = tmp_path / "stack.json"
+    stack.write_text(json.dumps(before), encoding="utf-8")
+    _aurora().merge_stack(stack, {"k": "v", "n": {"a": 1}})
+    assert json.loads(stack.read_text(encoding="utf-8")) == after
+
+
+def test_aurora_create_adds_the_reader_to_the_cluster_as_the_capacity_change_left_it(tmp_path):
+    """`_set_capacity` returns the cluster as last described; the reader is added against THAT, not the stale one."""
+    ax, rds, stack = _aurora(), FakeRds(), _wrapped_stack(tmp_path)
+    after = {"described": "after the capacity change", "DBClusterMembers": []}
+    seen = []
+    ax._set_capacity = lambda _rds, _cluster, _c, _log: after
+    ax._add_reader = lambda _rds, _cluster, c, _log: seen.append(c)
+    ax.create(rds, FakeSm(), stack, log=lambda *_: None)
+    assert seen == [after]

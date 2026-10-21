@@ -30,7 +30,8 @@ def test_each_framework_part_is_covered():
         assert f"ASI{n:02d}" in DOC, n
     for article in range(9, 16):
         assert re.search(rf"^\| {article} ", DOC, re.MULTILINE), article
-    assert "Not legal advice" in DOC and "2 December 2027" in DOC
+    assert "Not legal advice" in DOC
+    assert "2 December 2027" in DOC
 
 
 def test_every_gap_found_is_a_register_row():
