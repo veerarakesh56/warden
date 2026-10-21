@@ -277,3 +277,38 @@ def test_vendor_token_shapes_are_caught(tmp_path, value):
     spec.loader.exec_module(cp)
     names = [name for name, rx, _ in cp.PATTERNS if rx.search(f"x = '{value}'")]
     assert names, value
+
+
+# --------------------------------------------------------------------------- scan(), called directly
+
+
+def _module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("check_publishable", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_scan_reports_each_finding_with_its_place_in_order(tmp_path):
+    """Characterisation (before the cognitive-complexity split of scan): a forbidden name (not read), a missing file
+    (skipped), a path outside the root (named in full), a binary file read through its bytes, every match on a line
+    in pattern order, a documented example and a placeholder value let through."""
+    mod = _module()
+    key = _synth("AKIA", "2E0RXAMPLE", "Q7WXYZ")
+    account = _synth("847263", "519048")
+    (tmp_path / ".env").write_text(f"K={key}\n", encoding="utf-8")
+    (tmp_path / "notes.md").write_text(f"fine\nkey {key} in arn:aws:iam::{account}:root\n{AWS_ACCESS_KEY_ID}\n"
+                                       "aws_access_key_id: <YOUR_KEY_HERE>\n", encoding="utf-8")
+    (tmp_path / "blob.bin").write_bytes(b"\x00\x01" + key.encode() + b"\xff")
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+    outside.write_text(f"{key}\n", encoding="utf-8")
+    paths = [tmp_path / ".env", tmp_path / "gone.txt", tmp_path / "notes.md", tmp_path / "blob.bin", outside]
+    assert mod.scan(paths, root=tmp_path) == [
+        ".env: this file must never be tracked by git",
+        "notes.md:2: an AWS access key id (aws-access-key: AKIA...YZ)",
+        "notes.md:2: a 12-digit AWS account id (account-id: 8472...48)",
+        "blob.bin:1: an AWS access key id (aws-access-key: AKIA...YZ)",
+        f"{outside}:1: an AWS access key id (aws-access-key: AKIA...YZ)",
+    ]

@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
 import pathlib
 import sys
@@ -117,7 +118,7 @@ class Budget:
     incident is an ERROR row - counted, never silently skipped - and no further call is made."""
 
     def __init__(self, total_usd: float, factory=None) -> None:
-        if not total_usd > 0:
+        if math.isnan(total_usd) or total_usd <= 0:  # NaN compares false with everything, so it is named
             raise ValueError("the budget must be a positive number of USD")
         from warden.llm import LLMClient
 

@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     for path in files:
         try:
             old, new, policies = replay_one(path)
-        except Exception as exc:  # noqa: BLE001 - a finding, never papered over
+        except Exception as exc:  # noqa: BLE001  # a finding, never papered over
             # A report the current models cannot parse predates a schema change. Say so and move on;
             # guessing at the missing fields would invent evidence.
             skipped.append(f"{path.name}: {type(exc).__name__}: {str(exc)[:120]}")

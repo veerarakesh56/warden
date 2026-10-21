@@ -206,47 +206,64 @@ def _bucket_tags(session: Any, bucket: str) -> dict | str:
         return {} if _code(exc) == "NoSuchTagSet" else _code(exc)
 
 
+def _hit_tags(session: Any, region: str | None, account: str, place: str, name: str, hits: list[tuple[str, Any]],
+              pending: dict[str, str], tags_wrong: list[str]) -> None:
+    """Each hit's tags, in order: read from the listing (or the bucket), else its ARN queued in `pending` (arn ->
+    label) for the tagging API. A problem is appended to `tags_wrong`."""
+    for rid, item in hits:
+        label = f"{place} {name} {rid}"
+        tags = _bucket_tags(session, rid) if name == "s3.list_buckets" else _inline_tags(item)
+        arn = None if tags is not None else _arn(item, name, region, account, rid)
+        if isinstance(tags, str):
+            tags_wrong.append(f"TAGS-BLIND {label}: {tags}")
+        elif tags is not None:
+            if problem := tag_problem(tags):
+                tags_wrong.append(f"UNTAGGED {label}: {problem}")
+        elif arn:
+            pending[arn] = label
+        else:
+            tags_wrong.append(f"TAGS-BLIND {label}: no tags and no ARN in the listing")
+
+
+def _pending_tags(session: Any, region: str | None, pending: dict[str, str], tags_wrong: list[str]) -> None:
+    """The queued ARNs' tags through the tagging API, one lookup per region; problems appended in queue order."""
+    looked = _lookup(session, region, list(pending))
+    for arn, label in pending.items():
+        if isinstance(looked, str):
+            tags_wrong.append(f"TAGS-BLIND {label}: tagging API {looked}")
+        elif problem := tag_problem(looked.get(arn, {})):
+            tags_wrong.append(f"UNTAGGED {label}: {problem}")
+
+
+def _sweep_region(session: Any, region: str | None, rows: list[tuple], account: str, found: dict[str, list[str]],
+                  blind: list[str], off: set[str], tags_wrong: list[str]) -> None:
+    """One region's (or the global services') listings, filling the sweep's four results."""
+    place = region or "global"
+    pending: dict[str, str] = {}  # arn -> "where id"
+    for row in rows:
+        name = f"{row[0]}.{row[1]}"
+        hits, error = _check(session, region, row)
+        if error and error.rsplit(": ", 1)[-1] in NOT_ENABLED:
+            off.add(row[0])
+            continue
+        if error:
+            blind.append(f"{place} {error}")
+            continue
+        if hits:
+            found[f"{place} {name}"] = [rid for rid, _ in hits]
+        if name not in NO_TAG_AUDIT:
+            _hit_tags(session, region, account, place, name, hits, pending, tags_wrong)
+    if pending:
+        _pending_tags(session, region, pending, tags_wrong)
+
+
 def sweep(session: Any, regions: list[str], account: str = "") -> tuple[dict[str, list[str]], list[str], list[str], list[str]]:
     found: dict[str, list[str]] = {}
     blind: list[str] = []
     off: set[str] = set()
     tags_wrong: list[str] = []
     for region, rows in [(None, GLOBAL)] + [(r, REGIONAL) for r in regions]:
-        place = region or "global"
-        pending: dict[str, str] = {}  # arn -> "where id"
-        for row in rows:
-            name = f"{row[0]}.{row[1]}"
-            hits, error = _check(session, region, row)
-            if error and error.rsplit(": ", 1)[-1] in NOT_ENABLED:
-                off.add(row[0])
-                continue
-            if error:
-                blind.append(f"{place} {error}")
-                continue
-            if hits:
-                found[f"{place} {name}"] = [rid for rid, _ in hits]
-            if name in NO_TAG_AUDIT:
-                continue
-            for rid, item in hits:
-                label = f"{place} {name} {rid}"
-                tags = _bucket_tags(session, rid) if name == "s3.list_buckets" else _inline_tags(item)
-                arn = None if tags is not None else _arn(item, name, region, account, rid)
-                if isinstance(tags, str):
-                    tags_wrong.append(f"TAGS-BLIND {label}: {tags}")
-                elif tags is not None:
-                    if problem := tag_problem(tags):
-                        tags_wrong.append(f"UNTAGGED {label}: {problem}")
-                elif arn:
-                    pending[arn] = label
-                else:
-                    tags_wrong.append(f"TAGS-BLIND {label}: no tags and no ARN in the listing")
-        if pending:
-            looked = _lookup(session, region, list(pending))
-            for arn, label in pending.items():
-                if isinstance(looked, str):
-                    tags_wrong.append(f"TAGS-BLIND {label}: tagging API {looked}")
-                elif problem := tag_problem(looked.get(arn, {})):
-                    tags_wrong.append(f"UNTAGGED {label}: {problem}")
+        _sweep_region(session, region, rows, account, found, blind, off, tags_wrong)
     return found, blind, tags_wrong, sorted(off)
 
 
