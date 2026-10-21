@@ -78,13 +78,16 @@ def _ask(cred, tier="T2", plan_hash="h" * 64, now=NOW):
 def test_an_enrolled_passkey_approves_exactly_the_plan_it_was_shown():
     device = SoftAuthenticator()
     cred = _enrol(device)
-    assert cred.device_bound and cred.approver == "owner"
+    assert cred.device_bound
+    assert cred.approver == "owner"
     options, pending = _ask(cred)
     expected = passkeys.challenge_for("rem-dev-1", "h" * 64, "T2", pending.nonce, pending.expires_at)
     assert base64url_to_bytes(json.loads(options)["challenge"]) == expected
     approval, problems = passkeys.verify_approval(device.assert_(options), pending=pending, credential=cred,
                                                   rp_id=RP, origin=ORIGIN, now=NOW, used_nonces=set())
-    assert problems == [] and approval.plan_hash == "h" * 64 and approval.new_sign_count == 1
+    assert problems == []
+    assert approval.plan_hash == "h" * 64
+    assert approval.new_sign_count == 1
 
 
 def test_an_assertion_for_one_plan_does_not_approve_another():
@@ -94,7 +97,8 @@ def test_an_assertion_for_one_plan_does_not_approve_another():
     _, other = _ask(cred, plan_hash="b" * 64)
     approval, problems = passkeys.verify_approval(device.assert_(options), pending=other, credential=cred,
                                                   rp_id=RP, origin=ORIGIN, now=NOW, used_nonces=set())
-    assert approval is None and any("invalid" in p for p in problems)
+    assert approval is None
+    assert any("invalid" in p for p in problems)
 
 
 @pytest.mark.parametrize(("attack", "reason"), [
@@ -124,17 +128,17 @@ def test_each_impersonation_is_refused_for_its_own_reason(attack, reason):
         cred = passkeys.Credential(cred.approver, cred.credential_id, cred.public_key, 5, cred.device_bound)
     approval, problems = passkeys.verify_approval(response, pending=pending, credential=cred, rp_id=RP,
                                                   origin=ORIGIN, now=now, used_nonces=used)
-    assert approval is None and any(reason in p for p in problems), (attack, problems)
+    assert approval is None, (attack, problems)
+    assert any(reason in p for p in problems), (attack, problems)
 
 
 def test_enrolment_needs_the_right_origin_and_user_verification():
     device = SoftAuthenticator()
     options, challenge = passkeys.registration_options(rp_id=RP, rp_name="WARDEN", approver="owner")
+    wrong_origin = device.register(options, origin="https://evil.example.test")
     with pytest.raises(passkeys.InvalidRegistrationResponse):
-        passkeys.finish_registration(device.register(options, origin="https://evil.example.test"), approver="owner",
-                                     challenge=challenge, rp_id=RP, origin=ORIGIN)
-    lazy = SoftAuthenticator(uv=False)
+        passkeys.finish_registration(wrong_origin, approver="owner", challenge=challenge, rp_id=RP, origin=ORIGIN)
+    unverified = SoftAuthenticator(uv=False).register(options)
     with pytest.raises(passkeys.InvalidRegistrationResponse):
-        passkeys.finish_registration(lazy.register(options), approver="owner", challenge=challenge, rp_id=RP,
-                                     origin=ORIGIN)
+        passkeys.finish_registration(unverified, approver="owner", challenge=challenge, rp_id=RP, origin=ORIGIN)
     assert _enrol(SoftAuthenticator(synced=True)).device_bound is False

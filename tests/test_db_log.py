@@ -22,7 +22,8 @@ class _Rds:
                                        {"LogFileName": "error/new.log", "LastWritten": 9}]}
 
     def download_db_log_file_portion(self, DBInstanceIdentifier, LogFileName, NumberOfLines):
-        assert LogFileName == "error/new.log" and NumberOfLines == aws_stack.DB_LOG_LINES
+        assert LogFileName == "error/new.log"
+        assert NumberOfLines == aws_stack.DB_LOG_LINES
         return {"LogFileData": LOG}
 
 
@@ -49,4 +50,5 @@ def test_a_refused_log_read_is_said_and_the_rest_go_on():
     b._rds = _Denied()
     out = aws_stack._Out()
     b._db_log(out, _alert(), "x")
-    assert len(out.lines) == 1 and out.lines[0].startswith("TOOL-PARTIAL aurora logs: ")
+    assert len(out.lines) == 1
+    assert out.lines[0].startswith("TOOL-PARTIAL aurora logs: ")

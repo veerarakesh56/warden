@@ -50,7 +50,9 @@ def test_a_fix_is_counted_apart_from_a_safe_escalation_and_the_always_escalate_f
     key = {**KEY, "correct_actions": ["pause_flow", "escalate_to_human"]}
     fix, esc = hb.score(_report("pause_flow"), key), hb.score(_report("escalate_to_human", "escalated"), key)
     assert fix["grade"] == esc["grade"] == "CORRECT"
-    assert fix["fixed"] and not esc["fixed"] and fix["fixable"]
+    assert fix["fixed"]
+    assert not esc["fixed"]
+    assert fix["fixable"]
     s = hb.summarise({"a": fix, "b": esc})
     assert (s["fixable"], s["fixed"], s["escalated_a_fixable"]) == (2, 1, 1)
     floor = hb.always_escalate({"a": key, "b": {**KEY, "correct_actions": ["pause_flow"]}})
@@ -81,7 +83,9 @@ def test_the_outcome_is_what_the_person_gets_whatever_the_model_said():
             "b": hb.score(_report("rollback_deploy", "escalated", ["P8-PARTIAL-CONTEXT"]), key)}
     assert (rows["a"]["outcome"], rows["b"]["outcome"]) == ("right plan", "held back")
     s = hb.summarise(rows)
-    assert s["outcome_right"] == 1 and s["outcomes"]["held back"] == 1 and sum(s["outcomes"].values()) == 2
+    assert s["outcome_right"] == 1
+    assert s["outcomes"]["held back"] == 1
+    assert sum(s["outcomes"].values()) == 2
 
 
 def test_a_reverified_report_carries_todays_verdict_and_an_unanswered_one_is_left_alone():
@@ -94,7 +98,8 @@ def test_a_reverified_report_carries_todays_verdict_and_an_unanswered_one_is_lef
                            "blast_radius": "single_service", "reversible": True},
               "verdict": {"status": "approved_for_human", "policy_ids": []}}
     again = hb.reverified(report)["verdict"]
-    assert again["status"] == "rejected" and "P3-NO-EVIDENCE" in again["policy_ids"]
+    assert again["status"] == "rejected"
+    assert "P3-NO-EVIDENCE" in again["policy_ids"]
 
 
 def test_the_answer_key_is_named_as_one_and_an_old_copy_still_reads_with_a_warning(tmp_path, capsys):
@@ -102,9 +107,11 @@ def test_the_answer_key_is_named_as_one_and_an_old_copy_still_reads_with_a_warni
     sets name theirs answer-key.json; a set outside the repository still named key.json reads, and says so."""
     for name in ("heldout-g9-2026-10-10", "heldout-g10-2026-10-10"):
         cases = ROOT / "docs" / "bench" / name
-        assert not (cases / "key.json").exists() and hb.answer_key(cases), name
+        assert not (cases / "key.json").exists(), name
+        assert hb.answer_key(cases), name
     (tmp_path / "key.json").write_text('{"a": {"kind": "fault"}}', encoding="utf-8")
     assert hb.answer_key(tmp_path) == {"a": {"kind": "fault"}}
     assert "rename it answer-key.json" in capsys.readouterr().err
     (tmp_path / "answer-key.json").write_text('{"b": {}}', encoding="utf-8")
-    assert hb.answer_key(tmp_path) == {"b": {}} and capsys.readouterr().err == ""
+    assert hb.answer_key(tmp_path) == {"b": {}}
+    assert capsys.readouterr().err == ""
