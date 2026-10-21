@@ -222,6 +222,7 @@ class AnthropicProvider:
         self._client = Anthropic(base_url=ANTHROPIC_BASE_URL, timeout=_sdk_timeout_s(), max_retries=0)
 
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
+        # The Provider signature: the schema is not sent to Anthropic's API, the prompt describes it (see Provider).
         resp = self._client.messages.create(
             model=self.model,
             max_tokens=MAX_OUTPUT_TOKENS,

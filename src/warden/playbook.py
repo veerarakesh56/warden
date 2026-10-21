@@ -64,9 +64,28 @@ def _peak_mib(ctx: ContextBundle) -> int | None:
 
 
 def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
+    """The patterns the evidence shows, each with what triggered it; the full stack's after the cluster's."""
+    out = _oom(ctx)
+    out += _crashloop(ctx, out)
+    out += _image_pull(ctx)
+    out += _probe(ctx)
+    out += _replicas(ctx, out)
+    out += _db_idle_tx(ctx)
+    out += _db_lock(ctx)
+    out += _db_long_query(ctx)
+    out += _db_pool(ctx)
+    out += _replica_lag(ctx)
+    out += _evidence_unreachable(ctx)
+    out += _stack(alert, ctx)
+    out += _deploy_preceded(ctx, out)
+    out += _errors(ctx, out)
+    return out
+
+
+def _oom(ctx: ContextBundle) -> list[Pattern]:
+    """Containers OOM-killed: the kill reason, and the limit against the peak the application logged."""
     m = ctx.metrics
     out: list[Pattern] = []
-
     oom_line = _has(ctx, "OOMKilled", "OOMKilling")
     if m.get("oom_killed_containers", 0) > 0 or oom_line:
         limit = m.get("memory_limit_mib")
@@ -97,12 +116,18 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             prevention=["Load-test memory to find the real peak before setting limits.",
                         "Add a memory-usage metric per pod so the next report shows usage, not just kills."],
         ))
+    return out
 
+
+def _crashloop(ctx: ContextBundle, found: list[Pattern]) -> list[Pattern]:
+    """Containers crash-looping - unless they are being OOM-killed (`found` holds the oom pattern then)."""
+    m = ctx.metrics
+    out: list[Pattern] = []
     crash_line = _has(ctx, "CrashLoopBackOff", "Back-off restarting failed container")
     fatal_line = _has(ctx, "fatal", "FATAL", "panic", "Traceback", "Exception")
     # When containers are being OOM-killed, the back-off IS the OOM kills restarting: listing a
     # separate crash-loop pattern would add advice about configuration errors that does not apply.
-    if (m.get("crashloop_containers", 0) > 0 or crash_line) and not any(q.key == "oom" for q in out):
+    if (m.get("crashloop_containers", 0) > 0 or crash_line) and not any(q.key == "oom" for q in found):
         out.append(Pattern(
             "crashloop", "Containers crash-looping", crash_line or "crashloop_containers > 0",
             "The container starts and exits repeatedly. The exit reason is in the container's own last "
@@ -117,7 +142,12 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
                       "container), not at first start in production.")],
             prevention=["A smoke test in the pipeline that starts the container with production-shaped config."],
         ))
+    return out
 
+
+def _image_pull(ctx: ContextBundle) -> list[Pattern]:
+    """The image cannot be pulled."""
+    out: list[Pattern] = []
     pull_line = _has(ctx, "ErrImagePull", "ImagePullBackOff", "Failed to pull image")
     if pull_line:
         out.append(Pattern(
@@ -131,7 +161,12 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
                       "If it is credentials: check the node role / imagePullSecrets, and registry rate limits."],
             prevention=["Alert on ImagePullBackOff events directly - they are unambiguous."],
         ))
+    return out
 
+
+def _probe(ctx: ContextBundle) -> list[Pattern]:
+    """A health check failing."""
+    out: list[Pattern] = []
     probe_line = _has(ctx, "Liveness probe failed", "Readiness probe failed", "failed liveness probe")
     if probe_line:
         out.append(Pattern(
@@ -145,7 +180,13 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             platform=["Use a startupProbe for slow starts; set liveness timeouts from measured latency."],
             prevention=["Review probe changes like code changes - a wrong probe takes a healthy service down."],
         ))
+    return out
 
+
+def _replicas(ctx: ContextBundle, found: list[Pattern]) -> list[Pattern]:
+    """Scaled to zero, or pods not ready when nothing above explains it (`found`)."""
+    m = ctx.metrics
+    out: list[Pattern] = []
     if "replicas_desired" in m and m["replicas_desired"] == 0:
         out.append(Pattern(
             "scaled_to_zero", "Scaled to zero", "replicas_desired = 0",
@@ -157,14 +198,20 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
                       "policy that blocks replicas: 0 in prod.")],
             prevention=["Alert on 'desired replicas = 0' for services that must always run."],
         ))
-    elif "pods_total" in m and m.get("pods_ready", m["pods_total"]) < m["pods_total"] and not out:
+    elif "pods_total" in m and m.get("pods_ready", m["pods_total"]) < m["pods_total"] and not found:
         out.append(Pattern(
             "unready", "Pods not ready",
             f"pods_ready = {m.get('pods_ready', 0):.0f} of {m['pods_total']:.0f}",
             "Some pods are not passing readiness. The events and the pods' own logs say why.",
             oncall=["Read the pods' events and their own logs: they say why readiness fails."],
         ))
+    return out
 
+
+def _db_idle_tx(ctx: ContextBundle) -> list[Pattern]:
+    """Sessions stuck idle inside transactions."""
+    m = ctx.metrics
+    out: list[Pattern] = []
     stuck_line = _has(ctx, "stuck connection:")
     if stuck_line or m.get("idle_in_transaction", 0) >= 5:
         out.append(Pattern(
@@ -182,7 +229,13 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
                  "connection for minutes, not the pool forever.")],
             prevention=["Alert on idle-in-transaction count and age, not just on pool exhaustion."],
         ))
+    return out
 
+
+def _db_lock(ctx: ContextBundle) -> list[Pattern]:
+    """Sessions blocked on a lock."""
+    m = ctx.metrics
+    out: list[Pattern] = []
     blocked_line = _has(ctx, "blocked session:")
     if blocked_line or m.get("locks_waiting", 0) > 0:
         out.append(Pattern(
@@ -197,7 +250,13 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             dba=["Set lock_timeout for application roles so waiters fail fast instead of piling up."],
             prevention=["Alert on lock wait time and on blocking chains."],
         ))
+    return out
 
+
+def _db_long_query(ctx: ContextBundle) -> list[Pattern]:
+    """A long-running query."""
+    m = ctx.metrics
+    out: list[Pattern] = []
     long_line = _has(ctx, "long-running query:")
     if long_line or m.get("long_running_queries", 0) > 0:
         out.append(Pattern(
@@ -218,7 +277,13 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
                  "to a replica.")],
             prevention=["Log slow queries (log_min_duration_statement) so the next incident has the history."],
         ))
+    return out
 
+
+def _db_pool(ctx: ContextBundle) -> list[Pattern]:
+    """Connection capacity nearly exhausted."""
+    m = ctx.metrics
+    out: list[Pattern] = []
     used = m.get("connections_used_pct")
     pool_used, pool_size = m.get("connection_pool_used"), m.get("connection_pool_size")
     if (used is not None and used >= 0.7) or (pool_used and pool_size and pool_used >= pool_size * 0.9):
@@ -237,7 +302,13 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
                       "against max_connections before scaling.")],
             prevention=["Alert at 70% of max_connections, with a per-application breakdown."],
         ))
+    return out
 
+
+def _replica_lag(ctx: ContextBundle) -> list[Pattern]:
+    """A replica lagging."""
+    m = ctx.metrics
+    out: list[Pattern] = []
     if m.get("replica_lag_seconds", 0) >= 30:
         out.append(Pattern(
             "replica_lag", "Replica lagging", f"replica_lag_seconds = {m['replica_lag_seconds']:.0f}",
@@ -248,7 +319,13 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
                  "primary instance sizes.")],
             prevention=["Alert on lag before it reaches the application's staleness budget."],
         ))
+    return out
 
+
+def _evidence_unreachable(ctx: ContextBundle) -> list[Pattern]:
+    """Every read failed: WARDEN could not read the system."""
+    m = ctx.metrics
+    out: list[Pattern] = []
     if ctx.tool_errors and not m:
         out.append(Pattern(
             "evidence_unreachable", "WARDEN could not read the system", ctx.tool_errors[0][:160],
@@ -260,12 +337,15 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             platform=["Check recent security-group / network-policy / IAM changes for this path."],
             prevention=["Monitor the monitoring: alert when an evidence source stops answering."],
         ))
+    return out
 
-    out += _stack(alert, ctx)
 
+def _deploy_preceded(ctx: ContextBundle, found: list[Pattern]) -> list[Pattern]:
+    """A code deploy preceded the failure (`found`: the patterns so far)."""
+    out: list[Pattern] = []
     # A secret changing is not a code deploy (contract D): rolling it back is not the fix.
     code_deploys = [d for d in ctx.recent_deploys if d.get("kind") != "secret"]
-    if code_deploys and (out or _has(ctx, "ERROR", "error", " 500 ", "Exception")):
+    if code_deploys and (found or _has(ctx, "ERROR", "error", " 500 ", "Exception")):
         d = code_deploys[0]
         what = (d.get("sha") or d.get("image") or d.get("task_definition") or d.get("revision")
                 or d.get("version"))
@@ -278,9 +358,15 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             prevention=[("Progressive delivery (canary / automatic rollback on error rate) so a bad deploy "
                         "reaches a fraction of traffic.")],
         ))
+    return out
 
+
+def _errors(ctx: ContextBundle, found: list[Pattern]) -> list[Pattern]:
+    """An elevated error rate no deploy explains (`found`: the patterns so far)."""
+    m = ctx.metrics
+    out: list[Pattern] = []
     er = m.get("error_rate")
-    if er is not None and er >= 0.02 and not any(p.key == "deploy" for p in out):
+    if er is not None and er >= 0.02 and not any(p.key == "deploy" for p in found):
         out.append(Pattern(
             "errors", "Elevated error rate", f"error_rate = {er:.3f}",
             "Requests are failing. The key log lines name the failing code path; the timeline shows "
@@ -289,7 +375,6 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             developers=["Start from the exception in the key log lines."],
         ))
     return out
-
 
 # --------------------------------------------------------------------------- the full stack (Wave 4)
 #
@@ -300,8 +385,11 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
 # value it suggests (a timeout, a capacity) is worked out from the evidence and the working is said. It
 # prints no command (2026-10-16): the change itself is a catalogue plan for an approver.
 
+# The prefixes of a parsed traceback frame and of a DynamoDB table's read (contract C).
+_CODE = "CODE "
+_TABLE = "TABLE "
 # WARDEN's own structured lines (contract C) - facts about configuration, not application output.
-_STRUCTURED = ("CONFIG ", "ESM ", "CODE ", "SOURCE ", "QUEUE ", "POLICY ", "TABLE ", "CLUSTER ", "TARGET",
+_STRUCTURED = ("CONFIG ", "ESM ", _CODE, "SOURCE ", "QUEUE ", "POLICY ", _TABLE, "CLUSTER ", "TARGET",
                "RULE ", "SECRET ", "EVENT elasticache ", "EVENT aurora ", "TOOL-PARTIAL ",
                "REPLGROUP ", "SG ", "APPSG ", "TASKROLE ")
 
@@ -322,6 +410,15 @@ def _missing_cache_ingress(ctx: ContextBundle) -> tuple[str, str, list[str]] | N
     cache_sgs = _sg_list(m.group(1)) if m else []
     if not cache_sgs:
         return None
+    port, allowed = _cache_ingress(ctx, cache_sgs)
+    apps = _app_sgs(ctx, cache_sgs)
+    if not port or not apps:
+        return None
+    return cache_sgs[0], port, [g for g in apps if g not in allowed]
+
+
+def _cache_ingress(ctx: ContextBundle, cache_sgs: list[str]) -> tuple[str, set[str]]:
+    """(the port, the security groups allowed in) from the SG lines' ingress rules on the cache's groups."""
     allowed: set[str] = set()
     port = ""
     for ln in ctx.logs:
@@ -329,6 +426,11 @@ def _missing_cache_ingress(ctx: ContextBundle) -> tuple[str, str, list[str]] | N
         if mt and mt.group(1) in cache_sgs:
             port = mt.group(2)
             allowed |= set(_sg_list(mt.group(3)))
+    return port, allowed
+
+
+def _app_sgs(ctx: ContextBundle, cache_sgs: list[str]) -> list[str]:
+    """The application's security groups (APPSG lines and in-VPC Lambdas' CONFIG lines), the cache's own left out."""
     apps: list[str] = []
     for ln in ctx.logs:
         mt = (re.match(r"APPSG \S+ sgs=(\[[^\]]*\])", ln)
@@ -336,9 +438,7 @@ def _missing_cache_ingress(ctx: ContextBundle) -> tuple[str, str, list[str]] | N
         for g in _sg_list(mt.group(1)) if mt else []:
             if g not in apps and g not in cache_sgs:
                 apps.append(g)
-    if not port or not apps:
-        return None
-    return cache_sgs[0], port, [g for g in apps if g not in allowed]
+    return apps
 
 
 def _kv(line: str) -> dict[str, str]:
@@ -389,7 +489,7 @@ def _env(cfg: dict[str, str]) -> tuple[list[str], dict[str, str] | None]:
     """(env var names, {name: value} when the CONFIG line carries every value, else None)."""
     items = [i.strip() for i in cfg.get("env", "[]").strip("[]").split(",") if i.strip()]
     names = [i.split("=", 1)[0] for i in items]
-    values = dict(i.split("=", 1) for i in items) if items and all("=" in i for i in items) else None
+    values = {k: v for k, _, v in (i.partition("=") for i in items)} if items and all("=" in i for i in items) else None
     return names, values
 
 
@@ -444,10 +544,12 @@ def _db_iam_refused(ctx: ContextBundle, line: str) -> str:
     tline = _first(ctx, f"TASKROLE ecs/{src[1]} ") if src and src[0] == "ecs" else None
     role = _kv(tline).get("role") if tline else None
     if not (user and role):
-        needed = ([] if user else ["the refused user in the PAM line"]) + ([] if role else [
-            "a `TASKROLE ecs/<service> role=<name>` line for the failing ECS service" if src and src[0] == "ecs"
-            else "the identity that signs the tokens (WARDEN names it only for an ECS service, from its "
-                 "task definition: a `TASKROLE ecs/<service> role=<name>` line)"])
+        needed = [] if user else ["the refused user in the PAM line"]
+        if not role and src and src[0] == "ecs":
+            needed.append("a `TASKROLE ecs/<service> role=<name>` line for the failing ECS service")
+        elif not role:
+            needed.append("the identity that signs the tokens (WARDEN names it only for an ECS service, from its "
+                          "task definition: a `TASKROLE ecs/<service> role=<name>` line)")
         return f"The evidence does not carry {' and '.join(needed)}."
     return (f"{role}, the task role of {src[1]} (its TASKROLE line), is refused as database user {user.group(1)}. "
             "Compare its declared policy (Terraform) for rds-db:connect on that user and restore it through a "
@@ -528,7 +630,7 @@ def _capacity(ctx: ContextBundle) -> str:
     from .aws_backend import METRIC_WINDOW  # lazy: keeps boto3 out of the playbook's import
 
     m, window_s = ctx.metrics, METRIC_WINDOW.total_seconds()
-    tline = _first(ctx, "TABLE ")
+    tline = _first(ctx, _TABLE)
     tk = _kv(tline) if tline else {}
     if tk.get("billing") != "PROVISIONED" or not (tk.get("rcu", "").isdigit() and tk.get("wcu", "").isdigit()):
         return (f"The table bills {tk['billing']}, so there is no provisioned throughput to raise."
@@ -556,27 +658,68 @@ def _fn_of(alert: Alert, line: str) -> str | None:
     return src[1] if src and src[0] == "lambda" else _named(alert, "lambda", None)
 
 
+# A traceback that names one of these is a dependency failing, not the code: those have their own patterns.
+_INFRA = ("ResourceNotFoundException", "AccessDenied", "read-only transaction", "password authentication",
+          "PAM authentication failed", "too many clients", "Timeout", "timed out")
+
+
 def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
-    m, L = ctx.metrics, alert.labels
-    out: list[Pattern] = []
+    """The full stack's patterns (contract C), in the order a report lists them."""
+    # The k8s crash loop is the `crashloop` pattern above. It names no rollback: the bad value is in a
+    # ConfigMap, which a rollout undo does not restore and whose previous value WARDEN never saw.
+    return [
+        *_code_regression(ctx),
+        *_fn_timeout(alert, ctx),
+        *_fn_throttled(alert, ctx),
+        *_bad_environment(alert, ctx),
+        *_access_denied(ctx),
+        *_dead_letters(ctx),
+        *_consumer_off(ctx),
+        *_topic_delivery_refused(ctx),
+        *_table_throttled(ctx),
+        *_cache_unreachable(ctx),
+        *_cache_memory(alert, ctx),
+        *_db_connections_refused(ctx),
+        *_db_read_only(alert, ctx),
+        *_ecs_tasks(alert, ctx),
+        *_task_secret_denied(ctx),
+        *_lb_health_check(ctx),
+        *_stale_credentials(alert, ctx),
+        *_db_iam_auth_refused(ctx),
+        *_k8s_pods(ctx),
+        *_schedule_off(alert, ctx),
+    ]
 
-    def add(key, title, seen, cause, why="", **teams):
-        oncall = list(teams.pop("oncall", []))
-        if why:
-            oncall.insert(0, why)
-        out.append(Pattern(key, title, seen[:200], cause, oncall=oncall, **teams))
 
+def _add(out: list[Pattern], key: str, title: str, seen: str, cause: str, why: str = "", **teams: list[str]) -> None:
+    """Append one pattern: `why`, the evidence-specific advice, leads the on-call list."""
+    oncall = list(teams.pop("oncall", []))
+    if why:
+        oncall.insert(0, why)
+    out.append(Pattern(key, title, seen[:200], cause, oncall=oncall, **teams))
+
+
+def _ecs_before(alert: Alert, ctx: ContextBundle) -> str:
+    """The task definition the ECS service ran before the deploy in the window - or ""."""
+    d = _deploy(ctx, "ecs")
+    svc = alert.labels.get("ecs_service")
+    prev = str((d or {}).get("previous", ""))
+    if d and svc and re.fullmatch(r"[\w-]+:\d+", prev):
+        return f"{svc} ran task definition {prev} before the deploy at {d.get('at', '?')}."
+    return ""
+
+
+def _code_regression(ctx: ContextBundle) -> list[Pattern]:
     # ---- Lambda: code regression - a traceback frame in code that shipped in the window.
-    infra = ("ResourceNotFoundException", "AccessDenied", "read-only transaction", "password authentication",
-             "PAM authentication failed", "too many clients", "Timeout", "timed out")
-    for code in (ln for ln in ctx.logs if ln.startswith("CODE ")):
+    out: list[Pattern] = []
+    for code in (ln for ln in ctx.logs if ln.startswith(_CODE)):
         mt = re.match(r"CODE (\S+) (\S+):(\d+) in (\S+): (.*)", code)
-        if not mt or any(i in code for i in infra) or not _deploy(ctx, "lambda", mt.group(1)):
+        if not mt or any(i in code for i in _INFRA) or not _deploy(ctx, "lambda", mt.group(1)):
             continue
         fn, path, lineno, func, exc = mt.groups()
         failing = next((ln.split(">|", 1)[1].strip() for ln in ctx.logs
                         if ln.startswith(f"SOURCE {fn} {path}:{lineno} ") and ">|" in ln), "")
-        add("code_error_after_deploy", f"Code regression in {fn}", code,
+        _add(out, "code_error_after_deploy", f"Code regression in {fn}", code,
             f"{fn} raises {exc} at {path}:{lineno} in {func}, in the version shipped in the window.",
             _alias_moved(ctx, fn),
             developers=[f"Fix {path}:{lineno} in {func} ({fn}): {exc}"
@@ -584,8 +727,13 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
                         "Add a test with the real payload shape that reached this line."],
             platform=["Canary the alias (weighted routing) with automatic rollback on the Errors metric."],
             prevention=["Contract-test the API payload so a field the code needs cannot go missing silently."])
+    return out
 
+
+def _fn_timeout(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     # ---- Lambda: timeout too low
+    m = ctx.metrics
+    out: list[Pattern] = []
     t_line = _has(ctx, "Task timed out after")
     if t_line:
         fn = _fn_of(alert, t_line)
@@ -593,29 +741,37 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
         cfg_t = re.match(r"(\d+)", _config(ctx, fn).get("timeout", "")) if fn else None
         timeout = timeout or (float(cfg_t.group(1)) if cfg_t else None)
         dur = _metric(m, "lambda_duration_max_ms", alert, "lambda", fn) if fn else None
-        why = ""
-        if fn and timeout:
-            capped = dur is None or dur >= timeout * 1000 * 0.95
-            new = math.ceil(timeout * 3) if capped else math.ceil(dur * 2 / 1000)
-            new = min(max(new, int(timeout) + 1), 900)
-            basis = (f"every invocation hit the {timeout:.0f}s limit, so the real duration is unknown: "
-                     f"{new}s = 3 x the current timeout" if capped else
-                     f"{new}s = 2 x the longest observed duration ({dur:.0f} ms), rounded up")
-            why = " ".join(s for s in (f"A timeout that fits: {basis}.", _alias_moved(ctx, fn)) if s)
-        add("fn_timeout", "Lambda timing out", t_line,
+        why = _timeout_advice(ctx, fn, timeout, dur) if fn and timeout else ""
+        _add(out, "fn_timeout", "Lambda timing out", t_line,
             "The function runs longer than its configured timeout: the timeout is below what the code path "
             "needs, or a dependency slowed down.", why,
             developers=["Find the slow call (a dependency inside the handler) and give it its own shorter timeout."],
             platform=["Set the timeout from measured p99 duration with headroom, below the API's integration timeout."],
             prevention=["Alarm on Duration approaching the timeout, not only on timeouts."])
+    return out
 
+
+def _timeout_advice(ctx: ContextBundle, fn: str, timeout: float, dur: float | None) -> str:
+    """A timeout that fits `fn`, worked out from its longest observed duration, and where its alias moved."""
+    capped = dur is None or dur >= timeout * 1000 * 0.95
+    new = math.ceil(timeout * 3) if capped else math.ceil(dur * 2 / 1000)
+    new = min(max(new, int(timeout) + 1), 900)
+    basis = (f"every invocation hit the {timeout:.0f}s limit, so the real duration is unknown: "
+             f"{new}s = 3 x the current timeout" if capped else
+             f"{new}s = 2 x the longest observed duration ({dur:.0f} ms), rounded up")
+    return " ".join(s for s in (f"A timeout that fits: {basis}.", _alias_moved(ctx, fn)) if s)
+
+
+def _fn_throttled(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     # ---- Lambda: throttled
+    m = ctx.metrics
+    out: list[Pattern] = []
     throttled = {_named(alert, "lambda", s) for s, v in _per(m, "lambda_throttles") if v > 0}
     throttled |= {_named(alert, "lambda", s) for s, v in _per(m, "lambda_reserved_concurrency") if v == 0}
     for fn in sorted(f for f in throttled if f):
         reserved = _metric(m, "lambda_reserved_concurrency", alert, "lambda", fn)
         thr = _metric(m, "lambda_throttles", alert, "lambda", fn) or 0.0
-        add("fn_throttled", f"Lambda throttled: {fn}",
+        _add(out, "fn_throttled", f"Lambda throttled: {fn}",
             f"lambda_throttles = {thr:.0f}" + (f", lambda_reserved_concurrency = {reserved:.0f}"
                                                if reserved is not None else ""),
             "Invocations are rejected for lack of concurrency"
@@ -623,14 +779,19 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             _concurrency(alert, ctx, fn),
             platform=["Treat reserved concurrency as reviewed configuration; alarm on Throttles > 0."],
             prevention=["Alert on Throttles directly - they are unambiguous."])
+    return out
 
+
+def _bad_environment(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     # ---- Lambda: bad environment
+    labels = alert.labels
+    out: list[Pattern] = []
     rnf = _has(ctx, "ResourceNotFoundException")
     fn = _fn_of(alert, rnf) if rnf else None
     cfg = _config(ctx, fn) if fn else {}
     if rnf and cfg:
         names, values = _env(cfg)
-        table = L.get("dynamodb_table", "")
+        table = labels.get("dynamodb_table", "")
         wrong = {k: v for k, v in (values or {}).items() if "TABLE" in k.upper() and table and v != table}
         said = [_alias_moved(ctx, fn)]
         if values and len(wrong) == 1:
@@ -639,36 +800,45 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
         elif not said[0]:
             said.append(f"{fn}'s environment names {', '.join(names) or 'no variables'}"
                         + ("" if values else " without their values") + "; WARDEN cannot tell which value is wrong.")
-        add("missing_resource", f"{fn} calls a resource that does not exist", rnf,
+        _add(out, "missing_resource", f"{fn} calls a resource that does not exist", rnf,
             f"A resource {fn} calls does not exist; its configuration names resources through the environment "
             f"({', '.join(names)}).", " ".join(s for s in said if s),
             developers=["Validate configured resource names at cold start and fail with the name in the message."],
             platform=["Generate resource names in environment variables from the infrastructure code, not by hand."],
             prevention=["A post-deploy smoke call that exercises each dependency."])
+    return out
 
+
+def _access_denied(ctx: ContextBundle) -> list[Pattern]:
     # ---- IAM: a denied action
+    out: list[Pattern] = []
     denied = next((ln for ln in ctx.logs if "not authorized to perform" in ln
                    and "ResourceInitializationError" not in ln), None)
     if denied:
         action = (re.search(r"perform:? (\S+)", denied) or [None, "an action"])[1]
-        add("access_denied", f"Permission denied: {action}", denied,
+        _add(out, "access_denied", f"Permission denied: {action}", denied,
             f"The role is not allowed {action}: a policy change removed it, or it was never granted.",
             _denied(denied),
             platform=["Keep the role's policy in infrastructure code and review diffs that remove actions."],
             prevention=["Alarm on AccessDenied in application logs; it never fixes itself."])
+    return out
 
+
+def _dead_letters(ctx: ContextBundle) -> list[Pattern]:
     # ---- SQS: poison message
+    m = ctx.metrics
+    out: list[Pattern] = []
     dlq = [v for _, v in _per(m, "dlq_visible") if v > 0]
     # A traceback that is a dependency failing (denied, missing, read-only, ...) is not a message
     # the consumer cannot process: those have their own patterns.
     # A CODE line is the parsed traceback; a raw "Traceback" line counts only when none was parsed.
-    codes = [ln for ln in ctx.logs if ln.startswith("CODE ")]
-    trace = next((ln for ln in codes if not any(i in ln for i in infra)), None) if codes else next(
+    codes = [ln for ln in ctx.logs if ln.startswith(_CODE)]
+    trace = next((ln for ln in codes if not any(i in ln for i in _INFRA)), None) if codes else next(
         (ln for ln in ctx.logs if "Traceback" in ln and ln.startswith("LOG lambda/")), None)
     if dlq and trace:
         q = _first(ctx, "QUEUE ", "dlq_visible=")
         dname = _kv(q).get("dlq", "") if q else ""
-        add("dead_letters", "Messages failing to the dead-letter queue", q or f"dlq_visible = {dlq[0]:.0f}",
+        _add(out, "dead_letters", "Messages failing to the dead-letter queue", q or f"dlq_visible = {dlq[0]:.0f}",
             "The consumer raises on some messages; after the queue's max receives they move to the DLQ. The "
             "traceback names the code that cannot process them.",
             "Redriving messages the consumer cannot parse sends them straight back to the DLQ, and purging them "
@@ -678,16 +848,26 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             developers=[f"Handle the input that fails at `{trace[:160]}`; reject bad messages explicitly."],
             platform=["After the consumer is fixed, redrive the DLQ (SQS's dead-letter queue redrive)."],
             prevention=["Alarm on DLQ depth > 0."])
+    return out
 
+
+def _consumer_off(ctx: ContextBundle) -> list[Pattern]:
     # ---- SQS: consumer disabled
+    m = ctx.metrics
+    out: list[Pattern] = []
     esm = _first(ctx, "ESM ", "State=Disabled")
     if esm or any(v == 0 for _, v in _per(m, "lambda_esm_enabled")):
-        add("consumer_off", "Queue consumer disabled", esm or "lambda_esm_enabled = 0",
+        _add(out, "consumer_off", "Queue consumer disabled", esm or "lambda_esm_enabled = 0",
             "The event source mapping is disabled: nothing reads the queue and the backlog grows.",
             platform=["Alarm on ApproximateAgeOfOldestMessage, which catches a stopped consumer whatever the cause."],
             prevention=["Audit who can disable event source mappings in production."])
+    return out
 
+
+def _topic_delivery_refused(ctx: ContextBundle) -> list[Pattern]:
     # ---- SNS -> SQS delivery blocked
+    m = ctx.metrics
+    out: list[Pattern] = []
     pol = _first(ctx, "POLICY sqs ", ":no")
     sns_failed = [v for _, v in _per(m, "sns_notifications_failed") if v > 0]
     if pol or sns_failed:
@@ -698,22 +878,31 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             # Beside the statements the policy has: a whole-policy replace dropped them (audit A6, 2026-10-16).
             why = (f"Allow topic {topic} in {queue}'s access policy, beside the statements it already has, in the "
                    "infrastructure code that declares the queue.")
-        add("topic_delivery_refused", "SNS cannot deliver to the queue",
+        _add(out, "topic_delivery_refused", "SNS cannot deliver to the queue",
             pol or f"sns_notifications_failed = {sns_failed[0]:.0f}",
             "The queue's access policy does not allow the topic, so deliveries are refused.", why,
             platform=["Keep queue policies in infrastructure code with the subscription they serve."],
             prevention=["Alarm on NumberOfNotificationsFailed > 0."])
+    return out
 
+
+def _table_throttled(ctx: ContextBundle) -> list[Pattern]:
     # ---- DynamoDB throttling
+    m = ctx.metrics
+    out: list[Pattern] = []
     thr = _ddb_throttles(m)
     if any(v > 0 for v in thr.values()):
-        tline = _first(ctx, "TABLE ")
-        add("table_throttled", "DynamoDB throttling", tline or f"throttles = {sum(thr.values()):.0f}",
+        tline = _first(ctx, _TABLE)
+        _add(out, "table_throttled", "DynamoDB throttling", tline or f"throttles = {sum(thr.values()):.0f}",
             "Requests exceed the table's provisioned capacity and are throttled.", _capacity(ctx),
             platform=["Use auto scaling or on-demand for tables whose load varies."],
             prevention=["Alarm on ThrottledRequests > 0 and on consumed/provisioned > 80%."])
+    return out
 
+
+def _cache_unreachable(ctx: ContextBundle) -> list[Pattern]:
     # ---- Redis unreachable
+    out: list[Pattern] = []
     rline = next((ln for ln in ctx.logs if not ln.startswith(_STRUCTURED)
                   and re.search(r"(?i)redis|cache\.amazonaws\.com|:6379", ln)
                   and re.search(r"(?i)timeout|timed out|Error 11[01]|connection refused", ln)), None)
@@ -728,24 +917,30 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
         elif path:
             why = ("Every application security group already has an ingress rule on the cache's security group, "
                    "so the break is elsewhere (subnet, route, or the cluster).")
-        add("cache_unreachable", "Cache unreachable from the application", rline,
+        _add(out, "cache_unreachable", "Cache unreachable from the application", rline,
             "The application cannot open connections to the Redis endpoint - a network path (security group, "
             "subnet, route) or the cluster itself.", why,
             platform=["Check recent changes to the Redis security group's inbound rules for port 6379."],
             developers=["Give cache calls a short timeout and a fallback so a cache outage degrades, not fails."],
             prevention=["Alarm on the application's cache error rate, not only on the cluster's own health."])
+    return out
 
+
+def _cache_memory(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     # ---- Redis memory pressure. 90% is a named threshold; evictions are a count.
+    m = ctx.metrics
+    labels = alert.labels
+    out: list[Pattern] = []
     ev = sum(v for _, v in _per(m, "redis_evictions"))
     mem = max((v for _, v in _per(m, "redis_memory_pct")), default=0.0)
     if ev > 0 or mem >= 90:
-        group = L.get("elasticache", "")
+        group = labels.get("elasticache", "")
         # ⛔ Audit A-C-14: the node type comes only from WARDEN's own REPLGROUP read, never from any
         # line that mentions one - an application can log `node_type=` too.
         rg = _first(ctx, f"REPLGROUP {group} ") if group else None
         nt = _kv(rg).get("node_type") if rg else None
         bigger = _next_node_type(nt) if nt else None
-        add("cache_memory", "Cache memory pressure", f"redis_memory_pct = {mem:.0f}, redis_evictions = {ev:.0f}",
+        _add(out, "cache_memory", "Cache memory pressure", f"redis_memory_pct = {mem:.0f}, redis_evictions = {ev:.0f}",
             "The cache is near its memory limit and evicting (or refusing writes): keys without TTLs, or a working "
             "set larger than the node.",
             (f"{group} runs {nt}; the next size, {bigger}, has more memory and drops no data (the change takes "
@@ -753,76 +948,89 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             developers=["Set TTLs on every cache key; find what wrote the keys that fill memory."],
             platform=["Choose maxmemory-policy deliberately (allkeys-lru for a pure cache)."],
             prevention=["Alarm on DatabaseMemoryUsagePercentage > 80% and Evictions > 0."])
+    return out
 
+
+def _db_connections_refused(ctx: ContextBundle) -> list[Pattern]:
     # ---- Aurora: connections exhausted
+    out: list[Pattern] = []
     full = _has(ctx, "too many clients", "remaining connection slots are reserved")
     if full:
-        add("db_connections_refused", "Database refusing new connections", full,
+        _add(out, "db_connections_refused", "Database refusing new connections", full,
             "Every connection slot is taken; new clients are refused. Idle sessions held open are the usual cause.",
             ("Sessions idle outside a transaction can be ended without losing work - their clients reconnect. "
              "Find which application holds them first."),
             dba=["Set idle_session_timeout for application roles; put a pooler (RDS Proxy) in front of Lambdas."],
             developers=["Close or return connections; one pool per process, sized to its concurrency."],
             prevention=["Alarm at 80% of max_connections with a per-application breakdown."])
+    return out
 
+
+def _db_read_only(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     # ---- Aurora: writes reaching a read-only instance
+    labels = alert.labels
+    out: list[Pattern] = []
     ro = _has(ctx, "read-only transaction")
     if ro:
         fn = _fn_of(alert, ro)
         cl = _first(ctx, "CLUSTER aurora ")
         ck = _kv(cl) if cl else {}
-        cluster = cl.split()[2] if cl else L.get("aurora_cluster", "")
+        cluster = cl.split()[2] if cl else labels.get("aurora_cluster", "")
         readers = [r for r in ck.get("readers", "[]").strip("[]").split(",") if r]
         failover = next((ln for ln in ctx.logs if ln.startswith("EVENT aurora ") and "failover" in ln.lower()), None)
         why = _db_host(ctx, fn, cluster, [ck.get("writer", ""), *readers]) if fn else ""
         if failover and not why and cluster and len(readers) == 1:
             why = (f"Failing back would make {readers[0]} - the former writer the application is pinned to - the "
                    "writer again. Writes pause for the switch; the lasting fix is the cluster endpoint.")
-        common = dict(developers=["Connect writers to the cluster (writer) endpoint, never an instance or -ro endpoint."],
-                      prevention=["A startup check: `SHOW transaction_read_only` must be off for a writer."])
+        common = {"developers": ["Connect writers to the cluster (writer) endpoint, never an instance or -ro endpoint."],
+                  "prevention": ["A startup check: `SHOW transaction_read_only` must be off for a writer."]}
         if failover:
-            add("db_pinned_after_failover", "Writes fail after an Aurora failover",
+            _add(out, "db_pinned_after_failover", "Writes fail after an Aurora failover",
                 f"{failover[:120]} | {ro[:80]}",
                 "The cluster failed over; the application is pinned to an instance endpoint that is now a reader.",
                 why, **common)
         else:
-            add("db_write_on_reader", "Writes sent to a read-only Aurora endpoint", ro,
+            _add(out, "db_write_on_reader", "Writes sent to a read-only Aurora endpoint", ro,
                 "The application's database host is a reader: every write fails.", why, **common)
+    return out
 
+
+def _ecs_tasks(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     # ---- ECS: image cannot be pulled, task OOM
-    def ecs_before() -> str:
-        d = _deploy(ctx, "ecs")
-        svc = L.get("ecs_service")
-        prev = str((d or {}).get("previous", ""))
-        if d and svc and re.fullmatch(r"[\w-]+:\d+", prev):
-            return f"{svc} ran task definition {prev} before the deploy at {d.get('at', '?')}."
-        return ""
-
+    out: list[Pattern] = []
     pull = _has(ctx, "CannotPullContainerError")
     if pull:
-        add("task_image_pull", "ECS tasks cannot pull their image", pull,
+        _add(out, "task_image_pull", "ECS tasks cannot pull their image", pull,
             "The task definition references an image that cannot be pulled - usually a tag that does not exist.",
-            ecs_before(),
+            _ecs_before(alert, ctx),
             platform=["Deploy image digests from the build; gate deploys on the image existing in ECR."],
             prevention=["Alarm on failed task starts for the service."])
     task_oom_line = next((ln for ln in ctx.logs if (ln.startswith("LOG ecs/") or "OutOfMemory" in ln)
                     and re.search(r"(?i)OutOfMemory|exit code:? 137|exitCode[=:] ?137", ln)), None)
     if task_oom_line:
-        add("task_oom", "ECS tasks killed for memory", task_oom_line,
-            "A container exceeded its task memory and was killed (exit 137).", ecs_before(),
+        _add(out, "task_oom", "ECS tasks killed for memory", task_oom_line,
+            "A container exceeded its task memory and was killed (exit 137).", _ecs_before(alert, ctx),
             developers=["Measure the service's peak memory; find the allocation that grew."],
             platform=["Size task memory from measured peak + headroom; alarm on MemoryUtilization."])
+    return out
 
+
+def _task_secret_denied(ctx: ContextBundle) -> list[Pattern]:
     # ---- ECS: secret cannot be read at task start
+    out: list[Pattern] = []
     init = next((ln for ln in ctx.logs if "ResourceInitializationError" in ln and re.search(r"(?i)secret", ln)), None)
     if init:
-        add("task_secret_denied", "ECS tasks cannot read their secret", init,
+        _add(out, "task_secret_denied", "ECS tasks cannot read their secret", init,
             "The task execution role cannot read the secret the task definition injects, so no task starts.",
             _denied(init),
             platform=["Keep secretsmanager:GetSecretValue for the task's secrets in the execution role's policy."],
             prevention=["Alarm on tasks stopped with ResourceInitializationError."])
+    return out
 
+
+def _lb_health_check(ctx: ContextBundle) -> list[Pattern]:
     # ---- ALB health check path wrong
+    out: list[Pattern] = []
     tgt = _first(ctx, "TARGET ", "ResponseCodeMismatch")
     if tgt:
         tg = tgt.split()[1]
@@ -830,7 +1038,7 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
         bad = _kv(tgl).get("health_path") if tgl else None
         # ⛔ Audit A-C-14: the working path used to be read from the application's access log, which
         # any client writes by requesting a path. It is restored from where it is declared.
-        add("lb_health_check", "Load balancer health check failing", tgt,
+        _add(out, "lb_health_check", "Load balancer health check failing", tgt,
             "Targets fail the target group's health check with an unexpected status code: the check's path or "
             "port does not match the application.",
             ("The target group checks `" + str(bad) + "`, and the working health path is not in WARDEN's own "
@@ -838,61 +1046,76 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
              "application's logs)."),
             platform=["Keep the health check path next to the route definition in infrastructure code."],
             prevention=["Alarm on UnHealthyHostCount > 0."])
+    return out
 
+
+def _stale_credentials(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     # ---- Stale credentials after a secret rotation
+    labels = alert.labels
+    out: list[Pattern] = []
     auth = _has(ctx, "password authentication failed")
     changed = _first(ctx, "SECRET ", "changed") or ("secret changed in the window" if _deploy(ctx, "secret") else None)
     if auth and changed:
         src = _source_of(auth)
-        svc = L.get("ecs_service")
+        svc = labels.get("ecs_service")
         why = ""
         if src and src[0] == "ecs" and svc:
             why = f"New tasks of {svc} read the secret at start, so they get the current password."
         elif src and src[0] == "k8s" and "/" in src[1]:
             why = f"New pods of {src[1]} read the current secret."
-        add("stale_credentials", "Stale database credentials after a secret change",
+        _add(out, "stale_credentials", "Stale database credentials after a secret change",
             f"{auth[:110]} | {changed[:80]}",
             "The database password changed (the secret changed in the window) but the running workload still "
             "uses the one it read at start.", why,
             developers=["Re-read the secret on authentication failure instead of only at start."],
             platform=["Make rotation restart its consumers (or use dual-user rotation)."])
+    return out
 
+
+def _db_iam_auth_refused(ctx: ContextBundle) -> list[Pattern]:
     # ---- IAM database authentication refused (Aurora: the signing identity lost rds-db:connect)
+    out: list[Pattern] = []
     pam = next((ln for ln in ctx.logs if "PAM authentication failed for user" in ln), None)
     if pam:
-        add("db_iam_auth_refused", "Database refuses the application's IAM login", pam[-160:],
+        _add(out, "db_iam_auth_refused", "Database refuses the application's IAM login", pam[-160:],
             "Aurora refused an IAM database token: the identity that signed it is no longer allowed "
             "rds-db:connect for that database user (a policy change removed it), or the user lost rds_iam.",
             _db_iam_refused(ctx, pam),
             platform=["Keep rds-db:connect in the workload role's policy in infrastructure code; review diffs that remove it."],
             prevention=["Alarm on `PAM authentication failed` in application logs; it never fixes itself."])
+    return out
 
+
+def _k8s_pods(ctx: ContextBundle) -> list[Pattern]:
     # ---- Kubernetes: missing secret key, unschedulable
+    out: list[Pattern] = []
     cfgerr = _has(ctx, "CreateContainerConfigError", "couldn't find key")
     if cfgerr:
-        add("secret_key_missing", "Pod references a secret key that does not exist", cfgerr,
+        _add(out, "secret_key_missing", "Pod references a secret key that does not exist", cfgerr,
             "A container's env references a key the Secret no longer has, so the container cannot be created.",
             "WARDEN never reads secret values, so it cannot say what the missing key held.",
             platform=["Restore the key in the Secret from its source of truth; the pods then start on their own."],
             prevention=["Check that every referenced secret key exists before applying a Secret change."])
     sched = next((ln for ln in ctx.logs if "FailedScheduling" in ln and "Insufficient" in ln), None)
     if sched:
-        add("unschedulable", "Pods cannot be scheduled", sched,
+        _add(out, "unschedulable", "Pods cannot be scheduled", sched,
             "No node has the resources the pod requests - the requests exceed what any node can offer.",
             "If the last deploy raised the pods' requests, rolling it back returns them to what fitted.",
             platform=["Set requests from measured usage; a LimitRange caps what one pod can request."],
             prevention=["Alert on Pending pods older than a few minutes."])
+    return out
 
+
+def _schedule_off(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     # ---- EventBridge rule disabled
+    m = ctx.metrics
+    out: list[Pattern] = []
     rule = _first(ctx, "RULE ", "State=DISABLED")
     off = [s for s, v in _per(m, "rule_enabled") if v == 0]
     if rule or off:
-        add("schedule_off", "Scheduled rule disabled", rule or "rule_enabled = 0",
+        _add(out, "schedule_off", "Scheduled rule disabled", rule or "rule_enabled = 0",
             "The EventBridge rule is disabled, so its target is never invoked.",
             # Not where the alert IS such an alarm (live, 2026-10-12: the follow-up asked for the alarm that fired).
             platform=[] if alert.labels.get("alarm") else [
                 "Alarm on the target's Invocations dropping to zero for scheduled work."])
-
-    # The k8s crash loop is the `crashloop` pattern above. It names no rollback: the bad value is in a
-    # ConfigMap, which a rollout undo does not restore and whose previous value WARDEN never saw.
     return out
