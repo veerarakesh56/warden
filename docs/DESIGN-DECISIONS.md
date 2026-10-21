@@ -381,6 +381,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   `identity.py`, and boto3 for the AWS writes in `platforms/aws.py`. IAM Roles Anywhere and Teleport's Machine ID
   issue the same STS sessions on AWS (decision D11), so WARDEN calls STS directly.
 - Approver labels: signed with the approvers' own Ed25519 keys (`cryptography`), recorded in the audit - `labels.py`.
+- Whether the actor role allows a fix's calls before anyone is asked to approve it (B12): AWS's own IAM policy
+  simulator (SimulatePrincipalPolicy, in the environment's reader role) - `permits.py`, which only traces the calls
+  from the fix's own write code and asks the simulator about them.
 - Pages of WARDEN's own that repeat until acknowledged - `paging.py` with the runtime module's pager: CloudWatch
   alarms, EventBridge rules and a schedule, S3 for the page state, CloudWatch's own email action. CloudWatch sends an
   alarm action once; Systems Manager Incident Manager, AWS's paging with acknowledgement, takes no new customers since
