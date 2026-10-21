@@ -84,6 +84,9 @@ NOT_EXTENDED = {
     "not this plan's approver": ("Only an approver who may approve this plan - its risk level and its environment - "
                                  "can extend its wait."),
     "no plan waiting": "`{incident}` has no fix plan waiting for an approval, so there is nothing to extend.",
+    "approved by Eldane": ("Eldane, the AI critic, already approved WARDEN's plan `{workflow}`: it is not waiting for "
+                           "a person, so its wait is not extended. A person's \"no\" on the approval page still stops "
+                           "it until it is applied."),
     "hours out of range": "A plan's wait is extended by 1 to {most} hours at a time; ask again with that.",
     "at the limit": ("WARDEN's plan `{workflow}` already waits as long as a plan can: until {until}, {ceiling} hours "
                      "from when it was made. A new plan can be asked for with \"new plan\"."),
