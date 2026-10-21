@@ -201,6 +201,8 @@ def test_any_one_condition_missing_holds_the_merge(kw, says):
     (code_fix.head_is_warden_s, {"pull": pull(head_sha="d" * 40)}),
     (code_fix.checks_green, {"checks": [("x", "completed", "failure")]}),
     (code_fix.checks_present, {"checks": []}), (code_fix.review_clear, {"review": ReviewState(True, False, 2)}),
+    (code_fix.sonar_green, {"checks": [c for c in GREEN if c[0] != "SonarCloud Code Analysis"]}),
+    (code_fix.sonar_green, {"checks": [*GREEN[:1], ("SonarCloud Code Analysis", "completed", "neutral")]}),
     (code_fix.critic_agrees, {"critic": False})])
 def test_each_condition_is_its_own_check(condition, kw):
     assert condition in code_fix.MERGE_CONDITIONS
@@ -209,7 +211,14 @@ def test_each_condition_is_its_own_check(condition, kw):
 
 
 def test_every_condition_is_tested_here():
-    assert len(code_fix.MERGE_CONDITIONS) == 7
+    assert len(code_fix.MERGE_CONDITIONS) == 8
+
+
+def test_prod_never_merges_itself_whatever_else_is_green():
+    """Option A, final: prod never. Refused in code (effective_mode), whatever the mode passed and every other fact."""
+    for mode in ("auto", "propose", "off"):
+        out = refusals(mode=mode, tier="prod")
+        assert out == ["the environment does not merge code fixes on its own (code_fix is not auto, or it is prod)"]
 
 
 class Audit:

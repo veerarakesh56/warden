@@ -484,6 +484,16 @@ def checks_present(f: MergeFacts) -> str:
     return f"required checks not run on {f.wrote[:12]}: {', '.join(missing)}" if missing else ""
 
 
+SONAR_CHECK = "SonarCloud Code Analysis"
+
+
+def sonar_green(f: MergeFacts) -> str:
+    """SonarCloud's quality gate on that commit, by name: the owner's option A names it, so it is its own condition."""
+    ok = any(name == SONAR_CHECK and status == "completed" and conclusion == "success"
+             for name, status, conclusion in f.checks)
+    return "" if ok else f"SonarCloud's quality gate has not passed on {f.wrote[:12]}"
+
+
 def review_clear(f: MergeFacts) -> str:
     if not f.review.reviewed_head or f.review.changes_requested or f.review.open_threads:
         return f"CodeRabbit has not reviewed {f.wrote[:12]}, asked for changes, or left a thread open"
@@ -494,10 +504,11 @@ def critic_agrees(f: MergeFacts) -> str:
     return "" if f.critic else f"Eldane, the AI critic, has not approved {f.wrote[:12]}"
 
 
-# Every one must say nothing (register B4, phase 4; owner option A): mode, pull request, head, checks green, required
-# checks present, CodeRabbit, Eldane. Each is its own test (tests/test_autofix_check.py).
-MERGE_CONDITIONS = (mode_allows, pull_is_ready, head_is_warden_s, checks_green, checks_present, review_clear,
-                    critic_agrees)
+# Every one must say nothing (register B4, phase 4; owner decision 2026-10-21, option A, final: dev merges itself only
+# after CI, CodeRabbit, SonarCloud and Eldane are all green; prod never): mode, pull request, head, CI green, required
+# checks present, SonarCloud, CodeRabbit, Eldane. Each is its own test (tests/test_autofix_check.py).
+MERGE_CONDITIONS = (mode_allows, pull_is_ready, head_is_warden_s, checks_green, checks_present, sonar_green,
+                    review_clear, critic_agrees)
 
 
 def merge_refusals(facts: MergeFacts) -> list[str]:
