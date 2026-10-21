@@ -17,6 +17,8 @@ PAGES = (REVIEW, EGRESS)
 PROVIDER_HEADING = "## The model provider"
 OFFICIAL = re.compile(r"https://(?:www\.)?(?:[a-z]+\.)?(?:anthropic\.com|claude\.com)/")
 _ANCHORED = re.compile(r"\]\(([^)\s#]*)#([^)\s]+)\)")
+# A reference definition with an anchor: `[label]: FILE.md#heading` (or `<FILE.md#heading>`).
+_ANCHORED_REFERENCE = re.compile(r"^ {0,3}\[[^\]]+\]:\s*<?([^\s>#]*)#([^\s>]+)>?", re.MULTILINE)
 _URL = re.compile(r"\]\((https?://[^)\s]+)\)")
 
 
@@ -40,7 +42,7 @@ def _anchors(path: pathlib.Path) -> set[str]:
 def _broken_anchors(text: str, page: pathlib.Path) -> list[str]:
     """Every `file.md#anchor` (or `#anchor` on the page itself) whose heading does not exist."""
     broken = []
-    for target, anchor in _ANCHORED.findall(text):
+    for target, anchor in _ANCHORED.findall(text) + _ANCHORED_REFERENCE.findall(text):
         path = (page.parent / target).resolve() if target else page
         if target.startswith("http") or path.suffix != ".md":
             continue
@@ -80,12 +82,44 @@ def test_a_wrong_anchor_is_caught():
     assert _broken_anchors("[a](#nowhere)", page) == ["#nowhere"]
 
 
-def test_every_provider_claim_links_an_official_anthropic_page_and_is_dated():
+def test_a_wrong_anchor_in_a_reference_definition_is_caught():
+    page = ROOT / REVIEW
+    text = "see [the layers][src]\n\n[src]: ARCHITECTURE.md#no-such-heading\n"
+    assert _broken_anchors(text, page) == ["ARCHITECTURE.md#no-such-heading"]
+
+
+def _claims(section: str) -> list[str]:
+    """The provider table's claim rows: every table row but the header and its separator."""
+    rows = [line for line in section.splitlines() if line.startswith("|")]
+    return rows[2:]
+
+
+def _unsourced(section: str) -> list[str]:
+    """Each claim row that links no official Anthropic page, and each link anywhere in the section that is not one."""
+    bare = [
+        row for row in _claims(section) if not any(OFFICIAL.match(u) for u in _URL.findall(row))
+    ]
+    return bare + [u for u in _URL.findall(section) if not OFFICIAL.match(u)]
+
+
+def test_every_provider_claim_links_an_official_anthropic_page():
     section = _provider_section(_text(EGRESS))
-    urls = _URL.findall(section)
-    assert urls, "the provider section links no source"
-    assert [u for u in urls if not OFFICIAL.match(u)] == []
-    assert re.search(r"\b20\d\d-\d\d-\d\d\b", section), "the research is not dated"
+    assert _claims(section), "the provider section holds no claim"
+    assert _unsourced(section) == []
+
+
+def test_the_provider_research_is_dated_before_its_first_claim():
+    section = _provider_section(_text(EGRESS))
+    before_claims = section.split("\n|", 1)[0]
+    assert re.search(r"\b20\d\d-\d\d-\d\d\b", before_claims), "the research is not dated"
+
+
+def test_a_claim_row_without_its_own_source_is_caught():
+    section = (
+        "| Question | Says | Source |\n|---|---|---|\n"
+        "| a | x | [p](https://www.anthropic.com/legal/commercial-terms) |\n| b | y | none |\n"
+    )
+    assert _unsourced(section) == ["| b | y | none |"]
 
 
 @pytest.mark.parametrize(

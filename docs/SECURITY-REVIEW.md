@@ -1,7 +1,7 @@
 # Security review pack
 
 The page a client's security team asks for: where each answer is. Every line points to the document or code that
-holds it; this page adds no claim of its own. Checked against `main` on 2026-10-21. Where a part is still an open
+holds it; this page adds no claim of its own. Checked against `main` at `13a3324` on 2026-10-21. Where a part is still an open
 pull request, it says **pending PR #n**: under review, not merged, not running.
 
 ## What WARDEN is

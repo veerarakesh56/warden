@@ -1,8 +1,16 @@
 # What leaves WARDEN's network, and how to check it
 
-Owner, 2026-10-20: sensitive data never leaves the network. Every egress is recorded, and security, network and
-operations engineers can check that it is safe. AI agents never see or reach the masked values. People with access
-can reveal them through an audited path.
+The owner's goal (2026-10-20): sensitive data never leaves the network; every egress is recorded, and security,
+network and operations engineers can check that it is safe; AI agents never see or reach the masked values; people
+with access can reveal them through an audited path.
+
+How far `main` meets it today, in short (details below):
+- detected values are masked before anything is built for a model, a chat message, a ticket or a log. One opt-in
+  exception: with `WARDEN_REPORT_SHOW_IDENTIFIERS=true`, chat messages show emails, tenant ids and IP addresses again
+  (never secrets, never to a model);
+- recording **every** egress (the ledger) is **pending PR #104**;
+- no masked value is stored on `main`, so there is nothing to reveal yet: the sealed vault and the audited reveal are
+  **pending PRs #115 and #119**.
 
 This page is for those engineers. It covers every destination, what goes there and what is masked; what the model
 provider does with what it receives; and, as the open privacy PRs land, the egress ledger, the sealed vault and the
@@ -18,7 +26,7 @@ reveal.
 > | [#110](https://github.com/veerarakesh56/warden/pull/110) | the log gate in every Lambda; the lab's Datadog agent masking; log canary tests |
 > | [#115](https://github.com/veerarakesh56/warden/pull/115) | `vault.py`: masked values sealed with KMS, stable ids, retention |
 > | [#119](https://github.com/veerarakesh56/warden/pull/119) | `reveal.py`: people reveal a masked value on the records page, audited first |
-> | [#147](https://github.com/veerarakesh56/warden/pull/147) | `warden records list|show`, a read-only CLI over the audit |
+> | [#147](https://github.com/veerarakesh56/warden/pull/147) | `warden records list` and `warden records show`, a read-only CLI over the audit |
 > | [#83](https://github.com/veerarakesh56/warden/pull/83) | the AWS updates watch (AWS's news feeds) |
 > | [#130](https://github.com/veerarakesh56/warden/pull/130) | end-to-end privacy tests over the bundled incidents |
 >
@@ -207,8 +215,8 @@ Claude CLI on a Claude Max subscription, on recorded incidents only.
 | Bedrock (not used) | "On Amazon Bedrock and Google Cloud's Agent Platform, the cloud provider is the data processor"; their own documentation applies. | [API and data retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention) |
 | The Claude CLI on a consumer plan | Free, Pro and Max: "We will train new models using data from Free, Pro, and Max accounts when this setting is on"; retention 5 years with that setting on, 30 days with it off. Commercial users (Team, Enterprise, API): "Standard: 30-day retention period" (for Claude Code). | [Claude Code: data usage](https://code.claude.com/docs/en/data-usage) |
 
-What WARDEN adds on its side: only redacted prompts are sent, placeholders instead of values (above); **pending PR
-#104** refuses any prompt that still holds a value. An install that needs US-only inference or no retention must set
+What WARDEN adds on its side: only redacted prompts are sent, placeholders instead of values (above);
+**pending PR #104** refuses any prompt that still holds a value. An install that needs US-only inference or no retention must set
 it in its Anthropic workspace (`default_inference_geo`, `allowed_inference_geos`) or agree ZDR with Anthropic; WARDEN
 has no setting for either.
 
