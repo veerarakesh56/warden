@@ -184,7 +184,11 @@ def test_everything_green_merges():
     ({"pull": pull(head_ref="feature/x")}, "something was added"),
     ({"checks": [*GREEN, ("check", "in_progress", "")]}, "not green yet on cccccccccccc: check"),
     ({"checks": [*GREEN, ("security", "completed", "failure")]}, "not green yet on cccccccccccc: security"),
-    ({"checks": GREEN[1:]}, "not run on cccccccccccc: autofix-regression"),
+    ({"checks": GREEN[1:]}, "not passed on cccccccccccc: autofix-regression"),
+    ({"checks": [("autofix-regression", "completed", "skipped"), *GREEN[1:]]},  # a required job skipped is not green
+     "not passed on cccccccccccc: autofix-regression"),
+    ({"checks": [*GREEN[:2], ("check / validate", "completed", "neutral"), *GREEN[3:]]},
+     "not passed on cccccccccccc: check / validate"),
     ({"review": ReviewState(False, False, 0)}, "CodeRabbit"),
     ({"review": ReviewState(True, True, 0)}, "CodeRabbit"),
     ({"review": ReviewState(True, False, 1)}, "CodeRabbit"),

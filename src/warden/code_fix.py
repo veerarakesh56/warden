@@ -480,8 +480,11 @@ def checks_green(f: MergeFacts) -> str:
 
 
 def checks_present(f: MergeFacts) -> str:
-    missing = sorted(set(f.required) - {name for name, _status, _conclusion in f.checks})
-    return f"required checks not run on {f.wrote[:12]}: {', '.join(missing)}" if missing else ""
+    """Each required check ran on that commit and passed: a required check that was skipped or neutral is not green
+    (checks_green lets an optional job skip; a required one never)."""
+    passed = {name for name, status, conclusion in f.checks if status == "completed" and conclusion == "success"}
+    missing = sorted(set(f.required) - passed)
+    return f"required checks not run or not passed on {f.wrote[:12]}: {', '.join(missing)}" if missing else ""
 
 
 SONAR_CHECK = "SonarCloud Code Analysis"

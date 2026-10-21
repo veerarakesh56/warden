@@ -315,8 +315,8 @@ whose `code_fix` is `auto` (never the prod tier; both ship `propose`, so today a
 `CodeFixMergeWorkflow` asks every 10 minutes for a day, and the act zone merges (rebase, naming the exact commit) only
 when every condition holds for the one commit WARDEN wrote (`code_fix.MERGE_CONDITIONS`, each its own check): the
 mode; the pull request open, not a draft, mergeable; its head that commit, from a `warden/` branch into the default
-branch; every check run on it green and `auto_merge.required_checks` (data/code_fix.yaml) among them; CodeRabbit
-reviewed that commit, asked for nothing and left no thread open; and Eldane approved that commit - an audit row of
+branch; every check run on it green and `auto_merge.required_checks` (data/code_fix.yaml) among them, each
+passed (a required check that was skipped is not green); CodeRabbit reviewed that commit, asked for nothing and left no thread open; and Eldane approved that commit - an audit row of
 kind `eldane_code_review` that only Eldane's code review (built on PR 42, not yet) writes. Until it exists nothing
 merges itself. SonarCloud's quality gate is its own condition, by name. The owner chose option A (2026-10-21, final):
 in dev a code fix merges itself only after CI, CodeRabbit, SonarCloud and Eldane are all green; prod never (refused in
