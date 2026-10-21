@@ -36,6 +36,7 @@ from typing import Any
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from warden import web
 from warden.datadog import SITES
 from warden.webhooks import DATADOG_PAYLOAD
 
@@ -116,7 +117,7 @@ class Datadog:
         req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
                                      headers={"DD-API-KEY": self.keys[0], "DD-APPLICATION-KEY": self.keys[1],
                                               "Content-Type": "application/json", "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=20) as resp:  # nosec B310 - https to a known Datadog site
+        with web.urlopen(req, timeout=20) as resp:
             return json.loads(resp.read() or b"{}")
 
     def call(self, method: str, path: str, body: dict | None = None) -> Any:
