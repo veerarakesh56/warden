@@ -159,6 +159,38 @@ def _load(path: pathlib.Path | None) -> dict | None:
     return doc if _root(doc) is not None else None
 
 
+def _regressions(taken: pathlib.Path) -> dict | None:
+    """The stack's regressions.json ({} when there is none), or None when it is not an object of scenario kind to a
+    list of resource addresses."""
+    try:
+        regressions = json.loads(taken.read_text(encoding="utf-8")) if taken.is_file() else {}
+    except ValueError:
+        return None
+    if not (isinstance(regressions, dict) and all(
+            isinstance(v, list) and all(isinstance(a, str) for a in v) for v in regressions.values())):
+        return None
+    return regressions
+
+
+def _scenario_rows(args: argparse.Namespace, document: pathlib.Path, compare_with: pathlib.Path | None,
+                   cases: dict[str, pathlib.Path], judged_by: tuple) -> tuple[list[str], bool]:
+    """(the report's heading and one table row per scenario, whether any was refused). `judged_by` is (accepted,
+    existing, regressions) as judge() takes them."""
+    accepted, existing, regressions = judged_by
+    helios = [args.helios]
+    refused = False
+    lines = [f"### Helios {'after apply' if args.after else 'before apply'}", "",
+             "| Scenario | Verdict | Why |", "|---|---|---|"]
+    for name, path in cases.items():
+        before = simulate(helios, compare_with, path) if compare_with is not None else None
+        verdict, why = judge(name, simulate(helios, document, path), before, accepted, existing, regressions)
+        if args.after and verdict == "later":
+            verdict, why = "refuse", "inconclusive on the applied state"
+        refused |= verdict == "refuse"
+        lines.append(f"| {name} | {verdict} | {why.replace('|', '/')} |")
+    return lines, refused
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--helios", required=True)
@@ -192,27 +224,15 @@ def main(argv: list[str] | None = None) -> int:
     baseline = _load(baseline_path)
     existing = {r.get("address") for r in _resources(_root(baseline))} if baseline is not None else None
     accepted = json.loads((helios_dir / "accepted.json").read_text(encoding="utf-8"))
-    taken = helios_dir / "regressions.json"
-    try:
-        regressions = json.loads(taken.read_text(encoding="utf-8")) if taken.is_file() else {}
-    except ValueError:
-        regressions = None
-    if not (isinstance(regressions, dict) and all(
-            isinstance(v, list) and all(isinstance(a, str) for a in v) for v in regressions.values())):
+    regressions = _regressions(helios_dir / "regressions.json")
+    if regressions is None:
         print(f"refused: terraform/{args.stack}/helios/regressions.json must be an object of scenario kind to a list "
               "of resource addresses")
         return 1
-    helios = [args.helios]
-    refused = False
-    lines = [f"### Helios {'after apply' if args.after else 'before apply'}", "",
-             "| Scenario | Verdict | Why |", "|---|---|---|"]
-    for name, path in scenarios(doc, out_dir, helios_dir).items():
-        before = simulate(helios, baseline_path, path) if baseline is not None else None
-        verdict, why = judge(name, simulate(helios, document, path), before, accepted, existing, regressions)
-        if args.after and verdict == "later":
-            verdict, why = "refuse", "inconclusive on the applied state"
-        refused |= verdict == "refuse"
-        lines.append(f"| {name} | {verdict} | {why.replace('|', '/')} |")
+    # The current state is simulated only when it is a document Helios can read.
+    compare_with = baseline_path if baseline is not None else None
+    lines, refused = _scenario_rows(args, document, compare_with, scenarios(doc, out_dir, helios_dir),
+                                    (accepted, existing, regressions))
     if len(lines) == 4:
         lines += ["", f"terraform/{args.stack} declares no scenario it must survive and has no subnet: nothing to run."]
     if baseline is None:
