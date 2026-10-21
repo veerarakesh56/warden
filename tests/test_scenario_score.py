@@ -583,3 +583,38 @@ def test_the_headline_counts_the_ungradable_runs_the_gate_let_through():
     summary = score.summarise({"rows": rows})
     assert summary["headline_wrong_and_allowed"] == 1 and summary["no_evidence_allowed"] == 1
 
+
+
+# ---- score_one and render_markdown, split into steps (Sonar S3776)
+
+
+def test_the_answer_is_read_from_the_proposal_the_verdict_and_the_root_cause():
+    report = {"proposal": {"action": "restart_service", "reversible": True},
+              "verdict": {"status": "approved_for_human", "policy_ids": ["P1"], "observed": ["P9: would fire"]},
+              "root_cause": {"confidence": 0.7}}
+    assert score._answer(report) == {"action": "restart_service", "reversible": True, "confidence": 0.7,
+                                  "verdict": "approved_for_human", "policy_ids": ["P1"], "observed": ["P9"]}
+
+
+def _run_row(overlaps):
+    return {"scenario_id": "ecs-01-x", "fault_class": "oom", "signature_covered": True, "index": 1,
+            "evidence": True, "window_overlaps": overlaps, "diagnosis": "CORRECT", "action": "a",
+            "verdict": "v", "gate": "allowed", "policy_ids": []}
+
+
+@pytest.mark.parametrize(("overlaps", "window"), [
+    (None, "| — |"),
+    ([], "| isolated |"),
+    (["ecs-05-scaled-to-zero", "ecs-06-oom (superseded)"], "| **+ecs-05, ecs-06 (s)** |"),
+], ids=["not-computed", "isolated", "overlapping"])
+def test_each_runs_window_column_says_what_its_evidence_reached(overlaps, window):
+    out: list[str] = []
+    score._render_runs(out.append, [_run_row(overlaps)])
+    assert window in out[4]
+
+
+def test_a_hand_change_is_listed_and_followed_by_a_blank_line():
+    out: list[str] = []
+    score._render_hand_changes(out.append, {"operator_notes": [("ecs-01", {"at": "2026-01-01T00:00:00", "note": "n"})]},
+                            {})
+    assert out == ["- **Operator, by hand** (`ecs-01`, 2026-01-01T00:00:00): n", ""]
