@@ -20,9 +20,11 @@ import json
 import math
 import os
 import threading
+import typing
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
+from pydantic_core.core_schema import ErrorType
 
 from .models import CostRecord
 from .providers import Provider, ProviderExhausted, resolve
@@ -55,6 +57,86 @@ def model_prices(model: str) -> tuple[float, float]:
 # returned. The tools already have this (tools.py); the model call did not, which was the gap.
 # The ceiling itself is providers.call_timeout_s(provider): WARDEN_LLM_TIMEOUT, else the provider's
 # own default, else 45 s.
+
+
+# Owner item 5 (2026-10-21): a retry after an answer that failed validation says what failed, instead of sending the
+# same prompt again. Only field paths and error types are fed back, never an input value: the answer echoes redacted
+# evidence, and a validation error can quote it. Part of the prompt a model is qualified on (qualify_provider.py
+# prompt_fingerprint), so changing it changes the pin in data/providers.yaml.
+RETRY_FEEDBACK = ("Your last answer failed validation: {errors}. Return ONLY valid JSON for this schema: nothing "
+                  "else.")
+_MAX_FED_BACK = 8  # errors named; the rest are counted
+# pydantic's own error types (`missing`, `enum`, `int_parsing` ...): a validator can name a custom one after a value
+# from the answer (PydanticCustomError), so only these are told (review, PR 132); any other is "invalid".
+_ERROR_TYPES = frozenset(typing.get_args(ErrorType))
+
+
+def _schema_names(schema: Any) -> frozenset[str]:
+    """Every property name the schema declares, nested models included: the only words of a path fed back."""
+    names: set[str] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            names.update(k for k in node.get("properties") or {} if isinstance(k, str))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(schema.model_json_schema())
+    return frozenset(names)
+
+
+def _path(loc: tuple[Any, ...], names: frozenset[str]) -> str:
+    """A field path from the schema's own names and list positions; any other step (a key the answer made up, which is
+    answer text) is shown as `*`."""
+    steps = [str(x) if isinstance(x, int) or x in names else "*" for x in loc]
+    return ".".join(steps) or "(the whole answer)"
+
+
+def _error_type(error: Any) -> str:
+    """pydantic's error type (`missing`, `enum`, `too_long`): a fixed word, never the answer's text."""
+    kind = str(error.get("type", ""))
+    return kind if kind in _ERROR_TYPES else "invalid"
+
+
+def _paths_and_types(exc: ValidationError, schema: Any) -> str:
+    """Each error's field path and pydantic error type, the first _MAX_FED_BACK of them: never an input value."""
+    names = _schema_names(schema)
+    errors = exc.errors(include_url=False, include_context=False, include_input=False)
+    shown = [f"{_path(tuple(e.get('loc') or ()), names)} ({_error_type(e)})" for e in errors[:_MAX_FED_BACK]]
+    more = len(errors) - len(shown)
+    return "; ".join(shown) + (f"; and {more} more" if more > 0 else "")
+
+
+def refusal_reason(exc: BaseException | None, schema: Any) -> str:
+    """Why no answer came, as ModelRefused says it. Its text reaches the diagnose audit row, the rules-only root cause
+    in the report and the workflow's failure (graph.node_diagnose): a validation error is told by its paths and types,
+    never by pydantic's own text, which quotes the answer (`input_value=...`), and the answer echoes evidence."""
+    if not isinstance(exc, ValidationError):
+        return str(exc)
+    n = exc.error_count()
+    return f"{n} validation error{'' if n == 1 else 's'} for {schema.__name__}: {_paths_and_types(exc, schema)}"
+
+
+def validation_feedback(exc: Exception, schema: Any) -> str:
+    """What a retry tells the model about its last answer: each error's field path and pydantic error type, or the
+    JSON parser's own fixed message and position. Never an input value, a quote of the answer or a validator's own
+    message (which may carry one)."""
+    if isinstance(exc, ValidationError):
+        text = _paths_and_types(exc, schema)
+    elif isinstance(exc, json.JSONDecodeError):
+        text = f"not valid JSON ({exc.msg}, line {exc.lineno} column {exc.colno})"
+    else:
+        text = "no JSON object was found in it"
+    return RETRY_FEEDBACK.format(errors=text)
+
+
+def _retry_prompt(system: str, prompt: str, feedback: str) -> str:
+    """The prompt again with the feedback after it - within the prompt ceiling, else the prompt as it was."""
+    retry = f"{prompt}\n\n{feedback}"
+    return retry if (len(system) + len(retry)) // 4 <= MAX_PROMPT_TOKENS else prompt
 
 
 class BudgetExceeded(RuntimeError):
@@ -212,17 +294,18 @@ class LLMClient:
         est_in = (len(system) + len(prompt)) // 4
         if est_in > MAX_PROMPT_TOKENS:
             raise BudgetExceeded(f"prompt of ~{est_in} tokens exceeds the {MAX_PROMPT_TOKENS} ceiling")
-        est_usd = (est_in / 1e6) * self.price_in
 
         last: Exception | None = None
         attempts = 0
+        sent = prompt
         for _ in range(retries + 1):
             attempts += 1
             # Before EVERY attempt, retries included (audit A-C-15, A-C-17): the call over the ceiling
             # is never made, and a retry that would pass the budget on its input alone is not sent.
             # Honest limit: a response's OUTPUT cost is known only after it arrives, so one call can
-            # still end above the ceiling; the next is then refused.
-            self._before_a_call(est_usd)
+            # still end above the ceiling; the next is then refused. Estimated on what is sent: a retry
+            # carries the validation feedback (item 5), and its input is priced with it.
+            self._before_a_call(((len(system) + len(sent)) // 4 / 1e6) * self.price_in)
             completion = None
             try:
                 # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s,
@@ -231,7 +314,7 @@ class LLMClient:
                 # timeout does not fire (e.g. an OAuth-style key whose validation hangs below the
                 # request layer).
                 completion = _complete_within(
-                    self._provider, system=system, user=prompt,
+                    self._provider, system=system, user=sent,
                     seconds=self.call_timeout_s + 2.0, schema=schema,
                 )
                 # Charged BEFORE validation: a malformed response still costs money, and a budget
@@ -264,6 +347,9 @@ class LLMClient:
                     # Raised inside the provider - it could not read what came back (an HTML 200): the request was
                     # answered and may be billed, and it counted as no call at all (ninth review).
                     self.cost.add(0, 0, 0.0)
+                    continue
+                # The model's own answer failed: the next attempt says why (item 5). No call is added.
+                sent = _retry_prompt(system, prompt, validation_feedback(exc, schema))
             except Exception as exc:  # noqa: BLE001
                 # A provider/network error. The SDKs' internal retries are DISABLED (providers.py) so
                 # this loop re-handles them — but only the TRANSIENT ones (429/5xx/connection reset).
@@ -278,7 +364,7 @@ class LLMClient:
                 if not _is_transient(exc):
                     break
         plural = "attempt" if attempts == 1 else "attempts"
-        raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {last}")
+        raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {refusal_reason(last, schema)}")
 
 
 def _max_calls(max_calls: int | None) -> int:
