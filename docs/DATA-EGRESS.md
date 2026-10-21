@@ -62,12 +62,13 @@ the evidence or a Slack body.
 | Datadog | `api.<site>` | reads only: a service name, a time window, fixed metric queries | the same (all-digit query values are times, not phone numbers) | yes |
 | PagerDuty | `events.pagerduty.com` | the gated report's first line | the same; `routing_key` is PagerDuty's own credential | yes |
 | AWS's documentation (opt-in) | `knowledge-mcp.global.api.aws` | an AWS error code and a service word | the same | yes |
+| AWS's news feeds (the AWS updates watch, opt-in) | `aws.amazon.com` | a GET of the What's New and blog RSS feeds - nothing of WARDEN's; the text read is untrusted | the urllib hook (no body to check) | yes |
 | Temporal Cloud | `*.tmprl.cloud` | workflow payloads, **encrypted** (`codec.py`); workflow ids and activity names in clear | the codec; Temporal's client is Rust and is not seen by the hook (limit below) | yes |
 | *Inbound:* GuardDuty and Security Hub findings (#52) | EventBridge → the alarm Lambda (no outbound call) | nothing goes out; the finding's own words are masked in the alert's summary before it is recorded or told, and it is escalate-only (no model is asked) | `redact` in `security_findings.py`; the report it becomes passes the Slack check above; `tests/test_egress.py` plants canaries in a finding | - (comes in) |
-| WARDEN's own AWS account | `*.amazonaws.com` | reads, the approved fix, the audit, secrets, KMS (boto3) | name lookups listed; a urllib body to any AWS name is checked like one outside | no |
+| WARDEN's own AWS account | `*.amazonaws.com` | reads, the approved fix, the audit, secrets, KMS (boto3); a database endpoint's name looked up for a reachability analysis | name lookups listed; a urllib body to any AWS name is checked like one outside | no |
 | The private network | non-routable addresses, `*.svc`, `*.internal`, `localhost` | a cluster's services, instance and task metadata | name lookups listed | no |
 | A proxy (`HTTPS_PROXY`) | its host | the tunnel to the destinations above | requests through it are checked by their real address | no |
-| Tracing (opt-in) | `OTEL_EXPORTER_OTLP_ENDPOINT` | spans: node names, timings, scrubbed error text | name lookup listed; the span text is scrubbed where it is written (`observability.span`) | yes |
+| Tracing (opt-in) | `OTEL_EXPORTER_OTLP_ENDPOINT` | spans: node names, timings, scrubbed error text | name lookup listed (its client is `requests` since 1.45.1, not urllib: the lookup is its guard, tested); the span text is scrubbed where it is written (`observability.span`) | yes |
 
 The table is `egress.STATIC` plus `egress._CONFIGURED` (`src/warden/egress.py`). `tests/test_egress.py` fails when a
 module starts opening a network client that is not on its inventory.
