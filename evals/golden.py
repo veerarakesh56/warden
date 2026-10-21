@@ -327,18 +327,29 @@ def main(argv: list[str] | None = None) -> int:
     if args.live:
         if not args.model or args.budget_usd is None:
             parser.error("--live needs --model and --budget-usd")
-        est = estimate(args.model, prompt_chars(planned_runs(args.suite)))
-        print(json.dumps({"estimate": est}, indent=1), flush=True)  # before any call
-        if not args.budget_usd > 0 or est["expected_usd"] > args.budget_usd:
-            print(f"refused: the estimate ${est['expected_usd']:.2f} is over --budget-usd ${args.budget_usd:.2f}",
-                  file=sys.stderr)
-            return 2
-        if args.dry_run:
-            return 0
-        os.environ["WARDEN_MODEL"] = args.model
-        spend = Spend(args.budget_usd, est["price_per_mtok"][1], est["expected_usd"] / est["runs"])
+        live = _live_spend(args)
+        if isinstance(live, int):
+            return live
+        spend = live
         factory = spend.client
+    return _run_suites(args, factory, spend)
 
+
+def _live_spend(args: argparse.Namespace) -> Spend | int:
+    """The estimate, printed before any call; an exit code when the run must not start, else the run's budget."""
+    est = estimate(args.model, prompt_chars(planned_runs(args.suite)))
+    print(json.dumps({"estimate": est}, indent=1), flush=True)  # before any call
+    if not args.budget_usd > 0 or est["expected_usd"] > args.budget_usd:
+        print(f"refused: the estimate ${est['expected_usd']:.2f} is over --budget-usd ${args.budget_usd:.2f}",
+              file=sys.stderr)
+        return 2
+    if args.dry_run:
+        return 0
+    os.environ["WARDEN_MODEL"] = args.model
+    return Spend(args.budget_usd, est["price_per_mtok"][1], est["expected_usd"] / est["runs"])
+
+
+def _run_suites(args: argparse.Namespace, factory: Callable[[], LLMClient], spend: Spend | None) -> int:
     out: dict[str, Any] = {"model": args.model if args.live else "mock", "suite": args.suite}
     try:
         if args.suite in ("all", "no_fault"):

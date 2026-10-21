@@ -23,7 +23,9 @@ def test_the_no_fault_set_is_large_enough_and_well_formed():
     assert len({c.id for c in cases}) == len(cases)
     for case in cases:
         Alert(**case.alert)  # a real alert, held to the model's own validation
-        assert case.alert["alert_id"] == case.id and case.why and case.logs is not None
+        assert case.alert["alert_id"] == case.id
+        assert case.why
+        assert case.logs is not None
 
 
 @pytest.mark.parametrize(("passes", "n", "k", "expected"), [
@@ -77,12 +79,14 @@ def test_a_model_that_invents_a_fix_fails_the_case_and_one_that_does_so_once_in_
     service = case.alert["service"]
     always = _Answers(_answer("restart_pods", service))
     scored = golden.score_no_fault([case], lambda: LLMClient(provider=always, mock=False))
-    assert scored["pass_hat_k"] == 0.0 and scored["failed"][0]["passes"] == 0
+    assert scored["pass_hat_k"] == 0.0
+    assert scored["failed"][0]["passes"] == 0
 
     sometimes = _Answers(_answer("escalate_to_human", "oncall"), _answer("escalate_to_human", "oncall"),
                          _answer("restart_pods", service))
     scored = golden.score_no_fault([case], lambda: LLMClient(provider=sometimes, mock=False))
-    assert scored["rows"][0]["passes"] == 2 and scored["pass_hat_k"] == 0.0
+    assert scored["rows"][0]["passes"] == 2
+    assert scored["pass_hat_k"] == 0.0
 
 
 def test_a_quiet_close_is_counted_apart_from_a_hand_off():
@@ -90,9 +94,11 @@ def test_a_quiet_close_is_counted_apart_from_a_hand_off():
     case = golden.no_fault_cases()[0]
     quiet = _Answers(_answer("no_action", case.alert["service"]))
     scored = golden.score_no_fault([case], lambda: LLMClient(provider=quiet, mock=False))
-    assert scored["rows"][0]["passes"] == 3 and scored["rows"][0]["outcomes"] == [("no_action", "escalated")]
+    assert scored["rows"][0]["passes"] == 3
+    assert scored["rows"][0]["outcomes"] == [("no_action", "escalated")]
     assert scored["quiet_hat_k"] == 0.0
-    assert golden.Outcome("no_action", "auto_safe").quiet and not golden.Outcome("escalate_to_human", "auto_safe").quiet
+    assert golden.Outcome("no_action", "auto_safe").quiet
+    assert not golden.Outcome("escalate_to_human", "auto_safe").quiet
     # The mock always hands off: safe, but a page nobody needed - the number a live run should raise.
     assert golden.score_no_fault([case], _mock)["quiet_hat_k"] == 0.0
 
@@ -110,7 +116,8 @@ def test_perturbations_change_the_input(case):
     if len(set(case.logs)) > 1:
         assert golden.reorder(case).logs != case.logs
     noisy = golden.add_noise(case)
-    assert len(noisy.logs) > len(case.logs) and set(golden.NOISE_METRICS) <= set(noisy.metrics)
+    assert len(noisy.logs) > len(case.logs)
+    assert set(golden.NOISE_METRICS) <= set(noisy.metrics)
 
 
 def test_no_perturbation_changes_any_outcome():
@@ -127,7 +134,9 @@ def test_the_demo_incidents_still_reach_their_fixes_through_the_golden_backend()
 def test_offline_main_reports_a_clean_run(capsys):
     assert golden.main([]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["model"] == "mock" and out["pass_hat_k"] == 1.0 and out["perturbation_drift"] == []
+    assert out["model"] == "mock"
+    assert out["pass_hat_k"] == 1.0
+    assert out["perturbation_drift"] == []
 
 
 @pytest.mark.parametrize(("action", "verdict", "no_fix"), [
@@ -155,12 +164,14 @@ def test_the_estimate_is_measured_from_the_rendered_prompts_at_the_listed_price(
 
     runs = golden.planned_runs("no_fault")[:6]
     chars = golden.prompt_chars(runs)
-    assert len(chars) == 6 and all(c > len(SYSTEM_DIAGNOSE) for c in chars)
+    assert len(chars) == 6
+    assert all(c > len(SYSTEM_DIAGNOSE) for c in chars)
     assert golden.listed_price("claude-sonnet-5-5") == (2.0, 10.0)
     assert golden.listed_price("claude-opus-5-5") == (4.0, 20.0)
     est = golden.estimate("claude-opus-5-5", chars)
     want = sum(chars) / 4 * 4.0 / 1e6 + 6 * golden.EXPECTED_OUT_TOKENS * 20.0 / 1e6
-    assert est["expected_usd"] == pytest.approx(want, abs=0.01) and est["high_usd"] > est["expected_usd"]
+    assert est["expected_usd"] == pytest.approx(want, abs=0.01)
+    assert est["high_usd"] > est["expected_usd"]
     with pytest.raises(SystemExit, match="no row"):
         golden.listed_price("some-unpriced-model")
 
@@ -180,7 +191,8 @@ def test_live_over_the_budget_prints_the_estimate_and_refuses_to_start(monkeypat
     monkeypatch.setattr(golden, "Spend", _no_spend)
     assert golden.main(["--live", "--model", "claude-opus-5-5", "--budget-usd", "0.5", "--suite", "no_fault"]) == 2
     out = capsys.readouterr()
-    assert json.loads(out.out)["estimate"]["expected_usd"] > 0.5 and "refused" in out.err
+    assert json.loads(out.out)["estimate"]["expected_usd"] > 0.5
+    assert "refused" in out.err
     assert golden.main(["--live", "--model", "claude-opus-5-5", "--budget-usd", "1000", "--dry-run"]) == 0
 
 
@@ -217,7 +229,8 @@ def test_a_run_within_the_budget_completes_and_reports_what_it_spent(monkeypatch
     _paid_stand_in(monkeypatch, 500)
     assert golden.main(["--live", "--model", "claude-sonnet-5-5", "--budget-usd", "3", "--suite", "no_fault"]) == 0
     out = json.loads(capsys.readouterr().out.split("\n}\n", 1)[1])
-    assert out["pass_hat_k"] == 1.0 and 0 < out["spent_usd"] <= out["budget_usd"] == 3.0
+    assert out["pass_hat_k"] == 1.0
+    assert 0 < out["spent_usd"] <= out["budget_usd"] == 3.0
 
 
 def test_a_run_that_retries_cannot_spend_past_the_budget(monkeypatch):
