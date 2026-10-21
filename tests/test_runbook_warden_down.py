@@ -59,7 +59,7 @@ def _map_body(hcl: str, local: str) -> str:
 def _top_level_keys(body: str) -> set[str]:
     keys, depth = set(), 0
     for line in body.splitlines():
-        m = re.match(r"\s*([a-z][a-z-]*)\s*=\s*\{", line)
+        m = re.match(r"\s*([a-z][a-z0-9_-]*)\s*=\s*\{", line)
         if depth == 0 and m:
             keys.add(m.group(1))
         depth += line.count("{") - line.count("}")
@@ -72,15 +72,21 @@ def _keys_of(local: str) -> set[str]:
 
 
 def test_a_map_written_over_several_lines_keeps_every_key():
-    hcl = "zones = {\n  a = {\n    inner = { x = 1 }\n  }\n  b = { y = 2 }\n}\nother = { c = {} }\n"
-    assert _top_level_keys(_map_body(hcl, "zones")) == {"a", "b"}
+    hcl = ("zones = {\n  a = {\n    inner = { x = 1 }\n  }\n  b = { y = 2 }\n  daily_cap = {\n    z = 3\n  }\n}\n"
+           "other = { c = {} }\n")
+    assert _top_level_keys(_map_body(hcl, "zones")) == {"a", "b", "daily_cap"}
 
 
 def _built_names() -> set[str]:
     """Every `warden-<env>-<suffix>` name the module gives a resource: literal suffixes, and the zones' and the front
     doors' names where a resource is made `for_each` of them."""
     names = set(re.findall(r'"warden-\$\{var\.environment\}-([a-z][a-z-]*[a-z])"', _hcl()))
-    return names | _keys_of("zones") | _keys_of("front_doors")
+    return names | _keys_of("zones") | _keys_of("front_doors") | set(_model_alarms())
+
+
+def _model_alarms() -> list[str]:
+    """The model's own alarms (paging.tf, `model-<key>` for_each of model_pages, PR 176)."""
+    return [f"model-{k.replace('_', '-')}" for k in sorted(_keys_of("model_pages"))]
 
 
 def test_the_runbook_has_what_a_person_needs_when_warden_is_down():
@@ -134,7 +140,9 @@ def test_the_runbook_names_every_zone_and_every_self_alarm():
     alarms += re.findall(r'page_repeat_alarm\s*=\s*"warden-\$\{var\.environment\}-([a-z-]+)"', hcl)
     alarms += re.findall(r'resource "aws_cloudwatch_event_rule" "worker_stopped" \{\s*name\s*=\s*"warden-\$\{var\.environment\}-([a-z-]+)"',
                          hcl)
-    assert {"alarm-dlq", "heartbeat-missing", "synthetic-missing", "page-repeat", "worker-stopped"} <= set(alarms), alarms
+    alarms += _model_alarms()
+    assert {"alarm-dlq", "heartbeat-missing", "synthetic-missing", "page-repeat", "worker-stopped",
+            "model-budget"} <= set(alarms), alarms
     missing += [a for a in alarms if f"warden-{RUNTIME_ENV}-{a}" not in text]
     assert not missing, missing
 

@@ -29,14 +29,15 @@ Names below use the runtime environment `ops` (environments.yaml `runtime:`). Gi
 
 | Sign | What it means |
 |---|---|
-| The alarm `warden-ops-heartbeat-missing` pages | The `core` worker has not completed a round trip through Temporal for two 5-minute periods: the core service, Temporal, the worker's network or its clock is broken. Missing data counts as failure. |
+| The alarm `warden-ops-heartbeat-missing` pages | For two 5-minute periods the `core` worker has not completed a round trip through Temporal, or some zone (`read`, `llm`, `notify`, `act`, `critic`) has had no worker polling its queue: the core service, a zone's worker or its Temporal key, Temporal, the network or the clock is broken. The `heartbeat missed` line in `/warden/ops/worker` names the zone. Missing data counts as failure. |
 | The alarm `warden-ops-synthetic-missing` pages | The daily shadow incident (`llm` zone) has not passed for 25 hours: the model, its key, or the diagnosis path is broken. |
-| The alarm `warden-ops-alarm-dlq` pages | At least one alarm change could not be delivered to WARDEN. Those alarms were **not** diagnosed. An alarm the `alarm` Lambda received but failed on does not land here (section 5, Temporal). |
+| The alarm `warden-ops-alarm-dlq` pages | At least one alarm change was not handled: EventBridge could not deliver it, or the `alarm` (or `actor-use`) Lambda failed on it through every retry (section 5, Temporal). Those alarms were **not** diagnosed. While the runtime is paused, an actor-role session lands here on purpose: treat it as suspicious ([the incident runbook](RUNBOOK-WARDEN-INCIDENT.md)). |
 | A watched alarm is red in CloudWatch but no Slack thread exists | The `alarm` Lambda, Temporal, the `notify` zone or Slack is broken. |
 | A plan waits but the approval link does not open | The `warden-ops-approval` Lambda, the HTTP API `warden-ops-front` or the audit is broken. |
 | The alarm `warden-ops-worker-errors` pages | A worker, in any zone, logged an ERROR or CRITICAL line. Read `/warden/ops/worker` around that time. |
 | A page says a worker task stopped (the rule `warden-ops-worker-stopped`) | A worker task in one of the six zones exited or never started, other than for a deploy. |
-| The alarm `warden-ops-lambda-errors` or `warden-ops-lambda-throttles` pages | A front door Lambda, Slack's answer or the pager itself failed or was throttled. An `alarm` Lambda error means an alarm may not have been diagnosed (section 5, Temporal). |
+| The alarm `warden-ops-lambda-errors` or `warden-ops-lambda-throttles` pages | A front door Lambda, Slack's answer or the pager itself failed or was throttled. Read the function's log first: Lambda retries an `alarm` event twice, and a retry that worked leaves nothing to do; one that failed every retry is in `warden-ops-alarm-dlq` (section 5, Temporal). |
+| The alarm `warden-ops-model-provider-unavailable`, `warden-ops-model-daily-cap` or `warden-ops-model-budget` pages | The model provider is unavailable, a daily model limit is reached, or an incident spent its model budget: incidents go to a person on the rules alone (section 5, the model). |
 | The alarm `warden-ops-audit-db-cpu`, `warden-ops-audit-db-connections` or `warden-ops-audit-db-storage` pages | The audit database is overloaded, out of connections or filling up (section 5, the audit). |
 | The alarm `warden-ops-killswitch-on` pages | The kill switch went on, by a person or by WARDEN's breaker: nothing is applied until it is reset. |
 | The alarm `warden-ops-unapproved-actor` or `warden-ops-approvers-changed` pages | An actor role was used without an approval on the record, or the approver list was written. Treat it as a security incident ([the incident runbook](RUNBOOK-WARDEN-INCIDENT.md)). |
@@ -49,9 +50,9 @@ approval page (`/p`). The pager has no image, no VPC and no database: a dead wor
 
 **Gaps you must know about (honest, today):**
 
-- **Only the `core` zone beats.** The heartbeat alarm reads one task queue (`warden`). A zone whose task stops, or
-  that logs an error, pages; but if `read`, `notify` or `act` hangs while its task keeps running and logs nothing,
-  nothing pages: incidents start and then wait. Check every zone (section 4).
+- **A zone that hangs while it still polls.** A zone whose task stops, whose worker stops polling its queue, or
+  that logs an error, pages. A worker that still polls but never finishes its work, and logs nothing, does not:
+  incidents start and then wait. Check every zone (section 5).
 - **The watched environments' own alarms do not page anyone directly.** In this install their CloudWatch alarms have
   no alarm actions (`terraform/fullstack` sets none); they reach people only through WARDEN's Slack report. With
   WARDEN down, someone must look at the alarms by hand (section 3).
@@ -153,13 +154,11 @@ deploy, and the deployment circuit breaker rolling a zone back.
 **Temporal Cloud.** The worker logs show connection errors; the heartbeat alarm fires. While Temporal is unreachable:
 
 - running workflows are not lost - their state is in Temporal and they continue when it is back;
-- a new alarm change makes the `alarm` Lambda fail (it cannot reach Temporal). **It may be lost without a page.**
-  The lost-alarm queue is the EventBridge target's dead-letter queue, which holds events EventBridge could not
-  *deliver* (8 retries within an hour). EventBridge hands an event to Lambda asynchronously; once Lambda has
-  accepted it, an error inside the function is retried by Lambda (twice by default) and then dropped, unless the
-  function has its own on-failure destination or dead-letter queue - and the front door Lambdas set none
-  (`frontdoor.tf`). This reading is from AWS's Lambda and EventBridge guides, not tested live; assume alarms during
-  a Temporal outage were not diagnosed, and check them by hand (section 3);
+- a new alarm change makes the `alarm` Lambda fail (it cannot reach Temporal). Lambda retries it twice, for up to 6
+  hours; an event that failed every retry goes to `warden-ops-alarm-dlq` (the function's on-failure destination,
+  `frontdoor.tf`), whose alarm pages - the same queue that holds what EventBridge could not deliver (8 retries
+  within an hour). Not yet tried live: assume alarms during a Temporal outage were not diagnosed, read the queue,
+  and check the alarms by hand (section 3);
 - the worker refuses to start if it cannot check its clock against Temporal within 90 seconds (register O6).
 
 Check Temporal Cloud's own status page and your namespace in its web UI. An expired or revoked API key looks the same
