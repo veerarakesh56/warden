@@ -13,6 +13,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -235,8 +236,6 @@ def test_a_timed_out_call_counts_as_a_call():
     were never bounded by the call ceiling."""
     import time as _time
 
-    import pytest as _pytest
-
     from warden.llm import ModelCallTimeout
     from warden.models import RootCause
 
@@ -248,7 +247,7 @@ def test_a_timed_out_call_counts_as_a_call():
             return Completion("{}", 10, 10)
 
     client = LLMClient(provider=Hangs(), max_calls=4, max_usd=0.50, mock=False, call_timeout_s=0.1)
-    with _pytest.raises(ModelCallTimeout):
+    with pytest.raises(ModelCallTimeout):
         client.structured(system="s", user="u", schema=RootCause)
     assert client.cost.calls == 1
     assert client.unanswered == 0

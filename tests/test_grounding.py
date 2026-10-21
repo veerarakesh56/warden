@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import pathlib
-import sys
 
 import pytest
 
@@ -138,8 +137,8 @@ def test_untrusted_lines_are_fenced_with_a_nonce_a_log_line_cannot_forge():
     assert a != b, "a fresh nonce per render"
 
 
-def test_a_v1_report_is_replayed_without_grounding_a_new_one_with(tmp_path):
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+def test_a_v1_report_is_replayed_without_grounding_a_new_one_with(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
     import replay_gate
 
     rc = {"hypothesis": "h", "confidence": 0.9}
