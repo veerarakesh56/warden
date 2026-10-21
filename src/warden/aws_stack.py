@@ -32,6 +32,7 @@ Deliberate:
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import io
 import json
@@ -330,6 +331,7 @@ def task_stop_cause(stop_code: str, reason: str, exit_codes: list) -> str:
 # The universal alarm reader (G9-A2a): how many of the resource's other metrics, and CloudTrail's limits.
 SIBLING_METRICS = int(os.environ.get("WARDEN_ALARM_SIBLING_METRICS", "12"))
 MATH_PARTS = 5  # a metric-math alarm's metrics read (its expression never is)
+REDIS_DSN = "WARDEN_STACK_REDIS_RO_DSN"  # the cache's own reads (redis_reads.py): rediss:// to a read-only ACL user
 CHANGE_NAMES = 3
 CHANGE_MAX = 20
 _READ_VERBS = ("Describe", "Get", "List", "Lookup", "BatchGet", "Head", "Search", "Scan", "Query")
@@ -820,7 +822,7 @@ class StackBackend:
     name = "stack"
 
     def __init__(self, *, clients: dict | None = None, k8s_factory=None, db_factory=None,
-                 download=None, region: str | None = None) -> None:
+                 download=None, region: str | None = None, redis_factory=None) -> None:
         # Injectable clients/factories so the unit tests need no AWS account, cluster or database.
         own = not clients  # nothing injected: this backend makes its clients (and, in the runtime, per incident)
         # A mapping that makes clients on first use is kept as given: copied into a plain dict, every service past
@@ -857,6 +859,7 @@ class StackBackend:
         self._aws = AwsBackend(logs=self._logs, cloudwatch=self._cw, ecs=self._ecs)
         self._k8s_factory = k8s_factory or _default_k8s
         self._db_factory = db_factory or _default_db
+        self._redis_factory = redis_factory or _default_redis
         self._download = download or _download
         self._lock = threading.Lock()
         self._snap: tuple[tuple, object] | None = None
@@ -899,7 +902,8 @@ class StackBackend:
             hit = self._bound.get(key)
             if hit is None or hit[1]._clients is not clients:  # a renewed session: a backend over the new clients
                 hit = (now + 600, StackBackend(clients=clients, k8s_factory=self._k8s_factory,
-                                               db_factory=self._db_factory, download=self._download))
+                                               db_factory=self._db_factory, download=self._download,
+                                               redis_factory=self._redis_factory))
                 self._bound[key] = hit
         return hit[1]
 
@@ -953,6 +957,9 @@ class StackBackend:
             readers.append(("dynamodb", lambda out: self._read_dynamodb(out, alert, lab["dynamodb_table"])))
         if lab.get("elasticache"):
             readers.append(("elasticache", lambda out: self._read_elasticache(out, alert, lab["elasticache"])))
+            # U3-5: the server itself (INFO, SLOWLOG GET, CLIENT LIST), only where the runtime is given its DSN.
+            if settings.getenv(REDIS_DSN):
+                readers.append(("redis-data", lambda out: self._read_redis(out, lab["elasticache"])))
         if lab.get("aurora_cluster"):
             readers.extend([
                 ("aurora", lambda out: self._read_aurora(out, alert, lab["aurora_cluster"])),
@@ -1583,6 +1590,34 @@ class StackBackend:
             if vals:
                 out.metrics[key] = float(agg(vals))
 
+    def _read_redis(self, out: _Out, rg: str) -> None:
+        """The cache's own INFO, SLOWLOG GET and CLIENT LIST (redis_reads.py), read-only and over verified TLS - and
+        only from an endpoint of the replication group the alert names: a DSN for another cache reads nothing."""
+        from . import redis_reads
+
+        dsn = settings.getenv(REDIS_DSN)
+        host = redis_reads.dsn_host(dsn).lower()
+        group = self._ec.describe_replication_groups(ReplicationGroupId=rg)["ReplicationGroups"][0]
+        if host not in _cache_endpoints(group):
+            raise ToolError(f"{REDIS_DSN} names a host that is not an endpoint of {rg}; the cache's data was not read")
+        conn = None
+        lines: list[str] = []
+        metrics: dict[str, float] = {}
+        try:
+            conn = self._redis_factory(dsn)
+            redis_reads.read(conn, rg, lines, metrics)
+        except ToolError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - its text can name the cache's endpoint so only its kind is kept
+            raise ToolError(f"the cache's data was not read ({type(exc).__name__})") from None
+        finally:
+            # What was read before a later command failed is kept (CodeRabbit, PR 151); the failure is the PARTIAL.
+            out.lines += lines
+            out.metrics.update(metrics)
+            if conn is not None:
+                with contextlib.suppress(Exception):  # a failed close loses nothing read, and says nothing either
+                    conn.close()
+
     def _cache_events(self, out: _Out, alert: Alert, rg: str, members: list[str]) -> None:
         """ElastiCache's events for the replication group and its nodes around the alert, oldest first."""
         started = AwsBackend._started_at(alert)
@@ -2192,6 +2227,22 @@ def _default_k8s():
     from .k8s_backend import KubernetesBackend
 
     return KubernetesBackend()
+
+
+def _cache_endpoints(group: dict) -> set[str]:
+    """Every address ElastiCache gives a replication group: its configuration endpoint (cluster mode), each shard's
+    primary and reader endpoints, and each member's own."""
+    eps = [group.get("ConfigurationEndpoint")]
+    for ng in group.get("NodeGroups") or []:
+        eps += [ng.get("PrimaryEndpoint"), ng.get("ReaderEndpoint")]
+        eps += [m.get("ReadEndpoint") for m in ng.get("NodeGroupMembers") or []]
+    return {str(e["Address"]).lower() for e in eps if isinstance(e, dict) and e.get("Address")}
+
+
+def _default_redis(dsn: str):
+    from . import redis_reads
+
+    return redis_reads.connect(dsn)
 
 
 def _default_db(dsn: str):

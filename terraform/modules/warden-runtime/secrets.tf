@@ -19,6 +19,8 @@ locals {
     #                          script together with the webhook itself
     "github-read-token", # the read-only GitHub token (tools.github_read_token): the deploy's commits and code review's
     #                      findings on its pull request; the read zone's alone
+    "stack-redis-ro-dsn", # the cache's own reads (redis_reads.py): rediss:// to a read-only ACL user; the read zone's
+    #                       alone
     # Register S15: each zone's own Temporal Cloud service account key (settings.PER_ZONE).
     "temporal-api-key-core", "temporal-api-key-read", "temporal-api-key-llm", "temporal-api-key-notify",
     "temporal-api-key-act", "temporal-api-key-critic",

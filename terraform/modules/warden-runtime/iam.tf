@@ -71,7 +71,7 @@ locals {
   # and changes nothing there, and its plans go to a person.
   zones = {
     core   = { secrets = [], assumes = [], platforms = [] }
-    read   = { secrets = ["stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key", "github-read-token"], assumes = ["platform-reader"], platforms = ["aws", "k8s", "db"] }
+    read   = { secrets = ["stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key", "github-read-token", "stack-redis-ro-dsn"], assumes = ["platform-reader"], platforms = ["aws", "k8s", "db"] }
     llm    = { secrets = ["anthropic-api-key"], assumes = [], platforms = [] }
     notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "github-token"], assumes = ["platform-reader"], platforms = ["aws"] }
     # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts. Its one secret is

@@ -304,6 +304,7 @@ ZONE_READS = {
     "WARDEN_TEMPORAL_API_KEY": ("runtime_base.py", _EVERY),
     "WARDEN_STACK_DB_PRIMARY_RO_DSN": ("aws_stack.py", {"read"}),
     "WARDEN_STACK_DB_REPLICA_RO_DSN": ("aws_stack.py", {"read"}),
+    "WARDEN_STACK_REDIS_RO_DSN": ("aws_stack.py", {"read"}),
     "WARDEN_DATADOG_API_KEY": ("datadog.py", {"read"}),
     "WARDEN_DATADOG_APP_KEY": ("datadog.py", {"read"}),
     # The read-only GitHub token: one slot for every read-zone reader of GitHub (owner U3-7).
