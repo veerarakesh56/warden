@@ -56,3 +56,32 @@ def test_an_entry_with_no_health_check_is_never_healthy():
     r = _Reader()
     assert _platform(r).healthy("u-1", entry="not_an_entry", params={}) is False
     assert r.asked == []
+
+
+class _Recorder:
+    """Stands in for one health check: records the arguments it was handed."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, ...]] = []
+
+    def __call__(self, *args):
+        self.calls.append(args)
+        return True
+
+
+def test_a_check_that_reads_the_plan_is_handed_the_parameters_alone():
+    p = _platform(_Reader())
+    check = _Recorder()
+    p._appconfig_reverted = check
+    params = {"alarm": "warden-dev-errors", "deployment": "7"}
+    assert p.healthy("flags-live", entry="appconfig_revert", params=params) is True
+    assert check.calls == [(params,)]
+
+
+def test_a_check_that_reads_both_is_handed_the_name_and_the_parameters():
+    p = _platform(_Reader())
+    check = _Recorder()
+    p._ecs_healthy = check
+    params = {"cluster": "c1"}
+    assert p.healthy("orders", entry="ecs_rollback_service", params=params) is True
+    assert check.calls == [("orders", params)]
