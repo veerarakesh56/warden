@@ -51,7 +51,7 @@
       ]
     },
     {
-      "Sid": "CeilingOwnKeys",
+      "Sid": "CeilingKeys",
       "Effect": "Allow",
       "Action": "kms:*",
       "Resource": [
@@ -60,7 +60,13 @@
       ]
     },
     {
-      "Sid": "CeilingRdsSecret",
+      "Sid": "CeilingPause",
+      "Effect": "Allow",
+      "Action": "ssm:PutParameter",
+      "Resource": "arn:aws:ssm:${region}:*:parameter/warden/${env}/tf/paused"
+    },
+    {
+      "Sid": "CeilingRds",
       "Effect": "Allow",
       "Action": [
         "secretsmanager:CreateSecret",
@@ -96,7 +102,7 @@
       ]
     },
     {
-      "Sid": "CeilingWatchedRoles",
+      "Sid": "CeilingWatched",
       "Effect": "Allow",
       "Action": [
         "sts:AssumeRole",
@@ -131,13 +137,13 @@
       "Resource": "arn:aws:iam::*:role/aws-service-role/*"
     },
     {
-      "Sid": "CeilingWhoAmI",
+      "Sid": "CeilingSts",
       "Effect": "Allow",
       "Action": "sts:GetCallerIdentity",
       "Resource": "*"
     },
     {
-      "Sid": "DenyRoleWithoutThisBoundary",
+      "Sid": "DenyUnboundedRoles",
       "Effect": "Deny",
       "Action": [
         "iam:CreateRole",
@@ -155,8 +161,7 @@
       "Effect": "Deny",
       "Action": [
         "iam:DeleteRolePermissionsBoundary",
-        "rds:DeleteDBSnapshot",
-        "rds:DeleteDBClusterSnapshot",
+        "rds:DeleteDB*Snapshot",
         "ec2:RunScheduledInstances",
         "ec2:RequestSpot*",
         "ec2:Purchase*",
@@ -225,8 +230,23 @@
       ],
       "NotResource": [
         "arn:aws:s3:::warden-${env}-anchors-*",
-        "arn:aws:s3:::warden-${env}-witness-*"
+        "arn:aws:s3:::warden-${env}-witness-*",
+        "arn:aws:s3:::warden-${env}-access-logs-*"
       ]
+    },
+    {
+      "Sid": "PolicyByDeploy",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutBucketPolicy",
+        "s3:Put*PublicAccessBlock"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/warden-${env}-deploy"
+        }
+      }
     },
     {
       "Sid": "DenySelfEdit",

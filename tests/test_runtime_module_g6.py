@@ -207,9 +207,10 @@ def test_each_lambda_has_its_own_role_that_reads_only_what_its_handler_reads():
         assert access[name]["secrets"] == {_slug(n) for n in reads}, name
         for secret, module in reads.items():  # each grant has its reader
             assert f'"{secret}"' in (src / module).read_text(encoding="utf-8"), (name, secret, module)
-    # Only the approval page asks who may approve; only actor-use counts (UnapprovedActorUse, ApproverListChanged).
+    # Only the approval page asks who may approve; actor-use counts (UnapprovedActorUse, ApproverListChanged), and the
+    # approval page counts a kill switch it turns on (/x: paging.killswitch_tripped).
     assert {n for n, a in access.items() if a["approvers"]} == {"approval"}
-    assert {n for n, a in access.items() if a["metrics"]} == {"actor-use"}
+    assert {n for n, a in access.items() if a["metrics"]} == {"actor-use", "approval"}
     lambdas = (src / "lambdas.py").read_text(encoding="utf-8")
     assert lambdas.count("put_metric_data(") == 2 and lambdas.count("approver_policy()") == 1
     assert "approver_policy()" in lambdas.split("def approval_page")[1].split("\ndef ")[0]
@@ -281,10 +282,11 @@ def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
         assert '"${local.secret_arn}/${s}-??????"' in block and "secret_arn}/${s}*" not in block, policy
 
 
-# Each zone secret, the module that reads it, and the zones whose code reads it - the map each zone's task role is held
-# to (secrets audit, 2026-10-16: the GitHub token was moved to a zone that never reads it). A secret added later is
-# added here by name, with its reader and zones.
-_EVERY = {"core", "read", "llm", "notify", "act"}
+# Each zone secret, the module that reads it (or the modules, when one secret has more readers: one slot, never a second
+# for the same credential), and the zones whose code reads it - the map each zone's task role is held to (secrets
+# audit, 2026-10-16: the GitHub token was moved to a zone that never reads it). A secret added later is added here by
+# name, with its readers and zones.
+_EVERY = {"core", "read", "llm", "notify", "act", "critic"}
 ZONE_READS = {
     "WARDEN_TEMPORAL_KEY": ("codec.py", _EVERY),
     "WARDEN_TEMPORAL_API_KEY": ("runtime_base.py", _EVERY),
@@ -292,11 +294,16 @@ ZONE_READS = {
     "WARDEN_STACK_DB_REPLICA_RO_DSN": ("aws_stack.py", {"read"}),
     "WARDEN_DATADOG_API_KEY": ("datadog.py", {"read"}),
     "WARDEN_DATADOG_APP_KEY": ("datadog.py", {"read"}),
-    "ANTHROPIC_API_KEY": ("providers.py", {"llm"}),
+    # The read-only GitHub token: one slot for every read-zone reader of GitHub (owner U3-7).
+    "WARDEN_GITHUB_READ_TOKEN": (("tools.py",), {"read"}),
+    "ANTHROPIC_API_KEY": ("providers.py", {"llm", "critic"}),
     "WARDEN_SLACK_BOT_TOKEN": ("chatops.py", {"notify"}),
     "WARDEN_SLACK_APP_TOKEN": ("discuss.py", {"notify"}),
     "WARDEN_SLACK_WEBHOOK": ("chatops.py", {"notify"}),
     "WARDEN_GITHUB_TOKEN": ("changes.py", {"notify"}),
+    "WARDEN_DB_TERMINATE_DSN": ("platforms/db.py", {"act"}),
+    # Eldane, the AI critic: its own signing key (its model key is the diagnosis's, above; owner 2026-10-17).
+    "WARDEN_ELDANE_KEY": ("eldane.py", {"critic"}),
 }
 
 
@@ -307,9 +314,10 @@ def test_each_zone_reads_exactly_the_secrets_its_code_reads():
     held = {n: {z for z, names in settings.ZONE_SECRETS.items() if n in names}
             for n in set().union(*settings.ZONE_SECRETS.values())}
     assert set(held) == set(ZONE_READS), "a zone secret with no reader named here, or a reader with no grant"
-    for name, (module, zones) in ZONE_READS.items():
+    for name, (modules, zones) in ZONE_READS.items():
         assert held[name] == zones, name
-        assert name in (src / module).read_text(encoding="utf-8"), (name, module)
+        for module in (modules,) if isinstance(modules, str) else modules:
+            assert name in (src / module).read_text(encoding="utf-8"), (name, module)
     iam = _zones((MODULE / "iam.tf").read_text(encoding="utf-8"))
     for zone, v in iam.items():
         assert {_slug(n, zone) for n, (_, zones) in ZONE_READS.items() if zone in zones} == (
@@ -377,7 +385,7 @@ def test_the_api_throttles_logs_and_routes_exactly_what_the_page_and_the_webhook
     assert "throttling_rate_limit  = var.api_rate_limit" in stage and "throttling_burst_limit = var.api_burst_limit" in stage
     assert "access_log_settings" in stage
     assert re.findall(r'"(GET /a/\{token\})", "(POST /a/\{token\}/\{step\})"', tf)
-    assert 'route_key = "POST /alertmanager"' in tf
+    assert re.search(r'route_key\s*=\s*"POST /alertmanager"', tf)
     # Every page step the page serves is a POST on /a/{token}/{step}; the shell is the GET.
     import inspect
 
@@ -393,12 +401,12 @@ def test_the_lambdas_get_the_names_the_runtime_reads():
     tf = _frontdoor()
     names = set(re.findall(r"^\s+(WARDEN_[A-Z_]+)\s+=", tf, re.MULTILINE))
     assert names == {"WARDEN_ENV", "WARDEN_AUDIT_KMS_KEY_ID", "WARDEN_AUDIT_ANCHOR_BUCKET", "WARDEN_APPROVAL_RP_ID",
-                     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_IAM_AUTH"}
+                     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_IAM_AUTH", "WARDEN_HEARTBEAT_NAMESPACE", "WARDEN_PAGES_BUCKET"}
     import inspect
 
-    from warden import audit
+    from warden import audit, paging
 
-    src = inspect.getsource(runtime) + inspect.getsource(audit)
+    src = inspect.getsource(runtime) + inspect.getsource(audit) + inspect.getsource(paging)
     for name in names - {"WARDEN_ENV", "WARDEN_APPROVAL_RP_ID"}:
         assert f'"{name}"' in src, name
 
@@ -434,7 +442,8 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     assert 'mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]' in task
     assert "linuxParameters" not in task  # Fargate has no tmpfs
     dockerfile = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
-    assert 'RUN chmod 1777 /tmp\nVOLUME ["/tmp"]\nUSER warden' in dockerfile  # else the volume is root's 0755
+    # The volume takes the image's /tmp: Debian's 1777, checked at build (else it would be root's 0755).
+    assert 'RUN test "$(stat -c \'%a %U\' /tmp)" = "1777 root"\nVOLUME ["/tmp"]\nUSER warden' in dockerfile
     service = _block(tf, "aws_ecs_service", "zone")
     assert 'capacity_provider = "FARGATE"' in service and "force_new_deployment = true" in service  # the provider needs it
     # Never Spot (PR 44 review): no fallback to on-demand, and the heartbeat does not see one zone's gap.
@@ -446,7 +455,7 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     assert re.search(r'name\s*=\s*"containerInsights"\s*value\s*=\s*"disabled"', _block(tf, "aws_ecs_cluster", "runtime"))
     uid = re.search(r"useradd --create-home --uid (\d+)", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))
     assert f'user                   = "{uid.group(1)}"' in task
-    assert 'command                = ["worker", "--zone", each.key, "--platform", length(each.value.assumes) > 0 ? "aws" : "none"]' in task
+    assert 'command                = ["worker", "--zone", each.key, "--platform", length(each.value.platforms) > 0 ? join(",", each.value.platforms) : "none"]' in task
     assert 'WARDEN_HEARTBEAT_NAMESPACE   = "WARDEN/${var.environment}"' in task
     template = re.search(r'WARDEN_AWS_ROLE_ARN_TEMPLATE = "([^"]+)"', task).group(1)
     assert "{env}" in template and "{role}" in template and template.startswith("arn:aws:iam::${local.account}:role/")
