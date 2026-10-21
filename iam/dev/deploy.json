@@ -50,6 +50,17 @@
       }
     },
     {
+      "Sid": "ReadAMappingBeingDeleted",
+      "Effect": "Allow",
+      "Action": "lambda:GetEventSourceMapping",
+      "Resource": "arn:aws:lambda:ap-south-2:*:event-source-mapping:*",
+      "Condition": {
+        "ArnLikeIfExists": {
+          "lambda:FunctionArn": "arn:aws:lambda:*:*:function:warden-dev-*"
+        }
+      }
+    },
+    {
       "Sid": "OwnTaskDefinitions",
       "Effect": "Allow",
       "Action": [
@@ -267,7 +278,8 @@
       "Action": [
         "rds:CreateDBCluster",
         "rds:CreateDBInstance",
-        "rds:EnableInternetAccessGateway"
+        "rds:EnableInternetAccessGateway",
+        "rds:RestoreDBClusterFromSnapshot"
       ],
       "Resource": "arn:aws:rds:*:*:subgrp:default"
     },

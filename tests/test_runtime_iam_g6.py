@@ -76,7 +76,7 @@ def test_every_action_the_runtimes_own_roles_hold_fits_the_boundary():
 
 def test_the_worker_reaches_other_environments_only_through_their_reader_and_actor():
     boundary = _load("boundary")
-    assert _sid(boundary, "CeilingWatchedRoles")["Resource"] == [
+    assert _sid(boundary, "CeilingWatched")["Resource"] == [
         "arn:aws:iam::*:role/warden-*-platform-reader", "arn:aws:iam::*:role/warden-*-actor"]
     other = _sid(boundary, "DenyOtherEnvResources")
     assert other["NotAction"] == "sts:*" and "Action" not in other  # every other service stays out
@@ -151,8 +151,9 @@ def test_the_task_execution_role_has_only_its_own_minimal_policy():
 def test_the_runtime_deploy_role_has_exact_api_gateway_verbs_on_its_own_paths():
     """B22: `apigateway:*` on every resource was granted for the front door. API Gateway authorises by HTTP verb on a
     path (AWS Service Reference); the module creates, reads, updates and deletes an HTTP API, its stage, routes,
-    integrations, a custom domain name with its API mapping, and their tags - nothing else (no PUT import, no REST
-    API, no API keys, no account settings)."""
+    integrations, its request authorizer (main's webhook authorizer: /apis/<id>/authorizers[/<id>], AWS Service
+    Reference read 2026-10-21 - inside /apis/*), a custom domain name with its API mapping, and their tags - nothing
+    else (no PUT import, no REST API, no API keys, no account settings)."""
     grants = [(st.get("Sid"), a, _list(st["Resource"])) for kind in ("deploy", "deploy-ec2")
               for st in _load(kind)["Statement"] if st["Effect"] == "Allow"
               for a in _list(st["Action"]) if a.startswith("apigateway:")]
@@ -164,7 +165,8 @@ def test_the_runtime_deploy_role_has_exact_api_gateway_verbs_on_its_own_paths():
     tf = "\n".join(p.read_text(encoding="utf-8") for p in MODULE.glob("*.tf"))
     assert set(re.findall(r'^resource "(aws_api\w+)"', tf, re.MULTILINE)) == {
         "aws_apigatewayv2_api", "aws_apigatewayv2_stage", "aws_apigatewayv2_integration", "aws_apigatewayv2_route",
-        "aws_apigatewayv2_domain_name", "aws_apigatewayv2_api_mapping"}, "a new API Gateway resource: check its paths"
+        "aws_apigatewayv2_domain_name", "aws_apigatewayv2_api_mapping", "aws_apigatewayv2_authorizer",
+    }, "a new API Gateway resource: check its paths"
 
 
 def test_the_environment_tag_never_comes_off_an_api():

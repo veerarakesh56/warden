@@ -188,6 +188,55 @@ def test_the_build_downloads_no_unpinned_tool():
     assert (ROOT / "uv.lock").is_file()
 
 
+RUNNER = "ubuntu-24.04"  # ubuntu-latest moves to 26.04 from 2026-10-19 (actions/runner-images#14748)
+
+
+def _check_job_step(name: str) -> list[str]:
+    return [st["run"] for wf, job_id, steps, _ in _steps() if (wf, job_id) == ("ci-tool.yml", "check")
+            for st in steps if st.get("name") == name]
+
+
+def test_every_job_names_its_runner_image():
+    """A moving label would change the OS under deploy jobs main's CI never runs; moving is done on purpose."""
+    runners = {(wf, job_id): job.get("runs-on") for wf, job_id, _, job in _steps() if "uses" not in job}
+    assert runners
+    assert {k: r for k, r in runners.items() if r != RUNNER} == {}
+
+
+def test_each_caching_uv_step_has_a_cache_of_its_own():
+    """Jobs sharing a key raced to save it ("Unable to reserve cache ... another job may be creating this cache")."""
+    suffixes = [(st.get("with") or {}).get("cache-suffix") for _, _, steps, _ in _steps() for st in steps
+                if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")
+                and (st.get("with") or {}).get("enable-cache") is not False]
+    assert suffixes
+    assert [s for s in suffixes if not (isinstance(s, str) and s.strip())] == []
+    assert len(set(suffixes)) == len(suffixes), suffixes
+
+
+def test_the_unit_job_leaves_the_live_tests_to_their_own_jobs():
+    """They could only skip there (44 per run); each runs, skip-free, where its cluster or database is (test_ci_lanes).
+    The rest of the suite skips nothing in CI (10 redis tests did, for want of the extra): a new skip fails the step."""
+    unit = _check_job_step("Unit tests")
+    assert len(unit) == 1, unit
+    assert "--ignore=tests/integration" in unit[0].split()
+    assert "set -o pipefail" in unit[0]
+    assert re.search(r"grep -qE ' skipped' \S+ && \{[^}]*exit 1; \}", unit[0]), unit[0]
+    install = _check_job_step("Install (locked)")
+    assert len(install) == 1, install
+    assert "--extra redis" in install[0]
+
+
+def test_dependabot_proposes_no_new_python_for_the_images():
+    """The images' Python matches their compiled requirements; Dependabot keeps digests current, never the version."""
+    cfg = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    docker = [u for u in cfg["updates"] if u["package-ecosystem"] == "docker"]
+    assert docker
+    for update in docker:
+        rules = [r for r in update.get("ignore", []) if r.get("dependency-name") == "python"]
+        assert len(rules) == 1, update
+        assert {"version-update:semver-major", "version-update:semver-minor"} <= set(rules[0].get("update-types", [])), update
+
+
 def test_the_image_build_context_is_an_allowlist():
     lines = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
              if ln.strip() and not ln.startswith("#")]
@@ -377,7 +426,64 @@ def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
                "warden/fixtures/inc-001.json", "warden/data/mcp_manifest.sha256", "warden/CLI.PY"]
     assert mod.outside(shipped) == []
     assert mod.main([str(ROOT / "src" / "warden")]) == 0  # the real package passes
+    # One certificate file by its exact path (PR 48), holding certificates only; no other .crt, and no key in it.
+    assert mod.outside(["warden/data/rds-ca-bundle.crt"]) == []
+    assert mod.outside(["warden/data/other.crt", "warden/rds-ca-bundle.crt"]) == ["warden/data/other.crt",
+                                                                                 "warden/rds-ca-bundle.crt"]
+    from fakes import private_key_block
+
+    bundle = (ROOT / "src" / "warden" / "data" / "rds-ca-bundle.crt").read_text(encoding="ascii")
+    assert mod.only_certificates(bundle)
+    # One real certificate (the bundle's first) for the cases below; `AA==` is base64 but no certificate.
+    first = bundle.index("-----BEGIN CERTIFICATE-----")
+    cert = bundle[first:bundle.index("-----END CERTIFICATE-----", first)] + "-----END CERTIFICATE-----\n"
+    junk = "-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n"
+    assert mod.only_certificates(cert)
+    assert not mod.only_certificates(junk)
+    assert not mod.only_certificates(cert + junk)
+    assert not mod.only_certificates(cert + private_key_block("RSA", "AA=="))
+    assert not mod.only_certificates("no PEM at all")
+    # Complete blocks only, and nothing after them (review, PR 48).
+    assert mod.only_certificates("Where it came from.\n\n" + cert + cert)
+    assert not mod.only_certificates("-----BEGIN CERTIFICATE-----")
+    assert not mod.only_certificates(cert[:-len("-----END CERTIFICATE-----\n")])
+    assert not mod.only_certificates(cert + "trailing text\n")
+    assert not mod.only_certificates(cert + "-----BEGIN CERTIFICATE-----\nAA==\n")
+    assert not mod.only_certificates("-----BEGIN CERTIFICATE-----\nnot base64!\n-----END CERTIFICATE-----\n")
+    assert not mod.only_certificates("header\n" + private_key_block("RSA", "AA==") + cert)
     stages = (ROOT / "Dockerfile").read_text(encoding="utf-8").split(chr(10) + "FROM ")
     [build] = [st for st in stages if " AS build" in st]
     sync = build.index("RUN uv sync")
     assert "check_package.py" in build[sync:], "the image build does not check what it installed"
+
+
+def test_an_install_outside_the_lock_cannot_take_a_known_vulnerable_aiohttp():
+    """uv.lock pins aiohttp 3.14.4, but `pip install warden[slack]` reads only pyproject's range: its floor keeps out
+    3.14.3 and every release before it (CVE-2026-111063, CVE-2026-111064, GHSA-2g87-pp6c-29x5; fixed in 3.14.4)."""
+    import tomllib
+
+    from packaging.requirements import Requirement
+
+    slack = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["optional-dependencies"]["slack"]
+    (aiohttp,) = [Requirement(r) for r in slack if Requirement(r).name == "aiohttp"]
+    assert "3.14.3" not in aiohttp.specifier
+    assert "3.14.4" in aiohttp.specifier
+
+
+DRAFT_SKIP = "github.event_name != 'pull_request' || github.event.pull_request.draft == false"
+
+
+def test_a_draft_pull_request_runs_no_ci_and_a_ready_one_does():
+    """Owner, 2026-10-21: the Actions queue was the bottleneck. Every workflow a pull request starts lists the event
+    types it runs on - ready_for_review among them, so marking a draft ready runs its CI - and every job in it is
+    skipped while the pull request is a draft (push and schedule runs are untouched)."""
+    flows = {wf.name: yaml.safe_load(wf.read_text(encoding="utf-8")) for wf in WORKFLOWS}
+    on_pr = {name: doc for name, doc in flows.items() if "pull_request" in (doc.get(True) or {})}
+    assert on_pr
+    for name, doc in on_pr.items():
+        trigger = doc[True]["pull_request"] or {}
+        assert trigger.get("types") == ["opened", "synchronize", "reopened", "ready_for_review"], name
+        for job_id, job in doc["jobs"].items():
+            condition = " ".join(str(job.get("if", "")).split())
+            assert DRAFT_SKIP in condition or condition.startswith("github.event.pull_request.draft == false &&"), \
+                (name, job_id, condition)

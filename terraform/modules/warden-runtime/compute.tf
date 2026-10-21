@@ -96,8 +96,8 @@ resource "aws_ecs_task_definition" "zone" {
     name      = "worker"
     image     = var.runtime_image
     essential = true
-    # The AWS platform where a zone reads or writes a watched environment; none where it cannot (iam.tf).
-    command                = ["worker", "--zone", each.key, "--platform", length(each.value.assumes) > 0 ? "aws" : "none"]
+    # The platforms a zone reads or writes a watched environment through (iam.tf `platforms`); none where it cannot.
+    command                = ["worker", "--zone", each.key, "--platform", length(each.value.platforms) > 0 ? join(",", each.value.platforms) : "none"]
     user                   = "10001"
     readonlyRootFilesystem = true
     mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]
@@ -114,6 +114,8 @@ resource "aws_ecs_task_definition" "zone" {
       }, each.key == "llm" && var.model_provider != "" ? { WARDEN_PROVIDER = var.model_provider, WARDEN_MODEL = var.model } : {},
       # The model's budget per incident, across the investigation loop's rounds (owner decision 2026-10-10).
       each.key == "llm" ? { WARDEN_MAX_CALLS = "6", WARDEN_MAX_USD = "0.25" } : {},
+      # Eldane, the AI critic, for the critic zone only - its own model, never loaded from SSM (settings.py).
+      each.key == "critic" && var.critic_provider != "" ? { WARDEN_ELDANE_PROVIDER = var.critic_provider } : {},
       # The notify zone posts for real - the only zone that does. chatops.py is dry-run unless this is set, and it is
       # never loaded from SSM; without it every report was dropped silently (2026-10-09).
       each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {},
