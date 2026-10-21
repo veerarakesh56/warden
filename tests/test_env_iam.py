@@ -77,8 +77,9 @@ def test_no_file_names_another_environment(env):
         text = json.dumps(_load(env, kind))
         for other in ENVS:
             if other != env:
-                assert f"warden-{other}-" not in text and f"/warden/{other}/" not in text and \
-                    f"WardenEnvBoundary-{other}\"" not in text, f"{env}/{kind} names {other}"
+                assert f"warden-{other}-" not in text, f"{env}/{kind} names {other}"
+                assert f"/warden/{other}/" not in text, f"{env}/{kind} names {other}"
+                assert f"WardenEnvBoundary-{other}\"" not in text, f"{env}/{kind} names {other}"
 
 
 @pytest.mark.parametrize("env", ENVS)
@@ -125,10 +126,12 @@ def test_the_boundary_holds_every_environment_to_itself(env):
     for sid, key in (("DenyOtherEnvResources", "aws:ResourceTag/Environment"),
                      ("DenyOtherEnvTags", "aws:RequestTag/Environment")):
         cond = st[sid]["Condition"]
-        assert st[sid]["Effect"] == "Deny" and st[sid]["Action"] == "*"
+        assert st[sid]["Effect"] == "Deny"
+        assert st[sid]["Action"] == "*"
         assert cond["StringNotEquals"] == {key: env}
         # Only when the tag EXISTS: an IfExists form would deny every untagged resource.
-        assert cond["Null"] == {key: "false"} and "StringNotEqualsIfExists" not in cond
+        assert cond["Null"] == {key: "false"}
+        assert "StringNotEqualsIfExists" not in cond
 
 
 @pytest.mark.parametrize("env", ENVS)
@@ -248,7 +251,8 @@ def test_a_role_connects_only_as_its_own_environments_database_users(env):
     users = [r for st in grants for r in _list(st["Resource"]) if r.startswith("arn:aws:rds-db") or r == "*"]
     assert users == [f"arn:aws:rds-db:{_region()}:*:dbuser:*/warden_{env.replace('-', '_')}_*"], grants
     master = [st for st in boundary["Statement"] if st["Effect"] == "Deny" and "rds-db:connect" in _list(st["Action"])]
-    assert master and "arn:aws:rds-db:*:*:dbuser:*/postgres" in _list(master[0]["Resource"])
+    assert master
+    assert "arn:aws:rds-db:*:*:dbuser:*/postgres" in _list(master[0]["Resource"])
 
 
 def _region():
@@ -314,7 +318,8 @@ def test_ecs_writes_stay_in_the_environments_own_clusters(env):
     action these patterns match carries (Service Reference, 2026-10-01)."""
     st = {s["Sid"]: s for s in _load(env, "boundary")["Statement"]}
     deny = st["DenyOtherClusters"]
-    assert deny["Effect"] == "Deny" and deny["Resource"] == "*"
+    assert deny["Effect"] == "Deny"
+    assert deny["Resource"] == "*"
     for action in ("ecs:CreateService", "ecs:UpdateService", "ecs:DeleteService", "ecs:RunTask", "ecs:StartTask",
                    "ecs:StopTask", "ecs:CreateTaskSet", "ecs:UpdateTaskSet"):
         assert any(fnmatch.fnmatchcase(action, p) for p in _list(deny["Action"])), action
@@ -322,7 +327,8 @@ def test_ecs_writes_stay_in_the_environments_own_clusters(env):
         assert not any(fnmatch.fnmatchcase(read, p) for p in _list(deny["Action"])), read
     [(op, cond)] = deny["Condition"].items()
     [pattern] = cond.values()
-    assert op == "ArnNotLike" and list(cond) == ["ecs:cluster"]
+    assert op == "ArnNotLike"
+    assert list(cond) == ["ecs:cluster"]
     other = next(e for e in ENVS if e != env)
     assert fnmatch.fnmatchcase(f"arn:aws:ecs:x:1:cluster/warden-{env}-ecs", pattern)
     assert not fnmatch.fnmatchcase(f"arn:aws:ecs:x:1:cluster/warden-{other}-ecs", pattern)  # denied: not its own
@@ -343,7 +349,8 @@ def test_the_deploy_role_turns_on_api_access_logs_without_writing_a_logs_resourc
         return any(fnmatch.fnmatchcase(action, a) and fnmatch.fnmatchcase(resource, r) for a, r in grants)
 
     group = f"arn:aws:logs:x:1:log-group:/aws/vendedlogs/warden-{env}-api-access"
-    assert allowed("logs:CreateLogGroup", group) and allowed("logs:PutRetentionPolicy", group)
+    assert allowed("logs:CreateLogGroup", group)
+    assert allowed("logs:PutRetentionPolicy", group)
     for action in ("logs:CreateLogDelivery", "logs:GetLogDelivery", "logs:UpdateLogDelivery", "logs:DeleteLogDelivery",
                    "logs:ListLogDeliveries", "logs:DescribeResourcePolicies", "logs:DescribeLogGroups"):
         assert allowed(action, "*"), action
@@ -400,7 +407,8 @@ def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functio
     # ending so and any service without a source ARN (ninth review).
     invoke = next(st for st in statements if st["Sid"] == "DenyInvokeByAll")
     granted = invoke["Condition"]["StringNotEquals"]["lambda:Principal"]
-    assert set(invoke["Condition"]) == {"StringNotEquals"} and sorted(granted) == ["apigateway.amazonaws.com",
+    assert set(invoke["Condition"]) == {"StringNotEquals"}
+    assert sorted(granted) == ["apigateway.amazonaws.com",
                                                                                      "events.amazonaws.com"]
     tf = (ROOT / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
     assert set(re.findall(r'principal\s*=\s*"([^"]+)"', tf)) == set(granted)
@@ -445,7 +453,8 @@ def test_no_role_changes_a_vpcs_untagged_defaults(env):
     assert not _denied_untagged(boundary, "ec2:AuthorizeSecurityGroupIngress", rule, {})
     for read, resource in [("ec2:DescribeNetworkAcls", "*"), ("ec2:DescribeSecurityGroups", "*"),
                            ("ec2:DescribeSecurityGroupRules", "*"), ("ec2:DescribeRouteTables", "*")]:
-        assert not _denied_untagged(boundary, read, acl, {}) and not _denied_untagged(boundary, read, resource, {})
+        assert not _denied_untagged(boundary, read, acl, {})
+        assert not _denied_untagged(boundary, read, resource, {})
 
 
 @pytest.mark.parametrize("env", ENVS)
@@ -527,7 +536,8 @@ def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, mon
         r.main(["--cluster-resource-id", "*"])
     assert r.main(["--cluster-resource-id", "cluster-ABCDEFGHIJ1234"]) == 0
     local = (tmp_path / "iam" / "dev" / "harness.local.json").read_text(encoding="utf-8")
-    assert "dbuser:cluster-ABCDEFGHIJ1234/postgres" in local and "<CLUSTER_RESOURCE_ID>" not in local
+    assert "dbuser:cluster-ABCDEFGHIJ1234/postgres" in local
+    assert "<CLUSTER_RESOURCE_ID>" not in local
 
 
 def test_only_the_operator_role_of_this_account_may_assume_the_harness_role():
@@ -536,7 +546,8 @@ def test_only_the_operator_role_of_this_account_may_assume_the_harness_role():
     its certificate's session tags (a chained AssumeRole without sts:TagSession was refused live, 2026-10-02)."""
     trust = json.loads((ROOT / "iam" / "dev" / "harness-trust.json").read_text(encoding="utf-8"))
     [st] = trust["Statement"]
-    assert st["Effect"] == "Allow" and st["Principal"] == {"AWS": "arn:aws:iam::<ACCOUNT_ID>:role/warden-ops-operator"}
+    assert st["Effect"] == "Allow"
+    assert st["Principal"] == {"AWS": "arn:aws:iam::<ACCOUNT_ID>:role/warden-ops-operator"}
     assert sorted(_list(st["Action"])) == ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
     assert [e for e in ENVS if (ROOT / "iam" / e / "harness-trust.json").exists()] == list(r.HARNESS_ENVS)
 
@@ -548,7 +559,8 @@ def test_an_apis_access_logs_go_only_to_its_own_environments_group():
     for env in ENVS:
         doc = json.loads((ROOT / "iam" / env / "deploy-ec2.json").read_text(encoding="utf-8"))
         [st] = [s for s in doc["Statement"] if s.get("Sid") == "AccessLogsOnlyToThisEnvironmentsGroup"]
-        assert st["Effect"] == "Deny" and sorted(_list(st["Action"])) == ["apigateway:PATCH", "apigateway:POST"]
+        assert st["Effect"] == "Deny"
+        assert sorted(_list(st["Action"])) == ["apigateway:PATCH", "apigateway:POST"]
         assert set(_list(st["Resource"])) == {"arn:aws:apigateway:*::/apis/*/stages",
                                               "arn:aws:apigateway:*::/apis/*/stages/*"}
         assert st["Condition"] == {"StringNotLike": {"apigateway:Request/AccessLoggingDestination":
@@ -581,7 +593,8 @@ def test_the_harness_reads_the_stack_file_and_never_the_terraform_state():
     """The infra deploy publishes stack.json (non-sensitive outputs only) beside the state; the harness reads that one
     object (2026-10-15) - never terraform.tfstate, which holds every sensitive value in plaintext."""
     st = next(s for s in _load("dev", "harness")["Statement"] if s.get("Sid") == "ReadThisEnvironmentsStackFileOnly")
-    assert st["Effect"] == "Allow" and _list(st["Action"]) == ["s3:GetObject"]
+    assert st["Effect"] == "Allow"
+    assert _list(st["Action"]) == ["s3:GetObject"]
     assert _list(st["Resource"]) == ["arn:aws:s3:::warden-dev-tfstate-*/fullstack/stack.json"]
     others = [s for s in _load("dev", "harness")["Statement"] if s.get("Sid") != st["Sid"]]
     assert not any("tfstate" in r for s in others for r in _list(s.get("Resource", [])))
@@ -606,7 +619,8 @@ def test_the_deploy_role_never_writes_the_owners_datadog_key(env):
     assert any("secretsmanager:*" in _list(s["Action"]) and f"arn:aws:secretsmanager:*:*:secret:warden-{env}-*"
                in _list(s["Resource"]) for s in deploy["Statement"] if s["Effect"] == "Allow")
     st = next(s for s in _load(env, "deploy-guard")["Statement"] if s.get("Sid") == "NeverWriteTheOwnersDatadogKey")
-    assert st["Effect"] == "Deny" and "Condition" not in st
+    assert st["Effect"] == "Deny"
+    assert "Condition" not in st
     # Everything but reading it is denied (CodeRabbit, PR 38: three named writes left RotateSecret, replication,
     # version stages and PutResourcePolicy - which could grant read to anyone - open).
     assert "Action" not in st
@@ -620,7 +634,8 @@ def test_the_runtime_deploy_role_has_no_ecs_image_lookup_and_its_boundary_no_mod
     Bedrock (owner, 2026-10-09) - neither the deploy role nor the ceiling on every runtime role keeps either."""
     for kind in ("deploy", "boundary"):
         text = json.dumps(_load(RUNTIME, kind))
-        assert "/aws/service/" not in text and "bedrock" not in text, kind
+        assert "/aws/service/" not in text, kind
+        assert "bedrock" not in text, kind
 
 
 def test_the_actor_connects_only_as_this_accounts_terminate_login_and_its_render_names_the_account(tmp_path, monkeypatch):

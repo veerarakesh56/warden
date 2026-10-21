@@ -110,7 +110,8 @@ def test_the_readme_does_not_pitch_adoption():
 def test_the_v0_10_0_correction_stays_visible():
     text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     head = text[: text.index("## [0.9.0]")]
-    assert "Correction" in head and "That was false" in head
+    assert "Correction" in head
+    assert "That was false" in head
 
 
 def test_the_readme_test_count_is_a_lower_bound(request):

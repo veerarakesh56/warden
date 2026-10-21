@@ -46,7 +46,8 @@ def test_a_policy_holding_another_files_statements_differs_and_a_reordered_one_m
     shuffled = {"Statement": list(reversed(reader["Statement"])), "Version": reader["Version"]}
     iam = _Iam({"WardenPlatformReader-dev": shuffled, "WardenEnvBoundary-dev": boundary}, {})
     got = dict(c.check(iam, ACCOUNT, ["dev"]))
-    assert got["WardenPlatformReader-dev"] == "MATCHES" and got["WardenEnvBoundary-dev"] == "MATCHES"
+    assert got["WardenPlatformReader-dev"] == "MATCHES"
+    assert got["WardenEnvBoundary-dev"] == "MATCHES"
     iam.policies["WardenPlatformReader-dev"] = boundary  # the 2026-10-14 paste
     got = dict(c.check(iam, ACCOUNT, ["dev"]))
     assert got["WardenPlatformReader-dev"] == "DIFFERS"

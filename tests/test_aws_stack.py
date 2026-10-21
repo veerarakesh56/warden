@@ -373,23 +373,42 @@ def test_metrics_use_the_contract_names(dsns):
         "NumberOfNotificationsDelivered": [0],
     })))
     m = b.metrics(_full_alert())
-    assert m["lambda_errors"] == 7 and m["lambda_duration_max_ms"] == 1000
-    assert m["lambda_timeout_s"] == 1 and m["lambda_memory_mb"] == 256
-    assert m["lambda_reserved_concurrency"] == 0 and m["lambda_concurrent_executions"] == 2
-    assert m["sqs_visible"] == 120 and m["sqs_in_flight"] == 5 and m["sqs_oldest_age_s"] == 600
-    assert m["sqs_visibility_timeout_s"] == 30 and m["dlq_visible"] == 14 and m["sqs_max_receive_count"] == 3
-    assert m["ddb_provisioned_wcu"] == 1 and m["ddb_consumed_rcu"] == 1.0 and m["ddb_consumed_wcu"] == 2.0
-    assert m["ddb_write_throttle_events"] == 11 and m["ddb_throttled_requests"] == 7
-    assert m["redis_memory_pct"] == 91 and m["redis_evictions"] == 6  # summed across the two nodes
-    assert m["redis_nodes_total"] == 2 and m["redis_nodes_available"] == 1
-    assert m["aurora_connections"] == 80 and m["aurora_replica_lag_ms"] == 20
-    assert m["aurora_acu_utilization_pct"] == 99 and m["aurora_members_available"] == 2
-    assert m["connections_active"] == 90 and m["reader_connections_active"] == 90
-    assert m["alb_unhealthy_hosts"] == 1 and m["alb_healthy_hosts"] == 1 and m["alb_target_5xx"] == 2
-    assert m["apigw_5xx"] == 9 and m["apigw_latency_ms"] == 1500
+    assert m["lambda_errors"] == 7
+    assert m["lambda_duration_max_ms"] == 1000
+    assert m["lambda_timeout_s"] == 1
+    assert m["lambda_memory_mb"] == 256
+    assert m["lambda_reserved_concurrency"] == 0
+    assert m["lambda_concurrent_executions"] == 2
+    assert m["sqs_visible"] == 120
+    assert m["sqs_in_flight"] == 5
+    assert m["sqs_oldest_age_s"] == 600
+    assert m["sqs_visibility_timeout_s"] == 30
+    assert m["dlq_visible"] == 14
+    assert m["sqs_max_receive_count"] == 3
+    assert m["ddb_provisioned_wcu"] == 1
+    assert m["ddb_consumed_rcu"] == 1.0
+    assert m["ddb_consumed_wcu"] == 2.0
+    assert m["ddb_write_throttle_events"] == 11
+    assert m["ddb_throttled_requests"] == 7
+    assert m["redis_memory_pct"] == 91  # summed across the two nodes
+    assert m["redis_evictions"] == 6
+    assert m["redis_nodes_total"] == 2
+    assert m["redis_nodes_available"] == 1
+    assert m["aurora_connections"] == 80
+    assert m["aurora_replica_lag_ms"] == 20
+    assert m["aurora_acu_utilization_pct"] == 99
+    assert m["aurora_members_available"] == 2
+    assert m["connections_active"] == 90
+    assert m["reader_connections_active"] == 90
+    assert m["alb_unhealthy_hosts"] == 1
+    assert m["alb_healthy_hosts"] == 1
+    assert m["alb_target_5xx"] == 2
+    assert m["apigw_5xx"] == 9
+    assert m["apigw_latency_ms"] == 1500
     assert m["tasks_running"] == 2  # AwsBackend's names, unchanged
     assert m["pods_ready"] == 0  # KubernetesBackend's names, one Deployment: no suffix
-    assert m["sns_notifications_failed"] == 4 and m["rule_enabled"] == 0
+    assert m["sns_notifications_failed"] == 4
+    assert m["rule_enabled"] == 0
     assert 590 <= m["secret_changed_age_s"] <= 610
 
 
@@ -400,13 +419,15 @@ def test_absent_metrics_are_absent_not_zero(dsns):
                 "sns_notifications_failed", "rule_invocations", "cpu_utilization_pct"):
         assert key not in m, key
     # ...while exact API figures are still there.
-    assert m["lambda_timeout_s"] == 1 and m["rule_enabled"] == 0
+    assert m["lambda_timeout_s"] == 1
+    assert m["rule_enabled"] == 0
 
 
 def test_no_reserved_concurrency_and_no_esm_are_absent():
     b = _backend(_clients(**{"lambda": _lambda(get_function_concurrency={})}))
     m = b.metrics(_alert(**{"lambda": f"{P}checkout"}))
-    assert "lambda_reserved_concurrency" not in m and "lambda_esm_enabled" not in m
+    assert "lambda_reserved_concurrency" not in m
+    assert "lambda_esm_enabled" not in m
 
 
 def test_esm_line_and_enabled_flag():
@@ -422,12 +443,15 @@ def test_esm_line_and_enabled_flag():
 def test_deploys_carry_kind_and_previous(dsns):
     deploys = _backend().deploys(_full_alert())
     by_kind = {d["kind"]: d for d in deploys}
-    assert by_kind["lambda"]["version"] == "7" and by_kind["lambda"]["previous"] == "6"
-    assert by_kind["ecs"]["image"] == "app:8" and by_kind["ecs"]["previous_image"] == "app:7"
+    assert by_kind["lambda"]["version"] == "7"
+    assert by_kind["lambda"]["previous"] == "6"
+    assert by_kind["ecs"]["image"] == "app:8"
+    assert by_kind["ecs"]["previous_image"] == "app:7"
     # previous/version are family:revision - what an ECS rollback command aims at.
     assert re.fullmatch(r"[\w-]+:\d+", by_kind["ecs"]["previous"]), by_kind["ecs"]
     assert re.fullmatch(r"[\w-]+:\d+", by_kind["ecs"]["version"]), by_kind["ecs"]
-    assert by_kind["k8s"]["image"] == "cat:bad" and by_kind["k8s"]["previous"] == "cat:good"
+    assert by_kind["k8s"]["image"] == "cat:bad"
+    assert by_kind["k8s"]["previous"] == "cat:good"
     assert by_kind["secret"]["service"] == f"{P}db-app"  # reported, but as a secret, not code
     assert all(d["at"].endswith("Z") for d in deploys)
 
@@ -446,7 +470,9 @@ def test_several_lambdas_queues_rules_and_deployments_get_suffixes():
                 "sqs_visible__payments", "dlq_visible__orders", "rule_enabled__reconcile-5m",
                 "rule_enabled__traffic-1m", "pods_ready__catalog-api", "pods_ready__cart-worker"):
         assert key in m, key
-    assert "lambda_timeout_s" not in m and "sqs_visible" not in m and "pods_ready" not in m
+    assert "lambda_timeout_s" not in m
+    assert "sqs_visible" not in m
+    assert "pods_ready" not in m
 
 
 def test_k8s_is_read_per_deployment_with_its_own_selector():
@@ -478,7 +504,8 @@ def test_a_failing_reader_is_a_partial_and_the_others_still_read(dsns):
     bundle = gather(_full_alert(), backend=_backend(clients), timeout=30)
     assert any(e.startswith("logs: dynamodb: ") and "AccessDenied" in e for e in bundle.tool_errors)
     assert not any(x.startswith("TABLE ") for x in bundle.logs)
-    assert bundle.metrics["lambda_timeout_s"] == 1 and bundle.metrics["rule_enabled"] == 0
+    assert bundle.metrics["lambda_timeout_s"] == 1
+    assert bundle.metrics["rule_enabled"] == 0
     assert any(x.startswith("QUEUE ") for x in bundle.logs)
 
 
@@ -518,7 +545,8 @@ def test_a_missing_dsn_is_a_partial_not_silence(monkeypatch):
 
 def test_an_alert_with_no_stack_labels_is_an_error_not_an_empty_bill_of_health():
     bundle = gather(_alert(), backend=_backend(), timeout=10)
-    assert bundle.tool_errors and not bundle.metrics
+    assert bundle.tool_errors
+    assert not bundle.metrics
 
 
 def test_sns_policy_that_no_longer_allows_the_topic():
@@ -797,7 +825,8 @@ def test_no_real_client_is_ever_built():
     from warden import aws_stack
 
     needed = set(aws_stack.NEEDED_CLIENTS)
-    assert needed and needed <= set(_clients()), f"not faked: {sorted(needed - set(_clients()))}"
+    assert needed, f"not faked: {sorted(needed - set(_clients()))}"
+    assert needed <= set(_clients()), f"not faked: {sorted(needed - set(_clients()))}"
 
 
 def test_the_cache_network_path_is_evidence(dsns):
@@ -843,7 +872,8 @@ def test_a_lambda_rollback_targets_the_version_that_served_traffic_not_the_numer
         {"Version": "7", "LastModified": t(timedelta(minutes=4))}]})
     d = next(x for x in _backend(_clients(**{"lambda": lam, "cloudwatch": Fake(get_metric_data=served)}))
              .deploys(_full_alert()) if x["kind"] == "lambda")
-    assert d["version"] == "7" and d["previous"] == "3"
+    assert d["version"] == "7"
+    assert d["previous"] == "3"
     assert d["previous_basis"].startswith("served live traffic")
 
     def silent(MetricDataQueries, **_):
@@ -851,7 +881,8 @@ def test_a_lambda_rollback_targets_the_version_that_served_traffic_not_the_numer
 
     d = next(x for x in _backend(_clients(**{"lambda": lam, "cloudwatch": Fake(get_metric_data=silent)}))
              .deploys(_full_alert()) if x["kind"] == "lambda")
-    assert d["previous"] == "6" and d["previous_basis"].startswith("numerically previous")
+    assert d["previous"] == "6"
+    assert d["previous_basis"].startswith("numerically previous")
 
 
 def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
@@ -861,7 +892,8 @@ def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
     own = re.search(r'sid\s*=\s*"ReadOwnStack"(.*?)\n  \}', text, re.DOTALL).group(1)
     anywhere = re.search(r'sid\s*=\s*"ReadAnywhere"(.*?)\n  \}', text, re.DOTALL).group(1)
     resources = re.findall(r'"(arn:[^"]+)"', own)
-    assert resources and all(r.endswith("${local.name}-*") for r in resources), resources
+    assert resources, resources
+    assert all(r.endswith("${local.name}-*") for r in resources), resources
     assert '"*"' not in own
     scoped = set(re.findall(r'"([a-z0-9-]+:[A-Za-z]+)"', own))
     assert {"lambda:GetFunction", "logs:FilterLogEvents", "logs:StartQuery", "rds:DescribeDBClusters",
@@ -949,7 +981,8 @@ def test_events_are_asked_for_by_source_and_every_page_read():
     clients["rds"]._methods["describe_events"] = describe_events
     lines = _backend(clients).logs(_alert(aurora_cluster=f"{P}aurora"))
     assert any("on page two" in x for x in lines), lines
-    assert (f"{P}aurora", "db-cluster", "m2") in calls and (f"{P}aurora-1", "db-instance", None) in calls
+    assert (f"{P}aurora", "db-cluster", "m2") in calls
+    assert (f"{P}aurora-1", "db-instance", None) in calls
 
 
 def test_lambda_versions_past_the_cap_are_not_taken_for_the_newest(monkeypatch):
@@ -1007,7 +1040,10 @@ def test_the_sg_line_names_cidr_ranges_and_prefix_lists_too():
         {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]}]})
     lines = _backend(clients).logs(_alert(elasticache=f"{P}redis"))
     [sg] = [x for x in lines if x.startswith("SG sg-0redis")]
-    assert "10.0.0.0/16" in sg and "pl-0abc" in sg and "sg-0app" in sg and "0.0.0.0/0" not in sg, sg
+    assert "10.0.0.0/16" in sg, sg
+    assert "pl-0abc" in sg, sg
+    assert "sg-0app" in sg, sg
+    assert "0.0.0.0/0" not in sg, sg
 
 
 def test_a_fault_flags_value_never_reaches_the_evidence():
@@ -1049,8 +1085,10 @@ def test_an_albs_zones_its_zonal_shift_setting_and_its_hosts_per_zone_are_read()
     alert = _alert(alb_target_group=f"{P}orders")
     assert f"CONFIG alb {P}alb zones=test-region-1a,test-region-1b zonal_shift=true" in b.logs(alert)
     m = b.metrics(alert)
-    assert m["alb_healthy_hosts_test-region-1a"] == 0 and m["alb_unhealthy_hosts_test-region-1a"] == 2
-    assert m["alb_healthy_hosts_test-region-1b"] == 2 and m["alb_unhealthy_hosts_test-region-1b"] == 0
+    assert m["alb_healthy_hosts_test-region-1a"] == 0
+    assert m["alb_unhealthy_hosts_test-region-1a"] == 2
+    assert m["alb_healthy_hosts_test-region-1b"] == 2
+    assert m["alb_unhealthy_hosts_test-region-1b"] == 0
 
 
 def test_a_rule_on_a_custom_bus_is_read_on_that_bus():

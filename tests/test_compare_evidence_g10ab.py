@@ -73,8 +73,10 @@ def harness(tmp_path):
 def test_the_plan_names_every_fault_and_rotates_the_order():
     lines = ce.plan(["fs-10", "fs-16"], ["none", "xray", "grafana", "datadog"], {})
     assert lines[0].startswith("compare 2 fault(s) x 4 tool(s) = 8 diagnoses")
-    assert "fs-10-redis-unreachable" in lines[1] and "none -> xray -> grafana -> datadog" in lines[1]
-    assert "fs-16-aurora-slow-query" in lines[2] and "xray -> grafana -> datadog -> none" in lines[2]
+    assert "fs-10-redis-unreachable" in lines[1]
+    assert "none -> xray -> grafana -> datadog" in lines[1]
+    assert "fs-16-aurora-slow-query" in lines[2]
+    assert "xray -> grafana -> datadog -> none" in lines[2]
     assert any(line.startswith("  grafana: NOT READY") for line in lines)
     assert ce.order_for(["a", "b", "c"], 4) == ["b", "c", "a"]
 
@@ -83,7 +85,8 @@ def test_a_dry_run_prints_the_plan_and_writes_nothing(tmp_path, capsys):
     out = tmp_path / "out"
     assert ce.main(["--dry-run", "--faults", "fs-10", "--out", str(out), "--run", str(tmp_path / "run")]) == 0
     assert "fs-10-redis-unreachable" in capsys.readouterr().out
-    assert not out.exists() and not (tmp_path / "run").exists()
+    assert not out.exists()
+    assert not (tmp_path / "run").exists()
 
 
 def test_the_default_faults_are_known_and_application_level():
@@ -116,7 +119,8 @@ def test_each_run_reads_exactly_one_tool_and_leaves_the_environment_as_it_was(ha
     assert env.invoke_warden is real
     # The secrets are in no file the comparison wrote.
     written = "".join(p.read_text(encoding="utf-8") for p in out.rglob("*") if p.is_file())
-    assert FAKE_TOKEN not in written and "fake-api" not in written
+    assert FAKE_TOKEN not in written
+    assert "fake-api" not in written
     assert results["faults"][0]["baseline_after"]["clean"] is True
     assert cli._state(run)["active"] is None
 
@@ -126,10 +130,14 @@ def test_runs_are_graded_with_the_rubric_and_measured(harness):
     results = ce.compare(env, run, out, ["fs-10"], list(ce.TOOLS), VALUES)
     rows = {r["tool"]: r for r in results["faults"][0]["runs"]}
     assert all(r["status"] == "ok" and r["diagnosis"] == score.CORRECT and r["correct"] for r in rows.values())
-    assert rows["none"]["action"] == "escalate_to_human" and rows["none"]["gate_allowed"] is True
-    assert rows["xray"]["lines"]["XRAY"] == 2 and rows["xray"]["dependency_named"] is True
-    assert rows["grafana"]["dependency_named"] is False and rows["grafana"]["tool_read_failures"] == 1
-    assert rows["none"]["dependency_named"] is False and rows["none"]["input_tokens"] == 1000
+    assert rows["none"]["action"] == "escalate_to_human"
+    assert rows["none"]["gate_allowed"] is True
+    assert rows["xray"]["lines"]["XRAY"] == 2
+    assert rows["xray"]["dependency_named"] is True
+    assert rows["grafana"]["dependency_named"] is False
+    assert rows["grafana"]["tool_read_failures"] == 1
+    assert rows["none"]["dependency_named"] is False
+    assert rows["none"]["input_tokens"] == 1000
     assert rows["datadog"]["wall_s"] is not None
     saved = json.loads((out / "results.json").read_text(encoding="utf-8"))
     assert [s["tool"] for s in saved["summary"]] == list(ce.TOOLS)
@@ -144,9 +152,11 @@ def test_a_failed_run_is_recorded_as_failed_never_dropped(harness):
     results = ce.compare(env, run, out, ["fs-10"], list(ce.TOOLS), VALUES)
     rows = {r["tool"]: r for r in results["faults"][0]["runs"]}
     assert len(rows) == 4
-    assert rows["datadog"]["status"] == "failed" and rows["datadog"]["diagnosis"] == score.ERROR
+    assert rows["datadog"]["status"] == "failed"
+    assert rows["datadog"]["diagnosis"] == score.ERROR
     assert "exit 1" in rows["datadog"]["error"]
-    assert rows["grafana"]["status"] == "failed" and "could not start" in rows["grafana"]["error"]
+    assert rows["grafana"]["status"] == "failed"
+    assert "could not start" in rows["grafana"]["error"]
     summary = {s["tool"]: s for s in results["summary"]}
     assert summary["datadog"] == {**summary["datadog"], "runs": 1, "correct": 0, "failed": 1, "accuracy": 0.0}
     assert summary["none"]["accuracy"] == 1.0
@@ -157,7 +167,8 @@ def test_an_inject_that_cannot_run_keeps_the_fault_with_every_run_failed(harness
     (run / "state.json").unlink()  # no soak: step_inject refuses
     results = ce.compare(env, run, out, ["fs-10"], ["none", "xray"], VALUES)
     fault = results["faults"][0]
-    assert "no soak" in fault["error"] and not seen
+    assert "no soak" in fault["error"]
+    assert not seen
     assert [(r["tool"], r["status"]) for r in fault["runs"]] == [("none", "failed"), ("xray", "failed")]
     assert [s["runs"] for s in results["summary"]] == [1, 1]
 
@@ -172,8 +183,11 @@ def test_summarise_counts_every_run_and_means_only_what_was_measured():
     xray, none, grafana = ce.summarise(rows, ["xray", "none", "grafana"])
     assert xray == {"tool": "xray", "runs": 3, "correct": 1, "failed": 1, "accuracy": 1 / 3, "mean_wall_s": 20.0,
                     "mean_usd": 0.03, "dependency_found": 1, "dependency_known": 2}
-    assert none["accuracy"] == 1.0 and none["dependency_known"] == 0
-    assert grafana["runs"] == 0 and grafana["accuracy"] is None and grafana["mean_wall_s"] is None
+    assert none["accuracy"] == 1.0
+    assert none["dependency_known"] == 0
+    assert grafana["runs"] == 0
+    assert grafana["accuracy"] is None
+    assert grafana["mean_wall_s"] is None
 
 
 def test_the_page_escapes_every_value_and_loads_nothing():
@@ -183,8 +197,12 @@ def test_the_page_escapes_every_value_and_loads_nothing():
     results = {"started_at": evil, "git_commit": "abc", "warnings": [evil], "summary": ce.summarise([run], ["xray"]),
                "faults": [{"fault": evil, "title": evil, "error": evil, "runs": [run]}]}
     page = ce.render_html(results)
-    assert "<script" not in page and "<img" not in page and "&lt;script&gt;" in page
-    assert "<link" not in page and "@import" not in page and "url(" not in page
+    assert "<script" not in page
+    assert "<img" not in page
+    assert "&lt;script&gt;" in page
+    assert "<link" not in page
+    assert "@import" not in page
+    assert "url(" not in page
     assert "prefers-color-scheme:dark" in page
 
 
@@ -204,7 +222,8 @@ def test_settings_come_from_the_store_and_the_environment_is_put_back(monkeypatc
     before = dict(os.environ)
     assert ce.evidence_settings(["none", "datadog"]) == {}  # no store named: this shell only
     values = ce.evidence_settings(["none", "datadog"], store="ops")
-    assert values == {"WARDEN_DATADOG_API_KEY": "from-store"} and asked["env"] == "ops"
+    assert values == {"WARDEN_DATADOG_API_KEY": "from-store"}
+    assert asked["env"] == "ops"
     assert asked["only"] == frozenset(ce.SETTINGS["datadog"])
     assert dict(os.environ) == before
     assert ce._missing("datadog", values) == ["WARDEN_DATADOG_SITE", "WARDEN_DATADOG_APP_KEY"]

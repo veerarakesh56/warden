@@ -181,7 +181,9 @@ def _ok(entry, params, live):
 def test_the_alias_goes_back_to_the_version_that_served_traffic_not_the_numerically_previous(aws):
     f, p = aws
     live = p.live("lambda_move_alias", {"function": FN, "alias": "live"})
-    assert live["to_version"] == {"3"} and live["environment"] == "dev" and live["rollout"] == "complete"
+    assert live["to_version"] == {"3"}
+    assert live["environment"] == "dev"
+    assert live["rollout"] == "complete"
     params = {"function": FN, "alias": "live", "to_version": "3"}
     assert _ok("lambda_move_alias", params, live) == []
     assert _ok("lambda_move_alias", {**params, "to_version": "8"}, live)  # the Wave 4 mistake is refused
@@ -189,10 +191,13 @@ def test_the_alias_goes_back_to_the_version_that_served_traffic_not_the_numerica
     canary, full = f.writes  # register C17: 10% first, then all of it
     assert canary == ("update_alias", {"FunctionName": FN, "Name": "live", "FunctionVersion": "9", "RevisionId": "r1",
                                        "RoutingConfig": {"AdditionalVersionWeights": {"3": 0.1}}})
-    assert full[1]["FunctionVersion"] == "3" and full[1]["RoutingConfig"] == {"AdditionalVersionWeights": {}}
+    assert full[1]["FunctionVersion"] == "3"
+    assert full[1]["RoutingConfig"] == {"AdditionalVersionWeights": {}}
     assert "after a 10% canary" in out
     [s] = f.sessions
-    assert s["who"] == WHO and s["actions"] == ["lambda:UpdateAlias"] and s["resources"] == [FN_ARN]
+    assert s["who"] == WHO
+    assert s["actions"] == ["lambda:UpdateAlias"]
+    assert s["resources"] == [FN_ARN]
     assert "from version 9 to 3" in out
 
 
@@ -202,7 +207,8 @@ def test_a_moved_alias_or_a_canary_is_refused_and_nothing_is_written(aws):
     f.alias = {"FunctionVersion": "10", "RevisionId": "r2"}
     with pytest.raises(AwsPlatformRefused, match="changed since|serves version 10"):
         p.apply("lambda_move_alias", {"function": FN, "alias": "live", "to_version": "3"}, snapshot=live["state"], who=WHO)
-    assert f.writes == [] and f.sessions == []
+    assert f.writes == []
+    assert f.sessions == []
     f.alias = {"FunctionVersion": "9", "RevisionId": "r1", "RoutingConfig": {"AdditionalVersionWeights": {"8": 0.1}}}
     live = p.live("lambda_move_alias", {"function": FN, "alias": "live"})
     assert any("P21" in x for x in _ok("lambda_move_alias", {"function": FN, "alias": "live", "to_version": "3"}, live))
@@ -246,11 +252,13 @@ def test_concurrency_is_only_ever_raised_from_an_existing_reservation_within_the
 def test_an_event_source_mapping_is_enabled_under_its_functions_exact_arn(aws):
     f, p = aws
     live = p.live("lambda_enable_esm", {"function": FN, "mapping": "u-1"})
-    assert live["mapping"] == {"u-1"} and _ok("lambda_enable_esm", {"function": FN, "mapping": "u-1"}, live) == []
+    assert live["mapping"] == {"u-1"}
+    assert _ok("lambda_enable_esm", {"function": FN, "mapping": "u-1"}, live) == []
     p.apply("lambda_enable_esm", {"function": FN, "mapping": "u-1"}, snapshot=live["state"], who=WHO)
     assert f.writes == [("update_event_source_mapping", {"UUID": "u-1", "Enabled": True})]
     esm_arn = f"arn:aws:lambda:test-region-1:{ACCT}:event-source-mapping:u-1"
-    assert f.sessions[0]["resources"] == [esm_arn] and f.sessions[0]["condition"] == {"ArnEquals": {"lambda:FunctionArn": FN_ARN}}
+    assert f.sessions[0]["resources"] == [esm_arn]
+    assert f.sessions[0]["condition"] == {"ArnEquals": {"lambda:FunctionArn": FN_ARN}}
     f.esm["State"] = "Enabled"
     assert p.live("lambda_enable_esm", {"function": FN, "mapping": "u-1"})["mapping"] == set()  # nothing to enable
     with pytest.raises(AwsPlatformRefused, match="already enabled"):
@@ -261,10 +269,12 @@ def test_a_rule_is_enabled_and_its_rollback_disables_it(aws):
     f, p = aws
     live = p.live("events_enable_rule", {"rule": f.rule["Name"]})
     p.apply("events_enable_rule", {"rule": f.rule["Name"]}, snapshot=live["state"], who=WHO)
-    assert f.writes == [("enable_rule", {"Name": f.rule["Name"]})] and f.sessions[0]["resources"] == [f.rule["Arn"]]
+    assert f.writes == [("enable_rule", {"Name": f.rule["Name"]})]
+    assert f.sessions[0]["resources"] == [f.rule["Arn"]]
     f.rule["State"] = "ENABLED"
     p.rollback("events_enable_rule", {"rule": f.rule["Name"]}, live["state"], who=WHO)
-    assert f.writes[-1] == ("disable_rule", {"Name": f.rule["Name"]}) and f.sessions[-1]["actions"] == ["events:DisableRule"]
+    assert f.writes[-1] == ("disable_rule", {"Name": f.rule["Name"]})
+    assert f.sessions[-1]["actions"] == ["events:DisableRule"]
 
 
 def test_a_custom_bus_rule_is_read_enabled_and_checked_on_its_own_bus(aws):
@@ -323,7 +333,8 @@ def test_health_is_a_positive_signal_and_unknown_is_not_healthy(aws):
     assert p.healthy("orders", entry="ecs_rollback_service", params={"cluster": "c1"}) is True
     f.service["deployments"] = [{"rolloutState": "COMPLETED"}, {"rolloutState": "IN_PROGRESS"}]
     assert p.healthy("orders", entry="ecs_rollback_service", params={"cluster": "c1"}) is False
-    assert p.healthy(FN) is False and p.knows(FN) is False  # never judged by a bare name
+    assert p.healthy(FN) is False  # never judged by a bare name
+    assert p.knows(FN) is False
 
 
 def test_a_refused_call_changed_nothing_and_an_unknown_failure_may_be_half_made(aws):
@@ -376,7 +387,9 @@ def test_the_approvers_reach_the_platform_from_this_runs_audit_rows(tmp_path):
     out = _run(world, _approve_with(key))
     assert out.status == "rolled_back"
     applied, rolled = world["platform"].who
-    assert applied == rolled and applied["approvers"] == ["owner"] and applied["incident"] == "inc-42"
+    assert applied == rolled
+    assert applied["approvers"] == ["owner"]
+    assert applied["incident"] == "inc-42"
     assert len(applied["plan_hash"]) == 64
 
 
@@ -398,9 +411,12 @@ def test_each_plan_reads_and_writes_through_its_own_environments_platform():
     params = {"function": FN, "alias": "live", "to_version": "3"}
     snap = r.live("lambda_move_alias", params, environment="dev")["state"]
     r.apply("lambda_move_alias", params, snapshot=snap, who=WHO, environment="dev")
-    assert list(made) == ["dev"] and made["dev"].writes and made["dev"].sessions[0]["who"] == WHO
+    assert list(made) == ["dev"]
+    assert made["dev"].writes
+    assert made["dev"].sessions[0]["who"] == WHO
     r.live("lambda_move_alias", params, environment="staging")
-    assert set(made) == {"dev", "staging"} and not made["staging"].writes
+    assert set(made) == {"dev", "staging"}
+    assert not made["staging"].writes
     assert r.live("lambda_move_alias", params) == {}  # no environment named: nothing read (live swallows, reads nothing)
 
 
@@ -474,7 +490,9 @@ def test_a_failover_promotes_only_an_available_reader_while_the_writer_is_the_on
     f, p = aws
     live = p.live("aurora_failover", CLUSTER)
     assert live["target_instance"] == {"warden-dev-orders-b"}  # c is modifying, a is the writer
-    assert live["environment"] == "dev" and live["rollout"] == "complete" and live["state"]["writer"] == "warden-dev-orders-a"
+    assert live["environment"] == "dev"
+    assert live["rollout"] == "complete"
+    assert live["state"]["writer"] == "warden-dev-orders-a"
     assert _ok("aurora_failover", CLUSTER, live) == []
     assert _ok("aurora_failover", {**CLUSTER, "target_instance": "warden-dev-orders-c"}, live)
     assert _ok("aurora_failover", {**CLUSTER, "target_instance": "warden-dev-orders-a"}, live)
@@ -497,7 +515,8 @@ def test_a_failover_is_refused_when_the_cluster_moved_and_never_rolled_back(aws)
     f.instances["warden-dev-orders-b"]["DBInstanceStatus"] = "rebooting"
     with pytest.raises(AwsPlatformRefused, match="not an available reader"):
         p.apply("aurora_failover", CLUSTER, snapshot=snap, who=WHO)
-    assert f.writes == [] and f.sessions == []
+    assert f.writes == []
+    assert f.sessions == []
     assert "not undone automatically" in p.rollback("aurora_failover", CLUSTER, snap, who=WHO)
     assert f.writes == []
     assert p.live("aurora_failover", {"cluster": 7}) == {}
@@ -541,7 +560,8 @@ def test_a_canary_that_errs_puts_the_alias_back_and_changes_nothing(aws):
     assert refused.value.nothing_changed
     canary, back = f.writes
     assert canary[1]["RoutingConfig"] == {"AdditionalVersionWeights": {"3": 0.1}}
-    assert back[1]["FunctionVersion"] == "9" and back[1]["RoutingConfig"] == {"AdditionalVersionWeights": {}}
+    assert back[1]["FunctionVersion"] == "9"
+    assert back[1]["RoutingConfig"] == {"AdditionalVersionWeights": {}}
 
 
 def test_an_ecs_plan_shows_the_services_own_deployment_strategy(aws):
