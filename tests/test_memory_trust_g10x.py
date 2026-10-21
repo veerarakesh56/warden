@@ -15,8 +15,8 @@ SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden"
 
 # Every module that fetches text from outside WARDEN. A new one is a reviewed change: whatever it reads is untrusted,
 # and must reach the model, if at all, only through the quarantine and the tripwire.
-FETCHERS = {"aws_docs.py", "aws_stack.py", "changes.py", "chatops.py", "datadog.py", "discuss.py", "grafana.py",
-            "slack_login.py", "timeline.py", "webhooks.py",
+FETCHERS = {"aws_docs.py", "aws_stack.py", "changes.py", "chatops.py", "datadog.py", "discuss.py", "findings.py",
+            "grafana.py", "slack_login.py", "timeline.py", "web.py", "webhooks.py",
             "landed.py"}  # B21: GitHub's deployments and merges - kept on the record and said redacted, never to a model
 
 
@@ -60,8 +60,10 @@ def test_an_incidents_kept_evidence_answers_only_that_incidents_questions():
     prepare, discuss = _function(acts, "prepare"), _function(acts, "discuss_evidence")
     assert len(uses) == 2 and '"incident.evidence"' in prepare and '"incident.evidence"' in discuss
     for other in SRC.rglob("*.py"):
-        if other.name not in ("activities.py", "records.py"):
+        if other.name not in ("activities.py", "records.py", "eldane.py"):
             assert '"incident.evidence"' not in other.read_text(encoding="utf-8"), other.name
+    # Eldane, the AI critic, reviews a plan from its own incident's evidence, by that incident's id (eldane._read).
+    assert "log.entries(incident, kinds=(kind,))" in _src("eldane.py")
     # Read by the incident's own id, never across incidents.
     assert 'self.audit.entries(incident, kinds=("incident.evidence",))' in discuss
 

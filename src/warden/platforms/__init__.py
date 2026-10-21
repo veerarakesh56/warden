@@ -9,6 +9,9 @@ entry it was given, re-checking its own bounds against what it reads at that mom
 from __future__ import annotations
 
 import inspect
+import os
+import threading
+from collections.abc import Callable
 from typing import Any
 
 from ..catalog import CATALOG
@@ -86,6 +89,102 @@ class RoutedPlatform:
         if p is None:
             raise RuntimeError(f"no platform is connected for {entry}")
         return p.rollback(entry, params, snapshot, **_accepted(p.rollback, who=who))
+
+
+class NotConfigured(RuntimeError):
+    """This environment has none of this platform kind configured (no cluster, no database): nothing was read or
+    changed, and the catalogue refuses - a person is told, the worker runs on."""
+
+    nothing_changed = True
+
+
+class Unconfigured:
+    """A platform kind an environment does not have: reads nothing, writes nothing, never crashes a worker."""
+
+    def __init__(self, why: str) -> None:
+        self.why = why
+
+    def live(self, *_: Any) -> dict[str, Any]:
+        """Nothing is read: the catalogue refuses on an empty read."""
+        return {}
+
+    def knows(self, *_: Any) -> bool:
+        return False
+
+    def healthy(self, *_: Any) -> bool:
+        return False
+
+    def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None,
+              who: dict[str, Any] | None = None) -> str:
+        raise NotConfigured(f"{self.why}; nothing was changed")
+
+    def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any],
+                 who: dict[str, Any] | None = None) -> str:
+        raise NotConfigured(f"{self.why}; nothing was changed")
+
+
+class PerEnvironment(Unconfigured):
+    """One platform per watched environment, built the first time a plan names it (the cloud runtime: each
+    environment's own roles, cluster or database). `build` raises NotConfigured for an environment it cannot serve,
+    which then reads and writes nothing. With no environment named, nothing is read or written either."""
+
+    def __init__(self, build: Callable[[str], Any], kind: str) -> None:
+        super().__init__(f"no environment was named for this {kind} call")
+        self._build, self._made, self._lock = build, {}, threading.Lock()
+
+    def for_environment(self, environment: str) -> Any:
+        with self._lock:
+            if environment not in self._made:
+                try:
+                    self._made[environment] = self._build(environment)
+                except NotConfigured as exc:
+                    self._made[environment] = Unconfigured(str(exc))
+                except Exception as exc:  # noqa: BLE001  # a build that fails otherwise also changes nothing and says why
+                    self._made[environment] = Unconfigured(
+                        f"{environment}'s platform could not be built ({type(exc).__name__})")
+            return self._made[environment]
+
+
+def role_arn(environment: str, role: str) -> str:
+    """A watched environment's role (`platform-reader`, `actor`) from WARDEN_AWS_ROLE_ARN_TEMPLATE
+    (`...:role/warden-{env}-{role}`, set by the runtime module); NotConfigured when there is no such template or the
+    environment is not one of environments.yaml's."""
+    from ..environments import default_environment_policies
+
+    template = os.environ.get("WARDEN_AWS_ROLE_ARN_TEMPLATE", "").strip()
+    if not template.startswith("arn:aws:iam::") or "{env}" not in template or "{role}" not in template:
+        raise NotConfigured("WARDEN_AWS_ROLE_ARN_TEMPLATE is not an IAM role ARN with {env} and {role}")
+    if environment not in default_environment_policies().known_environments:
+        raise NotConfigured(f"{environment!r} is not a configured environment")
+    return template.format(env=environment, role=role)
+
+
+def reader_clients(sts: Any, where: str, reader_arn: str) -> Callable[[str], Any]:
+    """Clients in an environment's reader role. The session lasts 15 minutes; it is renewed after 10, so no read runs
+    on one about to expire."""
+    import time
+
+    from .. import identity
+
+    held: dict[str, Any] = {}
+    lock = threading.Lock()
+
+    def reader(service: str) -> Any:
+        with lock:
+            if held.get("until", 0) < time.monotonic():
+                creds = identity.reader_session(sts, role_arn=reader_arn, incident="warden-worker")
+                held["clients"], held["until"] = session_clients(creds, where), time.monotonic() + 600
+            return held["clients"](service)
+
+    return reader
+
+
+def session_clients(creds: dict[str, str], where: str) -> Callable[[str], Any]:
+    """boto3 clients on one set of session credentials."""
+    import boto3
+
+    s = boto3.Session(**creds, region_name=where)
+    return lambda service: s.client(service)
 
 
 def _accepted(method: Any, **extra: Any) -> dict[str, Any]:

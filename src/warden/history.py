@@ -38,27 +38,123 @@ def _shown(plan: dict[str, Any]) -> str:
     return str(plan.get("target", ""))
 
 
-def plans(log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:
-    """Every fix plan on the record in LOOKBACK, with how its run ended (`open` while it runs), newest first."""
-    since = (now or datetime.now(UTC)) - LOOKBACK
+def plans(log: Any, *, now: datetime | None = None, lookback: timedelta | None = LOOKBACK) -> list[dict[str, Any]]:
+    """Every fix plan on the record in `lookback` (None: all of it), with how its run ended (`open` while it runs),
+    newest first."""
+    since = (now or datetime.now(UTC)) - lookback if lookback is not None else None
     ends = {(e["body"].get("workflow_id"), e["body"].get("run_id")): e
             for e in log.entries(kinds=("workflow.end",), since=since)}
-    rows = []
-    for e in log.entries(kinds=("remediation.plan",), since=since):
-        b = e["body"]
-        end = ends.get((b.get("workflow_id"), b.get("run_id")))
-        rows.append({"seqs": [e["seq"], *([end["seq"]] if end else [])],
-                     "at": (end or e)["at"], "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
-                     # As a person reads it, for every message: a mapping's UUID is masked as a key's shape, and the
-                     # outbound gate withheld the whole facts card that named one (live, 2026-10-15).
-                     "shown": _shown(b),
-                     "environment": b.get("environment"), "service": b.get("service"),
-                     "plan_hash": b.get("plan_hash"), "incident": e["correlation_id"],
-                     "status": str(end["body"].get("status")) if end else "open",
-                     "approvers": [str(a) for a in (end["body"].get("approvers") or [])] if end else [],
-                     "denied_by": _denier(end["body"]) if end else "",
-                     "why": str((end["body"].get("reasons") or [""])[0]) if end else ""})
+    rows = [_plan_row(e, ends.get((e["body"].get("workflow_id"), e["body"].get("run_id"))))
+            for e in log.entries(kinds=("remediation.plan",), since=since)]
     return sorted(rows, key=lambda r: r["at"], reverse=True)
+
+
+def _plan_row(e: dict[str, Any], end: dict[str, Any] | None) -> dict[str, Any]:
+    """One plan row of `plans`, with its run's end row if it has one."""
+    b, ended = e["body"], (end or {}).get("body") or {}
+    return {"seqs": [e["seq"], *([end["seq"]] if end else [])],
+            "at": (end or e)["at"], "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
+            # As a person reads it, for every message: a mapping's UUID is masked as a key's shape, and the
+            # outbound gate withheld the whole facts card that named one (live, 2026-10-15).
+            "shown": _shown(b),
+            "environment": b.get("environment"), "service": b.get("service"),
+            "plan_hash": b.get("plan_hash"), "incident": e["correlation_id"],
+            "workflow_id": b.get("workflow_id"),
+            "status": str(ended.get("status")) if end else "open",
+            "approvers": [str(a) for a in (ended.get("approvers") or [])],
+            "denied_by": _denier(ended) if end else "",
+            "why": str((ended.get("reasons") or [""])[0]) if end else ""}
+
+
+DID_NOT_HOLD = "remediation.did_not_hold"
+OFFER_AGAIN = "remediation.offer_again"
+OFFER_AGAIN_WORKFLOW = "offer-again"  # what an approver's signature to clear it is for: no plan is ever this
+
+
+def failures(log: Any, entry: str, target: str) -> list[tuple[datetime, str]]:
+    """Every time the fix `entry` on `target` was verified and did not hold - on the whole record, with no time limit
+    (CodeRabbit, PR 43: a 30-day window let the same fix be offered again with no person deciding)."""
+    markers = [e for e in log.entries(kinds=(DID_NOT_HOLD,))
+               if e["body"].get("entry") == entry and e["body"].get("target") == target]
+    # A marked run that then ends `relapsed` is the same failure, kept at the marker's time (CodeRabbit, PR 43): a
+    # clearance signed between the two must not be undone by the run's own end.
+    marked = {(e["body"].get("workflow_id"), e["body"].get("run_id")) for e in markers}
+    return [(e["at"], e["correlation_id"]) for e in markers] + [
+        (at, incident) for at, incident, e, t, run in _relapsed(log) if e == entry and t == target and run not in marked]
+
+
+def _relapsed(log: Any, incident: str | None = None) -> list[tuple[datetime, str, str, str, tuple[Any, Any]]]:
+    """(ended at, incident, entry, target, (workflow id, run id)) of every fix run that ended `relapsed` - a re-check
+    failed - read from the end rows and each one's own plan row, never the whole plan history rebuilt (CodeRabbit,
+    PR 43)."""
+    out = []
+    for e in log.entries(incident, kinds=("workflow.end",)):
+        b = e["body"]
+        if b.get("status") != "relapsed":
+            continue
+        plan = next((p["body"] for p in log.entries(e["correlation_id"], kinds=("remediation.plan",))
+                     if (p["body"].get("workflow_id"), p["body"].get("run_id")) == (b.get("workflow_id"),
+                                                                                    b.get("run_id"))), None)
+        if plan is not None:
+            out.append((e["at"], str(e["correlation_id"]), str(plan.get("entry", "")), str(plan.get("target", "")),
+                        (b.get("workflow_id"), b.get("run_id"))))
+    return out
+
+
+def failed_in(log: Any, incident: str) -> list[tuple[str, str]]:
+    """(entry, target) of each fix of `incident` that was verified and did not hold - its alarm came back in the soak,
+    or a re-check failed and its run ended `relapsed` (CodeRabbit, PR 43) - once each, in the record's order."""
+    rows = [(str(e["body"].get("entry", "")), str(e["body"].get("target", "")))
+            for e in log.entries(incident, kinds=(DID_NOT_HOLD,))]
+    rows += [(entry, target) for _, _, entry, target, _ in _relapsed(log, incident)]
+    return list(dict.fromkeys(rows))
+
+
+def offer_again_hash(entry: str, target: str, failed_at: datetime) -> str:
+    """What a person signs to let WARDEN offer a fix again: this fix, this target, after this failure."""
+    import hashlib
+
+    return "offer-again-" + hashlib.sha256(f"{entry}|{target}|{failed_at.isoformat()}".encode()).hexdigest()
+
+
+def did_not_hold(log: Any, entry: str, target: str) -> tuple[str, str]:
+    """(incident, why) when the fix `entry` on `target` was verified and then did not hold - its alarm came back inside
+    the soak (intake.held_fix), or a re-check failed (it ended `relapsed`) - and no approver has since signed that it
+    may be offered again (offer_again); ("", "") otherwise. Durable: only a person clears it."""
+    rows = failures(log, entry, target)
+    if not rows:
+        return "", ""
+    at, incident = max(rows)
+    cleared = [e for e in log.entries(kinds=(OFFER_AGAIN,), since=at)
+               if e["body"].get("plan_hash") == offer_again_hash(entry, target, at)]
+    if cleared:
+        return "", ""
+    return incident, (f"`{entry}` on this target was verified and did not hold (incident `{incident}`, "
+                      f"{both_times(at, seconds=False)}): WARDEN does not offer the same fix again on its own - a person "
+                      "decides what to do next (`warden offer-again` lets it be offered again)")
+
+
+def offer_again(log: Any, approval: Any, *, policy: Any, entry: str, target: str,
+                now: datetime | None = None) -> list[str]:
+    """An approver's signed decision (approvals.sign, tier T2, workflow `offer-again`) that the fix `entry` on `target`
+    may be offered again after its latest failure; recorded, or every reason it is not. Signed after that failure,
+    for exactly it, by an approver who may approve in the target's environment, used once."""
+    from . import approvals
+
+    rows = failures(log, entry, target)
+    if not rows:
+        return ["nothing to clear: this fix did not fail to hold on this target"]
+    at, incident = max(rows)
+    used = {e["body"].get("nonce") for e in log.entries(kinds=(OFFER_AGAIN,))}
+    problems = approvals.check(approval, policy=policy, workflow_id=OFFER_AGAIN_WORKFLOW,
+                               plan_hash=offer_again_hash(entry, target, at), tier="T2", plan_created_at=at,
+                               used_nonces=used, now=now, environment=target.partition("/")[0])
+    if not problems:
+        log.append(incident, OFFER_AGAIN, {"entry": entry, "target": target, "approver": approval.approver,
+                                           "nonce": approval.nonce, "plan_hash": approval.plan_hash,
+                                           "failed_at": at.isoformat()})
+        log.checkpoint()
+    return problems
 
 
 def _denier(end: dict[str, Any]) -> str:
@@ -87,7 +183,11 @@ def past(alert: Any, log: Any, *, now: datetime | None = None) -> list[dict[str,
     from .resolver import named_resources
 
     names = named_resources(alert)
-    return [r for r in plans(log, now=now) if r["incident"] != alert.alert_id
+    # A reopened incident's own fix that did not hold is its history too (item 11, intake `reopen`) - also while its
+    # run is still ending, by the marker intake wrote (CodeRabbit, PR 43).
+    marked = {e["body"].get("workflow_id") for e in log.entries(alert.alert_id, kinds=(DID_NOT_HOLD,))}
+    return [r for r in plans(log, now=now)
+            if (r["incident"] != alert.alert_id or r["status"] in FIXED_BEFORE or r.get("workflow_id") in marked)
             and r["environment"] == alert.environment and r["service"] in names][:MOST]
 
 
