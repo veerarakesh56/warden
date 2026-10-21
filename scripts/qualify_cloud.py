@@ -37,6 +37,7 @@ SCRIPTS = pathlib.Path(__file__).resolve().parent
 PROVIDERS_YAML = ROOT / "src" / "warden" / "data" / "providers.yaml"
 BENCHMARKS_MD = ROOT / "docs" / "BENCHMARKS.md"
 README_MD = ROOT / "README.md"
+RESULT_FILE = "qualification.json"  # what scripts/qualify_provider.py writes into --out
 KEY_SLOT = "anthropic-api-key"  # the slot's name in Secrets Manager, never its value
 QUALIFICATION_RUNS_MARKER = "<!-- qualification-runs:"
 STATUS_PREFIX = "**Qualified on the pinned prompt**"
@@ -225,7 +226,7 @@ def measure(a: argparse.Namespace, secrets_client: object = None) -> dict:
     import qualify_provider
 
     qualify_provider.main(["--out", str(a.out), "--budget-usd", str(a.budget_usd)])
-    return json.loads((a.out / "qualification.json").read_text(encoding="utf-8"))
+    return json.loads((a.out / RESULT_FILE).read_text(encoding="utf-8"))
 
 
 def write(result: dict, when: str) -> str:
@@ -254,8 +255,8 @@ def write(result: dict, when: str) -> str:
 
 def compare_with_result(path: pathlib.Path) -> pathlib.Path | None:
     """The qualification.json --compare-with names: the file itself, or the one in that run directory; else None."""
-    found = path / "qualification.json" if path.is_dir() else path
-    return found if found.name == "qualification.json" and found.is_file() else None
+    found = path / RESULT_FILE if path.is_dir() else path
+    return found if found.name == RESULT_FILE and found.is_file() else None
 
 
 def print_comparison(
