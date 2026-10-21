@@ -113,6 +113,41 @@ def test_targets(changed, expected):
     assert mutation_ci.targets(changed, mutation_ci.safety_modules()) == expected
 
 
+def test_one_matrix_job_per_safety_module():
+    """PR 179: all modules in one job (~5,200 mutants) ran past the job's timeout; one job per module, each
+    its own cache, and the matrix is exactly pyproject's list."""
+    job = _workflow()["jobs"]["mutmut"]
+    stems = [pathlib.PurePosixPath(m).stem for m in mutation_ci.safety_modules()]
+    assert job["strategy"]["matrix"]["module"] == stems
+    assert job["strategy"]["fail-fast"] is False
+    uv = next(st for st in job["steps"] if str(st.get("uses", "")).startswith("astral-sh/setup-uv@"))
+    assert "${{ matrix.module }}" in uv["with"]["cache-suffix"]
+    mutate = next(st for st in job["steps"] if str(st.get("name", "")).startswith("Mutate"))
+    assert 'mutmut run "warden.$MODULE*"' in mutate["run"]
+    assert "mutation_ci.py shard" in mutate["run"]
+
+
+@pytest.mark.parametrize(("module", "changed", "runs"), [
+    ("gate", [], True),                                         # schedule / by hand: every shard
+    ("gate", ["src/warden/gate.py"], True),
+    ("bounds", ["src/warden/gate.py"], False),                  # a pull request mutates only what it changed
+    ("bounds", ["src/warden/gate.py", "uv.lock"], True),        # the setup changed: every shard
+    ("bounds", ["README.md"], True),                            # no safety module changed: every shard
+])
+def test_shard_runs(module, changed, runs):
+    assert mutation_ci.shard_runs(module, changed, mutation_ci.safety_modules()) is runs
+
+
+def test_shard_from_the_command_line():
+    run = [sys.executable, str(ROOT / "scripts" / "mutation_ci.py"), "shard"]
+    skip = subprocess.run([*run, "bounds"], input="src/warden/gate.py\n", capture_output=True, text=True, check=True)
+    assert skip.stdout.strip() == "skip"
+    every = subprocess.run([*run, "bounds"], input="\n", capture_output=True, text=True, check=True)
+    assert every.stdout.strip() == "run"
+    unknown = subprocess.run([*run, "llm"], input="", capture_output=True, text=True, check=False)
+    assert unknown.returncode == 2
+
+
 def test_targets_from_the_command_line():
     out = subprocess.run([sys.executable, str(ROOT / "scripts" / "mutation_ci.py"), "targets"],
                          input="src/warden/bounds.py\nsrc/warden/llm.py\n", capture_output=True, text=True, check=True)

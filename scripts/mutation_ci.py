@@ -1,5 +1,8 @@
 """Mutation testing in CI (B37): which safety modules to mutate, and the score, for .github/workflows/mutation.yml.
 
+    git diff --name-only <base>...HEAD | python scripts/mutation_ci.py shard <module>
+        # "run" or "skip" for one shard of the workflow's matrix (one safety module per job): a pull request
+        # mutates only the modules it changed, or all of them when it changed the setup
     git diff --name-only <base>...HEAD | python scripts/mutation_ci.py targets
         # the mutmut name patterns to run on a pull request: the safety modules it changed (`warden.gate*` ...),
         # or nothing - every safety module - when it changed the mutation setup itself (pyproject, lock, workflow)
@@ -39,6 +42,13 @@ def targets(changed: list[str], modules: list[str]) -> list[str]:
     return [f"warden.{pathlib.PurePosixPath(m).stem}*" for m in hit]
 
 
+def shard_runs(module: str, changed: list[str], modules: list[str]) -> bool:
+    """Whether the matrix job for `module` (a safety module's stem) mutates it: every job does on a schedule or by
+    hand (nothing changed is passed) and when the setup changed; on a pull request, only a changed module's job."""
+    wanted = targets(changed, modules)
+    return not wanted or f"warden.{module}*" in wanted
+
+
 def score(stats: dict[str, int]) -> float | None:
     """Killed over every mutant a test ran against; None when no mutant was tested."""
     tested = stats.get("killed", 0) + sum(stats.get(k, 0) for k in NOT_KILLED)
@@ -58,12 +68,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("targets")
+    sh = sub.add_parser("shard")
+    sh.add_argument("module")
     s = sub.add_parser("summary")
     s.add_argument("stats", type=pathlib.Path)
     s.add_argument("--min-score", type=float)
     args = parser.parse_args(argv)
     if args.cmd == "targets":
         print(" ".join(targets(sys.stdin.read().splitlines(), safety_modules())))
+        return 0
+    if args.cmd == "shard":
+        modules = safety_modules()
+        if args.module not in {pathlib.PurePosixPath(m).stem for m in modules}:
+            parser.error(f"{args.module} is not a safety module in pyproject.toml [tool.mutmut]")
+        print("run" if shard_runs(args.module, sys.stdin.read().splitlines(), modules) else "skip")
         return 0
     if not args.stats.is_file():
         # mutmut stopped before it wrote any result (a failed install or run): the summary says so, never a score.

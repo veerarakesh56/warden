@@ -6,6 +6,8 @@ name: "Mutation · safety modules"
 # NON-BLOCKING AT FIRST (continue-on-error): it reports a score in the job summary and fails nothing until the first
 # full runs show where the suite stands; then a minimum score (scripts/mutation_ci.py --min-score) makes it a gate.
 # Weekly and by hand: every safety module. On a pull request that changes one: only the modules it changed.
+# One job per module (a matrix): all of them in one job is ~5,200 mutants, about 5.5 hours on one runner - over the
+# job's timeout (measured on PR 179, 2026-10-21: 1,745 mutants in 1 h 50 min).
 on:
   schedule:
     - cron: "41 4 * * 2"
@@ -42,8 +44,12 @@ jobs:
   mutmut:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
-    # Measured locally (2026-10-21): bounds.py's 301 mutants took 7 min on 4 cores, the clean run included; all 4,245
-    # mutants of the seven modules on main are some hours.
+    strategy:
+      fail-fast: false
+      matrix:
+        # pyproject.toml [tool.mutmut] only_mutate, by stem - tests/test_mutation_config.py holds the two lists equal.
+        module: [gate, verifier, catalog, approvals, autonomy, bounds, audit, redaction]
+    # Measured locally (2026-10-21): bounds.py's 301 mutants took 7 min on 4 cores, the clean run included.
     timeout-minutes: 300
     continue-on-error: true
     steps:
@@ -59,27 +65,38 @@ jobs:
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
-          cache-suffix: "mutation-mutmut"  # one cache per job: jobs sharing a key raced to save it
+          cache-suffix: "mutation-mutmut-${{ matrix.module }}"  # one cache per job: jobs sharing a key raced to save it
 
       - name: Install (locked)
         run: uv sync --locked --no-build --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres --extra redis --group mutation
 
-      - name: Mutate the safety modules
+      - name: Mutate the safety module
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MODULE: ${{ matrix.module }}
         run: |
-          found=""
+          changed=""
           if [ "$EVENT" = "pull_request" ]; then
-            found=$(git diff --name-only "$BASE_SHA"...HEAD | python scripts/mutation_ci.py targets)
+            changed=$(git diff --name-only "$BASE_SHA"...HEAD)
           fi
-          read -r -a targets <<< "$found"  # one mutmut name pattern per word; none = every safety module
-          echo "mutating: ${found:-every safety module}"
-          mutmut run "${targets[@]}"
+          if [ "$(printf '%s\n' "$changed" | python scripts/mutation_ci.py shard "$MODULE")" = "skip" ]; then
+            echo "skip: this pull request does not change src/warden/$MODULE.py" | tee mutation-skipped
+            exit 0
+          fi
+          echo "mutating: warden.$MODULE"
+          mutmut run "warden.$MODULE*"
 
       - name: Score
         if: always()
+        env:
+          MODULE: ${{ matrix.module }}
         run: |
+          if [ -f mutation-skipped ]; then
+            echo "## Mutation testing - $MODULE: not changed by this pull request" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "### $MODULE" >> "$GITHUB_STEP_SUMMARY"
           # No data (mutmut stopped early): the summary says the score is unavailable instead of failing here.
           mutmut export-cicd-stats || echo "::warning::mutmut export-cicd-stats failed: no mutation data"
           python scripts/mutation_ci.py summary mutants/mutmut-cicd-stats.json | tee -a "$GITHUB_STEP_SUMMARY"
