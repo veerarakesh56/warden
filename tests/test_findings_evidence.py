@@ -379,6 +379,12 @@ def test_the_reader_is_one_of_the_evidence_tools_only_when_switched_on(monkeypat
     monkeypatch.setenv("WARDEN_FINDINGS_MAX_PER_PR", "not a number")
     reader = next(r for r in evidence_tools(object()) if r.source == "findings")
     assert (reader.repo, reader.sonar_project, reader.max_prs, reader.max_per_pr) == ("owner/shop", "owner_shop", 3, 20)
+    # Clamped to their ceilings, ASCII digits only: past GitHub's page of 100 the reader would drop alerts (CodeRabbit).
+    for prs, per_pr, want in (("11", "101", (10, 100)), ("9" * 5000, "0099", (10, 99)), ("\u00b2", "\u0663", (2, 20))):
+        monkeypatch.setenv("WARDEN_FINDINGS_MAX_PRS", prs)
+        monkeypatch.setenv("WARDEN_FINDINGS_MAX_PER_PR", per_pr)
+        reader = next(r for r in evidence_tools(object()) if r.source == "findings")
+        assert (reader.max_prs, reader.max_per_pr) == want, (prs[:8], per_pr)
     from warden.settings import LOADABLE, SECRETS
 
     assert {"WARDEN_FINDINGS", "WARDEN_SONAR_PROJECT"} <= LOADABLE

@@ -224,7 +224,8 @@ looking complete. A timed-out thread is abandoned, not killed; Python cannot sto
 
 Beside the backend, `tools.evidence_tools` adds readers that are switched on (X-Ray, Grafana, Datadog, the deploy's
 commits, and code review's findings on the deploy's pull request - `findings.py`, register G10-59). The findings are
-text a pull request's author or a bot wrote, so they enter as typed `FINDING` lines only (evidence kind R): the model is
+text a pull request's author or a bot wrote, so they enter only as typed lines (evidence kind R): one `FINDING` line per
+finding and one `FINDINGS` summary line per pull request (what was read, shown, found and held back). The model is
 shown them between data markers and may cite them, grounding never lets one support an action on its own, and a
 CodeRabbit comment whose own prose reads as an instruction, or any finding whose fields fail their shape, is held back
 and counted.
