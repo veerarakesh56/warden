@@ -92,7 +92,11 @@ STATIC: tuple[Destination, ...] = (
                 "the gated incident report and thread replies; sign-in with Slack (OAuth code exchange)",
                 credentials=frozenset({"client_id", "client_secret", "code"})),
     Destination("teams-webhook", True, ("*.webhook.office.com",), _REPORT, secret_path=True),
-    Destination("github", True, ("api.github.com",), "the gated change record (an issue); reads of recent commits"),
+    Destination("github", True, ("api.github.com",),
+                "the gated change record (an issue); reads of recent commits and of code review's findings (GET)"),
+    # Code review's findings on a deployed pull request (findings.py, #41): a GET whose query names the project and
+    # the pull request's number, no body.
+    Destination("sonarcloud", True, ("sonarcloud.io",), "reads only: a pull request's code-review findings (GET)"),
     Destination("datadog", True, ("api.datadoghq.com", "api.us3.datadoghq.com", "api.us5.datadoghq.com",
                                   "api.datadoghq.eu", "api.ap1.datadoghq.com", "api.ap2.datadoghq.com",
                                   "api.uk1.datadoghq.com", "api.ddog-gov.com", "api.us2.ddog-gov.com"),
@@ -282,6 +286,7 @@ def content_kinds(strings: Iterable[str]) -> list[str]:
 # --------------------------------------------------------------------------- the ledger
 
 _SINK: dict[str, Any] = {}
+_OPEN: list[Any] = []  # every log ledger_to was given and not yet forgotten, the newest last
 
 
 def _audit_errors() -> tuple[type[BaseException], ...]:
@@ -311,13 +316,20 @@ _GUARD = threading.local()
 
 def ledger_to(log: Any) -> None:
     """Record egress rows on this audit log too (runtime_base.open_audit: every runtime process)."""
+    _OPEN.append(log)
     _SINK["audit"] = log
 
 
 def forget(log: Any) -> None:
-    """`log` is closing: its rows stop (AuditLog.close). Another log the process opened since is kept."""
+    """`log` is closing: its rows stop (AuditLog.close). Another log the process opened since is kept; when the
+    closing one was the newest, the newest log still open takes the rows again (review: closing a second log left
+    the first, still open, without them)."""
+    _OPEN[:] = [o for o in _OPEN if o is not log]
     if _SINK.get("audit") is log:
-        _SINK.pop("audit", None)
+        if _OPEN:
+            _SINK["audit"] = _OPEN[-1]
+        else:
+            _SINK.pop("audit", None)
 
 
 def _correlation() -> str:
@@ -371,8 +383,14 @@ def _model_destination(provider: Any) -> Destination:
     if name in _PROVIDER_DESTINATION:
         return by_name[_PROVIDER_DESTINATION[name]]
     base = str(getattr(provider, "base_url", "") or "")
-    found = destination_of(_host_of(base)) if base else None
-    return found or Destination(f"model:{name or 'unknown'}", True, (), _MODEL)
+    if not base:  # no host at all: a provider in this process (a test's, a replay) is named as itself
+        return Destination(f"model:{name or 'unknown'}", True, (), _MODEL)
+    found = destination_of(_host_of(base))
+    if found is None:
+        # A model host on no destination is refused, never recorded under a made-up name (review: an unlisted
+        # base_url was named `model:openai` and sent wherever the hook was not installed).
+        raise _unlisted(redact(_host_of(base)).text[:120])
+    return found
 
 
 def guard_model(provider: Any, system: str, user: str) -> None:
