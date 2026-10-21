@@ -383,9 +383,10 @@ def test_the_api_throttles_logs_and_routes_exactly_what_the_page_and_the_webhook
     assert re.findall(r'"(GET /a/\{token\})", "(POST /a/\{token\}/\{step\})"', tf)
     assert re.search(r'route_key\s*=\s*"POST /alertmanager"', tf)
     # Every page step the page serves is a POST on /a/{token}/{step}; the shell is the GET.
+    # The route table is in _approval, where handle sends every /a/ path.
     import inspect
 
-    src = inspect.getsource(approval_page.ApprovalPage.handle)
+    src = inspect.getsource(approval_page.ApprovalPage._approval)
     steps = set(re.findall(r'\("POST", "([a-z-]+)"\)', src))
     assert steps >= {"login-options", "login", "approve-options", "approve", "deny-options", "deny"}
     assert '("GET", "")' in src

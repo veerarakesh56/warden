@@ -607,11 +607,11 @@ class ApprovalPage:
         return remembered(self.slack, value) if value else ""
 
     def _signed_out(self, parts: list[str]) -> Response:
-        """The way to sign in - and back to the page the reader opened after Slack's sign-in, not to the list
-        (2026-10-15: a report's "Full record" button landed on every incident once signed in). Only an incident id's
-        shape travels."""
+        """The way to sign in, for a reader Slack has not named in this browser."""
         from . import records
 
+        # Back to the page the reader opened after Slack's sign-in, not to the list (2026-10-15: a report's "Full
+        # record" button landed on every incident once signed in). Only an incident id's shape travels.
         back = parts[0] if parts and _INCIDENT_ID.fullmatch(parts[0] or "") else ""
         return self._served_html(200, records.signed_out_page(f"/s/r/{back}" if back else "/s/r"))
 

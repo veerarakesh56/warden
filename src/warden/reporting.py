@@ -255,8 +255,8 @@ def _deploy_events(alert: Alert, ctx: ContextBundle) -> list[tuple[dt.datetime, 
 
 
 def _change_events(ctx: ContextBundle, started: dt.datetime | None) -> list[tuple[dt.datetime, str]]:
-    """What WARDEN's own readers recorded as changed in the hour before the alert: the timeline held only "alert
-    fired" beside a diagnosis that cited a change made nine minutes earlier (live, 2026-10-12)."""
+    # What WARDEN's own readers recorded as changed in the hour before the alert: the timeline held only "alert
+    # fired" beside a diagnosis that cited a change made nine minutes earlier (live, 2026-10-12).
     events: list[tuple[dt.datetime, str]] = []
     for line in ctx.logs:
         m = _CHANGE.match(line)
@@ -875,11 +875,31 @@ ALERT_SOURCES = {"cloudwatch": "CloudWatch alarm", "datadog": "Datadog monitor",
 
 
 def _render_markdown(d: dict) -> str:
-    lines = [*_head_lines(d), *_summary_lines(d), *_who_acts_lines(d), *_read_lines(d),
-             *_verdict_lines(d.get("verdict")), *_diagnosis_lines(d), *_pattern_lines(d), *_code_finding_lines(d),
-             *_signature_lines(d), *_checked_lines(d["evidence"]), *_evidence_lines(d),
-             *_proposal_lines(d.get("proposal")), *_contradiction_lines(d.get("verdict"), d.get("proposal")),
-             *_follow_up_lines(d), *_remediation_lines(d)]
+    lines = [
+        *_head_lines(d),
+        # ---- summary
+        *_summary_lines(d),
+        # ---- who acts: on every report, before anything a person has to read to find it
+        *_who_acts_lines(d),
+        # ---- what was read
+        *_read_lines(d),
+        # ---- the gate, before the model's text (register N4): read what the rules found first
+        *_verdict_lines(d.get("verdict")),
+        # ---- diagnosis
+        *_diagnosis_lines(d), *_pattern_lines(d), *_code_finding_lines(d), *_signature_lines(d),
+        # ---- the read-only checks WARDEN ran itself
+        *_checked_lines(d["evidence"]),
+        # ---- the evidence itself
+        *_evidence_lines(d),
+        # ---- proposal and gate
+        *_proposal_lines(d.get("proposal")),
+        # ---- the gate's own finding, before the follow-ups: an action the gate says cannot work must not read as a
+        # recommendation. (The runbook and its risks that stood here printed commands; gone 2026-10-16.)
+        *_contradiction_lines(d.get("verdict"), d.get("proposal")),
+        # ---- follow-ups by team
+        *_follow_up_lines(d),
+        *_remediation_lines(d),
+    ]
     # A10 (2026-10-16): a "Promotion - apply this fix to the higher environments" section stood here, pointing a
     # person at a manual replay with each environment's deploy role. WARDEN watches and fixes only the environments it
     # is installed in, through approved plans; the targets stay in the data for whoever plans a release.
@@ -906,9 +926,9 @@ def _head_lines(d: dict) -> list[str]:
 
 
 def _next_step(p: dict | None, v: dict) -> str:
-    """The next step the verdict leaves. A hand-off the gate lets stand is not "nothing to run": a person was asked to
-    look (the runtime's first report on today's code read "No change proposed - recorded, nothing to run" over an
-    escalation, 2026-10-11)."""
+    """The next step the verdict leaves."""
+    # A hand-off the gate lets stand is not "nothing to run": a person was asked to look (the runtime's first
+    # report on today's code read "No change proposed - recorded, nothing to run" over an escalation, 2026-10-11).
     if p and p.get("action") == "escalate_to_human" and v["status"] == "auto_safe":
         return _HANDED_OVER
     if v["status"] == "escalated" and set(v.get("policy_ids") or []) == _OFFERED_UNDO:
@@ -918,11 +938,11 @@ def _next_step(p: dict | None, v: dict) -> str:
 
 
 def _summary_lines(d: dict) -> list[str]:
-    """The summary: the alert, the impact, the proposal and its gate (register N4: before the model's prose), and the
-    diagnosis."""
+    """The summary: the alert, the impact, the proposal and its gate, and the diagnosis."""
     a, v, p = d["alert"], d.get("verdict"), d.get("proposal")
     lines = ["## Summary", f"- **Alert** (as written in the alert rule): {untrusted_inline(a['summary'])}",
              _impact_line(d)]
+    # The gate before the model's prose (register N4).
     if p:
         lines.append(f"- **Proposed**: {_c(p['action'])} on {_c(p['target'])}"
                      + (f" - gate: {_c(v['status'])}" if v else ""))
@@ -949,7 +969,6 @@ def _impact_line(d: dict) -> str:
 
 
 def _who_acts_lines(d: dict) -> list[str]:
-    """Who acts: on every report, before anything a person has to read to find it."""
     if not d.get("who_acts"):
         return []
     return ["## Who acts now", *(f"- **{team}**: {what}." for team, what in d["who_acts"]), ""]
@@ -969,7 +988,6 @@ def _read_lines(d: dict) -> list[str]:
 
 
 def _verdict_lines(v: dict | None) -> list[str]:
-    """The gate, before the model's text (register N4): read what the rules found first."""
     if not v:
         return []
     lines = ["## Gate verdict  (deterministic)",
@@ -1040,7 +1058,6 @@ def _signature_lines(d: dict) -> list[str]:
 
 
 def _checked_lines(ev: dict) -> list[str]:
-    """The read-only checks WARDEN ran itself."""
     chk = ev.get("checked") or {}
     if not any(chk.values()):
         return []
@@ -1059,7 +1076,7 @@ def _checked_lines(ev: dict) -> list[str]:
 
 
 def _evidence_lines(d: dict) -> list[str]:
-    """The evidence itself: metrics, timeline, what it names, and the key log lines."""
+    """Metrics, timeline, what the evidence names, and the key log lines."""
     ev = d["evidence"]
     lines: list[str] = []
     if ev["metrics"]:
@@ -1110,8 +1127,6 @@ def _proposal_lines(p: dict | None) -> list[str]:
 
 
 def _contradiction_lines(v: dict | None, p: dict | None) -> list[str]:
-    """The gate's own finding, before the follow-ups: an action the gate says cannot work must not read as a
-    recommendation. (The runbook and its risks that stood here printed commands; gone 2026-10-16.)"""
     contradiction = [r for r, pid in zip(v["reasons"], v["policy_ids"], strict=False)
                      if pid == "P11-ACTION-CONTRADICTS-EVIDENCE"] if v and p else []
     if not contradiction:
@@ -1126,8 +1141,8 @@ _TEAMS = (("On-call - now", "oncall"), ("Developers", "developers"),
 
 
 def _follow_up_lines(d: dict) -> list[str]:
-    """Follow-ups by team - only where a pattern has a follow-up for some team: a heading with nothing under it was
-    printed once the one follow-up a report had was left out (live, 2026-10-12)."""
+    # Only where a pattern has a follow-up for some team: a heading with nothing under it was printed once the one
+    # follow-up a report had was left out (live, 2026-10-12).
     if not any(pat[key] for pat in d["patterns"] for _, key in _TEAMS):
         return []
     lines = ["## Follow-ups by team"]
