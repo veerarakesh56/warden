@@ -279,7 +279,7 @@ resource "aws_security_group" "ecs" {
   # Still open to the internet, each for a reason no endpoint covers:
   # - 443: terraform's PLACEHOLDER image is on public.ecr.aws (ecs.tf), which no VPC endpoint serves. The APPS
   #   pipeline's real image comes from this stack's ECR through the endpoints. Removing this rule needs the
-  #   placeholder pulled through an ECR pull-through cache (an IAM change; owner's choice, PR 129).
+  #   placeholder pulled through an ECR pull-through cache (an IAM change: the owner kept this rule on 2026-10-21, PR 129).
   # - 5432: Aurora in EXPRESS configuration (the Free plan's only form) has no VPC and no security group; its only way
   #   in is the Aurora internet access gateway, which cannot be disabled, at no fixed address (aurora_express.py).
   egress {
