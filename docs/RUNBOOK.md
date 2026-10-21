@@ -32,12 +32,13 @@ re-enables it with `warden autonomy enable` ([OPERATIONS.md](OPERATIONS.md), "De
 | `warden-<env>-unapproved-actor` | an actor role was used with no approval on the record: treat as a credential compromise | [RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md) section 3 |
 | `warden-<env>-approvers-changed` | the approver list changed | the same module |
 | `warden-<env>-worker-errors`, `-lambda-errors`, `-lambda-throttles`, `-alarm-dlq`, `-audit-db-cpu`, `-audit-db-connections`, `-audit-db-storage` | the runtime's own health | the same module |
+| `warden-<env>-model-provider-unavailable`, `-model-daily-cap`, `-model-budget` | the model could not be used: its provider is unavailable, a daily limit (the spend cap or Eldane's call ceiling) is reached, or an incident spent its budget; affected incidents go to a person on the rules alone. Each pages at most once a day | `terraform/modules/warden-runtime/paging.tf`; the audit's `incident.llm_spend` and `eldane.call` rows |
 | Every incident and what happened to it | `https://<the approval domain>/r` (Sign in with Slack) | [OPERATIONS.md](OPERATIONS.md), "WARDEN's records" |
 | Model calls, tokens and cost per day | `warden usage --days 30` (from the audit; for the cloud audit, inside the runtime's VPC) | `src/warden/cli.py`; [COST.md](COST.md) |
 | Dev autonomy and its demotions | `warden autonomy status --environment dev` | [OPERATIONS.md](OPERATIONS.md), "Dev autonomy" |
 | The kill switch | `warden killswitch status` | [RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md) section 0 |
 | Is the record intact | `warden audit verify --public-key <checkpoint public key> --anchor-bucket <anchor bucket>` / `warden audit show <incident-id> --public-key <checkpoint public key>` (the S3 anchors are checked only with `--anchor-bucket`); the records page's "Signed record" line | [RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md) section 2 |
-| Is any model qualified on today's prompt | `providers.qualified` has a row whose `prompt` equals `prompt.sha` | `src/warden/data/providers.yaml`; [DEMO.md](DEMO.md) has a one-line check |
+| Is the runtime's model qualified on today's prompt | run WARDEN's own gate, `providers.qualified()`, for the runtime's provider and model (exact provider and model, pinned prompt, bar); a prompt hash alone is not enough | the check in [DEMO.md](DEMO.md#before-filming-off-camera), step 1; `src/warden/providers.py` |
 
 ## Known limitations
 
@@ -49,11 +50,11 @@ re-enables it with `warden autonomy enable` ([OPERATIONS.md](OPERATIONS.md), "De
   no fix plan (register M19). A model diagnoses again only after `scripts/qualify_provider.py` is run on today's prompt
   (`providers.yaml` says in the cloud runtime) and its row is recorded in `providers.yaml`. Read the current hash from
   `providers.yaml`; this page does not repeat it.
-- The only row in `providers.yaml` `qualified` today is Claude Sonnet 5.5 (17 of 30, the bar exactly, on an earlier
-  prompt); Claude Opus 5.5 scored 15 of 30 and is not qualified. Earlier rows qualified Claude Sonnet 5 (18-22 of 30
-  across its runs) and Claude Fable 5 and 5.1 (20 of 30); they were measured on older prompts and the Sonnet 5 row was
-  retired on 2026-10-15. The golden set is 30 incidents, and two runs of one model differ by about 2
-  ([USE-CASE.md](USE-CASE.md)).
+- **No model is qualified today.** The one row left in `providers.yaml` `qualified` is historical: Claude Sonnet 5.5, 17
+  of 30 (the bar exactly), measured on 2026-10-15 on an earlier prompt, so it qualifies nothing on today's. Claude Opus
+  5.5 scored 15 of 30 in the same run, below the bar. Before that, Claude Sonnet 5 (18-22 of 30 across its runs) and
+  Claude Fable 5 and 5.1 (20 of 30) met the bar on older prompts; the Sonnet 5 row was retired on 2026-10-15. The golden
+  set is 30 incidents, and two runs of one model differ by about 2 ([USE-CASE.md](USE-CASE.md)).
 - Eldane and the diagnosis are the same model family, which can share blind spots; what is done about it is in
   `src/warden/eldane.py`.
 - The full-stack lab ran each fault once; no full-stack score is published, and its faults were designed by WARDEN's

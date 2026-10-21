@@ -107,7 +107,8 @@ python -c "import json,glob; r=[json.load(open(f))['cost'] for d in ('wave1-2026
     client default of $0.50 (`WARDEN_MAX_USD` in `src/warden/llm.py`), which applies only where nothing sets it, such
     as a laptop.
   - Per day, `WARDEN_DAILY_MAX_USD` ($10) and `WARDEN_DAILY_MAX_TOKENS` (2,000,000) in `src/warden/activities.py`.
-  - At 50 incidents a day, the measured spend ($0.70 to $0.92 a day on Sonnet 5.5) is far below the daily cap.
+  - At 50 incidents a day, the spend at the measured cost per incident ($0.70 to $0.92 a day on Sonnet 5.5) is far below
+    the daily cap.
 
 In production the real figures come from the audit: `warden usage --days 30` prints model calls, tokens and cost per
 day ([RUNBOOK.md](RUNBOOK.md#monitoring)). The cloud audit database is reachable only from inside the runtime's VPC,

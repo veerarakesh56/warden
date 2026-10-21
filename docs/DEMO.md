@@ -1,8 +1,10 @@
 # Demo: one small, reversible fix in dev
 
 A 2-3 minute film of WARDEN fixing one real fault in the dev full-stack lab, from the alarm to the signed record. The
-film is cut: the real run takes about 30-40 minutes, mostly waiting for an alarm and a safety window. Say so on screen
-("cut: N minutes"). When AWS is off, use the [sample variant](#sample-variant-aws-off) instead.
+film is cut. The real run is **estimated, not measured**, at about 30-40 minutes, mostly waiting for an alarm and a
+safety window: the estimate adds up the code's timers and the alarm's window (see the note under the script). Say so on
+screen ("cut: N minutes", with the minutes you actually waited). When AWS is off, use the [sample
+variant](#sample-variant-aws-off) instead.
 
 Written 2026-10-21 from the code on `main`. Nothing here was filmed or run live for this page.
 
@@ -86,7 +88,7 @@ score for fs-07 would count this fix as not the rubric's. The demo shows the fix
 
 ## The script
 
-| Film time | Real time | On screen | What to click or say |
+| Film time | Real time (estimated) | On screen | What to click or say |
 |---|---|---|---|
 | 0:00-0:15 | - | Slack, the terminal, the records page | "One real fault, in dev, end to end. Nothing is mocked." |
 | 0:15-0:30 | about 7-10 min (cut) | Terminal: the inject command below | Run it. It saves the mapping's state, turns it off, and waits for the alarm `warden-dev-orders-age` (oldest order over 300 s for 3 one-minute periods). Say "cut: about N minutes". |
@@ -96,6 +98,16 @@ score for fs-07 would count this fix as not the rubric's. The demo shows the fix
 | 1:45-2:15 | about 2 min | Record page (refresh), then the terminal | The record shows the plan applied, then "Fixed - its health checks passed" after 3 healthy checks 30 s apart. Run the verify command below: `ESM Enabled, orders visible=<n>`. |
 | 2:15-2:35 | up to 20 min (cut) | Terminal: the revert command below | "Undo": the harness puts back the exact state it saved (enabled), which is where WARDEN's fix already left it, and waits for the baseline. Had the fix not held, WARDEN would have undone it itself and said so. |
 | 2:35-3:00 | - | Record page, top line; Slack footers | The page's "Signed record: audit head `<hash>` - N row(s), N signed and intact", then each Slack message's footer head. Say that they are checkpoints at different moments: each footer is the head when that message was sent, and the page shows the head when it opened, after the later steps were recorded. |
+
+**Real times are estimates, not measurements.** None was timed for this page. The bases:
+- **Inject, about 7-10 min:** a 60 s settle, then the alarm needs the oldest order over 300 s for 3 one-minute
+  periods. `inject` waits up to 900 s (`settle_seconds` and `alarm_timeout_s` for fs-07 in
+  `scenarios/catalog/wave4-fullstack.yaml`).
+- **Message, about 1-3 min after the alarm:** a guess at evidence gathering, the model call and Eldane's review. No
+  timing of these is recorded in the repository.
+- **Veto, 5 min:** a constant (`autonomy.VETO`).
+- **Fixed, about 2 min:** 3 healthy checks 30 s apart (`CONSECUTIVE_HEALTHY`, `CHECK_EVERY`), plus the apply.
+- **Revert, up to 20 min:** the revert step's settle limit (`--settle-minutes`, default 20).
 
 The run stays open after "Fixed": WARDEN re-checks at 15 and 60 minutes (`RECHECK_AFTER`, `src/warden/workflows.py`)
 and records "Fixed and held" or a relapse. A later re-check can be added to the film as a closing card.
@@ -119,11 +131,11 @@ stack.
 
 ### The signed audit
 
-- **On camera:** the record page's first line is checked when the page opens (`src/warden/records.py`): the audit
-  head, how many rows a signed checkpoint covers and are intact, and how many are not signed yet ("a checkpoint signs
-  them shortly"). Each Slack footer names the head as it was when that message was sent (register S17), so it is an
-  earlier checkpoint than the page's whenever steps were recorded after the message.
-  `warden audit show <incident-id> --public-key <key>` lists every row's hash, so an earlier footer's head can be found in the chain off camera.
+- **On camera:** the record page's first line is checked when the page opens (`src/warden/records.py`): the audit head,
+  how many rows a signed checkpoint covers and are intact, and how many are not signed yet ("a checkpoint signs them
+  shortly"). Each Slack footer names the head as it was when that message was sent (register S17), so it is an earlier
+  checkpoint than the page's whenever steps were recorded after the message. `warden audit show <incident-id>
+  --public-key <key>` lists every row's hash, so an earlier footer's head can be found in the chain off camera.
 - **Off camera, by the book:** `warden audit verify --public-key <key> --anchor-bucket <bucket>` and
   `warden audit show <incident-id> --public-key <key>` recompute every hash and check every signature. `verify` checks
   the S3 anchors only when `--anchor-bucket` is given ([RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md)
@@ -152,5 +164,6 @@ WARDEN_MOCK=1 warden run --incident inc-005 --verbose --report   # the same, wit
 
 What sample mode does not show, and must not be said to: no Slack message, no records page, no Eldane, no apply, no
 undo, no signature (the `audit trail` lines are the run's steps, not the signed audit). The `cost` lines are the mock
-client's estimate, not a real model's spend. Checked 2026-10-21 13:59 UTC (19:29 IST): `WARDEN_MOCK=1 warden demo --verbose` ran the
-five incidents in about 2 seconds with those verdicts, and `run --incident inc-005 --verbose --report` printed the trail and the report.
+client's estimate, not a real model's spend. Checked 2026-10-21 13:59 UTC (19:29 IST): `WARDEN_MOCK=1 warden demo
+--verbose` ran the five incidents in about 2 seconds with those verdicts, and `run --incident inc-005 --verbose
+--report` printed the trail and the report.
