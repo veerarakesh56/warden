@@ -1368,6 +1368,7 @@ def _db_live_harness(timeout_s: float) -> Harness:
     marked sensitive would print it into whatever captured the runner's output. The operator
     exports it deliberately:
 
+        $(terraform -chdir=terraform/proving-ground output -raw db_tunnel_command)   # another terminal, kept open
         export WARDEN_BENCH_DB_DSN="$(terraform -chdir=terraform/proving-ground output -raw db_dsn)"
         export WARDEN_BENCH_DB_SG="$(terraform -chdir=terraform/proving-ground output -raw db_security_group_id)"
     """

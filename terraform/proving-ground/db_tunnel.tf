@@ -9,6 +9,11 @@
 #
 # No SSH key, no inbound rule, no public address: the instance talks only to Systems Manager, through three interface
 # endpoints in the VPC (a public IP would be cheaper, and is what Sonar terraform:S6329 refuses), and to the database.
+# Why not IPv6-only behind a free egress-only gateway (about $0.004/h; owner asked first, 2026-10-21): it could not be
+# confirmed. SSM Agent reaches the dual-stack endpoints (ssm.<region>.api.aws ...) only with UseDualStackEndpoint set
+# (off by default, since 3.3.3270.0), and its EC2 identity reads instance metadata through an SDK client built from an
+# empty config - the IPv4 endpoint 169.254.169.254 - so an IPv6-only box is not shown to register at all. Until a live
+# test shows it does, the endpoints stay.
 # IMDSv2 only, one hop. Its role holds AWS's managed SSM core policy and nothing else, under the lab's boundary.
 #
 # Cost while enable_rds = true (AWS Price List API, ap-south-2, read 2026-10-21): t4g.nano $0.0028/h, its 8 GiB gp3

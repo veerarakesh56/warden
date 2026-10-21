@@ -24,19 +24,19 @@ resource "aws_security_group" "db" {
   name        = "${local.name}-db"
   description = "Proving-ground database. PostgreSQL from the database tunnel only."
   vpc_id      = aws_vpc.this.id
-}
 
-# ⚠ No apostrophe in a rule description: EC2 rejects any outside [0-9A-Za-z_ .:/()#,@[]+=&;{}!$*-], and `terraform
-# validate` does NOT catch it - it fails at plan against the live API (tests/test_terraform_descriptions.py). A rule
-# of its own, so db-06 (scenarios/ops_db.py) revokes and restores it as it is.
-resource "aws_vpc_security_group_ingress_rule" "db_from_tunnel" {
-  count                        = var.enable_rds ? 1 : 0
-  security_group_id            = aws_security_group.db[0].id
-  description                  = "PostgreSQL from the database tunnel only, and nowhere else."
-  referenced_security_group_id = aws_security_group.db_tunnel[0].id
-  from_port                    = 5432
-  to_port                      = 5432
-  ip_protocol                  = "tcp"
+  ingress {
+    # ⚠ No apostrophe, deliberately. EC2 rejects any rule description outside
+    # [0-9A-Za-z_ .:/()#,@[]+=&;{}!$*-], and `terraform validate` does NOT catch it - it fails at
+    # plan against the live API. "operator's" shipped here once; tests/test_terraform_descriptions.py
+    # now fails before that can happen again. Inline, so db-06 (scenarios/ops_db.py) revokes and re-authorises it
+    # exactly as declared and a later plan sees no drift.
+    description     = "PostgreSQL from the database tunnel only, and nowhere else."
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.db_tunnel[0].id]
+  }
 }
 
 resource "aws_db_instance" "this" {

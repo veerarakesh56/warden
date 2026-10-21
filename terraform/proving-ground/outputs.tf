@@ -91,6 +91,11 @@ output "db_tunnel_instance_id" {
   value       = var.enable_rds ? aws_instance.db_tunnel[0].id : ""
 }
 
+output "db_tunnel_local_port" {
+  description = "The port on this machine db_dsn and db_tunnel_command use."
+  value       = var.db_tunnel_local_port
+}
+
 output "db_tunnel_command" {
   description = "Opens the database tunnel on this machine (needs the AWS CLI's Session Manager plugin); keep it running while the DSN is used. Empty unless enable_rds = true."
   value = var.enable_rds ? join(" ", [
