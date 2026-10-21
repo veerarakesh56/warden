@@ -20,8 +20,8 @@ from warden.workflows import IncidentWorkflow
 EVERY = {"after_hold", "prepare", "reread", "investigate", "plan_fix", "diagnose", "verify", "second_opinion", "notify", "no_plan", "resolve_plan", "gate", "announce", "check_approval",
          "check_passkey", "precheck", "apply", "check_success", "record_result", "rollback", "finish",
          "discuss_thread", "discuss_facts", "discuss_evidence", "discuss_answer", "discuss_reply", "discuss_replan", "summary_owed",
-         "side_effects", "again_alert",
-         "depwatch_read", "depwatch_effects", "depwatch_review", "depwatch_post"}  # review: the core zone
+         "side_effects", "again_alert", "critic_review", "autonomy_state", "autonomy_enable",
+         "depwatch_read", "depwatch_effects", "depwatch_review", "depwatch_post"}  # the core zone: WARDEN's own record only
 
 
 def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alone():
@@ -33,6 +33,8 @@ def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alon
     # The only model calls: an incident's diagnosis, and an answer in its discussion (G10-45) - which has no tool.
     # ... and the dependency review's effects (depwatch.py), from facts only.
     assert workflows.ZONES["llm"] == ("diagnose", "discuss_answer", "depwatch_effects")
+    # Eldane, the AI critic (eldane.py): its own model and its own signing key, apart from WARDEN's diagnoser.
+    assert workflows.ZONES["critic"] == ("critic_review",)
     # investigate reads more of what the alert names (G9-B): the read zone, with the reader roles. reread reads the
     # same evidence once more when a source answered empty right after the alert (research 2026-10-15): reads only.
     # plan_fix reads the platform's live state to fill a fix plan (G9-D1): the read zone too.
@@ -101,9 +103,10 @@ def test_a_zones_worker_loads_only_its_zones_secrets_and_its_own_temporal_key():
     llm, notify = settings.loadable_for("worker", "llm"), settings.loadable_for("worker", "notify")
     assert "ANTHROPIC_API_KEY" in llm and "WARDEN_SLACK_BOT_TOKEN" not in llm and "WARDEN_DB_TERMINATE_DSN" not in llm
     assert "WARDEN_SLACK_BOT_TOKEN" in notify and "ANTHROPIC_API_KEY" not in notify
-    # The act zone holds no secret of its own: its writes go through the actor role (secrets audit, 2026-10-16: the
-    # terminate role's DSN was never set; its slot went).
-    assert settings.loadable_for("worker", "act") & settings.SECRETS == {"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY"}
+    # The act zone's one secret of its own is the terminate login's DSN, which carries no password: each close signs
+    # in with a token an approved plan's actor session signs (platforms/db.py).
+    assert settings.loadable_for("worker", "act") & settings.SECRETS == {"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY",
+                                                                         "WARDEN_DB_TERMINATE_DSN"}
     everything = settings.loadable_for("worker")
     assert settings.loadable_for("worker", "all") == everything >= llm | notify
     lam = settings.loadable_for("lambda-approval")

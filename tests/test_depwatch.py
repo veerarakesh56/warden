@@ -730,6 +730,18 @@ def test_the_interval_is_a_setting_and_the_schedule_is_made_or_brought_up_to_dat
     assert depwatch.configured()
 
 
+def test_the_review_takes_its_token_where_every_github_reader_does(monkeypatch):
+    """One read-only GitHub token for the read zone, taken in one place (tools.github_read_token, owner U3-7): the
+    dependency review reads it there too, so a GitHub App's token (B4) replaces it for every reader at once."""
+    from warden import depwatch, tools
+
+    monkeypatch.setenv("WARDEN_DEPWATCH_REPO", "owner/warden")
+    monkeypatch.setenv("WARDEN_GITHUB_READ_TOKEN", "gh-" + "env")
+    monkeypatch.setattr(tools, "github_read_token", lambda: "gh-" + "app")
+    gh = depwatch.DepWatchActivities(audit=None)._reader()
+    assert gh._token == "gh-" + "app"
+
+
 def test_one_reservation_is_one_call_and_the_daily_cap_counts_this_calls_budget_and_tokens(world, monkeypatch):
     """A reservation is one provider call (no retry), so MAX_CALLS counts calls; and the day's cap is checked as the
     diagnosis checks it: this call's whole budget must fit, and the day's tokens must be under theirs."""

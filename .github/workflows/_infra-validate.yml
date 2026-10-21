@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -37,15 +37,20 @@ jobs:
       # fit their limits.
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
       # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
+          cache-suffix: "infra-validate-validate"  # one cache per job: jobs sharing a key raced to save it
       # The tool CI skips infra-only changes, so every test that reads terraform/fullstack runs here
       # (tests/test_ci_lanes.py keeps this list complete), and so does the one that holds the AWS platform's
       # roles in iam/templates to its code.
       # approval: the runtime-module test reads the approval page's routes, which import webauthn (CI, 2026-10-03).
       - run: uv sync --locked --no-build --extra aws --extra dev --extra approval
-      - run: pytest tests/test_fullstack_infra.py tests/test_aws_stack.py tests/test_docs_honesty.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_env_iam.py tests/test_helios_gate_r56.py tests/test_platform_iam_g6.py tests/test_runtime_module_g6.py tests/test_runtime_pipeline_s9.py tests/test_runtime_iam_g6.py tests/test_actor_use_g6.py tests/test_redis_tls_r8.py tests/test_api_auth_ai13.py tests/test_runtime_network_g6.py tests/test_backups.py tests/test_iac_hardening_sonar.py -q -rs
+      - run: pytest tests/test_fullstack_infra.py tests/test_aws_stack.py tests/test_docs_honesty.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_env_iam.py tests/test_helios_gate_r56.py tests/test_platform_iam_g6.py tests/test_runtime_module_g6.py tests/test_runtime_pipeline_s9.py tests/test_runtime_iam_g6.py tests/test_actor_use_g6.py tests/test_redis_tls_r8.py tests/test_api_auth_ai13.py tests/test_runtime_network_g6.py tests/test_backups.py tests/test_iac_hardening_sonar.py tests/test_iac_leftovers_sonar.py tests/test_stack_paths_s2083.py -q -rs
+      # Every call terraform destroy makes, against the deploy role's policies and boundary, conditions included (B40).
+      - run: pytest tests/test_destroy_permissions.py -q -rs
+      # Pause and resume (owner update 5): no data store goes before its copy is available; the newest copy comes back.
+      - run: pytest tests/test_pause_resume.py -q -rs

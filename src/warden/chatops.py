@@ -28,6 +28,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
+from . import web
 from .gate import enforce, sanitise_data
 from .redaction import redact
 from .reporting import Report, _scrub, reveal_identifiers
@@ -124,7 +125,7 @@ def _slack_call(method: str, payload: dict, token: str, *, form: bool = False) -
         req = urllib.request.Request(_SLACK_API + method, data=body, method="POST", headers={
             "Content-Type": kind, "Authorization": f"Bearer {token}"})
         try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:  # nosec B310 - a fixed https host
+            with web.urlopen(req, timeout=_TIMEOUT_S) as resp:
                 answer = json.loads(resp.read() or b"{}")
             return (answer, "ok") if answer.get("ok") else (None, f"slack error: {answer.get('error', 'unknown')}")
         except urllib.error.HTTPError as exc:

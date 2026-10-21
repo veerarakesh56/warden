@@ -317,6 +317,8 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
+- Credentialed outbound HTTPS: Python's own urllib, behind one opener that speaks https only and follows a
+  redirect only to the same https host and port, so no token or key is ever sent to another host - `web.py`.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
   Alertmanager webhook, the approval page) - `lambdas.py`, thin adapters over intake, webhooks and the approval page.
 - Who used an actor role: AWS CloudTrail (a management-event trail, the only record WARDEN itself does not write)
@@ -325,6 +327,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Which change broke it: GitHub's Deployments REST API and AWS CloudTrail's LookupEvents, merged with WARDEN's own
   applied fixes - `timeline.py`. Cursor's Rollouts and Sentry's release tracking answer the same question as paid or
   heavy services (2026-09-27 research); three reads cover WARDEN's stages.
+- What code review flagged on that change: built - `findings.py`, GET reads of SonarCloud's issue search, GitHub code
+  scanning's alerts and CodeRabbit's pull-request comments with the standard library (register G10-59). The tools'
+  own MCP servers return the findings' prose, which WARDEN must never pass on; four reads keep it to typed fields.
 - Who is at the approval page: adopted - Slack's OpenID Connect sign-in (its authorize address and token method),
   through `slack_login.py`: two HTTPS calls with the standard library. An OAuth client library (Authlib) would be a
   dependency for those two calls; the ID token comes straight from Slack's token endpoint over TLS, which OpenID
@@ -372,14 +377,26 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   `identity.py`, and boto3 for the AWS writes in `platforms/aws.py`. IAM Roles Anywhere and Teleport's Machine ID
   issue the same STS sessions on AWS (decision D11), so WARDEN calls STS directly.
 - Approver labels: signed with the approvers' own Ed25519 keys (`cryptography`), recorded in the audit - `labels.py`.
+- Pages of WARDEN's own that repeat until acknowledged - `paging.py` with the runtime module's pager: CloudWatch
+  alarms, EventBridge rules and a schedule, S3 for the page state, CloudWatch's own email action. CloudWatch sends an
+  alarm action once; Systems Manager Incident Manager, AWS's paging with acknowledgement, takes no new customers since
+  2025-11-07 (read 2026-10-16); PagerDuty (WARDEN_PAGERDUTY_ROUTING_KEY) stays an adopter's choice, not a dependency.
 
 **Built, and why no ready-made tool fits:**
 
 - The decision rules - `verifier.py`, `grounding.py`, `catalog.py`, `bounds.py`, `freeze.py`, `intake.py`,
-  `read_scope.py`, `remediation.py`, `gate.py`'s rules: most policies need evidence that Python computes first
+  `read_scope.py`, `gate.py`'s rules: most policies need evidence that Python computes first
   (section 16 records why not OPA or Cedar).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
+- Autonomy and the AI critic - `autonomy.py`, `eldane.py` (owner, 2026-10-16/17): dev's level is read from
+  WARDEN's own signed audit rows (its demotions since a person's signed re-enable), so a feature-flag service would
+  be a second, mutable store beside the record. Dev is autonomous through Eldane from the first plan; prod always
+  needs a person's passkey. The critic is one call through `providers.py` to the other Claude model from the one
+  that diagnosed the incident (Opus 5.5 or Sonnet 5.5, same key, owner 2026-10-17), whose verdict the code checks
+  against the evidence ids. One family carries a known self-preference risk; the mitigations - another model per
+  incident, a blind first pass, code-checked citations, catch trials that demote at once, a "no" that only adds, a
+  person's veto - are in `eldane.py`. No agent framework is needed for either.
 - Number checks in the model's prose - `numbers.py`: a unit library (pint) would convert units, but naming which
   metric a number in free prose refers to is the hard part, and no library does it.
 - Telling English logs from others - `language.py`: language-detection libraries (lingua, langdetect) answer

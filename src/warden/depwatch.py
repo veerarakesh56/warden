@@ -896,7 +896,10 @@ class DepWatchActivities:
     def _reader(self) -> GitHub:
         if self.github is not None:
             return self.github()
-        return GitHub(repo(), os.environ.get("WARDEN_GITHUB_READ_TOKEN", "").strip())
+        # The one place the read zone's GitHub token is taken (owner U3-7), as for the commits and the findings.
+        from .tools import github_read_token
+
+        return GitHub(repo(), github_read_token())
 
     @activity.defn
     def depwatch_read(self, digest_id: str) -> dict[str, Any]:
