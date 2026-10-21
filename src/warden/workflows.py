@@ -441,15 +441,11 @@ class RemediationWorkflow:
         while not auto:
             until = halfway if ladder and not reminded and not accepted else deadline
             if not await self._arrived(seen, until):
-                at_end = until != halfway or workflow.now() >= deadline  # not the halfway reminder
-                if at_end and (moved := await self._extend_wait(acts, plan, deadline)):
-                    plan, deadline = moved
-                    reminded = True
-                    continue
-                expired = await _remind_or_expire(acts, plan, end, refused, reminder=until == halfway,
-                                                  deadline=deadline, ladder=ladder)
-                if expired is not None:
-                    return expired
+                step = await self._ran_out(acts, plan, end, refused, reminder=until == halfway, deadline=deadline,
+                                           ladder=ladder)
+                if isinstance(step, FixOutcome):
+                    return step
+                plan, deadline = step
                 reminded = True
                 continue
             approval, seen = self._inbox[seen], seen + 1
@@ -459,6 +455,16 @@ class RemediationWorkflow:
             if taken:
                 break
         return None
+
+    async def _ran_out(self, acts, plan: Plan, end, refused: list[str], *, reminder: bool, deadline: datetime,
+                       ladder: bool) -> FixOutcome | tuple[Plan, datetime]:
+        """The approval wait reached its next time with nothing new: halfway, a reminder; at its end, an approver's
+        extension when there is one (U3-8), else it expires (_remind_or_expire). The wait goes on as (the plan, its
+        deadline) - new ones when extended; it ends as the run's outcome."""
+        if not (reminder and workflow.now() < deadline) and (moved := await self._extend_wait(acts, plan, deadline)):
+            return moved
+        expired = await _remind_or_expire(acts, plan, end, refused, reminder=reminder, deadline=deadline, ladder=ladder)
+        return expired if expired is not None else (plan, deadline)
 
     async def _extend_wait(self, acts, plan: Plan, deadline: datetime) -> tuple[Plan, datetime] | None:
         """U3-8: an approver extended the wait from the discussion thread - read from the record, never from a
