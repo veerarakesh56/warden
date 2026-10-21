@@ -377,7 +377,7 @@ def test_the_api_throttles_logs_and_routes_exactly_what_the_page_and_the_webhook
     assert "throttling_rate_limit  = var.api_rate_limit" in stage and "throttling_burst_limit = var.api_burst_limit" in stage
     assert "access_log_settings" in stage
     assert re.findall(r'"(GET /a/\{token\})", "(POST /a/\{token\}/\{step\})"', tf)
-    assert 'route_key = "POST /alertmanager"' in tf
+    assert re.search(r'route_key\s*=\s*"POST /alertmanager"', tf)
     # Every page step the page serves is a POST on /a/{token}/{step}; the shell is the GET.
     import inspect
 

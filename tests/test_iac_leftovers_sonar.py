@@ -264,20 +264,96 @@ def test_no_image_grants_write_to_others_and_the_runtimes_tmp_stays_debians_stic
 # ----------------------------------------------------------------- S6333 and S6428
 
 
-def test_the_only_routes_without_an_authorizer_are_the_webhooks_and_the_approval_page():
-    """S6333 kept (owner to review): the webhooks check a bearer secret in constant time before anything else, and
-    the approval page needs the approver's passkey. No other route may be added without one."""
+def test_the_webhook_routes_pass_the_gateway_only_with_their_bearer_secret():
+    """S6333 (owner, 2026-10-20: fixed, not kept): /alertmanager and /datadog carry a Lambda REQUEST authorizer that
+    checks the route's bearer secret at the gateway; the function keeps its own check. The approval page's routes keep
+    their own gate - Slack sign-in and the approver's passkey - which an authorizer could not express."""
     front = (RUNTIME / "frontdoor.tf").read_text(encoding="utf-8")
     routes = re.findall(r'^resource "aws_apigatewayv2_route" "(\w+)"', front, re.MULTILINE)
     assert sorted(routes) == ["alertmanager", "approval", "datadog"]
-    assert 'route_key = "POST /alertmanager"' in front
-    assert 'route_key = "POST /datadog"' in front
-    assert "S6333" in front
+    for name, key in (("alertmanager", "POST /alertmanager"), ("datadog", "POST /datadog")):
+        route = _flat(_block(RUNTIME / "frontdoor.tf", "aws_apigatewayv2_route", name))
+        assert f'route_key = "{key}"' in route
+        assert 'authorization_type = "CUSTOM" authorizer_id = aws_apigatewayv2_authorizer.webhook.id' in route
+    gate = _flat(_block(RUNTIME / "frontdoor.tf", "aws_apigatewayv2_authorizer", "webhook"))
+    for setting in ('authorizer_type = "REQUEST"', "authorizer_uri = aws_lambda_function.webhook_auth.invoke_arn",
+                    'authorizer_payload_format_version = "2.0"', "enable_simple_responses = true",
+                    'identity_sources = ["$request.header.Authorization"]', "authorizer_result_ttl_in_seconds = 0"):
+        assert setting in gate, setting
+    fn = _flat(_block(RUNTIME / "frontdoor.tf", "aws_lambda_function", "webhook_auth"))
+    assert 'handler = "webhook_auth.handler"' in fn
+    assert "vpc_config" not in fn
+    allow = _flat(_block(RUNTIME / "frontdoor.tf", "aws_iam_role_policy", "webhook_auth"))
+    assert '["alertmanager-token", "alertmanager-token-previous", "datadog-webhook-token"]' in allow
+    assert allow.count('Effect = "Allow"') == 2  # those three secrets, and its own log group
+    invoke = _flat(_block(RUNTIME / "frontdoor.tf", "aws_lambda_permission", "webhook_auth"))
+    assert "/authorizers/${aws_apigatewayv2_authorizer.webhook.id}" in invoke
     from warden import webhooks
-    assert not webhooks.authorized(None, ["s" * 32])
-    assert not webhooks.authorized("Bearer " + "x" * 32, ["s" * 32])
+    assert not webhooks.authorized("Bearer " + "x" * 32, ["s" * 32])  # the function's own check is still there
     assert webhooks.authorized("Bearer " + "s" * 32, ["s" * 32])
-    assert not webhooks.authorized("Bearer ", [""])
+
+
+def _webhook_gate(monkeypatch, stored: dict, calls: list):
+    """The authorizer, its zip checked against its source, with Secrets Manager played by `stored`."""
+    import importlib.util
+    import sys
+    import types
+    import zipfile
+
+    from botocore.exceptions import ClientError
+
+    source = (RUNTIME / "webhook_auth" / "webhook_auth.py").read_bytes()
+    with zipfile.ZipFile(RUNTIME / "webhook_auth.zip") as z:  # what is deployed is exactly the reviewed source
+        assert z.namelist() == ["webhook_auth.py"]
+        assert z.read("webhook_auth.py") == source
+
+    def get_secret_value(SecretId):
+        calls.append(SecretId)
+        if SecretId not in stored:
+            raise ClientError({"Error": {"Code": "ResourceNotFoundException"}}, "GetSecretValue")
+        return {"SecretString": stored[SecretId]}
+
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(
+        client=lambda name: types.SimpleNamespace(get_secret_value=get_secret_value)))
+    monkeypatch.setenv("WARDEN_ENV", "ops")
+    spec = importlib.util.spec_from_file_location("webhook_auth", RUNTIME / "webhook_auth" / "webhook_auth.py")
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    return gate
+
+
+def test_the_webhook_gate_admits_the_routes_secret_only_and_fails_closed(monkeypatch):
+    am, am_old, dd = "a" * 40, "b" * 40, "d" * 40
+    calls: list = []
+    gate = _webhook_gate(monkeypatch, {"warden/ops/alertmanager-token": am, "warden/ops/alertmanager-token-previous":
+                                       am_old, "warden/ops/datadog-webhook-token": dd}, calls)
+
+    def ask(route, header):
+        return gate.handler({"routeKey": route, "headers": {} if header is None else {"authorization": header}},
+                            None)["isAuthorized"]
+
+    assert ask("POST /alertmanager", f"Bearer {am}") is True
+    assert ask("POST /alertmanager", f"Bearer {am_old}") is True  # during a rotation
+    assert ask("POST /datadog", f"Bearer {dd}") is True
+    assert ask("POST /datadog", f"Bearer {am}") is False  # each route its own secret
+    assert ask("POST /alertmanager", f"Bearer {dd}") is False
+    for header in (None, "", am, f"bearer {am}", f"Basic {am}", "Bearer ", f"Bearer {am}x"):
+        assert ask("POST /alertmanager", header) is False, header
+    assert ask("GET /a/token", f"Bearer {am}") is False  # no other route is opened by it
+    assert set(calls) == {"warden/ops/alertmanager-token", "warden/ops/alertmanager-token-previous",
+                          "warden/ops/datadog-webhook-token"}
+
+
+def test_the_webhook_gate_with_no_secret_admits_nothing(monkeypatch):
+    calls: list = []
+    gate = _webhook_gate(monkeypatch, {}, calls)
+    assert gate.handler({"routeKey": "POST /datadog", "headers": {"authorization": "Bearer "}}, None) == {
+        "isAuthorized": False}
+    assert gate.handler({"routeKey": "POST /datadog", "headers": {"authorization": "Bearer x"}}, None) == {
+        "isAuthorized": False}
+    assert gate.handler({"routeKey": "POST /datadog", "headers": {"authorization": "Bearer x"}}, None) == {
+        "isAuthorized": False}
+    assert calls.count("warden/ops/datadog-webhook-token") == 3  # a missing secret is asked again, never remembered
 
 
 def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():

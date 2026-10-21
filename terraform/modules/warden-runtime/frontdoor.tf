@@ -1,7 +1,8 @@
 # How alarms, Alertmanager and approvers reach WARDEN with the laptop off (G6), all from the one runtime image:
 # - CloudWatch alarm state changes of the watched environments' alarms -> EventBridge -> the `alarm` Lambda (retried,
 #   then kept in a dead-letter queue that pages);
-# - Alertmanager -> POST /alertmanager -> the `alertmanager` Lambda (bearer secret, size caps; register S5);
+# - Alertmanager -> POST /alertmanager (and Datadog -> POST /datadog) -> the bearer gate at the gateway (webhook_auth)
+#   -> the `alertmanager` Lambda (bearer secret again, size caps; register S5);
 # - an approver's browser -> /a/... -> the `approval` Lambda (passkeys; registers H6, R28, R58);
 # - every session of a watched environment's actor role -> CloudTrail -> EventBridge -> the `actor-use` Lambda
 #   (witness.tf).
@@ -248,22 +249,101 @@ resource "aws_apigatewayv2_integration" "front" {
   payload_format_version = "2.0"
 }
 
-# Public by design (Sonar terraform:S6333 on this route and the next, owner to review - never weakened): an alert
-# source on the internet must reach them, and an API Gateway authorizer could check only the bearer secret, which the
-# function already compares in constant time (webhooks.authorized) before it reads a byte more; it then asks the source
-# whether the alert is real. tests/test_webhooks_s5.py, tests/test_datadog_alerts_g10z.py and
-# tests/test_iac_leftovers_sonar.py hold it, the last one also that no other route is open.
+# The webhooks (Sonar terraform:S6333, owner 2026-10-20): an alert source on the internet must reach them, so each route
+# carries a Lambda REQUEST authorizer that lets a request through only with that route's bearer secret, compared in
+# constant time (webhook_auth/webhook_auth.py). The function keeps its own check (webhooks.authorized) and then asks the
+# source whether the alert is real - the gate adds a layer and weakens nothing. A request without an Authorization
+# header is refused by the gateway before the authorizer runs. No cached answers (TTL 0): a rotated-out secret stops
+# working at once.
 resource "aws_apigatewayv2_route" "alertmanager" {
-  api_id    = aws_apigatewayv2_api.front.id
-  route_key = "POST /alertmanager"
-  target    = "integrations/${aws_apigatewayv2_integration.front["alertmanager"].id}"
+  api_id             = aws_apigatewayv2_api.front.id
+  route_key          = "POST /alertmanager"
+  target             = "integrations/${aws_apigatewayv2_integration.front["alertmanager"].id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.webhook.id
 }
 
 # A Datadog monitor's webhook (webhooks.receive_datadog): the same function, its own bearer secret (register G10-53).
 resource "aws_apigatewayv2_route" "datadog" {
-  api_id    = aws_apigatewayv2_api.front.id
-  route_key = "POST /datadog"
-  target    = "integrations/${aws_apigatewayv2_integration.front["alertmanager"].id}"
+  api_id             = aws_apigatewayv2_api.front.id
+  route_key          = "POST /datadog"
+  target             = "integrations/${aws_apigatewayv2_integration.front["alertmanager"].id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.webhook.id
+}
+
+resource "aws_apigatewayv2_authorizer" "webhook" {
+  api_id                            = aws_apigatewayv2_api.front.id
+  name                              = "warden-${var.environment}-webhook-bearer"
+  authorizer_type                   = "REQUEST"
+  authorizer_uri                    = aws_lambda_function.webhook_auth.invoke_arn
+  authorizer_payload_format_version = "2.0"
+  enable_simple_responses           = true
+  identity_sources                  = ["$request.header.Authorization"]
+  authorizer_result_ttl_in_seconds  = 0
+}
+
+# The gate's own function: a few lines of Python, no image, no VPC; it reads the webhook secrets and nothing else.
+resource "aws_iam_role" "webhook_auth" {
+  name                 = "warden-${var.environment}-webhook-auth"
+  permissions_boundary = var.permissions_boundary_arn
+  description          = "WARDEN ${var.environment}: the webhook routes' bearer check at the gateway - reads the webhook secrets only"
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  tags                 = { Project = "warden", Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "webhook_auth" {
+  name = "warden-${var.environment}-webhook-auth"
+  role = aws_iam_role.webhook_auth.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "TheWebhookSecrets"
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        # Secrets Manager adds six characters to each name; `??????` matches exactly those.
+        Resource = [for s in ["alertmanager-token", "alertmanager-token-previous", "datadog-webhook-token"] :
+        "${local.secret_arn}/${s}-??????"]
+      },
+      {
+        Sid      = "ItsOwnLogs"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.webhook_auth.arn}:*"
+      },
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "webhook_auth" {
+  name              = "/aws/lambda/warden-${var.environment}-webhook-auth"
+  retention_in_days = 90
+  tags              = { Project = "warden", Environment = var.environment }
+}
+
+resource "aws_lambda_function" "webhook_auth" {
+  function_name    = "warden-${var.environment}-webhook-auth"
+  role             = aws_iam_role.webhook_auth.arn
+  runtime          = "python3.13"
+  handler          = "webhook_auth.handler"
+  filename         = "${path.module}/webhook_auth.zip"
+  source_code_hash = filebase64sha256("${path.module}/webhook_auth.zip")
+  timeout          = 5
+  memory_size      = 128
+  environment {
+    variables = { WARDEN_ENV = var.environment }
+  }
+  tags       = { Project = "warden", Environment = var.environment }
+  depends_on = [aws_cloudwatch_log_group.webhook_auth]
+}
+
+resource "aws_lambda_permission" "webhook_auth" {
+  statement_id  = "HttpApiWebhookAuthorizer"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.webhook_auth.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.front.execution_arn}/authorizers/${aws_apigatewayv2_authorizer.webhook.id}"
 }
 
 resource "aws_apigatewayv2_route" "approval" {
