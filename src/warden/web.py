@@ -34,7 +34,7 @@ def allowed(url: str) -> bool:
 
 def _origin(url: str) -> tuple[str, str, int]:
     parts = urllib.parse.urlsplit(url)  # .hostname is lowercased; .port raises ValueError on a malformed port
-    return parts.scheme.lower(), parts.hostname or "", parts.port or _HTTPS_PORT
+    return parts.scheme.lower(), parts.hostname or "", _HTTPS_PORT if parts.port is None else parts.port
 
 
 def same_origin(url: str, other: str) -> bool:
