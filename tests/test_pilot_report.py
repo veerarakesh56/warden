@@ -615,6 +615,8 @@ def test_a_postgres_audit_is_read_in_a_read_only_session(monkeypatch):
     said = []
 
     class Db:
+        autocommit = False
+
         def __enter__(self):
             return self
 
@@ -622,7 +624,7 @@ def test_a_postgres_audit_is_read_in_a_read_only_session(monkeypatch):
             return False
 
         def execute(self, sql):
-            said.append(sql)
+            said.append(("autocommit" if self.autocommit else "in a transaction", sql))
             return self
 
         def fetchall(self):
@@ -633,8 +635,30 @@ def test_a_postgres_audit_is_read_in_a_read_only_session(monkeypatch):
         "postgresql://reader@db/audit", Ed25519PrivateKey.generate().public_key()
     )
     assert checked.total == 0
-    assert said[0] == "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"
-    assert all(s.startswith("SELECT") for s in said[1:])
+    assert said[0] == ("autocommit", "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
+    assert all(
+        mode == "autocommit" for mode, _ in said
+    )  # the SET is never inside the SELECTs' transaction
+    assert all(sql.startswith("SELECT") for _, sql in said[1:])
+
+
+def test_an_unreachable_postgres_audit_is_exit_2_naming_no_host(
+    made, tmp_path, monkeypatch, capsys
+):
+    import psycopg
+
+    _, key, _ = made
+    pub = _keys(tmp_path, monkeypatch, key)
+    monkeypatch.setenv("WARDEN_AUDIT_DSN", "postgresql://reader@audit-host.internal/audit")
+
+    def refuse(dsn):
+        raise psycopg.OperationalError("connection to server at audit-host.internal failed")
+
+    monkeypatch.setattr(audit, "_pg_connect", refuse)
+    assert main(["report", "pilot", "--since", DAY, "--public-key", str(pub)]) == 2
+    err = capsys.readouterr().err
+    assert "cannot be read: OperationalError" in err
+    assert "audit-host" not in err
 
 
 def test_a_reader_limited_to_some_environments_sees_no_audit_wide_count(page_setup, made):  # noqa: F811

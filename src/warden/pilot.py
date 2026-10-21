@@ -204,6 +204,9 @@ def read_only(target: Any, public_key: Any) -> Checked:
     on an empty file)."""
     if audit._is_postgres(target):
         with audit._pg_connect(str(target)) as db:
+            # Autocommit, so the SET is its own statement and every SELECT after it starts a READ ONLY transaction
+            # (CodeRabbit, PR 175) - whatever the connection factory's default.
+            db.autocommit = True
             db.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
             rows, checkpoints = (
                 db.execute(ROWS_SQL).fetchall(),

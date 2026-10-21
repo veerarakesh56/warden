@@ -594,10 +594,17 @@ def _report_command(args: argparse.Namespace) -> int:
         _out("error: give --db naming an existing audit file, or set WARDEN_AUDIT_DSN", err=True)
         return 2
     key = audit.load_public_key(_key_file(args.public_key))
+    unreadable: tuple[type[BaseException], ...] = (FileNotFoundError, sqlite3.Error)
+    if audit._is_postgres(target):
+        import psycopg
+
+        unreadable += (psycopg.Error,)
     try:
         checked = pilot.read_only(target, key)  # read-only: never creates or writes the audit
-    except (FileNotFoundError, sqlite3.Error) as e:
-        _out(f"error: the audit cannot be read: {e}", err=True)
+    except unreadable as e:
+        # A database's error text can name its host or user: the kind of error only (CodeRabbit, PR 175).
+        why = type(e).__name__ if audit._is_postgres(target) else _one(e)
+        _out(f"error: the audit cannot be read: {why}", err=True)
         return 2
     for name, value in pilot.lines(pilot.report(checked, since)):
         _out(metric_line(name, value))
