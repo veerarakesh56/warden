@@ -568,7 +568,8 @@ def test_the_prior_state_is_persisted_before_the_first_write(fid):
             spy(obj, name)
     fs.FAULTS[fid].inject(c, t)
     if fid in ("fs-12", "fs-13", "fs-16"):  # SQL/holder faults: saved before the session opens
-        assert persisted and persisted[0] == fid
+        assert persisted
+        assert persisted[0] == fid
     else:
         assert real_patch.get("first_write_persisted") is True, fid
     assert w.snapshot() != snap
@@ -608,11 +609,13 @@ def test_iam_auth_revoke_removes_the_task_roles_db_login_and_the_revert_puts_it_
     before = copy.deepcopy(w.iam["warden-dev-orders-api-task"])
     assert fs.check_baseline(c, t, ["ecs"]) == []
     fs.FAULTS["fs-21"].inject(c, t)
-    assert w.iam["warden-dev-orders-api-task"] == {} and w.forced == 1
+    assert w.iam["warden-dev-orders-api-task"] == {}
+    assert w.forced == 1
     assert "warden-dev-orders-api-task no longer grants rds-db:connect" in fs.check_baseline(c, t, ["ecs"])
     assert w.iam["warden-dev-ecs-exec"], "the execution role is fs-18's, not this fault's"
     fs.FAULTS["fs-21"].revert(c, t)
-    assert w.iam["warden-dev-orders-api-task"] == before and w.forced == 2
+    assert w.iam["warden-dev-orders-api-task"] == before
+    assert w.forced == 2
     assert "fs-21" not in t.saved
 
 
@@ -807,7 +810,8 @@ def test_the_fix_outcome_is_the_verdicts_and_nothing_runs(verdict, outcome):
     """2026-09-27 audit: the harness runs no fix command at all; `--prof admin` beat the allow-list. Since
     2026-10-16 the report prints no command, so there is nothing to count or check either."""
     assert fs.decide_fix(verdict) == outcome
-    assert not hasattr(fs, "execute_fix") and not hasattr(fs, "undo_fix_effects")
+    assert not hasattr(fs, "execute_fix")
+    assert not hasattr(fs, "undo_fix_effects")
 
 
 def test_this_module_does_not_import_the_tool_under_test():
@@ -839,7 +843,8 @@ def test_fs11_revert_puts_the_original_node_type_back():
     fs.FAULTS["fs-11"].inject(c, t)
     w.redis_node_type = "cache.t4g.small"                                   # what the fix did
     out = fs.FAULTS["fs-11"].revert(c, t)
-    assert w.redis_node_type == "cache.t4g.micro" and out["node_type_restored"]
+    assert w.redis_node_type == "cache.t4g.micro"
+    assert out["node_type_restored"]
 
 
 def test_fs11_revert_refuses_while_a_resize_is_still_running():
@@ -904,7 +909,8 @@ def test_fs12_holds_until_the_server_refuses_not_until_its_own_count():
     c = fs.Clients(**{**{f: None for f in fs.Clients.__dataclass_fields__}, "sql": server.sql})
     held, info = fs.hold_connections(c, None, "fs-12", headroom=3, workers=8)
     assert info["held"] == len(held) == 37 == server.open
-    assert info["refused"] == 50 + 50 - 40 and info["stopped_by"] == "RuntimeError"
+    assert info["refused"] == 50 + 50 - 40
+    assert info["stopped_by"] == "RuntimeError"
 
 
 def test_fs12_revert_waits_out_backends_that_are_still_exiting(monkeypatch):
@@ -943,3 +949,87 @@ def test_a_fault_on_what_argo_cd_syncs_is_refused_and_the_pipelines_secret_still
     assert w.snapshot() == before
     fs.FAULTS["fs-23"].inject(c, t)
     assert w.snapshot() != before
+
+
+def test_fs10_revert_with_nothing_saved_changes_nothing():
+    """Characterisation (before the cognitive-complexity split of fs10_revert)."""
+    w, c, t = make()
+    before = copy.deepcopy(w.sg_rules)
+    assert fs.FAULTS["fs-10"].revert(c, t) == {"nothing_saved": True}
+    assert w.sg_rules == before
+
+
+def test_fs10_revert_re_adds_rule_by_rule_when_some_are_already_back_and_drops_every_extra():
+    """Characterisation: a rule already back makes the batch Duplicate, so each rule is re-added on its own; extras -
+    a port range and an all-protocols pair - are revoked one at a time and named in the result, sorted."""
+    w, c, t = make()
+    second = {"IpProtocol": "tcp", "FromPort": 6380, "ToPort": 6380, "UserIdGroupPairs": [{"GroupId": "sg-b"}]}
+    w.sg_rules.append(copy.deepcopy(second))
+    before = copy.deepcopy(w.sg_rules)
+    fs.FAULTS["fs-10"].inject(c, t)
+    w.sg_rules = [copy.deepcopy(second),  # one rule put back by hand: the batch authorise is a Duplicate
+                  {"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-z"}]},
+                  {"IpProtocol": "tcp", "FromPort": 1, "ToPort": 9, "UserIdGroupPairs": [{"GroupId": "sg-y"}]}]
+    out = fs.FAULTS["fs-10"].revert(c, t)
+    assert out == {"restored_rules": 2, "removed_extra": ["sg-z", "sg-y"]}
+    assert fs._group_pairs(w.sg_rules) == fs._group_pairs(before)
+    assert "fs-10" not in t.saved
+
+
+def test_fs10_revert_raises_any_error_that_is_not_a_duplicate():
+    _, c, t = make()
+    fs.FAULTS["fs-10"].inject(c, t)
+
+    def refused(GroupId, IpPermissions):
+        raise Err("UnauthorizedOperation")
+
+    c.ec2.authorize_security_group_ingress = refused
+    with pytest.raises(Err, match="UnauthorizedOperation"):
+        fs.FAULTS["fs-10"].revert(c, t)
+    assert "fs-10" in t.saved
+    calls = []
+
+    def duplicate_then_refused(GroupId, IpPermissions):
+        calls.append(len(IpPermissions))
+        raise Err("InvalidPermission.Duplicate" if len(calls) == 1 else "RequestLimitExceeded")
+
+    c.ec2.authorize_security_group_ingress = duplicate_then_refused
+    with pytest.raises(Err, match="RequestLimitExceeded"):
+        fs.FAULTS["fs-10"].revert(c, t)
+    assert calls == [1, 1]
+
+
+def test_fs10_revert_revokes_an_all_protocols_extra_without_ports():
+    """An all-protocols (-1) pair is revoked by protocol and group only: EC2 takes no port range for it."""
+    w, c, t = make()
+    fs.FAULTS["fs-10"].inject(c, t)
+    w.sg_rules = [{"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-z"}]},
+                  {"IpProtocol": "tcp", "FromPort": 1, "ToPort": 9, "UserIdGroupPairs": [{"GroupId": "sg-y"}]}]
+    revoked = []
+    real = c.ec2.revoke_security_group_ingress
+
+    def record(GroupId, IpPermissions):
+        revoked.extend(IpPermissions)
+        return real(GroupId=GroupId, IpPermissions=IpPermissions)
+
+    c.ec2.revoke_security_group_ingress = record
+    fs.FAULTS["fs-10"].revert(c, t)
+    assert revoked == [{"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-z"}]},
+                       {"IpProtocol": "tcp", "UserIdGroupPairs": [{"GroupId": "sg-y"}], "FromPort": 1, "ToPort": 9}]
+
+
+def test_after_a_duplicate_every_saved_rule_is_re_added_on_its_own():
+    """The first rule is already back, so the batch is a Duplicate: each rule is then tried alone, and the ones after
+    the duplicate still land."""
+    first = {"IpProtocol": "tcp", "FromPort": 6379, "ToPort": 6379, "UserIdGroupPairs": [{"GroupId": "sg-a"}]}
+    second = {"IpProtocol": "tcp", "FromPort": 6380, "ToPort": 6380, "UserIdGroupPairs": [{"GroupId": "sg-b"}]}
+    on_group = [first]
+
+    def authorize(GroupId, IpPermissions):
+        if any(rule in on_group for rule in IpPermissions):
+            raise Err("InvalidPermission.Duplicate")
+        on_group.extend(IpPermissions)
+
+    ec2 = type("Ec2", (), {"authorize_security_group_ingress": staticmethod(authorize)})()
+    fs._authorize_back(type("C", (), {"ec2": ec2})(), "sg-redis", [first, second])
+    assert on_group == [first, second]

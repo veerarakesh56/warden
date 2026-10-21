@@ -245,6 +245,30 @@ class KubernetesBackend:
         lines: list[str] = []
 
         # Events: own try, so an events 403 or a busy namespace cannot take the pod logs with it.
+        events = self._events(ns, lines)
+        oldest = datetime.now(UTC) - LOG_LOOKBACK
+        for ev in sorted(events, key=lambda e: (e.last_timestamp or e.event_time or _EPOCH)):
+            line = _event_line(ev, pod_names, deployment, oldest)
+            if line:
+                lines.append(line)
+
+        # ⭐ The read-only checks an on-call engineer would otherwise run by hand (kubectl describe,
+        # kubectl logs --previous, kubectl rollout history) - done here, with reads already granted, so
+        # the report shows their RESULTS instead of asking a person to go and look. Added 2026-09-25
+        # after the owner asked why the report listed kubectl commands WARDEN could run itself.
+        lines.extend(_container_status_lines(pods[:LOG_MAX_PODS]))
+        lines.extend(self._previous_logs(ns, pods[:LOG_MAX_PODS]))
+        lines.extend(self._rollout_history(alert))
+
+        for pod in pods[:LOG_MAX_PODS]:
+            containers = list(pod.spec.init_containers or []) + list(pod.spec.containers or [])
+            for container in containers:
+                lines.extend(self._container_log(ns, pod, container))
+        return lines
+
+    def _events(self, ns: str, lines: list[str]) -> list:
+        """The namespace's events, up to EVENT_MAX_PAGES pages. A failed or cut-short read adds a TOOL-PARTIAL to
+        `lines` and keeps the events read before it."""
         # Every page (audit A-B-M7): a busy namespace's first page could hold none of this workload's events.
         events: list = []
         try:
@@ -258,62 +282,27 @@ class KubernetesBackend:
                     break
             else:
                 lines.append(f"{PARTIAL_PREFIX}events: [output truncated] more than {EVENT_MAX_PAGES} pages read")
-        except Exception as exc:  # noqa: BLE001 - partial failure, reported as such
+        except Exception as exc:  # noqa: BLE001 - partial failure; reported as such
             lines.append(f"{PARTIAL_PREFIX}events: {_api_error(exc)}")
+        return events
 
-        oldest = datetime.now(UTC) - LOG_LOOKBACK
-        for ev in sorted(events, key=lambda e: (e.last_timestamp or e.event_time or _EPOCH)):
-            if ev.reason not in INTERESTING_EVENT_REASONS:
-                continue
-            when = _aware(ev.last_timestamp or ev.event_time)
-            if when is not None and when < oldest:
-                continue  # an earlier incident's event, not this one's
-            obj = ev.involved_object
-            kind, name = obj.kind, obj.name
-            if kind == "Pod" and name not in pod_names:
-                continue  # another workload's pod
-            # Its own name, not a prefix of it (audit A-B-L6): `checkout` took `checkout-api`'s rollout. A ReplicaSet is
-            # `<deployment>-<pod-template-hash>`, and the hash holds no dash.
-            if kind == "Deployment" and name != deployment:
-                continue  # another workload's rollout
-            if kind == "ReplicaSet" and not re.fullmatch(re.escape(deployment) + r"-[a-z0-9]{4,12}", name or ""):
-                continue
-            if kind not in ("Pod", "ReplicaSet", "Deployment", "Node"):
-                continue
-            tag = "NODE-EVENT" if kind == "Node" else "EVENT"
-            lines.append(f"{tag} {ev.reason} {kind}/{name}: {_one_line(ev.message or '')}")
-
-        # ⭐ The read-only checks an on-call engineer would otherwise run by hand (kubectl describe,
-        # kubectl logs --previous, kubectl rollout history) - done here, with reads already granted, so
-        # the report shows their RESULTS instead of asking a person to go and look. Added 2026-09-25
-        # after the owner asked why the report listed kubectl commands WARDEN could run itself.
-        lines.extend(_container_status_lines(pods[:LOG_MAX_PODS]))
-        lines.extend(self._previous_logs(ns, pods[:LOG_MAX_PODS]))
-        lines.extend(self._rollout_history(alert))
-
-        for pod in pods[:LOG_MAX_PODS]:
-            containers = list(pod.spec.init_containers or []) + list(pod.spec.containers or [])
-            for container in containers:
-                try:
-                    resp = self._core.read_namespaced_pod_log(
-                        pod.metadata.name, ns, container=container.name,
-                        tail_lines=LOG_TAIL_LINES, timestamps=True,
-                        since_seconds=int(LOG_LOOKBACK.total_seconds()),
-                        # Read the raw response. The client's own deserialisation returned the
-                        # REPR of bytes as a str against a real k3s cluster - one line, literal \n.
-                        _preload_content=False,
-                        _request_timeout=REQUEST_TIMEOUT,
-                    )
-                    text = _log_text(resp)
-                except Exception as exc:  # noqa: BLE001
-                    lines.append(
-                        f"{PARTIAL_PREFIX}{pod.metadata.name}/{container.name}: {_api_error(exc)}"
-                    )
-                    continue
-                for raw in text.splitlines():
-                    if raw.strip():
-                        lines.append(f"{pod.metadata.name}/{container.name} {raw}")
-        return lines
+    def _container_log(self, ns: str, pod, container) -> list[str]:
+        """One container's log tail over LOG_LOOKBACK, each non-blank line tagged with pod/container; a failed read is
+        one TOOL-PARTIAL line."""
+        try:
+            resp = self._core.read_namespaced_pod_log(
+                pod.metadata.name, ns, container=container.name,
+                tail_lines=LOG_TAIL_LINES, timestamps=True,
+                since_seconds=int(LOG_LOOKBACK.total_seconds()),
+                # Read the raw response. The client's own deserialisation returned the
+                # REPR of bytes as a str against a real k3s cluster - one line, literal \n.
+                _preload_content=False,
+                _request_timeout=REQUEST_TIMEOUT,
+            )
+            text = _log_text(resp)
+        except Exception as exc:  # noqa: BLE001
+            return [f"{PARTIAL_PREFIX}{pod.metadata.name}/{container.name}: {_api_error(exc)}"]
+        return [f"{pod.metadata.name}/{container.name} {raw}" for raw in text.splitlines() if raw.strip()]
 
     def metrics(self, alert: Alert) -> dict[str, float]:
         """Counts read off pod status across app, init and ephemeral containers.
@@ -328,28 +317,12 @@ class KubernetesBackend:
             conds = pod.status.conditions or []
             if any(c.type == "Ready" and c.status == "True" for c in conds):
                 ready += 1
-            statuses = (
-                list(pod.status.container_statuses or [])
-                + list(pod.status.init_container_statuses or [])
-                + list(getattr(pod.status, "ephemeral_container_statuses", None) or [])
-            )
-            for cs in statuses:
-                restarts += cs.restart_count or 0
-                last = getattr(cs.last_state, "terminated", None)
-                cur = getattr(cs.state, "terminated", None)
-                if (last is not None and last.reason == "OOMKilled") or (
-                    cur is not None and cur.reason == "OOMKilled"
-                ):
-                    oom += 1
-                waiting = getattr(cs.state, "waiting", None)
-                if waiting is not None and waiting.reason == "CrashLoopBackOff":
-                    crashloop += 1
-            for container in list(pod.spec.init_containers or []) + list(pod.spec.containers or []):
-                limits = (container.resources and container.resources.limits) or {}
-                if "memory" in limits:
-                    mib = _to_mib(limits["memory"])
-                    if mib is not None:
-                        mem_limit_mib = max(mem_limit_mib or 0.0, mib)
+            pod_restarts, pod_oom, pod_crashloop = _status_counts(pod)
+            restarts += pod_restarts
+            oom += pod_oom
+            crashloop += pod_crashloop
+            for mib in _memory_limits_mib(pod):
+                mem_limit_mib = max(mem_limit_mib or 0.0, mib)
 
         out = {
             "pods_total": float(len(pods)),
@@ -411,21 +384,25 @@ class KubernetesBackend:
         for pod in pods:
             statuses = list(pod.status.init_container_statuses or []) + list(pod.status.container_statuses or [])
             for cs in statuses:
-                if not (getattr(cs, "restart_count", 0) or 0):
-                    continue
-                try:
-                    resp = self._core.read_namespaced_pod_log(
-                        pod.metadata.name, ns, container=cs.name, previous=True,
-                        tail_lines=PREVIOUS_TAIL_LINES, timestamps=True,
-                        _preload_content=False, _request_timeout=REQUEST_TIMEOUT,
-                    )
-                    text = _log_text(resp)
-                except Exception as exc:  # noqa: BLE001
-                    if getattr(exc, "status", None) != 400:
-                        out.append(f"{PARTIAL_PREFIX}{pod.metadata.name}/{cs.name} (previous): {_api_error(exc)}")
-                    continue
-                out.extend(f"{pod.metadata.name}/{cs.name} (previous) {raw}" for raw in text.splitlines() if raw.strip())
+                if getattr(cs, "restart_count", 0):
+                    out.extend(self._previous_log(ns, pod, cs))
         return out
+
+    def _previous_log(self, ns: str, pod, cs) -> list[str]:
+        """_previous_logs for one restarted container: its previous container's last lines. A 400 (no previous
+        container to read) is no lines; any other failed read is one TOOL-PARTIAL line."""
+        try:
+            resp = self._core.read_namespaced_pod_log(
+                pod.metadata.name, ns, container=cs.name, previous=True,
+                tail_lines=PREVIOUS_TAIL_LINES, timestamps=True,
+                _preload_content=False, _request_timeout=REQUEST_TIMEOUT,
+            )
+            text = _log_text(resp)
+        except Exception as exc:  # noqa: BLE001
+            if getattr(exc, "status", None) != 400:
+                return [f"{PARTIAL_PREFIX}{pod.metadata.name}/{cs.name} (previous): {_api_error(exc)}"]
+            return []
+        return [f"{pod.metadata.name}/{cs.name} (previous) {raw}" for raw in text.splitlines() if raw.strip()]
 
     def _rollout_history(self, alert: Alert) -> list[str]:
         """`kubectl rollout history`, from the ReplicaSets deploys() already reads: revision, images, when."""
@@ -520,26 +497,104 @@ def _container_status_lines(pods: list) -> list[str]:
     for pod in pods:
         statuses = list(pod.status.init_container_statuses or []) + list(pod.status.container_statuses or [])
         for cs in statuses:
-            # getattr throughout: a status missing one field must cost that field, never the whole
-            # logs() read - a raise here would turn every log line into a partial-context failure.
-            restarts = getattr(cs, "restart_count", 0) or 0
-            last = getattr(cs.last_state, "terminated", None)
-            waiting = getattr(cs.state, "waiting", None)
-            now_term = getattr(cs.state, "terminated", None)
-            if not restarts and waiting is None and now_term is None:
-                continue
-            parts = [f"restarts {restarts}"]
-            if last is not None:
-                finished = _aware(getattr(last, "finished_at", None))
-                parts.append(f"last exit: {getattr(last, 'reason', None) or '?'} (code {getattr(last, 'exit_code', '?')})"
-                             + (f" at {finished:%Y-%m-%dT%H:%M:%SZ}" if finished else ""))
-            if waiting is not None:
-                msg = f" - {_one_line(waiting.message)}" if getattr(waiting, "message", None) else ""
-                parts.append(f"now waiting: {getattr(waiting, 'reason', None) or '?'}{msg}")
-            if now_term is not None:
-                parts.append(f"now terminated: {getattr(now_term, 'reason', None) or '?'} "
-                             f"(code {getattr(now_term, 'exit_code', '?')})")
-            out.append(f"STATUS {pod.metadata.name}/{getattr(cs, 'name', '?')}: " + "; ".join(parts))
+            line = _container_status_line(pod, cs)
+            if line:
+                out.append(line)
+    return out
+
+
+def _container_status_line(pod, cs) -> str:
+    """One container's STATUS line, or "" when it has not restarted and is neither waiting nor terminated."""
+    # getattr throughout: a status missing one field must cost that field, never the whole
+    # logs() read - a raise here would turn every log line into a partial-context failure.
+    restarts = getattr(cs, "restart_count", 0) or 0
+    last = getattr(cs.last_state, "terminated", None)
+    waiting = getattr(cs.state, "waiting", None)
+    now_term = getattr(cs.state, "terminated", None)
+    if not restarts and waiting is None and now_term is None:
+        return ""
+    parts = [f"restarts {restarts}"]
+    if last is not None:
+        finished = _aware(getattr(last, "finished_at", None))
+        parts.append(f"last exit: {getattr(last, 'reason', None) or '?'} (code {getattr(last, 'exit_code', '?')})"
+                     + (f" at {finished:%Y-%m-%dT%H:%M:%SZ}" if finished else ""))
+    if waiting is not None:
+        msg = f" - {_one_line(waiting.message)}" if getattr(waiting, "message", None) else ""
+        parts.append(f"now waiting: {getattr(waiting, 'reason', None) or '?'}{msg}")
+    if now_term is not None:
+        parts.append(f"now terminated: {getattr(now_term, 'reason', None) or '?'} "
+                     f"(code {getattr(now_term, 'exit_code', '?')})")
+    return f"STATUS {pod.metadata.name}/{getattr(cs, 'name', '?')}: " + "; ".join(parts)
+
+
+def _event_line(ev, pod_names: set[str], deployment: str, oldest: datetime) -> str:
+    """The EVENT (or NODE-EVENT) line for one of this workload's interesting events since `oldest`; "" for any other
+    event."""
+    if ev.reason not in INTERESTING_EVENT_REASONS:
+        return ""
+    when = _aware(ev.last_timestamp or ev.event_time)
+    if when is not None and when < oldest:
+        return ""  # an earlier incident's event, not this one's
+    obj = ev.involved_object
+    kind, name = obj.kind, obj.name
+    if not _this_workloads(kind, name, pod_names, deployment):
+        return ""
+    tag = "NODE-EVENT" if kind == "Node" else "EVENT"
+    return f"{tag} {ev.reason} {kind}/{name}: {_one_line(ev.message or '')}"
+
+
+def _this_workloads(kind: str, name: str, pod_names: set[str], deployment: str) -> bool:
+    """Whether an event's object is this workload's pod, ReplicaSet or Deployment, or a node."""
+    if kind == "Pod":
+        return name in pod_names  # another workload's pod
+    # Its own name, not a prefix of it (audit A-B-L6): `checkout` took `checkout-api`'s rollout. A ReplicaSet is
+    # `<deployment>-<pod-template-hash>`, and the hash holds no dash.
+    if kind == "Deployment":
+        return name == deployment  # another workload's rollout
+    if kind == "ReplicaSet":
+        return bool(re.fullmatch(re.escape(deployment) + r"-[a-z0-9]{4,12}", name or ""))
+    return kind == "Node"
+
+
+def _status_counts(pod) -> tuple[int, int, int]:
+    """(restarts, OOM-killed containers, crash-looping containers) across the pod's app, init and ephemeral
+    containers."""
+    statuses = (
+        list(pod.status.container_statuses or [])
+        + list(pod.status.init_container_statuses or [])
+        + list(getattr(pod.status, "ephemeral_container_statuses", None) or [])
+    )
+    restarts = oom = crashloop = 0
+    for cs in statuses:
+        restarts += cs.restart_count or 0
+        oom += _oom_killed(cs)
+        crashloop += _crash_looping(cs)
+    return restarts, oom, crashloop
+
+
+def _oom_killed(cs) -> bool:
+    """Whether the container's last or current termination was an OOM kill."""
+    last = getattr(cs.last_state, "terminated", None)
+    cur = getattr(cs.state, "terminated", None)
+    return (last is not None and last.reason == "OOMKilled") or (cur is not None and cur.reason == "OOMKilled")
+
+
+def _crash_looping(cs) -> bool:
+    """Whether the container waits in CrashLoopBackOff."""
+    waiting = getattr(cs.state, "waiting", None)
+    return waiting is not None and waiting.reason == "CrashLoopBackOff"
+
+
+def _memory_limits_mib(pod) -> list[float]:
+    """The memory limits (MiB) of the pod's init and app containers, in order; a limit that does not parse is left
+    out."""
+    out = []
+    for container in list(pod.spec.init_containers or []) + list(pod.spec.containers or []):
+        limits = (container.resources and container.resources.limits) or {}
+        if "memory" in limits:
+            mib = _to_mib(limits["memory"])
+            if mib is not None:
+                out.append(mib)
     return out
 
 

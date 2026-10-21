@@ -69,7 +69,9 @@ def test_a_target_wardens_changed_waits_out_the_cool_down(log, clock):
     """Register C8, oscillation: a fix on a fix, or a rollback of a rollback, waits until the first change held."""
     _apply(log, n=1)
     first = bounds.blocked(log, service="orders-api", action_class="other", now=clock.now)
-    assert len(first) == 1 and first[0].startswith("C8: WARDEN changed orders-api") and "30 min" in first[0]
+    assert len(first) == 1
+    assert first[0].startswith("C8: WARDEN changed orders-api")
+    assert "30 min" in first[0]
     assert bounds.blocked(log, service="checkout", action_class="other", now=clock.now) == []
     clock.advance(minutes=29)
     assert bounds.blocked(log, service="orders-api", action_class="other", now=clock.now)
@@ -92,7 +94,8 @@ def test_two_failed_success_checks_in_an_hour_trip_the_kill_switch(log, clock):
     clock.advance(minutes=30)
     bounds.record_result(log, "inc-2", service="b", ok=False, now=clock.now)
     reasons = bounds.blocked(log, service="c", action_class="x", now=clock.now)
-    assert reasons and reasons[0].startswith("the kill switch is on: 2 remediations failed")
+    assert reasons
+    assert reasons[0].startswith("the kill switch is on: 2 remediations failed")
 
 
 def test_failures_far_apart_do_not_trip_it(log, clock):
@@ -132,7 +135,8 @@ def test_the_switch_state_is_in_the_signed_audit(log, clock, tmp_path):
 
     bounds.trip(log, "inc-1", "manual stop")
     result = audit.verify(tmp_path / "audit.db", log.key.public_key())
-    assert result.ok and result.unsigned_tail == 0
+    assert result.ok
+    assert result.unsigned_tail == 0
 
 
 def test_a_reset_signs_every_trip_it_was_shown_and_no_later_one(log, clock, owner, policy):

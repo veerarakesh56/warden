@@ -34,7 +34,7 @@ from temporalio.worker import Worker
 from . import approvals, audit
 from .activities import DiscussActivities, IncidentActivities, Plan, RemediationActivities
 from .depwatch import DepWatchActivities
-from .runtime_base import (  # noqa: F401 - re-exported: runtime.connect, runtime.open_audit, ... as before
+from .runtime_base import (  # noqa: F401 - re-exported: runtime.connect; runtime.open_audit; ... as before
     _path,
     approver_policy,
     audit_anchor,
@@ -62,12 +62,14 @@ class NoPlatform:
     """No live system is connected: nothing is read, so every catalogue check refuses."""
 
     def live(self, entry: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Platform.live with no platform: no entry and no params can be read, so nothing is returned."""
         return {}
 
     def apply(self, entry: str, params: dict[str, Any]) -> str:
         raise RuntimeError("no platform is connected")
 
     def healthy(self, service: str) -> bool:
+        """Platform.healthy with no platform: no service reads as healthy."""
         return False
 
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
@@ -169,7 +171,7 @@ async def heartbeat(client: Client, publish: Any, *, every: timedelta = HEARTBEA
     while True:
         try:
             problem = await beat(client, publish, task_queue)
-        except Exception as exc:  # noqa: BLE001 - a beat that cannot run is a missed beat, never a crashed worker
+        except Exception as exc:  # noqa: BLE001 - a beat that cannot run is a missed beat; never a crashed worker
             problem = f"the heartbeat could not run: {type(exc).__name__}"
         if problem and log:
             log(f"heartbeat missed: {problem}")

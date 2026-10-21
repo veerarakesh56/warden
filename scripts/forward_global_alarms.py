@@ -81,12 +81,12 @@ def main(argv: list[str] | None = None) -> int:
 
     account = boto3.client("sts").get_caller_identity()["Account"]
     p = plan(account)
-    if not (args.apply or args.undo):
+    if args.apply or args.undo:
+        lines = apply(p, boto3.client("iam"), boto3.client("events", region_name=p["global_region"]), undo=args.undo)
+        print("\n".join(lines))
+    else:
         print(json.dumps({k: v for k, v in p.items() if k != "tags"}, indent=2))
         print("dry run: nothing was changed (--apply to make it, --undo to remove it)")
-        return 0
-    lines = apply(p, boto3.client("iam"), boto3.client("events", region_name=p["global_region"]), undo=args.undo)
-    print("\n".join(lines))
     return 0
 
 
