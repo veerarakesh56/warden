@@ -761,7 +761,9 @@ def record(path: pathlib.Path) -> int:
         (("docs", "BENCHMARKS.md"), BENCH_BEGIN, BENCH_END, row, True),
         (("README.md",), README_BEGIN, README_END, line, False),
     ):
-        target = _inside(ROOT.joinpath(*name), [ROOT], name[-1])
+        target = ROOT.joinpath(*name)  # a fixed file of this checkout, never a path from outside
+        if target.is_symlink() or not target.is_file():
+            raise Refused(f"REFUSED: {name[-1]} is a link or not a file")
         text = _between(target.read_text(encoding="utf-8"), begin, end, body, keep_rows=rows)
         target.write_text(text, encoding="utf-8", newline="\n")
     print(f"recorded {source.name} in BENCHMARKS.md and README.md")

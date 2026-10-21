@@ -434,7 +434,7 @@ def test_record_refuses_a_linked_result_or_docs_that_are_links(bench, tmp_path, 
     outside = tmp_path / "README-elsewhere.md"
     readme.rename(outside)
     readme.symlink_to(outside)
-    with pytest.raises(bench.Refused, match="README.md is a link"):
+    with pytest.raises(bench.Refused, match="README.md is a link or not a file"):
         bench.record(result)
 
 
