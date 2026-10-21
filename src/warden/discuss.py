@@ -72,15 +72,19 @@ REPLAN_SOON = "WARDEN made a new plan for `{incident}` less than an hour ago; as
 
 # U3-8: an enrolled approver who may approve the waiting plan extends its wait (extend.py): "extend the wait",
 # "extend by 12h", "extend approval". By EXTEND_MAX_HOURS unless they say how long, and at most that at a time.
+# Not "it" or "time" alone (CodeRabbit, PR 182: "will the restart extend it?" became 24 h), and never a question: the
+# clause with "extend" ending in "?" is asked about, not asked for - it gets an answer, and nothing is extended.
 EXTEND = re.compile(r"(?i)\bextend\b([^.?!\n]{0,40})")
-_EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|time|deadline|it|by)\b|\d\s*h")
+_EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|deadline|by)\b|\d\s*h")
+_CLAUSE_END = re.compile(r"(?i)\bextend\b[^.?!\n]*([.?!\n]?)")
 # How long: read strictly from the whole message (CodeRabbit, PR 150: a "6 hours" past a fixed window became 24). One
 # whole number of hours said once ("12h", "12 hours") is that many; no number and no word about time is
 # EXTEND_MAX_HOURS; anything else - a second duration, another unit, a number standing alone, a decimal or a spelled-out
 # number, a clock time, "until tomorrow" - is not guessed at: the approver is asked again and nothing is extended.
-_EDGE = r"\w.:/-"  # a number touching one of these is part of an id, a time or a link, not a duration
-_DURATION = re.compile(rf"(?i)(?<![{_EDGE}])(\d{{1,4}})\s*(?:h|hrs?|hours?)(?![{_EDGE}])")
-_NUMBER = re.compile(rf"(?<![{_EDGE}])\d+(?![\w/-])")
+# A number touching a word character, ".", ":", "/" or "-" is part of an id, a time or a link, not a duration. After the
+# unit, a "." ends the sentence unless a word character follows it (CodeRabbit, PR 182: "extend by 6h." became 24 h).
+_DURATION = re.compile(r"(?i)(?<![\w.:/-])(\d{1,4})\s*(?:h|hrs?|hours?)(?![\w:/-]|\.\w)")
+_NUMBER = re.compile(r"(?<![\w.:/-])\d+(?![\w/-])")
 _WORD = re.compile(r"\b[a-z]+\b")
 # Words about time, and spelled-out numbers ("...teen" too): said beside "extend", they are not a whole number of hours.
 _TIME_WORDS = frozenset((
@@ -119,7 +123,8 @@ def _says_time(text: str) -> bool:
 def asks_to_extend(text: str) -> bool:
     """An "extend" that names what it extends - the wait, the approval, it, by some hours - not any "extend"."""
     m = EXTEND.search(text or "")
-    return bool(m and _EXTEND_WHAT.search(m.group(1)))
+    end = _CLAUSE_END.search(text or "")
+    return bool(m and _EXTEND_WHAT.search(m.group(1)) and end and end.group(1) != "?")
 
 
 def hours_asked(text: str) -> int | None:

@@ -158,10 +158,13 @@ def test_the_activities_record_the_ask_and_read_the_extension(world):
 
 def test_the_thread_asks_in_plain_words_and_is_answered_in_fixed_ones():
     for text, hours in (("<@UWARDEN> extend the wait", 24), ("extend by 12h please", 12), ("extend approval 6 hours", 6),
-                        ("can you extend it", 24)):
+                        ("please extend the approval.", 24), ("extend the wait by 6h!", 6)):
         assert discuss.asks_to_extend(text), text
         assert discuss.hours_asked(text) == hours, text
-    for text in ("will this extend the outage", "what is the plan?", "extend"):
+    # A question about what something extends is answered, not taken as a request (CodeRabbit, PR 182).
+    for text in ("will this extend the outage", "what is the plan?", "extend", "can you extend it",
+                 "will the restart extend it?", "does this extend the time to recover?",
+                 "can you extend the wait by 6h?"):
         assert not discuss.asks_to_extend(text), text
     said = discuss.extended_said({"workflow_id": WID, "until_said": "2026-10-22 07:00Z", "hours": 24}, INC)
     assert said.startswith(f"The wait for WARDEN's plan `{WID}` is extended by 24 h")
@@ -217,6 +220,10 @@ def test_eldane_itself_never_extends_a_wait(world):
     ("<@U0123ABC> extend the wait on 50ac32d0fe243384-20261021T071413Z (rem-dev-1) by 3h", 3),
     (f"<@{ID_WITH_H}> extend the wait", extend.EXTEND_MAX_HOURS),  # an "H" inside a member's id is not "h"
     ("extend by 30h", 30),  # read as said; the request then refuses it as out of range
+    # A full stop that ends the sentence ends the duration (CodeRabbit, PR 182: "6h." became 24).
+    ("extend by 6h.", 6),
+    ("extend by 12 hours.", 12),
+    ("extend by 6hours. Thanks", 6),
 ])
 def test_the_hours_said_are_the_hours_asked(text, hours):
     assert discuss.hours_asked(text) == hours
@@ -224,7 +231,7 @@ def test_the_hours_said_are_the_hours_asked(text, hours):
 
 @pytest.mark.parametrize("text", [
     "extend by 6 more hours", "extend by six hours", "extend for an hour", "extend by 2 days", "extend 90 minutes",
-    "extend by 1.5h", "extend by 12h and 30 minutes", "extend by 12h, then 6h", "extend by 12", "extend to 14:00",
+    "extend by 1.5h", "extend by 1.5h.", "extend by 12h and 30 minutes", "extend by 12h, then 6h", "extend by 12", "extend to 14:00",
     "extend the wait until tomorrow", "extend the wait till tonight", "extend the wait half a day",
 ])
 def test_a_duration_that_is_not_exactly_whole_hours_once_is_not_guessed(text):
