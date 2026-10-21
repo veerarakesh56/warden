@@ -204,11 +204,9 @@ def test_no_identifiable_run_is_not_healthy(world, change):
     assert p.healthy("fullstack", entry=ENTRY, params=params) is False
 
 
-def test_the_deploy_workflows_name_each_run_as_healthy_reads_it():
+def test_our_runs_title_starts_with_the_deploy_workflows_name():
+    """The run-name itself is held in tests/test_ci_lanes.py (it runs where the workflows' changes run)."""
     for env in ("dev", "prod"):
-        flow = (ROOT / ".github" / "workflows" / f"deploy-{env}.yml").read_text(encoding="utf-8")
-        assert (f'run-name: "Deploy · {env} · ${{{{ inputs.part == \'infra\' && format(\'infra {{0}} {{1}} {{2}}\', '
-                "inputs.infra_action, inputs.infra_stack, inputs.plan_run_id) || format('apps {0}', inputs.apps_target) }}\"") in flow
         assert InfraPlatform(environment=env, github=FakeGitHub(), plan_meta=_meta({})).title == f"Deploy · {env}"
 
 
