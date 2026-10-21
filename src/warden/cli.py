@@ -493,6 +493,22 @@ async def _workflow_command(args: argparse.Namespace) -> int:
                 return 1
             _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {','.join(sorted(args.platform)) or 'none'}); "
                  "Ctrl+C to stop")
+            from temporalio.service import RPCError
+
+            from . import depwatch
+
+            if depwatch.configured():  # the dependency review's Temporal Schedule, made or brought up to date
+                try:
+                    done = await depwatch.ensure_schedule(client, runtime.TASK_QUEUE)
+                    _out(f"dependency review schedule {done}: every {depwatch.every()}", err=True)
+                except (RPCError, ValueError) as exc:  # Temporal refused, or a bad interval: incidents never wait on it
+                    _out(f"the dependency review's schedule could not be set ({type(exc).__name__})", err=True)
+            else:  # turned off: a schedule left from before would start runs that can only fail
+                try:
+                    if await depwatch.remove_schedule(client):
+                        _out("dependency review schedule removed: WARDEN_DEPWATCH_REPO is not set", err=True)
+                except RPCError as exc:  # as above: the incidents this worker runs never wait on the review
+                    _out(f"the dependency review's schedule could not be removed ({type(exc).__name__})", err=True)
             publish = runtime.cloudwatch_publisher()
             if publish is None:
                 await asyncio.Event().wait()

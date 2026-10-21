@@ -354,6 +354,12 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Talking to WARDEN about an incident: adopted - Slack's own Python SDK (slack-sdk, MIT) for the Socket Mode
   connection, so WARDEN needs no public address for it; built - `discuss.py`, which hears only mentions in one channel
   and hands each to a workflow. Slack's Bolt framework adds routing and middleware for many handlers; WARDEN has one.
+- Reviewing Dependabot's PRs and security alerts: adopted - Dependabot itself (the PRs, the release notes it quotes,
+  the alerts API), GitHub Actions' own run results for CI and a Temporal Schedule for the timing; built -
+  `depwatch.py`, a few GETs with the standard library, a static read of the repository (`ast`), facts-only notes and
+  rules for risk and plan. PyGithub would be a dependency for five read calls; Renovate's merge confidence and
+  GitHub's dependency-review action judge a package across the ecosystem, not where WARDEN's own code uses it, and the
+  action's verdict reaches the review anyway as one of the PR's CI runs.
 - What is expected to be down: built - `expected.py`, a person's declarations (an environment's nights, weekends
   and holidays; a service or a resource not in use) read at intake, and Temporal's own start delay to look at the
   alarm again when the cover ends. AWS Instance Scheduler and a tag convention say when something is stopped, not

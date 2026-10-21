@@ -20,7 +20,8 @@ from warden.workflows import IncidentWorkflow
 EVERY = {"after_hold", "prepare", "reread", "investigate", "plan_fix", "diagnose", "verify", "second_opinion", "notify", "no_plan", "resolve_plan", "gate", "announce", "check_approval",
          "check_passkey", "precheck", "apply", "check_success", "record_result", "rollback", "finish",
          "discuss_thread", "discuss_facts", "discuss_evidence", "discuss_answer", "discuss_reply", "discuss_replan", "summary_owed",
-         "side_effects", "again_alert", "critic_review", "autonomy_state", "autonomy_enable"}  # the core zone: WARDEN's own record only
+         "side_effects", "again_alert", "critic_review", "autonomy_state", "autonomy_enable",
+         "depwatch_read", "depwatch_effects", "depwatch_review", "depwatch_post"}  # the core zone: WARDEN's own record only
 
 
 def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alone():
@@ -32,7 +33,8 @@ def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alon
     assert set(zoned) <= EVERY
     assert workflows.ZONES["act"] == ("apply", "rollback")  # the only writes, with the only actor roles
     # The only model calls: an incident's diagnosis, and an answer in its discussion (G10-45) - which has no tool.
-    assert workflows.ZONES["llm"] == ("diagnose", "discuss_answer")
+    # ... and the dependency review's effects (depwatch.py), from facts only.
+    assert workflows.ZONES["llm"] == ("diagnose", "discuss_answer", "depwatch_effects")
     # Eldane, the AI critic (eldane.py): its own model and its own signing key, apart from WARDEN's diagnoser.
     assert workflows.ZONES["critic"] == ("critic_review",)
     # investigate reads more of what the alert names (G9-B): the read zone, with the reader roles. reread reads the
@@ -42,7 +44,8 @@ def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alon
     # discuss_evidence reads an incident's evidence again for its discussion (G10-45), and discuss_replan its alarm
     # for an approver's new plan: reads only, the read zone.
     assert set(workflows.ZONES["read"]) == {"prepare", "reread", "investigate", "plan_fix", "resolve_plan", "precheck",
-                                            "check_success", "after_hold", "discuss_evidence", "discuss_replan"}
+                                            "check_success", "after_hold", "discuss_evidence", "discuss_replan",
+                                            "depwatch_read"}
 
 
 def test_each_zones_worker_serves_only_that_zone():

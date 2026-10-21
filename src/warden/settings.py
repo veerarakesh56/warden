@@ -85,6 +85,9 @@ LOADABLE = frozenset({
     # The watched database's DSNs carry no password: each read signs an IAM token in the incident's reader role
     # (aws_stack.iam_dsn).
     "WARDEN_STACK_DB_IAM_AUTH",
+    # The dependency review (depwatch.py): the repository it reviews and how often, plain. Its GitHub token is the read
+    # zone's read-only one above (warden/<env>/github-read-token, taken in tools.github_read_token).
+    "WARDEN_DEPWATCH_REPO", "WARDEN_DEPWATCH_EVERY_HOURS",
     # The live platforms in the cloud runtime (platforms/k8s.py, platforms/db.py): the namespace the Kubernetes one
     # serves, the environment of the one watched database and the application logins it may close sessions of. Plain;
     # each only narrows what an approved plan may touch.

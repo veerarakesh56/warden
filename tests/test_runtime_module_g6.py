@@ -306,7 +306,7 @@ ZONE_READS = {
     "WARDEN_STACK_DB_REPLICA_RO_DSN": ("aws_stack.py", {"read"}),
     "WARDEN_DATADOG_API_KEY": ("datadog.py", {"read"}),
     "WARDEN_DATADOG_APP_KEY": ("datadog.py", {"read"}),
-    # The read-only GitHub token: one slot for every read-zone reader of GitHub (owner U3-7).
+    # The read-only GitHub token: one slot for every read-zone reader of GitHub (owner U3-7), the dependency review's too.
     "WARDEN_GITHUB_READ_TOKEN": (("tools.py",), {"read"}),
     "ANTHROPIC_API_KEY": ("providers.py", {"llm", "critic"}),
     "WARDEN_SLACK_BOT_TOKEN": ("chatops.py", {"notify"}),
