@@ -179,7 +179,7 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
                              "WARDEN_GITHUB_TOKEN"},
     # The terminate login's DSN (no password: each close signs in with a token an approved plan's actor signs),
     # and the code-fix GitHub App (github_app.py, register B4): a write credential, so the zone that writes. Its
-    # token is narrowed to one repository, contents and pull requests.
+    # token is narrowed to one repository: contents and pull requests (write), checks (read).
     "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN", "WARDEN_CODEFIX_APP_ID", "WARDEN_CODEFIX_APP_KEY"},
     # Eldane, the AI critic (eldane.py): the same Claude API key as the diagnosis (owner, 2026-10-17), and its own
     # signing key, which nobody else holds.

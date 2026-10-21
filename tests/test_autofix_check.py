@@ -153,9 +153,9 @@ def pull(**kw) -> PullState:
 
 
 GREEN = [("autofix-regression", "completed", "success"), ("SonarCloud Code Analysis", "completed", "success"),
-         ("check / validate", "completed", "success"), ("Analyze (python)", "completed", "success"),
+         ("check / check", "completed", "success"), ("Analyze (python)", "completed", "success"),
          ("zizmor", "completed", "skipped")]
-REQUIRED = ("autofix-regression", "SonarCloud Code Analysis", "check / validate", "Analyze (python)")
+REQUIRED = ("autofix-regression", "SonarCloud Code Analysis", "check / check", "Analyze (python)")
 REVIEWED = ReviewState(reviewed_head=True, changes_requested=False, open_threads=0)
 
 
@@ -187,8 +187,8 @@ def test_everything_green_merges():
     ({"checks": GREEN[1:]}, "not passed on cccccccccccc: autofix-regression"),
     ({"checks": [("autofix-regression", "completed", "skipped"), *GREEN[1:]]},  # a required job skipped is not green
      "not passed on cccccccccccc: autofix-regression"),
-    ({"checks": [*GREEN[:2], ("check / validate", "completed", "neutral"), *GREEN[3:]]},
-     "not passed on cccccccccccc: check / validate"),
+    ({"checks": [*GREEN[:2], ("check / check", "completed", "neutral"), *GREEN[3:]]},
+     "not passed on cccccccccccc: check / check"),
     ({"review": ReviewState(False, False, 0)}, "CodeRabbit"),
     ({"review": ReviewState(True, True, 0)}, "CodeRabbit"),
     ({"review": ReviewState(True, False, 1)}, "CodeRabbit"),

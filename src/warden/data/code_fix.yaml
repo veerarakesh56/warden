@@ -31,5 +31,7 @@ auto_merge:
   required_checks:
     - autofix-regression
     - SonarCloud Code Analysis
-    - check / validate
+    # CI · apps: the only CI workflow a change under scenarios/fullstack/ starts (CI · tool ignores those paths and
+    # CI · infra's `check / validate` watches terraform only - it never runs here, so naming it held every merge).
+    - check / check
     - Analyze (python)

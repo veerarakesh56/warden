@@ -384,6 +384,7 @@ class RepoWriter:
                                                                             "number": _number(number)}})
         _expect(status, 200, f"the reviews of #{number}")
         pr = _pull_request_node(got, number)
+        _all_threads_read(pr, number)
         reviews = [r for r in _nodes(pr, "reviews") if _login(r) == reviewer]
         mine = [t for t in _nodes(pr, "reviewThreads") if _login(_first_comment(t)) == reviewer]
         return {"reviewed_head": any((r.get("commit") or {}).get("oid") == head for r in reviews),
@@ -399,7 +400,8 @@ class RepoWriter:
 
 _REVIEWS = """query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-    reviewThreads(first: 100) { nodes { isResolved comments(first: 1) { nodes { author { login } } } } }
+    reviewThreads(first: 100) { totalCount pageInfo { hasNextPage }
+      nodes { isResolved comments(first: 1) { nodes { author { login } } } } }
     reviews(last: 50) { nodes { state commit { oid } author { login } } }
   } }
 }"""
@@ -415,6 +417,16 @@ def _pull_request_node(got: Any, number: int) -> dict[str, Any]:
 
 def _nodes(node: dict[str, Any], key: str) -> list[dict[str, Any]]:
     return [n for n in (node.get(key) or {}).get("nodes") or [] if isinstance(n, dict)]
+
+
+def _all_threads_read(pr: dict[str, Any], number: int) -> None:
+    """Every review thread is in the one page read: more than 100, or a page GitHub did not say was the last, is
+    refused - an unread thread could be an open one."""
+    threads = pr.get("reviewThreads") or {}
+    more = (threads.get("pageInfo") or {}).get("hasNextPage") if isinstance(threads, dict) else None
+    total = threads.get("totalCount") if isinstance(threads, dict) else None
+    if more is not False or total != len(_nodes(pr, "reviewThreads")):
+        raise GitHubAppError(f"the review threads of #{number} could not all be read")
 
 
 def _first_comment(thread: dict[str, Any]) -> Any:

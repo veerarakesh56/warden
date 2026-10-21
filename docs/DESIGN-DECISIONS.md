@@ -324,7 +324,8 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Writing a code fix to GitHub: adopted - a GitHub App's installation token and GraphQL `createCommitOnBranch`, which
   GitHub signs (verified, authored by the App), through `github_app.py`: a handful of HTTPS calls with the standard
   library and `cryptography` (already a dependency) for the App's RS256 token. PyGithub or githubkit would be a
-  dependency for those calls, and neither narrows a token to one repository and two permissions by itself.
+  dependency for those calls, and neither narrows a token to one repository and three permissions (contents and pull
+  requests: write, checks: read) by itself.
 - Reverting a deployed commit as a pull request: built - `code_fix.py` (2026-10-20). `git revert` needs a clone and
   a writable checkout in the act zone; GitHub has no revert API for a single commit. The commit's diff is read
   from GitHub, taken back hunk by hunk where its exact lines are found once, and the result is checked by the code

@@ -123,7 +123,7 @@ def test_an_app_id_of_the_wrong_shape_is_refused(app_id):
 
 # ------------------------------------------------------------------------------------------ the installation token
 
-def test_the_token_is_asked_for_one_repository_and_two_permissions(creds):
+def test_the_token_is_asked_for_one_repository_and_three_permissions(creds):
     api, log = fake_api((200, {"id": 42}), (201, TOKEN_REPLY))
     got = GitHubApp(creds, api=api, clock=lambda: NOW).installation_token(REPO)
     assert got.repository == REPO
@@ -392,9 +392,9 @@ def test_default_branch_is_read_and_checked():
             writer.default_branch()
 
 
-def _reviews_reply(reviews, threads, errors=None):
-    reply = {"data": {"repository": {"pullRequest": {"reviews": {"nodes": reviews},
-                                                       "reviewThreads": {"nodes": threads}}}}}
+def _reviews_reply(reviews, threads, errors=None, *, total=None, more=False):
+    page = {"nodes": threads, "totalCount": len(threads) if total is None else total, "pageInfo": {"hasNextPage": more}}
+    reply = {"data": {"repository": {"pullRequest": {"reviews": {"nodes": reviews}, "reviewThreads": page}}}}
     return {**reply, "errors": errors} if errors else reply
 
 
@@ -424,6 +424,17 @@ def test_review_state_another_head_or_changes_requested():
 def test_review_state_that_cannot_be_read_raises(reply):
     writer = RepoWriter(token(), api=fake_api((200, reply))[0])
     with pytest.raises(GitHubAppError, match="could not be read"):
+        writer.review_state(7, SHA)
+
+
+@pytest.mark.parametrize("reply", [
+    _reviews_reply([], [_thread("coderabbitai", True)], more=True),  # a second page of threads
+    _reviews_reply([], [_thread("coderabbitai", True)], total=101),  # more threads than the page holds
+    {"data": {"repository": {"pullRequest": {"reviews": {"nodes": []}, "reviewThreads": {"nodes": []}}}}},  # no counts
+])
+def test_review_state_refuses_threads_it_could_not_all_read(reply):
+    writer = RepoWriter(token(), api=fake_api((200, reply))[0])
+    with pytest.raises(GitHubAppError, match="could not all be read"):
         writer.review_state(7, SHA)
 
 
