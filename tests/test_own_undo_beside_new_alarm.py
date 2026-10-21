@@ -34,7 +34,10 @@ def test_warden_undo_is_a_change_beside_the_new_alarm_with_its_own_item(tmp_path
                for ln in lines)
     step = log.entries(alert.alert_id, kinds=("incident.own_fixes",))[-1]["body"]
     fix, undo = sorted(step["fixes"], key=lambda f: bool(f.get("undo")))
-    assert fix["item"] and undo["item"] and fix["item"] != undo["item"] and undo["undo"] == "1"
+    assert fix["item"]
+    assert undo["item"]
+    assert fix["item"] != undo["item"]
+    assert undo["undo"] == "1"
     # Citing the undo as the cause does not count the fix as failed; citing the fix does.
     inc.verify(pack, _diagnosed([undo["item"]]))
     assert not log.entries("inc-earlier", kinds=(bounds.RESULT,))

@@ -116,7 +116,8 @@ def test_no_path_is_exempt_from_the_scan(tmp_path):
     refuse each one. A path exemption, for a file or a directory, fails this."""
     tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True,
                              check=True).stdout.splitlines()
-    assert "src/warden/redaction.py" in tracked and "tests/test_redaction.py" in tracked
+    assert "src/warden/redaction.py" in tracked
+    assert "tests/test_redaction.py" in tracked
     key = _synth("AKIA", "Q3RZ7XKM", "2PLW5NBT")
     for rel in tracked:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -228,7 +229,8 @@ def test_new_files_not_yet_git_added_are_scanned(monkeypatch):
     monkeypatch.setattr(cp.subprocess, "run", fake_run)
     cp._tracked_files(staged=False)
     assert seen["cmd"][:2] == ["git", "ls-files"]
-    assert "--others" in seen["cmd"] and "--exclude-standard" in seen["cmd"]
+    assert "--others" in seen["cmd"]
+    assert "--exclude-standard" in seen["cmd"]
 
 
 
@@ -242,7 +244,8 @@ def _scan_one(tmp_path, sub, name, content):
 def test_a_personal_email_is_refused_and_a_fixture_domain_is_not(tmp_path):
     """Owner rule R3. The scanner had no email pattern at all (independent review, 2026-09-28)."""
     code, out = _scan_one(tmp_path, "a", "notes.md", "contact: someone.real@" + "gmail.com\n")  # split
-    assert code != 0 and "personal email" in out.lower(), out
+    assert code != 0, out
+    assert "personal email" in out.lower(), out
     code, out = _scan_one(tmp_path, "b", "notes.md", "contact: some%40" + "outlook.com\n")
     assert code != 0, out
     code, out = _scan_one(tmp_path, "c", "fixture.md", "user priya.nair@corp.io logged in\n")
@@ -251,7 +254,8 @@ def test_a_personal_email_is_refused_and_a_fixture_domain_is_not(tmp_path):
 
 def test_a_bare_account_id_is_refused_and_the_documented_example_is_not(tmp_path):
     code, out = _scan_one(tmp_path, "a", "a.md", "account " + "4444" + "55556666" + " owns it\n")  # split
-    assert code != 0 and "account id" in out.lower(), out
+    assert code != 0, out
+    assert "account id" in out.lower(), out
     code, out = _scan_one(tmp_path, "b", "b.md", "account 123456789012 is the AWS docs example\n")
     assert code == 0, out
 
@@ -277,3 +281,38 @@ def test_vendor_token_shapes_are_caught(tmp_path, value):
     spec.loader.exec_module(cp)
     names = [name for name, rx, _ in cp.PATTERNS if rx.search(f"x = '{value}'")]
     assert names, value
+
+
+# --------------------------------------------------------------------------- scan(), called directly
+
+
+def _module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("check_publishable", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_scan_reports_each_finding_with_its_place_in_order(tmp_path):
+    """Characterisation (before the cognitive-complexity split of scan): a forbidden name (not read), a missing file
+    (skipped), a path outside the root (named in full), a binary file read through its bytes, every match on a line
+    in pattern order, a documented example and a placeholder value let through."""
+    mod = _module()
+    key = _synth("AKIA", "2E0RXAMPLE", "Q7WXYZ")
+    account = _synth("847263", "519048")
+    (tmp_path / ".env").write_text(f"K={key}\n", encoding="utf-8")
+    (tmp_path / "notes.md").write_text(f"fine\nkey {key} in arn:aws:iam::{account}:root\n{AWS_ACCESS_KEY_ID}\n"
+                                       "aws_access_key_id: <YOUR_KEY_HERE>\n", encoding="utf-8")
+    (tmp_path / "blob.bin").write_bytes(b"\x00\x01" + key.encode() + b"\xff")
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+    outside.write_text(f"{key}\n", encoding="utf-8")
+    paths = [tmp_path / ".env", tmp_path / "gone.txt", tmp_path / "notes.md", tmp_path / "blob.bin", outside]
+    assert mod.scan(paths, root=tmp_path) == [
+        ".env: this file must never be tracked by git",
+        "notes.md:2: an AWS access key id (aws-access-key: AKIA...YZ)",
+        "notes.md:2: a 12-digit AWS account id (account-id: 8472...48)",
+        "blob.bin:1: an AWS access key id (aws-access-key: AKIA...YZ)",
+        f"{outside}:1: an AWS access key id (aws-access-key: AKIA...YZ)",
+    ]

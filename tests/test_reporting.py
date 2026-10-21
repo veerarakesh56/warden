@@ -58,7 +58,8 @@ def test_promotion_excludes_environments_that_deny_the_action():
 
 def test_prod_has_no_promotion_targets():
     rep = build_report(_alert(environment="prod"), proposal=_prop(ActionKind.scale_up))
-    assert rep.promotion == () and rep.data["promotion"] == []
+    assert rep.promotion == ()
+    assert rep.data["promotion"] == []
 
 
 def test_report_always_carries_the_safety_line():
@@ -88,7 +89,8 @@ def test_promotion_names_the_account_to_use_in_each_target_env_in_the_data_only(
     # every promotion target carries the credentials pointer for that environment
     for t in rep.data["promotion"]:
         assert t["credentials_ref"], f"{t['environment']} missing credentials_ref"
-    assert "warden-prod-deploy" not in rep.markdown and "## Promotion" not in rep.markdown
+    assert "warden-prod-deploy" not in rep.markdown
+    assert "## Promotion" not in rep.markdown
 
 
 def test_a_hand_off_says_a_person_should_look_and_promotes_nothing():
@@ -96,20 +98,26 @@ def test_a_hand_off_says_a_person_should_look_and_promotes_nothing():
     recorded, nothing to run" and listed three environments in which "a human applies this fix"."""
     safe = Verdict(status=VerdictStatus.auto_safe)
     handed = build_report(_alert(), proposal=_prop(ActionKind.escalate_to_human), verdict=safe).markdown
-    assert "**Next step: Handed to a person" in handed and "Someone should look" in handed
-    assert "nothing to run" not in handed and "Promotion" not in handed and "applies this fix" not in handed
+    assert "**Next step: Handed to a person" in handed
+    assert "Someone should look" in handed
+    assert "nothing to run" not in handed
+    assert "Promotion" not in handed
+    assert "applies this fix" not in handed
     quiet = build_report(_alert(), proposal=_prop(ActionKind.no_action), verdict=safe).markdown
-    assert "**Next step: No change proposed - recorded, nothing to run.**" in quiet and "Promotion" not in quiet
+    assert "**Next step: No change proposed - recorded, nothing to run.**" in quiet
+    assert "Promotion" not in quiet
     # A hand-off the gate did not let stand keeps the gate's own next step.
     held = build_report(_alert(), proposal=_prop(ActionKind.escalate_to_human),
                         verdict=Verdict(status=VerdictStatus.escalated)).markdown
-    assert "**Next step: Escalated - a person decides." in held and "Promotion" not in held
+    assert "**Next step: Escalated - a person decides." in held
+    assert "Promotion" not in held
 
 
 def test_a_fix_held_for_approval_offers_no_manual_replay():
     fix = build_report(_alert(), proposal=_prop(ActionKind.scale_up),
                        verdict=Verdict(status=VerdictStatus.approved_for_human)).markdown
-    assert "## Promotion" not in fix and "deploy role" not in fix
+    assert "## Promotion" not in fix
+    assert "deploy role" not in fix
     assert "**Next step: Held for approval - WARDEN applies its fix plan only if an approver approves it.**" in fix
 
 
@@ -132,9 +140,12 @@ def test_the_timeline_and_the_key_lines_show_the_change_nearest_the_alert_and_an
                     "change recorded: `DisableRule on warden-dev-lab-tick by role/warden-dev-harness`",
                     "alert `PodOOMKilled` fired"]  # the hour before the alert, in order; nothing older
     keys = _key_log_lines(logs)
-    assert keys[0].startswith("CHANGE 2026-10-12T18:54:01Z") and not any("T13:" in k for k in keys) and len(keys) == 4
+    assert keys[0].startswith("CHANGE 2026-10-12T18:54:01Z")
+    assert not any("T13:" in k for k in keys)
+    assert len(keys) == 4
     undo = build_report(alert, proposal=_prop(ActionKind.revert_change))
-    assert undo.promotion == () and "## Promotion" not in undo.markdown
+    assert undo.promotion == ()
+    assert "## Promotion" not in undo.markdown
     assert build_report(alert, proposal=_prop(ActionKind.scale_up)).promotion  # a change to replay still is
 
 
@@ -150,9 +161,11 @@ def test_a_follow_ups_heading_is_printed_only_with_a_follow_up_under_it():
         return build_report(alert, proposal=_prop(ActionKind.revert_change), context=ContextBundle(logs=logs)).markdown
 
     fired_by_that_alarm = report(alarm="warden-dev-lab-tick-silent")
-    assert "Scheduled rule disabled" in fired_by_that_alarm and "## Follow-ups by team" not in fired_by_that_alarm
+    assert "Scheduled rule disabled" in fired_by_that_alarm
+    assert "## Follow-ups by team" not in fired_by_that_alarm
     with_one = report()  # no such alarm yet: the follow-up is worth making, under its heading
-    assert "## Follow-ups by team" in with_one and "Alarm on the target's Invocations dropping to zero" in with_one
+    assert "## Follow-ups by team" in with_one
+    assert "Alarm on the target's Invocations dropping to zero" in with_one
 
 
 def test_based_on_is_the_models_reasoning_not_the_ids_the_citations_already_show():
@@ -165,6 +178,7 @@ def test_based_on_is_the_models_reasoning_not_the_ids_the_citations_already_show
                           citations=[Citation(id="C2", quote="DisableRule"), Citation(id="M9", quote="rule_enabled=0")])
         return build_report(_alert(), root_cause=cause, proposal=_prop()).markdown
 
-    assert "**Based on:**" not in said(["C2", " M9 "]) and "**Cited evidence**" in said(["C2", "M9"])
+    assert "**Based on:**" not in said(["C2", " M9 "])
+    assert "**Cited evidence**" in said(["C2", "M9"])
     mixed = said(["C2", "C2 shows the most recent change is DisableRule", "L7"])
     assert "**Based on:**\n- C2 shows the most recent change is DisableRule\n- L7" in mixed  # an uncited id stays

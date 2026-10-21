@@ -64,7 +64,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: app
-          image: shop-app  # the commit's image, set by the shop Application
+          # The commit's image by digest, set by the shop Application: its kustomize image override replaces this
+          # name and tag with <repository>@sha256:<digest>, so this tag is never pulled.
+          image: shop-app:set-by-argocd
           ports:
             - name: https
               containerPort: 8080
