@@ -118,6 +118,7 @@ def prompt_chars(cases: list[Case]) -> dict[str, int]:
         name, model, version = "offline-render", "offline-render", "0"
 
         def complete(self, *, system, user, schema=None):
+            """The provider interface's call, by its keyword names; `schema` is not read - only the size is kept."""
             seen.append(len(system) + len(user))
             raise _Rendered  # permanent: llm.structured makes no second attempt; the diagnosis is rules-only
 
