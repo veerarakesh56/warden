@@ -957,6 +957,23 @@ class AwsPlatform:
             raise AwsPlatformError("no approvers were handed to the AWS platform for the rollback")
         return self._change(entry, params, snapshot, who, back=True)
 
+    def permitted(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any], incident: str,
+                  environment: str) -> dict[str, Any]:
+        """B12 (permits.py): whether this environment's actor role allows the calls applying and undoing this plan
+        would make - the entry's own write code, run to its first call to AWS against an actor that sends nothing."""
+        from .. import permits
+
+        if entry not in _KINDS:
+            return {"checked": False, "denied": [], "unconfirmed": [f"{entry} is not an AWS entry"]}
+
+        def run(actor: Actor) -> str:
+            dry = AwsPlatform(reader=self._read, actor=actor, clock=self._now, sleep=lambda _s: None)
+            return dry._change(entry, params, snapshot, {"incident": incident, "plan_hash": "", "approvers": []},
+                               back=False)
+
+        return permits.check(entry, run=run, iam=lambda: self._read("iam"), incident=incident,
+                             environment=environment, env_tag=ENV_TAG, snapshot=snapshot)
+
     def _change(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any], who: dict[str, Any],
                 back: bool) -> str:
         now = self.live(entry, params).get("state")

@@ -83,6 +83,14 @@ class RoutedPlatform:
         p = self._for(entry, environment)
         return bool(p and p.healthy(service, **_accepted(p.healthy, entry=entry, params=params)))
 
+    def permitted(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any], incident: str,
+                  environment: str) -> dict[str, Any] | None:
+        """B12: whether the actor allows this plan's calls, from the platform that carries it out; None when that
+        platform has no such check (Kubernetes, a database) or none is connected."""
+        p = self._for(entry, environment)
+        check = getattr(p, "permitted", None)
+        return check(entry, params, snapshot, incident=incident, environment=environment) if check else None
+
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any],
                  who: dict[str, Any] | None = None, environment: str | None = None) -> str:
         p = self._for(entry, environment)
