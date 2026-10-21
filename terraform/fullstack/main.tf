@@ -204,7 +204,7 @@ resource "aws_security_group" "alb" {
     security_groups = [aws_security_group.lambda.id]
   }
   egress {
-    description = "To the ECS tasks"
+    description = "To the ECS tasks (HTTPS on 8080)"
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
@@ -217,7 +217,7 @@ resource "aws_security_group" "ecs" {
   description = "orders-api tasks. 8080 from the load balancer only."
   vpc_id      = aws_vpc.this.id
   ingress {
-    description     = "HTTP from the load balancer"
+    description     = "HTTPS from the load balancer (TLS served by the task)"
     from_port       = 8080
     to_port         = 8080
     protocol        = "tcp"

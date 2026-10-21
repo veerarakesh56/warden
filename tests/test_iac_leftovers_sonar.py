@@ -430,3 +430,41 @@ def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
     assert lines[at + 3].startswith('note "✅ EKS rejected')
     assert lines[at + 4] == "else"
     assert "Pod Security NOT shown" in lines[at + 5]
+
+
+# ----------------------------------------------------------------- the shop's own HTTPS (owner row 25)
+
+def test_the_alb_reaches_the_orders_tasks_over_https_and_checks_their_health_over_https():
+    """Sonar python:S5332 (row 25): the tasks serve HTTPS themselves (tests/test_shop_https_s5332.py), so the target
+    group and its health check speak HTTPS to them - the placeholder too, before the first deploy."""
+    ecs = FULLSTACK / "ecs.tf"
+    tg = _flat(_block(ecs, "aws_lb_target_group", "orders"))
+    assert 'port = 8080 protocol = "HTTPS"' in tg
+    assert re.search(r'health_check \{ protocol = "HTTPS" path = "/health"', tg), tg
+    task = _flat(_block(ecs, "aws_ecs_task_definition", "orders_api"))
+    assert "openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256" in task
+    assert "c.minimum_version = ssl.TLSVersion.TLSv1_2" in task
+    assert "s.socket = c.wrap_socket(s.socket, server_side=True)" in task
+    # The placeholder runs on Debian's slim Python, which carries openssl (Debian's ca-certificates needs it).
+    assert 'image = "public.ecr.aws/docker/library/python:3.12-slim@sha256:' in task
+
+
+def test_nothing_reaches_the_alb_or_the_orders_tasks_except_through_their_own_security_groups():
+    """The tasks' certificate is unverified by design of the ALB, so nothing but the ALB may reach them, and nothing
+    but the in-VPC Lambdas the ALB: no CIDR on either group, inline or in a separate rule in any .tf file
+    (CodeRabbit, via lane H). Rules that only *name* these groups as a source (redis_apps) are fine."""
+    main = FULLSTACK / "main.tf"
+    alb, ecs = _flat(_block(main, "aws_security_group", "alb")), _flat(_block(main, "aws_security_group", "ecs"))
+    for body in (alb, ecs):
+        ingress = re.findall(r"ingress \{(.*?)\}", body)
+        assert ingress and all("cidr" not in rule and "prefix_list" not in rule for rule in ingress), ingress
+    assert "security_groups = [aws_security_group.lambda.id]" in alb
+    assert "security_groups = [aws_security_group.alb.id]" in ecs
+    for tf in sorted(ROOT.joinpath("terraform").rglob("*.tf")):
+        text = _code(tf.read_text(encoding="utf-8"))
+        for kind in ("aws_vpc_security_group_ingress_rule", "aws_security_group_rule"):
+            for name in re.findall(rf'^resource "{kind}" "(\w+)"', text, re.MULTILINE):
+                body = _flat(_block(tf, kind, name))
+                target = re.search(r"security_group_id = (\S+)", body)
+                assert not (target and re.search(r"aws_security_group\.(alb|ecs)\b", target.group(1))), \
+                    (tf.name, name, "a separate rule opens the ALB or the orders tasks")

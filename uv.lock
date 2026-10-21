@@ -3612,6 +3612,7 @@ slack = [
 [package.dev-dependencies]
 apps-check = [
     { name = "boto3" },
+    { name = "cryptography" },
     { name = "packaging" },
     { name = "pip" },
     { name = "psycopg", extra = ["binary"] },
@@ -3688,6 +3689,7 @@ provides-extras = ["dev", "anthropic", "gemini", "openai", "mcp", "slack", "k8s"
 [package.metadata.requires-dev]
 apps-check = [
     { name = "boto3", specifier = ">=1.43.110" },
+    { name = "cryptography", specifier = ">=50.0.2" },
     { name = "packaging", specifier = ">=24" },
     { name = "pip", specifier = ">=24" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },

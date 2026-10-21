@@ -12,15 +12,17 @@ DB_USER on DB_HOST, and it is reused for 9 of its 15 minutes.
   cart-worker  EKS. Touches Redis in a loop; /health on 8080 for its probes.
 
 Feature flag ORDERS_FF_1 (set by the stack): a working set, in MiB, held from start.
-Every role serves HTTPS only (Sonar python:S5332): TLS_CERT_PEM and TLS_KEY_PEM carry the stack's certificate and
-key - ECS injects them from Secrets Manager, EKS from Secret shop-tls - and the app refuses to start without them.
-Framework-free on purpose: http.server from the stdlib, psycopg, redis, boto3. Nothing else.
+Every role serves HTTPS only (Sonar python:S5332), with a certificate it makes for itself at start.
+Framework-free on purpose: http.server from the stdlib, psycopg, redis, boto3, cryptography. Nothing else.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import os
+import secrets
+import socket
 import ssl
 import sys
 import tempfile
@@ -32,6 +34,10 @@ from typing import ClassVar
 import boto3
 import psycopg
 import redis
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 from redis.backoff import NoBackoff
 from redis.retry import Retry
 
@@ -42,6 +48,7 @@ _held: list[bytearray] = []  # the working set, held for the process's life
 TOKEN_REUSE_S = 540  # an IAM token is valid for 15 min; never hand out one older than 9
 _tokens: dict[tuple[str, str], tuple[str, float]] = {}
 _token_lock = threading.Lock()
+CERT_DAYS = 365  # the container's own certificate; nobody verifies it, so it only has to outlive the container
 
 
 def setup_logging() -> None:
@@ -199,28 +206,36 @@ def cart_worker_loop(interval: int) -> None:
 
 
 
-def load_certificate(context: ssl.SSLContext) -> None:
-    """The certificate and key from TLS_CERT_PEM / TLS_KEY_PEM. ssl reads them only from files, so they are written,
-    owner-only, into a private temporary directory that is gone again once they are loaded. Missing = exit."""
-    cert = os.environ.get("TLS_CERT_PEM", "")
-    key = os.environ.get("TLS_KEY_PEM", "")
-    if "-----BEGIN CERTIFICATE-----" not in cert or "PRIVATE KEY-----" not in key:
-        log.error("invalid configuration: TLS_CERT_PEM and TLS_KEY_PEM must hold a PEM certificate and its key; "
-                  "refusing to start")
-        sys.exit(2)
+def self_signed_certificate(context: ssl.SSLContext) -> None:
+    """A certificate this process makes for itself at start: nothing is stored or distributed, nothing costs, and the
+    key never leaves the container. Its callers do not verify a target's certificate - the ALB (AWS: "the load
+    balancer does not validate these certificates") and the kubelet's HTTPS probes ("skipping the certificate
+    verification") - and nothing else calls the shop services. ssl loads a key only from a file, so the file holds it
+    encrypted under a one-time password that exists only in this function, and is gone once loaded."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"shop-{ROLE}")])
+    now = datetime.datetime.now(datetime.UTC)
+    cert = (x509.CertificateBuilder()
+            .subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(minutes=5))
+            .not_valid_after(now + datetime.timedelta(days=CERT_DAYS))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName(socket.gethostname() or "localhost")]),
+                           critical=False)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .sign(key, hashes.SHA256()))
+    password = secrets.token_bytes(32)
     with tempfile.TemporaryDirectory(prefix="tls-") as folder:
         paths = []
-        for name, pem in (("cert.pem", cert), ("key.pem", key)):
-            path = os.path.join(folder, name)
-            with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="ascii") as out:
+        for filename, pem in (("cert.pem", cert.public_bytes(serialization.Encoding.PEM)),
+                              ("key.pem", key.private_bytes(serialization.Encoding.PEM,
+                                                            serialization.PrivateFormat.PKCS8,
+                                                            serialization.BestAvailableEncryption(password)))):
+            path = os.path.join(folder, filename)
+            with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
                 out.write(pem)
             paths.append(path)
-        try:
-            context.load_cert_chain(*paths)
-        except (ssl.SSLError, ValueError):
-            log.error("invalid configuration: TLS_CERT_PEM / TLS_KEY_PEM do not load as a certificate and its key; "
-                      "refusing to start")
-            sys.exit(2)
+        context.load_cert_chain(*paths, password=password)
 
 
 def main() -> None:
@@ -255,7 +270,7 @@ def main() -> None:
     port = int(os.environ.get("PORT", "8080"))
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)  # a server context: no client certificate is asked for
     context.minimum_version = ssl.TLSVersion.TLSv1_2
-    load_certificate(context)
+    self_signed_certificate(context)
     server = ThreadingHTTPServer(("", port), Handler)
     server.socket = context.wrap_socket(server.socket, server_side=True)
     log.info("%s listening on %d (HTTPS)", ROLE, port)

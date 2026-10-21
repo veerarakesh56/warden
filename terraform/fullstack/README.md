@@ -29,7 +29,12 @@ job behind a person's approval; it is `dev` merged by pull request. A commit tha
 before the job holds a credential.
 
 Lambdas are created from a placeholder zip, ECS from a placeholder container that answers 200 on
-every path; every code field is in `ignore_changes`, so a re-apply never rolls the apps back.
+every path over HTTPS; every code field is in `ignore_changes`, so a re-apply never rolls the apps back.
+
+The shop's containers serve HTTPS only (Sonar python:S5332, owner row 25): each makes its own self-signed certificate
+at start (`scenarios/fullstack/app/app.py`; the placeholder with the image's openssl), so nothing is stored and nothing
+costs. Their only callers do not verify a target's certificate: the ALB (target group and health check on HTTPS) and the
+kubelet's `scheme: HTTPS` probes. The ALB's own listener has the stack's certificate, which the traffic Lambda pins.
 Kubernetes objects are not in terraform at all.
 
 ## ⛔ Cost - about USD 0.53/hour, USD 13/day (after the cost plan)
