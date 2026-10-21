@@ -18,6 +18,9 @@ locals {
   self_alarms = concat(var.paused ? [] : [aws_cloudwatch_metric_alarm.heartbeat.alarm_name,
     aws_cloudwatch_metric_alarm.synthetic.alarm_name, aws_cloudwatch_metric_alarm.worker_errors.alarm_name], [
     aws_cloudwatch_metric_alarm.killswitch.alarm_name,
+    aws_cloudwatch_metric_alarm.model["provider_unavailable"].alarm_name,
+    aws_cloudwatch_metric_alarm.model["daily_cap"].alarm_name,
+    aws_cloudwatch_metric_alarm.model["budget"].alarm_name,
     aws_cloudwatch_metric_alarm.alarm_dlq.alarm_name,
     aws_cloudwatch_metric_alarm.unapproved_actor.alarm_name,
     aws_cloudwatch_metric_alarm.approvers_changed.alarm_name,
@@ -198,6 +201,44 @@ resource "aws_cloudwatch_metric_alarm" "killswitch" {
   metric_name         = "KillSwitchTripped"
   statistic           = "Sum"
   period              = 60
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [var.page_topic_arn]
+  tags                = { Project = "warden", Environment = var.environment }
+}
+
+# The model could not be used (item 7c, paging.model_condition): its provider unavailable, the daily cap reached (the
+# incidents' daily cap or Eldane's daily call ceiling), or an incident's budget spent. The worker counts each condition
+# once per UTC day, whatever the number of calls it stops, so each pages at most once a day; the page says only the
+# fixed words below - never an error's text, a number from the evidence or a secret. Paged to the page topic, as
+# every alarm here: no address of its own.
+locals {
+  model_pages = {
+    provider_unavailable = {
+      metric = "ModelProviderUnavailable"
+      says   = "WARDEN's model provider is unavailable (down, out of capacity or not answering in time): incidents are escalated to a person on the rules alone. Check the provider's status page and the llm zone's log."
+    }
+    daily_cap = {
+      metric = "ModelDailyCapReached"
+      says   = "A WARDEN daily model limit is reached - the shared daily spend cap, or Eldane's daily call ceiling. Until its 24-hour window moves on: under the spend cap, incidents are escalated to a person on the rules alone and Slack discussions get the limit reply instead of an answer; under Eldane's ceiling, Eldane reviews no plan and a person approves. The audit's incident.llm_spend and eldane.call rows say which."
+    }
+    budget = {
+      metric = "ModelBudgetReached"
+      says   = "An incident spent its model budget (WARDEN_MAX_USD or WARDEN_MAX_CALLS): that incident is escalated to a person on the rules alone. Its incident.llm_spend rows say what was spent."
+    }
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "model" {
+  for_each            = local.model_pages
+  alarm_name          = "warden-${var.environment}-model-${replace(each.key, "_", "-")}"
+  alarm_description   = each.value.says
+  namespace           = "WARDEN/${var.environment}"
+  metric_name         = each.value.metric
+  statistic           = "Sum"
+  period              = 300
   evaluation_periods  = 1
   threshold           = 1
   comparison_operator = "GreaterThanOrEqualToThreshold"
