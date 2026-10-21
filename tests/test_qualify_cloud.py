@@ -72,7 +72,7 @@ def test_a_pass_on_the_pinned_prompt_adds_the_qualified_row_and_every_doc_says_s
         _result(correct=_bar()["min_correct"]), when=WHEN, **f
     )
     doc = yaml.safe_load(providers)
-    assert why.endswith(": qualified")
+    assert why == qc.OK_WORDS
     assert qualified_now(doc) == {SONNET}
     live = [r for r in doc["qualified"] if r["model"] == SONNET]
     assert len(live) == 1, "one live row per model: the earlier prompt's row is kept as a comment"
@@ -125,23 +125,31 @@ def test_a_passed_flag_alone_is_not_believed():
     assert not ok, why
 
 
-def test_from_result_writes_every_file_with_no_key_and_no_model_call(tmp_path, monkeypatch):
+def test_from_result_writes_every_file_with_no_key_and_no_model_call(tmp_path, monkeypatch, capsys):
     for name in ("PROVIDERS_YAML", "BENCHMARKS_MD", "README_MD"):
         copy = tmp_path / getattr(qc, name).name
         copy.write_text(getattr(qc, name).read_text(encoding="utf-8"), encoding="utf-8")
         monkeypatch.setattr(qc, name, copy)
     rendered = []
-    monkeypatch.setitem(sys.modules, "safety_pins", type(sys)("safety_pins"))
-    monkeypatch.setitem(sys.modules, "sbom", type(sys)("sbom"))
-    sys.modules["safety_pins"].main = lambda: rendered.append("pins")
-    sys.modules["sbom"].main = lambda: rendered.append("sbom")
+    pins, bill = type(sys)("safety_pins"), type(sys)("sbom")
+    pins.main = lambda: rendered.append("pins")
+    bill.main = lambda: rendered.append("sbom")
+    monkeypatch.setitem(sys.modules, "safety_pins", pins)
+    monkeypatch.setitem(sys.modules, "sbom", bill)
     monkeypatch.setattr(qc, "ROOT", tmp_path)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")  # recorded, so teardown restores whatever was there
     saved = tmp_path / "qualification.json"
     saved.write_text(json.dumps(_result(correct=_bar()["min_correct"] - 2)), encoding="utf-8")
     assert qc.main(["--from-result", str(saved)]) == 1
     assert rendered == ["pins", "sbom"]
-    assert "ANTHROPIC_API_KEY" not in __import__("os").environ
+    said = capsys.readouterr().out
+    assert "Old against new on the same replay set" in said, (
+        "the comparison is printed before anything is written"
+    )
+    assert (
+        "Verdict for new: claude-sonnet-5-5 against the bar: below the bar: NOT qualified" in said
+    )
+    assert __import__("os").environ["ANTHROPIC_API_KEY"] == "", "no key was read"
     assert "# NOT QUALIFIED - measured 2026-10-21 14:00" in qc.PROVIDERS_YAML.read_text(
         encoding="utf-8"
     )
@@ -162,7 +170,9 @@ class _Secrets:
 
 
 def test_the_key_is_the_runtime_slot_and_is_never_said(monkeypatch, capsys):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv(
+        "ANTHROPIC_API_KEY", ""
+    )  # recorded, so the fake key never outlives this test
     fake = ANTHROPIC_KEY_PREFIX + "test-" + "x" * 8
     secrets = _Secrets(fake)
     said = qc.model_key("someenv", secrets)
@@ -173,9 +183,38 @@ def test_the_key_is_the_runtime_slot_and_is_never_said(monkeypatch, capsys):
 
 
 def test_an_empty_key_stops_the_run(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    empty = _Secrets("  ")
     with pytest.raises(SystemExit):
-        qc.model_key("someenv", _Secrets("  "))
+        qc.model_key("someenv", empty)
+
+
+def test_a_failure_on_the_pinned_prompt_retires_that_models_pinned_row():
+    """A model qualified on the pinned prompt that then fails on it is no longer qualified (CodeRabbit, PR 173)."""
+    f = _files()
+    passed, _b, _r, _why = qc.record(_result(correct=_bar()["min_correct"]), when=WHEN, **f)
+    assert qualified_now(yaml.safe_load(passed)) == {SONNET}
+    failed, benchmarks, readme, why = qc.record(
+        _result(correct=_bar()["min_correct"] - 1),
+        when=WHEN,
+        providers=passed,
+        benchmarks=_b,
+        readme=_r,
+    )
+    doc = yaml.safe_load(failed)
+    assert "NOT qualified" in why
+    assert qualified_now(doc) == set()
+    assert problems(readme, doc) == []
+    assert problems(benchmarks, doc) == []
+
+
+def test_a_failure_on_another_prompt_leaves_the_pinned_row():
+    f = _files()
+    passed, _b, _r, _why = qc.record(_result(correct=_bar()["min_correct"]), when=WHEN, **f)
+    failed, *_ = qc.record(
+        _result(correct=0, prompt="0" * 64), when=WHEN, providers=passed, benchmarks=_b, readme=_r
+    )
+    assert qualified_now(yaml.safe_load(failed)) == {SONNET}
 
 
 def test_the_status_line_comes_from_providers_yaml_alone():

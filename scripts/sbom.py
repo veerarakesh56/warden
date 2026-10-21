@@ -23,12 +23,15 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "sbom" / "warden.cdx.json"
 
 
-def _model_status(row: dict, pinned: str | None) -> str:
-    """A row counts only on the prompt it was measured with (providers.qualified): one on an earlier prompt is listed as
-    what it is, never as qualified today."""
-    if row.get("prompt") == pinned:
-        return "qualified on WARDEN's replay set"
-    return f"measured on an earlier prompt ({str(row.get('prompt'))[:8]}), NOT qualified on the pinned one"
+def _model_status(row: dict, pinned: str | None, bar: dict) -> str:
+    """What providers.qualified() would say of the row: qualified only on the pinned prompt and at the bar; a row on an
+    earlier prompt, or below the bar, is listed as what it is, never as qualified today."""
+    if not pinned or row.get("prompt") != pinned:
+        return f"measured on an earlier prompt ({str(row.get('prompt'))[:8]}), NOT qualified on the pinned one"
+    if (int(row.get("wrong_and_allowed", 1 << 30)) > int(bar["wrong_and_allowed"])
+            or int(row.get("correct", -1)) < int(bar["min_correct"])):
+        return "measured on the pinned prompt below the bar, NOT qualified"
+    return "qualified on WARDEN's replay set"
 
 
 def render() -> dict:
@@ -60,7 +63,7 @@ def render() -> dict:
     providers = yaml.safe_load((ROOT / "src" / "warden" / "data" / "providers.yaml").read_text(encoding="utf-8"))
     pinned = (providers.get("prompt") or {}).get("sha")
     for q in sorted(providers["qualified"], key=lambda q: (q["provider"], q["model"])):
-        status = _model_status(q, pinned)
+        status = _model_status(q, pinned, providers["bar"])
         models.append({
             "type": "machine-learning-model", "bom-ref": f"model:{q['provider']}/{q['model']}", "name": q["model"],
             "version": q["model"], "supplier": {"name": "Anthropic"},

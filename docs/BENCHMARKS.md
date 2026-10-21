@@ -49,7 +49,9 @@ with your AWS identity; costs about $0.50 per model on the API, never more than 
 uv run --extra anthropic python scripts/qualify_cloud.py --model claude-sonnet-5-5 --budget-usd 2
 ```
 
-It writes the result into this repository: a row in the table below, pass or fail; on a pass on the pinned prompt,
+It first prints old against new on the same 30 incidents (the row qualified now, or the newest row, beside the
+candidate; per incident with `--compare-with <old run directory>`) and the verdict against the bar
+([OPERATIONS.md](OPERATIONS.md), "Upgrading the model"). Then it writes the result into this repository: a row in the table below, pass or fail; on a pass on the pinned prompt,
 the row under `qualified:` in `providers.yaml` (else a NOT QUALIFIED comment there with its numbers), the status line
 above and the one in the README, and `docs/safety-pins.sha256`. Review the diff and open a pull request.
 

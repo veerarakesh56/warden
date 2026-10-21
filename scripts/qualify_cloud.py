@@ -33,12 +33,16 @@ import tempfile
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+SCRIPTS = pathlib.Path(__file__).resolve().parent
 PROVIDERS_YAML = ROOT / "src" / "warden" / "data" / "providers.yaml"
 BENCHMARKS_MD = ROOT / "docs" / "BENCHMARKS.md"
 README_MD = ROOT / "README.md"
 KEY_SLOT = "anthropic-api-key"  # the slot's name in Secrets Manager, never its value
 QUALIFICATION_RUNS_MARKER = "<!-- qualification-runs:"
 STATUS_PREFIX = "**Qualified on the pinned prompt**"
+# A pass, as the BENCHMARKS row says it: what was done that day, never "qualified" in the present - a later run on
+# the same prompt may retire the row.
+OK_WORDS = "met the bar on the pinned prompt: row added to providers.yaml"
 _NOT_IN_ROW = ("passed", "slo_breaches", "reverified")
 
 
@@ -98,7 +102,7 @@ def verdict(result: dict, doc: dict) -> tuple[bool, str]:
             f"met the bar on prompt `{str(result.get('prompt'))[:8]}`, which is not the pinned prompt: "
             "NOT qualified"
         )
-    return True, "met the bar on the pinned prompt: qualified"
+    return True, OK_WORDS
 
 
 def providers_with(result: dict, text: str, ok: bool, when: str) -> str:
@@ -118,20 +122,30 @@ def providers_with(result: dict, text: str, ok: bool, when: str) -> str:
             f"  #  {row}",
         ]
     out = text.splitlines(keepends=True)
-    at = [i for i, s in enumerate(out) if s.rstrip() == "qualified:"]
+    at = [i for i, s in enumerate(out) if s.rstrip() in ("qualified:", "qualified: []")]
     if len(at) != 1:
         raise SystemExit("providers.yaml needs exactly one `qualified:` line")
+    pinned = ((yaml.safe_load(text) or {}).get("prompt") or {}).get("sha")
     if ok:  # one live row per model: an earlier prompt's row of the same model is kept as history, as a comment
         out = [_retired(s, result) for s in out]
+    elif pinned and result.get("prompt") == pinned:
+        # A model that fails on the pinned prompt loses its row on that prompt (CodeRabbit, PR 173); rows on earlier
+        # prompts stay as they are - they qualify nothing today.
+        out = [_retired(s, result, prompt=pinned) for s in out]
     out[at[0] + 1 : at[0] + 1] = [s + "\n" for s in lines]
+    # `qualified` stays a list (providers.load_qualified refuses anything else): `[]` when no live row is left.
+    live = any(s.startswith("  - {") for s in out[at[0] + 1 :])
+    out[at[0]] = "qualified:\n" if live else "qualified: []\n"
     return "".join(out)
 
 
-def _retired(line: str, result: dict) -> str:
+def _retired(line: str, result: dict, prompt: str | None = None) -> str:
     if not line.startswith("  - {"):
         return line
     row = json.loads(line[4:])
     if (row.get("provider"), row.get("model")) != (result.get("provider"), result.get("model")):
+        return line
+    if prompt is not None and row.get("prompt") != prompt:
         return line
     return f"  # Before (prompt {str(row.get('prompt'))[:8]}): " + line[4:]
 
@@ -207,7 +221,7 @@ def measure(a: argparse.Namespace, secrets_client: object = None) -> dict:
         os.environ.pop(
             price, None
         )  # each model at its own price (providers.yaml `prices`), which the budget counts
-    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.path.insert(0, str(SCRIPTS))
     import qualify_provider
 
     qualify_provider.main(["--out", str(a.out), "--budget-usd", str(a.budget_usd)])
@@ -229,13 +243,28 @@ def write(result: dict, when: str) -> str:
         (README_MD, readme),
     ):
         path.write_text(text, encoding="utf-8", newline="\n")
-    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.path.insert(0, str(SCRIPTS))
     import safety_pins
     import sbom
 
     safety_pins.main()
     sbom.main()  # the bill names each model and whether it is qualified on the pinned prompt
     return why
+
+
+def print_comparison(
+    result: dict, run_dir: pathlib.Path | None, compare_with: pathlib.Path | None
+) -> None:
+    """Old against new before anything is written (docs/OPERATIONS.md "Upgrading the model"): the row qualified now,
+    or --compare-with's run, beside this result - per incident when run directories exist - and the verdict."""
+    import qualification_compare as cmp
+
+    doc = yaml.safe_load(PROVIDERS_YAML.read_text(encoding="utf-8"))
+    old = cmp.old_side(doc, result.get("provider"), compare_with)
+    new = cmp.side(f"new: {result.get('model')}", result, run_dir)
+    if old is None:
+        old = {"label": "old: none recorded", "totals": {}, "incidents": None}
+    print(cmp.render(old, new, verdict(result, doc)[1]))
 
 
 def main(argv: list[str] | None = None, *, secrets_client: object = None) -> int:
@@ -262,9 +291,17 @@ def main(argv: list[str] | None = None, *, secrets_client: object = None) -> int
         default=None,
         help="write this qualification.json's result; no key is read and no model is called",
     )
+    p.add_argument(
+        "--compare-with",
+        type=pathlib.Path,
+        default=None,
+        help="the old side: an earlier run directory (or its qualification.json); default the providers.yaml row",
+    )
     a = p.parse_args(argv)
+    sys.path.insert(0, str(SCRIPTS))
     if a.from_result:
         result = json.loads(a.from_result.read_text(encoding="utf-8"))
+        a.out = a.from_result.parent
     else:
         if not a.model or a.budget_usd is None:
             p.error("--model and --budget-usd are required for a run (or --from-result)")
@@ -280,8 +317,9 @@ def main(argv: list[str] | None = None, *, secrets_client: object = None) -> int
         if measured
         else dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M")
     )
+    print_comparison(result, a.out, a.compare_with)
     why = write(result, when)
-    ok = why.endswith(": qualified")
+    ok = why == OK_WORDS
     print(
         f"\nrecorded ({why}) in {PROVIDERS_YAML.relative_to(ROOT)}, {BENCHMARKS_MD.relative_to(ROOT)}, "
         f"{README_MD.relative_to(ROOT)}, the safety pins and the SBOM: review the diff and open a pull request"

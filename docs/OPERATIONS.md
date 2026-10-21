@@ -297,3 +297,65 @@ it off, set `WARDEN_SECURITY_REVIEW` to anything but `on`, or delete it.
 Known limit, not verified here: the action's false-positive filter checks its API access with a fixed older model
 (`claude-3-5-haiku-20241022` in its code). If that model is retired, the filter step may fail and its findings may
 arrive unfiltered; read the first run's log.
+
+## Upgrading the model: pin, rehearse, then switch (owner, 2026-10-21)
+
+The rule: the model is pinned by its exact version, and every change of model, model version or diagnosis prompt is
+rehearsed on real recorded incidents before production uses it. WARDEN enforces the pin. Production refuses any
+model that has no passing row on the pinned prompt (`providers.qualified`, register M20) and then diagnoses on the
+rules alone.
+
+- **The pin.** Model ids are exact, never an alias (register M15): `defaults` in `src/warden/data/providers.yaml`, and
+  SSM `/warden/<env>/tf/model` for the runtime. The deploy refuses a model that is not on the `qualified` list. The
+  prompt is pinned by hash (`prompt.sha`, register E6). A row counts only on the prompt it was measured with.
+- **The rehearsal set.** 30 real incidents: the evidence WARDEN recorded in the three published live runs on a real
+  AWS account (ECS, EKS and RDS for PostgreSQL, September 2026). One answer per scenario, each scored against its
+  run's rubric, which was committed before the run. They live in `tests/fixtures/bench/<run>/`, and
+  `scripts/qualify_provider.py` `RUNS` names them. See [BENCHMARKS.md](BENCHMARKS.md).
+- **The bar.** From `providers.yaml` `bar`: no wrong answer the gate allowed (`wrong_and_allowed: 0`), at least
+  `min_correct` (17) of 30 correct, and every incident answered. The escalation SLO (`slo`) is reported beside the
+  bar, not in it.
+- **The side-by-side.** One command measures the candidate with the cloud runtime's own key (paid, under a hard
+  ceiling):
+
+  ```bash
+  uv run --extra anthropic python scripts/qualify_cloud.py --model <candidate> --budget-usd 2 [--compare-with <old run dir>]
+  ```
+
+  Before it writes anything, it prints old against new on the same 30 incidents
+  (`scripts/qualification_compare.py`):
+  - totals: correct, wrong and allowed, unanswered, escalated, acted wrongly, cost and latency (latency is printed
+    only where a report records it);
+  - each incident: right, wrong or not graded, whether it went to a person, and whether it was fixed or broke;
+  - the candidate's verdict against the bar.
+
+  The old side is the row qualified now, or else the newest recorded row: totals only, with no model call. With
+  `--compare-with`, the old side is an earlier run directory, compared per incident. `--from-result
+  <run dir>/qualification.json` repeats the comparison and the recording for a finished run, with no model call.
+- **What the run writes, pass or fail.**
+  - A dated row in [BENCHMARKS.md](BENCHMARKS.md).
+  - The status line in README and BENCHMARKS.
+  - `docs/safety-pins.sha256` and the SBOM.
+  - In `providers.yaml`:
+    - on a pass on the pinned prompt, the candidate's row under `qualified:`, with an earlier-prompt row of the same
+      model kept as a comment;
+    - on a failure, a `# NOT QUALIFIED` comment with the numbers, and that model's row on the pinned prompt, if any,
+      retired.
+- **The switch.** One pull request into `main` holds:
+  - the rows the run wrote;
+  - `defaults.<provider>` in `providers.yaml` set to the candidate, if it is to be the default;
+  - the NOT YET QUALIFIED note above `prompt.sha` retired.
+
+  `providers.yaml` and `docs/safety-pins.sha256` are owned by the repository owner (CODEOWNERS), so the owner
+  approves it, and CI must be green.
+
+  After the merge:
+  - the owner promotes the commit to `dev`;
+  - the owner sets SSM `/warden/<env>/tf/model` to the candidate (the deploy refuses a model that is not on the
+    list);
+  - the owner runs "Runtime · ops" `apply`, which needs the `ops` environment's required reviewer.
+
+  Nothing switches production before that apply.
+- **Rolling back** is the same switch with the previous model. A model whose row was retired or never measured on
+  the pinned prompt is refused, so roll back only to a model with a passing row on the pinned prompt. Otherwise the
+  runtime diagnoses on the rules alone, which is safe and goes to a person.
