@@ -26,9 +26,11 @@ EVERY = {"after_hold", "prepare", "reread", "investigate", "plan_fix", "diagnose
 
 def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alone():
     names = [a.__name__ for a in runtime._activities(None, None, None, None, None)]
-    assert set(names) == EVERY and len(names) == len(EVERY)
+    assert set(names) == EVERY
+    assert len(names) == len(EVERY)
     zoned = [n for z in workflows.ZONES.values() for n in z]
-    assert len(zoned) == len(set(zoned)) and set(zoned) <= EVERY
+    assert len(zoned) == len(set(zoned))
+    assert set(zoned) <= EVERY
     assert workflows.ZONES["act"] == ("apply", "rollback")  # the only writes, with the only actor roles
     # The only model calls: an incident's diagnosis, and an answer in its discussion (G10-45) - which has no tool.
     assert workflows.ZONES["llm"] == ("diagnose", "discuss_answer")
@@ -99,8 +101,11 @@ def test_a_zones_worker_loads_only_its_zones_secrets_and_its_own_temporal_key():
     from warden import settings
 
     llm, notify = settings.loadable_for("worker", "llm"), settings.loadable_for("worker", "notify")
-    assert "ANTHROPIC_API_KEY" in llm and "WARDEN_SLACK_BOT_TOKEN" not in llm and "WARDEN_DB_TERMINATE_DSN" not in llm
-    assert "WARDEN_SLACK_BOT_TOKEN" in notify and "ANTHROPIC_API_KEY" not in notify
+    assert "ANTHROPIC_API_KEY" in llm
+    assert "WARDEN_SLACK_BOT_TOKEN" not in llm
+    assert "WARDEN_DB_TERMINATE_DSN" not in llm
+    assert "WARDEN_SLACK_BOT_TOKEN" in notify
+    assert "ANTHROPIC_API_KEY" not in notify
     # The act zone's one secret of its own is the terminate login's DSN, which carries no password: each close signs
     # in with a token an approved plan's actor session signs (platforms/db.py).
     assert settings.loadable_for("worker", "act") & settings.SECRETS == {"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY",
@@ -108,7 +113,8 @@ def test_a_zones_worker_loads_only_its_zones_secrets_and_its_own_temporal_key():
     everything = settings.loadable_for("worker")
     assert settings.loadable_for("worker", "all") == everything >= llm | notify
     lam = settings.loadable_for("lambda-approval")
-    assert lam & settings.SECRETS == settings.LAMBDA_SECRETS["approval"] and "WARDEN_SLACK_BOT_TOKEN" not in lam
+    assert lam & settings.SECRETS == settings.LAMBDA_SECRETS["approval"]
+    assert "WARDEN_SLACK_BOT_TOKEN" not in lam
 
     asked = []
 
@@ -130,5 +136,6 @@ def test_a_zones_worker_loads_only_its_zones_secrets_and_its_own_temporal_key():
         for k in settings.SECRETS:
             os.environ.pop(k, None)
         os.environ.update(keep)
-    assert "warden/dev/temporal-api-key-read" in asked and "warden/dev/temporal-api-key" not in asked
+    assert "warden/dev/temporal-api-key-read" in asked
+    assert "warden/dev/temporal-api-key" not in asked
     assert not any(a.endswith(("slack-bot-token", "anthropic-api-key", "db-admin-dsn")) for a in asked)

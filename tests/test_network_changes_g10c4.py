@@ -69,3 +69,17 @@ def test_no_network_symptom_no_lookup():
     _, metrics, ct = _read(stopped_cause_network=False)
     assert "network_changes_before_alert" not in metrics
     assert not [c for c in ct.calls if c[1]["LookupAttributes"][0]["AttributeKey"] == "EventName"]
+
+
+def test_a_subnet_with_no_route_table_of_its_own_is_read_through_its_vpcs_main_table():
+    """Plant check for aws_stack._subnet_network_ids: fewer tables than subnets reads the VPC's main table too."""
+    def tables(Filters):
+        if Filters[0]["Name"] == "vpc-id":
+            return {"RouteTables": [{"RouteTableId": "rtb-0main", "Associations": [{"Main": True}]}]}
+        return {"RouteTables": []}
+
+    ec2 = Fake(describe_subnets={"Subnets": [{"SubnetId": "subnet-0a", "VpcId": "vpc-0a"}]},
+               describe_route_tables=tables, describe_network_acls={"NetworkAcls": [{"NetworkAclId": "acl-0a"}]})
+    ids = {"sg-0ecs": "security group"}
+    _backend(_clients(ec2=ec2))._subnet_network_ids(ids, ["subnet-0a"])
+    assert ids == {"sg-0ecs": "security group", "rtb-0main": "route table", "acl-0a": "network ACL"}

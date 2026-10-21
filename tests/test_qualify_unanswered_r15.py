@@ -40,6 +40,7 @@ def test_one_unanswered_incident_fails_an_otherwise_passing_run(tmp_path, monkey
     (tmp_path / "qualification.json").write_text(json.dumps({"provider": "gemini", "model": "m"}), encoding="utf-8")
     assert qualify.main(["--out", str(tmp_path), "--score-only"]) == 1
     out = capsys.readouterr().out
-    assert "NOT MEASURED: the model did not answer 1 of 1" in out and '"passed": false' in out
+    assert "NOT MEASURED: the model did not answer 1 of 1" in out
+    assert '"passed": false' in out
     _fake_scoring(monkeypatch, [{**rows[0], "policy_ids": []}])
     assert qualify.main(["--out", str(tmp_path), "--score-only"]) == 0
