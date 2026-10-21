@@ -152,6 +152,24 @@ class EnvironmentPolicies:
             raise EnvironmentPolicyError("environment policy must be a mapping")
 
         default = cls._parse("default", doc.get("default", {}))
+        envs = cls._environments(doc)
+        runtime = doc.get("runtime")
+        if runtime is not None and (not isinstance(runtime, str) or runtime in envs):
+            raise EnvironmentPolicyError("`runtime` must name WARDEN's own environment, not an application one")
+        region = _region(doc, "aws_region")
+        zone = doc.get("display_zone")
+        if zone is not None and not _is_zone(zone):
+            raise EnvironmentPolicyError(f"`display_zone` is not an IANA time zone: {zone!r}")
+        global_region = _region(doc, "aws_global_region")
+        faults = doc.get("fault_environments") or []
+        if not isinstance(faults, list) or any(f not in envs or envs[f].tier == "prod" for f in faults):
+            raise EnvironmentPolicyError("`fault_environments` must list application environments, none of the prod tier")
+        github = _github(doc, envs)
+        return cls(default, envs, runtime, region, zone, global_region, tuple(faults), github)
+
+    @classmethod
+    def _environments(cls, doc: dict[str, Any]) -> dict[str, EnvPolicy]:
+        """The application environments' policies, at least one."""
         envs: dict[str, EnvPolicy] = {}
         for name, raw in (doc.get("environments") or {}).items():
             # The name becomes AWS names (`warden-<env>-...`, a role, an SSM path): lower-case letters, digits and
@@ -161,34 +179,7 @@ class EnvironmentPolicies:
             envs[name] = cls._parse(name, raw)
         if not envs:
             raise EnvironmentPolicyError("environment policy defines no environments")
-        runtime = doc.get("runtime")
-        if runtime is not None and (not isinstance(runtime, str) or runtime in envs):
-            raise EnvironmentPolicyError("`runtime` must name WARDEN's own environment, not an application one")
-        region = doc.get("aws_region")
-        if region is not None and not (isinstance(region, str) and _REGION.fullmatch(region)):
-            raise EnvironmentPolicyError(f"`aws_region` is not a region name: {region!r}")
-        zone = doc.get("display_zone")
-        if zone is not None and not _is_zone(zone):
-            raise EnvironmentPolicyError(f"`display_zone` is not an IANA time zone: {zone!r}")
-        global_region = doc.get("aws_global_region")
-        if global_region is not None and not (isinstance(global_region, str) and _REGION.fullmatch(global_region)):
-            raise EnvironmentPolicyError(f"`aws_global_region` is not a region name: {global_region!r}")
-        faults = doc.get("fault_environments") or []
-        if not isinstance(faults, list) or any(f not in envs or envs[f].tier == "prod" for f in faults):
-            raise EnvironmentPolicyError("`fault_environments` must list application environments, none of the prod tier")
-        github = doc.get("github") or {}
-        if not isinstance(github, dict) or any(not isinstance(github.get(k, ""), str) for k in _GITHUB):
-            raise EnvironmentPolicyError("`github` must be a mapping of strings")
-        if github and not all(rx.fullmatch(github.get(k, "")) for k, rx in _GITHUB.items()):
-            raise EnvironmentPolicyError("`github` needs `repository` (owner/name) and `subject` "
-                                         "(owner@owner-id/name@repository-id)")
-        # The runtime pipeline runs from an application environment's own branch (owner, 2026-10-16): the branch the
-        # runtime's deploy role trusts, rendered into iam/<runtime>/trust.json.
-        branch = github.get("runtime_branch")
-        if github and not (isinstance(branch, str) and branch in envs):
-            raise EnvironmentPolicyError("`github.runtime_branch` must name an application environment, whose branch "
-                                         "the runtime pipeline runs from")
-        return cls(default, envs, runtime, region, zone, global_region, tuple(faults), github)
+        return envs
 
     @staticmethod
     def _read_source(path: str | os.PathLike[str] | None) -> str:
@@ -228,6 +219,31 @@ class EnvironmentPolicies:
 _ENV_NAME = re.compile(r"[a-z][a-z0-9-]{0,30}")
 _GITHUB = {"repository": re.compile(r"[A-Za-z0-9][\w.-]*/[\w.-]+"),
            "subject": re.compile(r"[A-Za-z0-9][\w.-]*@\d+/[\w.-]+@\d+")}
+
+
+def _region(doc: dict[str, Any], key: str) -> str | None:
+    """The region named at `key`, or None when the policy names none."""
+    region = doc.get(key)
+    if region is not None and not (isinstance(region, str) and _REGION.fullmatch(region)):
+        raise EnvironmentPolicyError(f"`{key}` is not a region name: {region!r}")
+    return region
+
+
+def _github(doc: dict[str, Any], envs: dict[str, EnvPolicy]) -> dict[str, str]:
+    """This repository's identity for GitHub's OIDC token ({} when the policy names none)."""
+    github = doc.get("github") or {}
+    if not isinstance(github, dict) or any(not isinstance(github.get(k, ""), str) for k in _GITHUB):
+        raise EnvironmentPolicyError("`github` must be a mapping of strings")
+    if github and not all(rx.fullmatch(github.get(k, "")) for k, rx in _GITHUB.items()):
+        raise EnvironmentPolicyError("`github` needs `repository` (owner/name) and `subject` "
+                                     "(owner@owner-id/name@repository-id)")
+    # The runtime pipeline runs from an application environment's own branch (owner, 2026-10-16): the branch the
+    # runtime's deploy role trusts, rendered into iam/<runtime>/trust.json.
+    branch = github.get("runtime_branch")
+    if github and not (isinstance(branch, str) and branch in envs):
+        raise EnvironmentPolicyError("`github.runtime_branch` must name an application environment, whose branch "
+                                     "the runtime pipeline runs from")
+    return github
 
 
 def _wait_hours(name: str, raw: dict[str, Any]) -> int:

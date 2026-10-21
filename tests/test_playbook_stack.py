@@ -497,3 +497,10 @@ def test_a_value_merely_containing_the_rds_suffix_is_not_an_rds_host():
     assert _RDS_HOST.fullmatch(good)
     for bad in (good + ".evil.example", good + ":5432", "evil.example/" + good, "x " + good):
         assert not _RDS_HOST.fullmatch(bad), bad
+
+
+def test_a_deploy_beside_a_detected_pattern_is_listed_without_an_error_line():
+    """A code deploy is the cheapest hypothesis whenever any pattern was found, error lines or not (a plant check
+    found no test for it, S19)."""
+    keys = [p.key for p in detect(alert(), ctx(metrics={"replica_lag_seconds": 45.0}, deploys=[ECS_DEPLOY]))]
+    assert keys == ["replica_lag", "deploy"]

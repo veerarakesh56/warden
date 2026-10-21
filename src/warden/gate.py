@@ -119,7 +119,8 @@ _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 # (or make a hyperlink); bidi overrides reorder what a reader sees.
 _CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 # A reference CommonMark would decode. `&amp;` itself is left: it decodes to a plain `&`.
-_ENTITY = re.compile(r"&(?!amp;)(#[0-9]{1,7};|#[xX][0-9a-fA-F]{1,6};|[A-Za-z][A-Za-z0-9]{1,31};)")
+# ASCII: `\d` is 0-9 only, as CommonMark reads a decimal reference.
+_ENTITY = re.compile(r"&(?!amp;)(#\d{1,7};|#[xX][0-9a-fA-F]{1,6};|[A-Za-z][A-Za-z0-9]{1,31};)", re.ASCII)
 _LT = re.compile(r"<(?![A-Z][A-Z0-9]*_\d+>)")
 _RUN = re.compile(r"`{3,}|~{3,}")
 _BLOCK_START = re.compile(r"^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[`~]{3})")
@@ -195,8 +196,8 @@ def _views(text: str) -> set[str]:
     by one of them is whole in some view, and a key the removal glues to a letter is bounded in another (ninth
     review: checking only the normalised text sent `x<BEL>AKIA...` whole)."""
     views = {text, strip_ansi(text), _ANSI_AS_TEXT.sub(" ", text)}
-    views |= {strip_controls(v) for v in list(views)}
-    views |= {_INVISIBLE.sub("", v) for v in list(views)}
+    views |= {strip_controls(v) for v in views}
+    views |= {_INVISIBLE.sub("", v) for v in views}
     return views
 
 
