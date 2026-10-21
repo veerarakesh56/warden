@@ -28,7 +28,7 @@ STACK = {
     "db_app_secret_name": "warden-dev-db-app",
     "db_name": "shop", "environment": "dev",
     "db_users": {"app": "warden_dev_app", "catalog": "warden_dev_catalog", "ro": "warden_dev_ro",
-                 "terminate": "warden_dev_terminate"},
+                 "terminate": "warden_dev_terminate", "harness": "warden_dev_harness"},
     "db_master_username": "postgres",
     "ecs_task_role_arn": "arn:aws:iam::111122223333:role/warden-dev-orders-api-task",
     "redis_primary_endpoint": "redis.internal",

@@ -141,11 +141,11 @@
       "Resource": "arn:aws:s3:::warden-${env}-tfstate-*/fullstack/stack.json"
     },
     {
-      "Sid": "DatabaseAsTheMasterUserForFaultsAndAsTheReader",
+      "Sid": "DatabaseAsTheHarnessUserForFaultsAndAsTheReader",
       "Effect": "Allow",
       "Action": "rds-db:connect",
       "Resource": [
-        "arn:aws:rds-db:${region}:*:dbuser:${cluster_resource_id}/postgres",
+        "arn:aws:rds-db:${region}:*:dbuser:${cluster_resource_id}/warden_${env_sql}_harness",
         "arn:aws:rds-db:${region}:*:dbuser:${cluster_resource_id}/warden_${env_sql}_ro"
       ]
     },

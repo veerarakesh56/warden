@@ -235,7 +235,10 @@
       "Sid": "PgLogin",
       "Effect": "Allow",
       "Action": "rds-db:connect",
-      "Resource": "arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres"
+      "Resource": [
+        "arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres",
+        "arn:aws:rds-db:ap-south-2:*:dbuser:*/*_harness"
+      ]
     },
     {
       "Sid": "ExpressSubgrp",

@@ -680,3 +680,17 @@ def test_a_fault_needs_a_full_soak_and_a_destroy_a_full_watch_after_the_last_act
     cli._set_state(run, active="fs-01")
     assert any("still injected" in p for p in cli.destroy_problems(run))
     assert cli.main(["--run", str(run), "--dry-run", "destroy-check"]) == 1
+
+
+def test_the_harness_logs_in_as_its_own_user_never_the_master():
+    """Owner B28: the harness's database connection was the master user. It is stack.json's db_users["harness"] now,
+    and a stack that names none - or names the master user, or another environment's shape - is refused, never run as
+    `postgres`."""
+    stack = {"db_users": {"app": "warden_dev_app", "harness": "warden_dev_harness"}, "db_master_username": "postgres"}
+    assert cli.harness_user(stack) == "warden_dev_harness"
+    for users in (None, {}, {"harness": "postgres"}, {"harness": "warden_dev_app"}, {"harness": "x; DROP TABLE"}):
+        with pytest.raises(cli.StepError, match="never logs in as the master user"):
+            cli.harness_user({"db_users": users, "db_master_username": "postgres"})
+    source = pathlib.Path(cli.__file__).read_text(encoding="utf-8")
+    assert "iam_dsn(rds, harness, host" in source
+    assert 'stack.get("db_master_username")' not in source

@@ -24,7 +24,8 @@ it and never calls terraform; WARDEN's own CI is a third. Everything lands OUTSI
   deploy all    build, then lambdas, ecs, k8s.
   bootstrap-db  scenarios/fullstack/sql/bootstrap.sql as the master user postgres, logged in with
                 an IAM token signed by YOUR credentials (rds-db:connect on dbuser:*/postgres,
-                terraform/proving-ground/operator-policy.json). There is no database password.
+                terraform/proving-ground/operator-policy.json). There is no database password. It also creates
+                the fault harness's own login, warden_<env>_harness, which owns the orders table (owner B28).
 
 stack.json is `terraform output -json` with the sensitive entries removed (README).
 """
@@ -561,14 +562,14 @@ def wait_synced(kubeconfig: str, revision: str, run=run, sleep=None) -> None:
     raise SystemExit(f"Argo CD did not sync {revision[:12]} to Healthy in {SYNC_TIMEOUT_S} s: {seen}")
 
 
-_DB_USER = re.compile(r"warden_[a-z0-9_]{1,40}_(?:app|catalog|ro|terminate)")
+_DB_USER = re.compile(r"warden_[a-z0-9_]{1,40}_(?:app|catalog|ro|terminate|harness)")
 
 
 def db_users(stack: dict) -> dict[str, str]:
     """The environment's database users from stack.json (Terraform's `db_users`; audit A-I-2), each checked to
     be a plain identifier before it goes into SQL or a manifest."""
     users = stack.get("db_users")
-    if not isinstance(users, dict) or set(users) != {"app", "catalog", "ro", "terminate"}:
+    if not isinstance(users, dict) or set(users) != {"app", "catalog", "ro", "terminate", "harness"}:
         raise SystemExit("stack.json has no db_users: write it from `terraform output -json` (README)")
     bad = [u for u in users.values() if not (isinstance(u, str) and _DB_USER.fullmatch(u))]
     if bad:
@@ -583,10 +584,11 @@ def db_users(stack: dict) -> dict[str, str]:
 
 
 def bootstrap_sql(users: dict[str, str]) -> str:
-    """bootstrap.sql with the environment's users in place of __APP__ / __CATALOG__ / __RO__ / __TERMINATE__."""
+    """bootstrap.sql with the environment's users in place of __APP__ / __CATALOG__ / __RO__ / __TERMINATE__ /
+    __HARNESS__."""
     text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     for key, name in (("APP", users["app"]), ("CATALOG", users["catalog"]), ("RO", users["ro"]),
-                      ("TERMINATE", users["terminate"])):
+                      ("TERMINATE", users["terminate"]), ("HARNESS", users["harness"])):
         text = text.replace(f"__{key}__", name)
     if PLACEHOLDER.search(text):
         raise SystemExit(f"unfilled placeholders in bootstrap.sql: {sorted(set(PLACEHOLDER.findall(text)))}")

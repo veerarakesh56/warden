@@ -125,7 +125,7 @@ def test_catalog_api_gets_its_role_through_pod_identity():
 def test_rds_db_connect_is_scoped_to_one_database_user_per_identity():
     text = _tf_text()
     # Named for the environment (audit A-I-2): `app` existed in every environment's cluster.
-    assert 'db_users = { for k in ["app", "catalog", "ro", "terminate"] : k => "warden_${replace(local.env, "-", "_")}_${k}" }' in text
+    assert 'db_users = { for k in ["app", "catalog", "ro", "terminate", "harness"] : k => "warden_${replace(local.env, "-", "_")}_${k}" }' in text
     assert "dbuser:*/${u}" in text and "for k, u in local.db_users" in text
     assert text.count('"rds-db:connect"') == 5, "one grant per identity: processor, reconciler, task, pod, reader"
     assert not re.search(r"dbuser:[^\s\"]*/\*", text), "a grant for every database user"
@@ -304,11 +304,13 @@ def test_the_boundary_allows_the_new_services_only_on_our_names():
 
 
 def test_only_the_operator_may_log_in_as_postgres_and_the_ceiling_allows_it():
-    """bootstrap-db and the harness's admin connection sign a token as the master user with the
-    operator's own credentials. Nothing else in the repository may be granted that login."""
+    """bootstrap-db signs a token as the master user with the operator's own credentials; the harness signs one as its
+    own login, warden_<env>_harness (owner B28: it was the master user). Nothing else in the repository may be granted
+    the master login."""
     st = next(s for s in _stmts(OPERATOR) if s["Sid"] == "PgLogin")
-    assert (st["Effect"], st["Action"], st["Resource"]) == (
-        "Allow", "rds-db:connect", "arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres")
+    assert (st["Effect"], st["Action"]) == ("Allow", "rds-db:connect")
+    assert st["Resource"] == ["arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres",
+                              "arn:aws:rds-db:ap-south-2:*:dbuser:*/*_harness"]
     assert len(json.dumps(json.loads(OPERATOR.read_text(encoding="utf-8")), separators=(",", ":"))) <= POLICY_LIMIT
     assert any("rds-db:connect" in _list(s["Action"]) for s in _stmts(BOUNDARY) if s["Effect"] == "Allow")
     assert "dbuser:*/postgres" not in _tf_text()
@@ -456,7 +458,7 @@ def test_the_bootstrap_gives_warden_ro_pg_monitor_and_nothing_more():
     text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
     mentions = [" ".join(s.split()) for s in re.split(r";", code) if "__RO__" in s]
-    allowed = [r"^GRANT pg_monitor TO __RO__$", r"^GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__$"]
+    allowed = [r"^GRANT pg_monitor TO __RO__$", r"^GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__, __HARNESS__$"]
     grants = [m for m in mentions if m.upper().startswith(("GRANT", "ALTER"))]
     assert "GRANT pg_monitor TO __RO__" in grants
     assert all(any(re.match(a, g) for a in allowed) for g in grants), grants
@@ -469,8 +471,26 @@ def test_the_terminate_login_may_close_sessions_and_read_none_of_the_data():
     code = re.sub(r"--[^\n]*", "", (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8"))
     grants = [" ".join(s.split()) for s in code.split(";") if "__TERMINATE__" in s and "GRANT" in s.upper()]
     assert sorted(grants) == ["GRANT pg_signal_backend, pg_read_all_stats TO __TERMINATE__",
-                              "GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__"]
+                              "GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__, __HARNESS__"]
     assert "CREATE ROLE __TERMINATE__ LOGIN" in code
+
+
+def test_the_harness_login_owns_the_table_it_breaks_and_holds_nothing_more():
+    """Owner B28: the fault harness logged in as the master user. Its own login now: it owns `orders` (fs-16's index
+    DDL and fs-13's lock need the owner), may create in the schema (CREATE INDEX needs it), reads every session
+    (pg_monitor) - and is given no pg_signal_backend, no other table, no role but its own."""
+    code = re.sub(r"--[^\n]*", "", (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8"))
+    said = [" ".join(s.split()) for s in code.split(";") if "__HARNESS__" in s and "CREATE ROLE" not in s]
+    assert sorted(said) == sorted([
+        "GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__, __HARNESS__",
+        "GRANT __HARNESS__ TO CURRENT_USER",
+        "GRANT USAGE, CREATE ON SCHEMA public TO __HARNESS__",
+        "ALTER TABLE orders OWNER TO __HARNESS__",
+        "GRANT pg_monitor TO __HARNESS__"]), said
+    assert "CREATE ROLE __HARNESS__ LOGIN" in code
+    # Taking ownership needs the membership first, and the schema's CREATE.
+    assert code.index("GRANT __HARNESS__ TO CURRENT_USER") < code.index("ALTER TABLE orders OWNER TO __HARNESS__")
+    assert code.index("GRANT USAGE, CREATE ON SCHEMA public TO __HARNESS__") < code.index("ALTER TABLE orders OWNER")
 
 
 # --------------------------------------------------------------------------- pipelines
@@ -521,14 +541,14 @@ def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform(
 
 def test_bootstrap_sql_has_no_password_and_no_placeholder():
     """2026-09-26: IAM authentication only. Every role gets rds_iam; no PASSWORD clause. The only placeholders
-    are the four users, named for the environment when the file is sent (audit A-I-2)."""
+    are the five users, named for the environment when the file is sent (audit A-I-2)."""
     text = (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
     assert "{" not in text and "}" not in text
-    assert set(re.findall(r"__[A-Z_]+__", code)) == {"__APP__", "__CATALOG__", "__RO__", "__TERMINATE__"}
+    assert set(re.findall(r"__[A-Z_]+__", code)) == {"__APP__", "__CATALOG__", "__RO__", "__TERMINATE__", "__HARNESS__"}
     assert not re.search(r"(?i)\bpassword\b", code)
-    assert "GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__" in code
-    for role in ("__APP__", "__CATALOG__", "__RO__", "__TERMINATE__"):
+    assert "GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__, __HARNESS__" in code
+    for role in ("__APP__", "__CATALOG__", "__RO__", "__TERMINATE__", "__HARNESS__"):
         assert f"CREATE ROLE {role} LOGIN" in code
 
 
