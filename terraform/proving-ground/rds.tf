@@ -7,8 +7,9 @@
 # protocol, so `WARDEN_BACKEND=postgres` with the instance endpoint in the DSN is the whole
 # integration. Worth stating plainly rather than implying a bespoke RDS backend exists.
 #
-# Cheapest instance that actually exists: db.t4g.micro (Graviton), 20 GB gp2, single AZ, no backups.
-# Every one of those is wrong for production and right for an instance that lives for an hour. On an
+# Cheapest instance that actually exists: db.t4g.micro (Graviton), 20 GB gp2, single AZ, 7 days of automated
+# backups (deleted with the instance). The first three are wrong for production and right for an instance that lives
+# for an hour. On an
 # account under 12 months old the free tier covers it entirely. Encrypted at rest with the AWS-managed
 # key (2026-10-16, Sonar terraform:S6303): it costs nothing and leaves nothing to clean up.
 
@@ -66,14 +67,17 @@ resource "aws_db_instance" "this" {
   vpc_security_group_ids = [aws_security_group.db[0].id]
   publicly_accessible    = true # no NAT Gateway and no bastion; bounded by the SG above
 
-  # ⛔ No backups (Sonar terraform:S6364, by design - owner to review): the AWS Free plan refuses any retention over
-  # 1 day (FreeTierRestrictionError), so the rule's 7 days cannot be had here at any setting, and the instance holds
-  # nothing but the benchmark's own rows for one session. 0 also keeps destroy fast and leaves no backup behind.
-  multi_az                = false
-  backup_retention_period = 0    # ⛔ no backups. Deliberate: it makes destroy fast and free
-  skip_final_snapshot     = true # ⛔ without this, `terraform destroy` FAILS and leaves the bill running
-  deletion_protection     = false
-  apply_immediately       = true
+  # Seven days of automated backups (Sonar terraform:S6364, owner 2026-10-20). No extra cost: RDS keeps backup storage
+  # up to the database's size free, and a destroy deletes the automated backups with the instance
+  # (delete_automated_backups defaults to true; skip_final_snapshot below leaves no snapshot either). Developers report
+  # that AWS Free plan accounts refuse more than 1 day (FreeTierRestrictionError); no AWS page says so (searched
+  # 2026-10-20), so the rule's 7 days stand, and an apply on such an account fails loudly at create, before any cost.
+  multi_az                 = false
+  backup_retention_period  = 7
+  delete_automated_backups = true
+  skip_final_snapshot      = true # ⛔ without this, `terraform destroy` FAILS and leaves the bill running
+  deletion_protection      = false
+  apply_immediately        = true
 
   # A t4g.micro takes about six minutes to come up. Performance Insights and enhanced monitoring are
   # both billable and neither is read by anything here.

@@ -230,14 +230,13 @@ def test_the_lab_database_is_public_by_design_and_reachable_from_one_address_ove
     assert re.search(r"publicly_accessible\s*=\s*true", db)  # the one finding this test explains
 
 
-def test_the_lab_database_keeps_no_backups_because_the_free_plan_refuses_the_rules_seven_days():
-    """S6364 kept (owner to review): the Free plan caps automated backups at 1 day, so 7 cannot be set; 0 leaves no
-    backup behind a destroy."""
-    raw = (LAB / "rds.tf").read_text(encoding="utf-8")
-    assert "FreeTierRestrictionError" in raw
-    assert "S6364" in raw
+def test_the_lab_database_keeps_seven_days_of_backups_and_leaves_none_behind_a_destroy():
+    """S6364 (owner, 2026-10-20: fixed, not kept): the rule's 7 days. Free: backup storage up to the database's size
+    costs nothing, and a destroy deletes the automated backups with the instance and takes no final snapshot."""
     db = _flat(_block(LAB / "rds.tf", "aws_db_instance", "this"))
-    assert "backup_retention_period = 0" in db
+    retention = int(re.search(r"backup_retention_period = (\d+)", db).group(1))
+    assert retention >= 7
+    assert "delete_automated_backups = true" in db
     assert "skip_final_snapshot = true" in db
 
 
