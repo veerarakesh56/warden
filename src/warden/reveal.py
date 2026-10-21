@@ -120,6 +120,18 @@ def asked(query: str) -> dict[str, Any]:
             "p": q.get("p", [])}
 
 
+def _problem(sent: str, expected: str, chosen: list[str], why: str) -> str:
+    """What is wrong with a reveal asked: the form not opened here, no value chosen, or no reason given. "" for
+    nothing."""
+    if not hmac.compare_digest(sent, expected):
+        return "this form was not opened here; open the masked values again"
+    if not chosen:
+        return "choose at least one value"
+    if len(why) < MIN_REASON:
+        return f"say why, in at least {MIN_REASON} characters"
+    return ""
+
+
 def reveal(log: Any, incident: str, *, member: str, cookie: str, query: str, environment: str = "",
            opener: Any = None, now: datetime | None = None) -> tuple[int, str]:
     """The masked-values page for `member`, who may read this incident's records: (status, html). With a reveal
@@ -135,10 +147,7 @@ def reveal(log: Any, incident: str, *, member: str, cookie: str, query: str, env
     known = {str(e.get("placeholder")) for e in index["entries"]}
     chosen = sorted({p for p in a["p"] if p in known})
     why = " ".join(redact(a["why"][:MAX_REASON]).text.split())
-    problem = ("this form was not opened here; open the masked values again" if not hmac.compare_digest(
-        a["t"], token(cookie, incident)) else
-               "choose at least one value" if not chosen else
-               f"say why, in at least {MIN_REASON} characters" if len(why) < MIN_REASON else "")
+    problem = _problem(a["t"], token(cookie, incident), chosen, why)
     if problem:
         return 400, form_page(incident, index, cookie, problem)
     now = (now or datetime.now(UTC)).astimezone(UTC)
@@ -146,7 +155,7 @@ def reveal(log: Any, incident: str, *, member: str, cookie: str, query: str, env
               if e["body"].get("member") == member]
     if len(recent) >= MAX_PER_HOUR:
         return 429, message_page(incident, f"At most {MAX_PER_HOUR} reveals an hour; try again later.")
-    row = vault.sealed_row(log, incident, str(index.get("sha256", "")))
+    row = vault.sealed_row(log, incident, str(index.get("sha256", "")), now=now)  # expiry judged at the same now
     if row is None:
         return 410, message_page(incident, "These values are no longer kept (their retention ended, or they were "
                                            "erased). Their ids above still identify them.")

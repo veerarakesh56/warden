@@ -533,11 +533,11 @@ class ApprovalPage:
         """`/r`: every incident of the last 30 days; `/r/<incident>`: one, whole (records.py). For a reader Slack
         named in this browser who may read them; anyone else is asked to sign in, and is not shown that an incident
         exists."""
-        from . import records, reveal
+        from . import records
         from .slack_login import remembered
 
-        masked = len(parts) == 2 and parts[1] == "masked"  # /r/<incident>/masked: its masked values (reveal.py)
-        if method != "GET" or (len(parts) > 1 and not masked):
+        masked = parts[1:] == ["masked"]  # /r/<incident>/masked: its masked values (reveal.py)
+        if method != "GET" or len(parts) > 1 + masked:
             return _json(404, {"error": "not found"})
         if self.slack is None:
             # The records have no passkey behind them: with no Slack sign-in to say who is reading, nobody reads them
@@ -573,6 +573,13 @@ class ApprovalPage:
             return self._served_html(404, records.missing_page())
         if masked:
             return self._masked(one, member, value, query)
+        return self._incident(one, member, query, allowed)
+
+    def _incident(self, one: Any, member: str, query: str, allowed: Any) -> Response:
+        """`/r/<incident>` for a reader who may read it: the record whole, or `?approve=1` - the plan's approval link
+        for an approver of it."""
+        from . import records, reveal
+
         approver = self._approver_for(member, one)
         if "approve=1" in query.split("&"):
             # The record's own button: a fresh link for this reader and this plan, the same the Slack message gives -
