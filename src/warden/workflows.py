@@ -719,17 +719,20 @@ class DiscussWorkflow:
         """The model's answer from the incident's evidence, read again. A step that fails still ends in a reply: the
         person is never left waiting in the thread."""
         fresh = NOW.search(turn.text) is not None
-        text = NOT_READ
-        with contextlib.suppress(ActivityError):  # a step that fails still ends in a reply: the person is never left waiting in the thread
+        # A step that fails still ends in a reply: the person is never left waiting in the thread.
+        try:
             evidence = await workflow.execute_activity_method(
                 acts.discuss_evidence, **_zoned(acts.discuss_evidence), args=[thread.incident, fresh], **PREPARE)
-            if evidence is None:
-                return NO_RECORD.format(incident=thread.incident)
-            text = NO_ANSWER
-            text = await workflow.execute_activity_method(
+        except ActivityError:
+            return NOT_READ
+        if evidence is None:
+            return NO_RECORD.format(incident=thread.incident)
+        try:
+            return await workflow.execute_activity_method(
                 acts.discuss_answer, **_zoned(acts.discuss_answer), args=[turn, thread, evidence, fresh],
                 start_to_close_timeout=timedelta(minutes=5), retry_policy=RetryPolicy(maximum_attempts=1))
-        return text
+        except ActivityError:
+            return NO_ANSWER
 
 
 @workflow.defn

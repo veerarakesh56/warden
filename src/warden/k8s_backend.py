@@ -384,7 +384,7 @@ class KubernetesBackend:
         for pod in pods:
             statuses = list(pod.status.init_container_statuses or []) + list(pod.status.container_statuses or [])
             for cs in statuses:
-                if getattr(cs, "restart_count", 0) or 0:
+                if getattr(cs, "restart_count", 0):
                     out.extend(self._previous_log(ns, pod, cs))
         return out
 

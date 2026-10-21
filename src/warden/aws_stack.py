@@ -1040,14 +1040,15 @@ class StackBackend:
         """_simulate_denials for one role, action and resource: the simulator's first decision as one STATE line."""
         got = self._iam.simulate_principal_policy(PolicySourceArn=f"arn:aws:iam::{account}:role/{role}",
                                                   ActionNames=[action], ResourceArns=[resource])
-        lines = []
-        for r in (got.get("EvaluationResults") or [])[:1]:
-            by = sorted({str(s.get("SourcePolicyId", "")) for s in r.get("MatchedStatements") or []
-                         if s.get("SourcePolicyId")})[:3]
-            lines.append(f"STATE iam simulate role={role} action={_safe(action)} "
-                         f"resource={_safe(resource)} decision={_safe(r.get('EvalDecision'))} "
-                         f"by={','.join(_safe(b) for b in by) or 'none'}")
-        return lines
+        results = got.get("EvaluationResults") or []
+        if not results:
+            return []
+        r = results[0]
+        by = sorted({str(s.get("SourcePolicyId", "")) for s in r.get("MatchedStatements") or []
+                     if s.get("SourcePolicyId")})[:3]
+        return [(f"STATE iam simulate role={role} action={_safe(action)} "
+                 f"resource={_safe(resource)} decision={_safe(r.get('EvalDecision'))} "
+                 f"by={','.join(_safe(b) for b in by) or 'none'}")]
 
     # ------------------------------------------------------------------ shared helpers
 
