@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:64d0d6a1-be75-58e8-b03e-03fcdfb02ac8",
+  "serialNumber": "urn:uuid:d1d98e07-81b5-5fc1-93fa-ec99be71401d",
   "version": 1,
   "metadata": {
     "component": {
@@ -209,14 +209,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/certifi@2026.7.22",
+      "bom-ref": "pkg:pypi/certifi@2026.10.19",
       "name": "certifi",
-      "version": "2026.7.22",
-      "purl": "pkg:pypi/certifi@2026.7.22",
+      "version": "2026.10.19",
+      "purl": "pkg:pypi/certifi@2026.10.19",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55"
+          "content": "035c1e85572b141bf1c3a3eff0e33a8eb74917522f2559075ff8d2fea780a1ae"
         }
       ]
     },
