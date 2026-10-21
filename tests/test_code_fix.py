@@ -299,6 +299,17 @@ def test_take_back_keeps_other_line_separators_as_they_are(sep):
     assert take_back(current, change) == f"a = 1{sep}\nb = 0\nc = 3\n"
 
 
+def test_an_import_the_revert_restores_is_not_its_own_baseline(tmp_path):
+    """The commit dropped `import leftpad`; nothing else imports it now, so bringing it back is a new dependency (CG6),
+    as CI's check (every import in the tree) would also find - a person decides."""
+    before, after = "import leftpad\n" + BEFORE, BEFORE
+    writer = FakeWriter(git_diff(tmp_path, {APP: before}, {APP: after}), {APP: after})
+    out = open_revert(request(), writer=writer)
+    assert out.status == "refused"
+    assert "CG6" in out.rules
+    assert not writer.wrote()
+
+
 def test_a_github_failure_is_an_outcome_not_an_exception():
     def app(_repo):
         raise GitHubAppError("the App's installation on the repository: HTTP 404")
