@@ -85,7 +85,7 @@ a secret blocked (G5).
 
 | Destination | Hosts | What goes there | Checked how on `main` | Outside the network? |
 |---|---|---|---|---|
-| Anthropic (the diagnosis model, Eldane, the discussion chat) | `api.anthropic.com` | a prompt built from redacted evidence: placeholders, never the values | redaction before the prompt is built (`node_redact`; `discuss.py` redacts a thread and question). **Pending PR #104:** every prompt re-scanned strictly before it is sent (`egress.guard_model`), refused if any value is found | yes |
+| Anthropic (the diagnosis model, Eldane, the discussion chat) | `api.anthropic.com` | a prompt built from redacted evidence: each value a pattern recognises is a placeholder; a value no pattern recognises can remain (limits above) | redaction before the prompt is built (`node_redact`; `discuss.py` redacts a thread and question). **Pending PR #104:** every prompt re-scanned strictly before it is sent (`egress.guard_model`), refused if any value is found | yes |
 | The Claude CLI (laptop only, for replay qualification) | Anthropic, through the `claude` CLI | the same redacted prompts of recorded incidents | the same | yes |
 | Other model APIs (adopters only; the cloud runtime creates no key slot for them) | OpenAI, Groq, OpenRouter, Gemini, Bedrock, `WARDEN_BASE_URL` | the same | the same | yes |
 | Slack | `slack.com`, `*.slack.com`, `hooks.slack.com` | the incident report, thread replies; Sign in with Slack (OAuth code exchange) | the report and replies are gated; the OAuth exchange sends Slack's code and the app's own client id and secret (`slack_login.py`) | yes |
@@ -115,7 +115,7 @@ On `main` today:
    text in the read zone; the llm zone gets the built prompt, never the placeholder map (`activities.prepare`).
    Untrusted text is also turned into typed facts first (`quarantine.py`). Eldane reads only the recorded evidence
    and diagnosis rows and the plan (`eldane.READS`).
-2. **The outbound gate** on every way out: chat, terminal, MCP results, generic webhooks, the change record
+2. **The outbound gate** on each of these paths: chat, terminal, MCP results, generic webhooks, the change record
    (`gate.py`; `tests/test_gate.py`, `tests/test_egress.py`).
 3. **The log gate** in the CLI, the MCP server and the workers: every log record is redacted, normalised, redacted
    again and bounded (`observability.GatedFormatter`); warnings and uncaught errors go through it too.
@@ -215,7 +215,8 @@ Claude CLI on a Claude Max subscription, on recorded incidents only.
 | Bedrock (not used) | "On Amazon Bedrock and Google Cloud's Agent Platform, the cloud provider is the data processor"; their own documentation applies. | [API and data retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention) |
 | The Claude CLI on a consumer plan | Free, Pro and Max: "We will train new models using data from Free, Pro, and Max accounts when this setting is on"; retention 5 years with that setting on, 30 days with it off. Commercial users (Team, Enterprise, API): "Standard: 30-day retention period" (for Claude Code). | [Claude Code: data usage](https://code.claude.com/docs/en/data-usage) |
 
-What WARDEN adds on its side: only redacted prompts are sent, placeholders instead of values (above);
+What WARDEN adds on its side: only redacted prompts are sent, with a placeholder for each value a pattern recognises
+(a value no pattern recognises can remain, above);
 **pending PR #104** refuses any prompt that still holds a value. An install that needs US-only inference or no retention must set
 it in its Anthropic workspace (`default_inference_geo`, `allowed_inference_geos`) or agree ZDR with Anthropic; WARDEN
 has no setting for either.

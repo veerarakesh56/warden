@@ -7,7 +7,9 @@ pull request, it says **pending PR #n**: under review, not merged, not running.
 ## What WARDEN is
 
 An AI on-call engineer for AWS: an alarm, read-only evidence, a model's proposal from a closed catalogue, deterministic
-checks, a person's signed approval, one change, verification, undo, and a signed record of each step.
+checks, a signed approval (in prod always a person's; in dev Eldane, the AI critic, under the conditions in
+[OPERATIONS.md](OPERATIONS.md#dev-autonomy-eldane-demotions-and-a-persons-re-enable-owner-2026-10-17)), one change,
+verification, undo, and a signed record of each step.
 [README](../README.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [How it runs in AWS](PRODUCTION-ARCHITECTURE.md) ·
 [Why the model never decides](ai-boundary.md)
 
