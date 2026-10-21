@@ -108,7 +108,7 @@ def test_every_signature_metric_is_emitted_by_a_backend_or_named_dead():
     keys = {k for s in doc["signatures"] for c in ("metric_gte", "metric_lte")
             for k in ((s.get("detect") or {}).get(c) or {})}
     backends = " ".join((root / f).read_text(encoding="utf-8") for f in (
-        "aws_backend.py", "aws_stack.py", "k8s_backend.py", "database.py", "tools.py"))
+        "aws_backend.py", "aws_stack.py", "health_signals.py", "k8s_backend.py", "database.py", "tools.py"))
     emitted = {k for k in keys if re.search(r"[\"']" + re.escape(k) + r"[\"'{]", backends)}
     assert keys - emitted == DEAD_SIGNATURE_METRICS
     assert {"oom_killed_containers", "crashloop_containers", "cpu_utilization_pct"} <= emitted

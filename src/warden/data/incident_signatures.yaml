@@ -729,3 +729,146 @@ signatures:
       - kind: escalate_to_human
         rationale: "Fixing NTP / node time is a host-level action outside the pod allowlist."
     remediation_risk: medium
+
+  # ===== AWS service health signals (U3-3, 2026-10-21): health_signals.py reads each one when an alarm names the
+  # resource. Metric-only on purpose: each fires on AWS's own measurement of the resource, never on a word in a name.
+
+  - id: NAT-PORT-001
+    reviewed: 2026-10-21
+    category: network
+    maturity: intermediate
+    title: NAT gateway out of source ports
+    detect:
+      metric_gte: {nat_error_port_allocation: 1}
+    root_cause: >
+      The NAT gateway could not allocate a source port: too many concurrent
+      connections from the private subnets to the same destination. New outbound
+      connections fail while existing ones carry on - often a client that opens a
+      connection per request instead of reusing a pool.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Reuse connections in the callers, or spread them over more NAT addresses or gateways - an infrastructure change."
+    remediation_risk: medium
+
+  - id: EFS-BURST-001
+    reviewed: 2026-10-21
+    category: storage
+    maturity: intermediate
+    title: EFS burst credits exhausted
+    detect:
+      metric_lte: {efs_burst_credit_balance_bytes: 0}
+    root_cause: >
+      The file system (bursting throughput mode) spent all its burst credits, so
+      its throughput is held to the baseline its stored size earns. Reads and
+      writes slow down for everything that mounts it.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Moving to Elastic or Provisioned throughput is a cost decision for a person."
+    remediation_risk: medium
+
+  - id: EFS-IO-LIMIT-001
+    reviewed: 2026-10-21
+    category: storage
+    maturity: intermediate
+    title: EFS at its I/O limit
+    detect:
+      metric_gte: {efs_percent_io_limit: 100}
+    root_cause: >
+      A General Purpose file system reached its I/O operations limit; further
+      operations queue and latency rises.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Fewer, larger operations in the application, or a file system built for more I/O - not a one-shot action."
+    remediation_risk: medium
+
+  - id: EBS-BURST-001
+    reviewed: 2026-10-21
+    category: storage
+    maturity: intermediate
+    title: EBS volume burst balance exhausted
+    detect:
+      metric_lte: {ebs_burst_balance_pct: 0}
+    root_cause: >
+      A gp2, st1 or sc1 volume spent its burst bucket and is held to its baseline
+      performance, so disk I/O on the instance slows down.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "A volume type or size change (for example gp3 with set IOPS) is a person's decision."
+    remediation_risk: medium
+
+  - id: EC2-STATUS-001
+    reviewed: 2026-10-21
+    category: infrastructure
+    maturity: basic
+    title: EC2 status check failed
+    detect:
+      metric_gte: {ec2_status_check_failed_instance: 1, ec2_status_check_failed_system: 1}
+    root_cause: >
+      AWS's status checks failed for the instance: the system check means a
+      problem with the host underneath it, the instance check a problem inside the
+      instance itself (an exhausted memory, a kernel or network setting).
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Replacing or moving the instance is outside the catalogue; a group can replace it if it is in one."
+    remediation_risk: medium
+
+  - id: KINESIS-THROTTLE-001
+    reviewed: 2026-10-21
+    category: application
+    maturity: intermediate
+    title: Kinesis stream throttling writes
+    detect:
+      metric_gte: {kinesis_write_throttled_records: 1}
+    root_cause: >
+      Producers write more than the stream's shards accept, so records are
+      rejected as throttled - a traffic rise, or one hot partition key.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "More shards or on-demand mode, or a better partition key - a person's decision."
+    remediation_risk: medium
+
+  - id: OPENSEARCH-RED-001
+    reviewed: 2026-10-21
+    category: database
+    maturity: intermediate
+    title: OpenSearch cluster red or blocking writes
+    detect:
+      metric_gte: {opensearch_cluster_red: 1, opensearch_index_writes_blocked: 1}
+    root_cause: >
+      At least one index has shards that are not allocated (red), or the domain
+      blocks writes - usually too little free storage or too much JVM memory
+      pressure.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Freeing storage or resizing the domain changes data and cost - a person's decision."
+    remediation_risk: high
+
+  - id: REDSHIFT-UNHEALTHY-001
+    reviewed: 2026-10-21
+    category: database
+    maturity: intermediate
+    title: Redshift cluster unhealthy
+    detect:
+      metric_lte: {redshift_health_status: 0}
+    root_cause: >
+      Redshift's own one-minute health query failed: the cluster is under extreme
+      load, or a database on it is misconfigured.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "The cluster's load or configuration needs a person."
+    remediation_risk: medium
+
+  - id: MSK-PARTITIONS-001
+    reviewed: 2026-10-21
+    category: application
+    maturity: advanced
+    title: Kafka partitions offline
+    detect:
+      metric_gte: {msk_offline_partitions: 1}
+    root_cause: >
+      Partitions are offline (no leader): producers and consumers of those
+      partitions stop.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Broker health and replication need a person; nothing in the catalogue restarts brokers."
+    remediation_risk: high
