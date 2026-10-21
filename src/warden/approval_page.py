@@ -434,7 +434,7 @@ class ApprovalPage:
         return self._invited(token, purpose) if purpose else None
 
     def _recognise(self, kind: str, token: str, cookies: Any) -> None:
-        """A browser Slack already named in the last hours (slack_login.remember) is not sent to Slack again for
+        """A browser Slack already named in the last 30 days (slack_login.remember) is not sent to Slack again for
         each link: its member is noted for this link, on the record as `via: remembered`, when it is the member the
         link's approver is. Never for an approver with no Slack member yet - that link is made at a real sign-in."""
         from .slack_login import remembered

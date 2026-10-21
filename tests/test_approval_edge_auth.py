@@ -146,8 +146,9 @@ def test_a_gate_that_cannot_read_its_settings_or_the_list_raises_so_the_gateway_
 
     monkeypatch.setattr(edge_auth, "_LOADED", set())
     monkeypatch.setattr(settings, "load", down)
-    with pytest.raises(RuntimeError):
-        edge_auth.handler(_event("GET /r", cookies=[_who()]))
+    signed_in = _event("GET /r", cookies=[_who()])
+    with pytest.raises(RuntimeError, match="Secrets Manager"):
+        edge_auth.handler(signed_in)
     assert edge_auth._LOADED == set()
     monkeypatch.setattr(settings, "load", lambda **_: None)
 
@@ -155,9 +156,9 @@ def test_a_gate_that_cannot_read_its_settings_or_the_list_raises_so_the_gateway_
         raise RuntimeError("SSM is unreachable")
 
     monkeypatch.setattr(runtime_base, "approver_policy", no_list)
-    key = Ed25519PrivateKey.generate()
-    with pytest.raises(RuntimeError):
-        edge_auth.handler(_event("GET /e/{token}", invite(key, "owner", now=datetime.now(UTC))))
+    link = _event("GET /e/{token}", invite(Ed25519PrivateKey.generate(), "owner", now=datetime.now(UTC)))
+    with pytest.raises(RuntimeError, match="SSM"):
+        edge_auth.handler(link)
 
 
 # ------------------------------------------------------------------ the same checks as the page
