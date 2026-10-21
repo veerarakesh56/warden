@@ -105,10 +105,12 @@ def test_a_zones_worker_loads_only_its_zones_secrets_and_its_own_temporal_key():
     assert "WARDEN_DB_TERMINATE_DSN" not in llm
     assert "WARDEN_SLACK_BOT_TOKEN" in notify
     assert "ANTHROPIC_API_KEY" not in notify
-    # The act zone's one secret of its own is the terminate login's DSN, which carries no password: each close signs
-    # in with a token an approved plan's actor session signs (platforms/db.py).
+    # The act zone's AWS writes go through the actor role, so it holds no AWS secret. Its own secrets: the terminate
+    # login's DSN, which carries no password (each close signs in with a token an approved plan's actor session
+    # signs, platforms/db.py), and the code-fix GitHub App's id and key (B4).
     assert settings.loadable_for("worker", "act") & settings.SECRETS == {"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY",
-                                                                         "WARDEN_DB_TERMINATE_DSN"}
+                                                                         "WARDEN_DB_TERMINATE_DSN",
+                                                                         "WARDEN_CODEFIX_APP_ID", "WARDEN_CODEFIX_APP_KEY"}
     everything = settings.loadable_for("worker")
     assert settings.loadable_for("worker", "all") == everything >= llm | notify
     lam = settings.loadable_for("lambda-approval")

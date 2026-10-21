@@ -23,6 +23,7 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_AUDIT_DSN` | the runtime's connection to the shared audit (Aurora PostgreSQL) | rotate the audit writer's password with Secrets Manager's managed rotation for the database, then restart the workers so they reconnect | none needed: the audit rows do not change |
 | `WARDEN_AUDIT_KEY_PASSPHRASE` | the local audit signing key's encryption | re-encrypt the key file under a new passphrase, store the new passphrase | none needed: the key itself does not change |
 | `WARDEN_SLACK_BOT_TOKEN` | posting into the incident channel | regenerate the bot token in the Slack app's settings, store it, restart | the old token stops at once: rotate in a quiet hour |
+| `WARDEN_CODEFIX_APP_KEY` (with `WARDEN_CODEFIX_APP_ID`) | the GitHub App that writes code-fix pull requests (github_app.py; the act zone's alone) | in the App's settings, Private keys: generate a new key, store the `.pem` in `warden/<runtime>/codefix-app-key`, restart the act workers, then delete the old key there; the id does not change | both keys sign until the old one is deleted; an installation token already issued lasts its hour |
 | `WARDEN_DATADOG_API_KEY`, `WARDEN_DATADOG_APP_KEY` | reading logs, spans and metrics from Datadog (datadog.py; the read zone's alone; the application key scoped to `logs_read_data`, `logs_read_index_data`, `apm_read`, `timeseries_query`, `events_read`, `monitors_read`) | run `scripts/observability_setup.py` again: it makes a new scoped key, stores it and deletes the older one; then restart the read workers (runtime.yml restart) | the old key stops when it is deleted: rotate between incidents |
 | `WARDEN_DATADOG_WEBHOOK_TOKEN` | Datadog monitors' webhook into WARDEN (`POST /datadog`; the webhook Lambda's alone) | run `scripts/datadog_setup.py` again: it makes a new token, stores it and puts it in the webhook's header in one step | none: rotate between alerts |
 | `WARDEN_SLACK_APP_TOKEN` | the discussion channel's Socket Mode connection (discuss.py; the notify zone's alone) | in the Slack app's Basic Information, App-Level Tokens: generate a new token with `connections:write`, store it, restart the notify workers, then revoke the old token | both work until the old one is revoked |
@@ -320,6 +321,52 @@ is removed. A covered alarm starts no incident and is recorded (`intake.decision
 cover ends WARDEN looks at the alarm again: still firing, it is an incident from that moment. A declaration that
 cannot be read covers nothing and is said in the intake's log: a typing mistake brings alarms back, it never hides
 one. A person who asks for a diagnosis (CLI, MCP) always gets one.
+
+## Code-fix pull requests: the GitHub App (register B4)
+
+WARDEN writes a code fix as its own GitHub App, never with a person's token (`github_app.py`). The App's id and private
+key are secrets the act zone alone reads (`warden/<runtime>/codefix-app-id`, `warden/<runtime>/codefix-app-key`). Each
+use asks GitHub for an installation token limited to one repository with contents and pull requests: write, and WARDEN
+refuses a token GitHub grants more; the token lasts an hour and is never stored. Commits go through GraphQL
+`createCommitOnBranch`, so GitHub signs them and shows them as verified, authored by the App. WARDEN writes only to
+branches under `warden/` that it has just created, opens pull requests only from them, and never pushes to `dev`, `prod`
+or `main`. Whether it may write anything in an environment is `code_fix` in environments.yaml, and what a change may
+contain is the code gate (`code_gate.py`, `data/code_fix.yaml`).
+
+**What holds the branch rule.** GitHub cannot narrow a token to some branches: `contents: write` lets the token push
+to any branch of the repository, `dev` and `prod` included, and a push to `dev` or `prod` deploys
+(on-merge-<env>.yml). Until the rulesets of step 5 exist, "only its own branches" is held **only inside WARDEN's
+process** (`github_app.RepoWriter`): anyone who obtains the key - a compromised act-zone worker - could push anywhere.
+So step 5 comes before the key is stored, and the key is not stored without it.
+
+Owner steps (once, in this order; WARDEN never creates or changes the App, a ruleset or a repository setting):
+
+1. GitHub, Settings, Developer settings, GitHub Apps, **New GitHub App**: a name such as `warden-code-fix`; the
+   repository's address as the homepage; **Webhook: Active unticked** (WARDEN asks, nothing is pushed to it).
+2. Repository permissions: **Contents: Read and write**, **Pull requests: Read and write**; Metadata: Read is added by
+   GitHub. Nothing else - no Workflows (so the App cannot change `.github/workflows` even if asked), no
+   Administration, Actions, Secrets, Checks or Environments. Account permissions: none. "Where can this GitHub App be
+   installed": **Only on this account**.
+3. Create it, note the **App ID**, and under Private keys **Generate a private key** (a `.pem` file).
+4. **Install App**, **Only select repositories**: the one repository WARDEN fixes (`WARDEN_CHANGE_REPO`, else
+   environments.yaml `github.repository`).
+5. **Before storing the key**, the repository's rulesets (Settings, Rules, Rulesets; WARDEN never creates or changes
+   them):
+   - one on `main`, `dev` and `prod` (and any other branch that deploys): **Restrict deletions**, **Block force
+     pushes**, **Require a pull request before merging** (with its required approvals and status checks), and
+     **Restrict updates** where the plan offers it. The App is **not** in its bypass list - nobody's automation is.
+   - one on `warden/**`: **Restrict creations** with only the App in its bypass list, so no person or other tool
+     makes a branch WARDEN would read as its own.
+
+   Check it: with the App's installation token, a push to `dev` must be refused (a ruleset violation), and a branch
+   `warden/check` created by a person must be refused too.
+6. Store both, then delete the `.pem` from the computer:
+   `aws secretsmanager put-secret-value --secret-id warden/<runtime>/codefix-app-id --secret-string <App ID>` and
+   `aws secretsmanager put-secret-value --secret-id warden/<runtime>/codefix-app-key --secret-string file://<key>.pem`.
+   The slots exist once the runtime module is applied (terraform/modules/warden-runtime/secrets.tf).
+7. Restart the act workers (runtime.yml). Until both secrets are set, WARDEN writes no code fix.
+
+Rotation is in the table at the top of this page.
 
 ## Optional: Claude's security review on pull requests
 

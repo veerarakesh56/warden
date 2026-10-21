@@ -317,6 +317,15 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
+- Whether a code change WARDEN wrote may become a pull request: built - `code_gate.py` (register B4, 2026-10-17).
+  GitHub's rulesets, CODEOWNERS and the CI checks still hold the pull request; what no tool does is refuse, before
+  anything is pushed, a change by its own shape: paths, size, dependencies, suppressions, a missing test, an
+  inexact revert, code that runs other code. Plain rules over `git diff` output and Python's own parser (`ast`),
+  no new dependency.
+- Writing a code fix to GitHub: adopted - a GitHub App's installation token and GraphQL `createCommitOnBranch`, which
+  GitHub signs (verified, authored by the App), through `github_app.py`: a handful of HTTPS calls with the standard
+  library and `cryptography` (already a dependency) for the App's RS256 token. PyGithub or githubkit would be a
+  dependency for those calls, and neither narrows a token to one repository and two permissions by itself.
 - Reading one workflow's encrypted Temporal history: built - `temporal_history.py` (register B36, 2026-10-21). A
   Temporal codec server for the web UI cannot decrypt WARDEN's payloads (each is bound to its workflow, which the UI
   does not send) and would be one more holder of the key; the SDK's own history read and WARDEN's own codec, in the
