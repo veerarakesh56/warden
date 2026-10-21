@@ -124,8 +124,16 @@ from then. Pause the runtime again before the seventh day, or start it on purpos
   security group. CLI: `aws rds restore-db-instance-from-db-snapshot --db-instance-identifier warden-ops-audit
   --db-snapshot-identifier <snapshot> --db-subnet-group-name <the audit's> --vpc-security-group-ids <the audit's>
   --no-publicly-accessible`. Then adopt it into Terraform's state:
-  `terraform -chdir=terraform/runtime import 'module.runtime.aws_db_instance.audit[0]' warden-ops-audit` (an Aurora
-  audit: `restore-db-cluster-from-snapshot` and `module.runtime.aws_rds_cluster.audit[0]`), and run `apply`.
+  `terraform -chdir=terraform/runtime import 'module.runtime.aws_db_instance.audit[0]' warden-ops-audit`, and run
+  `apply`. An Aurora audit is a cluster and its instance:
+  `aws rds restore-db-cluster-from-snapshot --db-cluster-identifier warden-ops-audit --snapshot-identifier <snapshot>
+  --engine aurora-postgresql --db-subnet-group-name <the audit's> --vpc-security-group-ids <the audit's>
+  --enable-iam-database-authentication --serverless-v2-scaling-configuration MinCapacity=0,MaxCapacity=<audit_db_max_acu>
+  --deletion-protection --copy-tags-to-snapshot`, `aws rds wait db-cluster-available --db-cluster-identifier
+  warden-ops-audit`, then `aws rds create-db-instance --db-instance-identifier warden-ops-audit-0 --db-cluster-identifier
+  warden-ops-audit --engine aurora-postgresql --db-instance-class db.serverless` (and `-1`, as many as
+  `audit_db_instances`); import `module.runtime.aws_rds_cluster.audit[0]` and each
+  `module.runtime.aws_rds_cluster_instance.audit[N]`, and run `apply`.
 - Delete an old copy (never automatic; the environment's own roles may not): with the operator's credentials,
   `aws rds delete-db-cluster-snapshot --db-cluster-snapshot-identifier <name>`, `aws rds delete-db-snapshot
   --db-snapshot-identifier <name>`, `aws dynamodb delete-backup --backup-arn <arn>`.
