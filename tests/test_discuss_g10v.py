@@ -187,6 +187,21 @@ def test_a_model_that_cannot_answer_is_said_in_the_thread_and_its_call_is_on_the
     assert not world["log"].entries(f"discuss-{INCIDENT}", kinds=("discuss.answer",))
 
 
+def test_a_model_that_is_refused_is_said_in_the_thread_and_nothing_is_reserved(world):
+    """Review, PR 47: until a changed prompt is qualified, the model is refused when it is built (register M20). The
+    person is told there is no answer; the activity does not fail, and no budget is reserved for a call never made."""
+    from warden.providers import ProviderError
+
+    def refused():
+        raise ProviderError("anthropic claude-sonnet-5-5 has not passed WARDEN's replay set on today's prompt")
+
+    world["inc"].llm_factory = refused
+    thread = discuss.Thread(incident=INCIDENT, lines=["a person: q"])
+    assert world["acts"].discuss_answer(_turn("why?"), thread, {"evidence": "e", "diagnosis": "d"}, False) == \
+        discuss.NO_ANSWER
+    assert not world["log"].entries(f"discuss-{INCIDENT}", kinds=("incident.llm_reserve",))
+
+
 def test_the_reply_goes_into_the_thread_through_the_gate(world):
     world["acts"].discuss_reply(_turn("q"), "It was disabled. <!channel> see https://evil.example/x", INCIDENT)
     [(_, sent, _)] = [p for p in world["posted"] if p[0] == "chat.postMessage"]
@@ -322,4 +337,5 @@ def test_the_runtime_gives_the_listener_its_token_in_the_notify_zone_alone():
     # A listener that cannot connect is logged; the notify worker - every alert WARDEN sends - keeps running.
     guard = cli[cli.index('if args.zone == "notify" and discuss.configured():'):]
     assert guard.index("try:") < guard.index("await discuss.listen(") < guard.index("except Exception")
-    assert '"aiohttp>=3.9"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    # Slack's async web client; 3.14.4 is the first release without CVE-2026-111063/-111064 (PR 98).
+    assert '"aiohttp>=3.14.4"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")

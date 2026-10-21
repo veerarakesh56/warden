@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: ${{ inputs.environment }}
     permissions:
@@ -81,7 +81,7 @@ jobs:
           fi
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
       # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
@@ -90,7 +90,7 @@ jobs:
           # No cache in a job that holds credentials: uv does not re-verify unpacked cache entries, so a
           # poisoned cache would install unchecked (fifth review E, 2026-10-01).
           enable-cache: false
-      - run: uv sync --locked --only-group apps-deploy
+      - run: uv sync --locked --no-build --only-group apps-deploy
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}

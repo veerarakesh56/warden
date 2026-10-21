@@ -69,6 +69,7 @@ spec:
             requests:
               cpu: 50m
               memory: 96Mi
+              ephemeral-storage: 64Mi  # its logs; the root filesystem is read-only (Sonar kubernetes:S6897)
             limits:
               cpu: 500m
               memory: 256Mi

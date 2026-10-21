@@ -55,6 +55,7 @@ import yaml
 from scenarios.region import EXAMPLE_ACCOUNT
 
 from . import ops_fullstack as fs
+from . import paths
 from .runner import (
     CATALOG,
     EXHAUSTION_MARKERS,
@@ -455,16 +456,20 @@ def dry_env() -> Env:
 
     stub = fs.Fault(lambda c, t: flip(True), lambda c, t: flip(False),
                     lambda c, t: (True, "dry run"), "rule")
+    # The live DSNs' shape (warden_dsns: the reader user, a password - there an IAM token - and sslmode), with a
+    # placeholder for the token and a host that never resolves (.invalid, RFC 6761). It was a URL with no password,
+    # a shape the live run never has (Sonar python:S2115, 2026-10-16).
+    dry_dsn = pg_dsn(RO_USER, "dry-run-token", "dry.invalid", "shop")
     return Env(
         clients=fs.Clients(), target=fs.Target(),
         alarm=lambda name: {"state": "ALARM" if firing["on"] else "OK", "description": f"dry run: {name}"},
         assume_reader=lambda: {"AWS_ACCESS_KEY_ID": "ASIADRY", "AWS_SECRET_ACCESS_KEY": "dry",
                                "AWS_SESSION_TOKEN": "dry", "KUBECONFIG": "/dry/kubeconfig",
-                               "WARDEN_STACK_DB_PRIMARY_RO_DSN": "postgresql://warden_ro@dry.invalid/shop",
-                               "WARDEN_STACK_DB_REPLICA_RO_DSN": "postgresql://warden_ro@dry.invalid/shop",
+                               "WARDEN_STACK_DB_PRIMARY_RO_DSN": dry_dsn,
+                               "WARDEN_STACK_DB_REPLICA_RO_DSN": dry_dsn,
                                "arn": f"arn:aws:sts::{EXAMPLE_ACCOUNT}:assumed-role/{fs.PREFIX}reader/dry"},
         invoke_warden=invoke, extract_fix=extract,
-        faults={fid: stub for fid in fs.FAULTS}, baseline=list,
+        faults=dict.fromkeys(fs.FAULTS, stub), baseline=list,
         sleep=sleep, clock=lambda: now[0], dry_run=True,
     )
 
@@ -531,7 +536,13 @@ def _set_state(run: pathlib.Path, **kw: Any) -> None:
 
 
 def _gt_path(run: pathlib.Path, sid: str) -> pathlib.Path:
-    return run / "ground-truth" / f"{sid}.json"
+    """A scenario's record. The id is read back from a record file too (_save_record): one that would lead out of
+    ground-truth/ (`..`, a separator) is refused, never followed."""
+    folder = run / "ground-truth"
+    try:
+        return paths.inside(folder / f"{sid}.json", [folder])
+    except ValueError:
+        raise StepError(f"{sid!r} is not a scenario id: its record would lie outside {folder}") from None
 
 
 def _record(run: pathlib.Path, sid: str) -> dict | None:
@@ -995,7 +1006,10 @@ def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
     sub.add_parser("_hold").add_argument("fault")
     args = ap.parse_args(argv)
 
-    run = pathlib.Path(args.run).expanduser()
+    try:
+        run = paths.inside(args.run)  # from the command line: only where the tools work (warden.paths)
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
     run.mkdir(parents=True, exist_ok=True)
     if args.cmd == "score":
         from . import score

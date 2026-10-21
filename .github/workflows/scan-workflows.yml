@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # marked ready for review, and on every push after that.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -17,7 +20,8 @@ concurrency:
 
 jobs:
   zizmor:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -25,18 +29,21 @@ jobs:
           persist-credentials: false
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
       # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
+          cache-suffix: "scan-workflows-zizmor"  # one cache per job: jobs sharing a key raced to save it
       - name: Install (locked)
-        run: uv sync --locked --extra dev --group scan
+        run: uv sync --locked --no-build --extra dev --group scan
       - name: zizmor over every workflow
         run: zizmor --offline .github/workflows
       # The workflows' own structure (one deploy per environment, each from its own branch only, no region, SHA pins,
       # every integration file run): a change to a deploy or shared workflow triggers only this scan.
       - name: Workflow structure tests
         run: |
-          pytest tests/test_ci_lanes.py tests/test_fullstack_infra.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_helios_gate_r56.py tests/test_runtime_pipeline_s9.py tests/test_runtime_iam_g6.py tests/test_base_image_mirror.py tests/test_no_hardcoding_r17.py tests/test_tripwire_image_r47.py tests/test_ci_account_values_are_secrets.py -q -rs
+          pytest tests/test_ci_lanes.py tests/test_fullstack_infra.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_helios_gate_r56.py tests/test_runtime_pipeline_s9.py tests/test_runtime_iam_g6.py tests/test_base_image_mirror.py tests/test_no_hardcoding_r17.py tests/test_tripwire_image_r47.py tests/test_ci_account_values_are_secrets.py tests/test_security_review_workflow.py tests/test_iac_leftovers_sonar.py -q -rs
+          # pause / resume: the pipelines' order (copies before any delete) and the roles' grants.
+          pytest tests/test_pause_resume.py -q -rs

@@ -1,7 +1,8 @@
 # How alarms, Alertmanager and approvers reach WARDEN with the laptop off (G6), all from the one runtime image:
 # - CloudWatch alarm state changes of the watched environments' alarms -> EventBridge -> the `alarm` Lambda (retried,
 #   then kept in a dead-letter queue that pages);
-# - Alertmanager -> POST /alertmanager -> the `alertmanager` Lambda (bearer secret, size caps; register S5);
+# - Alertmanager -> POST /alertmanager (and Datadog -> POST /datadog) -> the bearer gate at the gateway (webhook_auth)
+#   -> the `alertmanager` Lambda (bearer secret again, size caps; register S5);
 # - an approver's browser -> /a/... -> the `approval` Lambda (passkeys; registers H6, R28, R58);
 # - every session of a watched environment's actor role -> CloudTrail -> EventBridge -> the `actor-use` Lambda
 #   (witness.tf).
@@ -14,6 +15,9 @@ locals {
     WARDEN_APPROVAL_RP_ID      = var.approval_domain
     WARDEN_AUDIT_DSN           = local.audit_dsn
     WARDEN_AUDIT_IAM_AUTH      = "1"
+    # A kill switch trip is counted here (paging.killswitch_tripped), and the approval page reads the pages.
+    WARDEN_HEARTBEAT_NAMESPACE = "WARDEN/${var.environment}"
+    WARDEN_PAGES_BUCKET        = aws_s3_bucket.anchors.bucket
   }
   # `approval` is the one a person waits for. Lambda gives CPU in proportion to memory, a whole vCPU at 1,769 MB
   # (AWS's Lambda guide, "Configure Lambda function memory", read 2026-10-12); at 512 MB its cold start - Python
@@ -87,6 +91,23 @@ locals {
       source        = ["aws.health"]
       "detail-type" = ["AWS Health Event"]
       detail        = { eventTypeCategory = ["issue"], eventScopeCode = ["ACCOUNT_SPECIFIC"], statusCode = ["open"] }
+    })
+    # Security findings (security_findings.py): GuardDuty's at Medium and above, Security Hub CSPM's active, open,
+    # Medium and above. Each goes to a person on the rules alone, never to a fix. A rule on a service that is not
+    # turned on receives nothing and costs nothing; turning GuardDuty or Security Hub on is the owner's choice.
+    guardduty = jsonencode({
+      source        = ["aws.guardduty"]
+      "detail-type" = ["GuardDuty Finding"]
+      detail        = { severity = [{ numeric = [">=", 4] }] }
+    })
+    securityhub = jsonencode({
+      source        = ["aws.securityhub"]
+      "detail-type" = ["Security Hub Findings - Imported"]
+      detail = { findings = {
+        Severity    = { Label = ["MEDIUM", "HIGH", "CRITICAL"] }
+        RecordState = ["ACTIVE"]
+        Workflow    = { Status = ["NEW", "NOTIFIED"] }
+      } }
     })
     rds = jsonencode({
       source        = ["aws.rds"]
@@ -231,27 +252,112 @@ resource "aws_apigatewayv2_integration" "front" {
   payload_format_version = "2.0"
 }
 
+# The webhooks (Sonar terraform:S6333, owner 2026-10-20): an alert source on the internet must reach them, so each route
+# carries a Lambda REQUEST authorizer that lets a request through only with that route's bearer secret, compared in
+# constant time (webhook_auth/webhook_auth.py). The function keeps its own check (webhooks.authorized) and then asks the
+# source whether the alert is real - the gate adds a layer and weakens nothing. A request without an Authorization
+# header is refused by the gateway before the authorizer runs. No cached answers (TTL 0): a rotated-out secret stops
+# working at once.
 resource "aws_apigatewayv2_route" "alertmanager" {
-  api_id    = aws_apigatewayv2_api.front.id
-  route_key = "POST /alertmanager"
-  target    = "integrations/${aws_apigatewayv2_integration.front["alertmanager"].id}"
+  api_id             = aws_apigatewayv2_api.front.id
+  route_key          = "POST /alertmanager"
+  target             = "integrations/${aws_apigatewayv2_integration.front["alertmanager"].id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.webhook.id
 }
 
 # A Datadog monitor's webhook (webhooks.receive_datadog): the same function, its own bearer secret (register G10-53).
 resource "aws_apigatewayv2_route" "datadog" {
-  api_id    = aws_apigatewayv2_api.front.id
-  route_key = "POST /datadog"
-  target    = "integrations/${aws_apigatewayv2_integration.front["alertmanager"].id}"
+  api_id             = aws_apigatewayv2_api.front.id
+  route_key          = "POST /datadog"
+  target             = "integrations/${aws_apigatewayv2_integration.front["alertmanager"].id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.webhook.id
+}
+
+resource "aws_apigatewayv2_authorizer" "webhook" {
+  api_id                            = aws_apigatewayv2_api.front.id
+  name                              = "warden-${var.environment}-webhook-bearer"
+  authorizer_type                   = "REQUEST"
+  authorizer_uri                    = aws_lambda_function.webhook_auth.invoke_arn
+  authorizer_payload_format_version = "2.0"
+  enable_simple_responses           = true
+  identity_sources                  = ["$request.header.Authorization"]
+  authorizer_result_ttl_in_seconds  = 0
+}
+
+# The gate's own function: a few lines of Python, no image, no VPC; it reads the webhook secrets and nothing else.
+resource "aws_iam_role" "webhook_auth" {
+  name                 = "warden-${var.environment}-webhook-auth"
+  permissions_boundary = var.permissions_boundary_arn
+  description          = "WARDEN ${var.environment}: the webhook routes' bearer check at the gateway - reads the webhook secrets only"
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  tags                 = { Project = "warden", Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "webhook_auth" {
+  name = "warden-${var.environment}-webhook-auth"
+  role = aws_iam_role.webhook_auth.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "TheWebhookSecrets"
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        # Secrets Manager adds six characters to each name; `??????` matches exactly those.
+        Resource = [for s in ["alertmanager-token", "alertmanager-token-previous", "datadog-webhook-token"] :
+        "${local.secret_arn}/${s}-??????"]
+      },
+      {
+        Sid      = "ItsOwnLogs"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.webhook_auth.arn}:*"
+      },
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "webhook_auth" {
+  name              = "/aws/lambda/warden-${var.environment}-webhook-auth"
+  retention_in_days = 90
+  tags              = { Project = "warden", Environment = var.environment }
+}
+
+resource "aws_lambda_function" "webhook_auth" {
+  function_name    = "warden-${var.environment}-webhook-auth"
+  role             = aws_iam_role.webhook_auth.arn
+  runtime          = "python3.13"
+  handler          = "webhook_auth.handler"
+  filename         = "${path.module}/webhook_auth.zip"
+  source_code_hash = filebase64sha256("${path.module}/webhook_auth.zip")
+  timeout          = 5
+  memory_size      = 128
+  environment {
+    variables = { WARDEN_ENV = var.environment }
+  }
+  tags       = { Project = "warden", Environment = var.environment }
+  depends_on = [aws_cloudwatch_log_group.webhook_auth]
+}
+
+resource "aws_lambda_permission" "webhook_auth" {
+  statement_id  = "HttpApiWebhookAuthorizer"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.webhook_auth.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.front.execution_arn}/authorizers/${aws_apigatewayv2_authorizer.webhook.id}"
 }
 
 resource "aws_apigatewayv2_route" "approval" {
   # /a/: approving a plan. /e/: enrolling a passkey, /k/: resetting the kill switch, /x/: turning it on - each on a link the approver's
   # own key signed. /s/interact: Slack's note of a button click, answered by the function below. /r: WARDEN's records
-  # (records.py), for a reader Slack names who is on the approver or viewer list; /s/r starts that sign-in.
+  # (records.py), for a reader Slack names who is on the approver or viewer list; /s/r starts that sign-in. /p: WARDEN's
+  # own pages, acknowledged with an approver's passkey (paging.tf); /s/p starts its sign-in.
   for_each = toset(["GET /a/{token}", "POST /a/{token}/{step}", "GET /e/{token}", "POST /e/{token}/{step}",
     "GET /k/{token}", "POST /k/{token}/{step}", "GET /x/{token}", "POST /x/{token}/{step}",
     "GET /s/callback", "GET /s/{kind}/{token}", "POST /s/interact",
-  "GET /r", "GET /r/{incident}", "GET /s/r"])
+  "GET /r", "GET /r/{incident}", "GET /s/r", "GET /p", "POST /p/{step}", "GET /s/p"])
   api_id    = aws_apigatewayv2_api.front.id
   route_key = each.key
   target = "integrations/${each.key == "POST /s/interact" ? aws_apigatewayv2_integration.ack.id :
