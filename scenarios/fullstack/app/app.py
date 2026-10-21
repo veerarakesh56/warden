@@ -12,6 +12,8 @@ DB_USER on DB_HOST, and it is reused for 9 of its 15 minutes.
   cart-worker  EKS. Touches Redis in a loop; /health on 8080 for its probes.
 
 Feature flag ORDERS_FF_1 (set by the stack): a working set, in MiB, held from start.
+Every role serves HTTPS only (Sonar python:S5332): TLS_CERT_PEM and TLS_KEY_PEM carry the stack's certificate and
+key - ECS injects them from Secrets Manager, EKS from Secret shop-tls - and the app refuses to start without them.
 Framework-free on purpose: http.server from the stdlib, psycopg, redis, boto3. Nothing else.
 """
 from __future__ import annotations
@@ -19,7 +21,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import ssl
 import sys
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -194,6 +198,31 @@ def cart_worker_loop(interval: int) -> None:
         time.sleep(interval)
 
 
+
+def load_certificate(context: ssl.SSLContext) -> None:
+    """The certificate and key from TLS_CERT_PEM / TLS_KEY_PEM. ssl reads them only from files, so they are written,
+    owner-only, into a private temporary directory that is gone again once they are loaded. Missing = exit."""
+    cert = os.environ.get("TLS_CERT_PEM", "")
+    key = os.environ.get("TLS_KEY_PEM", "")
+    if "-----BEGIN CERTIFICATE-----" not in cert or "PRIVATE KEY-----" not in key:
+        log.error("invalid configuration: TLS_CERT_PEM and TLS_KEY_PEM must hold a PEM certificate and its key; "
+                  "refusing to start")
+        sys.exit(2)
+    with tempfile.TemporaryDirectory(prefix="tls-") as folder:
+        paths = []
+        for name, pem in (("cert.pem", cert), ("key.pem", key)):
+            path = os.path.join(folder, name)
+            with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="ascii") as out:
+                out.write(pem)
+            paths.append(path)
+        try:
+            context.load_cert_chain(*paths)
+        except (ssl.SSLError, ValueError):
+            log.error("invalid configuration: TLS_CERT_PEM / TLS_KEY_PEM do not load as a certificate and its key; "
+                      "refusing to start")
+            sys.exit(2)
+
+
 def main() -> None:
     setup_logging()
     alloc = int_setting("ORDERS_FF_1", 0, 0, 65536)
@@ -224,8 +253,13 @@ def main() -> None:
         sys.exit(2)
 
     port = int(os.environ.get("PORT", "8080"))
-    log.info("%s listening on %d", ROLE, port)
-    ThreadingHTTPServer(("", port), Handler).serve_forever()
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)  # a server context: no client certificate is asked for
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    load_certificate(context)
+    server = ThreadingHTTPServer(("", port), Handler)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    log.info("%s listening on %d (HTTPS)", ROLE, port)
+    server.serve_forever()
 
 
 if __name__ == "__main__":
