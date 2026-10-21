@@ -12,6 +12,7 @@ on:
       - "k8s/argocd/**"
       - "helm/**"
       - "scripts/deploy_fullstack_apps.py"
+      - "src/warden/paths.py"  # deploy_fullstack_apps.py imports it
       - "tests/test_deploy_fullstack_apps.py"
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-apps.yml"
@@ -39,6 +40,7 @@ on:
       - "k8s/argocd/**"
       - "helm/**"
       - "scripts/deploy_fullstack_apps.py"
+      - "src/warden/paths.py"  # deploy_fullstack_apps.py imports it
       - "tests/test_deploy_fullstack_apps.py"
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-apps.yml"
