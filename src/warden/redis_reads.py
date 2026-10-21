@@ -176,6 +176,13 @@ def read(conn: ReadOnlyRedis, name: str, lines: list[str] | None = None,
     metrics = {} if metrics is None else metrics
     _info(conn.run(INFO), name, lines, metrics)
     _slowlog(conn.run(SLOWLOG_GET, SLOWLOG_MAX), name, lines, metrics)
+    # CLIENT LIST answers every client at once: past CLIENTS_READ_MAX (INFO's own count) it is not asked for at all,
+    # so a cache with very many clients never sends WARDEN an answer that size (CodeRabbit, PR 151).
+    connected = metrics.get("redis_info_connected_clients")
+    if connected is not None and connected > CLIENTS_READ_MAX:
+        lines.append(f"REDIS {name} clients not listed: {connected:.0f} connected, more than the {CLIENTS_READ_MAX} "
+                     "WARDEN reads one by one")
+        return lines, metrics
     _clients(conn.run(CLIENT_LIST), name, lines, metrics)
     return lines, metrics
 

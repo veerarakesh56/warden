@@ -367,3 +367,19 @@ def test_the_client_sends_no_client_setinfo_on_redis_py_5_to_7(monkeypatch):
     kw = _made_by(monkeypatch, lambda made: lambda **kw: made.append(kw) or FakeRedis())
     assert (kw["lib_name"], kw["lib_version"]) == (None, None)
     assert "driver_info" not in kw
+
+
+
+def test_a_cache_with_more_clients_than_wardens_cap_is_not_asked_to_list_them():
+    """CodeRabbit, PR 151: CLIENT LIST answers every client at once; the cap applied only after it had arrived."""
+    fake = FakeRedis(info={**INFO, "connected_clients": redis_reads.CLIENTS_READ_MAX + 1})
+    lines, metrics = redis_reads.read(ReadOnlyRedis(fake), "c")
+    assert [a[0] for a in fake.sent] == ["INFO", "SLOWLOG GET"]
+    assert any("clients not listed" in ln for ln in lines)
+    assert "redis_clients_listed" not in metrics
+
+
+def test_a_cache_at_wardens_cap_is_still_listed():
+    fake = FakeRedis(info={**INFO, "connected_clients": redis_reads.CLIENTS_READ_MAX})
+    redis_reads.read(ReadOnlyRedis(fake), "c")
+    assert [a[0] for a in fake.sent][-1] == "CLIENT LIST"
