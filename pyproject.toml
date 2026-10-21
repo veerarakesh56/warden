@@ -275,7 +275,7 @@ only_mutate = [
 also_copy = ["conftest.py", "evals/", "scenarios/", "scripts/", "docs/", "iam/", "terraform/", "k8s/", "helm/",
              "manifests/", ".github/", "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md",
              "SECURITY.md", "LICENSE", "NOTICE", "Makefile", "Dockerfile", "Dockerfile.runtime", "docker-compose.yml",
-             ".gitignore", ".dockerignore", ".gitattributes", ".python-version", ".coderabbit.yaml"]
+             ".gitignore", ".dockerignore", ".gitattributes", ".python-version", ".coderabbit.yaml", ".sonarcloud.properties"]
 # The unit suite, less the tests that cannot hold in mutmut's copy by construction - each is about the repository,
 # not the behaviour of a safety module: the pinned hashes and the hand-written mutation anchors read the source text
 # mutmut rewrites; the publishability, region and linter-skip checks list files through git, which the copy has not;

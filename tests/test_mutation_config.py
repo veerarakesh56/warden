@@ -79,6 +79,20 @@ def test_the_copy_mutmut_tests_in_deselects_only_repository_checks():
     assert len(deselected) <= 6, deselected
 
 
+# What mutmut 3.8.0 copies by itself (configuration.py: tests/, pyproject.toml and the lock files) and the source path.
+MUTMUT_COPIES = {"src", "tests", "pyproject.toml", "uv.lock"}
+
+
+def test_every_top_level_file_reaches_mutmuts_copy():
+    """CI, PR 179: #170 added .sonarcloud.properties, which a test reads; it was not in also_copy, so mutmut's clean
+    run failed and no mutant was tested. Every top-level path git tracks is copied - by also_copy or by mutmut.
+    (In mutmut's own copy git lists nothing here, and the check has nothing to hold.)"""
+    listed = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=False).stdout
+    top = {line.split("/", 1)[0] for line in listed.splitlines() if line}
+    copied = {a.rstrip("/") for a in _pyproject()["tool"]["mutmut"]["also_copy"]} | MUTMUT_COPIES
+    assert top - copied == set(), top - copied
+
+
 def test_every_deselected_test_exists():
     """A renamed test would leave its --deselect pointing at nothing, and the renamed test would run in mutmut's copy,
     where a repository check cannot hold: each deselected id names a test function in its file."""
