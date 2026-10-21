@@ -25,7 +25,7 @@ from warden.platforms.infra import (
 HEAD = "a" * 40
 OLD = "b" * 40
 SHA = "c" * 64
-RUN = "0b9e1c2a-1111-4222-8333-444455556666"  # the Temporal run that applies (activities: who["run_id"])
+RUN = "0b9e1c2a-1111-4222-8333-aaaabbbbcccc"  # the Temporal run that applies (activities: who["run_id"])
 WHO = {"incident": "inc-7", "plan_hash": "d" * 64, "approvers": ["owner"], "run_id": RUN}
 APPLIED = "2026-10-20T19:00:00+00:00"
 # The deploy workflow's run-name for a plan of the full stack: its plan id input is empty (a trailing space).
