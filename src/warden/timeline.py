@@ -148,7 +148,7 @@ def deploy_shas(base: Any, alert: Any) -> list[str]:
     deploy's sha, or an image's tag - the part after its last ':' - never the image's address. None read: none."""
     try:
         deploys = base.deploys(alert)
-    except Exception:  # noqa: BLE001  # no deploys read: no commits to look up, and the AWS read says why
+    except Exception:  # noqa: BLE001 - no deploys read: no commits to look up; and the AWS read says why
         deploys = []
     shas: list[str] = []
     for d in deploys if isinstance(deploys, list) else []:

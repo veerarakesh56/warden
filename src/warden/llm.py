@@ -79,7 +79,7 @@ def _complete_within(provider: Provider, *, system: str, user: str, seconds: flo
     def _worker() -> None:
         try:
             box["ok"] = provider.complete(system=system, user=user, schema=schema)
-        except Exception as exc:  # noqa: BLE001  # carried across the thread boundary, re-raised below
+        except Exception as exc:  # noqa: BLE001 - carried across the thread boundary; re-raised below
             box["err"] = exc
         except BaseException as exc:
             # SystemExit, KeyboardInterrupt: carried across the same way, and still ended this thread with.

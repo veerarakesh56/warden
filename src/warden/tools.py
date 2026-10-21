@@ -512,7 +512,7 @@ def gather(
                 bundle.tool_errors.append(msg)
                 sp.set_attribute(_TOOL_OK, False)
                 sp.set_attribute(_TOOL_ERROR, msg)
-            except Exception as exc:  # noqa: BLE001  # a tool failing is data, not a crash
+            except Exception as exc:  # noqa: BLE001 - a tool failing is data; not a crash
                 msg = f"{name}: {failure(exc)}"
                 bundle.tool_errors.append(msg)  # raw, like the logs: node_redact scrubs it (A-C-5)
                 sp.set_attribute(_TOOL_OK, False)
