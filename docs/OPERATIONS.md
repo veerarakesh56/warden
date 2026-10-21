@@ -301,16 +301,19 @@ Rotation is in the table at the top of this page.
 
 **Revert pull requests (phase 3).** When an incident's diagnosis is "roll back the deploy", the verifier passed it for a
 person's approval and its evidence names exactly one deployed commit, the act zone also opens a pull request that
-reverts that commit, from `warden/revert/<environment>/inc-<hash>-<commit>` (a hash of the incident id: the public
-repository never sees the id; the audit row holds both) into the repository's default branch, where CI runs (the
-environment receives it by the usual promotion), unless that environment's `code_fix` is `off` or no App is configured.
-No model writes any line of it: the commit's own diff is taken back where its exact lines are found once, and the result
-must pass the code gate as exactly the commit's inverse. A merge commit, a rename, a binary file, code that moved on
-since, or anything the gate refuses goes to a person, and nothing is written. Every attempt is an audit row of kind
-`code_fix` (opened, skipped, refused or failed, with the reason and the gate's rules); when the act zone never runs the
-step (no worker picks it up within two minutes, or it fails before recording itself), the core zone writes the `failed`
-row. The rollback of the running service stays its own plan with its own approval; the pull request only keeps the next
-deploy from bringing the fault back.
+reverts that commit, from `warden/revert/<environment>/inc-<ref>-<commit>` into the repository's default branch, where
+CI runs (the environment receives it by the usual promotion), unless that environment's `code_fix` is `off` or no App
+is configured. `<ref>` is random, drawn for each attempt: nothing on GitHub is the incident id or computed from it, and
+only the attempt's audit row (`ref`) ties the two. The commit must be in the default branch's history (GitHub's compare
+says the branch is ahead of it, with that commit as the merge base): a commit only a fork or another branch has is never
+reverted into it. No model writes any line of it: the commit's own diff is taken back where its exact lines are found
+once, each hunk searched after the one before it, and the result must pass the code gate as exactly the commit's
+inverse. A merge commit, a rename, a binary file, a deleted file that was not a regular file (a commit WARDEN writes
+cannot set a mode), code that moved on since, or anything the gate refuses goes to a person, and nothing is written.
+Every attempt is an audit row of kind `code_fix` (opened, skipped, refused or failed, with the reason and the gate's
+rules); when the act zone never runs the step (no worker picks it up within two minutes, or it fails before recording
+itself), the core zone writes the `failed` row. The rollback of the running service stays its own plan with its own
+approval; the pull request only keeps the next deploy from bringing the fault back.
 
 **Merging (phase 4) - the owner's option A (2026-10-21, final).** A code-fix pull request merges itself only in an
 environment whose `code_fix` is `auto` (never the prod tier; both ship `propose`, so today a person merges every one).
