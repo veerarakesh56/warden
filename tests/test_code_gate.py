@@ -172,7 +172,8 @@ def test_cg3_lambdas_in_any_folder_are_allowed():
     "scenarios/fullstack/app/secrets.py", "scenarios/fullstack/app/credentials.py",
     "src/warden/code_gate.py", "src/warden/data/code_fix.yaml", "src/warden/data/environments.yaml",
     "scripts/safety_pins.py", "docs/safety-pins.sha256", "evals/test_safety.py", "tests/test_code_gate.py",
-    "tests/test_ci_lanes.py", "tests/fakes.py"])
+    "tests/test_ci_lanes.py", "tests/fakes.py",
+    "scenarios/fullstack/app/.ENV", "scenarios/fullstack/app/Server.KEY", "ID_RSA", "scenarios/fullstack/app/DB_Password.py"])
 def test_cg4_what_is_never_touched(path):
     assert never_touched(path)
     assert "CG4" in rules([app_change(path=path), added_test()])
@@ -336,7 +337,9 @@ def test_cg8_a_revert_needs_no_new_test():
 @pytest.mark.parametrize("line", ["x = 1  # noqa: E501", "y = 2  # nosec B101", "z = f()  # type: ignore",
                                   "if x:  # pragma: no cover", "@pytest.mark.skip(reason='flaky')",
                                   "@pytest.mark.xfail", "pytest.skip('later')", "a = 1  # NO" + "SONAR",
-                                  "# pylint: disable=all", "@unittest.skip('x')", "// eslint-disable-next-line"])
+                                  "# pylint: disable=all", "@unittest.skip('x')", "// eslint-disable-next-line",
+                                  "# ruff: noqa", "x = f()  # pyright: ignore[reportCallIssue]", "# mypy: ignore-errors",
+                                  "np = pytest.importorskip('numpy')", "raise unittest.SkipTest('later')"])
 def test_cg9_a_new_suppression_anywhere(line):
     assert "CG9" in rules([app_change(added=(line,)), added_test()])
 

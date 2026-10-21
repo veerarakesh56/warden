@@ -210,8 +210,9 @@ _NEVER: tuple[tuple[str, str], ...] = (
       r"usercustomize\.py|[^/]*\.pth|\.gitattributes|\.gitmodules|\.gitignore)"), "files a test run or build executes"),
     (r"(?:iam|terraform|k8s|helm|manifests)/.*|.*\.tf|.*\.tfvars|.*\.hcl", "IAM and infrastructure"),
     (r"(?:.*/)?[^/]*(?:polic(?:y|ies)|rbac|role|trust)[^/]*\.(?:json|ya?ml)", "IAM and access policy"),
-    ((r"(?:.*/)?(?:\.env(?:\.[^/]*)?|[^/]*\.(?:pem|key|p12|pfx|jks|keystore|crt|asc|gpg)|id_(?:rsa|ed25519|ecdsa)[^/]*|"
-      r"[^/]*(?:secret|credential|passw)[^/]*)"), "secrets and keys"),
+    # Any case: `.ENV`, `Server.KEY`, `ID_RSA`, `DB_Password.txt` are the same files to a person and to most tools.
+    ((r"(?i:(?:.*/)?(?:\.env(?:\.[^/]*)?|[^/]*\.(?:pem|key|p12|pfx|jks|keystore|crt|asc|gpg)|id_(?:rsa|ed25519|ecdsa)"
+      r"[^/]*|[^/]*(?:secret|credential|passw)[^/]*))"), "secrets and keys"),
     # WARDEN's own code, policy data and pins: WARDEN never writes the rules it is held to (self-target, P22).
     (r"src/warden/.*|scripts/.*|evals/.*|tests/.*|docs/safety-pins\.sha256", "WARDEN's own code, tests and policy"),
 )
@@ -251,8 +252,10 @@ def is_manifest(path: str) -> bool:
 
 # New suppressions and skipped tests (owner, 2026-10-17: no new suppression without a reason; here, none at all).
 _SUPPRESSION = re.compile(
-    r"#\s*(?:noqa|nosec|type:\s*ignore|pragma:\s*no\s*cover|pylint:\s*disable|nosemgrep)|N[O]SONAR|"
-    r"pytest\.(?:mark\.)?(?:skip|skipif|xfail)|unittest\.skip|@skip|eslint-disable|@ts-(?:ignore|nocheck)|"
+    r"#\s*(?:noqa|nosec|type:\s*ignore|pragma:\s*no\s*cover|pylint:\s*disable|nosemgrep|ruff:\s*noqa|"
+    r"pyright:\s*ignore|mypy:\s*ignore)|N[O]SONAR|"
+    r"pytest\.(?:mark\.)?(?:skip|skipif|xfail)|pytest\.importorskip|\bSkipTest\b|unittest\.skip|@skip|"
+    r"eslint-disable|@ts-(?:ignore|nocheck)|"
     r"lgtm\[|codeql\[|coderabbit:\s*ignore|sonar\.issue\.ignore", re.IGNORECASE)
 # exec, eval and compile as calls of their own (not a method such as `cursor.execute(` or `re.compile(`): code from a
 # string. Any mention of the builtins module reaches them another way (`builtins.exec`, `__builtins__["eval"]`).
