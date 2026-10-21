@@ -62,7 +62,8 @@ def test_no_terraform_line_and_no_iam_template_names_a_region():
 def test_the_region_comes_from_the_config_and_aws_region_overrides_it(monkeypatch):
     monkeypatch.delenv("AWS_REGION", raising=False)
     configured = environments.default_environment_policies().aws_region
-    assert configured and environments.region() == configured == environments.names("dev").region
+    assert configured
+    assert environments.region() == configured == environments.names("dev").region
     monkeypatch.setenv("AWS_REGION", "eu-west-1")
     assert environments.region() == "eu-west-1"
     monkeypatch.setenv("AWS_REGION", "not a region; rm -rf /")
@@ -138,7 +139,8 @@ def test_no_code_writes_an_environments_name_outside_the_named_exceptions():
 
 
 def test_where_faults_may_be_injected_is_one_list_in_the_configuration(tmp_path):
-    assert CFG.fault_environments and all(CFG.for_env(e).tier != "prod" for e in CFG.fault_environments)
+    assert CFG.fault_environments
+    assert all(CFG.for_env(e).tier != "prod" for e in CFG.fault_environments)
     text = (ROOT / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")
     for bad in ("fault_environments: [prod]", "fault_environments: [nowhere]", "fault_environments: dev"):
         doc = tmp_path / "e.yaml"
@@ -148,17 +150,21 @@ def test_where_faults_may_be_injected_is_one_list_in_the_configuration(tmp_path)
     from scenarios import region as harness
 
     assert harness.fault_environment() == CFG.fault_environments[0]
-    assert harness.EXAMPLE_ACCOUNT.isdigit() and len(harness.EXAMPLE_ACCOUNT) == 12  # AWS's documentation account
+    assert harness.EXAMPLE_ACCOUNT.isdigit()  # AWS's documentation account
+    assert len(harness.EXAMPLE_ACCOUNT) == 12
 
 
 def test_the_repository_is_named_in_the_configuration_and_nowhere_in_code(tmp_path):
     repo, subject = CFG.github["repository"], CFG.github["subject"]
     owner = repo.split("/")[0]
-    assert subject.split("@")[0] == owner and subject.split("/")[1].split("@")[0] == repo.split("/")[1]
+    assert subject.split("@")[0] == owner
+    assert subject.split("/")[1].split("@")[0] == repo.split("/")[1]
     for p in [*(ROOT / "iam" / "templates").glob("*.json"), *_python_files()]:
-        assert repo not in p.read_text(encoding="utf-8") and subject not in p.read_text(encoding="utf-8"), p.name
+        assert repo not in p.read_text(encoding="utf-8"), p.name
+        assert subject not in p.read_text(encoding="utf-8"), p.name
     trust = (ROOT / "iam" / "templates" / "trust.json").read_text(encoding="utf-8")
-    assert "repo:${github_subject}:environment:${env}" in trust and "${github_repository}/.github/workflows/" in trust
+    assert "repo:${github_subject}:environment:${env}" in trust
+    assert "${github_repository}/.github/workflows/" in trust
     # Owner, 2026-10-16: each environment deploys from the branch of its own name, the runtime from
     # `github.runtime_branch` - no template names a branch of its own.
     assert trust.count("refs/heads/${env}") == 3
@@ -174,7 +180,8 @@ def test_the_repository_is_named_in_the_configuration_and_nowhere_in_code(tmp_pa
         with pytest.raises(environments.EnvironmentPolicyError, match="runtime_branch"):
             environments.EnvironmentPolicies.load(doc)
     rendered = (ROOT / "iam" / CFG.fault_environments[0] / "trust.json").read_text(encoding="utf-8")
-    assert f"repo:{subject}:environment:" in rendered and f"{repo}/.github/workflows/" in rendered
+    assert f"repo:{subject}:environment:" in rendered
+    assert f"{repo}/.github/workflows/" in rendered
     text = (ROOT / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")
     for bad in ("  repository: not a repository", "  repository: 42"):
         doc = tmp_path / "e.yaml"

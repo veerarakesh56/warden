@@ -33,9 +33,11 @@ class _Slow:
 def test_a_backend_that_says_its_read_takes_longer_is_waited_for(monkeypatch):
     monkeypatch.setattr(tools, "TOOL_TIMEOUT_S", 0.1)
     cut = tools.gather(ALERT, _Slow())
-    assert not cut.logs and any("timed out" in e for e in cut.tool_errors)
+    assert not cut.logs
+    assert any("timed out" in e for e in cut.tool_errors)
     whole = tools.gather(ALERT, _Slow(budget=5))
-    assert whole.logs == ["LOG x ERROR boom"] and not whole.tool_errors
+    assert whole.logs == ["LOG x ERROR boom"]
+    assert not whole.tool_errors
     assert tools.gather(ALERT, _Slow(budget=5), timeout=0.1).tool_errors  # the explicit argument still wins
 
 

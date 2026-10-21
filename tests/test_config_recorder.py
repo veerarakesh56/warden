@@ -37,5 +37,7 @@ def test_the_live_check_names_each_gap():
     full = sorted(check.needed_types())
     assert check.problems(_Config(full), "r") == []
     gaps = check.problems(_Config(full[1:], recording=False, frequency="DAILY", channels=0), "r")
-    assert any(full[0] in g for g in gaps) and any("not recording" in g for g in gaps)
-    assert any("continuously" in g for g in gaps) and any("delivery" in g for g in gaps)
+    assert any(full[0] in g for g in gaps)
+    assert any("not recording" in g for g in gaps)
+    assert any("continuously" in g for g in gaps)
+    assert any("delivery" in g for g in gaps)
