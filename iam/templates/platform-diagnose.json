@@ -41,7 +41,8 @@
         "ec2:DescribeNetworkAcls",
         "ec2:DescribeRouteTables",
         "ec2:DescribeSecurityGroupRules",
-        "ec2:DescribeSubnets"
+        "ec2:DescribeSubnets",
+        "servicequotas:ListServiceQuotas"
       ],
       "Resource": "*",
       "Condition": {

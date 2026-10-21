@@ -34,7 +34,7 @@ import yaml
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from . import environments
 
@@ -87,6 +87,26 @@ class Approver(BaseModel):
     # is `dev` only - a test identity never approves a change anywhere else.
     environments: list[str] = Field(default_factory=list)
     passkeys: list[PasskeyCredential] = Field(default_factory=list)
+    # An AI approver: Eldane, the critic (autonomy.py, owner 2026-10-16). Always shown as AI_LABEL (EU AI Act Art. 50),
+    # never by a configured name; only for named non-prod environments, T1/T2, its own signing key, no passkey - and
+    # each of its approvals counts only when autonomy.ai_problems finds nothing.
+    ai: bool = False
+
+    @model_validator(mode="after")
+    def _ai_bounds(self) -> Approver:
+        if self.ai:
+            if not self.environments:
+                raise ValueError("an AI approver names the environments it may approve in; never every one")
+            if not set(self.tiers) <= set(AI_TIERS):
+                raise ValueError(f"an AI approver approves {' and '.join(AI_TIERS)} at most, never {sorted(self.tiers)}")
+            if self.passkeys:
+                raise ValueError("an AI approver has no passkey: a passkey is a person's")
+        return self
+
+
+# What an AI approver is always called, wherever it is shown (EU AI Act Art. 50: an AI is said to be one).
+AI_LABEL = "Eldane · AI critic"
+AI_TIERS = ("T1", "T2")  # never T3: irreversible, IAM, network or infrastructure changes are a person's
 
 
 # An approver's own words beside a decision (owner, 2026-10-14: a note with an approval as with a denial, "no matter
@@ -206,6 +226,20 @@ class ApproverPolicy(BaseModel):
     required: dict[str, int] = Field(default_factory=lambda: dict.fromkeys(TIERS, 1))
     cooling_off_minutes: dict[str, int] = Field(default_factory=lambda: {"T3": 10})
 
+    @model_validator(mode="after")
+    def _ai_key_is_its_own(self) -> ApproverPolicy:
+        """Register R10: an AI approver's key is its own - never a person's, so no approval of a person's can pass for
+        Eldane's, and no Eldane approval for a person's."""
+        for name, entry in self.approvers.items():
+            if entry.ai and any(same_public_key(o.public_key, entry.public_key)
+                                for other, o in self.approvers.items() if other != name):
+                raise ValueError(f"the AI approver {name!r} shares its public key with another approver")
+        return self
+
+    def is_ai(self, approver: str) -> bool:
+        entry = self.approvers.get(approver)
+        return bool(entry and entry.ai)
+
     @classmethod
     def load(cls, path: str | pathlib.Path) -> ApproverPolicy:
         return cls.loads(pathlib.Path(path).read_text(encoding="utf-8"))
@@ -227,6 +261,8 @@ class ApproverPolicy(BaseModel):
         key for them is its id, not a name for a reader (owner, 2026-10-12: a message that said "owner" "feels
         unprofessional and off") - it is shown only for an approver the list gives no name."""
         entry = self.approvers.get(approver)
+        if entry and entry.ai:
+            return AI_LABEL  # whatever name the list gives it
         if not entry or not entry.name.strip():
             return approver
         return entry.name.strip() + (f" ({entry.team.strip()})" if entry.team.strip() else "")
@@ -241,7 +277,7 @@ class ApproverPolicy(BaseModel):
 
     def people(self) -> tuple[tuple[str, str, str], ...]:
         """(approver id, Slack member id, name as shown) of every approver: what a message's marks become."""
-        return tuple((a, entry.slack, self.shown(a)) for a, entry in sorted(self.approvers.items()))
+        return tuple((a, "" if entry.ai else entry.slack, self.shown(a)) for a, entry in sorted(self.approvers.items()))
 
     def key_of(self, name: str) -> Ed25519PublicKey | None:
         approver = self.approvers.get(name)
@@ -249,6 +285,22 @@ class ApproverPolicy(BaseModel):
             return None
         key = serialization.load_pem_public_key(approver.public_key.encode())
         return key if isinstance(key, Ed25519PublicKey) else None
+
+
+def _key_bytes(pem: str) -> bytes:
+    """A public key as its bytes (SubjectPublicKeyInfo DER), however its PEM is wrapped or spaced; text that is not a
+    key is compared as written."""
+    try:
+        key = serialization.load_pem_public_key(pem.strip().encode())
+    except ValueError:
+        return pem.strip().encode()
+    return key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
+def same_public_key(a: str, b: str) -> bool:
+    """Whether two PEM texts hold the same public key (CodeRabbit, PR 42: compared as text, a re-wrapped copy of a
+    person's key passed as the AI approver's own)."""
+    return _key_bytes(a) == _key_bytes(b)
 
 
 def deny_request(approver: str, workflow_id: str, plan_hash: str, reason: str, issued_at: str) -> bytes:
