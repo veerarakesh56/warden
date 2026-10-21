@@ -75,8 +75,8 @@ locals {
     llm    = { secrets = ["anthropic-api-key"], assumes = [], platforms = [] }
     notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "github-token"], assumes = ["platform-reader"], platforms = ["aws"] }
     # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts. Its one secret is
-    # the terminate login's DSN - no password in it: each close signs in with a token the plan's actor signs.
-    act = { secrets = ["db-admin-dsn"], assumes = ["platform-reader", "actor"], platforms = ["aws", "k8s", "db"] }
+    # (B24: under its new slot, and its old one for one release) the terminate login's DSN - no password in it: each close signs in with a token the plan's actor signs.
+    act = { secrets = ["db-terminate-dsn", "db-admin-dsn"], assumes = ["platform-reader", "actor"], platforms = ["aws", "k8s", "db"] }
     # Eldane, the AI critic (eldane.py): the diagnosis's Claude key (owner, 2026-10-17) and its own signing key; it
     # reads the audit and assumes nothing.
     critic = { secrets = ["anthropic-api-key", "eldane-key"], assumes = [], platforms = [] }

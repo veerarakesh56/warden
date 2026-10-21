@@ -45,8 +45,9 @@ _OLD_NAME = {new: old for old, new in RENAMED.items()}
 # secret it read before and its task roles need no change.
 _SLOT = {new: old.lower().removeprefix("warden_").replace("_", "-") for old, new in RENAMED.items()
          if new != "WARDEN_DB_TERMINATE_DSN"}
-# B24 (2026-10-20, "admin" out of every name): the terminate DSN's slot is db-terminate-dsn - no Terraform holds it, a
-# person sets it. The old slot is still read for one release when the new one does not exist yet, with a WARNING.
+# B24 (2026-10-20, "admin" out of every name): the terminate DSN's slot is db-terminate-dsn. Terraform holds both slots
+# for one release (terraform/modules/warden-runtime secrets.tf, the act zone's grant in iam.tf); a person sets the
+# value. The old slot is still read, with a WARNING, while the new one has no value.
 _OLD_SLOT = {"WARDEN_DB_TERMINATE_DSN": "db-admin-dsn"}
 _NEW_SLOT = {"WARDEN_DB_TERMINATE_DSN": "db-terminate-dsn"}  # what secret_id names it; the warning says these two only
 
