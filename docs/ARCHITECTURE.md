@@ -203,7 +203,9 @@ diagnose; an unqualified model is refused, and every incident is then escalated 
 with confidence, action, verdict, policies and token cost as attributes. No exporter by default;
 `OTEL_EXPORTER_OTLP_ENDPOINT` sends spans to a collector, `WARDEN_TRACE_CONSOLE=1` prints them, and
 `WARDEN_TRACE=0` turns tracing off. Telemetry never takes the system down: a missing exporter falls back
-to the console.
+to the console. In the cloud runtime the endpoint is set only when SSM `tf/otlp_exporter` is `true`
+(`terraform/modules/warden-runtime`, variables `otlp_exporter` and `otlp_endpoint`: https on port 443, off by
+default), and the runtime image carries OpenTelemetry's OTLP/HTTP exporter for it.
 
 ## Running without Temporal or a model
 
