@@ -122,8 +122,9 @@ def separation(root_cause: RootCause, items: dict[str, Item]) -> tuple[int, int]
 
 
 def outcome_problem(root_cause: RootCause, proposal: RemediationProposal) -> str | None:
-    """P37 (owner U3-1, 2026-10-17): the typed outcome and the proposal must agree. `no_fault` with a change, or
-    `undetermined` with anything but a hand-off, is a diagnosis at odds with its own remediation. Not stated (None:
+    """P37 (owner U3-1, 2026-10-17): the typed outcome and the proposal must agree. `no_fault` with a change,
+    `undetermined` with anything but a hand-off, or `decided` closed with no action (review, PR 132: a decided cause
+    is acted on or handed off, never closed) is a diagnosis at odds with its own remediation. Not stated (None:
     recorded before the outcome, or built in code): nothing to check."""
     from .models import Outcome
 
@@ -132,6 +133,8 @@ def outcome_problem(root_cause: RootCause, proposal: RemediationProposal) -> str
         return f"the diagnosis found no fault, yet proposes {action.value}"
     if outcome is Outcome.undetermined and action is not ActionKind.escalate_to_human:
         return f"the diagnosis could not determine the cause, yet proposes {action.value} instead of a hand-off"
+    if outcome is Outcome.decided and action is ActionKind.no_action:
+        return "the diagnosis decided a cause, yet closes the incident with no action"
     return None
 
 
