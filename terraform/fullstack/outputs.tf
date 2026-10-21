@@ -195,6 +195,6 @@ output "name_prefix" {
 }
 
 output "db_users" {
-  description = "The database users, named for the environment (bootstrap.sql creates them; audit A-I-2)."
+  description = "The database users, named for the environment (bootstrap.sql creates them)."
   value       = local.db_users
 }

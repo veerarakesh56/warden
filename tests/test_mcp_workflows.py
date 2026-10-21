@@ -133,7 +133,7 @@ def test_a_complete_request_for_an_excluded_action_is_refused_by_the_catalogue(e
 
 
 def test_the_default_client_may_not_request_a_remediation(monkeypatch):
-    """Audit A-B-H4: a client's profile decides its tools; the default is read-only."""
+    """A client's profile decides its tools; the default is read-only."""
     monkeypatch.delenv("WARDEN_MCP_PROFILE", raising=False)
 
     async def main():
@@ -146,7 +146,7 @@ def test_the_default_client_may_not_request_a_remediation(monkeypatch):
 
 
 def test_status_answers_only_for_workflows_this_server_started():
-    """Audit A-B-H4: workflow_status read any incident's report by its id."""
+    """workflow_status read any incident's report by its id."""
     async def main():
         return await mcp_server.call_workflow_tool("workflow_status", {"workflow_id": "inc-someone-elses"}, client=None)
     result = asyncio.run(main())
@@ -155,7 +155,7 @@ def test_status_answers_only_for_workflows_this_server_started():
 
 
 def test_a_caller_cannot_steer_reads_outside_the_allowlist(tmp_path, monkeypatch):
-    """Audit A-B-H4: the caller's labels named what WARDEN read. Only values the operator lists are followed."""
+    """The caller's labels named what WARDEN read. Only values the operator lists are followed."""
     from warden import read_scope
     from warden.models import Alert
 
@@ -175,7 +175,7 @@ def test_a_caller_cannot_steer_reads_outside_the_allowlist(tmp_path, monkeypatch
 
 
 def test_the_workflow_starts_with_only_the_labels_the_allowlist_names(monkeypatch):
-    """Audit A-B-H4: the restriction is applied to the alert the workflow is started with, not only reported."""
+    """The restriction is applied to the alert the workflow is started with, not only reported."""
     import types
 
     monkeypatch.delenv("WARDEN_READ_SCOPES", raising=False)

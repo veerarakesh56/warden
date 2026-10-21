@@ -1,4 +1,4 @@
-"""Owner, 2026-10-15: the bench approver (dev only) may decline too, with the reason a person types in the page's box.
+"""The bench approver (dev only) may decline too, with the reason a person types in the page's box.
 A signed denial of a waiting plan in its environments ends it with nothing changed; a person's approver, another
 plan's hash, a forged signature or a stale request denies nothing."""
 

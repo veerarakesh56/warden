@@ -1,4 +1,4 @@
-"""Owner requirement R4: every time WARDEN shows is in UTC and in the install's display zone (IST here)."""
+"""Every time WARDEN shows is in UTC and in the install's display zone (IST here)."""
 
 from __future__ import annotations
 

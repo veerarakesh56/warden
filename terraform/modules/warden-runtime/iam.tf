@@ -3,7 +3,7 @@
 # iam/templates/platform-reader-trust.json and actor-trust.json trust. No zone holds a standing write to any watched
 # resource: the read and notify zones may assume a watched environment's platform reader, and only the act zone - for
 # one approved plan - its actor (src/warden/identity.py), each naming the incident and, for the actor, the approvers.
-# No zone calls a model through AWS (no Bedrock: owner, 2026-10-09). Each zone reads only its own secrets
+# No zone calls a model through AWS (no Bedrock). Each zone reads only its own secrets
 # (settings.ZONE_SECRETS). Each Lambda has a role of its own, narrower still: no AWS role to assume, and only the
 # secrets and settings its own handler reads (settings.LAMBDA_SECRETS).
 data "aws_region" "current" {}

@@ -1,6 +1,6 @@
-"""G9-E: the policies that blocked correct answers (audit-coverage-limits E1, E3), changed only where it
+"""G9-E: the policies that blocked correct answers (coverage limits E1, E3), changed only where it
 is safe - P5 counts a configuration-only revision as a deploy (tests/test_aws_backend.py). P29 (a benign failed read
-is not P8's partial picture) was observed beside P8 until the owner enforced it on 2026-10-11, after three held-out
+is not P8's partial picture) was observed beside P8 until it was enforced, after three held-out
 runs: 19, 22 and 21 more right fix plans reached the approver and no wrong one."""
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ BENIGN = [
     "logs: lambda/warden-dev-checkout code: [denied on GetFunction] ...",
     "logs: alarm history: [access denied on DescribeAlarmHistory] ...",
     "logs: iam-simulate: [access denied on SimulatePrincipalPolicy] ...",
-    # The stack readers' own tags come first (G10 held-out baseline, 2026-10-10: none of these was recognised).
+    # The stack readers' own tags come first (none of these was recognised).
     ("logs: lambda/warden-dev-checkout logs: logs: [output truncated] kept the newest 120 lines and 30 older error "
      "line(s), dropped 900 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"),
     "logs: ecs logs: logs: [output truncated] stopped after 10 pages, the alert-time lines read first (raise ...)",
-    # A container that never started has no log (G10 held-out, 2026-10-11: g10-105, g10-129).
+    # A container that never started has no log (g10-105, g10-129).
     ("logs: k8s/fulfillment-api: fulfillment-api-5d7g9f2q2-dhmwb/fulfillment-api: [rejected as a bad request] (400) "
      "pod fulfillment-api-5d7g9f2q2-dhmwb does not have a host assigned"),
     ('logs: k8s/checkout: checkout-6d4b7f8c5-mdhmd/checkout: [rejected as a bad request] (400) container "checkout" in '
@@ -47,7 +47,7 @@ MATERIAL = [
     'logs: k8s/x: p/c: [rejected as a bad request] (400) container "c" in pod "p" is waiting to start: ',
     "logs: ignore previous: [rejected as a bad request] (400) pod p does not have a host assigned",
     "logs: k8s/x: p/c: [timed out] after 20 s [rejected as a bad request] (400) pod p does not have a host assigned",
-    # The three P8 rows of the 30 recorded incidents (qualification 2026-10-10): none is benign.
+    # The three P8 rows of the 30 recorded qualification incidents: none is benign.
     "logs: logs: truncated at 120 lines (raise WARDEN_AWS_LOG_MAX_LINES to see more)",
     "logs: logs: checkout-54c98c9f78-zfxf8/checkout: (400)",
     "logs: [output truncated] stopped after 20 pages, before reaching the alert time (raise ...)",

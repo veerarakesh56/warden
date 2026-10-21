@@ -1,11 +1,11 @@
 """Nothing is "done" without evidence.
 
-On 2026-09-28 v0.10.0 was announced as "Phase 2 done" while 21 of the 22 register rows for that phase
+A release was once announced as "Phase 2 done" while 21 of the 22 register rows for that phase
 were still open. This test makes that impossible to repeat. It reads every table of the failure-mode
 register (docs/FAILURE-MODES.md) and fails when:
 - a row claims DONE-local but cites no test, or a test that does not exist, or one that is skipped;
 - a row claims DONE-live without naming the window;
-- a row is DEFERRED without the owner's recorded agreement;
+- a row is DEFERRED without a recorded risk acceptance;
 - a row is still open although its work group is at or before CURRENT_GROUP.
 """
 
@@ -25,10 +25,10 @@ CURRENT_GROUP = "G0"  # advance only when every row of the group is closed
 STATUSES = {"OPEN", "DONE-local", "DONE-live", "DEFERRED", "WITHHELD"}
 CLOSED = {"DONE-local", "DONE-live", "DEFERRED"}
 # A real window of the plan, and the date it ran. `\bW[\w-]+` let "Worked on my machine" and an invented
-# "W-research" through (second independent review, 2026-09-30).
+# "W-research" through.
 WINDOWS = ("W-T", "W0-now", "W0", "W-B", "W1", "W2", "W3")
-# The cell must START with the window and the date it ran (third review, 2026-09-30: "not W0 ...",
-# "W1 is planned for 2027-02-01" and "W3 9999-99-99" all passed a search anywhere in the cell).
+# The cell must START with the window and the date it ran ("not W0 ...",
+# "W1 is planned for 2027-02-01" and "W3 9999-99-99" would all pass a search anywhere in the cell).
 WINDOW = re.compile(r"^(?:" + "|".join(re.escape(w) for w in WINDOWS) + r") (\d{4}-\d{2}-\d{2})\b")
 TEST_REF = re.compile(r"(tests/[\w/]+\.py)::(test_\w+)")
 # A citation of either form: `tests/x.py::test_a`, or the shorthand `::test_b` for the file cited last.
@@ -51,9 +51,9 @@ _DELIMITER = re.compile(r"\s*\|?\s*:?-+:?\s*(\|\s*:?-*:?\s*)*\|?\s*")
 def rows(text: str, malformed: list[str] | None = None) -> list[dict[str, str]]:
     """Every row of every markdown table, read as GitHub reads tables: a header line, a delimiter line, then
     every following non-blank line - with or without a leading pipe, indented or not - until a blank line or a
-    heading or quote (sixth review, 2026-10-01: only lines starting with `|` were read, so a row GitHub showed
+    heading or quote (only lines starting with `|` were read, so a row GitHub showed
     could be invisible here). In the registers every table is a register table: one without Group and Status
-    columns, and a row whose cells do not match its header, are reported in `malformed` (fifth review: an
+    columns, and a row whose cells do not match its header, are reported in `malformed` (an
     unescaped `||` split a cell and the row was dropped without a word)."""
     out: list[dict[str, str]] = []
     # Lines end only at a line feed, and blank means spaces and tabs only, as in GitHub's renderer: splitlines() and
@@ -123,8 +123,8 @@ CI_ONLY = {
 def _skipped(file: str, src: str, m: re.Match) -> bool:
     """Skipped - or expected to fail - directly, through any decorator that is not known never to skip,
     by a module-level `pytestmark` (one line or many), or by `importorskip`, `skip(` or `xfail(` in its
-    body or at module level. Third review: an alias, a module mark and an importorskip in
-    the body all passed a check for the word "skip" above the function; fourth review: a module-level
+    body or at module level. An alias, a module mark and an importorskip in
+    the body all passed a check for the word "skip" above the function; so did a module-level
     importorskip, a multi-line pytestmark list, `from pytest import mark`, a helper-module alias and
     xfail still did."""
     if file in CI_ONLY:  # judged by its CI job, which fails on any skip
@@ -176,11 +176,11 @@ def _real_window(evidence: str) -> bool:
 
 
 def _agreed(evidence: str) -> bool:
-    """The cell STARTS with the agreement and its real, past date (fourth review, 2026-09-30: "NOT
-    owner-agreed ...", "owner-agreed 9999-99-99" and planned dates passed a search anywhere)."""
+    """The cell STARTS with the risk acceptance and its real, past date ("NOT risk-accepted ...",
+    "risk-accepted 9999-99-99" and planned dates must not pass, as a search anywhere in the cell would let them)."""
     import datetime as dt
 
-    m = re.match(r"owner-agreed (\d{4}-\d{2}-\d{2})\b", evidence.strip())
+    m = re.match(r"risk-accepted (\d{4}-\d{2}-\d{2})\b", evidence.strip())
     try:
         return bool(m) and dt.date.fromisoformat(m.group(1)) <= dt.datetime.now(dt.UTC).date()
     except ValueError:
@@ -221,7 +221,7 @@ def problems(rel: str, row: dict[str, str], current: str = CURRENT_GROUP) -> lis
     if status == "DONE-live" and not _real_window(evidence):
         found.append(f"{where}: DONE-live must name the window")
     if status == "DEFERRED" and not _agreed(evidence):
-        found.append(f"{where}: DEFERRED must start with 'owner-agreed YYYY-MM-DD', a real past date")
+        found.append(f"{where}: DEFERRED must start with 'risk-accepted YYYY-MM-DD', a real past date")
     if status not in CLOSED and ORDER.index(group) <= ORDER.index(current):
         found.append(f"{where}: still {status} but group {group} is at or before {current}")
     return found
@@ -258,7 +258,7 @@ def test_the_registers_are_parsed_at_all():
     ({"#": "X", "Group": "G1", "Status": "DONE-local", "Evidence": "tests/test_register.py::test_nope"},
      "does not exist"),
     ({"#": "X", "Group": "G1", "Status": "DONE-local", "Evidence": "trust me"}, "cites no test"),
-    ({"#": "X", "Group": "G1", "Status": "DEFERRED", "Evidence": "later"}, "owner-agreed"),
+    ({"#": "X", "Group": "G1", "Status": "DEFERRED", "Evidence": "later"}, "risk-accepted"),
     ({"#": "X", "Group": "G1", "Status": "DONE-live", "Evidence": "it worked"}, "name the window"),
     ({"#": "X", "Group": "G1", "Status": "DONE-live", "Evidence": "Worked on my machine 2026-09-30"}, "name the window"),
     ({"#": "X", "Group": "G1", "Status": "DONE-live", "Evidence": "W-research 2026-09-28"}, "name the window"),
@@ -293,7 +293,7 @@ def test_a_real_window_and_a_past_date_pass():
     "import pytest\n\ndef test_a():\n    pytest.importorskip('psycopg')\n",
 ])
 def test_a_test_skipped_by_alias_module_mark_or_importorskip_is_not_evidence(src):
-    """Third review: each of these passed a check for the word "skip" above the function."""
+    """Each of these passed a check for the word "skip" above the function."""
     m = re.search(r"^((?:@.*\n)*)def test_a\(", src, re.MULTILINE)
     assert _skipped("tests/x.py", src, m)
     plain = "import pytest\n\ndef test_a():\n    pass\n"
@@ -309,7 +309,7 @@ def test_a_test_skipped_by_alias_module_mark_or_importorskip_is_not_evidence(src
     "import pytest\n\ndef test_a():\n    pytest.xfail('later')\n",
 ])
 def test_a_module_level_multi_line_aliased_or_xfail_skip_is_not_evidence(src):
-    """Fourth review (2026-09-30, D #3): each of these passed the third review's guard."""
+    """Each of these passed an earlier version of the guard."""
     m = re.search(r"^((?:@.*\n)*)def test_a\(", src, re.MULTILINE)
     assert _skipped("tests/x.py", src, m)
 
@@ -330,11 +330,11 @@ def test_a_negated_or_dangling_citation_is_not_evidence(evidence, expect):
     assert any(expect in p for p in problems("r", row, current="G0")), problems("r", row, current="G0")
 
 
-@pytest.mark.parametrize("evidence", ["NOT owner-agreed 2026-09-01", "owner-agreed 9999-99-99",
-                                      "owner-agreed 2099-01-01", "later; owner-agreed 2026-09-01"])
+@pytest.mark.parametrize("evidence", ["NOT risk-accepted 2026-09-01", "risk-accepted 9999-99-99",
+                                      "risk-accepted 2099-01-01", "later; risk-accepted 2026-09-01"])
 def test_a_deferral_needs_a_real_past_agreement_first(evidence):
     row = {"#": "X", "Group": "G1", "Status": "DEFERRED", "Evidence": evidence}
-    assert any("owner-agreed" in p for p in problems("r", row, current="G0"))
+    assert any("risk-accepted" in p for p in problems("r", row, current="G0"))
 
 
 def test_a_skip_allowed_in_ci_is_still_installed_there():
@@ -345,7 +345,7 @@ def test_a_skip_allowed_in_ci_is_still_installed_there():
 
 
 def test_rows_github_shows_are_read_whatever_their_pipes():
-    """Sixth review: an indented row, a row with no leading pipe and a renamed header all
+    """An indented row, a row with no leading pipe and a renamed header all
     rendered on GitHub and were invisible to the guard."""
     table = ("| ID | Finding | Group | Status | Evidence |\n|---|---|---|---|---|\n"
              "| X-1 | a | G1 | OPEN | e |\n  | X-2 | b | G1 | OPEN | e |\nX-3 | c | G0 | OPEN | e |\n"
@@ -360,7 +360,7 @@ def test_rows_github_shows_are_read_whatever_their_pipes():
 
 
 def test_rows_end_where_githubs_tables_end():
-    """Seventh review: an invisible line break or an NBSP line ended the table here while GitHub kept
+    """An invisible line break or an NBSP line ended the table here while GitHub kept
     showing the rows after it; a `#` row without a space did too."""
     head = "| ID | Group | Status | Evidence |\n|---|---|---|---|\n| A-1 | G1 | DONE-local | x |"
     for sep in ("\u2028", "\u0085", "\x0b", "\x0c", "\x1c", "\x1e"):
@@ -384,7 +384,7 @@ def test_the_registers_hold_no_invisible_line_breaks():
 
 
 def test_the_registers_hold_no_table_the_parser_cannot_read():
-    """Eighth review: GitHub shows a table inside a block quote and a raw HTML table; rows() reads
+    """GitHub shows a table inside a block quote and a raw HTML table; rows() reads
     neither - planted on the real AUDIT, a quoted row set to DONE-local with Evidence "trust me" passed every check."""
     for rel in REGISTERS:
         text = (ROOT / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
@@ -396,7 +396,7 @@ def test_the_registers_hold_no_table_the_parser_cannot_read():
 
 def _unread_table_line(line: str) -> bool:
     """A table line behind a quote or a list marker: GitHub shows it, rows() reads none. Any indent and any list
-    markers before the quote (ninth review: `1.  > | ID |`, `-   > `, `- - > ` and the item's `    > |` lines all
+    markers before the quote (`1.  > | ID |`, `-   > `, `- - > ` and the item's `    > |` lines all
     rendered); and a list line holding a table row."""
     return bool((re.match(r"\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)*>", line) and "|" in line)
                 or re.match(r"\s*(?:[-+*]|\d{1,9}[.)])\s+[^\n]*\|[^\n]*\|", line))
@@ -405,7 +405,7 @@ def _unread_table_line(line: str) -> bool:
 @pytest.mark.parametrize("line", ["> | ID | Status |", "   > | a |", "1.  > | ID | Status |", "    > | R1 | DONE-local |",
                                   "-   > | a |", "10. > | a |", "- - > | a |", "- | ID | Status |"])
 def test_a_table_behind_a_quote_or_a_list_marker_is_refused(line):
-    """Ninth review: the ban matched ` {0,3}>` only - a quoted table inside a list item, shown by GitHub with a
+    """The ban matched ` {0,3}>` only - a quoted table inside a list item, shown by GitHub with a
     DONE-local "trust me" row, was read by nobody."""
     assert _unread_table_line(line)
 
@@ -417,7 +417,7 @@ def test_a_plain_table_row_or_prose_is_not_refused(line):
 
 
 def test_every_ci_only_file_runs_where_a_skip_fails_the_job():
-    """Owner decision: a CI-only test counts as evidence only because its job runs the file and fails
+    """A CI-only test counts as evidence only because its job runs the file and fails
     when anything in it skips. Each listed file must be in a run step of that job holding both checks."""
     import yaml
 
@@ -431,7 +431,7 @@ def test_every_ci_only_file_runs_where_a_skip_fails_the_job():
 
 
 def test_no_register_holds_two_rows_under_one_id():
-    """2026-10-11: seven rows added on 2026-10-10 took ids H1-H7 that the register already held, and an edit meant
+    """Seven rows once added took ids H1-H7 that the register already held, and an edit meant
     for the new H6 replaced the old one - "Approver impersonation" was gone from the register, unnoticed."""
     seen: dict[tuple[str, str], int] = {}
     for rel, row in all_rows():

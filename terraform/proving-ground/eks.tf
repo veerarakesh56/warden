@@ -41,7 +41,7 @@ resource "aws_eks_cluster" "this" {
     # gateway, arrive from THEIR OWN public IP, are refused by public_access_cidrs, and the node group
     # fails with "instances failed to join the kubernetes cluster" after ~20 billed minutes. With it
     # on, in-VPC DNS resolves the endpoint to private addresses (enable_dns_hostnames in main.tf) and
-    # nodes never touch the public allow-list. Shipped as `false` until 2026-09-24; never caught
+    # nodes never touch the public allow-list. Once shipped as `false`; never caught
     # because the node group never got far enough to try.
     endpoint_private_access = true
     # The API endpoint is reachable from one address by default, not from the internet. This is the
@@ -93,7 +93,7 @@ resource "aws_iam_role_policy_attachment" "eks_node" {
 # credentials. While that role does not exist, IAM evaluates the request against the path-less ARN
 # `role/AWSServiceRoleForAmazonEKSNodegroup` - which `role/aws-service-role/*` (the boundary's
 # CeilingReadServiceLinkedRoles) does not match - and the node group fails. Once the role exists
-# its real ARN carries the path and matches. Found 2026-09-24 with IAM's access troubleshooter,
+# its real ARN carries the path and matches. Found with IAM's access troubleshooter,
 # which showed the path-less resource. Not a Terraform resource on purpose: the operator cannot
 # delete service-linked roles, so owning it here would make every destroy fail.
 resource "aws_eks_node_group" "this" {

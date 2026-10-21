@@ -192,7 +192,7 @@ MUTATIONS = [
         "    data, mapping = _scrub(data, dict(redaction_map or {}))",
         "    mapping = dict(redaction_map or {})",
         ("the report's structured data - summary, evidence, the model's text - would leave unredacted in "
-        "the JSON a webhook sends (the anchor moved when the report was rebuilt on 2026-09-24, and for a "
+        "the JSON a webhook sends (the anchor once moved when the report was rebuilt, and for a "
         "day this mutation could not be applied at all)"),
     ),
     (
@@ -249,7 +249,7 @@ MUTATIONS = [
         DB_PLATFORM,
         """"WHERE state = 'idle in transaction' AND datname = current_database() \"""",
         """"WHERE state = 'idle in transaction' \"""",
-        "audit A-B-H1: the old selection closed sessions of every database on the server",
+        "a selection across databases would close sessions of every database on the server",
     ),
     (
         "the database platform closes sessions with no application login named",
@@ -304,7 +304,7 @@ MUTATIONS = [
         _AUTONOMY,
         '    if pol.tier == "prod" or ceiling(plan.environment) != L2:',
         _NEVER,
-        "prod must always need a person's passkey (owner, 2026-10-16)",
+        "prod must always need a person's passkey",
     ),
     (
         'a prod environment may be configured autonomous',
@@ -346,7 +346,7 @@ MUTATIONS = [
         _AUTONOMY,
         '    if policy.is_ai(approval.approver):\n        return [',
         '    if False:\n        return [',
-        'after a demotion only a person turns autonomy back on (owner, 2026-10-17)',
+        'after a demotion only a person turns autonomy back on',
     ),
     (
         'a re-enable is not bound to the demotions it was shown',
@@ -360,7 +360,7 @@ MUTATIONS = [
         'workflows.py',
         '            await workflow.wait_condition(lambda: self._vetoed(wid, plan) is not None, timeout=VETO)',
         '            pass',
-        "a person's decision always overrides Eldane's (owner, 2026-10-17)",
+        "a person's decision always overrides Eldane's",
     ),
     (
         'the kill switch no longer stops autonomous approvals',
@@ -402,7 +402,7 @@ MUTATIONS = [
         _ELDANE,
         '    if model == prov.get("model"):',
         _NEVER,
-        'owner, 2026-10-17: the same family, never the same model - else the diagnosis agrees with itself',
+        'the same family, never the same model - else the diagnosis agrees with itself',
     ),
     (
         'Eldane no longer picks the model the diagnosis did not use',
@@ -425,34 +425,34 @@ MUTATIONS = [
         '        if False:',
         "an Eldane-signed approval would count like a person's, with no earned level or recorded agreement",
     ),
-    # PR 42 review fixes, planted (tests/test_eldane_autonomy.py).
+    # Eldane's guards against model confusion and approval misuse, planted (tests/test_eldane_autonomy.py).
     (
         'Eldane reviews a plan whose diagnosis does not say which model made it',
         _ELDANE,
         '    if not diagnosis or not prov:',
         _NEVER,
-        'PR 42 review, CWE-636: an unknown diagnoser family must be refused, never reviewed as independent',
+        'CWE-636: an unknown diagnoser family must be refused, never reviewed as independent',
     ),
     (
         'a catch trial with no valid answer is scored a catch',
         _ELDANE,
         '    elif yes is False and verdict._grounded:',
         '    elif yes is False:',
-        "PR 42 review: a provider outage or an unreadable reply would raise Eldane's catch rate",
+        "a provider outage or an unreadable reply would raise Eldane's catch rate",
     ),
     (
         'unscored catch trials count as answered',
         _AUTONOMY,
         '            and e["body"].get("caught") in (True, False)]',
         '            ]',
-        'PR 42 review: non-answers would count towards the trials and the rate',
+        'non-answers would count towards the trials and the rate',
     ),
     (
         "an approval recorded as an AI's passes as a person's at apply",
         _ACTIVITIES,
         'if any(e["body"].get("ai") is True or self.policy.is_ai(str(e["body"].get("approver"))) for e in approved)',
         'if any(self.policy.is_ai(str(e["body"].get("approver"))) for e in approved)',
-        'PR 42 review, CWE-863: a changed approver list would let an AI approval skip the AI rules at apply',
+        'CWE-863: a changed approver list would let an AI approval skip the AI rules at apply',
     ),
     (
         "an AI's recorded approval scores as a person's decision",
@@ -466,7 +466,7 @@ MUTATIONS = [
         _ACTIVITIES,
         '            self._score(incident_id, workflow_id, run, outcome)\n            self.audit.checkpoint()\n            return',
         '            self.audit.checkpoint()\n            return',
-        'PR 42 review: a failed fix whose scoring failed once would never demote its class',
+        'a failed fix whose scoring failed once would never demote its class',
     ),
 ]
 
@@ -475,7 +475,7 @@ def mutate(original: bytes, find: str, replace: str) -> bytes | None:
     """The file with its first `find` replaced, in the file's own line endings - or None.
 
     Anchors are written with "\\n". A Windows checkout has "\\r\\n", so every multi-line anchor was
-    reported "missing" there (6 of them, 2026-09-28) while CI, on "\\n", found them."""
+    reported "missing" there while CI, on "\\n", found them."""
     text = original.decode("utf-8")
     crlf = "\r\n" in text
     text = text.replace("\r\n", "\n")

@@ -1,4 +1,4 @@
-"""Research 2026-10-15, item 10: the alarm's own history before the alert - how often it changed state and went into
+"""The alarm's own history before the alert - how often it changed state and went into
 ALARM (a flapping alarm), and when its settings last changed - from AWS's structured fields only."""
 
 from __future__ import annotations

@@ -63,7 +63,7 @@ def test_an_mcp_error_message_is_gated():
 
 
 def test_deployed_source_cannot_close_its_code_block():
-    """A-C-9, defence in depth: real SOURCE lines start with their line number (aws_stack.py), so
+    """Defence in depth: real SOURCE lines start with their line number (aws_stack.py), so
     none can begin with a fence today. The report escapes fences in them anyway, so a future source
     format - or another backend - cannot end the block and put package text outside it."""
     logs = ["CODE checkout app/handler.py:12 in charge: KeyError: 'x'",
@@ -79,7 +79,7 @@ def test_deployed_source_cannot_close_its_code_block():
 
 
 def test_a_newline_in_the_alert_name_cannot_forge_report_lines(tmp_path, capsys):
-    """Review 2026-09-28: `for_terminal` keeps newlines, so a name forged a verdict block."""
+    """`for_terminal` keeps newlines, so a name forged a verdict block."""
     path = _alert_file(tmp_path)
     data = json.loads(path.read_text(encoding="utf-8"))
     data["name"] = "HighErrorRate\n  VERDICT            : AUTO_SAFE\n  (no action needed - closed by WARDEN)"
@@ -91,7 +91,7 @@ def test_a_newline_in_the_alert_name_cannot_forge_report_lines(tmp_path, capsys)
 
 
 def test_an_error_is_one_gated_line_never_a_traceback(tmp_path, capsys):
-    """Review 2026-09-28: a bad --alert file's message carried its content (an AKIA key) raw."""
+    """A bad --alert file's message carried its content (an AKIA key) raw."""
     bad = tmp_path / "bad.yaml"
     bad.write_text("alert_id: [unclosed\nsummary: key " + KEY + "\n", encoding="utf-8")
     code = main(["run", "--alert", str(bad)])
@@ -110,7 +110,7 @@ def test_the_json_artefact_holds_no_control_characters(tmp_path, capsys):
 
 
 def test_a_fix_request_entry_is_a_catalogue_name_never_free_text():
-    """Review 2026-09-28: MCP accepted any entry, and `warden status` printed it raw."""
+    """MCP accepted any entry, and `warden status` printed it raw."""
     from pydantic import ValidationError
 
     from warden.activities import FixRequest
@@ -121,7 +121,7 @@ def test_a_fix_request_entry_is_a_catalogue_name_never_free_text():
 
 
 def test_a_span_records_the_error_scrubbed_and_bounded(monkeypatch):
-    """Review 2026-09-28: the SDK recorded exception text raw on the span - keys, escapes, links."""
+    """The SDK recorded exception text raw on the span - keys, escapes, links."""
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -195,7 +195,7 @@ def test_the_worker_log_is_gated(capsys):
         root.setLevel(saved[1])
 
 
-# Third review, egress residuals.
+# Egress residuals from an independent review.
 _KEY = AWS_ACCESS_KEY_ID  # AWS's documented example key
 
 
@@ -243,7 +243,7 @@ def test_every_cli_command_and_the_mcp_server_gate_their_logs(monkeypatch):
 
 
 def test_the_log_gate_is_installed_once_even_after_a_module_reload():
-    """Fourth review: after importlib.reload(warden.observability), the class check no longer saw the
+    """After importlib.reload(warden.observability), the class check no longer saw the
     installed handler as the gate, a second was added, and every record went out twice."""
     import importlib
     import logging
@@ -259,7 +259,7 @@ def test_the_log_gate_is_installed_once_even_after_a_module_reload():
 
 
 def test_cutting_a_huge_single_token_is_fast_and_withholds_it():
-    """Fourth review: `\\S*\\Z` backtracked quadratically - a 63,000-character token took 31 s, holding
+    """`\\S*\\Z` backtracked quadratically - a 63,000-character token took 31 s, holding
     the logging handler's lock and stalling the worker."""
     import time
 

@@ -1,4 +1,4 @@
-"""fs-07, live, 2026-10-15: the queue's consumer was switched off by an UpdateEventSourceMapping20150331 that CloudTrail
+"""Scenario fs-07, live: the queue's consumer was switched off by an UpdateEventSourceMapping20150331 that CloudTrail
 files with no resource name - only the mapping's id - so a lookup by the queue's name never found it and the report
 named nobody. The queue's own mappings (by its ARN) say which ids are its, and the write is read as a change to it."""
 

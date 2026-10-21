@@ -33,7 +33,7 @@ def test_a_misread_unit_or_scale_is_named():
 
 
 def test_on_the_published_runs_it_fires_on_none():
-    """Measured 2026-10-03: compared with any metric of its kind it fired on 85 of 132 recorded answers; naming,
+    """Measured: compared with any metric of its kind it fired on 85 of 132 recorded answers; naming,
     readings and rounding brought that to none - while the three misreads above are still caught."""
     import pathlib
 

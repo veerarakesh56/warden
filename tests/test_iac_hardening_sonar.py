@@ -1,4 +1,4 @@
-"""SonarCloud's IaC findings of 2026-10-16, fixed in the stacks and manifests: logs kept long enough to investigate an
+"""SonarCloud's IaC findings, fixed in the stacks and manifests: logs kept long enough to investigate an
 incident found days later, EKS nodes that never take a public address, the lab database encrypted at rest, and every
 container's resources declared - the negative Pod Security test too."""
 

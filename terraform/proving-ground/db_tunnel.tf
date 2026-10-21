@@ -1,4 +1,4 @@
-# The way to the lab database (Sonar terraform:S8793, owner 2026-10-21): the database is private, and the operator
+# The way to the lab database (Sonar terraform:S8793): the database is private, and the operator
 # reaches it through an AWS Systems Manager port-forward to a t4g.nano in the VPC. Like the database, everything here
 # exists only while enable_rds = true, so the lab costs nothing for it when it is off.
 #
@@ -9,7 +9,7 @@
 #
 # No SSH key, no inbound rule, no public address: the instance talks only to Systems Manager, through three interface
 # endpoints in the VPC (a public IP would be cheaper, and is what Sonar terraform:S6329 refuses), and to the database.
-# Why not IPv6-only behind a free egress-only gateway (about $0.004/h; owner asked first, 2026-10-21): it could not be
+# Why not IPv6-only behind a free egress-only gateway (about $0.004/h): it could not be
 # confirmed. SSM Agent reaches the dual-stack endpoints (ssm.<region>.api.aws ...) only with UseDualStackEndpoint set
 # (off by default, since 3.3.3270.0), and its EC2 identity reads instance metadata through an SDK client built from an
 # empty config - the IPv4 endpoint 169.254.169.254 - so an IPv6-only box is not shown to register at all. Until a live

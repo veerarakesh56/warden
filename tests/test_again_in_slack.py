@@ -1,4 +1,4 @@
-"""Owner, 2026-10-15: when something breaks again after a fix, WARDEN says so in the channel - the message itself,
+"""When something breaks again after a fix, WARDEN says so in the channel - the message itself,
 not only the record page behind its "Full record" button."""
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Audit A-B-L5: the queue-policy reader reads each condition operator by its meaning; the SG line names every source."""
+"""The queue-policy reader reads each condition operator by its meaning; the SG line names every source."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def test_each_condition_operator_is_read_by_its_meaning(statements, allowed):
     assert _policy_allows_topic(_policy(*statements), TOPIC) is allowed
 
 
-# PR 122 review: a statement's conditions all have to hold (they are ANDed). One that is not understood used to end the
+# A statement's conditions all have to hold (they are ANDed). One that is not understood used to end the
 # reading at once, so its answer depended on which condition the policy happened to list first: a Deny that names an
 # unreadable condition and, after it, another topic was taken to apply - and a policy that lets this topic send read as
 # one that does not.

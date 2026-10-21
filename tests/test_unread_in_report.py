@@ -1,4 +1,4 @@
-"""Owner, 2026-10-17 (the poisoned-log downgrade): what a person reads never carries a version, an image tag, an ARN or
+"""A defence against poisoned logs: what a person reads never carries a version, an image tag, an ARN or
 a target the model wrote - or a log line holds - unless WARDEN read it itself."""
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def test_the_target_a_person_reads():
 
 
 def test_an_image_with_a_word_for_its_tag_is_withheld_and_a_kind_before_a_known_name_is_not():
-    """Review, PR 47: `checkout:canary` passed. A word after the colon that WARDEN read is a resource's name, as a model
+    """`checkout:canary` passed. A word after the colon that WARDEN read is a resource's name, as a model
     writes `lambda:<name>`; any other word is a tag."""
     assert unread("roll back to checkout:canary", READ) == f"roll back to {UNREAD}"
     assert unread("roll back to checkout:canary", READ, rollback=True) == f"roll back to {PREVIOUS}"
@@ -56,14 +56,14 @@ def test_an_image_with_a_word_for_its_tag_is_withheld_and_a_kind_before_a_known_
 
 
 def test_an_unknown_target_is_withheld_whatever_its_punctuation():
-    """Review, PR 47: `payments` was shown where `payments-db` was not. Words that describe a resource stay."""
+    """`payments` was shown where `payments-db` was not. Words that describe a resource stay."""
     assert shown_target(_proposal(ActionKind.restart_pods, "payments"), ALERT, CTX) == UNREAD
     assert shown_target(_proposal(ActionKind.restart_pods, "checkout service"), ALERT, CTX) == "checkout service"
     assert shown_target(_proposal(ActionKind.restart_pods, "deployment checkout"), ALERT, CTX) == "deployment checkout"
 
 
 def test_the_crashed_containers_own_output_is_withheld_in_the_report():
-    """Review, PR 47: `logs --previous` is the application's words, rendered as WARDEN's check - not WARDEN's reading."""
+    """`logs --previous` is the application's words, rendered as WARDEN's check - not WARDEN's reading."""
     from warden.reporting import build_report
 
     ctx = CTX.model_copy(update={"logs": [*CTX.logs, "checkout-abc/checkout (previous) pinned to checkout:1.2.0"]})
@@ -74,7 +74,7 @@ def test_the_crashed_containers_own_output_is_withheld_in_the_report():
 
 
 def test_a_version_or_tag_that_ends_a_sentence_is_judged_without_its_period():
-    """Review, PR 47: "upgrade to 1.2.3." escaped (the period was read as part of the number), and a tag WARDEN read
+    """"upgrade to 1.2.3." escaped (the period was read as part of the number), and a tag WARDEN read
     was withheld when a period followed it."""
     assert unread("upgrade to 1.2.3.", READ) == f"upgrade to {UNREAD}."
     assert unread("roll back to checkout:canary.", READ) == f"roll back to {UNREAD}."
@@ -82,7 +82,7 @@ def test_a_version_or_tag_that_ends_a_sentence_is_judged_without_its_period():
 
 
 def test_a_value_is_read_only_as_a_whole_value_never_as_part_of_another():
-    """Review, PR 47: `1.2.3` was kept because WARDEN had read `1.2.30`."""
+    """`1.2.3` was kept because WARDEN had read `1.2.30`."""
     read = read_text(ALERT, CTX.model_copy(update={"recent_deploys": [{"service": "checkout", "image": "checkout:1.2.30"}]}))
     assert unread("go back to 1.2.3", read) == f"go back to {UNREAD}"
     assert unread("go back to 1.2.30", read) == "go back to 1.2.30"
@@ -90,7 +90,7 @@ def test_a_value_is_read_only_as_a_whole_value_never_as_part_of_another():
 
 
 def test_a_word_after_a_colon_is_a_resource_only_after_a_kind_word():
-    """Review, PR 47: `checkout:checkout` or `Checkout:canary` kept a tag WARDEN never read."""
+    """`checkout:checkout` or `Checkout:canary` kept a tag WARDEN never read."""
     assert unread("restart lambda:checkout", READ) == "restart lambda:checkout"
     assert unread("back to checkout:checkout", READ) == f"back to {UNREAD}"
     assert unread("back to Checkout:canary", READ) == f"back to {UNREAD}"
@@ -102,7 +102,7 @@ def test_a_tag_with_a_digest_is_one_reference():
 
 
 def test_a_version_attached_to_a_name_is_still_a_version():
-    """Review, PR 47: `checkout-1.2.0` and `checkout_1.2.0` escaped; a date or an id does not become one."""
+    """`checkout-1.2.0` and `checkout_1.2.0` escaped; a date or an id does not become one."""
     assert unread("deploy checkout-1.2.0", READ) == f"deploy checkout-{UNREAD}"
     assert unread("deploy checkout_1.2.0", READ) == f"deploy checkout_{UNREAD}"
     for kept in ("at 2026-10-17T10:02:11Z", "pod checkout-7d9f8c-x2k4p", "i-0b7d", "sha=9f2c1ab"):
@@ -110,7 +110,7 @@ def test_a_version_attached_to_a_name_is_still_a_version():
 
 
 def test_rollback_wording_is_the_targets_alone():
-    """Review, PR 47: a version the model wrote elsewhere is not "the previous revision WARDEN recorded"."""
+    """A version the model wrote elsewhere is not "the previous revision WARDEN recorded"."""
     from warden.models import RootCause
     from warden.reporting import build_report
 

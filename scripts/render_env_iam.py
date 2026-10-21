@@ -5,7 +5,7 @@ policy per environment in src/warden/data/environments.yaml (v2 Phase 1.5).
     python scripts/render_env_iam.py --account   # also trust.local.json with the real account id
                                                  # (gitignored; for pasting into the console)
 
-The rendered files are COMMITTED: the owner pastes them from GitHub, IAM Access Analyzer validates
+The rendered files are COMMITTED: an operator pastes them from GitHub, IAM Access Analyzer validates
 exactly these bytes, and tests/test_env_iam.py fails if a file drifts from its template. The
 committed trust.json carries `<ACCOUNT_ID>`, never the account id.
 """
@@ -34,7 +34,7 @@ TRUSTS = ("trust", "actor-trust", "platform-reader-trust")
 # runtime.yml assumes - and the boundary on every role terraform/runtime makes come from the runtime-* templates (G6).
 RUNTIME_KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust")
 # The benchmark harness and the undo lab run only where environments.yaml `fault_environments` says, as the operator
-# on the laptop - the list is configuration, never named here.
+# on a workstation - the list is configuration, never named here.
 HARNESS_ENVS = EnvironmentPolicies.load().fault_environments
 
 
@@ -68,7 +68,7 @@ def render(env: str, account: str = ACCOUNT_PLACEHOLDER, cluster: str = "<CLUSTE
     out = {}
     for kind in (*KINDS, "harness", "harness-lab", "harness-trust") if env in HARNESS_ENVS else KINDS:
         text = string.Template((TEMPLATES / f"{kind}.json").read_text(encoding="utf-8"))
-        # env_sql: the environment as a database user name has it - `_` for `-` (audit A-I-1/A-I-2).
+        # env_sql: the environment as a database user name has it - `_` for `-`.
         rendered = json.loads(text.substitute(env=env, env_sql=env.replace("-", "_"), account=account,
                                               cluster_resource_id=cluster, region=names(env).region,
                                               global_region=EnvironmentPolicies.load().aws_global_region,
@@ -97,8 +97,8 @@ def render_runtime(env: str, account: str = ACCOUNT_PLACEHOLDER) -> dict[str, st
 
 
 def _write(path: pathlib.Path, text: str) -> None:
-    # Every file is written with LF, as the repository stores it (.gitattributes, 2026-10-16): on Windows a render
-    # wrote CRLF, and every rendered file showed as changed.
+    # Every file is written with LF, as the repository stores it (.gitattributes): on Windows a render would write
+    # CRLF, and every rendered file showed as changed.
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
@@ -109,7 +109,7 @@ def _write_environment(p: argparse.ArgumentParser, env: str, account: str | None
     for kind, text in render(env).items():
         _write(d / f"{kind}.json", text)
     if account:
-        # Every file that names the account (the trusts, and the actor's rds-db:connect - review, PR 48) gets a
+        # Every file that names the account (the trusts, and the actor's rds-db:connect) gets a
         # git-ignored render with it; the committed one keeps <ACCOUNT_ID>.
         mine = render(env, account)
         for kind, text in render(env).items():

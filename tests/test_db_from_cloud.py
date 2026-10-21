@@ -1,5 +1,5 @@
 """The cloud runtime reads the watched database with a 15-minute IAM token signed in the incident's reader role - no
-password anywhere (2026-10-15: the cloud read no database at all; WARDEN_STACK_DB_*_DSN were empty)."""
+password anywhere (the cloud read no database at all; WARDEN_STACK_DB_*_DSN were empty)."""
 
 from __future__ import annotations
 

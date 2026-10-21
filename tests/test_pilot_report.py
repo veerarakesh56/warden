@@ -1,5 +1,5 @@
 """Pilot metrics (`warden report pilot`, `/r/pilot`): the client's weekly numbers, read only from audit rows whose hash
-chain and checkpoint signatures check out (owner item 3, FDE course alignment, 2026-10-21).
+chain and checkpoint signatures check out.
 
 The fixture log is written by the repo's own AuditLog with an Ed25519 key made at run time, at fixed times, so every
 expected number below is exact - p90 by nearest rank included."""
@@ -241,7 +241,7 @@ def test_every_metric_from_the_fixture_is_exact(made):
 
 
 def _llm_rows(log):
-    """llm.call and llm.fallback rows (lane FDE-F's shapes) beside the fixture's incidents, then signed."""
+    """llm.call and llm.fallback rows (the model path's shapes) beside the fixture's incidents, then signed."""
 
     def call(cid, cost=None):
         body = {"latency_ms": 900, "prompt_tokens": 1000, "completion_tokens": 200}
@@ -408,7 +408,7 @@ def test_a_row_rewritten_with_its_hash_recomputed_breaks_the_link_and_nothing_be
 
 
 def test_a_forged_history_spliced_in_under_an_edited_row_is_not_counted(made):
-    """CodeRabbit PR 175 (CWE-345): rows 1..k-1 rewritten with recomputed hashes and consistent links, and row k edited
+    """CWE-345: rows 1..k-1 rewritten with recomputed hashes and consistent links, and row k edited
     to point at the forged k-1 while keeping its old hash, so row k+1 still links. Row k fails its own hash; nothing
     before it may be counted, however consistent it looks."""
     log, key, path = made
@@ -698,7 +698,7 @@ def test_a_public_key_that_cannot_be_read_is_exit_2_not_a_tamper_alarm(
     assert "--public-key is not an Ed25519 public key" in capsys.readouterr().err
 
 
-# ------------------------------------------------------------------ review fixes (coordinator review, PR 175)
+# ------------------------------------------------------------------ review fixes
 
 
 def _checkpoint_seqs(path):
@@ -834,7 +834,7 @@ def test_a_negative_or_non_numeric_cost_is_not_recorded_never_counted(made):
 
 
 def test_rows_written_by_the_model_path_itself_are_read_as_the_report_says(made):
-    """The field contract with PR 176, pinned: `llm.call` rows from llm.call_record through activities.model_calls,
+    """The model path's field contract, pinned: `llm.call` rows from llm.call_record through activities.model_calls,
     and `llm.fallback` rows from activities.fallback - the shapes the runtime writes, not dicts made here."""
     import time
     from types import SimpleNamespace

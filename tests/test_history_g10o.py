@@ -1,7 +1,6 @@
 """WARDEN's own record of a resource, shown to the people deciding (register G10-35).
 
-Owner, 2026-10-12: "is there memory - what was done, what went wrong, what worked - so it helps to make right
-decisions later?". That day one rule was fixed, relapsed, was fixed again and not recovered, and each new report read
+What was done, what went wrong, what worked, so later decisions can learn from it. In one live day a rule was fixed, relapsed, was fixed again and not recovered, and each new report read
 as if nothing had happened before. The record is facts from the audit - never a past diagnosis's prose."""
 
 from __future__ import annotations
@@ -57,8 +56,8 @@ def test_the_record_of_a_resource_is_its_earlier_fixes_how_each_ended_and_who_ap
 
 
 def test_a_resource_fixed_before_and_failing_again_is_said_in_the_channels_message():
-    """Owner, 2026-10-15: "after deployment something breaks after some time - not only tagging them, should also
-    report in the Slack". The record page had it; the channel's message (the report's top) did not."""
+    """Something that breaks some time after a deployed fix is reported in Slack too, not only tagged. The record
+    page had it; the channel's message (the report's top) did not."""
     from warden.activities import slack_summary
 
     log = _log()
@@ -99,8 +98,8 @@ def test_an_approval_request_says_when_the_same_fix_on_the_same_target_just_ende
     assert said.startswith(" Before you decide: in the last day this same fix did not last once - most recently it "
                            "did not work and was undone (")
     assert said.endswith(").")
-    # Several: counted as what they were - none lasted - and only the latest one's own ending is said of it (live,
-    # 2026-10-12: "worked, then failed again - 4 times in the last day", of which one had).
+    # Several: counted as what they were - none lasted - and only the latest one's own ending is said of it (never
+    # "worked, then failed again - 4 times in the last day" when only one had).
     twice = [*plans, {**plans[0], "status": "relapsed", "at": NOW - timedelta(hours=5)}]
     both = history.warning(twice, entry="k8s_rollout_undo", target=target, plan_hash="new", now=NOW)
     assert "in the last day this same fix did not last 2 times - most recently it did not work and was undone (" in both

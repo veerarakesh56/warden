@@ -1,4 +1,4 @@
-# Argo CD for the dev cluster: chart argo-cd 10.10.5 = Argo CD v3.5.5 (owner item B26, 2026-10-17). Chart published
+# Argo CD for the dev cluster: chart argo-cd 10.10.5 = Argo CD v3.5.5. Chart published
 # 2026-10-15, tag commit 3d4228871ef2f98cbcd22d9f54f8265213cf0870; package sha256
 # ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a, checked before install. Argo CD v3.5.5 (2026-10-12,
 # tag a5038b0e2bbac1715754380ae0084df8e3d5b48c) lists bug fixes and dependency updates, no advisory; v3.5.4 (chart
@@ -6,7 +6,7 @@
 # Kustomize/Jsonnet, AppProject limits bypassed by PreDelete/PostDelete hooks). From 10.9.7 the chart changed (read
 # from both packages, 2026-10-20): server.enabled (default true, for an Argo CD Core install), PodDisruptionBudgets keep
 # a maxUnavailable of 0, dex v2.46.0 (disabled here), redis_exporter v1.94.0 (metrics off here); the CRDs are
-# byte-identical. Under two weeks old when pinned: the owner chose this release (B26).
+# byte-identical. Under two weeks old when pinned: a deliberate choice of this release.
 # Installed by the apps pipeline (scripts/deploy_fullstack_apps.py deploy_argocd), the way the Datadog agent is. Every
 # key below is read from that chart's own values.yaml, 10.10.5 (checked again 2026-10-20).
 #

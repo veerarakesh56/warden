@@ -299,7 +299,7 @@ def test_grouped_credit_card_is_masked_whole():
 
 
 @pytest.mark.parametrize("text", [
-    # Exactly what reached Slack on 2026-09-25 - hostnames and a run id eaten, and two log lines
+    # Exactly what once reached Slack - hostnames and a run id eaten, and two log lines
     # joined, because the PHONE pattern crossed the newline between them.
     "kubelet OOMKilled pod=checkout-7d9f8 node=ip-10-0-3-22\n2026-08-21T14:12:03Z kubelet OOMKilled",
     "orders ERROR connection pool exhausted (50/50) db=orders-db-ro-1\n2026-08-21T03:20:04Z orders ERROR",
@@ -340,7 +340,7 @@ def test_a_contiguous_card_number_is_still_masked():
 
 
 def test_a_short_tenant_value_does_not_rewrite_every_status_code():
-    """Audit A-C-4: `user_id=500` put "500" in the map and the literal sweep turned every HTTP 500
+    """`user_id=500` put "500" in the map and the literal sweep turned every HTTP 500
     in the text into the tenant placeholder."""
     out = redact("user_id=500 then GET /cart HTTP 500 and SELECT 500 FROM t")
     assert "HTTP 500" in out.text
@@ -363,7 +363,7 @@ def test_a_long_value_is_swept_even_inside_a_longer_token():
 
 
 @pytest.mark.parametrize("secret, gone", [
-    # audit A-C-22: shapes that passed unredacted
+    # Shapes that passed unredacted
     ("run.sh --db-password " + HUNTER2.capitalize() + "Secret --user app", HUNTER2.capitalize() + "Secret"),
     ("psql --password=" + HUNTER2.capitalize() + "Secret", HUNTER2.capitalize() + "Secret"),
     ("cli --api-key abcd1234efgh", "abcd1234efgh"),
@@ -404,7 +404,7 @@ def test_each_pattern_masks_its_own_shape(kind, text, secret):
 
 @pytest.mark.parametrize("sep", ["=", ": ", " "])
 def test_a_high_entropy_value_after_any_key_is_masked(sep):
-    """Found 2026-09-30: the HIGHENTROPY backstop's lookbehind excluded `=`, so a 40+ character secret
+    """The HIGHENTROPY backstop's lookbehind excluded `=`, so a 40+ character secret
     right after `blob=` (a key no credential pattern names) was never masked."""
     value = "Ab3" + "xK9mQ2" * 7
     out = redact(f"blob{sep}{value}").text

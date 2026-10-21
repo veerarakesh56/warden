@@ -1,5 +1,5 @@
 """Paths from a command line stay where WARDEN's tools work (Sonar pythonsecurity:S8707, S8706, S8705, S2083 and
-S8703, 2026-10-16). An agent can drive these command lines: a path it was steered to - ~/.ssh, /etc, `..` out of a run
+S8703). An agent can drive these command lines: a path it was steered to - ~/.ssh, /etc, `..` out of a run
 folder - is refused before anything is read, written or run, and a signed approval goes to no host the command line
 names."""
 
@@ -82,8 +82,8 @@ def test_run_from_the_home_directory_or_above_it_nothing_in_home_is_a_working_pl
 
 
 def test_a_temp_or_tool_folder_that_is_or_holds_the_home_directory_is_no_working_place(tmp_path, monkeypatch):
-    """WARDEN_BENCH_DIR=~, RUNNER_TEMP=/home or a temp folder holding ~ would make ~/.ssh a working place
-   . The tools' own folders under ~ stay working places."""
+    """WARDEN_BENCH_DIR=~, RUNNER_TEMP=/home or a temp folder holding ~ would make ~/.ssh a working place.
+    The tools' own folders under ~ stay working places."""
     home = tmp_path / "home" / "op"
     (home / "project").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))

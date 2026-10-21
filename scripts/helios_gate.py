@@ -8,7 +8,7 @@ set matters only for a first create, when there is no state to compare with - an
 create that stopped part-way, for the resources today's state does not hold yet). A scenario Helios
 cannot run refuses the change; one it cannot decide on a plan (exit 3: a value unknown until apply)
 is listed and checked again on the applied state with `--after`, which then fails the job on any
-regression - the change is applied by then, and the job says so. A regression the owner chose (a stack's
+regression - the change is applied by then, and the job says so. A regression the team chose (a stack's
 helios/regressions.json, by scenario, reviewed in the pull request that adds it) passes and is named in the summary.
 
     helios_gate.py --helios BIN --plan plan.json --baseline before.json --out-dir DIR      # before apply
@@ -128,14 +128,14 @@ def judge(name: str, now, before, accepted: dict[str, list[str]], existing: set[
           regressions: dict[str, list[str]] | None = None) -> tuple[str, str]:
     """("ok" | "refuse" | "later", why) for one scenario: `now` on the plan or applied state, `before` on the
     current state (None when there is none); `existing`, the addresses the current state holds; `regressions`, the
-    failures the owner chose to take on although the stack survives them today (a stack's helios/regressions.json,
-    reviewed in its pull request - 2026-10-17: one EKS node and one cache node to stretch the last credits)."""
+    failures the team chose to take on although the stack survives them today (a stack's helios/regressions.json,
+    reviewed in its pull request - for example one EKS node and one cache node, for cost)."""
     if isinstance(now, tuple):
         return "refuse", f"Helios cannot run it: {now[1]}"
     if now == "inconclusive":
         return "later", "inconclusive on the plan (a value unknown until apply): checked on the applied state"
     # Today's failures when the stack exists; the accepted ones only when there is nothing to compare with - or for a
-    # resource today's state does not hold yet: a first create that stopped part-way (2026-10-14, the EKS node group
+    # resource today's state does not hold yet: a first create that stopped part-way (say, an EKS node group
     # refused by IAM) is compared with today for what exists and with the accepted failures for the rest.
     key = AZ if name.startswith("lose-") else name
     ok = set(accepted.get(key, []))
@@ -149,7 +149,7 @@ def judge(name: str, now, before, accepted: dict[str, list[str]], existing: set[
     new = sorted(now - allowed - set(taken))
     if new:
         return "refuse", "fails what the stack survives today: " + ", ".join(new)
-    return "ok", f"{len(now)} failure(s), none new" + (f"; taken on by the owner: {', '.join(taken)}" if taken else "")
+    return "ok", f"{len(now)} failure(s), none new" + (f"; accepted in regressions.json: {', '.join(taken)}" if taken else "")
 
 
 def _load(path: pathlib.Path | None) -> dict | None:

@@ -1,4 +1,4 @@
-"""fs-07, live, 2026-10-15: the approval request for `lambda_enable_esm` named its target by the event source
+"""Scenario fs-07, live: the approval request for `lambda_enable_esm` named its target by the event source
 mapping's UUID - also the shape of many API keys - so the outbound gate withheld the whole message, and the channel
 saw only "a WARDEN message ... was withheld". The mapping is now shown by its function; the key the bounds and the
 mutex use is unchanged."""

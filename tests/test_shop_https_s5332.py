@@ -173,7 +173,7 @@ def test_every_shop_probe_uses_https():
 
 def test_the_shop_services_stay_inside_the_cluster():
     """A self-made certificate is fine only while nothing outside verifies it: every shop Service is a ClusterIP with
-    no external IPs, serving HTTPS (CodeRabbit, via lane H)."""
+    no external IPs, serving HTTPS."""
     services = [d for d in _docs() if d.get("kind") == "Service"]
     assert services
     for svc in services:

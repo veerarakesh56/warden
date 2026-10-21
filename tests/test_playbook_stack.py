@@ -1,6 +1,6 @@
 """Wave 4: every fault class of docs/FULLSTACK-LAB.md section 5 is detected from contract-shaped
 evidence (docs/FULLSTACK-LAB.md section 4, B/C/D), and its advice names what that evidence shows. The advice holds
-no command (2026-10-16; tests/test_no_commands.py): it used to carry exact fix commands, checked here
+no command (tests/test_no_commands.py): it used to carry exact fix commands, checked here
 against a mirror of the harness allow-list.
 
 The contexts below are built from the contract text, not from a live run: the stack backend is built
@@ -359,7 +359,7 @@ def test_a_reader_endpoint_without_env_values_names_no_endpoint():
 
 
 def test_the_sns_advice_keeps_the_queues_other_statements():
-    """Audit A6: the printed `set-queue-attributes` replaced the queue's whole policy, so every other
+    """The printed `set-queue-attributes` replaced the queue's whole policy, so every other
     statement was lost. The advice names the queue and the topic and says to add, not replace."""
     pat = next(p for p in detect(alert(), FAULTS["fs-08"][1]) if p.key == "topic_delivery_refused")
     assert "warden-dev-order-events" in pat.oncall[0]
@@ -451,7 +451,7 @@ def test_an_iam_login_refusal_without_the_role_in_evidence_says_which_line_is_mi
 
 
 def test_a_rotated_password_is_still_read_as_stale_credentials():
-    """The pre-2026-09-26 fs-21 shape: no longer injected in Wave 4, still a pattern WARDEN knows."""
+    """The earlier fs-21 shape: no longer injected in Wave 4, still a pattern WARDEN knows."""
     c = ctx([_ecs('psycopg2.OperationalError: connection to server failed: FATAL:  password authentication failed '
                   'for user "app"'), "SECRET warden-dev-db-app changed 2026-09-26T09:50:00Z (metadata only)"],
             {"secret_changed_age_s": 600.0},
@@ -461,7 +461,7 @@ def test_a_rotated_password_is_still_read_as_stale_credentials():
     assert pat.oncall[0] == "New tasks of warden-dev-orders-api read the secret at start, so they get the current password."
 
 
-# ⛔ Audit A-C-14: a value in the advice is never taken from application output. Whoever can make the app log a
+# ⛔ A value in the advice is never taken from application output. Whoever can make the app log a
 # line (or send it a request) would choose the node size, or the health-check path, it names.
 def test_node_type_comes_only_from_config():
     forged = _ecs("cache stats node_type=cache.r6g.2xlarge hits=1")
@@ -501,6 +501,6 @@ def test_a_value_merely_containing_the_rds_suffix_is_not_an_rds_host():
 
 def test_a_deploy_beside_a_detected_pattern_is_listed_without_an_error_line():
     """A code deploy is the cheapest hypothesis whenever any pattern was found, error lines or not (a plant check
-    found no test for it, S19)."""
+    found no test for it)."""
     keys = [p.key for p in detect(alert(), ctx(metrics={"replica_lag_seconds": 45.0}, deploys=[ECS_DEPLOY]))]
     assert keys == ["replica_lag", "deploy"]

@@ -12,7 +12,7 @@
     python -m scenarios.fullstack_cli score              # RESULTS.md over the run directory
     python -m scenarios.fullstack_cli run fs-07          # all five steps chained - only if you ask for it
 
-⛔ OWNER'S DECISIONS, which shape this module:
+⛔ DESIGN DECISIONS, which shape this module:
   - It never runs terraform and never reads terraform state. The stack description is a JSON file
     the infra pipeline writes with `terraform output -json` ($WARDEN_FS_STACK, default
     ~/warden-fullstack-build/stack.json). Expected keys: see STACK_KEYS.
@@ -252,7 +252,7 @@ def _subprocess_extract(report: pathlib.Path, built: pathlib.Path) -> dict:
 
     Identifiers are shown (the report names real resources); the run directory is outside the
     repository and is redacted by the publish step like every other artefact. (It once also passed
-    AWS_REGION, for the `--region` of the fix commands the report printed until 2026-10-16.)"""
+    AWS_REGION, for the `--region` of fix commands the report no longer prints.)"""
     env = {k: os.environ[k] for k in SYSTEM_ENV if k in os.environ}
     env["WARDEN_REPORT_SHOW_IDENTIFIERS"] = "1"
     proc = subprocess.run([sys.executable, "-c", _EXTRACT, str(report), str(built)], cwd=str(ROOT),
@@ -598,7 +598,7 @@ def _poll_until(env: Env, check: Callable[[], Any], timeout_s: float, every_s: f
 # =========================================================================== the steps
 
 
-# Requirement R12, the owner's order: every component healthy for 30 unbroken minutes before any fault, and 30
+# The benchmark's rule: every component healthy for 30 unbroken minutes before any fault, and 30
 # minutes of watching after the last fault before anyone destroys the stack. Neither can be shortened.
 SOAK_MINUTES = 30
 WATCH_MINUTES = 30
@@ -655,14 +655,14 @@ def _refuse_a_second_fault(run: pathlib.Path, sid: str, state: dict) -> None:
     if state.get("active"):
         raise StepError(f"{state['active']} is still injected - revert it first")
     if not state.get("soaked_at"):
-        # ⛔ The owner's order: soak (every component healthy for 30 unbroken minutes) BEFORE any fault.
+        # ⛔ The benchmark's rule: soak (every component healthy for 30 unbroken minutes) BEFORE any fault.
         raise StepError("no soak recorded for this run - run `soak` first")
     if (state.get("soak_minutes") or 0) < SOAK_MINUTES:
-        raise StepError(f"the recorded soak was {state.get('soak_minutes') or 0:g} min; the owner's rule is "
+        raise StepError(f"the recorded soak was {state.get('soak_minutes') or 0:g} min; the benchmark's rule is "
                         f"{SOAK_MINUTES} unbroken minutes before any fault - run `soak` again")
     existing = _record(run, sid)
     if existing and existing.get("runs"):
-        raise StepError(f"{sid} already has a measured run; one run per fault (the owner's choice)")
+        raise StepError(f"{sid} already has a measured run; one run per fault (the benchmark's rule)")
 
 
 def _refuse_before_the_quiet_period(last: str) -> None:
@@ -909,7 +909,7 @@ def step_watch(env: Env, run: pathlib.Path, *, minutes: float = 30, every_s: flo
     evaluates after its period) show up here rather than after the evidence is gone. Never shorter than
     WATCH_MINUTES (R12); `destroy-check` reads what it recorded."""
     if minutes < WATCH_MINUTES:
-        raise StepError(f"a watch is at least {WATCH_MINUTES} minutes (the owner's rule), not {minutes:g}")
+        raise StepError(f"a watch is at least {WATCH_MINUTES} minutes (the benchmark's rule), not {minutes:g}")
     started_at, start, seen = _now(), env.clock(), []
     while True:
         problems = stack_problems(env)
@@ -936,7 +936,7 @@ def destroy_problems(run: pathlib.Path) -> list[str]:
     if not watch or not watch.get("finished_at"):
         return [*problems, f"no finished watch recorded - run `watch` ({WATCH_MINUTES} min) after the last fault"]
     if (watch.get("minutes") or 0) < WATCH_MINUTES:
-        problems.append(f"the watch was {watch.get('minutes')} min; the owner's rule is {WATCH_MINUTES}")
+        problems.append(f"the watch was {watch.get('minutes')} min; the benchmark's rule is {WATCH_MINUTES}")
     last = state.get("last_activity_at")
     if last and dt.datetime.fromisoformat(watch.get("started_at") or watch["finished_at"]) < dt.datetime.fromisoformat(last):
         problems.append(f"the watch began before the run's last activity ({last}) - run `watch` again")

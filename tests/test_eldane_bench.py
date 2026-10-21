@@ -1,4 +1,4 @@
-"""scripts/eldane_bench.py (owner item 4, 2026-10-21): Eldane measured on the G10 held-out set.
+"""scripts/eldane_bench.py: Eldane measured on the G10 held-out set.
 
 Guards, each planted (PR body): the scorer's exact rates from stored fake answers; the paid run refuses any key but
 the cloud runtime's, before a model is built; the cost cap stops the run before a call whose worst case would pass it;

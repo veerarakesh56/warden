@@ -1,8 +1,7 @@
 """Sign in with Slack binds WHO is at the approval page to the approver the link was made for (register G10-37).
 
-Owner, 2026-10-12: "it should automatically be linked to the Slack user id plus this passkey, so the tracking, the
-authentication and the authorisation are all in place" - and, of a typed name or id: "if they wanted to, they would
-write a different one". With a Slack app configured, a link opens only for the Slack member its approver is, said by
+An approval is linked to the person's Slack member id as well as their passkey, so tracking, authentication and
+authorisation are all in place; a typed name or id proves nothing, as anyone could type another. With a Slack app configured, a link opens only for the Slack member its approver is, said by
 Slack itself, before the passkey; an enrolment writes the member Slack named into the list it hands back."""
 
 from __future__ import annotations
@@ -246,8 +245,7 @@ def test_the_kill_switch_reset_asks_slack_who_is_there_first_too(tmp_path):
 
 
 def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_is_still_asked(page_setup, tmp_path):  # noqa: F811
-    """Owner, 2026-10-12: "why do I see that Slack thing again and again ... it should be only the first time".
-    Slack is asked once in thirty days per browser, not once per link; every decision still takes the passkey; the
+    """Slack's sign-in is asked for once, not on every visit: Slack is asked once in thirty days per browser, not once per link; every decision still takes the passkey; the
     record says how the member was known."""
     page, device, _, _ = page_setup
     log = audit.AuditLog(tmp_path / "a.db")

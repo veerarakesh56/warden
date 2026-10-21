@@ -1,4 +1,4 @@
-"""A failed read shows in the worker's own log - the tool, the source and how, never the error's text (2026-10-15: the
+"""A failed read shows in the worker's own log - the tool, the source and how, never the error's text (the
 cloud's failed reads were visible only inside each incident's record)."""
 
 from __future__ import annotations

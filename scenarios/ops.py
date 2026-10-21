@@ -39,7 +39,7 @@ from typing import Any
 
 # The proving ground's own tag (terraform/proving-ground/main.tf `Stack`), checked before anything is
 # touched. It was `Project=warden-proving-ground` until the stacks moved to Project=warden +
-# Environment (owner rule R53, a7a9b10); the guards did not move with it, so every injection refused
+# Environment; the guards did not move with it, so every injection refused
 # and the teardown sweep lost its tag filter. tests/test_proving_ground_tags.py
 # reads main.tf, so the two cannot drift apart again.
 STACK_TAG = ("Stack", "warden-proving-ground")
@@ -77,7 +77,7 @@ class Target:
 def create_tags(target: Target) -> dict[str, str]:
     """What the harness puts on what it creates: exactly what Terraform puts on its own (terraform
     output `resource_tags`: Project and Environment for the sweep's tag audit, and Stack). Read from
-    the stack, never typed here (owner rule: no hardcoding)."""
+    the stack, never typed here (nothing is hardcoded)."""
     if target.tags.get(STACK_TAG[0]) != STACK_TAG[1] or not target.tags.get("Project") or not target.tags.get("Environment"):
         raise OpError("the target carries no proving-ground tags (terraform output `resource_tags`) - refusing to create anything")
     return dict(target.tags)

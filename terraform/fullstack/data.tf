@@ -1,6 +1,6 @@
 # The data layer: ElastiCache Redis, DynamoDB, and the application's connection metadata.
 #
-# ⛔ AURORA IS NOT HERE (changed 2026-09-26, docs/FULLSTACK-LAB.md section 1). The
+# ⛔ AURORA IS NOT HERE (docs/FULLSTACK-LAB.md section 1). The
 # account is on the AWS Free plan, which only creates Aurora clusters in EXPRESS configuration, and
 # the AWS provider cannot create one. `aurora_express.py create` (this directory, the INFRA
 # pipeline) creates cluster warden-dev-aurora after `terraform apply`; `destroy` removes it
@@ -79,7 +79,7 @@ resource "aws_vpc_security_group_ingress_rule" "redis_apps" {
   to_port                      = 6379
 }
 
-# One node, no failover (cost plan, 2026-10-17: the owner's last ~USD 104 of credits): the replica was USD 14.6 a
+# One node, no failover, for cost: the replica was USD 14.6 a
 # month. Going from 2 removes -002, the replica; -001, the primary the redis-memory alarm reads, stays. Back to
 # production shape: num_cache_clusters 2 and failover on.
 resource "aws_elasticache_replication_group" "redis" {

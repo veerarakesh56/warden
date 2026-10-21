@@ -1,4 +1,4 @@
-"""The runbook's stop-the-worker step names the cluster and service Terraform really makes (2026-10-16: it said
+"""The runbook's stop-the-worker step names the cluster and service Terraform really makes (it said
 cluster `warden-ops`, which does not exist - the cluster is `warden-<env>-runtime`)."""
 
 from __future__ import annotations

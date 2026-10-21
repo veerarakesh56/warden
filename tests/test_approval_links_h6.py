@@ -59,7 +59,7 @@ def test_the_links_go_beside_the_gated_text(rp):
 
 
 def test_in_slack_the_link_is_a_button_and_its_address_is_not_printed(rp, monkeypatch):
-    """Owner, 2026-10-12: "the link should be hidden under a button"."""
+    """The link is hidden under a button."""
     posted = []
     monkeypatch.setattr(chatops, "_post_json", lambda url, payload, name: posted.append(payload) or chatops.Notification(
         sink=name, delivered=True, detail="ok"))
@@ -178,7 +178,7 @@ def test_the_wait_opens_with_the_links_and_without_a_domain_says_nothing_new(rp,
 
 
 def test_the_note_is_answered_by_a_function_with_nothing_in_it_and_no_permission():
-    """Measured 2026-10-12: the approval function, started cold, answered Slack's note in 2.7 s with nothing loaded -
+    """Measured: the approval function, started cold, answered Slack's note in 2.7 s with nothing loaded -
     a container image in the VPC - against Slack's limit of three. The answer is its own few lines."""
     import importlib.util
     import pathlib
@@ -211,7 +211,7 @@ def test_the_note_is_answered_by_a_function_with_nothing_in_it_and_no_permission
 
 
 def test_in_slack_the_footer_is_the_small_line_under_the_message_with_no_rule():
-    """Owner, 2026-10-14, of the "---" between a message and its footer: "it doesn't look good"."""
+    """No "---" rule between a message and its footer."""
     link = f"https://{RP}/a/{TOKEN}"
     foot = "WARDEN · incident `inc-1` · audit head `abc` · check it on its Full record page."
     text = "The plan was denied by <@" + "U" + "0" * 3 + "ABCDEFG> (with their passkey): nothing was changed.\n\n---\n" + foot

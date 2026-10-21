@@ -1,7 +1,7 @@
 """G9-D2b: the generic fix classes on AWS. Each entry reads what the catalogue checks, writes only through an
 actor session for that one plan, refuses when the target moved since the approval, has an inverse, and calls the
-target healthy only on a positive signal - and refuses the cases AWS's own documentation says it cannot undo safely
-(verify-fix-apis.md, 2026-10-10): a stream mapping paused past its retention, an event-pattern rule dropping events,
+target healthy only on a positive signal - and refuses the cases AWS's own documentation says it cannot undo safely:
+a stream mapping paused past its retention, an event-pattern rule dropping events,
 an ECS restart pulling a mutable tag, a manual count an autoscaler would undo."""
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def test_only_a_queue_mapping_is_ever_paused_and_the_rollback_resumes_it(aws):
     assert p.healthy("u-1", entry="lambda_disable_esm", params=params)
     p.rollback("lambda_disable_esm", params, snap, who=WHO)
     assert f.writes[-1] == ("update_event_source_mapping", {"UUID": "u-1", "Enabled": True})
-    f.esm["State"], f.retention = "Enabled", "60"  # review H2: a queue that keeps a message a minute is never paused
+    f.esm["State"], f.retention = "Enabled", "60"  # A queue that keeps a message a minute is never paused
     assert p.live("lambda_disable_esm", {"function": FN})["mapping"] == set()
 
 
@@ -232,7 +232,7 @@ def test_no_redrive_to_a_queue_that_is_not_its_source_or_of_an_encrypted_queue(m
 def test_only_the_runaway_query_is_cancelled(more):
     f, p = more
     live = p.live("athena_stop_query", {"workgroup": "warden-dev-bi"})
-    assert live["query"] == {"q-1"}  # q-2 has run two minutes; q-3 is an INSERT (review M4: partial data)
+    assert live["query"] == {"q-1"}  # q-2 has run two minutes; q-3 is an INSERT (partial data)
     params = {"workgroup": "warden-dev-bi", "query": "q-1"}
     snap = p.live("athena_stop_query", params)["state"]
     p.apply("athena_stop_query", params, snapshot=snap, who=WHO)
@@ -435,7 +435,7 @@ def _revert(target):
     ("appconfig:warden-dev-flags", True), ("appconfig:other/live", False), ("lambda:warden-dev-flags/live", False),
 ])
 def test_the_configuration_is_named_as_wardens_own_line_writes_it(config, target, planned):
-    """G10 held-out (2026-10-11, g10-115): the model named `appconfig:<application>/<environment>`, the words of the
+    """G10 held-out (g10-115): the model named `appconfig:<application>/<environment>`, the words of the
     CONFIG line it read, and the right revert was never planned."""
     from warden import resolver
 
@@ -541,7 +541,7 @@ def test_an_application_that_could_not_be_read_for_another_reason_makes_no_plan(
 
 def test_a_change_is_dated_only_by_one_alarm():
     """G10-D3: an entry that takes the alarm needs exactly one; two named alarms date nothing (a plant check found
-    no test for the comma, S19)."""
+    no test for the comma)."""
     from warden import resolver
     from warden.models import Alert
 

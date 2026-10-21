@@ -1,5 +1,5 @@
 """A remediation is bound to the resource it changes, the environment that resource is really in, and the code and
-catalogue it was planned under (G2: registers S6, C3, O5; audit A-B-M4)."""
+catalogue it was planned under (G2: registers S6, C3, O5)."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def test_the_environment_moving_after_approval_stops_the_apply():
 
 
 def test_the_bounds_key_on_the_resource_and_environment_not_the_service_name():
-    """C3 / A-B-M4: `orders` in namespace shop and `orders` in namespace other are two targets - three changes to one
+    """C3: `orders` in namespace shop and `orders` in namespace other are two targets - three changes to one
     do not stop the other, and `service` text cannot move a plan under another target's limits."""
     acts, _, _ = _acts()
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")

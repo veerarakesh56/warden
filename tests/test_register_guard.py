@@ -1,4 +1,4 @@
-"""The full run's register guard (tests/conftest.py) - itself under test (sixth review, 2026-10-01: flipping
+"""The full run's register guard (tests/conftest.py) - itself under test (flipping
 its directory check turned it off and no test failed)."""
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def test_only_a_whole_run_of_the_suite_is_judged():
     tests = pathlib.Path(conftest.__file__).resolve().parent
     assert conftest._full_run(_config(["tests"], base=tests.parent))
     assert conftest._full_run(_config([str(tests)]))
-    assert conftest._full_run(_config(["tests/."], base=tests.parent))  # sixth review: these ran unjudged
+    assert conftest._full_run(_config(["tests/."], base=tests.parent))  # These ran unjudged
     assert conftest._full_run(_config(["."], base=tests.parent))
     assert conftest._full_run(_config(["evals", "tests"]))
     assert not conftest._full_run(_config(["tests"], collectonly=True))  # nothing runs: nothing to judge
@@ -102,8 +102,8 @@ def _call_watched(monkeypatch, request, called, name="sample_evidence"):
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")  # the thread case, on purpose
 def test_only_the_body_the_file_defines_counts(monkeypatch, request):
-    """Seventh review: judged at collection, five bypasses passed the full run with an `assert False`
-    body; eighth review: judged by a start of code with the def's file, line and name, eight more did. Only the
+    """Judged at collection, five bypasses passed the full run with an `assert False`
+    body; judged by a start of code with the def's file, line and name, eight more did. Only the
     file's own code object, started, returned and never unwound, counts."""
     import functools
     import threading
@@ -150,7 +150,7 @@ def test_only_the_body_the_file_defines_counts(monkeypatch, request):
 
 
 def test_deleting_sys_monitoring_does_not_turn_the_check_off(monkeypatch, request):
-    """Eighth review: an autouse fixture `monkeypatch.delattr(sys, "monitoring")` made every body "unverifiable"."""
+    """An autouse fixture `monkeypatch.delattr(sys, "monitoring")` made every body "unverifiable"."""
     monkeypatch.delattr(sys, "monitoring")
     assert _call_watched(monkeypatch, request, sample_evidence) is True  # the module captured it at import
     monkeypatch.setattr(conftest, "_MONITORING", None)
@@ -158,7 +158,7 @@ def test_deleting_sys_monitoring_does_not_turn_the_check_off(monkeypatch, reques
 
 
 def test_the_guard_judges_the_controllers_whole_run(monkeypatch):
-    """Seventh review: its wiring could be cut with its own tests green - exitstatus never set, the not-genuine
+    """Its wiring could be cut with its own tests green - exitstatus never set, the not-genuine
     state never recorded, the worker check inverted."""
     tests = pathlib.Path(conftest.__file__).resolve().parent
     monkeypatch.setattr(conftest, "_REPORTS", {})
@@ -214,7 +214,7 @@ def sample_flaky():
 
 
 def test_a_second_def_under_the_name_is_no_evidence(monkeypatch, request):
-    """Ninth review: every function the file defined under the name counted - a same-named
+    """Every function the file defined under the name counted - a same-named
     staticmethod in a class, or a second module-level def - so a body other than the cited one was evidence."""
     assert _call_watched(monkeypatch, request, sample_twice, name="sample_twice") is False
     assert _call_watched(monkeypatch, request, _Shadow.sample_evidence) is False
@@ -222,7 +222,7 @@ def test_a_second_def_under_the_name_is_no_evidence(monkeypatch, request):
 
 
 def test_user_properties_cannot_forge_or_strip_the_guards_verdicts(monkeypatch):
-    """Ninth review: an autouse fixture appending ("warden_body_ran", True) - or removing ("warden_genuine", False) -
+    """An autouse fixture appending ("warden_body_ran", True) - or removing ("warden_genuine", False) -
     changed the verdict. The guard puts its verdicts on the report from its own records."""
     monkeypatch.setattr(conftest, "_REPORTS", {})
     forged = types.SimpleNamespace(nodeid="tests/test_a.py::test_one", skipped=False, when="call", outcome="passed",
@@ -245,7 +245,7 @@ def test_user_properties_cannot_forge_or_strip_the_guards_verdicts(monkeypatch):
 
 
 def test_the_guards_callbacks_replayed_by_a_wrapper_are_no_evidence(monkeypatch, request):
-    """Ninth review: register_callback hands back the guard's callbacks; a wrapper called them itself with the
+    """register_callback hands back the guard's callbacks; a wrapper called them itself with the
     genuine code object, and the body never ran."""
     import functools
 
@@ -266,7 +266,7 @@ def test_the_guards_callbacks_replayed_by_a_wrapper_are_no_evidence(monkeypatch,
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_the_guard_needs_a_return_from_the_body_and_no_unwind_and_a_free_tool(monkeypatch, request):
-    """Ninth review (mutation): dropping the "returned" check, ignoring the unwind, counting any code's return, using
+    """Mutation testing: dropping the "returned" check, ignoring the unwind, counting any code's return, using
     tool 4 only and dropping restart_events each passed every guard test. Each has its own shape here."""
     import threading
 
@@ -298,7 +298,7 @@ def test_the_guard_needs_a_return_from_the_body_and_no_unwind_and_a_free_tool(mo
 
 
 def test_a_blank_keyword_and_cache_show_are_judged_rightly():
-    """Ninth review: `-k " "` (set by a conftest) selects every test but turned judging off; `--cache-show` runs no
+    """`-k " "` (set by a conftest) selects every test but turned judging off; `--cache-show` runs no
     test and printed the red line."""
     tests = pathlib.Path(conftest.__file__).resolve().parent
     assert conftest._full_run(_config(["tests"], base=tests.parent, keyword=" "))

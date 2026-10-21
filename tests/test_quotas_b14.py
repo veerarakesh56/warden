@@ -152,7 +152,7 @@ def test_every_read_is_bounded():
 
 
 def test_two_services_share_the_metric_bound_one_never_takes_every_slot():
-    """CodeRabbit, PR 78: queries were filled in listing order, so the first service could take all 40 and the second,
+    """Queries were filled in listing order, so the first service could take all 40 and the second,
     perhaps the one at its limit, got none - and nothing said so."""
     many = [_quota(f"L-{i:04d}", f"Quota {i}", 100, metric=f"M{i}") for i in range(60)]
     near = [_quota("L-NEAR", "Concurrent executions", 1000, metric="ConcurrentExecutions")]
@@ -264,7 +264,7 @@ def test_the_reader_roles_grant_every_call_it_makes():
 
 
 def test_the_percentage_and_near_limit_always_agree():
-    """CodeRabbit, PR 78: 79.6% printed used=80% with no near_limit."""
+    """79.6% printed used=80% with no near_limit."""
     quotas = _Quotas({"lambda": [[_quota("L-B99A9384", "Concurrent executions", 1000)]]})
     line = _reader(quotas, _CloudWatch({"ConcurrentExecutions": [796.0]})).logs(_alert(**{"lambda": "f"}))[0]
     assert "used=79%" in line
@@ -272,7 +272,7 @@ def test_the_percentage_and_near_limit_always_agree():
 
 
 def test_partial_data_is_said_never_read_as_the_peak():
-    """CodeRabbit, PR 78: a PartialData answer can understate the peak."""
+    """A PartialData answer can understate the peak."""
     class Partial(_CloudWatch):
         def get_metric_data(self, **kw):
             got = super().get_metric_data(**kw)

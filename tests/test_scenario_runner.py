@@ -735,7 +735,7 @@ def test_a_rerun_that_matches_nothing_is_refused(tmp_path):
 
 
 def test_warden_never_reads_a_database_wave_as_the_master_login(monkeypatch):
-    """Audit A-B-M13: the Wave 3 harness handed WARDEN the master DSN the injectors use."""
+    """The Wave 3 harness handed WARDEN the master DSN the injectors use."""
     from scenarios import runner
 
     master = "postgresql://warden@db.example:5432/warden"
@@ -750,7 +750,7 @@ def test_warden_never_reads_a_database_wave_as_the_master_login(monkeypatch):
 
 
 def test_a_similarly_named_log_group_does_not_stand_in_for_the_missing_one(target):
-    """Audit A-B-L19: the baseline asked for the log group by prefix; `/ecs/checkout-legacy` passed for a deleted
+    """The baseline asked for the log group by prefix; `/ecs/checkout-legacy` passed for a deleted
     `/ecs/checkout`."""
     class Legacy(_Aws):
         def describe_log_groups(self, **_):

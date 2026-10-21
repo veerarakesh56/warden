@@ -1,5 +1,5 @@
 """G10-F1: CloudFront and Route 53 health-check alarms live only in AWS's global-services Region; WARDEN listened and
-read only in its runtime Region (held-out G9-F: two cases neither received nor read). One rule there forwards the
+read only in its runtime Region (two cases neither received nor read). One rule there forwards the
 watched environments' alarm changes, unchanged, to the runtime Region's bus; intake keeps the event's Region as the
 `alarm_region` label, and the incident's reads run there, in the same environment's reader role."""
 

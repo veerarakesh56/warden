@@ -1,5 +1,5 @@
-"""The undo lab (terraform/undo-lab, scripts/undo_lab.py; owner 2026-10-11: prove each undo on real AWS on a small
-system first). Checked offline: every name inside the prefix WARDEN's roles scope to, every role with its boundary,
+"""The undo lab (terraform/undo-lab, scripts/undo_lab.py): each undo is proven on real AWS on a small system
+first. Checked offline: every name inside the prefix WARDEN's roles scope to, every role with its boundary,
 each alarm reaching the resolver as the resource its undo changes, the fault script making ONE change on a lab at
 its baseline and nothing anywhere else, and its role allowed nothing outside the lab."""
 
@@ -67,7 +67,7 @@ def test_the_scripts_baseline_is_the_one_terraform_declares():
     work = int(re.search(r"work_seconds\s+= (\d+)", TF).group(1))
     assert undo_lab.CUT_TIMEOUT_SECONDS < work < undo_lab.TIMEOUT_SECONDS  # the cut timeout really cuts the work off
     # A throttled table slows every write: the producer stops writing in time, so the table's fault never becomes the
-    # function's (seen live 2026-10-11: both alarms fired for one cut).
+    # function's (seen live: both alarms fired for one cut).
     writing = int(re.search(r"write_seconds\s+= (\d+)", TF).group(1))
     assert writing + work < undo_lab.TIMEOUT_SECONDS / 2
     assert 'os.environ["WRITE_SECONDS"]' in TF
@@ -137,7 +137,7 @@ def test_each_alarm_reaches_the_resolver_as_the_resource_its_undo_changes():
 
 
 def test_terraform_never_repairs_a_fault_and_the_dropped_events_alarm_follows_async_invocations():
-    """Seen live 2026-10-12: an apply made while a fault is in place would set it back (and record a change of its
+    """Seen live: an apply made while a fault is in place would set it back (and record a change of its
     own); and at reserved concurrency 0 the schedule's asynchronous events are dropped, not counted as throttles."""
     ignored = dict(re.findall(r'resource "(\w+)" "\w+" \{(?:(?!^\}).)*?ignore_changes = \[([^\]]*)\]', TF,
                               re.DOTALL | re.MULTILINE))

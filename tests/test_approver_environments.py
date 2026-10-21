@@ -1,4 +1,4 @@
-"""An approver may be limited to some environments (owner, 2026-10-15: the bench approver is dev only, T1/T2): a
+"""An approver may be limited to some environments (the bench approver is dev only, T1/T2): a
 signed approval for a plan anywhere else is refused, whatever its signature; an approver with no list keeps every one.
 The bench approver - a test identity Claude holds - approves only in a nonprod-tier environment whatever its entry in
 the approver list names, and its key is made only for one."""

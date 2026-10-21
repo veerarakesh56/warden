@@ -91,13 +91,13 @@ class EncryptionCodec(PayloadCodec, WithSerializationContext):
         out = []
         for p in payloads:
             if p.metadata.get("encoding") != ENCODING:
-                # Audit A-B-L13: a plain payload was written by something without the key - a
+                # A plain payload was written by something without the key - a
                 # misconfigured client, or someone forging input - and used to reach the workflow
                 # as data. It is replaced by a marker no converter can read, so it never becomes a
                 # value. NOT an exception here: the SDK decodes a whole activation at once, so
                 # raising let ONE plain signal (any name, even unhandled) fail every task of a
-                # workflow that had already applied a change - no success check, no rollback
-                #. Now a plain signal is dropped by the SDK
+                # workflow that had already applied a change - no success check, no rollback.
+                # Now a plain signal is dropped by the SDK
                 # ("Failed deserializing signal input"), a plain update or start fails, and the
                 # workflow carries on.
                 out.append(Payload(metadata={"encoding": REFUSED}))

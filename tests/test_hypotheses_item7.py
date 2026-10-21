@@ -1,4 +1,4 @@
-"""Item 7: ranked hypotheses, each with evidence for and against; a plan only on a cause decided by
+"""Ranked hypotheses, each with evidence for and against; a plan only on a cause decided by
 evidence WARDEN read itself (P34), and only when WARDEN's own count of the citations separates it from its best rival
 (P35) - never the model's self-confidence. Still one model call."""
 
@@ -163,7 +163,7 @@ def test_the_mock_weighs_a_rival_for_every_incident():
 
 
 def test_a_made_up_citation_in_the_chosen_causes_own_support_is_ungrounded():
-    """Review, PR 47: the chosen hypothesis's support decides P34 and P35, so a citation of it that does not hold is
+    """The chosen hypothesis's support decides P34 and P35, so a citation of it that does not hold is
     ungrounded (P13), never quietly left out of the count."""
     report, _ = _run({"hypothesis": "the deploy broke checkout", "citations": [D1, M1],
                       "hypotheses": [{"cause": "the deploy broke checkout",
@@ -174,7 +174,7 @@ def test_a_made_up_citation_in_the_chosen_causes_own_support_is_ungrounded():
 
 
 def test_the_count_says_which_cause_it_is_for_when_the_model_worded_them_differently():
-    """Review, PR 47: the count is the first ranked hypothesis's; when its words differ from the diagnosis's, both."""
+    """The count is the first ranked hypothesis's; when its words differ from the diagnosis's, both."""
     report, _ = _run({"hypothesis": "the 09:58 deploy broke checkout",
                       "hypotheses": [{"cause": "a bad release", "supporting": [D1, M1]},
                                      {"cause": "CPU saturation", "against": [M4], "why_rejected": "CPU is at 41%"}]})

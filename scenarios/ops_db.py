@@ -5,7 +5,7 @@ The same rules as `ops.py` and `ops_k8s.py`, restated because they are the rules
   1. ⛔ NOTHING OUTSIDE THE PROVING GROUND. Every op refuses unless the database it is connected to
      is named `warden` AND carries the sentinel table this module created. A tag check would need
      `rds:DescribeDBInstances`; the sentinel needs nothing and fails closed against ANY database
-     that is not ours - including a production Postgres reachable from the same laptop, which is
+     that is not ours - including a production Postgres reachable from the same workstation, which is
      the accident worth preventing.
   2. ⛔ EVERY INJECT HAS A REVERT, and the revert closes exactly what was opened.
   3. ⛔ THE FAULT MUST BE REAL. These ops open real sessions, hold real transactions open, take real

@@ -1,4 +1,4 @@
-"""Audit A-P-6: the runbook for incidents WARDEN itself causes names only commands that exist. Every `warden ...`
+"""The runbook for incidents WARDEN itself causes names only commands that exist. Every `warden ...`
 line in it is parsed by the real command line - stopped after parsing, so nothing runs - and must be accepted."""
 
 from __future__ import annotations

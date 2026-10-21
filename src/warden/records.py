@@ -122,7 +122,7 @@ class Record:
     shown: Any = None  # approver id -> the name a reader sees; never the list's id
     # The record's own integrity, checked when it is read (not `light`): the incident's audit head - the hash every
     # Slack footer names - and how many of its rows a signed checkpoint covers and are intact, how many are not signed
-    # yet, and how many do not check out (owner, 2026-10-15: a footer's command nobody could run).
+    # yet, and how many do not check out (instead of a footer command a reader may not be able to run).
     head: str = ""
     signed_ok: int = 0
     unsigned: int = 0
@@ -135,10 +135,10 @@ class Record:
 
 
 def incident_ids(log: Any) -> list[str]:
-    """Every incident on the record, newest first - with no time limit (owner, 2026-10-14: "should be even available
-    after a year too ... no time limit"): WARDEN's record is append-only, so nothing in it expires. A discussion's own
+    """Every incident on the record, newest first - with no time limit, a year on as on the first day: WARDEN's record
+    is append-only, so nothing in it expires. A discussion's own
     reading of an incident (`discuss-...`) is part of that incident, not one of its own.
-    ponytail: reads every start row; a SELECT DISTINCT on the audit table when there are tens of thousands."""
+    Known limit: reads every start row; a SELECT DISTINCT on the audit table when there are tens of thousands."""
     seen: dict[str, datetime] = {}
     for e in log.entries(kinds=(_INGEST, _AFTER_HOLD)):
         cid = str(e["correlation_id"])
@@ -484,7 +484,7 @@ def matching(log: Any, asked: Query, allowed: set[str] | None, policy: Any = Non
              ) -> tuple[list[str], dict[str, Record], int]:
     """The incidents this reading lists, newest first; the records read on the way; and how many the reader may read
     at all. `allowed`: the environments the reader may read (None: every one).
-    ponytail: with a filter or a limited reader, reads every incident's rows (light); an index on the audit's
+    Known limit: with a filter or a limited reader, reads every incident's rows (light); an index on the audit's
     environment and status when there are thousands."""
     ids = incident_ids(log)
     if allowed is None and not asked.filtered:
@@ -693,7 +693,7 @@ def integrity(r: Record) -> str:
 
 def neighbours(ids: list[str], incident: str, asked: Query | None = None) -> str:
     """The way back to the list - to the page this incident is on - and to the newer and older incident, within the
-    same filters (owner, 2026-10-16: "same arrows on a record page")."""
+    same filters - the same arrows as on the list."""
     asked = asked or Query()
     if incident not in ids:
         return f'<nav class="recnav" aria-label="Incidents"><a class="step back" href="{_e(asked.href())}">All incidents</a></nav>'
@@ -711,8 +711,8 @@ def neighbours(ids: list[str], incident: str, asked: Query | None = None) -> str
 
 def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
     """One incident: its summary, decisions and flags, the report as WARDEN wrote it, and every step on the record.
-    `approve`: this site's own address that opens the plan for the reader, when they may approve it now (owner,
-    2026-10-15: "the approve button i dont see here"). `near`: neighbours(), the way to the list and the next ones."""
+    `approve`: this site's own address that opens the plan for the reader, when they may approve it now (the
+    record shows the approve button too). `near`: neighbours(), the way to the list and the next ones."""
     act = (f'<p class="pad act"><a class="primary button" href="{_e(approve)}">{_e(APPROVE_LABEL)}</a>'
            '<span class="hint">Your passkey decides; this only opens the plan.</span></p>') if approve else ""
     checked = f'<p class="small mono">{_e(integrity(r))}</p>' if integrity(r) else ""
@@ -788,7 +788,7 @@ def _at(value: Any) -> datetime | None:
 
 
 def _step(e: dict[str, Any]) -> str:
-    """A step's plain words; a link taken back says so (CodeRabbit, PR 56: it read as a new link)."""
+    """A step's plain words; a link taken back says so (it must not read as a new link)."""
     if e["kind"] == "record.link" and e["body"].get("removed"):
         return "A link to another record was taken back by an approver"
     return STEP.get(e["kind"], e["kind"])
@@ -909,7 +909,7 @@ class _Section:
 
 def findings(markdown: str) -> str:
     """The report WARDEN wrote, section by section, each its own panel that unfolds - the whole of it, in-depth,
-    laid out as a page rather than as a message (owner, 2026-10-14: "complete findings on page to refer if needed")."""
+    laid out as a page rather than as a message, so the complete findings can be referred to."""
     head, *parts = re.split(r"(?m)^## ", markdown)
     intro = [ln for ln in head.splitlines() if ln.strip() and not ln.startswith("# ")]
     out = [f'<div class="intro">{_section(intro)}</div>'] if intro else []
@@ -922,8 +922,8 @@ def findings(markdown: str) -> str:
     return "".join(out)
 
 
-# "Open all": every panel on the page - the findings, the evidence the model was shown, every step (owner,
-# 2026-10-15: "open all ... didnt open all, the evidence ... every step on the record these 2 didnt open").
+# "Open all": every panel on the page - the findings, the evidence the model was shown, every step - including the
+# evidence and the steps on the record, which a narrower selector missed.
 _OPEN_ALL_JS = """
 const all = document.getElementById("all");
 if (all) all.addEventListener("click", () => {
@@ -1164,7 +1164,7 @@ td:first-child{white-space:normal}.pager .first,.pager .last{padding:0 .625rem}
 .recnav .prev,.recnav .next{flex:1 1 40%;justify-content:center}}
 """.replace("MONO", "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace")
 
-# A quiet refresh of the list (owner: "should be updated every time"), never while a row is open or the reader is
+# A quiet refresh of the list, so it stays current - never while a row is open or the reader is
 # reading below the top - so nothing jumps under them.
 _REFRESH_JS = """
 setTimeout(function again() {
@@ -1179,8 +1179,7 @@ setTimeout(function again() {
 def _shell(title: str, where: str, main: str, *, refresh: bool = False, script: str = "") -> str:
     from .approval_page import _SHELL, _STYLE
 
-    # Every records page names the way to all of them in its header (owner, 2026-10-15: "all the records should be
-    # in one place ... that link is missing").
+    # Every records page names the way to all of them in its header: all the records are in one place.
     return (_SHELL.replace('<div class="page">', '<div class="page wide">').replace("{{TITLE}}", _e(title))
             .replace('<span class="where">{{WHERE}}</span>',
                      '<span class="where">{{WHERE}}</span><a class="nav" href="/r">All incidents</a>')

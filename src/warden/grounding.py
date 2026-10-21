@@ -6,7 +6,7 @@ with any citation that fails, is ungrounded. One made-up quote is enough: a mode
 span has told us its other spans need checking too.
 
 P14 (target): the proposal's target must name a resource in the inventory, and must not also name a
-compound resource-like token (`shop-prod-checkout`) the inventory lacks. Observed live 2026-09-26:
+compound resource-like token (`shop-prod-checkout`) the inventory lacks. Observed in a live run:
 `scale_up lambda:shop-prod-checkout` against a stack whose function is `warden-dev-checkout`.
 """
 
@@ -122,8 +122,8 @@ def separation(root_cause: RootCause, items: dict[str, Item]) -> tuple[int, int]
 
 
 def outcome_problem(root_cause: RootCause, proposal: RemediationProposal) -> str | None:
-    """P37 (owner U3-1, 2026-10-17): the typed outcome and the proposal must agree. `no_fault` with a change,
-    `undetermined` with anything but a hand-off, or `decided` closed with no action (review, PR 132: a decided cause
+    """P37: the typed outcome and the proposal must agree. `no_fault` with a change,
+    `undetermined` with anything but a hand-off, or `decided` closed with no action (a decided cause
     is acted on or handed off, never closed) is a diagnosis at odds with its own remediation. Not stated (None:
     recorded before the outcome, or built in code): nothing to check."""
     from .models import Outcome
@@ -157,7 +157,7 @@ def margin_problem(root_cause: RootCause, items: dict[str, Item]) -> tuple[str, 
 
 
 # P15: what an action's citations must touch. P13 only asks that citations be real; a hijacked model
-# satisfied it by quoting an unrelated metric (2026-09-27 audit: `scale_down` for replica lag, citing
+# can satisfy it by quoting an unrelated metric (`scale_down` for replica lag, citing
 # `error_rate`). Broad on purpose - it rejects only citations that say nothing about the action.
 ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     # Not "config": every CONFIG line starts with it, so any config line supported a rollback.
@@ -181,8 +181,8 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     ActionKind.clear_cache: ("cache", "redis", "evict", "stale", "hit", "miss", "memcache"),
     # G9-D. Never a trusted line's own first word (CONFIG, STATE, SECRET, RULE, QUEUE, ...): every such line would
     # support the action. CHANGE is kept for the two actions about changes: a change line does bear on them.
-    # Only words about a configuration or a flag (independent review 2026-10-10, review-e H1: "version" and CHANGE
-    # matched a Lambda deploy line, and a days-old configuration was reverted).
+    # Only words about a configuration or a flag ("version" and CHANGE would match a Lambda deploy line, and a
+    # days-old configuration be reverted).
     ActionKind.revert_config: ("appconfig", "feature flag", "feature-flag", "configuration profile", "toggle"),
     # Not "loop" (CrashLoopBackOff), not "stopped" (an ECS task stopped): neither says a flow is the harm or is off
     # (H1).
@@ -195,8 +195,7 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     ActionKind.cancel_query: ("long_running", "long-running", "runaway", "running for", "queued", "workgroup", "athena",
                               "scanned"),
     # Not "limit" (a container's memory limit, a database's connection limit), not "rate" (it matched inside
-    # error_rate), "exceeded" or "too many" ("too many connections"): none of them is a request throttle (qualification
-    # 2026-10-10 and review H1).
+    # error_rate), "exceeded" or "too many" ("too many connections"): none of them is a request throttle.
     ActionKind.raise_limit: ("throttl", "quota", "429", "burst"),
     ActionKind.freeze_changes: ("deploy", "release", "pipeline", "commit", "change", "rollout"),
     # G10-D: the recorded write itself - a CHANGE line's event name. Never "change": every CHANGE line begins with it.
@@ -209,7 +208,7 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
 }
 
 
-# What a key reports. Fourth review (2026-09-30, C-4): the zero rule hid real support 22 of 36 times
+# What a key reports. A plain zero rule hid real support 22 of 36 times
 # (`restarts: 0 -> 6`, "could not obtain lock", "no free memory", "no response from primary") and still
 # let 16 of 37 zeros support (`"restartCount": 0`, `== 0`, `(0)`, "never restarted", `exit code 0`).
 # A key's value may follow a separator, quotes or brackets; a transition's LAST value is the one that
@@ -222,8 +221,8 @@ _NEXT = re.compile(r"\s*[\"'\])]*\s*(?:\((?:was|from)[^)]{0,20}\)\s*)?,?\s*(?:->
 _LETTERS = re.compile(r"[a-z]+")
 _WORD_AFTER = re.compile(r"[\s\"'\])]*([a-z]+)(?![a-z_]*\s*[=:])")
 # A zero that says WHEN, not how many: "restarted 0s ago" is a restart.
-# "ago" alone, or after a unit; the unit is a word looked up in a set, not an alternation of 16 (Sonar python:S5843,
-# 2026-10-17), and each run of spaces is read one way (Sonar python:S8786). The shortest word first: a
+# "ago" alone, or after a unit; the unit is a word looked up in a set, not an alternation of 16 (Sonar python:S5843),
+# and each run of spaces is read one way (Sonar python:S8786). The shortest word first: a
 # unit never contains "ago", so `sago` is `s` + `ago` as before.
 _AGO_BARE = re.compile(r"\s*ago\b")
 _AGO_UNIT = re.compile(r"\s*([a-z]{1,7}?)\s*ago\b")
@@ -250,7 +249,7 @@ _GOOD = frozenset({"pass", "passing", "passed", "ready", "healthy", "available",
 # After a plain zero, these say how much of the measure is left - a shortage ("connections: 0 free"); a
 # status word after it ("restarts: 0 ok") is another field. Only of a measure that is
 # capacity: "queue: 0 remaining" and "restarts: 0 left" are none of a bad thing, and "connections: 0 idle" none
-# idle (seventh review, 2026-10-01: all three supported an action).
+# idle (all three used to support an action).
 _QUANTITY = frozenset({"free", "available", "left", "remaining", "spare", "headroom", "passing", "passed"})
 _CAPACITY = ("memory", "cpu", "concurrency", "pool", "connection", "capacity", "probe", "slot")
 # Words that make a measure a count of something bad, whatever capacity word it holds: "blocked connections: 0
@@ -301,7 +300,7 @@ def _last_of_transition(after: str, key: str, value: str, pos: int) -> tuple[str
     """The last value of a transition ("0 -> 3") that starts with `value` at `pos`, and where it ends."""
     while nxt := _NEXT.match(after, pos):
         # After "then", a number followed by another word is another field ("0, then 2 replicas added"), unless
-        # the word is the key itself ("0, then 6 restarts") - sixth review, 2026-10-01.
+        # the word is the key itself ("0, then 6 restarts").
         later = re.match(r"[\s\"'\])]*([a-z]+)", after[nxt.end():])
         if re.search(r"\bthen\b", nxt.group(0)) and later and not later.group(1).startswith(key[:4]):
             break
@@ -342,8 +341,8 @@ def _reports_none(after: str, key: str, shortage: bool, before: str = "", idle_s
 
 
 def _supports(quote: str, key: str, shortage: bool = True, idle_short: bool = False) -> bool:
-    """`key` starts a word in `quote` (audit A-C-6: "ready" in "already", "lag" in "flag"), a short key
-    also ends one (review 2026-09-28: "miss" in "missing"), and a measurement or a phrase that says
+    """`key` starts a word in `quote` (not "ready" in "already", "lag" in "flag"), a short key
+    also ends one (not "miss" in "missing"), and a measurement or a phrase that says
     "none" does not count (`crashloop_containers=0`, `OOMKilled=false`, "no OOMKilled events" are
     evidence of NO such thing)."""
     end = r"(?:s|es|ed)?(?![a-z])" if len(key) <= 4 else ""
@@ -366,7 +365,7 @@ _CHANGE_AT = re.compile(r"^CHANGE (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) \S+ (\S+) on
 
 def _changed_again(supporting: list[str], items: dict[str, Item]) -> str | None:
     """WARDEN undoes only the LATEST change to a resource: a cited change the evidence shows written over since - a new
-    version published after a configuration change, say (G10 held-out, 2026-10-10, g10-082) - is not one. Tag writes
+    version published after a configuration change, say (held-out case g10-082) - is not one. Tag writes
     beside the resource do not count."""
     lines = [m.groups() for i in items.values() if (m := _CHANGE_AT.match(i.text))]
     why = None
@@ -430,7 +429,7 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
 
 def _revert_support_problem(root_cause: RootCause, keys: tuple[str, ...], items: dict[str, Item]) -> str | None:
     """revert_change: a cited write the action undoes, which no later change has written over."""
-    # An API's name, never a measure (G10 held-out baseline, 2026-10-10: the keys are run-together event names, but
+    # An API's name, never a measure (the keys are run-together event names, but
     # quotes were split at camelCase first, and the "none" rule read `sg-0d4c` as a zero - P15 held back every
     # revert WARDEN can carry out). A CamelCase word in the quote holding a family's key supports it.
     ok = []
@@ -451,7 +450,7 @@ def _names_undone_write(quote: str, item: Item, keys: tuple[str, ...]) -> bool:
     for w in (w.lower() for w in _EVENT_NAME.findall(quote)):
         key = next((k for k in keys if k in w), None)
         # The request's fields, when the line holds them, must include one the family undoes: a forced
-        # redeploy's UpdateService names no desiredCount (G10 held-out, 2026-10-10).
+        # redeploy's UpdateService names no desiredCount.
         if key and (fields is None or key not in REVERT_FIELDS or fields & set(REVERT_FIELDS[key])):
             return True
     return False
@@ -468,7 +467,7 @@ def _record_supports(action: ActionKind, root_cause: RootCause, cited: list[str]
             or any(w.lower().startswith(_DEPLOY_EVENTS) for q in cited for w in _EVENT_NAME.findall(q)))
     if action is ActionKind.revert_config:
         # WARDEN's own read of the AppConfig environment whose monitors name this alarm, whichever part of the line
-        # was quoted (G10 held-out, 2026-10-11: `deployment=14 state=COMPLETE version=9` holds no word above).
+        # was quoted (`deployment=14 state=COMPLETE version=9` holds no word above).
         return any(i is not None and i.id.startswith("C") and i.text.startswith("CONFIG appconfig ")
                    for i in (items.get(x) for x in ids))
     return False
@@ -479,25 +478,25 @@ def _record_supports(action: ActionKind, root_cause: RootCause, cited: list[str]
 # redaction placeholder.
 _LEADING = re.compile(r"^[\s\u200b-\u200f\ufeff]+")
 # A flag anywhere in the target - at the start or after a space - with any dash a CLI or a person
-# might read as one (review 2026-09-28: `orders --all`, `orders -A`, and U+2010-2015, U+2212, U+FE63,
+# might read as one (`orders --all`, `orders -A`, and U+2010-2015, U+2212, U+FE63,
 # U+FF0D before a letter).
-# Every Unicode dash (category Pd) and the minus signs a person might read as one (third review:
-# U+02D7 and U+2E3A passed).
+# Every Unicode dash (category Pd) and the minus signs a person might read as one (U+02D7 and U+2E3A
+# included).
 _DASHES = "".join(sorted({chr(c) for c in range(0x10000) if unicodedata.category(chr(c)) == "Pd"}
                          | {"\U00010ead", "\u2212", "\u02d7", "\u2796", "\ufe63", "\uff0d"}))
-# ... after anything but a letter or digit (third review: `orders "--all"`, `(-A)`, `orders,--all`;
-# fourth review, 2026-09-30, C-6: `deployment=-A`, `orders/--all`, `orders:-A`, `orders@-A`).
+# ... after anything but a letter or digit (`orders "--all"`, `(-A)`, `orders,--all`,
+# `deployment=-A`, `orders/--all`, `orders:-A`, `orders@-A`).
 _FLAGLIKE = re.compile(r"(?:^|[^\w])[" + re.escape(_DASHES) + r"]{1,2}[A-Za-z]")
 # Characters a resource name never holds and a reader may not see: format, combining and private-use
-# marks, and the blank "letters" (Hangul fillers, braille blank) - third review: U+3164, U+115F,
-# U+034F, U+FE0F and U+2800 hid a flag once only Cf was removed.
+# marks, and the blank "letters" (Hangul fillers, braille blank): U+3164, U+115F,
+# U+034F, U+FE0F and U+2800 hide a flag when only Cf is removed.
 _BLANKS = frozenset("\u115f\u1160\u3164\uffa0\u2800")
 
 
 def _invisible(ch: str) -> bool:
     return unicodedata.category(ch) in ("Cf", "Mn", "Me", "Co", "Cn", "Cc", "Zl", "Zp") or ch in _BLANKS
 # Characters ordinary model prose puts in a target - dashes, curly quotes, x, >=, <=, an arrow, an ellipsis
-# (fifth review, 2026-10-01: "checkout \u2014 revert to revision 6" was refused). A dash before a letter is
+# ("checkout \u2014 revert to revision 6" must not be refused). A dash before a letter is
 # still a flag (_FLAGLIKE).
 _PROSE = frozenset("\u2014\u2013\u2019\u2018\u201c\u201d\u00d7\u2265\u2264\u2192\u2026")
 _SHELL = re.compile(r"[;|&$\\`<>]")
@@ -535,8 +534,8 @@ _DESCRIPTORS = frozenset({
 # A command inside a target is a second instruction, whatever resource it also names:
 # "orders kubectl delete ns warden-pg".
 # Whole words only: `public.ecr.aws` in an image name is not the aws CLI.
-# After anything but a name character (fifth review, 2026-10-01: `orders (kubectl/delete/ns/x)`, `orders(rm)`
-# passed): still not inside a name - `public.ecr.aws` is no aws CLI.
+# After anything but a name character (`orders (kubectl/delete/ns/x)`, `orders(rm)`): still not inside a name -
+# `public.ecr.aws` is no aws CLI.
 # A trailing period ends the word, it does not continue a name: "orders (rm.)".
 _COMMAND_WORDS = re.compile(r"(?<![\w.-])(?:kubectl|aws|gcloud|az|helm|psql|redis-cli|mysql|rm|delete|drop|truncate|"
                             r"curl|wget|sh|bash|sudo|exec|eval|kill|pkill|killall|terraform|shutdown|reboot|"
@@ -575,8 +574,8 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
     outside = re.split(r"->|=>|\u2192", re.sub(r"\([^)]*\)", " ", rest))[0]
     named = _resources(outside, inventory, scopes)
     # A database or a cache sits in no namespace or compute cluster: one named anywhere in its target - with a kind
-    # word or without, named beside it or alone - is a second target or the wrong one (ninth review: `aurora ->
-    # cluster=warden-dev-ecs` and `redis, namespace=shop` passed, the kind word cut as a qualifier; a failover of
+    # word or without, named beside it or alone - is a second target or the wrong one (`aurora ->
+    # cluster=warden-dev-ecs` and `redis, namespace=shop`, the kind word read as a qualifier; a failover of
     # `shop`, the recorded alert's namespace named like its service, passed because a resource was named).
     if proposal.action in DATA_ONLY and tokens(plain) & set(containers):
         return f"target {target!r} names a namespace or a compute cluster, not a database or cache"
@@ -594,19 +593,19 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
 def _character_problem(target: str) -> str | None:
     """Shell syntax, or a character a resource name never holds."""
     # A known name does not excuse shell syntax around it: `checkout; kubectl delete ns prod` named
-    # `checkout` and passed. Redirects too (fourth review: `orders > /tmp/x`).
+    # `checkout` and would pass. Redirects too (`orders > /tmp/x`).
     if _SHELL.search(_NOT_SHELL.sub(" ", target)):
         return f"target {target!r} contains shell syntax"
-    # Resource names are ASCII. Characters outside every dash category still read as one (fourth
-    # review, 2026-09-30, C-6: U+2043, U+2500, U+30FC, U+4E00, U+02C9, U+FF70 before `A` or `all`).
+    # Resource names are ASCII. Characters outside every dash category still read as one (U+2043, U+2500,
+    # U+30FC, U+4E00, U+02C9, U+FF70 before `A` or `all`).
     if any(ord(ch) > 127 and ch not in _PROSE and not _invisible(ch) for ch in _LEADING.sub("", target)):
         return f"target {target!r} holds characters a resource name never does"
     # A target is a resource name. `-n kube-system` or `--all` would be read by a CLI as a flag, and
     # `x=y` as an assignment or a selector.
     # models.inert() prefixes a leading "-" with a zero-width space so no CLI reads it as a flag;
     # the name is still not a resource name, so look past that prefix.
-    # Invisible format characters go first: a soft hyphen or U+180E before `-n` hid the flag
-    #. `kind=name` with a resource kind is a name, as models write it
+    # Invisible format characters go first: a soft hyphen or U+180E before `-n` hid the flag.
+    # `kind=name` with a resource kind is a name, as models write it
     # (`deployment=checkout (namespace=shop)`); any other `x=y` is a selector or an assignment.
     # models.inert() puts a zero-width space before a leading "-": that one is looked past (it is
     # still a flag). Any other invisible character refuses the target outright.
@@ -624,8 +623,8 @@ def _shape_problem(target: str, plain: str) -> str | None:
     if (_FLAGLIKE.search(plain) or plain.count("=") != len(assigned)
             or any(k.lower() not in _RESOURCE_KINDS for k in assigned)):
         return f"target {target!r} looks like a flag or an assignment, not a resource name"
-    # One named resource, not a pattern or a list (third review: `pod=orders-*`, `namespace=*`,
-    # `deployment=orders,payments`; fourth review: `orders-.+`, `orders-%`, `{orders,payments}`,
+    # One named resource, not a pattern or a list (`pod=orders-*`, `namespace=*`,
+    # `deployment=orders,payments`, `orders-.+`, `orders-%`, `{orders,payments}`,
     # `orders payments`, `orders and payments`), and not a whole namespace or cluster
     # (`namespace=warden-pg`, `namespace/warden-pg`, `(namespace=warden-pg)`, "all pods in warden-pg").
     # A namespace or cluster that only qualifies a resource is looked past: `deployment=checkout,
@@ -644,8 +643,8 @@ def _resources(text: str, inventory: set[str], scopes: frozenset[str] | set[str]
     found = {t for t in tokens(text) & inventory
              if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS and t not in scopes}
     # A name WARDEN's own reads write as a path - a load balancer's `app/web/3f8a1c0d`, an AppConfig
-    # `application/environment` - is one resource, not a list of its parts (G10 held-out, 2026-10-11: the targets
-    # of a zonal shift and of a configuration revert were refused as lists). Never a path through a namespace or
+    # `application/environment` - is one resource, not a list of its parts (the targets of a zonal shift and of a
+    # configuration revert must not be refused as lists). Never a path through a namespace or
     # a cluster: that one still names a scope.
     for path in PATH.findall(text):
         if path in inventory and not tokens(path) & set(scopes):
@@ -656,9 +655,9 @@ def _resources(text: str, inventory: set[str], scopes: frozenset[str] | set[str]
 def _scope_beside(rest: str, outside: str, others: set[str]) -> bool:
     """Whether `others` (whole namespaces or clusters) stand beside the named resource as a second target."""
     # One resource, and beside it a whole namespace or cluster - after an arrow, a comma or "and" - is a second
-    # target (eighth review: `warden-pg-fs-aurora -> warden-pg-fs-ecs` passed once the database was no longer a
-    # scope). One that qualifies it - `deployment=x (namespace=shop)`, `cluster/service` (an ECS service's ARN
-    # path), `service (cluster)`, `service on cluster` - is not (ninth review: those were refused).
+    # target (`warden-pg-fs-aurora -> warden-pg-fs-ecs`, where the database is no scope). One that qualifies it -
+    # `deployment=x (namespace=shop)`, `cluster/service` (an ECS service's ARN
+    # path), `service (cluster)`, `service on cluster` - is not.
     after = re.split(r"->|=>|\u2192", re.sub(r"\([^)]*\)", " ", rest), maxsplit=1)[1:]
     beside = re.split(r",|\band\b", outside, flags=re.IGNORECASE)[1:]
     return bool(tokens(" ".join(after + beside)) & others)
@@ -669,7 +668,7 @@ def _failover_problem(target: str, plain: str, containers: frozenset[str] | set[
     # A failover's target IS a cluster: `cluster=warden-dev-aurora` names it, it does not scope it - even
     # when the alert labels that cluster (fifth and sixth reviews). A namespace is never one.
     # The word on its own, not inside a name (`orders-ns-db` is a cluster), and plural too; and never a name
-    # the alert gives a namespace or a compute cluster (seventh review: `payments`, `warden-dev-ecs` passed).
+    # the alert gives a namespace or a compute cluster (`payments`, `warden-dev-ecs`).
     if re.search(r"(?<![\w-])(?:namespaces?|ns)(?![\w-])", plain, re.IGNORECASE):
         return f"target {target!r} names a namespace; a failover's target is a database cluster"
     if tokens(plain) & set(containers):
@@ -683,8 +682,8 @@ def _one_resource_problem(target: str, plain: str, rest: str, outside: str, name
     if not named and (rest != plain or tokens(plain) & set(scopes)):
         return f"target {target!r} names a whole namespace or cluster"
     # Parentheses and what follows an arrow describe the one resource; another resource named there is a
-    # second target (fifth review, 2026-10-01: `orders (payments)`, `orders -> payments`,
-    # `app in (orders,payments)` passed).
+    # second target (`orders (payments)`, `orders -> payments`,
+    # `app in (orders,payments)`).
     if (re.search(r",|\band\b|=\s*[(\[]", outside, re.IGNORECASE) or re.search(r"=\s*[(\[]", rest)
             or len(named | _resources(_IMAGE.sub(" ", rest), inventory, scopes)) > 1):
         return f"target {target!r} is a pattern or a list, not one resource"
@@ -697,29 +696,29 @@ def _one_resource_problem(target: str, plain: str, rest: str, outside: str, name
     return None
 
 
-# What a person is shown of the model's words (owner, 2026-10-17, after the poisoned-log downgrade): never a version, an
+# What a person is shown of the model's words (a defence against poisoned logs): never a version, an
 # image tag, an ARN or a resource name the model wrote unless WARDEN read it itself - in a metric, a deploy, a
 # configuration or state read, a failed read's own words, or the alert's labels. A log line is not WARDEN's reading: a
 # planted "roll back to checkout:1.2.0" is exactly a log line. The verifier still sees the model's words as written.
 _ARN = re.compile(r"(?<![\w:/-])arn:[a-z0-9-]+:[^\s,;)'\"`]+")
 # An image reference: a name, then a tag or a digest (`checkout:1.2.0`, `checkout:latest`, `repo/app@sha256:...`,
-# `checkout:canary`). One linear pattern (possessive runs, nothing re-read: Sonar, PR 47); unread() decides per match.
+# `checkout:canary`). One linear pattern (possessive runs, nothing re-read); unread() decides per match.
 # A tag never ends in a period: "roll back to checkout:1.2.0." ends a sentence.
 _IMAGE_REF = re.compile(r"(?<![\w.:/-])([A-Za-z][\w./-]*+)(?::(\w(?:[\w-]|\.(?=[\w-]))*+)(?:@sha256:[0-9a-f]{12,}+)?+"
                         r"|@sha256:[0-9a-f]{12,}+)(?![\w:/-])")
-# A word for a tag is a resource's kind only after one of these (`lambda:warden-dev-x`, `sqs:orders`) - review, PR 47.
+# A word for a tag is a resource's kind only after one of these (`lambda:warden-dev-x`, `sqs:orders`).
 _KIND_WORDS = frozenset({"lambda", "function", "ecs", "eks", "k8s", "sqs", "sns", "rds", "aurora", "dynamodb", "table",
                          "queue", "topic", "rule", "events", "eventbridge", "alarm", "service", "deployment",
                          "namespace", "cluster", "kinesis", "stream", "appconfig", "asg", "ec2", "instance", "s3",
                          "bucket", "elasticache", "redis", "secret", "secretsmanager", "pipeline", "stage", "db",
                          "database", "statefulset", "daemonset", "pod", "job", "cronjob"})
-# Where WARDEN's read text splits into whole values (review, PR 47: `1.2.3` is not read because `1.2.30` was).
+# Where WARDEN's read text splits into whole values (`1.2.3` is not read because `1.2.30` was).
 _READ_SPLIT = re.compile(r"[\s,;()\[\]{}\"'=<>|]+")
 _NUMBERED_TAG = re.compile(r"v?\d")
 # A version: three or more dotted numbers (`1.18.0`, `2.4.1-alpine`), or a `v` and one or two (`v3`, `v1.2`). Every
-# number-like word is found by one trivial pattern and judged in _version_in (Sonar, PR 47: linear, low complexity) -
+# number-like word is found by one trivial pattern and judged in _version_in (linear, low complexity) -
 # times, rates and counts are numbers, not versions; a sentence's closing period is not part of one.
-# Attached by `-` or `_` too (`checkout-1.2.0`, review PR 47); never inside a word or a dotted name.
+# Attached by `-` or `_` too (`checkout-1.2.0`); never inside a word or a dotted name.
 _NUMBER = re.compile(r"(?<![A-Za-z0-9.:/])v?+\d[\w.+-]*+")
 _VERSION_SHAPE = re.compile(r"v?(\d+(?:\.\d+)*)(?:[-+]\w[\w.]*)?")
 UNREAD = "[not read by WARDEN]"
@@ -747,7 +746,7 @@ def unread(text: str, read: str, *, rollback: bool = False) -> str:
     names = tokens(read)
 
     def image(m: re.Match[str]) -> str:
-        """Kept only as WARDEN read it, whole. A word for a tag (`checkout:canary`, review PR 47) is the same shape as a
+        """Kept only as WARDEN read it, whole. A word for a tag (`checkout:canary`) is the same shape as a
         model naming a resource by its kind (`lambda:warden-dev-x`): only after a kind word, and only a name WARDEN
         read, is it a resource."""
         whole, name, tag = m.group(0), m.group(1), m.group(2)
@@ -797,8 +796,8 @@ def shown_target(proposal: RemediationProposal, alert: Any, context: Any) -> str
 
     read = read_text(alert, context)
     out = unread(target, read, rollback=proposal.action is ActionKind.rollback_deploy)
-    # Every other name WARDEN does not know is withheld, whatever its punctuation (review, PR 47: `payments` was shown
-    # where `payments-db` was not). Words that describe a resource are not names, and the placeholders stay as written.
+    # Every other name WARDEN does not know is withheld, whatever its punctuation (not `payments` shown where
+    # `payments-db` is withheld). Words that describe a resource are not names, and the placeholders stay as written.
     keep = (inventory(alert, context) if context is not None else {alert.service}) | tokens(read)
 
     def name_or_unread(m: re.Match[str]) -> str:

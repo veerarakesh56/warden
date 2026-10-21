@@ -157,7 +157,7 @@ def test_any_environments_prefix_is_stripped_longest_first(tmp_path, monkeypatch
     assert strip_prefix("warden-dev-checkout") == "checkout"
     assert strip_prefix("warden-prod-orders") == "orders"
     assert strip_prefix("some-other-fn") == "some-other-fn"
-    # Two names where one starts the other (the shipped dev and prod do not, since 2026-10-16): the longer wins.
+    # Two names where one starts the other (the shipped dev and prod do not): the longer wins.
     doc = tmp_path / "environments.yaml"
     doc.write_text("environments:\n  qa: {}\n  qa-staging: {}\n", encoding="utf-8")
     monkeypatch.setattr(environments, "_DEFAULT", environments.EnvironmentPolicies.load(doc))
@@ -167,7 +167,7 @@ def test_any_environments_prefix_is_stripped_longest_first(tmp_path, monkeypatch
 
 
 def test_a_command_loads_only_the_secrets_it_uses(monkeypatch):
-    """Audit A-B-L17: every process loaded every allowed secret - the MCP server and a diagnosis run held the
+    """Every process loaded every allowed secret - the MCP server and a diagnosis run held the
     terminate role's DSN and the audit key's passphrase they never use."""
     params = {secret_id("dev", n): "x" for n in ("WARDEN_DB_TERMINATE_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
                                                  "WARDEN_TEMPORAL_KEY", "WARDEN_SLACK_WEBHOOK")}
@@ -183,7 +183,7 @@ def test_a_command_loads_only_the_secrets_it_uses(monkeypatch):
 
 
 def test_a_diagnosis_run_never_loads_the_terminate_roles_dsn(monkeypatch):
-    """Audit A-B-L17, wired: the CLI loads per command, after parsing it."""
+    """The CLI loads per command, after parsing it."""
     from warden.cli import main
 
     fake = _FakeSSM({"/warden/dev/env/WARDEN_MODEL": "m-1"})
@@ -198,7 +198,7 @@ def test_a_diagnosis_run_never_loads_the_terminate_roles_dsn(monkeypatch):
 
 
 def test_the_secrets_are_fetched_at_the_same_time_and_a_failure_of_any_still_raises():
-    """Measured 2026-10-14: five secrets fetched one after another were 1.3 s of the approval page's cold start."""
+    """Measured: five secrets fetched one after another were 1.3 s of the approval page's cold start."""
     import os
     import threading
     import time
@@ -241,7 +241,7 @@ def test_the_secrets_are_fetched_at_the_same_time_and_a_failure_of_any_still_rai
 
 
 def test_the_never_revert_list_reaches_the_cloud_runtime_from_parameter_store(monkeypatch):
-    """Gap audit, 2026-10-14: WARDEN_NEVER_REVERT_PRINCIPALS was read by the revert check but not loadable, so the cloud
+    """WARDEN_NEVER_REVERT_PRINCIPALS was read by the revert check but not loadable, so the cloud
     runtime could never be told whose changes it must never undo. It is a plain setting, loaded from Parameter Store."""
     from warden.platforms import aws
 

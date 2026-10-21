@@ -9,7 +9,7 @@ unrecognised environment rather than inheriting broad permissions.
 
 The verifier reads `permits(action)` for policy P1 (is this action admissible in this env at all). Nothing decides on
 `auto_remediate` or `authorizes(principal)` since the CLI's in-process dry-run gate (remediation.py) was removed
-(owner B27): every live change is a RemediationWorkflow plan with a signed approval.
+every live change is a RemediationWorkflow plan with a signed approval.
 `require_human_approval` is only shown in the promotion report (reporting.py; read 2026-10-16).
 """
 
@@ -55,11 +55,11 @@ def _actions(sid: str, kfield: str, values: Any) -> frozenset[ActionKind]:
     return frozenset(out)
 
 
-# How long a fix plan waits for its approval (owner, 2026-10-12: "people won't see it immediately; sometimes they decide
-# after a discussion" - a 30-minute plan behind a 15-minute link ran out on a person twice in one day). A plan made hours
+# How long a fix plan waits for its approval: people do not always see a request at once, and sometimes decide only
+# after a discussion - a 30-minute plan behind a 15-minute link ran out on approvers more than once. A plan made hours
 # ago is still safe to approve: the target is read again before anything is applied, and a target that moved is refused.
 # Per environment (`approval_wait_hours`), never past a week.
-APPROVAL_WAIT_HOURS = 72  # three days (owner, same day: "more like days or weeks")
+APPROVAL_WAIT_HOURS = 72  # three days: decisions can take days
 MAX_APPROVAL_WAIT_HOURS = 7 * 24
 
 
@@ -81,7 +81,7 @@ class EnvPolicy:
     # WARDEN_TRIPWIRE applies.
     tripwire: str = "off"
     approval_wait_hours: int = APPROVAL_WAIT_HOURS
-    # The highest autonomy level an action class may be at here (autonomy.py, owner 2026-10-16/17): L0 escalate only, L1
+    # The highest autonomy level an action class may be at here (autonomy.py): L0 escalate only, L1
     # shadow (WARDEN and Eldane decide, a person still approves), L2 autonomous. A ceiling, never a level: what a class
     # is at is derived from the audit. The prod tier never above L1 - refused at load, and capped again in code.
     autonomy: str = "L0"
@@ -265,7 +265,7 @@ AUTONOMY_LEVELS = ("L0", "L1", "L2")
 
 
 def _autonomy(name: str, raw: dict[str, Any]) -> str:
-    """The environment's autonomy ceiling. Prod (owner, 2026-10-16: "prod always needs a person's passkey") never
+    """The environment's autonomy ceiling. Prod (a prod change always needs a person's passkey) never
     above L1, whatever the file says."""
     value = raw.get("autonomy", "L0")
     if value not in AUTONOMY_LEVELS:
@@ -284,8 +284,7 @@ def _tripwire(name: str, raw: dict[str, Any]) -> str:
 
 
 def _flag(name: str, raw: dict[str, Any], key: str, default: bool) -> bool:
-    """A YAML boolean, nothing else: `bool("false")` is True, and read so a quoted "false" armed auto_remediate
-    (audit A-B-L12)."""
+    """A YAML boolean, nothing else: `bool("false")` is True, and read so a quoted "false" armed auto_remediate."""
     value = raw.get(key, default)
     if not isinstance(value, bool):
         raise EnvironmentPolicyError(f"{name}: {key} must be true or false, not {value!r}")
@@ -377,7 +376,7 @@ def _is_zone(name: object) -> bool:
 
 
 def display_zone():
-    """The zone times are shown in beside UTC (owner requirement R4): WARDEN_DISPLAY_ZONE, else environments.yaml
+    """The zone times are shown in beside UTC: WARDEN_DISPLAY_ZONE, else environments.yaml
     `display_zone`, else UTC alone. A ZoneInfo, so daylight saving is the zone's own."""
     from zoneinfo import ZoneInfo
 
@@ -388,7 +387,7 @@ def display_zone():
 
 
 def both_times(t, *, seconds: bool = True) -> str:
-    """`2026-10-03 01:00:00Z (06:30 IST)` - UTC, and the display zone when it is not UTC (requirement R4)."""
+    """`2026-10-03 01:00:00Z (06:30 IST)` - UTC, and the display zone when it is not UTC."""
     from datetime import UTC
 
     t = t.astimezone(UTC)
@@ -403,7 +402,7 @@ def both_times(t, *, seconds: bool = True) -> str:
 
 def region() -> str:
     """The AWS region: AWS_REGION when set (as every AWS tool reads it), else environments.yaml `aws_region`.
-    Never a literal in code (owner requirements R17, R32)."""
+    Never a literal in code."""
     chosen = os.environ.get("AWS_REGION") or default_environment_policies().aws_region
     if not chosen or not _REGION.fullmatch(chosen):
         raise EnvironmentPolicyError(f"no usable AWS region (AWS_REGION or environments.yaml aws_region): {chosen!r}")

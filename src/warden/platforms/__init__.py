@@ -71,8 +71,8 @@ class RoutedPlatform:
 
     def healthy_for(self, entry: str, service: str, params: dict[str, Any] | None = None,
                     environment: str | None = None) -> bool:
-        """Health as the platform that carries out `entry` sees it - only that one (sixth review, 2026-10-01: a
-        database with a Deployment's name decided the Deployment's verdict). None connected is not healthy. A
+        """Health as the platform that carries out `entry` sees it - only that one (else a
+        database with a Deployment's name decides the Deployment's verdict). None connected is not healthy. A
         platform serving several kinds (AWS) is told the entry and its parameters: a table and a function may share
         a name, and a service is named by its cluster too."""
         p = self._for(entry, environment)

@@ -6,7 +6,7 @@
 ⛔ WHY TERRAFORM DESTROY IS NOT ENOUGH. The benchmark creates resources Terraform has never heard of.
 Every scenario that deploys a variant registers a new task-definition revision, and `ecs-02`'s revert
 re-creates the log group as a brand new resource. Terraform destroys what is in its state; these are
-not. And until 2026-09-11 none of them were tagged, so the sweep that reported "0 tagged resources
+not. And untagged, the sweep that reported "0 tagged resources
 remaining" could not see them either - it would have declared the account clean while one revision
 per scenario per wave sat in it.
 
@@ -166,8 +166,8 @@ def _billable_orphans(ec2: Any) -> dict[str, list[str]]:
 
 
 def _raw(ec2: Any, call: str, key: str) -> list[dict]:
-    """The listing, or one entry saying it could not be read (audit A-B-M19: a failure read as an empty list, and the
-    sweep said "clean" for an account it never saw)."""
+    """The listing, or one entry saying it could not be read (a failure read as an empty list would make the
+    sweep say "clean" for an account it never saw)."""
     try:
         return getattr(ec2, call)().get(key) or []
     except Exception as exc:  # noqa: BLE001  # a denied API must not hide the rest; nor pass as nothing found

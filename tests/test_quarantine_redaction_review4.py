@@ -1,5 +1,5 @@
 """Look-alike and synonym spellings stay out of the model's facts (B-N7), and hex keys under names no
-pattern lists are masked (B-N8). Fourth review, 2026-09-30; cases are the reviewer's."""
+pattern lists are masked (B-N8). The cases are an independent reviewer's."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def test_a_short_hex_value_or_a_non_key_name_is_left():
 @pytest.mark.parametrize("name", ["cache_key", "object_key", "idempotency_key", "dedup_key", "partition_key",
                                   "routing_key", "primary_key", "sort-key", "cacheKey", "key", "monkey", "turnkey"])
 def test_a_hash_under_a_name_that_is_not_a_credential_is_evidence(name):
-    """Fifth review: "any name ending in key" masked a cache key's commit sha as a SECRET, and a
+    """"Any name ending in key" masked a cache key's commit sha as a SECRET, and a
     SECRET is swept from every line - WARDEN's own deploy record lost its version."""
     line = f"restored build cache {name}={_HEX40}"
     assert redact(line).text == line
@@ -82,7 +82,7 @@ def test_one_credential_gets_one_placeholder_and_restores():
 @pytest.mark.parametrize("name", ["vault_key", "consumer_key", "root_key", "data_key", "deploy_key", "host_key",
                                   "oauth_key", "kms_key", "wrapping_key", "dek_key"])
 def test_a_hex_credential_under_more_key_names_is_masked(name):
-    """Sixth review: narrowing the hex-key rule to credential names left real ones out - a 64-digit
+    """Narrowing the hex-key rule to credential names left real ones out - a 64-digit
     lowercase hex value has no upper case for the high-entropy backstop."""
     value = "deadbeef" * 8
     out = redact(f"{name}={value}").text
@@ -90,7 +90,7 @@ def test_a_hex_credential_under_more_key_names_is_masked(name):
 
 
 def test_a_cookie_holding_a_token_restores_to_the_token():
-    """Sixth review: the cookie class took `<`, so `session=<JWT_1>` was wrapped again as `<SECRET_1>` and restore
+    """The cookie class took `<`, so `session=<JWT_1>` was wrapped again as `<SECRET_1>` and restore
     left `<JWT_1>` in the operator's report."""
     head, body, sig = "eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxIn0", "c2lnbmF0dXJlLXZhbHVlLXg5"  # parts, never one literal
     jwt = f"{head}.{body}.{sig}"
@@ -111,7 +111,7 @@ def _jwt() -> str:
     ("Set-Cookie: id={jwt}; token=Zq8wPx2mLk; Path=/", "Zq8wPx2mLk"),
 ])
 def test_a_masked_cookie_does_not_leave_the_cookies_after_it_in_clear(line, secret):
-    """Seventh review (2026-10-01, HIGH): excluding `<` from the cookie value made a placeholder earlier in the
+    """HIGH: excluding `<` from the cookie value made a placeholder earlier in the
     header end the match, and every later cookie went out in clear - past the gate's re-scan, which uses the same
     patterns. Measured at 3acea5b; at 3acea5b^ all three were masked."""
     u1, u2, u3, u4, u5 = "3f2b8c1e", "9a7d", "4e5f", "8b6a", "1c2d3e4f5a6b"
@@ -124,7 +124,7 @@ def test_a_masked_cookie_does_not_leave_the_cookies_after_it_in_clear(line, secr
 
 @pytest.mark.parametrize("line", ['password="' + HUNTER2 + ' {jwt}"', '--password "x {jwt}"', '{{"auth": "ab12cd34 {jwt}"}}'])
 def test_a_quoted_secret_holding_a_token_restores_in_one_step(line):
-    """Seventh review: a quoted value wrapping a placeholder kept it inside the stored value, so restore() left
+    """A quoted value wrapping a placeholder kept it inside the stored value, so restore() left
     `<JWT_1>` in the operator's report. The stored value is the restored text."""
     original = line.format(jwt=_jwt())
     result = redact(original)
@@ -150,7 +150,7 @@ _UUID = "1f2e3d4c-5b6a-" + "4789-a0b1-" + "c2d3e4f5a6b7"
     ('"--password","' + _W + ' {jwt}"', _W), ("Authorization: Bearer {jwt}." + _W, _W),
 ])
 def test_a_credential_whose_start_was_masked_is_masked_whole(line, secret):
-    """Eighth review (2026-10-01, HIGH, pre-existing): the value classes stopped at `<`, so the part of a credential
+    """HIGH, pre-existing: the value classes stopped at `<`, so the part of a credential
     after a placeholder an earlier pattern placed - a UUID, a phone-shaped run, a JWT - went out in clear. The value
     is masked whole and stored restored."""
     original = line.format(jwt=_jwt())
@@ -165,7 +165,7 @@ def test_a_credential_whose_start_was_masked_is_masked_whole(line, secret):
     "http.request.header.cookie=sid={s}", 'cookie: "sid={s}"',
 ])
 def test_a_cookie_written_as_json_a_dict_or_an_assignment_is_masked(line):
-    """Eighth review (HIGH, pre-existing): only `Cookie:` was masked - a structured log's cookie went out whole."""
+    """HIGH, pre-existing: only `Cookie:` was masked - a structured log's cookie went out whole."""
     s = "Zq8wPx2mLk" + "Vb7"
     out = redact(line.format(s=s)).text
     assert s not in out, out
@@ -174,7 +174,7 @@ def test_a_cookie_written_as_json_a_dict_or_an_assignment_is_masked(line):
 @pytest.mark.parametrize("masked", ["Cookie: <SECRET_1>", "Set-Cookie: <SECRET_3>", '{"auth": "<SECRET_2>"}',
                                     "password=<SECRET_1>", "Authorization: Bearer <JWT_1>"])
 def test_the_gate_lets_a_masked_credential_through(masked):
-    """Eighth review (MED, a regression from a95f171): the skip for a value that is nothing but placeholders needed
+    """MED, a regression from a95f171: the skip for a value that is nothing but placeholders needed
     the redactor's map, which the gate's re-scan does not have - every report quoting a masked cookie was withheld."""
     from warden import gate
 
@@ -183,7 +183,7 @@ def test_the_gate_lets_a_masked_credential_through(masked):
 
 
 def test_a_five_part_jwe_is_masked_whole():
-    """Eighth review: the JWT pattern took three segments, so a JWE's last two - its ciphertext and tag - stayed."""
+    """The JWT pattern took three segments, so a JWE's last two - its ciphertext and tag - stayed."""
     parts = ["eyJhbGciOiJSU0EtT0FFUCJ9", "", "aXZpdnZpdml2aXY", "Y2lwaGVydGV4dGNpcGhlcg", "dGFndGFndGFn"]
     jwe = ".".join(parts)
     out = redact(f"token {jwe} done").text

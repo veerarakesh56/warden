@@ -1,4 +1,4 @@
-"""One audit log, many activity threads (2026-10-15: a workflow test failed twice in CI with "cannot rollback - no
+"""One audit log, many activity threads (a workflow test failed twice in CI with "cannot rollback - no
 transaction is active" - a read landed inside another thread's transaction on the shared SQLite connection)."""
 
 from __future__ import annotations

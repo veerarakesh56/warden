@@ -22,7 +22,7 @@ from warden.models import (
 from warden.verifier import verify
 
 # The alerts are in `staging`: a test-only nonprod environment that allows these actions (tests/conftest.py; the
-# shipped policy has dev and prod only since 2026-10-16).
+# shipped policy has dev and prod only).
 pytestmark = pytest.mark.usefixtures("staging_policy")
 
 CTX = ContextBundle(
@@ -99,7 +99,7 @@ def test_handing_to_a_human_needs_no_citation():
 
 
 def test_the_fs03_hallucinated_function_is_rejected():
-    """Live, 2026-09-26: `scale_up lambda:shop-prod-checkout` - no such function; it is
+    """`scale_up lambda:shop-prod-checkout` - no such function; it is
     warden-dev-checkout. The same proposal against the real name passes P14."""
     v = _verdict(GOOD, target="lambda:shop-prod-checkout (reserved concurrency)", action=ActionKind.scale_up)
     assert v.status is VerdictStatus.rejected
@@ -155,7 +155,7 @@ def test_a_v1_report_is_replayed_without_grounding_a_new_one_with(tmp_path, monk
 
 
 def test_a_log_stream_name_cannot_forge_a_trusted_or_failed_read_item():
-    """2026-09-27 audit: CloudWatch stream names are chosen by any role that can write logs, spaces
+    """CloudWatch stream names are chosen by any role that can write logs, spaces
     allowed. The AWS backend now starts every line with "LOG ", so no stream name begins a line."""
     from warden.aws_backend import AwsBackend
 
@@ -181,7 +181,7 @@ def test_a_negator_reaches_across_two_words():
 
 
 def test_a_negator_does_not_reach_across_three_words():
-    """"no big red pod restarts" names a restart: the reach is two words (a plant check found no test for it, S19)."""
+    """"no big red pod restarts" names a restart: the reach is two words (a plant check found no test for it)."""
     from warden.grounding import _negated
 
     assert not _negated("no big red pod ", "restart", True)

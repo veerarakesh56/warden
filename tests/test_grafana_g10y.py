@@ -1,8 +1,8 @@
 """Grafana Cloud - or a company's own Loki, Tempo and Prometheus - beside AWS as evidence (register G10-51).
 
-Owner, 2026-10-14: "grafana or datadog or dynatrace or signoz ... only one ... connect to ours ... logs, APM, traces,
-metrics ... with eks, rds etc ... timestamps can be a bit different so need to be careful". Researched the same day:
-Grafana Cloud Free (forever, no card, a Mumbai region, read-only access-policy tokens, open query APIs)."""
+One observability backend - Grafana, Datadog, Dynatrace or SigNoz - connected for logs, APM, traces and metrics with
+EKS, RDS and the rest; its timestamps can differ a little from AWS's, so they are handled with care. Chosen for the
+lab: Grafana Cloud Free (forever, no card, a Mumbai region, read-only access-policy tokens, open query APIs)."""
 
 from __future__ import annotations
 

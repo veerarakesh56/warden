@@ -1,4 +1,4 @@
-"""Owner, 2026-10-15: a new alarm after one of WARDEN's own fixes may be that fix's doing, or not - the approver of the
+"""A new alarm after one of WARDEN's own fixes may be that fix's doing, or not - the approver of the
 new incident's plan is told of the earlier fix, and whether this diagnosis cited it as the cause (read from the
 diagnosis's citations, never its prose)."""
 

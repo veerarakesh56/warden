@@ -427,7 +427,7 @@ def test_an_exhausted_provider_is_called_once_not_retried():
 
 
 def test_the_ceiling_is_checked_before_every_retry_not_only_the_first(monkeypatch):
-    """Audit A-C-17: the call and cost checks ran before the first attempt only, so retries of an
+    """The call and cost checks ran before the first attempt only, so retries of an
     invalid answer ran past the call ceiling."""
     p = FakeProvider("garbage")
     c = _client(p, max_calls=2, max_usd=999)
@@ -437,7 +437,7 @@ def test_the_ceiling_is_checked_before_every_retry_not_only_the_first(monkeypatc
 
 
 def test_an_explicit_budget_wins_and_a_non_number_is_refused(monkeypatch):
-    """Audit A-C-16: WARDEN_MAX_USD overrode the explicit argument, and "nan" disabled the budget
+    """WARDEN_MAX_USD overrode the explicit argument, and "nan" disabled the budget
     (every comparison with nan is False)."""
     monkeypatch.setenv("WARDEN_MAX_USD", "1000")
     assert _client(FakeProvider("x"), max_usd=0.01).max_usd == 0.01
@@ -454,7 +454,7 @@ def test_an_explicit_budget_wins_and_a_non_number_is_refused(monkeypatch):
 
 
 
-# Fourth review: the USD ceiling and the call ceiling could still be switched off or bypassed.
+# The USD ceiling and the call ceiling could still be switched off or bypassed.
 @pytest.mark.parametrize("value", ["nan", "-3", "inf"])
 def test_a_price_that_is_not_a_real_price_is_refused(monkeypatch, value):
     from warden import llm

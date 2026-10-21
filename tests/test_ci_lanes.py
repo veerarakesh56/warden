@@ -51,7 +51,7 @@ PROMOTION_CHECK = "The commit was promoted from its upstream branch"
 
 
 def _promotion_order() -> dict[str, str]:
-    """{environment: the branch it is promoted from}. Owner, 2026-10-16: main -> dev -> prod, each environment
+    """{environment: the branch it is promoted from}: main -> dev -> prod, each environment
     deployed only from the branch of its own name; environments.yaml lists the environments in that order."""
     from warden.environments import EnvironmentPolicies
 
@@ -99,10 +99,10 @@ def test_one_deploy_workflow_per_configured_environment_and_nothing_else():
 
 
 def test_deploys_run_from_their_own_branch_only_after_the_promotion_check_and_name_no_region():
-    """Audit A-I-10, owner 2026-10-16: a deploy from any branch but its environment's own fails before it assumes a
+    """A deploy from any branch but its environment's own fails before it assumes a
     role, and so does a commit that did not come from the upstream branch (main for dev, dev for prod) - both before
     any step that touches a secret. No region is written into a workflow: each GitHub Environment carries AWS_REGION
-    (the owner's no-hardcoding rule)."""
+    (nothing is hardcoded)."""
     import yaml
 
     for name in ("_infra-deploy.yml", "_apps-deploy.yml"):
@@ -143,7 +143,7 @@ def test_every_action_is_pinned_to_a_full_commit_sha():
 
 
 def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_triggers():
-    """Fourth review: the tool CI skips terraform/fullstack and the infra/apps/deploy
+    """The tool CI skips terraform/fullstack and the infra/apps/deploy
     workflows, and three tests that guard those files (the reader role's least privilege among them)
     ran only in the tool CI - a change to reader.tf alone ran none of them."""
     import pathlib
@@ -170,7 +170,7 @@ def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_tri
 
 
 def test_a_run_on_main_is_never_cancelled_by_the_next_push():
-    """Fourth review E-6: a group per branch on main cancelled the PENDING run of the commit in between, which
+    """A group per branch on main cancelled the PENDING run of the commit in between, which
     was then never checked. Each push to main gets its own group; only pull requests cancel."""
     import pathlib
 
@@ -187,7 +187,7 @@ def test_a_run_on_main_is_never_cancelled_by_the_next_push():
 
 
 def test_a_lane_runs_when_a_test_file_its_check_runs_changes():
-    """Ninth review CI run: CI · infra runs six test files but triggered on one, so a check that
+    """CI · infra once ran six test files but triggered on one, so a check that
     could not work in its environment (the live-count test, without the k8s extra) stayed hidden until that one
     file changed. Every test file a lane's check job runs is one of the lane's trigger paths, push and PR."""
     import re
@@ -207,7 +207,7 @@ def test_a_lane_runs_when_a_test_file_its_check_runs_changes():
 
 
 def test_the_pod_security_check_accepts_only_pod_securitys_own_reason():
-    """Ninth review: it accepted any "forbidden" - on 5fdcff4 the privileged pod was refused because the
+    """It accepted any "forbidden" - on 5fdcff4 the privileged pod was refused because the
     namespace's default ServiceAccount did not exist yet, and the step went green without Pod Security deciding."""
     text = (pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci-tool.yml").read_text(
         encoding="utf-8")
@@ -218,7 +218,7 @@ def test_the_pod_security_check_accepts_only_pod_securitys_own_reason():
 
 
 def test_every_workflow_is_scanned_on_every_push_and_pull_request():
-    """Audit A-I-15: the security job skipped infra and apps changes. The workflow scan (zizmor) runs on every push to
+    """The security job skipped infra and apps changes. The workflow scan (zizmor) runs on every push to
     main and every pull request, with no path filter, so a change to any workflow is scanned."""
     import yaml
 
@@ -243,7 +243,7 @@ def test_every_ci_image_build_uses_the_hosts_network():
 
 
 def test_each_environment_deploys_on_a_push_to_its_own_branch_and_infra_only_plans_there():
-    """Owner, 2026-10-16: a commit promoted onto the branch dev (or prod) reaches that environment with no hand on a
+    """A commit promoted onto the branch dev (or prod) reaches that environment with no hand on a
     button - one on-merge-<env>.yml per environment, identical apart from the names, in that environment's queue. Infra
     never applies on a push: it plans, and its apply is a reviewed second step (apply-plan) that applies exactly that
     plan. The push that creates the branch deploys nothing."""
@@ -280,7 +280,7 @@ def test_each_environment_deploys_on_a_push_to_its_own_branch_and_infra_only_pla
 
 
 def test_nothing_that_can_reach_aws_runs_on_main_or_on_a_pull_request():
-    """Owner, 2026-10-16: main deploys nothing. No workflow that can reach AWS starts on a push to main, a pull
+    """Main deploys nothing. No workflow that can reach AWS starts on a push to main, a pull
     request, a schedule or another workflow's run; the ones that start by hand refuse every branch but their own
     before they assume a role (the deploys: the test above; the runtime: tests/test_runtime_pipeline_s9.py)."""
     import yaml
@@ -307,7 +307,7 @@ def test_nothing_that_can_reach_aws_runs_on_main_or_on_a_pull_request():
 
 
 def test_ci_runs_on_main_and_on_pull_requests_into_main():
-    """Owner, 2026-10-16: dev and prod receive only commits main has already checked, so CI runs on pushes to main and
+    """Dev and prod receive only commits main has already checked, so CI runs on pushes to main and
     on pull requests into main - a dev -> prod pull request does not run the k3d and database suites again. The
     workflow scan alone runs on every pull request: it is the check the dev and prod rulesets require."""
     import yaml
@@ -440,7 +440,7 @@ def test_the_promotion_check_refuses_an_upstream_that_is_no_other_branch(tmp_pat
 
 
 def test_the_database_services_have_no_fixed_password():
-    """Naming audit item 17: the db job's PostgreSQL, MySQL and SQL Server passwords were fixed strings in
+    """The db job's PostgreSQL, MySQL and SQL Server passwords were fixed strings in
     this file, and a fixed complex-looking one reads as a real credential. One value is made per run; the services, their
     health checks and the DSNs the tests read all use it, and it meets SQL Server's sa password policy."""
     import yaml
@@ -463,7 +463,7 @@ def test_the_database_services_have_no_fixed_password():
 
 
 def test_the_privileged_pod_stays_a_negative_test_and_no_linter_needs_a_skip():
-    """Naming audit item 18 and Sonar kubernetes:S6428: the negative test's pod is built
+    """Sonar kubernetes:S6428: the negative test's pod is built
     when the test runs (scripts/negative_pod.py), so no manifest asks for a privileged container and no file carries a
     linter skip. The pod is still what Pod Security must refuse: privileged, as root."""
     import json
@@ -482,7 +482,7 @@ def test_the_privileged_pod_stays_a_negative_test_and_no_linter_needs_a_skip():
 
 
 def test_the_k3d_job_binds_the_eks_actors_group_from_the_ci_only_file():
-    """Review, PR 48: the group is bound in CI's test namespace by k8s/ci/ (the shipped RBAC names the ServiceAccount
+    """The group is bound in CI's test namespace by k8s/ci/ (the shipped RBAC names the ServiceAccount
     only; tests/test_platforms_live.py), after the remediation RBAC it binds to."""
     import pathlib
 

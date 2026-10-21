@@ -1,4 +1,4 @@
-"""Naming audit item 4: a signing key is encrypted at rest unless its maker explicitly says otherwise.
+"""A signing key is encrypted at rest unless its maker explicitly says otherwise.
 `warden audit keygen` wrote the key in the clear whenever no passphrase was set, and only said so; the bench approver's
 key was always in the clear. Both now refuse without a passphrase unless told --unencrypted, and create the file
 exclusively (never over another, mode 0600 on POSIX)."""
@@ -116,7 +116,7 @@ def test_the_bench_key_is_encrypted_unless_told_and_an_old_clear_one_still_loads
     with pytest.raises(SystemExit, match="is encrypted: set WARDEN_BENCH_KEY_PASSPHRASE"):
         mod.load_key()
 
-    # A key made before 2026-10-16, in the clear: still read, with a warning that says how to replace it.
+    # A key made before keys were encrypted, in the clear: still read, with a warning that says how to replace it.
     old = tmp_path / "old" / BENCH
     old.parent.mkdir()
     old.write_bytes(Ed25519PrivateKey.generate().private_bytes(

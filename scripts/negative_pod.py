@@ -1,4 +1,4 @@
-"""The NEGATIVE Pod Security test's pod, built when the test runs (2026-10-20; was k8s/test/privileged-must-fail.yaml).
+"""The NEGATIVE Pod Security test's pod, built when the test runs.
 
     python scripts/negative_pod.py | kubectl apply --dry-run=server -f -     # must be REFUSED: "violates PodSecurity"
 

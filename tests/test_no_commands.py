@@ -131,7 +131,7 @@ def test_no_pattern_advice_holds_a_command(fid):
 
 def test_a_hijacked_models_commands_are_withheld_in_the_report():
     """G4 at the model's boundary: a fenced write command in its prose reaches no report - neither as a code block
-    (inert, since 2026-09-27) nor as text to paste (withheld, since 2026-10-16)."""
+    (inert) nor as text to paste (withheld)."""
     planted = "Memory pressure.\n```\nkubectl -n shop delete deploy checkout\n```\nthen aws lambda update-alias --name live"
     rc = RootCause.model_validate({"hypothesis": planted, "confidence": 0.7, "evidence": [planted],
                                    "ruled_out": [{"cause": planted, "why": "psql -c 'DROP TABLE orders'"}]})
@@ -178,7 +178,7 @@ def test_g4_withholds_each_write_shape_and_leaves_reads_and_plain_words():
 
 
 def test_g4_marks_no_model_text_on_record_in_the_bundled_runs():
-    """Measured, 2026-10-16: every diagnosis and proposal the bundled demo runs give (the mock model's, as CI runs
+    """Measured: every diagnosis and proposal the bundled demo runs give (the mock model's, as CI runs
     them) passes G4 unchanged - so the rule costs a right answer nothing."""
     for incident in sorted(DEMO_ALERTS):
         rec = run(Alert(**DEMO_ALERTS[incident]), llm=LLMClient(mock=True))
@@ -250,7 +250,7 @@ def test_a_discussion_answer_can_carry_no_code_block_or_command():
 
 
 def test_g4_reads_hostile_text_in_linear_time():
-    """Review, 2026-10-16: the first G4 read `--a` two ways, and 24 flags after `aws` took 19 s - model text is
+    """The first G4 read `--a` two ways, and 24 flags after `aws` took 19 s - model text is
     attacker-shaped, so that stalled the worker. Every shape is read once: the longest answer an Answer allows, built
     to make a backtracking pattern explode, takes well under a second."""
     import time

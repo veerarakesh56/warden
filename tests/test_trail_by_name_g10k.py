@@ -1,6 +1,6 @@
 """A recorded change is looked up by its event NAME, never by the whole service (register G10-25).
 
-Live, 2026-10-12: the lab producer's timeout was cut, the diagnosis was right, and no plan was opened - "more than one
+In a live run, the lab producer's timeout was cut, the diagnosis was right, and no plan was opened - "more than one
 kind of recorded change". The cause was the lookup: by event source `lambda.amazonaws.com` it read every Lambda call
 in the account for six hours (271, mostly a deploy's reads), passed the 200 WARDEN reads, and both Lambda undo
 families refused. A working account passes that in minutes, so no Lambda change could ever be undone."""

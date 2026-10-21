@@ -1,4 +1,4 @@
-"""One repair round (research 2026-10-15): an answer held only by checks a better-grounded answer can pass is asked
+"""One repair round: an answer held only by checks a better-grounded answer can pass is asked
 once more, with the checks' own words; safety policies are never fed back."""
 
 from __future__ import annotations

@@ -111,7 +111,7 @@ def test_every_uv_names_its_python():
 
 
 def test_dependabot_can_run_the_uv_the_project_asks_for():
-    """Dependabot's uv was 0.12.18 on 2026-10-01; an exact pin above it made every uv.lock update fail."""
+    """Dependabot's uv lags (0.12.18 when measured); an exact pin above it made every uv.lock update fail."""
     from packaging.specifiers import SpecifierSet
 
     assert "0.12.18" in SpecifierSet(UV_RANGE)
@@ -154,7 +154,7 @@ def test_every_image_is_pinned_by_digest():
     for manifest in (ROOT / "k8s" / "test").glob("*.yaml"):
         images += [(manifest.name, m) for m in re.findall(r"^\s*image:\s*(\S+)", manifest.read_text(encoding="utf-8"),
                                                            re.MULTILINE) if m != "warden:local"]
-    # k3d's node and tools images, and the full stack's placeholder ECS image (fifth review E: by tag).
+    # k3d's node and tools images, and the full stack's placeholder ECS image (by tag).
     tool = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")
     # A value may name this repository owner's mirror with a GitHub expression (`ghcr.io/${{ github.repository_owner }}`).
     images += [("ci-tool.yml", m) for m in re.findall(r"^\s*(?:K3S_IMAGE|K3D_IMAGE_TOOLS):\s*(.+?)\s*$", tool, re.MULTILINE)]
@@ -253,7 +253,7 @@ def test_the_image_build_context_is_an_allowlist():
 
 
 def test_the_image_build_gets_every_licence_file_the_package_names():
-    """2026-10-16: NOTICE joined `license-files`, but both Dockerfiles copied LICENSE only, so both image builds failed
+    """NOTICE joined `license-files`, but both Dockerfiles copied LICENSE only, so both image builds failed
     ("`project.license-files` glob `NOTICE` did not match any files") - the gate does not build the images."""
     import tomllib
 
@@ -291,7 +291,7 @@ def _requirement(req: str) -> tuple[str, tuple[str, ...], str]:
 
 def test_the_lock_was_made_from_this_pyproject():
     """uv.lock records the requirements it was resolved from. A group added after the last `uv lock` turned
-    every pipeline red on 2026-10-01 (`uv sync --locked` refuses a stale lock); this fails it locally."""
+    every pipeline red once (`uv sync --locked` refuses a stale lock); this fails it locally."""
     import tomllib
 
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -344,7 +344,7 @@ def test_the_groups_that_build_the_lambdas_carry_pip():
 
 
 def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
-    """Sixth review: five patterns - a git-ignored tfstate (the database master password in plaintext)
+    """Five patterns - a git-ignored tfstate (the database master password in plaintext)
     or tfvars under src/ would still ship from a local build."""
     import fnmatch
     import tomllib
@@ -355,7 +355,7 @@ def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
     # One list in three places, kept equal.
     assert backend["source-exclude"] == backend["wheel-exclude"]
     assert set(backend["wheel-exclude"]) <= set(docker)
-    # Seventh review: a fixed list of strings could not see a missing pattern - plan.out and trust.local.json, which
+    # A fixed list of strings could not see a missing pattern - plan.out and trust.local.json, which
     # .gitignore names, and these all shipped from a local build. Each name must be excluded where it lies.
     planted = [".env", ".env.prod", ".envrc", ".env~", "x.log", "crash.log", "server.pem", "x.pem.bak", "tls.key",
                "a.p12", "a.pfx", "a.jks", "x.tfstate", "x.tfstate.backup", "prod.tfvars", "terraform.tfvars.json",
@@ -363,7 +363,7 @@ def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
                "audit.db-wal", "audit.db-journal", "audit.db-shm", "x.sqlite3", "aws_credentials", ".netrc",
                ".pypirc", ".npmrc", "kubeconfig", "prod.kubeconfig", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
                "putty.ppk", "service-account.json", "x.keystore", "vault.kdbx",
-               # eighth review: 27 more shipped
+               # 27 more shipped
                "plan.json", "terraform.tfstate~", "prod.tfvars~", ".prod.tfvars.swp", ".terraformrc", "terraform.rc",
                "prod.env", "secrets.env", "#.env#", ".pgpass", ".my.cnf", ".vault-token", ".htpasswd", "client.ovpn",
                "token.txt", "secrets.yaml", "secrets.json", "key.p8", "x.pkcs12", "x.jceks", "secring.gpg",
@@ -384,14 +384,14 @@ def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     final = dockerfile.split("\nFROM ")[-1]
     assert " AS build" in dockerfile
-    # The final stage copies the installed environment and nothing else (eighth review: a string check passed
+    # The final stage copies the installed environment and nothing else (a string check passed
     # `COPY --from=build /app /app`, the source back in the image).
     copies = [ln.split() for ln in final.splitlines() if ln.strip().upper().startswith(("COPY", "ADD"))]
     assert copies == [["COPY", "--from=build", "/opt/warden", "/opt/warden"]], copies
 
 
 def test_the_deployed_requirements_are_audited_every_week():
-    """Sixth review: the apps pipeline ran only on a change, so a new CVE in a pinned dependency of
+    """The apps pipeline ran only on a change, so a new CVE in a pinned dependency of
     what is deployed waited for the next change."""
     apps = yaml.safe_load((ROOT / ".github" / "workflows" / "ci-apps.yml").read_text(encoding="utf-8"))
     assert apps[True].get("schedule"), "CI · apps has no schedule"
@@ -486,7 +486,7 @@ DRAFT_SKIP = "github.event_name != 'pull_request' || github.event.pull_request.d
 
 
 def test_a_draft_pull_request_runs_no_ci_and_a_ready_one_does():
-    """Owner, 2026-10-21: the Actions queue was the bottleneck. Every workflow a pull request starts lists the event
+    """The Actions queue was the bottleneck. Every workflow a pull request starts lists the event
     types it runs on - ready_for_review among them, so marking a draft ready runs its CI - and every job in it is
     skipped while the pull request is a draft (push and schedule runs are untouched)."""
     flows = {wf.name: yaml.safe_load(wf.read_text(encoding="utf-8")) for wf in WORKFLOWS}

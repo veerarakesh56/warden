@@ -2,7 +2,7 @@
 -- master user postgres (an IAM token from the operator's own identity), NOT by terraform.
 -- Idempotent: safe to run again.
 --
--- ⛔ NO PASSWORDS (2026-09-26). Aurora in express configuration authenticates with IAM only: every
+-- ⛔ NO PASSWORDS. Aurora in express configuration authenticates with IAM only: every
 -- role below logs in with a token its AWS identity signs, which rds_iam requires. The file is sent
 -- as it is - it has no placeholders, and none may be added.
 

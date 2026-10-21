@@ -1,4 +1,4 @@
-"""What each kind of row adds to an incident's record (records.record, one reader per kind since S19): the branches
+"""What each kind of row adds to an incident's record (records.record, one reader per kind): the branches
 no other test pinned."""
 
 from __future__ import annotations

@@ -110,7 +110,7 @@ def test_the_tfvars_example_is_the_one_permitted_exception(tmp_path):
 
 
 def test_no_path_is_exempt_from_the_scan(tmp_path):
-    """Naming audit item 5: seven files - the redaction tests and three other tests,
+    """Seven files - the redaction tests and three other tests,
     the redaction module, the CI workflow - were skipped whole, so a real secret pasted into one of
     them would have been published. Every path git tracks now gets a planted key, and the scan must
     refuse each one. A path exemption, for a file or a directory, fails this."""
@@ -242,7 +242,7 @@ def _scan_one(tmp_path, sub, name, content):
 
 
 def test_a_personal_email_is_refused_and_a_fixture_domain_is_not(tmp_path):
-    """Owner rule R3. The scanner had no email pattern at all."""
+    """No personal email is published. The scanner had no email pattern at all."""
     code, out = _scan_one(tmp_path, "a", "notes.md", "contact: someone.real@" + "gmail.com\n")  # split
     assert code != 0, out
     assert "personal email" in out.lower(), out
@@ -272,7 +272,7 @@ def test_a_bare_account_id_is_refused_and_the_documented_example_is_not(tmp_path
     "xapp-" + "1-A0B1C2D3-12345-abcdef",
 ])
 def test_vendor_token_shapes_are_caught(tmp_path, value):
-    """2026-09-30: a Stripe webhook secret shape in a test file reached GitHub (its secret scanning
+    """A Stripe webhook secret shape in a test file reached GitHub (its secret scanning
     flagged it) because this guard had no pattern for it."""
     import importlib.util
 

@@ -144,7 +144,7 @@ def test_the_catalogue_lets_a_restart_through_only_on_a_proven_reading(reading):
 @pytest.mark.parametrize("pointer", ["/", "", "/spec/", "/spec/template/", POINTER + "/", "spec/template",
                                      "/spec/templat"])
 def test_a_near_miss_pointer_is_no_proof(pointer):
-    """Review, PR 48: RFC 6901 compared by whole segments. `/` and `/spec/` name a key "" - not an ancestor of the
+    """RFC 6901 compared by whole segments. `/` and `/spec/` name a key "" - not an ancestor of the
     annotation - and a pointer without its leading `/` is not one; none of them makes Argo CD leave a restart."""
     custom = _Custom(_application([{"group": "apps", "kind": "Deployment", "name": "orders", "namespace": "shop",
                                     "jsonPointers": [pointer]}]))

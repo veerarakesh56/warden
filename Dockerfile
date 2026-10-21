@@ -1,5 +1,5 @@
 # Base images by digest: a tag can be moved to other content; a digest cannot.
-# Read 2026-10-01 from the registries; Dependabot (docker) proposes new digests.
+# Dependabot (docker) proposes new digests.
 # Docker's official python image by default; CI and runtime.yml pass the repository's own mirror of the same
 # digest (mirror-images.yml: ghcr.io/<owner>/warden-mirror), as shared runners are rate-limited by Docker Hub.
 ARG BASE_IMAGE_REGISTRY=docker.io/library
@@ -24,11 +24,11 @@ COPY src ./src
 # vendor-free (the k8s client is an optional extra); the image is what runs as the in-cluster Job
 # and must be able to read the cluster it is deployed into.
 # The anthropic SDK too, so the live-model `docker compose up` (the key in a gitignored .env; docker-compose.yml)
-# works as documented - it failed on a missing import until 2026-09-25.
+# works as documented - without it, it fails on a missing import.
 # Only what uv.lock lists, every hash verified, compiled to bytecode (the container runs with a
 # read-only root filesystem, so nothing could compile later). The package is installed into /opt/warden.
-# --no-build: every locked package is installed from its wheel, so no package's build script runs here (Sonar S8541,
-# 2026-10-16). uv still builds WARDEN itself - a first-party source it allows under --no-build - with uv_build in
+# --no-build: every locked package is installed from its wheel, so no package's build script runs here (Sonar S8541).
+# uv still builds WARDEN itself - a first-party source it allows under --no-build - with uv_build in
 # process ("direct build"): no Python build code runs either.
 RUN uv sync --locked --no-build --no-editable --extra k8s --extra anthropic --extra slack
 # Only the shipped kinds of file, compared without letter case (registers R8-O4, R9-O1): the build backend's exclude

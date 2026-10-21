@@ -1,5 +1,5 @@
-"""Set Datadog up for WARDEN, as code (owner, 2026-10-14: "set the total ... logs traces monitoring and dashboards ...
-and also alerts too for warden to see and immediately work on them").
+"""Set Datadog up for WARDEN, as code: logs, traces, monitoring and dashboards, and the alerts WARDEN sees and works on
+at once.
 
     python scripts/datadog_setup.py --env ops --stack dev
 
@@ -14,7 +14,7 @@ In one run, and again idempotently - every object is found by its name and updat
 Keys: asked for, never read from a file by default - the API key, then an application key that may write the webhook
 integration, monitors and dashboards (used only here: revoke it after). Each is typed at a prompt that does not echo
 it, or given one per line on stdin (piped from a secret manager). WARDEN_DATADOG_API_KEY_FILE and
-WARDEN_DATADOG_SETUP_KEY_FILE still name plaintext files for one release, read with a warning (2026-10-16: the
+WARDEN_DATADOG_SETUP_KEY_FILE still name plaintext files for one release, read with a warning (the former
 defaults ~/.warden/datadog-*.txt were plaintext admin keys on disk). The site and the approval domain come from the
 environment's plain settings. Nothing secret is printed.
 """
@@ -47,8 +47,8 @@ APPS = ("catalog-api", "cart-worker")
 
 def credential(label: str, file: str | os.PathLike[str] | None = None) -> str:
     """One credential a setup script needs: typed at a prompt that does not echo it, or one line on stdin when stdin
-    is not a terminal (piped from a secret manager). A file is read only when one is named, with a warning (naming
-    audit item 24, 2026-10-16: an admin token saved in ~/.warden/*.txt outlived the "revoke after" step whenever that
+    is not a terminal (piped from a secret manager). A file is read only when one is named, with a warning (an
+    admin token saved in ~/.warden/*.txt outlived the "revoke after" step whenever that
     step was forgotten)."""
     if file:
         path = pathlib.Path(file)

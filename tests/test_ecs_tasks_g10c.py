@@ -1,4 +1,4 @@
-"""G10-C1: what an ECS service's own tasks say they died of. Miss analysis 2026-10-10: ecs-06 (a secret that does not
+"""G10-C1: what an ECS service's own tasks say they died of. In a miss analysis, ecs-06 (a secret that does not
 exist), ecs-07 (a failing health check), ecs-12 (security group egress) and ecs-13 (a deleted route) were each answered
 from a service "at its desired count, nothing failed" - the stopped tasks, which name the cause, were never read."""
 
@@ -51,7 +51,7 @@ def test_the_reason_text_reaches_the_model_only_through_the_quarantine():
 @pytest.mark.parametrize("code, reason, exits, cause", [
     ("TaskFailedToStart", ("ResourceInitializationError: unable to pull secrets or registry auth: "
      "ResourceNotFoundException: Secrets Manager can't find the specified secret."), [], "secret_missing"),
-    # A secret scheduled for deletion (G10 held-out set, 2026-10-10): AWS's own wording of the refusal.
+    # A secret scheduled for deletion (G10 held-out set): AWS's own wording of the refusal.
     ("TaskFailedToStart", ("ResourceInitializationError: unable to pull secrets or registry auth: InvalidRequestException: "
      "You can't perform this operation on the secret because it was marked for deletion."), [], "secret_missing"),
     ("TaskFailedToStart", ("ResourceInitializationError: unable to pull secrets: AccessDeniedException: "
@@ -92,7 +92,7 @@ def test_service_events_are_counted_by_kind_inside_the_hour_before_the_alert():
 
 
 def test_why_a_task_could_not_be_placed_is_kept_from_ecs_own_words():
-    """G10 held-out set: counting placement failures hid that the cluster had run out of network
+    """Counting placement failures hid that the cluster had run out of network
     interfaces. AWS's own reason picks one word from a closed set; anything else stays plain unable_to_place."""
     ecs = _ecs()
     svc = ecs._methods["describe_services"]["services"][0]
@@ -145,7 +145,7 @@ def test_more_tasks_are_not_started_when_tasks_cannot_start(action):
 
 
 def test_a_long_stop_reason_keeps_its_decisive_end():
-    """G10 held-out set: the 400-character cut dropped the end of ECS's secret-retrieval reason - the
+    """The 400-character cut dropped the end of ECS's secret-retrieval reason - the
     part that says why. Both ends are kept now."""
     from warden.aws_stack import _head_and_tail
 

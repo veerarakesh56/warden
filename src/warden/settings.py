@@ -9,7 +9,7 @@ v2 Phase 1.5. `WARDEN_ENV=<env>` makes WARDEN read `/warden/<env>/env/<NAME>` (o
 paginated call, decrypted) and set each NAME as an environment variable the rest of WARDEN already
 reads. The parameters are SecureString for secrets, String for plain values; standard tier, which is
 free. Access is the caller's IAM identity: in production a worker's task role, in the lab the
-owner's short-lived `aws login` session. No credential is ever stored by WARDEN.
+operator's short-lived `aws login` session. No credential is ever stored by WARDEN.
 
 Rules:
 - A real environment variable wins over SSM, which wins over the code default. Setting a value
@@ -20,7 +20,7 @@ Rules:
   (`*_PATH`, `WARDEN_BASE_URL`, `WARDEN_PROVIDER`), so a parameter cannot re-point model traffic.
 - No `WARDEN_ENV`: nothing happens and no AWS client is built. Every existing flow is unchanged.
 
-ponytail: loaded once per process; a long-running MCP server needs a restart to see a rotated webhook.
+Known limit: loaded once per process; a long-running MCP server needs a restart to see a rotated webhook.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from typing import Any
 
 from .environments import default_environment_policies, names
 
-# Renamed 2026-10-16 so each name says the one grant it carries (naming audit items 6-7): the "admin" DSN was always
+# Each name says the one grant it carries: the "admin" DSN was always
 # the least-privilege terminate role's (pg_signal_backend, platforms/db.py), and the Aurora "writer"/"reader" DSNs are
 # read-only logins to the primary and the replica instance - "writer" read as the privilege, not the endpoint. An old
 # name set in the environment is still read for one release, with a WARNING naming the new one (getenv).
@@ -73,7 +73,7 @@ LOADABLE = frozenset({
     "WARDEN_FINDINGS", "WARDEN_SONAR_PROJECT", "WARDEN_FINDINGS_MAX_PRS", "WARDEN_FINDINGS_MAX_PER_PR",
     "WARDEN_GITHUB_READ_TOKEN",
     # Whose changes WARDEN never proposes to undo - a security team, a break-glass identity (platforms/aws.py): plain,
-    # comma-separated. Not loadable before 2026-10-14, so the cloud runtime could never be told (gap audit).
+    # comma-separated, loadable so the cloud runtime can be told.
     "WARDEN_NEVER_REVERT_PRINCIPALS",
     # Service quotas and their usage as evidence (quotas.py, B14): plain, "1" reads them.
     "WARDEN_QUOTAS",
@@ -137,12 +137,12 @@ RESTRICTED: dict[str, frozenset[str]] = {
 
 
 # Commands that load ONLY these names, not every unrestricted one: `warden report` reads the audit and nothing else, so
-# a laptop running it holds no Slack, model or Datadog key - not even for a moment (the same rule as `records`, PR 147).
+# a workstation running it holds no Slack, model or Datadog key - not even for a moment (the same rule as `records`).
 ONLY: dict[str, frozenset[str]] = {"report": frozenset({"WARDEN_AUDIT_DSN"})}
 
 
 # The loadable names that are secrets (decision D5): read from Secrets Manager only, never from SSM. One line per
-# service, each service's webhooks before its tokens (Sonar secrets:S7314, 2026-10-16, took a webhook's name written
+# service, each service's webhooks before its tokens (Sonar secrets:S7314 took a webhook's name written
 # after a token's for a PagerDuty token).
 SECRETS = frozenset({
     "WARDEN_SLACK_WEBHOOK", "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_CLIENT_SECRET",
@@ -163,7 +163,7 @@ SECRETS = frozenset({
 # payload codec key and its own Temporal service account's key. The audit's address is the module's own setting
 # (WARDEN_AUDIT_DSN, compute.tf) and the cloud signs with KMS, so neither is a secret there. A secret the code can load
 # but no zone uses (another model's key, Teams, PagerDuty, a rotation's previous key) has no slot until it is used:
-# add it here and to secrets.tf and iam.tf together (secrets audit, 2026-10-16: 14 slots never set or read).
+# add it here and to secrets.tf and iam.tf together, so no slot exists that is never set or read.
 _EVERY_ZONE = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY"})
 ZONE_SECRETS: dict[str, frozenset[str]] = {
     "core": _EVERY_ZONE,
@@ -237,7 +237,7 @@ def _load_secrets(env: str, wanted: list[str], secrets: Any, zone: str | None) -
     from concurrent.futures import ThreadPoolExecutor
 
     # Fetched at the same time, not one after another: five in a row were 1.3 s of the approval page's cold
-    # start (measured 2026-10-14). Each is still its own call under the caller's own permission, and a failure
+    # start (measured). Each is still its own call under the caller's own permission, and a failure
     # of any still raises - `map` hands the results back in order and re-raises the first error it meets.
     with ThreadPoolExecutor(max_workers=min(8, len(wanted))) as pool:
         values = list(pool.map(fetch, wanted))
@@ -250,7 +250,7 @@ def _load_secrets(env: str, wanted: list[str], secrets: Any, zone: str | None) -
 
 
 def getenv(name: str) -> str:
-    """The environment's value of `name` - or, for one release, of its pre-2026-10-16 name (RENAMED), with a WARNING
+    """The environment's value of `name` - or, for one release, of its former name (RENAMED), with a WARNING
     that names the new one. "" when neither is set."""
     value = os.environ.get(name, "")
     old = _OLD_NAME.get(name)

@@ -8,7 +8,7 @@ time, so a pid the server reused is not closed) - and the plan shows what it blo
 The workflow decides whether to act; this closes the sessions an approved plan describes - idle inside
 a transaction for at least `min_idle_seconds`, at most `max_sessions` of them - and nothing else. What
 the removed in-process backend (database_remediation.py) did server-wide, this does only:
-- in the database the platform is connected to (audit A-B-H1: the old selection crossed databases),
+- in the database the platform is connected to (never across databases),
 - for the application's own logins (WARDEN_DB_APP_USERS; none named means none closed),
 - never its own session, the count ceiling enforced in SQL AND again in Python, ids coerced to int.
 PostgreSQL, MySQL and SQL Server: the engines with an "idle in a transaction" state. Redis (D16) and
@@ -278,8 +278,8 @@ class DatabasePlatform:
         self._conn = conn
         # One connection, one user at a time: the worker runs activities on several threads, and pymysql and
         # pymssql connections are not thread-safe. One the platform opened itself is dropped after a failure
-        # and reopened on the next call - a NAT timeout or a failover left it broken until a restart (sixth
-        # review, 2026-10-01). A connection handed in is the caller's and is never dropped.
+        # and reopened on the next call - a NAT timeout or a failover would leave it broken until a restart.
+        # A connection handed in is the caller's and is never dropped.
         self._lock = threading.RLock()
         self._owned = conn is None
         env_users = os.environ.get("WARDEN_DB_APP_USERS", "")
@@ -466,8 +466,8 @@ class DatabasePlatform:
             raise DatabasePlatformRefused(f"could not read this platform's own login: {_one_line(exc)}") from exc
         if own.casefold() in {u.casefold() for u in self._users}:
             # The terminate role closing sessions of its own login - other WARDEN workers - is not an application
-            # fix. In any letter case: MySQL and SQL Server match logins without it
-            #; on PostgreSQL this can only refuse more.
+            # fix. In any letter case: MySQL and SQL Server match logins without it;
+            # on PostgreSQL this can only refuse more.
             raise DatabasePlatformRefused(f"WARDEN_DB_APP_USERS names this platform's own login {own!r}; "
                                         "nothing is closed")
         return name, conn
@@ -528,7 +528,7 @@ def db_from_environment() -> Any:
     of WARDEN_STACK_DB_PRIMARY_RO_DSN (the read zone holds it) and closes with the terminate login of
     WARDEN_DB_TERMINATE_DSN (the act zone holds it): neither DSN carries a password. Any other environment, or none of
     either DSN, reads and writes nothing (platforms.Unconfigured): the plan is refused and goes to a person.
-    ponytail: one watched database per runtime; a map like WARDEN_EKS_CLUSTERS when a second environment has one."""
+    Known limit: one watched database per runtime; a map like WARDEN_EKS_CLUSTERS when a second environment has one."""
     import boto3
 
     from .. import identity
@@ -579,7 +579,7 @@ def _logins(env: str) -> tuple[str | None, str | None]:
         if why := _not_iam_only(dsn):
             # A standing password would sign in whoever holds the DSN - for the terminate login with no plan and
             # no approver - and iam_dsn leaves such a DSN as it is: unsigned, and not verified against RDS's
-            # certificate authorities (review, PR 48: the read DSN too).
+            # certificate authorities (the read DSN too).
             raise NotConfigured(f"{name} {why}; WARDEN signs in with an IAM token only, verified (verify-full)")
     return read_dsn, write_dsn
 

@@ -1,7 +1,7 @@
 name: "Runtime · ops"
 
-# WARDEN's own runtime (G6): the tool's pipeline, apart from the infra and apps pipelines (owner requirement R13).
-# By hand, from the branch dev only - environments.yaml `github.runtime_branch` (owner, 2026-10-16: main deploys
+# WARDEN's own runtime (G6): the tool's pipeline, apart from the infra and apps pipelines.
+# By hand, from the branch dev only - environments.yaml `github.runtime_branch` (main deploys
 # nothing; the runtime runs code that has reached dev, until prod exists) - into the GitHub Environment `ops`
 # (deployment branch: dev only; required reviewer; its secrets AWS_ROLE_ARN - the role
 # warden-ops-deploy - and RUNTIME_ECR_REPOSITORY - the image repository, immutable tags - and its variables AWS_REGION
@@ -13,7 +13,7 @@ name: "Runtime · ops"
 #          an image this workflow did not build and sign is never deployed.
 #   restart: a fresh deployment of every zone's service, no image and no plan - after a secret is set or rotated (a
 #          worker reads its secrets when it starts).
-#   pause / resume (owner update 5, 2026-10-17): pause snapshots the audit database (available before anything else
+#   pause / resume: pause snapshots the audit database (available before anything else
 #          happens), sets SSM tf/paused=true and applies (no compute, no NAT, no alarm intake, no self-pages), then
 #          STOPS the database and reports what stays and its cost. resume starts the database (refusing to recreate a
 #          deleted one empty while a pause snapshot of it exists), sets tf/paused=false and applies, migrates and checks
@@ -70,7 +70,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0  # every branch: the promotion check reads the upstream one
-      # As in the deploys (_infra-deploy.yml, 2026-10-16): only a commit promoted onto dev from main is built, before
+      # As in the deploys (_infra-deploy.yml): only a commit promoted onto dev from main is built, before
       # the job holds the Hugging Face token or any AWS credential. The plan and apply job builds on this one.
       - name: The commit was promoted from its upstream branch
         env:
@@ -88,7 +88,7 @@ jobs:
             exit 1
           fi
       # Built before the job holds any credential: nothing the build runs can reach AWS. The Hugging Face token (the
-      # ops environment's secret HF_TOKEN: the owner's read token for the gated Prompt Guard 2) is a BuildKit secret,
+      # ops environment's secret HF_TOKEN: a read token for the gated Prompt Guard 2) is a BuildKit secret,
       # mounted for the one step that fetches the tripwire's weights and kept in no layer (register R47).
       - name: Build the runtime image
         env:
@@ -134,7 +134,7 @@ jobs:
           # The runtime branch's identity: an image signed on main before the move is signed again here.
           SIGNER: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/runtime.yml@refs/heads/dev
           GH_TOKEN: ${{ github.token }}
-        # A run that pushed and then died before signing (2026-10-12: the signing tool's download answered 504) left
+        # A run that pushed and then died before signing (say, the signing tool's download answered 504) would leave
         # its commit undeployable: the tag is immutable, and every later run skipped the signing of an image it found.
         # Such an image is signed and attested by this run; one already signed and attested is left as it is.
         run: |
@@ -249,7 +249,7 @@ jobs:
           fi
           # A pause releases the NAT gateway's address right after the gateway. For a moment EC2 still lists the
           # address as associated, and answers the release's disassociate with UnauthorizedOperation, not "not
-          # found" (2026-10-09; twice on 2026-10-11) - everything else is already gone. Only when that is the one
+          # found" - everything else is already gone. Only when that is the one
           # error: plan what is left and apply it, once.
           if [ "$(grep -c 'Error: ' "$RUNNER_TEMP/apply.log")" != 1 ] \
               || ! grep -q 'Error: disassociating EC2 EIP' "$RUNNER_TEMP/apply.log"; then
@@ -276,9 +276,8 @@ jobs:
             echo "::error::the migrate Lambda failed: $(cat "$RUNNER_TEMP/migrate.json")"
             exit 1
           fi
-      # A deploy is done when every zone runs the image just built - not when Terraform has asked for it. On
-      # 2026-10-15 the apply succeeded, ECS could not start the new tasks (the account's Fargate vCPU limit) and
-      # rolled every zone back, and this workflow said success.
+      # A deploy is done when every zone runs the image just built - not when Terraform has asked for it: an apply
+      # can succeed while ECS cannot start the new tasks (an account's Fargate vCPU limit) and rolls every zone back.
       - name: Every zone runs the image just built
         if: env.ACTION != 'plan'
         run: |

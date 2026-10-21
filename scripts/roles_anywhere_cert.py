@@ -1,11 +1,11 @@
-"""Issue the laptop's IAM Roles Anywhere certificate, with the private key inside the TPM.
+"""Issue the operator workstation's IAM Roles Anywhere certificate, with the private key inside the TPM.
 
     python scripts/roles_anywhere_cert.py issue      # Windows: new TPM key + CSR, sign, install
     python scripts/roles_anywhere_cert.py show       # the installed certificate (public data only)
     python scripts/roles_anywhere_cert.py trust ARN  # iam/operator/trust.local.json for the console
 
-Why: the laptop's long-lived access key is replaced by IAM Roles Anywhere. The key that proves
-the laptop's identity is created by Windows inside the TPM (Microsoft Platform Crypto Provider,
+Why: the workstation's long-lived access key is replaced by IAM Roles Anywhere. The key that proves
+the workstation's identity is created by Windows inside the TPM (Microsoft Platform Crypto Provider,
 non-exportable), so it cannot be copied off the machine the way an access key file can.
 `aws_signing_helper --cert-selector` finds the certificate in the user's "MY" store and asks the
 TPM to sign; the helper never sees the key.
@@ -111,7 +111,7 @@ def issue(csr_pem: bytes, now: dt.datetime, days: int = DAYS) -> tuple[bytes, by
                        critical=False)
         .sign(ca_key, hashes.SHA256())
     )
-    del ca_key  # ponytail: in-memory CA, discarded; renewal re-issues CA + updates the anchor
+    del ca_key  # Known limit: in-memory CA, discarded; renewal re-issues CA + updates the anchor
     enc = serialization.Encoding.PEM
     return ca.public_bytes(enc), leaf.public_bytes(enc)
 

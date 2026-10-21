@@ -38,7 +38,7 @@ class HangingBackend(FixtureBackend):
 def test_a_hanging_tool_does_not_hang_the_run():
     started = time.monotonic()
     # 0.8s: the tools that answer must answer inside it on a loaded machine too (it failed once with 0.3s
-    # while a mutation run shared the CPU, 2026-10-01).
+    # while a mutation run shared the CPU).
     ctx = gather(_alert(), HangingBackend(), timeout=0.8)
     elapsed = time.monotonic() - started
 
@@ -81,7 +81,7 @@ def test_healthy_tools_are_unaffected_by_the_ceiling():
 
 
 def test_a_tool_error_message_is_redacted_before_it_reaches_the_audit_or_the_report():
-    """A backend exception can name a host/IP/credential (a connection error). Since audit A-C-5 the
+    """A backend exception can name a host/IP/credential (a connection error). The
     text is raw straight out of gather() - like the logs - and node_redact scrubs it with the run's
     one map. Nothing after that point, audit included, may hold the raw value."""
     from warden.graph import apply_node, node_gather, node_redact
@@ -100,7 +100,7 @@ def test_a_tool_error_message_is_redacted_before_it_reaches_the_audit_or_the_rep
 
 
 def test_one_placeholder_means_one_value_across_tool_errors_and_logs():
-    """Audit A-C-5: tool errors were scrubbed with their own fresh map, so `<IPV4_1>` in a tool error
+    """Tool errors were scrubbed with their own fresh map, so `<IPV4_1>` in a tool error
     and `<IPV4_1>` in a log line could be two different hosts."""
     from warden.graph import node_redact
     from warden.models import ContextBundle

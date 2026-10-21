@@ -1,10 +1,10 @@
 """Which observability tool helps WARDEN most? The same fault diagnosed four times, one tool beside AWS each time.
 
     python scripts/compare_evidence.py --dry-run                      # the plan; touches nothing
-    python scripts/compare_evidence.py --out ~/warden-bench-runs/compare-evidence/2026-10-14
+    python scripts/compare_evidence.py --out ~/warden-bench-runs/compare-evidence/<run>
     python scripts/compare_evidence.py --faults fs-10,fs-16 --tools none,xray --out DIR
 
-Owner, 2026-10-14: "use all 3 of them (X-Ray, Grafana, Datadog) and compare and show which is better".
+Runs X-Ray, Grafana and Datadog side by side and shows which gives the better evidence.
 
 Per fault, on the test stack (terraform/fullstack), with the Wave 4 harness's own steps (scenarios/fullstack_cli.py):
 inject it and wait for its alarm (step_inject), then diagnose the SAME injected state once per tool - evidence from

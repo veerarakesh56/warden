@@ -1,5 +1,5 @@
 """The workflows' decision helpers, outside Temporal: each says what the workflow said before its steps were split
-into helpers (Sonar maintainability, 2026-10-21). The workflows themselves are tested against Temporal's test server
+into helpers (Sonar maintainability). The workflows themselves are tested against Temporal's test server
 (test_remediation_workflow.py and others); these pin the words and choices the helpers now carry."""
 
 from datetime import timedelta

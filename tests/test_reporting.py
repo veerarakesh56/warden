@@ -122,7 +122,7 @@ def test_a_fix_held_for_approval_offers_no_manual_replay():
 
 
 def test_the_timeline_and_the_key_lines_show_the_change_nearest_the_alert_and_an_undo_is_not_promoted():
-    """Live, 2026-10-12 (the owner: "not sure they are correct"): beside a diagnosis citing a change made nine minutes
+    """In a live run, beside a diagnosis citing a change made nine minutes
     before the alarm, the timeline held only "alert fired", the key lines showed changes five hours old, and a
     dev-only rule's undo listed pre-prod and prod as places to apply it."""
     from warden.models import ContextBundle
@@ -150,7 +150,7 @@ def test_the_timeline_and_the_key_lines_show_the_change_nearest_the_alert_and_an
 
 
 def test_a_follow_ups_heading_is_printed_only_with_a_follow_up_under_it():
-    """Live, 2026-10-12: once the one follow-up a report had was left out - it asked for the alarm that had fired -
+    """Once the one follow-up a report had was left out - it asked for the alarm that had fired -
     the heading stood there with nothing under it."""
     from warden.models import ContextBundle
 
@@ -169,7 +169,7 @@ def test_a_follow_ups_heading_is_printed_only_with_a_follow_up_under_it():
 
 
 def test_based_on_is_the_models_reasoning_not_the_ids_the_citations_already_show():
-    """Live, 2026-10-12: a report's "Based on" was "C2, C18, M9, C1" - four ids, each shown with its quote two lines
+    """A report's "Based on" was "C2, C18, M9, C1" - four ids, each shown with its quote two lines
     above, and no word of reasoning."""
     from warden.models import Citation, RootCause
 

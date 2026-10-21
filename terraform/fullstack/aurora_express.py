@@ -6,11 +6,11 @@
     WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py destroy  [--stack PATH]   # before terraform destroy
 
 The environment is WARDEN_ENV, and nothing else: with none set the script refuses, and a stack.json from
-another environment is refused (audit A-I-23: it acted on dev unless told otherwise). The region is
+another environment is refused (it must never act on dev unless told). The region is
 AWS_REGION (or stack.json's `region`). --stack (default ~/warden-fullstack-build/stack.json) must lie
 there, in the temp folder (RUNNER_TEMP) or in the working directory (warden.paths).
 
-⛔ WHY THIS IS NOT TERRAFORM (2026-09-26, docs/FULLSTACK-LAB.md section 1). The
+⛔ WHY THIS IS NOT TERRAFORM (docs/FULLSTACK-LAB.md section 1). The
 account is on the AWS Free plan, which creates an Aurora cluster only "WithExpressConfiguration",
 and the AWS provider (6.66.0, and main) cannot set it. Express configuration means:
   - the cluster and ONE Aurora Serverless writer instance, named by AWS - this script records the name;
@@ -31,7 +31,7 @@ create    creates cluster warden-<env>-aurora (database shop, tag Project=warden
 status    prints what exists. Exit 0 when the cluster is available, 1 otherwise.
 destroy   deletes the instances, then the cluster, and waits until it is gone. The cluster is never deleted
           without a final snapshot, <cluster>-final-<UTC time>, tagged like the cluster and checked to exist
-          afterwards; the boundary denies deleting snapshots, so the owner removes old ones by hand.
+          afterwards; the boundary denies deleting snapshots, so an operator removes old ones by hand.
 
 Standard library + boto3 only: the infra pipeline must not depend on WARDEN or the apps.
 """
@@ -122,7 +122,7 @@ def facts(rds, cluster: str) -> dict:
         "aurora_instance_endpoints": {i["DBInstanceIdentifier"]: (i.get("Endpoint") or {}).get("Address", "")
                                       for i in instances(rds, cluster)},
         "aurora_writer_instance": writer_of(c),
-        # What an rds-db:connect grant names the cluster by (render_env_iam.py --cluster-resource-id; audit A-I-18).
+        # What an rds-db:connect grant names the cluster by (render_env_iam.py --cluster-resource-id).
         "aurora_cluster_resource_id": c.get("DbClusterResourceId", ""),
         "db_name": DB_NAME,
         "db_master_username": MASTER_USER,
@@ -165,13 +165,13 @@ def create(rds, sm, stack: pathlib.Path, cluster: str | None = None, log=print) 
         log(f"creating {cluster} (express configuration; bootstrap-db creates database {DB_NAME})")
         rds.create_db_cluster(DBClusterIdentifier=cluster, Engine="aurora-postgresql",
                               # No DatabaseName: express refuses it (InvalidParameterCombination, seen
-                              # 2026-09-26, despite the doc) - bootstrap-db creates DB_NAME instead.
+                              # live, despite the doc) - bootstrap-db creates DB_NAME instead.
                               WithExpressConfiguration=True, Tags=TAGS)
     else:
         log(f"{cluster} exists - refreshing the secret and stack.json only")
     c = _wait_cluster(rds, cluster)
-    # Express is IAM database authentication only (seen live 2026-09-26) - checked, not assumed: with it off, every
-    # identity's IAM-token login fails and a password would be the only way in (audit A-I-VT).
+    # Express is IAM database authentication only (seen live) - checked, not assumed: with it off, every
+    # identity's IAM-token login fails and a password would be the only way in.
     if c.get("IAMDatabaseAuthenticationEnabled") is not True:
         raise SystemExit(f"{cluster}: IAM database authentication is not enabled - refusing to go on")
 
@@ -273,8 +273,8 @@ def pause_name(base: str, now: datetime.datetime | None = None) -> str:
 
 
 def is_pause_name(base: str, name: str) -> bool:
-    """`<base>-pause-<UTC time>` as the pipelines name it, or `<base>-pause-<YYYYMMDD>` as a person made one by hand
-   . Another data store whose name starts like this one (warden-dev-aurora-2) is not it."""
+    """`<base>-pause-<UTC time>` as the pipelines name it, or `<base>-pause-<YYYYMMDD>` as a person made one by hand.
+    Another data store whose name starts like this one (warden-dev-aurora-2) is not it."""
     return re.fullmatch(rf"{re.escape(base.lower())}-pause-\d{{8}}(t\d{{6}}z)?", (name or "").lower()) is not None
 
 
@@ -451,7 +451,7 @@ def main(argv: list[str] | None = None, *, clients=None) -> int:
     args = ap.parse_args(argv)
     # --stack comes from the command line and create writes it back: it must lie where the tools work - the
     # checkout, the temp folder (RUNNER_TEMP in the deploy job) or ~/warden-fullstack-build (warden.paths; Sonar
-    # pythonsecurity:S2083, 2026-10-17). It is read and written through the checked path only.
+    # pythonsecurity:S2083). It is read and written through the checked path only.
     try:
         stack_path = paths.inside(args.stack)
     except ValueError as e:

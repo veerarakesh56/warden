@@ -145,7 +145,7 @@ def test_the_approver_policy_comes_from_the_file_or_else_from_ssm(monkeypatch, t
 
 
 def test_slacks_note_of_a_button_click_is_answered_before_anything_is_loaded(monkeypatch):
-    """Live, 2026-10-12: Slack showed "Operation timed out. Apps need to respond within 3 seconds." beside the
+    """Slack showed "Operation timed out. Apps need to respond within 3 seconds." beside the
     approval button - a cold start read its settings and opened the audit (6.5 s) before answering a note it ignores."""
     def never(*a, **k):
         raise AssertionError("nothing is configured or opened to answer Slack's note")
@@ -160,7 +160,7 @@ def test_slacks_note_of_a_button_click_is_answered_before_anything_is_loaded(mon
 
 
 def test_a_cold_start_says_where_its_time_went_once_and_the_one_a_person_waits_for_has_a_whole_cpu(monkeypatch, caplog):
-    """Live, 2026-10-12: the approval page's first request after a quiet period took 5.6 s to 9.5 s. Before choosing
+    """The approval page's first request after a quiet period took 5.6 s to 9.5 s. Before choosing
     a fix: measure where the time goes (this line), and give the function the CPU its start-up work needs - both
     instead of keeping it warm, which would hide the cause and hold rotated secrets stale for hours."""
     import logging

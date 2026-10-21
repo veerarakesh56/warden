@@ -1,4 +1,4 @@
-"""Owner U3-1: a typed outcome (decided / undetermined / no_fault) checked against the remediation (P37),
+"""A typed outcome (decided / undetermined / no_fault) checked against the remediation (P37),
 WARDEN's own confidence from checks it can show (confidence.py) - never the model's number - and the diagnosis prompt
 in XML-tagged sections with worked examples."""
 
@@ -151,7 +151,7 @@ def test_the_report_and_the_record_carry_wardens_confidence_first():
 
 
 def test_the_signed_record_keeps_no_check_detail_or_model_quote():
-    """Review, PR 132: a check's detail quotes the model's citations (an id and up to 80 characters); the signed audit
+    """A check's detail quotes the model's citations (an id and up to 80 characters); the signed audit
     row keeps only the level, the check names, whether each held, and the counts."""
     quote = "made-up " + "quote-3309"
     report = _run("decided", chosen=(D1, {"id": "M1", "quote": quote}), rival_against=())
@@ -181,7 +181,7 @@ def test_the_schema_offers_exactly_the_three_outcomes():
 
 
 def test_the_prompt_names_code_review_findings_as_suspects():
-    """main's R items (findings.py, merged 2026-10-21) are rendered to the model and citable: the prompt names them,
+    """main's R items (findings.py) are rendered to the model and citable: the prompt names them,
     and as never on their own a reason for a fix (grounding.action_support_problem)."""
     evidence_section = SYSTEM_DIAGNOSE.split("<evidence>")[1].split("</evidence>")[0]
     assert "R: a code review finding" in evidence_section

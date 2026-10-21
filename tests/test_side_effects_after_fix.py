@@ -1,6 +1,6 @@
-"""Owner, 2026-10-15: "in real time the fixes might break things or cause even bigger other problems ... so everything
-should be tracked and verified and double checked", and "we don't know if it is because of that issue or not, so we
-can't say directly, but can investigate and compare and link them".
+"""In real time a fix might break things or cause a bigger problem, so everything is tracked, verified and checked twice;
+and when it is not known whether a new problem comes from that fix, it is not asserted, but investigated, compared
+and linked.
 
 - Another alarm in the environment that starts while one of WARDEN's fixes is verified or watched starts its own
   incident as any alarm does (connected or not is for its diagnosis to say, with the fix beside its evidence) - and the

@@ -117,7 +117,7 @@ async def _until_awaiting_approval(handle):
                 return await handle.query(RemediationWorkflow.plan)
         except RPCError:
             # A run that is handing over to its next one (continue-as-new, G10-44) can leave a query unanswered until
-            # its deadline (CI, 2026-10-14: "query deadline exceeded", about one run in six): not there yet.
+            # its deadline (seen in CI as "query deadline exceeded", about one run in six): not there yet.
             pass
         await asyncio.sleep(0.05)
     raise AssertionError("never reached awaiting_approval")
@@ -302,7 +302,7 @@ def test_a_recorded_history_replays_deterministically(world, owner):
 
 
 def test_a_failed_rollback_still_ends_signed_and_trips_the_kill_switch(world, owner):
-    """Sixth review: a rollback that failed - an HPA moved the count, the API was down - crashed the
+    """A rollback that failed - an HPA moved the count, the API was down - crashed the
     workflow with no end row and no checkpoint. It ends `rollback_failed`, on the record, and no further fix runs
     until a person resets the kill switch: WARDEN's change may still be in place."""
     world["platform"].healthy_after = None
@@ -328,7 +328,7 @@ def test_a_rollback_row_names_its_run_and_plan(world, owner):
 
 
 def test_a_fix_with_nothing_to_undo_is_not_called_rolled_back(world, owner):
-    """Sixth review: a restart that did not help was recorded `rolled_back`, though nothing was undone
+    """A restart that did not help was recorded `rolled_back`, though nothing was undone
     and the new pods stayed. It ends `not_recovered`, saying why."""
     world["platform"].healthy_after = None
     world["platform"].nothing_to_undo = True
@@ -340,7 +340,7 @@ def test_a_fix_with_nothing_to_undo_is_not_called_rolled_back(world, owner):
 
 
 def test_a_fix_filed_under_another_service_is_refused(world):
-    """Sixth review: a scale of `payments` filed under service `orders` was judged healthy by `orders`
+    """A scale of `payments` filed under service `orders` was judged healthy by `orders`
     and never rolled back. The service must name what the fix changes."""
     class Both(FakePlatform):
         def live(self, entry, params):
@@ -354,7 +354,7 @@ def test_a_fix_filed_under_another_service_is_refused(world):
 
 
 def test_health_is_asked_only_of_the_platform_that_made_the_change():
-    """Sixth review: a database named like a Deployment decided the Deployment's verdict."""
+    """A database named like a Deployment decided the Deployment's verdict."""
     from warden.platforms import RoutedPlatform
 
     class Says:
@@ -377,7 +377,7 @@ def test_health_is_asked_only_of_the_platform_that_made_the_change():
 
 
 def test_a_platform_that_refuses_before_writing_reports_nothing_changed(world, owner):
-    """Sixth review: a platform's own refusal - the count moved, a bound re-checked - was reported
+    """A platform's own refusal - the count moved, a bound re-checked - was reported
     `apply_failed`, "may be half-made", though nothing was written."""
     from warden.platforms.k8s import KubernetesPlatformRefused
 
@@ -393,7 +393,7 @@ def test_a_platform_that_refuses_before_writing_reports_nothing_changed(world, o
 
 @pytest.mark.parametrize("status", ["rollback_failed", "apply_failed"])
 def test_an_end_that_leaves_the_target_unknown_trips_the_kill_switch(world, status):
-    """Seventh review: only the rollback activity's own failure tripped the switch - a rollback past
+    """Only the rollback activity's own failure tripped the switch - a rollback past
     its timeout, or on a worker that died, ended rollback_failed with it off, and later fixes ran. The end row
     trips it, whatever ended the run."""
     from warden import bounds
@@ -418,7 +418,7 @@ def test_an_ordinary_end_leaves_the_kill_switch_alone(world):
 
 
 def test_a_run_cancelled_after_apply_ends_on_the_record_and_trips_the_kill_switch(world, owner):
-    """Eighth review: cancelled while verifying an applied fix, a run left no end row and the kill
+    """Cancelled while verifying an applied fix, a run left no end row and the kill
     switch off - the next fix on the same service was let through."""
     from warden import bounds
 
@@ -440,7 +440,7 @@ def test_a_run_cancelled_after_apply_ends_on_the_record_and_trips_the_kill_switc
 
 
 def test_every_unknown_end_is_its_own_trip_and_a_reset_names_the_latest(world):
-    """Eighth review: a switch already on swallowed a second unknown end, and one reset signed for the first trip
+    """A switch already on swallowed a second unknown end, and one reset signed for the first trip
     cleared both."""
     from warden import bounds
     from warden.activities import FixOutcome
@@ -455,7 +455,7 @@ def test_every_unknown_end_is_its_own_trip_and_a_reset_names_the_latest(world):
 
 
 def test_a_retried_finish_writes_one_end_row(world, monkeypatch):
-    """Eighth review: Temporal retries `finish` when a step after its end row fails - a second end row was written."""
+    """Temporal retries `finish` when a step after its end row fails - a second end row was written."""
     from warden import activities as acts_module
     from warden.activities import FixOutcome
 
@@ -501,7 +501,7 @@ def _cancel_once(world, owner, started, release):
 
 
 def test_a_cancel_during_apply_ends_on_the_record_and_trips(world, owner):
-    """Ninth review: a cancel landing while an activity ran arrives as an ActivityError, not a
+    """A cancel landing while an activity ran arrives as an ActivityError, not a
     CancelledError, so the run left no end row and the switch off; and a cancel during apply read as "cancelled",
     though apply may have acted."""
     started, release = _blocking(world, "apply")
@@ -544,7 +544,7 @@ def test_a_retried_finish_signs_an_end_row_its_first_try_left_unsigned(world, mo
 
 
 def test_how_a_plan_ended_is_on_the_workers_log_with_no_typed_reason(world, caplog):
-    """Live, 2026-10-12: the owner denied a plan and the worker's log said nothing - only the audit could tell.
+    """An approver denied a plan and the worker's log said nothing - only the audit could tell.
     The status and the approvers' ids are logged; a denial's typed reason is not."""
     import logging
 

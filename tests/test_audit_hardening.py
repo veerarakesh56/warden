@@ -1,4 +1,4 @@
-"""Regression tests for the 2026-09-27 adversarial audit: a hijacked model, a hostile log writer, a
+"""Regression tests for an adversarial audit: a hijacked model, a hostile log writer, a
 hostile alert source. Each test is the audit's reproduction, asserting the attack now fails."""
 
 from __future__ import annotations
@@ -264,7 +264,7 @@ def _p15_verdict(action, cite_text, metrics=None):
 
 
 def test_p15_keys_must_start_a_word_not_hide_inside_one():
-    """Audit A-C-6: "ready" matched "already", "lag" matched "flag", "pool" matched "spool"."""
+    """"ready" matched "already", "lag" matched "flag", "pool" matched "spool"."""
     from warden.models import ActionKind
 
     assert "P15-CITATIONS-DO-NOT-SUPPORT-ACTION" in _p15_verdict(ActionKind.restart_pods,
@@ -274,7 +274,7 @@ def test_p15_keys_must_start_a_word_not_hide_inside_one():
 
 
 def test_generic_symptoms_do_not_support_scaling_up():
-    """Audit A-C-6: "error", "5xx", "timeout" and "request" are symptoms of nearly anything."""
+    """"error", "5xx", "timeout" and "request" are symptoms of nearly anything."""
     from warden.models import ActionKind
 
     assert "P15-CITATIONS-DO-NOT-SUPPORT-ACTION" in _p15_verdict(ActionKind.scale_up,
@@ -284,7 +284,7 @@ def test_generic_symptoms_do_not_support_scaling_up():
 
 
 def test_scale_down_on_replica_lag_is_a_contradiction():
-    """Audit A-C-6: scale_down on replica lag passed in staging. It is now P11, whatever is cited."""
+    """scale_down on replica lag passed in staging. It is now P11, whatever is cited."""
     from warden.models import ActionKind
 
     ids = _p15_verdict(ActionKind.scale_down, "orders cpu idle 3%", {"replica_lag_seconds__orders": 47.0})
@@ -323,7 +323,7 @@ def _rollback_ids(target, deploys):
 
 
 def test_p5_needs_a_deploy_of_the_target_not_of_anything():
-    """Audit A-C-25: a deploy of ANY service satisfied P5."""
+    """A deploy of ANY service satisfied P5."""
     other = [{"kind": "ecs", "service": "payments", "at": "2026-09-28T09:59:00Z"}]
     assert "P5-NO-DEPLOY-TO-ROLL-BACK" in _rollback_ids("orders", other)
     own = [{"kind": "ecs", "service": "orders", "at": "2026-09-28T09:59:00Z"}]
@@ -334,7 +334,7 @@ def test_p5_needs_a_deploy_of_the_target_not_of_anything():
 
 @pytest.mark.parametrize("target", ["-n kube-system", "--all", "app=orders", "orders --force=true"])
 def test_p14_refuses_a_target_that_reads_as_a_flag_or_assignment(target):
-    """Audit A-C-25."""
+    """A flag or an assignment is not a resource name."""
     from warden.grounding import target_problem
     from warden.models import ActionKind, RemediationProposal
 

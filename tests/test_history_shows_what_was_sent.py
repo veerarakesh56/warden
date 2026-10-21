@@ -1,4 +1,4 @@
-"""Owner item 6 (2026-10-21): `warden history` shows exactly what the model was sent - the same bytes WARDEN handed the
+"""`warden history` shows exactly what the model was sent - the same bytes WARDEN handed the
 provider, after redaction, never a re-render that could differ - and every masked value stays masked.
 
 The incident here runs through the real read side (IncidentActivities.prepare: gather, redact, quarantine, tripwire)
@@ -283,8 +283,8 @@ def test_a_name_from_the_history_is_masked_and_gated_too():
 
 @pytest.fixture(scope="module")
 def retried(tmp_path_factory):
-    """A call whose first answer failed validation: the retry carried the feedback (PR 132, item 5). The bad answer
-    echoes a canary in a wrong-typed field (review, PR 154), so feedback that quoted a value would carry it."""
+    """A call whose first answer failed validation: the retry carried the feedback. The bad answer
+    echoes a canary in a wrong-typed field, so feedback that quoted a value would carry it."""
     pack, diagnosed, sent = _incident(
         tmp_path_factory.mktemp("retry"),
         first_answer=json.dumps({"root_cause": {"hypothesis": [EMAIL]}}),

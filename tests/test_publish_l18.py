@@ -1,4 +1,4 @@
-"""Audit A-B-L18: the publish tooling's gaps."""
+"""The publish tooling's gaps."""
 
 from __future__ import annotations
 

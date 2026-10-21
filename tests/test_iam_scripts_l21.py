@@ -1,4 +1,4 @@
-"""Audit A-B-L21: the IAM scripts change nothing without --apply, and the probe recovers from a killed run."""
+"""The IAM scripts change nothing without --apply, and the probe recovers from a killed run."""
 
 from __future__ import annotations
 

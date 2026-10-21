@@ -1,4 +1,4 @@
-"""Live, 2026-10-16 (fs-01): WARDEN undid its own working fix at 08:04:45Z, which broke checkout again, and the
+"""Scenario fs-01, live: WARDEN undid its own working fix at 08:04:45Z, which broke checkout again, and the
 diagnosis of the alarm that followed listed WARDEN's fix at 07:59 but never its undo - the change that caused it. An
 undo of WARDEN's is now a change beside a later alarm's evidence, as its fix is; and an undo cited as the cause is not
 counted as its fix failing (the fix held until it was undone)."""

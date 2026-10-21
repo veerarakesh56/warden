@@ -1,4 +1,4 @@
-"""Item 4: the Kubernetes and database platforms in the cloud runtime. Before, the runtime started its
+"""The Kubernetes and database platforms in the cloud runtime. Before, the runtime started its
 workers with `--platform aws` only, so an EKS pod problem or a database session problem could only escalate.
 
 What is held here, each with a weaker version that fails (the plant checks):
@@ -304,7 +304,7 @@ def test_a_zone_without_a_login_or_an_environment_without_a_database_closes_noth
 
 
 def test_a_close_on_another_cluster_than_the_plan_was_read_from_is_refused(db_cloud, monkeypatch):
-    """Review, PR 48: the read zone reads the plan through one DSN, the act zone closes through another. A close goes
+    """The read zone reads the plan through one DSN, the act zone closes through another. A close goes
     ahead only when the terminate login reaches the same Aurora cluster's writer endpoint the approved plan names -
     endpoints compared, not raw hosts; a reader or instance endpoint proves nothing."""
     monkeypatch.setenv("WARDEN_DB_TERMINATE_DSN", DSN_TERMINATE)
@@ -345,7 +345,7 @@ def test_every_platform_starts_in_the_cloud_with_no_cluster_or_database_configur
 
 
 def test_an_eks_client_is_made_again_before_the_credentials_that_signed_it_can_expire(monkeypatch):
-    """Review, PR 48: the reader session is handed out with at least 300 s left (900 s, renewed after 600 s), and a
+    """The reader session is handed out with at least 300 s left (900 s, renewed after 600 s), and a
     client's token is signed once, when it is made - so a client is never kept 300 s."""
     now = [1000.0]
     monkeypatch.setattr(k8sp.time, "monotonic", lambda: now[0])
@@ -360,7 +360,7 @@ def test_an_eks_client_is_made_again_before_the_credentials_that_signed_it_can_e
 
 
 def test_the_shipped_remediation_binding_names_the_service_account_only_and_ci_binds_the_group_apart():
-    """Review, PR 48: applying k8s/remediation-rbac.yaml must not grant the EKS actor's group anything in `default`.
+    """Applying k8s/remediation-rbac.yaml must not grant the EKS actor's group anything in `default`.
     The group is bound in shop alone on EKS, and in CI's test namespace by a CI-only file the workflow applies."""
     import yaml
 
@@ -410,7 +410,7 @@ def test_a_role_comes_only_from_an_iam_template_and_a_configured_environment(mon
 
 
 def test_a_platform_that_fails_to_build_changes_nothing_and_is_not_built_again(monkeypatch):
-    """Review, PR 48: an unexpected failure building an environment's platform is that environment's Unconfigured -
+    """An unexpected failure building an environment's platform is that environment's Unconfigured -
     nothing read or written, the worker runs on - and is remembered, not retried on every plan."""
     calls = []
 

@@ -360,13 +360,13 @@ def _skip(log: Any, diagnosis: dict[str, Any], prov: dict[str, Any], model: str,
           evidence_rows: list[dict[str, Any]]) -> tuple[str, str]:
     """Why Eldane does not review this plan at all, as (code, the words on the record), or ("", "") when it does."""
     if not diagnosis or not prov:
-        # PR 42 review (CWE-636): no diagnosis, or none saying which model made it, is a model that cannot be told:
+        # CWE-636: no diagnosis, or none saying which model made it, is a model that cannot be told:
         # refused, never reviewed as if independent (register R10).
         return "no_provenance", "the incident's diagnosis, or the model that made it, is not on the record (register R10)"
     if not model:
         return "no_model", f"{chosen}: its review would not be independent"
     if model == prov.get("model"):
-        # Owner, 2026-10-17: the same family, never the same model - its agreement would be the diagnosis agreeing
+        # The same family, never the same model - its agreement would be the diagnosis agreeing
         # with itself.
         return "same_model", f"Eldane's model is the diagnosis's own ({model}): its review would not be independent"
     if not evidence_rows:

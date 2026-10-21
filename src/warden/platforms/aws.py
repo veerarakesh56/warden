@@ -21,7 +21,7 @@ only while the writer is still the one they saw; irreversible - a person decides
 is not carried out here: restoring a
 configuration copies environment values, which WARDEN does not read.
 
-G9-D (2026-10-10; AWS's own documentation read that day, verify-fix-apis.md): lambda_disable_esm (pause a mapping that
+G9-D (per AWS's own API documentation): lambda_disable_esm (pause a mapping that
 reads an SQS queue - never a stream, whose records age out while paused), events_disable_rule (pause a SCHEDULED rule -
 never an event-pattern rule, which drops what it matches), ecs_restart_service (only digest-pinned images: a forced
 deployment pulls whatever a tag points to now), ecs_scale_service (at most two more tasks, never under Application Auto
@@ -54,7 +54,7 @@ from ..aws_stack import KNOWN_GOOD, SERVED_LOOKBACK, last_known_good, served_que
 
 ENV_TAG = os.environ.get("WARDEN_AWS_ENV_TAG", "Environment")
 HEALTH_WINDOW = timedelta(minutes=5)
-# Live, 2026-10-16: a metric health check summed the last HEALTH_WINDOW - which held the errors from before the fix, so
+# A metric health check that sums the last HEALTH_WINDOW holds the errors from before the fix, so
 # a working fix (fs-01: the alias back on the good version, both alarms OK) could never pass inside its own five-minute
 # verify window, and WARDEN undid it. A fix is judged only on what came after it: from SETTLE past the change (requests
 # in flight on the old version end), at the next whole minute, so no minute that began before the fix is counted.
@@ -100,8 +100,8 @@ AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreser
 # G10-D: undoing a recorded security group change. Only a change in the hours before the alarm went into ALARM.
 SG_CHANGE_BEFORE_ALARM = timedelta(hours=6)
 REVERT_BEFORE_ALARM = SG_CHANGE_BEFORE_ALARM  # every revert family: the change must be this close before the alarm
-# Lambda's write events as CloudTrail names them: the API version is part of the name (read in this account's own trail,
-# 2026-10-12). Looked up by name, never by the service: see _trail_named.
+# Lambda's write events as CloudTrail names them: the API version is part of the name (as read in a CloudTrail trail).
+# Looked up by name, never by the service: see _trail_named.
 LAMBDA_CONCURRENCY_WRITES = ("PutFunctionConcurrency20171031", "DeleteFunctionConcurrency20171031")
 LAMBDA_SETTINGS_WRITES = ("UpdateFunctionConfiguration20150331v2",)
 _SG_ID = re.compile(r"sg-[0-9a-f]{8,17}")
@@ -111,7 +111,7 @@ _OPEN_CIDRS = frozenset({"0.0.0.0/0", "::/0"})
 
 
 def never_revert() -> frozenset[str]:
-    """Role and user names whose changes WARDEN never reverts - a security team's, a break-glass identity's. The owner
+    """Role and user names whose changes WARDEN never reverts - a security team's, a break-glass identity's. The operator
     names them (WARDEN_NEVER_REVERT_PRINCIPALS, comma-separated); a revoked rule may be the incident response."""
     return frozenset(n.strip() for n in os.environ.get("WARDEN_NEVER_REVERT_PRINCIPALS", "").split(",") if n.strip())
 
@@ -216,18 +216,18 @@ Clients = Callable[[str], Any]
 # holds further exact (actions, resources) statements (identity.session_policy).
 Actor = Callable[[dict[str, Any], list[str], list[str], dict[str, Any] | None], Clients]
 
-# G10-D3: undoing a recorded change from AWS Config's record of the resource before it (owner decision 2026-10-10: a
+# G10-D3: undoing a recorded change from AWS Config's record of the resource before it (this needs a
 # continuous Config recorder). Field paths from AWS's own Config resource schemas (awslabs/aws-config-resource-schema,
 # read 2026-10-10): AWS::ECS::Service configuration.DesiredCount; AWS::Lambda::Function
 # supplementaryConfiguration.Concurrency.reservedConcurrentExecutions.
 CONFIG_LOOKBACK = timedelta(days=7)  # GetResourceConfigHistory spans at most 7 days a call
 # A fix judged by its alarm is verified for as long as that alarm can take to read OK, then the metric's own delay and
 # the three consecutive checks. The fixed five minutes rolled back a right fix behind any alarm of 5-minute periods
-# (found reading the workflow, 2026-10-11). And an alarm's own evaluation periods are not the bound either: CloudWatch
+# And an alarm's own evaluation periods are not the bound either: CloudWatch
 # evaluates over an "evaluation range" WIDER than them, of a width AWS does not publish, and when a metric goes silent
 # (a throttle or error count that is healthy reports nothing) its old breaching datapoints still count until they
 # leave that range (AWS, "How alarm state is evaluated when data is missing", read 2026-10-12: 3 periods -> a range of
-# 5). Seen live on 2026-10-12: throttling stopped within a minute of the restore, and a 2-period, 1-minute alarm read
+# 5). Seen live: throttling stopped within a minute of the restore, and a 2-period, 1-minute alarm read
 # OK 8.4 minutes after it. So: twice the evaluation periods and five more. It is an upper bound - recovery is taken
 # as soon as the alarm reads OK three checks running.
 ALARM_SETTLE_MINUTES = 3
@@ -301,7 +301,7 @@ def _who_refusal(e: dict[str, Any], onset: datetime) -> str:
 
 def _iac_refusal(e: dict[str, Any]) -> str:
     """A change made through infrastructure as code is undone in the code: its next apply would undo WARDEN's undo
-    (owner decision, 2026-10-10 - for every revert family)."""
+    (for every revert family)."""
     iac = _IAC.search(e.get("user_agent") or "")
     if iac:
         return (f"the change was made by infrastructure as code ({iac.group(0)}): undo it in the code - its next "
@@ -534,10 +534,10 @@ def _lambda_settings(conf: dict[str, Any], keys: list[str] | None = None) -> dic
     return {k: v for k, v in out.items() if keys is None or k in keys}
 
 
-# G10 v2: a queue's settings a revert may write, and SQS's bounds for each (AWS::SQS::Queue's Config schema, read
-# 2026-10-10). Never Policy, RedrivePolicy, RedriveAllowPolicy, encryption or FIFO settings.
+# G10 v2: a queue's settings a revert may write, and SQS's bounds for each (AWS::SQS::Queue's Config schema).
+# Never Policy, RedrivePolicy, RedriveAllowPolicy, encryption or FIFO settings.
 # Not MessageRetentionPeriod: setting it shorter - the restore or its automatic rollback - expires queued messages
-# for good (G10 held-out re-check, 2026-10-10: g10-158 proposed undoing Terraform's longer retention).
+# for good (held-out case g10-158 proposed undoing Terraform's longer retention).
 _QUEUE_SETTINGS = {"DelaySeconds": (0, 900), "MaximumMessageSize": (1024, 1048576),
                    "ReceiveMessageWaitTimeSeconds": (0, 20), "VisibilityTimeout": (0, 43200)}
 
@@ -1013,8 +1013,8 @@ class AwsPlatform:
         conf = lam.get_function_configuration(FunctionName=fn)
         arn, name = conf["FunctionArn"], conf["FunctionName"]
         if alias is None:
-            # The alarm names the function only (fs-01, live, 2026-10-15: its Errors alarm has FunctionName alone; the
-            # diagnosis was right - version 4, now live, broke it - and no plan was opened). The function's own
+            # The alarm names the function only (scenario fs-01: its Errors alarm has FunctionName alone; the
+            # diagnosis was right - version 4, now live, broke it - and no plan could be opened). The function's own
             # aliases, read live: exactly one is the one moved back; more, and WARDEN does not choose between them.
             names = sorted(str(a["Name"]) for a in self._aliases(name))
             if len(names) != 1:
@@ -1063,7 +1063,7 @@ class AwsPlatform:
         KNOWN_GOOD of unbroken five-minute periods with invocations and no error (C8); of those, the one whose good
         stretch ended latest - the state just before the change.
 
-        Live, 2026-10-16 (fs-01): this took the version that served the MOST, then refused it unless it was good. The
+        Scenario fs-01: taking the version that served the MOST, then refusing it unless it was good, failed. The
         broken version 4 had served 3.5 erroring hours, the good version 3 two clean hours right up to the change -
         so 4 was taken, refused, and no plan was made at all."""
         if not candidates or before is None:
@@ -1224,7 +1224,7 @@ class AwsPlatform:
 
     def _queue_consumer(self, lam: Any, queue: str) -> tuple[str, Any] | None:
         """(the function, the mapping) consuming the queue - None when there is not exactly one switched off."""
-        # A queue's own alarm (first live run, 2026-10-12): the fix is on the queue's consumer. The mappings AWS
+        # A queue's own alarm: the fix is on the queue's consumer. The mappings AWS
         # holds for exactly this queue's ARN name it; with ONE of them switched off, that function and that
         # mapping are the allowed set - never a function a log line or the model named.
         sqs = self._read("sqs")
@@ -1664,7 +1664,7 @@ class AwsPlatform:
             raise AwsPlatformError("the plan holds no throttle to return to")
         apigw = self._actor(who, ["apigateway:PATCH"], [now["arn"]], None)("apigateway")
         # Only "replace", and only the all-methods key GetStage returned: AWS takes no "remove" for a throttle, and a
-        # path that does not match the stage's own key makes a second setting (API Gateway reference, 2026-10-10).
+        # path that does not match the stage's own key makes a second setting (API Gateway reference).
         apigw.update_stage(restApiId=now["api_id"], stageName=p["stage"], patchOperations=[
             {"op": "replace", "path": "/*/*/throttling/rateLimit", "value": str(rate)},
             {"op": "replace", "path": "/*/*/throttling/burstLimit", "value": str(burst)}])
@@ -2032,8 +2032,8 @@ class AwsPlatform:
                      keep: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
         """The writes of these exact event names that `keep` accepts, each recorded event once. By NAME, one lookup
         each: a lookup by a service's event source returns every call to that service, reads included, and a working
-        account passes what WARDEN reads in hours (live, 2026-10-12: 271 Lambda events in six hours, mostly a deploy's
-        reads - and the undo of a cut timeout was refused as "more events than WARDEN reads"). Honest limit: a write
+        account passes what WARDEN reads in hours (one measured account: 271 Lambda events in six hours, mostly a
+        deploy's reads - and the undo of a cut timeout was refused as "more events than WARDEN reads"). Honest limit: a write
         under a name not listed is not found here; a value that moved again is still caught by the Config record and
         the live value (_config_bracket and each family's own check)."""
         found: dict[str, dict[str, Any]] = {}

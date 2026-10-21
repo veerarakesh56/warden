@@ -1,4 +1,4 @@
-"""Inventory review, 2026-10-15: two Lambda lines were printed past the log gate, and the discussion listener's handler
+"""Two Lambda lines were printed past the log gate, and the discussion listener's handler
 shadowed the module's own description of an event, so every event was logged as a coroutine that never ran."""
 
 from __future__ import annotations

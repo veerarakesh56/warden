@@ -66,7 +66,7 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 3m
-  # Fields something else owns, which self-heal must not set back (research 2026-10-16, "who owns the field"):
+  # Fields something else owns, which self-heal must not set back:
   # a restart (WARDEN's or a person's) writes this annotation, and catalog-api's replicas are its HPA's.
   ignoreDifferences:
     - group: apps
@@ -79,7 +79,7 @@ spec:
       jsonPointers:
         - /spec/replicas
 ---
-# Register C4 (owner decision 2026-10-17): WARDEN may restart a Deployment Argo CD manages only once it has read, from
+# Register C4: WARDEN may restart a Deployment Argo CD manages only once it has read, from
 # this Application itself, that self-heal ignores the restart annotation. Its reader role signs in to the cluster as
 # group warden-readers (terraform/fullstack/eks.tf); this lets it get this one Application and nothing else of Argo CD.
 apiVersion: rbac.authorization.k8s.io/v1

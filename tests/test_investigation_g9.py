@@ -1,4 +1,4 @@
-"""G9-B (owner decision 2026-10-10): a bounded investigation loop. After a diagnosis the model may ask to read up to 3
+"""G9-B: a bounded investigation loop. After a diagnosis the model may ask to read up to 3
 related resources - only names already in the alert's labels or a trusted, structured evidence item - and decide
 again, at most 2 more rounds; the llm zone's budget (6 calls, US$0.25 per incident) holds across them."""
 
@@ -53,7 +53,7 @@ def test_names_in_labels_or_trusted_items_are_read_and_names_only_in_logs_are_re
 
 
 def test_a_label_is_never_reread_as_another_kind_and_nothing_is_read_in_another_environment():
-    """Independent review 2026-10-10, F1/F9: a caller's label value was requested under another kind, and names in
+    """A caller's label value was requested under another kind, and names in
     another environment were readable where a grant is not name-scoped."""
     _, accepted, refused = investigation.widen(_alert(), CONTEXT, [
         {"kind": "kms_key", "name": "warden-dev-orders"},      # the lambda label, as another kind
@@ -83,7 +83,7 @@ def test_at_most_three_a_round_unknown_kinds_refused_and_a_second_single_resourc
 
 
 def test_a_bad_request_is_dropped_never_the_answer():
-    """Independent review 2026-10-10, F3: one malformed request cost paid retries and the diagnosis."""
+    """One malformed request cost paid retries and the diagnosis."""
     base = {"root_cause": {"hypothesis": "h", "confidence": 0.5, "evidence": []},
             "proposal": {"action": "escalate_to_human", "target": "t", "reasoning": "r", "blast_radius": "single_service",
                          "reversible": True, "expected_effect": "e"}}
@@ -159,7 +159,7 @@ def test_a_request_is_read_then_the_model_decides_again(tmp_path):
 
 
 def test_when_nothing_is_accepted_the_model_is_not_asked_again(tmp_path):
-    """Review F4: a round whose requests were all refused re-ran the model on the same evidence."""
+    """A round whose requests were all refused re-ran the model on the same evidence."""
     assert _run(tmp_path, asks=99, widen=False) == {"prepare": 1, "investigate": 1, "diagnose": 1 + 1}
 
 

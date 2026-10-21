@@ -1,10 +1,10 @@
 """Memory, runbooks and references that may have been tampered with (register G10-48).
 
-Owner, 2026-10-14: "be cautious with memory, company runbooks and references - they may be tampered". Researched the
-same day (MINJA, AgentPoison, ShadowMerge, the Misattribution Gap: a model-written memory turns one hostile input into
-trusted context for every later incident). WARDEN keeps no memory a model writes: what it keeps are facts on its
-signed record, and the evidence of ONE incident, kept to answer questions about that incident only. Its reference
-knowledge changes only by a reviewed commit (N9), and every place that reads text from outside is a known one."""
+Memory, company runbooks and references may be tampered with. Prior work (MINJA, AgentPoison, ShadowMerge, the
+Misattribution Gap: a model-written memory turns one hostile input into trusted context for every later incident).
+WARDEN keeps no memory a model writes: what it keeps are facts on its signed record, and the evidence of ONE incident,
+kept to answer questions about that incident only. Its reference knowledge changes only by a reviewed commit (N9), and
+every place that reads text from outside is a known one."""
 
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ def test_no_model_writes_anything_a_later_incident_reads():
 
 
 def test_past_incidents_reach_a_diagnosis_only_as_fixed_facts_and_only_when_switched_on(tmp_path, monkeypatch):
-    """Owner, 2026-10-14: show past incidents to the model - as facts from the signed record in a fixed vocabulary
+    """Show past incidents to the model - as facts from the signed record in a fixed vocabulary
     (when, the catalogue entry, the target, how it ended), never a reason, a note, a name or a past diagnosis's words;
     off unless WARDEN_HISTORY_IN_PROMPT=1 (it is measured live before it is kept)."""
     from datetime import UTC, datetime
@@ -127,7 +127,7 @@ def test_past_incidents_reach_a_diagnosis_only_as_fixed_facts_and_only_when_swit
 
 
 def test_a_diagnosis_is_shown_only_past_runs_the_signed_record_vouches_for(tmp_path):
-    """Research, 2026-10-15 (memory poisoning: MINJA, Unit 42, FARMA): a memory read verifies where each row came from.
+    """Memory poisoning (MINJA, Unit 42, FARMA): a memory read verifies where each row came from.
     Only rows a signed checkpoint covers and whose hashes hold, only today's catalogue entries on a resource-shaped
     target, only runs that ended - not open, not denied - reach the model."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey

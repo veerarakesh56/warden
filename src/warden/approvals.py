@@ -11,8 +11,8 @@ until <expires_at>". The workflow accepts it only if every check in `check()` pa
   it was approved, so a rushed "yes" at 3 am cannot follow a plan made seconds earlier.
 
 The private key stays with the approver. `warden audit keygen` makes one encrypted with a passphrase, and writes
-it in the clear only when told `--unencrypted` (2026-10-16; before, an unset passphrase silently meant a clear
-key, and a key made elsewhere may still be one). `warden approve`, `enrol`, `label` and `killswitch` read the
+it in the clear only when told `--unencrypted` (a key made elsewhere may still be a clear one). `warden approve`,
+`enrol`, `label` and `killswitch` read the
 passphrase from WARDEN_APPROVER_KEY_PASSPHRASE.
 The MCP server and the model never hold one, so neither can approve anything.
 
@@ -39,8 +39,8 @@ from pydantic import BaseModel, Field, model_validator
 from . import environments
 
 TIERS = ("T1", "T2", "T3")
-# What a tier means, in the words of the person asked to approve one (owner, 2026-10-12: a message said "(T1)" and
-# nothing else). Said wherever a tier is shown to a person.
+# What a tier means, in the words of the person asked to approve one (never a bare "(T1)"). Said wherever a tier is
+# shown to a person.
 TIER_MEANS = {"T1": "low risk: one small, bounded change to one resource",
               "T2": "medium risk: a reversible change to a service's settings or version",
               "T3": "high risk: hard to undo, or it changes access, the network or infrastructure"}
@@ -74,7 +74,7 @@ class PasskeyCredential(BaseModel):
 
 
 class Approver(BaseModel):
-    # How the person is shown to people (owner, 2026-10-12: "it should give its name"): on the approval page once
+    # How the person is shown to people, by name: on the approval page once
     # their passkey has said who they are, and in the messages that say who approved. The list's key stays the id.
     name: str = Field(default="", max_length=80)
     team: str = Field(default="", max_length=80)
@@ -87,7 +87,7 @@ class Approver(BaseModel):
     # is `dev` only - a test identity never approves a change anywhere else.
     environments: list[str] = Field(default_factory=list)
     passkeys: list[PasskeyCredential] = Field(default_factory=list)
-    # An AI approver: Eldane, the critic (autonomy.py, owner 2026-10-16). Always shown as AI_LABEL (EU AI Act Art. 50),
+    # An AI approver: Eldane, the critic (autonomy.py). Always shown as AI_LABEL (EU AI Act Art. 50),
     # never by a configured name; only for named non-prod environments, T1/T2, its own signing key, no passkey - and
     # each of its approvals counts only when autonomy.ai_problems finds nothing.
     ai: bool = False
@@ -109,8 +109,8 @@ AI_LABEL = "Eldane · AI critic"
 AI_TIERS = ("T1", "T2")  # never T3: irreversible, IAM, network or infrastructure changes are a person's
 
 
-# An approver's own words beside a decision (owner, 2026-10-14: a note with an approval as with a denial, "no matter
-# how lengthy and which kind of characters", tracked and stored, and "no prompt injection risk from those texts").
+# An approver's own words beside a decision - a note with an approval as with a denial, of any length and any
+# characters, tracked and stored, and never a prompt-injection route.
 # Any characters, any length: never refused, kept up to NOTE_MAX characters. Not text, and so not kept: control codes
 # and the invisible marks that make stored words read differently from how they were typed (zero-width space, byte
 # order mark, word joiner, the direction marks and overrides). The joiners Indic and Arabic scripts and emoji need
@@ -133,8 +133,8 @@ def note(text: object, *, incoming: bool = False) -> str:
     typed = str(text if text is not None else "").replace("\r\n", "\n").replace("\r", "\n")
     kept = "".join(ch for ch in typed if ch not in _NOT_TEXT
                    and (ch in "\n\t" or unicodedata.category(ch) not in ("Cc", "Cs"))).strip()
-    # Whatever looks like a secret is taken out before the words are kept or said (live, 2026-10-14: a test note with
-    # a password and a key in it had the whole denial message withheld, so nobody was told who denied, or when).
+    # Whatever looks like a secret is taken out before the words are kept or said (else a note with a password or a key
+    # in it has the whole denial message withheld, so nobody is told who denied, or when).
     # The redactor's own patterns decide; anything else it masks (an address, a host) is put back as typed.
     if incoming:
         kept = kept.replace(NOTE_SECRET, "(" + NOTE_SECRET[1:-1] + ")")
@@ -151,8 +151,8 @@ def note(text: object, *, incoming: bool = False) -> str:
 
 
 NOTE_SECRET = "[removed: it looked like a secret]"
-# What a note may try that a reader should be told of beside the decision (owner, 2026-10-14: "it should say that
-# this person approved or denied, and that they tried to do this from the box"). Each is shown as text, or removed;
+# What a note may try that a reader should be told of beside the decision: who approved or denied, and that they
+# tried this from the note box. Each is shown as text, or removed;
 # this only names it. Words aimed at an AI are found by plain phrases: WARDEN's model never reads a note at all.
 _TRIES = (
     ("something that looked like a password or a key, removed", lambda t: NOTE_SECRET in t),
@@ -258,8 +258,8 @@ class ApproverPolicy(BaseModel):
 
     def shown(self, approver: str) -> str:
         """The approver as people read them: their name, with their team when the list gives one. The list's own
-        key for them is its id, not a name for a reader (owner, 2026-10-12: a message that said "owner" "feels
-        unprofessional and off") - it is shown only for an approver the list gives no name."""
+        key for them is its id, not a name for a reader (a message that names an approver "owner" reads
+        badly) - it is shown only for an approver the list gives no name."""
         entry = self.approvers.get(approver)
         if entry and entry.ai:
             return AI_LABEL  # whatever name the list gives it
@@ -268,8 +268,8 @@ class ApproverPolicy(BaseModel):
         return entry.name.strip() + (f" ({entry.team.strip()})" if entry.team.strip() else "")
 
     def said(self, approver: str) -> str:
-        """The approver as a MESSAGE names them. A typed name proves nothing to its readers (owner, 2026-10-12: "if
-        they wanted to, they would write a different name"), so the text holds only a mark for that approver. With a
+        """The approver as a MESSAGE names them. A typed name proves nothing to its readers (anyone could type a
+        different name), so the text holds only a mark for that approver. With a
         Slack member id the Slack sinks turn it into Slack's own mention where the sentence names them
         (chatops.name_people) - Slack shows that member's real profile, and the member is told. Without one, and for
         every other reader, it becomes the name from the list."""
@@ -298,8 +298,8 @@ def _key_bytes(pem: str) -> bytes:
 
 
 def same_public_key(a: str, b: str) -> bool:
-    """Whether two PEM texts hold the same public key (CodeRabbit, PR 42: compared as text, a re-wrapped copy of a
-    person's key passed as the AI approver's own)."""
+    """Whether two PEM texts hold the same public key (compared as text, a re-wrapped copy of a
+    person's key would pass as the AI approver's own)."""
     return _key_bytes(a) == _key_bytes(b)
 
 

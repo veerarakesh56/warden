@@ -41,12 +41,12 @@ from scenarios.region import fault_environment, region
 from .ops import OpError
 from .ops_k8s import _to_dict
 
-# ponytail: the benchmark runs one environment per process - WARDEN_ENV, else environments.yaml's fault environment.
+# Known limit: the benchmark runs one environment per process - WARDEN_ENV, else environments.yaml's fault environment.
 ENV = fault_environment()
 PREFIX = f"warden-{ENV}-"
 REQUIRED_TAGS = {"Project": "warden", "Environment": ENV}
 K8S_LABELS = {"project": "warden", "environment": ENV}
-REGION = region()  # environments.yaml aws_region, or AWS_REGION (owner requirement R17)
+REGION = region()  # environments.yaml aws_region, or AWS_REGION
 HOLD_APP_PREFIX = "warden-bench-hold-"
 LAMBDA_NAMESPACE = "AWS/Lambda"  # CloudWatch's namespace for Lambda's own metrics
 FILLER_PREFIX = "filler:"  # the only keys the ops Lambda writes or deletes (lambdas/ops/app.py)
@@ -273,7 +273,7 @@ def _cw(c: Clients, ns: str, metric: str, dims: dict[str, str], minutes: int,
     """A CloudWatch statistic over the last `minutes`. None = no datapoint at all.
 
     ⛔ GetMetricData, not GetMetricStatistics: the operator is granted only the former. The first
-    measured verify (fs-01, 2026-09-26) died on AccessDenied - every metric-based verifier would have
+    measured verify (fs-01) died on AccessDenied - every metric-based verifier would have
     called a working fix "not fixed"."""
     end = _now()
     resp = c.cw.get_metric_data(
@@ -1188,7 +1188,7 @@ def fs20_verify(c, t):
 
 
 def fs21_inject(c, t):
-    """db_iam_auth_revoked (redesigned 2026-09-26, before any fault ran: Aurora express has no
+    """db_iam_auth_revoked (redesigned before any fault ran: Aurora express has no
     passwords to rotate). orders-api's task role loses rds-db:connect; every new login as `app` is
     refused with `PAM authentication failed for user "app"` while the task itself stays healthy."""
     return _iam_ecs_inject(c, t, "fs-21", t.ecs_task_role, "rds-db:connect")
@@ -1226,8 +1226,8 @@ def _restart(c, t, name) -> None:
 
 # Argo CD marks what it syncs (v3 tracks by annotation; the label is the older method). A direct change to such an
 # object is undone by its self-heal within seconds, so a fault injected that way would heal itself before WARDEN saw
-# it - and the run would prove nothing. Such a fault is a commit to manifests/ instead (owner decision pending,
-# 2026-10-16); until then it is refused, said plainly.
+# it - and the run would prove nothing. Such a fault would be a commit to manifests/ instead (not yet decided);
+# until then it is refused, said plainly.
 _ARGO_MARKS = ("argocd.argoproj.io/tracking-id", "argocd.argoproj.io/instance")
 
 
@@ -1659,7 +1659,7 @@ def decide_fix(verdict: str | None) -> str:
     printed commands through an allow-list, with the operator's full environment. The allow-list
     matched banned flags by exact name, and the AWS CLI accepts abbreviations: `--prof admin` ran
     as another profile, and `--regio us-east-1` in another region. A deny-list of flags cannot be
-    made complete, so the capability is gone rather than patched. Since 2026-10-16 the report prints
+    made complete, so the capability is gone rather than patched. The report prints
     no command at all (a fix is a catalogue plan for an approver), so there is nothing to count or
     check: an approved fix is recorded as `execution_disabled`. `no_fix_printed` and
     `fix_not_allowed` stay valid outcomes for older run records (score.FIX_OUTCOMES).

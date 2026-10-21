@@ -29,8 +29,8 @@ STEERING = frozenset({
     "alb_target_group", "apigw", "aurora_cluster", "cluster", "deployment", "dynamodb_table", "ecs_cluster",
     "ecs_service", "eks_cluster", "elasticache", "eventbridge_rule", "lambda", "log_group", "log_stream_prefix",
     "namespace", "region", "secret", "selector", "sns_topic", "sqs",
-    # Every resource label the alarm mapping can give, and the alarm itself (G9; independent review 2026-10-10, F1:
-    # a caller's `kms_key=` label survived the restriction and was re-read as a Lambda).
+    # Every resource label the alarm mapping can give, and the alarm itself (G9; else
+    # a caller's `kms_key=` label survives the restriction and was re-read as a Lambda).
     "alarm", *LABEL_KEYS})
 
 

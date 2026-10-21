@@ -119,7 +119,7 @@ class KubernetesPlatform:
         return live
 
     def _argo_ignores_restart(self, dep: Any) -> bool:
-        """Register C4, owner decision 2026-10-17: does the Argo CD Application tracking this Deployment ignore the
+        """Register C4: does the Argo CD Application tracking this Deployment ignore the
         restart annotation, so its self-heal leaves a restart in place? True only when proven, from the live
         Application: the Deployment's own tracking id names it and this exact Deployment, the Application deploys to
         this namespace, and an ignoreDifferences rule for this Deployment holds a JSON Pointer covering the
@@ -130,7 +130,7 @@ class KubernetesPlatform:
         if spec is None or (spec.get("destination") or {}).get("namespace") != self._ns:
             return False
         # Without RespectIgnoreDifferences, a sync for any other reason applies Git's template and drops the restart
-        # (Argo CD's sync options, review PR 48): the ignore is proof only with it.
+        # (Argo CD's sync options): the ignore is proof only with it.
         if "RespectIgnoreDifferences=true" not in ((spec.get("syncPolicy") or {}).get("syncOptions") or []):
             return False
         return any(_ignores_restart(rule, dep.metadata.name, self._ns) for rule in spec.get("ignoreDifferences") or [])
@@ -171,8 +171,8 @@ class KubernetesPlatform:
         longer look the same. No credential is in it."""
         config = getattr(getattr(self._apps, "api_client", None), "configuration", None)
         host = str(getattr(config, "host", "") or "")
-        # In a cluster the address is the `kubernetes` Service's IP - the same in every cluster (seventh review,
-        # 2026-10-01): the operator names the cluster.
+        # In a cluster the address is the `kubernetes` Service's IP - the same in every cluster: the operator names
+        # the cluster.
         name = self._cluster_name or os.environ.get("WARDEN_CLUSTER_NAME", "").strip()
         return f"{name} ({host})" if name else host
 
@@ -222,7 +222,7 @@ class KubernetesPlatform:
         self._same_namespace(params)
         if entry == "k8s_restart":
             # A restart changes only the template's restartedAt annotation: the old pods are gone, and a second
-            # restart would not bring them back (sixth review: "changes no spec" was wrong).
+            # restart would not bring them back ("changes no spec" would be wrong).
             return "nothing to roll back: a restart replaced the pods, and the old ones cannot come back"
         if entry == "k8s_scale":
             before = snapshot.get("replicas")
@@ -268,7 +268,7 @@ class KubernetesPlatform:
         except Exception as exc:
             raise KubernetesPlatformRefused(f"could not read deployment/{deployment}: {_one_line(exc)}") from exc
         # The count the approver saw, not one that moved since: a move between the final precheck and this
-        # read was stepped from (2 -> 4 with 3 approved) - sixth review, 2026-10-01.
+        # read must not be stepped from (2 -> 4 with 3 approved).
         if approved is not None and current != approved:
             raise KubernetesPlatformRefused(f"deployment/{deployment} has {current} replica(s), not the {approved} "
                                           f"the plan was approved on; nothing was changed")
@@ -446,8 +446,8 @@ def _ignores_restart(rule: Any, deployment: str, namespace: str) -> bool:
 
 
 def _covers(pointer: Any) -> bool:
-    """A JSON Pointer (RFC 6901) that names the restart annotation or a field holding it, compared by whole segments
-   : `""` is the whole document, but `"/"` names the key "" at the root and `"/spec/"` the key "" under
+    """A JSON Pointer (RFC 6901) that names the restart annotation or a field holding it, compared by whole segments:
+    `""` is the whole document, but `"/"` names the key "" at the root and `"/spec/"` the key "" under
     `spec` - neither covers the annotation, and Argo CD would not ignore it. Only a pointer that is a strict ancestor or
     the annotation itself counts; the whole document is not taken as proof either."""
     return (isinstance(pointer, str) and pointer.startswith("/") and not pointer.endswith("/")

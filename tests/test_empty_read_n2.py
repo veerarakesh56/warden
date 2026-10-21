@@ -1,4 +1,4 @@
-"""Register N2 / audit A-N-2: an empty or errored read taken as healthy. A read that failed is P8; a read that
+"""Register N2: an empty or errored read taken as healthy. A read that failed is P8; a read that
 succeeded and returned nothing is recorded and, under "nothing to do", is P23-EMPTY-READ."""
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """From an approved diagnosis to a fix plan (G9-D1).
 
-The audit (2026-10-10, finding 4): a diagnosis never became a plan. FOR_ACTION had no caller; a fix started only when
-someone called the MCP `request_remediation` tool with an entry and its parameters. Now, when the verifier passes a
+Without this module a diagnosis never becomes a plan: a fix would start only when someone called the MCP
+`request_remediation` tool with an entry and its parameters. When the verifier passes a
 proposal for a person (approved_for_human), this module turns it into a catalogue request - and the RemediationWorkflow
 it starts still waits for a signed human approval before anything changes.
 
@@ -97,8 +97,8 @@ def no_fix_path(alert: Alert, proposal: RemediationProposal) -> str:
     target = _bare(alert, proposal.target)
     if proposal.action is ActionKind.revert_change and (
             _SG_ID.fullmatch(target) or _RTB_ID.fullmatch(target) or target in _target_groups(alert)):
-        # request_for's own paths: a security group, a route table, a target group (G10 held-out, 2026-10-11: a
-        # deregistered target group, labelled alb_target_group, was held as having no fix path).
+        # request_for's own paths: a security group, a route table, a target group (a deregistered target group,
+        # labelled alb_target_group, has a fix path).
         return ""
     kinds = {key for key, value in alert.labels.items() if value == target and key not in _QUALIFIERS}
     if not kinds:
@@ -187,7 +187,7 @@ def _configuration(alert: Alert, proposal: RemediationProposal, live: Any) -> tu
     if not all(isinstance(v, set | frozenset) and len(v) == 1 for v in one.values()):
         return None, "no single AppConfig deployment WARDEN may revert is guarded by this alarm"
     params = {"alarm": alarm, **{k: next(iter(v)) for k, v in one.items()}}
-    # As WARDEN's own line writes it too: `appconfig <application>/<environment>` (G10 held-out, 2026-10-11).
+    # As WARDEN's own line writes it too: `appconfig <application>/<environment>`.
     named = proposal.target.removeprefix("appconfig:").removeprefix("appconfig ")
     if named not in (params["application"], f"{params['application']}/{params['config_env']}"):
         return None, "the proposal's target is not the configuration this alarm guards"
@@ -222,7 +222,7 @@ _RTB_ID = re.compile(r"rtb-[0-9a-f]{8,17}")
 
 
 def _route_table(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
-    """revert_change on a route table (G10 v2, owner decision 2026-10-10): the ONE route write CloudTrail recorded on it
+    """revert_change on a route table (G10 v2): the ONE route write CloudTrail recorded on it
     before the alarm went off - the platform's live read decides which, and whether it may be undone."""
     alarm = alert.labels.get("alarm", "")
     if not alarm or "," in alarm:
@@ -383,7 +383,7 @@ def _labelled_resource(alert: Alert, proposal: RemediationProposal) -> tuple[tup
     named, "" unless the plan is on that consumer's queue)."""
     found = _platform(alert, proposal.target)
     if found is None and proposal.action is ActionKind.resume_flow:
-        # A queue's alarm and its switched-off consumer named by its function (fs-07, live, 2026-10-15: the diagnosis
+        # A queue's alarm and its switched-off consumer named by its function (scenario fs-07: the diagnosis
         # was right - "the event source mapping for warden-dev-orders is disabled" - and named the function
         # warden-dev-order-processor, which the alarm does not name, so no plan was opened). The plan is still on what
         # the alarm names - its one queue, whose switched-off mapping the live read finds by the queue's ARN - and only

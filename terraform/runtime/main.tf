@@ -4,7 +4,7 @@
 #
 # THE ENVIRONMENT IS THE WORKSPACE (`terraform workspace select -or-create ops`), refused unless it is environments.yaml's
 # `runtime:` - WARDEN's own environment, never an application one. Every per-install value comes from SSM Parameter Store, /warden/<env>/tf/*, never a tfvars file and never a
-# literal in this repository (owner rule: no environment, region or account literals in code).
+# literal in this repository (no environment, region or account literals in code).
 terraform {
   required_version = ">= 1.15.0, < 1.17.0" # CI pins 1.16.4; a later minor is a deliberate change
   required_providers {
@@ -53,8 +53,8 @@ resource "terraform_data" "environment_is_known" {
       condition     = alltrue([for k in ["page_topic_arn", "watched_environments"] : contains(keys(local.tf), k)])
       error_message = "set /warden/<env>/tf/page_topic_arn and watched_environments in SSM first."
     }
-    # Register M20 at deploy time (live, 2026-10-15: SSM tf/model still named a model taken off the qualified list, and
-    # every diagnosis was refused at run time). The model the llm worker is given must be one WARDEN qualified.
+    # Register M20 at deploy time (an SSM tf/model naming a model taken off the qualified list would make
+    # every diagnosis refused at run time). The model the llm worker is given must be one WARDEN qualified.
     precondition {
       condition = lookup(local.tf, "model", "") == "" || contains(
         [for e in yamldecode(file("${path.module}/../../src/warden/data/providers.yaml")).qualified : e.model
@@ -81,7 +81,7 @@ module "runtime" {
   aws_free_plan            = lookup(local.tf, "aws_free_plan", "false") == "true"
   paused                   = local.paused
   permissions_boundary_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
-  # The model the llm zone calls (decision D12; the owner's 2026-10-04 window: gemini). Unqualified, it is refused
+  # The model the llm zone calls (decision D12). Unqualified, it is refused
   # (register M20) and every incident is escalated on the rules alone.
   model_provider = lookup(local.tf, "model_provider", "")
   model          = lookup(local.tf, "model", "")
@@ -95,13 +95,13 @@ module "runtime" {
   otlp_endpoint = lookup(local.tf, "otlp_endpoint", "")
   # The workers' way out outlives them: pausing removes the services and the NAT route in one apply, and a task told to
   # stop on an instance that has already lost its route never hears it - its service stays DRAINING until Terraform
-  # gives up after twenty minutes, with the instances still running (2026-10-11, run 38121022138). With this, the
+  # gives up after twenty minutes, with the instances still running. With this, the
   # services and their instances go first, the route and the NAT after.
   depends_on = [terraform_data.environment_is_known, aws_route.private_out]
 }
 
-# A slot the owner made by hand before the first apply (the Slack webhook, moved off the laptop in W0-now) is adopted,
-# not created again: the first apply failed with ResourceExistsException. Once in state, an import is a no-op.
+# A slot made by hand before the first apply (the Slack webhook) is adopted,
+# not created again: otherwise the first apply fails with ResourceExistsException. Once in state, an import is a no-op.
 locals {
   adopt = ["slack-webhook"]
 }

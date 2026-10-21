@@ -116,8 +116,8 @@ def test_the_incident_message_carries_the_changes_and_the_model_never_sees_them(
     acts.notify(pack, diagnosed, verified)
     assert "Changes near the alert - suspects, not causes" in sent[0]
     assert "cafebabe0000" in sent[0]
-    # In the report, not under its closing line (owner, 2026-10-12, reading a live message: "things are not right in
-    # place"): the closing line stays last, once, before WARDEN's own footer.
+    # In the report, not under its closing line (a live message once showed them out of place): the closing line stays
+    # last, once, before WARDEN's own footer.
     from warden.reporting import CLOSING
 
     assert sent[0].count(CLOSING) == 1
@@ -140,7 +140,7 @@ def test_a_deployment_with_an_unreadable_time_is_left_out(bad):
 
 
 def test_the_changes_section_carries_the_change_the_evidence_recorded_for_the_alerts_own_resource():
-    """Live, 2026-10-12: the section listed WARDEN's own earlier fixes and not the DisableRule that caused the alarm -
+    """The section listed WARDEN's own earlier fixes and not the DisableRule that caused the alarm -
     an EventBridge rule's events name no resource, so the account-wide read did not find it, while the evidence
     held it as a CHANGE line all along."""
     alert = Alert(alert_id="a", name="n", service="s", environment="dev", severity=Severity.high, summary="",
@@ -165,7 +165,7 @@ def test_the_changes_section_carries_the_change_the_evidence_recorded_for_the_al
 
 
 def test_a_command_in_a_change_is_withheld_from_the_section():
-    """Review, PR 47: a resource or principal name in a CloudTrail event is someone else's word."""
+    """A resource or principal name in a CloudTrail event is someone else's word."""
     from datetime import UTC, datetime
 
     from warden.gate import WITHHELD

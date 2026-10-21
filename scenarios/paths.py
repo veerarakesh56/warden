@@ -1,7 +1,7 @@
 """Where a path named on a command line may point: WARDEN's own rule (src/warden/paths.py, Sonar pythonsecurity:S8707),
 loaded from its file as region.py reads environments.yaml - never `import warden`, so the harness shares no package,
 settings or state with the tool it measures. That file is stdlib only; one copy of the rule, not two to keep in step
-(a byte-for-byte copy was 48 duplicated lines, Sonar's quality gate, 2026-10-17)."""
+(a byte-for-byte copy was 48 duplicated lines, refused by Sonar's quality gate)."""
 
 from __future__ import annotations
 

@@ -19,7 +19,7 @@ resource "aws_security_group" "runtime" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   # Every egress rule is here, in the group's own blocks: Terraform treats them as the whole list, so a separate
-  # egress rule resource was deleted by the group's next in-place update (the audit became unreachable, 2026-10-09).
+  # egress rule resource is deleted by the group's next in-place update (and the audit becomes unreachable).
   egress {
     description     = "PostgreSQL to the audit database"
     from_port       = 5432

@@ -10,10 +10,9 @@
 
 locals {
   environment = coalesce(var.environment, yamldecode(file("${path.module}/../src/warden/data/environments.yaml")).runtime)
-  # Every name carries its environment, as every other stack's does (warden-<env>-...; audit 2026-10-16).
+  # Every name carries its environment, as every other stack's does (warden-<env>-...).
   name = "${var.name}-${local.environment}"
-  # Project and Environment on everything: the all-region sweep reports anything without them
-  # (owner rule R53, independent review 2026-09-28).
+  # Project and Environment on everything: the all-region sweep reports anything without them.
   tags = merge(var.tags, {
     Project     = "warden"
     Environment = local.environment

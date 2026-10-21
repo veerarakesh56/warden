@@ -8,18 +8,18 @@
 # The environments: dev and prod, each deployed only from the branch of its own name; main deploys
 # nothing. They are listed in promotion order - main is promoted to dev, dev to prod (tests/test_ci_lanes.py holds each
 # deploy workflow's `upstream` to this order).
-#   - dev  : run as production (owner rule "dev is prod"), and the one environment faults are injected into
+#   - dev  : run as production ("dev is prod"), and the one environment faults are injected into
 #            (fault_environments) - which is why its tier is nonprod. Its lists are explicit, never "*" (below).
 #   - prod : never auto. Authorised responders only.
 #
 # What the code enforces with each key (read 2026-10-16):
 #   - allow_actions / deny_actions: the verifier's policy P1 (verifier.py), on every path.
 #   - authorized_principals and auto_remediate: read by no path since the CLI's dry-run gate (`warden run
-#     --principal`, remediation.py) was removed (owner B27); kept so a policy file stays loadable. The one path
+#     --principal`, remediation.py) was removed; kept so a policy file stays loadable. The one path
 #     that changes anything, the Temporal RemediationWorkflow, reads neither: EVERY fix there needs a signed approval
-#     of the exact plan, in every environment. auto_remediate never makes anything autonomous
-#    : only `autonomy` below does, and only through Eldane.
-#   - autonomy (owner, 2026-10-16/17; autonomy.py): the highest level an action class may be at here - L0 escalate
+#     of the exact plan, in every environment. auto_remediate never makes anything autonomous:
+#     only `autonomy` below does, and only through Eldane.
+#   - autonomy (autonomy.py): the highest level an action class may be at here - L0 escalate
 #     only, L1 shadow (WARDEN and Eldane, the AI critic, decide; a person still approves; the decision is scored), L2
 #     autonomous (Eldane's signed approval is enough; a person's "no" still stops it before apply). Under an L2 ceiling
 #     every class STARTS at L2; a failed fix, rollback, harmful decision, model or prompt change or missed catch trial
@@ -32,7 +32,7 @@
 # no authorised principals. A typo'd or brand-new environment name therefore cannot
 # inherit broad permissions by accident — it fails closed.
 #
-# G9-D (owner decision 2026-10-10): the reversible generic fix classes are allowed wherever a signed approval is
+# G9-D: the reversible generic fix classes are allowed wherever a signed approval is
 # required; a person approves every one of them.
 # allow_actions / deny_actions values MUST be members of ActionKind (validated at
 # load). `deny_actions` wins over `allow_actions`. no_action and escalate_to_human
@@ -52,11 +52,11 @@
 
 version: 1
 
-# The AWS region every environment runs in (owner requirement R17: Hyderabad). Code never names a region: it asks
+# The AWS region every environment runs in. Code never names a region: it asks
 # environments.region(), which honours AWS_REGION first, as every AWS tool does; Terraform and the IAM templates
 # read this value too.
 # Every time WARDEN shows - reports, Slack, the CLI - is stored in UTC and shown in UTC and in this IANA zone too
-# (owner requirement R4). WARDEN_DISPLAY_ZONE overrides it per install.
+# WARDEN_DISPLAY_ZONE overrides it per install.
 display_zone: Asia/Kolkata
 aws_region: ap-south-2
 # AWS's own Region for its global services' alarms - CloudFront and Route 53 health checks publish their metrics,
@@ -72,9 +72,9 @@ aws_global_region: us-east-1
 # person (P22 SELF-TARGET, planned). environments.names() and the account sweep's tag audit accept it.
 runtime: ops
 
-# Where faults may be injected - the benchmark harness and the undo lab. Only here does a fault-injection role exist
-# (register R18); never an environment of the prod tier. Code and Terraform read this list; none names
-# an environment of its own (owner, 2026-10-12: nothing in the repository is hardcoded).
+# Where faults may be injected - the benchmark harness and the undo lab. Only here does a fault-injection role exist,
+# and never in an environment of the prod tier. Code and Terraform read this list; none names
+# an environment of its own: nothing in the repository is hardcoded.
 fault_environments: [dev]
 
 # This repository, as GitHub's OIDC token names it - what the deploy roles' trust policies accept: its name
@@ -105,14 +105,14 @@ environments:
 # and how long its approval link works. The target is read again before anything is applied, whatever the wait.
 # `tripwire: off | on | required` (default off) sets the injection detector per environment; the stricter of it and
 # WARDEN_TRIPWIRE applies. The runtime image carries Prompt Guard 2 (the pinned weights, checked at build:
-# scripts/bake_tripwire.py; register R47, 2026-10-14), so every environment scans (`on`): a flagged text escalates.
+# scripts/bake_tripwire.py), so every environment scans (`on`): a flagged text escalates.
 # `required` also escalates an incident the detector could not scan; prod takes it once the MCP
 # check and the replay tools run the scan instead of reusing a recorded result (they escalate everything until then).
 
   dev:
     tier: nonprod                # faults are injected here, and fault_environments refuses the prod tier
-    # Owner rule "dev is prod" (2026-10-16; audit finding: dev allowed every action, to anyone, with no person in the
-    # loop). The CLI path never applies here (auto_remediate), and its principal check accepts prod's responders only.
+    # "dev is prod": dev is held to production's rules (no environment allows every action, to anyone, with no person
+    # in the loop). The CLI path never applies here (auto_remediate), and its principal check accepts prod's responders only.
     # A live fix, as in every environment, waits for a signed approval of its exact plan by an approver on the list -
     # in dev that includes the labelled bench approver, for T1/T2.
     auto_remediate: false

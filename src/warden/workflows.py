@@ -68,10 +68,10 @@ ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPol
 NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": RetryPolicy(maximum_attempts=3)}
 # prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
 # a few attempts, then the incident FAILS visibly - never an endless retry.
-# 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU.
+# 15 min: a full-budget scan measured ~7 min on a loaded developer-machine CPU.
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
-# Eldane's review: two model calls and perhaps a catch trial, once. A critic zone that is not running holds nobody up
-#: unstarted within 30 seconds, or not done in four minutes, the plan goes to a person as before.
+# Eldane's review: two model calls and perhaps a catch trial, once. A critic zone that is not running holds nobody up:
+# unstarted within 30 seconds, or not done in four minutes, the plan goes to a person as before.
 CRITIC = {"schedule_to_start_timeout": timedelta(seconds=30), "start_to_close_timeout": timedelta(minutes=4),
           "retry_policy": RetryPolicy(maximum_attempts=1)}
 # Whether Eldane may approve here at all (the environment's autonomy ceiling), asked once: no answer is "no", and the
@@ -122,8 +122,8 @@ def rechecks(req: FixRequest) -> tuple[timedelta, ...]:
 
 # Stages that are ends: a failure there is the end row's own (finish), with nothing left to record.
 # Decision D7: when the target, or WARDEN itself, changed under an approved plan, the plan is made again from what
-# WARDEN reads now and put to the approvers again - never applied unseen. Live, 2026-10-12: a deploy a minute before
-# the owner's approval ended the plan "refused at apply", and the fix had to be started again by hand. At most
+# WARDEN reads now and put to the approvers again - never applied unseen (otherwise a deploy a minute before the
+# approval ends the plan "refused at apply", and the fix has to be started again by hand). At most
 # REPLAN_MAX times for one fix: a target that keeps changing goes to a person.
 REPLAN_MAX = 2
 _REPLAN_ON = ("WARDEN's code or catalogue changed after the plan was made", "the target changed after the plan was made")
@@ -234,8 +234,8 @@ class RemediationWorkflow:
 
     @workflow.signal
     def side_effect(self, what: str) -> None:
-        """Another alarm in this fix's environment started while it was verified or watched (owner, 2026-10-15: "fixes
-        might break things or cause even bigger other problems"). It may be this fix's doing, or not: its own incident
+        """Another alarm in this fix's environment started while it was verified or watched: a fix
+        can break something else, or cause a bigger problem. It may be this fix's doing, or not: its own incident
         diagnoses it with this fix beside its evidence (activities._own_fixes)."""
         if self._stage in ("verifying", "watching") and len(self._side_effects) < 5:
             self._side_effects.append(what[:300])
@@ -261,8 +261,8 @@ class RemediationWorkflow:
             return await self._steps(req, acts, wid, done, end)
         except (asyncio.CancelledError, ActivityError) as exc:
             # A cancelled run still ends on the record, signed - and once apply was SENT, nobody knows what state it
-            # left: the kill switch goes on (eighth review, 2026-10-01: a run cancelled while verifying left no end
-            # row, the switch off). A cancel during an activity arrives as an ActivityError, not a CancelledError,
+            # left: the kill switch goes on (a run cancelled while verifying must not leave no end row and the
+            # switch off). A cancel during an activity arrives as an ActivityError, not a CancelledError,
             # and apply may have acted before it returned.
             if isinstance(exc, asyncio.CancelledError) or is_cancelled_exception(exc):
                 await end("cancelled_after_apply" if self._applying else "cancelled", ["the run was cancelled"])
@@ -281,7 +281,7 @@ class RemediationWorkflow:
                              plan_hash=self._plan.plan_hash if self._plan else "")
         await workflow.execute_activity_method(acts.finish, **_zoned(acts.finish), args=[req.incident_id, wid, outcome], **QUICK)
         done["audited"] = True
-        # The people who approved the plan are told how it ended (owner's first live approvals, 2026-10-12). After
+        # The people who approved the plan are told how it ended. After
         # the end row, which the message is read from; a message that fails changes nothing.
         if self._plan is not None and status in TOLD and workflow.patched("g10-outcome"):
             await _announce(acts, self._plan, "ended")
@@ -563,8 +563,8 @@ class RemediationWorkflow:
     async def _until_recheck(self, at: datetime, *, now_too: bool, side: bool) -> None:
         """Wait for the next re-check."""
         # The alarm firing again ends the watch at once (intake signals it): the people are told of the
-        # relapse then, and the resource is free for the plan its new incident may open (live,
-        # 2026-10-12: the watch slept to its re-check, and the new plan was silently not opened).
+        # relapse then, and the resource is free for the plan its new incident may open (otherwise the watch
+        # sleeps to its re-check, and the new plan is silently not opened).
         wait = max(at - workflow.now(), timedelta(0))
         if now_too and wait > timedelta(0):
             with contextlib.suppress(TimeoutError):
@@ -583,8 +583,7 @@ class RemediationWorkflow:
         again = []
         if not self._alarm_at and workflow.patched("g10-rediagnose"):
             # No alarm fired, so none starts an incident: WARDEN thinks again itself - the cause, the
-            # fix, the plan - from what it reads now, with this fix beside the evidence (owner,
-            # 2026-10-15). Any fix it finds is a new plan for an approver.
+            # fix, the plan - from what it reads now, with this fix beside the evidence. Any fix it finds is a new plan for an approver.
             again = await self._diagnose_again(req, acts, why)
         return await end("relapsed", [why, *again])
 
@@ -596,8 +595,8 @@ class RemediationWorkflow:
         except ActivityError as exc:
             if is_cancelled_exception(exc):
                 raise
-            # The run still ends on the record, signed: a failed rollback crashed the workflow with no end row
-            #. The activity tripped the kill switch; a person takes it from here.
+            # The run still ends on the record, signed: a failed rollback crashed the workflow with no end row.
+            # The activity tripped the kill switch; a person takes it from here.
             return await end("rollback_failed", [f"{req.service} did not recover, and {exc.cause or exc}"])
         why = _not_recovered_why(req, self._alarm_at, len(self._side_effects))
         # A change with nothing to undo (a restart, a closed session) is not "rolled back": the target is as the
@@ -609,7 +608,7 @@ class RemediationWorkflow:
 
 @workflow.defn
 class AutonomyWorkflow:
-    """A person turns autonomy back on in an environment after a demotion (autonomy.enable, owner 2026-10-17): the
+    """A person turns autonomy back on in an environment after a demotion (autonomy.enable): the
     demotions are read from the record and shown (`state`), the person signs exactly those with their own key (T3,
     never an AI's) and signals it, and the core zone checks and records it. `warden autonomy enable` drives it."""
 
@@ -809,8 +808,8 @@ async def _start_plan(req: dict[str, Any]) -> str:
             RemediationWorkflow.run, FixRequest.model_validate(req), id=wid,
             task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
     except WorkflowAlreadyStartedError:  # one open plan per resource (C3)
-        # Where a reader can see it: the records page (2026-10-15: `warden status` needs a Temporal key
-        # that only the runtime holds, so the command it named could not be run by anyone reading this).
+        # Where a reader can see it: the records page (`warden status` needs a Temporal key
+        # that only the runtime holds, so a command named here could not be run by anyone reading this).
         return (f"an earlier plan for the same resource (`{wid}`) is still open - waiting for its "
                 "approval, or being watched after its fix; the records page (All incidents) shows it")
     return ""
@@ -851,8 +850,7 @@ class IncidentWorkflow:
                 return cleared
         pack = await self._evidence(acts, alert)
         # ONE attempt: the model client retries inside one budget and one call ceiling; a
-        # Temporal retry built a fresh client, and so a fresh budget - $1.20 spent against a $0.50 cap
-        # (fourth review, 2026-09-30).
+        # Temporal retry built a fresh client, and so a fresh budget - $1.20 spent against a $0.50 cap.
         diagnosed = await _diagnose(acts, pack, escalate_only)
         # G9-B: the model may ask to read up to 3 related resources it saw named in trusted evidence, then decide
         # again - at most INVESTIGATE_ROUNDS times; the llm zone's budget (6 calls, US$0.25 per incident, counted
@@ -861,21 +859,21 @@ class IncidentWorkflow:
         if workflow.patched("g9-investigate"):
             pack, diagnosed = await self._investigate(acts, pack, diagnosed, escalate_only)
         verified = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[pack, diagnosed], **QUICK)
-        # One repair round (research 2026-10-15: a model fixes an error when told exactly where it is, and rules-based
+        # One repair round (a model fixes an error when told exactly where it is, and rules-based
         # feedback is the strongest kind): an answer held ONLY by checks a better answer can pass is asked once more,
         # with the checks' own words. Safety policies are never fed back - the model must not learn to argue past
         # them. Within the llm zone's budget (6 calls, US$0.25 per incident); patched, so histories replay unchanged.
         note = repair_note(verified.verdict)
         if note and not diagnosed.model_unavailable and workflow.patched("verify-repair"):
             diagnosed, verified = await self._repair(acts, pack, note, diagnosed, verified, escalate_only)
-        # A second, independent opinion before any fix reaches a person (owner, 2026-10-15: "better and more double
-        # checks ... the model sometimes makes mistakes"): the model asked once more on the same evidence; if the two
+        # A second, independent opinion before any fix reaches a person (the model sometimes makes mistakes, so
+        # its answer is checked twice): the model asked once more on the same evidence; if the two
         # answers name another action or another target, the fix is escalated, never offered. It can only take an
         # approval away. Within the llm zone's budget; patched, so histories recorded before it replay unchanged.
         if (_for_a_person(verified) and not diagnosed.model_unavailable and workflow.patched("second-opinion")):
             verified = await self._second_opinion(acts, pack, diagnosed, verified, escalate_only)
-        # One Slack message per incident (owner, 2026-10-14: "why all that alerts total details and approval thing
-        # coming in 3 parts ... i want all in one part only"): the report is recorded first, and said once - in the
+        # One Slack message per incident (the alert, its details and the approval request in one message, not
+        # three): the report is recorded first, and said once - in the
         # plan's request for approval when a plan opens, else on its own with why there is none.
         one = workflow.patched("g10-one-message")
         if not one and workflow.patched("s17-notify"):
@@ -890,7 +888,7 @@ class IncidentWorkflow:
             await _notify(acts, pack, diagnosed, verified, "none")
         if diagnosed.model_unavailable:
             # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
-            # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).
+            # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY).
             raise ApplicationError(f"escalated without a model: {diagnosed.model_unavailable}",
                                    type=MODEL_UNAVAILABLE, non_retryable=True)
         return RunReport(alert=pack.alert, redaction_map_size=pack.masked, context=pack.context,
@@ -926,7 +924,7 @@ class IncidentWorkflow:
             if wait > timedelta(0):
                 await workflow.sleep(wait)
         pack = await workflow.execute_activity_method(acts.prepare, **_zoned(acts.prepare), args=[alert], **PREPARE)
-        # A source that answered with nothing right after the alert may only be early (research 2026-10-15, item 3):
+        # A source that answered with nothing right after the alert may only be early:
         # read once more when the alert is old enough for its slowest source, on a durable timer. One re-read at most;
         # what it filled, and the alert's age then, go on the record. Patched: earlier histories replay unchanged.
         if pack.context.empty_reads and workflow.patched("reread-once"):

@@ -1,5 +1,5 @@
 """A restore from AWS Config's record can still be rolled back once Config has recorded the restore itself
-(2026-10-11, found reading the platform; not yet seen live). The live read took any later Config record with another
+(found reading the platform; not yet seen live). The live read took any later Config record with another
 value for "the value changed again" and dropped the before and after values from its snapshot - and WARDEN's own
 restore IS such a record, a few minutes after it is applied. The rollback then found a snapshot unlike the one
 approved, refused, and a refused rollback ends the run as rollback_failed with the kill switch tripped."""

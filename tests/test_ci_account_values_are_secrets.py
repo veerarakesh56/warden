@@ -1,4 +1,4 @@
-"""Live, 2026-10-16: the public Actions log of "Deploy · dev · on merge" printed
+"""The public Actions log of "Deploy · dev · on merge" printed
 `role-to-assume: arn:aws:iam::<the account id>:role/warden-dev-deploy` - AWS_ROLE_ARN was a GitHub variable, and a
 variable is printed unmasked in a step's inputs before any masking runs (aws-actions' mask-aws-account-id starts only
 after that step). RUNTIME_ECR_REPOSITORY did the same in Runtime · ops. Every value that holds the account id is an
@@ -31,7 +31,7 @@ def test_every_caller_passes_them_and_the_deploys_require_the_role():
     """The secret is an empty string in a reusable workflow unless its caller passes it - with no error (GitHub docs,
     read 2026-10-16; the first dev plan after the switch could not assume the role)."""
     text = {p.name: p.read_text(encoding="utf-8") for p in WORKFLOWS.glob("*.yml")}
-    # deploy-<env>.yml and on-merge-<env>.yml for dev and prod (2026-10-16: the four other environments went).
+    # deploy-<env>.yml and on-merge-<env>.yml for dev and prod (the four other environments went).
     callers = [n for n in text if n.startswith(("deploy-", "on-merge-"))]
     assert len(callers) == 4
     for name in callers:

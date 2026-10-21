@@ -1,4 +1,4 @@
-"""P14: a target is one named resource (fourth review, 2026-09-30, C-6; the reviewer's table). A flag after
+"""P14: a target is one named resource. A flag after
 any punctuation, a dash look-alike, a list, a pattern, a whole namespace or a command is refused; a
 namespace that only qualifies a resource is not."""
 
@@ -60,7 +60,7 @@ def test_not_one_named_resource_is_refused(target):
 def test_one_named_resource_passes(target):
     assert _problem(target) is None
 
-# Fifth review: ordinary prose a model writes - refused once targets had to be ASCII.
+# Ordinary prose a model writes - refused once targets had to be ASCII.
 PROSE = [
     'checkout \u2014 revert to revision 6',
     'checkout \u2013 revision 7 to 6',
@@ -83,7 +83,7 @@ def test_a_prose_dash_before_a_word_is_still_a_flag():
 @pytest.mark.parametrize("target", ["orders (kubectl/delete/ns/warden-pg)", "orders(kubectl,delete)", "orders (rm)",
                                     "orders (drop table)"])
 def test_a_command_after_punctuation_is_refused(target):
-    """Fifth review: a command word not preceded by a space passed."""
+    """A command word not preceded by a space passed."""
     assert _problem(target) is not None
 
 
@@ -92,7 +92,7 @@ def test_an_image_name_holding_a_command_word_still_passes():
 
 
 def test_every_cluster_label_scopes_the_target():
-    """Fifth review: only `namespace` and `cluster` labels were scopes; `ecs_cluster` let the
+    """Only `namespace` and `cluster` labels were scopes; `ecs_cluster` let the
     cluster itself through as a target."""
     from warden.cli import DEMO_ALERTS
     from warden.models import Alert, Citation, ContextBundle, RootCause
@@ -112,7 +112,7 @@ def test_every_cluster_label_scopes_the_target():
                                     "orders " + chr(0x2192) + " payments", "orders everything", "entire orders",
                                     "each pod of orders"])
 def test_a_second_resource_in_parentheses_or_after_an_arrow_is_refused(target):
-    """Fifth review: parentheses and arrows were read as describing the one target, so a second
+    """Parentheses and arrows were read as describing the one target, so a second
     resource written there passed."""
     assert _problem(target) is not None
 
@@ -120,7 +120,7 @@ def test_a_second_resource_in_parentheses_or_after_an_arrow_is_refused(target):
 @pytest.mark.parametrize("target", ["cluster=warden-dev-aurora", "aurora cluster warden-dev-aurora",
                                     "warden-dev-aurora (cluster)"])
 def test_a_failover_names_its_cluster(target):
-    """Fifth review: a failover's target is a cluster; `cluster=<name>` was refused as a scope."""
+    """A failover's target is a cluster; `cluster=<name>` was refused as a scope."""
     p = RemediationProposal(action=A.failover_replica, target=target, reasoning="r", expected_effect="e",
                             blast_radius="single_service", reversible=True)
     assert target_problem(p, INV | {"warden-dev-aurora"}, SCOPES) is None
@@ -143,14 +143,14 @@ def test_a_word_after_a_colon_is_not_an_image_tag():
                                     "orders (kill)", "orders then terraform destroy", "orders (shutdown)",
                                     "orders (pkill -f app)"])
 def test_more_commands_and_a_command_before_a_period_are_refused(target):
-    """Sixth review: a trailing period read as part of a name, and unlisted commands passed."""
+    """A trailing period read as part of a name, and unlisted commands passed."""
     assert _problem(target) is not None
 
 
 @pytest.mark.parametrize("key", ["aurora_cluster", "elasticache", "NAMESPACE", "k8s_namespace", "db_cluster",
                                  "Cluster", "kubernetes_namespace"])
 def test_every_spelling_of_a_scope_label_scopes_the_target(key):
-    """Sixth review: only five exact keys were scopes."""
+    """Only five exact keys were scopes."""
     from warden.cli import DEMO_ALERTS
     from warden.models import Alert, Citation, ContextBundle, RootCause
     from warden.verifier import verify
@@ -166,7 +166,7 @@ def test_every_spelling_of_a_scope_label_scopes_the_target(key):
 
 @pytest.mark.parametrize("target", ["warden-dev-aurora", "cluster=warden-dev-aurora"])
 def test_a_failover_may_name_the_cluster_its_alert_labels(target):
-    """Sixth review: with `cluster=warden-dev-aurora` on the alert, the failover of that cluster was refused."""
+    """With `cluster=warden-dev-aurora` on the alert, the failover of that cluster was refused."""
     p = RemediationProposal(action=A.failover_replica, target=target, reasoning="r", expected_effect="e",
                             blast_radius="single_service", reversible=True)
     assert target_problem(p, INV | {"warden-dev-aurora"}, {"warden-dev-aurora"}) is None
@@ -200,7 +200,7 @@ FS01 = {"elasticache": "warden-pg-fs-redis", "aurora_cluster": "warden-pg-fs-aur
 @pytest.mark.parametrize("action, target", [(A.clear_cache, "warden-pg-fs-redis"), (A.scale_up, "warden-pg-fs-redis"),
                                             (A.terminate_connections, "warden-pg-fs-aurora")])
 def test_a_data_action_may_target_the_database_or_cache_its_alert_labels(action, target):
-    """Seventh review: on the recorded fs-01 labels these natural targets were rejected as scopes
+    """On the recorded fs-01 labels these natural targets were rejected as scopes
     (a regression from ac1e2ab); 9d01dfd escalated them without P14."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(action, target, FS01)
 
@@ -212,7 +212,7 @@ def test_a_pod_action_on_a_labelled_cluster_still_names_a_whole_cluster(target):
 
 @pytest.mark.parametrize("target", ["payments", "namespaces/payments", "namespaces payments", "warden-pg-fs-ecs"])
 def test_a_failover_never_targets_a_labelled_namespace_or_compute_cluster(target):
-    """Seventh review: only the word "namespace" was refused - the namespace's own name and the ECS cluster
+    """Only the word "namespace" was refused - the namespace's own name and the ECS cluster
     passed."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.failover_replica, target, FS01)
 
@@ -230,21 +230,21 @@ def test_a_database_cluster_may_have_ns_inside_its_name(target):
     (A.terminate_connections, "warden-pg-fs-aurora (and payments)"),
 ])
 def test_a_data_target_with_a_whole_scope_beside_it_is_refused(action, target):
-    """Eighth review (2026-10-01, a regression from 8ce403d): once a labelled database was no longer a scope, a
+    """A regression from 8ce403d: once a labelled database was no longer a scope, a
     namespace or compute cluster written beside it was not counted as a second target."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(action, target, FS01)
 
 
 @pytest.mark.parametrize("key", ["k8s.namespace.name", "gke_cluster", "aks_cluster", "ecsClusterName"])
 def test_a_failover_never_targets_a_compute_scope_in_any_spelling(key):
-    """Eighth review: only keys holding ecs/eks/k8s/kube as a substring were compute clusters, and `ClusterName` or
+    """Only keys holding ecs/eks/k8s/kube as a substring were compute clusters, and `ClusterName` or
     `k8s.namespace.name` were not read as scopes at all."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.failover_replica, "warden-pg-fs-group",
                                                               {**FS01, key: "warden-pg-fs-group"})
 
 
 def test_a_failover_never_targets_a_namespace_named_like_the_service():
-    """Eighth review: the recorded fs-01 alert's namespace is `shop`, its service `shop` - subtracted, so a failover of
+    """The recorded fs-01 alert's namespace is `shop`, its service `shop` - subtracted, so a failover of
     `shop` passed."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.failover_replica, "shop", {**FS01, "namespace": "shop"})
 
@@ -252,28 +252,28 @@ def test_a_failover_never_targets_a_namespace_named_like_the_service():
 @pytest.mark.parametrize("key", ["sandbox_namespace", "feedback_namespace", "records_namespace", "cache_namespace",
                                  "db_namespace"])
 def test_a_namespace_is_never_a_data_resource(key):
-    """Eighth review: `is_data` was a substring test - "sandbox" holds "db", "records" holds "rds" - so clearing a cache
+    """`is_data` was a substring test - "sandbox" holds "db", "records" holds "rds" - so clearing a cache
     or scaling across that whole namespace passed."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.clear_cache, "team-x", {key: "team-x"})
 
 
 @pytest.mark.parametrize("key", ["ClusterName", "k8s.namespace.name", "namespaceName", "cluster-name"])
 def test_a_scope_label_in_any_spelling_scopes_a_pod_action(key):
-    """Eighth review: camel case and dotted keys were not read as scopes. (A generic `ClusterName`, like `cluster`,
-    may name a database cluster, so a failover may still target it - sixth review.)"""
+    """Camel case and dotted keys were not read as scopes. (A generic `ClusterName`, like `cluster`,
+    may name a database cluster, so a failover may still target it.)"""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.rollback_deploy, "warden-pg-fs-group",
                                                               {key: "warden-pg-fs-group"})
 
 
 def test_a_failover_may_target_its_labelled_database_and_never_its_eks_cluster():
-    """Eighth review (test strength): removing failover from the data actions, or EKS from the compute words, passed."""
+    """Test strength: removing failover from the data actions, or EKS from the compute words, passed."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(A.failover_replica, "warden-pg-fs-aurora", FS01)
     labels = {**FS01, "eks_cluster": "warden-pg-fs-eks"}
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.failover_replica, "warden-pg-fs-eks", labels)
 
 
 def test_ns_inside_a_labelled_cluster_name_is_not_the_word_namespace():
-    """Eighth review: the earlier test never reached the failover branch; with the cluster labelled under a generic
+    """The earlier test never reached the failover branch; with the cluster labelled under a generic
     key, a target named only by that label does - and `\bns\b` refused `orders-ns-db`."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(A.failover_replica, "orders-ns-db",
                                                                   {"cluster": "orders-ns-db"})
@@ -295,7 +295,7 @@ def _verdict_as(service, action, target, labels):
 
 @pytest.mark.parametrize("action", [A.failover_replica, A.clear_cache, A.terminate_connections])
 def test_a_data_action_on_the_namespace_named_like_the_service_is_refused(action):
-    """Ninth review: the eighth review's test used service `checkout`, so a failover of `shop` - the
+    """An earlier test used service `checkout`, so a failover of `shop` - the
     recorded fs-01 alert's namespace AND service - passed: a resource was named, and the container check ran only
     when none was."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_as("shop", action, "shop", {**FS01, "namespace": "shop"})
@@ -309,14 +309,14 @@ def test_a_data_action_on_the_namespace_named_like_the_service_is_refused(action
     (A.terminate_connections, "warden-pg-fs-aurora (ns: payments)"),
 ])
 def test_a_kind_word_does_not_hide_a_data_targets_second_target(action, target):
-    """Ninth review: the kind word (`cluster=`, `namespace`) was cut as a qualifier, and the second target with it."""
+    """The kind word (`cluster=`, `namespace`) was cut as a qualifier, and the second target with it."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(action, target, FS01)
 
 
 @pytest.mark.parametrize("key", ["ECSCluster", "EKSClusterName", "K8SNamespace", "AWSECSCluster", "GKECluster",
                                  "namespaces", "compute_cluster", "fargate_cluster", "ecs"])
 def test_an_acronym_led_or_plural_key_is_a_compute_scope(key):
-    """Ninth review (a regression from 71b0d0d): words split only at lower-to-upper, so `ECSCluster` was one word and
+    """A regression from 71b0d0d: words split only at lower-to-upper, so `ECSCluster` was one word and
     no scope; plural and platform-only keys never were."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.failover_replica, "team-x", {**FS01, key: "team-x"})
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.restart_pods, "team-x", {**FS01, key: "team-x"})
@@ -325,7 +325,7 @@ def test_an_acronym_led_or_plural_key_is_a_compute_scope(key):
 @pytest.mark.parametrize("target", ["warden-pg-fs-ecs/orders", "orders (warden-pg-fs-ecs)", "orders on warden-pg-fs-ecs",
                                     "service/warden-pg-fs-ecs/orders"])
 def test_a_cluster_qualifying_a_pod_target_is_not_a_second_target(target):
-    """Ninth review (a regression from 71b0d0d): the ECS service ARN's `cluster/service` path and a cluster in
+    """A regression from 71b0d0d: the ECS service ARN's `cluster/service` path and a cluster in
     parentheses were refused as "a resource and a whole cluster"; after an arrow, a comma or "and" it still is."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(A.restart_pods, target, FS01)
     for second in ("orders -> warden-pg-fs-ecs", "orders, warden-pg-fs-ecs", "orders and warden-pg-fs-ecs"):
@@ -334,7 +334,7 @@ def test_a_cluster_qualifying_a_pod_target_is_not_a_second_target(target):
 
 def test_a_service_named_like_its_namespace_is_the_resource():
     """The alert's own service is never taken for the scope its namespace label names (a plant check found no test
-    for it, S19)."""
+    for it)."""
     from warden.cli import DEMO_ALERTS
     from warden.models import Alert, ContextBundle
     from warden.verifier import _target_problem

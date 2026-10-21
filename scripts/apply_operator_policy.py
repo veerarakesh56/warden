@@ -3,7 +3,7 @@
     python scripts/apply_operator_policy.py [DOC.json] [POLICY_NAME]            # dry run: compare only
     python scripts/apply_operator_policy.py [DOC.json] [POLICY_NAME] --apply    # push it
 
-Without --apply nothing is written (audit A-B-L21: it changed IAM the moment it was run, even imported).
+Without --apply nothing is written: neither running nor importing it changes IAM.
 
 Defaults to operator-policy.json -> WardenProvingGroundOperator, run as the operator itself.
 To push the BOUNDARY instead, name both:

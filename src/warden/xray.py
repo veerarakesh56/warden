@@ -1,5 +1,5 @@
-"""AWS X-Ray as an evidence source (owner, 2026-10-14: "what are we missing which is not in AWS ... traces" - the apps'
-request-level traces, sent with OpenTelemetry to X-Ray, read here; compared live with Datadog's and Grafana's).
+"""AWS X-Ray as an evidence source for what AWS's own reads miss: the apps' request-level traces, sent with
+OpenTelemetry to X-Ray, read here, and compared live with Datadog's and Grafana's.
 
 For the service the alert names, around the alarm: the traces that failed (errors and faults), each with its URL,
 status and time, and X-Ray's own root cause of each fault - the downstream service it fails in (the dependency walk,

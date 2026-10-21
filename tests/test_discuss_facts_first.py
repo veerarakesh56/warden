@@ -1,4 +1,4 @@
-"""Owner, 2026-10-15: WARDEN's answers in the discussion channel should be immediate - "within 1 or 2 seconds" - and
+"""WARDEN's answers in the discussion channel should be immediate - "within 1 or 2 seconds" - and
 compare with similar past incidents. Its record (this incident and the ones like it) is posted first, from the
 signed record with no model, and the model's answer follows in the same thread."""
 

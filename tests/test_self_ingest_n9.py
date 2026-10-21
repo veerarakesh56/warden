@@ -1,4 +1,4 @@
-"""Register N9 / audit A-N-9: WARDEN's own output never flows back into what it knows. Its knowledge - signatures,
+"""Register N9: WARDEN's own output never flows back into what it knows. Its knowledge - signatures,
 environments, providers, freeze windows, approvers - is the package's data/ directory, changed only by a reviewed
 commit. Nothing WARDEN runs may write there. conftest.py also holds the whole test run to it."""
 

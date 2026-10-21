@@ -4,9 +4,8 @@ Read this before running anything in `terraform/proving-ground/`, the single-pla
 ECS, EKS and RDS benchmark runs used. It answers one question: **what do I create in AWS, and with what
 permissions?** For WARDEN's runtime and the per-environment roles, see [SETUP.md](SETUP.md).
 
-> **Status.** The proving ground is not deployed: none of the `warden-pg-*` roles and
-> none of the `WardenProvingGround*` policies below exist in the account. They are what a re-run of Waves
-> 1-3 would create (R52/R53, owner 2026-10-02). Today's operator is the role in `iam/operator/`; the
+> **Status.** The proving ground is not deployed by default: the `warden-pg-*` roles and the
+> `WardenProvingGround*` policies below are what a re-run of Waves 1-3 would create. The operator is the role in `iam/operator/`; the
 > per-environment roles are rendered into `iam/<env>/`.
 
 ---
@@ -21,9 +20,7 @@ permissions?** For WARDEN's runtime and the per-environment roles, see [SETUP.md
 ⛔ **Do not create the reader role by hand.** `terraform/proving-ground/iam.tf` creates it, and
 `tests/test_aws_backend.py` asserts both the deployment module's task role (`terraform/main.tf`)
 and the proving-ground reader (`terraform/proving-ground/iam.tf`) grant exactly the calls
-`src/warden/aws_backend.py` makes — in *both* directions, so neither can drift from the code. (Until
-2026-09-25 only `terraform/main.tf` was under that test, although the reader's comment said
-otherwise.) A
+`src/warden/aws_backend.py` makes — in *both* directions, so neither can drift from the code. A
 hand-made copy would drift on the first change and nothing would notice.
 
 ---
@@ -66,7 +63,7 @@ your root user has access keys, delete them — that is worth doing today regard
 ### Step 1 — the operator identity
 
 **Preferred: IAM Identity Center (SSO), not an IAM user with access keys.** It issues *temporary*
-credentials, so there is no long-lived secret on your laptop to leak. The AWS Agent Toolkit's
+credentials, so there is no long-lived secret on your workstation to leak. The AWS Agent Toolkit's
 `aws login` uses this browser flow.
 
 If you use an IAM user instead: **enable MFA on it**, and treat its access key as a real secret —
@@ -148,7 +145,7 @@ variable `sensitive` hides it from CLI output, not from state.
 
 ---
 
-## Guardrails against a hijacked or "cunning" agent (2026-09-27, owner, admin credentials)
+## Guardrails against a hijacked or "cunning" agent (admin credentials)
 
 The boundary caps what the operator may do, but inside the cap sit actions a hijacked agent could
 use to open the account up rather than break it. Examples: make a `warden-pg-*` role trust an
@@ -193,7 +190,7 @@ with an `iam:AWSServiceName` condition so it can create that one service-linked 
 
 ⚠ **When this was written, the RDS and EKS blocks were untested** and had been derived the same
 way, with the EKS block called the least certain part. Both have since been applied against a real
-account - EKS for Wave 2 and RDS for Wave 3, 2026-09-24/25 - and the fixes that took are in the
+account - EKS for Wave 2 and RDS for Wave 3 - and the fixes that took are in the
 commits `feb6183` (two service-linked roles and an IP) and `8ceb9dd` (EKS nodes reaching an API
 endpoint locked to one address).
 

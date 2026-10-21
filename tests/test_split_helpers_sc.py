@@ -1,4 +1,4 @@
-"""The helpers activities.py, history.py and intake.py were split into (Sonar maintainability, 2026-10-21), each
+"""The helpers activities.py, history.py and intake.py were split into (Sonar maintainability), each
 checked on its own: what it decides, said as the code before the split said it. Most of these paths are otherwise
 covered only by the Temporal workflow tests, which need Temporal's test server."""
 

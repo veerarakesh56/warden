@@ -1,8 +1,8 @@
 """Expected to be down: an alarm on something a person declared off, or not in use, is not an incident.
 
-Owner, 2026-10-12: non-production environments are shut down at night for cost - "that is expected state, not an
-incident" - and "not only night shutdown, even sometimes on holidays and weekends and some other times when not
-needed, and maybe even complete or temporary not using those environments or AWS services or application services".
+Non-production environments are often shut down for cost - at night, at weekends and on holidays, or at other times
+when not needed - and environments, AWS services or application services may be out of use for a while or for good.
+That is an expected state, not an incident.
 
 A declaration says WHAT (environments, services, resources - every one given must match the alarm) and WHEN (every
 one given must hold; none given means always):
@@ -83,7 +83,7 @@ def _entry(raw: Any) -> dict[str, Any]:
 
 
 def _refuse_endless_production(raw: dict, scope: dict[str, set[str]]) -> None:
-    """Never "down forever" for a production environment (owner, 2026-10-14: complete the proposed guard): a
+    """Never "down forever" for a production environment: a
     declaration with no hours, days, dates or end may name only environments of the nonprod tier - an unknown
     environment counts as production. A named service or resource "not in use" may still be declared so."""
     if not any(k in raw for k in ("hours", "days", "dates", "until")) and "environments" in scope:
@@ -145,7 +145,7 @@ def covering(alert: Alert, at: datetime, text: str | None = None) -> tuple[str, 
     first = next((e for e in mine if _holds(e, at)), None)
     if first is None:
         return None
-    # ponytail: a minute-by-minute walk (20,160 steps at most); edge arithmetic if declarations grow to hundreds
+    # Known limit: a minute-by-minute walk (20,160 steps at most); edge arithmetic if declarations grow to hundreds
     end = at.replace(second=0, microsecond=0)
     for _ in range(int(HORIZON.total_seconds() // 60)):
         end += timedelta(minutes=1)

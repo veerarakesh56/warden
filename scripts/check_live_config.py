@@ -1,4 +1,4 @@
-"""Is AWS Config recording what WARDEN's undo reads? (owner, 2026-10-15: "make them perfect").
+"""Is AWS Config recording what WARDEN's undo reads?
 
 revert_change sets a value back to what AWS Config recorded just before the change (platforms/aws.py). The recorder is
 made once per account and Region by an administrator (docs/SETUP.md, "AWS Config"), not by a stack that is

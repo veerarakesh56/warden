@@ -1,4 +1,4 @@
-"""Owner, 2026-10-15: compare with previous similar or common issues - what was done then, how it ended, did it hold,
+"""Compare with previous similar or common issues - what was done then, how it ended, did it hold,
 with timestamps and record links - and say what repeats. From WARDEN's own signed record only."""
 
 from __future__ import annotations

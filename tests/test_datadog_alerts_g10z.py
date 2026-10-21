@@ -1,7 +1,7 @@
 """Datadog monitors start incidents in WARDEN (register G10-53), and Datadog is set up as code (scripts/datadog_setup.py).
 
-Owner, 2026-10-14: "set the total ... logs traces monitoring and dashboards ... and also alerts too for warden to
-see and immediately work on them". The same who / how much / is it real as Alertmanager's webhook."""
+Logs, traces, monitoring and dashboards, and alerts for WARDEN to see and work on immediately. The same who / how much /
+is it real as Alertmanager's webhook."""
 
 from __future__ import annotations
 
@@ -224,7 +224,7 @@ def test_setup_makes_the_webhook_monitors_and_dashboard_once_and_never_prints_th
 
 
 def test_monitors_only_updates_the_monitors_and_leaves_the_webhook_and_its_token(tmp_path, monkeypatch):
-    """2026-10-15: a full run rotates the webhook token, which a warm webhook Lambda refuses until it restarts; the
+    """A full run rotates the webhook token, which a warm webhook Lambda refuses until it restarts; the
     monitors' new grouping (kube_cluster_name, kube_namespace) needs no new token."""
     mod = _setup()
     for name, value in (("WARDEN_DATADOG_SETUP_KEY_FILE", "dd-app-" + "s" * 10), ("WARDEN_DATADOG_API_KEY_FILE",
@@ -242,7 +242,7 @@ def test_monitors_only_updates_the_monitors_and_leaves_the_webhook_and_its_token
 
 
 def test_a_report_says_where_its_alert_came_from_in_wardens_own_words():
-    """Owner, 2026-10-15: "i dont know whats their sources are i mean datadog or grafana or xray". Each intake stamps
+    """A reader must see where an alert came from - Datadog, Grafana or X-Ray. Each intake stamps
     `via` last; the report names it only from WARDEN's own list, never a value a sender chose."""
     from warden import reporting
     from warden.models import Alert, Severity

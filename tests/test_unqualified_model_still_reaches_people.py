@@ -1,4 +1,4 @@
-"""Live, 2026-10-15: the runtime's SSM tf/model still named claude-sonnet-5 after the owner took it off the qualified
+"""The runtime's SSM tf/model still named claude-sonnet-5 after it was taken off the qualified
 list. Register M20 refused it, as it must - but the refusal was raised while building the model client, before any path
 that tells a person, so the fs-07 incident failed and reached nobody. Now a model that cannot be built is the
 rules-only diagnosis (register M19) with the reason said, and the deploy itself refuses an unqualified model."""

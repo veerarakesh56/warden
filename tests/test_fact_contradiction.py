@@ -1,4 +1,4 @@
-"""Research 2026-10-15, item 11: a measured fact the diagnosis cannot argue with. When the IAM policy simulator says the
+"""A measured fact the diagnosis cannot argue with. When the IAM policy simulator says the
 role's own policies deny the workload's call, an action that only runs the workload again under the same role is a
 contradiction (P11) - the same call is denied again."""
 

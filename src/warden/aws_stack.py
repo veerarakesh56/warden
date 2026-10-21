@@ -117,9 +117,9 @@ def _stamp(t: Any) -> datetime | None:
 
 def last_known_good(results: list[dict], cands: list[str]) -> str:
     """Of `cands`, the version whose latest known-good stretch ended latest - the state just before the change - or ""
-    when none was known-good. Not the one that served most (live, 2026-10-16, fs-01: the broken version 4 had served
-    3.5 erring hours, the good version 3 two clean hours up to the change) and not the one that served last (Wave 4,
-    2026-09-26: a broken version served a few calls after the good one's hours)."""
+    when none was known-good. Not the one that served most (in scenario fs-01 the broken version 4 had served
+    3.5 erring hours, the good version 3 two clean hours up to the change) and not the one that served last (in Wave 4
+    a broken version served a few calls after the good one's hours)."""
     series = _served_series(results, cands)
     ended: dict[str, datetime] = {}
     for v in cands:
@@ -229,7 +229,7 @@ def _retag_aws_line(tag: str, line: str) -> str:
 NEEDED_CLIENTS = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "rds", "elbv2",
                   "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail",
                   "autoscaling", "stepfunctions")
-# Research 2026-10-15, item 9: an AccessDenied in the evidence, checked against the role's own policies with the IAM
+# An AccessDenied in the evidence, checked against the role's own policies with the IAM
 # policy simulator. AWS's standard denial text names the action and, usually, the resource; the ROLE simulated is only
 # ever one the trusted configuration names (a TASKROLE line) in the incident's environment - a log line chooses at
 # most which action is simulated, read-only, never whose permissions are read.
@@ -237,7 +237,7 @@ _DENIED = re.compile(r"is not authorized to perform: ([a-z0-9-]{2,40}:[A-Za-z0-9
                      r"(?: on resource: (arn:aws[a-z-]{0,20}:[A-Za-z0-9:/_.*+=,@-]{3,400}))?")
 _TASKROLE_LINE = re.compile(r"^TASKROLE (?:ecs|lambda)/\S+ role=([A-Za-z0-9+=,.@_-]{1,64})$")
 SIMULATE_MAX = 3
-# Research 2026-10-15, item 10: how far back an alarm's own history is read.
+# How far back an alarm's own history is read.
 ALARM_HISTORY = timedelta(hours=24)
 # G10-C1: an ECS service's last stopped tasks, its events in the hour before the alert, and how each is classified.
 STOPPED_TASKS = 10
@@ -250,8 +250,8 @@ _ECS_EVENT_KINDS = (
     ("started_tasks", re.compile(r"has started \d+ tasks", re.IGNORECASE)),
     ("stopped_tasks", re.compile(r"has stopped \d+ running tasks", re.IGNORECASE)),
 )
-# Why ECS could not place a task, from its own words (G10 held-out set, 2026-10-10: counting the events hid that the
-# cluster had run out of network interfaces). The first that matches; the rest stay plain `unable_to_place`.
+# Why ECS could not place a task, from its own words (counting the events alone hides, say, that the
+# cluster has run out of network interfaces). The first that matches; the rest stay plain `unable_to_place`.
 _PLACE_WHY = (
     ("eni", re.compile(r"RESOURCE:ENI", re.IGNORECASE)),
     ("memory", re.compile(r"RESOURCE:MEMORY|insufficient memory", re.IGNORECASE)),
@@ -307,7 +307,7 @@ _STOP_CAUSES = (
 
 def _head_and_tail(text: str, limit: int) -> str:
     """At most `limit` characters, keeping both ends: ECS puts the decisive exception at the END of a long
-    stoppedReason (G10 held-out set, 2026-10-10: "...because it was marked for deletion" was cut off)."""
+    stoppedReason ("...because it was marked for deletion" must not be cut off)."""
     if len(text) <= limit:
         return text
     head = limit // 2
@@ -334,17 +334,17 @@ CHANGE_NAMES = 3
 CHANGE_MAX = 20
 _READ_VERBS = ("Describe", "Get", "List", "Lookup", "BatchGet", "Head", "Search", "Scan", "Query")
 CHANGE_PAGES = 5
-# CloudTrail lists a management event about 5 minutes after the call, with no guarantee (AWS CloudTrail FAQ, research
-# 2026-10-15). Until the alert is this old, "no write" only means none was delivered yet - the change just before an
+# CloudTrail lists a management event about 5 minutes after the call, with no guarantee (AWS CloudTrail FAQ).
+# Until the alert is this old, "no write" only means none was delivered yet - the change just before an
 # alarm, the likeliest cause, may not be listed.
 CLOUDTRAIL_DELIVERY = timedelta(minutes=int(os.environ.get("WARDEN_CLOUDTRAIL_DELIVERY_MIN", "8")))
-# Writes CloudTrail files WITHOUT the resource's name, so a lookup by resource name never finds them (live,
-# 2026-10-12: a schedule switched off nine minutes before its alarm was read as "CHANGE none", and the report ruled a
-# change out). For a resource of these kinds the reader also looks the writes up by event name and keeps the ones
+# Writes CloudTrail files WITHOUT the resource's name, so a lookup by resource name never finds them (a schedule
+# switched off nine minutes before its alarm would read as "CHANGE none", and the report would rule a change out). For a
+# resource of these kinds the reader also looks the writes up by event name and keeps the ones
 # whose request names the resource: (the event names, the request fields that carry the name).
 UNNAMED_WRITES = {"eventbridge_rule": (("DisableRule", "EnableRule", "PutRule", "DeleteRule", "PutTargets",
                                         "RemoveTargets"), ("name", "rule"))}
-# A queue's consumer switched off or removed (fs-07, live, 2026-10-15): CloudTrail files the write as Lambda's
+# A queue's consumer switched off or removed (scenario fs-07): CloudTrail files the write as Lambda's
 # UpdateEventSourceMapping20150331 with no resource name, only the mapping's id - so a lookup by the queue's name never
 # found it, and "who changed it" was left out. The queue's own mappings (by its ARN) say which ids are its.
 QUEUE_MAPPING_WRITES = ("UpdateEventSourceMapping20150331", "DeleteEventSourceMapping20150331")
@@ -354,7 +354,7 @@ _NOT_RESOURCES = frozenset({"lambda_qualifier", "apigw_stage", "namespace", "quo
 
 def _a_write(e: dict) -> bool:
     """A write that happened: read-only events and attempts that failed or were denied are not changes (an attempt
-    is anyone's to make - independent review 2026-10-10, M2)."""
+    is anyone's to make)."""
     try:
         detail = json.loads(e.get("CloudTrailEvent") or "{}")
     except ValueError:
@@ -384,7 +384,7 @@ def _request_names(e: dict, fields: tuple[str, ...], name: str) -> bool:
 
 def _request_fields(e: dict) -> str:
     """` request=<names>`: which fields the recorded request named - an UpdateService that set the desired count is not
-    a forced redeploy (G10 held-out baseline, 2026-10-10: g10-135 missed a desired-count cut, and a forced redeploy's
+    a forced redeploy (held-out case g10-135: a desired-count cut was missed, and a forced redeploy's
     UpdateService read as one WARDEN could undo). The values are never shown."""
     try:
         r = json.loads(e.get("CloudTrailEvent") or "{}").get("requestParameters")
@@ -417,7 +417,7 @@ def _role(who: dict) -> str:
     """An assumed role's actor: `role/<the role's name>`, or `role` when CloudTrail did not name it."""
     role = ((who.get("sessionContext") or {}).get("sessionIssuer") or {}).get("userName")
     # An IAM Identity Center role ends in an opaque 16-hex id: with it the redactor's entropy backstop hid the
-    # whole actor, `role/` included, and a person's change read `by <HIGHENTROPY_1>` (G10 held-out, 2026-10-11).
+    # whole actor, `role/` included, and a person's change read `by <HIGHENTROPY_1>`.
     if role and str(role).startswith("AWSReservedSSO_"):
         role = re.sub(r"_[0-9a-f]{16}$", "", str(role))
     return f"role/{_safe(role)}" if role else "role"
@@ -751,13 +751,13 @@ def _download(url: str) -> bytes:
 # break the `env=[A=b,C=d]` line (separators, spaces, quotes), is shown as the name alone. The report's
 # fix for a wrong variable rewrites the whole environment and so is printed ONLY when every value is
 # present - a masked or missing value can therefore never be written back into a function.
-# Added 2026-09-25: with names only, no bad-env / write-to-reader / pinned-endpoint fix could be aimed.
+# With names only, no bad-env / write-to-reader / pinned-endpoint fix could be aimed.
 _SECRETISH = re.compile(r"PASS|SECRET|TOKEN|KEY|CREDENTIAL|DSN|AUTH|PRIVATE|SESSION", re.IGNORECASE)
 _PLAIN_VALUE = re.compile(r"[A-Za-z0-9._:/@-]{0,200}")
 
 
-# The names whose values are configuration a diagnosis needs: which table, host, queue, region, timeout. An allowlist
-#: the name deny-list showed `DATABASE_URL=postgres://user:pw@db/x` and any credential under a name it
+# The names whose values are configuration a diagnosis needs: which table, host, queue, region, timeout. An allowlist:
+# the name deny-list showed `DATABASE_URL=postgres://user:pw@db/x` and any credential under a name it
 # did not list. A value is shown only under one of these names, and never with a login in it.
 _SHOWN_NAME = re.compile(r"(?:^|_)(?:NAME|HOST|HOSTNAME|ENDPOINT|TABLE|QUEUE|TOPIC|BUCKET|REGION|PORT|STAGE|ENV|"
                          r"ENVIRONMENT|MODE|LEVEL|TIMEOUT|SECONDS|MS|SIZE|LIMIT|VERSION|SERVICE|DATABASE|DB|SCHEMA|"
@@ -813,7 +813,7 @@ class StackBackend:
     reads_live_store = True  # its store receives log lines late: evidence waits for them (R23)
     # How long one whole read may take (tools.gather): every resource the alert names, in parallel, a Logs Insights
     # query among them (INSIGHTS_WAIT_S, 10 s alone) - and, behind grafana.WithSources, each outside source after it.
-    # The 5 s per-tool default cut such a read off and lost the logs view (inventory review, 2026-10-15).
+    # The 5 s per-tool default cut such a read off and lost the logs view.
     read_timeout_s = float(os.environ.get("WARDEN_STACK_READ_TIMEOUT_S", "120"))
 
 
@@ -848,7 +848,7 @@ class StackBackend:
         self._asg = clients["autoscaling"]
         self._sfn = clients["stepfunctions"]
         self._clients = clients  # every other service's client, made when an alarm names one (aws_describe.py)
-        # The IAM policy simulator, for an AccessDenied in the evidence (research 2026-10-15, item 9): made on first use
+        # The IAM policy simulator, for an AccessDenied in the evidence: made on first use
         # where the clients are; a test that injects no IAM client simulates nothing.
         self._iam = clients["iam"] if hasattr(clients, "__missing__") or "iam" in clients else None
         self._account_id = ""
@@ -926,7 +926,7 @@ class StackBackend:
         # Any alarm on any service (G9-A2a): the alarm as CloudWatch defines it, its metric and the resource's others,
         # and the writes to the resource. The per-service readers below add each service's own state.
         # Not for a Datadog monitor's alert: its `alarm` label is the monitor (`datadog-<id>`), not a CloudWatch alarm,
-        # and the read was refused as a CloudWatch read of a name no reader may read (2026-10-15, fs-22).
+        # and the read would be refused as a CloudWatch read of a name no reader may read.
         if lab.get("alarm") and not lab.get("datadog_monitor"):
             readers.append(("alarm", lambda out: self._read_alarm(out, alert, lab["alarm"])))
         # The state of any other main service's resource the alarm names (G9-A2c): one closed table of reads.
@@ -1110,7 +1110,7 @@ class StackBackend:
         ns, metric = a.get("Namespace"), a.get("MetricName")
         dims = {str(d.get("Name")): str(d.get("Value")) for d in a.get("Dimensions") or []}
         threshold = _alarm_threshold(a)
-        if not (ns and metric):  # metric math: the expression is the owner's text, not read
+        if not (ns and metric):  # metric math: the expression is the alarm author's text, not read
             self._read_math_alarm(out, alert, a, threshold)
             return
         stat = a.get("Statistic") or a.get("ExtendedStatistic") or "Maximum"
@@ -1127,9 +1127,9 @@ class StackBackend:
         self._read_changes(out, alert, dims)
 
     def _read_math_alarm(self, out: _Out, alert: Alert, a: dict, threshold: str) -> None:
-        """_read_alarm for a metric-math alarm: the expression is the owner's text, not read."""
-        # Its parts are AWS's structured fields, read like a plain alarm's metric (G10 review, 2026-10-10: an API
-        # Gateway fault behind a math alarm showed no symptom at all). AWS's own namespaces only, as below.
+        """_read_alarm for a metric-math alarm: the expression is the alarm author's text, not read."""
+        # Its parts are AWS's structured fields, read like a plain alarm's metric (else an API
+        # Gateway fault behind a math alarm shows no symptom at all). AWS's own namespaces only, as below.
         parts = [q["MetricStat"] for q in a.get("Metrics") or [] if isinstance(q.get("MetricStat"), dict)]
         out.lines.append(f"ALARM metric-math parts={len(parts)} {threshold}")
         reads: dict[str, tuple] = {}
@@ -1159,7 +1159,7 @@ class StackBackend:
         out.metrics.update(self._cw_read(out, "alarm-siblings", alert, others))
 
     def _alarm_history(self, out: _Out, alert: Alert, name: str) -> None:
-        """Research 2026-10-15, item 10: the alarm's own history in the ALARM_HISTORY before the alert, from AWS's
+        """The alarm's own history in the ALARM_HISTORY before the alert, from AWS's
         structured fields only (never the summary text) - how often it changed state and went into ALARM (a flapping
         alarm), and when its settings last changed (a threshold moved under it)."""
         started = AwsBackend._started_at(alert)
@@ -1222,7 +1222,7 @@ class StackBackend:
 
     def _read_changes(self, out: _Out, alert: Alert, dims: dict[str, str]) -> None:
         """Writes to the alarm's resource in the RECENT_DEPLOY_WINDOW before the alert (CloudTrail management events;
-        change is the leading cause of outages - research 2026-10-10). A CloudTrail lookup takes one resource name
+        change is the leading cause of outages). A CloudTrail lookup takes one resource name
         per call and two calls a second per account, so the first CHANGE_NAMES names only."""
         from .resources import LABEL_KEYS
 
@@ -1477,9 +1477,9 @@ class StackBackend:
         return self._sqs.get_queue_attributes(QueueUrl=url, AttributeNames=attrs).get("Attributes") or {}
 
     def _read_consumers(self, out: _Out, alert: Alert, q: str, arn: str | None, sfx: str) -> None:
-        """The queue's consumers: the event source mappings AWS holds for exactly this queue (first live run,
-        2026-10-12: a queue's alarm showed nothing of the mapping that had been switched off, and the model proposed
-        a restart). A function the alert names itself is read, mappings and all, by its own reader."""
+        """The queue's consumers: the event source mappings AWS holds for exactly this queue (without them a queue's
+        alarm shows nothing of a mapping that was switched off, and the model proposes a restart). A function the alert
+        names itself is read, mappings and all, by its own reader."""
         if not arn:
             return
         try:
@@ -1900,7 +1900,7 @@ class StackBackend:
         ids.update(dict.fromkeys((a["NetworkAclId"] for a in acls), "network ACL"))
 
     def _read_ecs_tasks(self, out: _Out, cluster: str, service: str, svc: dict, alert: Alert) -> None:
-        """G10-C1: what the console shows first and the evidence lacked (miss analysis 2026-10-10: ecs-06, -07, -12,
+        """G10-C1: what the console shows first and the evidence lacked (in the miss analysis, ecs-06, -07, -12,
         -13 were answered with the service "at its desired count, nothing failed"). Each deployment's counts; the
         service's own events, counted by kind; and the last stopped tasks - AWS's stop code and its stoppedReason
         classified into a closed set of causes. The reason text itself reaches the model only as quarantined facts."""
@@ -1991,7 +1991,7 @@ class StackBackend:
             k8s = eks_backend(self._clients["eks"], self._clients["sts"], cluster)
         else:
             k8s = self._k8s_factory()
-        # ponytail: assumes the Deployment's pods carry app=<deployment> (true for the shop manifests).
+        # Known limit: assumes the Deployment's pods carry app=<deployment> (true for the shop manifests).
         a = alert.model_copy(update={"labels": {"namespace": ns, "deployment": dep, "selector": f"app={dep}"}})
         for raw in k8s.logs(a):
             out.lines.append(_partial(f"k8s/{dep}", raw) if raw.startswith(PARTIAL_PREFIX)
@@ -2007,8 +2007,8 @@ class StackBackend:
     def _read_secret(self, out: _Out, alert: Alert, name: str) -> None:
         meta = self._sm.describe_secret(SecretId=name)  # metadata only - never the value
         changed = _aware(meta.get("LastChangedDate"))
-        # A secret scheduled for deletion fails every read of its value (G10 held-out set, 2026-10-10: the model was
-        # never told, and RestoreSecret can bring it back inside the recovery window).
+        # A secret scheduled for deletion fails every read of its value (the model must be
+        # told, and RestoreSecret can bring it back inside the recovery window).
         deleted = _aware(meta.get("DeletedDate"))
         if deleted is not None:
             out.lines.append(f"SECRET {name} scheduled for deletion {_z(deleted)} (metadata only)")
@@ -2041,8 +2041,8 @@ class StackBackend:
         }))
 
     def _read_rule(self, out: _Out, alert: Alert, rule: str, sfx: str) -> None:
-        # A rule on a custom bus is found only on that bus (G10 review, 2026-10-10: DescribeRule looked on the default
-        # bus and failed): the alarm's EventBusName dimension names it.
+        # A rule on a custom bus is found only on that bus (DescribeRule on the default
+        # bus fails): the alarm's EventBusName dimension names it.
         bus = (_names(alert, "event_bus") or [""])[0]
         on_bus = {"EventBusName": bus} if bus else {}
         r = self._events.describe_rule(Name=rule, **on_bus)
@@ -2091,7 +2091,7 @@ def _conditions_hold(st: dict, topic_arn: str, unknown: bool) -> bool:
     # Each operator by its meaning: `ArnNotEquals` was read as `ArnEquals`, so a Deny of every
     # topic BUT this one denied this one. An operator not understood here gives `unknown`: an Allow it cannot
     # prove does not allow, and a Deny it cannot read is taken to apply. The conditions all have to hold, so one
-    # that does not decides first, wherever it is listed (PR 122 review: the unreadable one used to end the reading).
+    # that does not decides first, wherever it is listed (an unreadable one must not end the reading).
     undecided = False
     for op, test in (st.get("Condition") or {}).items():
         key = next((k for k in test if k.lower() == "aws:sourcearn"), None)
@@ -2121,7 +2121,7 @@ def _source_arn_holds(base: str, values: list, topic_arn: str) -> bool | None:
 # The database's own error log: how many of its last lines are read, and how many error lines are kept.
 DB_LOG_LINES, DB_LOG_KEEP = 400, 30
 _DB_LOG_ERROR = re.compile(r"\b(?:ERROR|FATAL|PANIC):")
-# Performance Insights' heaviest statements, as numbers and names only (2026-10-15: "do you see the queries").
+# Performance Insights' heaviest statements, as numbers and names only.
 TOP_SQL = 5
 _SQL_WORD = re.compile(r"[A-Za-z]+")
 _SQL_TABLE = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+((?:[A-Z_][A-Z0-9_$]{0,62}\.)?[A-Z_][A-Z0-9_$]{0,62})",
@@ -2131,8 +2131,8 @@ _SQL_VERBS = frozenset({"SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "COPY", 
 
 
 def _sql_verb(sql: str) -> str:
-    """The statement's first word after any leading `/* */` comments, in one linear pass. CodeQL py/redos (alert 21,
-    2026-10-15): the regex this replaces backtracked exponentially on a `/*` followed by many `*//*` - and the text is
+    """The statement's first word after any leading `/* */` comments, in one linear pass. CodeQL py/redos: the regex
+    this replaces backtracked exponentially on a `/*` followed by many `*//*` - and the text is
     whatever a database client sent, so any client could stall WARDEN's reader."""
     i, n = 0, len(sql)
     while True:
@@ -2159,10 +2159,10 @@ def sql_shape(sql: str) -> str:
 def iam_dsn(rds: Any, dsn: str, *, verify: bool = False) -> str:
     """The DSN with a 15-minute IAM token as its password, signed by `rds`'s own credentials - in the cloud runtime the
     incident's environment reader role - when the DSN carries no password: no database password exists anywhere,
-    and the role's rds-db:connect on the read-only user decides (2026-10-15: the cloud read no database at all). The
+    and the role's rds-db:connect on the read-only user decides. The
     token lives only in this DSN, in memory. `verify`: the server's certificate and name are checked against Amazon
-    RDS's own certificate authorities (data/rds-ca-bundle.crt, sslmode=verify-full) - the write path's (review, PR 48:
-    a close must not go to a server that only claims to be the cluster)."""
+    RDS's own certificate authorities (data/rds-ca-bundle.crt, sslmode=verify-full) - the write path's (a close must
+    not go to a server that only claims to be the cluster)."""
     from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
     parts = conninfo_to_dict(dsn)

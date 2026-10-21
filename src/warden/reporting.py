@@ -7,8 +7,7 @@ What the report must let the reader do WITHOUT opening another tool: see what WA
 (metrics, the log lines that matter, deploys, what it could NOT read), who and what is affected
 (pods, PIDs, hosts, tenants, users), when things happened, and who should act next. A report that
 carries only the model's conclusion asks the reader to trust it; one that carries the evidence lets
-them check it. (Until 2026-09-24 it carried only the conclusion: the model's own cited evidence, the
-whole evidence bundle and every identifier were dropped.)
+them check it.
 
 ⛔ NO COMMANDS. The report used to print exact aws, kubectl and SQL commands to check,
 fix, confirm and undo - a second, unaudited way to make the change, outside the signed approval, the
@@ -309,7 +308,7 @@ def reveal_identifiers(obj, mapping: dict[str, str]):
     """Put back ONLY the identifier placeholders (REVEALABLE) found in `mapping`; secrets stay masked.
 
     The one place this decision is made. build_report and chatops.notify both call it, because
-    notify re-redacts the finished report before it leaves the process - and until 2026-09-25 that
+    notify re-redacts the finished report before it leaves the process - and without this that
     re-redaction silently re-masked every identifier the operator had asked to see, so
     WARDEN_REPORT_SHOW_IDENTIFIERS did nothing at all in Slack.
     """
@@ -403,7 +402,7 @@ def _each_string(value: Any, change: Any) -> Any:
 
 def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
                      proposal: RemediationProposal | None) -> None:
-    """Owner, 2026-10-17 (the poisoned-log downgrade): the report and its Slack top never carry a version, an image tag,
+    """A defence against poisoned logs: the report and its Slack top never carry a version, an image tag,
     an ARN or a target the model wrote, or a log line holds, unless WARDEN read it itself (grounding.unread). A rollback
     names "the previous revision WARDEN recorded" - which is what the catalogue's plan returns to."""
     from .grounding import read_text, shown_target, unread
@@ -466,7 +465,7 @@ def _confidence_said(rc: dict[str, Any]) -> str:
 
 
 def _narrowed(d: dict[str, Any]) -> list[str]:
-    """How WARDEN narrowed it down (owner's report bar, 2026-10-12: "narrow to the real root cause"): what the fixed
+    """How WARDEN narrowed it down to the root cause: what the fixed
     checks found, each other cause and why it was set aside - checked against the evidence or said to be unchecked -
     and what is left. Nothing here is new: it is the diagnosis's own reasoning, laid out so a person can follow it."""
     rc = d.get("root_cause") or {}
@@ -506,8 +505,8 @@ def _left_line(rc: dict[str, Any]) -> str:
     count = (f" _(WARDEN's evidence count {weighed['count']}: for {', '.join(weighed['for']) or 'nothing'}, "
              f"against {', '.join(weighed['against']) or 'nothing'})_") if weighed else ""
     if weighed and weighed["cause"] != rc.get("hypothesis"):
-        # The count is the first ranked hypothesis's: when the model worded it differently, both are shown (review,
-        # PR 47), so a count is never read as belonging to words it was not computed for.
+        # The count is the first ranked hypothesis's: when the model worded it differently, both are shown, so a count
+        # is never read as belonging to words it was not computed for.
         count += f" - the count is for the cause it ranked first: {weighed['cause']}"
     return (f"- **Left:** {rc.get('hypothesis', '')}" + (f" _(cited: {cited})_" if cited else "") + count
             + ("" if rc.get("grounded", True) else " - **not grounded**: its citations did not hold."))
@@ -530,7 +529,7 @@ def _stack_sources(alert: Alert, ctx: ContextBundle) -> list[str]:
         # Reader names as the stack backend writes them: `lambda/<fn> logs`, `aurora-db-writer`, `sqs/<q>`.
         failed = [e for e in errors if re.match(rf"{reader}\b", e)]
         out.append(f"{reader} {names}: {what}" + (f" - **FAILED**: {_c(failed[0][:160])}" if failed else " - read."))
-    # What WARDEN could not read, said only for what this alert names (owner, 2026-10-14: a schedule's alarm said
+    # What WARDEN could not read, said only for what this alert names (a schedule's alarm must not say
     # "Not read: Redis itself ..."): plain words, nothing for a component the incident does not involve.
     unread = []
     if alert.labels.get("elasticache"):
@@ -563,7 +562,7 @@ def _sources(alert: Alert, backend: str | None, ctx: ContextBundle | None = None
     """Where the evidence came from and over what window - said in every report.
 
     The windows are the backends' own constants, imported rather than restated, so this cannot drift
-    from what was actually read. Added after the owner asked whether WARDEN reads CloudWatch "around
+    from what was actually read. Whether WARDEN read CloudWatch "around
     those timestamps": for ECS it does; for Kubernetes and PostgreSQL it does not, and a report that
     leaves that unsaid lets a reader assume it did.
     """
@@ -654,8 +653,8 @@ _DATA_KINDS = frozenset({"aurora_cluster", "rds_instance", "dynamodb_table", "do
 _OFFERED_UNDO = {"P31-UNADDRESSED-CHANGE"}  # held by this policy alone, WARDEN offers the undo itself (activities)
 
 
-# What would stop it happening again, by the kind of fix WARDEN proposed (owner, 2026-10-15: "what are the counter
-# measures"). Fixed words for a class of cause, never the model's prose; a person still judges them.
+# What would stop it happening again (the countermeasures), by the kind of fix WARDEN proposed. Fixed words for a class
+# of cause, never the model's prose; a person still judges them.
 _PREVENT = {
     "revert_config": "check configuration values before they ship (the service refused this one), and roll config out "
                      "in stages so a bad value reaches one replica first",
@@ -690,8 +689,8 @@ def _changed_by(logs: list[str]) -> str:
 
 
 def _who_acts(alert: Alert, data: dict) -> list[list[str]]:
-    """Who has something to do about this incident now, and what - on every report (owner, 2026-10-12: "I see only
-    Platform / DevOps here", and only when a fixed pattern had fired). From what the report already holds: the gate's
+    """Who has something to do about this incident now, and what - on every report, not only "Platform / DevOps"
+    and not only when a fixed pattern fired. From what the report already holds: the gate's
     verdict, the kind of resource the alarm names, and whether the evidence points at code or a deploy."""
     out = [["On-call", _oncall_task(data)]]
     if owner := _owner_row(alert, data):
@@ -908,8 +907,7 @@ _FENCE_RUN = re.compile(r"`{3,}|~{3,}")
 
 def _unfenced(text: str) -> str:
     """Break every run of 3+ backticks or tildes with zero-width spaces, so no line inside a code
-    block can close it. `.replace("```", ...)` left a run of three in a run of four (independent
-    review 2026-09-28)."""
+    block can close it. `.replace("```", ...)` left a run of three in a run of four."""
     return _FENCE_RUN.sub(lambda m: "\u200b".join(m.group(0)), text)
 
 
@@ -945,7 +943,7 @@ def _render_markdown(d: dict) -> str:
         # ---- proposal and gate
         *_proposal_lines(d.get("proposal")),
         # ---- the gate's own finding, before the follow-ups: an action the gate says cannot work must not read as a
-        # recommendation. (The runbook and its risks that stood here printed commands; gone 2026-10-16.)
+        # recommendation. (No runbook here: it would print commands.)
         *_contradiction_lines(d.get("verdict"), d.get("proposal")),
         # ---- follow-ups by team
         *_follow_up_lines(d),
@@ -963,8 +961,8 @@ def _head_lines(d: dict) -> list[str]:
     a, v = d["alert"], d.get("verdict")
     lines = [f"# WARDEN incident report - {a['service']} ({a['environment']})",
              f"Alert name {untrusted_inline(a['name'])}"]
-    # Where the alert came from (owner, 2026-10-15: "i dont know whats their sources are i mean datadog or grafana or
-    # xray"): only WARDEN's own intake words, never a value a sender chose.
+    # Where the alert came from (Datadog, Grafana, X-Ray, ...): only WARDEN's own intake words, never a value a sender
+    # chose.
     if a.get("via") in ALERT_SOURCES:
         lines.append(f"Source **{ALERT_SOURCES[a['via']]}**")
     started = _parse_ts(a.get("started_at") or "")
@@ -978,8 +976,8 @@ def _head_lines(d: dict) -> list[str]:
 
 def _next_step(p: dict | None, v: dict) -> str:
     """The next step the verdict leaves."""
-    # A hand-off the gate lets stand is not "nothing to run": a person was asked to look (the runtime's first
-    # report on today's code read "No change proposed - recorded, nothing to run" over an escalation, 2026-10-11).
+    # A hand-off the gate lets stand is not "nothing to run": a person was asked to look (never "No change
+    # proposed - recorded, nothing to run" over an escalation).
     if p and p.get("action") == "escalate_to_human" and v["status"] == "auto_safe":
         return _HANDED_OVER
     if v["status"] == "escalated" and set(v.get("policy_ids") or []) == _OFFERED_UNDO:
@@ -1012,7 +1010,7 @@ def _impact_line(d: dict) -> str:
     if ev["tool_errors"] and not ev["metrics"]:
         return "- **Impact**: unknown - WARDEN could not read the system (see below)."
     if d.get("error_lines"):
-        # ⚠ inc-001 said "no failing component" above four HTTP 500 lines until 2026-09-25. Errors are
+        # ⚠ inc-001 once said "no failing component" above four HTTP 500 lines. Errors are
         # impact; they are just not a COUNTED broken object (crashed, unready, saturated).
         return (f"- **Impact seen in the evidence**: {d['error_lines']} error line(s); no crashed, "
                 "unready or saturated component counted.")

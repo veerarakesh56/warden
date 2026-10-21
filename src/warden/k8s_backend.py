@@ -8,7 +8,7 @@ Things that are deliberate, most of them learned from an adversarial review of t
 
 1. **Read-only.** The client calls are `list_namespaced_pod`, `list_namespaced_event`,
    `read_namespaced_pod_log`, `read_namespaced_deployment`, `list_namespaced_replica_set`,
-   `list_namespaced_horizontal_pod_autoscaler` (the sixth, 2026-09-25). Nothing else. A test walks this module's AST for write-shaped calls — but that check is a tripwire, not the
+   `list_namespaced_horizontal_pod_autoscaler`. Nothing else. A test walks this module's AST for write-shaped calls — but that check is a tripwire, not the
    boundary. **RBAC is the boundary**: the ServiceAccount in `k8s/` cannot mutate anything, so a bug
    here cannot either. Outside the cluster, with a developer kubeconfig, the boundary is whatever
    that kubeconfig allows — say so rather than pretend otherwise.
@@ -119,8 +119,8 @@ def eks_token(sts: Any, cluster: str, *, expires: int = 60) -> str:
 
 def eks_backend(eks: Any, sts: Any, cluster: str) -> KubernetesBackend:
     """A KubernetesBackend on an EKS cluster in the caller's own role - no kubeconfig, no in-cluster identity: the cloud
-    runtime reads a cluster in the incident's environment reader role (2026-10-15: every pod, event and log read there
-    failed "credentials rejected or missing"). The cluster's own CA is verified."""
+    runtime reads a cluster in the incident's environment reader role (with any other credentials every pod, event and log read there
+    fails "credentials rejected or missing"). The cluster's own CA is verified."""
     from kubernetes import client
 
     api = eks_api_client(eks.describe_cluster(name=cluster)["cluster"], sts, cluster)
@@ -254,8 +254,8 @@ class KubernetesBackend:
 
         # ⭐ The read-only checks an on-call engineer would otherwise run by hand (kubectl describe,
         # kubectl logs --previous, kubectl rollout history) - done here, with reads already granted, so
-        # the report shows their RESULTS instead of asking a person to go and look. Added 2026-09-25
-        # after the owner asked why the report listed kubectl commands WARDEN could run itself.
+        # the report shows their RESULTS instead of asking a person to go and look: a report must not list
+        # kubectl commands WARDEN could run itself.
         lines.extend(_container_status_lines(pods[:LOG_MAX_PODS]))
         lines.extend(self._previous_logs(ns, pods[:LOG_MAX_PODS]))
         lines.extend(self._rollout_history(alert))

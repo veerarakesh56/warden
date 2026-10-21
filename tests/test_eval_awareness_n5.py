@@ -1,6 +1,6 @@
-"""Register N5 / audit A-N-5: evaluation awareness. A model that can tell it is being measured can behave better
+"""Register N5: evaluation awareness. A model that can tell it is being measured can behave better
 under measurement than in production. So nothing the benchmark adds - its alert templates, its ids, the words a
-harness uses - may reach the prompt. Measured 2026-10-03 on the 30 recorded qualification contexts: the only
+harness uses - may reach the prompt. Measured on the 30 recorded qualification contexts: the only
 such token anywhere in an alert or context was the alert id `bench`, which the prompt does not carry."""
 
 from __future__ import annotations

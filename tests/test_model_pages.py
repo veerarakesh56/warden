@@ -1,4 +1,4 @@
-"""Item 7c: a person is paged - through WARDEN's pager (PR 43), to the page topic it already has - when the model
+"""A person is paged - through WARDEN's pager, to the page topic it already has - when the model
 provider is unavailable, the daily cap is reached or an incident's budget is spent. Once per condition per UTC day,
 never once per call; never for a normal error (an answer that was not JSON, a refusal, a retry that got through, a
 bad key); and the page says fixed words only - never an error's text, a value from the evidence or a secret."""
@@ -250,7 +250,7 @@ def test_the_pages_words_are_fixed_and_the_pager_opens_one_page_per_alarm():
 
 
 def test_a_count_that_could_not_be_sent_is_tried_again_not_lost(tmp_path, monkeypatch):
-    """CodeRabbit, PR 176: recorded before it was sent, a failed count silenced the day's page. Now the record follows
+    """Recorded before it was sent, a failed count silenced the day's page. Now the record follows
     the count, so the next call sends it again."""
     import boto3
 

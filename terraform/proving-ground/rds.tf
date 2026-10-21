@@ -50,7 +50,7 @@ resource "aws_db_instance" "this" {
   allocated_storage = 20
   storage_type      = "gp2"
   storage_encrypted = true # aws/rds, the AWS-managed key: no key to create, pay for or delete
-  # On an instance created before 2026-10-16 this replaces it with a new, empty database: run
+  # On an instance created without encryption this replaces it with a new, empty database: run
   # scripts/setup_proving_ground_db.py again, so the harness's sentinel guard marks the new one.
 
   db_name  = "warden"
@@ -58,18 +58,17 @@ resource "aws_db_instance" "this" {
   password = var.db_password
   port     = 5432
 
-  # Private (Sonar terraform:S8793, owner 2026-10-21): no public address; the operator reaches it through the SSM
+  # Private (Sonar terraform:S8793): no public address; the operator reaches it through the SSM
   # port-forward in db_tunnel.tf, and PostgreSQL 16 on RDS refuses a connection without TLS (rds.force_ssl defaults to 1
   # from 15 on).
   db_subnet_group_name   = aws_db_subnet_group.this[0].name
   vpc_security_group_ids = [aws_security_group.db[0].id]
   publicly_accessible    = false
 
-  # Seven days of automated backups (Sonar terraform:S6364, owner 2026-10-20). No extra cost: RDS keeps backup storage
+  # Seven days of automated backups (Sonar terraform:S6364). No extra cost: RDS keeps backup storage
   # up to the database's size free, and a destroy deletes the automated backups with the instance
   # (delete_automated_backups defaults to true; skip_final_snapshot below leaves no snapshot either). Developers report
-  # that AWS Free plan accounts refuse more than 1 day (FreeTierRestrictionError); no AWS page says so (searched
-  # 2026-10-20), so the rule's 7 days stand, and an apply on such an account fails loudly at create, before any cost.
+  # that AWS Free plan accounts refuse more than 1 day (FreeTierRestrictionError); no AWS page says so, so the rule's 7 days stand, and an apply on such an account fails loudly at create, before any cost.
   multi_az                 = false
   backup_retention_period  = 7
   delete_automated_backups = true

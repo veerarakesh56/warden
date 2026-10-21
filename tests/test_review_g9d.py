@@ -1,5 +1,4 @@
-"""The independent review of G9-D1/D2a/D2b (2026-10-10, review-g9-d.md): each finding, held by a test that fails
-without its fix."""
+"""An independent review of G9-D1/D2a/D2b: each finding, held by a test that fails without its fix."""
 
 from __future__ import annotations
 
@@ -135,7 +134,7 @@ def test_h2_a_pause_ends_mitigated_and_never_resolves_the_page(monkeypatch, tmp_
     assert resolved == []
 
 
-# --------------------------------------------------------------------------- the second review (review-g9-e.md)
+# --------------------------------------------------------------------------- a follow-up review
 
 def _zones():
     from test_aws_fixes_g9d import Zones

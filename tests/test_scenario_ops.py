@@ -451,7 +451,7 @@ def test_every_variant_named_in_the_catalog_exists():
 # --------------------------------------------------------------------------- leaving nothing behind
 #
 # ⛔ Everything the injector creates must carry the project tag. Terraform does not know about these
-# resources, and until 2026-09-11 nothing tagged them - so the teardown sweep, which reports "0 tagged
+# resources, and once nothing tagged them - so the teardown sweep, which reports "0 tagged
 # resources remaining", could not see them and would have declared the account clean with one
 # task-definition revision per scenario per wave still in it.
 
@@ -472,7 +472,7 @@ def test_the_recreated_log_group_is_tagged_so_teardown_can_find_it(clients, targ
 @pytest.mark.parametrize("group, tags", [("/ecs/payments", {"Stack": "warden-proving-ground"}),
                                          ("/ecs/checkout", {}), ("/ecs/checkout", {"Stack": "payments-prod"})])
 def test_only_the_proving_grounds_own_tagged_log_group_is_deleted(clients, target, group, tags):
-    """Audit A-B-L15: an `/ecs/` prefix let any service's log group in the account through."""
+    """An `/ecs/` prefix let any service's log group in the account through."""
     clients.logs.tags = tags
     with pytest.raises(ops.OpError, match="refusing to delete"):
         ops.op_logs_delete_group(clients, target, log_group=group)

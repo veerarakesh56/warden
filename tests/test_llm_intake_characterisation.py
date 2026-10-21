@@ -133,7 +133,7 @@ def test_an_invalid_answer_is_asked_again_and_each_is_charged():
 
 def test_three_invalid_answers_are_refused_naming_the_attempts_and_the_last_error():
     c = _client(_Provider(Completion("a", 1, 1), Completion("b", 1, 1), Completion('{"y": 1}', 1, 1)))
-    # 2026-10-21: the last error is told by its field path and error type only - pydantic's own text quoted
+    # The last error is told by its field path and error type only - pydantic's own text quoted
     # the answer's values (`input_value=...`), and this message reaches the audit row and the report.
     with pytest.raises(llm.ModelRefused, match=r"^_Out not produced after 3 attempts: 1 validation error for _Out: "
                                                r"x \(missing\)$"):

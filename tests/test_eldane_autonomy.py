@@ -1,4 +1,4 @@
-"""Eldane, the AI critic, and dev autonomy (owner, 2026-10-16/17; eldane.py, autonomy.py).
+"""Eldane, the AI critic, and dev autonomy (eldane.py, autonomy.py).
 
 Every guard has a test here that fails when the guard is removed (scripts/mutation_check.py plants each one):
 Eldane cannot override the gate; prod is never autonomous; each demotion trigger demotes; catch trials are scored and a
@@ -97,7 +97,7 @@ def _review(world, plan=None, chance=lambda n: n - 1):  # n - 1: never a catch t
 
 
 def test_eldane_always_uses_the_other_model_from_the_one_that_diagnosed(world):
-    """Owner, 2026-10-17: one family, on the same key - never the same model. Sonnet diagnosed: Opus reviews, and the
+    """One family, on the same key - never the same model. Sonnet diagnosed: Opus reviews, and the
     other way round; the choice is on the record."""
     _review(world)
     assert set(world["model"].asked_models) == {"claude-opus-5-5"}
@@ -177,7 +177,7 @@ def test_an_unreadable_or_unfounded_answer_is_a_no(world, answer, why):
 
 
 def test_a_dev_class_starts_autonomous_with_no_record_and_prod_never_is(world):
-    """Owner, 2026-10-17: dev is autonomous through Eldane from the first plan - no shadow period, no minimum of catch
+    """Dev is autonomous through Eldane from the first plan - no shadow period, no minimum of catch
     trials. Prod stays at L1 (a person's passkey), an unknown environment at L0."""
     log, models = world["log"], world["models"]
     assert not log.entries(kinds=(autonomy.OUTCOME, autonomy.TRIAL))
@@ -456,7 +456,7 @@ def test_eldane_never_sees_a_plan_the_gate_stopped(world):
     assert not world["log"].entries(INC, kinds=(autonomy.VERDICT,))
 
 
-# ----------------------------------------------------------------------------- PR 42 review
+# ----------------------------------------------------------------------------- confusion and misuse
 
 
 def test_a_review_with_no_diagnosis_provenance_is_refused_not_trusted(world):
@@ -554,7 +554,7 @@ def test_a_retried_end_still_scores_the_run_once(world, monkeypatch):
     assert [(r["status"], r["failed"]) for r in rows] == [("rolled_back", True)]
 
 
-# ----------------------------------------------------------------------------- owner, 2026-10-17: people keep control
+# ----------------------------------------------------------------------------- people keep control
 
 
 def test_a_person_s_no_stops_an_eldane_approved_plan_before_it_is_applied(world):
@@ -673,11 +673,11 @@ def test_the_re_enable_runs_through_its_own_workflow_in_the_core_zone(world):
     assert autonomy.level(world["log"], "dev", "k8s_restart", world["models"]).level == autonomy.L2
 
 
-# ----------------------------------------------------------------------------- PR 42 review, second pass
+# ----------------------------------------------------------------------------- confusion and misuse, continued
 
 
 def test_a_re_enable_is_checked_for_its_own_environment(world):
-    """CodeRabbit, PR 42: the re-enable is checked against the environment it re-enables - an approver limited to
+    """The re-enable is checked against the environment it re-enables - an approver limited to
     another one is refused, one limited to it may."""
     log, models = world["log"], world["models"]
     log.append("old", autonomy.OUTCOME, {"environment": "dev", "entry": "k8s_rollout_undo", "status": "rolled_back",
@@ -717,7 +717,7 @@ def test_a_skipped_review_is_never_a_model_change(world):
 
 
 def test_where_eldane_cannot_approve_the_person_is_asked_before_it_reviews(world):
-    """CodeRabbit, PR 42 (outside the diff): in prod the request waited for Eldane's review - up to eight minutes -
+    """In prod the request waited for Eldane's review - up to eight minutes -
     though Eldane can never approve there. The person is asked first; the review follows, in shadow."""
     world["platform"] = Platform(environment="prod")
 
@@ -742,7 +742,7 @@ def test_where_eldane_cannot_approve_the_person_is_asked_before_it_reviews(world
 
 
 def test_an_id_past_the_evidence_shown_is_not_on_eldanes_record(world, monkeypatch):
-    """CodeRabbit, PR 42: the ids were read from the whole evidence, the model shown only its first MAX_EVIDENCE
+    """The ids were read from the whole evidence, the model shown only its first MAX_EVIDENCE
     characters - a citation of an item past the cut passed the grounding check."""
     monkeypatch.setattr(eldane, "MAX_EVIDENCE", len(EVIDENCE))
     world["log"].append(INC, "incident.evidence", {"prompt": EVIDENCE + "\n[L37] past the cut"})

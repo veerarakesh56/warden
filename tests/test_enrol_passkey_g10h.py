@@ -1,4 +1,4 @@
-"""Enrolling a passkey on the approval page (decision D14, register H6; the owner's first live enrolment, 2026-10-12).
+"""Enrolling a passkey on the approval page (decision D14, register H6).
 
 The link is signed by the approver's own Ed25519 key, lasts 15 minutes and works once. The page runs the ceremony and
 hands back the approver list with the new passkey in it - and trusts nothing of it: the passkey approves only after a
@@ -185,7 +185,7 @@ def test_the_api_routes_the_enrolment_steps_the_page_serves():
 
 
 def test_the_enrolment_page_can_be_cleared_and_says_what_the_list_and_its_risk_levels_are():
-    """Owner, 2026-10-12: after copying the list "there should be something to close it or say done", or the list
+    """After copying the list "there should be something to close it or say done", or the list
     stays on the page for whoever sees the tab or its history later - and "what does all this T1 T2 T3 mean"."""
     from warden import approvals
     from warden.approval_page import _ENROL

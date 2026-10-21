@@ -1,4 +1,4 @@
-"""Verifier cases from the second independent review (2026-09-30, area C): P11 lag names and units,
+"""Verifier cases from an independent review: P11 lag names and units,
 P14 on real model targets and invisible characters, P15 on WARDEN's own fact spellings, P5 on a target
 that names both the service and its deployed function."""
 
@@ -52,8 +52,8 @@ def test_p15_accepts_wardens_own_fact_spellings(action, quote):
 
 
 def test_p5_accepts_a_target_naming_the_service_and_its_deployed_function():
-    """The deployed function is the service behind a CONFIGURED environment prefix (third review,
-    2026-09-30: any name component also let payments-orders count as orders)."""
+    """The deployed function is the service behind a CONFIGURED environment prefix (any name component
+    would also let payments-orders count as orders)."""
     deploys = [{"kind": "lambda", "service": "warden-dev-checkout", "at": "2026-09-28T09:59:00Z"}]
     from test_verifier_review import ALERT
 

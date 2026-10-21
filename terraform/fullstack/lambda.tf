@@ -99,7 +99,7 @@ locals {
         # (scenarios/ops_fullstack.py FLAGS): fs-01 sets v2, fs-02 sets 2000.
         CHECKOUT_FF_1    = "v1"
         CHECKOUT_FF_2    = "0"
-        API_TOKEN_SECRET = aws_secretsmanager_secret.api_token.arn # A-I-13: the token POST /checkout requires
+        API_TOKEN_SECRET = aws_secretsmanager_secret.api_token.arn # the token POST /checkout requires
       }
     }
     order-processor = {
@@ -326,7 +326,7 @@ resource "aws_apigatewayv2_route" "checkout" {
   target    = "integrations/${aws_apigatewayv2_integration.checkout.id}"
 }
 
-# Access logs. Under /aws/vendedlogs/: the owner creates ONE account-level resource policy that lets
+# Access logs. Under /aws/vendedlogs/: an operator creates ONE account-level resource policy that lets
 # CloudWatch Logs' delivery service write to /aws/vendedlogs/warden-* (docs/SETUP.md, 3e), so API Gateway
 # never needs logs:PutResourcePolicy - which the boundary denies, because such a policy can share logs outside.
 resource "aws_cloudwatch_log_group" "api_access" {

@@ -1,4 +1,4 @@
-"""The processes ONE recorded SuspendProcesses stopped on an Auto Scaling group, resumed (2026-10-11; held-out g10-103:
+"""The processes ONE recorded SuspendProcesses stopped on an Auto Scaling group, resumed (held-out g10-103:
 a person suspended Launch, Terminate and ReplaceUnhealthy, forgot them, and the group could no longer replace two
 failed instances - the right undo had no entry). The event itself names what to resume; a SuspendProcesses that names
 no process suspends them all (AWS API reference, read 2026-10-11)."""

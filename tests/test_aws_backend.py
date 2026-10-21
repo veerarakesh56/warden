@@ -124,7 +124,7 @@ def _backend(*, logs=None, cw=None, ecs=None):
 
 def test_resolve_backend_knows_aws(monkeypatch):
     # A region, but deliberately no credentials: boto3 resolves credentials lazily at call time,
-    # so constructing the backend must work on a laptop with an empty ~/.aws.
+    # so constructing the backend must work on a machine with an empty ~/.aws.
     monkeypatch.setenv("WARDEN_AWS_REGION", "eu-west-1")
     backend = resolve_backend("aws")
     assert backend.name == "aws"
@@ -189,7 +189,7 @@ def test_logs_are_formatted_with_stream_and_timestamp():
 
 
 def test_a_chosen_stream_name_cannot_forge_a_trusted_item():
-    """Audit A-C-3: any task role may create a stream and name it, spaces included."""
+    """Any task role may create a stream and name it, spaces included."""
     from warden import evidence
     from warden.models import ContextBundle
 
@@ -643,7 +643,7 @@ def test_it_falls_back_to_the_previous_revision_when_the_service_is_steady():
 
 def test_the_proving_ground_reader_grants_exactly_what_the_code_calls():
     """The benchmark's reader role carries its own copy of the list, and its comment claimed this
-    test covered it while only terraform/main.tf was read (found 2026-09-25). Now both are."""
+    test covered it while only terraform/main.tf was read. Now both are."""
     text = (ROOT / "terraform" / "proving-ground" / "iam.tf").read_text(encoding="utf-8")
     block = re.search(r'sid\s*=\s*"ReadObservabilitySignals".*?actions\s*=\s*\[(.*?)\]', text, re.DOTALL)
     assert block, "ReadObservabilitySignals statement not found in terraform/proving-ground/iam.tf"
@@ -686,7 +686,7 @@ def test_every_page_of_the_window_is_read():
 
 
 def test_a_window_larger_than_the_page_budget_still_reads_the_alert_time_lines():
-    """Audit A-B-M5: pages run oldest-first; a window needing more than the page budget stopped among the oldest
+    """Pages run oldest-first; a window needing more than the page budget stopped among the oldest
     lines, and the ones at alert time - the fault - were never read."""
     import warden.aws_backend as ab
 
@@ -710,7 +710,7 @@ def test_a_window_larger_than_the_page_budget_still_reads_the_alert_time_lines()
 
 
 def test_a_rollback_is_reported_with_nothing_to_roll_back_to():
-    """Audit A-B-M6: checkout:6 going live while checkout:7 is replaced is a rollback (ECS's circuit breaker, or a
+    """checkout:6 going live while checkout:7 is replaced is a rollback (ECS's circuit breaker, or a
     person). The deploy named 7 - the broken revision - as `previous`, and a rollback aimed at it redeployed it."""
     defs = {"checkout:6": ["repo/checkout:healthy"], "checkout:7": ["repo/checkout:broken"],
             "checkout:5": ["repo/checkout:older"]}
@@ -724,7 +724,7 @@ def test_a_rollback_is_reported_with_nothing_to_roll_back_to():
 
 
 def test_a_failed_or_partial_metric_read_reaches_the_tool_errors():
-    """Audit A-B-M18: a failed utilisation read returned nothing and said nothing, so its absence read as
+    """A failed utilisation read returned nothing and said nothing, so its absence read as
     "not elevated"; a series CloudWatch could not finish read as complete."""
     from warden.tools import gather
 

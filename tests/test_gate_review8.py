@@ -1,4 +1,4 @@
-"""The outbound gate after the eighth independent review, area A: the gate normalises first - control
+"""The outbound gate normalises first - control
 characters and the code points a URL parser drops are removed before the leak check and before links are removed."""
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ TOKENS = {"aws": AWS_ACCESS_KEY_ID, "npm": "npm_" + "abcdefghijklmnopqrstuvwxyz0
 
 @pytest.mark.parametrize("name", list(TOKENS))
 def test_a_coloured_key_is_withheld_on_every_path(name):
-    """Ninth review (2026-10-01, HIGH, pre-existing): a terminal colour code glued to a key (`ESC[1m<key>`) hid it
+    """HIGH, pre-existing: a terminal colour code glued to a key (`ESC[1m<key>`) hid it
     from every pattern needing a word boundary - sent by the terminal, the gate, MCP data and the log."""
     import logging
 
@@ -77,7 +77,7 @@ def test_a_coloured_key_is_withheld_on_every_path(name):
 
 @pytest.mark.parametrize("cp", [0x0007, 0x200B, 0x00AD, 0xFE0F, 0x200E])
 def test_a_key_glued_to_a_letter_by_a_removed_character_is_still_found(cp):
-    """Ninth review (a regression from c52f6db): G5 ran on the normalised text only, so `x<BEL>AKIA...` became
+    """A regression from c52f6db: G5 ran on the normalised text only, so `x<BEL>AKIA...` became
     `xAKIA...` - no boundary - and the key went out whole (the CLI's argument error, MCP's unknown-tool error)."""
     from warden import mcp_server
 
@@ -90,7 +90,7 @@ def test_a_key_glued_to_a_letter_by_a_removed_character_is_still_found(cp):
 
 @pytest.mark.parametrize("glue", ["<b></b>", "<i>", "<br/>", "<!here>", "<@U123>", "<!-- c -->"])
 def test_a_key_assembled_by_removing_a_tag_is_withheld(glue):
-    """Ninth review (MED, pre-existing): G3 removed a tag from inside a key after G5 had passed the text - the key
+    """MED, pre-existing: G3 removed a tag from inside a key after G5 had passed the text - the key
     G5 never saw went out whole. G5 now checks what G3 makes of the text too."""
     key = TOKENS["aws"]
     split = key[:6] + glue + key[6:]
@@ -101,7 +101,7 @@ def test_a_key_assembled_by_removing_a_tag_is_withheld(glue):
 
 
 def test_a_key_written_after_an_escape_written_out_is_withheld(capsys):
-    """Ninth review: argparse prints `repr()` - `'\\x1b[2JAKIA...'` - and the literal escape glued `J` to the key."""
+    """Argparse prints `repr()` - `'\\x1b[2JAKIA...'` - and the literal escape glued `J` to the key."""
     from warden import cli
 
     key = TOKENS["aws"]
@@ -111,7 +111,7 @@ def test_a_key_written_after_an_escape_written_out_is_withheld(capsys):
 
 @pytest.mark.parametrize("text", ["warning \u26a0\ufe0f disk", "keycap 1\ufe0f\u20e3", "CJK \u845b\U000e0100 x"])
 def test_emoji_and_variation_selectors_pass_unchanged(text):
-    """Ninth review (from c52f6db): removing every variation selector broke emoji and lost a CJK selector."""
+    """A regression from c52f6db: removing every variation selector broke emoji and lost a CJK selector."""
     result = gate.enforce(text)
     assert result.verdict == "PASS", result
     assert result.text == text, result
@@ -119,13 +119,13 @@ def test_emoji_and_variation_selectors_pass_unchanged(text):
 
 @pytest.mark.parametrize("text", ["see p://evil.com/x", "see htt\tp://evil.com/x", "see ://evil.com/x"])
 def test_a_one_letter_or_bare_scheme_is_still_a_link(text):
-    """Ninth review: `x://evil.com` (one letter) passed unchanged, and so did a scheme broken by a tab."""
+    """`x://evil.com` (one letter) passed unchanged, and so did a scheme broken by a tab."""
     out = gate.enforce(text.replace("\\t", "\t")).text
     assert "evil.com" not in out, out
 
 
 def test_a_link_inside_inline_code_is_removed_without_eating_the_closing_backtick():
-    """Found 2026-10-02: the URL match ran over the closing backtick, so `see `https://evil.com/x` now` became
+    """The URL match once ran over the closing backtick, so `see `https://evil.com/x` now` became
     `see `[link removed] now` - an unclosed code span that swallowed the rest of the line."""
     result = gate.enforce("see `https://evil.com/x` now")
     assert result.text == "see `[link removed]` now", result.text

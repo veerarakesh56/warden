@@ -7,7 +7,7 @@ read when a process starts: after a rotation, restart the workers (or let the de
 is in use. `tests/test_operations_rotation.py` fails if a secret WARDEN can load has no row here.
 
 WARDEN's own cloud runtime has a slot only for the secrets one of its zones or Lambdas reads (settings.ZONE_SECRETS and
-LAMBDA_SECRETS, terraform/modules/warden-runtime/secrets.tf; secrets audit, 2026-10-16). A rotation's `_PREVIOUS`
+LAMBDA_SECRETS, terraform/modules/warden-runtime/secrets.tf). A rotation's `_PREVIOUS`
 secret, the Alertmanager webhook's token, PagerDuty, Teams, another model's key and the terminate role's DSN have none
 there: before using one, add it to the zone or Lambda that reads it, to secrets.tf and to iam.tf, and apply.
 
@@ -29,8 +29,8 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_SLACK_WEBHOOK`, `WARDEN_TEAMS_WEBHOOK`, `WARDEN_WEBHOOK_URL` | posting through an incoming webhook | create a new webhook, store it, restart, delete the old one | both work until the old one is deleted |
 | `WARDEN_GITHUB_TOKEN` | opening change-record issues in one repository | create a new fine-grained token limited to issues on that repository, with an expiry; store it, restart, revoke the old one | both work until the old one is revoked |
 | `WARDEN_GITHUB_READ_TOKEN` | reading one repository's pull requests, their review comments and reviews, code scanning alerts and the deploy's commits (tools.py; the read zone's alone, `warden/<env>/github-read-token`) | create a new fine-grained token on that repository alone, read-only (Pull requests, Code scanning alerts, Contents, Metadata), with an expiry; store it in `warden/<env>/github-read-token`, restart the read workers, then revoke the old one | both work until the old one is revoked |
-| `WARDEN_DB_DSN`, `WARDEN_DB_TERMINATE_DSN`, `WARDEN_STACK_DB_PRIMARY_RO_DSN`, `WARDEN_STACK_DB_REPLICA_RO_DSN` | the database readers and the narrow terminate role (renamed 2026-10-16 from `WARDEN_DB_ADMIN_DSN`, `WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN`, which are still read for one release with a warning; the Secrets Manager slots keep the old names `db-admin-dsn`, `stack-db-writer-dsn` and `stack-db-reader-dsn` until the runtime module renames them) | change the role's password (or let RDS rotate the managed secret), store the new DSN, restart | a database role has one password: rotate, then restart promptly |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock (`ANTHROPIC_API_KEY`: read by the llm zone and by Eldane's critic zone - one key, owner 2026-10-17) | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
+| `WARDEN_DB_DSN`, `WARDEN_DB_TERMINATE_DSN`, `WARDEN_STACK_DB_PRIMARY_RO_DSN`, `WARDEN_STACK_DB_REPLICA_RO_DSN` | the database readers and the narrow terminate role (formerly `WARDEN_DB_ADMIN_DSN`, `WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN`, which are still read for one release with a warning; the Secrets Manager slots keep the old names `db-admin-dsn`, `stack-db-writer-dsn` and `stack-db-reader-dsn` until the runtime module renames them) | change the role's password (or let RDS rotate the managed secret), store the new DSN, restart | a database role has one password: rotate, then restart promptly |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock (`ANTHROPIC_API_KEY`: read by the llm zone and by Eldane's critic zone - one key) | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
 | `WARDEN_ELDANE_KEY` | Eldane's own Ed25519 signing key (eldane.py; the critic zone's alone): its approvals in dev | `warden audit keygen --private eldane.pem --public eldane.pub.pem --unencrypted` a new pair; put the public key in the approver list's AI entry (a reviewed change) and the private PEM in `warden/<env>/eldane-key`; restart the critic worker; destroy the old private key | Eldane's approvals stop until both halves match: rotate between incidents |
 
 Keys that are not environment secrets:
@@ -163,13 +163,13 @@ again). Median is the middle value (the mean of the two middle ones for an even 
 sorted[ceil(0.9 x n) - 1]. A rate with nothing to divide by is "n/a". A time whose alarm is later than its plan or fix
 (the alarm source's clock ahead) is left out and counted.
 
-`llm.call` and `llm.fallback` rows are new (lane FDE-F, 2026-10-21): an audit with neither row anywhere says cost and
+`llm.call` and `llm.fallback` rows are new: an audit with neither row anywhere says cost and
 fallbacks are "not recorded", never 0. Once either row exists, no fallback in the window is a measured 0.
 
 Not in the audit, so not in the report: a cost for a call row without one, the cost of Eldane's `eldane.call` rows in
 the spend ledger (they record tokens, not US dollars), and any time a person spent outside WARDEN.
 
-## Pause and resume to save money (owner update 5, 2026-10-17)
+## Pause and resume to save money
 
 Between uses, pause instead of destroy: every data store is copied first, and resume brings it back from the newest
 copy. On a first install there is no copy, and resume simply builds everything empty, as apply does.
@@ -190,9 +190,8 @@ stack is held
 (only these Lambdas write the data kept; the ECS orders-api and the shop's pods only read it or write the Redis cache).
 A queue that does not drain in 15 minutes stops the pause before any copy; `python scripts/pause_resume.py wake`
 (also run by resume) turns them on again. Nothing is deleted or stopped until every copy is **available** (the step
-fails otherwise, and no later step runs). Resume takes the newest available `-pause-` copy by the time AWS made it, so the
-copies made by hand on 2026-10-17 (`warden-dev-aurora-pause-20261017`, `warden-dev-carts-pause-20261017`,
-`warden-ops-audit-pause-20261017`, a date only) are found too. An existing database or table is never overwritten. If a plain `destroy` came after the last pause (its final
+fails otherwise, and no later step runs). Resume takes the newest available `-pause-` copy by the time AWS made it, so
+copies made by hand and named with a date only (`warden-<env>-aurora-pause-YYYYMMDD`) are found too. An existing database or table is never overwritten. If a plain `destroy` came after the last pause (its final
 snapshot is newer than every pause copy), `latest` is refused and both are named: pick one with
 `aurora_express.py create --from-snapshot <id>` and restore the tables by hand, so older data is never brought back
 silently.
@@ -376,7 +375,7 @@ input, with the answer schema added by the same function the call used (`llm.ask
 that failed validation, also the feedback that retry appended, which the call recorded (`sent_appended`: field paths
 and error types only, never a value). Only the final attempt is shown. Each is shown only when its
 SHA-256 equals the hash the call recorded for the text it sent (`sent_system_sha256`, `sent_user_sha256` in the
-diagnosis provenance, kept since 2026-10-21); otherwise the line says it is not shown and why (the prompt or schema
+diagnosis provenance); otherwise the line says it is not shown and why (the prompt or schema
 changed since, no answer recorded, the model not asked, or a call recorded before those hashes existed). The prompt was
 redacted before it was sent, so it holds the same `<KIND_n>` placeholders the model saw, never the values behind them:
 the redaction map never enters Temporal's history, so no decryption here can reveal one. Each text also goes through
@@ -384,7 +383,7 @@ the redactor and the gate; if they change anything it is shown masked and marked
 value is a separate, audited reveal by a signed-in person, not this command. What this does not cover: the provider's
 own request envelope (model name, token limits), and the model calls of the critic (Eldane) and of discussion chat.
 
-Not built, by decision (2026-10-21): a codec server for the Temporal web UI. WARDEN's payloads are bound to their
+Not built, by decision: a codec server for the Temporal web UI. WARDEN's payloads are bound to their
 workflow, which the UI does not send, so one would need a change to the payload format; and a hosted one would put
 the payload key in an internet-facing Lambda. If the web UI view is wanted later, the option is a local codec server
 on an allowed person's computer (loopback only) together with that format change.

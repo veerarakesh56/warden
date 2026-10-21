@@ -59,8 +59,8 @@ def _slug(name: str, zone: str | None = None) -> str:
 
 def test_every_secret_the_runtime_reads_has_a_slot_and_no_slot_is_unused():
     """Decision D5: the slots are exactly the secrets a zone or a Lambda of the runtime reads, named as
-    settings.secret_id names them - each a secret the code loads. Secrets audit, 2026-10-16: 14 slots nobody read or
-    set (a rotation's previous keys, other models' keys, Teams, PagerDuty, the audit's DSN and passphrase) went."""
+    settings.secret_id names them - each a secret the code loads. No slot exists that nobody reads or
+    sets (a rotation's previous keys, other models' keys, Teams, PagerDuty, the audit's DSN and passphrase have none)."""
     from warden import settings
 
     text = (MODULE / "secrets.tf").read_text(encoding="utf-8")
@@ -109,7 +109,7 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
     assert "master_password" not in db.replace("manage_master_user_password", "")
     variables = (MODULE / "variables.tf").read_text(encoding="utf-8")
     # 7 days or more; fewer (1 at least) only when the root says the account is on the AWS Free plan, which refuses
-    # longer retention (FreeTierRestrictionError, 2026-10-09). Never set in production.
+    # longer retention (FreeTierRestrictionError). Never set in production.
     assert ("condition     = var.audit_db_backup_days >= 7 || (var.aws_free_plan && var.audit_db_backup_days >= 1)"
             in variables)
     root = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
@@ -119,7 +119,7 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
     assert "referenced_security_group_id = aws_security_group.runtime.id" in ingress
     assert "5432" in ingress
     assert "cidr_ipv4" not in net.split('resource "aws_security_group" "audit_db"')[1]  # no address range reaches it
-    # EC2 accepts only a-zA-Z0-9 and . _-:/()#,@[]+=&;{}!$* and space in a rule's description (the first apply, 2026-10-09).
+    # EC2 accepts only a-zA-Z0-9 and . _-:/()#,@[]+=&;{}!$* and space in a rule's description (as the first apply found).
     for desc in re.findall(r'description\s*=\s*"([^"]*)"', net):
         assert re.fullmatch(r"[A-Za-z0-9 ._\-:/()#,@\[\]+=&;{}!$*]*", desc.replace("${var.environment}", "ops")), desc
 
@@ -156,9 +156,9 @@ def _front_door_access(iam: str) -> dict[str, dict]:
 
 
 def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
-    """A-P-5 / S15: a task role per zone, `warden-<env>-<zone>` - for the ops runtime the exact principals the templates
+    """S15: a task role per zone, `warden-<env>-<zone>` - for the ops runtime the exact principals the templates
     trust. Only the act zone may assume an actor; the read and notify zones (and act, which re-reads before it writes)
-    a reader. No zone calls a model through AWS (no Bedrock, owner 2026-10-09: the llm zone reaches its provider's
+    a reader. No zone calls a model through AWS (no Bedrock: the llm zone reaches its provider's
     API with its key). No zone holds a write to any watched resource itself."""
     import json
 
@@ -189,7 +189,7 @@ def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
 
 
 # What each front door's handler reads from Secrets Manager, and the module that reads it - the map each Lambda's role
-# is held to (secrets audit, 2026-10-16: all four shared one role, so the internet-facing approval page could read the
+# is held to (all four shared one role, so the internet-facing approval page could read the
 # webhook's Datadog keys). The audit's DSN is the Lambda's own environment (frontdoor.tf) and KMS signs: no secret.
 READS = {
     "alarm": {"WARDEN_TEMPORAL_KEY": "codec.py", "WARDEN_TEMPORAL_API_KEY": "runtime_base.py"},
@@ -296,7 +296,7 @@ def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
 
 # Each zone secret, the module that reads it (or the modules, when one secret has more readers: one slot, never a second
 # for the same credential), and the zones whose code reads it - the map each zone's task role is held to (secrets
-# audit, 2026-10-16: the GitHub token was moved to a zone that never reads it). A secret added later is added here by
+# The GitHub token was moved to a zone that never reads it). A secret added later is added here by
 # name, with its readers and zones.
 _EVERY = {"core", "read", "llm", "notify", "act", "critic"}
 ZONE_READS = {
@@ -306,7 +306,7 @@ ZONE_READS = {
     "WARDEN_STACK_DB_REPLICA_RO_DSN": ("aws_stack.py", {"read"}),
     "WARDEN_DATADOG_API_KEY": ("datadog.py", {"read"}),
     "WARDEN_DATADOG_APP_KEY": ("datadog.py", {"read"}),
-    # The read-only GitHub token: one slot for every read-zone reader of GitHub (owner U3-7).
+    # The read-only GitHub token: one slot for every read-zone reader of GitHub.
     "WARDEN_GITHUB_READ_TOKEN": (("tools.py",), {"read"}),
     "ANTHROPIC_API_KEY": ("providers.py", {"llm", "critic"}),
     "WARDEN_SLACK_BOT_TOKEN": ("chatops.py", {"notify"}),
@@ -314,7 +314,7 @@ ZONE_READS = {
     "WARDEN_SLACK_WEBHOOK": ("chatops.py", {"notify"}),
     "WARDEN_GITHUB_TOKEN": ("changes.py", {"notify"}),
     "WARDEN_DB_TERMINATE_DSN": ("platforms/db.py", {"act"}),
-    # Eldane, the AI critic: its own signing key (its model key is the diagnosis's, above; owner 2026-10-17).
+    # Eldane, the AI critic: its own signing key (its model key is the diagnosis's, above).
     "WARDEN_ELDANE_KEY": ("eldane.py", {"critic"}),
 }
 
@@ -450,7 +450,7 @@ def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_ex
 
 
 def test_the_worker_runs_on_fargate_with_its_own_role_only():
-    """Requirement R20 (owner, 2026-10-14: Fargate, was EC2) and the runtime's own safety: each zone's task in its own
+    """Requirement R20 (Fargate, was EC2) and the runtime's own safety: each zone's task in its own
     micro-VM with no instance metadata service, a read-only root as the image's non-root user with /tmp its only
     writable place, the worker's task role, and the settings the code reads."""
     from warden import runtime
@@ -476,7 +476,7 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     assert "task_role_arn            = aws_iam_role.zone[each.key].arn" in task
     assert "readonlyRootFilesystem = true" in task
     assert "for_each                 = local.zones" in task
-    # Cost plan 2026-10-16: Container Insights was ~USD 40 a month of custom metrics nothing reads.
+    # Container Insights was ~USD 40 a month of custom metrics nothing reads.
     assert re.search(r'name\s*=\s*"containerInsights"\s*value\s*=\s*"disabled"', _block(tf, "aws_ecs_cluster", "runtime"))
     uid = re.search(r"useradd --create-home --uid (\d+)", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))
     assert f'user                   = "{uid.group(1)}"' in task
@@ -522,7 +522,7 @@ def test_the_audit_is_reached_as_its_writer_with_an_iam_token_and_only_migrate_r
 
 def test_on_the_aws_free_plan_the_audit_is_one_private_rds_instance_with_the_same_protections():
     """The Free plan creates Aurora only in express configuration (no VPC, an internet gateway, not settable from the
-    AWS provider; FreeTierRestrictionError, 2026-10-09). A lab on it gets one RDS PostgreSQL instance of a Free plan
+    AWS provider; FreeTierRestrictionError). A lab on it gets one RDS PostgreSQL instance of a Free plan
     class instead - in the same private subnets and security group, never public, with register O4's protections - and
     everything else reads the database through local.audit_db, whichever exists."""
     aurora = (MODULE / "aurora.tf").read_text(encoding="utf-8")

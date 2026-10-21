@@ -1,4 +1,4 @@
-"""Property tests (research 2026-10-15, item 16): WARDEN's safety rules held over generated inputs, not only the cases
+"""Property tests: WARDEN's safety rules held over generated inputs, not only the cases
 someone thought of. Hypothesis (MPL-2.0, test-only) draws the inputs; a failure prints the smallest one it found."""
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def test_a_steering_word_never_makes_a_trusted_line(kind, before, word, after):
 
 B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 ALNUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-# Built from parts (owner rule: no real-looking token literal in the repository).
+# Built from parts (no real-looking token literal in the repository).
 AWS_KEY_ID = st.text(alphabet=B32, min_size=16, max_size=16).map(lambda s: "AK" + "IA" + s)
 GITHUB_TOKEN = st.text(alphabet=ALNUM, min_size=36, max_size=36).map(lambda s: "gh" + "p_" + s)
 AROUND = st.text(alphabet="abcdefghij klmnop=:,/\"'", max_size=30)

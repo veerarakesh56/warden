@@ -7,7 +7,7 @@ bump may carry a breaking change.
 
 ## [Unreleased] - becomes 0.10.1 (G1, security-critical fixes)
 
-### Added (Kubernetes and the database in the cloud runtime, PR 48, 2026-10-17)
+### Added (Kubernetes and the database in the cloud runtime)
 - **The read and act zones connect Kubernetes and the database** (`--platform aws,k8s,db`): reads in each watched
   environment's platform-reader role, every write in the approved plan's own actor session (EKS: group
   `warden-remediators`, bound in `shop` only; database: the `warden_<env>_terminate` login, an IAM token, no
@@ -23,7 +23,7 @@ bump may carry a breaking change.
   up by its tags and region too; the actor's `rds-db:connect` names the account (`actor.local.json` from
   `scripts/render_env_iam.py --account`).
 
-### Added (a typed outcome and WARDEN's own confidence, owner U3-1, 2026-10-20)
+### Added (a typed outcome and WARDEN's own confidence)
 - **Typed outcome.** The diagnosis states `decided`, `undetermined` or `no_fault` (`RootCause.outcome`). New gate
   policy `P37-OUTCOME-CONTRADICTS-PROPOSAL` (escalates): "no fault" with a change, or "undetermined" with anything but
   a hand-off. A model's answer that states none is `undetermined`; answers recorded before keep theirs unchecked.
@@ -35,12 +35,12 @@ bump may carry a breaking change.
   quote the model's citations); `grounding.separation` gives model routing the same two numbers.
 - **The diagnosis prompt** in XML-tagged sections with three worked examples (one per outcome), naming code review's
   R items as suspects, never proof. **Not qualified on any model yet** (providers.yaml).
-- **A retry says what failed** (owner item 5, 2026-10-21). After an answer that fails validation, the next attempt
+- **A retry says what failed**. After an answer that fails validation, the next attempt
   sends the same prompt plus one line naming each failed field's path and pydantic error type (`llm.RETRY_FEEDBACK`),
   never a value from the answer. Same number of attempts, same call ceiling; the retry's input is priced with the
   line. The line is part of the qualified prompt's hash.
 
-### Added (diagnosis and poisoned logs, items 7 and 10, 2026-10-17)
+### Added (diagnosis and poisoned logs)
 - **Ranked hypotheses.** The one diagnose call returns 2 to 4 candidate causes, each with citations for and against
   (`RootCause.hypotheses`). The report shows the chosen cause and each rejected one with why and WARDEN's own count.
   New gate policies: `P34-NO-DECISIVE-EVIDENCE` (the chosen cause needs a held metric, deploy or configuration/state
@@ -52,7 +52,7 @@ bump may carry a breaking change.
   styles of Pasquini et al. (USENIX Security 2026), a model that follows them, dev and prod; a `--live` variant (costs
   money, off by default). 42 of 44 runs held; the 2 that reach the approver are the rollback the evidence also
   supports, with no plan or report naming the payload's version (docs/BENCHMARKS.md).
-  `P36-NO-ACTION-DESPITE-SIGNATURE` (enforced, owner 2026-10-17) escalates "nothing to do" while WARDEN's own failure
+  `P36-NO-ACTION-DESPITE-SIGNATURE` (enforced) escalates "nothing to do" while WARDEN's own failure
   signatures describe what WARDEN read (never the alert's own name or summary): it stops the one attack that passed
   every layer (a followed "expected during maintenance" close). Cost, from the held-out keys alone: of the 33 cases a
   person may close, 11 now go to a person (G9 4 of 8, G10 7 of 25); each of those keys accepts the hand-off.
@@ -61,27 +61,27 @@ bump may carry a breaking change.
   or resource name WARDEN did not read itself; a rollback names "the previous revision WARDEN recorded"; a command
   in a shown log line is withheld (G4). The verifier still sees the model's words as written.
 
-### Changed (a model is qualified on the prompt it was measured with, review of PR 47)
+### Changed (a model is qualified on the prompt it was measured with)
 - `providers.qualified` admits a provider and model only through a row measured on today's pinned prompt. **Until
   the item 7 prompt is qualified (`scripts/qualify_provider.py` in the cloud runtime), every model is refused and
   each incident gets the rules-only diagnosis, escalated to a person** (register M19); a Slack discussion answers
   that no answer could be had instead of failing.
 
-### Changed (the bench approver, 2026-10-16)
+### Changed (the bench approver)
 - **The bench approver approves only in a nonprod environment, enforced by WARDEN.** A signed approval, a passkey
   approval or a signed denial from the bench approver (`bench`, or an entry labelled "bench approver") is refused
   in any environment that is not of the nonprod tier in `environments.yaml`, whatever its entry in the approver list
   names (`approvals.environment_refusal`, one rule for every path). `scripts/bench_approve.py --new-key` refuses any
   environment but a nonprod one and writes no key.
 
-### Removed (dead commands, owner B27)
+### Removed (dead commands)
 - **Breaking (CLI):** `warden run --principal/--approve` (an in-process gate whose only backend was a dry run),
   `warden run --emit-chatops` and the `warden incident` command are gone, with `src/warden/remediation.py` and the
   report's `## Remediation` input. Each is now a usage error. A live change has one path, the RemediationWorkflow
   behind a signed approval (decision D16); `warden run --report` still prints the report and sends nothing. The MCP
   tool `gather_incident_context` now says what it does: it reads the bundled demo recordings only, never a live system.
 
-### Added (Slack per environment, owner 2026-10-16)
+### Added (Slack per environment)
 - **Each environment's incidents go only to its own Slack channels.** New plain settings `WARDEN_SLACK_CHANNELS`
   and `WARDEN_DISCUSS_CHANNELS`, `env=channel-id[,env=channel-id]`. With the first, alerts go through the bot to the
   incident's environment's channel and the Slack webhook is not used; an environment the map does not name gets no
@@ -89,7 +89,7 @@ bump may carry a breaking change.
   only about its own environment's incidents. A malformed map stops the worker at start. Without the maps nothing
   changes. A Slack thread is now kept with its channel (`chatops.thread` rows hold `{ts, channel}`).
 
-### Changed (branches and environments, owner 2026-10-16)
+### Changed (branches and environments)
 - **Two environments, each deployed only from the branch of its own name.** **Breaking:** `staging`, `qa-staging`,
   `pre-prod` and `qa-prod` are gone from `environments.yaml`, the deploy workflows and `iam/`; an alert naming one
   now gets the restrictive default. `main` deploys nothing: no workflow that can reach AWS runs on a push to it or
@@ -103,19 +103,19 @@ bump may carry a breaking change.
 - **The deploy roles trust their own branch.** `iam/<env>/trust.json` requires `ref` and `job_workflow_ref` on
   `refs/heads/<env>`, and `iam/ops/trust.json` on the runtime branch; the runtime image is signed and verified as
   `runtime.yml@refs/heads/dev`. The new trust policies must be pasted into AWS before the next deploy.
-- **dev is run as production** (owner rule; audit finding). Its lists are explicit: the reversible action classes a
+- **dev is run as production**. Its lists are explicit: the reversible action classes a
   catalogue entry carries out and prod allows, the four irreversible classes denied, prod's principals, and no
   auto-remediation. Before, dev allowed every action to any principal with no person in the loop.
 - CI runs on pushes to `main` and on pull requests into `main`; the workflow scan still runs on every pull request.
 - `scripts/render_env_iam.py` writes LF on Windows too.
 
-### Documentation (2026-10-16, preparing the repository for open source)
+### Documentation (preparing the repository for publication)
 - The documentation is rewritten to what the code does today: the README, the architecture (Temporal workflows,
   trust zones, the approval page, the gate, quarantine), the production architecture, the system components, the
   roadmap and the full-stack lab (`docs/FULLSTACK-LAB.md`, formerly `WAVE4-FULLSTACK.md`). A new `docs/SETUP.md`
   explains how to set WARDEN up in your own AWS account and GitHub repository.
-- Internal working documents are no longer published: the session handoffs, the dated research notes, the Wave 4
-  contract, the 2026-09-28 audit, the requirements trace, the owner's console steps and the 2026-09-06 live-run
+- Internal working documents are no longer published: working notes, the dated research notes, the Wave 4
+  contract, the 2026-09-28 audit, the requirements trace, the console steps and the 2026-09-06 live-run
   record. The audit's open and deferred rows and the compliance crosswalk's gaps (CW1-CW5) moved into
   `docs/FAILURE-MODES.md`, which is now the one register `tests/test_register.py` holds to its evidence.
 - Benchmarks: one results summary, `docs/BENCHMARKS.md`. The held-out sets keep their incidents and answer keys in
@@ -127,7 +127,7 @@ bump may carry a breaking change.
   deploys dev, `prod` deploys prod with a person's approval).
 
 ### Changed (G2, workflow correctness - started 2026-10-02)
-- **A remediation is bound to its resource and its environment** (registers S6, C3, O5; audit A-B-M4).
+- **A remediation is bound to its resource and its environment** (registers S6, C3, O5).
   **Breaking:** `request_remediation` now requires `environment`.
   - The workflow id is `rem-<env>-<hash of the resource>`, and the rate limits key on that same resource. Before,
     both keyed on the free-text service name, so `orders` in two namespaces, or in dev and prod, shared one open
@@ -168,8 +168,8 @@ bump may carry a breaking change.
 - **The image ships only allowlisted kinds of file** (registers R8-O4, R9-O1). The image build checks the
   installed package against `.py`, `.yaml`, `.json` and `.sha256`, in any letter case. The build backend's
   case-sensitive exclude list let `SECRET.ENV` ship.
-- **An MCP client is read-only by default, and its labels steer no read the operator has not listed**
- . **Breaking:** `request_remediation` needs `WARDEN_MCP_PROFILE=remediate`, and a
+- **An MCP client is read-only by default, and its labels steer no read the operator has not listed**.
+ **Breaking:** `request_remediation` needs `WARDEN_MCP_PROFILE=remediate`, and a
   caller's diagnosis id is `inc-mcp-<alert_id>`.
   - `workflow_status` answers only for workflows the server started, and without the context.
   - Labels that steer reads are followed only as `WARDEN_READ_SCOPES` lists them.
@@ -248,7 +248,7 @@ bump may carry a breaking change.
 - **The AWS region is configuration, never a literal: Python, Terraform and the IAM templates read it from
   environments.yaml** (requirement R17).
 - **Every secret comes from Secrets Manager; SSM holds plain values only** (requirement R32, decision D5).
-- **Reports and Slack show every time in UTC and in the install's zone (IST here)** (requirement R4, in part).
+- **Reports and Slack show every time in UTC and in the install's zone** (in part).
 - **Performance Insights and Logs Insights are evidence, as numbers only** (requirement R22).
 - **Evidence is read once the alert's last minutes have reached the log store** (requirement R23).
 - **Recovery needs three healthy checks in a row and holds through re-checks at T+15 and T+60** (register C18a, in part).
@@ -303,14 +303,14 @@ bump may carry a breaking change.
   documentation and instructions for use, and measured model use** (H5, CW1, CW2, CW3, CW4, CW5).
 - **Helios checks every Terraform change before apply, and again on the applied state** (register R56).
 - **Every health alarm reads silence as failure, held by a test** (register C18b).
-- **Every time WARDEN shows or the docs give is in UTC and IST, the approval page and the docs held by tests**
+- **Every time WARDEN shows or the docs give is in UTC and the install's zone, the approval page and the docs held by tests**
   (requirement R4).
 - **README: the whole-system diagram redrawn from the v2 code, held to it by a test** (requirement R30).
 - **Where the model processed each diagnosis is recorded in its audit provenance** (register S11).
 - **AWS write platform: Lambda alias and concurrency, event source mappings, EventBridge rules, DynamoDB
   capacity and ECS rollback, each write in a per-plan actor session naming its approvers** (audit A-P-5; G6
   real platforms, live proof in the cloud windows).
-- **Gemini tested with the owner's AI Studio key: the free tier could not answer WARDEN's replay set, and the
+- **Gemini tested with an AI Studio key: the free tier could not answer WARDEN's replay set, and the
   qualification no longer scores a model that never answered** (requirement R15).
 - **Approve and deny from chat: approval links in the waiting message, a deny on the approval page, the page's
   state in the shared audit** (requirement R28; register H6).
@@ -350,7 +350,7 @@ bump may carry a breaking change.
 - **The runtime builds its own network** (a VPC in two zones, private subnets, a NAT gateway, an S3 endpoint), and the
   deploy sets the llm zone's model.
 - **Claude Sonnet 5 qualified on the Claude API** (20 of 30 correct, none wrong and allowed, $0.48, on the SDK the
-  runtime image ships): the cloud window's model, from the owner's API credits. The runtime image now carries the
+  runtime image ships): the cloud window's model. The runtime image now carries the
   Anthropic SDK.
 - **The breaker counts only failures after its last reset**. Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
@@ -409,7 +409,7 @@ bump may carry a breaking change.
 
   Replayed over the 60 recorded reports that carry citations (2026-09-30; the bench reports carry
   none, so P13-P15 never ran on them): the first version changed three verdicts (k8s-02, -04, -05,
-  found by the second review); 45773cb restores them.
+  found by an independent review); 45773cb restores them.
 - **The mutation check really runs every mutation on Windows.** It read files as bytes, so each
   multi-line anchor in a CRLF checkout was reported "missing" (6 of 35). It now matches line
   endings and restores byte for byte, and a test runs its real code path on every file. All 35 are
@@ -456,7 +456,7 @@ bump may carry a breaking change.
   Proven by rendering the reviewer's 30 payloads with a CommonMark parser and reading them as Slack
   does. Each of the 17 rules is plant-checked.
 - **A Temporal payload cannot stall or cross workflows, and `apply` trusts no activity result**
-  (second review, A-B-L13).
+  (independent review).
   - A payload that does not decrypt now becomes the refused marker instead of raising. That covers a
     forged "encrypted" payload, another key, and changed bytes.
   - Every ciphertext is bound to its namespace and workflow, so an approval recorded in one workflow
@@ -487,7 +487,7 @@ bump may carry a breaking change.
     as the independent check.
 - **The tripwire reads what came from outside, not WARDEN's own words**.
   - The real Prompt Guard 2 scored WARDEN's header 0.98.
-  - Measured 2026-09-30 on 36 benign alert texts: 0 flagged, down from 7 in WARDEN's own run and 9 in the second review's.
+  - Measured 2026-09-30 on 36 benign alert texts: 0 flagged, down from 7 in WARDEN's own run and 9 in the independent review's.
   - "Ignore previous instructions" in an alert is still caught (0.997-0.999).
   - Label values can no longer rewrite WARDEN's prompt markers.
 - **An apply is approved for its own run, or not at all**.
@@ -530,7 +530,7 @@ bump may carry a breaking change.
   - A config line with run-together steering words is no longer trusted.
   - Replays of runs recorded before this change show their tool errors as "failed (unclassified)",
     because those strings carry no tag.
-- **Verifier, tripwire and provider fixes** (second review: A-C-6, A-C-12, A-C-18, A-C-25, A-C-26).
+- **Verifier, tripwire and provider fixes** (independent review).
   - **P11** reads every lag metric the backends emit, `redis_replication_lag_s` included. It takes the
     unit from the metric's own name: a resource suffix such as `__payments_msvc` read seconds as ms.
   - **P14** accepts a resource kind named with `=` (`deployment=checkout (namespace=shop)`). Three
@@ -620,7 +620,7 @@ bump may carry a breaking change.
   - Real Prompt Guard 2, 2026-09-30: 34 of 35 padded placements caught (was 23). On the 132-placement
     set, 51 caught (was 46). No benign alert of 36 was flagged. 3 of 14 instruction-worded benign
     texts (a "Revert: disregard the previous release" deploy note, a SYSTEM_PROMPT config) now
-    escalate to a person, up from 1. The owner chose this trade: a false alarm costs a review.
+    escalate to a person, up from 1. The trade is accepted: a false alarm costs a review.
   - The scan reads the labels key by key, as the prompt does: redacted as one dict,
     `{'token': '<SECRET_1>'}` scored 0.93 and escalated every such incident.
   - In required mode only the exact `ran-partial: <n> of <m> log lines` counts as a run (C-9): any
@@ -630,20 +630,20 @@ bump may carry a breaking change.
     budget counted every re-scoring, so 8,000 tokens of evidence - under what recorded incidents need -
     escalated as too much text. Windows are now scored in length order (scores identical: 28 windows,
     difference 0.000000) and the budget counts the text once: 4,003 tokens take 26 s, 14,003 take 86 s.
-- **Every copy of every secret is masked again** (fourth review, B-N1, a regression in 932d515).
+- **Every copy of every secret is masked again** (independent review; a regression in 932d515).
   An exemption for "plain words and assignments" left a base64 key, a passphrase and a letters-only
   password in clear wherever they were repeated, and the outbound gate passed them. A test covers
   each shape and checks the gate. Open (B-N4): a planted `password=<word>` still masks that word in
   WARDEN's own reads; the planned fix escalates such an incident rather than leaving any copy
   unmasked (a trusted-lines exemption was tried and dropped: it left a user id from a log line in
   clear inside a config read).
-- **A fix is verified only by the run's own health checks** (fourth review, B-N2). `rem-<service>`
+- **A fix is verified only by the run's own health checks** (independent review). `rem-<service>`
   is reused and a payload is bound to the workflow id, not the run, so an earlier run's "healthy"
   result, completed into a later run's check, marked that run recovered with no check made: no
   rollback, and a signed audit row saying ok. Each real check now writes an audit row with its run;
   the verdict is taken from those rows and returned with the run id, and the workflow accepts only
   its own. A forged claim leaves a `remediation.result_mismatch` row. Test fails without the fix.
-- **Redaction stays fast whatever the logs hold** (fourth review, B-N3). The sweep tested every found
+- **Redaction stays fast whatever the logs hold** (independent review). The sweep tested every found
   value against every line: 2,000 lines of ten values each took 217 s, and prepare runs it two or
   three times, so a log writer could push an incident past its timeout. One trie-shaped finder now
   tells each line which values it holds, and the map is kept once per call instead of copied per
@@ -654,20 +654,18 @@ bump may carry a breaking change.
   value) and compiled a pattern for every found identifier; it now takes 1.1 s for 6,000 values
   (6.7 s before), identifier patterns are compiled only for values a line holds, and the timing test
   compares 4x the input against 1x instead of a wall-clock limit. Output still byte-identical.
-- **Apply bookkeeping is per run; the end record states what the audit shows** (fourth review,
-  B-N6, B-N9). "Already applied" was checked across runs: a second approved run of the same plan applied
+- **Apply bookkeeping is per run; the end record states what the audit shows** (independent review). "Already applied" was checked across runs: a second approved run of the same plan applied
   nothing, then rolled back a change it never made, and tripped the kill switch. A refused apply was
   recorded as "apply_failed, may be half-made" with approved and prechecked true; it is now
   `refused_at_apply` (nothing changed), and the signed end row takes its checklist from the run's
   audit rows, keeping any unbacked claim only as `claimed_checklist`.
-- **A failed read keeps its outcome whatever the case of the name** (fourth review, B-N5, a
+- **A failed read keeps its outcome whatever the case of the name** (independent review; a
   regression in 932d515). Mixed-case log groups (SAM/CDK `/aws/lambda/ShopStack-OrdersFn…`,
   `/ecs/Orders`), the k8s reader's `<pod>/<container> (previous)` and the ECS reader's
   `deploys: <family>:<revision>` all read "failed (unclassified)" instead of, say, "access denied on
   FilterLogEvents". Upper case is accepted only behind `/` or a kind prefix and `<family>:<revision>`
   only after `deploys`, so free text still cannot place a tag.
-- **Slack text, log lines and the MCP server's errors hold their shape** (fourth review, A-2, A-3,
-  A-4, A-8). The Slack conversion tracked code fences at column 0 only, so a split inside an indented
+- **Slack text, log lines and the MCP server's errors hold their shape** (independent review). The Slack conversion tracked code fences at column 0 only, so a split inside an indented
   block left the rest - URLs included - as prose; it now tracks a fence anywhere in the line. Line and
   paragraph separators (U+2028/2029), which Markdown does not break on, became headings in Slack; they
   are spaces there now, and a no-break space after `#` no longer makes a heading. In log lines they
@@ -681,7 +679,7 @@ bump may carry a breaking change.
   `Ocp-Apim-Subscription-Key:`) is now masked; the entropy backstop needed upper case. Over every
   recorded run the 8,485 facts, the 337 trusted items and the 337 redacted contexts are unchanged.
   Still open: other leetspeak (`8` for `c`) - the quarantine is one layer, not the only one.
-- **The verifier reads evidence and targets as they are written** (fourth review, C-4, C-6, C-7).
+- **The verifier reads evidence and targets as they are written** (independent review).
   - P15 read `restarts: 0 -> 6`, "could not obtain lock", "no free memory" and "no response from
     primary" as no support (22 of the reviewer's 36), and let `"restartCount": 0`, `== 0`, `(0)`,
     "never restarted" and `exit code 0` support an action (16 of 37). It now reads the value a key
@@ -708,26 +706,26 @@ bump may carry a breaking change.
   the resource (16 reads); 11 that AWS cannot scope keep "*" (A-I-19; AWS's Service Reference, read
   2026-10-01).
   Each deploy role's trust also requires the main branch and one of the two reusable deploy workflows
-  (`ref`, `job_workflow_ref`; A-I-10's code half - the GitHub half is the owner's step G1).
+  (`ref`, `job_workflow_ref`; the code half - the GitHub half is setup step G1).
   Event source mappings and task definitions are the environment's own (`lambda:FunctionArn`, the
   family name); only DeregisterTaskDefinition, which AWS gives no resource or condition, stays
   region-bound.
   A ValidatingAdmissionPolicy holds the Kubernetes remediator's patches to the replica count (within two)
   and the restart annotation; a pod spec change by it is refused on the real API server in CI.
-- **Sixth independent review, the write path** (2026-10-01; rows A-R6): a failed rollback ends
+- **Independent review, the write path** (2026-10-01): a failed rollback ends
   `rollback_failed`, signed, and trips the kill switch (it crashed the workflow); a rollback undoes only
   what its own run applied, and its row names the run and plan; a fix with nothing to undo (a restart)
   ends `not_recovered`, not `rolled_back`; a plan is refused unless the request's service is the target
   the fix changes, and health is asked only of the platform that made the change; MySQL closes sessions
   by idle time, not transaction age; the database platform refuses an allowlist naming its own login.
-- **Sixth independent review, lower findings**: P15 no longer reads another field's number after "then",
+- **Independent review, lower findings**: P15 no longer reads another field's number after "then",
   takes a missing value or headroom ("cpu: null", "0 MiB free") as scale_down's idle use, or hides "0 free"
   and "0 available" shortages (all three regressions from 7c0dd34); "not a single pod restarted" and
   "0 days ago" read right. A failed incident may be diagnosed again (Temporal's ALLOW_DUPLICATE_FAILED_ONLY);
   a completed one still may not, and a test now starts it twice on the time-skipping server. The log gate
   installs its hooks only where Python's defaults are, leaving another program's (pytest's) in place.
   Redaction: a lowercase-hex credential under vault/consumer/root/data/deploy/host/KMS key names is masked
-  again (the fifth review's narrowing left them out), and cookie, `mysql -p` and `"auth"` values never wrap
+  again (an earlier narrowing left them out), and cookie, `mysql -p` and `"auth"` values never wrap
   a placeholder in a second one (restore left the inner one in an operator's report).
   The database platform uses its connection one thread at a time and reopens one that failed (it kept a
   broken connection until a restart). README: the Kubernetes example uses the namespace the RBAC binds, and
@@ -756,7 +754,7 @@ bump may carry a breaking change.
   Still open: "not a single one of the pods restarted", "cpu (idle): 0%" and "probe: 0 ok" in P15; a second
   resource written as an image reference or behind a scope word (`orders (payments:latest)`,
   `orders (namespace payments)`) still passes P14.
-- **Sixth independent review, the records**: the register guard refuses a cited test rebound to another
+- **Independent review, the records**: the register guard refuses a cited test rebound to another
   function (`globals()` reached it unseen) and is tested itself; a collect-only run is no longer judged (it
   always failed); the register reads every row GitHub shows - indented, without a leading pipe - and refuses a
   table whose Group or Status column was renamed; R4-E-5 cites the test that proves it. Corrections: the A-R5
@@ -765,10 +763,10 @@ bump may carry a breaking change.
   Kubernetes, 11 databases) and mutation count (37). Commits pushed together get CI on the last one only: five
   commits since 9551288 had no run of their own (4a7afe0, 7c0dd34, 0981974, 6530fc0, 1ee7ca3); from 3bd757c
   on, commits are pushed one at a time.
-- **Sixth independent review, the tripwire** (7f0178e): only the placeholders WARDEN issued are removed
+- **Independent review, the tripwire** (7f0178e): only the placeholders WARDEN issued are removed
   from what is scanned (any `<WORD_N>` was, hiding an injection written in that shape), and labels are
   scanned as sentences - a credential-named label no longer escalates a clean incident on the real model.
-- **Ninth independent review**: a terminal colour code glued to a key (`ESC[1m<key>`) hid it from
+- **Independent review**: a terminal colour code glued to a key (`ESC[1m<key>`) hid it from
   every pattern needing a word boundary - the terminal, the gate, MCP data and the log sent it whole (HIGH,
   pre-existing). Redaction now removes escape sequences first. The gate's G5 checks every view of a text - as
   written, without escapes, without controls, without invisibles, and what G3 made of it: checking only the
@@ -828,7 +826,7 @@ bump may carry a breaking change.
   `aurora_express.py` now records.
 - The playbook's database-host fix needs the whole value to be an RDS hostname: one merely containing
   `.rds.amazonaws.com` (`...rds.amazonaws.com.evil.example`) pointed the printed fix at another domain (CodeQL).
-- **Eighth independent review**: the gate withheld every report quoting a masked cookie - its
+- **Independent review**: the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class
   stops at `<` any more: the part of a credential after a placeholder an earlier pattern placed
@@ -860,7 +858,7 @@ bump may carry a breaking change.
   policy API and account-wide log policies, and allows a function permission only for an AWS service - not
   another account by id, which IAM Access Analyzer misses on an alias. An ECS service may still be given another
   environment's subnets (no IAM key ties a subnet to an environment) - Redis authentication and TLS are the
-  planned fix. The owner's CloudShell step stops on any error and on an unread account number.
+  planned fix. The CloudShell setup step stops on any error and on an unread account number.
   The admission policy bounds the count only when it changes - a restart of a Deployment above ten was
   refused - and a refusal is read as the policy's, not as a moved count, whatever the Deployment is called
   ("test" in `latest-api` read it as moved). CI now refuses removing a template annotation, pausing and a big
@@ -896,8 +894,8 @@ bump may carry a breaking change.
   The audit's A-R8 section holds every eighth-review defect of medium-low and above with its commit, and the
   open items as R8-O1..O4: a model call abandoned mid-flight can be paid again by the next run; an ECS service
   may be given another environment's subnets and the boundary pins no account; the admission policy does not hold
-  managedFields; and lesser gaps. The seventh review's rows carry the eighth's PARTIAL verdicts.
-- **Seventh independent review**: a token masked inside a cookie header no longer ends the match: every cookie
+  managedFields; and lesser gaps. The earlier review's rows carry the later one's PARTIAL verdicts.
+- **Independent review**: a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored
   restored, so restore() gives it back in one step and no value class has to stop at `<`.
@@ -958,30 +956,30 @@ bump may carry a breaking change.
   The proving ground's app deploy accepts only the database users Terraform derives for the stack's own
   environment - a shape check took another environment's names, or one name for all three. The
   service-account token test reads ReplicaSets and CronJobs too, and CI's throwaway Deployment mounts no token.
-  The sixth review's "every secret-bearing pattern .gitignore names" was false: `plan.out` and
+  An earlier entry's "every secret-bearing pattern .gitignore names" was false: `plan.out` and
   `trust.local.json`, which .gitignore names, and tfvars.json, .netrc, kubeconfig, SQLite -wal files, SSH
   keys and key stores still shipped from a local build. Every one is excluded now, measured by building a
   wheel and an sdist from a copy with 29 names planted (21 shipped before, none now), and the image is
   built in two stages so no layer of it holds the source. Patterns are case-sensitive (`Server.PEM`).
   The proving ground's public API writes JSON access logs to `/aws/vendedlogs/warden-<env>-api-access`
-  (A-I-13, logging half). The owner creates the account's one delivery policy for `/aws/vendedlogs/warden-*`
-  in CloudShell (OWNER-CONSOLE-STEPS 2b), so the deploy role gets the log-delivery actions but never
+  (logging half). An operator creates the account's one delivery policy for `/aws/vendedlogs/warden-*`
+  in CloudShell (docs/SETUP.md, 3e), so the deploy role gets the log-delivery actions but never
   `logs:PutResourcePolicy`, which the boundary denies. Unproven live until the first window; the API's
   authentication is still open.
   Three tests that weaker code passed now fail it: the hook test judges each hook by itself (a fix
   taking all three whenever `sys.excepthook` is Python's - pytest's own case - passed), the fence test
   uses markers past 12 characters, and the weekly-audit test checks that its cron fires every week.
   A bad command-line argument is printed through the gate like every other error: argparse echoed it raw,
-  so an escape sequence or a key typed on the command line reached the terminal (sixth review NEW-3, still
+  so an escape sequence or a key typed on the command line reached the terminal (independent review, still
   present at the seventh). A usage error now exits 2 with one gated line.
   CI's k3d job waits for the API server to serve before its first kubectl call: k3d reported the cluster
   ready and the next call got ServiceUnavailable (CI on 71790df, a flake unrelated to the change).
   No role inside the boundary can share an EventBridge bus or the image registry outside the account
-  (`events:PutPermission`, `ecr:PutRegistryPolicy`, `ecr:PutReplicationConfiguration` denied): the owner's
+  (`events:PutPermission`, `ecr:PutRegistryPolicy`, `ecr:PutReplicationConfiguration` denied): the account's
   IAM Access Analyzer reports the other ways out - role trusts, Lambda, SQS, SNS, ECR repositories, DynamoDB -
   but does not analyze those two. A role trusting another account can still be created (no IAM condition
   key covers a trust document); the analyzer reports it.
-  Corrections to the sixth review's entries above: the register read "every row GitHub shows" only once
+  Corrections to the review entries above: the register read "every row GitHub shows" only once
   e8d4f4c ended lines and tables where GitHub does; the guard judged a run "however its path is spelled" except
   a shell-expanded list of every file (still); it was "tested itself" but not its wiring until d3a9019;
   README's live-test counts went stale with efcf115 and are 33 (22 Kubernetes, 11 databases); the pinned
@@ -991,12 +989,12 @@ bump may carry a breaking change.
   the lag and hex-key name lists are open-ended by design, and the tripwire's unit tests use a spy; the
   admission policy bounds each request, not a series, and is unconfirmed on EKS; a mutation check killed by
   TerminateProcess leaves its mutation; transitive extras are not followed; the packaging excludes are
-  case-sensitive; a role trusting another account can be created (the owner's Access Analyzer reports it).
+  case-sensitive; a role trusting another account can be created (IAM Access Analyzer reports it).
   Each of the reader's scoped ARNs is checked against the format AWS's Service Reference gives its resource:
   the scoping test checked where each action sits, not its ARN, and seven format mutants passed (all fail now).
 - **Infrastructure and IAM hardening, first part (G1-I)**: EKS nodes' IMDS hop limit is 1,
-  so pods cannot take the node role; the owner's address is a sensitive value in plans
- ; the deploy role reads only `/warden/<env>/tf/*` parameters and can no longer
+  so pods cannot take the node role; the alert address is a sensitive value in plans;
+ the deploy role reads only `/warden/<env>/tf/*` parameters and can no longer
   rewrite a role's trust; Terraform and every provider are bounded and CI's pinned version
   satisfies every bound; `aurora_express.py` acts only on the environment it is told and
   writes no region; no service-account token is mounted except in WARDEN's own Job.
@@ -1006,8 +1004,8 @@ bump may carry a breaking change.
   A-I-20); `ec2:CreateTags` only on create, on the environment's own resources or its EKS cluster
   security group. The EC2 statements are a second deploy policy, `deploy-ec2.json`
   (`WardenEnvDeployEc2-<env>`): one would pass IAM's 6,144-character limit.
-  The IAM template changes reach the live account in the next owner window.
-- **Fifth independent review, fixed** (2026-10-01; rows A-R5 in the audit). Each with a test that fails
+  The IAM template changes reach the live account in the next deployment window.
+- **Independent review, fixed** (2026-10-01). Each with a test that fails
   without the fix:
   - Supply chain: Dependabot could not run uv (`required-version` is now a range CI's pin lies in); the
     deploy jobs restore no uv cache (uv does not re-verify unpacked entries); a local `.env` or log can
@@ -1027,7 +1025,7 @@ bump may carry a breaking change.
     next field as what was counted, reads "0s ago" and "then", and takes zero use as scale_down's
     evidence; P14 accepts the dashes, curly quotes and symbols of ordinary prose (a dash before a word is
     still a flag); lag units in more spellings, hours and CloudWatch's own names.
-  - Records and owner steps: the full run fails if cited evidence did not run and pass; malformed
+  - Records and setup steps: the full run fails if cited evidence did not run and pass; malformed
     register rows are errors; the GitHub steps say the ruleset's boxes are ticked by default, note the
     admin bypass, and cite the right test; the undo and trust-copy steps are clearer; R31 states its
     scope; the Postgres terminate integration test waits for the session to go.
@@ -1038,7 +1036,7 @@ bump may carry a breaking change.
   - P14: a second resource in parentheses or after an arrow is refused (an image to return to is not
     one); every cluster label scopes the target; a command after punctuation is refused; a failover may
     name its cluster.
-  - The orphaned Dependabot `pip` pull requests (#5-#15) were closed with the owner's agreement.
+  - The orphaned Dependabot `pip` pull requests (#5-#15) were closed.
   - Logging and Slack (area A): warnings, uncaught errors of any kind, errors in threads and in
     `__del__`, and a `SystemExit` carrying a tuple go through the log gate; a `~~~` block stays code in
     the Slack conversion; full-width dots are defanged; the stub of a withheld report cleans the alert
@@ -1047,7 +1045,7 @@ bump may carry a breaking change.
     build checks the requirements of the extras each Lambda asks for (`psycopg[binary]`); the k3s node
     image, k3d's tools image and the full stack's placeholder ECS image (terraform/fullstack/ecs.tf) are pinned by digest (read
     2026-10-01 09:45 UTC / 15:15 IST); a test keeps every push to main checked (no cancelled runs).
-  - Register: the review-4 rows the fifth review confirmed are DONE-local (B-N1, B-N2, C-1, C-3, A-1,
+  - Register: the review rows a later review confirmed are DONE-local (B-N1, B-N2, C-1, C-3, A-1,
     A-2, E-5, E-6); the others carry its verdict and stay open.
   - Still open: Dependabot does not renew the digests of workflow service images, `k8s/test` and k3d's
     images; downloads after cloud credentials in the deploy jobs are hash-checked but not ordered
@@ -1070,8 +1068,7 @@ bump may carry a breaking change.
     database on the server. PostgreSQL, MySQL, SQL Server; Redis terminate is dropped
     and MongoDB's (which killed running operations, not idle sessions) with it.
   - The mutation check's seven mutations of the removed modules become nine of the platforms.
-- **Every install is hash-locked and every image pinned by digest** (audit A-I-9, A-I-24; fourth review
-  E). Deploy jobs ran unpinned `pip install` while holding cloud credentials. Now one `uv.lock` holds every
+- **Every install is hash-locked and every image pinned by digest** (independent review). Deploy jobs ran unpinned `pip install` while holding cloud credentials. Now one `uv.lock` holds every
   version and hash - the package, CI's tools and the pipelines' helpers - and every workflow installs
   with `uv sync --locked` (a planted wrong hash is refused), with uv 0.12.21 pinned and its checksum
   checked, before any credentials. The package builds with uv's bundled backend, so no unpinned build
@@ -1096,12 +1093,12 @@ bump may carry a breaking change.
   mutations - 17 minutes a run - so it no longer finished. Each mutation now runs the tests that name
   the mutated file, on parallel workers, and the whole suite only before reporting a survivor; a run
   past its limit is stopped with its workers and counts as caught, labelled. Run 2026-10-01 05:51 to
-  06:13 UTC (11:21 to 11:43 IST): all 35 caught. (The commit message of 5236b21 says 06:40 UTC / 12:10
-  IST; that was written before checking and is wrong.)
-- **The register guard closes the fourth review's bypasses** (review D #3). A module-level
+  06:13 UTC (11:21 to 11:43 IST): all 35 caught. (The commit message of 5236b21 gives a later time; that
+  was written before checking and is wrong.)
+- **The register guard closes the bypasses a review found**. A module-level
   `importorskip`, a multi-line `pytestmark` list, `from pytest import mark` aliases, an alias imported
   from a helper module, `xfail`, a citation the cell calls "NOT covered", and a DEFERRED cell saying
-  "NOT owner-agreed" or dated 9999-99-99 all counted as evidence. Only decorators known never to skip
+  "NOT risk-accepted" or dated 9999-99-99 all counted as evidence. Only decorators known never to skip
   are accepted, DEFERRED must start with a real past agreement, and `::test_x` shorthands are checked.
   Correction: a source check cannot list every way pytest skips (a decorator over two
   lines, `raise unittest.SkipTest`, an empty parametrize, a skipping fixture...). The full run now checks
@@ -1111,15 +1108,15 @@ bump may carry a breaking change.
   guard never read it and GitHub cut it short.
 - **No hardcoded environment in the proving-ground harness** (9f16e30).
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
-- **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
+- **The proving ground tags `Project=warden` and `Environment`** (still open: its
   node-group instances and the ECS service's tasks are not tagged yet).
   - The proving ground's `Project` tag changed from `warden-proving-ground` to `warden`.
   - This broke the harness's guards and the teardown sweep's tag filter: every fault injection
     would have refused, and leftovers tagged that way would not have been found. CI missed it
     because every fake used the old tag.
-  - Found by the second review. The guards now check `Stack=warden-proving-ground`, and a test
+  - Found by an independent review. The guards now check `Stack=warden-proving-ground`, and a test
     reads the tags from `main.tf`.
-- **WARDEN's own `ops` environment exists**. The W0-now steps tag the runtime's
+- **WARDEN's own `ops` environment exists**. The setup steps tag the runtime's
   secrets `Environment=ops`, which the sweep would have reported as untagged.
   - It is a `runtime:` entry, not an application environment: no app pipeline deploys into it,
     and WARDEN can only escalate on it, never remediate.
@@ -1149,12 +1146,12 @@ bump may carry a breaking change.
     infrastructure code.
 - **The Temporal payload codec fails closed**. An unencrypted payload in the history
   is refused. It used to be passed straight to the workflow.
-- **Prepared, not yet live: the laptop off its long-lived AWS key** (W0-now).
-  - Done on the laptop: a TPM-held, non-exportable key, its certificate and the AWS signing helper
+- **Prepared, not yet live: the operator workstation off its long-lived AWS key**.
+  - Done on the workstation: a TPM-held, non-exportable key, its certificate and the AWS signing helper
     (`scripts/roles_anywhere_cert.py`, checked with certutil 2026-09-30).
   - Prepared as files: the operator role, which can only read (`iam/operator/`). No trust anchor,
-    role or profile exists in AWS yet; those are the owner's console steps.
-  - Still to do: the owner's console steps. Until then the laptop still uses the access key.
+    role or profile exists in AWS yet; those are console setup steps.
+  - Still to do: the console setup steps. Until then the workstation still uses the access key.
   - The first version of the steps had gaps, now fixed:
     - the sweep role needed `sts:SetSourceIdentity` for chaining;
     - no step sent the profile ARN;
@@ -1193,7 +1190,7 @@ bump may carry a breaking change.
 ### ⚠ Correction to the entries above
 
 An independent adversarial review refuted most of the G1 fixes listed above: they were incomplete,
-and one was a regression. The rows are reopened in `docs/AUDIT-2026-09-28.md`, each with the reason.
+and one was a regression. The rows were reopened in the audit record, each with the reason.
 Each entry above is being corrected, and this note is removed only when the review's findings are
 all closed. In short:
 - **The codec change let any plain Temporal signal stall a workflow that had already changed
@@ -1211,11 +1208,11 @@ all closed. In short:
   conditions only CI has (the k3d job; no torch). 54180fb and 5a753da were pushed onto the red main.
   (Corrected 2026-09-30: this note first said every push came before CI was green.)
 
-### ⚠ Second correction (second independent review, 2026-09-30)
+### ⚠ Second correction (independent review, 2026-09-30)
 
-A second independent review of the fixes above found that several still did not hold. Some fixes
-had also introduced new defects. The rows stay open in `docs/AUDIT-2026-09-28.md`, each naming what
-was found. This note is removed only when a third review confirms the fixes.
+A further independent review of the fixes above found that several still did not hold. Some fixes
+had also introduced new defects. The rows stayed open in the audit record, each naming what
+was found, until a later review confirmed the fixes.
 - **The outbound gate created the structure it was meant to remove.** It decoded HTML
   entities and wrote the decoded text out. That turned `&#96;&#96;&#96;` into a real code fence and
   re-created the forged "approved fix" heading from an alert summary. An HTML comment also hid a
@@ -1230,14 +1227,14 @@ was found. This note is removed only when a third review confirms the fixes.
   made the real model flag 9 of 36 benign incidents.
 - **`GOOGLE_GEMINI_BASE_URL` sent the Gemini key to any host.**
 - **Records:** the proving-ground `Project` tag change broke the harness guards and the teardown
-  sweep (a regression). The `ops` environment the W0-now steps tag with did not exist, and two owner
+  sweep (a regression). The `ops` environment the setup steps tag with did not exist, and two setup
   steps named a wrong flag or a wrong file.
 
-### ⚠ Third correction (third independent review, 2026-09-30)
+### ⚠ Third correction (independent review, 2026-09-30)
 
-A third independent review confirmed six fixes; their
+A further independent review confirmed six fixes; their
 rows are closed. It found that the others still did not fully hold. Each open row in
-`docs/AUDIT-2026-09-28.md` names what was found. This note is removed only when a fourth review
+the audit record names what was found. This note was to be removed only when a later review
 confirms the fixes.
 - **An approval could be replayed into a later run of the same workflow id.** A kill switch
   tripped during the approval wait was also missed. Fixed in 024d32c.
@@ -1255,12 +1252,12 @@ confirms the fixes.
   `importorskip` as evidence. Both are now refused.
 - **CI on main was red a fifth time,** at ea65387: a ruff finding shown as a "hidden fix" was not run
   to zero before the push. Fixed in 7d175af.
-- **...and a sixth and a seventh time** (found by the fourth review and by CI): at 584e89a (2026-09-30
+- **...and a sixth and a seventh time** (found by an independent review and by CI): at 584e89a (2026-09-30
   10:34 UTC / 16:04 IST) the MCP stdio test raced, closing stdin before the answer; fixed in 4a2caa9.
   At 14e32e1 (14:18 UTC / 19:48 IST) parallel test workers raced to download Temporal's test server;
   fixed in a1b73ce, which downloads it once before the workers start. The control is branch
-  protection with required checks (owner steps, A9).
-- **...and an eighth and ninth time, both mine, on 2026-10-01:** 00c08ab (07:15 UTC / 12:45 IST) pushed a
+  protection with required checks (a setup step).
+- **...and an eighth and ninth time, on 2026-10-01:** 00c08ab (07:15 UTC / 12:45 IST) pushed a
   uv.lock older than pyproject.toml, which `uv sync --locked` refused in every pipeline (fixed in
   362356c, with a test that compares the two locally). c99bc86 (07:23 UTC / 12:53 IST) added two
   trigger paths after running only the CI tests, not the full suite; a test pinning those paths
@@ -1308,7 +1305,7 @@ the following. The tag is kept; fixes ship as 0.10.1 and later, in order of risk
 - **"Drift means a new plan"** below was wrong: the code ends the workflow as `drifted`. Re-plan
   with a fresh approval is being built.
 
-Every finding, with its fix and test, is in `docs/AUDIT-2026-09-28.md`, and the plan
+Every finding, with its fix and test, was recorded in the audit record, and the plan
 (`docs/ROADMAP.md`) closes each one. A new CI test fails whenever something is marked done without
 the test that proves it.
 
@@ -1443,7 +1440,7 @@ The gate stops taking the model's word for anything that could loosen it.
   **widened its own permissions**, and the same operation got opposite verdicts from two models: a
   prod-database `terminate_connections` was rejected under Gemini (`reversible: false`, 0.85
   confidence) and merely escalated under Claude (`reversible: true`, 0.45). Recorded as a known
-  inconsistency in `docs/live-model-run-2026-09-06.md` §3 since September — *"Neither change is made
+  inconsistency in the 2026-09-06 live-model run record (§3) since September — *"Neither change is made
   yet"* — and measured, but not fixed, for two releases.
   - `models.py::ACTION_FACTS` is now the gate's own classification of its nine actions:
     `(reversible, blast-radius floor)`. `failover_replica` and `scale_down` are irreversible; a
@@ -1507,7 +1504,7 @@ The gate stops taking the model's word for anything that could loosen it.
   cannot describe the same action twice the same way is worth knowing about.
 - **The Wave 1 numbers in `docs/bench/` are left exactly as measured under 0.7.0.** Re-scoring them
   against a gate that did not exist when they ran would be inventing a result. The dated records
-  that prompted these fixes — `live-model-run-2026-09-06.md` §3, `scenarios/scoring.yaml`'s rubric
+  that prompted these fixes — the 2026-09-06 live-model run record (§3), `scenarios/scoring.yaml`'s rubric
   correction, `docs/bench/README.md` — are annotated, never rewritten.
 
 ## [0.7.0] - 2026-09-12

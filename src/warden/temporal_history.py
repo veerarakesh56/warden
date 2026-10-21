@@ -3,8 +3,8 @@
 Every Temporal payload WARDEN writes is encrypted (codec.py), bound to its namespace and workflow, so the Temporal
 server and its web UI show only ciphertext. `warden history <workflow-id>` reads one workflow's history with the
 person's own Temporal API key and decrypts each payload with WARDEN's codec in that workflow's own context - the only
-context it decrypts in. No codec server, no new holder of the key, no change to the payload format (owner decision,
-2026-10-21: option B; a codec server for the web UI stays a later option).
+context it decrypts in. No codec server, no new holder of the key, no change to the payload format (a codec server
+for the web UI stays a later option).
 
 Who may read it: whoever can load WARDEN_TEMPORAL_KEY and a Temporal API key - in the cloud runtime, a person whose own
 AWS identity may read those secrets (settings.RESTRICTED: the same as `warden status`). What they see: each event's
@@ -13,7 +13,7 @@ redactor (identifiers and secrets masked, as everywhere WARDEN shows evidence) a
 payload that does not decrypt here (another key, another workflow, never encrypted) is said to be unreadable, never
 shown. Nothing is written anywhere.
 
-What the model was sent (owner, 2026-10-21: "exactly what the model saw"): after the events, each `diagnose` call's
+What the model was sent - exactly what the model saw: after the events, each `diagnose` call's
 system and user text, as llm.py handed them to the provider - the redacted prompt recorded in the call's own input,
 rebuilt with llm.ask_for, the one function the call itself used, plus the retry feedback the call recorded it
 appended (if any) - and shown ONLY when it hashes to what that call
@@ -42,7 +42,7 @@ from .codec import REFUSED, EncryptionCodec
 MAX_EVENTS = 500
 MAX_VALUE_CHARS = 2_000
 UNREADABLE = "[unreadable here: another key, another workflow, or never encrypted]"
-# Bounds on what is decrypted at all (review, PR 154): a payload over MAX_PAYLOAD_BYTES, or one that would take the
+# Bounds on what is decrypted at all: a payload over MAX_PAYLOAD_BYTES, or one that would take the
 # history past MAX_TOTAL_BYTES, is never decrypted, parsed or redacted - it is shown by its size. 2 MiB is far above
 # the largest payload WARDEN writes (a diagnose input: the prompt, at most llm.MAX_PROMPT_TOKENS (60,000) tokens, about
 # 240 KB, with its evidence); 32 MiB bounds a 500-event history.
@@ -91,7 +91,7 @@ def _name(attributes: Any) -> str:
 
 def _value(p: Payload) -> str:
     """The whole value as compact JSON - not cut: it is redacted whole first (_cut after), so a secret is never cut into
-    a fragment no pattern recognises (review, PR 154)."""
+    a fragment no pattern recognises."""
     if p.metadata.get("encoding") == REFUSED:
         return UNREADABLE
     if p.metadata.get("encoding") == TOO_LARGE:

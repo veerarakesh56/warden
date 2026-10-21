@@ -1,4 +1,4 @@
-"""Audit A-P-2: approver decisions fed back as labels. A label is an approver's signed verdict on a diagnosis and its
+"""Approver decisions fed back as labels. A label is an approver's signed verdict on a diagnosis and its
 action, recorded only when their signature verifies - calibration (G7) must not learn from a planted one."""
 
 from __future__ import annotations

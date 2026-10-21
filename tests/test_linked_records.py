@@ -230,7 +230,7 @@ def test_the_command_links_two_records_and_refuses_a_wrong_key(tmp_path, monkeyp
 
 
 def test_the_newest_signed_word_is_decided_by_time_not_by_its_text(world):
-    """CodeRabbit, PR 56: as text, a whole second (`...:00Z`) sorted after the same second's half (`...:00.5Z`), and a
+    """As text, a whole second (`...:00Z`) sorted after the same second's half (`...:00.5Z`), and a
     +05:30 time against a UTC one by its digits."""
     owner, _, policy, log = world
     links.record(log, _link(owner, "inc-a", "inc-b", "same-root-cause", now=T0), policy)
@@ -246,7 +246,7 @@ def test_the_newest_signed_word_is_decided_by_time_not_by_its_text(world):
 
 
 def test_a_link_is_one_row_written_whole_and_read_from_both_sides(world):
-    """CodeRabbit, PR 56: two appends could leave one side written; one row cannot."""
+    """Two appends could leave one side written; one row cannot."""
     owner, _, policy, log = world
     links.record(log, _link(owner, "inc-b", "inc-a", "recurrence-of"), policy)
     assert len(log.entries(kinds=(links.KIND,))) == 1
@@ -254,7 +254,7 @@ def test_a_link_is_one_row_written_whole_and_read_from_both_sides(world):
 
 
 def test_a_fix_a_later_incident_found_failed_is_not_proven(world):
-    """CodeRabbit, PR 56: a later incident that cites the fix as its cause records a failed result for it."""
+    """A later incident that cites the fix as its cause records a failed result for it."""
     owner, _, policy, log = world
     wid = _fix(log, "inc-a", "recovered")
     links.record(log, _link(owner, "inc-b", "inc-a", "same-root-cause"), policy)
@@ -287,7 +287,7 @@ def test_a_links_note_is_kept_as_an_approvals_note_is(world):
 
 
 def test_a_walk_reads_the_link_rows_once(world, monkeypatch):
-    """CodeRabbit, PR 56: the walk read every link row again for each record it reached."""
+    """The walk read every link row again for each record it reached."""
     owner, _, policy, log = world
     for a, b in (("inc-a", "inc-b"), ("inc-b", "inc-c"), ("inc-c", "inc-d")):
         links.record(log, _link(owner, a, b, "same-root-cause"), policy)
@@ -298,7 +298,7 @@ def test_a_walk_reads_the_link_rows_once(world, monkeypatch):
     assert reads.count((links.KIND,)) == 1
 
 
-# ------------------------------------------------------------------ links WARDEN finds in its own rows (owner B8)
+# ------------------------------------------------------------------ links WARDEN finds in its own rows
 FP, FP2 = "0123456789abcdef", "fedcba9876543210"
 
 
@@ -380,7 +380,7 @@ def test_a_found_links_words_and_ids_are_text_never_markup(world):
 
 
 def test_a_link_taken_back_reads_as_taken_back_in_every_step(world):
-    """CodeRabbit, PR 56: the removal row read "Linked to another record" in the record's steps."""
+    """The removal row read "Linked to another record" in the record's steps."""
     owner, _, policy, log = world
     links.record(log, _link(owner, "inc-a", "inc-b", "same-root-cause", now=T0), policy)
     links.record(log, _link(owner, "inc-a", "inc-b", "same-root-cause", removed=True, now=T0 + timedelta(hours=1)),
@@ -390,7 +390,7 @@ def test_a_link_taken_back_reads_as_taken_back_in_every_step(world):
 
 
 def test_finding_links_reads_every_plan_only_for_an_incident_that_is_a_relapse(world, monkeypatch):
-    """CodeRabbit, PR 56: every record page read the whole plan history to find relapses."""
+    """Every record page read the whole plan history to find relapses."""
     _, _, _, log = world
     log.append("inc-a", "remediation.plan", {"workflow_id": "rem-a", "run_id": "r1"})
     log.append("rem-a", "intake.relapse", {"workflow_id": "rem-a", "fingerprint": FP, "at": "2026-10-01T10:00:00+00:00"})

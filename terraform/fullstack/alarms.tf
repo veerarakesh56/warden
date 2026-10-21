@@ -118,7 +118,7 @@ locals {
       desc    = "Orders API has fewer healthy targets than desired."
     }
     # ContainerInsights (amazon-cloudwatch-observability add-on). PodName is the workload name.
-    # Verified on the live cluster (2026-09-26, `aws cloudwatch list-metrics --namespace ContainerInsights`):
+    # Verified on a live cluster (`aws cloudwatch list-metrics --namespace ContainerInsights`):
     # both metrics exist with {ClusterName, Namespace, PodName} and arrive every minute, so treating
     # missing data as breaching does not flap while the pods run.
     catalog-errors = {

@@ -61,13 +61,13 @@ def test_a_failing_model_is_paid_for_once_per_incident():
 
     asyncio.run(main())
     assert len(clients) == 1, f"{len(clients)} budgets for one incident"
-    # One budget: at most one call past the cap (a response's cost is known only after it arrives, A-C-17).
+    # One budget: at most one call past the cap (a response's cost is known only after it arrives).
     assert provider.calls <= 2
     assert sum(c.cost.usd for c in clients) < 0.50 + 0.31
 
 
 def test_one_alert_is_one_incident_with_one_budget():
-    """Fifth review: an incident id was reusable once its run ended, and each new run got a fresh
+    """An incident id was reusable once its run ended, and each new run got a fresh
     model budget. Every workflow start names its workflow as `<Workflow>.run` (an alias could hide one - sixth
     review), and every IncidentWorkflow start allows a new run only after a FAILED one, never terminating one."""
     import ast
@@ -92,7 +92,7 @@ def test_one_alert_is_one_incident_with_one_budget():
 
 
 def test_a_failed_incident_may_run_again_but_a_completed_one_may_not():
-    """Sixth review: with REJECT_DUPLICATE, a run that failed (the model down) made the incident
+    """With REJECT_DUPLICATE, a run that failed (the model down) made the incident
     undiagnosable while its history was retained. Run on Temporal's time-skipping server."""
     from temporalio.common import WorkflowIDReusePolicy
     from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -147,7 +147,7 @@ def test_a_failed_incident_may_run_again_but_a_completed_one_may_not():
 
 
 def test_an_incident_restarted_after_failing_keeps_one_budget():
-    """Seventh review (2026-10-01, MED): a failed incident may run again, and each run got a fresh budget - the
+    """MED: a failed incident may run again, and each run got a fresh budget - the
     model answering invalid JSON was paid for 10 times over 5 restarts, $3.00 against a $0.50 cap. The spend is
     carried across runs in the audit, so the restarts are admitted but the model is not paid again."""
     from temporalio.common import WorkflowIDReusePolicy
@@ -186,7 +186,7 @@ def test_an_incident_restarted_after_failing_keeps_one_budget():
 
 
 def test_a_provider_outage_does_not_use_up_the_incidents_ceiling():
-    """Eighth review (2026-10-01, a regression from 8f575b8): three runs during an outage (3 + 3 + 2 failed requests,
+    """A regression from 8f575b8: three runs during an outage (3 + 3 + 2 failed requests,
     $0) used the whole default ceiling, and every run after the provider recovered failed without a call."""
     import threading as _threading
 
@@ -232,7 +232,7 @@ def test_a_provider_outage_does_not_use_up_the_incidents_ceiling():
 
 
 def test_a_timed_out_call_counts_as_a_call():
-    """Eighth review: a timed-out call - sent, and possibly billed - counted nowhere, so restarts of a hanging model
+    """A timed-out call - sent, and possibly billed - counted nowhere, so restarts of a hanging model
     were never bounded by the call ceiling."""
     import time as _time
 
@@ -254,7 +254,7 @@ def test_a_timed_out_call_counts_as_a_call():
 
 
 def test_the_next_run_starts_from_both_the_usd_and_the_calls_spent():
-    """Eighth review (test strength): carrying only the USD, or only the call count, passed every test."""
+    """Test strength: carrying only the USD, or only the call count, passed every test."""
     seen = []
 
     class Records:
@@ -290,7 +290,7 @@ def test_the_next_run_starts_from_both_the_usd_and_the_calls_spent():
 
 
 def test_only_a_request_never_sent_or_refused_by_status_is_unanswered():
-    """Ninth review (a regression from af2a361): every provider error was "unanswered", so a provider's own read
+    """A regression from af2a361: every provider error was "unanswered", so a provider's own read
     timeout - the request processed, the client gone - and a 200 the SDK could not read were never carried, and
     restarts of one incident were unbounded again (18 requests where the ceiling allowed 4)."""
     import subprocess as _subprocess

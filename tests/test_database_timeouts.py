@@ -1,4 +1,4 @@
-"""Audit A-B-M1, register O8: every database connection WARDEN opens bounds its statements and lock waits - a read of
+"""Register O8: every database connection WARDEN opens bounds its statements and lock waits - a read of
 an already-degraded database must not hang behind a lock or add a long query to its load. The reader and the
 remediation platform both connect through these adapters."""
 from __future__ import annotations

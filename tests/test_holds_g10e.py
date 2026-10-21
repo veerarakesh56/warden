@@ -168,7 +168,7 @@ def _restart_beside(actor, event="UpdateService"):
 @pytest.mark.parametrize("actor", ["<HIGHENTROPY_1>", "Root", "IdentityCenterUser", "role", "user/dev-ssingh",
                                    "role/AWSReservedSSO_AdministratorAccess"])
 def test_a_write_by_anyone_but_aws_is_a_persons_write_p31_looks_at(actor):
-    """G10 held-out: only `role/...` and `user/...` counted, so a change by an Identity Center role the
+    """Only `role/...` and `user/...` counted, so a change by an Identity Center role the
     redactor had hidden, by the root user or by a federated one was nobody's - and a fix could ignore it."""
     assert "P31-UNADDRESSED-CHANGE" in _restart_beside(actor)
 
@@ -279,7 +279,7 @@ def _two_writes(first, second, cite_second=True, resource="pricing-api"):
 
 
 def test_a_write_a_later_one_took_back_is_not_a_change_the_fix_left_unaddressed():
-    """Register G10-38. Live, 2026-10-12: a rule's EnableRule, then the DisableRule that caused the alarm - cited -
+    """Register G10-38. Seen live: a rule's EnableRule, then the DisableRule that caused the alarm - cited -
     and the report was still held for the EnableRule."""
     for first, second in (("EnableRule", "DisableRule"), ("StopTask", "StartTask"), ("ResumeProcesses", "SuspendProcesses")):
         assert "P31-UNADDRESSED-CHANGE" not in _two_writes(first, second)

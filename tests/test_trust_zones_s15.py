@@ -36,7 +36,7 @@ def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alon
     # Eldane, the AI critic (eldane.py): its own model and its own signing key, apart from WARDEN's diagnoser.
     assert workflows.ZONES["critic"] == ("critic_review",)
     # investigate reads more of what the alert names (G9-B): the read zone, with the reader roles. reread reads the
-    # same evidence once more when a source answered empty right after the alert (research 2026-10-15): reads only.
+    # same evidence once more when a source answered empty right after the alert: reads only.
     # plan_fix reads the platform's live state to fill a fix plan (G9-D1): the read zone too.
     # after_hold reads whether an alarm held as expected down still fires (G10-39): the read zone as well.
     # discuss_evidence reads an incident's evidence again for its discussion (G10-45), and discuss_replan its alarm

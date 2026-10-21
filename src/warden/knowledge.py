@@ -105,8 +105,8 @@ def _compile(sig_id: str, detect: dict[str, Any]) -> dict[str, Any]:
 
 
 # "no replica lag", "not OOMKilled", "without errors": the term is present and the evidence says the
-# opposite. inc-005's summary ("... no replica lag") matched REPLICA-LAG-001 at lag 0 until
-# 2026-09-25, and the report listed it as a fitting signature beside a diagnosis that ruled it out.
+# opposite. inc-005's summary ("... no replica lag") matched REPLICA-LAG-001 at lag 0
+# once, and the report listed it as a fitting signature beside a diagnosis that ruled it out.
 _NEGATED = re.compile(r"(?:\bno|\bnot|\bwithout|\bzero|\bnever)\s+$")
 
 

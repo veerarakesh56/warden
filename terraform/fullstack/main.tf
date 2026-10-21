@@ -38,7 +38,7 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  # The region: an override, else environments.yaml aws_region (owner requirement R17: never a literal).
+  # The region: an override, else environments.yaml aws_region (never a literal).
   region = coalesce(var.region, yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region)
   # ⛔ THE ENVIRONMENT IS THE WORKSPACE (v2 Phase 1.5). `terraform workspace select -or-create dev`
   # before plan/apply. Every name, tag, boundary and parameter below is derived from it, the same way
@@ -62,7 +62,7 @@ locals {
   permissions_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
 
   # Per-environment values from SSM Parameter Store (free, standard tier), never a local tfvars file.
-  # Sensitive: a plan prints "(sensitive value)", not the owner's address - plan logs of a public repo's
+  # Sensitive: a plan prints "(sensitive value)", not the alert address - plan logs of a public repo's
   # CI are public.
   my_ip_cidr = sensitive(data.aws_ssm_parameter.my_ip_cidr.insecure_value)
 }
@@ -77,10 +77,10 @@ data "aws_ssm_parameter" "budget_email" {
 
 # --------------------------------------------------------------------------- network
 #
-# Public subnets hold ONLY the NAT gateway (2026-09-27 network review). Everything else - ECS tasks,
+# Public subnets hold ONLY the NAT gateway. Everything else - ECS tasks,
 # EKS nodes, the internal ALB, ElastiCache and the in-VPC Lambdas - is in private subnets and
 # reaches the internet through ONE NAT gateway in public[0]: Aurora in express configuration is outside the VPC, reachable only through
-# its internet access gateway (changed 2026-09-26, docs/FULLSTACK-LAB.md section 1).
+# its internet access gateway (docs/FULLSTACK-LAB.md section 1).
 # ⚠ One NAT is a single-AZ dependency: if that AZ fails, the in-VPC Lambdas lose the database.
 # Accepted for a benchmark stack; a production stack runs one NAT per AZ.
 
@@ -112,7 +112,7 @@ resource "aws_subnet" "public" {
   cidr_block        = "10.42.${count.index}.0/24"
   availability_zone = local.azs[count.index]
   # Only the NAT gateway lives here (with its Elastic IP): nothing launched in a public subnet gets
-  # a public address by default (2026-09-27 network review).
+  # a public address by default.
   map_public_ip_on_launch = false
   tags = {
     Name                     = "${local.name}-public-${count.index}"
@@ -180,7 +180,7 @@ resource "aws_vpc_endpoint" "gateway" {
   tags              = { Name = "${local.name}-${each.key}" }
 }
 
-# No interface endpoints (cost plan, 2026-10-16): Secrets Manager and SQS were USD 0.0129/hour each, about
+# No interface endpoints, for cost: Secrets Manager and SQS were USD 0.0129/hour each, about
 # USD 19 a month together, for a few thousand calls a day that the NAT carries for cents - ECR, STS and the
 # rest already went that way. They also sat in private[0] alone, an accepted az-outage failure (helios). TLS
 # and IAM still guard every call; no policy here conditions on aws:SourceVpce.
@@ -256,7 +256,7 @@ locals {
 }
 
 # ⛔ THE SPENDING ALARM FOR THIS STACK. The proving ground's budget went with its teardown, so the
-# stack (measured 2026-10-15, with the runtime: ~USD 1/h, before credits) carries its own. Forecast alarms fire first on purpose: by the time
+# stack (measured with the runtime: ~USD 1/h, before credits) carries its own. Forecast alarms fire first on purpose: by the time
 # ACTUAL spend crosses a line, the hours that caused it are already billed. The name is inside the
 # deploy role's budgets scope (budget/warden-<env>-*, iam/templates/deploy.json).
 resource "aws_budgets_budget" "guard" {
@@ -266,7 +266,7 @@ resource "aws_budgets_budget" "guard" {
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
 
-  # Gross spend, before credits (cost plan, 2026-10-16). With credits counted - the AWS default - a Free-plan
+  # Gross spend, before credits. With credits counted - the AWS default - a Free-plan
   # account's spend reads USD 0.00 until the credits are gone, so this alarm stayed silent while about USD 24 a
   # day burned them; and on the Free plan, used-up credits close the account.
   cost_types {

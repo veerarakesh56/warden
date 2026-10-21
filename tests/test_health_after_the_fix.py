@@ -1,4 +1,4 @@
-"""Live, 2026-10-16 (fs-01): WARDEN moved the checkout alias back to the good version at 07:59:41Z and both alarms were
+"""Scenario fs-01, live: WARDEN moved the checkout alias back to the good version at 07:59:41Z and both alarms were
 OK at 08:01Z - and at 08:04:45Z it judged its fix "did not recover within 5 min" and undid it, breaking checkout
 again. Its Lambda health check summed the last five minutes, which held the errors from before the fix, inside a
 five-minute verify window: a working fix could never pass. A fix is now judged only on the whole minutes after it

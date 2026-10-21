@@ -1,6 +1,6 @@
 """A plain (unencrypted) Temporal message must neither reach the workflow as data nor stall it.
 
-Independent review, 2026-09-28: when the codec RAISED on a plain payload, one plain signal - any
+When the codec RAISED on a plain payload, one plain signal - any
 name, sent by anyone with signal permission on the namespace, e.g. the web UI's "Send signal" - failed
 every workflow task of a RemediationWorkflow that had already applied a change. The success check,
 the rollback and the final audit row never ran.
@@ -109,7 +109,7 @@ def _world(policy, healthy_after=1):
 
 
 def test_a_forged_ciphertext_signal_after_apply_does_not_stop_the_rollback():
-    """Second review: the key id is plain metadata, so a keyless sender could mark
+    """The key id is plain metadata, so a keyless sender could mark
     random bytes "encrypted"; the codec raised, and the workflow stalled after it had applied."""
     from temporalio.api.common.v1 import Payload, Payloads, WorkflowExecution
     from temporalio.api.workflowservice.v1 import SignalWorkflowExecutionRequest
@@ -145,7 +145,7 @@ def test_a_forged_ciphertext_signal_after_apply_does_not_stop_the_rollback():
 
 
 def test_a_replayed_approval_does_not_apply_another_workflow():
-    """Second review, the reviewer's attack: A is approved properly; A's encrypted
+    """An independent reviewer's attack: A is approved properly; A's encrypted
     approve signal is replayed into B, and B's check_approval task is completed with A's recorded
     encrypted result. Nobody signed anything for B, and B must not apply."""
     from temporalio.api.common.v1 import WorkflowExecution
@@ -210,10 +210,10 @@ def test_a_replayed_approval_does_not_apply_another_workflow():
 
 
 def test_a_replay_from_an_earlier_run_of_the_same_workflow_id_does_not_apply():
-    """Third review, the reviewer's attack: run 1 of `rem-orders` is approved and applies nothing;
+    """An independent reviewer's attack: run 1 of `rem-orders` is approved and applies nothing;
     run 2 of the same id is approved by nobody. Run 1's encrypted approve signal is replayed into run 2 and run 2's
     check_approval is completed with run 1's recorded result. (Run 1's apply is refused before writing: one that
-    FAILS now trips the kill switch - seventh review - which alone would stop run 2 and hide what this tests.)"""
+    FAILS now trips the kill switch, which alone would stop run 2 and hide what this tests.)"""
     from temporalio.api.common.v1 import WorkflowExecution
     from temporalio.api.taskqueue.v1 import TaskQueue
     from temporalio.api.workflowservice.v1 import (
@@ -282,7 +282,7 @@ def test_a_replay_from_an_earlier_run_of_the_same_workflow_id_does_not_apply():
 
 
 def test_an_unreadable_gate_answer_blocks_instead_of_passing():
-    """Third review: a gate result that decodes to None (a forged or replayed payload)
+    """A gate result that decodes to None (a forged or replayed payload)
     passed `if blocked:`, so a tripped kill switch was skipped. Only an explicit empty list passes."""
     from temporalio import activity as temporal_activity
 

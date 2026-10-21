@@ -1,4 +1,4 @@
-"""The bench approver: Claude's own test identity - its own Ed25519 key, `dev` only, T1/T2 - shown an
+"""The bench approver: an automated test identity - its own Ed25519 key, `dev` only, T1/T2 - shown an
 incident's waiting plan and approving it through the approval page's signed path (approval_page._signed_request).
 
     python scripts/bench_approve.py --new-key --environment <env>  # once: makes the key, prints the approver entry
@@ -9,11 +9,11 @@ incident's waiting plan and approving it through the approval page's signed path
 
 The key is bench-approver.pem in WARDEN_BENCH_KEY_DIR (default ~/.warden-bench), never in the repository. The approval
 domain comes from the runtime's settings (SSM /warden/<runtime env>/tf/approval_domain) only: a signed approval is sent
-to no host a command line names (Sonar pythonsecurity:S8703, 2026-10-16 - `--domain` was that; an agent driving this
-script could have posted a valid signature anywhere). Every approval it sends is on the record as `bench`, the name the
+to no host a command line names (Sonar pythonsecurity:S8703 - a `--domain` option would let an agent driving this
+script post a valid signature anywhere). Every approval it sends is on the record as `bench`, the name the
 approver list shows as "bench approver (Claude), test".
 
-The key at rest (2026-10-16, naming audit item 4: it was always written in the clear, with default permissions). A new
+The key at rest. A new
 key is encrypted with WARDEN_BENCH_KEY_PASSPHRASE, and written in the clear only with --unencrypted. It is created
 once, never over another file, mode 0600 on POSIX. Windows ignores the mode: what keeps other accounts out there is the
 profile folder's ACL (only the user, SYSTEM and Administrators) - and the passphrase. A key made before then is still
@@ -87,7 +87,7 @@ def new_key(environment: str, *, unencrypted: bool = False) -> str:
 
 
 def load_key():
-    """The bench key: decrypted with PASSPHRASE_ENV, or - a key made before 2026-10-16 - read in the clear, with a
+    """The bench key: decrypted with PASSPHRASE_ENV, or - an older key written in the clear - read as it is, with a
     warning."""
     from cryptography.hazmat.primitives import serialization
 

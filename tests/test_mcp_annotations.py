@@ -1,4 +1,4 @@
-"""Research 2026-10-15, item 16: every MCP tool says what it does to the world (MCP tool annotations) - only the tools
+"""Every MCP tool says what it does to the world (MCP tool annotations) - only the tools
 that change nothing are marked read-only, and the one that asks for a fix is marked destructive."""
 
 from __future__ import annotations

@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 # requirements.txt carries a hash for every package (compiled from requirements.in), so pip refuses
-# anything else; wheels only, so no package's setup script runs at install (Sonar S8541, 2026-10-16 -
+# anything else; wheels only, so no package's setup script runs at install (Sonar S8541 -
 # every pinned package has a Linux wheel for this Python).
 COPY requirements.txt .
 RUN pip install --no-cache-dir --require-hashes --only-binary :all: -r requirements.txt

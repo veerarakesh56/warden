@@ -1,14 +1,14 @@
 name: "Review · security (optional)"
 
 # Anthropic's Claude Code security review (anthropics/claude-code-security-review, MIT) on a pull request into main:
-# OPTIONAL and OFF by default - it calls the Claude API on the owner's key, so it costs money per pull request. It runs
+# OPTIONAL and OFF by default - it calls the Claude API on the repository's own key, so it costs money per pull request. It runs
 # only when the repository variable WARDEN_SECURITY_REVIEW is "on" (docs/OPERATIONS.md, "Optional: Claude's security
 # review"), and only on a pull request from a branch of this repository: the action is not hardened against prompt
 # injection (its README), and a fork's pull request never gets the key (pull_request, never pull_request_target).
 # It holds no cloud identity and deploys nothing; it reads the diff and comments on the pull request.
 on:
   pull_request:
-    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # A draft pull request runs no CI (it saves the shared Actions queue); it runs when it is
     # marked ready for review, and on every push after that.
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]

@@ -57,7 +57,7 @@ def test_the_code_hash_changes_with_any_policy_file(tmp_path, monkeypatch):
 
 
 def test_a_hash_that_starts_with_ten_digits_is_not_a_phone_number():
-    """CI, 2026-10-02: about one SHA-256 in a hundred starts with ten or more digits, and PHONE withheld the whole
+    """About one SHA-256 in a hundred starts with ten or more digits, and PHONE withheld the whole
     report (exit 3). Digits that run straight into letters are the start of a name, as digits after one are."""
     from warden import gate, redaction
 

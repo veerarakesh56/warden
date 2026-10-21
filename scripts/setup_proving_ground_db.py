@@ -10,7 +10,7 @@
 `ops_db._guard_database` refuses to inject anything unless `warden_proving_ground` exists in the
 database it is pointed at. That table is the entire reason the injectors cannot be aimed at
 something real: they open dozens of sessions, take an ACCESS EXCLUSIVE lock and revoke a security
-group, and a Postgres reachable from this laptop could be anyone's.
+group, and a Postgres reachable from this workstation could be anyone's.
 
 If the harness created the sentinel when it was missing, the guard would mean nothing - it would
 bless whatever database it was given, which is precisely the database you did not mean to point it

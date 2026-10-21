@@ -35,7 +35,7 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
-    # New digests and patch releases only. A new Python (3.12 -> 3.14, PR 67) is a deliberate change of its own: the
+    # New digests and patch releases only. A new Python (3.12 -> 3.14) is a deliberate change of its own: the
     # images' Python must match what their hashed requirements were compiled for (the app and the Lambdas: 3.12).
     ignore:
       - dependency-name: python

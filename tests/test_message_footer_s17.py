@@ -1,6 +1,6 @@
 """Register S17, fake "WARDEN" messages: each message names its incident and the head of its audit record, and
 the incident's Full record page shows the same hash with its signatures checked - so a message can be checked against
-the record it claims to come from. (It named `warden audit show` until 2026-10-15: a command nobody could run - the
+the record it claims to come from. (It once named `warden audit show`: a command nobody could run - the
 audit database is private and the runtime's containers take no shell.)"""
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def test_audit_show_refuses_a_record_that_was_rewritten(monkeypatch, capsys, tmp
 
 
 def test_a_hash_that_begins_with_sixteen_digits_is_still_shown_and_sent():
-    """CI, 2026-10-03: a head of 16 digits read as a phone number, so the gate blocked the whole report."""
+    """A head of 16 digits read as a phone number, so the gate blocked the whole report."""
     from warden import audit as audit_mod
     from warden.gate import enforce
     from warden.redaction import redact

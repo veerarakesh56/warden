@@ -1,4 +1,4 @@
-"""G10-C6: what AWS's documentation says about an error code in the evidence (owner decision 2026-10-10: redacted
+"""G10-C6: what AWS's documentation says about an error code in the evidence (redacted
 codes only; reference, never evidence). What is sent is closed - a code from the typed facts and WARDEN's service word;
 what is kept is an AWS page only; it can never be cited, and the tripwire scans it as outside text."""
 

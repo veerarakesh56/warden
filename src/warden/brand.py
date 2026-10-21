@@ -1,4 +1,4 @@
-"""WARDEN's mark, in every page's header (owner, 2026-10-16: "Ward Gem" - an emerald-cut five-sided shield with a
+"""WARDEN's mark, in every page's header ("Ward Gem" - an emerald-cut five-sided shield with a
 calm eye at its centre; bright, never dark).
 
 `LOGO_SVG` is inline SVG drawn with fill attributes only (no style, no id, no script, no event handler, nothing
@@ -33,7 +33,7 @@ _XMLNS = re.compile(r'xmlns(?::\w+)?="[^"]*"')
 
 def _drop_xmlns(svg: str) -> str:
     """Every xmlns attribute that follows white space, with that white space - what `\\s+xmlns(?::\\w+)?="[^"]*"` removed,
-    read once from left to right (Sonar python:S8786, 2026-10-17: the leading `\\s+` was tried again from each
+    read once from left to right (Sonar python:S8786: the leading `\\s+` was tried again from each
     character of a run of white space, so a long run took time in its square)."""
     kept, last, at = [], 0, 0
     while found := _XMLNS.search(svg, at):

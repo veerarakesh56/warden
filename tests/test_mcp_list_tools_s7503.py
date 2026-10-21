@@ -1,5 +1,5 @@
-"""The MCP server lists its tools through a plain function that hands the SDK a finished awaitable (Sonar python:S7503,
-2026-10-17: an `async def` that awaited nothing). The SDK's contract (mcp 2.2 and 2.3) is a callable returning an
+"""The MCP server lists its tools through a plain function that hands the SDK a finished awaitable (Sonar python:S7503:
+an `async def` that awaited nothing). The SDK's contract (mcp 2.2 and 2.3) is a callable returning an
 awaitable, which it awaits; these drive the real SDK end to end so the change is held, not assumed."""
 
 from __future__ import annotations

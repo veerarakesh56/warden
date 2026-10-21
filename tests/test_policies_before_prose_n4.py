@@ -1,4 +1,4 @@
-"""Register N4 / audit A-N-4: an approver reads what the rules found before the model's fluent text."""
+"""Register N4: an approver reads what the rules found before the model's fluent text."""
 
 from __future__ import annotations
 

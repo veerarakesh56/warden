@@ -124,15 +124,15 @@ def test_every_step_is_in_the_signed_audit_log(results):
     for alert_id, (report, _) in by_workflow.items():
         rows = log.entries(alert_id)
         kinds = [r["kind"] for r in rows]
-        # A fix that would reach a person is diagnosed once more (the second opinion, 2026-10-15): that diagnosis and
+        # A fix that would reach a person is diagnosed once more (the second opinion): that diagnosis and
         # its comparison are the workflow's own steps, after the pipeline's - set aside here, and counted.
         second = "incident.second_opinion" in kinds
         if second:
             cut = kinds.index("incident.second_opinion")
             again = max(i for i, k in enumerate(kinds[:cut]) if k == "incident.diagnose")
             kinds = kinds[:again] + kinds[again + 1:cut] + kinds[cut + 1:]
-        # Plus one row of what the run spent on the model, written failed or not (seventh review: the budget is
-        # carried across an incident's runs), and the model path's own rows (item 7): one llm.call per request, and
+        # Plus one row of what the run spent on the model, written failed or not (the budget is carried across an
+        # incident's runs), and the model path's own rows: one llm.call per request, and
         # one llm.fallback per fallback - not graph steps, so held apart: exactly one for each degraded diagnosis.
         assert [k for k in kinds if k not in ("incident.llm_spend", "incident.llm_reserve", "incident.alert",
                                               "incident.evidence", "llm.call", "llm.fallback")] == \
@@ -147,7 +147,7 @@ def test_every_step_is_in_the_signed_audit_log(results):
 
 
 def test_a_prepare_that_keeps_failing_ends_the_incident_instead_of_retrying_forever(tmp_path):
-    """Second review: `prepare` ran with the default retry policy (unlimited), so an input that made
+    """`prepare` ran with the default retry policy (unlimited), so an input that made
     every attempt fail or time out held the incident forever, visible nowhere."""
     from temporalio.client import WorkflowFailureError
 

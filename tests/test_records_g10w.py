@@ -1,9 +1,8 @@
 """WARDEN's records as web pages, and one Slack message per incident (registers G10-46, G10-47).
 
-Owner, 2026-10-14: "why all that alerts total details and approval thing coming in 3 parts ... i want all in one part
-only and with the record link"; "the denied or approved notes ... and also if anyone tried to inject or do malicious
-stuff ... i dont want that records coming here in slack everytime, i want all those records to be stored and should
-be available anytime on webpage ... clean and clear details and timestamps ... like some kind of drop down"."""
+One message per incident, with the record link, instead of separate alert, detail and approval messages. The
+decisions, their notes and any attempt to steer WARDEN through them are kept on WARDEN's records pages - stored,
+available at any time, with clear details and timestamps in expandable sections - not posted to Slack each time."""
 
 from __future__ import annotations
 
@@ -171,7 +170,7 @@ def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(
     refused = sign_in(page, stranger)
     assert refused.status == 403
     assert "Set-Cookie" not in refused.headers
-    # 2026-10-15: a report's "Full record" button landed on the list once signed in. The incident opened is where
+    # A report's "Full record" button landed on the list once signed in. The incident opened is where
     # the reader comes back to - only an incident id's shape travels through Slack's sign-in.
     page = dataclasses.replace(page, slack=_login(slack))
     signed_out = page.handle("GET", f"/r/{INC}")
@@ -182,8 +181,8 @@ def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(
 
 
 def test_open_all_opens_every_panel_and_every_page_leads_to_all_incidents(page_setup, tmp_path):  # noqa: F811
-    """Owner, 2026-10-15: "open all ... didnt open all, the evidence ... every step on the record these 2 didnt open";
-    "all the records should be in one place ... that link is missing"."""
+    """"Open all" opens every panel, the evidence and every step on the record included; every page links to all the
+    records in one place."""
     log = _log(tmp_path)
     _incident(log)
     log.append(INC, "incident.evidence", {"prompt": "what the model saw"})
@@ -206,7 +205,7 @@ def _waiting(log, tier="T1"):
 
 
 def test_a_waiting_plans_record_gives_its_approver_a_button_that_opens_the_plan(page_setup, tmp_path, monkeypatch):  # noqa: F811
-    """Owner, 2026-10-15: "the approve button i dont see here why". Only for an approver of the plan's tier with a
+    """The record shows the approve button too - only for an approver of the plan's tier with a
     passkey, only while it waits; it opens the approval page with a fresh link, and approves nothing itself."""
     monkeypatch.delenv("WARDEN_RECORD_VIEWERS", raising=False)
     page, _ = _page(page_setup, tmp_path)
@@ -316,8 +315,7 @@ FINDINGS = chr(10).join([
 
 
 def test_the_complete_findings_are_on_the_page_section_by_section_and_stay_text(page_setup, tmp_path):  # noqa: F811
-    """Owner, 2026-10-14: "not only summary also complete findings on page to refer if needed to see all the details
-    in depth" - the whole report, each section its own panel, laid out; and the evidence the model was shown."""
+    """Not only the summary: the complete findings, in depth - the whole report, each section its own panel, laid out; and the evidence the model was shown."""
     log = _log(tmp_path)
     _incident(log)
     log.append(INC, "incident.report", {"markdown": FINDINGS})
@@ -339,8 +337,8 @@ def test_the_complete_findings_are_on_the_page_section_by_section_and_stay_text(
 
 
 def test_every_incident_stays_listed_with_no_time_limit_newest_first_by_day_fifty_a_page(page_setup, tmp_path):  # noqa: F811
-    """Owner, 2026-10-14: "should be even available after a year too ... no time limit ... multiple pages should be
-    in order with time date timestamp ... all of them at one place and can open whichever we want"."""
+    """Every incident stays available with no time limit, a year on as on the first day - in one place, across pages
+    in time order, each one opened at will."""
     from datetime import UTC, datetime, timedelta
 
     now = [datetime(2026, 10, 14, 8, 0, tzinfo=UTC)]
@@ -379,7 +377,7 @@ def test_every_incident_stays_listed_with_no_time_limit_newest_first_by_day_fift
 
 def test_independent_check_fixes_the_records_close_without_sign_in_name_people_and_show_what_was_said(
         page_setup, tmp_path):  # noqa: F811
-    """The independent check, 2026-10-14: the records were open to anyone where no Slack sign-in was set up; a refused
+    """The records were open to anyone where no Slack sign-in was set up; a refused
     approval's reason named the list's id; the messages kept instead of posted were not shown, every one labelled
     "Asked for approval"; the list read every incident's whole evidence."""
     log = _log(tmp_path)
@@ -416,7 +414,7 @@ def _nonce(r):
 
 
 def test_an_incident_whose_fix_run_ends_before_any_message_still_gets_its_one_message(tmp_path, monkeypatch):
-    """The independent check, 2026-10-14: a run that failed or was cancelled before asking for approval - or a
+    """A run that failed or was cancelled before asking for approval - or a
     runtime with no approval domain - left the channel with nothing. The summary goes out once, whatever comes first."""
     from test_approval_links_h6 import _policy, _Sink
     from warden.activities import RemediationActivities

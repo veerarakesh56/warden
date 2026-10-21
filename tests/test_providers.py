@@ -177,7 +177,7 @@ def test_openai_adapter_estimates_when_the_provider_reports_no_usage(monkeypatch
 
 @pytest.mark.parametrize("alias, own", [("groq", "GROQ_API_KEY"), ("openrouter", "OPENROUTER_API_KEY")])
 def test_the_openai_key_never_goes_to_another_vendor(monkeypatch, alias, own):
-    """Audit A-C-18: OPENAI_API_KEY was sent to Groq, OpenRouter and any custom host."""
+    """OPENAI_API_KEY was sent to Groq, OpenRouter and any custom host."""
     monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
     monkeypatch.delenv(own, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-the-openai-key")
@@ -201,7 +201,7 @@ def test_openai_itself_still_gets_the_openai_key(monkeypatch):
 
 
 def test_the_gemini_key_goes_only_to_google(monkeypatch):
-    """Second review: the Google SDK reads GOOGLE_GEMINI_BASE_URL itself, so the Gemini
+    """The Google SDK reads GOOGLE_GEMINI_BASE_URL itself, so the Gemini
     key went to whatever host that named - http included. The base URL is now explicit."""
     pytest.importorskip("google.genai", reason="pip install -e '.[gemini]'")
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-construction-only")
@@ -212,7 +212,7 @@ def test_the_gemini_key_goes_only_to_google(monkeypatch):
 
 @pytest.mark.parametrize("alias", ["groq", "openrouter"])
 def test_openai_org_and_project_ids_stay_with_openai(monkeypatch, alias):
-    """Second review: the OpenAI SDK reads OPENAI_ORG_ID / OPENAI_PROJECT_ID itself and sent them to
+    """The OpenAI SDK reads OPENAI_ORG_ID / OPENAI_PROJECT_ID itself and sent them to
     every OpenAI-compatible host."""
     monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
     monkeypatch.setenv("OPENAI_ORG_ID", "org-the-openai-org")

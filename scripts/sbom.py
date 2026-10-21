@@ -1,4 +1,4 @@
-"""WARDEN's software and model bill of materials, as CycloneDX 1.6 JSON (registers S9, A-P-7).
+"""WARDEN's software and model bill of materials, as CycloneDX 1.6 JSON (register S9).
 
     python scripts/sbom.py            # writes docs/sbom/warden.cdx.json
 

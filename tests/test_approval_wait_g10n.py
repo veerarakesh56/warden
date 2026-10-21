@@ -1,7 +1,7 @@
 """How long a plan waits for its approval is the environment's own setting, in hours up to a week (register G10-34).
 
-Owner, 2026-10-12: "people won't see it immediately; sometimes after discussions they will decide - a few days or a
-week as the limit is fine". That day a 30-minute plan behind a 15-minute link ran out on a person twice. A plan made
+People will not see a plan immediately; sometimes they decide after a discussion, so a few days or a week is the
+limit. A 30-minute plan behind a 15-minute link ran out on a person twice. A plan made
 hours ago is still safe to approve: the target is read again before anything is applied."""
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
 """A step that keeps failing ends the run on the record, and the breaker counts only failures since its reset
-(G2: audit A-B-L10, A-B-L1)."""
+(G2)."""
 
 from __future__ import annotations
 

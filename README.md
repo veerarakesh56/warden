@@ -75,10 +75,10 @@ the same way). It is not offered as a product to adopt as-is. Read [the benchmar
   that deletes, is handed to a person.
 - **It sees only what its access allows,** and masking works from known patterns: a secret in a format no pattern
   knows is not caught.
-- **One person approves.** This deployment's approver list has one person, whose approval decides alone; the code
-  supports requiring two. `dev`, where the test bench runs, also has a second, labelled approver: a test key that Claude
-  (the AI that helps build WARDEN) holds, `scripts/bench_approve.py`. It may approve only small, reversible fixes,
-  only in `dev` (tiers T1 and T2, set by the owner on 2026-10-15), and every approval it gives is recorded as
+- **One person can approve.** An approver list may hold a single person, whose approval then decides alone; the code
+  supports requiring two. `dev`, where the test bench runs, may also have a second, labelled approver: a test key that an
+  automated test harness holds, `scripts/bench_approve.py`. It may approve only small, reversible fixes,
+  only in `dev` (tiers T1 and T2), and every approval it gives is recorded as
   `bench`. WARDEN refuses the bench approver in any environment that is not of the nonprod tier, whatever its
   entry in the approver list says, and makes its key only for a nonprod environment.
 - **The measurements are limited:** synthetic held-out incidents, single runs, and live reads from September 2026

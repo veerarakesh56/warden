@@ -1,4 +1,4 @@
-"""Audit A-I-13: the proving ground's public HTTP API takes a bearer token on POST /checkout. The token is made at
+"""The proving ground's public HTTP API takes a bearer token on POST /checkout. The token is made at
 apply by an ephemeral random_password and written through Secrets Manager's write-only argument (in no plan and no
 state); the checkout Lambda refuses a call without it, and the traffic Lambda - the only caller - sends it."""
 

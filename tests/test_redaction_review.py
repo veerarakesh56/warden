@@ -1,4 +1,4 @@
-"""The redaction cases the independent review of 2026-09-28 found.
+"""The redaction cases an independent review found.
 
 Each case is a value a pattern found in one place that must not survive in another, a credential
 shape that passed, or an ordinary word the first fix wrongly masked.
@@ -28,7 +28,7 @@ ALERT = Alert(alert_id="r", name="n", severity="high", service="orders", environ
     ("client 10.0.3.22 ok", "retry 10.0.3.22", "10.0.3.22"),                     # short IP
 ])
 def test_a_value_found_once_is_masked_everywhere(found, elsewhere, value):
-    """A-C-4: the thresholds of the first fix let each of these survive in the second line."""
+    """The thresholds of the first fix let each of these survive in the second line."""
     out = redact(found + "\n" + elsewhere)
     assert value not in out.text, out.text
 
@@ -60,7 +60,7 @@ def test_a_found_value_reaches_a_trusted_config_item_masked():
     ("Private-Lines: 2\nAAAAgQDputtybody\nAAAAsecond\nPrivate-MAC: ab", "AAAAgQDputtybody"),
 ])
 def test_credential_shapes_that_still_passed(text, secret):
-    """A-C-22, second round."""
+    """Credential shapes that passed the first fix."""
     assert secret not in redact(text).text
 
 
@@ -74,13 +74,13 @@ def test_credential_shapes_that_still_passed(text, secret):
     "run --secrets-provider aws",
 ])
 def test_ordinary_flags_are_not_masked(text):
-    """A-C-22: the first flag pattern masked resource names - `orders-db-creds` then vanished from
+    """The first flag pattern masked resource names - `orders-db-creds` then vanished from
     the evidence and from the P14 inventory."""
     assert redact(text).text == text
 
 
 def test_mcp_context_lookup_returns_tool_errors_redacted_with_the_logs(monkeypatch):
-    """A-C-5: the MCP handler returned raw tool errors next to redacted logs."""
+    """The MCP handler returned raw tool errors next to redacted logs."""
     from warden import mcp_server, tools
 
     class _Leaky(tools.FixtureBackend):
@@ -96,7 +96,7 @@ def test_mcp_context_lookup_returns_tool_errors_redacted_with_the_logs(monkeypat
 
 
 def test_a_database_line_and_a_log_line_never_share_a_placeholder_for_different_hosts():
-    """A-C-5: database.py pre-redacted query text with its own map, so its <IPV4_1> meant 10.9.9.9
+    """database.py pre-redacted query text with its own map, so its <IPV4_1> meant 10.9.9.9
     while the run's <IPV4_1> meant 10.0.0.5 - and the report revealed the wrong host."""
     from test_database import _Postgres, _SqlStub
 

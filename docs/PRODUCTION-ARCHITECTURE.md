@@ -96,7 +96,7 @@ read from Secrets Manager (`warden/<env>/anthropic-api-key`). That is the code's
 (`src/warden/data/providers.yaml`: provider `anthropic`, default model `claude-sonnet-5-5`); an install can
 choose another provider and model with `/warden/<env>/tf/model_provider` and `/warden/<env>/tf/model`.
 The code also supports Amazon Bedrock, Gemini and OpenAI-compatible endpoints, but the runtime module
-grants no Bedrock access and creates no slot for another provider's key (owner, 2026-10-09: the Anthropic API
+grants no Bedrock access and creates no slot for another provider's key (the Anthropic API
 only); a slot comes back only with a zone that reads it.
 
 A model is used only after it passes WARDEN's replay qualification on recorded incidents, never because of

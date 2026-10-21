@@ -36,7 +36,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # how a real leak eventually gets waved through.
 ALLOWED = {
     # AWS's own documented example credentials, published in AWS's public documentation: a page or a
-    # report quoting them is not a leak. Built from parts (2026-10-16, like every fixture in
+    # report quoting them is not a leak. Built from parts (like every fixture in
     # tests/fakes.py), so this file does not hold the literal a scanner would flag.
     "AKIA" + "IOSFODNN7EXAMPLE",
     "wJalr" + "XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
@@ -48,7 +48,7 @@ ALLOWED = {
     # Lambda RequestId UUID - 12 digits, not account ids. The cases are kept exactly as their author wrote and WARDEN
     # answered them.
     "214748364800", "152000000000", "455006823552",
-    # The G10 held-out set (docs/bench/heldout-g10-2026-10-10), each checked in context on 2026-10-10: the tails of
+    # The G10 held-out set (docs/bench/heldout-g10-2026-10-10), each checked in context: the tails of
     # Lambda RequestId UUIDs (six), two RDS byte counts (162.14 GB, 161.06 GB), Kinesis shard ids
     # (shardId-000000000008/9) and a hex x-amzn-RequestId fragment - 12 digits, not account ids.
     "707439788935", "770152377302", "287065300186", "401447169594", "549286324564", "629890871542",
@@ -88,14 +88,13 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     # Boundaries are \w, not \d: a SHA256 in a .terraform.lock.hcl contains runs of 12 digits
     # surrounded by hex letters, and a digit-only boundary flagged every provider hash. A real
     # account id is always delimited by non-word characters - the ':' in an ARN, or whitespace.
-    # A trailing '.' is allowed (audit 2026-09-28 A-B-M15): `<acct>.dkr.ecr.<region>...`, the
+    # A trailing '.' is allowed: `<acct>.dkr.ecr.<region>...`, the
     # commonest leak in deploy records, used to pass. A public help-centre article number in a URL
     # path (`/articles/360037782773`) is not an account id.
     ("account-id", re.compile(r"(?<![\w.])(?<!/articles/)\d{12}(?!\w)"),
      "a 12-digit AWS account id"),
-    # Owner rule R3: "no email anywhere in the repo". Test fixtures use invented company domains
-    # (corp.io, example.com); a real person's address is at a personal-mail provider. Found missing
-    # by the independent review of 2026-09-28.
+    # No personal e-mail address anywhere in the repository. Test fixtures use invented company domains
+    # (corp.io, example.com); a real person's address is at a personal-mail provider.
     ("personal-email", re.compile(
         r"(?i)\b[A-Za-z0-9._%+-]{1,64}(?:@|%40)(?:gmail|googlemail|outlook|hotmail|live|msn|yahoo|ymail|"
         r"icloud|me|mac|aol|proton|protonmail|pm|gmx|zoho|yandex|mail|rediffmail|qq|163|126)"
@@ -113,7 +112,7 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
      "a private key"),
     ("slack-webhook", re.compile(r"https://hooks\.slack\.com/(?:services|triggers|workflows)/\S+"),
      "a Slack webhook or workflow-trigger URL, which is a credential on its own"),
-    # The host bounded as DNS bounds one (253 characters; Sonar python:S8786, 2026-10-16).
+    # The host bounded as DNS bounds one (253 characters; Sonar python:S8786).
     ("teams-webhook", re.compile(
         r"https://[\w.-]{1,253}\.(?:webhook\.office\.com/webhookb2|logic\.azure\.com\S*sig=)\S*"),
      "a Microsoft Teams / Power Automate webhook URL, which is a credential on its own"),
@@ -131,7 +130,7 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
      "a Groq API key"),
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}"),
      "a GitHub token"),
-    # 2026-09-30: a Stripe webhook secret shape in a test reached GitHub and its secret scanner
+    # A Stripe webhook secret shape in a test once reached GitHub and its secret scanner
     # flagged it; these shapes had no pattern here. A test builds such values by concatenation.
     ("stripe-secret", re.compile(r"\b(?:whsec|sk_live|sk_test|rk_live|rk_test|pk_live)_[A-Za-z0-9+/=]{12,}"),
      "a Stripe key or webhook signing secret"),

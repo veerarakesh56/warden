@@ -1,4 +1,4 @@
-"""scripts/check_live_iam.py: a policy pasted into the wrong place is caught (2026-10-15: the boundary's statements had
+"""scripts/check_live_iam.py: a policy pasted into the wrong place is caught (the boundary's statements had
 been pasted into WardenPlatformReader-dev the day before)."""
 
 from __future__ import annotations

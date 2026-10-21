@@ -7,7 +7,7 @@ CloudTrail records a person's change, AWS Config records the value before it, an
 
 A fault is made only on a lab at its baseline, and a restore writes only the baseline: neither ever touches a
 resource outside warden-<env>-lab-*, which is all the role's policy (iam/<env>/harness-lab.json) allows. The role is
-warden-<env>-harness; the laptop's operator role may assume it and nothing else may. Region and names come from
+warden-<env>-harness; the operator role may assume it and nothing else may. Region and names come from
 environments.yaml and the environment's name, never from a literal.
 """
 
@@ -129,7 +129,7 @@ def status(env: str, clients: Clients) -> list[str]:
 
 
 def stamp(now: datetime | None = None) -> str:
-    """The moment, in both of the owner's zones."""
+    """The moment, in UTC and in the display zone."""
     now = now or datetime.now(UTC)
     return f"{now:%Y-%m-%d %H:%M:%S} UTC / {now.astimezone(IST):%H:%M:%S} IST"
 

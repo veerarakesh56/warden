@@ -12,7 +12,7 @@ SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden"
 DDL = re.compile(r"\b(?:CREATE|ALTER|DROP)\s+(?:UNIQUE\s+)?(?:INDEX|TABLE|SCHEMA|VIEW|DATABASE)\b|\bREINDEX\b",
                  re.IGNORECASE)
 # WARDEN's own audit store (SQLite, or PostgreSQL through `audit migrate`) creates its own tables and indexes. (The
-# runbook's printed ALTER DATABASE went with the runbook, 2026-10-16.)
+# runbook's printed ALTER DATABASE went with the runbook.)
 OWN = {("audit.py", "CREATE TABLE"), ("audit.py", "CREATE INDEX")}
 
 

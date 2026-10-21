@@ -1,4 +1,4 @@
-"""Registers M19 / A-P-3 (a tested no-model path) and M18 / A-P-4 (a model cap across incidents)."""
+"""Registers M19 (a tested no-model path) and M18 (a model cap across incidents)."""
 
 from __future__ import annotations
 

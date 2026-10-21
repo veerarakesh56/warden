@@ -16,7 +16,7 @@ The same rules as `ops.py`, restated because they are the rules, not preferences
      separate, so a scenario can never be tuned against the tool's internals.
 
 ⚠ WHAT WAVE 2 CAN AND CANNOT MEASURE, decided by what `k8s_backend.py` actually reads (pods, pod
-logs, namespaced events, the Deployment, its ReplicaSets and - since 2026-09-25 - any HPA
+logs, namespaced events, the Deployment, its ReplicaSets and any HPA
 targeting it):
 
   measurable  OOM kills, CrashLoopBackOff, ImagePullBackOff, failing probes, restart counts,
@@ -58,7 +58,7 @@ class Target:
     container: str
     baseline_image: str
     # The ServiceAccount WARDEN reads as, and the ClusterRole that grants it exactly six reads
-    # (five during Wave 2; `list horizontalpodautoscalers` was added 2026-09-25).
+    # (five during Wave 2; `list horizontalpodautoscalers` was added after it).
     # One scenario removes a verb from that role, which only measures anything because WARDEN really
     # runs as this identity rather than as the operator's kubeconfig.
     service_account: str = "warden"

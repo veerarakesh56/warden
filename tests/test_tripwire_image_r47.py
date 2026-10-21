@@ -1,7 +1,7 @@
 """The cloud runtime carries the injection tripwire (register R47).
 
-Prompt Guard 2 was measured on a laptop for weeks while the cloud image had no detector and every environment had it
-off (owner, 2026-10-14: "doing things on local and missing them on cloud"). These pin each link: the guard extra in
+Prompt Guard 2 was once measured locally for weeks while the cloud image had no detector and every environment had it
+off. These pin each link: the guard extra in
 the image with CPU-only torch, the pinned weights fetched at build with the token as a build secret and checked against
 the measured copy, offline use at run time, the token's place in the pipeline, the read zone sized for the model, and
 the detector on in every environment.
@@ -44,7 +44,7 @@ def test_the_weights_are_baked_at_build_from_the_pinned_revision_with_the_token_
             ' && chmod -R a+rX hf' in DOCKERFILE)
     assert "ARG WARDEN_DETECTOR=baked" in DOCKERFILE
     assert "WORKDIR /app" in DOCKERFILE.split("bake_tripwire.py hf")[0].splitlines()  # so hf/ is /app/hf, copied below
-    # The script reaches the build: .dockerignore keeps scripts/ out but these two (a deploy failed on it, 2026-10-14).
+    # The script reaches the build: .dockerignore keeps scripts/ out but these two (a deploy once failed on it).
     assert "!scripts/bake_tripwire.py" in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
     assert "ARG HF" not in DOCKERFILE
     assert "HF_TOKEN" not in DOCKERFILE  # never a build argument or an image variable
@@ -81,7 +81,7 @@ def test_the_pipeline_passes_the_token_as_a_build_secret_only_and_deploys_no_ima
     assert "HF_TOKEN: ${{ secrets.HF_TOKEN }}" in wf
     assert '--secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime' in wf
     # Never WARDEN_DETECTOR=absent, never the token as an argument: the one build argument is the base image's
-    # registry, a fixed value naming this repository owner's mirror.
+    # registry, a fixed value naming the mirror of the repository's owner.
     registry = '--build-arg "BASE_IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/warden-mirror"'
     assert wf.count(registry) == 1
     assert "--build-arg" not in wf.replace(registry, "")

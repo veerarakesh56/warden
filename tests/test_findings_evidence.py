@@ -1,4 +1,4 @@
-"""Code review's findings on the deployed change as incident evidence (owner, 2026-10-16; findings.py).
+"""Code review's findings on the deployed change as incident evidence (findings.py).
 
 Offline: GitHub and SonarCloud are fakes. A finding becomes a typed R item the model can cite; an injection in a
 CodeRabbit comment reaches neither the prompt, the report nor Slack, and does not change the plan; a failed read is
@@ -193,7 +193,7 @@ def test_a_real_coderabbit_comment_is_read_and_steering_in_its_own_prose_is_stil
 def test_a_serious_tool_finding_is_shown_though_its_rule_text_says_execution():
     """SonarCloud's and CodeQL's messages are their rule catalogue's wording: "code execution" is what a code-injection
     finding says, not an instruction. Such a finding is shown, typed; only CodeRabbit's own prose is read for steering
-    words (PR 41's review)."""
+    words."""
     alert = {"state": "open", "tool": {"name": "CodeQL"},
              "rule": {"id": "py/code-injection", "severity": "error", "security_severity_level": "critical",
                       "description": "Code injection"},
@@ -403,7 +403,7 @@ def test_the_reader_is_one_of_the_evidence_tools_only_when_switched_on(monkeypat
 
 
 def test_the_read_token_has_one_slot_the_read_zones_alone_and_one_place_it_is_taken(monkeypatch):
-    """warden/<env>/github-read-token (owner U3-7): loadable, a secret, read only by the read zone's worker - the zone
+    """warden/<env>/github-read-token: loadable, a secret, read only by the read zone's worker - the zone
     whose activities read the commits and the findings - and taken in one place (tools.github_read_token), the seam a
     GitHub App's installation token (B4) replaces."""
     from warden import settings, tools

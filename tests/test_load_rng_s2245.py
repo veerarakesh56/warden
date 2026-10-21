@@ -1,5 +1,5 @@
-"""The load Lambdas pick carts, SKUs, customers and order ids with the operating system's CSPRNG (Sonar python:S2245,
-2026-10-20): random.SystemRandom, which cannot be seeded, instead of the module's Mersenne Twister."""
+"""The load Lambdas pick carts, SKUs, customers and order ids with the operating system's CSPRNG (Sonar
+python:S2245): random.SystemRandom, which cannot be seeded, instead of the module's Mersenne Twister."""
 
 from __future__ import annotations
 

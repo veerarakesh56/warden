@@ -1,6 +1,6 @@
 """Every report says who has something to do now, and what (register G10-36).
 
-Owner, 2026-10-12: "the info for respective teams to move forward - I see only Platform / DevOps here". The team
+Each team gets what it needs to move forward - not only Platform / DevOps. The team
 follow-ups were printed only when a fixed pattern fired, and a report held by P31 read "a person decides" a minute
 before WARDEN itself sent a plan to approve."""
 
@@ -45,8 +45,7 @@ def test_a_fix_held_only_for_an_unaddressed_change_says_wardens_own_offer_is_com
 
 def test_the_team_that_owns_the_resource_is_named_by_its_kind_and_developers_when_code_or_a_deploy_is_in_the_evidence():
     rule = _report().markdown
-    # What would stop it happening again, for the kind of fix proposed (owner, 2026-10-15: "what are the counter
-    # measures") - a scale-up's here.
+    # What would stop it happening again (the countermeasures), for the kind of fix proposed - a scale-up's here.
     assert ("**Platform / DevOps**: owns warden-dev-tick: confirm the cause, then stop it happening again - size the "
             "service from its measured peak, with an alarm before it runs out of headroom.") in rule
     assert "**Who changed it**" not in rule  # no change in the evidence: nobody is named

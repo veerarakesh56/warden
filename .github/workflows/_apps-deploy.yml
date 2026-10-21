@@ -1,14 +1,14 @@
 name: "_ apps · deploy"
 
 # Deploy lambdas | ecs | k8s | all to ONE environment through GitHub OIDC. Called only by Deploy · <env> and
-# Deploy · <env> · on merge, from the branch of the environment's own name (owner, 2026-10-16: main deploys nothing).
+# Deploy · <env> · on merge, from the branch of the environment's own name (main deploys nothing).
 # It reads stack.json (published by the infra deploy), never terraform. The EKS API must admit the
 # runner: EKS_PUBLIC_CIDRS and EKS_ADMIN_ROLE_ARNS on that GitHub Environment. bootstrap-db is NOT here: it logs
 # in as the master user with an IAM token signed by the OPERATOR's own identity, a grant this role lacks.
 on:
   workflow_call:
     # Passed by name by every caller: an environment secret a caller does not pass is an empty string here,
-    # with no error (GitHub docs, 2026-10-16) - the role it names must never be silently empty.
+    # with no error (GitHub docs) - the role it names must never be silently empty.
     secrets:
       AWS_ROLE_ARN:
         required: true
@@ -41,12 +41,12 @@ jobs:
       BUCKET: ${{ vars.TF_STATE_BUCKET }}
       AWS_REGION: ${{ vars.AWS_REGION }}
     steps:
-      # Owner, 2026-10-16: an environment deploys only from the branch of the same name, so main deploys nothing. The
+      # An environment deploys only from the branch of the same name, so main deploys nothing. The
       # GitHub Environment's deployment-branch rule and the role's trust (`ref`, iam/templates/trust.json) say the same.
       - name: Deploys run from their environment's own branch
         if: github.ref != format('refs/heads/{0}', inputs.environment)
         run: |
-          echo "::error::$WARDEN_ENV deploys from the branch $WARDEN_ENV only, not $GITHUB_REF (audit A-I-10)"
+          echo "::error::$WARDEN_ENV deploys from the branch $WARDEN_ENV only, not $GITHUB_REF"
           exit 1
       - name: A known target
         run: |
@@ -58,7 +58,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0  # every branch: the promotion check reads the upstream one
-      # Owner, 2026-10-16: nothing deploys unless it came through the promotion path, checked before the job holds any
+      # Nothing deploys unless it came through the promotion path, checked before the job holds any
       # credential. The commit is on the upstream branch already (main fast-forwarded onto dev), or it is a merge
       # commit whose second parent is on it and whose files are exactly that parent's (the dev -> prod pull request).
       # A commit pushed straight onto dev or prod, reviewed on no upstream branch, stops here.
@@ -80,7 +80,7 @@ jobs:
             exit 1
           fi
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
-      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+      # (no unpinned install runs while a job holds cloud credentials).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"

@@ -163,7 +163,7 @@ _RABBIT_KIND = (("potential issue", "potential-issue"), ("refactor suggestion", 
 _RABBIT_INDICATOR = re.compile(r"cr-indicator-types:(potential_issue|refactor_suggestion|nitpick)")
 # CodeRabbit's standard blocks: folded sections (its analysis chain, "Proposed fix", "Committable suggestion", "Prompt
 # for AI Agents") and HTML comments. Their words are CodeRabbit's template ("Script executed", "Proposed fix"), not the
-# finding, and they held back nearly every real comment (PR 41's review). The innermost fold first, until none is left.
+# finding, and they held back nearly every real comment. The innermost fold first, until none is left.
 _RABBIT_BLOCK = re.compile(r"<details>(?:(?!<details>).)*?</details>|<!--.*?-->", re.DOTALL | re.IGNORECASE)
 
 
@@ -288,7 +288,7 @@ class FindingsReader:
         return _list(body.get("issues") if isinstance(body, dict) else body, "sonarcloud's issue search")
 
     def _scanning_alerts(self, n: int) -> list[Any]:
-        # Open alerts only: dismissed and fixed ones filled the page before an open one was read (PR 41's review).
+        # Open alerts only: dismissed and fixed ones would fill the page before an open one was read.
         ref = urllib.parse.quote(f"refs/pull/{n}/merge", safe="")
         return _list(self._get(f"{_API}/repos/{self.repo}/code-scanning/alerts?ref={ref}&state=open"
                                f"&per_page={self.max_per_pr}", self.token), "code scanning")

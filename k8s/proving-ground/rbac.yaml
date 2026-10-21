@@ -14,7 +14,7 @@
 # ⚠ Exactly six verbs, matching what src/warden/k8s_backend.py actually calls: list pods,
 # get pods/log, list events, get deployments, list replicasets, list horizontalpodautoscalers.
 # No writes, no secrets, no watch, and nothing cluster-scoped. Wave 2 ran with the
-# first five; the HPA read was added 2026-09-25 and has not yet been measured on EKS.
+# first five; the HPA read was added later and has not yet been measured on EKS.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

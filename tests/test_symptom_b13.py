@@ -172,14 +172,14 @@ def _ms(minutes: float) -> float:
 
 
 def test_the_logs_before_the_fix_are_never_a_shorter_span_than_after_it():
-    """CodeRabbit, PR 87: at the 60-minute re-check an error that comes once an hour was "new" against 25 minutes."""
+    """At the 60-minute re-check an error that comes once an hour was "new" against 25 minutes."""
     now = APPLIED + timedelta(minutes=60)
     assert APPLIED - symptom.before_start(ALERT_AT, APPLIED, now) >= now - APPLIED
 
 
 @pytest.mark.parametrize("state", ["Alert", "No Data", "OK"])
 def test_a_datadog_monitors_own_state_never_decides_its_metric_over_whole_windows_does(state):
-    """CodeRabbit, PR 87: an Alert can lag its window, and No Data is no evidence either way."""
+    """An Alert can lag its window, and No Data is no evidence either way."""
     query = "avg(last_5m):avg:trace.errors{service:orders} > 0.05"
     breaching = [(_ms(m), 0.5) for m in range(16)]
     ask, _ = _ask({"overall_state": state, "query": query}, breaching)
@@ -193,7 +193,7 @@ def test_a_datadog_monitors_own_state_never_decides_its_metric_over_whole_window
 
 
 def test_a_malformed_datadog_log_answer_leaves_the_metrics_verdict():
-    """CodeRabbit, PR 87: a log answer that did not parse turned a PRESENT reading into "not read"."""
+    """A log answer that did not parse turned a PRESENT reading into "not read"."""
     def ask(what, method, path, body=None, query=None):
         if what == "monitor":
             return {"overall_state": "Alert", "query": "avg(last_5m):x{a:b} > 1"}, ""
@@ -207,7 +207,7 @@ def test_a_malformed_datadog_log_answer_leaves_the_metrics_verdict():
 
 
 def test_every_page_of_the_logs_is_read_and_a_window_not_read_to_its_end_is_unknown():
-    """CodeRabbit, PR 87: one page of 200 events was read, so the incident's own classes could be missed (and called new
+    """One page of 200 events was read, so the incident's own classes could be missed (and called new
     after the fix), and an empty page with more to read looked like no errors."""
     class Paged:
         def __init__(self, pages):
@@ -426,7 +426,7 @@ def test_the_platform_registry_hands_the_aws_reader_in_the_plans_environment():
 
 
 def test_a_period_with_no_data_is_never_filled_by_its_neighbour():
-    """CodeRabbit, PR 87: CloudWatch leaves out a period with no data, and the values were judged by position, so three
+    """CloudWatch leaves out a period with no data, and the values were judged by position, so three
     clean values could read "gone" with the last of the three periods unread."""
     class Gappy(_CloudWatch):
         def get_metric_data(self, **kw):

@@ -159,7 +159,7 @@ def _as_remediator():
 
 
 def test_the_admission_policy_refuses_a_pod_spec_change_by_the_remediator(apps, target):
-    """Audit A-I-11: `patch deployments` could rewrite the pod template - an image, a command, a service account.
+    """`patch deployments` could rewrite the pod template - an image, a command, a service account.
     The ValidatingAdmissionPolicy in k8s/remediation-rbac.yaml refuses that for the remediator, on the real API
     server."""
     from kubernetes.client.exceptions import ApiException
@@ -219,7 +219,7 @@ def test_the_eks_actors_group_is_bound_and_held_by_the_same_policy(apps, target)
     {"spec": {"template": {"metadata": {"finalizers": ["example.com/hold"]}}}},
 ], ids=["owner", "finalizer", "label", "history", "min-ready", "pod-finalizer"])
 def test_the_admission_policy_holds_the_deployments_metadata_and_rollout_fields(apps, target, patch):
-    """Seventh review (2026-10-01, HIGH): the policy never read metadata, so one allowed patch could have the
+    """The policy once never read metadata, so one allowed patch could have the
     garbage collector delete the Deployment, or wipe its rollback history. Refused on the real API server."""
     from kubernetes.client.exceptions import ApiException
 
@@ -291,7 +291,7 @@ def test_no_series_of_patches_takes_the_count_below_where_warden_found_it(apps, 
 
 
 def test_a_write_the_policy_refuses_is_reported_as_the_policy_s(apps, target):
-    """Eighth review: the real API server's wording for a policy refusal is what the platform reads - not a moved
+    """The real API server's wording for a policy refusal is what the platform reads - not a moved
     count."""
     p = KubernetesPlatform(apps=_as_remediator(), namespace=NS)
     now = apps.read_namespaced_deployment(NAME, NS).spec.replicas or 1
@@ -305,7 +305,7 @@ def test_a_write_the_policy_refuses_is_reported_as_the_policy_s(apps, target):
     {"spec": {"paused": True}},
 ], ids=["remove-annotation", "pause"])
 def test_the_policy_refuses_removing_a_template_annotation_or_pausing(apps, target, patch):
-    """Eighth review: no live case for these; a policy that let them through passed CI."""
+    """No live case for these; a policy that let them through passed CI."""
     from kubernetes.client.exceptions import ApiException
 
     apps.patch_namespaced_deployment(NAME, NS, {"spec": {"template": {"metadata": {"annotations": {
@@ -319,7 +319,7 @@ def test_the_policy_refuses_removing_a_template_annotation_or_pausing(apps, targ
 
 
 def test_the_policy_refuses_a_big_step_down(apps, target):
-    """Eighth review: one patch from ten to one passed the unit test and the live tests."""
+    """One patch from ten to one passed the unit test and the live tests."""
     from kubernetes.client.exceptions import ApiException
 
     try:
@@ -333,7 +333,7 @@ def test_the_policy_refuses_a_big_step_down(apps, target):
 
 
 def test_a_restart_of_a_deployment_above_the_ceiling_is_allowed(apps, target):
-    """Eighth review: the 1..10 ceiling applied to every update, so a restart of a Deployment at 12 was refused."""
+    """The 1..10 ceiling applied to every update, so a restart of a Deployment at 12 was refused."""
     try:
         apps.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 12}})
         KubernetesPlatform(apps=_as_remediator(), namespace=NS).apply("k8s_restart", _params())

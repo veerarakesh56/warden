@@ -81,9 +81,9 @@ def test_p1_action_not_allowed_in_prod():
 
 def test_p2_reads_the_action_table_not_the_models_claim():
     """⛔ The whole point of the table. The proposal claims a database failover is reversible;
-    WARDEN classifies a promoted replica as irreversible, and the table decides. Before
-    2026-09-12 this claim skipped P2 entirely, which is how two models got opposite verdicts for
-    the identical operation (the live-model run of 2026-09-06)."""
+    WARDEN classifies a promoted replica as irreversible, and the table decides. This claim once
+    skipped P2 entirely, which is how two models got opposite verdicts for
+    the identical operation in a live-model run."""
     v = verify(_alert(), _ctx(), _rc(confidence=0.99),
                _prop(action=ActionKind.failover_replica, reversible=True))
     assert v.status is VerdictStatus.rejected
@@ -257,7 +257,7 @@ def test_a_permitted_action_in_a_new_prod_tier_env_still_blocks_irreversible():
 
 
 # --------------------------------------------------------------------------- the action table
-# Added 2026-09-12. Two of the nine policies used to read fields the MODEL wrote, in a gate whose
+# Two of the nine policies used to read fields the MODEL wrote, in a gate whose
 # entire claim is that the model does not decide. These tests are that hole, closed.
 
 
@@ -270,7 +270,7 @@ def test_the_table_covers_every_action_kind():
 
 def test_p6_uses_the_table_floor_when_the_model_understates_the_radius():
     """A failover claimed as single_pod is still multi_service. Run in a nonprod environment that allows it, so neither
-    P2 nor P1 masks what P6 is doing (no shipped one does since 2026-10-16: dev denies every irreversible class)."""
+    P2 nor P1 masks what P6 is doing (no shipped one does: dev denies every irreversible class)."""
     from warden.environments import EnvironmentPolicies
 
     sandbox = EnvironmentPolicies(EnvironmentPolicies._parse("default", {}), {
@@ -353,7 +353,7 @@ def test_a_well_evidenced_confident_no_action_is_still_auto_safe():
 
 
 def test_nothing_to_do_while_a_failure_signature_describes_the_evidence_is_a_persons_close():
-    """P36 (enforced, owner 2026-10-17): a deploy, 5xx lines and a 4% error rate - DEPLOY-BAD-001 describes what WARDEN
+    """P36 (enforced): a deploy, 5xx lines and a 4% error rate - DEPLOY-BAD-001 describes what WARDEN
     read - and the answer is "nothing to do". A followed poisoned "expected during maintenance" line reads exactly so."""
     v = verify(_alert(), _ctx(), _rc(confidence=0.9), _prop(action=ActionKind.no_action))
     assert v.status is VerdictStatus.escalated
@@ -445,7 +445,7 @@ def test_p11_does_not_fire_where_the_action_can_help(action, ctx, why):
     (dict(metrics={"pods_ready": 1.0, "pods_total": 2.0}), "1 of 2 pods are ready"),
     (dict(metrics={"pods_total": 0.0, "pods_ready": 0.0, "replicas_desired": 2.0}), "0 ready of 2 replicas desired"),
     (dict(metrics={"tasks_running": 0.0, "tasks_desired": 2.0}), "0 of 2 tasks running"),
-    # ecs-13 (a subnet with no route), replayed 2026-10-03: two deployments in flight, all desired tasks running,
+    # ecs-13 (a subnet with no route), replayed: two deployments in flight, all desired tasks running,
     # and one task that cannot start. Opus 5 and Fable 5 said "transient" with no_action, and it went out auto_safe.
     (dict(metrics={"tasks_running": 2.0, "tasks_desired": 2.0, "tasks_pending": 1.0, "deployments_in_flight": 2.0}),
      "1 task(s) pending, not started"),
@@ -509,7 +509,7 @@ def test_a_full_connection_pool_is_a_symptom(metrics, full):
 
 
 def test_name_only_matches_never_crowd_out_one_the_evidence_supports(monkeypatch):
-    """Review, PR 47: P36 read the knowledge base's top three, and three name-only matches ranked ahead of an evidence
+    """P36 read the knowledge base's top three, and three name-only matches ranked ahead of an evidence
     match (ties break by id) hid it."""
     from warden import knowledge, verifier
 

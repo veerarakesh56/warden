@@ -1,4 +1,4 @@
-"""The state of every main AWS service's resource, read one way (G9-A2c, 2026-10-10).
+"""The state of every main AWS service's resource, read one way (G9-A2c).
 
 The universal alarm reader (aws_stack._read_alarm) gives an alarm's metric, the resource's other metrics and its
 changes; this table adds what metrics do not show - a database's status and class, a stream's open shards, a NAT
@@ -236,8 +236,8 @@ def _value(v: Any) -> str:
     if isinstance(v, datetime):
         return _z(v)
     if isinstance(v, int) and abs(v) >= 10 ** 9:
-        # Its thousands marked: bare, the redactor reads a whole number of ten digits or more as a phone number (G10
-        # held-out, 2026-10-11: a file system's size in bytes reached the model as `Value=<PHONE_1>`).
+        # Its thousands marked: bare, the redactor reads a whole number of ten digits or more as a phone number (a file
+        # system's size in bytes would reach the model as `Value=<PHONE_1>`).
         return f"{v:_}"
     if isinstance(v, (list, tuple)):
         return _list_value(v)
@@ -262,7 +262,7 @@ def _list_value(v: list | tuple) -> str:
 
 def field_name(fields: tuple[str, ...], dotted: str) -> str:
     """The name a field is written under: its last part - or its whole path when it is deeper, or when another field
-    of the row ends the same (G10 held-out, 2026-10-11: an instance read `Status=impaired Status=ok`, its system check
+    of the row ends the same (else an instance reads `Status=impaired Status=ok`, its system check
     and its instance check under one name)."""
     leaf = dotted.split(".")[-1]
     shared = sum(f.split(".")[-1] == leaf for f in fields) > 1

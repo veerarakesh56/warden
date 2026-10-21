@@ -211,7 +211,7 @@ class ModelDeclined(ModelCutOff):
 # BUDGET_REACHED, paging's own names (one source). An answer that was not valid JSON, a refusal, a cut-off, a prompt
 # over the size ceiling or one transient error a retry got past is a normal error and pages nobody.
 
-# The audit rows of the model path (owner item 7, leftovers 2 and 3). `llm.call`: one per request sent, metadata only -
+# The audit rows of the model path. `llm.call`: one per request sent, metadata only -
 # ts, model, prompt_tokens, completion_tokens, latency_ms, cost (USD, from the usage and model_prices) and ok; never
 # the prompt or the answer. `llm.fallback`: one each time WARDEN went on without the model's answer, with one reason.
 CALL = "llm.call"
@@ -433,8 +433,8 @@ class LLMClient:
             return self._validated(completion, schema), None, sent
         except ModelCallTimeout:
             # Fatal by design: a hung call must stop the run, not be retried into three hangs. It was sent
-            # and may still be billed: it counts as a call, its cost unknown (eighth review: it counted
-            # nowhere, so restarts of a hanging model were never bounded).
+            # and may still be billed: it counts as a call, its cost unknown (counted nowhere, restarts of a
+            # hanging model would never be bounded).
             self.cost.add(0, 0, 0.0)
             self.stopped_by = PROVIDER_UNAVAILABLE
             raise
@@ -460,8 +460,8 @@ class LLMClient:
             # this loop re-handles them — but only the TRANSIENT ones (429/5xx/connection reset).
             # A permanent 4xx (401 bad key, 400 malformed) will fail identically every attempt, so
             # retrying it just delays a failure the operator must fix — fail fast instead.
-            # The request was made: it counts toward the call ceiling like any other (fourth review:
-            # 15 failed requests were made under a ceiling of 2, none counted). Its cost is unknown.
+            # The request was made: it counts toward the call ceiling like any other (uncounted, 15 failed
+            # requests were once made under a ceiling of 2). Its cost is unknown.
             self.cost.add(0, 0, 0.0)
             if not _reached_the_model(exc):
                 self.unanswered += 1
@@ -528,7 +528,7 @@ def ask_for(user: str, schema: Any) -> str:
 
 
 def _max_calls(max_calls: int | None) -> int:
-    """Per incident: the explicit argument, else WARDEN_MAX_CALLS (the cloud llm zone: 6, owner 2026-10-10), else 8."""
+    """Per incident: the explicit argument, else WARDEN_MAX_CALLS (the cloud llm zone: 6), else 8."""
     if max_calls is None:
         raw = os.environ.get("WARDEN_MAX_CALLS", "8")
         max_calls = int(raw) if raw.isdigit() else -1
@@ -546,7 +546,7 @@ def _reached_the_model(exc: BaseException) -> bool:
     """May this failed request have been processed - and billed? Only one provably never sent, or answered with an
     error status (an API error is not billed), is not: those are what an outage makes, and carrying them locked an
     incident for good. Everything else is - a provider's own read timeout (the request processed,
-    the client gone), a 200 it could not parse (ninth review: classed "reached no model", 18 requests went where the
+    the client gone), a 200 it could not parse (classed "reached no model", 18 requests went where the
     ceiling allowed 4)."""
     seen: list[BaseException] = []
     e: BaseException | None = exc

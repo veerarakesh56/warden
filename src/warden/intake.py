@@ -12,7 +12,7 @@ An alarm is not an incident. `decide` turns one alarm event into one of:
                       (expected.py): no incident now. When the cover ends the alarm is looked at again and, still
                       firing, is an incident then - a shutdown that did not come back is not missed
   reopen              WARDEN's fix of this alarm's incident, or of a resource it names, was verified and is still in
-                      its soak (item 11, owner 2026-10-16): the fix did not hold. The SAME incident is opened again -
+                      its soak: the fix did not hold. The SAME incident is opened again -
                       its record carries the whole story - the fix is marked as not holding, and that fix is not
                       offered again for the target without a person (history.did_not_hold)
   start               a new incident, whose id is the fingerprint plus the transition time (C20): the same transition
@@ -80,7 +80,7 @@ class AlarmEvent(BaseModel):
 
 
 # Alarms from different rules or tools on the same resource, within this long of an open incident's start, are that
-# incident (fs-22, 2026-10-15: one broken config became three incidents - two Datadog monitors and a CloudWatch alarm).
+# incident (scenario fs-22: one broken config became three incidents - two Datadog monitors and a CloudWatch alarm).
 GROUP_WINDOW = timedelta(minutes=int(os.environ.get("WARDEN_GROUP_WINDOW_MIN", "15")))
 
 
@@ -162,7 +162,7 @@ def _in_soak(ev: AlarmEvent, plan: dict[str, Any], incident: str, verified_at: d
              names: set[str]) -> bool:
     """Whether this alarm speaks of the fix `plan` - its incident's own, or on a resource it names, in its
     environment - and came inside its soak: after the fix passed its checks (an alarm from before says nothing of
-    whether it held, PR 43), and no later than the soak's end."""
+    whether it held), and no later than the soak's end."""
     if plan.get("environment") != ev.alert.environment:
         return False
     if not (incident.startswith(f"{fp}-") or plan.get("service") in names):

@@ -71,7 +71,7 @@ def test_injected_clients_are_never_rebound_and_the_read_zone_runs_the_stack_bac
 
 
 def test_a_service_past_the_first_eighteen_gets_its_client_through_the_real_reader_role_path(monkeypatch):
-    """Independent review 2026-10-10, H1: the per-incident clients were copied into a plain dict, so every state-table
+    """The per-incident clients were copied into a plain dict, so every state-table
     service past the eighteen made up front read "no client" in the cloud. Through the real path, end to end."""
     import boto3
 

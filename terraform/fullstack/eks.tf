@@ -92,7 +92,7 @@ data "aws_eips" "runtime_nat" {
 locals {
   runtime_env    = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).runtime
   eks_cidrs_base = coalesce(var.eks_public_access_cidrs, [local.my_ip_cidr])
-  # An endpoint already open to everyone (EKS_PUBLIC_CIDRS, audit A-I-16) needs no more addresses.
+  # An endpoint already open to everyone (EKS_PUBLIC_CIDRS) needs no more addresses.
   eks_public_access_cidrs = contains(local.eks_cidrs_base, "0.0.0.0/0") ? local.eks_cidrs_base : distinct(concat(
   local.eks_cidrs_base, [for ip in data.aws_eips.runtime_nat.public_ips : "${ip}/32"]))
 }
@@ -178,12 +178,11 @@ resource "aws_iam_role_policy_attachment" "eks_node" {
   policy_arn = each.value
 }
 
-# 1 x m7i-flex.large ON_DEMAND (cost plan, 2026-10-17: the owner's last ~USD 104 of credits; was 2 from 2026-10-15,
-# "counts like production"). Measured 2026-10-14..17 on the two nodes: CPU requested 1.66 of 3.86 vCPU, 0.4 of it
+# 1 x m7i-flex.large ON_DEMAND, sized for cost (production shape is 2). Measured over three days on two nodes: CPU requested 1.66 of 3.86 vCPU, 0.4 of it
 # per-node daemons, so one node holds ~1.26 of 1.93 (65%); memory working set at most 2.3 GiB a node, so one node
 # peaks near 3 GiB of 7.6. c7i-flex.large (4 GiB, 16% cheaper) would leave under 50% headroom on that peak. A scale
 # from 2 to 1 drains a node in place - no replacement. Back to production shape: 2/2/2.
-# Each: 2 vCPU, 8 GiB, 29 pods. Changed 2026-09-26 from t3.medium: the
+# Each: 2 vCPU, 8 GiB, 29 pods. Not t3.medium: the
 # account is on the AWS Free plan, which refuses instance types that are not Free Tier eligible
 # (in ap-south-2: t3/t4g/t8i micro+small, c7i-flex.large, m7i-flex.large). t3.small takes 11 pods,
 # too few for system pods + shop + a rollout; m7i-flex.large is the eligible type with room.
@@ -337,7 +336,7 @@ resource "aws_eks_pod_identity_association" "catalog" {
 }
 
 # The OpenTelemetry collector (k8s: the observability namespace, deploy_fullstack_apps.deploy_otel): the apps' traces to
-# X-Ray, and the same data to Datadog through its agent (owner, 2026-10-16: Datadog only). It may send
+# X-Ray, and the same data to Datadog through its agent (Datadog only). It may send
 # traces and read sampling rules - nothing else.
 resource "aws_iam_role" "otel_collector" {
   name                 = "${local.name}-otel-collector"

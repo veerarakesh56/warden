@@ -34,7 +34,7 @@ def test_stdout_is_pure_json_rpc_with_console_tracing_on():
     env = {**os.environ, "WARDEN_TRACE_CONSOLE": "1", "PYTHONIOENCODING": "utf-8"}
     env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
     # stdin stays open until the tool call is answered, as a real client keeps it: closed at once, the
-    # server could read EOF and exit before answering (CI, 2026-09-30).
+    # server could read EOF and exit before answering (seen in CI).
     proc = subprocess.Popen([sys.executable, "-m", "warden.mcp_server"], stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env)
     watchdog = threading.Timer(120, proc.kill)

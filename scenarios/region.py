@@ -1,5 +1,5 @@
-"""The AWS region for the harness: AWS_REGION, else the `aws_region` WARDEN's environments.yaml names (owner
-requirement R17: never a literal in code). Read from the file, not imported: the harness never imports the tool it
+"""The AWS region for the harness: AWS_REGION, else the `aws_region` WARDEN's environments.yaml names (never
+a literal in code). Read from the file, not imported: the harness never imports the tool it
 measures."""
 
 from __future__ import annotations

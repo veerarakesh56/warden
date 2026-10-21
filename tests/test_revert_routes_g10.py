@@ -1,4 +1,4 @@
-"""G10 v2 routes (owner decision 2026-10-10: routes only, T3 with a passkey): a route a person deleted or replaced, back
+"""G10 v2 routes (routes only, T3 with a passkey): a route a person deleted or replaced, back
 to the target AWS Config recorded just before the change (held-out route-deleted, cmp-multi-lambda-route-and-timeout).
 Field names from AWS's Config resource schema AWS::EC2::RouteTable (configuration.routes.*, read 2026-10-10); EC2's own
 DescribeRouteTables spells them in PascalCase."""

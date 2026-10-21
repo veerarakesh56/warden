@@ -46,7 +46,7 @@ resource "aws_rds_cluster_instance" "audit" {
   tags               = { Project = "warden", Environment = var.environment }
 }
 
-# The AWS Free plan creates Aurora only "WithExpressConfiguration" (FreeTierRestrictionError, 2026-10-09; already
+# The AWS Free plan creates Aurora only "WithExpressConfiguration" (FreeTierRestrictionError; already
 # recorded for Wave 4 in terraform/fullstack/aurora_express.py): no VPC, reachable through an internet gateway, and not
 # settable from the AWS provider. A lab on that plan gets one RDS PostgreSQL instance instead (a Free plan class), in the
 # same private subnets and security group, with the same protections - one AZ, no reader. Never in production.

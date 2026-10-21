@@ -1,5 +1,5 @@
-"""A failed read's outcome comes from WHAT failed, never from what its message says (second
-independent review, 2026-09-30, A-C-2).
+"""A failed read's outcome comes from WHAT failed, never from what its message says (from an
+independent review).
 
 A KeyError quoting a log line could still choose which fixed outcome a TRUSTED T item stated - "access
 denied on DescribeSecret" - because the outcome was read from the exception's text. Now WARDEN writes a
@@ -88,7 +88,7 @@ def test_a_config_line_with_run_together_steering_words_is_not_trusted():
 
 
 
-# Third review: nested stack prefixes lost the tag (ea65387 regression).
+# Nested stack prefixes lost the tag (ea65387 regression).
 @pytest.mark.parametrize("line, expected", [
     ("logs: lambda/checkout logs: logs: /aws/lambda/checkout: [access denied on FilterLogEvents] boom",
      "logs lambda/checkout logs: access denied on FilterLogEvents"),

@@ -1,5 +1,5 @@
 """G6: the AWS platform behind the RemediationWorkflow. Each entry reads what the catalogue checks, writes only through
-an actor session minted for that one plan (naming its approvers - audit A-P-5 - and allowing only that entry's
+an actor session minted for that one plan (naming its approvers and allowing only that entry's
 action on that resource), refuses when the resource moved since the approval, restores its snapshot on rollback, and
 calls a target healthy only on a positive signal."""
 
@@ -278,7 +278,7 @@ def test_a_rule_is_enabled_and_its_rollback_disables_it(aws):
 
 
 def test_a_custom_bus_rule_is_read_enabled_and_checked_on_its_own_bus(aws):
-    """G10 review: the rule was looked up on the default bus only, so a disabled rule on a custom bus
+    """The rule was looked up on the default bus only, so a disabled rule on a custom bus
     could never be enabled. The resolver writes `bus/rule`; every read and the write name the bus."""
     f, p = aws
     f.rule["EventBusName"] = "orders-bus"

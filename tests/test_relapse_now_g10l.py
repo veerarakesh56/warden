@@ -1,4 +1,4 @@
-"""A fix that was verified and whose alarm fires again hears it at once (register G10-28; live, 2026-10-12).
+"""A fix that was verified and whose alarm fires again hears it at once (register G10-28).
 
 The lab's schedule was fixed and verified, then switched off again. Its alarm fired - and reached nothing: intake
 matched an alarm to an open fix by the alert's `service` (the ALARM's name here) against the plan's (the RULE's), and

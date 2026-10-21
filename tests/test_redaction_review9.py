@@ -1,4 +1,4 @@
-"""Ninth independent review, redaction: cookies in every written form, values whose start an earlier
+"""Redaction, from an independent review: cookies in every written form, values whose start an earlier
 pattern masked, tools saying "there is none", and a secret inside a compound value echoed alone elsewhere."""
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ COOKIES = [
 
 @pytest.mark.parametrize("form", COOKIES)
 def test_a_cookie_in_any_written_form_is_masked_and_restored(form):
-    """Ninth review: ace3572's lookahead and `\\w-` boundary let Go's `Cookie:[...]` and prefixed keys through (a
+    """ace3572's lookahead and `\\w-` boundary let Go's `Cookie:[...]` and prefixed keys through (a
     regression), and eleven more forms - CGI, PHP, HAR, curl, a jar, an escaped quote - were never reached."""
     text = form % S
     r = redact(text)
@@ -47,7 +47,7 @@ def test_a_cookie_in_any_written_form_is_masked_and_restored(form):
     '{"authorization":"Basic AKIA' + "QWERTYUI" + f'+{S}=="}}',
 ])
 def test_a_token_whose_start_was_masked_is_masked_whole(text):
-    """Ninth review: BEARER and BASIC still stopped at `<`, so the part after a masked start went out in clear."""
+    """BEARER and BASIC still stopped at `<`, so the part after a masked start went out in clear."""
     r = redact(text)
     assert S not in r.text, r.text
     assert r.restore(r.text) == text
@@ -62,7 +62,7 @@ def test_a_token_whose_start_was_masked_is_masked_whole(text):
     "level=warn cookie=absent route=/checkout status=403 upstream=orders-api",
 ])
 def test_a_tool_saying_there_is_none_is_not_a_secret(line):
-    """Ninth review: with `<` allowed in values, `<nil>` and `<none>` became secrets swept from every line, and a
+    """With `<` allowed in values, `<nil>` and `<none>` became secrets swept from every line, and a
     logfmt `cookie=missing` masked the rest of the line. Nor may the gate withhold them."""
     assert redact(line).text == line
     assert gate.enforce(line).verdict != "BLOCK"
@@ -74,12 +74,12 @@ def test_a_tool_saying_there_is_none_is_not_a_secret(line):
     "set-cookie=<SECRET_2>; HttpOnly",
 ])
 def test_a_report_quoting_a_masked_cookie_passes_the_gate(line):
-    """Eighth review R8-D4, partial: prose after the placeholder was taken for a new cookie."""
+    """Prose after the placeholder was taken for a new cookie."""
     assert gate.enforce(line).verdict == "PASS"
 
 
 @pytest.mark.parametrize("first", [f"GET /cart Cookie: _gh_sess={S}; theme=dark", f"password={UUID}.{S}"])
 def test_a_secret_inside_a_compound_value_is_swept_alone_too(first):
-    """Ninth review: masked only as the whole value, the same secret echoed alone on another line stayed in clear."""
+    """Masked only as the whole value, the same secret echoed alone on another line stayed in clear."""
     out, _ = redact_many([first, f"session {S} not found in store"])
     assert all(S not in o for o in out), out

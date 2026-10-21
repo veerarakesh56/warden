@@ -6,7 +6,7 @@ channel with an incident's id (from any of its messages); WARDEN answers in that
 evidence - read again, as the diagnosis read it, or now when they ask about now - and from what its record says it
 decided. Follow-ups mention @WARDEN in the same thread; WARDEN reads the whole thread for what was said.
 
-Who may do what (owner's rule): anyone in the channel may ask, discuss, and ask WARDEN to check or investigate - all
+Who may do what: anyone in the channel may ask, discuss, and ask WARDEN to check or investigate - all
 of it reads only. Only an enrolled approver may ask for a new plan or anything else that leads to a change, and that
 plan still needs an approver's passkey in the alerts channel (step two; until it is built WARDEN says so).
 
@@ -77,7 +77,7 @@ ELSEWHERE = ("WARDEN has no {environment} incident by that id. Each environment'
              "environment's own discussion channel.")
 NO_ANSWER = "WARDEN could not get an answer from its model just now; ask again in a few minutes."
 NOT_READ = "WARDEN could not read this incident's evidence just now; ask again in a few minutes."
-# WARDEN keeps an incident's alarm for its discussion from the day the channel began (incident.alert, 2026-10-14):
+# WARDEN keeps an incident's alarm for its discussion (incident.alert):
 # an older incident, or an id it never saw, gets this - not a bare "no record", which reads as "it never happened".
 NO_RECORD = ("WARDEN has nothing on record to read again for `{incident}`: it keeps an incident's alarm for this "
              "channel only from 2026-10-14 on, and the id may also be mistyped. Ask about a newer incident, or read "
@@ -161,10 +161,9 @@ def configured() -> bool:
         channels())
 
 
-# Said in the thread the moment a mention is heard, before anything is read (owner, 2026-10-14: "I don't even know
-# if it has checked it or not"). A fixed text: nothing a person wrote is in it.
-# Said at once, so nobody is left wondering whether WARDEN heard (owner, 2026-10-15: "at least a message in the thread
-# saying this is what I am looking at, will update ... in a professional way").
+# Said in the thread the moment a mention is heard, before anything is read, so the person knows it was seen. A
+# fixed text: nothing a person wrote is in it.
+# Said at once, so nobody is left wondering whether WARDEN heard: what it is looking at, and that it will update.
 HEARD = ("On it. WARDEN is reading this incident's record and its evidence. Its record - this incident and any like it "
          "before - comes first, within seconds; the full answer from the evidence follows. WARDEN answers in this thread.")
 

@@ -1,4 +1,4 @@
-"""The CLI commands as split into helpers for SonarCloud (S19): the paths no other local test reaches without a
+"""The CLI commands as split into helpers for SonarCloud: the paths no other local test reaches without a
 Temporal server - each one a plant check found unguarded."""
 
 from __future__ import annotations

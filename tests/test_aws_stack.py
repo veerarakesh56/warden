@@ -582,7 +582,7 @@ def test_secret_is_read_as_metadata_only():
 
 
 def test_a_secret_scheduled_for_deletion_is_said():
-    """G10 held-out set: DescribeSecret's DeletedDate was dropped, so the model never learnt that every read
+    """DescribeSecret's DeletedDate was dropped, so the model never learnt that every read
     of the secret now fails - and that RestoreSecret can bring it back inside the recovery window."""
     sm = Fake(describe_secret={"LastChangedDate": NOW, "DeletedDate": NOW - timedelta(minutes=5)})
     lines = _backend(_clients(secretsmanager=sm)).logs(_alert(secret=f"{P}db-app"))
@@ -881,7 +881,7 @@ def test_a_lambda_rollback_targets_the_version_that_served_traffic_not_the_numer
     fs-02 -> 7) while version 3 had served the traffic for hours."""
     def served(MetricDataQueries, **_):
         # As CloudWatch answers: per five-minute period. Version 3 served cleanly for hours; version 6, deployed
-        # three hours ago, a few erring calls since (2026-10-16: the evidence reads the same rule as the plan).
+        # three hours ago, a few erring calls since (the evidence reads the same rule as the plan).
         good = [NOW - timedelta(hours=6) + timedelta(minutes=5 * i) for i in range(36)]
         bad = [NOW - timedelta(hours=3) + timedelta(minutes=5 * i) for i in range(30)]
         out = []
@@ -915,7 +915,7 @@ def test_a_lambda_rollback_targets_the_version_that_served_traffic_not_the_numer
 
 
 def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
-    """Audit A-I-19: every read was Resource "*". Where the action takes a resource and the code passes its identity,
+    """Every read was Resource "*". Where the action takes a resource and the code passes its identity,
     the grant names only the stack's own resources (AWS's Service Reference, read 2026-10-01)."""
     text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     own = re.search(r'sid\s*=\s*"ReadOwnStack"(.*?)\n  \}', text, re.DOTALL).group(1)
@@ -937,9 +937,9 @@ def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
         "cloudwatch:ListMetrics", "cloudtrail:LookupEvents",
         # Logs Insights results and cancel name a query id, not a resource: AWS gives them no resource type (R22).
         "logs:GetQueryResults", "logs:StopQuery",
-        # An ALB's zones and zonal-shift setting (G9-D): no resource type (AWS's service reference JSON, 2026-10-10).
+        # An ALB's zones and zonal-shift setting (G9-D): no resource type (AWS's service reference JSON).
         "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes",
-        # A group's scaling activities (G10-C2): no resource type, no condition key (service reference, 2026-10-10).
+        # A group's scaling activities (G10-C2): no resource type, no condition key (service reference).
         "autoscaling:DescribeScalingActivities",
         # A workload's subnets, their route tables and network ACLs (G10-C4): EC2 describes take no resource.
         "ec2:DescribeSubnets", "ec2:DescribeRouteTables", "ec2:DescribeNetworkAcls",
@@ -961,7 +961,7 @@ _ARN_FORMATS = {
 
 
 def test_every_reader_arn_has_the_shape_aws_gives_its_resource():
-    """Seventh review: the scoping test checked where each action sits, not its ARN - seven format
+    """The scoping test checked where each action sits, not its ARN - seven format
     mutants passed (`table/` -> `tables/`, `cluster:` -> `db:`, a typo in `/aws/lambda/`, an sqs prefix...). Each ARN
     must be its service's published format with the stack's name where the resource's name goes."""
     text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
@@ -985,7 +985,7 @@ def test_every_reader_arn_has_the_shape_aws_gives_its_resource():
 
 
 def test_every_page_of_a_listing_is_read_and_a_cap_says_so(monkeypatch):
-    """Audit A-B-M8, A-B-L3, A-B-L4: listings were read one page deep."""
+    """Listings were read one page deep."""
     pages = {None: {"Items": [1], "Next": "a"}, "a": {"Items": [2], "Next": "b"}, "b": {"Items": [3]}}
     got, cut = aws_stack._pages(lambda Marker=None: pages[Marker], "Items", next_token="Next")
     assert (got, cut) == ([1, 2, 3], False)
@@ -995,7 +995,7 @@ def test_every_page_of_a_listing_is_read_and_a_cap_says_so(monkeypatch):
 
 
 def test_events_are_asked_for_by_source_and_every_page_read():
-    """Audit A-B-L4: the whole account's events, one page of them, could hold none of the cluster's."""
+    """The whole account's events, one page of them, could hold none of the cluster's."""
     calls = []
 
     def describe_events(SourceIdentifier, SourceType, Marker=None, **_):
@@ -1015,7 +1015,7 @@ def test_events_are_asked_for_by_source_and_every_page_read():
 
 
 def test_lambda_versions_past_the_cap_are_not_taken_for_the_newest(monkeypatch):
-    """Audit A-B-L3: versions come oldest first; a truncated list named an old version the newest."""
+    """Versions come oldest first; a truncated list named an old version the newest."""
     monkeypatch.setattr(aws_stack, "LIST_MAX_PAGES", 1)
     lam = _lambda(list_versions_by_function={"Versions": [{"Version": "1"}], "NextMarker": "more"})
     clients = _clients()
@@ -1032,7 +1032,7 @@ def test_lambda_versions_past_the_cap_are_not_taken_for_the_newest(monkeypatch):
     ("API_TOKEN_NAME", "x", False), ("SERVICE", "orders", True), ("DB_USER", "orders_app", True),
 ])
 def test_an_environment_value_is_shown_only_under_a_configuration_name(name, value, shown):
-    """Audit A-B-M9: values were shown unless the name looked secret - `DATABASE_URL` carried a password out."""
+    """Values were shown unless the name looked secret - `DATABASE_URL` carried a password out."""
     [item] = aws_stack._env_items({name: value})
     assert (item == f"{name}={value}") is shown, item
 
@@ -1040,7 +1040,7 @@ def test_an_environment_value_is_shown_only_under_a_configuration_name(name, val
 @pytest.mark.parametrize("path", [".env", "config/.env", "app.py/../.env", "../app.py", "secrets.json", "a" + chr(92) + "b.py",
                                   "app.PY.bak", ""])
 def test_a_traceback_cannot_make_warden_read_a_non_python_file(path):
-    """Audit A-B-M17: the source path comes from traceback text in the logs, which anyone writing a log line
+    """The source path comes from traceback text in the logs, which anyone writing a log line
     controls; a forged `File "/var/task/.env"` read the package's .env into the evidence."""
     package = _zip({"app.py": APP_PY, ".env": "DB_PASSWORD=x", "config/.env": "y", "secrets.json": "{}"})
     with pytest.raises(ValueError):
@@ -1049,7 +1049,7 @@ def test_a_traceback_cannot_make_warden_read_a_non_python_file(path):
 
 
 def test_a_series_cloudwatch_could_not_finish_is_said():
-    """Audit A-B-M18: a result with StatusCode PartialData read as a complete series."""
+    """A result with StatusCode PartialData read as a complete series."""
     def get_metric_data(MetricDataQueries, **_):
         return {"MetricDataResults": [{"Id": q["Id"], "Values": [1.0], "StatusCode": "PartialData"}
                                       for q in MetricDataQueries]}
@@ -1061,7 +1061,7 @@ def test_a_series_cloudwatch_could_not_finish_is_said():
 
 
 def test_the_sg_line_names_cidr_ranges_and_prefix_lists_too():
-    """Audit A-B-L5: a rule opening the cache port to a CIDR or a prefix list was read as no rule."""
+    """A rule opening the cache port to a CIDR or a prefix list was read as no rule."""
     clients = _clients()
     clients["ec2"] = Fake(describe_security_groups={"SecurityGroups": [{"GroupId": "sg-0redis", "IpPermissions": [
         {"IpProtocol": "tcp", "FromPort": 6379, "ToPort": 6379, "IpRanges": [{"CidrIp": "10.0.0.0/16"}],
@@ -1076,7 +1076,7 @@ def test_the_sg_line_names_cidr_ranges_and_prefix_lists_too():
 
 
 def test_a_fault_flags_value_never_reaches_the_evidence():
-    """Audit A-B-M12: `DDB_EXTRA_LATENCY_MS=2000` was shown. The opaque flag names are not names whose values
+    """`DDB_EXTRA_LATENCY_MS=2000` was shown. The opaque flag names are not names whose values
     WARDEN shows."""
     from scenarios.ops_fullstack import FLAGS
 
@@ -1121,7 +1121,7 @@ def test_an_albs_zones_its_zonal_shift_setting_and_its_hosts_per_zone_are_read()
 
 
 def test_a_rule_on_a_custom_bus_is_read_on_that_bus():
-    """G10 review: DescribeRule looked on the default bus only, so a rule on a custom bus read as a failed
+    """DescribeRule looked on the default bus only, so a rule on a custom bus read as a failed
     read. The alarm's EventBusName dimension (label `event_bus`) names the bus for the describe and the metrics."""
     events = Fake(describe_rule={"State": "DISABLED", "ScheduleExpression": "-"})
     cw = Fake(get_metric_data={"MetricDataResults": []})

@@ -1,4 +1,4 @@
-"""WARDEN's confidence in a diagnosis (owner U3-1, 2026-10-17): a level - low, medium or high - from checks WARDEN can
+"""WARDEN's confidence in a diagnosis: a level - low, medium or high - from checks WARDEN can
 show a person, never the model's own number. A model's self-reported confidence is not calibrated (decide.py: 0.85 on
 everything), so it is shown beside this level, never instead of it.
 

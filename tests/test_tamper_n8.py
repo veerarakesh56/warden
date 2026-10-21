@@ -1,4 +1,4 @@
-"""Register N8 / audit A-N-8: the prompt, a policy or the catalogue changed through a pull request. Three layers:
+"""Register N8: the prompt, a policy or the catalogue changed through a pull request. Three layers:
 the pinned hashes make every such change also change docs/safety-pins.sha256; CODEOWNERS routes those paths to a
 named reviewer; and the running WARDEN binds the code hash into every plan and every model call's audit row."""
 

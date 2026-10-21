@@ -1,4 +1,4 @@
-"""SonarQube Cloud's automatic analysis settings (.sonarcloud.properties, owner 2026-10-21) stay true to the code: the
+"""SonarQube Cloud's automatic analysis settings (.sonarcloud.properties) stay true to the code: the
 test code is analysed as tests, the Python versions start where pyproject.toml does, and the AWS provider version is
 the major every deployed stack locks."""
 

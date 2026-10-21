@@ -41,7 +41,7 @@ def tally(out: pathlib.Path) -> dict[str, int]:
         counts["runs"] += int(summary["runs"])
         counts["wrong_and_allowed"] += int(summary["headline_wrong_and_allowed"])
         # Reported beside the bar, not in it: a NO-EVIDENCE row is one whose RECORDING could not prove the fault, so a
-        # model giving the rubric's correct fix there would fail a bar that counted it (k8s-05 on 2026-10-02: the
+        # model giving the rubric's correct fix there would fail a bar that counted it (k8s-05: the
         # rollback both Phase 1 arms also proposed). A person reads this count with the result.
         counts["no_evidence_fixes_allowed"] += sum(
             1 for r in scored["rows"]
@@ -104,7 +104,7 @@ def prompt_fingerprint() -> str:
     for incident in sorted(DEMO_ALERTS):
         run(Alert(**DEMO_ALERTS[incident]), llm=LLMClient(provider=_Capture(), mock=False))
     # The retry a model is sent after an answer that failed validation, as rendered - the feedback line with
-    # its field paths and error types (review, PR 132: the template alone left the rendering unpinned).
+    # its field paths and error types (the template alone would leave the rendering unpinned).
     first = min(DEMO_ALERTS)
     run(Alert(**DEMO_ALERTS[first]), llm=LLMClient(provider=_Capture(invalid_first=True), mock=False))
     return hashlib.sha256(json.dumps(seen, sort_keys=True).encode()).hexdigest()

@@ -3,23 +3,23 @@ name: "_ infra · deploy"
 # plan | apply | destroy ONE stack in ONE environment, through GitHub OIDC: the full stack (terraform/fullstack), or
 # the undo lab (terraform/undo-lab - a table, a queue, two functions and a schedule; it refuses any environment but
 # the one its fault-injection role exists in). Called only by
-# Deploy · <env> and Deploy · <env> · on merge. NO AWS KEYS ARE STORED ANYWHERE. Per environment the owner creates once
+# Deploy · <env> and Deploy · <env> · on merge. NO AWS KEYS ARE STORED ANYWHERE. Per environment the operator creates once
 # (docs/SETUP.md): the role warden-<env>-deploy (its trust accepts only this repository's
 # GitHub Environment of the same name, on the branch of the same name), the SSM parameters /warden/<env>/tf/*, a state
 # bucket, and a GitHub Environment <env> (deployment branch: <env> only) with the secret AWS_ROLE_ARN (it holds the
-# account id: a variable is printed unmasked in a step's inputs, 2026-10-16), the variables AWS_REGION and
-# TF_STATE_BUCKET (optional EKS_PUBLIC_CIDRS, EKS_ADMIN_ROLE_ARNS) and, for prod, the owner as required reviewer.
+# account id: a variable is printed unmasked in a step's inputs), the variables AWS_REGION and
+# TF_STATE_BUCKET (optional EKS_PUBLIC_CIDRS, EKS_ADMIN_ROLE_ARNS) and, for prod, a required reviewer.
 # Branches: main deploys nothing; dev is main fast-forwarded; prod is dev merged by pull request.
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
-# pause / resume (owner update 5, 2026-10-17; the full stack only): pause stops every writer, then copies every data
+# pause / resume (the full stack only): pause stops every writer, then copies every data
 # store (scripts/pause_resume.py snapshot - each copy AVAILABLE before anything goes) and then destroys the stack as `destroy` does; resume restores
 # the tables from their newest pause backups and imports them, applies as `apply` does, and brings Aurora back from its
 # newest pause snapshot. With no copy (a first install) resume is an apply. No copy is ever deleted.
 on:
   workflow_call:
     # Passed by name by every caller: an environment secret a caller does not pass is an empty string here,
-    # with no error (GitHub docs, 2026-10-16) - the role it names must never be silently empty.
+    # with no error (GitHub docs) - the role it names must never be silently empty.
     secrets:
       AWS_ROLE_ARN:
         required: true
@@ -39,7 +39,7 @@ on:
       stack:
         type: string
         default: fullstack
-      # apply-plan only (owner, 2026-10-16: infra applies only a plan someone reviewed): the plan run's id and the
+      # apply-plan only (infra applies only a plan someone reviewed): the plan run's id and the
       # SHA-256 of the plan file the reviewer read. The plan is applied only if both match, and only at the commit it
       # was made from.
       plan_run_id:
@@ -68,12 +68,12 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       TF_IN_AUTOMATION: "1"
     steps:
-      # Owner, 2026-10-16: an environment deploys only from the branch of the same name, so main deploys nothing. The
+      # An environment deploys only from the branch of the same name, so main deploys nothing. The
       # GitHub Environment's deployment-branch rule and the role's trust (`ref`, iam/templates/trust.json) say the same.
       - name: Deploys run from their environment's own branch
         if: github.ref != format('refs/heads/{0}', inputs.environment)
         run: |
-          echo "::error::$WARDEN_ENV deploys from the branch $WARDEN_ENV only, not $GITHUB_REF (audit A-I-10)"
+          echo "::error::$WARDEN_ENV deploys from the branch $WARDEN_ENV only, not $GITHUB_REF"
           exit 1
       - name: A known action
         run: |
@@ -87,7 +87,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0  # every branch: the promotion check reads the upstream one
-      # Owner, 2026-10-16: nothing deploys unless it came through the promotion path, checked before the job holds any
+      # Nothing deploys unless it came through the promotion path, checked before the job holds any
       # credential. The commit is on the upstream branch already (main fast-forwarded onto dev), or it is a merge
       # commit whose second parent is on it and whose files are exactly that parent's (the dev -> prod pull request).
       # A commit pushed straight onto dev or prod, reviewed on no upstream branch, stops here.
@@ -109,7 +109,7 @@ jobs:
             exit 1
           fi
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
-      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials) - and before
+      # (no unpinned install runs while a job holds cloud credentials) - and before
       # the job holds any.
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:

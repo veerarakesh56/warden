@@ -206,7 +206,7 @@ def test_every_resource_label_has_a_reader_or_a_reason_it_has_none():
 
 
 def test_every_field_and_path_is_in_awss_own_response_shape():
-    """A misspelled field reads as absent forever (G10, 2026-10-10: checked against botocore's service models). Every
+    """A misspelled field reads as absent forever (G10: checked against botocore's service models). Every
     row's read method, path and fields must exist in the response shape botocore ships for it."""
     import botocore
     import botocore.session
@@ -228,7 +228,7 @@ def test_every_field_and_path_is_in_awss_own_response_shape():
 
 
 def test_no_row_writes_two_fields_under_one_name():
-    """G10 held-out: an instance read `Status=impaired Status=ok` - its system check and its instance
+    """An instance read `Status=impaired Status=ok` - its system check and its instance
     check under one name, so the evidence could not say which had failed."""
     for key, d in aws_describe.TABLE.items():
         names = [aws_describe.field_name(d.fields, f) for f in d.fields]

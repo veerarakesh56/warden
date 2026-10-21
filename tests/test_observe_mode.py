@@ -1,4 +1,4 @@
-"""Audit A-P-8: an observe mode for new policies. A policy in observe mode is evaluated on every verdict and recorded
+"""An observe mode for new policies. A policy in observe mode is evaluated on every verdict and recorded
 - in the verdict, the report and the replay score - and never changes what is decided. Its first use is audit Q2's
 candidate rule (a "nothing to do" over an error rate), measured before it is ever enforced."""
 

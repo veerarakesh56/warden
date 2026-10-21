@@ -1,4 +1,4 @@
-"""Injection tripwire: a trained detector over every untrusted evidence line (v2, 2026-09-27).
+"""Injection tripwire: a trained detector over every untrusted evidence line.
 
 The quarantine (quarantine.py) already keeps untrusted text away from the model structurally. This
 adds a SECOND, independent signal: Meta's Llama Prompt Guard 2 (86M), a classifier trained on a
@@ -31,17 +31,16 @@ from typing import Any
 from .evidence import Item
 
 MODEL = os.environ.get("WARDEN_TRIPWIRE_MODEL", "meta-llama/Llama-Prompt-Guard-2-86M")
-# The exact weights (registers S9, A-P-7): a Hub commit, so a change upstream cannot change the detector unseen. Every
-# measurement in this file was made on it (the commit the Hub served on 2026-10-03, and the one cached since
-# 2026-09-29). docs/sbom/warden.cdx.json lists it in the ML-BOM.
+# The exact weights (register S9): a Hub commit, so a change upstream cannot change the detector unseen. Every
+# measurement in this file was made on it. docs/sbom/warden.cdx.json lists it in the ML-BOM.
 REVISION = os.environ.get("WARDEN_TRIPWIRE_REVISION", "a8ded8e697ce7c355e395a0df51f94adb4a2fd27")
 # Prompt Guard reads 512 tokens. A long text is scanned in overlapping windows and scores its worst
-# window, so an instruction cannot hide behind padding. ⛔ Audit A-C-21: the windows were 1,200
+# window, so an instruction cannot hide behind padding. ⛔ Earlier windows were 1,200
 # CHARACTERS, assumed to be ~300 tokens - but symbols, emoji and non-Latin text run to a token or more
 # per character, and the classifier silently truncated each window at 512, so the rest was never
 # scored. A first fix cut windows by token and DECODED them back to text; an [UNK] decodes to the
 # literal "[UNK]", which re-encodes as several tokens, so windows still overflowed and were cut
-# (independent review 2026-09-28, shown with the real model). Windows are now token ids fed to the
+# (shown with the real model). Windows are now token ids fed to the
 # model directly: nothing is decoded, re-encoded or truncated.
 WINDOW_TOKENS, STEP_TOKENS = 500, 400   # + the model's special tokens <= 512; 100 tokens of overlap:
                                         # an instruction straddling a cut is still whole in one window
@@ -55,9 +54,9 @@ SHORT_TOKENS, SHORT_STEP = 64, 32
 SHORT_CHARS, SHORT_STEP_CHARS = 120, 60
 # ... and sentence by sentence, field by field: an instruction written as its own sentence or field is
 # scored without the benign text around it (short windows alone still let 8 of 35 padded placements
-# through, measured 2026-09-30 with the real model). With both: 34 of 35 padded placements caught
+# through, measured with the real model). With both: 34 of 35 padded placements caught
 # (23 of 35 before), recall 51 of 132 attacks (46 before), 0 of 36 benign alerts flagged, and 3 of 14
-# benign texts worded as instructions escalated (1 before) - the owner accepted the extra escalations:
+# benign texts worded as instructions escalated (1 before) - the extra escalations are accepted:
 # a false alarm costs one human review.
 _SEGMENT_BREAKS = (
     r"(?<=[.;!?])\s+",  # after the end of a sentence
@@ -69,10 +68,10 @@ _SEGMENT = re.compile("|".join(_SEGMENT_BREAKS))
 MIN_SEGMENT_CHARS = 20
 # The most tokens of text one scan takes, counted in its long windows (about 1.25x the text, from their
 # overlap): some 26,000 tokens of what the model reads. Recorded incidents need at most 14,121 (p99
-# 11,630, measured 2026-09-30 over 337 reports). With the short windows and sentences, 14,003 tokens
-# took 86 s on a laptop CPU with the real model, so a scan at the budget runs about three
-# minutes, inside prepare's 15. Over it, nothing is scored and the incident escalates (second review,
-# 2026-09-30): a flood of log text must buy neither an unscanned pass nor a stalled incident.
+# 11,630, measured over 337 reports). With the short windows and sentences, 14,003 tokens
+# took 86 s on a developer-machine CPU with the real model, so a scan at the budget runs about three
+# minutes, inside prepare's 15. Over it, nothing is scored and the incident escalates: a flood of log text must buy
+# neither an unscanned pass nor a stalled incident.
 MAX_SCAN_TOKENS = 32_768
 MAX_THRESHOLD = 0.99
 TOO_MUCH_TEXT = "TOO-MUCH-TEXT"
@@ -81,14 +80,14 @@ _PARTIAL = re.compile(r"ran-partial: \d+ of \d+ log lines")
 
 def ran(status: str) -> bool:
     """The detector ran over everything the model reads: "ran", or exactly the "ran-partial: <n> of <m>
-    log lines" that scan() writes. Fourth review (2026-09-30, C-9): a prefix match let any status that
+    log lines" that scan() writes. A prefix match would let any status that
     merely started with "ran-partial" count as a run in required mode."""
     return status == "ran" or _PARTIAL.fullmatch(status) is not None
 
 
 def threshold() -> float | None:
-    """The score at which a window is flagged, or None if the setting is unusable. ⛔ Audit A-C-12:
-    `float("nan")` was accepted, and every comparison with nan is False - detection silently off.
+    """The score at which a window is flagged, or None if the setting is unusable. ⛔
+    `float("nan")` was once accepted, and every comparison with nan is False - detection silently off.
     A threshold no real score reaches switches detection off the same way: the strongest real scores
     measured were 0.998-0.9993, so the setting is capped at 0.99."""
     try:
@@ -120,7 +119,7 @@ def _score_ids(classify: Any, windows: list[list[int]]) -> list[float]:
         torch = None
     tok, model = classify.tokenizer, classify.model
     # [CLS] ids [SEP], as tokenizer(text) itself builds them (Prompt Guard 2 is DeBERTa-v2; transformers
-    # 5 has no build_inputs_with_special_tokens on it - found running the real model, 2026-09-28).
+    # 5 has no build_inputs_with_special_tokens on it - found running the real model).
     rows = [[tok.cls_token_id, *w, tok.sep_token_id] for w in windows]
     if max(len(r) for r in rows) > MAX_TOKENS:
         raise ValueError("a window exceeds the model's input")  # never truncate silently
@@ -129,7 +128,7 @@ def _score_ids(classify: Any, windows: list[list[int]]) -> list[float]:
     if not bad:  # another model's labels (INJECTION/JAILBREAK): every score would be 0, silently
         raise ValueError("the model has no MALICIOUS label")
     # In length order: a batch is padded to its longest row, and a 64-token window batched with 500-token
-    # ones cost as much as they did (a 4,003-token scan took 102 s; measured 2026-10-01, real model).
+    # ones cost as much as they did (a 4,003-token scan took 102 s; measured with the real model).
     order = sorted(range(len(rows)), key=lambda i: len(rows[i]))
     rows = [rows[i] for i in order]
     scores: list[float] = []
@@ -174,7 +173,7 @@ def _classifier() -> Any:
     from transformers import pipeline  # optional: pip install -e ".[guard]"
 
     # Once per process: which process loads the 1.1 GB detector, and from where - only the read zone should (it runs
-    # prepare); the llm zone's log showed the model's code being imported on 2026-10-14 with no caller known.
+    # prepare); this names the caller if another zone ever imports the model's code.
     caller = " <- ".join(f"{f.name}:{f.lineno}" for f in reversed(traceback.extract_stack(limit=8)[:-1]))
     logging.getLogger(__name__).info("loading the injection detector (pid %d), called from %s", os.getpid(), caller)
 
@@ -193,8 +192,8 @@ def scan(items: dict[str, Item], classify: Any = None, *,
 
     `outside` is what the MODEL reads that came from outside WARDEN - the alert's text, its labels, each
     trusted item - scanned in full, EACH PART ON ITS OWN. Joined into one text, the real evidence in the
-    same 512-token window diluted a summary injection the model scores 0.99 alone down to 0.36 (third
-    review, 2026-09-30; audit A-C-11). The untrusted L/E lines are never shown to the model (only their
+    same 512-token window diluted a summary injection the model scores 0.99 alone down to 0.36. The untrusted L/E lines
+    are never shown to the model (only their
     typed facts are); they are scanned with whatever budget is left, and a line past it is reported in
     the status ("ran-partial: ..."), not escalated - a flood of log text must buy neither a pass for what
     the model reads nor an escalation of every noisy incident.
@@ -268,7 +267,7 @@ def _read_windows(cut: _Windows, must: list[tuple[str, str]]) -> tuple[list, lis
     # The budget counts the text the model reads, once. Its short windows and sentences score that
     # same text again (about 3x its tokens) and are bounded by it: counted too, 8,000 tokens of real
     # evidence - under the 14,121 recorded incidents need - escalated as too much text (measured
-    # 2026-10-01 with the real model).
+    # with the real model).
     windows: list = []
     owner: list[str] = []
     size = 0

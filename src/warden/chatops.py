@@ -362,7 +362,7 @@ _BOLD = re.compile(r"\*\*(.+?)\*\*")
 # "#<NBSP>Fix - approved" became a bold Slack line that renders as plain text everywhere else.
 _HEADING = re.compile(r"^#{1,6}[ \t]++(.*)$")  # possessive: the spaces are never handed back to `.*` (Sonar python:S8786)
 # Line and paragraph separators: not line breaks in Markdown, but splitlines() - and some viewers -
-# broke on them, so "ok<U+2028># Fix - approved" became a heading (fourth review, 2026-09-30, A-3).
+# broke on them, so "ok<U+2028># Fix - approved" would become a heading.
 _TILDE_FENCE = re.compile(r"^[ \t>*+\-\d.)]*~{3,}")
 _SEPARATORS = re.compile("[\u2028\u2029]")
 
@@ -379,9 +379,8 @@ def to_slack_mrkdwn(md: str) -> str:
     text = _SEPARATORS.sub(" ", text)
     out, fence = [], ""
     # A fence anywhere in the line: the gate keeps fences inside list items and quotes, and leaves ```
-    # nowhere but on fence lines (fourth review, 2026-09-30, A-2: column 0 only desynchronised here).
-    # A `~~~` block is code too, closed only by `~~~` as CommonMark reads it: its heading was made bold
-    # (fifth review, 2026-10-01).
+    # nowhere but on fence lines (column 0 only would desynchronise here).
+    # A `~~~` block is code too, closed only by `~~~` as CommonMark reads it: otherwise its heading is made bold.
     for line in text.split("\n"):
         if _toggles_fence(line, fence):
             fence = "" if fence else _fence_opened_by(line)
@@ -448,8 +447,7 @@ LINK_LABEL = "Open the plan to approve or deny"
 _APPROVAL_LABEL = re.compile(re.escape(LINK_LABEL) + r"( \(link of [A-Za-z0-9._-]{1,64}\))?")
 # The incident's page on WARDEN's records (records.py): everything about it, where Slack gets one message.
 RECORD_LABEL = "Full record"
-# Every incident on WARDEN's records, in one place (owner, 2026-10-15: "all the previous ones too ... that link is
-# missing").
+# Every incident on WARDEN's records, the earlier ones too, in one place.
 ALL_LABEL = "All incidents"
 
 
@@ -460,8 +458,8 @@ _MARK = re.compile(r"@@([A-Za-z0-9._-]{1,64})@@")  # ApproverPolicy.said's mark 
 
 
 def name_people(text: str, people: Any, *, slack: bool) -> str:
-    """Each approver's mark, as the reader sees it, where the sentence names them (owner, 2026-10-12: the list's id
-    stood in the text - "owner" - and the mention alone at the foot of the message). In Slack: Slack's own mention
+    """Each approver's mark, as the reader sees it, where the sentence names them (not the list's id in the text and
+    the mention alone at the foot of the message). In Slack: Slack's own mention
     of the member the approver list gives. Anywhere else, or with no member: the name the list gives. `people`:
     (approver id, member id, name) rows handed over by WARDEN from the approver list - only a member id of exactly
     Slack's shape becomes a mention, one typed into a message stays text (to_slack_mrkdwn), and a mark typed into
@@ -499,7 +497,7 @@ _FOOT_RULE = "\n---\n"  # the rule WARDEN's own messages put before their footer
 
 def slack_messages(parts: list[str], data: dict) -> list[dict[str, Any]]:
     """The messages Slack gets for these parts. WARDEN's own approval link is a button under the last one, its
-    address not printed (owner, 2026-10-12: "the link should be hidden under a button") - a Block Kit button that
+    address not printed - a Block Kit button that
     opens the page. Slack sends the app a note of each click, which the approval API answers and ignores
     (`POST /s/interact`); the click decides nothing - the page and the passkey do."""
     messages: list[dict[str, Any]] = [{"text": part} for part in parts]
@@ -511,8 +509,8 @@ def slack_messages(parts: list[str], data: dict) -> list[dict[str, Any]]:
          **({"style": "primary"} if label in deciding and len(deciding) == 1 else {})} for label, link in links]}
     last = messages[-1]["text"] if messages else ""
     # WARDEN's own footer - the incident, the audit head - stands after a rule in the text. In Slack it is the small
-    # grey line under the message, with no rule (owner, 2026-10-14, of the "---" between a message and its footer:
-    # "it doesn't look good"). The `text` stays whole: it is what a notification and a client without blocks show.
+    # grey line under the message, with no "---" rule between them. The `text` stays whole: it is what a notification
+    # and a client without blocks show.
     body, rule, foot = last.rpartition(_FOOT_RULE)
     if not rule or not body.strip() or not foot.strip():
         body, foot = last, ""

@@ -298,7 +298,7 @@ def _mock_proposal(s: Signals) -> RemediationProposal:
     )
 
 
-# The diagnosis prompt (owner U3-1, 2026-10-17): the same rules as before, in XML-tagged sections, with worked examples
+# The diagnosis prompt: the same rules as before, in XML-tagged sections, with worked examples
 # of the three outcomes. Changing it changes the pin in data/providers.yaml (tests/test_prompt_pin_e6.py); a model is
 # qualified only on the prompt it was measured with (providers.qualified).
 SYSTEM_DIAGNOSE = (
@@ -431,7 +431,7 @@ def node_gather(state: WardenState) -> WardenState:
 
 
 # An IAM Identity Center role's opaque 16-hex suffix, in a change line from any source: the live reader drops it at the
-# source (aws_stack._principal, 2026-10-11), and a line recorded or read elsewhere still carries it - the redactor's
+# source (aws_stack._principal), and a line recorded or read elsewhere still carries it - the redactor's
 # entropy backstop then hid the whole actor (`by <HIGHENTROPY_1>`), so no one could read who made the change and P33
 # could not see a guardrail role. The suffix names nothing a person reads.
 _SSO_SUFFIX = re.compile(r"\b(role/AWSReservedSSO_[A-Za-z0-9+=,.@-]+?)_[0-9a-f]{16}\b")
@@ -541,11 +541,11 @@ def _one_line(text: str, limit: int = 600) -> str:
 
 def _evidence_blob(state: WardenState, *, facts: bool = True) -> str:
     # Every item with its id (evidence.py), the same numbering the verifier checks citations
-    # against. ⛔ T items are what WARDEN tried to read and COULD NOT. Until 2026-09-25 that never
-    # reached the model: on a database cut off by its security group every read failed, the model
+    # against. ⛔ T items are what WARDEN tried to read and COULD NOT. Without them, that never
+    # reaches the model: on a database cut off by its security group every read failed, the model
     # was shown empty fields and wrote "no metrics, deploys, or logs provided" - the one decisive
     # fact of that incident, withheld. Redacted in node_redact, and again in _prompt_parts.
-    # ⛔ Audit A-C-1: the alert's name and summary are text whoever configured the alert rule
+    # ⛔ The alert's name and summary are text whoever configured the alert rule
     # wrote. They used to open the prompt as if WARDEN had written them, newlines and all, so a
     # summary could start a fake EVIDENCE section. Now: one line each, between nonce markers,
     # declared data. (Quarantining them into typed facts is G3, measured on the replay first.)
@@ -583,7 +583,7 @@ def _prompt_parts(state: WardenState, *, facts: bool = True) -> list[tuple[str, 
     rule = name if _PLAIN_RULE.fullmatch(name) else "(withheld: not a plain rule id)"
     return [
         ("ALERT RULE: ", False), (rule, True),
-        # G10 (miss analysis, 2026-10-10): without the time the alert fired, "a deploy 5 minutes before" and "errors
+        # Without the time the alert fired, "a deploy 5 minutes before" and "errors
         # stopped after the revert" could not be read. WARDEN's own words: a parsed time, re-written in UTC.
         ("\nALERT FIRED: ", False), (_fired(alert.started_at), False),
         ("\nSERVICE: ", False), (service, True), (" ENV: ", False),
@@ -623,7 +623,7 @@ _PLAIN_RULE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}")
 def node_tripwire(state: WardenState) -> WardenState:
     """The trained injection detector over the untrusted evidence (tripwire.py). It changes what the
     gate allows (P16), never what the model is shown."""
-    # Each part the model reads, on its own (third review, 2026-09-30: joined, real evidence diluted a
+    # Each part the model reads, on its own (joined, real evidence diluted a
     # summary injection below the threshold). Name and summary together, so a payload split across
     # them is still read whole; WARDEN's own words are in no part.
     alert, mapping = state["alert"], state.get("redaction_map", {})
@@ -645,7 +645,7 @@ def node_tripwire(state: WardenState) -> WardenState:
 
     # Labels as sentences, every key and value word as written: as a dict, a credential-NAMED label alone
     # scored as an injection - `{'password': ''}` 0.999, 6 of 8 such keys flagged - while an injection in a
-    # key or a value still scores 0.999 as a sentence (real Prompt Guard 2, 2026-10-01; sixth review).
+    # key or a value still scores 0.999 as a sentence (measured with Prompt Guard 2).
     pairs = zip(red[2:2 + len(keys)], red[2 + len(keys):2 + 2 * len(keys)], strict=True)
     said = [f"label {theirs(k)} is {v}" if (v := theirs(value).strip()) else f"label {theirs(k)} is set (value withheld)"
             for k, value in pairs]
@@ -714,7 +714,7 @@ def _diagnose(state: WardenState, llm: LLMClient) -> WardenState:
             rc = rc.model_copy(update={"outcome": Outcome.undetermined})
         sp.set_attribute("warden.confidence", rc.confidence)
         sp.set_attribute("warden.action", proposal.action.value)
-        # Both: the raw attribute keeps traces comparable across the 2026-09-12 gate change, and the
+        # Both: the raw attribute keeps traces comparable across gate changes, and the
         # effective one is what P6 actually weighed.
         sp.set_attribute("warden.blast_radius", proposal.blast_radius)
         sp.set_attribute("warden.blast_radius_effective", proposal.effective_blast_radius)
@@ -785,8 +785,8 @@ def node_verify(state: WardenState) -> WardenState:
 
 def _confidence(state: WardenState) -> dict[str, Any] | None:
     """confidence.assess on the verified answer, as the signed audit row keeps it: the level, each check's name and
-    whether it held, and WARDEN's two counts. Never a check's detail, which can quote the model's citations (review,
-    PR 132): the report builds its own, through the redactor. None when there is no answer to assess."""
+    whether it held, and WARDEN's two counts. Never a check's detail, which can quote the model's citations: the report
+    builds its own, through the redactor. None when there is no answer to assess."""
     from .confidence import assess
 
     if not state.get("root_cause") or not state.get("proposal") or state.get("context") is None:
