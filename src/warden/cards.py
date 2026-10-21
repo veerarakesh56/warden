@@ -31,9 +31,20 @@ def _scrub(text: Any) -> str:
     return redact(str(text)).text
 
 
-def _last(r: Any, kind: str) -> dict[str, Any] | None:
-    rows = [e["body"] for e in r.rows if e["kind"] == kind]
-    return rows[-1] if rows else None
+# Where an investigation run starts: its evidence read, or the incident reopening (a reopened incident reads again).
+RUN_STARTS = ("incident.gather", "incident.reopened")
+
+
+def _latest_run(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The rows of the incident's latest investigation run only: a step of an earlier run (a reopened incident's old
+    rule decision) is never shown beside a later one."""
+    starts = [i for i, e in enumerate(rows) if e["kind"] in RUN_STARTS]
+    return rows[starts[-1]:] if starts else rows
+
+
+def _last(rows: list[dict[str, Any]], kind: str) -> dict[str, Any] | None:
+    found = [e["body"] for e in rows if e["kind"] == kind]
+    return found[-1] if found else None
 
 
 def _count(n: Any, one: str, many: str) -> str:
@@ -67,7 +78,8 @@ def _diagnosis_rows(d: dict[str, Any] | None) -> list[tuple[str, str]]:
     if d is None:
         return [("Diagnosis", "None on the record")]
     cited = [str(c) for c in d.get("cited") or []]
-    found = f": {', '.join(cited[:12])}" if cited else " - nothing the rules could check"
+    # A citation id is model text: redacted like every other free text before it is shown.
+    found = f": {', '.join(_scrub(c) for c in cited[:12])}" if cited else " - nothing the rules could check"
     out = [("Cited", f"{_count(len(cited), 'evidence item', 'evidence items')}{found}")]
     if d.get("need_evidence"):
         out.append(("Asked for", _count(len(d["need_evidence"]), "more resource to read", "more resources to read")))
@@ -87,12 +99,13 @@ def _rules_row(v: dict[str, Any]) -> tuple[str, str]:
 
 def card_rows(r: Any) -> list[tuple[str, str]]:
     """The card's lines, plain text (the page escapes them): what the incident's own rows say, step by step."""
-    out = [_read_row(_last(r, "incident.gather"))]
-    more = sum(1 for e in r.rows if e["kind"] == "incident.investigate")
+    run = _latest_run(r.rows)
+    out = [_read_row(_last(run, "incident.gather"))]
+    more = sum(1 for e in run if e["kind"] == "incident.investigate")
     if more:
         out.append(("Read more", f"{_count(more, 'more read', 'more reads')} of what the alarm names"))
-    out += _diagnosis_rows(_last(r, "incident.diagnose"))
-    v = _last(r, "incident.verify")
+    out += _diagnosis_rows(_last(run, "incident.diagnose"))
+    v = _last(run, "incident.verify")
     if v is not None:
         out.append(_rules_row(v))
     out.append(("Ended", r.status))
@@ -135,7 +148,7 @@ def lesson(notes: list[dict[str, Any]]) -> str:
     fixes = sorted({n["fix"] for n in held if n["fix"]})
     by = f" (by {', '.join(fixes)})" if fixes else ""
     parts = [f"{len(held)} fixed{by}" if held else "",
-             f"{len(bad)} where the fix did not work" if bad else "",
+             f"{len(bad)} where the fix went wrong or set off other alarms" if bad else "",
              f"{len(planned)} cleared during a planned shutdown" if planned else "",
              f"{len(handed)} handed to a person" if handed else ""]
     said = "; ".join(p for p in parts if p)

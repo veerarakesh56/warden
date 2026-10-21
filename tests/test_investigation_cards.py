@@ -89,6 +89,41 @@ def test_nothing_cited_is_said_plainly(log):
     assert _card(log, "inc-a")["Cited"] == "0 evidence items - nothing the rules could check"
 
 
+def test_a_citation_is_redacted_before_it_is_shown(log):
+    """Review, PR 180: a citation id is the model's text; a secret in one is masked like any other free text."""
+    _incident(log, "inc-a")
+    log.append("inc-a", "incident.diagnose", {"node": "diagnose", "action": "restart_pods", "target": "checkout",
+                                              "cited": ["D1", f"key {AWS_ACCESS_KEY_ID}"]})
+    cited = _card(log, "inc-a")["Cited"]
+    assert AWS_ACCESS_KEY_ID not in cited
+    assert cited.startswith("2 evidence items: D1, ")
+
+
+def test_a_reopened_incident_shows_only_its_latest_run(log):
+    """Review, PR 180: after a reopening, the new diagnosis is never shown beside the earlier run's rule decision."""
+    _incident(log, "inc-a")
+    _investigated(log, "inc-a", policies=("P6-BLAST-RADIUS",))
+    log.append("inc-a", "incident.reopened", {"workflow_id": "rem-inc-a"})
+    log.append("inc-a", "incident.gather", {"node": "gather", "backend": "aws", "logs": 3, "metrics": 1, "deploys": 0,
+                                            "tool_errors": 0, "references": 0})
+    log.append("inc-a", "incident.diagnose", {"node": "diagnose", "action": "scale_up", "target": "checkout",
+                                              "cited": ["M1"]})
+    card = _card(log, "inc-a")
+    assert card["Read"] == "3 log lines, 1 metric, 0 recent deploys; no read failed"
+    assert card["Proposed"] == "scale up on checkout"
+    assert "Rules" not in card  # the earlier run's decision is not this run's
+    assert "Read more" not in card
+
+
+def test_a_reopening_with_nothing_read_yet_says_so(log):
+    _incident(log, "inc-a")
+    _investigated(log, "inc-a")
+    log.append("inc-a", "incident.reopened", {"workflow_id": "rem-inc-a"})
+    card = _card(log, "inc-a")
+    assert card["Read"] == "No evidence read is on the record"
+    assert card["Diagnosis"] == "None on the record"
+
+
 def test_a_diagnosis_without_an_action_is_said_to_propose_nothing(log):
     _incident(log, "inc-a")
     log.append("inc-a", "incident.diagnose", {"node": "diagnose", "target": "checkout", "cited": ["D1"]})
@@ -122,8 +157,8 @@ def test_notes_say_how_related_records_ended_and_add_them_up(log):
     assert by["inc-old1"]["status"] == "Fixed and held"
     assert by["inc-old1"]["fix"] == "k8s_rollout_undo"
     assert by["inc-old2"]["kind"] == "bad"
-    assert cards.lesson(r.learned) == ("Of 3 related records: 1 fixed (by k8s_rollout_undo); 1 where the fix did not "
-                                       "work; 1 cleared during a planned shutdown.")
+    assert cards.lesson(r.learned) == ("Of 3 related records: 1 fixed (by k8s_rollout_undo); 1 where the fix went wrong "
+                                       "or set off other alarms; 1 cleared during a planned shutdown.")
     page = records.incident_page(r)
     assert "<h2>Learned from related records</h2>" in page
     assert "WARDEN acts on none of it" in page
