@@ -317,6 +317,11 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
+- Whether a code change WARDEN wrote may become a pull request: built - `code_gate.py` (register B4, 2026-10-17).
+  GitHub's rulesets, CODEOWNERS and the CI checks still hold the pull request; what no tool does is refuse, before
+  anything is pushed, a change by its own shape: paths, size, dependencies, suppressions, a missing test, an
+  inexact revert, code that runs other code. Plain rules over `git diff` output and Python's own parser (`ast`),
+  no new dependency.
 - Reading one workflow's encrypted Temporal history: built - `temporal_history.py` (register B36, 2026-10-21). A
   Temporal codec server for the web UI cannot decrypt WARDEN's payloads (each is bound to its workflow, which the UI
   does not send) and would be one more holder of the key; the SDK's own history read and WARDEN's own codec, in the

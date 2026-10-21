@@ -157,9 +157,9 @@ def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_tri
         "scenarios/fullstack/": (flows / "_apps-check.yml").read_text(encoding="utf-8"),
         ".github/workflows": (flows / "scan-workflows.yml").read_text(encoding="utf-8"),
     }
-    # Named in a string only, not read: the register's reason for a module-level skip, and this test's
-    # own table (it runs in the workflow scan).
-    exempt = {"test_register.py", "test_ci_lanes.py"}
+    # Named in a string only, not read: the register's reason for a module-level skip, this test's own table (it
+    # runs in the workflow scan), and the code gate's sample paths (it reads no file under them).
+    exempt = {"test_register.py", "test_ci_lanes.py", "test_code_gate.py"}
     # Joined spellings read as one path: `ROOT / "k8s" / "fullstack"` named no path the table knew, and
     # the test could leave the apps check unnoticed (fifth review, 2026-10-01).
     joined = re.compile(r'''(["'])\s*/\s*(["'])''')
@@ -491,3 +491,20 @@ def test_the_k3d_job_binds_the_eks_actors_group_from_the_ci_only_file():
     rbac, group = flow.index("kubectl apply -f k8s/remediation-rbac.yaml"), flow.index(
         "kubectl apply -f k8s/ci/remediation-group-binding.yaml")
     assert rbac < group < flow.index("tests/integration/test_live_remediation.py")
+
+
+def test_the_tests_a_code_fix_adds_run_in_the_apps_check():
+    """Review of PR 101 (2026-10-21): the code gate asks a fix to add a test under data/code_fix.yaml's `test_paths`,
+    but no job ran that folder, so the test a fix added never ran. Each test path's folder is run by the apps check
+    (which CI · apps runs on every change under scenarios/fullstack/), and holds a test of its own."""
+    import yaml
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    check = (root / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
+    runs = [line.strip() for line in check.splitlines() if line.strip().startswith("- run: pytest ")]
+    limits = yaml.safe_load((root / "src" / "warden" / "data" / "code_fix.yaml").read_text(encoding="utf-8"))
+    for glob in limits["test_paths"]:
+        folder = glob.rsplit("/", 1)[0]
+        assert folder.startswith("scenarios/fullstack/"), glob
+        assert any(f" {folder} " in f"{run} " or f" {folder}/ " in f"{run} " for run in runs), (glob, runs)
+        assert sorted((root / folder).glob("test_*.py")), folder
