@@ -1,4 +1,4 @@
-boto3==1.43.111
+boto3==1.43.113
 psycopg[binary]==3.3.6
 redis==8.1.0
 # OpenTelemetry (owner, 2026-10-14: the same traces, logs and metrics to X-Ray, Grafana and Datadog through one
