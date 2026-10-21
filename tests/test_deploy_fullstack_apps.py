@@ -384,8 +384,8 @@ def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_p
     assert "awsxray" not in full["exporters"]
     alone = tool.otel_config("ap-south-2")
     assert alone["exporters"]["awsxray"] == {"region": "ap-south-2"}
-    assert alone["service"]["pipelines"] == {"traces": {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"],
-                                                        "exporters": ["awsxray"]}}
+    assert alone["service"]["pipelines"] == {"traces": {"receivers": ["otlp"], "processors": [
+        "memory_limiter", "attributes/privacy", "batch"], "exporters": ["awsxray"]}}
     run = Runner()
     config = tool.deploy_otel(STACK, "k", True, run)
     assert set(config["exporters"]) == {"otlp/datadog"}

@@ -144,7 +144,8 @@ def test_slacks_note_of_a_button_click_is_answered_before_anything_is_loaded(mon
     for path in ("/s/interact", "/s/interact/"):
         out = lambdas.approval({"rawPath": path, "body": "payload=%7B%7D", "requestContext": {"http": {"method": "POST"}}})
         assert out["statusCode"] == 200 and out["body"] == ""
-    with pytest.raises(AssertionError):  # every other request is served as before
+    # every other request is served as before: it reaches `_configure` (the handler's error is told by its type only)
+    with pytest.raises(lambdas.HandlerFailed, match=r"\(AssertionError\)"):
         lambdas.approval({"rawPath": "/s/interact", "requestContext": {"http": {"method": "GET"}}})
 
 

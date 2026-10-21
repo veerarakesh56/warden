@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import json
 import logging
 import os
@@ -445,3 +446,37 @@ def migrate(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
                         user=master["username"], password=master["password"], sslmode="require")
     audit.migrate(dsn, AUDIT_WRITER, iam_login=True)
     return {"migrated": True, "writer": AUDIT_WRITER}
+
+
+# --------------------------------------------------------------------------- what reaches the Lambda's log
+
+class HandlerFailed(RuntimeError):
+    """A handler's error as the Lambda runtime is given it: its type, never its text. The runtime prints an uncaught
+    error's message and traceback to the log as they are, and an exception's text can quote an alert, a request or a
+    connection string; the error itself is logged first, through the log gate (observability.GatedWrap)."""
+
+
+def _gated(handler: Any) -> Any:
+    @functools.wraps(handler)
+    def run(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
+        from .observability import gate_handlers, install_log_gate
+
+        gate_handlers()  # the runtime's own root handler, and any added since, write through the gate
+        if not logging.getLogger().handlers:
+            install_log_gate()  # none at all: Python's last-resort handler would print the error raw (review)
+        try:
+            return handler(event, context)
+        except Exception as exc:
+            logging.getLogger("warden.lambda").exception("%s failed", handler.__name__)
+            raise HandlerFailed(f"{handler.__name__} failed ({type(exc).__name__}); the error is on the log, "
+                                "gated") from None
+
+    return run
+
+
+# The entry points terraform names (frontdoor.tf, migrate.tf): each through the gate.
+alarm = _gated(alarm)
+alertmanager = _gated(alertmanager)
+approval = _gated(approval)
+actor_use = _gated(actor_use)
+migrate = _gated(migrate)

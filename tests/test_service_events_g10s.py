@@ -8,6 +8,7 @@ The events are AWS's own examples (ECS "service action events" and "service depl
 
 from __future__ import annotations
 
+import inspect
 import json
 import pathlib
 import re
@@ -154,4 +155,4 @@ def test_the_runtime_listens_for_open_account_issues_only():
     block = tf[tf.index("    health = jsonencode({"):tf.index("    rds = jsonencode({")]
     assert 'source        = ["aws.health"]' in block and '"detail-type" = ["AWS Health Event"]' in block
     assert 'eventTypeCategory = ["issue"], eventScopeCode = ["ACCOUNT_SPECIFIC"], statusCode = ["open"]' in block
-    assert lambdas.alarm.__code__.co_names.count("health_event") == 1
+    assert inspect.unwrap(lambdas.alarm).__code__.co_names.count("health_event") == 1

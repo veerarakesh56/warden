@@ -356,6 +356,9 @@ ARGOCD_CHART = "10.10.5"  # Argo CD v3.5.5 (owner B26, 2026-10-17); v3.5.4 fixed
 ARGOCD_CHART_URL = f"https://github.com/argoproj/argo-helm/releases/download/argo-cd-{ARGOCD_CHART}/argo-cd-{ARGOCD_CHART}.tgz"
 ARGOCD_CHART_SHA256 = "ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a"
 ARGOCD_VALUES = ROOT / "helm" / "argo-cd" / "values.yaml"
+# The agent's own masking of everything it sends (owner, 2026-10-21): every log line, container or OTLP, passes these
+# global processing rules first. tests/test_datadog_agent_masking.py.
+DATADOG_VALUES = ROOT / "helm" / "datadog" / "values.yaml"
 
 
 def _fetch_chart(url: str) -> bytes:
@@ -405,7 +408,7 @@ def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
     run(["helm", "upgrade", "--install", "datadog-agent", "datadog/datadog", "--version", DATADOG_CHART,
          "--namespace", "datadog", "--kubeconfig", kubeconfig, "--wait", "--timeout", "10m",
          "--set", f"datadog.site={site}", "--set", f"datadog.clusterName={stack['eks_cluster_name']}",
-         "--set", "datadog.apiKeyExistingSecret=datadog-secret",
+         "--set", "datadog.apiKeyExistingSecret=datadog-secret", "--values", str(DATADOG_VALUES),
          "--set", "datadog.logs.enabled=true", "--set", "datadog.logs.containerCollectAll=true",
          # Every metric and log from this agent carries the stack's env (the monitors filter on it); the pods' own
          # tags.datadoghq.com labels (manifests/shop) give env and service per workload.
@@ -423,6 +426,18 @@ def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
 # The OpenTelemetry collector: AWS's distribution, v0.50.0 (released 2026-08-31, github.com/aws-observability/
 # aws-otel-collector; its awsxray, otlp and otlphttp exporters unchanged in it, read 2026-10-14).
 OTEL_IMAGE = "public.ecr.aws/aws-observability/aws-otel-collector:v0.50.0"
+
+
+# What the collector does to every span and log record before any exporter sees it (owner, 2026-10-21): the attributes
+# that name a person or a client are replaced by their hash - stable, so the same user is still the same id - and the
+# ones that carry a URL's query (a token, an email in a link) are dropped. The record's own text is masked further on,
+# by the Datadog agent's processing rules (helm/datadog/values.yaml); this collector build (ADOT v0.50.0) has no
+# processor that edits a log body. tests/test_datadog_agent_masking.py.
+OTEL_HASHED = ("enduser.id", "user.id", "user.email", "user.name", "client.address", "http.client_ip", "net.peer.ip",
+               "net.sock.peer.addr", "source.address", "network.peer.address")
+OTEL_DROPPED = ("url.query", "url.full", "http.url", "http.target")
+OTEL_PRIVACY = {"actions": [*({"key": k, "action": "hash"} for k in OTEL_HASHED),
+                            *({"key": k, "action": "delete"} for k in OTEL_DROPPED)]}
 
 
 def otel_config(region: str, *, datadog: bool = False) -> dict:
@@ -446,15 +461,17 @@ def otel_config(region: str, *, datadog: bool = False) -> dict:
         traces.append("otlp/datadog")
         metrics.append("otlp/datadog")
         logs.append("otlp/datadog")
-    pipelines = {"traces": {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"], "exporters": traces}}
+    private = ["memory_limiter", "attributes/privacy", "batch"]
+    pipelines = {"traces": {"receivers": ["otlp"], "processors": private, "exporters": traces}}
     if metrics:
         pipelines["metrics"] = {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"], "exporters": metrics}
     if logs:
-        pipelines["logs"] = {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"], "exporters": logs}
+        pipelines["logs"] = {"receivers": ["otlp"], "processors": private, "exporters": logs}
     return {"receivers": {"otlp": {"protocols": {"grpc": {"endpoint": "0.0.0.0:4317"},
                                                  "http": {"endpoint": "0.0.0.0:4318"}}}},
             "processors": {"memory_limiter": {"check_interval": "1s", "limit_percentage": 80,
-                                              "spike_limit_percentage": 20}, "batch": {}},
+                                              "spike_limit_percentage": 20}, "batch": {},
+                           "attributes/privacy": OTEL_PRIVACY},
             "exporters": exporters, "service": {"pipelines": pipelines}}
 
 
