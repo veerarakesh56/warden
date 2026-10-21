@@ -56,6 +56,7 @@ STEP = {
     _REPORT: "Report written", "incident.notify": "Report sent", "incident.plan_fix": "Fix plan looked for",
     "incident.no_plan": NO_PLAN, _AFTER_HOLD: "Looked at again after expected down",
     _EVIDENCE: "Evidence kept for questions",
+    "incident.signatures": "Known failure patterns this evidence matches",
     "record.link": "Linked to another record by an approver",
     "intake.side_effect": "Another alarm started while this fix was checked",
     "remediation.side_effects": "Other alarms started after this fix - each diagnosed on its own", "remediation.rediagnose": "Diagnosed again",
