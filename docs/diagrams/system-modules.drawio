@@ -1,6 +1,6 @@
 <mxfile host="drawio" agent="WARDEN docs/diagrams generator" version="31.5.2">
   <diagram name="The whole system" id="system-modules">
-    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2860" pageHeight="1442" math="0" shadow="0" background="#FFFFFF">
+    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2860" pageHeight="1502" math="0" shadow="0" background="#FFFFFF">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -143,7 +143,7 @@
           <mxGeometry x="1186" y="548" width="358" height="78" as="geometry" />
         </mxCell>
         <mxCell id="zone-core" value="core · queue warden (main) · the audit and the approver list; no cloud credential" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=12;startSize=26;fillColor=#12C483;swimlaneFillColor=#E6F9F1;strokeColor=#12C483;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="800" y="660" width="1140" height="262" as="geometry" />
+          <mxGeometry x="800" y="660" width="1140" height="322" as="geometry" />
         </mxCell>
         <mxCell id="a-verify" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;verify&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;rules P0-P33; P25-P28&lt;br&gt;observed only&lt;br&gt;&lt;i&gt;verifier, grounding, numbers, language, decide&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="814" y="694" width="230" height="78" as="geometry" />
@@ -153,6 +153,12 @@
         </mxCell>
         <mxCell id="a-gate" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;2 gate&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;kill switch, rate bounds, freeze, one writer per target&lt;br&gt;&lt;i&gt;bounds, freeze, locks&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="1186" y="694" width="358" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="a-wait" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;approval_wait, approval_extension&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;until when the run waits; a wait an approver extended&lt;br&gt;&lt;i&gt;extend&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1186" y="914" width="358" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="a-dextend" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;discuss_extend&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;an approver extends a waiting plan from the thread&lt;br&gt;&lt;i&gt;discuss, extend&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1558" y="886" width="368" height="52" as="geometry" />
         </mxCell>
         <mxCell id="a-approve" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;3 check_approval, check_passkey&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;a signed approval of the exact plan hash&lt;br&gt;&lt;i&gt;approvals, passkeys&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="1186" y="752" width="358" height="52" as="geometry" />
@@ -173,46 +179,46 @@
           <mxGeometry x="1558" y="822" width="368" height="56" as="geometry" />
         </mxCell>
         <mxCell id="zone-notify" value="notify · queue warden-notify · chat, paging and change-record secrets" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#06392A;fontSize=12;startSize=26;fillColor=#7DF2C4;swimlaneFillColor=#EFFDF7;strokeColor=#7DF2C4;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="800" y="938" width="1140" height="160" as="geometry" />
+          <mxGeometry x="800" y="998" width="1140" height="160" as="geometry" />
         </mxCell>
         <mxCell id="a-notify" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;notify&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;one report per incident, through the outbound gate&lt;br&gt;&lt;i&gt;reporting, gate, chatops, playbook&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="814" y="972" width="358" height="66" as="geometry" />
+          <mxGeometry x="814" y="1032" width="358" height="66" as="geometry" />
         </mxCell>
         <mxCell id="a-noplan" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;no_plan&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;says when no plan was opened, and why&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="814" y="1044" width="358" height="40" as="geometry" />
+          <mxGeometry x="814" y="1104" width="358" height="40" as="geometry" />
         </mxCell>
         <mxCell id="a-announce" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;announce&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;the request, expired, how it ended&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="1186" y="972" width="358" height="44" as="geometry" />
+          <mxGeometry x="1186" y="1032" width="358" height="44" as="geometry" />
         </mxCell>
         <mxCell id="a-finish" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;8 finish, summary_owed&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;the end row, a change record; the incident&#x27;s one message&lt;br&gt;&lt;i&gt;changes&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="1186" y="1022" width="358" height="62" as="geometry" />
+          <mxGeometry x="1186" y="1082" width="358" height="62" as="geometry" />
         </mxCell>
         <mxCell id="a-dthread" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;discuss_thread, discuss_reply&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;the thread read, the reply posted&lt;br&gt;&lt;i&gt;discuss, chatops&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="1558" y="972" width="368" height="52" as="geometry" />
+          <mxGeometry x="1558" y="1032" width="368" height="52" as="geometry" />
         </mxCell>
         <mxCell id="pr-notify" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #50, #83 (not built)&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;depwatch_post, awswatch_post: a digest in the&lt;br&gt;discussion channel&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
-          <mxGeometry x="1558" y="1032" width="368" height="56" as="geometry" />
+          <mxGeometry x="1558" y="1092" width="368" height="56" as="geometry" />
         </mxCell>
         <mxCell id="zone-act" value="act · queue warden-act · no standing role" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#3D0E06;fontSize=12;startSize=26;fillColor=#FF7E6B;swimlaneFillColor=#FFF0ED;strokeColor=#FF7E6B;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="800" y="1114" width="1140" height="136" as="geometry" />
+          <mxGeometry x="800" y="1174" width="1140" height="136" as="geometry" />
         </mxCell>
         <mxCell id="a-apply" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;5 apply, rollback&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;once, after a signed approval: a per-plan actor&lt;br&gt;session, ≤ 900 s, only the plan&#x27;s exact ARNs&lt;br&gt;&lt;i&gt;platforms/aws.py, identity, platforms/k8s.py, platforms/db.py&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="1186" y="1148" width="358" height="90" as="geometry" />
+          <mxGeometry x="1186" y="1208" width="358" height="90" as="geometry" />
         </mxCell>
         <mxCell id="pr-act" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #120, #127 (not built): code fix&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;code_fix_revert: a revert pull request as WARDEN&#x27;s&lt;br&gt;GitHub App &lt;i&gt;code_fix&lt;/i&gt;, &lt;i&gt;code_gate&lt;/i&gt;, &lt;i&gt;github_app&lt;/i&gt; (#101, #120, #127)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
-          <mxGeometry x="1558" y="1148" width="368" height="62" as="geometry" />
+          <mxGeometry x="1558" y="1208" width="368" height="62" as="geometry" />
         </mxCell>
         <mxCell id="n-platforms" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;platforms in the cloud&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;the read and act zones&#x27; workers connect AWS,&lt;br&gt;Kubernetes and the databases: warden worker --platform&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="814" y="1148" width="358" height="62" as="geometry" />
+          <mxGeometry x="814" y="1208" width="358" height="62" as="geometry" />
         </mxCell>
         <mxCell id="zone-critic" value="critic · queue warden-critic · Eldane&#x27;s own model and signing key; no other zone&#x27;s credentials" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=12;startSize=26;fillColor=#8B5CF6;swimlaneFillColor=#F3EEFE;strokeColor=#8B5CF6;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="800" y="1266" width="1140" height="112" as="geometry" />
+          <mxGeometry x="800" y="1326" width="1140" height="112" as="geometry" />
         </mxCell>
         <mxCell id="a-critic" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;critic_review&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;Eldane, the AI critic, reviews each plan after the gate with the other Claude model than the&lt;br&gt;diagnosis&#x27;s; it can only add a no, and in dev its signed approval is enough&lt;br&gt;&lt;i&gt;eldane, autonomy&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="814" y="1300" width="730" height="66" as="geometry" />
+          <mxGeometry x="814" y="1360" width="730" height="66" as="geometry" />
         </mxCell>
         <mxCell id="pr-critic" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #166 (not built): objections&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;typed objections, each answered once; read-only tools&lt;br&gt;and each fix&#x27;s risks &lt;i&gt;critique&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
-          <mxGeometry x="1558" y="1300" width="368" height="66" as="geometry" />
+          <mxGeometry x="1558" y="1360" width="368" height="66" as="geometry" />
         </mxCell>
         <mxCell id="o-evidence" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;Read-only evidence &lt;i&gt;tools.resolve_backend&lt;/i&gt;&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;fixtures · AWS &lt;i&gt;aws_backend&lt;/i&gt;, &lt;i&gt;aws_stack&lt;/i&gt;,&lt;br&gt;&lt;i&gt;aws_describe&lt;/i&gt;, &lt;i&gt;resources&lt;/i&gt; · Kubernetes &lt;i&gt;k8s_backend&lt;/i&gt; ·&lt;br&gt;five database engines &lt;i&gt;database&lt;/i&gt; · Datadog &lt;i&gt;datadog&lt;/i&gt; ·&lt;br&gt;Grafana &lt;i&gt;grafana&lt;/i&gt; · X-Ray &lt;i&gt;xray&lt;/i&gt; · AWS docs &lt;i&gt;aws_docs&lt;/i&gt; ·&lt;br&gt;code review findings on the deployed change &lt;i&gt;findings&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#7B8794;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="2010" y="186" width="380" height="146" as="geometry" />
@@ -224,10 +230,10 @@
           <mxGeometry x="2010" y="700" width="380" height="64" as="geometry" />
         </mxCell>
         <mxCell id="o-chat" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;Slack · Teams · webhooks · PagerDuty · GitHub&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;one message per incident &lt;i&gt;chatops&lt;/i&gt;; an issue&lt;br&gt;per applied change &lt;i&gt;changes&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#7B8794;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="2010" y="978" width="380" height="70" as="geometry" />
+          <mxGeometry x="2010" y="1038" width="380" height="70" as="geometry" />
         </mxCell>
         <mxCell id="o-targets" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;The watched systems&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;AWS, Kubernetes (restart, bounded scale),&lt;br&gt;databases (idle sessions closed)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFF0ED;strokeColor=#FF7E6B;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="2010" y="1154" width="380" height="70" as="geometry" />
+          <mxGeometry x="2010" y="1214" width="380" height="70" as="geometry" />
         </mxCell>
         <mxCell id="record" value="The record" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=13;startSize=28;fillColor=#E4E9EE;swimlaneFillColor=#FFFFFF;strokeColor=#E4E9EE;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="2430" y="104" width="400" height="300" as="geometry" />
@@ -346,8 +352,8 @@
         <mxCell id="e-zones-audit-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;every step: a signed row&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="2100" y="124" width="160" height="14" as="geometry" />
         </mxCell>
-        <mxCell id="footer" value="Drawn from origin/main 30ac3c6 (2026-10-21) and the open pull requests named on it. The AWS resources each part runs on: aws-architecture.drawio; one incident in detail: incident-flow.drawio. tests/test_readme_architecture_r30.py checks that every module and activity named here exists." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
-          <mxGeometry x="30" y="1398" width="2800" height="20" as="geometry" />
+        <mxCell id="footer" value="Drawn from origin/main 82479aa (2026-10-21) and the open pull requests named on it. The AWS resources each part runs on: aws-architecture.drawio; one incident in detail: incident-flow.drawio. tests/test_readme_architecture_r30.py checks that every module and activity named here exists." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="1458" width="2800" height="20" as="geometry" />
         </mxCell>
         <mxCell id="lg-a" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=0.5;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="lg-a-s" target="lg-a-e">
           <mxGeometry relative="1" as="geometry"></mxGeometry>
@@ -419,13 +425,13 @@
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2010" y="731.998" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-notify-chat" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.4;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="zone-notify" target="o-chat">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1940" y="1013" /></Array></mxGeometry>
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1940" y="1073" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-act-targets" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#FF7E6B;strokeWidth=2;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.45;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="zone-act" target="o-targets">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1940" y="1189" /></Array></mxGeometry>
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1940" y="1249" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-critic-model" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="zone-critic" target="o-model">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2260" y="1322" /><mxPoint x="2260" y="624" /><mxPoint x="2200" y="624" /></Array></mxGeometry>
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2260" y="1382" /><mxPoint x="2260" y="624" /><mxPoint x="2200" y="624" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-zones-audit" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.0376;exitDx=0;exitDy=0;entryX=0;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="zone-read" target="e-audit">
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1940" y="140" /></Array></mxGeometry>

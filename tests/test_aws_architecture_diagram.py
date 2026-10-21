@@ -60,6 +60,7 @@ SHOWN = {
     "aws_kms_key": "Ed25519 (SIGN_VERIFY)",
     "aws_lambda_alias": "alias live",
     "aws_lambda_event_source_mapping": "→ order-processor",
+    "aws_lambda_function_event_invoke_config": "the runs the alarm and actor-use Lambdas failed",
     "aws_lambda_function": "warden-ops-alarm",
     "aws_launch_template": "launch template warden-dev-eks-nodes",
     "aws_lb": "ALB warden-dev-alb",
