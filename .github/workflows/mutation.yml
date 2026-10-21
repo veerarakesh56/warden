@@ -1,0 +1,85 @@
+name: "Mutation · safety modules"
+
+# B37: mutation testing (mutmut, pinned in uv.lock's `mutation` group) over the safety modules only - the gate, the
+# verifier, the catalogue, approvals, autonomy, bounds, the audit and redaction: pyproject.toml [tool.mutmut]. A mutant
+# no test kills is a change to a guard that the suite would not notice.
+# NON-BLOCKING AT FIRST (continue-on-error): it reports a score in the job summary and fails nothing until the first
+# full runs show where the suite stands; then a minimum score (scripts/mutation_ci.py --min-score) makes it a gate.
+# Weekly and by hand: every safety module. On a pull request that changes one: only the modules it changed.
+on:
+  schedule:
+    - cron: "41 4 * * 2"
+  workflow_dispatch:
+  pull_request:
+    # A draft pull request runs no CI (owner, 2026-10-21); it runs when it is marked ready, and on every push after.
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths:
+      - "src/warden/gate.py"
+      - "src/warden/verifier.py"
+      - "src/warden/catalog.py"
+      - "src/warden/approvals.py"
+      - "src/warden/autonomy.py"
+      - "src/warden/bounds.py"
+      - "src/warden/audit.py"
+      - "src/warden/redaction.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "scripts/mutation_ci.py"
+      - ".github/workflows/mutation.yml"
+
+env:
+  WARDEN_MOCK: "1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  mutmut:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    # Measured locally (2026-10-21): bounds.py's 301 mutants took 7 min on 4 cores, the clean run included; all 4,245
+    # mutants of the seven modules on main are some hours.
+    timeout-minutes: 300
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # the pull request's base, to see which safety modules it changed
+
+      # uv, pinned and checksum-verified, installs only what uv.lock lists - mutmut and its dependencies by hash.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          version: "0.13.1"
+          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+          python-version: "3.13"
+          activate-environment: true
+          cache-suffix: "mutation-mutmut"  # one cache per job: jobs sharing a key raced to save it
+
+      - name: Install (locked)
+        run: uv sync --locked --no-build --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres --extra redis --group mutation
+
+      - name: Mutate the safety modules
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          found=""
+          if [ "$EVENT" = "pull_request" ]; then
+            found=$(git diff --name-only "$BASE_SHA"...HEAD | python scripts/mutation_ci.py targets)
+          fi
+          read -r -a targets <<< "$found"  # one mutmut name pattern per word; none = every safety module
+          echo "mutating: ${found:-every safety module}"
+          mutmut run "${targets[@]}"
+
+      - name: Score
+        if: always()
+        run: |
+          mutmut export-cicd-stats
+          python scripts/mutation_ci.py summary mutants/mutmut-cicd-stats.json | tee -a "$GITHUB_STEP_SUMMARY"
+          mutmut results | head -200
