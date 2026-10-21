@@ -71,7 +71,10 @@ NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": Retry
 # Two minutes to be picked up: with no act-zone worker the incident does not wait for it (it never blocks the run).
 CODE_FIX = {"schedule_to_start_timeout": timedelta(minutes=2), "start_to_close_timeout": timedelta(minutes=3),
             "retry_policy": RetryPolicy(maximum_attempts=1)}
-# Phase 4: how often a code-fix pull request is asked about, and for how long (a day) before a person has it.
+# Phase 4: how often a code-fix pull request is asked about, and for how long (a day) before a person has it. Each ask
+# is one attempt, picked up within two minutes or counted as not answered, so an absent act zone still ends the day.
+MERGE_ASK = {"schedule_to_start_timeout": timedelta(minutes=2), "start_to_close_timeout": timedelta(minutes=5),
+             "retry_policy": RetryPolicy(maximum_attempts=1)}
 MERGE_EVERY = timedelta(minutes=10)
 MERGE_TRIES = 144
 # prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
@@ -765,7 +768,7 @@ class CodeFixMergeWorkflow:
         for _ in range(MERGE_TRIES):
             try:
                 out = await workflow.execute_activity_method(ask, **_zoned(ask), args=[incident_id, environment, number],
-                                                             **ONCE)  # a merge is asked once; the loop asks again
+                                                             **MERGE_ASK)  # asked once; the loop asks again
             except ActivityError:
                 out = {"status": "waiting", "reasons": ["the merge step could not run"]}
             if out.get("status") in ("merged", "refused"):

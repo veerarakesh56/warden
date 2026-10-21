@@ -348,7 +348,10 @@ def test_the_merge_is_wired_in_the_act_zone_and_asked_once_each_time():
     assert "code_fix_merge" in workflows.ZONES["act"]
     assert "code_fix_merge" in {a.__name__ for a in runtime._activities(Audit(), None, None, None, None)}
     src = inspect.getsource(workflows.CodeFixMergeWorkflow.run)
-    assert "**ONCE)" in src
+    assert "**MERGE_ASK)" in src
+    assert workflows.MERGE_ASK["retry_policy"].maximum_attempts == 1
+    # No act-zone worker: each ask gives up after two minutes, so the day's tries still end and a person is told.
+    assert workflows.MERGE_ASK["schedule_to_start_timeout"].total_seconds() == 120
     assert workflows.MERGE_TRIES * workflows.MERGE_EVERY.total_seconds() <= 24 * 3600
     assert "await IncidentWorkflow._code_fix_merge(first, pack, opened)" in inspect.getsource(
         workflows.IncidentWorkflow._code_fix_revert)
