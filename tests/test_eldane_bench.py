@@ -10,8 +10,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -127,7 +129,7 @@ def test_the_scorer_gives_exact_rates_from_stored_fake_answers(bench):
 
 def test_the_cap_stops_the_run_before_a_call_whose_worst_case_would_pass_it(bench):
     prepared = _prepared(bench)
-    one = bench.worst_usd(prepared[0].chars, PRICES)
+    one = bench.worst_usd(prepared[0].bytes, PRICES)
     model = StoredEldane(
         input_tokens=10, output_tokens=16384
     )  # every answer uses the whole output cap
@@ -145,7 +147,7 @@ def test_a_failed_call_is_counted_at_its_worst_case(bench):
             raise TimeoutError
 
     prepared = _prepared(bench, ["r1", "r2", "r3"])
-    one = bench.worst_usd(prepared[0].chars, PRICES)
+    one = bench.worst_usd(prepared[0].bytes, PRICES)
     rows, spent = bench.run(prepared, Down(), PRICES, cap_usd=2.5 * one, log=lambda _: None)
     assert [r["asked"] for r in rows] == [True, True, False]
     assert spent == pytest.approx(2 * one, abs=1e-4)
@@ -361,7 +363,8 @@ def _result(bench, **over):
     return {**doc, **over}
 
 
-def test_record_replaces_the_not_yet_measured_row_and_the_readme_line(bench, tmp_path):
+def test_record_replaces_the_not_yet_measured_row_and_the_readme_line(bench, tmp_path, monkeypatch):
+    monkeypatch.setattr(bench, "ROOT", tmp_path)  # the checkout whose two files it may write
     md, readme = tmp_path / "B.md", tmp_path / "R.md"
     md.write_text(
         f"x\n{bench.BENCH_BEGIN}\n| not yet measured - run it | |\n{bench.BENCH_END}\ny\n",
@@ -395,13 +398,52 @@ def test_record_writes_only_numbers_a_date_a_hash_and_a_listed_model(bench, tmp_
         bench.bench_row(_result(bench, **over))
 
 
-def test_the_published_entry_says_not_yet_measured_and_names_the_command():
+def test_the_published_entry_is_the_placeholder_or_a_recorded_row():
+    """Before the first paid run: "not yet measured" and the command; after --record: a dated row, and never both."""
     text = (ROOT / "docs" / "BENCHMARKS.md").read_text(encoding="utf-8")
     table = text.split("<!-- eldane-bench:begin -->", 1)[1].split("<!-- eldane-bench:end -->", 1)[0]
-    assert "not yet measured" in table
-    assert "scripts/eldane_bench.py" in table
+    measured = re.search(r"^\| \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z \|", table, re.MULTILINE) is not None
+    placeholder = "not yet measured" in table and "scripts/eldane_bench.py" in table
+    assert measured != placeholder
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert (
-        "not yet measured"
-        in readme.split("<!-- eldane-bench-readme:begin -->", 1)[1].split("<!--", 1)[0]
+    block = readme.split("<!-- eldane-bench-readme:begin -->", 1)[1].split("<!--", 1)[0]
+    assert ("not yet measured" in block) != measured
+
+
+def test_record_refuses_files_outside_where_it_may_read_and_write(bench, tmp_path):
+    result = tmp_path / "eldane-bench-2026-10-22T0930Z.json"
+    result.write_text(json.dumps(_result(bench)), encoding="utf-8")
+    elsewhere = tmp_path / "B.md"
+    elsewhere.write_text(f"{bench.BENCH_BEGIN}\n{bench.BENCH_END}\n", encoding="utf-8")
+    with pytest.raises(bench.Refused, match="BENCHMARKS.md is not a file inside"):
+        bench.record(result, elsewhere, elsewhere)
+    link = tmp_path / "eldane-bench-2026-10-23T0930Z.json"
+    link.symlink_to(result)
+    with pytest.raises(bench.Refused, match="is a link"):
+        bench.record(link)
+
+
+@pytest.mark.parametrize("effort", ["high | x", "medium\n| injected |"])
+def test_record_refuses_an_effort_that_is_not_a_known_level(bench, effort):
+    with pytest.raises(bench.Refused, match="effort"):
+        bench.bench_row(_result(bench, effort=effort))
+
+
+def test_a_paid_run_saves_each_answer_as_it_is_paid_for_and_refuses_an_unwritable_out(
+    bench, tmp_path
+):
+    kept: list[dict] = []
+    bench.run(
+        _prepared(bench, ["r1", "h1"]),
+        StoredEldane(),
+        PRICES,
+        cap_usd=10.0,
+        log=lambda _: None,
+        keep=kept.append,
     )
+    assert [r["id"].split("/")[0] for r in kept] == ["r1", "h1"]
+    blocker = tmp_path / "file"
+    blocker.write_text("x", encoding="utf-8")
+    a = SimpleNamespace(out=blocker / "out", cap_usd=5.0, model=MODEL)
+    with pytest.raises(bench.Refused, match="cannot be written"):
+        bench.paid(a, _prepared(bench, ["r1"]), PRICES, {}, {})

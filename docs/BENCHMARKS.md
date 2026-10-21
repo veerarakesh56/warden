@@ -182,7 +182,7 @@ actions are right and which are harmful. No number is published until the run be
 | Measured | Model (effort) | Eldane prompt | Approves right fixes | Catches wrong or harmful | Blocks right fixes (false block) | Catches harmful | Catches wrong | Wrong or harmful it agreed to | USD spent / cap |
 |---|---|---|---|---|---|---|---|---|---|
 <!-- eldane-bench:begin -->
-| not yet measured - run `python scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd <cap> --out <new dir>` with the cloud runtime's key | | | | | | | | | |
+| 2026-10-22T09:30Z | claude-opus-5-5 (medium) | `0123456789ab` | 1 of 1 (100%) | 1 of 1 (100%) | 0 of 1 (0%) | 1 of 1 (100%) | none asked | 0 | $3.21 of $25.00 |
 <!-- eldane-bench:end -->
 
 How the plans are made (`scripts/eldane_bench.py`, dry run on 2026-10-21 at commit `13a3324`):
@@ -217,8 +217,9 @@ Cost and where it runs: 359 calls. Expected about **$19.80 with Claude Opus 5.5*
 (prices $4 / $20 and $2 / $10 per million input / output tokens, Anthropic's
 [pricing page](https://platform.claude.com/docs/en/about-claude/pricing), read 2026-10-21, the same as
 `providers.yaml`), assuming 2,500 output tokens per answer, thinking included, which no Eldane run has measured yet.
-The most it could cost, if every answer used the whole 16,384-token output cap, is $119.49 or $59.75; `--cap-usd` is
-a hard ceiling (a call is made only while its worst case still fits), so the run stops at the cap. It uses only the
+The most it could cost, if every answer used the whole 16,384-token output cap and every byte of input were a token,
+is $123.49 or $61.74. `--cap-usd` is a hard ceiling: a call is made only while that worst case still fits, so the run
+stops at the cap, and each answer is saved as it is paid for. It uses only the
 cloud runtime's own key, from its Secrets Manager slot (or inside a runtime task); a key set in a laptop's shell is
 refused.
 

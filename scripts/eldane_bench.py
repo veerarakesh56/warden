@@ -41,9 +41,10 @@ Money and where it runs. A paid run uses the cloud runtime's own Anthropic key o
 ECS injected into a runtime task (WARDEN_ENV is the runtime environment and ECS_CONTAINER_METADATA_URI_V4 is set, as
 Fargate 1.4.0+ sets it in every container). A key set in the shell anywhere else - a laptop's own - is refused, and so
 is a run that cannot read the slot. The key is never printed or written. `--cap-usd` is a hard ceiling: a call is made
-only while what was spent plus that call's WORST case (its input at CHARS_PER_TOKEN, a price row's input price, and
-providers.MAX_OUTPUT_TOKENS of output, thinking included) stays within it, so no call can take the run past it; the
-rest are recorded as not asked. Prices: providers.yaml `prices` (WARDEN_PRICE_IN/OUT are ignored here). `--dry-run`
+only while what was spent plus that call's WORST case (every byte of its input counted as a token, plus
+FRAMING_TOKENS, and providers.MAX_OUTPUT_TOKENS of output, thinking included) stays within it; a failed call is
+counted at its worst case. The rest are recorded as not asked, and each answered row is saved to
+<out>/answers.jsonl as it is paid for. Prices: providers.yaml `prices` (WARDEN_PRICE_IN/OUT are ignored here). `--dry-run`
 builds every plan and prompt and prints the number of calls, the expected cost (EXPECTED_OUT_TOKENS of output per
 answer) and the most it could cost, and calls nothing and reads no key.
 """
@@ -59,6 +60,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Iterable
 from types import SimpleNamespace
 from typing import Any
@@ -75,6 +77,9 @@ CHARS_PER_TOKEN = 3
 # call at providers.MAX_OUTPUT_TOKENS. An assumption: no Eldane answer has been measured yet. It is the figure the
 # G10 diagnosis runs bound (about 1,300 and 2,100 per answer for Sonnet 5.5 and Opus 5.5; providers.yaml, 2026-10-15).
 EXPECTED_OUT_TOKENS = 2500
+# The cap's input bound: one token per byte of the prompt (Anthropic does not publish its tokenizer; English text runs
+# about four characters a token, so this is several times too high on purpose) and this many for the message framing.
+FRAMING_TOKENS = 200
 # The catalogue's bounded numbers the planner computes from a live value; with the live read stood in for, a number
 # here would be invented, so the plan Eldane is shown says what it would be instead.
 LIVE_NUMBERS = frozenset(
@@ -362,11 +367,12 @@ def blind_prompt(
     return user, set(eldane._EVIDENCE_ID.findall(cut))
 
 
-def worst_usd(chars: int, prices: tuple[float, float]) -> float:
-    """The most one call can cost: its input counted high, and the whole output cap."""
+def worst_usd(size: int, prices: tuple[float, float]) -> float:
+    """The most one call can cost: every byte of its input counted as a token, plus FRAMING_TOKENS, and the whole
+    output cap. `size` is the prompt's UTF-8 bytes (Prepared.bytes)."""
     from warden.providers import MAX_OUTPUT_TOKENS
 
-    return (chars / CHARS_PER_TOKEN * prices[0] + MAX_OUTPUT_TOKENS * prices[1]) / 1e6
+    return ((size + FRAMING_TOKENS) * prices[0] + MAX_OUTPUT_TOKENS * prices[1]) / 1e6
 
 
 def expected_usd(chars: int, prices: tuple[float, float]) -> float:
@@ -494,6 +500,12 @@ class Prepared:
 
         return len(eldane.SYSTEM) + len(self.user)
 
+    @property
+    def bytes(self) -> int:
+        from warden import eldane
+
+        return len(eldane.SYSTEM.encode("utf-8")) + len(self.user.encode("utf-8"))
+
 
 def prepare(
     cases: dict[str, tuple[dict[str, Any], dict[str, Any]]], plans: list[Plan]
@@ -516,7 +528,7 @@ def estimate(prepared: list[Prepared], prices: tuple[float, float]) -> dict[str,
         "cases": len({x.plan.case for x in prepared}),
         "input_tokens_high": sum(x.chars for x in prepared) // CHARS_PER_TOKEN,
         "expected_usd": round(sum(expected_usd(x.chars, prices) for x in prepared), 2),
-        "worst_usd": round(sum(worst_usd(x.chars, prices) for x in prepared), 2),
+        "worst_usd": round(sum(worst_usd(x.bytes, prices) for x in prepared), 2),
         "prices_per_mtok": list(prices),
         "expected_out_tokens": EXPECTED_OUT_TOKENS,
     }
@@ -538,13 +550,15 @@ def run(
     prices: tuple[float, float],
     cap_usd: float,
     log: Callable[[str], None] = print,
+    keep: Callable[[dict[str, Any]], None] = lambda row: None,
 ) -> tuple[list[dict[str, Any]], float]:
-    """Ask Eldane about each plan while the cap allows its worst case; the rows, and what was spent."""
+    """Ask Eldane about each plan while the cap allows its worst case; the rows, and what was spent. `keep` is
+    handed each answered row the moment it is paid for, so an interrupted run loses none."""
     from warden import eldane
 
     calls, spent, rows = _CallLog(), 0.0, []
     for x in prepared:
-        worst = worst_usd(x.chars, prices)
+        worst = worst_usd(x.bytes, prices)
         base = {"id": x.plan.id, "case": x.plan.case, "label": x.plan.label, "entry": x.plan.entry}
         if spent + worst > cap_usd:
             rows.append(
@@ -563,6 +577,7 @@ def run(
                 "reasons": [r.text for r in verdict.reasons][:3],
             }
         )
+        keep({**rows[-1], "spent_usd": round(spent, 4)})
         log(f"{x.plan.id}: {'yes' if verdict.agree else 'no'}  (${spent:.2f} of ${cap_usd:.2f})")
     return rows, round(spent, 4)
 
@@ -637,20 +652,28 @@ def paid(
 ) -> int:
     if a.out is None or (a.out.exists() and any(a.out.iterdir())):
         raise Refused("REFUSED: --out must name a new, empty directory outside the repository")
-    if worst_usd(max(x.chars for x in prepared), prices) > a.cap_usd:
+    try:  # made and written to before any key is read or any call is paid for
+        a.out.mkdir(parents=True, exist_ok=True)
+        answers = a.out / "answers.jsonl"
+        answers.write_text("", encoding="utf-8")
+    except OSError as exc:
+        raise Refused(f"REFUSED: --out cannot be written ({type(exc).__name__})") from None
+    if worst_usd(max(x.bytes for x in prepared), prices) > a.cap_usd:
         raise Refused(f"REFUSED: --cap-usd {a.cap_usd} does not cover even one call's worst case")
     for name in ("WARDEN_PRICE_IN", "WARDEN_PRICE_OUT", "WARDEN_MODEL_EFFORT"):
         os.environ.pop(name, None)  # the model's own price row and effort, as production runs it
     runtime_key(os.environ)
-    print(
-        "key: the cloud runtime's own"
-    )  # a fixed text: nothing derived from the key or its slot is printed
+    print("key: the cloud runtime's own")  # fixed text: nothing of the key or its slot
     from warden import providers
 
     provider = providers._REGISTRY["anthropic"](model=providers.pinned(a.model))
-    rows, spent = run(prepared, provider, prices, a.cap_usd)
+
+    def keep(row: dict[str, Any]) -> None:
+        with answers.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
+
+    rows, spent = run(prepared, provider, prices, a.cap_usd, keep=keep)
     doc = result_doc(a.model, rows, spent, a, est, extra)
-    a.out.mkdir(parents=True, exist_ok=True)
     dest = a.out / f"eldane-bench-{doc['measured_at'].replace(':', '')}.json"
     dest.write_text(json.dumps(doc, indent=2), encoding="utf-8")
     print(json.dumps(doc["metrics"], indent=2))
@@ -667,7 +690,11 @@ def _pct(n: int, d: int) -> str:
 
 def bench_row(doc: dict[str, Any]) -> str:
     """One BENCHMARKS.md row, built only from numbers, a date, the prompt hash and a model id providers.yaml lists."""
+    from warden.providers import EFFORTS
+
     m = doc["metrics"]
+    if doc.get("effort") not in (*EFFORTS, "default"):
+        raise Refused(f"REFUSED: effort {doc.get('effort')!r} is not a known effort level")
     if doc["model"] not in critic_models():
         raise Refused(f"REFUSED: {doc['model']!r} is not one of Eldane's models in providers.yaml")
     if not re.fullmatch(
@@ -710,37 +737,39 @@ def _between(text: str, begin: str, end: str, body: str, *, keep_rows: bool) -> 
     return text[: start + len(begin)] + "\n" + "\n".join(inner) + "\n" + text[stop:]
 
 
+def _inside(path: pathlib.Path, bases: Iterable[pathlib.Path], what: str) -> pathlib.Path:
+    """`path` resolved, when it is a file inside one of `bases` and not a link (the form audit.key_path uses)."""
+    if path.is_symlink():
+        raise Refused(f"REFUSED: {what} is a link")
+    real = path.parent.resolve(strict=True) / path.name
+    if not real.is_file() or not any(real.is_relative_to(b.resolve()) for b in bases):
+        raise Refused(f"REFUSED: {what} is not a file inside {', '.join(str(b) for b in bases)}")
+    return real
+
+
 def record(
     path: pathlib.Path, bench: pathlib.Path = BENCHMARKS_MD, readme: pathlib.Path = README_MD
 ) -> int:
+    """The result's row into BENCHMARKS.md and its line into README.md: only those two files of this checkout are
+    written, and the result is read only from the working directory, the home directory or the temporary one."""
     if not RESULT_NAME.fullmatch(path.name):
         raise Refused(
             "REFUSED: --record takes a result this script wrote (eldane-bench-<date>.json)"
         )
-    doc = json.loads(path.read_text(encoding="utf-8"))
-    bench.write_text(
-        _between(
-            bench.read_text(encoding="utf-8"),
-            BENCH_BEGIN,
-            BENCH_END,
-            bench_row(doc),
-            keep_rows=True,
-        ),
-        encoding="utf-8",
-        newline="\n",
+    here = (pathlib.Path.cwd(), pathlib.Path.home(), pathlib.Path(tempfile.gettempdir()))
+    source = _inside(path, here, "the result")
+    bench, readme = _inside(bench, [ROOT], "BENCHMARKS.md"), _inside(readme, [ROOT], "README.md")
+    doc = json.loads(source.read_text(encoding="utf-8"))
+    row, line = bench_row(doc), readme_line(doc)
+    bench_text = _between(
+        bench.read_text(encoding="utf-8"), BENCH_BEGIN, BENCH_END, row, keep_rows=True
     )
-    readme.write_text(
-        _between(
-            readme.read_text(encoding="utf-8"),
-            README_BEGIN,
-            README_END,
-            readme_line(doc),
-            keep_rows=False,
-        ),
-        encoding="utf-8",
-        newline="\n",
+    readme_text = _between(
+        readme.read_text(encoding="utf-8"), README_BEGIN, README_END, line, keep_rows=False
     )
-    print(f"recorded {path.name} in {bench.name} and {readme.name}")
+    bench.write_text(bench_text, encoding="utf-8", newline="\n")
+    readme.write_text(readme_text, encoding="utf-8", newline="\n")
+    print(f"recorded {source.name} in {bench.name} and {readme.name}")
     return 0
 
 
