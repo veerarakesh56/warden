@@ -321,6 +321,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
+- Reading one workflow's encrypted Temporal history: built - `temporal_history.py` (register B36, 2026-10-21). A
+  Temporal codec server for the web UI cannot decrypt WARDEN's payloads (each is bound to its workflow, which the UI
+  does not send) and would be one more holder of the key; the SDK's own history read and WARDEN's own codec, in the
+  workflow's context, need neither.
 - Credentialed outbound HTTPS: Python's own urllib, behind one opener that speaks https only and follows a
   redirect only to the same https host and port, so no token or key is ever sent to another host - `web.py`.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
