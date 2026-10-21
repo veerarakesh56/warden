@@ -543,7 +543,7 @@ async def _worker_command(client, args: argparse.Namespace) -> int:
     async with runtime.serving(client, zone=args.zone, log=runtime.open_audit(), policy=policy,
                                backend=resolve_backend(), platform=platform):
         if args.zone not in ("all", "core"):  # a zone's activities only: no workflow to time or beat through
-            await _serve_zone(client, args.zone)
+            await _serve_zone(client, args)
             return 0
         problem = await runtime.check_clock(client)
         if problem:
@@ -561,16 +561,16 @@ async def _worker_command(client, args: argparse.Namespace) -> int:
     return 0
 
 
-async def _serve_zone(client, zone: str) -> None:
+async def _serve_zone(client, args: argparse.Namespace) -> None:
     """One trust zone's activities, until the process is stopped."""
     from . import discuss, runtime
 
-    _out(f"worker running the {zone} zone on task queue {runtime.zone_queue(zone)!r}; "
+    _out(f"worker running the {args.zone} zone on task queue {runtime.zone_queue(args.zone)!r}; "
          "Ctrl+C to stop")
-    shadow = runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC) if zone == "llm" else None
+    shadow = runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC) if args.zone == "llm" else None
     if shadow is not None:  # register C13: the daily shadow incident runs where the model is
         await runtime.synthetic_loop(shadow, log=lambda line: _out(line, err=True))
-    if zone == "notify" and discuss.configured():  # the discussion channel's listener (discuss.py)
+    if args.zone == "notify" and discuss.configured():  # the discussion channel's listener (discuss.py)
         _out("listening in the discussion channel", err=True)
         try:
             await discuss.listen(client, task_queue=runtime.TASK_QUEUE)
