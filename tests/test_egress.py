@@ -50,6 +50,7 @@ INVENTORY = {
     "findings.py": {"github", "sonarcloud"},  # code review's findings on the deployed pull requests (GET)
     "grafana.py": {"grafana"},
     "k8s_backend.py": {"aws", "in-network"},
+    "landed.py": {"github"},  # B21: deployments and merged pull requests since a fix, before its undo (GET)
     "lambdas.py": {"aws", "database"},
     "observability.py": {"tracing"},
     "paging.py": {"aws"},  # CloudWatch's metric of a page sent, the page's S3 record
