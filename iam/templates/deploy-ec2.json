@@ -13,6 +13,17 @@
       }
     },
     {
+      "Sid": "OwnClusterSnapshots",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBClusterSnapshot",
+        "rds:DeleteDBCluster",
+        "rds:AddTagsToResource",
+        "rds:RestoreDBClusterFromSnapshot"
+      ],
+      "Resource": "arn:aws:rds:*:*:cluster-snapshot:warden-${env}-*"
+    },
+    {
       "Sid": "Ec2ReadCreate",
       "Effect": "Allow",
       "Action": [

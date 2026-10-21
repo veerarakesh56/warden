@@ -69,13 +69,18 @@ copy. On a first install there is no copy, and resume simply builds everything e
 | | `action: resume` | starts the audit database, then applies, migrates and checks every zone as `apply` does | |
 
 What each step guarantees: the writers stop first - the schedules are disabled, checkout and traffic are held at
-a reserved concurrency of 0, the orders queue is drained by its consumer, then every function of the stack is held
+a reserved concurrency of 0 and their running invocations are waited out (their timeout), the orders queue is
+drained by its consumer (three empty readings in a row: SQS's counters are approximate), then every function of the
+stack is held
 (only these Lambdas write the data kept; the ECS orders-api and the shop's pods only read it or write the Redis cache).
 A queue that does not drain in 15 minutes stops the pause before any copy; `python scripts/pause_resume.py wake`
 (also run by resume) turns them on again. Nothing is deleted or stopped until every copy is **available** (the step
 fails otherwise, and no later step runs). Resume takes the newest available `-pause-` copy by the time AWS made it, so the
 copies made by hand on 2026-10-17 (`warden-dev-aurora-pause-20261017`, `warden-dev-carts-pause-20261017`,
-`warden-ops-audit-pause-20261017`, a date only) are found too. An existing database or table is never overwritten.
+`warden-ops-audit-pause-20261017`, a date only) are found too. An existing database or table is never overwritten. If a plain `destroy` came after the last pause (its final
+snapshot is newer than every pause copy), `latest` is refused and both are named: pick one with
+`aurora_express.py create --from-snapshot <id>` and restore the tables by hand, so older data is never brought back
+silently.
 If the audit database is gone while a pause snapshot of it exists, resume refuses rather than let Terraform create
 an empty audit: restore it by hand (below). Nothing deletes a copy: the run's summary lists the newest
 `PAUSE_KEEP_SNAPSHOTS` per data store (a repository variable, default 3) and the older ones for a person to delete.

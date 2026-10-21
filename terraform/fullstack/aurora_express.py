@@ -260,6 +260,30 @@ def newest_pause(items: list[dict], base: str, name_key: str, time_key: str, sta
     return max(usable, key=lambda i: (i.get(time_key) or oldest, i.get(name_key, "")), default=None)
 
 
+STALE_MARGIN = datetime.timedelta(hours=1)  # a pause's own final snapshot follows its pause snapshot within it
+
+
+def refuse_a_stale_pause(snapshots: list[dict], cluster: str) -> None:
+    """⛔ A `destroy` after the last pause leaves a final snapshot newer than every pause copy: `latest` would bring back
+    older data, and the tables' pause backups are older still (destroy makes none). Refused, both named, so a person
+    picks one (CodeRabbit, PR 88). A pause makes its own final snapshot right after its pause copy: within the margin."""
+    def newest(kind):
+        found = [s for s in snapshots if str(s.get("Status", "")).lower() == "available"
+                 and (is_pause_name(cluster, s.get("DBClusterSnapshotIdentifier", "")) if kind == "pause"
+                      else s.get("DBClusterSnapshotIdentifier", "").lower().startswith(f"{cluster}-final-"))]
+        return max(found, key=lambda s: s.get("SnapshotCreateTime") or datetime.datetime.min.replace(tzinfo=datetime.UTC),
+                   default=None)
+
+    pause, final = newest("pause"), newest("final")
+    if final is None or not final.get("SnapshotCreateTime"):
+        return
+    if pause is None or final["SnapshotCreateTime"] > (pause.get("SnapshotCreateTime") or final["SnapshotCreateTime"]) \
+            + STALE_MARGIN:
+        raise SystemExit(f"refusing `latest`: {final['DBClusterSnapshotIdentifier']} (a destroy) is newer than the newest "
+                         f"pause copy {pause['DBClusterSnapshotIdentifier'] if pause else '(none)'} - resume would bring "
+                         "back older data. Pick one with --from-snapshot <id> (and restore the tables by hand).")
+
+
 def cluster_snapshots(rds) -> list[dict]:
     """Every manual cluster snapshot in the region. Not by cluster: RDS filters by an EXISTING cluster only, and a
     paused one has been deleted."""
@@ -281,8 +305,9 @@ def restore(rds, cluster: str, snapshot: str, log=print) -> str | None:
         log(f"{cluster} exists - not restored from any snapshot")
         return None
     if snapshot == "latest":
-        found = newest_pause(cluster_snapshots(rds), cluster, "DBClusterSnapshotIdentifier", "SnapshotCreateTime",
-                             "Status")
+        snapshots = cluster_snapshots(rds)
+        refuse_a_stale_pause(snapshots, cluster)
+        found = newest_pause(snapshots, cluster, "DBClusterSnapshotIdentifier", "SnapshotCreateTime", "Status")
         if found is None:
             log(f"no {cluster}-pause-... snapshot: {cluster} is created empty (a first install)")
             return None

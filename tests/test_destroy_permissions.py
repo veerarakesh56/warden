@@ -445,6 +445,7 @@ UNTAGGED |= {"aurora-new", "aurora-pause", "aurora-pause-by-hand", "aurora-final
 _TAGGING = {"aws:RequestTag/Environment": "{env}"}
 # The writers stopped before the copies, started again on resume (pause_resume.py quiesce / wake).
 _WRITERS_OFF = [call("events:DisableRule", "schedule"), call("lambda:PutFunctionConcurrency", "function"),
+                call("lambda:GetFunctionConfiguration", "function"),
                 call("sqs:GetQueueUrl", "orders-queue"), call("sqs:GetQueueAttributes", "orders-queue")]
 _WRITERS_ON = [call("events:EnableRule", "schedule"), call("lambda:DeleteFunctionConcurrency", "function")]
 REQUIRED_CALLS["pause"] = REQUIRED_CALLS["destroy"] + _WRITERS_OFF + _WRITERS_ON + [
