@@ -55,6 +55,10 @@ PLACEHOLDER = re.compile(r"__[A-Z_]+__")
 ZIP_DATE = (2026, 1, 1, 0, 0, 0)  # fixed, so an unchanged function builds a byte-identical zip
 
 
+class CommandFailed(SystemExit):
+    """A command exited non-zero: still the end of the run unless a caller handles it (a SystemExit)."""
+
+
 def run(cmd: list[str], *, input: str | None = None) -> str:
     """Run a command; stdin carries anything secret. Only the command is echoed."""
     print("+", " ".join(cmd), flush=True)
@@ -63,7 +67,7 @@ def run(cmd: list[str], *, input: str | None = None) -> str:
     done = subprocess.run(cmd, input=input, capture_output=True, check=False,
                           encoding="utf-8", errors="replace")
     if done.returncode:
-        raise SystemExit(f"{cmd[0]} exited {done.returncode}:\n{done.stderr[-2000:]}")
+        raise CommandFailed(f"{cmd[0]} exited {done.returncode}:\n{done.stderr[-2000:]}")
     return done.stdout
 
 
@@ -399,12 +403,12 @@ def catalog_secret_synced(kubeconfig: str, run=run) -> None:
     try:
         run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "wait", "--for=condition=Ready",
              "externalsecret/catalog-secret", "--timeout=180s"])
-    except SystemExit as waited:
+    except CommandFailed as waited:
         # Its status, if it can be read - a second failure never hides the first (CodeRabbit, PR 118).
         try:
             status = run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "get", "externalsecret", "catalog-secret",
                           "-o", "jsonpath={.status.conditions}"])
-        except SystemExit as unreadable:
+        except CommandFailed as unreadable:
             status = f"(its status could not be read either: {unreadable})"
         raise SystemExit(f"catalog-secret was not synced by ESO (its role, its Pod Identity association, the secret?): "
                          f"{status}; the wait said: {waited}") from waited
@@ -414,11 +418,17 @@ def catalog_secret_synced(kubeconfig: str, run=run) -> None:
 def signing_key_version(stack: dict, aws) -> str:
     """The Secrets Manager version catalog-api's key is at (AWSCURRENT). It goes into the ExternalSecret's spec, so a
     rotation - and only a rotation - makes ESO copy the key (refreshPolicy OnChange, k8s/shop-pipeline)."""
-    stages = aws("secretsmanager").describe_secret(SecretId=stack["catalog_signing_key_secret_name"]).get(
-        "VersionIdsToStages") or {}
+    name = stack.get("catalog_signing_key_secret_name")
+    if not name:  # a stack.json published before B25 (CodeRabbit, PR 118)
+        raise SystemExit("stack.json names no catalog_signing_key_secret_name: apply the stack first")
+    sm = aws("secretsmanager")
+    try:
+        stages = sm.describe_secret(SecretId=name).get("VersionIdsToStages") or {}
+    except sm.exceptions.ResourceNotFoundException:
+        raise SystemExit(f"{name} does not exist: apply the stack first") from None
     current = [v for v, s in stages.items() if "AWSCURRENT" in s]
     if len(current) != 1:
-        raise SystemExit(f"{stack['catalog_signing_key_secret_name']} has no current version: apply the stack first")
+        raise SystemExit(f"{name} has no current version: apply the stack first")
     return current[0]
 
 

@@ -612,11 +612,12 @@ def test_a_status_that_cannot_be_read_never_hides_the_wait_failure():
     class BothFail(Runner):
         def __call__(self, cmd, *, input=None):
             self.cmds.append(cmd)
-            raise SystemExit("kubectl exited 1: " + ("timed out" if "wait" in cmd else "connection refused"))
+            raise tool.CommandFailed("kubectl exited 1: " + ("timed out" if "wait" in cmd else "connection refused"))
 
+    both_fail = BothFail()
     with pytest.raises(SystemExit, match="could not be read either: kubectl exited 1: connection refused.*"
                                          "the wait said: kubectl exited 1: timed out"):
-        tool.catalog_secret_synced("kc", BothFail())
+        tool.catalog_secret_synced("kc", both_fail)
 
 
 def test_no_current_key_version_stops_the_deploy_before_eso_and_the_externalsecret(tmp_path, monkeypatch):
@@ -637,7 +638,7 @@ def test_an_externalsecret_that_does_not_sync_stops_the_deploy_with_its_status(t
         def __call__(self, cmd, *, input=None):
             if "wait" in cmd and "externalsecret/catalog-secret" in cmd:
                 self.cmds.append(cmd)
-                raise SystemExit("kubectl exited 1")
+                raise tool.CommandFailed("kubectl exited 1")
             return super().__call__(cmd, input=input)
 
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/warden")
@@ -646,4 +647,30 @@ def test_an_externalsecret_that_does_not_sync_stops_the_deploy_with_its_status(t
     with pytest.raises(SystemExit, match="catalog-secret was not synced by ESO .*SecretSyncedError"):
         tool.deploy_k8s(STACK, "abc123", tmp_path, aws, run, revision=REV, sleep=lambda s: None)
     assert not [i for i in run.inputs if i and "kind: Application" in i]  # the shop is not synced over it
+
+
+class _NoSuchSecret(Exception):
+    pass
+
+
+def test_a_stack_json_from_before_b25_or_a_deleted_secret_says_apply_first():
+    """CodeRabbit (PR 118): the guidance, not a KeyError or a raw ResourceNotFoundException."""
+    old_stack = {k: v for k, v in STACK.items() if k != "catalog_signing_key_secret_name"}
+    with pytest.raises(SystemExit, match="names no catalog_signing_key_secret_name: apply the stack first"):
+        tool.signing_key_version(old_stack, aws_factory({}))
+
+    class Gone(Fake):
+        exceptions = type("E", (), {"ResourceNotFoundException": _NoSuchSecret})
+
+        def describe_secret(self, SecretId):
+            raise _NoSuchSecret(SecretId)
+
+    aws = aws_factory({"secretsmanager": Gone()})
+    with pytest.raises(SystemExit, match="warden-dev-catalog-signing-key does not exist: apply the stack first"):
+        tool.signing_key_version(STACK, aws)
+
+
+def test_a_failed_command_still_ends_the_run():
+    """run() raises CommandFailed, a SystemExit: unhandled, it still stops the deploy as before."""
+    assert issubclass(tool.CommandFailed, SystemExit)
 

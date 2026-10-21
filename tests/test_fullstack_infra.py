@@ -1208,5 +1208,5 @@ def test_eso_reads_the_one_signing_key_through_pod_identity():
     assert 'service_account = "external-secrets"' in tf
     # The key is made at apply and written through the write-only argument: never in a plan or the state.
     assert "secret_string_wo         = ephemeral.random_password.catalog_signing_key.result" in tf
-    assert "secret_string " not in tf
+    assert not re.search(r"\bsecret_string\s*=", tf)  # no readable value argument, however it is spaced
 
