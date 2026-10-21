@@ -336,12 +336,24 @@ def _write_json(path: pathlib.Path, payload: dict) -> None:
 
 
 def _in_folder(folder: pathlib.Path, name: str) -> pathlib.Path:
-    """`folder / name` when it stays inside `folder`: a scenario file name read back from a file that would lead out
-    of it (`..`, an absolute path) is refused, never followed."""
+    """`folder / name` for a plain file name: a scenario id read back from a file or named on the command line that
+    holds a separator, `.` or `..` is refused, never followed - even one that would lead back into the folder
+    (`../ground-truth/x`), so no two names reach one file (CodeRabbit, PR 63)."""
+    if not name or name in (".", "..") or os.path.basename(name) != name or "/" in name or "\\" in name:
+        raise SystemExit(f"{name!r}: not a scenario file name - a plain name in {folder} only")
     try:
         return _contained(folder / name, [folder])
     except ValueError:
         raise SystemExit(f"{name!r}: not a scenario file name - it would lie outside {folder}") from None
+
+
+def _run_part(out: pathlib.Path, part: str, roots: list[pathlib.Path] | None = None) -> pathlib.Path:
+    """`out / part` when it really lies inside the run (or inside `roots`): a symlinked ground-truth/ or a recorded
+    report path that leads elsewhere - another run, the manifest - is refused before anything is read or moved."""
+    try:
+        return _contained(out / part, roots or [out])
+    except ValueError:
+        raise SystemExit(f"{part!r}: refused - it does not lie inside {', '.join(map(str, roots or [out]))}") from None
 
 
 # --------------------------------------------------------------------------- the environment
@@ -516,7 +528,7 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
             # permission from this exact role, and "WARDEN ran with four read actions and nothing
             # else" is only a checkable claim if the identity it ran as is in the artefact.
             creds = harness.assume_reader()
-            report = out / "reports" / f"{scenario_id}.{index}.json"
+            report = _in_folder(out / "reports", f"{scenario_id}.{index}.json")
             report.parent.mkdir(parents=True, exist_ok=True)
             # ⛔ Delete any report already at this path before running. `warden.cli` only writes the
             # file when it gets far enough to have something to write, so re-using an --out directory
@@ -1541,7 +1553,7 @@ def supersede(out: pathlib.Path, scenario_id: str) -> str:
     not read - so a re-run scenario is counted once, while the evidence that it WAS re-run, and why,
     stays in the bundle for anyone to read.
     """
-    gt_dir = out / "ground-truth"
+    gt_dir = _run_part(out, "ground-truth")
     current = _in_folder(gt_dir, f"{scenario_id}.json")
     kept = gt_dir / "superseded"
     kept.mkdir(parents=True, exist_ok=True)
@@ -1553,7 +1565,7 @@ def supersede(out: pathlib.Path, scenario_id: str) -> str:
     reports.mkdir(parents=True, exist_ok=True)
     for run in record.get("runs") or []:
         name = f"{scenario_id}.attempt-{attempt}.{run['index']}.json"
-        src = _in_folder(out, run["report"])  # read back from the record: stays in this run
+        src = _run_part(out, str(run["report"]), [out / "reports"])  # read back from the record: a report only
         if src.exists():
             src.replace(_in_folder(reports, name))
         run["report"] = f"reports/superseded/{name}"
@@ -1751,9 +1763,10 @@ def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] 
     if unmatched:
         raise SystemExit(f"--rerun {unmatched} matched no scenario in this run")
 
+    gt_dir = _run_part(out, "ground-truth")  # a symlink out of the run is refused before any read
     todo, superseded, forced = [], [], []
     for scenario in scenarios:
-        gt = out / "ground-truth" / f"{scenario['id']}.json"
+        gt = _in_folder(gt_dir, f"{scenario['id']}.json")
         force = scenario["id"].startswith(rerun) if rerun else False
         if gt.exists():
             if is_complete(json.loads(gt.read_text(encoding="utf-8")), repeat) and not force:

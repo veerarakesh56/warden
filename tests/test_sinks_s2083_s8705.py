@@ -47,7 +47,8 @@ def test_a_json_write_lands_only_where_the_tools_work(tmp_path):
         runner._write_json(target, {"x": 1})
 
 
-@pytest.mark.parametrize("name", ["../../escaped.json", "/etc/escaped.json", "../ground-truth2/x.json"])
+@pytest.mark.parametrize("name", ["../../escaped.json", "/etc/escaped.json", "../ground-truth2/x.json",
+                                  "../ground-truth/x.json", "sub/x.json", "..", "."])
 def test_a_scenario_file_name_read_back_from_a_file_stays_in_its_folder(tmp_path, name):
     folder = tmp_path / "ground-truth"
     with pytest.raises(SystemExit, match="not a scenario file name"):
@@ -68,12 +69,35 @@ def test_supersede_moves_no_report_a_record_points_outside_the_run(tmp_path):
     try:
         record = {"scenario_id": "fs-1", "runs": [{"index": 1, "report": f"../{victim.name}"}]}
         (gt / "fs-1.json").write_text(json.dumps(record), encoding="utf-8")
-        with pytest.raises(SystemExit, match="not a scenario file name"):
+        with pytest.raises(SystemExit, match="refused - it does not lie inside"):
             runner.supersede(tmp_path, "fs-1")
         assert victim.exists()
         assert (gt / "fs-1.json").exists()
     finally:
         victim.unlink(missing_ok=True)
+
+
+def test_supersede_moves_only_a_report_never_the_manifest(tmp_path):
+    """A record's `report` must lie under reports/: `manifest.json` (inside the run, but no report) stays put."""
+    gt = tmp_path / "ground-truth"
+    gt.mkdir()
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    record = {"scenario_id": "fs-1", "runs": [{"index": 1, "report": "manifest.json"}]}
+    (gt / "fs-1.json").write_text(json.dumps(record), encoding="utf-8")
+    with pytest.raises(SystemExit, match="refused - it does not lie inside"):
+        runner.supersede(tmp_path, "fs-1")
+    assert (tmp_path / "manifest.json").exists()
+
+
+def test_a_ground_truth_folder_that_links_out_of_the_run_is_refused_before_any_read(tmp_path):
+    run, elsewhere = tmp_path / "run", tmp_path / "elsewhere"
+    run.mkdir()
+    elsewhere.mkdir()
+    (elsewhere / "fs-1.json").write_text(json.dumps({"runs": []}), encoding="utf-8")
+    (run / "ground-truth").symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(SystemExit, match="refused - it does not lie inside"):
+        runner.supersede(run, "fs-1")
+    assert not (elsewhere / "superseded").exists()
 
 
 # --------------------------------------------------------------------------- helios_gate
