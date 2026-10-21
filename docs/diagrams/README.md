@@ -8,6 +8,7 @@ Each `.drawio` file is the source. The `.svg` and `.png` files next to it are ex
 | `architecture-detailed.drawio` | page 1: `architecture-detailed-1.svg`, `.png` · page 2: `architecture-detailed-2.svg`, `.png` | Every component by its real name: the runtime, then identities, environments and outside services |
 | `incident-flow.drawio` | `incident-flow.svg`, `.png` | One incident from alarm to signed record, by trust zone, with the safety checks marked S1-S14 |
 | `delivery.drawio` | `delivery.svg`, `.png` | Branches, pipelines, the Helios gate and the OIDC deploy roles |
+| `system-modules.drawio` | `system-modules.svg`, `.png` | The whole system on one page, as the README and ARCHITECTURE.md show it: every module and call, the activities by trust zone, open pull requests dashed |
 | `aws-architecture.drawio` | `aws-architecture.svg`, `.png` | What runs where in AWS: WARDEN's runtime (ops), the watched full stack (dev), the account-wide pieces, the outside services, open pull requests dashed and prod as planned |
 
 Every diagram says in its footer which commit it was drawn from. The README embeds the PNGs, which are lighter than the SVGs (1.6-9.0 MB, as draw.io adds
@@ -24,7 +25,8 @@ drawn with a dashed yellow outline and labelled as open; nothing planned is draw
 `aws-architecture.drawio` also uses AWS's architecture icons from draw.io's own AWS library. Its test
 (`tests/test_aws_architecture_diagram.py`) fails when the diagram names an AWS resource the code does not make or
 read, when a deployed stack gains a resource type the diagram neither shows nor lists as left out, or when the SVG is
-not an export of the source.
+not an export of the source. `tests/test_diagram_exports.py` holds every export to its source: each SVG has exactly its
+page's cells, on a white page, exported with `--theme light`.
 
 Colours: the five trust zones use WARDEN's brand colours (read #3DB9F5, llm #1A8FE3, core #12C483,
 notify #7DF2C4, act #FF7E6B); Lambdas are orange; the font is Helvetica.
@@ -36,7 +38,7 @@ With the draw.io desktop app (these files were exported with 31.5.2):
 ```sh
 cd docs/diagrams
 DRAWIO="C:/Program Files/draw.io/draw.io.exe"   # or wherever draw.io is installed
-for n in architecture-overview incident-flow delivery aws-architecture; do
+for n in architecture-overview incident-flow delivery aws-architecture system-modules; do
   "$DRAWIO" -x -f svg --theme light -b 16 -o "$n.svg" "$n.drawio"
   "$DRAWIO" -x -f png -s 2 -b 16 -o "$n.png" "$n.drawio"
 done

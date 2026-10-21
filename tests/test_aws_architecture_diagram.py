@@ -5,7 +5,7 @@
   their names live on the pull request's branch, and each says "open PR #n".
 - Nothing is missing: every resource type the deployed stacks declare is either shown (by a phrase the diagram must
   contain) or listed below with the reason it is left out, and the counts the diagram states are the code's counts.
-- The SVG and PNG are exports of this source: the SVG holds exactly the source's cells, on a white background.
+- Its SVG and PNG are exports of this source on a white page: tests/test_diagram_exports.py, for every diagram.
 """
 
 from __future__ import annotations
@@ -14,8 +14,6 @@ import html
 import pathlib
 import re
 import xml.etree.ElementTree as ET
-
-import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DIAGRAMS = ROOT / "docs" / "diagrams"
@@ -319,21 +317,6 @@ def test_open_pull_requests_are_marked_and_never_drawn_as_built():
 
 def test_the_footer_names_the_commit_it_was_drawn_from():
     assert re.search(r"Drawn from origin/main [0-9a-f]{7,40} \(\d{4}-\d{2}-\d{2}\)", _diagram_text())
-
-
-@pytest.mark.parametrize("ext", ["svg", "png"])
-def test_the_exports_exist(ext):
-    assert (DIAGRAMS / f"aws-architecture.{ext}").stat().st_size > 100_000
-
-
-def test_the_svg_is_an_export_of_this_source_on_white():
-    svg = (DIAGRAMS / "aws-architecture.svg").read_text(encoding="utf-8")
-    head = svg[:svg.index("<g")]
-    assert "background-color: #FFFFFF" in head
-    assert '<rect fill="#FFFFFF" width="100%" height="100%"' in head
-    assert "color-scheme: light" in head  # exported with --theme light: no colours swapped in a dark theme
-    exported = set(re.findall(r'data-cell-id="([^"]+)"', svg))
-    assert exported == {c.get("id") for c in _cells()}
 
 
 def test_the_readmes_show_and_explain_it():

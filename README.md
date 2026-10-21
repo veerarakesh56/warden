@@ -191,88 +191,12 @@ model never decides is argued in [docs/ai-boundary.md](docs/ai-boundary.md).
 
 ### The whole system on one page
 
-Every box is a module or file in this repository, and every arrow is a call that exists in the code. Dotted arrows
-are optional (a flag, a setting, or a part hosted by the cloud runtime). `tests/test_readme_architecture_r30.py`
-checks that every module and activity named here exists.
+Every box is a module or file in this repository, and every arrow is a call that exists in the code. The activities
+sit in the trust zone whose queue runs them. Dotted arrows are optional (a flag, a setting, or a part hosted by the
+cloud runtime), and dashed yellow boxes are open pull requests, not built yet. `tests/test_readme_architecture_r30.py`
+checks that every module and activity named here exists. Click the diagram to open it full size.
 
-```mermaid
-flowchart TB
-    subgraph IN[Ways in]
-        ALARM[an alarm event<br/><i>warden intake</i>, <i>intake.py</i>]
-        AM[Alertmanager webhook<br/><i>webhooks.py</i>: bearer token,<br/>size caps, still-firing check]
-        MCP[warden-mcp<br/><i>mcp_server.py</i><br/>start_incident_diagnosis,<br/>request_remediation, workflow_status]
-        CLI[warden run / demo<br/><i>cli.py</i>, in-process]
-    end
-    AM -.->|"host: API Gateway"| ALARM
-    ALARM -->|"group repeats, flapping,<br/>open-incident cap"| IW
-
-    subgraph TEMPORAL[Temporal - payloads encrypted by <i>codec.py</i>, API key + TLS <i>runtime.py</i>]
-        IW[IncidentWorkflow<br/><i>workflows.py</i>]
-        RW[RemediationWorkflow<br/><i>workflows.py</i><br/>one per target]
-    end
-    MCP --> IW & RW
-
-    subgraph INC[Incident activities - <i>activities.py</i>]
-        PREP[prepare: gather, redact, tripwire,<br/>evidence ids, quarantine to typed facts;<br/>reread: once more, when a source was empty right after the alert;<br/>investigate: read more of what the alert names;<br/>after_hold: does an alarm held as expected down still fire;<br/>plan_fix: an approved proposal opens its fix plan<br/><i>tools, redaction, tripwire, evidence, quarantine, investigation, resolver</i>]
-        DIAG[diagnose: ONE model call<br/><i>llm.LLMClient</i> -> <i>providers.py</i><br/>Anthropic API in production; other providers selectable]
-        VER[verify: rules P0-P33, P25-P28 observed only;<br/>second_opinion: a second diagnosis must agree<br/><i>verifier, grounding, numbers, language, decide</i>]
-        NOTE[notify: report through the outbound gate;<br/>no_plan: says when no plan was opened, and why<br/><i>reporting, gate, chatops</i>]
-        PREP --> DIAG --> VER --> NOTE
-    end
-    IW --> PREP
-    CLI --> PREP
-
-    subgraph SRC[Read-only evidence backends - <i>tools.resolve_backend</i>]
-        FX[fixtures]
-        AWSB[AWS: CloudWatch, ECS, Lambda, ...<br/><i>aws_backend, aws_stack</i>]
-        K8B[Kubernetes<br/><i>k8s_backend</i>]
-        DBB[five database engines<br/><i>database.py</i>]
-    end
-    PREP --> FX & AWSB & K8B & DBB
-
-    subgraph REM[Remediation activities - <i>activities.py</i>]
-        PLAN[resolve_plan: catalogue entry -> exact plan<br/>from live state, plan hash; environment<br/>and self-target checks <i>catalog, environments</i>]
-        GATE[gate: bounds, cool-down, kill switch,<br/>change freeze, approval-fatigue cap<br/><i>bounds, freeze</i>]
-        CRIT["critic_review, when the run has it (patched eldane-critic):<br/>Eldane, the AI critic, in its own zone, the other Claude<br/>model than the diagnosis, blind first pass; signs in dev at L2 (a person's<br/>no still wins) - else a person decides <i>eldane, autonomy</i><br/>autonomy_state / autonomy_enable: a person's signed<br/>re-enable after a demotion (AutonomyWorkflow)"]
-        APPR[check_approval / check_passkey<br/>signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
-        APPLY[precheck - apply - check_success<br/>3 healthy checks, re-checks at T+15 and T+60<br/>record_result; rollback when not recovered<br/>side_effects: other alarms after the fix<br/>again_alert: diagnosed again after a relapse]
-        FIN[finish: audit row, change record<br/>summary_owed: the incident's one message<br/>when a run ends before any said it<br/><i>changes.py</i>]
-        PLAN --> GATE --> APPR --> APPLY --> FIN
-        GATE -.->|"if the run has the critic step"| CRIT -.->|"Eldane's signed approval, L2 dev only"| APPR
-    end
-    RW --> PLAN
-    APPR -.->|"announce: the request with the incident's summary,<br/>expired, how it ended; approved, denied and<br/>fixed kept on the records page (records.py)"| NOTE
-
-    subgraph PEOPLE[People]
-        SIGN[warden approve<br/>Ed25519 break-glass key]
-        PAGE[approval page<br/><i>approval_page.py</i>: passkey,<br/>typed target]
-        SLACK([Slack thread per incident,<br/>Teams, webhooks])
-    end
-    SIGN -->|signal approve| RW
-    PAGE -.->|"signal approve_passkey<br/>host: the cloud runtime"| RW
-    NOTE --> SLACK
-
-    subgraph WRITE[Writes - only after a signed approval]
-        KW[restart, bounded scale<br/><i>platforms/k8s.py</i>]
-        AW[Lambda alias and concurrency, event source<br/>mapping, EventBridge rule, DynamoDB<br/>capacity, ECS rollback <i>platforms/aws.py</i><br/>per-plan actor session <i>identity.py</i>]
-        DW[close idle-in-transaction sessions<br/><i>platforms/db.py</i>]
-    end
-    APPLY --> KW & DW & AW
-
-    subgraph RECORD[The record]
-        AUD[(audit: hash chain, signed checkpoints<br/><i>audit.py</i>)]
-        ANCHOR[(S3 Object Lock anchors)]
-        GH([GitHub issue per applied change])
-    end
-    INC & REM -->|every step| AUD
-    AUD -.->|"KMS signer and anchor<br/>adapters, cloud runtime"| ANCHOR
-    FIN -.->|"WARDEN_CHANGE_REPO"| GH
-
-    subgraph DATA[Data, pinned by hash - <i>src/warden/data/</i>]
-        D1[incident_signatures, environments,<br/>freeze, providers, decider]
-    end
-    D1 --> VER & GATE & PLAN
-```
+[![WARDEN: the whole system on one page, every module and call](docs/diagrams/system-modules.svg)](docs/diagrams/system-modules.svg)
 
 ### How a change to WARDEN is delivered
 
@@ -283,7 +207,7 @@ deploy their own environment, without stored AWS keys, and infrastructure change
 
 ### What runs where in AWS
 
-[![WARDEN: what runs where in AWS](docs/diagrams/aws-architecture.png)](docs/diagrams/aws-architecture.svg)
+[![WARDEN: what runs where in AWS](docs/diagrams/aws-architecture.svg)](docs/diagrams/aws-architecture.svg)
 
 *WARDEN's own runtime (`ops`), the full stack it watches (`dev`), the account-wide pieces and the outside services,
 each by the name the code gives it. Dashed yellow: an open pull request, not built. `prod` is designed, not built.*
