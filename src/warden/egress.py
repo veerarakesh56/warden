@@ -343,6 +343,26 @@ def body_strings(data: Any, content_type: str = "", skip: frozenset[str] = froze
         return [text]
 
 
+def _scanned_values(strings: list[str], data: Any, content_type: str) -> list[str]:
+    """A structured body's (JSON's, a form's) values as content_kinds scans them: a value that is only digits is a
+    number - an id, a count (a GitHub run id read as a phone number refused every infra dispatch, PR 113) - as
+    _query_kinds treats a query's. A phone written with `+`, spaces or dashes is not only digits and is still scanned;
+    a body that is plain text is scanned whole, digits or not."""
+    if not _structured(data, content_type):
+        return strings
+    return [s for s in strings if not _DIGITS.fullmatch(s)]
+
+
+def _structured(data: Any, content_type: str) -> bool:
+    if data is None or "x-www-form-urlencoded" in content_type.lower():
+        return data is not None
+    try:
+        json.loads(bytes(data).decode("utf-8", "replace") if isinstance(data, (bytes, bytearray, memoryview)) else data)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
 def content_kinds(strings: Iterable[str]) -> list[str]:
     """The kinds found in `strings`, WARDEN's own links taken out first: Teams and a generic webhook carry them inside
     a line of text (`label: link`), Slack as a button's whole address."""
@@ -561,7 +581,8 @@ def check_request(url: str, data: bytes | str | None, headers: dict[str, str] | 
     strings = body_strings(data, _header(headers, "content-type"), dest.credentials)
     # A presigned AWS address carries its signature in the query: AWS's own `X-Amz-*` parameters are left out there.
     query = _query_kinds(parts.query, skip_amz=not dest.outside)
-    kinds = sorted(set(content_kinds(strings)) | set(query) | set(content_kinds(_url_strings(dest, parts))))
+    kinds = sorted(set(content_kinds(_scanned_values(strings, data, _header(headers, "content-type")))) | set(query)
+                   | set(content_kinds(_url_strings(dest, parts))))
     payload = "\n".join(strings)
     record(dest, _purpose(dest, method, url), payload, "BLOCK" if kinds else "PASS", kinds)
     if kinds:
