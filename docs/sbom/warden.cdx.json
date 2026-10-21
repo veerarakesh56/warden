@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:e7b71893-7da2-5952-afc6-dbb984dc5afa",
+  "serialNumber": "urn:uuid:edd096b3-295b-56ea-bc0c-7196713c5f33",
   "version": 1,
   "metadata": {
     "component": {
@@ -872,105 +872,105 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/opentelemetry-api@1.45.0",
+      "bom-ref": "pkg:pypi/opentelemetry-api@1.45.1",
       "name": "opentelemetry-api",
-      "version": "1.45.0",
-      "purl": "pkg:pypi/opentelemetry-api@1.45.0",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-api@1.45.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "711ede81773c8025c2c03dac0450bc89f3d30aea6eabcc815c570d4e35a963f7"
+          "content": "aa38ed19bcc084ba42782a73255b3582283eced7ad6dddbd6695189e69adfb75"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/opentelemetry-exporter-http-transport@0.66b0",
+      "bom-ref": "pkg:pypi/opentelemetry-exporter-http-transport@0.66b1",
       "name": "opentelemetry-exporter-http-transport",
-      "version": "0.66b0",
-      "purl": "pkg:pypi/opentelemetry-exporter-http-transport@0.66b0",
+      "version": "0.66b1",
+      "purl": "pkg:pypi/opentelemetry-exporter-http-transport@0.66b1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "2c229b6593eaa22c86d9b8a15843dc23b406dbda00fb138339189aab07923b4e"
+          "content": "443080203bf52586ce0b2ad901e8951c61833eab1aa539ae6f1f16fe9e8e7952"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp-common@0.66b0",
+      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp-common@0.66b1",
       "name": "opentelemetry-exporter-otlp-common",
-      "version": "0.66b0",
-      "purl": "pkg:pypi/opentelemetry-exporter-otlp-common@0.66b0",
+      "version": "0.66b1",
+      "purl": "pkg:pypi/opentelemetry-exporter-otlp-common@0.66b1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "362268ec6aa705e183776ff938539df1e8ce45bc5509d242538b1d40c26fe6a6"
+          "content": "6b1403487a2185ac1feb45fd5546fdf8630ce71c36bcefaadf51e2130e9e23f9"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp-proto-common@1.45.0",
+      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp-proto-common@1.45.1",
       "name": "opentelemetry-exporter-otlp-proto-common",
-      "version": "1.45.0",
-      "purl": "pkg:pypi/opentelemetry-exporter-otlp-proto-common@1.45.0",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-exporter-otlp-proto-common@1.45.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "36495115a0c6a7aa946cfda9d59b6ed4e917b6ab0f75cdaf66bc1b176ec1be1f"
+          "content": "2e4adcc3a67bcf57804fc49514f0ef64974ca7590aa3491da389852b4a0628f6"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp-proto-http@1.45.0",
+      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp-proto-http@1.45.1",
       "name": "opentelemetry-exporter-otlp-proto-http",
-      "version": "1.45.0",
-      "purl": "pkg:pypi/opentelemetry-exporter-otlp-proto-http@1.45.0",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-exporter-otlp-proto-http@1.45.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "2f35496d96809f946f41b8805e6b93aec6c9b71b5fd759b75b6af4c084d992ae"
+          "content": "45c218405ce3fd879596924b1874bf9a8f6880206d61065c5a912c8e5c297fb7"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/opentelemetry-proto@1.45.0",
+      "bom-ref": "pkg:pypi/opentelemetry-proto@1.45.1",
       "name": "opentelemetry-proto",
-      "version": "1.45.0",
-      "purl": "pkg:pypi/opentelemetry-proto@1.45.0",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-proto@1.45.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "96ee414f24bc3f61ea8e17dc56b4348d4049d73db3eb17c6b3edf75b5b403300"
+          "content": "79e0fb95e4616691a469439238aa9224d75779b3e108e895d1aa125ab29ca77c"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/opentelemetry-sdk@1.45.0",
+      "bom-ref": "pkg:pypi/opentelemetry-sdk@1.45.1",
       "name": "opentelemetry-sdk",
-      "version": "1.45.0",
-      "purl": "pkg:pypi/opentelemetry-sdk@1.45.0",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-sdk@1.45.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "20caa5130505e386c67c3da1c76e446c842698ced54c76c6148679539aa97972"
+          "content": "63d24a6ca645019a631e6a51999c73e93adcac1196ca640b8ae78a7cc4762bf3"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/opentelemetry-semantic-conventions@0.66b0",
+      "bom-ref": "pkg:pypi/opentelemetry-semantic-conventions@0.66b1",
       "name": "opentelemetry-semantic-conventions",
-      "version": "0.66b0",
-      "purl": "pkg:pypi/opentelemetry-semantic-conventions@0.66b0",
+      "version": "0.66b1",
+      "purl": "pkg:pypi/opentelemetry-semantic-conventions@0.66b1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "97a77dce484c54861e7eeff7651fd8a806dd3c30e501dc316730215ec36890e6"
+          "content": "497ca63bf383723411e8eaf60c8779e9877633c936bb641080adab59d0eb6ec8"
         }
       ]
     },
@@ -1356,27 +1356,27 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pydantic@2.13.5",
+      "bom-ref": "pkg:pypi/pydantic@2.14.1",
       "name": "pydantic",
-      "version": "2.13.5",
-      "purl": "pkg:pypi/pydantic@2.13.5",
+      "version": "2.14.1",
+      "purl": "pkg:pypi/pydantic@2.14.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "51a9c5f7b2f8e636f04c6cada605d9b6a3bf1348fdf945a3d8869b19bba0ee08"
+          "content": "94f478203dd03404682a1ada216965651dd74b1d2d5ffd62e00e0837caab5c26"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pydantic-core@2.46.5",
+      "bom-ref": "pkg:pypi/pydantic-core@2.50.1",
       "name": "pydantic-core",
-      "version": "2.46.5",
-      "purl": "pkg:pypi/pydantic-core@2.46.5",
+      "version": "2.50.1",
+      "purl": "pkg:pypi/pydantic-core@2.50.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "10416c15b8839ecc4ef4d0885da76da6fd0f67333a0eb8aff6d93c4b8f2910fc"
+          "content": "e50d7b94baac6c7d09927fa5ca5800a0c7ee5015c7fcff65beb3a1931b5a6e09"
         }
       ]
     },
@@ -1421,14 +1421,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pymssql@2.4.2",
+      "bom-ref": "pkg:pypi/pymssql@2.4.4",
       "name": "pymssql",
-      "version": "2.4.2",
-      "purl": "pkg:pypi/pymssql@2.4.2",
+      "version": "2.4.4",
+      "purl": "pkg:pypi/pymssql@2.4.4",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "f0f7e2fffc25de6ec7f56551c91afa7981644ffc9c4d2d9c2a19ef4890797b67"
+          "content": "6cd20778ca0e01bb5783c6d65fd2d2f2f5ca520015a4f86930d2a58ac72a0e3e"
         }
       ]
     },
@@ -1699,14 +1699,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/ruff@0.16.10",
+      "bom-ref": "pkg:pypi/ruff@0.17.0",
       "name": "ruff",
-      "version": "0.16.10",
-      "purl": "pkg:pypi/ruff@0.16.10",
+      "version": "0.17.0",
+      "purl": "pkg:pypi/ruff@0.17.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "eff4728c4eaae93f0955cd264d24b2ab348e74bf59986ccf282ba6dc16b3b017"
+          "content": "5cd03240d8208a557c2a9655a5cb07ebe36aa6bb35065f97d48c1f6adef5a322"
         }
       ]
     },
