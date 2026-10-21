@@ -501,5 +501,5 @@ def test_each_deploy_run_is_titled_as_the_infra_platform_finds_its_own_apply():
     flows = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
     for env in ("dev", "prod"):
         flow = (flows / f"deploy-{env}.yml").read_text(encoding="utf-8")
-        assert (f'run-name: "Deploy · {env} · ${{{{ inputs.part == \'infra\' && format(\'infra {{0}} {{1}} {{2}}\', '
-                "inputs.infra_action, inputs.infra_stack, inputs.plan_run_id) || format('apps {0}', inputs.apps_target) }}\"") in flow
+        assert (f'run-name: "Deploy · {env} · ${{{{ inputs.part == \'infra\' && format(\'infra {{0}} {{1}} {{2}} {{3}}\', '
+                "inputs.infra_action, inputs.infra_stack, inputs.plan_run_id, inputs.dispatch_id) || format('apps {0}', inputs.apps_target) }}\"") in flow

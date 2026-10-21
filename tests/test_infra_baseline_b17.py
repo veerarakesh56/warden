@@ -12,7 +12,7 @@ import urllib.error
 import pytest
 
 from warden import catalog, cli, settings
-from warden.platforms import NotConfigured
+from warden.platforms import NotConfigured, infra
 from warden.platforms.infra import (
     ENTRY,
     GitHub,
@@ -25,7 +25,8 @@ from warden.platforms.infra import (
 HEAD = "a" * 40
 OLD = "b" * 40
 SHA = "c" * 64
-WHO = {"incident": "inc-7", "plan_hash": "d" * 64, "approvers": ["owner"]}
+RUN = "0b9e1c2a-1111-4222-8333-444455556666"  # the Temporal run that applies (activities: who["run_id"])
+WHO = {"incident": "inc-7", "plan_hash": "d" * 64, "approvers": ["owner"], "run_id": RUN}
 APPLIED = "2026-10-20T19:00:00+00:00"
 # The deploy workflow's run-name for a plan of the full stack: its plan id input is empty (a trailing space).
 PLAN_TITLE = "Deploy · dev · infra plan fullstack "
@@ -164,7 +165,7 @@ def test_apply_dispatches_exactly_the_approved_plan(world):
     [(workflow, ref, inputs, token)] = gh.dispatched
     assert (workflow, ref) == ("deploy-dev.yml", "dev")
     assert inputs == {"part": "infra", "infra_action": "apply-plan", "infra_stack": "fullstack", "plan_run_id": "902",
-                      "plan_sha256": SHA}
+                      "plan_sha256": SHA, "dispatch_id": infra.dispatch_id(RUN)}
     assert token == "t" * 8
     assert "run 902's plan" in out
 
@@ -215,8 +216,9 @@ def test_github_refusing_the_dispatch_changed_nothing_and_an_odd_answer_is_unkno
     assert not getattr(err.value, "nothing_changed", False)
 
 
-OURS = "Deploy · dev · infra apply-plan fullstack 902"  # the deploy workflow's run-name for this apply-plan
-HEALTH = {"stack": "fullstack", "plan_run": "902", "plan_sha256": SHA, catalog.APPLIED_AT: APPLIED}
+OURS = f"Deploy · dev · infra apply-plan fullstack 902 {infra.dispatch_id(RUN)}"  # the deploy workflow's run-name for this apply
+HEALTH = {"stack": "fullstack", "plan_run": "902", "plan_sha256": SHA, catalog.APPLIED_AT: APPLIED,
+          catalog.APPLIED_RUN: RUN}
 
 
 def _run(id_, title, created, status="completed", conclusion="success", sha=HEAD):
@@ -437,3 +439,39 @@ def test_the_tokens_documented_scope_covers_the_reads_the_act_zone_makes():
         assert "**Contents: Read**" in row
     assert "Actions: Read and write, and Contents:\n    #                         Read" in (MODULE / "secrets.tf").read_text(
         encoding="utf-8")
+
+
+def test_the_dispatch_carries_this_runs_id_and_none_is_sent_without_one(world):
+    gh, _, _, p = world
+    live, params = _plan(p)
+    p.apply(ENTRY, params, snapshot=live["state"], who=WHO)
+    sent = gh.dispatched[-1][2]["dispatch_id"]
+    assert sent == infra.dispatch_id(RUN)
+    assert len(sent) == 24
+    assert RUN not in json.dumps(gh.dispatched)  # the run id itself never leaves WARDEN, only its digest
+    for bad in ("", None, "a b", "x" * 65):
+        with pytest.raises(InfraPlatformRefused, match="no run id"):
+            p.apply(ENTRY, params, snapshot=live["state"], who={**WHO, "run_id": bad})
+    assert len(gh.dispatched) == 1
+
+
+def test_an_earlier_dispatch_of_the_same_plan_never_stands_for_ours(world):
+    """CodeRabbit (PR 113, outside the diff): title, commit and window alone could match an EARLIER apply-plan of the
+    same plan - dispatched within the window - while ours is not listed yet. Ours carries this run's id."""
+    gh, _, _, p = world
+    earlier = _run(903, f"Deploy · dev · infra apply-plan fullstack 902 {infra.dispatch_id('an-earlier-run')}",
+                   "2026-10-20T18:59:50Z")
+    gh.runs = [earlier, *gh.runs]
+    assert p.healthy("fullstack", entry=ENTRY, params=HEALTH) is False  # ours is not listed yet
+    gh.runs = [_run(904, OURS, "2026-10-20T19:00:01Z"), *gh.runs]
+    assert p.healthy("fullstack", entry=ENTRY, params=HEALTH) is True
+    assert p.healthy("fullstack", entry=ENTRY, params={k: v for k, v in HEALTH.items() if k != catalog.APPLIED_RUN}) is False
+
+
+def test_the_activities_hand_the_applying_run_to_apply_and_to_health():
+    import inspect
+
+    from warden import activities
+
+    assert '"run_id": run}' in inspect.getsource(activities.RemediationActivities._who)
+    assert "catalog.APPLIED_RUN: run" in inspect.getsource(activities.RemediationActivities.check_success)

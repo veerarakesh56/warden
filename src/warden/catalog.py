@@ -443,6 +443,9 @@ _ONE_OFF = ("one_off", "a one-off action that nothing changes back; the cause st
 # The time a fix was applied in this run, handed by check_success to the platform's health check in a copy of the
 # plan's parameters (never planned, never hashed): a fix is judged on what came after it (live, 2026-10-16).
 APPLIED_AT = "_applied_at"
+# ... and the Temporal run that applied it, beside it (B17: the infra platform names its dispatch by that run and finds
+# exactly that run again - never an earlier dispatch of the same plan).
+APPLIED_RUN = "_applied_run"
 
 LASTS: dict[str, tuple[str, str]] = {
     "lambda_move_alias": _UNTIL_DEPLOY, "lambda_restore_config": _UNTIL_DEPLOY,

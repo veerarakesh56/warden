@@ -17,6 +17,7 @@ Helios-checked infra workflow (owner decision 2026-10-20, option A). WARDEN runs
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -27,7 +28,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .. import web
-from ..catalog import APPLIED_AT
+from ..catalog import APPLIED_AT, APPLIED_RUN
 from . import NotConfigured, Unconfigured
 from . import PerEnvironment as _PerEnvironment
 
@@ -45,7 +46,16 @@ _CLIENT_ERROR_MIN, _CLIENT_ERROR_MAX = 400, 500
 APPLY_SLACK = timedelta(seconds=30)
 _RUN_ID = re.compile(r"\d{1,20}", re.ASCII)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+_RUN = re.compile(r"[A-Za-z0-9-]{1,64}", re.ASCII)  # a Temporal run id (a UUID)
 _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
+
+
+def dispatch_id(run: Any) -> str:
+    """The id an apply-plan dispatch carries in its run's name: a digest of the Temporal run that applies it, so health
+    can find exactly that run again from the run check_success hands it (APPLIED_RUN). Its digest, not the run id
+    itself: the run id (a UUID) never leaves WARDEN (the egress guard refuses one). "" for no or a malformed run."""
+    run = str(run or "")
+    return hashlib.sha256(run.encode()).hexdigest()[:24] if _RUN.fullmatch(run) else ""
 
 
 def _read_token() -> str:
@@ -183,12 +193,15 @@ class InfraPlatform:
 
     def _our_run(self, params: dict[str, Any]) -> dict[str, Any] | None:
         applied, stack, plan_run = _when(params.get(APPLIED_AT)), params.get("stack"), str(params.get("plan_run", ""))
-        if applied is None or stack not in STACKS or not _RUN_ID.fullmatch(plan_run):
+        ours_as = dispatch_id(params.get(APPLIED_RUN))
+        if applied is None or stack not in STACKS or not _RUN_ID.fullmatch(plan_run) or not ours_as:
             return None
         commit = str((self._meta(str(stack), plan_run) or {}).get("commit", ""))
         if not commit:
             return None
-        title = f"{self.title} · infra apply-plan {stack} {plan_run}"
+        # The dispatch id is the run that applied the fix (activities: apply sends who["run_id"], check_success hands
+        # APPLIED_RUN): an earlier dispatch of the same plan carries another, so it is never taken for ours.
+        title = f"{self.title} · infra apply-plan {stack} {plan_run} {ours_as}"
         runs = self._gh.get(f"/actions/workflows/{self.workflow}/runs?branch={self.environment}"
                             f"&event=workflow_dispatch&per_page={RUNS_READ}", self._read_token()).get("workflow_runs") or []
         ours = [(created, r) for r in runs
@@ -204,6 +217,10 @@ class InfraPlatform:
             raise InfraPlatformRefused(f"{entry} is not something the infra platform does")
         if not who or not who.get("approvers"):
             raise InfraPlatformRefused("no approvers were handed to the infra platform; nothing was sent")
+        dispatched_as = dispatch_id(who.get("run_id"))
+        if not dispatched_as:
+            # Health finds the run by this id (PR 113): a dispatch it could not tell from an earlier one is not sent.
+            raise InfraPlatformRefused("no run id names this apply, so its run could not be told apart; nothing was sent")
         token = self._token()
         if not token:
             raise InfraPlatformRefused(f"no token that may run workflows ({TOKEN_ENV}, the slot github-actions-token) "
@@ -216,7 +233,8 @@ class InfraPlatform:
             raise InfraPlatformRefused(f"the kept plan or the branch moved since the plan was approved "
                                        f"({', '.join(moved) or 'no longer allowed'}); nothing was sent")
         inputs = {"part": "infra", "infra_action": "apply-plan", "infra_stack": str(params["stack"]),
-                  "plan_run_id": str(params["plan_run"]), "plan_sha256": str(params["plan_sha256"])}
+                  "plan_run_id": str(params["plan_run"]), "plan_sha256": str(params["plan_sha256"]),
+                  "dispatch_id": dispatched_as}
         try:
             status = self._gh.dispatch(self.workflow, self.environment, inputs, token)
         except urllib.error.HTTPError as exc:

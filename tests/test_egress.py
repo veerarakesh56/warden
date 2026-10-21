@@ -1120,7 +1120,8 @@ def test_the_infra_platforms_own_dispatch_passes_the_egress_check():
                       token=lambda: "t" * 8, read_token=lambda: "")
     live = p.live(ENTRY, {"stack": "fullstack"})
     p.apply(ENTRY, {"stack": "fullstack", "plan_run": run_id, "plan_sha256": sha}, snapshot=live["state"],
-            who={"approvers": ["owner"], "incident": "inc-1", "plan_hash": "d" * 64})
+            who={"approvers": ["owner"], "incident": "inc-1", "plan_hash": "d" * 64,
+                 "run_id": "0b9e1c2a-1111-4222-8333-444455556666"})
     [dispatch] = [r for r in sent if r.get_method() == "POST"]
     assert run_id in dispatch.data.decode()
     for req in sent:  # the reads and the dispatch, each as urllib hands it to the egress hook
