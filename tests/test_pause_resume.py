@@ -31,6 +31,7 @@ def pr():
     mod.ax.use("dev")
     mod.BACKUP_WAIT = {"Delay": 0, "MaxAttempts": 3}
     mod.SETTLE_MARGIN_S = 0
+    mod.STOP_WAIT = {"Delay": 0, "MaxAttempts": 3}
     mod.DRAIN_WAIT = {"Delay": 0, "MaxAttempts": 10}
     return mod
 
@@ -460,6 +461,48 @@ def test_runtime_resume_starts_the_database_and_waits_for_it(pr):
     pr.start_db(rds, log=lambda *_: None)
     assert [n for n, _ in rds.calls] == ["start_db_instance", "wait:db_instance_available"]
     assert rds.instance["DBInstanceStatus"] == "available"
+
+
+def test_a_resume_right_after_a_pause_waits_for_the_stop_then_starts(pr):
+    """CodeRabbit (PR 103): a database still `stopping` is waited for, then started - not waited on as if starting."""
+    pr = _ops(pr)
+
+    class Stopping(FakeRds):
+        polls = 0
+
+        def describe_db_instances(self, DBInstanceIdentifier=None, Filters=None):
+            Stopping.polls += 1
+            if Stopping.polls == 3:
+                self.instance["DBInstanceStatus"] = "stopped"
+            return super().describe_db_instances(DBInstanceIdentifier=DBInstanceIdentifier, Filters=Filters)
+
+    rds = Stopping(instance=_audit_instance("stopping"))
+    pr.start_db(rds, log=lambda *_: None)
+    assert [n for n, _ in rds.calls] == ["start_db_instance", "wait:db_instance_available"]
+
+
+def test_a_failure_that_is_not_ours_after_the_writers_stop_still_says_wake(pr):
+    """CodeRabbit (PR 103): a waiter's or AWS's own error (not SystemExit) gets the wake hint too."""
+    class Throttled(FakeDdb):
+        def create_backup(self, TableName, BackupName):
+            raise RuntimeError("ThrottlingException")
+
+    clients = _full(FakeRds(), Throttled(tables={"warden-dev-carts"}))
+    with pytest.raises(SystemExit, match="ThrottlingException - the writers are stopped: `python scripts/pause_resume.py wake`"):
+        pr.snapshot("fullstack", clients, log=lambda *_: None)
+
+
+def test_a_failure_while_stopping_the_writers_says_wake_too(pr):
+    """Some writers may already be held when quiesce() itself fails (an AWS error on one hold): the hint is given."""
+    class HalfHeld(FakeWriters):
+        def put_function_concurrency(self, FunctionName, ReservedConcurrentExecutions):
+            if FunctionName.endswith("-traffic"):
+                raise RuntimeError("TooManyRequestsException")
+            super().put_function_concurrency(FunctionName, ReservedConcurrentExecutions)
+
+    clients = _full(FakeRds(), FakeDdb(), HalfHeld())
+    with pytest.raises(SystemExit, match="TooManyRequestsException - the writers are stopped"):
+        pr.snapshot("fullstack", clients, log=lambda *_: None)
 
 
 def test_runtime_resume_never_lets_a_lost_audit_database_be_recreated_empty(pr):

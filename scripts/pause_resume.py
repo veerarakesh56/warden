@@ -272,18 +272,18 @@ def snapshot(stack: str, clients: dict, log=print) -> list[str]:
     if stack == "fullstack":
         # A cluster that cannot be copied is found before any writer is stopped (CodeRabbit, PR 103).
         _copyable(ax.describe(rds, ax.CLUSTER))
-        quiesce(clients, log)
         try:
+            quiesce(clients, log)
             made = []
             if _copyable(ax.describe(rds, ax.CLUSTER)):  # again: its state may have changed during the drain
                 made.append(snapshot_db(rds, "cluster", ax.CLUSTER, log))
             else:
                 log(f"{ax.CLUSTER}: does not exist - nothing to keep")
             return made + backup_tables(clients["dynamodb"], log)
-        except SystemExit as exc:
-            # Every failure after quiesce() leaves the writers held: say how to start them again.
+        except (SystemExit, Exception) as exc:  # any failure from here - a waiter, an AWS error - not only ours
+            # The writers may be held (all, or some if quiesce() itself failed): say how to start them again.
             raise SystemExit(f"{exc} - the writers are stopped: `python scripts/pause_resume.py wake` starts them "
-                             "again") from None
+                             "again") from exc
     found = audit_db(rds)
     if found is None:
         log(f"{ax.PREFIX}audit: does not exist - nothing to keep")
@@ -319,6 +319,20 @@ def stop_db(rds, log=print) -> None:
     log(f"{ident}: stopped - AWS starts it again by itself after 7 days; pause again then, or it bills")
 
 
+STOP_WAIT = {"Delay": 30, "MaxAttempts": 60}  # 30 minutes
+
+
+def _wait_stopped(rds, ident: str, log) -> str:
+    for _ in range(STOP_WAIT["MaxAttempts"]):
+        found = audit_db(rds)
+        status = _db_status(*found) if found else ""
+        if status != "stopping":
+            log(f"{ident}: {status or 'gone'}")
+            return status
+        time.sleep(STOP_WAIT["Delay"])
+    raise SystemExit(f"{ident} was still stopping after 30 minutes: start it once it is stopped (resume again)")
+
+
 def start_db(rds, log=print) -> None:
     """Runtime resume, first step: start the audit database and wait until it is available. A database that is gone
     while a pause snapshot of it exists is NOT recreated empty: that is a restore, for a person (docs/OPERATIONS.md)."""
@@ -333,6 +347,10 @@ def start_db(rds, log=print) -> None:
         log(f"{ident}: does not exist and no pause snapshot - Terraform creates it (a first install)")
         return
     kind, status = found[0], _db_status(*found)
+    if status == "stopping":
+        # A resume right after a pause: RDS refuses to start a database that is still stopping, and the available-
+        # waiters never end on `stopped` (CodeRabbit, PR 103). Wait for the stop, then start it.
+        status = _wait_stopped(rds, ident, log)
     if status == "stopped":
         log(f"starting {ident}")
         if kind == "cluster":
