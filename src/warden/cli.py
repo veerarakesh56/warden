@@ -465,7 +465,7 @@ async def _workflow_command(args: argparse.Namespace) -> int:
             by_environment("WARDEN_SLACK_CHANNELS")
             discuss.channels()
             # B35: the core zone's beat vouches for every deployed zone; a zone WARDEN does not have refuses to start.
-            zones = runtime.heartbeat_zones() if args.zone == "core" else ()
+            zones = runtime.heartbeat_zones(args.zone)
         except ValueError as exc:
             _out(f"error: {exc}", err=True)
             return 1

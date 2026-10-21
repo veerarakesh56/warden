@@ -123,10 +123,13 @@ HEARTBEAT_METRIC = "Heartbeat"
 ZONE_POLL_FRESH = timedelta(minutes=2)
 
 
-def heartbeat_zones() -> tuple[str, ...]:
+def heartbeat_zones(zone: str = "core") -> tuple[str, ...]:
     """The zones the core zone's beat vouches for (WARDEN_HEARTBEAT_ZONES, comma-separated); none when unset - a
-    laptop's `--zone all` runs every zone in its own process. A zone WARDEN does not have refuses the worker's start:
-    a beat that checks a queue nobody serves would page for ever, and one that skipped it would vouch for nothing."""
+    laptop's `--zone all` runs every zone in its own process - and none for any worker but the core zone's. A zone
+    WARDEN does not have refuses the worker's start: a beat that checks a queue nobody serves would page for ever,
+    and one that skipped it would vouch for nothing."""
+    if zone != "core":
+        return ()
     zones = tuple(z.strip() for z in os.environ.get("WARDEN_HEARTBEAT_ZONES", "").split(",") if z.strip())
     unknown = sorted(set(zones) - set(ZONES))
     if unknown:

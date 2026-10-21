@@ -91,7 +91,8 @@ def test_the_beat_vouches_for_every_zone_and_names_a_silent_one():
     beats = []
     every = tuple(ZONES)
     client = _Client(_live(*every))
-    assert asyncio.run(runtime.beat(client, lambda: beats.append(1), zones=every)) == "" and beats == [1]
+    assert asyncio.run(runtime.beat(client, lambda: beats.append(1), zones=every)) == ""
+    assert beats == [1]
     assert [a[1] for a in client.workflow_service.asked] == [zone_queue(z) for z in every]
     assert {(a[0], a[2]) for a in client.workflow_service.asked} == {
         ("warden-ns", TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY)}
@@ -101,13 +102,15 @@ def test_the_beat_vouches_for_every_zone_and_names_a_silent_one():
     stale.pop(zone_queue("act"))  # no worker at all
     problem = asyncio.run(runtime.beat(_Client(stale), lambda: beats.append(1), zones=every))
     assert beats == [1], "a beat was published with a zone not polling"
-    assert "read, act zones" in problem and "polled" in problem
+    assert "read, act zones" in problem
+    assert "polled" in problem
 
 
 def test_without_zones_the_beat_is_the_round_trip_alone():
     beats = []
     client = _Client()
-    assert asyncio.run(runtime.beat(client, lambda: beats.append(1))) == "" and beats == [1]
+    assert asyncio.run(runtime.beat(client, lambda: beats.append(1))) == ""
+    assert beats == [1]
     assert client.workflow_service.asked == []
 
 
@@ -122,7 +125,9 @@ def test_a_zone_that_cannot_be_described_is_a_missed_beat_never_a_crashed_worker
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(runtime.heartbeat(client, lambda: beats.append(1), every=timedelta(seconds=1), log=lines.append,
                                       zones=("llm",)))
-    assert beats == [] and lines and "heartbeat missed" in lines[0]
+    assert beats == []
+    assert lines
+    assert "heartbeat missed" in lines[0]
 
 
 def test_the_zones_come_from_the_runtime_and_a_zone_warden_lacks_refuses_to_start(monkeypatch):
@@ -133,6 +138,13 @@ def test_the_zones_come_from_the_runtime_and_a_zone_warden_lacks_refuses_to_star
     monkeypatch.setenv("WARDEN_HEARTBEAT_ZONES", "read,nope")
     with pytest.raises(ValueError, match="nope"):
         runtime.heartbeat_zones()
+
+
+def test_only_the_core_zones_beat_vouches_for_the_other_zones(monkeypatch):
+    monkeypatch.setenv("WARDEN_HEARTBEAT_ZONES", "read,llm")
+    assert runtime.heartbeat_zones("core") == ("read", "llm")
+    for zone in ("all", "read", "llm", "notify", "act"):
+        assert runtime.heartbeat_zones(zone) == (), zone
 
 
 def test_the_core_worker_refuses_to_start_with_a_zone_warden_lacks(monkeypatch, capsys):
@@ -202,7 +214,8 @@ def test_temporal_refusing_the_key_is_an_error_line_the_worker_errors_alarm_page
         with pytest.raises(RPCError):
             asyncio.run(runtime.beat(_Client(clock_error=RPCError("no", status, b"")), lambda: None))
         errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
-        assert len(errors) == 1 and status.name in errors[0].getMessage()
+        assert len(errors) == 1
+        assert status.name in errors[0].getMessage()
         assert _WORKER_ERRORS.search(_paged_line(errors[0]))
     caplog.clear()
     with pytest.raises(RPCError):
@@ -238,7 +251,8 @@ def test_the_models_key_refused_is_an_error_line_and_nothing_else_is(caplog, sta
     errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert len(errors) == (1 if paged else 0)
     if paged:
-        assert f"HTTP {status}" in errors[0].getMessage() and "sk-detail" not in errors[0].getMessage()
+        assert f"HTTP {status}" in errors[0].getMessage()
+        assert "sk-detail" not in errors[0].getMessage()
         assert _WORKER_ERRORS.search(_paged_line(errors[0]))
 
 
@@ -263,8 +277,10 @@ def test_the_audit_database_gone_or_full_is_one_error_line(caplog, error):
     with pytest.raises(type(error)):
         _store(error).run("SELECT 1")
     errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
-    assert len(errors) == 1 and type(error).__name__ in errors[0].getMessage()
-    assert "gone" not in errors[0].getMessage() and "full)" not in errors[0].getMessage()  # its kind, never its text
+    assert len(errors) == 1
+    assert type(error).__name__ in errors[0].getMessage()
+    assert "gone" not in errors[0].getMessage()  # its kind, never its text
+    assert "full)" not in errors[0].getMessage()
     assert _WORKER_ERRORS.search(_paged_line(errors[0]))
     again = type(error)("again")
     with pytest.raises(type(error)), audit._said_when_unreachable(True):
@@ -289,7 +305,9 @@ def test_the_audit_database_unreachable_at_start_or_at_commit_is_said_too(caplog
     with pytest.raises(psycopg.errors.AdminShutdown), store.transaction():
         pass
     said = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
-    assert len(said) == 2 and "(OperationalError)" in said[0] and "(AdminShutdown)" in said[1]
+    assert len(said) == 2
+    assert "(OperationalError)" in said[0]
+    assert "(AdminShutdown)" in said[1]
 
 
 @pytest.mark.parametrize(("error", "pg"), [(psycopg.errors.DeadlockDetected("retry"), True),
@@ -317,7 +335,8 @@ def test_an_event_a_lambda_failed_on_goes_to_the_paging_dead_letter_queue():
     assert 'async_front_doors = ["alarm", "actor-use"]' in front
     cfg = _resource(front, 'resource "aws_lambda_function_event_invoke_config" "front_door"')
     assert "for_each                     = toset(local.async_front_doors)" in cfg
-    assert "destination = aws_sqs_queue.alarm_dlq.arn" in cfg and "on_failure" in cfg
+    assert "destination = aws_sqs_queue.alarm_dlq.arn" in cfg
+    assert "on_failure" in cfg
     assert "depends_on = [aws_iam_role_policy.front_door]" in cfg
     # Each function EventBridge invokes is in the list: every event target that is a front door.
     targets = re.findall(r'arn\s*=\s*aws_lambda_function\.front_door\["([\w-]+)"\]\.arn', front + _tf("witness.tf"))
