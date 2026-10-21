@@ -299,7 +299,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - AWS, Kubernetes and database reads: boto3, the Kubernetes client and the database drivers - `aws_backend.py`,
   `aws_stack.py`, `k8s_backend.py`, `database.py`, `tools.py`. What an alarm watches: CloudWatch's own documented
   namespaces and dimensions, one table - `resources.py` (checked against AWS's metric pages 2026-10-10). The state of
-  each service's resource: one closed table of read calls and AWS's own structured fields - `aws_describe.py`. Which more
+  each service's resource: one closed table of read calls and AWS's own structured fields - `aws_describe.py`. Each
+  service's key health signals (a NAT gateway's port allocation errors, EFS burst credits): one closed table of
+  CloudWatch metrics with AWS's documented statistic for each - `health_signals.py` (2026-10-21). Which more
   resources an investigation may read: only names WARDEN already holds - `investigation.py`. From an approved
   diagnosis to its fix plan, from labels and live known-good values only - `resolver.py`. The generic fix
   classes' AWS entries in `platforms/aws.py`: each a few calls of AWS's own API under the existing
