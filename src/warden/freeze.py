@@ -10,7 +10,7 @@ import os
 from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -38,7 +38,7 @@ def active(environment: str, now: datetime, *, path: str | None = None) -> list[
             start = datetime.fromisoformat(str(w["start"])).replace(tzinfo=zone)
             end = datetime.fromisoformat(str(w["end"])).replace(tzinfo=zone)
             envs = {str(e) for e in w["environments"]}
-        except (KeyError, TypeError, ValueError, ZoneInfoNotFoundError) as exc:
+        except (KeyError, TypeError, ValueError) as exc:  # an unknown zone (ZoneInfoNotFoundError) is a KeyError
             reasons.append(f"P19-FREEZE: window {name!r} cannot be read ({type(exc).__name__}); no change is applied")
             continue
         if environment in envs and start <= now.astimezone(zone) <= end:
