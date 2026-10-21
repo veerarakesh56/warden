@@ -63,6 +63,7 @@ the evidence or a Slack body.
 | PagerDuty | `events.pagerduty.com` | the gated report's first line | the same; `routing_key` is PagerDuty's own credential | yes |
 | AWS's documentation (opt-in) | `knowledge-mcp.global.api.aws` | an AWS error code and a service word | the same | yes |
 | Temporal Cloud | `*.tmprl.cloud` | workflow payloads, **encrypted** (`codec.py`); workflow ids and activity names in clear | the codec; Temporal's client is Rust and is not seen by the hook (limit below) | yes |
+| *Inbound:* GuardDuty and Security Hub findings (#52) | EventBridge → the alarm Lambda (no outbound call) | nothing goes out; the finding's own words are masked in the alert's summary before it is recorded or told, and it is escalate-only (no model is asked) | `redact` in `security_findings.py`; the report it becomes passes the Slack check above; `tests/test_egress.py` plants canaries in a finding | - (comes in) |
 | WARDEN's own AWS account | `*.amazonaws.com` | reads, the approved fix, the audit, secrets, KMS (boto3) | name lookups listed; a urllib body to any AWS name is checked like one outside | no |
 | The private network | non-routable addresses, `*.svc`, `*.internal`, `localhost` | a cluster's services, instance and task metadata | name lookups listed | no |
 | A proxy (`HTTPS_PROXY`) | its host | the tunnel to the destinations above | requests through it are checked by their real address | no |
