@@ -287,3 +287,20 @@ def test_a_client_on_another_model_or_price_is_never_used(monkeypatch):
     assert other_model.clients == other_price.clients == []
     ok = golden.Spend(3.0, 10.0, 0.01, model="claude-sonnet-5-5", prices=listed)
     assert ok.client() is ok.clients[0]
+
+
+def test_a_malformed_answer_is_asked_at_most_three_times_per_run():
+    """Review, PR 178: the estimate's high end assumes each run's call is retried to its third attempt (ATTEMPTS_MAX);
+    one run against an answer that never parses makes exactly that many calls, on a client the budget does not cap."""
+    from warden.providers import MAX_OUTPUT_TOKENS
+
+    calls = []
+    model = _Answers("not json")
+    model.model = "claude-sonnet-5-5"
+
+    def complete(**_kw):
+        calls.append(1)
+        return Completion("not json", 3_000, MAX_OUTPUT_TOKENS)
+    model.complete = complete
+    golden.run_case(golden.no_fault_cases()[0], golden.LLMClient(provider=model, max_usd=100.0, mock=False))
+    assert len(calls) == golden.ATTEMPTS_MAX
