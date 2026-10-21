@@ -691,11 +691,13 @@ class RemediationActivities:
             out.append((LINK_LABEL + (f" (link of {name})" if len(who) > 1 else ""), f"https://{rp}/a/{token}"))
         return tuple(out)
 
-    def _needs_person(self, plan: Plan, name: str) -> list[str]:
+    def _needs_person(self, plan: Plan, name: str, *, ai: bool = False) -> list[str]:
         """A hard case its hard model could not answer (not qualified) is a person's to approve (owner, 2026-10-17;
-        routing.needs_person): never the bench approver's, a test identity - by whatever path its approval came."""
+        routing.needs_person): never an AI's (Eldane) nor the bench approver's, a test identity - by whatever path its
+        approval came. `ai`: the approval was recorded as an AI's, whatever the list says now (PR 42, CWE-863)."""
         entry = self.policy.approvers.get(name)
-        if entry is None or not approvals.is_bench(name, entry) or not routing.needs_person(self.audit, plan.incident_id):
+        person = not ai and not self.policy.is_ai(name) and not (entry is not None and approvals.is_bench(name, entry))
+        if person or not routing.needs_person(self.audit, plan.incident_id):
             return []
         return [(f"{name} is not a person, and this incident is a hard case its hard model could not answer: a person "
                  "approves its fix")]
@@ -846,6 +848,11 @@ class RemediationActivities:
         if any(e["body"].get("ai") is True or self.policy.is_ai(str(e["body"].get("approver"))) for e in approved) and (
                 again := autonomy.ai_problems(self.audit, plan, run)):
             return again
+        # And a needs_person case is applied only on a person's approval (routing.needs_person, PR 169 review): every
+        # recorded approver that is no person is checked again, as recorded.
+        for e in approved:
+            if held := self._needs_person(plan, str(e["body"].get("approver")), ai=e["body"].get("ai") is True):
+                return held
         last_approval = max(e["seq"] for e in approved)
         checks = [e for e in rows("remediation.precheck") if e["seq"] > last_approval]
         if not checks or checks[-1]["body"].get("problems"):

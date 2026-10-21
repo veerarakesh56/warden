@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
 import pathlib
 import sys
@@ -97,6 +98,8 @@ def qualify(a: argparse.Namespace) -> int:
     for price in ("WARDEN_PRICE_IN", "WARDEN_PRICE_OUT"):
         os.environ.pop(price, None)  # each model at its own price (providers.yaml `prices`)
     code = qualify_provider.main(["--out", str(a.out), "--budget-usd", str(a.budget_usd)])
+    if code not in (0, 1):  # 0 passed, 1 measured below the bar; anything else stopped before a result was written
+        return code
     result = json.loads((a.out / "qualification.json").read_text(encoding="utf-8"))
     if a.record:
         text, line = recorded(result, PROVIDERS_YAML.read_text(encoding="utf-8"))
@@ -112,11 +115,19 @@ def qualify(a: argparse.Namespace) -> int:
 JOBS: dict[str, Callable[[argparse.Namespace], int]] = {"qualify": qualify}
 
 
+def _budget(text: str) -> float:
+    """A finite, positive number of USD: nan, infinity, zero or less would switch the ceiling off."""
+    value = float(text)
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError(f"the budget must be a finite, positive number of USD, not {text!r}")
+    return value
+
+
 def main(argv: list[str] | None = None, *, secrets_client: object = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("job", choices=sorted(JOBS))
     p.add_argument("--model", required=True, help="an exact model id (register M15)")
-    p.add_argument("--budget-usd", type=float, default=3.0, help="a hard ceiling on what the run may spend")
+    p.add_argument("--budget-usd", type=_budget, default=3.0, help="a hard ceiling on what the run may spend")
     p.add_argument("--env", default=None, help="whose key: the runtime environment by default")
     p.add_argument("--out", type=pathlib.Path, default=None, help="a NEW directory outside the repository")
     p.add_argument("--record", action="store_true", help="write the measured row into providers.yaml")

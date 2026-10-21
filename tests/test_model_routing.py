@@ -589,3 +589,39 @@ def test_eldane_gets_the_other_model_for_the_critic_role(monkeypatch):
     _opus_qualified(monkeypatch, False, roles=["chat"])
     assert routing.for_critic(SONNET).model == ""
     assert "not listed for critic" in routing.for_critic(SONNET).why
+
+
+def test_neither_eldane_nor_the_bench_satisfies_a_needs_person_case_even_at_apply(tmp_path):
+    """PR 169 review: an AI approver (Eldane) is held like the bench approver, when its approval arrives and again
+    right before apply, as recorded - only a person's approval applies a needs_person case."""
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    from warden import activities, approvals, catalog
+    from warden.activities import RemediationActivities
+
+    nonprod = next(e for e, tier in routing_envs() if tier == "nonprod")
+    policy = approvals.ApproverPolicy(approvers={
+        "eldane": approvals.Approver(name="", public_key="key-of-eldane", tiers=["T1"], environments=[nonprod], ai=True),
+        "bench": approvals.Approver(name="", public_key="key-of-bench", tiers=["T1"], environments=[nonprod]),
+        "owner": approvals.Approver(name="the owner", public_key="key-of-owner", tiers=["T1"], environments=[nonprod])})
+    log = audit.AuditLog(tmp_path / "apply.db", key=Ed25519PrivateKey.generate())
+    plan = approvals.Plan(workflow_id="rem-1", incident_id="inc-1", entry="events_enable_rule", tier="T1",
+                          params={"alarm": "a", "rule": "r", "event": "e"}, plan_hash="h",
+                          created_at=datetime.now(UTC) - timedelta(minutes=5), environment=nonprod,
+                          basis={"catalog": catalog.fingerprint(), "code": activities.code_version()})
+    acts = RemediationActivities(audit=log, policy=policy, platform=None)
+    assert acts._needs_person(plan, "eldane") == []  # nothing on the record asks for a person yet
+    log.append("inc-1", "incident.route", {"stage": "verify", "needs_person": True})
+    assert acts._needs_person(plan, "eldane")
+    assert acts._needs_person(plan, "bench")
+    assert acts._needs_person(plan, "owner") == []
+    assert acts._needs_person(plan, "renamed-since", ai=True)  # recorded as an AI's: one, whatever the list says
+    ids = {"workflow_id": plan.workflow_id, "run_id": "", "plan_hash": plan.plan_hash}
+    log.append("inc-1", "remediation.plan", {**ids, "entry": plan.entry, "params": plan.params, "target": plan.target,
+                                             "basis": plan.basis,
+                                             "tier": plan.tier, "environment": plan.environment, "problems": []})
+    log.append("inc-1", "approval.accepted", {**ids, "approver": "bench", "nonce": uuid.uuid4().hex})
+    log.append("inc-1", "remediation.precheck", {**ids, "problems": []})
+    refused = acts._not_approved(plan, "r")
+    assert any("a person approves its fix" in p for p in refused), refused

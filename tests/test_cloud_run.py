@@ -90,3 +90,26 @@ def test_qualify_runs_the_replay_for_exactly_the_named_model_at_its_own_price(tm
     assert '--budget-usd' in seen['argv']
     assert '2.0' in seen['argv']
     assert set(cloud_run.JOBS) == {"qualify"}
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", "-inf", "0", "-1"])
+def test_a_budget_that_would_switch_the_ceiling_off_is_refused(bad):
+    import argparse
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        cloud_run._budget(bad)
+
+
+def test_a_run_that_stopped_before_its_result_is_not_read_or_recorded(tmp_path, monkeypatch):
+    import qualify_provider
+
+    monkeypatch.setattr(qualify_provider, "main", lambda argv: 2)  # e.g. "refusing to write inside the repository"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "set-by-the-task")
+    for name in ("WARDEN_PROVIDER", "WARDEN_MODEL"):
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
+    recorded = []
+    monkeypatch.setattr(cloud_run, "recorded", lambda *a: recorded.append(a) or ("", ""))
+    code = cloud_run.main(["qualify", "--model", "claude-opus-5-5", "--out", str(tmp_path / "o"), "--record"])
+    assert code == 2
+    assert recorded == []

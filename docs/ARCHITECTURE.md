@@ -251,7 +251,10 @@ diagnose; an unqualified model is refused, and every incident is then escalated 
 
 `routing.py` picks the model per case: Claude Sonnet 5.5 by default, Claude Opus 5.5 when one of WARDEN's own
 checkable signals marks the case hard (the fix's tier T2/T3, prod, two diagnoses disagreeing, weak evidence, the top
-hypotheses too close, a re-investigation asked for in chat), and only when `providers.yaml` says Opus is qualified.
+hypotheses too close, a re-investigation asked for in chat). Diagnosing needs the model's `diagnose` role in
+`providers.yaml` and a passing replay-qualification row; reviewing (Eldane) and the discussion channel need only their
+role, `critic` or `chat`, because neither changes anything on its own - so today Opus reviews and answers deep chat
+questions but never diagnoses.
 Signals known before the first answer pick the model for it (`diagnose`); the rest are computed by `verify` and
 `second_opinion` on the verified answer, and when they mark the case hard the workflow asks Opus on the same evidence,
 verifies its answer and gives it its own second opinion (`IncidentWorkflow._take_over`). Each choice and its signals'
