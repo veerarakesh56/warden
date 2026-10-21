@@ -15,7 +15,7 @@ day-two operations are in [OPERATIONS.md](OPERATIONS.md), and what to do when WA
 | The dev full-stack lab | Actions -> *Deploy · dev* -> `part: infra`, `infra_action: pause` or `resume` | [OPERATIONS.md](OPERATIONS.md); [FULLSTACK-LAB.md](FULLSTACK-LAB.md) |
 | Inject and revert one lab fault | `python -m scenarios.fullstack_cli soak`, `inject <fault>`, `verify <fault>`, `revert <fault>` | [FULLSTACK-LAB.md](FULLSTACK-LAB.md) section 6 |
 | The filmed demo | one fs-07 fix in dev, or the labelled sample variant | [DEMO.md](DEMO.md) |
-| Qualify a model (paid; the owner's laptop) | `scripts/qualify_provider.py --out <a new directory outside the repository>` | [BENCHMARKS.md](BENCHMARKS.md); [USE-CASE.md](USE-CASE.md#success-criteria) |
+| Qualify a model (paid; `providers.yaml` says in the cloud runtime) | `python scripts/qualify_provider.py --out <a new directory outside the repository>` | [BENCHMARKS.md](BENCHMARKS.md); [USE-CASE.md](USE-CASE.md#success-criteria) |
 | Rotate a secret or key | per-secret steps | [OPERATIONS.md](OPERATIONS.md), "Secret and key rotation" |
 
 Who approves: in prod, always a person with a passkey; in dev, Eldane (an AI critic) for T1/T2 plans, with a person's
@@ -33,23 +33,27 @@ re-enables it with `warden autonomy enable` ([OPERATIONS.md](OPERATIONS.md), "De
 | `warden-<env>-approvers-changed` | the approver list changed | the same module |
 | `warden-<env>-worker-errors`, `-lambda-errors`, `-lambda-throttles`, `-alarm-dlq`, `-audit-db-cpu`, `-audit-db-connections`, `-audit-db-storage` | the runtime's own health | the same module |
 | Every incident and what happened to it | `https://<the approval domain>/r` (Sign in with Slack) | [OPERATIONS.md](OPERATIONS.md), "WARDEN's records" |
-| Model calls, tokens and cost per day | `warden usage --days 30` (from the audit) | `src/warden/cli.py`; [COST.md](COST.md) |
+| Model calls, tokens and cost per day | `warden usage --days 30` (from the audit; for the cloud audit, inside the runtime's VPC) | `src/warden/cli.py`; [COST.md](COST.md) |
 | Dev autonomy and its demotions | `warden autonomy status --environment dev` | [OPERATIONS.md](OPERATIONS.md), "Dev autonomy" |
 | The kill switch | `warden killswitch status` | [RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md) section 0 |
-| Is the record intact | `warden audit verify` / `warden audit show <incident-id>`; the records page's "Signed record" line | [RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md) section 2 |
+| Is the record intact | `warden audit verify --public-key <checkpoint public key> --anchor-bucket <anchor bucket>` / `warden audit show <incident-id> --public-key <checkpoint public key>` (the S3 anchors are checked only with `--anchor-bucket`); the records page's "Signed record" line | [RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md) section 2 |
 | Is any model qualified on today's prompt | `providers.qualified` has a row whose `prompt` equals `prompt.sha` | `src/warden/data/providers.yaml`; [DEMO.md](DEMO.md) has a one-line check |
 
 ## Known limitations
 
-- **Production is rules-only until the laptop re-qualifies a model.** The diagnosis prompt pinned in
-  `src/warden/data/providers.yaml` (`prompt.sha`) is marked "NOT YET QUALIFIED": every `qualified` row was measured on
-  an earlier prompt, and a row counts only for the prompt it was measured with (`src/warden/providers.py`
+- **Production is rules-only until a model is qualified again on the pinned prompt.** The diagnosis prompt pinned in
+  `src/warden/data/providers.yaml` (`prompt.sha`) is marked "NOT YET QUALIFIED". It already includes PR #132's changes
+  (merged): a typed outcome, tagged sections, and a retry that names the failed fields. Every `qualified` row was
+  measured on an earlier prompt, and a row counts only for the prompt it was measured with (`src/warden/providers.py`
   `qualified()`). So every model is refused, and each incident gets the rules-only diagnosis and goes to a person with
-  no fix plan (register M19). Open PR #132 changes the prompt again, and so its hash; after it merges, the laptop
-  qualifies once on the prompt then pinned (`scripts/qualify_provider.py`), records the row in `providers.yaml`, and
-  only then does a model diagnose again. Read the current hash from `providers.yaml`; this page does not repeat it.
-- The only model ever qualified for production is Claude Sonnet 5.5 (17 of 30, the bar exactly); Claude Opus 5.5 is
-  not (15 of 30). The golden set is 30 incidents, and two runs of one model differ by about 2 ([USE-CASE.md](USE-CASE.md)).
+  no fix plan (register M19). A model diagnoses again only after `scripts/qualify_provider.py` is run on today's prompt
+  (`providers.yaml` says in the cloud runtime) and its row is recorded in `providers.yaml`. Read the current hash from
+  `providers.yaml`; this page does not repeat it.
+- The only row in `providers.yaml` `qualified` today is Claude Sonnet 5.5 (17 of 30, the bar exactly, on an earlier
+  prompt); Claude Opus 5.5 scored 15 of 30 and is not qualified. Earlier rows qualified Claude Sonnet 5 (18-22 of 30
+  across its runs) and Claude Fable 5 and 5.1 (20 of 30); they were measured on older prompts and the Sonnet 5 row was
+  retired on 2026-10-15. The golden set is 30 incidents, and two runs of one model differ by about 2
+  ([USE-CASE.md](USE-CASE.md)).
 - Eldane and the diagnosis are the same model family, which can share blind spots; what is done about it is in
   `src/warden/eldane.py`.
 - The full-stack lab ran each fault once; no full-stack score is published, and its faults were designed by WARDEN's
@@ -59,8 +63,8 @@ re-enables it with `warden autonomy enable` ([OPERATIONS.md](OPERATIONS.md), "De
   `WARDEN_AUDIT_DSN` there; the records page checks signatures when it opens.
 - How long `resume` takes has not been measured yet; AWS starts a stopped RDS database again after 7 days
   ([OPERATIONS.md](OPERATIONS.md), "Pause and resume").
-- Model cost per incident is known from September token counts and October spend, not from today's prompt
-  ([COST.md](COST.md)).
+- Model cost per incident is known from spend measured in October on an earlier prompt, not from today's prompt; the
+  September token counts are estimates (characters / 3) ([COST.md](COST.md)).
 
 ## Escalation
 

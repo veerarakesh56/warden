@@ -31,7 +31,7 @@ def test_the_required_h2_headings_are_there_in_order(name, headings):
 def test_the_runbook_says_production_is_rules_only_until_requalified():
     text = (DOCS / "RUNBOOK.md").read_text(encoding="utf-8")
     limits = text.split("## Known limitations", 1)[1].split("\n## ", 1)[0]
-    assert re.search(r"[Pp]roduction is rules-only until the laptop re-qualifies", limits)
+    assert re.search(r"[Pp]roduction is rules-only until a model is qualified again", limits)
     assert "providers.yaml" in limits
 
 

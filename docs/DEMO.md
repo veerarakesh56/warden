@@ -24,7 +24,7 @@ Rejected: fs-27 (rule disabled) is also T1, but its alarm needs a 10-minute wind
 `terraform/fullstack/alarms.tf`) and the fix shows only at the next 5-minute run. fs-09 (DynamoDB capacity) is T1
 too, but its catalogue entry has no undo ("n/a (bounded increase)").
 
-One honest note: the lab's rubric (`scenarios/scoring.yaml`, `sqs_consumer_disabled`) was written on 2026-09-26,
+One honest note: the lab's rubric (`scenarios/scoring.yaml`, `sqs_consumer_disabled`) was written on 2026-09-25,
 before the catalogue had `lambda_enable_esm`, and still grades `escalate_to_human` as the right answer. A benchmark
 score for fs-07 would count this fix as not the rubric's. The demo shows the fix; it is not a benchmark result.
 
@@ -33,7 +33,8 @@ score for fs-07 would count this fix as not the rubric's. The demo shows the fix
 1. **A model must be qualified on the pinned prompt, or there is no fix to film.** Today none is:
    `src/warden/data/providers.yaml` says the pinned prompt (`prompt.sha`) is "NOT YET QUALIFIED", so every incident
    gets the rules-only diagnosis and goes to a person with no plan (register M19, `src/warden/providers.py`
-   `qualified()`). The laptop re-qualifies first ([USE-CASE.md](USE-CASE.md#success-criteria)). Check:
+   `qualified()`). A model must be qualified again on today's prompt first
+   ([USE-CASE.md](USE-CASE.md#success-criteria)). Check:
 
    ```bash
    python -c "from warden.providers import load_qualified as q; d=q(); print(any(isinstance(r, dict) and r.get('prompt') == d['prompt']['sha'] for r in d['qualified']))"
@@ -90,7 +91,7 @@ From the repository root, in the shell set up above (`scenarios/fullstack_cli.py
 
 ```bash
 python -m scenarios.fullstack_cli inject fs-07     # save the mapping's state, disable it, wait for the alarm
-python -m scenarios.fullstack_cli verify fs-07     # poll "fixed when": the mapping Enabled and the backlog under 20
+python -m scenarios.fullstack_cli verify fs-07 --timeout 900   # poll "fixed when" for up to 15 min: the mapping Enabled and the backlog under 20
 python -m scenarios.fullstack_cli revert fs-07     # put the saved state back, wait for the baseline
 python -m scenarios.fullstack_cli status           # every step of this run, and the stack's health now
 ```
@@ -106,10 +107,12 @@ stack.
 - **On camera:** the record page's first line is checked when the page opens (`src/warden/records.py`): the audit
   head, how many rows a signed checkpoint covers and are intact, and how many are not signed yet ("a checkpoint signs
   them shortly"). Each Slack footer names the head as it was when that message was sent (register S17), so it is an
-  earlier checkpoint than the page's whenever steps were recorded after the message. `warden audit show` lists every
-  row's hash, so an earlier footer's head can be found in the chain off camera.
-- **Off camera, by the book:** `warden audit verify` and `warden audit show <incident-id>` recompute every hash and
-  check every signature and S3 anchor ([RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md) section 2). In the
+  earlier checkpoint than the page's whenever steps were recorded after the message.
+  `warden audit show <incident-id> --public-key <key>` lists every row's hash, so an earlier footer's head can be found in the chain off camera.
+- **Off camera, by the book:** `warden audit verify --public-key <key> --anchor-bucket <bucket>` and
+  `warden audit show <incident-id> --public-key <key>` recompute every hash and check every signature. `verify` checks
+  the S3 anchors only when `--anchor-bucket` is given ([RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md)
+  section 2). In the
   cloud they need `WARDEN_AUDIT_DSN`, and the audit database is reachable only from inside the runtime's VPC; no laptop
   step for that exists in the repository today. Do not claim the film shows an offline verification.
 
@@ -121,18 +124,18 @@ bundled incidents with no cloud account and no API key (README.md, "Quick start"
 ```bash
 WARDEN_MOCK=1 warden demo --verbose                     # all five, one block each (about 2 s here)
 WARDEN_MOCK=1 warden run --incident inc-005 --verbose   # one: the gate's verdict and the step-by-step trail
-WARDEN_MOCK=1 warden run --incident inc-005 --report    # the same, with the redacted report a person reads
+WARDEN_MOCK=1 warden run --incident inc-005 --verbose --report   # the same, with the redacted report a person reads
 ```
 
 | Film time | On screen | Say |
 |---|---|---|
 | 0:00-0:20 | the label | "Sample mode: recorded incidents, a mock model. Nothing touches AWS." |
 | 0:20-1:10 | `warden demo --verbose` | Five incidents: three fixes held for a person's approval, one rejected by the gate (failover in prod), one that declines to invent a fix. |
-| 1:10-2:10 | `warden run --incident inc-005 --report` | Masked identifiers, the evidence, the hypothesis, `terminate_connections` on `payments-db`, "approved for a person", the report. |
-| 2:10-2:40 | the `audit trail` lines of `--verbose` | Each step as it is recorded: ingest, gather, redact, tripwire, diagnose (with the prompt and response hashes), verify, await approval. |
-| 2:40-3:00 | the last line | "No action was executed": `warden run` never changes anything. |
+| 1:10-2:10 | `warden run --incident inc-005 --verbose --report` | Masked identifiers, the evidence, the hypothesis, `terminate_connections` on `payments-db`, "approved for a person", the report. |
+| 2:10-2:40 | the same run's `audit trail:` lines (from `--verbose`) | Each step as it is recorded: ingest, gather, redact, tripwire, diagnose (with the prompt and response hashes), verify, await approval. |
+| 2:40-3:00 | back to the end of `warden demo --verbose`: its last line | "No action was executed. WARDEN proposes and gates; a change runs only as a fix plan an approver approved." `warden run` ends with the report's footer instead ("It changes nothing except by applying a catalogue fix plan an approver approved."): neither command changes anything. |
 
 What sample mode does not show, and must not be said to: no Slack message, no records page, no Eldane, no apply, no
 undo, no signature (the `audit trail` lines are the run's steps, not the signed audit). The `cost` lines are the mock
 client's estimate, not a real model's spend. Checked 2026-10-21 13:59 UTC (19:29 IST): `WARDEN_MOCK=1 warden demo --verbose` ran the
-five incidents in about 2 seconds with those verdicts, and `run --incident inc-005 --report` printed the report.
+five incidents in about 2 seconds with those verdicts, and `run --incident inc-005 --verbose --report` printed the trail and the report.
