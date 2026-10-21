@@ -233,7 +233,7 @@ flowchart TB
         PLAN[resolve_plan: catalogue entry -> exact plan<br/>from live state, plan hash; environment<br/>and self-target checks <i>catalog, environments</i>]
         GATE[gate: bounds, cool-down, kill switch,<br/>change freeze, approval-fatigue cap<br/><i>bounds, freeze</i>]
         CRIT[critic_review, when the run has it (patched eldane-critic):<br/>Eldane, the AI critic, in its own zone, the other Claude<br/>model than the diagnosis, blind first pass; signs in dev at L2 (a person's<br/>no still wins) - else a person decides <i>eldane, autonomy</i><br/>autonomy_state / autonomy_enable: a person's signed<br/>re-enable after a demotion (AutonomyWorkflow)]
-        APPR[check_approval / check_passkey<br/>signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
+        APPR[check_approval / check_passkey<br/>signed approval of the exact plan hash<br/>approval_extension: a wait an approver extended<br/><i>approvals, passkeys, extend</i>]
         APPLY[precheck - apply - check_success<br/>3 healthy checks, re-checks at T+15 and T+60<br/>record_result; rollback when not recovered<br/>side_effects: other alarms after the fix<br/>again_alert: diagnosed again after a relapse]
         FIN[finish: audit row, change record<br/>summary_owed: the incident's one message<br/>when a run ends before any said it<br/><i>changes.py</i>]
         PLAN --> GATE --> APPR --> APPLY --> FIN
