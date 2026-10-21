@@ -159,7 +159,19 @@ def _decorated_off(src: str, func: str) -> bool:
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == func:
             names = [ast.unparse(d.func if isinstance(d, ast.Call) else d) for d in node.decorator_list]
-            return any(name not in _SAFE_DECORATORS for name in names)
+            return any(name not in _SAFE_DECORATORS for name in names) or _a_case_is_marked_off(node)
+    return False
+
+
+def _a_case_is_marked_off(node: ast.FunctionDef) -> bool:
+    """A `pytest.param(..., marks=...)` case marked skip or xfail inside a parametrize (PR 86 review): with only such
+    cases pytest runs nothing. Any marked case refuses the citation - evidence is a test that runs whole."""
+    for decorator in node.decorator_list:
+        for call in ast.walk(decorator):
+            if isinstance(call, ast.Call) and ast.unparse(call.func) in ("pytest.param", "param"):
+                marks = " ".join(ast.unparse(k.value) for k in call.keywords if k.arg == "marks")
+                if "skip" in marks or "xfail" in marks:
+                    return True
     return False
 
 
@@ -338,6 +350,14 @@ def test_a_skip_over_several_lines_or_behind_a_comment_is_not_evidence(src):
     assert _decorated_off(src, "test_a")
     multi = "import pytest\n\n@pytest.mark.parametrize(\n    'x', [1],\n)\ndef test_a(x):\n    pass\n"
     assert not _decorated_off(multi, "test_a")
+
+
+@pytest.mark.parametrize("marks", ["pytest.mark.skip", "[pytest.mark.skipif(True, reason='x')]", "pytest.mark.xfail"])
+def test_a_parametrized_case_marked_off_is_not_evidence(marks):
+    src = f"import pytest\n\n@pytest.mark.parametrize('x', [pytest.param(1, marks={marks})])\ndef test_a(x):\n    pass\n"
+    assert _decorated_off(src, "test_a")
+    plain = "import pytest\n\n@pytest.mark.parametrize('x', [pytest.param(1, id='one')])\ndef test_a(x):\n    pass\n"
+    assert not _decorated_off(plain, "test_a")
 
 
 def test_a_row_citing_a_test_skipped_over_several_lines_is_refused(tmp_path, monkeypatch):

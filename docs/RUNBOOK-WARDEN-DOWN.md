@@ -66,7 +66,14 @@ aws ssm get-parameter --name /warden/ops/tf/paused --query Parameter.Value --out
 
    ```
    aws sqs get-queue-url --queue-name warden-ops-alarm-dlq
-   aws sqs receive-message --queue-url <queue-url> --max-number-of-messages 10
+   aws sqs receive-message --queue-url <queue-url> --max-number-of-messages 10 --visibility-timeout 900
+   ```
+
+   Reading a message does not remove it: after 15 minutes it shows again. Once a message is handled, delete it with
+   the `ReceiptHandle` that came with it, and receive again until no message is left:
+
+   ```
+   aws sqs delete-message --queue-url <queue-url> --receipt-handle <receipt-handle>
    ```
 
 3. **Page people by hand when needed.** WARDEN's own topic reaches its owner:
@@ -182,10 +189,21 @@ All deploys go through `.github/workflows/runtime.yml`, run by hand from the bra
 | Situation | Action |
 |---|---|
 | A secret was set or rotated; a zone is stuck | `restart`: a fresh deployment of every zone's service, the same image; fails unless all are stable again |
-| The shared `warden/ops/temporal-api-key` was set or rotated | `restart` for the zones, **and** new instances of `warden-ops-alarm`, `warden-ops-alertmanager` and `warden-ops-approval`: a warm one keeps the old key. Any change to a function's configuration makes Lambda start new instances (AWS's Lambda guide; not tried live), for example a new description - the next `apply` sets it back: `aws lambda update-function-configuration --function-name warden-ops-alarm --description "temporal key rotated <UTC time>"`, then `aws lambda wait function-updated --function-name warden-ops-alarm` (stop if the wait fails), and the same for the other two |
+| The shared `warden/ops/temporal-api-key` was set or rotated | `restart` for the zones, **and** new instances of the three front door Lambdas that read it - a warm one keeps the old key. Any change to a function's configuration makes Lambda start new instances (AWS's Lambda guide; not tried live); a new description does it, and the next `apply` sets it back. Run the commands below the table, and stop if a wait fails |
 | The runtime was paused | set SSM `/warden/ops/tf/paused` to `false`, then `apply` |
 | Infrastructure drifted or was changed by hand | `plan`, read it, then `apply` |
 | A bad image | `apply` from a `dev` commit whose image works (only an image this workflow built, signed and attested is deployed) |
+
+After a rotation of the shared key, for each front door Lambda in turn:
+
+```
+aws lambda update-function-configuration --function-name warden-ops-alarm --description "temporal key rotated <UTC time>"
+aws lambda wait function-updated --function-name warden-ops-alarm
+aws lambda update-function-configuration --function-name warden-ops-alertmanager --description "temporal key rotated <UTC time>"
+aws lambda wait function-updated --function-name warden-ops-alertmanager
+aws lambda update-function-configuration --function-name warden-ops-approval --description "temporal key rotated <UTC time>"
+aws lambda wait function-updated --function-name warden-ops-approval
+```
 
 Without GitHub Actions, one zone can be restarted from the AWS CLI (same task definition, no new image):
 
@@ -220,7 +238,8 @@ aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --d
    warden audit verify --db <audit.db> --public-key <audit.pub> --anchor-bucket <bucket>
    ```
 
-4. Every message in `warden-ops-alarm-dlq` was handled by a person, then removed. WARDEN does not replay them
+4. Every message in `warden-ops-alarm-dlq` was handled by a person, then deleted (section 3, step 2), and the
+   queue is empty: `aws sqs get-queue-attributes --queue-url <queue-url> --attribute-names ApproximateNumberOfMessages`. WARDEN does not replay them
    itself. (The `alarm` Lambda takes the same EventBridge event, so it can be invoked by hand with a message's body;
    this has not been tried live.)
 5. Alarms that went into ALARM during the outage and are still in ALARM: CloudWatch sends a change only once, so

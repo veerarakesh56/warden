@@ -92,24 +92,25 @@ def test_the_runbook_has_what_a_person_needs_when_warden_is_down():
     for needed in ("warden killswitch on", "warden audit verify", "--desired-count 0", "aws sqs receive-message",
                    "aws cloudwatch describe-alarms --state-value ALARM", "aws sns publish",
                    # Stopping act is confirmed, not only asked for (PR 86 review): a running task acts until it stops.
-                   "aws ecs wait services-stable --cluster warden-ops-runtime --services warden-ops-act"):
+                   "aws ecs wait services-stable --cluster warden-ops-runtime --services warden-ops-act",
+                   # A received message comes back unless it is deleted (PR 86 review).
+                   "aws sqs delete-message --queue-url"):
         assert needed in joined, needed
 
 
 def test_a_shared_key_rotation_renews_each_front_door_lambda_and_waits_for_it():
     """PR 86 review: a warm Lambda keeps the old Temporal key, and a configuration update returns before it is done.
     Each Lambda that reads the shared key is named, and the runbook waits for each update."""
-    text = _text()
     readers = [name for name, secrets in re.findall(r'^\s*([a-z-]+)\s*=\s*\{\s*secrets\s*=\s*\[([^\]]*)\]', _hcl(),
                                                      re.MULTILINE) if '"temporal-api-key"' in secrets]
     assert sorted(readers) == ["alarm", "alertmanager", "approval"], readers
+    commands = _blocks()
     for name in readers:
-        assert f"warden-{RUNTIME_ENV}-{name}" in text, name
-    assert "aws lambda update-function-configuration --function-name" in text
-    assert "aws lambda wait function-updated --function-name" in text
-    update = text.index("aws lambda update-function-configuration")
-    assert text.index("aws lambda wait function-updated", update) > update  # the wait comes after the update
-    assert "and the same for the other two" in text
+        update = f"aws lambda update-function-configuration --function-name warden-{RUNTIME_ENV}-{name} "
+        wait = f"aws lambda wait function-updated --function-name warden-{RUNTIME_ENV}-{name}"
+        at = [i for i, line in enumerate(commands) if line.startswith(update)]
+        assert at, name
+        assert commands[at[0] + 1] == wait, name  # the wait right after its own update
 
 
 def test_the_runbook_names_every_zone_and_every_self_alarm():
