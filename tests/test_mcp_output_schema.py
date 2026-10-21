@@ -72,7 +72,8 @@ def test_verify_remediation_results_conform(over):
 def test_the_schema_refuses_an_unchecked_approval():
     """The schema states the rule the code keeps: a verdict on claimed evidence is never approved_for_human."""
     out = mcp_server.call_tool("verify_remediation", _verify_args()).structured_content
-    assert out["verdict"] == "escalated" and out["verdict_on_claimed_evidence"] == "approved_for_human"
+    assert out["verdict"] == "escalated"
+    assert out["verdict_on_claimed_evidence"] == "approved_for_human"
     with pytest.raises(ValidationError):
         _validate("verify_remediation", out | {"verdict": "approved_for_human"})
     with pytest.raises(ValidationError):
@@ -93,8 +94,8 @@ def test_gather_incident_context_results_conform(alert_id):
 
 def test_describe_policy_result_conforms():
     out = _ok("describe_policy", mcp_server.call_tool("describe_policy", {}))
-    assert set(out["environment_allowlist"]) and all(
-        set(v) <= {a.value for a in ActionKind} for v in out["environment_allowlist"].values())
+    assert set(out["environment_allowlist"])
+    assert all(set(v) <= {a.value for a in ActionKind} for v in out["environment_allowlist"].values())
 
 
 @pytest.mark.parametrize("tool", ALL_TOOLS)
@@ -148,7 +149,8 @@ def test_workflow_tool_results_conform(monkeypatch):
     running = _Handle("RemediationWorkflow", WorkflowExecutionStatus.RUNNING)
     status = _ok("workflow_status", asyncio.run(call("workflow_status", {"workflow_id": asked["workflow_id"]},
                                                      _client(running))))
-    assert status["stage"] == "awaiting_approval" and len(status["plan"]["plan_hash"]) == 64
+    assert status["stage"] == "awaiting_approval"
+    assert len(status["plan"]["plan_hash"]) == 64
 
     done = _Handle("IncidentWorkflow", WorkflowExecutionStatus.COMPLETED,
                    result={"verdict": {"status": "escalated"}, "context": {"logs": ["read"]}})
@@ -168,7 +170,8 @@ def test_an_in_process_client_validates_every_gate_tool_result():
             for name, args in [("verify_remediation", _verify_args()), ("redact_text", {"text": "a@example.com"}),
                                ("gather_incident_context", {"alert_id": "inc-001"}), ("describe_policy", {})]:
                 result = await client.call_tool(name, args)
-                assert not result.is_error and result.structured_content
+                assert not result.is_error
+                assert result.structured_content
     asyncio.run(main())
 
 
