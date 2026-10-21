@@ -421,6 +421,7 @@ def test_the_evidence_step_records_which_known_failure_patterns_it_matched(tmp_p
     [row] = [e["body"] for e in log.entries("inc-002", kinds=(links.SIGNATURE_ROW,))]
     assert row["ids"][0] == "K8S-OOM-001"
     assert set(row) == {"node", "ids", "scores"}
+    assert row["scores"]["K8S-OOM-001"] == 2  # the catalogue's own score for this fixture's evidence
 
 
 def test_no_known_failure_pattern_matched_writes_no_row(tmp_path):
@@ -503,6 +504,23 @@ def test_the_same_pattern_links_are_the_newest_first_by_when_the_alarm_was_recor
         _signatures(log, others[i], "K8S-OOM-001")
     found = [k["with"] for k in links.found(log, here) if k["side"] == "same-signature"]
     assert found == [others[i] for i in (6, 5, 4, 3, 2)]
+
+
+def test_only_incidents_of_the_same_pattern_within_the_window_are_found(world):
+    """An incident whose alarm was recorded more than FOUND_DAYS ago is not found by its pattern; one inside is."""
+    _, _, _, log = world
+    here = f"{FP}-20261009T100000Z"
+    _incident(log, here, service="warden-dev-x")
+    _signatures(log, here, "K8S-OOM-001")
+    now = datetime.now(UTC)
+    old, recent = f"{FP2[:-1]}0-20260901T100000Z", f"{FP2[:-1]}1-20260920T100000Z"
+    for inc, ago, service in ((old, timedelta(days=links.FOUND_DAYS, hours=1), "warden-dev-old"),
+                              (recent, timedelta(days=links.FOUND_DAYS - 1), "warden-dev-recent")):
+        log.clock = lambda ago=ago: now - ago
+        _incident(log, inc, service=service)
+        _signatures(log, inc, "K8S-OOM-001")
+    found = [k["with"] for k in links.found(log, here, now=now) if k["side"] == "same-signature"]
+    assert found == [recent]
 
 
 def test_the_record_page_says_the_same_known_pattern_in_plain_words(world):
