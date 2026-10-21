@@ -37,6 +37,7 @@ NO_DIAGNOSIS = "P0-MODEL-UNAVAILABLE"
 FAILED_FIX = frozenset({"relapsed", "rolled_back", "not_recovered", "rollback_failed", "apply_failed", "side_effects",
                         "failed_after_apply", "cancelled_after_apply"})
 BASE = (EVIDENCE, DIAGNOSIS, RULES)
+VERIFY = "incident.verify"  # the rules' check of the diagnosis, and WARDEN's recorded confidence in it
 GATHER = "incident.gather"  # the evidence read; every check below must come after the newest one
 BACKING = (SECOND, FIX, PROVEN)
 
@@ -97,8 +98,8 @@ def _evidence(r: Any) -> Signal:
 
 
 def _verify(r: Any) -> tuple[str, set[str]] | None:
-    v = _last(r, "incident.verify")
-    if v is not None and _stale(r, "incident.verify"):
+    v = _last(r, VERIFY)
+    if v is not None and _stale(r, VERIFY):
         return None
     return (str(v.get("status") or ""), {str(p) for p in v.get("policies") or []}) if v else None
 
@@ -107,7 +108,7 @@ def recorded(r: Any) -> dict[str, Any] | None:
     """WARDEN's confidence in the diagnosis exactly as the last verify row recorded it (PR 132): its level and each
     check's name and whether it held - or None when the row has none in that shape (an incident from before it was
     recorded, or no diagnosis). Never worked out again here."""
-    v = _last(r, "incident.verify")
+    v = _last(r, VERIFY)
     got = (v or {}).get("warden_confidence")
     if not isinstance(got, dict) or got.get("level") not in RECORDED_LEVELS:
         return None
@@ -117,7 +118,7 @@ def recorded(r: Any) -> dict[str, Any] | None:
 
 
 def _diagnosis(r: Any) -> Signal:
-    if _verify(r) is None and _last(r, "incident.verify") is not None:
+    if _verify(r) is None and _last(r, VERIFY) is not None:
         return Signal(DIAGNOSIS, None, "WARDEN's confidence was recorded for evidence read before the newest")
     got = recorded(r)
     if got is None:
