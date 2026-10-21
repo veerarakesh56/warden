@@ -19,7 +19,11 @@ The read zone masks every value it finds (redaction.py) and, until now, threw th
 - **Retention, then gone.** A vault row expires WARDEN_VAULT_DAYS after it is sealed (default and minimum 180, the
   audit's own retention, register B19) and is deleted by the next seal. The signed audit keeps the index (placeholder,
   kind, pseudonym) and the sealed bytes' SHA-256 - what existed stays provable after the values are gone. An erasure
-  request deletes an incident's rows (docs/DATA-EGRESS.md).
+  is the database owner's; its procedure is planned in docs/DATA-EGRESS.md (PR #121).
+- **Personal data only.** Only the kinds in SEALED_KINDS (an email, a phone number, a tenant, an account id, an ARN,
+  a UUID, an IP or MAC address) are sealed. A credential, token, key, webhook, bank or card number (NEVER_SEALED) is
+  never kept: it is thrown away after masking, as before the vault (owner-safe default, review 2026-10-21). Every
+  redaction kind is in exactly one of the two sets (tests/test_vault.py), so a new kind must be classified.
 
 Without a vault key (a demo, a test with no KMS) nothing is sealed and the map is discarded, as before; a seal that
 fails is recorded (`incident.vault_unavailable`, its type only) and the incident goes on - the values stay masked
@@ -41,7 +45,15 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 INDEX = "incident.vault"  # the signed audit's row: the index and the sealed bytes' hash, never a value
 UNAVAILABLE = "incident.vault_unavailable"
 MIN_DAYS = 180
-MAX_DAYS = 3650  # ten years: longer than any retention WARDEN documents (docs/DATA-EGRESS.md), and within a date's range
+MAX_DAYS = 3650  # ten years: longer than any retention WARDEN documents, and within a date's range
+PURGE_FAILED = "incident.vault_purge_failed"  # a seal that worked, whose expired-row purge did not (its type only)
+# The redaction kinds a person may later reveal: personal data that identifies who or what was hit.
+SEALED_KINDS = frozenset({"EMAIL", "PHONE", "TENANT", "ACCOUNTID", "ARN", "UUID", "IPV4", "IPV6", "MAC"})
+# Never sealed, never revealable: secrets and financial numbers (redaction.SECRET_KINDS, which holds IBAN and
+# CREDITCARD) - thrown away after masking.
+NEVER_SEALED = frozenset({"PRIVKEY", "JWT", "APIKEY", "GCPTOKEN", "AZURESAS", "WEBHOOK", "URLCRED", "BEARER", "BASIC",
+                          "SECRET", "HIGHENTROPY", "IBAN", "CREDITCARD"})
+_MAC_MAX = 4096  # KMS GenerateMac's largest message, in bytes
 
 _TABLE = ("CREATE TABLE IF NOT EXISTS vault (incident TEXT NOT NULL, sha256 TEXT NOT NULL, sealed_at TEXT NOT "
                  "NULL, expires_at TEXT NOT NULL, wrapped_key TEXT NOT NULL, sealed TEXT NOT NULL, "
@@ -53,7 +65,8 @@ def migrate(dsn: str, writer_role: str | None = None) -> None:
     append-only: its rows expire. The runtime's writer - every zone's login - may read and add rows (ciphertext no zone
     but the approval page can open) and may NOT delete one: an AI zone must not be able to make a reveal impossible
     (review, 2026-10-20). Retention runs through PURGE, a function owned by the migration role that deletes only rows
-    past their expiry by the database's own clock; an erasure is the database owner's (docs/DATA-EGRESS.md)."""
+    past their expiry by the database's own clock; an erasure is the database owner's (procedure planned in
+    docs/DATA-EGRESS.md, PR #121)."""
     import re
 
     from .audit import _pg_connect
@@ -80,7 +93,7 @@ def migrate(dsn: str, writer_role: str | None = None) -> None:
 _PURGE_FUNCTION = (
     "CREATE OR REPLACE FUNCTION warden_vault_purge() RETURNS integer LANGUAGE plpgsql SECURITY DEFINER "
     "SET search_path = pg_catalog, public AS $f$ DECLARE n integer; BEGIN "
-    "DELETE FROM public.vault WHERE expires_at < to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS') "
+    "DELETE FROM public.vault WHERE expires_at COLLATE \"C\" < to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS') "
     "|| '+00:00'; GET DIAGNOSTICS n = ROW_COUNT; RETURN n; END $f$")
 
 
@@ -104,6 +117,11 @@ def kind_of(placeholder: str) -> str:
     return placeholder.strip("<>").rsplit("_", 1)[0]
 
 
+def sealable(mapping: dict[str, str]) -> dict[str, str]:
+    """The part of a run's map that may be sealed: SEALED_KINDS only. Anything else is never kept."""
+    return {p: v for p, v in mapping.items() if kind_of(p) in SEALED_KINDS}
+
+
 def pseudonym(mac: bytes, kind: str) -> str:
     """`email:3f9a0c7d21b4` from the value's HMAC - the same for the same value in every incident of the environment;
     nothing of the value."""
@@ -123,7 +141,7 @@ class Vault:
     environment: str
     kms: Any
     mac_key: str = ""
-    _macs: dict[tuple[str, str], str] = field(default_factory=dict)
+    _macs: dict[bytes, str] = field(default_factory=dict)  # keyed by a digest: the process keeps no value
 
     @classmethod
     def from_environment(cls, kms: Any = None) -> Vault | None:
@@ -151,13 +169,16 @@ class Vault:
         a pseudonym key."""
         if not self.mac_key:
             return ""
-        if (kind, value) not in self._macs:
+        message = f"{kind}\x00{value}".encode()
+        if len(message) > _MAC_MAX:  # beyond what KMS takes: its SHA-256 stands for it, as stable
+            message = f"{kind}\x00sha256:{hashlib.sha256(message).hexdigest()}".encode()
+        slot = hashlib.sha256(message).digest()
+        if slot not in self._macs:
             if len(self._macs) >= 4096:
                 self._macs.clear()  # a bound on what one process keeps; KMS answers again
-            mac = self.kms.generate_mac(KeyId=self.mac_key, MacAlgorithm="HMAC_SHA_256",
-                                        Message=f"{kind}\x00{value}".encode())["Mac"]
-            self._macs[(kind, value)] = pseudonym(mac, kind)
-        return self._macs[(kind, value)]
+            mac = self.kms.generate_mac(KeyId=self.mac_key, MacAlgorithm="HMAC_SHA_256", Message=message)["Mac"]
+            self._macs[slot] = pseudonym(mac, kind)
+        return self._macs[slot]
 
     def index(self, mapping: dict[str, str]) -> list[dict[str, str]]:
         """What the records page may show without a reveal: each placeholder, its kind and its pseudonym."""
@@ -168,7 +189,10 @@ class Vault:
         return out
 
     def seal(self, incident: str, mapping: dict[str, str], now: datetime | None = None) -> dict[str, Any]:
-        """The sealed row for `mapping` (the database's), with its index and hash (the audit's)."""
+        """The sealed row for `mapping`'s sealable part (the database's), with its index and hash (the audit's)."""
+        mapping = sealable(mapping)
+        if not mapping:
+            raise ValueError("nothing sealable in this map")
         now = (now or datetime.now(UTC)).astimezone(UTC)
         data_key = self.kms.generate_data_key(KeyId=self.key, KeySpec="AES_256",
                                               EncryptionContext=_context("vault", self.environment, incident))
@@ -203,11 +227,13 @@ def _number(placeholder: str) -> int:
 
 
 def _seal_errors() -> tuple[type[BaseException], ...]:
-    """What a seal can fail with: KMS refusing or unreachable, the database's errors, a malformed parameter."""
+    """What opening or storing a sealed row can fail with: KMS refusing or unreachable, the database's errors, a
+    malformed parameter, a ciphertext whose tag does not verify (InvalidTag)."""
     import sqlite3
 
     errors: list[type[BaseException]] = [OSError, ValueError, KeyError, TypeError, sqlite3.Error]
-    for module, names in (("botocore.exceptions", ("BotoCoreError", "ClientError")), ("psycopg", ("Error",))):
+    for module, names in (("botocore.exceptions", ("BotoCoreError", "ClientError")), ("psycopg", ("Error",)),
+                          ("cryptography.exceptions", ("InvalidTag",))):
         try:
             imported = __import__(module, fromlist=list(names))
             errors += [getattr(imported, n) for n in names]
@@ -229,7 +255,10 @@ def store(log: Any, row: dict[str, Any], run_id: str = "") -> str:
     db.run("INSERT INTO vault VALUES (?, ?, ?, ?, ?, ?)", tuple(row[c] for c in _COLUMNS))
     log.append(row["incident"], INDEX, {"run_id": run_id, "sha256": row["sha256"], "sealed_at": row["sealed_at"],
                                         "expires_at": row["expires_at"], "entries": row["index"]})
-    purge(log, datetime.fromisoformat(row["sealed_at"]))
+    try:
+        purge(log, datetime.fromisoformat(row["sealed_at"]))
+    except _SEAL_ERRORS as exc:  # the seal stands: the next seal purges again
+        log.append(row["incident"], PURGE_FAILED, {"run_id": run_id, "error": type(exc).__name__})
     return row["sha256"]
 
 
@@ -249,15 +278,19 @@ def sealed_row(log: Any, incident: str, sha256: str, now: datetime | None = None
     if not log.store.pg:
         log.store.run(_TABLE)
     when = (now or datetime.now(UTC)).astimezone(UTC).isoformat(timespec="seconds")
+    expiry = 'expires_at COLLATE "C"' if log.store.pg else "expires_at"  # byte order, as the audit compares times
     got = log.store.run("SELECT incident, sha256, sealed_at, expires_at, wrapped_key, sealed FROM vault "
-                        "WHERE incident = ? AND sha256 = ? AND expires_at >= ?", (incident, sha256, when)).fetchone()
+                        f"WHERE incident = ? AND sha256 = ? AND {expiry} >= ?", (incident, sha256, when)).fetchone()
     return dict(zip(_COLUMNS, got, strict=True)) if got else None
 
 
 def seal_incident(log: Any, incident: str, mapping: dict[str, str], *, run_id: str = "",
                   vault: Vault | None = None) -> str:
-    """`prepare`'s one call: seal this run's map and record it; "" when there is no vault or nothing to seal. A seal
-    that fails is recorded by its type and the incident goes on (the values stay masked; only the reveal is lost)."""
+    """`prepare`'s one call: seal this run's map (its SEALED_KINDS part) and record it; "" when there is no vault or
+    nothing to seal. A seal that fails is recorded by its type and the incident goes on (the values stay masked; only
+    the reveal is lost). Any failure, not only _SEAL_ERRORS: an environment not configured or a date out of range
+    must not stop an incident either (review, 2026-10-20)."""
+    mapping = sealable(mapping)
     if not mapping:
         return ""
     try:
