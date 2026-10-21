@@ -385,8 +385,9 @@ def test_a_model_host_on_no_destination_is_refused_not_renamed():
     class Unlisted:
         name, model, base_url = "openai", "m", "https://llm.example.net/v1"
 
+    unlisted = Unlisted()
     with pytest.raises(EgressBlocked, match="no destination"):
-        egress.guard_model(Unlisted(), "s", "u")
+        egress.guard_model(unlisted, "s", "u")
 
     class InProcess:
         name, model = "replay", "m"
