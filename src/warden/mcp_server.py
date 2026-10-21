@@ -215,6 +215,9 @@ def _tools() -> list[types.Tool]:
 # approve, sign, reset the kill switch or pass a credential: none of those is a tool, and a test fails
 # if one appears. An approval is a person's signature (`warden approve`), made outside this server.
 
+# What stands in for the alert's summary, the cause and the reasoning of a check submitted from outside.
+_SUBMITTED = "submitted via MCP"
+
 WORKFLOW_TOOLS = ("start_incident_diagnosis", "request_remediation", "workflow_status")
 # The client's profile (audit A-B-H4): `read` (the default) may start a diagnosis and read its own workflows;
 # `remediate` may also request a remediation. One stdio server serves one client, so the profile is the server's.
@@ -282,72 +285,96 @@ def _workflow_tools() -> list[types.Tool]:
 
 
 async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> types.CallToolResult:
-    from temporalio.client import WorkflowExecutionStatus
+    tools = {"start_incident_diagnosis": _start_incident_diagnosis, "request_remediation": _request_remediation,
+             "workflow_status": _workflow_status}
+    try:
+        if name in WORKFLOW_TOOLS and name not in profile():
+            return _err(f"{name} is not allowed for this client (WARDEN_MCP_PROFILE)")
+        tool = tools.get(name)
+        if tool is None:
+            return _err(f"unknown tool: {name}")
+        return await tool(args, client)
+    except Exception as exc:  # noqa: BLE001  # an MCP tool must return an error, not crash the server
+        return _err(f"{type(exc).__name__}: {exc}")
+
+
+async def _start_incident_diagnosis(args: dict[str, Any], client: Any) -> types.CallToolResult:
     from temporalio.common import WorkflowIDReusePolicy
     from temporalio.exceptions import WorkflowAlreadyStartedError
 
     from . import runtime
-    from .activities import FixRequest
-    from .workflows import IncidentWorkflow, RemediationWorkflow
+    from .workflows import IncidentWorkflow
 
+    alert = Alert.model_validate(args.get("alert") or {})
+    # Only the labels the operator's allowlist names steer a read (audit A-B-H4).
+    alert, not_followed = read_scope.restrict(alert, read_scope.load())
+    # Its own id space (audit A-B-L11): a caller cannot take the id alert intake will give a real alert.
+    wid = f"inc-mcp-{alert.alert_id}"
+    _STARTED.add(wid)
     try:
-        if name in WORKFLOW_TOOLS and name not in profile():
-            return _err(f"{name} is not allowed for this client (WARDEN_MCP_PROFILE)")
-        if name == "start_incident_diagnosis":
-            alert = Alert.model_validate(args.get("alert") or {})
-            # Only the labels the operator's allowlist names steer a read (audit A-B-H4).
-            alert, not_followed = read_scope.restrict(alert, read_scope.load())
-            # Its own id space (audit A-B-L11): a caller cannot take the id alert intake will give a real alert.
-            wid = f"inc-mcp-{alert.alert_id}"
-            _STARTED.add(wid)
-            try:
-                # One alert is one incident, with one model budget: a completed run is not started again (fifth
-                # review, 2026-10-01: each new run got a fresh budget); a FAILED run may be (sixth review).
-                await client.start_workflow(IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE,
-                                            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
-            except WorkflowAlreadyStartedError:
-                return _ok({"workflow_id": wid, "note": "this alert is already diagnosed or being diagnosed"})
-            return _ok({"workflow_id": wid, **({"labels_not_followed": not_followed} if not_followed else {})})
-        if name == "request_remediation":
-            req = FixRequest.model_validate({k: args.get(k) for k in ("incident_id", "environment", "service",
-                                                                     "entry", "params")})
-            if req.entry not in catalog.CATALOG:
-                return _err(f"{req.entry!r} is not in the catalogue")
-            # One open remediation per resource and environment (register C3): keyed on what the fix changes, never
-            # on the free-text service name - `orders` in two namespaces, or in dev and prod, are different targets.
-            key = catalog.target_key(req.entry, req.params)
-            wid = f"rem-{req.environment}-{hashlib.sha256(key.encode()).hexdigest()[:16]}"
-            try:
-                await client.start_workflow(RemediationWorkflow.run, req, id=wid, task_queue=runtime.TASK_QUEUE)
-            except WorkflowAlreadyStartedError:
-                return _err(f"a remediation for {key} in {req.environment} is already open ({wid})")
-            _STARTED.add(wid)
-            return _ok({"workflow_id": wid, "next": "a person reviews the plan on the approval page - the button in "
-                                                    "its Slack message - and approves it with their passkey; this "
-                                                    "server cannot"})
-        if name == "workflow_status":
-            wid = str(args.get("workflow_id", ""))
-            if wid not in _STARTED:
-                return _err("this server did not start that workflow")
-            handle = client.get_workflow_handle(wid)
-            desc = await handle.describe()
-            out: dict[str, Any] = {"workflow_id": wid, "type": desc.workflow_type, "status": desc.status.name}
-            if desc.workflow_type == "RemediationWorkflow":
-                stage, plan = await runtime.status(client, wid)
-                out["stage"] = stage
-                if plan:
-                    out["plan"] = plan.model_dump(mode="json", include={"entry", "params", "tier", "plan_hash", "target",
-                                                                         "problems"})
-            if desc.status == WorkflowExecutionStatus.COMPLETED:
-                result = await handle.result()  # an untyped handle decodes to plain JSON already
-                out["result"] = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
-                if isinstance(out["result"], dict):
-                    # The verdict and the proposal, never the evidence read (audit A-B-H4: raw context).
-                    out["result"].pop("context", None)
-            return _ok(out)
-        return _err(f"unknown tool: {name}")
-    except Exception as exc:  # noqa: BLE001 - an MCP tool must return an error, not crash the server
-        return _err(f"{type(exc).__name__}: {exc}")
+        # One alert is one incident, with one model budget: a completed run is not started again (fifth
+        # review, 2026-10-01: each new run got a fresh budget); a FAILED run may be (sixth review).
+        await client.start_workflow(IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE,
+                                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
+    except WorkflowAlreadyStartedError:
+        return _ok({"workflow_id": wid, "note": "this alert is already diagnosed or being diagnosed"})
+    return _ok({"workflow_id": wid, **({"labels_not_followed": not_followed} if not_followed else {})})
+
+
+async def _request_remediation(args: dict[str, Any], client: Any) -> types.CallToolResult:
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
+    from . import runtime
+    from .activities import FixRequest
+    from .workflows import RemediationWorkflow
+
+    req = FixRequest.model_validate({k: args.get(k) for k in ("incident_id", "environment", "service",
+                                                             "entry", "params")})
+    if req.entry not in catalog.CATALOG:
+        return _err(f"{req.entry!r} is not in the catalogue")
+    # One open remediation per resource and environment (register C3): keyed on what the fix changes, never
+    # on the free-text service name - `orders` in two namespaces, or in dev and prod, are different targets.
+    key = catalog.target_key(req.entry, req.params)
+    wid = f"rem-{req.environment}-{hashlib.sha256(key.encode()).hexdigest()[:16]}"
+    try:
+        await client.start_workflow(RemediationWorkflow.run, req, id=wid, task_queue=runtime.TASK_QUEUE)
+    except WorkflowAlreadyStartedError:
+        return _err(f"a remediation for {key} in {req.environment} is already open ({wid})")
+    _STARTED.add(wid)
+    return _ok({"workflow_id": wid, "next": "a person reviews the plan on the approval page - the button in "
+                                            "its Slack message - and approves it with their passkey; this "
+                                            "server cannot"})
+
+
+async def _workflow_status(args: dict[str, Any], client: Any) -> types.CallToolResult:
+    from temporalio.client import WorkflowExecutionStatus
+
+    from . import runtime
+
+    wid = str(args.get("workflow_id", ""))
+    if wid not in _STARTED:
+        return _err("this server did not start that workflow")
+    handle = client.get_workflow_handle(wid)
+    desc = await handle.describe()
+    out: dict[str, Any] = {"workflow_id": wid, "type": desc.workflow_type, "status": desc.status.name}
+    if desc.workflow_type == "RemediationWorkflow":
+        stage, plan = await runtime.status(client, wid)
+        out["stage"] = stage
+        if plan:
+            out["plan"] = plan.model_dump(mode="json", include={"entry", "params", "tier", "plan_hash", "target",
+                                                                 "problems"})
+    if desc.status == WorkflowExecutionStatus.COMPLETED:
+        out["result"] = _finished_result(await handle.result())  # an untyped handle decodes to plain JSON already
+    return _ok(out)
+
+
+def _finished_result(result: Any) -> Any:
+    """A finished workflow's result, as JSON."""
+    out = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
+    if isinstance(out, dict):
+        # The verdict and the proposal, never the evidence read (audit A-B-H4: raw context).
+        out.pop("context", None)
+    return out
 
 
 def _ok(payload: dict[str, Any], *, scrub_links: bool = True) -> types.CallToolResult:
@@ -387,7 +414,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 severity=Severity(args["severity"]),
                 service=args["service"],
                 environment=args["environment"],
-                summary="submitted via MCP",
+                summary=_SUBMITTED,
                 started_at="1970-01-01T00:00:00Z",
             )
             named = {str(k): float(v) for k, v in (args.get("metrics") or {}).items()}
@@ -402,11 +429,11 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 recent_deploys=[{"sha": "unknown"}] if args.get("has_recent_deploy") else [],
                 tool_errors=["upstream tool failed"] * _count(args, "tool_errors"),
             )
-            root_cause = RootCause(hypothesis="submitted via MCP", confidence=args["confidence"])
+            root_cause = RootCause(hypothesis=_SUBMITTED, confidence=args["confidence"])
             proposal = RemediationProposal(
                 action=ActionKind(args["action"]),
                 target=args["target"],
-                reasoning="submitted via MCP",
+                reasoning=_SUBMITTED,
                 expected_effect="unknown",
                 blast_radius=args["blast_radius"],
                 reversible=args["reversible"],
@@ -620,7 +647,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
             )
 
         return _err(f"unknown tool: {name}")
-    except Exception as exc:  # noqa: BLE001 - an MCP tool must return an error, not crash the server
+    except Exception as exc:  # noqa: BLE001  # an MCP tool must return an error, not crash the server
         return _err(f"{type(exc).__name__}: {exc}")
 
 
@@ -697,8 +724,11 @@ def main() -> int:
     except KeyboardInterrupt:
         raise
     except Exception as exc:  # noqa: BLE001 - the last line of defence for what reaches the terminal
-        log.error("error: %s: %s", type(exc).__name__, exc)
-        return 1
+        failed = exc
+    # One gated line, logged after the handler and never with its traceback: the error text can quote evidence or a
+    # key, and stdout is the protocol (tests/test_slack_logging_review4.py).
+    log.error("error: %s: %s", type(failed).__name__, failed)
+    return 1
 
 
 def _serve() -> int:

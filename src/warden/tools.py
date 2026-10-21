@@ -78,27 +78,33 @@ class ToolError(RuntimeError):
 
 
 # How a read can fail - the only words a T item may use for it (evidence.tool_error_text).
-OUTCOMES = ("access denied", "credentials rejected or missing", "throttled", "timed out", "connection failed",
-            "not found", "no live pods", "output truncated", "not supported", "rejected as a bad request",
+ACCESS_DENIED = "access denied"
+CREDENTIALS_REJECTED = "credentials rejected or missing"
+TIMED_OUT = "timed out"
+CONNECTION_FAILED = "connection failed"
+NOT_FOUND = "not found"
+BAD_REQUEST = "rejected as a bad request"
+OUTCOMES = (ACCESS_DENIED, CREDENTIALS_REJECTED, "throttled", TIMED_OUT, CONNECTION_FAILED,
+            NOT_FOUND, "no live pods", "output truncated", "not supported", BAD_REQUEST,
             "failed (unclassified)")
 # Structured codes and exception type names -> outcome. Matched against a botocore error CODE, a
 # database SQLSTATE class or an exception's class names - never against a message, which can quote a
 # log line (second independent review, 2026-09-30).
 _CODE_OUTCOMES = (
-    ("access denied", r"AccessDenied|UnauthorizedOperation|Forbidden|AuthorizationError|NotAuthorized"),
-    ("credentials rejected or missing", (r"ExpiredToken|InvalidClientTokenId|UnrecognizedClient|"
+    (ACCESS_DENIED, r"AccessDenied|UnauthorizedOperation|Forbidden|AuthorizationError|NotAuthorized"),
+    (CREDENTIALS_REJECTED, (r"ExpiredToken|InvalidClientTokenId|UnrecognizedClient|"
                                         r"NoCredentials|PartialCredentials|CredentialRetrieval|InvalidSignature")),
     ("throttled", r"Throttl|TooManyRequests|RequestLimitExceeded|SlowDown|ProvisionedThroughputExceeded"),
-    ("timed out", r"Timeout|TimedOut"),
-    ("connection failed", (r"EndpointConnection|ConnectionRefused|ConnectionReset|ConnectionClosed|"
+    (TIMED_OUT, r"Timeout|TimedOut"),
+    (CONNECTION_FAILED, (r"EndpointConnection|ConnectionRefused|ConnectionReset|ConnectionClosed|"
                           r"ConnectionError|gaierror|OperationalError")),
-    ("not found", r"NotFound|NoSuch"),
-    ("rejected as a bad request", r"Validation|InvalidParameter|BadRequest|MalformedQuery"),
+    (NOT_FOUND, r"NotFound|NoSuch"),
+    (BAD_REQUEST, r"Validation|InvalidParameter|BadRequest|MalformedQuery"),
 )
-_HTTP_OUTCOMES = {400: "rejected as a bad request", 401: "credentials rejected or missing", 403: "access denied",
-                  404: "not found", 408: "timed out", 429: "throttled", 504: "timed out"}
-_SQLSTATE_OUTCOMES = {"28": "credentials rejected or missing", "42501": "access denied", "57014": "timed out",
-                      "08": "connection failed", "53": "throttled"}
+_HTTP_OUTCOMES = {400: BAD_REQUEST, 401: CREDENTIALS_REJECTED, 403: ACCESS_DENIED,
+                  404: NOT_FOUND, 408: TIMED_OUT, 429: "throttled", 504: TIMED_OUT}
+_SQLSTATE_OUTCOMES = {"28": CREDENTIALS_REJECTED, "42501": ACCESS_DENIED, "57014": TIMED_OUT,
+                      "08": CONNECTION_FAILED, "53": "throttled"}
 
 
 def outcome_of(exc: BaseException) -> str:
@@ -109,18 +115,30 @@ def outcome_of(exc: BaseException) -> str:
         if exc.outcome:
             return exc.outcome
         return outcome_of(exc.__cause__) if exc.__cause__ is not None else OUTCOMES[-1]
-    code = str(((getattr(exc, "response", None) or {}).get("Error") or {}).get("Code") or "") \
-        if isinstance(getattr(exc, "response", None), dict) else ""
+    code = _error_code(exc)
     status = getattr(exc, "status", None)
-    sqlstate = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
     if isinstance(status, int) and not code and status in _HTTP_OUTCOMES:
         return _HTTP_OUTCOMES[status]
-    if isinstance(sqlstate, str) and sqlstate:
-        for prefix, outcome in _SQLSTATE_OUTCOMES.items():
-            if sqlstate.startswith(prefix):
-                return outcome
+    by_sqlstate = _sqlstate_outcome(getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None))
+    if by_sqlstate:
+        return by_sqlstate
     names = code or " ".join(t.__name__ for t in type(exc).__mro__)
     return next((word for word, rx in _CODE_OUTCOMES if re.search(rx, names)), OUTCOMES[-1])
+
+
+def _error_code(exc: BaseException) -> str:
+    """A botocore error's structured code (`response["Error"]["Code"]`); "" for anything else."""
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict):
+        return ""
+    return str((response.get("Error") or {}).get("Code") or "")
+
+
+def _sqlstate_outcome(sqlstate: Any) -> str | None:
+    """The outcome a database SQLSTATE (or its class) names, or None."""
+    if not isinstance(sqlstate, str) or not sqlstate:
+        return None
+    return next((outcome for prefix, outcome in _SQLSTATE_OUTCOMES.items() if sqlstate.startswith(prefix)), None)
 
 
 def failure_tag(exc: BaseException) -> str:
@@ -132,7 +150,7 @@ def failure_tag(exc: BaseException) -> str:
 def status_tag(status: str) -> str:
     """The tag for a GetMetricData series CloudWatch did not finish, from its StatusCode (G10 review, 2026-10-10: an
     untagged `PartialData` reached the model as "failed (unclassified)")."""
-    outcome = {"PartialData": "output truncated", "Forbidden": "access denied"}.get(status, "failed (unclassified)")
+    outcome = {"PartialData": "output truncated", "Forbidden": ACCESS_DENIED}.get(status, "failed (unclassified)")
     return f"[{outcome} on GetMetricData]"
 
 
@@ -421,6 +439,49 @@ def _log_failed_reads(errors: list[str]) -> None:
         _log.warning("%s", " | ".join(said))
 
 
+_TOOL_OK = "warden.tool.ok"
+_TOOL_ERROR = "warden.tool.error"
+
+
+def _as_named(name: str, text: str) -> str:
+    """A tool error line, starting with the tool's name once."""
+    return text if text.startswith(f"{name}: ") else f"{name}: {text}"
+
+
+def _without_partials(name: str, result: list, bundle: ContextBundle) -> tuple[list, int]:
+    """(the result without its partial failures, how many there were)"""
+    partial = [x for x in result if isinstance(x, str) and x.startswith(PARTIAL_PREFIX)]
+    result = [x for x in result if x not in partial]
+    for p in partial:
+        # ⛔ Audit A-C-5: raw here, like the logs. node_redact scrubs tool errors with
+        # the run's ONE placeholder map; scrubbing them here with a fresh map gave
+        # `<IPV4_1>` two meanings - one host in a tool error, another in the logs.
+        text = p[len(PARTIAL_PREFIX):]
+        found = _NOTHING_FOUND.match(text)
+        if found:
+            source = f"{found.group(1)} {found.group(2)}"
+            if source not in bundle.empty_reads:
+                bundle.empty_reads.append(source)
+            continue
+        bundle.tool_errors.append(_as_named(name, text))
+    return result, len(partial)
+
+
+def _settled(name: str, sink: str, result: Any, bundle: ContextBundle, sp: Any) -> Any:
+    """What a tool returned, with its partial failures moved into the bundle's tool errors."""
+    if isinstance(result, list):
+        # Partial failures travel in-band; route them to where the verifier looks.
+        result, partials = _without_partials(name, result, bundle)
+        sp.set_attribute("warden.tool.partial_failures", partials)
+        if sink == "logs":
+            result = _bounded(result, bundle.tool_errors)
+    if sink == "metrics":
+        for p in getattr(result, "partial", ()):
+            bundle.tool_errors.append(_as_named(name, p.removeprefix(PARTIAL_PREFIX)))
+        result = _numbers(result)
+    return result
+
+
 def gather(
     alert: Alert,
     backend: FixtureBackend | None = None,
@@ -441,47 +502,23 @@ def gather(
     ):
         with span(f"tool.{name}", tool=name, timeout_s=timeout) as sp:
             try:
-                result = _call_with_timeout(fn, alert, timeout)
-                if isinstance(result, list):
-                    # Partial failures travel in-band; route them to where the verifier looks.
-                    partial = [x for x in result if isinstance(x, str) and x.startswith(PARTIAL_PREFIX)]
-                    result = [x for x in result if x not in partial]
-                    for p in partial:
-                        # ⛔ Audit A-C-5: raw here, like the logs. node_redact scrubs tool errors with
-                        # the run's ONE placeholder map; scrubbing them here with a fresh map gave
-                        # `<IPV4_1>` two meanings - one host in a tool error, another in the logs.
-                        text = p[len(PARTIAL_PREFIX):]
-                        found = _NOTHING_FOUND.match(text)
-                        if found:
-                            source = f"{found.group(1)} {found.group(2)}"
-                            if source not in bundle.empty_reads:
-                                bundle.empty_reads.append(source)
-                            continue
-                        bundle.tool_errors.append(text if text.startswith(f"{name}: ") else f"{name}: {text}")
-                    sp.set_attribute("warden.tool.partial_failures", len(partial))
-                    if sink == "logs":
-                        result = _bounded(result, bundle.tool_errors)
-                if sink == "metrics":
-                    for p in getattr(result, "partial", ()):
-                        text = p.removeprefix(PARTIAL_PREFIX)
-                        bundle.tool_errors.append(text if text.startswith(f"{name}: ") else f"{name}: {text}")
-                    result = _numbers(result)
+                result = _settled(name, sink, _call_with_timeout(fn, alert, timeout), bundle, sp)
                 setattr(bundle, sink, result)
                 if not result and sink != "recent_deploys":  # no deploy in the window is a finding; no logs is not
                     bundle.empty_reads.append(name)
-                sp.set_attribute("warden.tool.ok", True)
+                sp.set_attribute(_TOOL_OK, True)
             except FutureTimeout:
                 msg = f"{name}: [timed out] timed out after {timeout:.1f}s"
                 bundle.tool_errors.append(msg)
-                sp.set_attribute("warden.tool.ok", False)
-                sp.set_attribute("warden.tool.error", msg)
-            except Exception as exc:  # noqa: BLE001 - a tool failing is data, not a crash
+                sp.set_attribute(_TOOL_OK, False)
+                sp.set_attribute(_TOOL_ERROR, msg)
+            except Exception as exc:  # noqa: BLE001  # a tool failing is data, not a crash
                 msg = f"{name}: {failure(exc)}"
                 bundle.tool_errors.append(msg)  # raw, like the logs: node_redact scrubs it (A-C-5)
-                sp.set_attribute("warden.tool.ok", False)
+                sp.set_attribute(_TOOL_OK, False)
                 # The span leaves for a tracing backend on its own: scrubbed, stripped of control
                 # characters and bounded, like a span's exception event (review 2A defect 5).
-                sp.set_attribute("warden.tool.error", f"{name}: {_safe_error(exc)}")
+                sp.set_attribute(_TOOL_ERROR, f"{name}: {_safe_error(exc)}")
     _log_failed_reads(bundle.tool_errors)
 
     return bundle
