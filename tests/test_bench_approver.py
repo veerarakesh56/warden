@@ -58,7 +58,8 @@ def test_the_bench_approver_is_shown_its_plan_and_its_signed_approval_is_sent(tm
     plan = _plan()
     page, bench, _, sent = _page(tmp_path, plan)
     shown = _ask(page, bench)
-    assert shown.status == 200 and json.loads(shown.body) == {
+    assert shown.status == 200
+    assert json.loads(shown.body) == {
         "workflow_id": "rem-dev-1", "plan_hash": "h1", "tier": "T1", "environment": "dev",
         "entry": "events_enable_rule", "target": "rule/tick"}
     assert _approve(page, bench, plan).status == 202
@@ -70,7 +71,8 @@ def test_a_plan_outside_its_environments_or_tiers_is_neither_shown_nor_approved(
         (tmp_path / plan.environment / plan.tier).mkdir(parents=True)
         page, bench, _, sent = _page(tmp_path / plan.environment / plan.tier, plan)
         assert _ask(page, bench).status == 404
-        assert _approve(page, bench, plan).status == 403 and not sent
+        assert _approve(page, bench, plan).status == 403
+        assert not sent
 
 
 def test_a_person_a_forged_signature_a_stale_request_and_a_reused_approval_are_refused(tmp_path):
@@ -83,4 +85,5 @@ def test_a_person_a_forged_signature_a_stale_request_and_a_reused_approval_are_r
     a = approvals.sign(bench, approver="bench", workflow_id=plan.workflow_id, plan_hash=plan.plan_hash, tier="T1",
                        now=NOW)
     page.log.append("inc-1", "approval.accepted", {"nonce": a.nonce})
-    assert page.handle("POST", "/a/signed/approve", a.model_dump_json()).status == 403 and not sent
+    assert page.handle("POST", "/a/signed/approve", a.model_dump_json()).status == 403
+    assert not sent

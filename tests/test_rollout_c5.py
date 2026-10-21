@@ -47,7 +47,8 @@ def test_a_change_mid_rollout_is_refused(rollout, refused):
 def test_a_rollout_that_starts_after_the_approval_stops_the_apply():
     acts, platform, owner = _acts()
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
-    assert not plan.problems and _approve(acts, owner, plan, "rem-1").enough
+    assert not plan.problems
+    assert _approve(acts, owner, plan, "rem-1").enough
     live = platform.live
     platform.live = lambda entry, params: {**live(entry, params), "rollout": "progressing"}
     assert any(p.startswith("P21") for p in acts.precheck(plan))

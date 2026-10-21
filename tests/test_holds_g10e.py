@@ -247,20 +247,25 @@ def test_the_undo_of_a_disabled_event_source_mapping_is_planned_as_switching_it_
     quiet.events = []
     quiet.mappings = (OFF,)
     req, why = _undo(quiet)
-    assert why == "" and req["entry"] == "lambda_enable_esm" and req["params"] == {"function": FN, "mapping": "u-9"}
+    assert why == ""
+    assert req["entry"] == "lambda_enable_esm"
+    assert req["params"] == {"function": FN, "mapping": "u-9"}
     quiet.mappings = (OFF, {**OFF, "UUID": "u-10"})
     req, why = _undo(quiet)
-    assert req is None and "no single known-good mapping" in why  # WARDEN does not choose between two
+    assert req is None
+    assert "no single known-good mapping" in why  # WARDEN does not choose between two
     quiet.mappings = ({**OFF, "State": "Enabled"},)
     req, why = _undo(quiet)
-    assert req is None and "no change WARDEN may undo: no recorded" in why
+    assert req is None
+    assert "no change WARDEN may undo: no recorded" in why
 
 
 def test_a_recorded_change_comes_before_a_mapping_that_is_off():
     cut = _lambda_fake()
     cut.mappings = (OFF,)  # parked long ago, say: the recorded concurrency cut is the change
     req, why = _undo(cut)
-    assert why == "" and req["entry"] == "lambda_restore_concurrency"
+    assert why == ""
+    assert req["entry"] == "lambda_restore_concurrency"
 
 
 def _two_writes(first, second, cite_second=True, resource="pricing-api"):
