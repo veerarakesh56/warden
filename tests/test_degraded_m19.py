@@ -36,9 +36,11 @@ class _Down:
 
 def test_with_no_model_the_incident_is_escalated_by_rules_alone():
     report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(provider=_Down(), mock=False, call_timeout_s=5))
-    assert report.verdict.status is VerdictStatus.escalated and report.verdict.requires_approval
+    assert report.verdict.status is VerdictStatus.escalated
+    assert report.verdict.requires_approval
     assert report.verdict.policy_ids[0] == "P0-MODEL-UNAVAILABLE"
-    assert report.proposal.action is ActionKind.escalate_to_human and report.root_cause.confidence == 0.0
+    assert report.proposal.action is ActionKind.escalate_to_human
+    assert report.root_cause.confidence == 0.0
     assert any(step.get("degraded") for step in report.audit if step.get("node") == "diagnose")
 
 
@@ -76,4 +78,5 @@ def test_the_daily_cap_stops_the_model_across_incidents():
                                  "output_tokens": 10, "attempt": f"a{i}"}) for i in range(4)]
     status, verified = _incident(provider, seed=spent)
     assert provider.calls == 0, "the model was called past the day's cap"
-    assert status == "FAILED" and [v["body"]["status"] for v in verified] == ["escalated"], verified
+    assert status == "FAILED", verified
+    assert [v["body"]["status"] for v in verified] == ["escalated"], verified

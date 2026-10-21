@@ -52,20 +52,25 @@ def test_the_runtime_signs_in_with_an_iam_token_and_no_password(fakes, monkeypat
     monkeypatch.setenv("WARDEN_AUDIT_IAM_AUTH", "1")
     audit._pg_connect(DSN)
     ((dsn, kw),) = fakes["connect"]
-    assert dsn == DSN and kw["password"] == "signed-token" and kw["sslmode"] == "require"
+    assert dsn == DSN
+    assert kw["password"] == "signed-token"
+    assert kw["sslmode"] == "require"
     assert fakes["token"] == [{"DBHostname": "db.example", "Port": 5432, "DBUsername": "warden_audit_writer"}]
     monkeypatch.delenv("WARDEN_AUDIT_IAM_AUTH")
     audit._pg_connect(DSN)  # without the switch, no token
-    assert "password" not in fakes["connect"][-1][1] and len(fakes["token"]) == 1
+    assert "password" not in fakes["connect"][-1][1]
+    assert len(fakes["token"]) == 1
 
 
 def test_migrate_creates_the_writer_as_an_iam_login_with_select_and_insert_only(fakes):
     audit.migrate("postgresql://admin:pw@db.example/warden_audit", "warden_audit_writer", iam_login=True)
     sql = " ; ".join(fakes["sql"])
-    assert "CREATE ROLE warden_audit_writer LOGIN" in sql and "PASSWORD" not in sql.upper()
+    assert "CREATE ROLE warden_audit_writer LOGIN" in sql
+    assert "PASSWORD" not in sql.upper()
     assert "GRANT rds_iam TO warden_audit_writer" in sql
     for t in ("entries", "checkpoints"):
-        assert f"REVOKE ALL ON {t} FROM warden_audit_writer" in sql and f"GRANT SELECT, INSERT ON {t} TO warden_audit_writer" in sql
+        assert f"REVOKE ALL ON {t} FROM warden_audit_writer" in sql
+        assert f"GRANT SELECT, INSERT ON {t} TO warden_audit_writer" in sql
     with pytest.raises(ValueError, match="plain database role"):
         audit.migrate("postgresql://admin:pw@db.example/warden_audit", "x; DROP TABLE entries", iam_login=True)
 
@@ -77,7 +82,10 @@ def test_the_migrate_lambda_reads_the_master_secret_and_makes_the_writer(fakes, 
     monkeypatch.delenv("WARDEN_AUDIT_IAM_AUTH", raising=False)
     assert lambdas.migrate({}) == {"migrated": True, "writer": "warden_audit_writer"}
     (dsn, _), (vault_dsn, _) = fakes["connect"]  # the audit's tables, then the sealed vault's (vault.migrate)
-    assert "user=warden_admin" in dsn and "sslmode=require" in dsn and "host=db.example" in dsn and vault_dsn == dsn
+    assert "user=warden_admin" in dsn
+    assert "sslmode=require" in dsn
+    assert "host=db.example" in dsn
+    assert vault_dsn == dsn
     said = [q if isinstance(q, str) else q.as_string() for q in fakes["sql"]]
     assert any("GRANT rds_iam TO warden_audit_writer" in q for q in said)
     assert 'GRANT SELECT, INSERT ON vault TO "warden_audit_writer"' in said  # never DELETE: retention is the function's

@@ -53,4 +53,5 @@ def test_the_record_says_which_alert_joined_and_from_where(tmp_path):
     r = records.record(log, inc)
     assert r.also == ["warden dev: unavailable replicas (Datadog monitor)"]
     page = records.incident_page(r)
-    assert "Also fired" in page and "Another alert on the same resource joined this incident" in page
+    assert "Also fired" in page
+    assert "Another alert on the same resource joined this incident" in page
