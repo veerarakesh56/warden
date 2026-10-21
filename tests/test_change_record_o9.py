@@ -32,7 +32,9 @@ def test_an_applied_change_opens_one_record_citing_its_plan_and_audit(world, own
     assert plan["plan_hash"] in body and "owner" in body and "a single approver" in body
     # Where a reader checks the head: the incident's Full record page (the command it named could not be run).
     # It is the head at the end row: the page's head moves on with later rows (CodeRabbit, PR 114), so it says so.
-    assert "Audit head at this end:** `" in body and "the head it shows moves on" in body and "audit show" not in body
+    for said in ("Audit head at this end:** `", "the head it shows moves on"):
+        assert said in body, said
+    assert "audit show" not in body
     assert re.search(r"Ended:\*\* recovered at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z", body), body
     row = world["log"].entries("inc-42", kinds=("change.recorded",))[-1]["body"]
     assert row["url"].endswith("/issues/1") and row["detail"] == "opened"
