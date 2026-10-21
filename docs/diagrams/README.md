@@ -11,9 +11,11 @@ Each `.drawio` file is the source. The `.svg` and `.png` files next to it are ex
 | `system-modules.drawio` | `system-modules.svg`, `.png` | The whole system on one page, as the README and ARCHITECTURE.md show it: every module and call, the activities by trust zone, open pull requests dashed |
 | `aws-architecture.drawio` | `aws-architecture.svg`, `.png` | What runs where in AWS: WARDEN's runtime (ops), the watched full stack (dev), the account-wide pieces, the outside services, open pull requests dashed and prod as planned |
 
-Every diagram says in its footer which commit it was drawn from. The README embeds the PNGs, which are lighter than the SVGs (1.6-9.0 MB, as draw.io adds
-an image fallback for every label), and links each one to its SVG. Open pull requests and unmerged branches are
-drawn with a dashed yellow outline and labelled as open; nothing planned is drawn as built.
+Every diagram says in its footer which commit it was drawn from. The README embeds the PNGs of `architecture-overview`,
+`incident-flow` and `delivery`, which are lighter than their SVGs, and links each one to its SVG. `system-modules` (in the
+README and ARCHITECTURE.md) and `aws-architecture` are embedded as their SVGs, as the owner asked, and a click opens the
+same SVG full size. The SVGs are 1.6-9.4 MB, as draw.io adds an image fallback for every label.
+Open pull requests and unmerged branches are drawn with a dashed yellow outline and labelled as open; nothing planned is drawn as built.
 
 ## Edit
 
