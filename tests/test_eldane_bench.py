@@ -537,3 +537,35 @@ def test_a_paid_run_saves_each_answer_as_it_is_paid_for_and_refuses_an_unwritabl
     prepared = _prepared(bench, ["r1"])
     with pytest.raises(bench.Refused, match="cannot be written"):
         bench.paid(a, prepared, PRICES, {}, {})
+
+
+def test_a_paid_run_never_says_the_key(bench, tmp_path, monkeypatch, capsys):
+    """The success path prints its metrics and the result's path: never the key (a planted print of it passed every
+    other test)."""
+    from warden import providers
+
+    def put_key(environ, *_a, **_k):
+        monkeypatch.setitem(environ, "ANTHROPIC_API_KEY", FAKE_KEY)
+
+    monkeypatch.setattr(bench, "runtime_key", put_key)
+    monkeypatch.setitem(providers._REGISTRY, "anthropic", lambda **_k: StoredEldane())
+    a = SimpleNamespace(out=tmp_path / "out", cap_usd=10.0, model=MODEL)
+    assert bench.paid(a, _prepared(bench, ["r1", "h1"]), PRICES, {}, {}) == 0
+    said = capsys.readouterr()
+    assert FAKE_KEY not in said.out + said.err
+    assert FAKE_KEY not in "".join(p.read_text(encoding="utf-8") for p in a.out.iterdir())
+
+
+@pytest.mark.parametrize("content", ["{not json", "{}"])
+def test_a_result_that_cannot_be_read_is_refused_not_a_traceback(bench, tmp_path, monkeypatch, content):
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "eldane-bench-2026-10-21T0000Z.json"
+    path.write_text(content, encoding="utf-8")
+    with pytest.raises(bench.Refused, match="cannot be read"):
+        bench.record(path)
+
+
+def test_a_result_in_a_missing_folder_is_refused(bench, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(bench.Refused):
+        bench.record(tmp_path / "gone" / "eldane-bench-2026-10-21T0000Z.json")

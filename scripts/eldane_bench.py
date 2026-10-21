@@ -439,6 +439,8 @@ def runtime_environment() -> str:
 
 
 def _in_runtime_task(environ: Any, env: str) -> bool:
+    """A discipline check, not a security boundary: both variables can be exported by hand. It keeps an operator's
+    own key out of a bench run by mistake; what may read the runtime's key is decided by IAM."""
     return bool(environ.get("ECS_CONTAINER_METADATA_URI_V4")) and environ.get("WARDEN_ENV") == env
 
 
@@ -785,9 +787,12 @@ def record(path: pathlib.Path) -> int:
             "REFUSED: --record takes a result this script wrote (eldane-bench-<date>.json)"
         )
     here = (pathlib.Path.cwd(), pathlib.Path.home(), pathlib.Path(tempfile.gettempdir()))
-    source = _inside(path, here, "the result")
-    doc = json.loads(source.read_text(encoding="utf-8"))
-    row, line = bench_row(doc), readme_line(doc)
+    try:  # a missing folder, unreadable or malformed result is a refusal (exit 2), never a traceback
+        source = _inside(path, here, "the result")
+        doc = json.loads(source.read_text(encoding="utf-8"))
+        row, line = bench_row(doc), readme_line(doc)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise Refused(f"REFUSED: the result cannot be read ({type(exc).__name__})") from None
     for name, begin, end, body, rows in (
         (("docs", "BENCHMARKS.md"), BENCH_BEGIN, BENCH_END, row, True),
         (("README.md",), README_BEGIN, README_END, line, False),
