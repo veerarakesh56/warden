@@ -44,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
     from .catalog import MITIGATES
     from .discuss import (
         ELSEWHERE,
+        EXTEND,
         LIMIT,
         NEW_PLAN,
         NO_ANSWER,
@@ -55,7 +56,9 @@ with workflow.unsafe.imports_passed_through():
         REPLANNED,
         Thread,
         Turn,
+        extended_said,
     )
+    from .extend import ceiling
     from .models import Alert, ContextBundle, RunReport, ingestion_wait, reread_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
@@ -270,6 +273,18 @@ class RemediationWorkflow:
         return [(f"WARDEN diagnoses the incident again from what it reads now, as `{got['new']}`, with this fix "
                  "beside its evidence: any fix it finds is a new plan for an approver")]
 
+    @staticmethod
+    async def _extended(acts, plan: Plan, deadline: datetime) -> datetime | None:
+        """The later time an approver extended this plan's wait to (extend.py), when it is later than `deadline` and
+        now, and never past the plan's ceiling; None otherwise - an unreadable answer extends nothing."""
+        try:
+            got = await workflow.execute_activity_method(acts.approval_extension, **_zoned(acts.approval_extension),
+                                                         args=[plan], **NOTIFY)  # unread: the wait ends
+            later = min(datetime.fromisoformat(str(got)), ceiling(plan.created_at))
+        except (ActivityError, ValueError, TypeError):
+            return None
+        return later if later > deadline and later > workflow.now() else None
+
     async def _steps(self, req: FixRequest, acts, wid: str, done: dict, end) -> FixOutcome:
         plan = self._plan = await workflow.execute_activity_method(acts.resolve_plan, **_zoned(acts.resolve_plan), args=[req, wid], **QUICK)
         if plan.problems:
@@ -347,6 +362,15 @@ class RemediationWorkflow:
             except TimeoutError:
                 if until == halfway and workflow.now() < deadline:
                     reminded = True
+                    with contextlib.suppress(ActivityError):
+                        await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "waiting"], **NOTIFY)
+                    continue
+                # U3-8: an approver extended the wait from the discussion thread - read from the record, never from a
+                # message, bounded by the plan's ceiling. The plan then says its new time, and its new links last it.
+                if workflow.patched("u38-extend") and (later := await self._extended(acts, plan, deadline)):
+                    deadline, reminded = later, True
+                    minutes = -(-(later - plan.created_at) // timedelta(minutes=1))
+                    plan = self._plan = plan.model_copy(update={"approval_ttl_minutes": minutes})
                     with contextlib.suppress(ActivityError):
                         await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "waiting"], **NOTIFY)
                     continue
@@ -576,6 +600,14 @@ class DiscussWorkflow:
                             IncidentWorkflow.run, Alert.model_validate(got["alert"]), id=f"inc-{got['new']}",
                             task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
                     text = REPLANNED.format(incident=thread.incident, new=f"`{got['new']}`")
+        elif EXTEND.search(turn.text) and workflow.patched("u38-discuss-extend"):
+            # U3-8: an approver extends a waiting plan's wait. Recorded in the audit; the fix's own run reads it there
+            # when its time runs out. Nothing here signals or starts a fix.
+            text = NOT_READ
+            with contextlib.suppress(ActivityError):
+                got = await workflow.execute_activity_method(
+                    acts.discuss_extend, **_zoned(acts.discuss_extend), args=[turn, thread.incident], **QUICK)
+                text = extended_said(got, thread.incident)
         else:
             fresh = NOW.search(turn.text) is not None
             text, evidence = NOT_READ, None

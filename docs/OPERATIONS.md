@@ -184,6 +184,14 @@ record says it decided. Follow-ups mention `@WARDEN` in the same thread. Anyone 
 this channel, and says who may ask for a new plan (an enrolled approver; the plan still needs their passkey in the alerts
 channel). Its answers are capped at 20 per incident a day and count toward the daily model cap every incident shares.
 
+A fix plan waits for its approval as long as its environment says (`approval_wait_hours` in environments.yaml: 72 hours
+unless set, at most 168). When a discussion needs longer (U3-8), an approver who may approve that plan - its risk level
+and its environment - mentions `@WARDEN` in the incident's thread with "extend the wait" or "extend by 12h" (24
+hours unless said, at most 24 at a time). WARDEN records it in the signed audit (`approval.extended`, who, from when to
+when); the plan's own run reads it there when its time runs out, says its new time in the alerts channel with fresh
+links, and keeps waiting - never past 168 hours from when it was made. Anyone else is refused. Nothing else changes: the
+plan still needs a passkey, and its target is read again before anything is applied.
+
 Setup, once, in the Slack app WARDEN signs people in with (api.slack.com/apps):
 
 1. **Socket Mode**: on. WARDEN connects out to Slack; it needs no new public address.
