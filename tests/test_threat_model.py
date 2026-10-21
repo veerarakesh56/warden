@@ -119,32 +119,48 @@ def _resolved(name: str, assigned: dict[str, ast.expr]) -> ast.expr | None:
     return None
 
 
+def _case_parts(decorator: ast.Call, assigned: dict[str, ast.expr]) -> list[ast.AST] | None:
+    """The decorator and every case list it names by a variable, read where the module assigns it; None when a named
+    list is not spelled out in this file."""
+    parts: list[ast.AST] = [decorator]
+    given = [*decorator.args, *(k.value for k in decorator.keywords if k.arg == "argvalues")]
+    for name in (arg.id for arg in given if isinstance(arg, ast.Name)):
+        value = _resolved(name, assigned)
+        if value is None:
+            return None
+        parts.append(value)
+    return parts
+
+
+def _param_marked_off(node: ast.AST) -> bool:
+    """`pytest.param(..., marks=...)` whose marks skip or xfail."""
+    if not (isinstance(node, ast.Call) and ast.unparse(node.func) in ("pytest.param", "param")):
+        return False
+    marks = " ".join(ast.unparse(k.value) for k in node.keywords if k.arg == "marks")
+    return "skip" in marks or "xfail" in marks
+
+
+def _a_case_is_marked_off(node: ast.FunctionDef, tree: ast.Module) -> bool:
+    """A parametrized case marked off (PR 82 review), in the decorator or in a case list the module assigns by name; a
+    named list the file does not spell out cannot be checked and is refused."""
+    assigned = {target.id: stmt.value for stmt in tree.body if isinstance(stmt, ast.Assign)
+                for target in stmt.targets if isinstance(target, ast.Name)}
+    for decorator in (d for d in node.decorator_list if isinstance(d, ast.Call)):
+        parts = _case_parts(decorator, assigned)
+        if parts is None or any(_param_marked_off(c) for part in parts for c in ast.walk(part)):
+            return True
+    return False
+
+
 def _is_skipped(file: str, src: str, func: str) -> bool:
     """The register's judgement, with the decorators read by the parser: a decorator over several lines, or a comment
     or blank line before `def`, hid them from a line pattern (PR 82 review)."""
-    node = next((n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == func), None)
+    tree = ast.parse(src)
+    node = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == func), None)
     assert node is not None, f"{file}::{func} does not exist"
     names = [ast.unparse(d.func if isinstance(d, ast.Call) else d) for d in node.decorator_list]
-    if any(name not in _SAFE_DECORATORS for name in names):
+    if any(name not in _SAFE_DECORATORS for name in names) or _a_case_is_marked_off(node, tree):
         return True
-    # A parametrized case marked off (PR 82 review), in the decorator or in a case list the module assigns by name; a
-    # named list the file does not spell out cannot be checked and is refused.
-    tree = ast.parse(src)
-    assigned = {target.id: stmt.value for stmt in tree.body if isinstance(stmt, ast.Assign)
-                for target in stmt.targets if isinstance(target, ast.Name)}
-    parts: list[ast.AST] = list(node.decorator_list)
-    for decorator in (d for d in node.decorator_list if isinstance(d, ast.Call)):
-        given = [*decorator.args, *(k.value for k in decorator.keywords if k.arg == "argvalues")]
-        for name in (arg.id for arg in given if isinstance(arg, ast.Name)):
-            value = _resolved(name, assigned)
-            if value is None:
-                return True
-            parts.append(value)
-    for call in (c for part in parts for c in ast.walk(part)):
-        if isinstance(call, ast.Call) and ast.unparse(call.func) in ("pytest.param", "param"):
-            marks = " ".join(ast.unparse(k.value) for k in call.keywords if k.arg == "marks")
-            if "skip" in marks or "xfail" in marks:
-                return True
     body = re.search(r"^()def " + re.escape(func) + r"\(", src, re.MULTILINE)  # its body, module marks and imports
     return _skipped(file, src, body)
 
