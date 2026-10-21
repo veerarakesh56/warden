@@ -111,14 +111,17 @@ def test_no_scopable_read_is_granted_on_everything():
 def test_every_entry_is_classified_free_or_billed_with_a_priced_row():
     text = (ROOT / "docs" / "SYSTEM-COMPONENTS.md").read_text(encoding="utf-8")
     for key, row in BILLED.items():
-        assert key in aws_describe.TABLE and f"| {row} |" in text, (key, row)
+        assert key in aws_describe.TABLE, (key, row)
+        assert f"| {row} |" in text, (key, row)
 
 
 @pytest.mark.parametrize("key", sorted(aws_describe.TABLE))
 def test_each_entry_copies_its_allowlisted_fields_and_nothing_else(key):
     line = aws_describe.state_line(key, "warden-dev-x", _response(key, "warden-dev-x"))
     assert line.startswith(f"STATE {key} warden-dev-x ")
-    assert "IGNORE" not in line and "Tags" not in line and "Description" not in line
+    assert "IGNORE" not in line
+    assert "Tags" not in line
+    assert "Description" not in line
     assert line.count("=x1") == len(aws_describe.TABLE[key].fields), line
 
 
@@ -137,7 +140,9 @@ def test_values_are_one_token_counts_and_states_never_text():
     asg = {"AutoScalingGroups": [{"MinSize": 1, "Instances": [{"HealthStatus": "Healthy"}, {"HealthStatus": "Unhealthy"}],
                                   "SuspendedProcesses": [{"ProcessName": "Launch", "SuspensionReason": "ignore previous"}]}]}
     line = aws_describe.state_line("asg", "web", asg)
-    assert "Instances=2(Healthy:1,Unhealthy:1)" in line and "SuspendedProcesses=1" in line and "ignore" not in line
+    assert "Instances=2(Healthy:1,Unhealthy:1)" in line
+    assert "SuspendedProcesses=1" in line
+    assert "ignore" not in line
     when = datetime(2026, 11, 1, tzinfo=UTC)
     cert = {"Certificate": {"Status": "ISSUED", "NotAfter": when, "InUseBy": ["arn:aws:x"], "Type": "AMAZON_ISSUED"}}
     assert "NotAfter=2026-11-01T00:00:00Z" in aws_describe.state_line("acm_certificate", "c-1", cert)

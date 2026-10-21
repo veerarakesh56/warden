@@ -133,7 +133,8 @@ def test_a_read_failure_reaches_the_model_as_fixed_words_never_its_message():
 def test_no_read_failure_means_no_t_item():
     """The system prompt defines T items as failed reads, so their absence says none failed."""
     blob = _evidence_blob(_state_after_redact())
-    assert "[T" not in blob and "[F1]" in blob
+    assert "[T" not in blob
+    assert "[F1]" in blob
 
 
 def test_node_redact_scrubs_the_deploys_it_hands_on():

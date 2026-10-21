@@ -202,7 +202,8 @@ def more():
 def test_a_redrive_goes_to_the_one_source_queue_capped_and_each_queue_gets_only_its_own_actions(more):
     f, p = more
     live = p.live("sqs_redrive_dlq", {"queue": DLQ})
-    assert live["to_queue"] == {"warden-dev-orders"} and live["state"]["waiting"] == 42
+    assert live["to_queue"] == {"warden-dev-orders"}
+    assert live["state"]["waiting"] == 42
     params = {"queue": DLQ, "to_queue": "warden-dev-orders", "per_second": 10}
     assert catalog.validate("sqs_redrive_dlq", params, live) == []
     assert catalog.validate("sqs_redrive_dlq", {**params, "per_second": 500}, live)
@@ -210,7 +211,8 @@ def test_a_redrive_goes_to_the_one_source_queue_capped_and_each_queue_gets_only_
     assert f.writes[-1] == ("start_message_move_task", {"SourceArn": DLQ_ARN, "DestinationArn": QUEUE_ARN,
                                                         "MaxNumberOfMessagesPerSecond": 10})
     s = f.sessions[-1]
-    assert s["resources"] == [DLQ_ARN] and "sqs:SendMessage" not in s["actions"]
+    assert s["resources"] == [DLQ_ARN]
+    assert "sqs:SendMessage" not in s["actions"]
     assert s["also"] == [(["sqs:SendMessage"], [QUEUE_ARN])]  # send on the destination only, never the cross product
     f.moves = [{"Status": "RUNNING", "TaskHandle": "h-1"}]
     assert "cancelled" in p.rollback("sqs_redrive_dlq", params, live["state"], who=WHO)
@@ -326,15 +328,20 @@ def zones():
 def test_traffic_shifts_away_from_the_one_impaired_zone_and_the_rollback_cancels_only_its_own_shift(zones):
     f, p = zones
     live = p.live("arc_zonal_shift", {"load_balancer": LB})
-    assert live["away_from"] == {"tr1-aza"} and live["environment"] == "dev"
+    assert live["away_from"] == {"tr1-aza"}
+    assert live["environment"] == "dev"
     params = {"load_balancer": LB, "away_from": "tr1-aza", "minutes": 60}
     assert catalog.validate("arc_zonal_shift", params, live) == []
     p.apply("arc_zonal_shift", params, snapshot=live["state"], who=WHO)
     name, kw = f.writes[-1]
-    assert name == "start_zonal_shift" and kw["resourceIdentifier"] == LB_ARN and kw["awayFrom"] == "tr1-aza"
-    assert kw["expiresIn"] == "60m" and kw["comment"].startswith("WARDEN inc-7 plan ")
+    assert name == "start_zonal_shift"
+    assert kw["resourceIdentifier"] == LB_ARN
+    assert kw["awayFrom"] == "tr1-aza"
+    assert kw["expiresIn"] == "60m"
+    assert kw["comment"].startswith("WARDEN inc-7 plan ")
     assert "autoshifts" not in kw
-    assert f.sessions[-1]["resources"] == [LB_ARN] and f.sessions[-1]["actions"] == ["arc-zonal-shift:StartZonalShift"]
+    assert f.sessions[-1]["resources"] == [LB_ARN]
+    assert f.sessions[-1]["actions"] == ["arc-zonal-shift:StartZonalShift"]
     assert "shifted away from zone tr1-aza (test-region-1a)" in catalog.change_of("arc_zonal_shift", params, live["state"])[0]
     f.weights = {"tr1-aza": 0, "tr1-azb": 1}
     assert p.healthy(LB, entry="arc_zonal_shift", params=params)
@@ -444,7 +451,9 @@ def test_the_configuration_the_alarm_guards_is_reverted_through_its_own_deployme
     f, p = config
     alert, prop = _revert("warden-dev-flags")
     req, why = resolver.request_for(alert, prop, p.live)
-    assert why == "" and req["entry"] == "appconfig_revert" and req["service"] == "live"
+    assert why == ""
+    assert req["entry"] == "appconfig_revert"
+    assert req["service"] == "live"
     assert req["params"] == {"alarm": ALARM, "application": "warden-dev-flags", "config_env": "live", "deployment": "7"}
     snap = p.live("appconfig_revert", req["params"])["state"]
     p.apply("appconfig_revert", req["params"], snapshot=snap, who=WHO)
@@ -487,11 +496,13 @@ def test_deploys_are_frozen_at_the_stage_the_services_own_tag_names_and_the_roll
     prop = RemediationProposal(action=ActionKind.freeze_changes, target=FN, reasoning="r", expected_effect="e",
                                blast_radius="single_service", reversible=True)
     req, why = resolver.request_for(alert, prop, p.live)
-    assert why == "" and req["params"] == {"resource": FN, "pipeline": "warden-dev-deploy", "stage": "Prod"}
+    assert why == ""
+    assert req["params"] == {"resource": FN, "pipeline": "warden-dev-deploy", "stage": "Prod"}
     snap = p.live("codepipeline_freeze", req["params"])["state"]
     p.apply("codepipeline_freeze", req["params"], snapshot=snap, who={**WHO, "incident": "inc_7:x"})
     name, kw = f.writes[-1]
-    assert name == "disable_stage_transition" and kw["transitionType"] == "Inbound"
+    assert name == "disable_stage_transition"
+    assert kw["transitionType"] == "Inbound"
     assert kw["reason"] == "WARDEN inc-7-x froze deploys for a person"  # CodePipeline's own character set
     assert f.sessions[-1]["resources"] == [f"arn:aws:codepipeline:test-region-1:{ACCT}:warden-dev-deploy/Prod"]
     f.inbound = False
@@ -514,7 +525,7 @@ def test_no_freeze_without_the_tag_of_another_environments_pipeline_or_when_alre
     assert f.asked == []  # a tag outside CodePipeline's own name pattern never reaches its API
 
 
-def test_an_application_that_could_not_be_read_for_another_reason_makes_no_plan(config):
+def test_an_application_that_could_not_be_read_for_another_reason_makes_no_plan(config, monkeypatch):
     """Review-e M3: an unread application may be a second guard - "the one" is then not known."""
     _, p = config
     real = Config.list_environments
@@ -524,8 +535,5 @@ def test_an_application_that_could_not_be_read_for_another_reason_makes_no_plan(
             raise _Err("ThrottlingException")
         return real(self, ApplicationId, MaxResults)
 
-    Config.list_environments = flaky
-    try:
-        assert p.live("appconfig_revert", {"alarm": ALARM})["application"] == set()
-    finally:
-        Config.list_environments = real
+    monkeypatch.setattr(Config, "list_environments", flaky)
+    assert p.live("appconfig_revert", {"alarm": ALARM})["application"] == set()
