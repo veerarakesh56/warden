@@ -103,7 +103,7 @@ def test_the_runtime_boundary_lets_a_bucket_policy_be_written_on_its_three_bucke
     assert sorted(deny["NotResource"]) == sorted(f"arn:aws:s3:::warden-ops-{b}-*" for b in ("anchors", "witness",
                                                                                            "access-logs"))
     # And on those three only the deploy role (terraform) writes them: no role the runtime makes, whatever it is granted.
-    by_deploy = next(st for st in boundary["Statement"] if st.get("Sid") == "BucketPolicyByDeployOnly")
+    by_deploy = next(st for st in boundary["Statement"] if st.get("Sid") == "PolicyByDeploy")
     assert by_deploy["Effect"] == "Deny"
     assert by_deploy["Resource"] == "*"
     assert set(by_deploy["Action"]) == set(deny["Action"])
