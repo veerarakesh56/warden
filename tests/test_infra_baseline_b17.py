@@ -293,8 +293,8 @@ def test_the_platform_reader_may_read_only_the_kept_plans_metadata(env):
                 for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"]) if a == "s3:GetObject"
                 for r in ([st["Resource"]] if isinstance(st["Resource"], str) else st["Resource"])]
 
-    reader = json.loads((ROOT / "iam" / env / "platform-reader.json").read_text(encoding="utf-8"))
-    allowed = get_objects(reader)
+    allowed = [r for name in ("platform-reader", "platform-diagnose")  # the reader role's two policies
+               for r in get_objects(json.loads((ROOT / "iam" / env / f"{name}.json").read_text(encoding="utf-8")))]
     assert allowed == [f"arn:aws:s3:::warden-{env}-tfstate-*/{stack}/plans/*.json" for stack in ("fullstack", "undo-lab")]
     bucket = f"arn:aws:s3:::warden-{env}-tfstate-x1"
 
@@ -308,7 +308,7 @@ def test_the_platform_reader_may_read_only_the_kept_plans_metadata(env):
     other = "prod" if env == "dev" else "dev"
     assert not any(fnmatch.fnmatchcase(f"arn:aws:s3:::warden-{other}-tfstate-x1/fullstack/plans/1.json", pat)
                    for pat in allowed)
-    for kind in ("actor", "platform-diagnose"):  # the reader role only
+    for kind in ("actor", "deploy-guard"):  # the reader role only
         assert not get_objects(json.loads((ROOT / "iam" / env / f"{kind}.json").read_text(encoding="utf-8"))), kind
 
 

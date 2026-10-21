@@ -113,7 +113,7 @@ person's passkey; never undone automatically. It is off until all three are set:
 | `WARDEN_GITHUB_ACTIONS_TOKEN` | a fine-grained token on that repository alone, **Actions: Read and write** only, with an expiry; Secrets Manager `warden/<env>/github-actions-token`, read by the act zone's worker only |
 
 Each environment's platform-reader role may read only the kept plans' metadata, `<state bucket>/<stack>/plans/*.json`
-(`iam/<env>/platform-reader.json`, statement `KeptInfraPlanMetadataOnly`) - never the state or the plan bytes.
+(`iam/<env>/platform-diagnose.json`, the role's second policy, statement `KeptInfraPlanMetadataOnly`) - never the state or the plan bytes.
 
 `WARDEN_SONAR_TOKEN` has no Secrets Manager slot yet (terraform/modules/warden-runtime would need one, granted to the
 read zone alone): today it is set in the read worker's own environment, or left unset for a public project.
