@@ -275,11 +275,17 @@ key are secrets the act zone alone reads (`warden/<runtime>/codefix-app-id`, `wa
 use asks GitHub for an installation token limited to one repository with contents and pull requests: write, and WARDEN
 refuses a token GitHub grants more; the token lasts an hour and is never stored. Commits go through GraphQL
 `createCommitOnBranch`, so GitHub signs them and shows them as verified, authored by the App. WARDEN writes only to
-branches under `warden/` and opens pull requests from them; it never pushes to `dev`, `prod` or `main`. Whether it may
-write anything in an environment is `code_fix` in environments.yaml, and what a change may contain is the code gate
-(`code_gate.py`, `data/code_fix.yaml`).
+branches under `warden/` that it has just created, opens pull requests only from them, and never pushes to `dev`, `prod`
+or `main`. Whether it may write anything in an environment is `code_fix` in environments.yaml, and what a change may
+contain is the code gate (`code_gate.py`, `data/code_fix.yaml`).
 
-Owner steps (once; WARDEN never creates or changes the App, a ruleset or a repository setting):
+**What holds the branch rule.** GitHub cannot narrow a token to some branches: `contents: write` lets the token push
+to any branch of the repository, `dev` and `prod` included, and a push to `dev` or `prod` deploys
+(on-merge-<env>.yml). Until the rulesets of step 5 exist, "only its own branches" is held **only inside WARDEN's
+process** (`github_app.RepoWriter`): anyone who obtains the key - a compromised act-zone worker - could push anywhere.
+So step 5 comes before the key is stored, and the key is not stored without it.
+
+Owner steps (once, in this order; WARDEN never creates or changes the App, a ruleset or a repository setting):
 
 1. GitHub, Settings, Developer settings, GitHub Apps, **New GitHub App**: a name such as `warden-code-fix`; the
    repository's address as the homepage; **Webhook: Active unticked** (WARDEN asks, nothing is pushed to it).
@@ -290,11 +296,21 @@ Owner steps (once; WARDEN never creates or changes the App, a ruleset or a repos
 3. Create it, note the **App ID**, and under Private keys **Generate a private key** (a `.pem` file).
 4. **Install App**, **Only select repositories**: the one repository WARDEN fixes (`WARDEN_CHANGE_REPO`, else
    environments.yaml `github.repository`).
-5. Store both, then delete the `.pem` from the computer:
+5. **Before storing the key**, the repository's rulesets (Settings, Rules, Rulesets; WARDEN never creates or changes
+   them):
+   - one on `main`, `dev` and `prod` (and any other branch that deploys): **Restrict deletions**, **Block force
+     pushes**, **Require a pull request before merging** (with its required approvals and status checks), and
+     **Restrict updates** where the plan offers it. The App is **not** in its bypass list - nobody's automation is.
+   - one on `warden/**`: **Restrict creations** with only the App in its bypass list, so no person or other tool
+     makes a branch WARDEN would read as its own.
+
+   Check it: with the App's installation token, a push to `dev` must be refused (a ruleset violation), and a branch
+   `warden/check` created by a person must be refused too.
+6. Store both, then delete the `.pem` from the computer:
    `aws secretsmanager put-secret-value --secret-id warden/<runtime>/codefix-app-id --secret-string <App ID>` and
    `aws secretsmanager put-secret-value --secret-id warden/<runtime>/codefix-app-key --secret-string file://<key>.pem`.
    The slots exist once the runtime module is applied (terraform/modules/warden-runtime/secrets.tf).
-6. Restart the act workers (runtime.yml). Until both secrets are set, WARDEN writes no code fix.
+7. Restart the act workers (runtime.yml). Until both secrets are set, WARDEN writes no code fix.
 
 Rotation is in the table at the top of this page.
 

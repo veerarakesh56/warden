@@ -18,6 +18,7 @@ from warden.github_app import (
     InstallationToken,
     RepoWriter,
     app_jwt,
+    plain_body,
 )
 
 REPO = "example-owner/example-repo"
@@ -266,6 +267,8 @@ def test_warden_never_writes_another_branch(branch):
         writer.commit(branch, expected_head=SHA, headline="Revert x", additions={"a.py": b"x"})
 
 
+# Paths the code gate allows (data/code_fix.yaml): the only ones the writer commits.
+A, B, C = (f"scenarios/fullstack/app/{name}.py" for name in "abc")
 COMMIT_OK = {"data": {"createCommitOnBranch": {"commit": {"oid": NEW, "url": "u"}}}}
 CREATED = (201, {})
 
@@ -281,15 +284,15 @@ def test_a_commit_only_to_a_branch_this_writer_created():
     api, log = fake_api((200, COMMIT_OK))
     writer = RepoWriter(token(), api=api)
     with pytest.raises(GitHubAppError, match="just created"):
-        writer.commit("warden/fix/inc-1", expected_head=SHA, headline="h", additions={"a.py": b"a"})
+        writer.commit("warden/fix/inc-1", expected_head=SHA, headline="h", additions={A: b"a"})
     assert log == []  # nothing was sent
 
 
 def test_commit_goes_through_create_commit_on_branch():
     api, log = fake_api(CREATED, (200, COMMIT_OK))
     oid = made(api, "warden/fix/inc-1").commit("warden/fix/inc-1", expected_head=SHA, headline="Revert abc: x",
-                                               body="why", additions={"b.py": b"b", "a.py": b"a"},
-                                               deletions=("c.py",))
+                                               body="why", additions={B: b"b", A: b"a"},
+                                               deletions=(C,))
     assert oid == NEW
     call = log[1]
     assert call["path"] == "/graphql"
@@ -297,8 +300,8 @@ def test_commit_goes_through_create_commit_on_branch():
     assert call["body"]["variables"]["input"] == {
         "branch": {"repositoryNameWithOwner": REPO, "branchName": "warden/fix/inc-1"},
         "expectedHeadOid": SHA, "message": {"headline": "Revert abc: x", "body": "why"},
-        "fileChanges": {"additions": [{"path": "a.py", "contents": "YQ=="}, {"path": "b.py", "contents": "Yg=="}],
-                        "deletions": [{"path": "c.py"}]}}
+        "fileChanges": {"additions": [{"path": A, "contents": "YQ=="}, {"path": B, "contents": "Yg=="}],
+                        "deletions": [{"path": C}]}}
 
 
 @pytest.mark.parametrize("reply", [(200, {"errors": [{"message": "Expected branch to point to x"}]}),
@@ -307,17 +310,17 @@ def test_commit_goes_through_create_commit_on_branch():
 def test_a_refused_commit_raises(reply):
     writer = made(fake_api(CREATED, reply)[0])
     with pytest.raises(GitHubAppError):
-        writer.commit("warden/x", expected_head=SHA, headline="h", additions={"a.py": b"a"})
+        writer.commit("warden/x", expected_head=SHA, headline="h", additions={A: b"a"})
 
 
 @pytest.mark.parametrize("kw, match", [
     ({"additions": {}}, "no change"),
     ({"additions": {"../x.py": b"x"}}, "plain relative path"),
     ({"deletions": ("/etc/x",)}, "plain relative path"),
-    ({"additions": {"a.py": b"a"}, "headline": "line\nbreak"}, "one plain line"),
-    ({"additions": {"a.py": b"a"}, "headline": "tab\there"}, "one plain line"),
-    ({"additions": {"a.py": b"a"}, "headline": "x" * 201}, "one plain line"),
-    ({"additions": {"a.py": b"a"}, "expected_head": "abc"}, "full commit id"),
+    ({"additions": {A: b"a"}, "headline": "line\nbreak"}, "one plain line"),
+    ({"additions": {A: b"a"}, "headline": "tab\there"}, "one plain line"),
+    ({"additions": {A: b"a"}, "headline": "x" * 201}, "one plain line"),
+    ({"additions": {A: b"a"}, "expected_head": "abc"}, "full commit id"),
 ])
 def test_commit_input_is_checked(kw, match):
     args = {"expected_head": SHA, "headline": "h", **kw}
@@ -330,28 +333,28 @@ DEFAULT = (200, {"default_branch": "main"})
 
 
 def test_a_pull_request_from_warden_into_the_default_branch():
-    api, log = fake_api(DEFAULT, (201, {"number": 7, "html_url": "https://github.com/x/y/pull/7"}))
-    got = RepoWriter(token(), api=api).open_pull_request(head="warden/fix/inc-1", base="main",
-                                                         title='Revert "Fix the cart (#123)"', body="b")
+    api, log = fake_api(CREATED, DEFAULT, (201, {"number": 7, "html_url": "https://github.com/x/y/pull/7"}))
+    got = made(api, "warden/fix/inc-1").open_pull_request(head="warden/fix/inc-1", base="main",
+                                                          title='Revert "Fix the cart (#123)"', body="b")
     assert got == (7, "https://github.com/x/y/pull/7")
-    assert log[1]["body"] == {"head": "warden/fix/inc-1", "base": "main", "title": 'Revert "Fix the cart (#123)"',
+    assert log[2]["body"] == {"head": "warden/fix/inc-1", "base": "main", "title": 'Revert "Fix the cart (#123)"',
                               "body": "b", "maintainer_can_modify": False}
 
 
 @pytest.mark.parametrize("base", ["dev", "prod"])
 def test_a_pull_request_into_any_branch_but_the_default_is_refused(base):
-    api, log = fake_api(DEFAULT, (201, {"number": 1}))
-    writer = RepoWriter(token(), api=api)
+    api, log = fake_api(CREATED, DEFAULT, (201, {"number": 1}))
+    writer = made(api)
     with pytest.raises(GitHubAppError, match="default branch"):
         writer.open_pull_request(head="warden/x", base=base, title="t", body="")
-    assert [entry["method"] for entry in log] == ["GET"]  # nothing was opened
+    assert [entry["method"] for entry in log] == ["POST", "GET"]  # the branch, then the default branch: nothing opened
 
 
 def test_a_default_branch_with_folders_is_a_base():
-    api, log = fake_api((200, {"default_branch": "release/1.0"}), (201, {"number": 3, "html_url": "u"}))
-    writer = RepoWriter(token(), api=api)
+    api, log = fake_api(CREATED, (200, {"default_branch": "release/1.0"}), (201, {"number": 3, "html_url": "u"}))
+    writer = made(api)
     assert writer.open_pull_request(head="warden/x", base="release/1.0", title="t", body="") == (3, "u")
-    assert log[1]["body"]["base"] == "release/1.0"
+    assert log[2]["body"]["base"] == "release/1.0"
 
 
 def test_default_branch_is_read_and_checked():
@@ -371,9 +374,57 @@ def test_a_pull_request_base_is_never_a_warden_branch(base):
 
 
 def test_a_pull_request_reply_without_a_number_raises():
-    writer = RepoWriter(token(), api=fake_api(DEFAULT, (201, {}))[0])
+    writer = made(fake_api(CREATED, DEFAULT, (201, {}))[0])
     with pytest.raises(GitHubAppError, match="no number"):
         writer.open_pull_request(head="warden/x", base="main", title="t", body="")
+
+
+def test_a_pull_request_only_from_a_branch_this_writer_created():
+    """Review of PR 120: a warden/ branch a person (or an earlier run) pushed is not WARDEN's to propose."""
+    api, log = fake_api(DEFAULT, (201, {"number": 1}))
+    with pytest.raises(GitHubAppError, match="just created"):
+        RepoWriter(token(), api=api).open_pull_request(head="warden/x", base="main", title="t", body="")
+    assert log == []  # nothing was sent
+
+
+@pytest.mark.parametrize("path", [".github/CODEOWNERS", "src/warden/code_gate.py", "tests/test_code_gate.py",
+                                  "terraform/main.tf", "scenarios/fullstack/tests/conftest.py", "README.md",
+                                  "scenarios/fullstack/app/requirements.txt",
+                                  # inside the allowed globs, and still never touched (CG4):
+                                  "scenarios/fullstack/app/passwords.py", "scenarios/fullstack/lambdas/x/conftest.py"])
+@pytest.mark.parametrize("change", ["additions", "deletions"])
+def test_the_writer_writes_only_what_the_code_gate_allows(path, change):
+    """Whatever its caller checked: no bug in a caller writes CODEOWNERS, WARDEN's own code or its tests."""
+    api, log = fake_api(CREATED, (200, COMMIT_OK))
+    writer = made(api)
+    kw = {"additions": {path: b"x"}} if change == "additions" else {"deletions": (path,)}
+    with pytest.raises(GitHubAppError, match="never writes"):
+        writer.commit("warden/x", expected_head=SHA, headline="h", **kw)
+    assert len(log) == 1  # only the branch: no commit was sent
+
+
+@pytest.mark.parametrize("text, plain", [
+    ("Fixes #12", "see #12"),
+    ("closes: owner/repo#3 and resolved https://github.com/o/r/issues/1", "see: owner/repo#3 and see https://github.com/o/r/issues/1"),
+    ("FIXED #4", "see #4"),
+    ("cc @alice and @org/team", "cc alice and org/team"),
+    ("mail ops@example.com, see `@not-a-mention` and a fixture #1", "mail ops@example.com, see `@not-a-mention` and a fixture #1"),
+])
+def test_a_body_closes_nothing_and_mentions_no_one(text, plain):
+    assert plain_body(text) == plain
+
+
+def test_a_body_is_cut_to_what_github_takes():
+    assert len(plain_body("x" * 70_000)) == 60_000
+
+
+def test_the_commit_and_the_pull_request_bodies_are_made_plain():
+    api, log = fake_api(CREATED, (200, COMMIT_OK), DEFAULT, (201, {"number": 2, "html_url": "u"}))
+    writer = made(api)
+    writer.commit("warden/x", expected_head=SHA, headline="h", body="Fixes #9 @bob", additions={A: b"a"})
+    writer.open_pull_request(head="warden/x", base="main", title="t", body="Closes #9, thanks @bob")
+    assert log[1]["body"]["variables"]["input"]["message"]["body"] == "see #9 bob"
+    assert log[3]["body"]["body"] == "see #9, thanks bob"
 
 
 # ------------------------------------------------------------------------------------------------ who holds the key

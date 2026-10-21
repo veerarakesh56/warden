@@ -13,8 +13,10 @@ calls and nothing else; whether a change may be written at all is the code gate'
 - **Commits** go through GraphQL `createCommitOnBranch`: GitHub makes and signs the commit itself, so it shows as
   verified and is authored by the App - no signing key of WARDEN's own. `expectedHeadOid` makes the commit fail if the
   branch moved since WARDEN read it.
-- **Branches.** WARDEN writes only to branches under `warden/` that it creates; it never commits to, or opens a pull
-  request into, a `warden/` branch from anything else, and never writes to any other branch. A pull request's base is
+- **Branches.** WARDEN writes only to branches under `warden/` that this writer created; it never commits to, opens a
+  pull request from, or opens one into any other branch. GitHub cannot narrow a token to branches, so this rule is held
+  in this process only; the repository's rulesets (OPERATIONS.md, before the key is stored) hold it for any other
+  holder of the key. A pull request's base is
   the repository's default branch, where CI runs (`main`: dev and prod receive only what it has checked), merged by a
   person or, in phase 4 and never for prod, by the checks.
 - **The wire.** One fixed host (api.github.com) over HTTPS with the system's certificate checks; every call has a
@@ -321,7 +323,8 @@ class RepoWriter:
                    "deletions": [{"path": p} for p in _paths(deletions, write=True)]}
         commit_input = {"branch": {"repositoryNameWithOwner": self.repo, "branchName": _branch(branch)},
                         "expectedHeadOid": _sha(expected_head, "the expected head"),
-                        "message": {"headline": _line(headline, "the commit headline"), "body": plain_body(body)},
+                        "message": {"headline": _line(headline, "the commit headline"),
+                                    "body": plain_body(body)},
                         "fileChanges": changes}
         status, got = self._api.call("POST", "/graphql", token=self._token.token,
                                      body={"query": _COMMIT, "variables": {"input": commit_input}})
