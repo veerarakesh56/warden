@@ -210,15 +210,17 @@ def test_a_plan_that_changes_nothing_needs_no_model():
 
 @pytest.fixture
 def script(monkeypatch, tmp_path):
-    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    runs = tmp_path / "runs"  # the runs folder; tmp_path itself is the "elsewhere" a test can write outside it
+    runs.mkdir()
+    monkeypatch.setenv("RUNNER_TEMP", str(runs))
     spec = importlib.util.spec_from_file_location("eldane_plan_review", ROOT / "scripts" / "eldane_plan_review.py")
     mod = importlib.util.module_from_spec(spec)
     sys.modules["eldane_plan_review"] = mod
     spec.loader.exec_module(mod)
-    (tmp_path / "plan.json").write_text(json.dumps(ROUTINE), encoding="utf-8")
-    (tmp_path / "tfplan").write_bytes(b"the saved plan")
+    (runs / "plan.json").write_text(json.dumps(ROUTINE), encoding="utf-8")
+    (runs / "tfplan").write_bytes(b"the saved plan")
     monkeypatch.setattr(mod, "_critic", lambda: (Model(), "anthropic/test"))
-    return mod, tmp_path
+    return mod, runs
 
 
 def _args(tmp, command, **extra):
@@ -243,13 +245,15 @@ def test_the_script_says_a_person_reviews_when_eldane_does_not_approve(script, c
     plan.write_text(json.dumps(_plan(_rc("aws_iam_role.app", ["create"]))), encoding="utf-8")
     assert mod.main(_args(tmp, "review", plan=plan, out=tmp / "eldane.json")) == 3
     said = capsys.readouterr().out
-    assert "apply-plan" in said and "sha256" in said
+    assert "apply-plan" in said
+    assert "sha256" in said
     assert mod.main(_args(tmp, "check", review=tmp / "eldane.json")) == 1
 
 
-def test_the_script_reads_and_writes_only_inside_the_runs_folder(script, tmp_path_factory):
+def test_the_script_reads_and_writes_only_inside_the_runs_folder(script, tmp_path):
     mod, tmp = script
-    elsewhere = tmp_path_factory.mktemp("elsewhere") / "eldane.json"
+    (tmp_path / "elsewhere").mkdir()
+    elsewhere = tmp_path / "elsewhere" / "eldane.json"
     assert mod.main(_args(tmp, "review", plan=tmp / "plan.json", out=elsewhere)) == 2
     assert not elsewhere.exists()
 

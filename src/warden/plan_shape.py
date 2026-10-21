@@ -86,28 +86,33 @@ def kind_of(rtype: str) -> str:
     return ""
 
 
+def _problem(rc: dict[str, Any], change: Change, actions: list[str]) -> str:
+    """Why this one change needs a person, or "" when its shape allows Eldane's review."""
+    address, action, kind = change.address, change.action, kind_of(change.type)
+    if set(actions) - KNOWN:
+        return f"{address}: an action this policy does not know ({action})"
+    if rc.get("provider_name") not in PROVIDERS:
+        return f"{address}: a provider these stacks do not use"
+    if kind == "access":
+        return f"{address}: changes access ({action}) - a person reviews every access change"
+    if kind and set(actions) & REMOVES:
+        return f"{address}: {action} of {kind} - a person reviews every delete or replace of {kind}"
+    return ""
+
+
 def check(plan: dict[str, Any]) -> Shape:
     """The plan's managed-resource changes and every reason its shape needs a person."""
     changes, problems = [], []
     for rc in plan.get("resource_changes") or []:
-        if rc.get("mode", "managed") != "managed":
-            continue
         actions = list((rc.get("change") or {}).get("actions") or [])
-        if not set(actions) - {"no-op", "read"}:
+        if rc.get("mode", "managed") != "managed" or not set(actions) - {"no-op", "read"}:
             continue
-        rtype, address = str(rc.get("type", "")), str(rc.get("address", ""))
         action = _action(actions)
-        changes.append(Change(address, rtype, action,
-                              _changed(rc.get("change") or {}) if action == "update" else []))
-        kind = kind_of(rtype)
-        if set(actions) - KNOWN:
-            problems.append(f"{address}: an action this policy does not know ({action})")
-        elif rc.get("provider_name") not in PROVIDERS:
-            problems.append(f"{address}: a provider these stacks do not use")
-        elif kind == "access":
-            problems.append(f"{address}: changes access ({action}) - a person reviews every access change")
-        elif kind and set(actions) & REMOVES:
-            problems.append(f"{address}: {action} of {kind} - a person reviews every delete or replace of {kind}")
+        change = Change(str(rc.get("address", "")), str(rc.get("type", "")), action,
+                        _changed(rc.get("change") or {}) if action == "update" else [])
+        changes.append(change)
+        if problem := _problem(rc, change, actions):
+            problems.append(problem)
     if len(changes) > MAX_CHANGES:
         problems.append(f"{len(changes)} changes: more than {MAX_CHANGES} in one plan go to a person")
     return Shape(changes, problems)

@@ -5,7 +5,7 @@ decides.
 - Always said to be an AI: every message Eldane posts starts with approvals.AI_LABEL ("Eldane · AI critic"; EU AI Act
   Art. 50), whatever name its Slack app is given. WARDEN's answers are posted by WARDEN's own bot, in the same thread,
   each starting with "WARDEN", so nobody reads one for the other.
-- Its own Slack bot token (TOKEN, `warden/<env>/eldane-slack-token`), read only by the critic zone
+- Its own Slack bot token (ELDANE_BOT_ENV, `warden/<env>/eldane-slack-token`), read only by the critic zone
   (settings.ZONE_SECRETS); WARDEN's answers go out with WARDEN's token from the notify zone, as every message it sends.
 - It only POSTS. It never reads the channel (register R12: anyone can write there, so nothing said there reaches
   Eldane): nothing here calls a Slack method that reads, and Eldane's input stays eldane.READS.
@@ -28,7 +28,7 @@ from . import approvals, autonomy, critique
 from .gate import withhold_commands
 from .models import inert
 
-TOKEN = "WARDEN_ELDANE_SLACK_TOKEN"
+ELDANE_BOT_ENV = "WARDEN_ELDANE_SLACK_TOKEN"  # the environment variable that holds Eldane's bot token
 THREAD, POSTED = "eldane.thread", "eldane.posted"
 OPENING, CLOSING = 0, critique.MAX_ROUNDS + 1  # the steps: 0 opens the thread, 1..MAX_ROUNDS a round, then the end
 ELDANE, WARDEN = f"*{approvals.AI_LABEL}*", "*WARDEN*"  # how each message starts: who says it
@@ -208,7 +208,7 @@ def eldane_says(log: Any, plan: Any, run_id: str, step: int) -> int:
     record, or NOTHING when it made no review of this plan."""
     if autonomy.verdict_of(log, plan, run_id) is None:
         return NOTHING
-    token = os.environ.get(TOKEN, "").strip()
+    token = os.environ.get(ELDANE_BOT_ENV, "").strip()
     if step == OPENING:
         post(log, plan, run_id, "open", opening(plan), token=token, label=ELDANE, opens=True)
         if thread_of(log, plan, run_id) is None:

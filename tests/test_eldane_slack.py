@@ -42,7 +42,7 @@ def slack(monkeypatch):
     monkeypatch.setattr(chatops, "_slack_call", fake)
     monkeypatch.setenv("WARDEN_DISCUSS_CHANNELS", f"dev={CHANNEL}")
     monkeypatch.delenv("WARDEN_DISCUSS_CHANNEL", raising=False)
-    monkeypatch.setenv(eldane_slack.TOKEN, ELDANE_TOKEN)
+    monkeypatch.setenv(eldane_slack.ELDANE_BOT_ENV, ELDANE_TOKEN)
     monkeypatch.setenv("WARDEN_SLACK_BOT_TOKEN", WARDEN_TOKEN)
     return fake
 
@@ -77,7 +77,8 @@ def test_a_debate_is_posted_in_order_each_side_with_its_own_token(world, slack):
     posted = _texts(slack)
     assert [m for m, _, _ in slack.calls] == ["chat.postMessage"] * 4
     (_, t0, root), (objs, t1, th1), (ans, t2, th2), (end, t3, th3) = posted
-    assert root is None and {th1, th2, th3} == {"1700000000.000001"}  # one thread, opened by Eldane
+    assert root is None  # Eldane opens the thread
+    assert {th1, th2, th3} == {"1700000000.000001"}  # and every message is in that one thread
     assert (t0, t1, t2, t3) == (ELDANE_TOKEN, ELDANE_TOKEN, WARDEN_TOKEN, ELDANE_TOKEN)
     assert {p["channel"] for _, p, _ in slack.calls} == {CHANNEL}  # dev's own discussion channel
     assert "round 1 of at most 3" in objs
@@ -100,7 +101,8 @@ def test_every_message_eldane_posts_says_it_is_an_ai(world, slack):
         assert text.startswith(f"*{approvals.AI_LABEL}*"), text
     assert "an AI, not a person" in eldane[0]
     warden = [text for text, token, _ in _texts(slack) if token == WARDEN_TOKEN]
-    assert warden and all(t.startswith(eldane_slack.WARDEN) for t in warden)
+    assert warden
+    assert all(t.startswith(eldane_slack.WARDEN) for t in warden)
 
 
 def test_at_most_three_rounds_are_posted_whatever_the_record_holds(world, slack):
@@ -135,10 +137,10 @@ def test_no_review_on_the_record_says_nothing(world, slack):
 
 def test_without_its_token_or_a_channel_nothing_is_posted(world, slack, monkeypatch):
     plan = _debate(world, debate._yes(), debate._yes())
-    monkeypatch.delenv(eldane_slack.TOKEN)
+    monkeypatch.delenv(eldane_slack.ELDANE_BOT_ENV)
     _say_all(world, plan)
     assert slack.calls == []
-    monkeypatch.setenv(eldane_slack.TOKEN, ELDANE_TOKEN)
+    monkeypatch.setenv(eldane_slack.ELDANE_BOT_ENV, ELDANE_TOKEN)
     monkeypatch.setenv("WARDEN_DISCUSS_CHANNELS", "prod=C0PRODDISC")  # no channel for dev
     _say_all(world, plan)
     assert slack.calls == []
@@ -148,7 +150,7 @@ def test_warden_never_opens_eldanes_thread(world, slack, monkeypatch):
     """With no thread Eldane opened (no token of its own), WARDEN's answers go nowhere - even with a channel and
     WARDEN's own token: nothing it posts can pass for Eldane's thread."""
     plan = _debate(world, debate._no(), debate._yes(), warden_answers=(debate._answer(),))
-    monkeypatch.delenv(eldane_slack.TOKEN)
+    monkeypatch.delenv(eldane_slack.ELDANE_BOT_ENV)
     _say_all(world, plan)
     assert eldane_slack.answers(world["log"], plan, "", 1)  # there is an answer to post...
     assert eldane_slack.warden_says(world["log"], plan, "", 1) is False  # ...and nowhere to post it
@@ -240,8 +242,9 @@ def test_eldane_only_posts_and_never_reads_the_channel():
 # ----------------------------------------------------------------------------- its own token, the critic zone's alone
 
 def test_its_token_is_a_secret_only_the_critic_zone_reads():
-    name = eldane_slack.TOKEN
-    assert name in settings.SECRETS and name in settings.LOADABLE
+    name = eldane_slack.ELDANE_BOT_ENV
+    assert name in settings.SECRETS
+    assert name in settings.LOADABLE
     assert {z for z, held in settings.ZONE_SECRETS.items() if name in held} == {"critic"}
     assert settings.secret_id("dev", name, "critic") == "warden/dev/eldane-slack-token"
     # ...and the critic zone holds none of WARDEN's own Slack credentials.
