@@ -43,6 +43,8 @@ from typing import Any
 # and the teardown sweep lost its tag filter (second review, 2026-09-30). tests/test_proving_ground_tags.py
 # reads main.tf, so the two cannot drift apart again.
 STACK_TAG = ("Stack", "warden-proving-ground")
+FAULT_IMAGE_TAG = "3.12.7-alpine"  # the python image every faulty variant runs (pinned, as the baseline)
+DEFAULT_ROUTE = "0.0.0.0/0"  # the route the NAT fault removes and its revert restores
 
 
 class OpError(RuntimeError):
@@ -121,7 +123,7 @@ def _guard_cluster(clients: Clients, target: Target) -> None:
 _VARIANTS: dict[str, dict[str, Any]] = {
     # Allocates 900 MiB inside a 512 MiB task. The kernel does the rest.
     "oom": {
-        "image_tag": "3.12.7-alpine",
+        "image_tag": FAULT_IMAGE_TAG,
         "command_key": "oom",
     },
     # ⭐ The pair to `oom`. Same IMAGE as the baseline; only the command changes. WARDEN compares
@@ -142,23 +144,23 @@ _VARIANTS: dict[str, dict[str, Any]] = {
         "command_key": "healthy",
     },
     "exit_one": {
-        "image_tag": "3.12.7-alpine",
+        "image_tag": FAULT_IMAGE_TAG,
         "command_key": "exit_one",
     },
     "bad_healthcheck": {
-        "image_tag": "3.12.7-alpine",
+        "image_tag": FAULT_IMAGE_TAG,
         "command_key": "healthy",
         "health_check": ["CMD-SHELL", "exit 1"],
     },
     "cpu_starved": {
-        "image_tag": "3.12.7-alpine",
+        "image_tag": FAULT_IMAGE_TAG,
         "command_key": "busy",
         "cpu": "256",
     },
     # A Secrets Manager ARN that does not resolve. The EXECUTION role fails before the container
     # runs, which is a different failure surface from anything the container itself can produce.
     "bad_secret": {
-        "image_tag": "3.12.7-alpine",
+        "image_tag": FAULT_IMAGE_TAG,
         "command_key": "healthy",
         "secret_arn": "arn:aws:secretsmanager:{region}:{account}:secret:warden-no-such-secret-AbCdEf",
     },
@@ -397,14 +399,14 @@ def op_route_delete_default(clients: Clients, target: Target, **_):
         raise OpError(f"route table {target.route_table_id} is not tagged {key}={value}")
 
     default = next(
-        (r for r in table.get("Routes") or [] if r.get("DestinationCidrBlock") == "0.0.0.0/0"),
+        (r for r in table.get("Routes") or [] if r.get("DestinationCidrBlock") == DEFAULT_ROUTE),
         None,
     )
     if default is None:
         raise OpError("no default route to delete")
     target.saved["default_route_gateway"] = default.get("GatewayId")
     clients.ec2.delete_route(
-        RouteTableId=target.route_table_id, DestinationCidrBlock="0.0.0.0/0",
+        RouteTableId=target.route_table_id, DestinationCidrBlock=DEFAULT_ROUTE,
     )
     return {"deleted_route_via": default.get("GatewayId")}
 
@@ -416,7 +418,7 @@ def op_route_restore_default(clients: Clients, target: Target, **_):
     try:
         clients.ec2.create_route(
             RouteTableId=target.route_table_id,
-            DestinationCidrBlock="0.0.0.0/0",
+            DestinationCidrBlock=DEFAULT_ROUTE,
             GatewayId=gateway,
         )
     except Exception as exc:

@@ -50,7 +50,9 @@ _KV = re.compile(r"(?<![\w.-])([A-Za-z_][\w.-]{0,40})=([^\s,;\]\)\"'`]{1,80})")
 _OBJECT = re.compile(r"\b((?:Pod|Deployment|ReplicaSet|StatefulSet|DaemonSet|Node|Job|Service)/[\w.-]{1,80})")
 _DURATION = re.compile(r"\b(\d+(?:\.\d+)?)\s?(ms|s|sec|seconds|m|min|minutes)\b")
 _SIZE = re.compile(r"\b(\d+(?:\.\d+)?)\s?(KB|KiB|MB|MiB|GB|GiB)\b")
-_IMAGE = re.compile(r"(?<![\w.-])((?:[\w.<>-]+/)+[\w.-]+:[\w.-]+)")
+# Bounded like the patterns above (a fact longer than 120 is dropped anyway) (Sonar python:S8786, 2026-10-16): a run of `<` or of
+# `a/` was searched again from each of its characters.
+_IMAGE = re.compile(r"(?<![\w.-])((?:[\w.<>-]{1,120}/){1,16}[\w.-]{1,120}:[\w.-]{1,120})")
 # The fields of a Lambda REPORT line, by name: "Memory Size" and "Max Memory Used" are both sizes,
 # and only the pair says how close a function runs to its limit. A closed set of keys, so a line
 # cannot name its own fact.
@@ -251,7 +253,7 @@ def facts(text: str) -> tuple[str, ...]:
 # model wrote "the missing key itself is not visible". Python's own `KeyError: 'name'` gives one identifier; it is kept
 # only where the function's deployed source - WARDEN's own read of the package, SOURCE lines no log can forge - uses
 # that very key in quotes (reduce). A log writer can name a key; it cannot put it in the code.
-_KEY_ERROR = re.compile(r"\bKeyError: '([A-Za-z_][A-Za-z0-9_]{0,63})'")
+_KEY_ERROR = re.compile(r"\bKeyError: '([A-Za-z_](?a:\w{0,63}))'")
 
 
 # `0/2 nodes are available`, `63/79 in use`: up to two words between the counts and the closed word. Not inside a date.
@@ -261,8 +263,10 @@ _LEVEL_KEYS = frozenset({"level", "severity", "lvl", "loglevel", "log_level"})
 _SCALED = re.compile(r"\bscaled (up|down)\b[^\n]{0,160}?\bto (\d{1,7})(?: from (\d{1,7}))?\b")
 _EXIT = re.compile(r"\bexit(?:ed)?(?: with)? (?:code|status)[ :=]{0,2}(\d{1,3})\b")
 # `"key": "value"` and `"key": 12` - the kv fact for JSON logs, under the same key and value rules as `key=value`.
-_JSON_KV = re.compile(r'"([A-Za-z_][\w.-]{0,40})"\s?:\s?(?:"([^"\s,;\]\)\'`]{1,80})"|(-?\d+(?:\.\d+)?|true|false))')
-_JSON_LEVEL = re.compile(r'"(?:level|severity|lvl|loglevel|log_level)"\s?:\s?"([A-Za-z]{4,8})"', re.IGNORECASE)
+_JSON_KEY = r'"([A-Za-z_][\w.-]{0,40})"'
+_JSON_VALUE = r'(?:"([^"\s,;\]\)\'`]{1,80})"|(-?\d+(?:\.\d+)?|true|false))'  # a short string, or a number / bool
+_JSON_KV = re.compile(_JSON_KEY + r"\s?:\s?" + _JSON_VALUE)
+_JSON_LEVEL = re.compile(r'"(?:level|severity|lvl|loglevel|log_level)"\s?:\s?"([A-Z]{4,8})"', re.IGNORECASE)
 
 
 @functools.cache

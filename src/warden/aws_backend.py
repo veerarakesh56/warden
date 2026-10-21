@@ -327,23 +327,8 @@ class AwsBackend:
         # predated the fault, and the AccessDenied lines that named the cause were the ones dropped.
         events: list[dict] = []
         partial: list[str] = []
-        pages = LOG_MAX_PAGES
         try:
-            for lo, hi in windows:
-                kwargs: dict[str, object] = {**base, "startTime": lo, "endTime": hi}
-                while pages > 0:
-                    pages -= 1
-                    resp = self._logs.filter_log_events(**kwargs)
-                    events += resp.get("events") or []
-                    token = resp.get("nextToken")
-                    if not token:
-                        break
-                    kwargs["nextToken"] = token
-                else:
-                    partial.append(f"{PARTIAL_PREFIX}logs: [output truncated] stopped after {LOG_MAX_PAGES} pages, "
-                                   f"{'before reaching the alert time' if lo == start_ms and len(windows) == 1 else 'the alert-time lines read first'} "
-                                   "(raise WARDEN_AWS_LOG_MAX_PAGES to read the rest of the window)")
-                    break
+            self._read_windows(base, windows, start_ms, events, partial)
         except Exception as exc:  # noqa: BLE001 - a missing group is data, not a crash
             if not events:
                 return [f"{PARTIAL_PREFIX}logs: {group}: {failure(exc)}"]
@@ -367,6 +352,27 @@ class AwsBackend:
                            f"{len(older_errors)} older error line(s), dropped {dropped} "
                            "(raise WARDEN_AWS_LOG_MAX_LINES to see more)")
         return lines + partial
+
+    def _read_windows(self, base: dict[str, object], windows: list[tuple[int, int]], start_ms: int,
+                      events: list[dict], partial: list[str]) -> None:
+        """Every page of each window in turn, LOG_MAX_PAGES pages in all, into `events` - which keeps what was read
+        when a page fails (the failure propagates to the caller)."""
+        pages = LOG_MAX_PAGES
+        for lo, hi in windows:
+            kwargs: dict[str, object] = {**base, "startTime": lo, "endTime": hi}
+            while pages > 0:
+                pages -= 1
+                resp = self._logs.filter_log_events(**kwargs)
+                events.extend(resp.get("events") or [])
+                token = resp.get("nextToken")
+                if not token:
+                    break
+                kwargs["nextToken"] = token
+            else:
+                partial.append(f"{PARTIAL_PREFIX}logs: [output truncated] stopped after {LOG_MAX_PAGES} pages, "
+                               f"{'before reaching the alert time' if lo == start_ms and len(windows) == 1 else 'the alert-time lines read first'} "
+                               "(raise WARDEN_AWS_LOG_MAX_PAGES to read the rest of the window)")
+                break
 
     @_in_environment
     def metrics(self, alert: Alert) -> dict[str, float]:
@@ -492,78 +498,15 @@ class AwsBackend:
 
         try:
             current = self._task_definition(f"{family}:{revision}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  # an unreadable revision is a partial and never a crash
             return [f"{PARTIAL_PREFIX}deploys: {family}:{revision}: {failure(exc)}"]
         current_images = _images_of(current)
 
-        # ⛔ WHAT TO COMPARE AGAINST, AND WHY revision-1 IS WRONG.
-        #
-        # This used to compare revision N against revision N-1, assuming the previously REGISTERED
-        # revision is the previously DEPLOYED one. A real account breaks that assumption constantly:
-        # CI registers revisions that are never rolled out, a rollback leaves a gap, and a benchmark
-        # wave registers one variant per scenario. Measured against a live account, seven scenarios
-        # in a row deployed checkout:7 through checkout:13, so each was compared with the PREVIOUS
-        # SCENARIO's variant rather than with what was actually running - identical images, so
-        # WARDEN reported NO DEPLOY for a genuine deploy, and P5-NO-DEPLOY-TO-ROLL-BACK then
-        # rejected the correct rollback.
-        #
-        # ECS already answers this properly: during a rollout `describe_services` returns the
-        # PRIMARY deployment alongside the ACTIVE one it is replacing. Use that, and fall back to
-        # revision-1 only when there is nothing else to compare with.
-        previous_arn = next(
-            (d.get("taskDefinition") for d in deployments
-             if d is not primary and d.get("taskDefinition")),
-            "",
-        )
-        previous_ref = ""
-        rolled_back_from = ""
-        if previous_arn:
-            prev_family, prev_revision = _family_revision(previous_arn)
-            if prev_family == family and prev_revision > revision:
-                # A ROLLBACK: the revision being replaced is newer than the one going live - ECS's circuit breaker or a
-                # person stepping back. Reported as a change, but with nothing to roll back to: the "previous" here is
-                # the broken revision, and a rollback aimed at it redeployed it (audit A-B-M6).
-                rolled_back_from = f"{prev_family}:{prev_revision}"
-            elif prev_family:
-                # ⛔ Used, even when it is the SAME revision as PRIMARY. That is exactly what a
-                # `--force-new-deployment` looks like — a new deployment record pointing at the
-                # unchanged task definition — and the images then compare equal, so it is correctly
-                # not a deploy. Skipping it here and falling through to revision-1 would report a
-                # restart as a deploy, which is the single defect this whole comparison exists to
-                # prevent. A test asserts it.
-                previous_ref = f"{prev_family}:{prev_revision}"
-        if not previous_ref and not rolled_back_from and revision > 1:
-            previous_ref = f"{family}:{revision - 1}"
-
-        previous_images: list[str] = []
-        changed: list[str] = []
-        if previous_ref:
-            try:
-                previous = self._task_definition(previous_ref)
-                previous_images = _images_of(previous)
-            except Exception as exc:  # noqa: BLE001
-                # ⭐ The important branch. Without the previous revision we cannot tell a real
-                # deploy from a force-new-deployment, and reporting it anyway would let policy P5
-                # approve a rollback on a restart. Report the gap; report no deploy.
-                # Tagged at the source like every tool error: the model reads only the tag.
-                gap = (
-                    f"{PARTIAL_PREFIX}deploys: {failure(exc)} (previous revision {previous_ref} "
-                    "unreadable, cannot prove a template change)"
-                )
-                return [gap]
-            if previous_images == current_images:
-                # G9-E (audit E3): the same images, but another revision whose settings differ - a command, memory,
-                # an environment variable - IS a deploy: the rollback P5 refused (ecs-10, a command change that OOMs)
-                # was the right answer. The same revision, or identical settings, is a restart, not a deploy.
-                changed = _config_changes(previous, current) if previous_ref != f"{family}:{revision}" else []
-                if not changed:
-                    return []
-
-        if rolled_back_from:
-            try:
-                previous_images = _images_of(self._task_definition(rolled_back_from))
-            except Exception:  # noqa: BLE001 - the images are context only; the rollback is reported either way
-                previous_images = []
+        previous_ref, rolled_back_from = _previous(deployments, primary, family, revision)
+        answer, previous_images, changed = self._previous_side(previous_ref, rolled_back_from,
+                                                               f"{family}:{revision}", current, current_images)
+        if answer is not None:
+            return answer
         out = {
             "service": self._service(alert),
             "revision": str(revision),
@@ -592,6 +535,41 @@ class AwsBackend:
             out["registered_at"] = registered.isoformat()
         return [out]
 
+    def _previous_side(self, previous_ref: str, rolled_back_from: str, this_ref: str, current: dict,
+                       current_images: list[str]) -> tuple[list | None, list[str], list[str]]:
+        """(an answer `deploys` returns as it is - a gap, or no deploy - or None; the previous images; the settings
+        that changed)."""
+        previous_images: list[str] = []
+        changed: list[str] = []
+        if previous_ref:
+            try:
+                previous = self._task_definition(previous_ref)
+                previous_images = _images_of(previous)
+            except Exception as exc:  # noqa: BLE001  # a failed read is reported as the gap below and never a crash
+                # ⭐ The important branch. Without the previous revision we cannot tell a real
+                # deploy from a force-new-deployment, and reporting it anyway would let policy P5
+                # approve a rollback on a restart. Report the gap; report no deploy.
+                # Tagged at the source like every tool error: the model reads only the tag.
+                gap = (
+                    f"{PARTIAL_PREFIX}deploys: {failure(exc)} (previous revision {previous_ref} "
+                    "unreadable, cannot prove a template change)"
+                )
+                return [gap], [], []
+            if previous_images == current_images:
+                # G9-E (audit E3): the same images, but another revision whose settings differ - a command, memory,
+                # an environment variable - IS a deploy: the rollback P5 refused (ecs-10, a command change that OOMs)
+                # was the right answer. The same revision, or identical settings, is a restart, not a deploy.
+                changed = _config_changes(previous, current) if previous_ref != this_ref else []
+                if not changed:
+                    return [], [], []
+
+        if rolled_back_from:
+            try:
+                previous_images = _images_of(self._task_definition(rolled_back_from))
+            except Exception:  # noqa: BLE001 - the images are context only; the rollback is reported either way
+                previous_images = []
+        return None, previous_images, changed
+
     def _task_definition(self, task_definition: str) -> dict:
         resp = self._ecs.describe_task_definition(taskDefinition=task_definition)
         return resp.get("taskDefinition") or {}
@@ -606,6 +584,50 @@ _TASK_FIELDS = ("cpu", "memory", "taskRoleArn", "executionRoleArn", "networkMode
 _CONTAINER_FIELDS = ("command", "entryPoint", "cpu", "memory", "memoryReservation", "healthCheck", "ulimits",
                      "linuxParameters", "portMappings", "essential", "workingDirectory", "user", "dependsOn",
                      "stopTimeout", "startTimeout", "logConfiguration")
+
+
+def _previous(deployments: list[dict], primary: dict, family: str, revision: int) -> tuple[str, str]:
+    """(the revision this deploy is compared with, `family:revision` or ""; the newer revision a ROLLBACK replaced,
+    or "")."""
+    # ⛔ WHAT TO COMPARE AGAINST, AND WHY revision-1 IS WRONG.
+    #
+    # This used to compare revision N against revision N-1, assuming the previously REGISTERED
+    # revision is the previously DEPLOYED one. A real account breaks that assumption constantly:
+    # CI registers revisions that are never rolled out, a rollback leaves a gap, and a benchmark
+    # wave registers one variant per scenario. Measured against a live account, seven scenarios
+    # in a row deployed checkout:7 through checkout:13, so each was compared with the PREVIOUS
+    # SCENARIO's variant rather than with what was actually running - identical images, so
+    # WARDEN reported NO DEPLOY for a genuine deploy, and P5-NO-DEPLOY-TO-ROLL-BACK then
+    # rejected the correct rollback.
+    #
+    # ECS already answers this properly: during a rollout `describe_services` returns the
+    # PRIMARY deployment alongside the ACTIVE one it is replacing. Use that, and fall back to
+    # revision-1 only when there is nothing else to compare with.
+    previous_arn = next(
+        (d.get("taskDefinition") for d in deployments
+         if d is not primary and d.get("taskDefinition")),
+        "",
+    )
+    previous_ref = ""
+    rolled_back_from = ""
+    if previous_arn:
+        prev_family, prev_revision = _family_revision(previous_arn)
+        if prev_family == family and prev_revision > revision:
+            # A ROLLBACK: the revision being replaced is newer than the one going live - ECS's circuit breaker or a
+            # person stepping back. Reported as a change, but with nothing to roll back to: the "previous" here is
+            # the broken revision, and a rollback aimed at it redeployed it (audit A-B-M6).
+            rolled_back_from = f"{prev_family}:{prev_revision}"
+        elif prev_family:
+            # ⛔ Used, even when it is the SAME revision as PRIMARY. That is exactly what a
+            # `--force-new-deployment` looks like — a new deployment record pointing at the
+            # unchanged task definition — and the images then compare equal, so it is correctly
+            # not a deploy. Skipping it here and falling through to revision-1 would report a
+            # restart as a deploy, which is the single defect this whole comparison exists to
+            # prevent. A test asserts it.
+            previous_ref = f"{prev_family}:{prev_revision}"
+    if not previous_ref and not rolled_back_from and revision > 1:
+        previous_ref = f"{family}:{revision - 1}"
+    return previous_ref, rolled_back_from
 
 
 def _config_changes(previous: dict, current: dict) -> list[str]:

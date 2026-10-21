@@ -124,20 +124,34 @@ def eks_backend(eks: Any, sts: Any, cluster: str) -> KubernetesBackend:
     """A KubernetesBackend on an EKS cluster in the caller's own role - no kubeconfig, no in-cluster identity: the cloud
     runtime reads a cluster in the incident's environment reader role (2026-10-15: every pod, event and log read there
     failed "credentials rejected or missing"). The cluster's own CA is verified."""
+    from kubernetes import client
+
+    api = eks_api_client(eks.describe_cluster(name=cluster)["cluster"], sts, cluster)
+    return KubernetesBackend(core=client.CoreV1Api(api), apps=client.AppsV1Api(api),
+                             autoscaling=client.AutoscalingV1Api(api))
+
+
+_CA_FILES: dict[str, str] = {}
+
+
+def eks_api_client(described: dict[str, Any], sts: Any, cluster: str) -> Any:
+    """An ApiClient on the EKS cluster `described` (DescribeCluster's `cluster`), its bearer token signed by `sts`'s own
+    credentials - so it acts as whoever those are (a reader role, a plan's actor session). The cluster's own CA is
+    verified; its file is written once per CA, not once per client."""
     import base64
     import tempfile
 
     from kubernetes import client
 
-    c = eks.describe_cluster(name=cluster)["cluster"]
-    with tempfile.NamedTemporaryFile("wb", suffix=".crt", delete=False) as ca:
-        ca.write(base64.b64decode(c["certificateAuthority"]["data"]))
+    data = described["certificateAuthority"]["data"]
+    if data not in _CA_FILES:
+        with tempfile.NamedTemporaryFile("wb", suffix=".crt", delete=False) as ca:
+            ca.write(base64.b64decode(data))
+        _CA_FILES[data] = ca.name
     cfg = client.Configuration()
-    cfg.host, cfg.ssl_ca_cert, cfg.verify_ssl = c["endpoint"], ca.name, True
+    cfg.host, cfg.ssl_ca_cert, cfg.verify_ssl = described["endpoint"], _CA_FILES[data], True
     cfg.api_key = {"authorization": "Bearer " + eks_token(sts, cluster)}
-    api = client.ApiClient(cfg)
-    return KubernetesBackend(core=client.CoreV1Api(api), apps=client.AppsV1Api(api),
-                             autoscaling=client.AutoscalingV1Api(api))
+    return client.ApiClient(cfg)
 
 
 class KubernetesBackend:

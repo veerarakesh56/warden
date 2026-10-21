@@ -37,7 +37,7 @@ def examples(bundles: list[pathlib.Path]) -> list[tuple[list[float], int, str]]:
             if row["diagnosis"] not in GRADABLE:
                 continue
             d = json.loads((bundle / "reports" / f"{row['scenario_id']}.{row['index']}.json").read_text(encoding="utf-8"))
-            f = features(Alert(**d["alert"]), ContextBundle(**d["context"]), RootCause(**d["root_cause"]),
+            f = features(Alert(**d["alert"]), ContextBundle(**d["context"]), RootCause.recorded(d["root_cause"]),
                          RemediationProposal(**d["proposal"]), Verdict(**d["verdict"]))
             out.append(([f[k] for k in FEATURES], int(row["diagnosis"] == "CORRECT"), row["fault_class"]))
     return out
@@ -82,7 +82,7 @@ def brier(ps: list[float], ys: list[int]) -> float:
 def ece(ps: list[float], ys: list[int], bins: int = 10) -> float:
     total = 0.0
     for i in range(bins):
-        idx = [k for k, p in enumerate(ps) if i / bins <= p < (i + 1) / bins or (i == bins - 1 and p == 1.0)]
+        idx = [k for k, p in enumerate(ps) if i / bins <= p < (i + 1) / bins or (i == bins - 1 and p >= 1.0)]
         if idx:
             total += len(idx) / len(ps) * abs(sum(ps[k] for k in idx) / len(idx) - sum(ys[k] for k in idx) / len(idx))
     return total

@@ -4,7 +4,7 @@
 # says. This pod runs the same image under the same ServiceAccount and security context as the
 # Job, and asks the PROCESS: what uid are you, and can you write to the root filesystem? CI
 # asserts the answers are `10001` and `READONLY`. If the `restricted` PSS label on the namespace
-# were ever mistyped, the negative probe (privileged-must-fail.yaml) catches that side.
+# were ever mistyped, the negative probe (scripts/negative_pod.py) catches that side.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -37,5 +37,5 @@ spec:
         capabilities:
           drop: ["ALL"]
       resources:
-        requests: { cpu: 10m, memory: 32Mi }
+        requests: { cpu: 10m, memory: 32Mi, ephemeral-storage: 16Mi }  # two log lines (Sonar kubernetes:S6897)
         limits: { cpu: 100m, memory: 64Mi }

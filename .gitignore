@@ -1,5 +1,6 @@
 # Python, caches and build output
-.venv/
+# No slash: a .venv that is a symlink is a file to git, and `.venv/` let one be committed (PR 90, CI's uv venv failed).
+.venv
 __pycache__/
 *.py[cod]
 .pytest_cache/
