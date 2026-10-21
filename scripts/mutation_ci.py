@@ -33,13 +33,14 @@ from collections.abc import Callable
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # A change to any of these changes how every module is mutated: the whole set runs.
-SETUP_FILES = frozenset({"pyproject.toml", "uv.lock", ".github/workflows/mutation.yml", "scripts/mutation_ci.py"})
+PYPROJECT = "pyproject.toml"
+SETUP_FILES = frozenset({PYPROJECT, "uv.lock", ".github/workflows/mutation.yml", "scripts/mutation_ci.py"})
 # Counted against the suite: a mutant no test killed, one that hung, or one that crashed the interpreter oddly.
 NOT_KILLED = ("survived", "timeout", "suspicious", "segfault")
 SUMMARY_TITLE = "## Mutation testing - safety modules\n\n"
 
 
-def safety_modules(pyproject: pathlib.Path = ROOT / "pyproject.toml") -> list[str]:
+def safety_modules(pyproject: pathlib.Path = ROOT / PYPROJECT) -> list[str]:
     return list(tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"]["mutmut"]["only_mutate"])
 
 
@@ -123,7 +124,7 @@ def _targets(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
 
 
 def _narrow(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    pyproject = ROOT / "pyproject.toml"
+    pyproject = ROOT / PYPROJECT
     try:
         pyproject.write_text(narrowed(pyproject.read_text(encoding="utf-8"), args.module), encoding="utf-8")
     except ValueError as exc:
