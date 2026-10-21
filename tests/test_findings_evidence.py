@@ -460,9 +460,9 @@ def test_a_redirect_carries_the_token_only_to_https_on_the_same_host():
     """urllib keeps every header on a redirect, the bearer token among them (CodeRabbit, PR 165)."""
     import urllib.request
 
-    from warden.findings import _OPENER, _SameHostRedirects
+    from warden import web
 
-    handler = _SameHostRedirects()
+    handler = web._Redirects()
     req = urllib.request.Request("https://api.github.com/repos/owner/shop/pulls/37/comments",
                                  headers={"Authorization": "Bearer gh-" + "read"})
     for elsewhere in ("https://evil.example/steal", "http://api.github.com/repos/owner/shop/pulls/37/comments",
@@ -472,10 +472,10 @@ def test_a_redirect_carries_the_token_only_to_https_on_the_same_host():
             handler.redirect_request(req, fp, 302, "Found", {}, elsewhere)
     moved = handler.redirect_request(req, io.BytesIO(b""), 301, "Moved", {}, "https://api.github.com/repositories/9/x")
     assert moved.full_url == "https://api.github.com/repositories/9/x"
-    redirects = [h for h in _OPENER.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)]
+    redirects = [h for h in web._HTTPS.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)]
     assert len(redirects) == 1
-    assert isinstance(redirects[0], _SameHostRedirects)
-    assert FindingsReader(_Base(), repo="owner/shop")._open == _OPENER.open
+    assert isinstance(redirects[0], web._Redirects)
+    assert FindingsReader(_Base(), repo="owner/shop")._open is web.urlopen  # warden.web's opener (PR 168)
 
 
 def test_an_answer_of_the_wrong_shape_is_not_read_never_nothing_found():

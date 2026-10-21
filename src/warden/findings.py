@@ -33,6 +33,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from . import web
 from .quarantine import _ACTION_WORDS, _plain
 from .timeline import _API, _TIMEOUT_S, MAX_COMMITS, deploy_shas
 from .tools import PARTIAL_PREFIX, failure_tag
@@ -45,20 +46,6 @@ MAX_PRS, MAX_PER_PR = 2, 20  # defaults of WARDEN_FINDINGS_MAX_PRS and WARDEN_FI
 # pull requests as their four reads each fit the read's 30 s budget.
 CEILING_PRS, CEILING_PER_PR = 10, 100
 _FAILED = (urllib.error.URLError, TimeoutError, OSError, ValueError, TypeError)  # TypeError: a wrong shape
-
-
-class _SameHostRedirects(urllib.request.HTTPRedirectHandler):
-    """urllib's redirect keeps the request's headers, the bearer token among them: one is followed only to https on
-    the same host, and any other is refused as a failed read (CodeRabbit, PR 165)."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(urllib.parse.urljoin(req.full_url, newurl))
-        if new.scheme != "https" or new.netloc.lower() != old.netloc.lower():
-            raise urllib.error.HTTPError(req.full_url, code, "a redirect to another host was refused", headers, fp)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-_OPENER = urllib.request.build_opener(_SameHostRedirects)
 
 
 def _list(body: Any, what: str) -> list[Any]:
@@ -226,7 +213,7 @@ class FindingsReader:
     source = "findings"
 
     def __init__(self, base: Any, *, repo: str = "", token: str = "", sonar_project: str = "", sonar_token: str = "",
-                 max_prs: int = MAX_PRS, max_per_pr: int = MAX_PER_PR, opener: Any = _OPENER.open,
+                 max_prs: int = MAX_PRS, max_per_pr: int = MAX_PER_PR, opener: Any = web.urlopen,
                  clock: Any = time.monotonic) -> None:
         self.base, self.repo, self.token, self._open, self._clock = base, repo, token, opener, clock
         self.sonar_project, self.sonar_token = sonar_project, sonar_token
@@ -243,7 +230,7 @@ class FindingsReader:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         req = urllib.request.Request(url, headers=headers, method="GET")
-        with self._open(req, timeout=min(_TIMEOUT_S, left)) as resp:  # nosec B310 - two fixed https hosts
+        with self._open(req, timeout=min(_TIMEOUT_S, left)) as resp:
             return json.loads(resp.read(4_000_000))
 
     @staticmethod
