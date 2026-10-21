@@ -6,7 +6,7 @@ calls and nothing else; whether a change may be written at all is the code gate'
 `code_fix` mode.
 
 - **Identity.** The App's id (or client id) and its private key come from the environment - in the cloud runtime from
-  Secrets Manager, the act zone's alone (settings.CODE_FIX_SECRETS). A JSON Web Token signed with the key (RS256, at
+  Secrets Manager, the act zone's alone (settings.ZONE_SECRETS). A JSON Web Token signed with the key (RS256, at
   most ten minutes, its issue time a minute back for clock drift: GitHub's documented limits) asks GitHub for an
   installation token. The token is narrowed in the request to ONE repository and two permissions - contents: write,
   pull requests: write - and refused if GitHub grants more; it lasts an hour and is held in memory only.
