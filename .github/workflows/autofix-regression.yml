@@ -9,6 +9,9 @@ name: "CI · autofix"
 # No credentials, no secrets, read-only token.
 on:
   pull_request:
+    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # marked ready for review, and on every push after that. A code fix's merge never counts a skipped run as green.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
 
 permissions:
@@ -20,6 +23,7 @@ concurrency:
 
 jobs:
   autofix-regression:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
