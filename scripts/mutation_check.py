@@ -44,8 +44,8 @@ MUTATIONS = [
     (
         "P12 no-action-with-symptoms removed",
         VERIFIER,
-        "        found = symptoms(context)",
-        "        found = []",
+        "    found = symptoms(context)",
+        "    found = []",
         ("a confident 'nothing to do' over evidence showing OOM kills or unready pods would go out "
         "auto_safe - Wave 1's worst failure, caught since then only when confidence happened to be low"),
     ),

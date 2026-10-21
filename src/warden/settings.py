@@ -215,10 +215,17 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
     loaded = load_from_ssm(env, client=ssm, only=allowed)
     # A renamed secret set under its old name is a real environment variable too, and wins over the store.
     wanted = sorted(n for n in SECRETS & allowed if n not in os.environ and _OLD_NAME.get(n, n) not in os.environ)
-    if wanted and secrets is None:
-        import boto3  # only when an environment is actually named
+    if wanted:
+        if secrets is None:
+            import boto3  # only when an environment is actually named
 
-        secrets = boto3.client("secretsmanager")
+            secrets = boto3.client("secretsmanager")
+        loaded += _load_secrets(env, wanted, secrets, zone)
+    return sorted(loaded)
+
+
+def _load_secrets(env: str, wanted: list[str], secrets: Any, zone: str | None) -> list[str]:
+    """Each of `wanted` this environment has in Secrets Manager, set in os.environ; the names set."""
     def fetch(name: str) -> Any:
         try:
             return secrets.get_secret_value(SecretId=secret_id(env, name, zone))
@@ -227,19 +234,19 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
                 return None
             raise
 
-    if wanted:
-        from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor
 
-        # Fetched at the same time, not one after another: five in a row were 1.3 s of the approval page's cold
-        # start (measured 2026-10-14). Each is still its own call under the caller's own permission, and a failure
-        # of any still raises - `map` hands the results back in order and re-raises the first error it meets.
-        with ThreadPoolExecutor(max_workers=min(8, len(wanted))) as pool:
-            values = list(pool.map(fetch, wanted))
-        for name, value in zip(wanted, values, strict=True):
-            if value is not None and isinstance(value.get("SecretString"), str):
-                os.environ[name] = value["SecretString"]
-                loaded.append(name)
-    return sorted(loaded)
+    # Fetched at the same time, not one after another: five in a row were 1.3 s of the approval page's cold
+    # start (measured 2026-10-14). Each is still its own call under the caller's own permission, and a failure
+    # of any still raises - `map` hands the results back in order and re-raises the first error it meets.
+    with ThreadPoolExecutor(max_workers=min(8, len(wanted))) as pool:
+        values = list(pool.map(fetch, wanted))
+    loaded: list[str] = []
+    for name, value in zip(wanted, values, strict=True):
+        if value is not None and isinstance(value.get("SecretString"), str):
+            os.environ[name] = value["SecretString"]
+            loaded.append(name)
+    return loaded
 
 
 def getenv(name: str) -> str:
