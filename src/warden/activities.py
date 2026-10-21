@@ -448,8 +448,22 @@ class RemediationActivities:
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
                            "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
                            "problems": problems, "soak_minutes": req.soak_minutes,
-                           "approval_until": _deadline(plan).isoformat()})  # until when it waits (U3-8, extend.py)
+                           # Until when it waits, and from when its ceiling counts (U3-8, extend.py).
+                           "approval_until": _deadline(plan).isoformat(), "made": plan.created_at.isoformat()})
         return plan
+
+    @activity.defn
+    def approval_wait(self, plan: Plan, until: str) -> None:
+        """Until when this plan's run really waits for its approval (U3-8, patch u38-wait): its own deadline, set when
+        the wait began - later than the plan's approval_until by the gate and the critic's time. An approver's
+        extension counts from it (extend.waiting), so it always moves the run's deadline. Once per plan."""
+        from . import extend
+
+        body = {"workflow_id": plan.workflow_id, "plan_hash": plan.plan_hash, "until": until,
+                "made": plan.created_at.isoformat(), "run_id": _run_id()}
+        self.audit.append_unless(plan.incident_id, extend.WAIT, body, lambda: "recorded" if any(
+            e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("plan_hash") == plan.plan_hash
+            for e in self.audit.entries(plan.incident_id, kinds=(extend.WAIT,))) else "")
 
     @activity.defn
     def approval_extension(self, plan: Plan) -> str:
@@ -2019,13 +2033,10 @@ class DiscussActivities:
         asked = f"{turn.channel}/{turn.ts}"
         thread = f"discuss-{incident}"
         hours = hours_asked(turn.text)
-        if refused := _refused_before(self.audit, thread, asked):  # retried: its first "no", not a new decision
-            got: dict[str, Any] = refused
-        elif hours is None:  # not exactly one whole number of hours: asked again, never guessed
-            got = {"why": "hours unclear"}
-        else:
-            got = extend.request(self.audit, self.policy, incident=incident, user=turn.user, hours=hours,
-                                 now=datetime.now(UTC), asked=asked)
+        # Retried: its first "no", not a new decision. Hours not said plainly (None) are refused by extend.request,
+        # after who asks is checked - asked again, never guessed.
+        got: dict[str, Any] = _refused_before(self.audit, thread, asked) or extend.request(
+            self.audit, self.policy, incident=incident, user=turn.user, hours=hours, now=datetime.now(UTC), asked=asked)
         self.audit.append_unless(thread, _EXTEND_ASKED, {
             "run_id": _run_id(), "user": turn.user, "asked": asked, "ts": turn.ts, "hours": hours,
             "why": got.get("why", ""), "workflow_id": got.get("workflow_id", ""), "until": got.get("until", "")},

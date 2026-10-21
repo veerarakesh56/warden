@@ -15,6 +15,11 @@ it waited is refused, whatever the wait. The workflow reads the extension from t
 (RemediationWorkflow, activities.approval_extension), never from a message: a row the record does not hold extends
 nothing.
 
+Who asks is checked first, so someone who may not extend learns nothing about the plan. A plan whose approvals
+already reach its quorum - people's, or Eldane's on its own - waits for nobody and is not extended. An extension
+counts from the run's own deadline (WAIT, recorded when its wait began), so it always moves it; and the whole decision
+is taken again inside the write's lock (review, PR 182).
+
 One message extends at most once (CodeRabbit, PR 150): each row names the Slack message that asked (`asked`: its channel
 and ts) beside the plan it extended (workflow id and plan hash), written by a check-and-set inside the audit's write
 lock (AuditLog.append_unless). A retried activity - the row written, then the reply or the activity's completion lost -
@@ -29,8 +34,14 @@ from typing import Any
 from . import environments
 
 EXTENDED = "approval.extended"
+# Until when the plan's run really waits, from when its wait began (RemediationWorkflow, patch u38-wait): later than the
+# plan's own approval_until by the gate and the critic's time. Extensions count from it, so each one moves the run's
+# real deadline (review, PR 182).
+WAIT = "approval.wait"
 EXTEND_MAX_HOURS = 24
 CEILING_HOURS = environments.MAX_APPROVAL_WAIT_HOURS
+_PLAN = "remediation.plan"
+_ACCEPTED = "approval.accepted"
 _ENDS = ("workflow.end",)
 _TRIES = 3  # check-and-set rounds when another approver's extension lands between the read and the write
 
@@ -47,20 +58,39 @@ def _when(value: Any) -> datetime | None:
         return None
 
 
+def _of(e: dict[str, Any], workflow_id: str, plan_hash: str) -> bool:
+    return e["body"].get("workflow_id") == workflow_id and e["body"].get("plan_hash") == plan_hash
+
+
 def extended_until(log: Any, incident: str, workflow_id: str, plan_hash: str, made: datetime) -> datetime | None:
     """The latest time this exact plan was extended to on the record, bounded by its ceiling; None when it never was.
     A row for another plan - another run's, or a plan made again after its target moved - extends nothing."""
     found = [t for e in log.entries(incident, kinds=(EXTENDED,))
-             if e["body"].get("workflow_id") == workflow_id and e["body"].get("plan_hash") == plan_hash
-             and (t := _when(e["body"].get("until"))) is not None]
+             if _of(e, workflow_id, plan_hash) and (t := _when(e["body"].get("until"))) is not None]
     return min(max(found), ceiling(made)) if found else None
+
+
+def _base(rows: list[dict[str, Any]], last: dict[str, Any], made: datetime) -> datetime:
+    """Until when the plan waits before any extension: its run's own deadline when the run recorded it (WAIT), else
+    the plan's approval_until, else - a plan recorded before its row said its wait - its environment's wait."""
+    b = last["body"]
+    real = [t for e in rows if e["kind"] == WAIT and e["seq"] > last["seq"]
+            and _of(e, str(b.get("workflow_id") or ""), str(b.get("plan_hash") or ""))
+            and (t := _when(e["body"].get("until"))) is not None]
+    if real:
+        return max(real)
+    said = _when(b.get("approval_until"))
+    if said is not None:
+        return said
+    hours = environments.default_environment_policies().for_env(str(b.get("environment") or "")).approval_wait_hours
+    return made + timedelta(hours=hours)
 
 
 def waiting(log: Any, incident: str) -> dict[str, Any] | None:
     """The incident's newest fix plan, if no end is on the record after it: its workflow, hash, tier, environment,
     when it was made and until when it waits now. None: no plan waits."""
-    rows = log.entries(incident, kinds=("remediation.plan", *_ENDS))
-    plans = [e for e in rows if e["kind"] == "remediation.plan"]
+    rows = log.entries(incident, kinds=(_PLAN, WAIT, *_ENDS))
+    plans = [e for e in rows if e["kind"] == _PLAN]
     if not plans:
         return None
     last = plans[-1]
@@ -69,25 +99,43 @@ def waiting(log: Any, incident: str) -> dict[str, Any] | None:
     if not wid or any(e["kind"] in _ENDS and e["seq"] > last["seq"] and e["body"].get("workflow_id") == wid
                       for e in rows):
         return None
-    made = last["at"]
-    env = str(b.get("environment") or "")
-    base = _when(b.get("approval_until"))
-    if base is None:  # a plan recorded before its row said its wait: its environment's
-        base = made + timedelta(hours=environments.default_environment_policies().for_env(env)
-                                .approval_wait_hours)
+    made = _when(b.get("made")) or last["at"]  # the plan's own created_at: the run's ceiling counts from it
+    base = _base(rows, last, made)
     later = extended_until(log, incident, wid, str(b.get("plan_hash") or ""), made)
     return {"workflow_id": wid, "plan_hash": str(b.get("plan_hash") or ""), "tier": str(b.get("tier") or ""),
-            "environment": env, "made": made, "until": max(base, later) if later else base, "seq": last["seq"]}
+            "environment": str(b.get("environment") or ""), "made": made,
+            "until": max(base, later) if later else base, "seq": last["seq"]}
+
+
+def _accepted(log: Any, incident: str, plan: dict[str, Any]) -> list[dict[str, Any]]:
+    return [e["body"] for e in log.entries(incident, kinds=(_ACCEPTED,))
+            if e["seq"] > plan["seq"] and _of(e, plan["workflow_id"], plan["plan_hash"])]
 
 
 def ai_approved(log: Any, policy: Any, incident: str, plan: dict[str, Any]) -> bool:
-    """Eldane, the AI critic, approved this plan (#42): it no longer waits for a person, and its wait is not extended -
-    a person's "no" still stops it until it is applied (lane C, U3-8)."""
+    """Eldane, the AI critic, approved this plan on its own (#42): its approval alone met the tier's quorum, as the run
+    went by it (RemediationWorkflow._critic: enough with no other approval), so the plan no longer waits for a person
+    and its wait is not extended - a person's "no" still stops it until it is applied (lane C, U3-8). An Eldane
+    approval that was not enough on its own leaves the plan waiting for a person: that wait may be extended."""
     is_ai = getattr(policy, "is_ai", None)
-    return bool(is_ai) and any(
-        e["seq"] > plan["seq"] and e["body"].get("workflow_id") == plan["workflow_id"]
-        and e["body"].get("plan_hash") == plan["plan_hash"] and is_ai(str(e["body"].get("approver")))
-        for e in log.entries(incident, kinds=("approval.accepted",)))
+    need = getattr(policy, "required", {}).get(plan["tier"], 1)
+    return bool(is_ai) and any(is_ai(str(b.get("approver"))) and int(b.get("required") or need) <= 1
+                               for b in _accepted(log, incident, plan))
+
+
+def people_approved(log: Any, policy: Any, incident: str, plan: dict[str, Any]) -> bool:
+    """The plan's approvals already reach its tier's quorum (different approvers, approvals.enough): it waits for
+    nobody now - it is being checked and applied - so there is no wait to extend."""
+    rows = _accepted(log, incident, plan)
+    need = max((int(b.get("required") or 1) for b in rows),
+               default=getattr(policy, "required", {}).get(plan["tier"], 1))
+    return bool(rows) and len({str(b.get("approver")) for b in rows}) >= need
+
+
+def _person(policy: Any, user: str) -> bool:
+    """A person on the approver list by this Slack id: never an AI entry, never an empty id."""
+    return bool(user) and any(getattr(a, "slack", "") == user and not getattr(a, "ai", False)
+                              for a in getattr(policy, "approvers", {}).values())
 
 
 def approver_of(policy: Any, user: str, tier: str, environment: str) -> str:
@@ -115,36 +163,51 @@ def _result(body: dict[str, Any]) -> dict[str, Any]:
             "hours": hours, "capped": body.get("until") == body.get("ceiling")}
 
 
-def _decide(log: Any, policy: Any, incident: str, user: str, hours: int,
-            now: datetime) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """(the answer, the row to write): the row is None when nothing is extended, and the answer says why."""
+def _refusal(log: Any, policy: Any, incident: str, user: str, hours: int | None,
+             now: datetime) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """(why not, None) when this person may not extend this incident's wait now, else ({}, the waiting plan). Who
+    asks is checked first: someone who may not extend learns nothing about the plan (review, PR 182)."""
+    if not _person(policy, user):
+        return {"why": "not an approver"}, None
     plan = waiting(log, incident)
     if plan is None or plan["until"] <= now:
         return {"why": "no plan waiting"}, None
+    if not approver_of(policy, user, plan["tier"], plan["environment"]):
+        return {"why": "not this plan's approver"}, None
     if ai_approved(log, policy, incident, plan):
         return {"why": "approved by Eldane", "workflow_id": plan["workflow_id"]}, None
+    if people_approved(log, policy, incident, plan):
+        return {"why": "already approved", "workflow_id": plan["workflow_id"]}, None
+    if hours is None:
+        return {"why": "hours unclear"}, None
     if not 1 <= hours <= EXTEND_MAX_HOURS:
         return {"why": "hours out of range"}, None
-    if not any(getattr(a, "slack", "") == user for a in getattr(policy, "approvers", {}).values()):
-        return {"why": "not an approver"}, None
-    name = approver_of(policy, user, plan["tier"], plan["environment"])
-    if not name:
-        return {"why": "not this plan's approver"}, None
+    return {}, plan
+
+
+def _decide(log: Any, policy: Any, incident: str, user: str, hours: int | None,
+            now: datetime) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """(the answer, the row to write): the row is None when nothing is extended, and the answer says why."""
+    why, plan = _refusal(log, policy, incident, user, hours, now)
+    if plan is None or hours is None:
+        return why, None
     top = ceiling(plan["made"])
     until = min(plan["until"] + timedelta(hours=hours), top)
-    if until <= plan["until"]:
+    if until <= plan["until"]:  # it would not move the run's deadline: it already waits as long as a plan can
         return {"why": "at the limit", "workflow_id": plan["workflow_id"], "until": plan["until"].isoformat()}, None
-    body = {"workflow_id": plan["workflow_id"], "plan_hash": plan["plan_hash"], "approver": name, "hours": hours,
+    body = {"workflow_id": plan["workflow_id"], "plan_hash": plan["plan_hash"],
+            "approver": approver_of(policy, user, plan["tier"], plan["environment"]), "hours": hours,
             "from": plan["until"].isoformat(), "until": until.isoformat(), "ceiling": top.isoformat()}
     return _result(body), body
 
 
-def request(log: Any, policy: Any, *, incident: str, user: str, hours: int, now: datetime,
+def request(log: Any, policy: Any, *, incident: str, user: str, hours: int | None, now: datetime,
             asked: str) -> dict[str, Any]:
     """An approver's "extend" for the incident's waiting plan: recorded and how far, or why not (`why`). Refused for
-    anyone who may not approve that plan, for no plan waiting, and at the ceiling; `hours` is at most
-    EXTEND_MAX_HOURS. Writes the extension row only when it extends, and once per message `asked` (its Slack channel
-    and ts): asked again - an activity retried - it answers what it first did and writes nothing."""
+    anyone who may not approve that plan, for no plan waiting (or one already approved), for hours not said plainly
+    (None) or out of 1..EXTEND_MAX_HOURS, and at the ceiling. Writes the extension row only when it extends, and once
+    per message `asked` (its Slack channel and ts): asked again - an activity retried - it answers what it first did
+    and writes nothing. The whole decision is taken again inside the write's lock (_stale)."""
     if not asked:
         return {"why": "no message"}
     wid = ""
@@ -155,21 +218,21 @@ def request(log: Any, policy: Any, *, incident: str, user: str, hours: int, now:
         if body is None:
             return got
         wid, body["asked"] = body["workflow_id"], asked
-        _, why = log.append_unless(incident, EXTENDED, body, lambda b=body: _stale(log, incident, b))
+        _, why = log.append_unless(incident, EXTENDED, body,
+                                   lambda b=body: _stale(log, policy, incident, user, hours, now, b))
         if not why:
             return got
     return {"why": "busy", "workflow_id": wid}
 
 
-def _stale(log: Any, incident: str, body: dict[str, Any]) -> str:
-    """Read inside the write's lock: "moved" when the plan or its time is no longer what `body` was worked out from -
-    an extension landed in between, another approver's or this same message's from an attempt running beside this
-    one; request() then reads again, and finds that message's row if it was this one. "" when it still holds."""
-    plan = waiting(log, incident)
-    if (plan is None or plan["workflow_id"] != body["workflow_id"] or plan["plan_hash"] != body["plan_hash"]
-            or plan["until"].isoformat() != body["from"]):
-        return "moved"
-    return ""
+def _stale(log: Any, policy: Any, incident: str, user: str, hours: int | None, now: datetime,
+           body: dict[str, Any]) -> str:
+    """Read inside the write's lock: "moved" unless the same decision, taken again now, gives exactly `body` - an
+    extension landed in between (another approver's, or this same message's from an attempt running beside this one),
+    the plan was approved, by Eldane or by people, it ended, or the list changed. request() then reads again, and finds
+    that message's row if it was this one. "" when it still holds (review, PR 182: every check, not only the time)."""
+    _, again = _decide(log, policy, incident, user, hours, now)
+    return "" if again is not None and {**again, "asked": body.get("asked")} == body else "moved"
 
 
 def _hours(span: timedelta) -> int | float:

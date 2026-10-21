@@ -21,7 +21,7 @@ EVERY = {"after_hold", "prepare", "reread", "investigate", "plan_fix", "diagnose
          "check_passkey", "precheck", "apply", "check_success", "record_result", "rollback", "finish",
          "discuss_thread", "discuss_facts", "discuss_evidence", "discuss_answer", "discuss_reply", "discuss_replan", "summary_owed",
          "side_effects", "again_alert", "critic_review", "autonomy_state", "autonomy_enable",
-         "approval_extension", "discuss_extend"}  # the core zone: WARDEN's own record only
+         "approval_wait", "approval_extension", "discuss_extend"}  # the core zone: WARDEN's own record only
 
 
 def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alone():

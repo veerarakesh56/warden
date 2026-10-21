@@ -96,7 +96,7 @@ def _run(world, drive, **req):
                                      limits=world.get("limits", bounds.DEFAULT_LIMITS), changes=world.get("changes"))
         methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
                    acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert, acts.side_effects,
-                   acts.approval_extension]
+                   acts.approval_wait, acts.approval_extension]
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[RemediationWorkflow], activities=methods,
                                activity_executor=ThreadPoolExecutor(4)):
             handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**{**REQ, **req}),
@@ -573,7 +573,7 @@ def _extended_run(world, owner, *, ask, approve_after):
         acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
         methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
                    acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert,
-                   acts.side_effects, acts.approval_extension]
+                   acts.side_effects, acts.approval_wait, acts.approval_extension]
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[RemediationWorkflow], activities=methods,
                                activity_executor=ThreadPoolExecutor(4)):
             handle = await env.client.start_workflow(RemediationWorkflow.run,
@@ -610,6 +610,8 @@ def test_an_approvers_extension_keeps_the_plan_waiting_past_its_time_and_it_is_s
     assert later.approval_ttl_minutes > 60 * 24  # it says its new time
     assert out.status == "recovered"
     assert out.checklist["prechecked"]  # the precheck still ran before apply
+    [wait] = world["log"].entries("inc-42", kinds=("approval.wait",))  # the run's own deadline, on the record
+    assert wait["body"]["workflow_id"] == later.workflow_id
     kinds = [e["kind"] for e in world["log"].entries("inc-42")]
     assert kinds.index("approval.extended") < kinds.index("approval.accepted") < kinds.index("remediation.precheck")
     # The plan said its new time with fresh links when its first hour ran out: the request, the halfway reminder and
@@ -640,3 +642,22 @@ def test_an_extension_of_another_plan_does_not_keep_this_one(world, owner):
     assert still == "expired"
     assert out.status == "expired"
     assert world["platform"].applied == []
+
+
+def test_a_history_from_before_the_extension_patches_replays_on_this_code_and_expires(world, owner, monkeypatch):
+    """A run recorded by the code before U3-8 - its u38 patches answer False, as for a history without their markers
+    - replays on this code unchanged: no wait recorded, no extension read, and an extension on the record does not
+    keep it: it expires at its own time, as it did."""
+    from temporalio import workflow as temporal_workflow
+
+    real = temporal_workflow.patched
+    monkeypatch.setattr(temporal_workflow, "patched",
+                        lambda patch_id: False if patch_id.startswith("u38-") else real(patch_id))
+    still, _, out = _extended_run(world, owner, ask=_extend(world), approve_after=False)
+    monkeypatch.undo()
+    assert still == "expired"
+    assert out.status == "expired"
+    assert world["log"].entries("inc-42", kinds=("approval.wait",)) == []
+    assert world["platform"].applied == []
+    asyncio.run(Replayer(workflows=[RemediationWorkflow], data_converter=CONVERTER, namespace=world["namespace"])
+                .replay_workflow(world["history"]))

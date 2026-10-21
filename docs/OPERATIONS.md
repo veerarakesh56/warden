@@ -213,9 +213,13 @@ A fix plan waits for its approval as long as its environment says (`approval_wai
 unless set, at most 168). When a discussion needs longer (U3-8), an approver who may approve that plan - its risk level
 and its environment - mentions `@WARDEN` in the incident's thread with "extend the wait" or "extend by 12h" (24
 hours unless said, at most 24 at a time). How long is read strictly: one whole number of hours, said once ("12h",
-"12 hours"); a message that says anything else about time - "6 more hours", "six hours", "1.5h", "2 days", "until
-tomorrow", two durations - extends nothing, and WARDEN asks again for a whole number of hours. A question ("will the
-restart extend it?", "can you extend the wait by 6h?") is answered, never taken as a request. WARDEN records it in the
+"12 hours"); a message that says anything else about time - "6 more hours", "six hours", "1.5h", "2 days", "30m",
+"until tomorrow", two durations - extends nothing, and WARDEN asks again for a whole number of hours. A question ("will
+the restart extend it?", "can you extend the wait by 6h?") and an "extend" its sentence says no to ("don't extend the
+wait") are answered, never taken as a request. Who asks is checked first: anyone else learns nothing about the plan. A
+plan whose approvals are already in (a person's, or Eldane's on its own) is not waiting, and is not extended. An
+extension counts from the run's own deadline (`approval.wait`, recorded when its wait began), so it always moves it.
+WARDEN records it in the
 signed audit (`approval.extended`, who, from when to when, and which Slack message asked); the plan's own run reads it
 there when its time runs out, says its new time in the alerts channel with fresh links, and keeps waiting - never past
 168 hours from when it was made. One message extends once: if WARDEN's step that records it is retried, it finds that

@@ -170,6 +170,18 @@ async def _remind_or_expire(acts, plan: Plan, end, refused: list[str], *, remind
     return await end("expired", refused or ["no valid approval arrived in time"])
 
 
+async def _record_wait(acts, plan: Plan, deadline: datetime, *, auto: bool) -> None:
+    """U3-8: until when this run really waits for a person, on the record (activities.approval_wait, patch u38-wait),
+    so an approver's extension counts from it and always moves it. Not when Eldane's approval was enough (`auto`):
+    nobody waits. A failed record changes nothing here: the extension then counts from the plan's own approval_until,
+    and the run still waits at least until its own deadline."""
+    if auto or not workflow.patched("u38-wait"):
+        return
+    with contextlib.suppress(ActivityError):
+        await workflow.execute_activity_method(acts.approval_wait, **_zoned(acts.approval_wait),
+                                               args=[plan, deadline.isoformat()], **NOTIFY)
+
+
 def _denied(denial: Denial) -> str:
     """A person's "no" as the run's reason: who, and their reason when they gave one."""
     return f"denied by {denial.approver}" + (f": {denial.reason}" if denial.reason else "")
@@ -432,6 +444,7 @@ class RemediationWorkflow:
         or expired with nothing changed. None at once when Eldane's approval was enough (`auto`)."""
         self._stage = "awaiting_approval"
         deadline = workflow.now() + timedelta(minutes=req.approval_ttl_minutes)
+        await _record_wait(acts, plan, deadline, auto=auto)
         refused: list[str] = []
         seen = 0
         # Register H10: halfway through the wait a person is reminded, and at the end told that nothing was done -

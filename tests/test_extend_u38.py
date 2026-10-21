@@ -179,22 +179,156 @@ def test_the_thread_asks_in_plain_words_and_is_answered_in_fixed_ones():
     assert discuss.extended_said({"why": "something else"}, INC) == discuss.NOT_READ
 
 
-def test_a_plan_eldane_approved_is_not_extended(world):
-    """Eldane's approval is not waited on by a person: its wait is never extended (lane C, U3-8). A person's approval
-    of a plan that needs two does not stop the wait for the second."""
-    log, policy = world
-    policy = approvals.ApproverPolicy(approvers={**policy.approvers, "eldane": approvals.Approver(
+@pytest.mark.parametrize("text", [
+    "do not extend the wait", "don't extend the wait", "please don't extend the approval", "never extend the plan",
+    "no need to extend the wait", "dont extend the wait", "don\u2019t extend the wait", "we can't extend the wait",
+    "cannot extend the wait", "cancel: extend the wait", "stop, extend the wait", "we won't extend the plan by 6h",
+    "I don't think we should extend the wait.",
+])
+def test_an_extend_its_own_clause_says_no_to_is_not_a_request(text):
+    """Review, PR 182: "don't extend the wait" became a 24-hour extension signed in the approver's name."""
+    assert not discuss.asks_to_extend(text)
+
+
+@pytest.mark.parametrize("text", [
+    "extend the wait", "please extend the approval.", "no rush. extend the wait", "I want you to extend the wait",
+    "the incident: extend the wait", "urgent, extend the wait", "extend the wait, do not apply anything yet",
+    "extend the wait, nothing else",
+])
+def test_a_no_in_another_clause_or_inside_a_word_does_not_stop_a_request(text):
+    assert discuss.asks_to_extend(text)
+
+
+def _accept(log, approver, *, plan_hash="h1", required=1):
+    log.append(INC, "approval.accepted", {"workflow_id": WID, "plan_hash": plan_hash, "approver": approver,
+                                          "required": required})
+
+
+def _with_eldane(policy):
+    return approvals.ApproverPolicy(approvers={**policy.approvers, "eldane": approvals.Approver(
         public_key="k-eldane", tiers=["T1"], environments=["dev"], ai=True)})
+
+
+def test_a_plan_eldane_approved_is_not_extended(world):
+    """Eldane's approval that was enough on its own ended the wait for a person: never extended (lane C, U3-8)."""
+    log, policy = world
+    policy = _with_eldane(policy)
     row = _plan(log)
-    log.append(INC, "approval.accepted", {"workflow_id": WID, "plan_hash": "h1", "approver": "owner"})
-    assert not _ask(log, policy, hours=1).get("why")  # a person's approval: still waiting for the second
-    log.append(INC, "approval.accepted", {"workflow_id": WID, "plan_hash": "other", "approver": "eldane"})
+    _accept(log, "eldane", plan_hash="other")
     assert not _ask(log, policy, hours=1).get("why")  # Eldane's approval of another plan
-    log.append(INC, "approval.accepted", {"workflow_id": WID, "plan_hash": "h1", "approver": "eldane"})
+    _accept(log, "eldane")
     assert _ask(log, policy) == {"why": "approved by Eldane", "workflow_id": WID}
     assert extend.ai_approved(log, policy, INC, {**extend.waiting(log, INC), "seq": row["seq"]})
     said = discuss.extended_said({"why": "approved by Eldane", "workflow_id": WID}, INC)
     assert said.startswith("Eldane, the AI critic, already approved")
+
+
+def test_an_eldane_approval_that_was_not_enough_leaves_the_wait_to_extend(world):
+    """Where the tier needs two approvers, Eldane's approval did not end the wait (the run's _critic: not enough on
+    its own): the plan still waits for a person, and an approver may extend that wait (review, PR 182)."""
+    log, policy = world
+    policy = _with_eldane(policy)
+    _plan(log)
+    _accept(log, "eldane", required=2)
+    assert not _ask(log, policy, hours=1).get("why")
+    assert len(_rows(log)) == 1
+
+
+def test_a_plan_people_already_approved_is_not_waiting(world):
+    """Its approvals reached the quorum: it is being checked and applied, not waiting (review, PR 182)."""
+    log, policy = world
+    _plan(log)
+    _accept(log, "t2only", required=2)  # one of the two it needs: still waiting for the second
+    assert not _ask(log, policy, hours=1).get("why")
+    _accept(log, "prodonly", plan_hash="other", required=2)  # another plan's approval counts for nothing
+    assert not _ask(log, policy, hours=1).get("why")
+    _accept(log, "owner", required=2)
+    assert _ask(log, policy) == {"why": "already approved", "workflow_id": WID}
+    assert len(_rows(log)) == 2
+    said = discuss.extended_said({"why": "already approved", "workflow_id": WID}, INC)
+    assert said.startswith(f"WARDEN's plan `{WID}` already has the approvals it needs")
+
+
+def test_who_asks_is_checked_before_anything_about_the_plan_is_said(world):
+    """Someone who may not extend learns nothing: not whether a plan waits, nor its id, nor that Eldane approved it,
+    nor whether their hours were clear (review, PR 182)."""
+    log, policy = world
+    policy = _with_eldane(policy)
+    talk = DiscussActivities(audit=log, incident=None, policy=policy)
+    assert _ask(log, policy, user=PERSON) == {"why": "not an approver"}  # no plan at all
+    _plan(log)
+    _accept(log, "eldane")
+    assert _ask(log, policy, user=PERSON) == {"why": "not an approver"}
+    assert _ask(log, policy, user=PERSON, hours=99) == {"why": "not an approver"}
+    got = talk.discuss_extend(_turn("<@UWARDEN> extend the wait by 30m", user=PERSON, ts="1760000000.000500"), INC)
+    assert got == {"why": "not an approver"}
+
+
+def test_the_run_s_own_deadline_is_what_an_extension_moves(world):
+    """The run waits from when its wait began, after the gate and the critic - later than the plan's approval_until.
+    Recorded (approval_wait), an extension counts from it, so it always moves the run's deadline; and the plan is
+    waiting until then, not only until its approval_until (review, PR 182)."""
+    log, policy = world
+    row = _plan(log)
+    base = datetime.fromisoformat(row["body"]["approval_until"])
+    real = base + timedelta(minutes=40)
+    plan = approvals.Plan(workflow_id=WID, incident_id=INC, entry="events_enable_rule", tier="T1", params={},
+                          snapshot={}, plan_hash="h1", created_at=row["at"], environment="dev", target="dev/rule/tick",
+                          approval_ttl_minutes=60)
+    rem = RemediationActivities(audit=log, policy=policy, platform=None)
+    rem.approval_wait(plan, real.isoformat())
+    rem.approval_wait(plan, (real + timedelta(hours=5)).isoformat())  # a retried activity: once per plan
+    assert len(log.entries(INC, kinds=(extend.WAIT,))) == 1
+    assert extend.waiting(log, INC)["until"] == real
+    later = base + timedelta(minutes=20)  # past approval_until, before the run's own deadline: still waiting
+    assert _ask(log, policy, hours=1, now=later)["until"] == (real + timedelta(hours=1)).isoformat()
+    rem.approval_wait(plan.model_copy(update={"plan_hash": "h2"}), (real + timedelta(days=2)).isoformat())
+    assert extend.waiting(log, INC)["until"] == real + timedelta(hours=1)  # another plan's wait moves nothing
+
+
+def test_the_ceiling_counts_from_the_plan_s_own_creation(world):
+    """The plan row says when the plan was made (its created_at), the same time the run's ceiling counts from."""
+    log, policy = world
+    made = datetime.now(UTC) - timedelta(hours=extend.CEILING_HOURS) + timedelta(hours=2)
+    log.append(INC, "remediation.plan", {"workflow_id": WID, "tier": "T1", "environment": "dev", "plan_hash": "h1",
+                                         "made": made.isoformat(),
+                                         "approval_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()})
+    got = _ask(log, policy, hours=6)
+    assert got["until"] == extend.ceiling(made).isoformat()
+    assert got["capped"]
+
+
+def test_the_whole_decision_is_taken_again_inside_the_write_s_lock(world):
+    """An Eldane approval, or the people's last approval, landing between the read and the write: nothing is written
+    (review, PR 182: only the plan and its time were checked again)."""
+    log, policy = world
+    policy = _with_eldane(policy)
+    _plan(log)
+    real = log.append_unless
+
+    def eldane_first(correlation_id, kind, body, refuse):
+        if kind == extend.EXTENDED and not log.entries(INC, kinds=("approval.accepted",)):
+            _accept(log, "eldane")
+        return real(correlation_id, kind, body, refuse)
+
+    log.append_unless = eldane_first
+    assert _ask(log, policy) == {"why": "approved by Eldane", "workflow_id": WID}
+    assert _rows(log) == []
+
+
+def test_the_last_approval_landing_before_the_write_stops_it(world):
+    log, policy = world
+    _plan(log)
+    real = log.append_unless
+
+    def approved_first(correlation_id, kind, body, refuse):
+        if kind == extend.EXTENDED and not log.entries(INC, kinds=("approval.accepted",)):
+            _accept(log, "owner")
+        return real(correlation_id, kind, body, refuse)
+
+    log.append_unless = approved_first
+    assert _ask(log, policy) == {"why": "already approved", "workflow_id": WID}
+    assert _rows(log) == []
 
 
 def test_eldane_itself_never_extends_a_wait(world):
@@ -204,7 +338,7 @@ def test_eldane_itself_never_extends_a_wait(world):
     policy = approvals.ApproverPolicy(approvers={**policy.approvers, "eldane": approvals.Approver(
         public_key="k-eldane", tiers=["T1"], environments=["dev"], ai=True, slack=eldane_slack)})
     _plan(log)
-    assert _ask(log, policy, user=eldane_slack) == {"why": "not this plan's approver"}
+    assert _ask(log, policy, user=eldane_slack) == {"why": "not an approver"}
     assert _rows(log) == []
 
 
@@ -226,6 +360,14 @@ def test_eldane_itself_never_extends_a_wait(world):
     ("extend by 6h.", 6),
     ("extend by 12 hours.", 12),
     ("extend by 6hours. Thanks", 6),
+    ("extend the wait (6h)", 6),
+    ("extend the wait to 12h", 12),
+    ("extend by 12h!", 12),
+    ("extend by 6h for i-0abc123", 6),
+    ("extend by 6h;", 6),
+    ("extend the wait 6hrs", 6),
+    ("extend it 6h", 6),
+    ("extend the wait https://x.y/a/1h", extend.EXTEND_MAX_HOURS),  # a number inside a link is no duration
 ])
 def test_the_hours_said_are_the_hours_asked(text, hours):
     assert discuss.hours_asked(text) == hours
@@ -235,6 +377,11 @@ def test_the_hours_said_are_the_hours_asked(text, hours):
     "extend by 6 more hours", "extend by six hours", "extend for an hour", "extend by 2 days", "extend 90 minutes",
     "extend by 1.5h", "extend by 1.5h.", "extend by 12h and 30 minutes", "extend by 12h, then 6h", "extend by 12", "extend to 14:00",
     "extend the wait until tomorrow", "extend the wait till tonight", "extend the wait half a day",
+    # Another unit, or text, written against the number (review, PR 182: each of these became 24 h).
+    "extend by 30m", "extend by 45min", "extend by 90mins", "extend the wait 2days", "extend the wait by 1wk",
+    "extend by 6h-ish", "extend by 6h:", "extend the wait 6h.Thanks", "extend the wait by 3d", "extend by 10s",
+    "extend for 2 more hours", "extend by six", "extend the plan by 6h and the other by 2h",
+    "extend the wait by 6 hours, the deploy is at 14:00", "extend the wait by 6h for 3 people",
 ])
 def test_a_duration_that_is_not_exactly_whole_hours_once_is_not_guessed(text):
     assert discuss.hours_asked(text) is None

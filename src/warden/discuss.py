@@ -80,6 +80,15 @@ _EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|deadline)\b")
 # "by" after something else ("extend the outage by 2h"): CodeRabbit, PR 182.
 _LEAD = re.compile(r"(?i)^\s*(?:it\b\s*)?(?:(?:by|for)\b\s*)?")
 _CLAUSE_END = re.compile(r"(?i)\bextend\b[^.?!\n]*([.?!\n]*)")  # the whole run: "...?" is a question too
+# Nor an "extend" its own clause says no to (review, PR 182: "don't extend the wait" became 24 h): a negator before
+# "extend" in the same clause - not, never, no, don't, cancel, stop... - and it is answered, never taken as a request.
+_NEGATOR = re.compile(r"(?i)\b(?:not|never|no|nor|cancel|stop|without|instead|neither|dont|doesnt|didnt|wont|cant"
+                      r"|shouldnt|mustnt|cannot)\b|n['\u2019]t\b")
+_CLAUSE_START = re.compile(r"[.?!;\n]")
+# Workflow code reads EXTEND, _EXTEND_WHAT, _LEAD, _CLAUSE_END and _NEGATOR (DiscussWorkflow._answer, through
+# asks_to_extend): what they match decides which branch a discussion takes. Once a release with them has run, a change
+# to any of them changes what a replayed DiscussWorkflow history does - put such a change behind a new
+# workflow.patched id, as u38-discuss-extend is.
 # How long: read strictly from the whole message (CodeRabbit, PR 150: a "6 hours" past a fixed window became 24). One
 # whole number of hours said once ("12h", "12 hours") is that many; no number and no word about time is
 # EXTEND_MAX_HOURS; anything else - a second duration, another unit, a number standing alone, a decimal or a spelled-out
@@ -88,6 +97,11 @@ _CLAUSE_END = re.compile(r"(?i)\bextend\b[^.?!\n]*([.?!\n]*)")  # the whole run:
 # unit, a "." ends the sentence unless a word character follows it (CodeRabbit, PR 182: "extend by 6h." became 24 h).
 _DURATION = re.compile(r"(?i)(?<![\w.:/-])(\d{1,4})\s*(?:h|hrs?|hours?)(?![\w:/-]|\.\w)")
 _NUMBER = re.compile(r"(?<![\w.:/-])\d+(?![\w/-])")
+# A number with a unit written against it that _DURATION did not take as hours - "30m", "45min", "2days", "1wk",
+# "6h-ish", "6h:", "6h.Thanks" - is not a whole number of hours (review, PR 182: each became 24 h). An id that starts
+# with digits and goes on in other letters ("50ac32d0...") is not one.
+_UNIT_LEFT = re.compile(r"(?i)(?<![\w.:/-])\d+\s*(?:h|hrs?|hours?|m|mins?|minutes?|s|secs?|seconds?|d|days?|w|wks?"
+                        r"|weeks?|mo|months?|y|yrs?|years?)(?![a-z])|(?<![\w.:/-])\d+\s*(?:h|hrs?|hours?)")
 _WORD = re.compile(r"\b[a-z]+\b")
 # Words about time, and spelled-out numbers ("...teen" too): said beside "extend", they are not a whole number of hours.
 _TIME_WORDS = frozenset((
@@ -108,6 +122,8 @@ NOT_EXTENDED = {
     "approved by Eldane": ("Eldane, the AI critic, already approved WARDEN's plan `{workflow}`: it is not waiting for "
                            "a person, so its wait is not extended. A person's \"no\" on the approval page still stops "
                            "it until it is applied."),
+    "already approved": ("WARDEN's plan `{workflow}` already has the approvals it needs: it is not waiting, so there "
+                         "is no wait to extend. WARDEN reads the target again before applying it."),
     "hours out of range": "A plan's wait is extended by 1 to {most} hours at a time; ask again with that.",
     "hours unclear": ("WARDEN could not tell for how long, so nothing was extended. Ask again with one whole number of "
                       "hours, 1 to {most} - \"extend by 12h\" - or just \"extend the wait\" for {most} hours."),
@@ -135,7 +151,14 @@ def asks_to_extend(text: str) -> bool:
     m = EXTEND.search(text or "")
     end = _CLAUSE_END.search(text or "")
     named = bool(m) and (_EXTEND_WHAT.search(m.group(1)) is not None or _says_how_long(m.group(1)))
-    return bool(named and end and "?" not in end.group(1))
+    return bool(named and end and "?" not in end.group(1)) and not _negated(text, m.start())
+
+
+def _negated(text: str, at: int) -> bool:
+    """Whether the clause holding the "extend" at `at` says no before it ("do not extend", "no need to extend")."""
+    before = text[:at]
+    starts = [s.end() for s in _CLAUSE_START.finditer(before)]
+    return _NEGATOR.search(before[starts[-1] if starts else 0:]) is not None
 
 
 def hours_asked(text: str) -> int | None:
@@ -146,7 +169,7 @@ def hours_asked(text: str) -> int | None:
     text = text or ""
     said = _DURATION.findall(text)
     rest = _DURATION.sub(" ", text)
-    if len(said) > 1 or _NUMBER.search(rest) or _says_time(rest):
+    if len(said) > 1 or _NUMBER.search(rest) or _UNIT_LEFT.search(rest) or _says_time(rest):
         return None
     return int(said[0]) if said else EXTEND_MAX_HOURS
 
