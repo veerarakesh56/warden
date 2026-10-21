@@ -6,6 +6,7 @@ import json
 import pathlib
 import sys
 
+import pytest
 from scenarios.score import score_run_dir
 
 from warden.llm import LLMClient
