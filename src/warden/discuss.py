@@ -70,6 +70,137 @@ NOT_APPROVER = ("Only an enrolled approver can ask WARDEN for a new plan, and th
 REPLAN_SOON = "WARDEN made a new plan for `{incident}` less than an hour ago; ask again after that, or read its record."
 
 
+# U3-8: an enrolled approver who may approve the waiting plan extends its wait (extend.py): "extend the wait",
+# "extend by 12h", "extend approval". By EXTEND_MAX_HOURS unless they say how long, and at most that at a time.
+# Not "it" or "time" alone (CodeRabbit, PR 182: "will the restart extend it?" became 24 h), and never a question: the
+# clause with "extend" ending in "?" is asked about, not asked for - it gets an answer, and nothing is extended.
+EXTEND = re.compile(r"(?i)\bextend\b([^.?!\n]{0,40})")
+_EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|deadline)\b")
+# Or how long, right after "extend" ("extend 12h", "extend it by 6h", "extend for six hours") - never a bare "by", nor
+# "by" after something else ("extend the outage by 2h"): CodeRabbit, PR 182.
+_LEAD = re.compile(r"(?i)^\s*(?:it\b\s*)?(?:(?:by|for)\b\s*)?")
+_CLAUSE_END = re.compile(r"(?i)\bextend\b[^.?!\n]*([.?!\n]*)")  # the whole run: "...?" is a question too
+# A "no" beside "extend" (review, PR 182: "don't extend the wait" and "extend the wait - no, don't" became 24 h): a
+# negator - not, never, no, don't, cancel, stop... - anywhere after "extend", or before it in the same sentence, makes
+# the message unclear: nothing is extended, and the approver is asked again (said_no; fail closed). Only a "no" in an
+# earlier sentence ("no rush. extend the wait") leaves the request standing.
+_NEGATOR = re.compile(r"(?i)\b(?:not|never|no|nor|cancel|stop|without|instead|neither|dont|doesnt|didnt|wont|cant"
+                      r"|shouldnt|mustnt|cannot)\b|n['\u2019]t\b")
+_SENTENCE_END = re.compile(r"[.?!\n]")
+_EXTEND_WORD = re.compile(r"(?i)\bextend\b")
+# Workflow code reads EXTEND, _EXTEND_WHAT, _LEAD and _CLAUSE_END (DiscussWorkflow._answer, through
+# asks_to_extend): what they match decides which branch a discussion takes. Once a release with them has run, a change
+# to any of them changes what a replayed DiscussWorkflow history does - put such a change behind a new
+# workflow.patched id, as u38-discuss-extend is.
+# How long: read strictly from the whole message (CodeRabbit, PR 150: a "6 hours" past a fixed window became 24). One
+# whole number of hours said once ("12h", "12 hours") is that many; no number and no word about time is
+# EXTEND_MAX_HOURS; anything else - a second duration, another unit, a number standing alone, a decimal or a spelled-out
+# number, a clock time, "until tomorrow" - is not guessed at: the approver is asked again and nothing is extended.
+# A number touching a word character, ".", ":", "/" or "-" is part of an id, a time or a link, not a duration. After the
+# unit, a "." ends the sentence unless a word character follows it (CodeRabbit, PR 182: "extend by 6h." became 24 h).
+_DURATION = re.compile(r"(?i)(?<![\w.:/-])(\d{1,4})\s*(?:h|hrs?|hours?)(?![\w:/-]|\.\w)")
+_NUMBER = re.compile(r"(?<![\w.:/-])\d+(?![\w/-])")
+# A number with a unit written against it that _DURATION did not take as hours - "30m", "45min", "2days", "1wk",
+# "6h-ish", "6h:", "6h.Thanks" - is not a whole number of hours (review, PR 182: each became 24 h). An id that starts
+# with digits and goes on in other letters ("50ac32d0...") is not one.
+_UNIT_LEFT = re.compile(r"(?i)(?<![\w.:/-])\d+\s*(?:h|hrs?|hours?|m|mins?|minutes?|s|secs?|seconds?|d|days?|w|wks?"
+                        r"|weeks?|mo|months?|y|yrs?|years?)(?![a-z])|(?<![\w.:/-])\d+\s*(?:h|hrs?|hours?)")
+_WORD = re.compile(r"\b[a-z]+\b")
+# Words about time, and spelled-out numbers ("...teen" too): said beside "extend", they are not a whole number of hours.
+_TIME_WORDS = frozenset((
+    "h", "hr", "hrs", "hour", "hours", "min", "mins", "minute", "minutes", "day", "days", "week", "weeks", "tonight",
+    "tomorrow", "today", "morning", "afternoon", "evening", "noon", "midnight", "until", "till", "half", "quarter",
+    "dozen", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+    "twenty", "thirty", "forty", "fifty", "sixty"))
+
+EXTENDED = ("The wait for WARDEN's plan `{workflow}` is extended by {hours} h, to {until}{capped}. Nothing else "
+            "changes: it still needs an approver's passkey, and WARDEN reads the target again before applying it. When "
+            "the approval links already posted run out, fresh ones come to the alerts channel; the incident's record "
+            "page opens the plan at any time.")
+NOT_EXTENDED = {
+    "not an approver": "Only an enrolled approver can extend a fix plan's wait.",
+    "not this plan's approver": ("Only an approver who may approve this plan - its risk level and its environment - "
+                                 "can extend its wait."),
+    "no plan waiting": "`{incident}` has no fix plan waiting for an approval, so there is nothing to extend.",
+    "approved by Eldane": ("Eldane, the AI critic, already approved WARDEN's plan `{workflow}`: it is not waiting for "
+                           "a person, so its wait is not extended. A person's \"no\" on the approval page still stops "
+                           "it until it is applied."),
+    "already approved": ("WARDEN's plan `{workflow}` already has the approvals it needs: it is not waiting, so there "
+                         "is no wait to extend. WARDEN reads the target again before applying it."),
+    "hours out of range": "A plan's wait is extended by 1 to {most} hours at a time; ask again with that.",
+    "said no": ("WARDEN read a \"no\" beside \"extend\" in that message, so nothing was extended. To extend the wait, "
+                "ask again without it - \"extend the wait\" or \"extend by 12h\"."),
+    "hours unclear": ("WARDEN could not tell for how long, so nothing was extended. Ask again with one whole number of "
+                      "hours, 1 to {most} - \"extend by 12h\" - or just \"extend the wait\" for {most} hours."),
+    "busy": ("Another extension of WARDEN's plan `{workflow}` was being recorded at the same moment, so this one was "
+             "not; ask again."),
+    "at the limit": ("WARDEN's plan `{workflow}` already waits as long as a plan can: until {until}, {ceiling} hours "
+                     "from when it was made. A new plan can be asked for with \"new plan\"."),
+}
+
+
+def _says_time(text: str) -> bool:
+    """A whole word about time or a spelled-out number - not letters inside an id such as a Slack member's."""
+    return any(w in _TIME_WORDS or w.endswith("teen") for w in _WORD.findall(text.lower()))
+
+
+def _says_how_long(window: str) -> bool:
+    """The words right after "extend" (past "it", "by" or "for") start with a number or a word about time."""
+    first = _LEAD.sub("", window, count=1).split(maxsplit=1)[:1]
+    return bool(first) and (first[0][0].isdigit() or _says_time(first[0]))
+
+
+def asks_to_extend(text: str) -> bool:
+    """An "extend" that names what it extends - the wait, the approval, the plan, or how long - and is not a question;
+    not any "extend"."""
+    m = EXTEND.search(text or "")
+    end = _CLAUSE_END.search(text or "")
+    named = bool(m) and (_EXTEND_WHAT.search(m.group(1)) is not None or _says_how_long(m.group(1)))
+    return bool(named and end and "?" not in end.group(1))
+
+
+def said_no(text: str) -> bool:
+    """Whether the message says no beside its "extend": a negator anywhere after the first "extend" ("extend the wait -
+    no, don't"), or before it in the same sentence ("do not extend", "no need to extend"). Fail closed: such a message
+    extends nothing, and the approver is asked again. A "no" in an earlier sentence ("no rush. extend the wait") is
+    not one. Read by the activity (discuss_extend), never by workflow code."""
+    text = text or ""
+    m = _EXTEND_WORD.search(text)
+    if m is None:
+        return False
+    before = text[:m.start()]
+    starts = [s.end() for s in _SENTENCE_END.finditer(before)]
+    return (_NEGATOR.search(text[m.end():]) is not None
+            or _NEGATOR.search(before[starts[-1] if starts else 0:]) is not None)
+
+
+def hours_asked(text: str) -> int | None:
+    """The hours an "extend" asks for: the one whole number of hours it says, EXTEND_MAX_HOURS when it says nothing
+    about time, None when what it says is not exactly that (_DURATION) - never a guess."""
+    from .extend import EXTEND_MAX_HOURS
+
+    text = text or ""
+    said = _DURATION.findall(text)
+    rest = _DURATION.sub(" ", text)
+    if len(said) > 1 or _NUMBER.search(rest) or _UNIT_LEFT.search(rest) or _says_time(rest):
+        return None
+    return int(said[0]) if said else EXTEND_MAX_HOURS
+
+
+def extended_said(got: Mapping[str, Any], incident: str) -> str:
+    """The thread's reply to an "extend": a fixed text with WARDEN's own values in it - nothing a person wrote."""
+    from .extend import CEILING_HOURS, EXTEND_MAX_HOURS
+
+    why = str(got.get("why") or "")
+    values = {"incident": incident, "workflow": got.get("workflow_id", ""), "until": got.get("until_said", ""),
+              "hours": got.get("hours", ""), "ceiling": CEILING_HOURS, "most": EXTEND_MAX_HOURS,
+              "capped": f" - the most it can wait, {CEILING_HOURS} hours from when it was made" if got.get("capped")
+              else ""}
+    if why:
+        return NOT_EXTENDED.get(why, NOT_READ).format(**values)
+    return EXTENDED.format(**values)
+
+
 LIMIT = ("This incident's discussion has reached today's limit of WARDEN's answers; ask again tomorrow, or read the "
          "incident's report in the alerts channel.")
 # Whether the incident exists in another environment is not said: that would itself be the other environment's record.

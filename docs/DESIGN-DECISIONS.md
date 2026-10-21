@@ -352,12 +352,18 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - WARDEN's records pages: built - `records.py`, two server-rendered pages read from the signed audit, on the
   approval page's own domain, sign-in and Content-Security-Policy. A dashboard product (Grafana, Backstage) would be
   a second service to run and secure, reading a copy of the record; the record already holds every fact.
+- Pilot metrics: built - `pilot.py` (owner item 3, 2026-10-21), the client's weekly numbers counted from audit rows
+  whose hash chain and checkpoint signatures verify, on the command line and as a records page. A BI tool would count
+  from an unverified copy of the rows; the counting is a few hundred lines over the record itself.
 - The pages' look: built - `brand.py` (the logo, inline SVG) and the shared style and script in the approval page:
   CSS custom properties for light and dark, a small canvas background and a press ripple, no framework. A UI kit or
   an animation library would be third-party script, which the pages' Content-Security-Policy refuses.
 - Talking to WARDEN about an incident: adopted - Slack's own Python SDK (slack-sdk, MIT) for the Socket Mode
   connection, so WARDEN needs no public address for it; built - `discuss.py`, which hears only mentions in one channel
   and hands each to a workflow. Slack's Bolt framework adds routing and middleware for many handlers; WARDEN has one.
+- An approver extends a plan's wait from the discussion: built - `extend.py`, rows in the signed audit that the
+  plan's own workflow reads when its timer ends. Temporal's workflow update would let the thread change the timer
+  directly, but then a message would steer a fix's run; here only the record does, and the record is checked.
 - What is expected to be down: built - `expected.py`, a person's declarations (an environment's nights, weekends
   and holidays; a service or a resource not in use) read at intake, and Temporal's own start delay to look at the
   alarm again when the cover ends. AWS Instance Scheduler and a tag convention say when something is stopped, not
