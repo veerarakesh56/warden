@@ -40,7 +40,7 @@ wait; nothing is applied until it is set back to `1`. (An AWS deny policy as a s
 - The audit's public key is kept apart from the worker, and the S3 anchor bucket (register S12) is configured.
 - This runbook and `docs/SETUP.md` are where the on-call engineer can open them without WARDEN.
 - What to keep for an investigation: the audit database, the Temporal workflow histories (encrypted; the codec key
-  is in Secrets Manager), and the model's recorded prompts and answers (by hash in `llm.call` rows).
+  is in Secrets Manager), and the model's recorded prompts and answers (by hash in the `provenance` of `incident.diagnose` rows).
 
 ## 2. Detection and analysis
 
@@ -50,7 +50,7 @@ Signs that WARDEN is the incident:
 |---|---|
 | A fix made things worse | the run ended `relapsed`, `rolled_back` or `rollback_failed`; the breaker tripped the kill switch; a GitHub change record (O9) |
 | WARDEN may be acting on injected text | policy `P16-SUSPECTED-INJECTION` on a verdict; quoted text steering toward an action in a report |
-| The model behaves strangely | many escalations at once (the escalation SLO, N6), the same wrong action repeated, a model change in the `llm.call` rows |
+| The model behaves strangely | many escalations at once (the escalation SLO, N6), the same wrong action repeated, a model change in the `incident.diagnose` rows' `provenance`, slow calls in the `latency_ms` of `incident.llm_spend` rows |
 | The record may be tampered with | `warden audit verify` reports a broken chain, a bad signature or a checkpoint that differs from its anchor |
 | An actor role was used without an approval | the `warden-<env>-unapproved-actor` alarm pages; `actor.unapproved` rows in the audit name the role, the caller and the CloudTrail event id |
 | WARDEN is down | no Slack thread for a firing alarm; the `warden-<env>-heartbeat-missing` alarm pages (no worker completed a round trip through Temporal, or one zone - read, llm, notify, act, critic - has no worker polling its queue: the `heartbeat missed` line in `/warden/<env>/worker` names it); Temporal shows no worker polling |

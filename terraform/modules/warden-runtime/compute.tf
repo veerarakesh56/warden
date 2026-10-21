@@ -99,7 +99,9 @@ resource "aws_ecs_task_definition" "zone" {
       each.key == "core" ? { WARDEN_HEARTBEAT_ZONES = join(",", sort([for z in keys(local.zones) : z if z != "core"])) } : {},
       # The read zone gathers the evidence: every resource the alarm names, through each watched environment's reader
       # role (aws_stack.py, G9-A2b; it reuses aws_backend for ECS).
-      each.key == "read" ? { WARDEN_BACKEND = "stack" } : {}) :
+      each.key == "read" ? { WARDEN_BACKEND = "stack" } : {},
+      # Item 7b: spans over OTLP/HTTP, every zone, only when the owner turns it on (variables.tf otlp_exporter).
+      var.otlp_exporter ? { OTEL_EXPORTER_OTLP_ENDPOINT = var.otlp_endpoint } : {}) :
     { name = k, value = v }]
     logConfiguration = {
       logDriver = "awslogs"
