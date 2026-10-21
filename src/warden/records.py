@@ -681,7 +681,7 @@ def postmortem_draft(r: Record) -> str:
     body = "".join(f"<h3>{_e(heading)}</h3><ul>" + "".join(f"<li>{_e(i)}</li>" for i in items) + "</ul>"
                    for heading, items in d.sections)
     return ('<details class="block"><summary>Postmortem draft <span class="badge warn">Draft</span></summary>'
-            f'<p class="lede"><strong>{_e(postmortem.DRAFT)}</strong></p>{body}'
+            f'<p class="lede"><strong>{_e(postmortem.DRAFT)}</strong></p><p class="small">{_e(d.checked)}</p>{body}'
             '<details class="block"><summary>The draft as text, to copy</summary>'
             f'<pre class="report">{_e(postmortem.markdown(d))}</pre></details></details>')
 

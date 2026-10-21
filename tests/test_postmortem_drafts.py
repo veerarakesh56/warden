@@ -168,6 +168,41 @@ def test_nothing_changed_needs_nothing_verified(log, policy):
     assert _section(_draft(log, policy), "What verified it") == ["Nothing was changed, so nothing needed verifying."]
 
 
+def test_a_plan_that_was_never_applied_changed_nothing_to_verify(log, policy):
+    """CodeRabbit, PR 79: a plan alone (denied, refused at apply) was said to be a change with no health check."""
+    _incident(log)
+    log.append(INC, "remediation.plan", {"workflow_id": "rem-1", "run_id": "r1", "entry": "restart_service",
+                                         "target": "warden-dev-checkout", "tier": "T1"})
+    log.append(INC, "remediation.intent", {"workflow_id": "rem-1"})
+    log.append(INC, "workflow.end", {"workflow_id": "rem-1", "run_id": "r1", "status": "refused_at_apply"})
+    assert _section(_draft(log, policy), "What verified it") == ["Nothing was changed, so nothing needed verifying."]
+
+
+def test_an_applied_fix_with_no_health_check_says_so(log, policy):
+    _incident(log)
+    _fixed(log, status="not_recovered", checks=())
+    assert _section(_draft(log, policy), "What verified it") == ["Nothing: no health check was made after a change."]
+
+
+def test_a_copied_draft_says_when_its_record_does_not_check_out(log, policy):
+    """CodeRabbit, PR 79 (security review): the copy claimed a signed record without the page's integrity warning."""
+    _incident(log)
+    r = records.record(log, INC, policy)
+    r.head, r.broken = "h" * 64, 2
+    lines = postmortem.markdown(postmortem.draft(r)).splitlines()
+    assert lines[4].startswith("Record check: 2 row(s) of the record DO NOT CHECK OUT")
+
+
+@pytest.mark.parametrize(("head", "broken", "unsigned", "said"), [
+    ("", 0, 0, "were not checked"), ("h", -1, 0, "could not be checked"), ("h", 0, 3, "newest 3 row(s) were not "),
+    ("h", 0, 0, "every row of the record was signed and intact")])
+def test_the_draft_carries_the_records_own_check(log, policy, head, broken, unsigned, said):
+    _incident(log)
+    r = records.record(log, INC, policy)
+    r.head, r.broken, r.unsigned = head, broken, unsigned
+    assert said in postmortem.draft(r).checked
+
+
 def test_a_planned_shutdown_is_no_alarm_and_gives_nobody_work(log, policy):
     _incident(log, hypothesis="", verdict="")
     log.append(INC, "incident.after_hold", {"firing": False})

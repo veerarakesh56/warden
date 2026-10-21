@@ -53,6 +53,7 @@ _FIXED = ("recovered", "verified")
 class Draft:
     title: str
     sections: list[tuple[str, list[str]]] = field(default_factory=list)
+    checked: str = ""  # what the record's own signature check said, carried into the copy (CodeRabbit, PR 79)
 
 
 def _alert(r: Any) -> dict[str, Any]:
@@ -122,7 +123,9 @@ def _verified(r: Any) -> list[str]:
     healthy = sum(1 for c in checks if c.get("healthy") is True)
     end = _end(r)
     if not checks:
-        return ["Nothing: no health check was made after a change." if r.plan else "Nothing was changed, so nothing "
+        # Only an applied fix is a change: a plan that was denied, expired or refused at apply changed nothing.
+        applied = any(e["kind"] == APPLIED for e in r.rows)
+        return ["Nothing: no health check was made after a change." if applied else "Nothing was changed, so nothing "
                 "needed verifying."]
     out = [f"{len(checks)} health check(s) after the fix, {healthy} healthy."]
     if end == "recovered":
@@ -158,6 +161,21 @@ def _teams(r: Any, alert: dict[str, Any]) -> list[str]:
     return out
 
 
+def _checked(r: Any) -> str:
+    """The record's integrity in the draft itself: a copied draft must not claim a signed record it did not check."""
+    broken, unsigned = getattr(r, "broken", 0), getattr(r, "unsigned", 0)
+    if not getattr(r, "head", ""):
+        return "Record check: the record's signatures were not checked for this draft."
+    if broken < 0:
+        return "Record check: the record's signatures could not be checked when this draft was made."
+    if broken:
+        return (f"Record check: {broken} row(s) of the record DO NOT CHECK OUT - it was changed after it was written; "
+                "do not rely on this draft until that is explained.")
+    if unsigned:
+        return f"Record check: the newest {unsigned} row(s) were not signed yet when this draft was made."
+    return "Record check: every row of the record was signed and intact when this draft was made."
+
+
 def draft(r: Any) -> Draft:
     """The draft from a record built with its steps (records.record, not `light`)."""
     alert = _alert(r)
@@ -170,12 +188,12 @@ def draft(r: Any) -> Draft:
     return Draft(title=f"Postmortem draft - {r.alarm or r.id}", sections=[
         ("What happened", happened), ("Timeline", _timeline(r) or ["No steps on the record."]),
         ("Root cause", _root_cause(r)), ("What was done", _done(r)), ("What verified it", _verified(r)),
-        ("Next steps, per team", _teams(r, alert))])
+        ("Next steps, per team", _teams(r, alert))], checked=_checked(r))
 
 
 def markdown(d: Draft) -> str:
     """The draft as text a person can copy into their own postmortem document."""
-    lines = [f"# {d.title}", "", f"_{DRAFT}_"]
+    lines = [f"# {d.title}", "", f"_{DRAFT}_"] + (["", d.checked] if d.checked else [])
     for heading, items in d.sections:
         lines += ["", f"## {heading}", *(f"- {i}" for i in items)]
     return "\n".join(lines)
