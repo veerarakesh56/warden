@@ -330,3 +330,17 @@ def test_a_cluster_qualifying_a_pod_target_is_not_a_second_target(target):
     assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(A.restart_pods, target, FS01)
     for second in ("orders -> warden-pg-fs-ecs", "orders, warden-pg-fs-ecs", "orders and warden-pg-fs-ecs"):
         assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.restart_pods, second, FS01), second
+
+
+def test_a_service_named_like_its_namespace_is_the_resource():
+    """The alert's own service is never taken for the scope its namespace label names (a plant check found no test
+    for it, S19)."""
+    from warden.cli import DEMO_ALERTS
+    from warden.models import Alert, ContextBundle
+    from warden.verifier import _target_problem
+
+    alert = Alert(**{**DEMO_ALERTS["inc-002"], "service": "shop", "labels": {"namespace": "shop"}})
+    context = ContextBundle(logs=["LOG k8s/shop/shop x ERROR shop restarted"], metrics={"error_rate": 0.1})
+    p = RemediationProposal(action=A.restart_pods, target="shop", reasoning="r", expected_effect="e",
+                            blast_radius="single_service", reversible=True)
+    assert _target_problem(alert, context, p) is None
