@@ -437,7 +437,7 @@ class DatabasePlatform:
             conn = self._for_write(who, snapshot or {})
             try:
                 name = self._sql.database(conn)
-            except Exception:  # unreadable: refused below  # noqa: BLE001
+            except Exception:  # noqa: BLE001  # unreadable: refused below
                 name = None
         if name is None or params.get("database") != name:
             raise DatabasePlatformRefused(f"database {params.get('database')!r} is not the one this platform is "
