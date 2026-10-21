@@ -69,6 +69,11 @@ class RoutedPlatform:
             p = p.for_environment(environment)
         return getattr(p, "_read", None)
 
+    def writes_reader(self, entry: str, environment: str) -> Any | None:
+        """B21: `writes(names, since, until)` - CloudTrail's write events naming this entry's target, as the platform that
+        carries it out reads them (AwsPlatform.writes_on); None when that platform has no such reader."""
+        return getattr(self._for(entry, environment), "writes_on", None)
+
     def healthy_for(self, entry: str, service: str, params: dict[str, Any] | None = None,
                     environment: str | None = None) -> bool:
         """Health as the platform that carries out `entry` sees it - only that one (sixth review, 2026-10-01: a

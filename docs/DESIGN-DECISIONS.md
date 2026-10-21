@@ -424,6 +424,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - One writer per target - `locks.py` (B20): a check-and-set inside the audit's own write lock, so the lock is as
   durable and as recorded as the rest of the record. A lock service (the DynamoDB lock client, etcd) would be a
   second store beside the audit, and its locks would not be on the record.
+- What landed on a target since WARDEN's fix, read before WARDEN undoes it - `landed.py` (B21): CloudTrail's
+  LookupEvents through the platform reader, GitHub's Deployments and Pulls REST APIs, and WARDEN's own audit -
+  the same three reads `timeline.py` makes, over the window from the fix to the undo.
 - The signature catalogue - `knowledge.py`: k8sgpt, Robusta and the kube-prometheus rules cover Kubernetes only and
   need a live cluster; HolmesGPT and the AWS DevOps Agent are agent loops, not libraries. They serve as checklists
   for the Kubernetes signatures.
