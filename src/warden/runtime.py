@@ -231,7 +231,7 @@ def _activities(log: audit.AuditLog, policy: approvals.ApproverPolicy, platform:
     from .code_fix import CodeFixActivities
 
     fix = CodeFixActivities(audit=log)  # register B4: the act zone's revert pull requests
-    return [fix.code_fix_revert, inc.after_hold, inc.prepare, inc.reread, inc.investigate, inc.plan_fix, inc.diagnose, inc.verify, inc.second_opinion, inc.notify, inc.no_plan,
+    return [fix.code_fix_revert, fix.code_fix_unrun, inc.after_hold, inc.prepare, inc.reread, inc.investigate, inc.plan_fix, inc.diagnose, inc.verify, inc.second_opinion, inc.notify, inc.no_plan,
             rem.resolve_plan, rem.gate, rem.announce, rem.check_approval, rem.check_passkey, rem.precheck, rem.apply,
             rem.check_success, rem.record_result, rem.rollback, rem.finish, rem.summary_owed, rem.again_alert, rem.side_effects,
             rem.critic_review, rem.autonomy_state, rem.autonomy_enable,

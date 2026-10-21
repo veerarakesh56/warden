@@ -336,3 +336,14 @@ class CodeFixActivities:
         row = outcome.row()
         self.audit.append(incident_id, AUDIT_KIND, row)
         return row
+
+    @activity.defn
+    def code_fix_unrun(self, incident_id: str, sha: str) -> dict[str, Any]:
+        """The core zone's audit row for a revert the act zone never ran - not picked up in time, or it failed before
+        it could record itself - so every attempt is a row whatever stopped it. It holds no key and writes nothing
+        to GitHub."""
+        row = RevertOutcome(status="failed", commit=sha,
+                            reason="the act zone did not run the revert step (not picked up in time, or it failed "
+                                   "before recording itself)").row()
+        self.audit.append(incident_id, AUDIT_KIND, row)
+        return row

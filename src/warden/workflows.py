@@ -23,6 +23,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
+    TimeoutType,
     WorkflowAlreadyStartedError,
     is_cancelled_exception,
 )
@@ -797,6 +798,12 @@ def _revert_wanted(diagnosed: Any, verified: Any) -> bool:
     return not diagnosed.model_unavailable and _for_a_person(verified)
 
 
+def _never_recorded(err: Any) -> bool:
+    """Whether a failed code-fix step cannot have written its own audit row: anything but a start-to-close timeout
+    (not picked up in time, or it raised before recording)."""
+    return getattr(err.cause, "type", None) is not TimeoutType.START_TO_CLOSE
+
+
 def _plannable(verified: Any) -> bool:
     """Whether the verified proposal opens a fix plan. Patched: histories recorded before each case replay unchanged."""
     # Review-e M5: also a proposal escalated by P6 ALONE - its reach is wide, which is exactly what the signed approval
@@ -919,9 +926,20 @@ class IncidentWorkflow:
         sha = revert_target(diagnosed.proposal.action.value, pack.context.recent_deploys)
         if sha and _revert_wanted(diagnosed, verified) and workflow.patched("b4-code-fix-revert"):
             fix = CodeFixActivities.code_fix_revert
-            with contextlib.suppress(ActivityError):
+            try:
                 await workflow.execute_activity_method(fix, **_zoned(fix), args=[first.alert_id, pack.alert.environment,
                                                                                 sha], **CODE_FIX)
+            except ActivityError as err:
+                await IncidentWorkflow._code_fix_unrun(first.alert_id, sha, err)
+
+    @staticmethod
+    async def _code_fix_unrun(incident_id: str, sha: str, err: ActivityError) -> None:
+        """The revert step did not record itself: the core zone writes its audit row. A start-to-close timeout is the
+        one failure after which the step may have run and recorded itself, so it gets no second row."""
+        if _never_recorded(err) and workflow.patched("b4-code-fix-unrun"):
+            with contextlib.suppress(ActivityError):
+                await workflow.execute_activity_method(CodeFixActivities.code_fix_unrun, args=[incident_id, sha],
+                                                       **QUICK)
 
     @staticmethod
     async def _hold_ended(acts, alert: Alert, held: str) -> tuple[Alert, RunReport | None]:

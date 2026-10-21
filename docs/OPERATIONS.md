@@ -306,9 +306,10 @@ environment receives it by the usual promotion), unless that environment's `code
 No model writes any line of it: the commit's own diff is taken back where its exact lines are found once, and the result
 must pass the code gate as exactly the commit's inverse. A merge commit, a rename, a binary file, code that moved on
 since, or anything the gate refuses goes to a person, and nothing is written. Every attempt is an audit row of kind
-`code_fix` (opened, skipped, refused or failed, with the reason and the gate's rules). The rollback of the running
-service stays its own plan with its own approval; the pull request only keeps the next deploy from bringing the fault
-back.
+`code_fix` (opened, skipped, refused or failed, with the reason and the gate's rules); when the act zone never runs the
+step (no worker picks it up within two minutes, or it fails before recording itself), the core zone writes the `failed`
+row. The rollback of the running service stays its own plan with its own approval; the pull request only keeps the next
+deploy from bringing the fault back.
 
 ## Optional: Claude's security review on pull requests
 

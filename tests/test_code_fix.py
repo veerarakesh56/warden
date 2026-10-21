@@ -320,6 +320,34 @@ def test_github_sees_a_hashed_incident_reference_never_the_id(tmp_path):
     assert code_fix.public_ref(secret_id) in out.branch
 
 
+def test_the_core_zone_records_a_revert_the_act_zone_never_ran():
+    audit = Audit()
+    row = CodeFixActivities(audit=audit).code_fix_unrun("inc-42", SHA)
+    assert row["status"] == "failed"
+    assert row["commit"] == SHA
+    assert audit.rows == [("inc-42", code_fix.AUDIT_KIND, row)]
+
+
+@pytest.mark.parametrize("cause, recorded_here", [
+    ("SCHEDULE_TO_START", True),   # never picked up: nothing recorded it
+    ("START_TO_CLOSE", False),     # it may have run and recorded itself: no second row
+    (None, True),                  # it raised before recording
+])
+def test_a_second_row_only_when_the_step_cannot_have_written_one(cause, recorded_here):
+    import inspect
+    from types import SimpleNamespace
+
+    from temporalio.exceptions import TimeoutType
+
+    from warden import workflows
+
+    err = SimpleNamespace(cause=SimpleNamespace(type=getattr(TimeoutType, cause) if cause else "KeyError"))
+    assert workflows._never_recorded(err) is recorded_here
+    src = inspect.getsource(workflows.IncidentWorkflow._code_fix_revert)
+    assert "await IncidentWorkflow._code_fix_unrun(first.alert_id, sha, err)" in src
+    assert "code_fix_unrun" not in {n for names in workflows.ZONES.values() for n in names}  # the core zone's
+
+
 def test_a_github_failure_is_an_outcome_not_an_exception():
     def app(_repo):
         raise GitHubAppError("the App's installation on the repository: HTTP 404")
