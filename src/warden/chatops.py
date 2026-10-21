@@ -18,6 +18,7 @@ or written into a report.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
@@ -72,7 +73,7 @@ def _post_json(url: str, payload: dict, sink: str) -> Notification:
         return Notification(sink=sink, delivered=200 <= code < 300, detail=f"HTTP {code}")
     except urllib.error.HTTPError as exc:
         return Notification(sink=sink, delivered=False, detail=f"HTTP {exc.code}")
-    except OSError as exc:  # URLError and TimeoutError are OSErrors
+    except (OSError, http.client.HTTPException) as exc:  # URLError and TimeoutError are OSErrors; InvalidURL is not
         return Notification(sink=sink, delivered=False, detail=f"transport error: {exc}")
 
 

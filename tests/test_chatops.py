@@ -273,3 +273,12 @@ def test_the_slack_sink_posts_every_part_and_fails_if_any_part_fails(monkeypatch
     assert note.delivered is False
     assert "1 of" in note.detail
     assert "HTTP 500" in note.detail
+
+
+def test_a_webhook_url_with_a_bad_port_is_a_failed_delivery_not_an_exception():
+    """http.client.InvalidURL is not an OSError. Uncaught, it would stop every later sink."""
+    from warden import chatops
+
+    n = chatops._post_json("https://hooks.example:abc/x", {}, "slack")
+    assert not n.delivered
+    assert n.detail.startswith("transport error: ")
