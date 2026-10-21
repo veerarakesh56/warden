@@ -88,7 +88,10 @@ def _appconfig(context: Any, started: datetime) -> list[dict[str, Any]]:
         if not m:
             continue
         going = m["completed"] == "not yet"
-        at = (_when(m["started"]) if m["started"] else None) if going else _when(m["completed"])
+        if going:
+            at = _when(m["started"]) if m["started"] else None
+        else:
+            at = _when(m["completed"])
         if at is not None:
             out.append({"kind": "appconfig", "service": m["name"], "version": m["version"], "at": at,
                         "deploying": going})
