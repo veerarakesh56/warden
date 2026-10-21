@@ -12,9 +12,10 @@ The read zone masks every value it finds (redaction.py) and, until now, threw th
 - **Never through Temporal, never in a log.** `seal` runs inside `prepare` and writes straight to the database; its
   result is not returned, so it never enters a workflow's history. Nothing here logs a value.
 - **Stable ids people can correlate.** Each value also gets a pseudonym, `email:3f9a0c7d21b4`: an HMAC-SHA256 of its
-  kind and value under the environment's own key, the same in every incident and revealing nothing. The key exists
-  only as a KMS ciphertext (no person ever sees it: GenerateDataKeyWithoutPlaintext) that only the read zone may
-  open (purpose=pseudonym). The model is shown placeholders only - never a pseudonym.
+  kind and value under the environment's own HMAC key, the same in every incident and revealing nothing. That key is
+  a KMS HMAC key: it never leaves KMS, and only the read zone may use it (kms:GenerateMac). No zone holds kms:Decrypt
+  on the vault key but the approval page's (owner, 2026-10-21). The model is shown placeholders only - never a
+  pseudonym.
 - **Retention, then gone.** A vault row expires WARDEN_VAULT_DAYS after it is sealed (default and minimum 180, the
   audit's own retention, register B19) and is deleted by the next seal. The signed audit keeps the index (placeholder,
   kind, pseudonym) and the sealed bytes' SHA-256 - what existed stays provable after the values are gone. An erasure
@@ -29,10 +30,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -42,7 +42,6 @@ INDEX = "incident.vault"  # the signed audit's row: the index and the sealed byt
 UNAVAILABLE = "incident.vault_unavailable"
 MIN_DAYS = 180
 MAX_DAYS = 3650  # ten years: longer than any retention WARDEN documents (docs/DATA-EGRESS.md), and within a date's range
-PSEUDONYM_PARAMETER = "WARDEN_PSEUDONYM_KEY_SEALED"  # under /warden/<env>/env/: a KMS ciphertext, never the key
 
 _TABLE = ("CREATE TABLE IF NOT EXISTS vault (incident TEXT NOT NULL, sha256 TEXT NOT NULL, sealed_at TEXT NOT "
                  "NULL, expires_at TEXT NOT NULL, wrapped_key TEXT NOT NULL, sealed TEXT NOT NULL, "
@@ -92,22 +91,23 @@ def days() -> int:
     return min(MAX_DAYS, max(MIN_DAYS, int(raw))) if raw.isdigit() else MIN_DAYS
 
 
-def key_id(env: dict[str, str] | None = None) -> str:
-    """The vault key: WARDEN_VAULT_KMS_KEY_ID, else the runtime module's alias for WARDEN_ENV's runtime; "" for none."""
+def key_id(env: dict[str, str] | None = None, *, kind: str = "vault") -> str:
+    """The vault key (`kind` "vault") or the pseudonym HMAC key ("pseudonym"): WARDEN_VAULT_KMS_KEY_ID /
+    WARDEN_PSEUDONYM_KMS_KEY_ID, else the runtime module's alias for WARDEN_ENV's runtime; "" for none."""
     env = os.environ if env is None else env
-    explicit = env.get("WARDEN_VAULT_KMS_KEY_ID", "").strip()
+    explicit = env.get(f"WARDEN_{kind.upper()}_KMS_KEY_ID", "").strip()
     runtime = env.get("WARDEN_ENV", "").strip()
-    return explicit or (f"alias/warden-{runtime}-vault" if runtime else "")
+    return explicit or (f"alias/warden-{runtime}-{kind}" if runtime else "")
 
 
 def kind_of(placeholder: str) -> str:
     return placeholder.strip("<>").rsplit("_", 1)[0]
 
 
-def pseudonym(key: bytes, kind: str, value: str) -> str:
-    """`email:3f9a0c7d21b4` - the same for the same value in every incident of the environment; nothing of the value."""
-    digest = hmac.new(key, f"{kind}\x00{value}".encode(), hashlib.sha256).hexdigest()[:12]
-    return f"{kind.lower()}:{digest}"
+def pseudonym(mac: bytes, kind: str) -> str:
+    """`email:3f9a0c7d21b4` from the value's HMAC - the same for the same value in every incident of the environment;
+    nothing of the value."""
+    return f"{kind.lower()}:{mac.hex()[:12]}"
 
 
 def _context(purpose: str, environment: str, incident: str = "") -> dict[str, str]:
@@ -116,24 +116,24 @@ def _context(purpose: str, environment: str, incident: str = "") -> dict[str, st
 
 @dataclass
 class Vault:
-    """One environment's vault: its KMS key, its clients and the open pseudonym key. `kms` and `ssm` are boto3 clients
-    (or fakes with the same calls)."""
+    """One environment's vault: its KMS key, the pseudonym HMAC key's id, and the KMS client (boto3's, or a fake with
+    the same calls)."""
 
     key: str
     environment: str
     kms: Any
-    ssm: Any = None
-    _pseudonym_key: bytes | None = None
+    mac_key: str = ""
+    _macs: dict[tuple[str, str], str] = field(default_factory=dict)
 
     @classmethod
-    def from_environment(cls, kms: Any = None, ssm: Any = None) -> Vault | None:
-        """This process's vault, built once (its pseudonym key is opened once); None without a vault key."""
+    def from_environment(cls, kms: Any = None) -> Vault | None:
+        """This process's vault, built once; None without a vault key."""
         key = key_id()
         if not key:
             return None
         environment = os.environ.get("WARDEN_ENV", "").strip() or "local"
-        if kms is not None and ssm is not None:
-            return cls(key=key, environment=environment, kms=kms, ssm=ssm)
+        if kms is not None:
+            return cls(key=key, environment=environment, kms=kms, mac_key=key_id(kind="pseudonym"))
         cached = _BUILT.get((key, environment))
         if cached is None:
             import boto3
@@ -141,34 +141,31 @@ class Vault:
             from .environments import region
 
             where = region()  # the runtime's own region, as every other client of WARDEN's (audit._pg_connect)
-            cached = _BUILT[(key, environment)] = cls(
-                key=key, environment=environment, kms=kms or boto3.client("kms", region_name=where),
-                ssm=ssm or boto3.client("ssm", region_name=where))
+            cached = _BUILT[(key, environment)] = cls(key=key, environment=environment,
+                                                      kms=boto3.client("kms", region_name=where),
+                                                      mac_key=key_id(kind="pseudonym"))
         return cached
 
-    def pseudonym_key(self) -> bytes | None:
-        """The environment's pseudonym key, opened once per process from its sealed parameter; None when there is none
-        (the index then carries no pseudonyms)."""
-        if self._pseudonym_key is None and self.ssm is not None:
-            from .environments import names
-
-            root = names(self.environment).ssm + "env/"
-            sealed = ""
-            for page in self.ssm.get_paginator("get_parameters_by_path").paginate(Path=root, Recursive=False):
-                sealed = next((p["Value"] for p in page.get("Parameters", [])
-                               if p["Name"] == root + PSEUDONYM_PARAMETER), sealed)
-            if sealed:
-                self._pseudonym_key = self.kms.decrypt(
-                    CiphertextBlob=base64.b64decode(sealed), KeyId=self.key,
-                    EncryptionContext=_context("pseudonym", self.environment))["Plaintext"]
-        return self._pseudonym_key
+    def pseudonym_of(self, kind: str, value: str) -> str:
+        """The value's stable id: KMS computes the HMAC with the environment's key, which never leaves KMS. "" without
+        a pseudonym key."""
+        if not self.mac_key:
+            return ""
+        if (kind, value) not in self._macs:
+            if len(self._macs) >= 4096:
+                self._macs.clear()  # a bound on what one process keeps; KMS answers again
+            mac = self.kms.generate_mac(KeyId=self.mac_key, MacAlgorithm="HMAC_SHA_256",
+                                        Message=f"{kind}\x00{value}".encode())["Mac"]
+            self._macs[(kind, value)] = pseudonym(mac, kind)
+        return self._macs[(kind, value)]
 
     def index(self, mapping: dict[str, str]) -> list[dict[str, str]]:
         """What the records page may show without a reveal: each placeholder, its kind and its pseudonym."""
-        pkey = self.pseudonym_key()
-        return [{"placeholder": p, "kind": kind_of(p),
-                 **({"pseudonym": pseudonym(pkey, kind_of(p), v)} if pkey else {})}
-                for p, v in sorted(mapping.items(), key=lambda kv: (kind_of(kv[0]), _number(kv[0])))]
+        out = []
+        for p, v in sorted(mapping.items(), key=lambda kv: (kind_of(kv[0]), _number(kv[0]))):
+            pid = self.pseudonym_of(kind_of(p), v)
+            out.append({"placeholder": p, "kind": kind_of(p), **({"pseudonym": pid} if pid else {})})
+        return out
 
     def seal(self, incident: str, mapping: dict[str, str], now: datetime | None = None) -> dict[str, Any]:
         """The sealed row for `mapping` (the database's), with its index and hash (the audit's)."""

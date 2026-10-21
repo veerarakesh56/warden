@@ -308,7 +308,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   Knowledge Center, free, no sign-in), called with a closed code and a service word only; its answer is reference,
   never evidence - `aws_docs.py` (2026-10-10).
 - The masked values, for people only (2026-10-20): AWS KMS envelope encryption (`cryptography`'s AES-256-GCM under a
-  data key a key policy lets only the read zone make and only the approval page open) and an HMAC for stable ids -
+  data key a key policy lets only the read zone make and only the approval page open) and a KMS HMAC key for stable ids -
   `vault.py`. A secrets vault product (HashiCorp Vault, a tokenization service) would be another server to run and
   pay for; KMS's key policy is the access control this needs, and CloudTrail its witness.
 - The global services' state (2026-10-10): a CloudFront distribution and a Route 53 health check are read in
