@@ -88,7 +88,8 @@ def test_every_report_says_what_was_read_and_over_what_window(backend, must, mus
 def test_the_summary_states_impact_from_the_evidence_not_the_model():
     md = _report().markdown
     summary = md[md.index("## Summary"):md.index("## What WARDEN read")]
-    assert "containers were OOM-killed" in summary and "only 0 of 2 pods are ready" in summary
+    assert "containers were OOM-killed" in summary
+    assert "only 0 of 2 pods are ready" in summary
 
 
 def test_oom_guidance_quotes_the_numbers_in_the_evidence():
@@ -96,7 +97,9 @@ def test_oom_guidance_quotes_the_numbers_in_the_evidence():
     and derives a value from them - stating how."""
     oom = next(p for p in detect(_alert(), OOM) if p.key == "oom")
     sizing = " ".join(oom.platform)
-    assert "48 MiB" in sizing and "900 MiB" in sizing and "1152 MiB" in sizing
+    assert "48 MiB" in sizing
+    assert "900 MiB" in sizing
+    assert "1152 MiB" in sizing
     assert "peak + 25%" in sizing
 
 
@@ -153,7 +156,8 @@ def test_when_the_gate_says_the_action_cannot_work_that_is_the_first_warning():
 def test_oom_back_off_is_not_reported_as_a_separate_crash_loop():
     """The back-off after an OOM kill IS the OOM; a second pattern added irrelevant config advice."""
     keys = [p.key for p in detect(_alert(), OOM)]
-    assert "oom" in keys and "crashloop" not in keys
+    assert "oom" in keys
+    assert "crashloop" not in keys
 
 
 LIVE = ContextBundle(
@@ -177,7 +181,8 @@ def test_the_checks_warden_ran_are_shown_as_results_not_as_homework():
     assert "allocating 900MiB cache" in section
     assert "revision 2 (current): python:3.12.7-alpine" in section
     key = md[md.index("## Key log lines"):md.index("```", md.index("## Key log lines") + 20) + 400]
-    assert "ROLLOUT revision" not in key and "STATUS checkout" not in key, "a check result shown twice"
+    assert "ROLLOUT revision" not in key, "a check result shown twice"
+    assert "STATUS checkout" not in key, "a check result shown twice"
 
 
 def test_the_risk_text_never_contradicts_the_action_table():

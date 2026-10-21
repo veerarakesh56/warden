@@ -29,7 +29,8 @@ def test_a_reason_is_checked_against_the_evidence_and_an_invented_one_is_not():
     real = RuledOut(cause="a bad deploy", why="nothing was deployed",
                     citations=[Citation(id=item_id, quote=item.text[:24])])
     made_up = RuledOut(cause="a bad deploy", why="nothing was deployed", citations=[Citation(id="Z9", quote="no such quote here")])
-    assert ruled_out_checked(real, items) and not ruled_out_checked(made_up, items)
+    assert ruled_out_checked(real, items)
+    assert not ruled_out_checked(made_up, items)
     assert not ruled_out_checked(RuledOut(cause="x"), items)  # no citation: nothing to check
 
 
