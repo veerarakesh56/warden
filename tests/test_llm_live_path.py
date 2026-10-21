@@ -206,7 +206,7 @@ class _RaisingProvider:
 
 def _call_raising(err: BaseException) -> BaseException:
     c = LLMClient(provider=_RaisingProvider(err), mock=False, call_timeout_s=2.0)
-    with pytest.raises(BaseException) as raised:
+    with pytest.raises(type(err)) as raised:
         c.structured(system="s", user="u", schema=Toy, retries=0)
     return raised.value
 

@@ -288,8 +288,8 @@ def _add_log_windows(cut: _Windows, logs: list[tuple[str, str]], windows: list, 
         ws = cut.of(text)
         if size + cut.cost(ws) > MAX_SCAN_TOKENS:
             continue
-        windows += ws
-        owner += [item_id] * len(ws)
+        windows.extend(ws)
+        owner.extend([item_id] * len(ws))
         size += cut.cost(ws)
         scanned += 1
     return scanned
