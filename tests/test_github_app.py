@@ -267,15 +267,31 @@ def test_warden_never_writes_another_branch(branch):
 
 
 COMMIT_OK = {"data": {"createCommitOnBranch": {"commit": {"oid": NEW, "url": "u"}}}}
+CREATED = (201, {})
+
+
+def made(api, branch="warden/x") -> RepoWriter:
+    """A writer that has just created `branch` (the first reply in `api` answers that)."""
+    writer = RepoWriter(token(), api=api)
+    writer.create_branch(branch, SHA)
+    return writer
+
+
+def test_a_commit_only_to_a_branch_this_writer_created():
+    api, log = fake_api((200, COMMIT_OK))
+    writer = RepoWriter(token(), api=api)
+    with pytest.raises(GitHubAppError, match="just created"):
+        writer.commit("warden/fix/inc-1", expected_head=SHA, headline="h", additions={"a.py": b"a"})
+    assert log == []  # nothing was sent
 
 
 def test_commit_goes_through_create_commit_on_branch():
-    api, log = fake_api((200, COMMIT_OK))
-    oid = RepoWriter(token(), api=api).commit("warden/fix/inc-1", expected_head=SHA, headline="Revert abc: x",
+    api, log = fake_api(CREATED, (200, COMMIT_OK))
+    oid = made(api, "warden/fix/inc-1").commit("warden/fix/inc-1", expected_head=SHA, headline="Revert abc: x",
                                                body="why", additions={"b.py": b"b", "a.py": b"a"},
                                                deletions=("c.py",))
     assert oid == NEW
-    call = log[0]
+    call = log[1]
     assert call["path"] == "/graphql"
     assert "createCommitOnBranch" in call["body"]["query"]
     assert call["body"]["variables"]["input"] == {
@@ -289,7 +305,7 @@ def test_commit_goes_through_create_commit_on_branch():
                                    (200, {**COMMIT_OK, "errors": [{"message": "partial"}]}),
                                    (200, {"data": {"createCommitOnBranch": None}}), (502, {})])
 def test_a_refused_commit_raises(reply):
-    writer = RepoWriter(token(), api=fake_api(reply)[0])
+    writer = made(fake_api(CREATED, reply)[0])
     with pytest.raises(GitHubAppError):
         writer.commit("warden/x", expected_head=SHA, headline="h", additions={"a.py": b"a"})
 
@@ -305,7 +321,7 @@ def test_a_refused_commit_raises(reply):
 ])
 def test_commit_input_is_checked(kw, match):
     args = {"expected_head": SHA, "headline": "h", **kw}
-    writer = RepoWriter(token(), api=fake_api((200, COMMIT_OK))[0])
+    writer = made(fake_api(CREATED, (200, COMMIT_OK))[0])
     with pytest.raises(GitHubAppError, match=match):
         writer.commit("warden/x", **args)
 
@@ -325,12 +341,20 @@ def test_a_pull_request_from_warden_into_the_default_branch():
 @pytest.mark.parametrize("base", ["dev", "prod"])
 def test_a_pull_request_into_any_branch_but_the_default_is_refused(base):
     api, log = fake_api(DEFAULT, (201, {"number": 1}))
+    writer = RepoWriter(token(), api=api)
     with pytest.raises(GitHubAppError, match="default branch"):
-        RepoWriter(token(), api=api).open_pull_request(head="warden/x", base=base, title="t", body="")
+        writer.open_pull_request(head="warden/x", base=base, title="t", body="")
     assert [entry["method"] for entry in log] == ["GET"]  # nothing was opened
 
 
-@pytest.mark.parametrize("base", ["warden/fix/x", "warden", "", "dev/x", "../dev"])
+def test_a_default_branch_with_folders_is_a_base():
+    api, log = fake_api((200, {"default_branch": "release/1.0"}), (201, {"number": 3, "html_url": "u"}))
+    writer = RepoWriter(token(), api=api)
+    assert writer.open_pull_request(head="warden/x", base="release/1.0", title="t", body="") == (3, "u")
+    assert log[1]["body"]["base"] == "release/1.0"
+
+
+@pytest.mark.parametrize("base", ["warden/fix/x", "warden", "", "../dev", "dev/../main", "/main"])
 def test_a_pull_request_base_is_never_a_warden_branch(base):
     writer = RepoWriter(token(), api=fake_api((201, {"number": 1}))[0])
     with pytest.raises(GitHubAppError, match="never WARDEN's"):
