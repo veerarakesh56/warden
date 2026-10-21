@@ -43,10 +43,14 @@ jobs:
           an = get("https://sonarcloud.io/api/project_analyses/search?project=veerarakesh56_warden&branch=main&ps=3")
           for x in an.get("analyses", []):
               print(f"=== ANALYSIS {x.get('date')} revision={x.get('revision')}")
-          # export run for main 8f6973a: every maintainability issue with its status (owner, 2026-10-21 11:3x UTC)
-          r = get("https://sonarcloud.io/api/issues/search?issues=AaFD5qVRFN2el7F_LNFw,AaFD5pR1FN2el7F_LMl1,AaFD5pR_FN2el7F_LMl2,AaFD5pR1FN2el7F_LMl0,AaFD5pPvFN2el7F_LMlz,AaFD5qKOFN2el7F_LNDs,AaFD5pS4FN2el7F_LMmD,AaFD5qQZFN2el7F_LNEw,AaFD5qQPFN2el7F_LNEu,AaFD5qQPFN2el7F_LNEv,AaFD5qQEFN2el7F_LNEn,AaFD5qQEFN2el7F_LNEo,AaFD5qQEFN2el7F_LNEp,AaFD5qQEFN2el7F_LNEq,AaFD5qQEFN2el7F_LNEr,AaFD5qQEFN2el7F_LNEs,AaFD5qQEFN2el7F_LNEt,AaFD5qJGFN2el7F_LNDb,AaFD5pSiFN2el7F_LMl8,AaFD5pSiFN2el7F_LMl9,AaFD5pStFN2el7F_LMl-,AaFD5qQ1FN2el7F_LNFD,AaFD5qQ1FN2el7F_LNFB,AaFD5pSVFN2el7F_LMl6,AaFD5pSKFN2el7F_LMl4,AaFD5pSKFN2el7F_LMl3,AaFD5qTZFN2el7F_LNFU&ps=100")
-          for i in r["issues"]:
-              print(f"=== KEY {i['key']} status={i.get('status')} issueStatus={i.get('issueStatus')} resolution={i.get('resolution')} closed={i.get('closeDate')}")
+          # export run: the new issues SonarCloud reports on pull request 170 (2026-10-21 ~14:15 UTC)
+          for pr in ("170",):
+              d = get(f"https://sonarcloud.io/api/issues/search?componentKeys=veerarakesh56_warden&pullRequest={pr}&issueStatuses=OPEN,CONFIRMED&ps=500")
+              print(f"=== PR {pr} open total={d['total']}")
+              for i in d["issues"]:
+                  comp = i["component"].split(":", 1)[-1]
+                  msg = i["message"].replace("\n", " ")[:300]
+                  print(f"PR{pr}|{i['rule']}|{comp}|{i.get('line', '')}|{i['key']}|{i.get('issueStatus')}|{msg}")
           for quality in ("SECURITY", "RELIABILITY", "MAINTAINABILITY"):
               page, seen = 1, 0
               while True:
