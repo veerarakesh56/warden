@@ -29,53 +29,53 @@ from .verifier import symptoms
 
 # The bundled scenarios. Each one exists to exercise a different route through the graph.
 DEMO_ALERTS: dict[str, dict] = {
-    "inc-001": dict(
-        alert_id="inc-001",
-        name="HighErrorRate",
-        severity=Severity.critical,
-        service="checkout",
-        environment="prod",
-        summary="5xx rate above 4% for user priya.nair@corp.io on tenant_id=acme-42",
-        started_at="2026-08-21T10:02:00Z",
-    ),
-    "inc-002": dict(
-        alert_id="inc-002",
-        name="PodOOMKilled",
-        severity=Severity.high,
-        service="checkout",
-        environment="prod",
-        summary="Repeated OOM kills, memory at 94% of limit",
-        started_at="2026-08-21T14:11:00Z",
-    ),
-    "inc-003": dict(
-        alert_id="inc-003",
-        name="ReplicaLagHigh",
-        severity=Severity.high,
-        service="orders",
-        environment="prod",
-        summary="Connection pool exhausted, replica lag 47s",
-        started_at="2026-08-21T03:20:00Z",
-        labels={"database": "orders-db"},
-    ),
-    "inc-004": dict(
-        alert_id="inc-004",
-        name="Elevated4xx",
-        severity=Severity.low,
-        service="gateway",
-        environment="prod",
-        summary="Slightly elevated 4xx from one client",
-        started_at="2026-08-21T22:04:00Z",
-    ),
-    "inc-005": dict(
-        alert_id="inc-005",
-        name="DBConnectionsStuck",
-        severity=Severity.high,
-        service="payments",
-        environment="prod",
-        summary="Connection pool exhausted by 25 idle-in-transaction connections, no replica lag",
-        started_at="2026-08-26T04:10:00Z",
-        labels={"database": "payments-db"},
-    ),
+    "inc-001": {
+        "alert_id": "inc-001",
+        "name": "HighErrorRate",
+        "severity": Severity.critical,
+        "service": "checkout",
+        "environment": "prod",
+        "summary": "5xx rate above 4% for user priya.nair@corp.io on tenant_id=acme-42",
+        "started_at": "2026-08-21T10:02:00Z",
+    },
+    "inc-002": {
+        "alert_id": "inc-002",
+        "name": "PodOOMKilled",
+        "severity": Severity.high,
+        "service": "checkout",
+        "environment": "prod",
+        "summary": "Repeated OOM kills, memory at 94% of limit",
+        "started_at": "2026-08-21T14:11:00Z",
+    },
+    "inc-003": {
+        "alert_id": "inc-003",
+        "name": "ReplicaLagHigh",
+        "severity": Severity.high,
+        "service": "orders",
+        "environment": "prod",
+        "summary": "Connection pool exhausted, replica lag 47s",
+        "started_at": "2026-08-21T03:20:00Z",
+        "labels": {"database": "orders-db"},
+    },
+    "inc-004": {
+        "alert_id": "inc-004",
+        "name": "Elevated4xx",
+        "severity": Severity.low,
+        "service": "gateway",
+        "environment": "prod",
+        "summary": "Slightly elevated 4xx from one client",
+        "started_at": "2026-08-21T22:04:00Z",
+    },
+    "inc-005": {
+        "alert_id": "inc-005",
+        "name": "DBConnectionsStuck",
+        "severity": Severity.high,
+        "service": "payments",
+        "environment": "prod",
+        "summary": "Connection pool exhausted by 25 idle-in-transaction connections, no replica lag",
+        "started_at": "2026-08-26T04:10:00Z",
+        "labels": {"database": "payments-db"},
+    },
 }
 
 
@@ -91,7 +91,7 @@ def _one(text: object) -> str:
     """A field someone else wrote, on one line: a newline in an alert name forged `VERDICT` lines."""
     try:
         return " ".join(str(text).split())
-    except Exception:  # noqa: BLE001 - an exception whose text raises (fifth review, 2026-10-01)
+    except Exception:  # noqa: BLE001 - an exception whose text raises (fifth review; 2026-10-01)
         return "(text withheld)"
 
 
@@ -200,29 +200,39 @@ def _apply_overrides(alert: Alert, args) -> Alert:
 
     when = getattr(args, "started_at", None)
     if when:
-        if when.lower() == "now":
-            update["started_at"] = datetime.now(UTC).isoformat()
-        else:
-            try:  # fail here, loudly, rather than silently reading the wrong window later
-                parsed = datetime.fromisoformat(when)
-            except ValueError as exc:
-                raise SystemExit(f"--started-at must be ISO-8601 or 'now': {exc}") from exc
-            if parsed.tzinfo is None:  # local or UTC? hours apart (audit A-B-L14)
-                raise SystemExit("--started-at needs a zone: end it with Z or an offset such as +05:30")
-            update["started_at"] = when
+        update["started_at"] = _started_at(when)
 
-    labels = dict(alert.labels)
-    for pair in getattr(args, "label", None) or []:
-        key, sep, value = pair.partition("=")
-        if not sep or not key:
-            raise SystemExit(f"--label must be K=V, got '{pair}'")
-        labels[key] = value
+    labels = _with_labels(alert.labels, getattr(args, "label", None) or [])
     if labels != alert.labels:
         update["labels"] = labels
 
     # model_validate, not model_copy: model_copy skips validation, and the label rules must hold
     # for a --label as much as for an alert file.
     return Alert.model_validate({**alert.model_dump(), **update}) if update else alert
+
+
+def _started_at(when: str) -> str:
+    """`--started-at`: 'now', or an ISO-8601 time with its zone."""
+    if when.lower() == "now":
+        return datetime.now(UTC).isoformat()
+    try:  # fail here, loudly, rather than silently reading the wrong window later
+        parsed = datetime.fromisoformat(when)
+    except ValueError as exc:
+        raise SystemExit(f"--started-at must be ISO-8601 or 'now': {exc}") from exc
+    if parsed.tzinfo is None:  # local or UTC? hours apart (audit A-B-L14)
+        raise SystemExit("--started-at needs a zone: end it with Z or an offset such as +05:30")
+    return when
+
+
+def _with_labels(labels: dict[str, str], pairs: list[str]) -> dict[str, str]:
+    """The alert's labels with each `--label K=V` added."""
+    out = dict(labels)
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or not key:
+            raise SystemExit(f"--label must be K=V, got '{pair}'")
+        out[key] = value
+    return out
 
 
 def _load_environment(command: str, zone: str | None = None) -> None:
@@ -260,43 +270,9 @@ def _audit_command(args: argparse.Namespace) -> int:
     from . import audit
 
     if args.audit_cmd == "keygen":
-        if args.private.exists():
-            _out(f"{args.private} exists; refusing to overwrite a signing key")
-            return 1
-        # Encrypted unless asked otherwise (naming audit item 4, 2026-10-16: with no passphrase set, keygen wrote the
-        # key in the clear and only said so, while approvals.py promised an encrypted one - and a signature is only
-        # as strong as the key file at rest). The passphrase comes from the environment (Secrets Manager in the
-        # cloud) or is typed at a prompt, never from the command line (shell history).
-        if args.unencrypted:
-            passphrase = None
-            _out("WARNING: --unencrypted: the private key is written IN THE CLEAR. Anyone who can read "
-                 f"{args.private} - a backup, a synced folder, another account with access - can sign as its owner. "
-                 "Use it only for a throwaway key; an approver's key must be encrypted.", err=True)
-        else:
-            passphrase = os.environ.get("WARDEN_AUDIT_KEY_PASSPHRASE", "").encode() or _typed_passphrase()
-            if not passphrase:
-                _out("error: no passphrase, so no key was written: type one at the prompt (a terminal), or set "
-                     "WARDEN_AUDIT_KEY_PASSPHRASE without echoing it; --unencrypted writes the key in the clear",
-                     err=True)
-                return 1
-        try:
-            audit.generate_key(args.private, args.public, passphrase)
-        except (ValueError, FileExistsError, FileNotFoundError) as e:
-            _out(f"error: {e}; no key was written", err=True)
-            return 1
-        _out(f"private key {args.private} ({'encrypted' if passphrase else 'NOT encrypted'}), "
-              f"public key {args.public}")
-        return 0
+        return _audit_keygen(args)
     if args.audit_cmd == "migrate":
-        # Run by the migration role (its DSN in WARDEN_AUDIT_MIGRATION_DSN), never by the runtime: the runtime's
-        # role gets SELECT and INSERT only (G6).
-        dsn = os.environ.get("WARDEN_AUDIT_MIGRATION_DSN", "").strip()
-        if not audit._is_postgres(dsn):
-            _out("error: set WARDEN_AUDIT_MIGRATION_DSN to the migration role's postgresql:// DSN", err=True)
-            return 1
-        audit.migrate(dsn, writer_role=args.writer_role)
-        _out(f"audit tables ready; {args.writer_role} may read and append, nothing else")
-        return 0
+        return _audit_migrate(args)
     # The DSN comes from the environment (a secret), never the command line; else the --db file.
     target = os.environ.get("WARDEN_AUDIT_DSN", "").strip() or (_contained(args.db, "--db") if args.db else None)
     if target is None:
@@ -307,23 +283,79 @@ def _audit_command(args: argparse.Namespace) -> int:
     anchors = audit.S3Anchor(bucket).all() if bucket else None
     result = audit.verify(target, audit.load_public_key(_key_file(args.public_key)), anchors)
     if args.audit_cmd == "show":
-        # Register S17: what a message's footer names, read from the record itself, after the chain is verified.
-        from .environments import both_times
-
-        log = audit.AuditLog(target)
-        rows = log.entries(args.incident)
-        log.close()
-        for e in rows:
-            # Hash first, row number last: `7  2026-10-03 06` read as a phone number and the gate withheld the line.
-            _out(f"{audit.short(e['hash'])}  {e['kind']:<24} {both_times(e['at'])}  row {e['seq']}")
-        _out(f"incident {args.incident}: {len(rows)} row(s); the chain is {'intact' if result.ok else 'NOT intact'}")
-        return 0 if result.ok and rows else 1
+        return _audit_show(args, target, result)
     for problem in result.problems:
         _out(f"TAMPERED: {problem}")
     _out(f"{result.rows} rows, signed through row {result.signed_through}"
           + (f", {result.unsigned_tail} newer row(s) not yet signed" if result.unsigned_tail else ""))
     _out("intact" if result.ok else "NOT intact")
     return 0 if result.ok else 1
+
+
+def _new_key_passphrase(args: argparse.Namespace) -> bytes | None:
+    """None for --unencrypted (said loudly); else the passphrase from the environment or typed, b"" when there is
+    none."""
+    if args.unencrypted:
+        _out("WARNING: --unencrypted: the private key is written IN THE CLEAR. Anyone who can read "
+             f"{args.private} - a backup, a synced folder, another account with access - can sign as its owner. "
+             "Use it only for a throwaway key; an approver's key must be encrypted.", err=True)
+        return None
+    return os.environ.get("WARDEN_AUDIT_KEY_PASSPHRASE", "").encode() or _typed_passphrase()
+
+
+def _audit_keygen(args: argparse.Namespace) -> int:
+    from . import audit
+
+    if args.private.exists():
+        _out(f"{args.private} exists; refusing to overwrite a signing key")
+        return 1
+    # Encrypted unless asked otherwise (naming audit item 4, 2026-10-16: with no passphrase set, keygen wrote the
+    # key in the clear and only said so, while approvals.py promised an encrypted one - and a signature is only
+    # as strong as the key file at rest). The passphrase comes from the environment (Secrets Manager in the
+    # cloud) or is typed at a prompt, never from the command line (shell history).
+    passphrase = _new_key_passphrase(args)
+    if not args.unencrypted and not passphrase:
+        _out("error: no passphrase, so no key was written: type one at the prompt (a terminal), or set "
+             "WARDEN_AUDIT_KEY_PASSPHRASE without echoing it; --unencrypted writes the key in the clear",
+             err=True)
+        return 1
+    try:
+        audit.generate_key(args.private, args.public, passphrase)
+    except (ValueError, FileExistsError, FileNotFoundError) as e:
+        _out(f"error: {e}; no key was written", err=True)
+        return 1
+    _out(f"private key {args.private} ({'encrypted' if passphrase else 'NOT encrypted'}), "
+          f"public key {args.public}")
+    return 0
+
+
+def _audit_migrate(args: argparse.Namespace) -> int:
+    from . import audit
+
+    # Run by the migration role (its DSN in WARDEN_AUDIT_MIGRATION_DSN), never by the runtime: the runtime's
+    # role gets SELECT and INSERT only (G6).
+    dsn = os.environ.get("WARDEN_AUDIT_MIGRATION_DSN", "").strip()
+    if not audit._is_postgres(dsn):
+        _out("error: set WARDEN_AUDIT_MIGRATION_DSN to the migration role's postgresql:// DSN", err=True)
+        return 1
+    audit.migrate(dsn, writer_role=args.writer_role)
+    _out(f"audit tables ready; {args.writer_role} may read and append, nothing else")
+    return 0
+
+
+def _audit_show(args: argparse.Namespace, target, result) -> int:
+    # Register S17: what a message's footer names, read from the record itself, after the chain is verified.
+    from . import audit
+    from .environments import both_times
+
+    log = audit.AuditLog(target)
+    rows = log.entries(args.incident)
+    log.close()
+    for e in rows:
+        # Hash first, row number last: `7  2026-10-03 06` read as a phone number and the gate withheld the line.
+        _out(f"{audit.short(e['hash'])}  {e['kind']:<24} {both_times(e['at'])}  row {e['seq']}")
+    _out(f"incident {args.incident}: {len(rows)} row(s); the chain is {'intact' if result.ok else 'NOT intact'}")
+    return 0 if result.ok and rows else 1
 
 
 def _approver_key(path: pathlib.Path):
@@ -378,22 +410,34 @@ async def _autonomy_command(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+_NO_RP_ID = "error: WARDEN_APPROVAL_RP_ID is not set: the approval page's domain"
+_NO_BROWSER = "error: no browser could be opened on this machine"
+
+
 def _enrol_command(args: argparse.Namespace) -> int:
     """A link for enrolling a passkey on the approval page, signed here with the approver's own key - and opened in
     this machine's browser, never printed: whoever holds the link may use it, and a terminal is an egress (_out)."""
-    import webbrowser
-
     from .approval_page import invite
 
     domain = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
     if not domain:
-        _out("error: WARDEN_APPROVAL_RP_ID is not set: the approval page's domain", err=True)
+        _out(_NO_RP_ID, err=True)
         return 1
-    if not webbrowser.open(f"https://{domain}/e/{invite(_approver_key(args.key), args.approver, now=datetime.now(UTC))}"):
-        _out("error: no browser could be opened on this machine", err=True)
+    if not _opened(f"https://{domain}/e/{invite(_approver_key(args.key), args.approver, now=datetime.now(UTC))}"):
         return 1
     _out(f"Opened https://{domain} in your browser: create the passkey there within 15 minutes.")
     return 0
+
+
+def _opened(url: str) -> bool:
+    """`url` opened in this machine's browser - never printed: whoever holds a signed link may use it. False, said on
+    stderr, when no browser could be opened."""
+    import webbrowser
+
+    if webbrowser.open(url):
+        return True
+    _out(_NO_BROWSER, err=True)
+    return False
 
 
 def _install_log_gate() -> None:
@@ -455,73 +499,17 @@ def _platform(choice: str | frozenset[str]):
 
 
 async def _workflow_command(args: argparse.Namespace) -> int:
-    from . import discuss, runtime
+    from . import runtime
 
-    if args.cmd == "worker":
-        from .settings import by_environment
-
-        try:  # each environment's own channels: a malformed map refuses to start, never routes a guess
-            by_environment("WARDEN_SLACK_CHANNELS")
-            discuss.channels()
-        except ValueError as exc:
-            _out(f"error: {exc}", err=True)
-            return 1
+    if args.cmd == "worker" and not _channels_ok():
+        return 1
     client = await runtime.connect()
     if args.cmd == "worker":
-        _install_log_gate()
-        policy = runtime.approver_policy()
-        platform = _platform(args.platform)
-        async with runtime.serving(client, zone=args.zone, log=runtime.open_audit(), policy=policy,
-                                   backend=resolve_backend(), platform=platform):
-            if args.zone not in ("all", "core"):  # a zone's activities only: no workflow to time or beat through
-                _out(f"worker running the {args.zone} zone on task queue {runtime.zone_queue(args.zone)!r}; "
-                     "Ctrl+C to stop")
-                shadow = runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC) if args.zone == "llm" else None
-                if shadow is not None:  # register C13: the daily shadow incident runs where the model is
-                    await runtime.synthetic_loop(shadow, log=lambda line: _out(line, err=True))
-                if args.zone == "notify" and discuss.configured():  # the discussion channel's listener (discuss.py)
-                    _out("listening in the discussion channel", err=True)
-                    try:
-                        await discuss.listen(client, task_queue=runtime.TASK_QUEUE)
-                    except Exception as exc:  # noqa: BLE001 - the alerts this worker sends never wait on the discussion
-                        _out(f"the discussion channel's listener stopped ({type(exc).__name__}); alerts go on", err=True)
-                await asyncio.Event().wait()
-                return 0
-            problem = await runtime.check_clock(client)
-            if problem:
-                _out(f"error: {problem}", err=True)
-                return 1
-            _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {','.join(sorted(args.platform)) or 'none'}); "
-                 "Ctrl+C to stop")
-            publish = runtime.cloudwatch_publisher()
-            if publish is None:
-                await asyncio.Event().wait()
-            else:  # register C13: a beat only while a full round trip works; the alarm on silence is outside WARDEN
-                await runtime.heartbeat(client, publish, log=lambda line: _out(line, err=True),
-                                        shadow=runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC)
-                                        if args.zone == "all" else None)
+        return await _worker_command(client, args)
     if args.cmd == "intake":
-        from . import intake
-
-        event = intake.AlarmEvent.model_validate_json(args.event.read_text(encoding="utf-8"))
-        decision = await intake.submit(client, event, runtime.open_audit())
-        _out(f"{decision.action}: {decision.workflow_id or '-'} - {_one(decision.reason)}")
-        return 0
+        return await _intake_command(client, args)
     if args.cmd == "status":
-        stage, plan = await runtime.status(client, args.workflow_id)
-        _out(f"stage: {stage}")
-        if plan:
-            from . import catalog
-
-            for change in catalog.change_of(plan.entry, plan.params, plan.snapshot):
-                _out(f"change: {_one(change)}")
-            _out(f"plan : {_one(plan.entry)} {plan.params} tier {plan.tier}")
-            _out(f"target: {_one(plan.target)}")
-            _out(f"where: {_one(plan.snapshot.get('server') or 'not stated by the platform')}")
-            _out(f"hash : {plan.plan_hash}")
-            for problem in plan.problems:
-                _out(f"  refused: {problem}")
-        return 0
+        return await _status_command(client, args)
     try:
         _out(await runtime.approve(client, args.workflow_id, plan_hash=args.plan_hash,
                                     key=_approver_key(args.key), approver=args.approver,
@@ -529,6 +517,93 @@ async def _workflow_command(args: argparse.Namespace) -> int:
     except ValueError as exc:
         _out(f"not approved: {exc}")
         return 1
+    return 0
+
+
+def _channels_ok() -> bool:
+    """`warden worker` starts only with a well-formed channel map for every environment."""
+    from . import discuss
+    from .settings import by_environment
+
+    try:  # each environment's own channels: a malformed map refuses to start, never routes a guess
+        by_environment("WARDEN_SLACK_CHANNELS")
+        discuss.channels()
+    except ValueError as exc:
+        _out(f"error: {exc}", err=True)
+        return False
+    return True
+
+
+async def _worker_command(client, args: argparse.Namespace) -> int:
+    from . import runtime
+
+    _install_log_gate()
+    policy = runtime.approver_policy()
+    platform = _platform(args.platform)
+    async with runtime.serving(client, zone=args.zone, log=runtime.open_audit(), policy=policy,
+                               backend=resolve_backend(), platform=platform):
+        if args.zone not in ("all", "core"):  # a zone's activities only: no workflow to time or beat through
+            await _serve_zone(client, args)
+            return 0
+        problem = await runtime.check_clock(client)
+        if problem:
+            _out(f"error: {problem}", err=True)
+            return 1
+        _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {','.join(sorted(args.platform)) or 'none'}); "
+             "Ctrl+C to stop")
+        publish = runtime.cloudwatch_publisher()
+        if publish is None:
+            await asyncio.Event().wait()
+        else:  # register C13: a beat only while a full round trip works; the alarm on silence is outside WARDEN
+            await runtime.heartbeat(client, publish, log=lambda line: _out(line, err=True),
+                                    shadow=runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC)
+                                    if args.zone == "all" else None)
+    return 0
+
+
+async def _serve_zone(client, args: argparse.Namespace) -> None:
+    """One trust zone's activities, until the process is stopped."""
+    from . import discuss, runtime
+
+    _out(f"worker running the {args.zone} zone on task queue {runtime.zone_queue(args.zone)!r}; "
+         "Ctrl+C to stop")
+    shadow = runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC) if args.zone == "llm" else None
+    if shadow is not None:  # register C13: the daily shadow incident runs where the model is
+        await runtime.synthetic_loop(shadow, log=lambda line: _out(line, err=True))
+    if args.zone == "notify" and discuss.configured():  # the discussion channel's listener (discuss.py)
+        _out("listening in the discussion channel", err=True)
+        try:
+            await discuss.listen(client, task_queue=runtime.TASK_QUEUE)
+        except Exception as exc:  # noqa: BLE001 - the alerts this worker sends never wait on the discussion
+            _out(f"the discussion channel's listener stopped ({type(exc).__name__}); alerts go on", err=True)
+    await asyncio.Event().wait()
+
+
+async def _intake_command(client, args: argparse.Namespace) -> int:
+    from . import intake, runtime
+
+    event = intake.AlarmEvent.model_validate_json(args.event.read_text(encoding="utf-8"))
+    decision = await intake.submit(client, event, runtime.open_audit())
+    _out(f"{decision.action}: {decision.workflow_id or '-'} - {_one(decision.reason)}")
+    return 0
+
+
+async def _status_command(client, args: argparse.Namespace) -> int:
+    from . import runtime
+
+    stage, plan = await runtime.status(client, args.workflow_id)
+    _out(f"stage: {stage}")
+    if plan:
+        from . import catalog
+
+        for change in catalog.change_of(plan.entry, plan.params, plan.snapshot):
+            _out(f"change: {_one(change)}")
+        _out(f"plan : {_one(plan.entry)} {plan.params} tier {plan.tier}")
+        _out(f"target: {_one(plan.target)}")
+        _out(f"where: {_one(plan.snapshot.get('server') or 'not stated by the platform')}")
+        _out(f"hash : {plan.plan_hash}")
+        for problem in plan.problems:
+            _out(f"  refused: {problem}")
     return 0
 
 
@@ -626,7 +701,7 @@ def _link_command(args: argparse.Namespace) -> int:
 
 
 def _killswitch_command(args: argparse.Namespace) -> int:
-    from . import approvals, bounds, runtime
+    from . import runtime
 
     # Live, 2026-10-16: with the cloud runtime's approval page configured and no audit DSN, `on` wrote this machine's
     # own audit file and printed ON while the cloud kept applying. The cloud's switch is reached only on the page.
@@ -636,65 +711,84 @@ def _killswitch_command(args: argparse.Namespace) -> int:
              "switch is on and resets it on the approval page.", err=True)
         return 1
     if args.kill_cmd == "on" and cloud:
-        import webbrowser
-
-        from .approval_page import STOP_INVITE, invite
-
-        if not args.approver or not args.key:
-            _out("error: --approver and --key are needed: the stop is signed on the approval page", err=True)
-            return 1
-        token = invite(_approver_key(args.key), args.approver, now=datetime.now(UTC), purpose=STOP_INVITE)
-        domain = os.environ["WARDEN_APPROVAL_RP_ID"].strip()
-        if not webbrowser.open(f"https://{domain}/x/{token}"):
-            _out("error: no browser could be opened on this machine", err=True)
-            return 1
-        _out(f"Opened https://{domain} in your browser: say why, then stop WARDEN there with your passkey.")
-        return 0
+        return _cloud_stop(args)
     if args.kill_cmd == "on" and not args.reason:
         _out("error: --reason is needed", err=True)
         return 1
     if args.kill_cmd == "link":
-        # The cloud runtime's switch: its audit is reached by the approval page, not by this machine. A link signed
-        # here with the approver's own key, opened in the browser and never printed (as `warden enrol`).
-        import webbrowser
-
-        from .approval_page import RESET_INVITE, invite
-
-        domain = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
-        if not domain:
-            _out("error: WARDEN_APPROVAL_RP_ID is not set: the approval page's domain", err=True)
-            return 1
-        token = invite(_approver_key(args.key), args.approver, now=datetime.now(UTC), purpose=RESET_INVITE)
-        if not webbrowser.open(f"https://{domain}/k/{token}"):
-            _out("error: no browser could be opened on this machine", err=True)
-            return 1
-        _out(f"Opened https://{domain} in your browser: read why the switch is on, then reset it there.")
-        return 0
+        return _reset_link(args)
     log = runtime.open_audit()
     if args.kill_cmd == "on":
+        from . import bounds
+
         bounds.trip(log, "operator", args.reason)
     elif args.kill_cmd == "reset":
-        if bounds.killswitch(log) is None:
-            _out("the kill switch is not on")
-            return 0
-        # Every trip is shown BEFORE anything is signed, and the approver states how many they reviewed: the
-        # signature covers exactly those (register R9-O4).
-        shown = bounds.trips(log)
-        _out(f"resetting {len(shown)} trip{'s' if len(shown) != 1 else ''}:")
-        for row in shown:
-            _out(f"  - {_one(row['body']['reason'])}")
-        if args.trips != len(shown):
-            _out(f"not reset: you reviewed {args.trips}, there are {len(shown)}; check them and pass --trips "
-                 f"{len(shown)}")
-            return 1
-        policy = runtime.approver_policy()
-        signed = approvals.sign(_approver_key(args.key), approver=args.approver, workflow_id="killswitch",
-                                plan_hash=bounds.trips_hash(log), tier="T3")
-        problems = bounds.reset(log, signed, policy=policy, now=datetime.now(UTC))
-        for problem in problems:
-            _out(f"not reset: {problem}")
-        if problems:
-            return 1
+        stopped = _reset_switch(args, log)
+        if stopped is not None:
+            return stopped
+    return _show_switch(log)
+
+
+def _cloud_stop(args: argparse.Namespace) -> int:
+    """`killswitch on` against the cloud runtime: a stop link signed here, opened in the browser, never printed."""
+    from .approval_page import STOP_INVITE, invite
+
+    if not args.approver or not args.key:
+        _out("error: --approver and --key are needed: the stop is signed on the approval page", err=True)
+        return 1
+    token = invite(_approver_key(args.key), args.approver, now=datetime.now(UTC), purpose=STOP_INVITE)
+    domain = os.environ["WARDEN_APPROVAL_RP_ID"].strip()
+    if not _opened(f"https://{domain}/x/{token}"):
+        return 1
+    _out(f"Opened https://{domain} in your browser: say why, then stop WARDEN there with your passkey.")
+    return 0
+
+
+def _reset_link(args: argparse.Namespace) -> int:
+    # The cloud runtime's switch: its audit is reached by the approval page, not by this machine. A link signed
+    # here with the approver's own key, opened in the browser and never printed (as `warden enrol`).
+    from .approval_page import RESET_INVITE, invite
+
+    domain = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
+    if not domain:
+        _out(_NO_RP_ID, err=True)
+        return 1
+    token = invite(_approver_key(args.key), args.approver, now=datetime.now(UTC), purpose=RESET_INVITE)
+    if not _opened(f"https://{domain}/k/{token}"):
+        return 1
+    _out(f"Opened https://{domain} in your browser: read why the switch is on, then reset it there.")
+    return 0
+
+
+def _reset_switch(args: argparse.Namespace, log) -> int | None:
+    """`killswitch reset` on this machine's audit: the exit code when it stops here, None to show the switch."""
+    from . import approvals, bounds, runtime
+
+    if bounds.killswitch(log) is None:
+        _out("the kill switch is not on")
+        return 0
+    # Every trip is shown BEFORE anything is signed, and the approver states how many they reviewed: the
+    # signature covers exactly those (register R9-O4).
+    shown = bounds.trips(log)
+    _out(f"resetting {len(shown)} trip{'s' if len(shown) != 1 else ''}:")
+    for row in shown:
+        _out(f"  - {_one(row['body']['reason'])}")
+    if args.trips != len(shown):
+        _out(f"not reset: you reviewed {args.trips}, there are {len(shown)}; check them and pass --trips "
+             f"{len(shown)}")
+        return 1
+    policy = runtime.approver_policy()
+    signed = approvals.sign(_approver_key(args.key), approver=args.approver, workflow_id="killswitch",
+                            plan_hash=bounds.trips_hash(log), tier="T3")
+    problems = bounds.reset(log, signed, policy=policy, now=datetime.now(UTC))
+    for problem in problems:
+        _out(f"not reset: {problem}")
+    return 1 if problems else None
+
+
+def _show_switch(log) -> int:
+    from . import bounds
+
     on = bounds.trips(log)
     if not on:
         _out("kill switch: off")
@@ -714,6 +808,9 @@ def _no_controls(value):
     if isinstance(value, dict):
         return {_no_controls(k): _no_controls(v) for k, v in value.items()}
     return value
+
+
+_KEY_HELP = "your Ed25519 private key (PEM)"
 
 
 class _Parser(argparse.ArgumentParser):
@@ -749,6 +846,43 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _main(argv: list[str] | None = None) -> int:
+    _replace_what_cannot_be_encoded()
+    from .observability import install_log_gate
+
+    install_log_gate()  # before anything can log: no raw last-resort handler for any command
+    args = _parser().parse_args(argv)
+    _load_environment("label" if args.cmd == "link" else args.cmd, getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
+    command = {
+        "audit": _audit_command,
+        **dict.fromkeys(("worker", "intake", "status", "approve"), lambda a: asyncio.run(_workflow_command(a))),
+        "enrol": _enrol_command,
+        "killswitch": _killswitch_command,
+        "link": _link_command,
+        "label": _label_command,
+        "offer-again": _offer_again_command,
+        "autonomy": lambda a: asyncio.run(_autonomy_command(a)),
+        "usage": _usage_command,
+    }.get(args.cmd)
+    if command is not None:
+        return command(args)
+
+    # Evidence source is a deployment decision, like the model provider. WARDEN_BACKEND=k8s reads a
+    # live cluster; the default reads the recorded fixtures so CI never needs one.
+    backend = resolve_backend()
+
+    if args.cmd == "run":
+        return _run_command(args, backend)
+
+    for incident in DEMO_ALERTS:
+        report = run(_alert_from(incident), llm=LLMClient(), backend=backend)
+        _print_report(report, verbose=args.verbose)
+    # A13 (2026-10-16): it ended "a human executes" - WARDEN applies approved plans itself (D16).
+    _out("\nNo action was executed. WARDEN proposes and gates; a change runs only as a fix plan an approver "
+         "approved.\n")
+    return 0
+
+
+def _replace_what_cannot_be_encoded() -> None:
     # ⛔ Never crash while REPORTING. On Windows a piped stdout is cp1252 and cannot encode `→`,
     # which the model writes into its own hypotheses - so printing a successful diagnosis raised
     # UnicodeEncodeError and turned it into a failed run. `replace` shows a `?` in the terminal
@@ -760,9 +894,53 @@ def _main(argv: list[str] | None = None) -> int:
             stream.reconfigure(errors="replace")
         except (AttributeError, ValueError):  # not a TextIOWrapper, e.g. under a test capture
             pass
-    from .observability import install_log_gate
 
-    install_log_gate()  # before anything can log: no raw last-resort handler for any command
+
+def _run_command(args: argparse.Namespace, backend) -> int:
+    alert = _alert_from_file(args.alert) if args.alert else _alert_from(args.incident)
+    alert = _apply_overrides(alert, args)
+    llm = LLMClient(max_usd=args.max_usd)
+    report = run(alert, llm=llm, backend=backend)
+    # ⛔ The artefact FIRST, the terminal second. This printed first, and printing crashed: the
+    # model writes `→` into its hypothesis, stdout was a cp1252 pipe, and UnicodeEncodeError
+    # killed the process - after the whole diagnosis had succeeded, and before the JSON report
+    # was written, so the result was lost and a benchmark run recorded as ERROR. The report is
+    # the audit record; a failure to DISPLAY it must never be able to destroy it.
+    path = None
+    if args.json:
+        path = _write_json_report(report, args.json)
+        if path is None:
+            return 3
+    _print_report(report, verbose=args.verbose)
+    if args.json:
+        _out(f"\nreport written to {path}")
+
+    if args.report:
+        _print_markdown_report(alert, report)
+    return 0
+
+
+def _write_json_report(report, where: str) -> pathlib.Path | None:
+    """`run --json`: the full report written to `where`; None, said on stderr, when the outbound gate refused it."""
+    path = _contained(where, "--json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Redacted once more with the run's own map (audit A-C-8): the artefact gets attached
+    # to tickets, and a value an upstream step missed must not ride along.
+    raw = report.model_dump(mode="json")
+    data, _ = _scrub(raw, dict(report.redaction_map))
+    data = _no_controls(data)  # `jq -r` would print an ESC live again
+    # Checked BEFORE the scrub too (review 2A defect 7): after it, every value is already
+    # masked, so a check there alone could never fire on a value an upstream step missed.
+    leaks = sorted(set(gate.data_leaks(raw)) | set(gate.data_leaks(data)))
+    if leaks:  # an upstream miss: the artefact is refused, not written with a secret in it
+        _out(f"report NOT written: the outbound gate found {', '.join(leaks)} in it", err=True)
+        return None
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return path
+
+
+def _parser() -> argparse.ArgumentParser:
+    """Every command and its arguments."""
     parser = _Parser(prog="warden", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -823,11 +1001,11 @@ def _main(argv: list[str] | None = None) -> int:
     p_approve.add_argument("workflow_id")
     p_approve.add_argument("--plan-hash", required=True, help="the hash `warden status` showed you")
     p_approve.add_argument("--approver", required=True)
-    p_approve.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_approve.add_argument("--key", required=True, type=pathlib.Path, help=_KEY_HELP)
     p_approve.add_argument("--target", help="for T2 and T3: the plan's target, typed as `warden status` shows it")
     p_enrol = sub.add_parser("enrol", help="open the approval page's 15-minute link for enrolling your passkey")
     p_enrol.add_argument("--approver", required=True)
-    p_enrol.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_enrol.add_argument("--key", required=True, type=pathlib.Path, help=_KEY_HELP)
     p_kill = sub.add_parser("killswitch", help="stop every remediation, or reset the stop with a signed approval")
     kill_sub = p_kill.add_subparsers(dest="kill_cmd", required=True)
     kill_sub.add_parser("status")
@@ -837,7 +1015,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_on.add_argument("--key", type=pathlib.Path, help="your Ed25519 private key (PEM), for the stop link")
     p_link = kill_sub.add_parser("link", help="open the approval page's reset of the cloud runtime's kill switch")
     p_link.add_argument("--approver", required=True)
-    p_link.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_link.add_argument("--key", required=True, type=pathlib.Path, help=_KEY_HELP)
     p_reset = kill_sub.add_parser("reset")
     p_reset.add_argument("--approver", required=True)
     p_reset.add_argument("--key", required=True, type=pathlib.Path)
@@ -850,7 +1028,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_enable = auto_sub.add_parser("enable", help="after a demotion: Eldane approves alone again (never in prod)")
     p_enable.add_argument("--environment", required=True)
     p_enable.add_argument("--approver", required=True)
-    p_enable.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_enable.add_argument("--key", required=True, type=pathlib.Path, help=_KEY_HELP)
     p_enable.add_argument("--demotions", required=True, type=int,
                           help="how many demotions you reviewed (`warden autonomy status`)")
 
@@ -864,84 +1042,19 @@ def _main(argv: list[str] | None = None) -> int:
     p_link.add_argument("--note", help="optional, up to 500 characters")
     p_link.add_argument("--remove", action="store_true", help="take this link back")
     p_link.add_argument("--approver", required=True)
-    p_link.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_link.add_argument("--key", required=True, type=pathlib.Path, help=_KEY_HELP)
     p_label = sub.add_parser("label", help="record your signed verdict on an incident's diagnosis and action")
     p_label.add_argument("incident")
     p_label.add_argument("--diagnosis", required=True, choices=("right", "wrong", "unsure"))
     p_label.add_argument("--action", required=True, choices=("right", "wrong", "unsure"))
     p_label.add_argument("--note", help="optional, up to 500 characters")
     p_label.add_argument("--approver", required=True)
-    p_label.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_label.add_argument("--key", required=True, type=pathlib.Path, help=_KEY_HELP)
     p_again = sub.add_parser("offer-again", help="let WARDEN offer again a fix that did not hold (your signed decision)")
     p_again.add_argument("incident")
     p_again.add_argument("--approver", required=True)
-    p_again.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
-
-    args = parser.parse_args(argv)
-    _load_environment("label" if args.cmd == "link" else args.cmd, getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
-    if args.cmd == "audit":
-        return _audit_command(args)
-    if args.cmd in ("worker", "intake", "status", "approve"):
-        return asyncio.run(_workflow_command(args))
-    if args.cmd == "enrol":
-        return _enrol_command(args)
-    if args.cmd == "killswitch":
-        return _killswitch_command(args)
-    if args.cmd == "link":
-        return _link_command(args)
-    if args.cmd == "label":
-        return _label_command(args)
-    if args.cmd == "offer-again":
-        return _offer_again_command(args)
-    if args.cmd == "autonomy":
-        return asyncio.run(_autonomy_command(args))
-    if args.cmd == "usage":
-        return _usage_command(args)
-
-    # Evidence source is a deployment decision, like the model provider. WARDEN_BACKEND=k8s reads a
-    # live cluster; the default reads the recorded fixtures so CI never needs one.
-    backend = resolve_backend()
-
-    if args.cmd == "run":
-        alert = _alert_from_file(args.alert) if args.alert else _alert_from(args.incident)
-        alert = _apply_overrides(alert, args)
-        llm = LLMClient(max_usd=args.max_usd)
-        report = run(alert, llm=llm, backend=backend)
-        # ⛔ The artefact FIRST, the terminal second. This printed first, and printing crashed: the
-        # model writes `→` into its hypothesis, stdout was a cp1252 pipe, and UnicodeEncodeError
-        # killed the process - after the whole diagnosis had succeeded, and before the JSON report
-        # was written, so the result was lost and a benchmark run recorded as ERROR. The report is
-        # the audit record; a failure to DISPLAY it must never be able to destroy it.
-        if args.json:
-            path = _contained(args.json, "--json")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            # Redacted once more with the run's own map (audit A-C-8): the artefact gets attached
-            # to tickets, and a value an upstream step missed must not ride along.
-            raw = report.model_dump(mode="json")
-            data, _ = _scrub(raw, dict(report.redaction_map))
-            data = _no_controls(data)  # `jq -r` would print an ESC live again
-            # Checked BEFORE the scrub too (review 2A defect 7): after it, every value is already
-            # masked, so a check there alone could never fire on a value an upstream step missed.
-            leaks = sorted(set(gate.data_leaks(raw)) | set(gate.data_leaks(data)))
-            if leaks:  # an upstream miss: the artefact is refused, not written with a secret in it
-                _out(f"report NOT written: the outbound gate found {', '.join(leaks)} in it", err=True)
-                return 3
-            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        _print_report(report, verbose=args.verbose)
-        if args.json:
-            _out(f"\nreport written to {path}")
-
-        if args.report:
-            _print_markdown_report(alert, report)
-        return 0
-
-    for incident in DEMO_ALERTS:
-        report = run(_alert_from(incident), llm=LLMClient(), backend=backend)
-        _print_report(report, verbose=args.verbose)
-    # A13 (2026-10-16): it ended "a human executes" - WARDEN applies approved plans itself (D16).
-    _out("\nNo action was executed. WARDEN proposes and gates; a change runs only as a fix plan an approver "
-         "approved.\n")
-    return 0
+    p_again.add_argument("--key", required=True, type=pathlib.Path, help=_KEY_HELP)
+    return parser
 
 
 if __name__ == "__main__":
