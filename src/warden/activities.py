@@ -62,6 +62,7 @@ def _note(text: str) -> None:
 _PLAN_ROW = "remediation.plan"
 _END_ROW = "workflow.end"
 _ACCEPTED_ROW = "approval.accepted"
+_EXTEND_ASKED = "discuss.extend"  # one row per Slack message that asked for an extension (U3-8)
 _REPORT_ROW = "incident.report"
 _ANNOUNCE_ROW = "remediation.announce"
 _ALERT_ROW = "incident.alert"
@@ -366,6 +367,16 @@ def _cite_own_fixes(context: ContextBundle, own_step: dict[str, Any]) -> None:
     own_step["items"] = [f["item"] for f in own_step["fixes"] if f["item"]]
 
 
+def _refused_before(log: audit.AuditLog, thread: str, asked: str) -> dict[str, Any]:
+    """The refusal this Slack message already got, from the discussion's record ({} when none): a retried "extend"
+    that was refused stays refused - it does not extend a plan made since (CodeRabbit, PR 182). An extension it got
+    is answered from its own row (extend.answered)."""
+    for e in log.entries(thread, kinds=(_EXTEND_ASKED,)):
+        if e["body"].get("asked") == asked and e["body"].get("why"):
+            return {k: e["body"][k] for k in ("why", "workflow_id", "until") if e["body"].get(k)}
+    return {}
+
+
 def _deadline(plan: Plan) -> datetime:
     """Until when this plan waits for its approval. A plan recorded before it carried its own wait: the old half hour."""
     return plan.created_at + timedelta(minutes=plan.approval_ttl_minutes or 30)
@@ -478,8 +489,32 @@ class RemediationActivities:
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
                            "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
-                           "problems": problems, "soak_minutes": req.soak_minutes})
+                           "problems": problems, "soak_minutes": req.soak_minutes,
+                           # Until when it waits, and from when its ceiling counts (U3-8, extend.py).
+                           "approval_until": _deadline(plan).isoformat(), "made": plan.created_at.isoformat()})
         return plan
+
+    @activity.defn
+    def approval_wait(self, plan: Plan, until: str) -> None:
+        """Until when this plan's run really waits for its approval (U3-8, patch u38-wait): its own deadline, set when
+        the wait began - later than the plan's approval_until by the gate and the critic's time. An approver's
+        extension counts from it (extend.waiting), so it always moves the run's deadline. Once per plan."""
+        from . import extend
+
+        body = {"workflow_id": plan.workflow_id, "plan_hash": plan.plan_hash, "until": until,
+                "made": plan.created_at.isoformat(), "run_id": _run_id()}
+        self.audit.append_unless(plan.incident_id, extend.WAIT, body, lambda: "recorded" if any(
+            e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("plan_hash") == plan.plan_hash
+            for e in self.audit.entries(plan.incident_id, kinds=(extend.WAIT,))) else "")
+
+    @activity.defn
+    def approval_extension(self, plan: Plan) -> str:
+        """Until when an approver extended this exact plan's wait from its discussion (extend.py), bounded by its
+        ceiling, as ISO text; "" when nobody did. From the signed record only (U3-8)."""
+        from . import extend
+
+        later = extend.extended_until(self.audit, plan.incident_id, plan.workflow_id, plan.plan_hash, plan.created_at)
+        return later.isoformat() if later else ""
 
     @activity.defn
     def gate(self, plan: Plan, service: str) -> list[str]:
@@ -2036,6 +2071,32 @@ class DiscussActivities:
         alert = Alert.model_validate(rows[0]["body"]["alert"]).model_copy(
             update={"alert_id": new, "started_at": now.isoformat()})
         return {"alert": alert.model_dump(mode="json"), "new": new}
+
+    @activity.defn
+    def discuss_extend(self, turn: Any, incident: str) -> dict[str, Any]:
+        """An approver's "extend" for the incident's waiting plan (extend.py): how far, or why not. Recorded either way
+        on the discussion's record; an extension also on the incident's, where the plan's run reads it (U3-8). Keyed
+        on the Slack message that asked: retried, it answers as it first did and adds no hours (CodeRabbit, PR 150)."""
+        from . import extend
+        from .discuss import Turn, hours_asked, said_no
+
+        turn = Turn.model_validate(turn)
+        asked = f"{turn.channel}/{turn.ts}"
+        thread = f"discuss-{incident}"
+        hours = hours_asked(turn.text)
+        # Retried: its first "no", not a new decision. Hours not said plainly (None) are refused by extend.request,
+        # after who asks is checked - asked again, never guessed.
+        got: dict[str, Any] = _refused_before(self.audit, thread, asked) or extend.request(
+            self.audit, self.policy, incident=incident, user=turn.user, hours=hours, now=datetime.now(UTC), asked=asked,
+            said_no=said_no(turn.text))
+        self.audit.append_unless(thread, _EXTEND_ASKED, {
+            "run_id": _run_id(), "user": turn.user, "asked": asked, "ts": turn.ts, "hours": hours,
+            "why": got.get("why", ""), "workflow_id": got.get("workflow_id", ""), "until": got.get("until", "")},
+            lambda: "recorded" if any(e["body"].get("asked") == asked
+                                      for e in self.audit.entries(thread, kinds=(_EXTEND_ASKED,))) else "")
+        if got.get("until"):
+            got["until_said"] = environments.both_times(datetime.fromisoformat(got["until"]), seconds=False)
+        return got
 
     @activity.defn
     def discuss_evidence(self, incident: str, fresh: bool) -> Any:
