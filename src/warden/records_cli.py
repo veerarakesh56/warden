@@ -33,10 +33,10 @@ from typing import Any
 from . import audit, gate, links, records, redaction
 
 # Fields that are WARDEN's own identifiers, times and states, printed as they are: masking an incident id (it can be
-# UUID-shaped) would make `records show <id>` impossible to follow. Every other string is masked.
-_KEEP = frozenset({"id", "at", "first", "last", "made", "status", "kind", "environment", "workflow_id", "plan_hash",
-                   "audit_head", "tier", "entry", "step", "how", "what", "where", "severity", "with", "words",
-                   "links_away"})
+# UUID-shaped) would make `records show <id>` impossible to follow. Every other string is masked - an alert's own
+# fields too (its environment and severity are what the sender wrote; CodeRabbit, PR 147).
+_KEEP = frozenset({"id", "at", "first", "last", "made", "status", "kind", "workflow_id", "plan_hash",
+                   "audit_head", "tier", "entry", "step", "how", "what", "where", "with", "words", "links_away"})
 _INCIDENT = re.compile(r"[A-Za-z0-9._-]{1,120}")  # approval_page._INCIDENT_ID's shape
 LIMIT_MAX = 500
 _SELECT = re.compile(r"\s*SELECT\s", re.IGNORECASE)

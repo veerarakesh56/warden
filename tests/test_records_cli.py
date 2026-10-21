@@ -234,3 +234,17 @@ def test_the_reader_never_reaches_the_vault_or_the_reveal_path():
     names |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
     assert not names & {"vault", "reveal", "warden.vault", "warden.reveal"}
     assert not any("restore" == getattr(n, "attr", "") for n in ast.walk(tree))
+
+
+def test_an_alerts_own_fields_are_masked_too(reader, capsys, tmp_path, monkeypatch):
+    """An alert's environment and severity are what its sender wrote (CodeRabbit, PR 147): masked like the rest."""
+    log = audit.AuditLog(reader, key=Ed25519PrivateKey.generate())
+    other = "50ac32d0fe243384-20261021T081413Z"
+    log.append(other, "incident.ingest", {"node": "ingest", "alert_id": other, "env": EMAIL})
+    log.append(other, "incident.alert", {"alert": {"alert_id": other, "name": "X", "severity": ADDRESS,
+                                                   "environment": EMAIL, "service": "tick", "summary": "s"}})
+    log.close()
+    for argv in (("list",), ("list", "--json"), ("show", other), ("show", other, "--json")):
+        code, out, _ = _run(capsys, *argv)
+        assert code == 0
+        _clean(out)
