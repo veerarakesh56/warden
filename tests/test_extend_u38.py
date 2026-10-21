@@ -53,7 +53,8 @@ def test_an_approver_of_the_plan_extends_its_wait_and_it_is_recorded(world):
     row = _plan(log)
     base = datetime.fromisoformat(row["body"]["approval_until"])
     got = _ask(log, policy, hours=12)
-    assert datetime.fromisoformat(got["until"]) == base + timedelta(hours=12) and got["hours"] == 12
+    assert datetime.fromisoformat(got["until"]) == base + timedelta(hours=12)
+    assert got["hours"] == 12
     [e] = _rows(log)
     assert (e["body"]["approver"], e["body"]["workflow_id"], e["body"]["plan_hash"]) == ("owner", WID, "h1")
     assert extend.extended_until(log, INC, WID, "h1", row["at"]) == base + timedelta(hours=12)
@@ -74,7 +75,8 @@ def test_nobody_else_extends_it(world):
 def test_at_most_a_day_at_a_time(world, hours):
     log, policy = world
     _plan(log)
-    assert _ask(log, policy, hours=hours) == {"why": "hours out of range"} and _rows(log) == []
+    assert _ask(log, policy, hours=hours) == {"why": "hours out of range"}
+    assert _rows(log) == []
 
 
 def test_never_past_the_ceiling_from_when_the_plan_was_made(world):
@@ -87,7 +89,8 @@ def test_never_past_the_ceiling_from_when_the_plan_was_made(world):
         if got.get("why"):
             break
         assert datetime.fromisoformat(got["until"]) <= top
-    assert got["why"] == "at the limit" and datetime.fromisoformat(got["until"]) == top
+    assert got["why"] == "at the limit"
+    assert datetime.fromisoformat(got["until"]) == top
     assert max(datetime.fromisoformat(e["body"]["until"]) for e in _rows(log)) == top
     assert _rows(log)[-1]["body"]["until"] == top.isoformat()
     # And a row that says more - written by hand - is read only up to the ceiling.
@@ -129,7 +132,9 @@ def test_the_activities_record_the_ask_and_read_the_extension(world):
     turn = discuss.Turn(channel=CHANNEL, thread_ts="1760000000.000100", ts="1760000000.000200", user=APPROVER,
                         text="<@UWARDEN> please extend the wait by 6 hours")
     got = talk.discuss_extend(turn, INC)
-    assert got["hours"] == 6 and got["until_said"] and not got.get("why")
+    assert got["hours"] == 6
+    assert got["until_said"]
+    assert not got.get("why")
     asked = log.entries(f"discuss-{INC}", kinds=("discuss.extend",))
     assert [(e["body"]["hours"], e["body"]["why"]) for e in asked] == [(6, "")]
     refused = talk.discuss_extend(turn.model_copy(update={"user": PERSON}), INC)
@@ -146,13 +151,16 @@ def test_the_activities_record_the_ask_and_read_the_extension(world):
 def test_the_thread_asks_in_plain_words_and_is_answered_in_fixed_ones():
     for text, hours in (("<@UWARDEN> extend the wait", 24), ("extend by 12h please", 12), ("extend approval 6 hours", 6),
                         ("can you extend it", 24)):
-        assert discuss.EXTEND.search(text) and discuss.hours_asked(text) == hours, text
+        assert discuss.asks_to_extend(text), text
+        assert discuss.hours_asked(text) == hours, text
     for text in ("will this extend the outage", "what is the plan?", "extend"):
-        assert not discuss.EXTEND.search(text), text
+        assert not discuss.asks_to_extend(text), text
     said = discuss.extended_said({"workflow_id": WID, "until_said": "2026-10-22 07:00Z", "hours": 24}, INC)
-    assert said.startswith(f"The wait for WARDEN's plan `{WID}` is extended by 24 h") and "passkey" in said
+    assert said.startswith(f"The wait for WARDEN's plan `{WID}` is extended by 24 h")
+    assert "passkey" in said
     assert "target again" in said
     for why in discuss.NOT_EXTENDED:
         out = discuss.extended_said({"why": why, "workflow_id": WID, "until_said": "x"}, INC)
-        assert out and "{" not in out, why
+        assert out, why
+        assert "{" not in out, why
     assert discuss.extended_said({"why": "something else"}, INC) == discuss.NOT_READ

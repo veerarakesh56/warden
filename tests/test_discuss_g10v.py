@@ -348,8 +348,10 @@ def test_an_approver_extends_a_waiting_plan_from_the_thread_and_anyone_else_is_r
     said = asyncio.run(main("<@UWARDEN> extend the wait", PERSON, "e1"))
     assert said == discuss.NOT_EXTENDED["not an approver"]
     said = asyncio.run(main("<@UWARDEN> extend by 12h", APPROVER, "e2"))
-    assert said.startswith("The wait for WARDEN's plan `rem-dev-1` is extended by 12") and "passkey" in said
+    assert said.startswith("The wait for WARDEN's plan `rem-dev-1` is extended by 12")
+    assert "passkey" in said
     [row] = log.entries(INCIDENT, kinds=("approval.extended",))
-    assert row["body"]["approver"] == "owner" and row["body"]["hours"] == 12
+    assert row["body"]["approver"] == "owner"
+    assert row["body"]["hours"] == 12
     said = asyncio.run(main("<@UWARDEN> extend by 30h", APPROVER, "e3"))
     assert said.startswith("A plan's wait is extended by 1 to 24 hours")
