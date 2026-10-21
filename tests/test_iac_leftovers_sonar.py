@@ -227,7 +227,8 @@ def test_the_lab_database_is_private_and_reachable_only_from_the_ssm_tunnel_over
     assert "parameter_group_name" not in db
     assert "length(var.db_password) >= 16" in db
     sg = _flat(_block(rds, "aws_security_group", "db"))
-    assert sg.count("ingress {") == 1 and "egress" not in sg
+    assert sg.count("ingress {") == 1
+    assert "egress" not in sg
     assert "from_port = 5432 to_port = 5432 protocol = \"tcp\" security_groups = [aws_security_group.db_tunnel[0].id]" in sg
     assert "cidr" not in sg
     outputs = _flat((LAB / "outputs.tf").read_text(encoding="utf-8"))
@@ -257,12 +258,14 @@ def test_the_tunnel_box_is_a_nano_with_no_key_no_inbound_and_no_public_address()
     box = _flat(_block(LAB / "db_tunnel.tf", "aws_instance", "db_tunnel"))
     assert 'instance_type = "t4g.nano"' in box
     assert "associate_public_ip_address = false" in box  # Sonar terraform:S6329
-    assert "key_name" not in box and "user_data" not in box and "ipv6" not in box
+    for absent in ("key_name", "user_data", "ipv6"):
+        assert absent not in box, absent
     assert 'http_endpoint = "enabled" http_tokens = "required" http_put_response_hop_limit = 1' in box  # IMDSv2
     assert 'volume_type = "gp3" volume_size = 8 encrypted = true delete_on_termination = true' in box
     assert "vpc_security_group_ids = [aws_security_group.db_tunnel[0].id]" in box
     tunnel_sg = _flat(_block(LAB / "db_tunnel.tf", "aws_security_group", "db_tunnel"))
-    assert "ingress" not in tunnel_sg and "egress" not in tunnel_sg  # every rule is its own resource, checked below
+    assert "ingress" not in tunnel_sg  # every rule is its own resource, checked below
+    assert "egress" not in tunnel_sg
     # The role: AWS's SSM core policy and nothing else, under the lab's boundary.
     role = _flat(_block(LAB / "db_tunnel.tf", "aws_iam_role", "db_tunnel"))
     assert "permissions_boundary = local.permissions_boundary" in role
@@ -294,7 +297,8 @@ def test_the_tunnel_talks_only_to_systems_manager_and_the_database():
         in endpoint_rules[0]
     assert "cidr" not in " ".join(body for _, _, body in tunnel) + endpoint_rules[0]
     endpoints = _flat(_block(LAB / "db_tunnel.tf", "aws_vpc_endpoint", "db_tunnel"))
-    assert 'vpc_endpoint_type = "Interface"' in endpoints and "private_dns_enabled = true" in endpoints
+    assert 'vpc_endpoint_type = "Interface"' in endpoints
+    assert "private_dns_enabled = true" in endpoints
     assert 'toset(["ssm", "ssmmessages", "ec2messages"])' in (LAB / "db_tunnel.tf").read_text(encoding="utf-8")
 
 
@@ -305,7 +309,8 @@ def _statements(name: str) -> list[dict]:
 def test_the_operator_may_start_only_a_nano_and_end_only_the_labs_own_instances():
     boundary = {st["Sid"]: st for st in _statements("operator-policy-boundary.json")}
     nano = boundary["DenyInstancesButANano"]
-    assert nano["Effect"] == "Deny" and nano["Action"] == "ec2:RunInstances"
+    assert nano["Effect"] == "Deny"
+    assert nano["Action"] == "ec2:RunInstances"
     assert nano["Resource"] == "arn:aws:ec2:*:*:instance/*"
     assert nano["Condition"] == {"StringNotEquals": {"ec2:InstanceType": "t4g.nano"}}
     for name in ("operator-policy.json", "operator-policy-rds-eks.json"):
