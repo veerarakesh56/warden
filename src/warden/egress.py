@@ -90,8 +90,8 @@ _AWS_ENDPOINTS = "aws:endpoints"  # a host pattern of its own: aws_endpoint() de
 _REPORT = "the gated incident report"
 _SERVICE_READS = "reads only: queries naming a service"
 _DOCS = "an AWS error code and a service word"
-_LINE = "egress %s"  # every ledger line: Logs Insights finds them by it (docs/DATA-EGRESS.md, added by #121)
-# The inventory. docs/DATA-EGRESS.md (added by #121) is written from it; tests/test_egress.py holds every network client in src/warden
+_LINE = "egress %s"  # every ledger line: Logs Insights finds them by it (the data-egress page, added by #121)
+# The inventory. The data-egress page (added by #121) is written from it; tests/test_egress.py holds every network client in src/warden
 # to one of these names.
 STATIC: tuple[Destination, ...] = (
     Destination("anthropic", True, ("api.anthropic.com",), _MODEL),
