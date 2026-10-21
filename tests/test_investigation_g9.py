@@ -47,7 +47,8 @@ def test_names_in_labels_or_trusted_items_are_read_and_names_only_in_logs_are_re
         {"kind": "kms_key", "name": "made-up-by-the-model"}])
     assert accepted == [{"kind": "dynamodb_table", "name": "warden-dev-carts"}, {"kind": "sqs", "name": "warden-dev-jobs"}]
     assert {r["name"] for r in refused} == {"warden-dev-evil-db", "made-up-by-the-model"}
-    assert alert.labels["dynamodb_table"] == "warden-dev-carts" and alert.labels["sqs"] == "warden-dev-jobs"
+    assert alert.labels["dynamodb_table"] == "warden-dev-carts"
+    assert alert.labels["sqs"] == "warden-dev-jobs"
     assert alert.labels["lambda"] == "warden-dev-orders"
 
 
@@ -63,7 +64,8 @@ def test_a_label_is_never_reread_as_another_kind_and_nothing_is_read_in_another_
     whys = {r["kind"]: r["why"] for r in refused}
     assert whys["kms_key"] == "the name is not WARDEN's own knowledge for that kind"
     assert whys["sqs"] == "not a resource of the incident's environment"
-    assert whys["aurora_cluster"].startswith("not a resource kind") and whys["namespace"].startswith("not a resource kind")
+    assert whys["aurora_cluster"].startswith("not a resource kind")
+    assert whys["namespace"].startswith("not a resource kind")
 
 
 def test_at_most_three_a_round_unknown_kinds_refused_and_a_second_single_resource_refused():
@@ -73,7 +75,8 @@ def test_at_most_three_a_round_unknown_kinds_refused_and_a_second_single_resourc
             {"kind": "sqs", "name": "warden-dev-a"}, {"kind": "sqs", "name": "warden-dev-b"},
             {"kind": "rds_instance", "name": "warden-dev-db2"}, {"kind": "sns_topic", "name": "warden-dev-c"},
             {"kind": "sqs", "name": "warden-dev-d"}, {"kind": "shell", "name": "warden-dev-a"}])
-    assert len(accepted) == 3 and alert.labels["sqs"] == "warden-dev-a,warden-dev-b"
+    assert len(accepted) == 3
+    assert alert.labels["sqs"] == "warden-dev-a,warden-dev-b"
     whys = {r["name"]: r["why"] for r in refused}
     assert whys["warden-dev-db2"] == "another rds_instance is already read"
     assert whys["warden-dev-d"].startswith("at most 3")
@@ -96,7 +99,8 @@ def test_the_llm_zone_holds_six_calls_and_a_quarter_dollar_per_incident(monkeypa
     monkeypatch.setenv("WARDEN_MAX_CALLS", "6")
     monkeypatch.setenv("WARDEN_MAX_USD", "0.25")
     llm = LLMClient(mock=True)
-    assert llm.max_calls == 6 and llm.max_usd == 0.25
+    assert llm.max_calls == 6
+    assert llm.max_usd == 0.25
     monkeypatch.setenv("WARDEN_MAX_CALLS", "nan")
     with pytest.raises(ValueError):
         LLMClient(mock=True)

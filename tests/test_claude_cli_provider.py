@@ -72,7 +72,8 @@ def test_no_tool_no_mcp_server_and_no_operator_setting_is_loaded(provider, monke
     _run(provider, rec, monkeypatch)
     cmd = rec.cmd
     assert cmd[cmd.index("--tools") + 1] == ""
-    assert "--strict-mcp-config" in cmd and "--mcp-config" not in cmd
+    assert "--strict-mcp-config" in cmd
+    assert "--mcp-config" not in cmd
     assert cmd[cmd.index("--setting-sources") + 1] == ""
 
 def test_it_runs_outside_the_repository(provider, monkeypatch):
@@ -80,9 +81,8 @@ def test_it_runs_outside_the_repository(provider, monkeypatch):
     rec = _Recorder()
     _run(provider, rec, monkeypatch)
     cwd = pathlib.Path(rec.kwargs["cwd"]).resolve()
-    assert ROOT not in cwd.parents and cwd != ROOT, (
-        f"the CLI runs at {cwd}, inside the repo - scenarios/ is reachable from there"
-    )
+    assert ROOT not in cwd.parents, f"the CLI runs at {cwd}, inside the repo - scenarios/ is reachable from there"
+    assert cwd != ROOT, f"the CLI runs at {cwd}, inside the repo - scenarios/ is reachable from there"
 
 
 def test_the_prompt_goes_in_on_stdin_not_as_an_argument(provider, monkeypatch):
@@ -342,6 +342,8 @@ def test_a_cli_failure_says_what_the_api_did(provider, monkeypatch, out, status,
     a connection that never opened sent nothing - so it is not carried to the incident's next run."""
     from warden.providers import ProviderError
 
+    failing = _Recorder(stdout=out, returncode=1)
     with pytest.raises(ProviderError) as caught:
-        _run(provider, _Recorder(stdout=out, returncode=1), monkeypatch)
-    assert caught.value.status_code == status and caught.value.sent is sent
+        _run(provider, failing, monkeypatch)
+    assert caught.value.status_code == status
+    assert caught.value.sent is sent

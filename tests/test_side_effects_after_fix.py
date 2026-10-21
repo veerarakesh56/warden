@@ -48,10 +48,12 @@ def test_another_alarm_in_the_environment_starts_its_incident_and_tells_the_watc
     ev = _schedule_alarm().model_copy(update={"transitioned_at": now})
     d = asyncio.run(intake.submit(client := _Client(stages={"rem-dev-9": "watching", "rem-prod-1": "verifying"}), ev,
                                   log))
-    assert d.action == "start" and d.after_fix == ["rem-dev-9"]  # not another environment's fix
+    assert d.action == "start"
+    assert d.after_fix == ["rem-dev-9"]  # not another environment's fix
     told = [c for c in client.calls if c[:3] == ("signal", "rem-dev-9", "side_effect")]
     # The signal names the incident, never the alarm's own words (security review M2, 2026-10-16).
-    assert len(told) == 1 and told[0][3].startswith(f"incident {d.workflow_id.removeprefix('inc-')} started at")
+    assert len(told) == 1
+    assert told[0][3].startswith(f"incident {d.workflow_id.removeprefix('inc-')} started at")
     assert ev.rule not in told[0][3]
     assert [c[0] for c in client.calls] == ["start", "signal"]  # the incident first: a fix that ended holds nothing back
     assert [e["body"]["incident"] for e in log.entries(kinds=("intake.side_effect",))] == [d.workflow_id]
@@ -63,7 +65,8 @@ def test_the_fixs_own_alarm_is_a_relapse_not_a_side_effect():
                                              "service": "warden-dev-lab-tick"})
     d = asyncio.run(intake.submit(client := _Client(stages={"rem-dev-9": "watching"}),
                                   _schedule_alarm().model_copy(update={"transitioned_at": now}), log))
-    assert d.after_fix == [] and not any(c[2] == "side_effect" for c in client.calls if c[0] == "signal")
+    assert d.after_fix == []
+    assert not any(c[2] == "side_effect" for c in client.calls if c[0] == "signal")
 
 
 def test_an_expected_down_alarm_tells_no_fix():
@@ -71,7 +74,8 @@ def test_an_expected_down_alarm_tells_no_fix():
     log.append("inc-x", "remediation.plan", {"workflow_id": "rem-9", "environment": "prod", "service": "payments"})
     d = intake.decide(_ev(), recent=[], open_incidents={}, verifying={}, open_count=0,
                       expected=("maintenance", None))
-    assert d.action == "expected" and d.after_fix == []
+    assert d.action == "expected"
+    assert d.after_fix == []
 
 
 def _watched_then(signal, signal_with_log=False):
@@ -129,7 +133,8 @@ def test_a_side_effect_signal_the_record_does_not_bear_out_changes_nothing():
     async def forged(handle):
         await handle.signal(RemediationWorkflow.side_effect, "`x` started at t, diagnosed as incident `y`")
     out, took, log = _watched_then(forged)
-    assert out.status == "recovered" and took >= RECHECK_AFTER[-1], out
+    assert out.status == "recovered", out
+    assert took >= RECHECK_AFTER[-1], out
     assert [e["body"]["ok"] for e in log.entries(kinds=(bounds.RESULT,))] == [True]
 
 
@@ -137,9 +142,11 @@ def test_a_relapse_no_alarm_reported_is_diagnosed_again_by_warden(world, owner):
     world["platform"] = _Sequence([True, True, True, False])  # fails at the T+15 re-check, no alarm fires
     world["log"].append("inc-42", "incident.alert", {"alert": Alert(**DEMO_ALERTS["inc-002"]).model_dump(mode="json")})
     out = _run(world, _approve_with(owner))
-    assert out.status == "relapsed" and "15-minute re-check" in out.reasons[0]
+    assert out.status == "relapsed"
+    assert "15-minute re-check" in out.reasons[0]
     again = world["log"].entries("inc-42", kinds=("remediation.rediagnose",))
-    assert len(again) == 1 and "15-minute re-check" in again[0]["body"]["why"]
+    assert len(again) == 1
+    assert "15-minute re-check" in again[0]["body"]["why"]
     assert out.reasons[1].startswith(f"WARDEN diagnoses the incident again from what it reads now, as "
                                      f"`{again[0]['body']['new']}`")
     assert world["platform"].rolled_back == []

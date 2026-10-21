@@ -67,7 +67,8 @@ def test_targets_a_person_deregistered_are_registered_again_and_judged_by_their_
     p = _p(f)
     params = {"alarm": ALARM, "target_group": TG}
     live = p.live("elb_reregister_targets", params)
-    assert live["event"] == {"t-1"} and live["environment"] == "dev", live.get("refused")
+    assert live["event"] == {"t-1"}, live.get("refused")
+    assert live["environment"] == "dev", live.get("refused")
     plan = {**params, "event": "t-1"}
     p.apply("elb_reregister_targets", plan, snapshot=live["state"], who=WHO)
     assert f.sessions[-1] == {"actions": ["elasticloadbalancing:RegisterTargets"], "resources": [TG_ARN]}

@@ -30,7 +30,8 @@ def test_every_history_text_names_the_mapping_by_its_function(tmp_path):
     for text in (history.section(rows), history.prompt_facts(rows), history.again(rows)):
         assert MAPPING not in text
     said = history.section(rows)
-    assert "event source mapping of warden-dev-order-processor" in said and enforce(said).verdict != "BLOCK"
+    assert "event source mapping of warden-dev-order-processor" in said
+    assert enforce(said).verdict != "BLOCK"
 
 
 def test_a_plan_row_without_params_still_shows_its_key(tmp_path):

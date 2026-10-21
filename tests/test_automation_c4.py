@@ -48,7 +48,8 @@ def test_a_scale_an_autoscaler_owns_is_refused_and_a_restart_is_not():
     assert any("an autoscaler (a HorizontalPodAutoscaler" in p for p in catalog.validate("k8s_scale", {**OK, "replicas": 3}, live))
     assert not [p for p in catalog.validate("k8s_restart", OK, {**live, "at_once": 0}) if p.startswith("C4")]
     other = _live("k8s_scale", autoscaling=_Hpas("payments"))  # an HPA for another Deployment
-    assert other["autoscaled"] is False and catalog.validate("k8s_scale", {**OK, "replicas": 3}, other) == []
+    assert other["autoscaled"] is False
+    assert catalog.validate("k8s_scale", {**OK, "replicas": 3}, other) == []
 
 
 def test_a_scale_is_refused_when_the_autoscalers_cannot_be_read():

@@ -110,7 +110,8 @@ def test_a_service_it_cannot_list_is_blind_and_the_run_is_not_clean(capsys):
     assert sweep_mod.main(["--no-assume"], session=session) == 2
     out = capsys.readouterr().out
     assert "BLIND ap-south-2 sqs.list_queues: AccessDenied" in out
-    assert "NOT a clean result" in out and "clean - nothing" not in out
+    assert "NOT a clean result" in out
+    assert "clean - nothing" not in out
 
 
 def test_every_region_is_swept_not_only_the_home_region():
@@ -139,7 +140,8 @@ def test_the_sweep_role_policy_allows_every_call_the_sweep_makes_and_nothing_els
     listed = set(policy["Statement"][0]["Action"])
     assert listed == wanted, (wanted - listed, listed - wanted)
     api = policy["Statement"][1]
-    assert api["Action"] == "apigateway:GET" and all(r.endswith(("/restapis", "/apis")) for r in api["Resource"])
+    assert api["Action"] == "apigateway:GET"
+    assert all(r.endswith(("/restapis", "/apis")) for r in api["Resource"])
 
 
 
@@ -156,3 +158,76 @@ def test_the_runtime_environment_is_a_valid_tag():
     them untagged (second review, 2026-09-30)."""
     assert sweep_mod.tag_problem({"Project": "warden", "Environment": "ops"}) is None
     assert sweep_mod.tag_problem({"Project": "warden", "Environment": "opz"})
+
+
+def test_a_full_sweep_reports_every_tag_outcome_in_order():
+    """Characterisation (before splitting sweep for cognitive complexity): every tag outcome - inline tags good and
+    wrong, a bucket whose tags cannot be read, a bucket with none, a listing with no tags and no ARN, ARNs read through
+    the tagging API good, wrong and missing, an exempt kind - per region, in the order the sweep has always written."""
+    def bucket_tags(Bucket):
+        if Bucket == "b-denied":
+            raise DENIED
+        if Bucket == "b-none":
+            raise ClientError({"Error": {"Code": "NoSuchTagSet", "Message": "none"}}, "GetBucketTagging")
+        return {"TagSet": GOOD}
+
+    def resources(ResourceARNList):
+        tagged = {"arn:aws:dynamodb:ap-south-2:acct:table/t-good": GOOD,
+                  "arn:aws:dynamodb:ap-south-2:acct:table/t-wrong": [{"Key": "Project", "Value": "other"}],
+                  "arn:aws:route53:::hostedzone/Z1": GOOD}
+        return {"ResourceTagMappingList": [{"ResourceARN": a, "Tags": tagged[a]} for a in ResourceARNList
+                                           if a in tagged]}
+
+    session = FakeSession({
+        "s3": {"list_buckets": {"Buckets": [{"Name": "b-denied"}, {"Name": "b-none"}, {"Name": "b-ok"}]},
+               "get_bucket_tagging": bucket_tags},
+        "route53": {"list_hosted_zones": {"HostedZones": [{"Name": "/hostedzone/Z1"}, {"Name": "/hostedzone/Z2"}]}},
+        "ec2": {"describe_instances": {"Reservations": [{"Instances": [
+                    {"InstanceId": "i-ok", "State": {"Name": "running"}, "Tags": GOOD},
+                    {"InstanceId": "i-bad", "State": {"Name": "running"},
+                     "Tags": [{"Key": "Environment", "Value": "dev"}]}]}]},
+                "describe_addresses": {"Addresses": [{"PublicIp": "198.51.100.7"}]},
+                "describe_network_interfaces": {"NetworkInterfaces": [{"NetworkInterfaceId": "eni-1"}]}},
+        "dynamodb": {"list_tables": {"TableNames": ["t-good", "t-wrong", "t-missing"]}},
+        "kinesis": {"list_streams": ClientError({"Error": {"Code": "OptInRequired", "Message": "no"}}, "List")},
+        "sqs": {"list_queues": DENIED},
+        "resourcegroupstaggingapi": {"get_resources": resources},
+    })
+    found, blind, wrong, off = sweep_mod.sweep(session, ["ap-south-2", "us-east-1"], "acct")
+    assert found == {
+        "global s3.list_buckets": ["b-denied", "b-none", "b-ok"],
+        "global route53.list_hosted_zones": ["/hostedzone/Z1", "/hostedzone/Z2"],
+        "ap-south-2 ec2.describe_instances": ["i-ok", "i-bad"],
+        "ap-south-2 ec2.describe_addresses": ["198.51.100.7"],
+        "ap-south-2 ec2.describe_network_interfaces": ["eni-1"],
+        "ap-south-2 dynamodb.list_tables": ["t-good", "t-wrong", "t-missing"],
+        "us-east-1 ec2.describe_instances": ["i-ok", "i-bad"],
+        "us-east-1 ec2.describe_addresses": ["198.51.100.7"],
+        "us-east-1 ec2.describe_network_interfaces": ["eni-1"],
+        "us-east-1 dynamodb.list_tables": ["t-good", "t-wrong", "t-missing"],
+    }
+    assert blind == ["ap-south-2 sqs.list_queues: AccessDenied", "us-east-1 sqs.list_queues: AccessDenied"]
+    assert off == ["kinesis"]
+    assert wrong == [
+        "TAGS-BLIND global s3.list_buckets b-denied: AccessDenied",
+        "UNTAGGED global s3.list_buckets b-none: Project=None, Environment=None",
+        "UNTAGGED global route53.list_hosted_zones /hostedzone/Z2: Project=None, Environment=None",
+        "UNTAGGED ap-south-2 ec2.describe_instances i-bad: Project=None",
+        "TAGS-BLIND ap-south-2 ec2.describe_addresses 198.51.100.7: no tags and no ARN in the listing",
+        "UNTAGGED ap-south-2 dynamodb.list_tables t-wrong: Project='other', Environment=None",
+        "UNTAGGED ap-south-2 dynamodb.list_tables t-missing: Project=None, Environment=None",
+        "UNTAGGED us-east-1 ec2.describe_instances i-bad: Project=None",
+        "TAGS-BLIND us-east-1 ec2.describe_addresses 198.51.100.7: no tags and no ARN in the listing",
+        "UNTAGGED us-east-1 dynamodb.list_tables t-good: Project=None, Environment=None",
+        "UNTAGGED us-east-1 dynamodb.list_tables t-wrong: Project=None, Environment=None",
+        "UNTAGGED us-east-1 dynamodb.list_tables t-missing: Project=None, Environment=None",
+    ]
+
+
+def test_a_tagging_api_it_cannot_read_makes_every_pending_resource_blind():
+    """Characterisation: the tagging API refused for a region - each resource waiting on it is TAGS-BLIND, in order."""
+    session = FakeSession({"sqs": {"list_queues": {"QueueUrls": ["https://sqs/acct/q1", "https://sqs/acct/q2"]}},
+                           "resourcegroupstaggingapi": {"get_resources": DENIED}})
+    _, _, wrong, _ = sweep_mod.sweep(session, ["ap-south-2"], "acct")
+    assert wrong == ["TAGS-BLIND ap-south-2 sqs.list_queues https://sqs/acct/q1: tagging API AccessDenied",
+                     "TAGS-BLIND ap-south-2 sqs.list_queues https://sqs/acct/q2: tagging API AccessDenied"]

@@ -41,10 +41,11 @@ def test_a_lambda_rollback_moves_the_alias_to_the_one_known_good_version_the_liv
 
     req, why = resolver.request_for(_alert(**{"lambda": "warden-dev-orders", "lambda_qualifier": "live"}),
                                     _proposal(ActionKind.rollback_deploy, "warden-dev-orders"), live)
-    assert why == "" and req == {"entry": "lambda_move_alias", "service": "warden-dev-orders", "environment": "dev",
-                                 "incident_id": "a1", "approval_ttl_minutes": 72 * 60,  # the environment's wait
-                                 "soak_minutes": 60,  # WARDEN_SOAK_MINUTES's default (item 11)
-                                 "params": {"function": "warden-dev-orders", "alias": "live", "to_version": "3"}}
+    assert why == ""
+    assert (req == {"entry": "lambda_move_alias", "service": "warden-dev-orders", "environment": "dev",
+                    "incident_id": "a1", "approval_ttl_minutes": 72 * 60,  # the environment's wait
+                    "soak_minutes": 60,  # WARDEN_SOAK_MINUTES's default (item 11)
+                    "params": {"function": "warden-dev-orders", "alias": "live", "to_version": "3"}})
     assert seen == [("lambda_move_alias", {"function": "warden-dev-orders", "alias": "live"})]
     assert resolver.workflow_id(req).startswith("rem-dev-")
 
@@ -53,15 +54,18 @@ def test_no_plan_when_the_target_is_not_the_labelled_resource_or_no_single_known
     labels = {"lambda": "warden-dev-orders", "lambda_qualifier": "live"}
     req, why = resolver.request_for(_alert(**labels), _proposal(ActionKind.rollback_deploy, "warden-prod-orders"),
                                     lambda e, p: {})
-    assert req is None and "not a resource the alert's labels name" in why
+    assert req is None
+    assert "not a resource the alert's labels name" in why
     for allowed in (set(), {"2", "3"}):
         req, why = resolver.request_for(_alert(**labels), _proposal(ActionKind.rollback_deploy, "warden-dev-orders"),
                                         lambda e, p, allowed=allowed: {"to_version": allowed})
-        assert req is None and "no single known-good to_version" in why
+        assert req is None
+        assert "no single known-good to_version" in why
     req, why = resolver.request_for(_alert(**{"lambda": "warden-dev-orders"}),
                                     _proposal(ActionKind.rollback_deploy, "warden-dev-orders"), lambda e, p: {})
     # No alias named and none read live (fs-01, 2026-10-15: the live read now looks for the function's one alias).
-    assert req is None and "no single known-good alias was read" in why
+    assert req is None
+    assert "no single known-good alias was read" in why
     req, why = resolver.request_for(_alert(**labels), _proposal(ActionKind.escalate_to_human, "warden-dev-orders"),
                                     lambda e, p: {})
     assert req is None
@@ -71,10 +75,12 @@ def test_bounded_numbers_come_from_the_live_value_conservatively():
     req, _ = resolver.request_for(_alert(dynamodb_table="warden-dev-carts"),
                                   _proposal(ActionKind.scale_up, "warden-dev-carts"),
                                   lambda e, p: {"table": {"warden-dev-carts"}, "current_capacity": 50})
-    assert req["entry"] == "dynamodb_raise_capacity" and req["params"]["capacity"] == 100
+    assert req["entry"] == "dynamodb_raise_capacity"
+    assert req["params"]["capacity"] == 100
     req, why = resolver.request_for(_alert(dynamodb_table="warden-dev-carts"),
                                     _proposal(ActionKind.scale_up, "warden-dev-carts"), lambda e, p: {})
-    assert req is None and "capacity was not read" in why
+    assert req is None
+    assert "capacity was not read" in why
 
 
 def test_an_ecs_rollback_takes_the_previous_steady_task_definition():

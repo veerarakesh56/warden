@@ -19,7 +19,8 @@ def test_an_alert_about_wardens_own_runtime_goes_to_a_person_whatever_is_propose
     assert RUNTIME
     for action in (ActionKind.no_action, ActionKind.restart_pods):
         v = verify(_alert(environment=RUNTIME), _ctx(), _rc(confidence=0.95), _prop(action=action))
-        assert "P22-SELF-TARGET" in v.policy_ids and v.status is not VerdictStatus.auto_safe, (action, v)
+        assert "P22-SELF-TARGET" in v.policy_ids, (action, v)
+        assert v.status is not VerdictStatus.auto_safe, (action, v)
         assert v.status is not VerdictStatus.approved_for_human
     other = verify(_alert(environment="dev"), _ctx(), _rc(confidence=0.95), _prop(action=ActionKind.no_action))
     assert "P22-SELF-TARGET" not in other.policy_ids

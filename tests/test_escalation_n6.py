@@ -56,4 +56,6 @@ def test_the_slo_is_the_measured_production_level_and_a_breach_is_named():
     at_level = {"escalated": 25, "runs": 30, "acted_wrongly": 0}
     assert qualify.slo_breaches(at_level, slo) == []
     worse = qualify.slo_breaches({"escalated": 29, "runs": 30, "acted_wrongly": 1}, slo)
-    assert len(worse) == 2 and "29 of 30" in worse[0] and "acted wrongly 1" in worse[1]
+    assert len(worse) == 2
+    assert "29 of 30" in worse[0]
+    assert "acted wrongly 1" in worse[1]
