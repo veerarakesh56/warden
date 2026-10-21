@@ -15,7 +15,8 @@ shown. Nothing is written anywhere.
 
 What the model was sent (owner, 2026-10-21: "exactly what the model saw"): after the events, each `diagnose` call's
 system and user text, as llm.py handed them to the provider - the redacted prompt recorded in the call's own input,
-rebuilt with llm.ask_for, the one function the call itself used - and shown ONLY when it hashes to what that call
+rebuilt with llm.ask_for, the one function the call itself used, plus the retry feedback the call recorded it
+appended (if any) - and shown ONLY when it hashes to what that call
 recorded it sent (provenance sent_system_sha256 / sent_user_sha256). A text this code cannot rebuild byte for byte is
 not shown, and why is said. The prompt was redacted before it was sent, so it holds the placeholders the model was
 shown, never the values behind them: no decryption here reaches the redaction map, which never enters Temporal's
@@ -269,10 +270,17 @@ def what_was_sent(event_id: int, pack: Any, result: Any) -> list[str]:
     if not (sent.get("sent_system_sha256") and sent.get("sent_user_sha256")):
         why = result.get("model_unavailable") if isinstance(result, dict) else ""
         return [head, f"    {NOT_SENT}" + (f" ({shown(str(why))})" if why else "")]
+    # A retry sent the prompt with the validation feedback after it (llm._retry_prompt): the call recorded what it
+    # appended, and the hash still decides whether the rebuilt text is what was sent.
+    appended = str(sent.get("sent_appended") or "")
+    retried = [
+        "    a retry: the answer before failed validation, and the feedback below was sent with the prompt"
+    ]
     return [
         head,
+        *(retried if appended else []),
         *_block("system", SYSTEM_DIAGNOSE, str(sent["sent_system_sha256"])),
-        *_block("user", ask_for(prompt, Diagnosis), str(sent["sent_user_sha256"])),
+        *_block("user", ask_for(prompt, Diagnosis) + appended, str(sent["sent_user_sha256"])),
         "--- end ---",
     ]
 

@@ -211,6 +211,7 @@ class LLMClient:
         self.unanswered = 0
         # The (system, user) text last handed to the provider; None until a real call is sent (never in mock mode).
         self.last_request: tuple[str, str] | None = None
+        self.last_appended = ""  # what that call appended to the prompt it was built from: the retry feedback, or nothing
         self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
         self._provider = provider if provider is not None else (None if self.mock else resolve())
         # The model's own prices (model_prices). A price that is not a finite, non-negative number switched the USD
@@ -308,7 +309,9 @@ class LLMClient:
             completion = None
             # Exactly what is handed to the provider, kept so the diagnosis records its hash (B36: `warden history`
             # shows what the model was sent and proves it byte for byte, never a re-render that could differ).
-            self.last_request = (system, prompt)
+            # On a retry, `sent` is the prompt with the validation feedback after it (item 5): what was appended is kept
+            # too, so `warden history` rebuilds the text exactly - field paths and error types only, never a value.
+            self.last_request, self.last_appended = (system, sent), sent[len(prompt):]
             try:
                 # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s,
                 # same env var) is the one that actually ends the worker thread and lets the process

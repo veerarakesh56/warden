@@ -55,19 +55,25 @@ class CanaryBackend(FixtureBackend):
         ]
 
 
-def _provider(answer: str):
-    """The Anthropic SDK provider, its client replaced by one that records each request and answers `answer`."""
+def _provider(*answers: str):
+    """The Anthropic SDK provider, its client replaced by one that records each request and gives the answers in turn
+    (the last one again once they run out)."""
     p = providers.AnthropicProvider.__new__(providers.AnthropicProvider)
     p.model, p.name, p.version, p.effort = "test-model", "anthropic", "test", ""
-    resp = types.SimpleNamespace(
-        content=[types.SimpleNamespace(type="text", text=answer)],
-        stop_reason="end_turn",
-        stop_details=None,
-        usage=types.SimpleNamespace(input_tokens=1000, output_tokens=200),
-    )
+    responses = [
+        types.SimpleNamespace(
+            content=[types.SimpleNamespace(type="text", text=answer)],
+            stop_reason="end_turn",
+            stop_details=None,
+            usage=types.SimpleNamespace(input_tokens=1000, output_tokens=200),
+        )
+        for answer in answers
+    ]
     sent: list[dict] = []
     p._client = types.SimpleNamespace(
-        messages=types.SimpleNamespace(create=lambda **kw: sent.append(kw) or resp)
+        messages=types.SimpleNamespace(
+            create=lambda **kw: sent.append(kw) or responses[min(len(sent), len(responses)) - 1]
+        )
     )
     return p, sent
 
@@ -77,7 +83,7 @@ def _alert() -> Alert:
     return Alert(**{**raw, "labels": {"owner": EMAIL, "client_ip": IP}})
 
 
-def _incident(tmp_path, *, mock: bool = False):
+def _incident(tmp_path, *, mock: bool = False, first_answer: str = ""):
     """prepare + diagnose of one incident: (pack, diagnosed, the requests the provider was sent)."""
     log = audit.AuditLog(tmp_path / "a.db", key=None)
     pack = IncidentActivities(audit=log, backend=CanaryBackend()).prepare(_alert())
@@ -85,7 +91,7 @@ def _incident(tmp_path, *, mock: bool = False):
     if mock:
         return pack, first, []
     answer = graph.Diagnosis(root_cause=first.root_cause, proposal=first.proposal).model_dump_json()
-    p, sent = _provider(answer)
+    p, sent = _provider(*([first_answer] if first_answer else []), answer)
     log2 = audit.AuditLog(
         tmp_path / "b.db", key=None
     )  # a fresh incident budget: the mock run spent none, but be sure
@@ -273,3 +279,40 @@ def test_a_name_from_the_history_is_masked_and_gated_too():
     out = _history([e])
     assert EMAIL not in out
     assert "\x07" not in out
+
+
+@pytest.fixture(scope="module")
+def retried(tmp_path_factory):
+    """A call whose first answer failed validation: the retry carried the feedback (PR 132, item 5)."""
+    pack, diagnosed, sent = _incident(
+        tmp_path_factory.mktemp("retry"), first_answer='{"root_cause": {}}'
+    )
+    return pack, diagnosed, sent, _history(_events(pack, diagnosed))
+
+
+def test_a_retried_call_records_what_it_appended_and_hashes_the_text_it_sent(retried):
+    _, diagnosed, sent, _ = retried
+    first, last = (r["messages"][0]["content"] for r in sent)
+    [step] = [s for s in diagnosed.steps if s.get("node") == "diagnose"]
+    prov = step["provenance"]
+    assert len(sent) == 2
+    assert last.startswith(first)
+    assert prov["sent_appended"] == last[len(first) :]
+    assert prov["sent_user_sha256"] == temporal_history._sha256(last)
+
+
+def test_history_shows_a_retried_call_s_text_byte_for_byte_feedback_included(retried):
+    *_, sent, out = retried
+    user = sent[-1]["messages"][0]["content"]
+    sha = temporal_history._sha256(user)
+    assert f"byte-identical to what was sent (sha256 {sha}) ---\n{user}\n--- end ---" in out
+    assert "a retry: the answer before failed validation" in out
+
+
+def test_the_feedback_appended_carries_no_evidence_value(retried):
+    _, diagnosed, *_ = retried
+    [step] = [s for s in diagnosed.steps if s.get("node") == "diagnose"]
+    appended = step["provenance"]["sent_appended"]
+    assert appended.startswith("\n\nYour last answer failed validation: ")
+    assert not any(c in appended for c in CANARIES)
+    assert "<EMAIL_" not in appended

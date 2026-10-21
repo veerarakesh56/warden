@@ -734,6 +734,9 @@ def _diagnose(state: WardenState, llm: LLMClient) -> WardenState:
     sent = getattr(llm, "last_request", None)
     if sent:
         provenance.update(sent_system_sha256=_sha256(sent[0]), sent_user_sha256=_sha256(sent[1]))
+        appended = getattr(llm, "last_appended", "")
+        if appended:  # a retry: the feedback it carried (llm.validation_feedback - paths and error types, no value)
+            provenance["sent_appended"] = appended
     return {
         "root_cause": rc,
         "proposal": proposal,

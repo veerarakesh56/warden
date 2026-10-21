@@ -316,7 +316,9 @@ size. Nothing is written.
 
 After the events it shows **what the model was sent** for each `diagnose` call: the system text and the user text
 exactly as WARDEN handed them to the model provider. The user text is the redacted prompt recorded in the call's own
-input, with the answer schema added by the same function the call used (`llm.ask_for`). Each is shown only when its
+input, with the answer schema added by the same function the call used (`llm.ask_for`); for a retry after an answer
+that failed validation, also the feedback that retry appended, which the call recorded (`sent_appended`: field paths
+and error types only, never a value). Only the final attempt is shown. Each is shown only when its
 SHA-256 equals the hash the call recorded for the text it sent (`sent_system_sha256`, `sent_user_sha256` in the
 diagnosis provenance, kept since 2026-10-21); otherwise the line says it is not shown and why (the prompt or schema
 changed since, no answer recorded, the model not asked, or a call recorded before those hashes existed). The prompt was
