@@ -68,6 +68,9 @@ ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPol
 NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": RetryPolicy(maximum_attempts=3)}
 # One attempt: a revert pull request is written once or not at all (a retry after a half-done write could open two).
 CODE_FIX = {"start_to_close_timeout": timedelta(minutes=3), "retry_policy": RetryPolicy(maximum_attempts=1)}
+# Phase 4: how often a code-fix pull request is asked about, and for how long (a day) before a person has it.
+MERGE_EVERY = timedelta(minutes=10)
+MERGE_TRIES = 144
 # prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
@@ -82,7 +85,7 @@ ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan"
                   "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
          "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
-         "act": ("apply", "rollback", "code_fix_revert")}
+         "act": ("apply", "rollback", "code_fix_revert", "code_fix_merge")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
 
@@ -511,6 +514,28 @@ class ClockWorkflow:
         return workflow.now()
 
 
+@workflow.defn
+class CodeFixMergeWorkflow:
+    """Register B4, phase 4: one code-fix pull request, asked about every MERGE_EVERY until it is merged, can never
+    merge (refused), or MERGE_TRIES have passed - then it is a person's. Each ask is the act zone's code_fix_merge,
+    which merges only when every condition holds (code_fix.merge_refusals)."""
+
+    @workflow.run
+    async def run(self, incident_id: str, environment: str, number: int) -> dict[str, Any]:
+        ask = CodeFixActivities.code_fix_merge
+        out: dict[str, Any] = {}
+        for _ in range(MERGE_TRIES):
+            try:
+                out = await workflow.execute_activity_method(ask, **_zoned(ask), args=[incident_id, environment, number],
+                                                             **ONCE)  # a merge is asked once; the loop asks again
+            except ActivityError:
+                out = {"status": "waiting", "reasons": ["the merge step could not run"]}
+            if out.get("status") in ("merged", "refused"):
+                return out
+            await workflow.sleep(MERGE_EVERY)
+        return {"status": "given_up", "pull_request": number, "reasons": out.get("reasons", [])}
+
+
 MODEL_UNAVAILABLE = "ModelUnavailable"
 
 
@@ -714,9 +739,20 @@ class IncidentWorkflow:
         if (sha and not diagnosed.model_unavailable and verified.verdict.status.value != "rejected"
                 and workflow.patched("b4-code-fix-revert")):
             fix = CodeFixActivities.code_fix_revert
+            opened: dict[str, Any] = {}
             with contextlib.suppress(ActivityError):
-                await workflow.execute_activity_method(fix, **_zoned(fix), args=[first.alert_id, pack.alert.environment,
-                                                                                sha], **CODE_FIX)
+                opened = await workflow.execute_activity_method(fix, **_zoned(fix), args=[
+                    first.alert_id, pack.alert.environment, sha], **CODE_FIX)
+            # Phase 4: under `auto` (never prod) the pull request is watched until every check, CodeRabbit and Eldane
+            # are green, then merged - its own workflow, abandoned by this one.
+            if (opened.get("status") == "opened" and opened.get("mode") == "auto"
+                    and workflow.patched("b4-code-fix-merge")):
+                number = int(opened.get("pull_request") or 0)
+                with contextlib.suppress(WorkflowAlreadyStartedError):
+                    await workflow.start_child_workflow(
+                        CodeFixMergeWorkflow.run, args=[first.alert_id, pack.alert.environment, number],
+                        id=f"codefix-merge-{first.alert_id}-{number}", task_queue=workflow.info().task_queue,
+                        parent_close_policy=ParentClosePolicy.ABANDON)
         if diagnosed.model_unavailable:
             # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
             # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).

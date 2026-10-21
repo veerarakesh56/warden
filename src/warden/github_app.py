@@ -8,8 +8,8 @@ calls and nothing else; whether a change may be written at all is the code gate'
 - **Identity.** The App's id (or client id) and its private key come from the environment - in the cloud runtime from
   Secrets Manager, the act zone's alone (settings.ZONE_SECRETS). A JSON Web Token signed with the key (RS256, at
   most ten minutes, its issue time a minute back for clock drift: GitHub's documented limits) asks GitHub for an
-  installation token. The token is narrowed in the request to ONE repository and two permissions - contents: write,
-  pull requests: write - and refused if GitHub grants more; it lasts an hour and is held in memory only.
+  installation token. The token is narrowed in the request to ONE repository and three permissions - contents: write,
+  pull requests: write, checks: read (phase 4's merge reads check runs) - and refused if GitHub grants more; it lasts an hour and is held in memory only.
 - **Commits** go through GraphQL `createCommitOnBranch`: GitHub makes and signs the commit itself, so it shows as
   verified and is authored by the App - no signing key of WARDEN's own. `expectedHeadOid` makes the commit fail if the
   branch moved since WARDEN read it.
@@ -40,8 +40,9 @@ TIMEOUT_S = 15.0
 MAX_REPLY = 4_000_000
 MAX_FILE = 1_000_000  # the contents API returns a file's bytes inline up to 1 MB
 BRANCH_PREFIX = "warden/"
-# What an installation token may do, asked for by name: GitHub adds metadata: read to every token.
-PERMISSIONS: Mapping[str, str] = {"contents": "write", "pull_requests": "write"}
+# What an installation token may do, asked for by name: GitHub adds metadata: read to every token. checks: read lets
+# the auto-merge step see the pull request's check runs (phase 4); it writes none.
+PERMISSIONS: Mapping[str, str] = {"contents": "write", "pull_requests": "write", "checks": "read"}
 _GRANTED_ANYWAY = {"metadata": "read"}
 JWT_LIFETIME_S = 540  # under GitHub's ten-minute limit, with room for the minute of back-dating
 JWT_BACKDATE_S = 60
@@ -204,7 +205,8 @@ def _checked_token(got: Any, repo: str) -> InstallationToken:
         raise GitHubAppError("the installation token reply holds no token")
     granted = got.get("permissions")
     if not isinstance(granted, dict) or {k: v for k, v in granted.items() if _GRANTED_ANYWAY.get(k) != v} != PERMISSIONS:
-        raise GitHubAppError("the installation token's permissions are not exactly contents and pull requests: write")
+        raise GitHubAppError("the installation token's permissions are not exactly contents and pull requests: write, "
+                             "checks: read")
     repos = got.get("repositories")
     names = [r.get("full_name") for r in repos if isinstance(r, dict)] if isinstance(repos, list) else None
     if got.get("repository_selection") != "selected" or names != [repo]:
@@ -344,3 +346,71 @@ class RepoWriter:
         if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
             raise GitHubAppError("the pull request reply holds no number")
         return number, str(got.get("html_url") or "")
+
+    # ------------------------------------------------------------------------------ phase 4: the merge's facts
+
+    def pull_state(self, number: int) -> dict[str, Any]:
+        """A pull request's state, draft flag, head, base and whether GitHub can merge it."""
+        status, got = self._call("GET", f"/pulls/{_number(number)}")
+        _expect(status, 200, f"the pull request #{number}")
+        got = got if isinstance(got, dict) else {}
+        head, base = got.get("head") or {}, got.get("base") or {}
+        return {"number": number, "state": str(got.get("state") or ""), "merged": got.get("merged") is True,
+                "draft": bool(got.get("draft")),
+                "head_ref": str(head.get("ref") or ""), "head_sha": str(head.get("sha") or ""),
+                "base_ref": str(base.get("ref") or ""), "mergeable": got.get("mergeable")}
+
+    def check_runs(self, sha: str) -> list[tuple[str, str, str]]:
+        """Every check run on a commit: (name, status, conclusion). More than 100 is refused, never cut short."""
+        status, got = self._call("GET", f"/commits/{_sha(sha, 'the commit')}/check-runs?per_page=100")
+        _expect(status, 200, f"the checks of {sha[:12]}")
+        runs = got.get("check_runs") if isinstance(got, dict) else None
+        if not isinstance(runs, list) or got.get("total_count") != len(runs):
+            raise GitHubAppError("the check runs could not all be read")
+        return [(str(r.get("name") or ""), str(r.get("status") or ""), str(r.get("conclusion") or ""))
+                for r in runs if isinstance(r, dict)]
+
+    def review_state(self, number: int, head: str, reviewer: str = "coderabbitai") -> dict[str, Any]:
+        """One reviewer's view of a pull request (GraphQL): whether it reviewed `head`, asked for changes in its latest
+        review, and how many of its threads are still open."""
+        owner, name = self.repo.split("/", 1)
+        status, got = self._api.call("POST", "/graphql", token=self._token.token,
+                                     body={"query": _REVIEWS, "variables": {"owner": owner, "name": name,
+                                                                            "number": _number(number)}})
+        _expect(status, 200, f"the reviews of #{number}")
+        pr = (((got or {}).get("data") or {}).get("repository") or {}).get("pullRequest") if isinstance(got, dict) \
+            else None
+        if not isinstance(pr, dict) or got.get("errors"):
+            raise GitHubAppError(f"the reviews of #{number} could not be read")
+        threads = (pr.get("reviewThreads") or {}).get("nodes") or []
+        reviews = [r for r in (pr.get("reviews") or {}).get("nodes") or []
+                   if isinstance(r, dict) and _login(r) == reviewer]
+        mine = [t for t in threads if isinstance(t, dict) and _login(((t.get("comments") or {}).get("nodes") or [{}])[0])
+                == reviewer]
+        return {"reviewed_head": any((r.get("commit") or {}).get("oid") == head for r in reviews),
+                "changes_requested": bool(reviews) and reviews[-1].get("state") == "CHANGES_REQUESTED",
+                "open_threads": sum(1 for t in mine if not t.get("isResolved"))}
+
+    def merge(self, number: int, sha: str) -> None:
+        """Merge (rebase) the pull request only if its head is still exactly `sha`."""
+        status, _ = self._call("PUT", f"/pulls/{_number(number)}/merge",
+                               {"sha": _sha(sha, "the head"), "merge_method": "rebase"})
+        _expect(status, 200, f"merging #{number}")
+
+
+_REVIEWS = """query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    reviewThreads(first: 100) { nodes { isResolved comments(first: 1) { nodes { author { login } } } } }
+    reviews(last: 50) { nodes { state commit { oid } author { login } } }
+  } }
+}"""
+
+
+def _login(node: Any) -> str:
+    return str(((node or {}).get("author") or {}).get("login") or "").removesuffix("[bot]")
+
+
+def _number(number: Any) -> int:
+    if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
+        raise GitHubAppError("a pull request number is a positive whole number")
+    return number

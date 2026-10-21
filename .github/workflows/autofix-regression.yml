@@ -1,0 +1,52 @@
+name: "CI · autofix"
+
+# Register B4: the code-fix path's own regression job, on every pull request into main whatever it changes (a revert
+# WARDEN writes touches only an application's files, which CI · tool does not run on). Two steps:
+#   1. the code gate's, the GitHub App's and the revert builder's tests - the rules that decide what WARDEN may write;
+#   2. on a pull request from a `warden/` branch, the gate again over the pull request's ACTUAL diff and commits, as
+#      GitHub holds them: a branch changed after WARDEN checked it (another commit, a force-push, an edit through the
+#      web) fails here. Auto-merge requires this job by name (data/code_fix.yaml, auto_merge.required_checks).
+# No credentials, no secrets, read-only token.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-autofix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  autofix-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # the pull request's base and the commit a revert names must be in the clone
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: "0.13.1"
+          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+          python-version: "3.13"
+          activate-environment: true
+
+      - name: Install (locked)
+        run: uv sync --locked --no-build --extra dev
+
+      - name: The code-fix rules' tests
+        env:
+          WARDEN_MOCK: "1"
+        run: pytest -q tests/test_code_gate.py tests/test_github_app.py tests/test_code_fix.py tests/test_autofix_check.py
+
+      # Event values reach the script through the environment, never the shell's text (zizmor: template injection).
+      - name: The gate over this pull request's own diff
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python scripts/autofix_check.py

@@ -73,7 +73,7 @@ def fake_api(*replies):
 
 
 TOKEN_REPLY = {"token": "ghs_" + "x" * 36, "expires_at": "2027-01-15T10:00:00Z",
-               "permissions": {"contents": "write", "pull_requests": "write", "metadata": "read"},
+               "permissions": {"contents": "write", "pull_requests": "write", "checks": "read", "metadata": "read"},
                "repository_selection": "selected", "repositories": [{"full_name": REPO}]}
 
 
@@ -131,7 +131,7 @@ def test_the_token_is_asked_for_one_repository_and_two_permissions(creds):
     assert [(c["method"], c["path"]) for c in log] == [("GET", f"/repos/{REPO}/installation"),
                                                        ("POST", "/app/installations/42/access_tokens")]
     assert log[1]["body"] == {"repositories": ["example-repo"],
-                              "permissions": {"contents": "write", "pull_requests": "write"}}
+                              "permissions": {"contents": "write", "pull_requests": "write", "checks": "read"}}
     assert {c["host"] for c in log} == {"api.github.com"}
     assert log[0]["headers"]["Authorization"].startswith("Bearer ey")
     assert TOKEN_REPLY["token"] not in repr(got)

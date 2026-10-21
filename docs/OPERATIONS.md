@@ -127,8 +127,8 @@ one. A person who asks for a diagnosis (CLI, MCP) always gets one.
 
 WARDEN writes a code fix as its own GitHub App, never with a person's token (`github_app.py`). The App's id and private
 key are secrets the act zone alone reads (`warden/<runtime>/codefix-app-id`, `warden/<runtime>/codefix-app-key`). Each
-use asks GitHub for an installation token limited to one repository with contents and pull requests: write, and WARDEN
-refuses a token GitHub grants more; the token lasts an hour and is never stored. Commits go through GraphQL
+use asks GitHub for an installation token limited to one repository with contents and pull requests: write and checks:
+read, and WARDEN refuses a token GitHub grants more; the token lasts an hour and is never stored. Commits go through GraphQL
 `createCommitOnBranch`, so GitHub signs them and shows them as verified, authored by the App. WARDEN writes only to
 branches under `warden/` and opens pull requests from them; it never pushes to `dev`, `prod` or `main`. Whether it may
 write anything in an environment is `code_fix` in environments.yaml, and what a change may contain is the code gate
@@ -138,9 +138,10 @@ Owner steps (once; WARDEN never creates or changes the App, a ruleset or a repos
 
 1. GitHub, Settings, Developer settings, GitHub Apps, **New GitHub App**: a name such as `warden-code-fix`; the
    repository's address as the homepage; **Webhook: Active unticked** (WARDEN asks, nothing is pushed to it).
-2. Repository permissions: **Contents: Read and write**, **Pull requests: Read and write**; Metadata: Read is added by
-   GitHub. Nothing else - no Workflows (so the App cannot change `.github/workflows` even if asked), no
-   Administration, Actions, Secrets, Checks or Environments. Account permissions: none. "Where can this GitHub App be
+2. Repository permissions: **Contents: Read and write**, **Pull requests: Read and write**, **Checks: Read-only** (the
+   auto-merge step reads a pull request's check runs; it writes none); Metadata: Read is added by GitHub. Nothing
+   else - no Workflows (so the App cannot change `.github/workflows` even if asked), no Administration, Actions,
+   Secrets or Environments. Account permissions: none. "Where can this GitHub App be
    installed": **Only on this account**.
 3. Create it, note the **App ID**, and under Private keys **Generate a private key** (a `.pem` file).
 4. **Install App**, **Only select repositories**: the one repository WARDEN fixes (`WARDEN_CHANGE_REPO`, else
@@ -163,3 +164,34 @@ since, or anything the gate refuses goes to a person, and nothing is written. Ev
 `code_fix` (opened, skipped, refused or failed, with the reason and the gate's rules). The rollback of the running
 service stays its own plan with its own approval; the pull request only keeps the next deploy from bringing the fault
 back.
+
+**Merging (phase 4) - off until the owner chooses.** A code-fix pull request merges itself only in an environment
+whose `code_fix` is `auto` (never the prod tier; both ship `propose`, so today a person merges every one). Under `auto`,
+`CodeFixMergeWorkflow` asks every 10 minutes for a day, and the act zone merges (rebase, naming the exact commit) only
+when every condition holds for the one commit WARDEN wrote (`code_fix.MERGE_CONDITIONS`, each its own check): the
+mode; the pull request open, not a draft, mergeable; its head that commit, from a `warden/` branch into the default
+branch; every check run on it green and `auto_merge.required_checks` (data/code_fix.yaml) among them; CodeRabbit
+reviewed that commit, asked for nothing and left no thread open; and Eldane approved that commit - an audit row of
+kind `eldane_code_review` that only Eldane's code review (built on PR 42, not yet) writes. Until it exists nothing
+merges itself. The options put to the owner (2026-10-21): A) CI + CodeRabbit + Sonar + Eldane (as built); B) for exact
+reverts only, without Eldane (the code gate's CG10 proof instead); C) never - a person merges every code fix.
+
+The `CI · autofix` workflow's `autofix-regression` job runs on every pull request into main: the code-fix rules' tests,
+and for a pull request from a `warden/` branch the gate again over the pull request as GitHub holds it - one commit on
+its base, exactly the inverse of the commit it names, in its environment's mode (`scripts/autofix_check.py`). A branch
+changed after WARDEN wrote it fails there.
+
+Owner steps for the rulesets (later; WARDEN never changes a ruleset or a repository setting):
+
+1. Settings, Rules, Rulesets, the ruleset on `main`: add **Require status checks to pass** with `autofix-regression`,
+   `SonarCloud Code Analysis` and the CI jobs already required; keep **Require a pull request before merging**.
+2. If option A or B is chosen and `main`'s ruleset requires an approving review: the App cannot approve its own pull
+   request, so it cannot merge there. Do **not** put the App in the ruleset's bypass list to get round that - a
+   bypass skips every rule, the required checks included. The choice is the owner's: keep the review (a person
+   merges; option C in effect) or drop the review requirement for `main` and rely on the required checks plus
+   WARDEN's own conditions. Without a review requirement, nothing to add: the App merges through the same required
+   checks as anyone.
+3. `dev` and `prod`: keep their rulesets as they are (only promotions from `main` reach them). For prod, keep
+   **Require approval of the most recent reviewable push** and a required reviewer: a person, always.
+4. Then, and only then, set `code_fix: auto` for `dev` in environments.yaml (a reviewed pull request; prod is refused
+   at load).

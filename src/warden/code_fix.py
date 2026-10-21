@@ -47,6 +47,7 @@ from .github_app import AppCredentials, GitHubApp, GitHubAppError, RepoWriter
 _SHA = re.compile(r"[0-9a-f]{40}")
 _SLUG = re.compile(r"[^a-z0-9-]+")
 AUDIT_KIND = "code_fix"
+MERGE_KIND = "code_fix_merge"
 
 
 class RevertError(RuntimeError):
@@ -63,6 +64,7 @@ class RevertOutcome:
     revert_commit: str = ""
     pull_request: int = 0
     url: str = ""
+    base: str = ""                   # the branch the pull request goes into (the repository's default)
     mode: str = ""
     rules: tuple[str, ...] = field(default=())
 
@@ -290,7 +292,8 @@ def _open(req: RevertRequest, writer: RepoWriter, mode: CodeFixMode, base: Rever
     number, url = writer.open_pull_request(head=branch, base=base_branch, title=title,
                                            body=_body(req.incident, req.sha, req.environment, mode,
                                                       sorted(f.path for f in original)))
-    return _with(base, status="opened", head=head, branch=branch, revert_commit=oid, pull_request=number, url=url)
+    return _with(base, status="opened", head=head, branch=branch, revert_commit=oid, pull_request=number, url=url,
+                 base=base_branch)
 
 
 # --------------------------------------------------------------------------------------------- the activity
@@ -315,3 +318,204 @@ class CodeFixActivities:
         row = outcome.row()
         self.audit.append(incident_id, AUDIT_KIND, row)
         return row
+
+    @activity.defn
+    def code_fix_merge(self, incident_id: str, environment: str, number: int) -> dict[str, Any]:
+        """Merge the incident's revert pull request #`number` if every condition holds (merge_refusals); else say what
+        is missing. `merged` and `refused` (it can never merge: not auto, closed, or changed) are audit rows; waiting
+        is not - the workflow asks again."""
+        from .environments import default_environment_policies
+
+        policies = self._policies or default_environment_policies()
+        policy = policies.for_env(environment)
+        opened = [e.get("body") or {} for e in self.audit.entries(incident_id, kinds=(AUDIT_KIND,))]
+        mine = [r for r in opened if r.get("status") == "opened" and r.get("pull_request") == number]
+        if not mine:
+            return self._merge_row(incident_id, number, "refused", ["WARDEN opened no such pull request"])
+        wrote, base = str(mine[-1].get("revert_commit") or ""), str(mine[-1].get("base") or "")
+        repo = os.environ.get("WARDEN_CHANGE_REPO") or policies.github.get("repository", "")
+        try:
+            writer = (self._app or _app_writer)(repo)
+            if writer is None:
+                return {"status": "waiting", "reasons": ["no GitHub App is configured"]}
+            got = writer.pull_state(number)
+            pull = PullState(**got)
+            if pull.merged:  # merged already - by an earlier ask whose answer was lost, or by a person
+                return self._merge_row(incident_id, number, "merged", [f"{pull.head_sha[:12]} is merged"])
+            # Every fact read for WARDEN's own commit (`wrote`), not whatever the head is now: a head that moved fails
+            # head_is_warden_s, and the merge itself names the commit too.
+            reasons = merge_refusals(MergeFacts(
+                mode=policy.code_fix, tier=policy.tier, wrote=wrote, base=base, pull=pull,
+                checks=writer.check_runs(wrote) if _SHA.fullmatch(wrote) else [], required=default_merge_checks(),
+                review=ReviewState(**writer.review_state(number, wrote)),
+                critic=critic_approved(self.audit, incident_id, number, wrote)))
+            if reasons:
+                final = (effective_mode(policy.code_fix, policy.tier) is not CodeFixMode.auto or pull.state != "open"
+                         or pull.head_sha != wrote)
+                return (self._merge_row(incident_id, number, "refused", reasons) if final
+                        else {"status": "waiting", "reasons": reasons})
+            writer.merge(number, wrote)
+        except GitHubAppError as exc:
+            return {"status": "waiting", "reasons": [str(exc)]}
+        return self._merge_row(incident_id, number, "merged", [f"merged {wrote[:12]} into {base}"])
+
+    def _merge_row(self, incident_id: str, number: int, status: str, reasons: list[str]) -> dict[str, Any]:
+        row = {"status": status, "pull_request": number, "reasons": reasons}
+        self.audit.append(incident_id, MERGE_KIND, row)
+        return row
+
+
+# ------------------------------------------------------------------------------- CI: the pull request as GitHub has it
+
+_REVERT_BRANCH = re.compile(r"warden/revert/(?P<env>[a-z][a-z0-9-]{0,30})/[a-z0-9-]{1,60}-(?P<short>[0-9a-f]{12})")
+_REVERTS = re.compile(r"\bReverts ([0-9a-f]{40})\.")
+
+
+def ci_check(head_ref: str, base_sha: str, head_sha: str, git: Callable[..., str],
+             policies: Any = None) -> tuple[bool, list[str]]:
+    """The `autofix-regression` job's second step (register B4, phase 4): a pull request from a `warden/` branch is
+    checked again as GitHub holds it - one commit on top of its base, a revert of the commit its message names, and
+    that change through the code gate in its environment's mode. (True, notes) passes; (False, reasons) fails the job.
+    A pull request from any other branch has nothing more to check. `git(*args)` runs git in the clone."""
+    if not head_ref.startswith("warden/"):
+        return True, ["not a code-fix pull request: nothing more to check"]
+    m = _REVERT_BRANCH.fullmatch(head_ref)
+    if not m or not (_SHA.fullmatch(base_sha or "") and _SHA.fullmatch(head_sha or "")):
+        return False, [f"{head_ref!r} is not a branch WARDEN writes, or the commits are not named"]
+    since = git("merge-base", base_sha, head_sha).strip()
+    commits = git("rev-list", f"{since}..{head_sha}").split()
+    if commits != [head_sha]:
+        return False, [f"{len(commits)} commits on the branch: WARDEN writes exactly one, and nothing may be added"]
+    named = _REVERTS.search(git("log", "-1", "--format=%B", head_sha))
+    if not named or not named.group(1).startswith(m.group("short")):
+        return False, ["the commit does not name the commit it reverts, or names another than its branch"]
+    sha = named.group(1)
+    if len(git("rev-list", "--parents", "-n", "1", sha).split()) != 2:
+        return False, ["the reverted commit is a merge or root commit"]
+    from .environments import default_environment_policies
+
+    policy = (policies or default_environment_policies()).for_env(m.group("env"))
+    diff = ("diff", "--no-color", "--no-ext-diff", "--no-renames")
+    try:
+        original = parse_diff(git(*diff, f"{sha}^", sha))
+        change = parse_diff(git(*diff, since, head_sha))
+    except CodeGateError as exc:
+        return False, [str(exc)]
+    known = imports_in(git("grep", "-h", "-E", r"^\s*(import|from)\s", since, "--", "*.py"))
+    verdict = check(change, kind=ChangeKind.revert, mode=policy.code_fix, tier=policy.tier, known_imports=known,
+                    reverts=sha, original=original)
+    if not verdict.allowed:
+        return False, [str(r) for r in verdict.refusals]
+    return True, [f"a revert of {sha[:12]} for {policy.name}, exactly its inverse; mode {verdict.mode.value}"]
+
+
+# ----------------------------------------------------------------------------------- auto-merge: every check green
+
+@dataclass(frozen=True)
+class PullState:
+    number: int
+    state: str
+    merged: bool
+    draft: bool
+    head_ref: str
+    head_sha: str
+    base_ref: str
+    mergeable: bool | None
+
+
+@dataclass(frozen=True)
+class ReviewState:
+    """CodeRabbit on the pull request: whether it reviewed this head, asked for changes, and threads left open."""
+
+    reviewed_head: bool
+    changes_requested: bool
+    open_threads: int
+
+
+_FINE = {"success", "neutral", "skipped"}
+
+
+@dataclass(frozen=True)
+class MergeFacts:
+    """Everything one merge decision reads, each fact about the same head: `wrote` is the commit WARDEN wrote, and the
+    pull request, its check runs, the review and Eldane's approval are each read for that head."""
+
+    mode: str
+    tier: str
+    wrote: str
+    base: str
+    pull: PullState
+    checks: list[tuple[str, str, str]]
+    required: tuple[str, ...]
+    review: ReviewState
+    critic: bool
+
+
+def mode_allows(f: MergeFacts) -> str:
+    """Only `auto` merges, and the prod tier is never auto (effective_mode)."""
+    if effective_mode(f.mode, f.tier) is not CodeFixMode.auto:
+        return "the environment does not merge code fixes on its own (code_fix is not auto, or it is prod)"
+    return ""
+
+
+def pull_is_ready(f: MergeFacts) -> str:
+    if f.pull.state != "open" or f.pull.draft or f.pull.mergeable is not True:
+        return "the pull request is not open, is a draft, or GitHub cannot merge it"
+    return ""
+
+
+def head_is_warden_s(f: MergeFacts) -> str:
+    """The pull request is WARDEN's branch into the default branch, and its head is the one commit WARDEN wrote."""
+    if not f.pull.head_ref.startswith("warden/") or f.pull.base_ref != f.base or f.pull.head_sha != f.wrote:
+        return "the pull request is not WARDEN's one commit into the default branch: something was added"
+    return ""
+
+
+def checks_green(f: MergeFacts) -> str:
+    unfinished = sorted(n for n, status, conclusion in f.checks if status != "completed" or conclusion not in _FINE)
+    return f"checks not green yet on {f.wrote[:12]}: {', '.join(unfinished)}" if unfinished else ""
+
+
+def checks_present(f: MergeFacts) -> str:
+    missing = sorted(set(f.required) - {name for name, _status, _conclusion in f.checks})
+    return f"required checks not run on {f.wrote[:12]}: {', '.join(missing)}" if missing else ""
+
+
+def review_clear(f: MergeFacts) -> str:
+    if not f.review.reviewed_head or f.review.changes_requested or f.review.open_threads:
+        return f"CodeRabbit has not reviewed {f.wrote[:12]}, asked for changes, or left a thread open"
+    return ""
+
+
+def critic_agrees(f: MergeFacts) -> str:
+    return "" if f.critic else f"Eldane, the AI critic, has not approved {f.wrote[:12]}"
+
+
+# Every one must say nothing (register B4, phase 4; owner option A): mode, pull request, head, checks green, required
+# checks present, CodeRabbit, Eldane. Each is its own test (tests/test_autofix_check.py).
+MERGE_CONDITIONS = (mode_allows, pull_is_ready, head_is_warden_s, checks_green, checks_present, review_clear,
+                    critic_agrees)
+
+
+def merge_refusals(facts: MergeFacts) -> list[str]:
+    """Why a code-fix pull request may not merge itself yet; [] when it may."""
+    return [said for condition in MERGE_CONDITIONS if (said := condition(facts))]
+
+
+ELDANE_CODE_REVIEW = "eldane_code_review"
+
+
+def default_merge_checks() -> tuple[str, ...]:
+    """data/code_fix.yaml `auto_merge.required_checks`: the check runs that must be on the head, each green."""
+    from .code_gate import default_limits
+
+    return default_limits().required_checks
+
+
+def critic_approved(audit: Any, incident: str, number: int, head: str) -> bool:
+    """Eldane's approval of one pull request head: an audit row of kind `eldane_code_review` naming it, verdict
+    `approve`. Nothing writes that row before Eldane's code review is built on #42 (follow-up): until then a code fix
+    never merges itself."""
+    rows = [e.get("body") or {} for e in audit.entries(incident, kinds=(ELDANE_CODE_REVIEW,))]
+    return any(r.get("pull_request") == number and r.get("head") == head and r.get("verdict") == "approve"
+               for r in rows)

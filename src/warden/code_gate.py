@@ -127,6 +127,7 @@ class GateLimits:
     max_files: int
     allowed_paths: tuple[str, ...]
     test_paths: tuple[str, ...]
+    required_checks: tuple[str, ...] = ()
     _allowed: tuple[re.Pattern[str], ...] = field(default=(), repr=False, compare=False)
     _tests: tuple[re.Pattern[str], ...] = field(default=(), repr=False, compare=False)
 
@@ -175,6 +176,21 @@ def _bounded(doc: dict[str, Any], key: str, ceiling: int) -> int:
     return value
 
 
+_CHECK_NAME = re.compile(r"[\w ()·./:,-]{1,120}")
+# Never fewer than these (phase 4): the code-fix path's own job and SonarCloud. The rest are the file's.
+MUST_CHECK = ("autofix-regression", "SonarCloud Code Analysis")
+
+
+def _checks(auto_merge: Any) -> tuple[str, ...]:
+    names = (auto_merge or {}).get("required_checks") if isinstance(auto_merge, dict) else None
+    if not isinstance(names, list) or not all(isinstance(n, str) and _CHECK_NAME.fullmatch(n) for n in names):
+        raise CodeGateError("code_fix.yaml: `auto_merge.required_checks` must be a list of check names")
+    missing = [n for n in MUST_CHECK if n not in names]
+    if missing:
+        raise CodeGateError(f"code_fix.yaml: `auto_merge.required_checks` must name {', '.join(missing)}")
+    return tuple(names)
+
+
 def load_limits(text: str | None = None) -> GateLimits:
     """data/code_fix.yaml (or `text`), validated. A malformed file raises: no code fix without its limits."""
     if text is None:
@@ -189,7 +205,8 @@ def load_limits(text: str | None = None) -> GateLimits:
     return GateLimits(max_changed_lines=_bounded(doc, "max_changed_lines", _CEILING_LINES),
                       max_revert_lines=_bounded(doc, "max_revert_lines", _CEILING_LINES),
                       max_files=_bounded(doc, "max_files", _CEILING_FILES), allowed_paths=allowed, test_paths=tests,
-                      _allowed=tuple(map(glob_regex, allowed)), _tests=tuple(map(glob_regex, tests)))
+                      _allowed=tuple(map(glob_regex, allowed)), _tests=tuple(map(glob_regex, tests)),
+                      required_checks=_checks(doc.get("auto_merge", {"required_checks": list(MUST_CHECK)})))
 
 
 @cache

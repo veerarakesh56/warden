@@ -23,3 +23,13 @@ allowed_paths:
 # weaken the tests that hold WARDEN's own rules).
 test_paths:
   - scenarios/fullstack/tests/test_*.py
+
+# Auto-merge (phase 4; only where `code_fix: auto`, never the prod tier): every check run on the pull request's head
+# must have finished green, these ones must be there, CodeRabbit must have reviewed the head and left nothing open,
+# and Eldane, the AI critic, must have approved it. autofix-regression and SonarCloud are required whatever this says.
+auto_merge:
+  required_checks:
+    - autofix-regression
+    - SonarCloud Code Analysis
+    - check / validate
+    - Analyze (python)
