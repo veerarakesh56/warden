@@ -18,7 +18,8 @@ def test_official_images_come_from_the_mirror_pinned_by_digest():
         refs = re.findall(rf"(?:FROM |image: )(\S*{OFFICIAL}:\S+)", text)
         assert refs, f
         for ref, _ in refs:
-            assert ref.startswith("ghcr.io/veerarakesh56/warden-mirror/") and "@sha256:" in ref, (f, ref)
+            assert ref.startswith("ghcr.io/veerarakesh56/warden-mirror/"), (f, ref)
+            assert "@sha256:" in ref, (f, ref)
 
 
 
@@ -35,12 +36,14 @@ def test_the_mirror_workflow_copies_exactly_the_images_in_use_by_digest():
     listed = {m.group(1) for m in re.finditer(r"(?m)^\s+" + pinned + "$", flow)}
     assert {u.split("@")[0] for u in used} >= {"python:3.13-slim", "postgres:16", "mysql:8", "redis:7", "mongo:7"}
     assert used == listed, (used ^ listed)
-    assert "--preserve-digests" in flow and "packages: write" in flow
+    assert "--preserve-digests" in flow
+    assert "packages: write" in flow
 
 
 def test_the_k3d_cluster_image_comes_from_the_mirror_and_is_in_its_list():
     ci = (ROOT / ".github/workflows/ci-tool.yml").read_text(encoding="utf-8")
     ref = re.search(r"K3S_IMAGE: (\S+)", ci).group(1)
-    assert ref.startswith("ghcr.io/veerarakesh56/warden-mirror/rancher/k3s:") and "@sha256:" in ref, ref
+    assert ref.startswith("ghcr.io/veerarakesh56/warden-mirror/rancher/k3s:"), ref
+    assert "@sha256:" in ref, ref
     flow = (ROOT / ".github/workflows/mirror-images.yml").read_text(encoding="utf-8")
     assert ref.removeprefix("ghcr.io/veerarakesh56/warden-mirror/") in flow

@@ -31,8 +31,10 @@ def _live(function="warden-dev-order-processor"):
 def test_the_consumer_named_by_its_function_is_planned_on_the_alarms_queue():
     live, asked = _live()
     req, why = resolver.request_for(ALERT, _prop(), live)
-    assert why == "" and req["entry"] == "lambda_enable_esm"
-    assert req["params"]["function"] == "warden-dev-order-processor" and req["params"]["mapping"] == "esm-1"
+    assert why == ""
+    assert req["entry"] == "lambda_enable_esm"
+    assert req["params"]["function"] == "warden-dev-order-processor"
+    assert req["params"]["mapping"] == "esm-1"
     assert asked[0] == ("lambda_enable_esm", {"queue": "warden-dev-orders"})  # read by the queue the alarm names
 
 
