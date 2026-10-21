@@ -366,6 +366,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Talking to WARDEN about an incident: adopted - Slack's own Python SDK (slack-sdk, MIT) for the Socket Mode
   connection, so WARDEN needs no public address for it; built - `discuss.py`, which hears only mentions in one channel
   and hands each to a workflow. Slack's Bolt framework adds routing and middleware for many handlers; WARDEN has one.
+- An approver extends a plan's wait from the discussion: built - `extend.py`, rows in the signed audit that the
+  plan's own workflow reads when its timer ends. Temporal's workflow update would let the thread change the timer
+  directly, but then a message would steer a fix's run; here only the record does, and the record is checked.
 - What is expected to be down: built - `expected.py`, a person's declarations (an environment's nights, weekends
   and holidays; a service or a resource not in use) read at intake, and Temporal's own start delay to look at the
   alarm again when the cover ends. AWS Instance Scheduler and a tag convention say when something is stopped, not

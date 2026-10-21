@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import logging
 import math
 import os
 import threading
@@ -475,7 +476,10 @@ class LLMClient:
             self.cost.add(0, 0, 0.0)
             if not _reached_the_model(exc):
                 self.unanswered += 1
-            return None, exc, sent if _is_transient(exc) else None
+            if _is_transient(exc):
+                return None, exc, sent
+            _say_if_key_refused(exc)  # B35: a permanent error; a refused key is said as an ERROR line
+            return None, exc, None
 
     def _timed(self, *, system: str, sent: str, schema: Any) -> Any:
         """One provider request, its `llm.call` row noted whatever happens (item 7a): the monotonic clock around the
@@ -585,6 +589,25 @@ def _refused_here(exc: BaseException) -> bool:
         seen.append(e)
         e = e.__cause__ or e.__context__
     return False
+
+
+# B35 self-alarms: a model key that stopped working (revoked, out of its workspace, the wrong one) fails every
+# diagnosis, and an activity's failure is only a WARNING - nobody was paged until the daily synthetic incident had
+# missed for a day. An ERROR line names it now, and the worker-errors alarm (paging.tf) pages at once.
+KEY_REFUSED = frozenset({401, 403})
+_LOG = logging.getLogger("warden.llm")
+
+
+def _say_if_key_refused(exc: Exception) -> None:
+    status = getattr(exc, "status_code", None)
+    status = getattr(exc, "code", None) if status is None else status
+    try:  # some providers give the status as text ("401"), as _is_transient already accepts
+        status = int(status)
+    except (TypeError, ValueError):
+        return
+    if status in KEY_REFUSED:
+        _LOG.error("the model provider refused WARDEN's API key (HTTP %d, %s): every diagnosis fails until a working "
+                   "key is in Secrets Manager", status, type(exc).__name__)
 
 
 def _is_transient(exc: Exception) -> bool:

@@ -260,7 +260,27 @@ the footer of its messages) and a question; WARDEN answers in that thread from t
 as the diagnosis read it, or around now when the question asks about now ("still", "again", "now") - and from what its
 record says it decided. Follow-ups mention `@WARDEN` in the same thread. Anyone may ask; WARDEN changes nothing from
 this channel, and says who may ask for a new plan (an enrolled approver; the plan still needs their passkey in the alerts
-channel). Its answers are capped at 20 per incident a day and count toward the daily model cap every incident shares.
+channel). The one exception: an approver of a waiting plan may extend how long it waits (below) - its wait only; the
+plan still needs their passkey, and nothing is applied from here. Its answers are capped at 20 per incident a day and count toward the daily model cap every incident shares.
+
+A fix plan waits for its approval as long as its environment says (`approval_wait_hours` in environments.yaml: 72 hours
+unless set, at most 168). When a discussion needs longer (U3-8), an approver who may approve that plan - its risk level
+and its environment - mentions `@WARDEN` in the incident's thread with "extend the wait" or "extend by 12h" (24
+hours unless said, at most 24 at a time). How long is read strictly: one whole number of hours, said once ("12h",
+"12 hours"); a message that says anything else about time - "6 more hours", "six hours", "1.5h", "2 days", "30m",
+"until tomorrow", two durations - extends nothing, and WARDEN asks again for a whole number of hours. A question ("will
+the restart extend it?", "can you extend the wait by 6h?") is answered, never taken as a request. A "no" beside
+"extend" - anywhere after it ("extend the wait - no, don't"), or before it in the same sentence ("don't extend the
+wait") - extends nothing, and WARDEN asks again; only a "no" in an earlier sentence ("no rush. extend the wait") leaves
+the request standing. Who asks is checked first: anyone else learns nothing about the plan. A
+plan whose approvals are already in (a person's, or Eldane's on its own) is not waiting, and is not extended. An
+extension counts from the run's own deadline (`approval.wait`, recorded when its wait began), so it always moves it.
+WARDEN records it in the
+signed audit (`approval.extended`, who, from when to when, and which Slack message asked); the plan's own run reads it
+there when its time runs out, says its new time in the alerts channel with fresh links, and keeps waiting - never past
+168 hours from when it was made. One message extends once: if WARDEN's step that records it is retried, it finds that
+message's row and answers the same, adding no more hours. Anyone else is refused. Nothing else changes: the plan still
+needs a passkey, and its target is read again before anything is applied.
 
 Setup, once, in the Slack app WARDEN signs people in with (api.slack.com/apps):
 

@@ -27,6 +27,7 @@ import contextlib
 import functools
 import hashlib
 import json
+import logging
 import os
 import pathlib
 import sqlite3
@@ -124,6 +125,42 @@ def migrate(dsn: str, writer_role: str | None = None, *, iam_login: bool = False
                 db.execute(f"GRANT SELECT, INSERT ON {t} TO {writer_role}")
 
 
+_LOG = logging.getLogger("warden.audit")
+_NOT_GONE = frozenset({"57014", "55P03"})  # query_canceled, lock_not_available
+
+
+@contextlib.contextmanager
+def _said_when_unreachable(pg: bool):
+    """B35 self-alarms: the audit database gone (stopped, unreachable, a dropped connection, its disk full) fails
+    every activity that records, and an activity's failure is only a WARNING - nobody was paged. Said once as an
+    ERROR line, by its kind only: the worker-errors alarm (paging.tf) pages it; a Lambda's error pages by its own.
+    A deadlock or a serialization failure is not the database gone - Temporal retries those - and is not said."""
+    if not pg:
+        yield
+        return
+    import psycopg
+
+    try:
+        yield
+    except psycopg.OperationalError as exc:
+        _say_unreachable(exc)
+        raise
+
+
+def _say_unreachable(exc: Exception) -> None:
+    """The ERROR line, once per error, by the error's kind only. No traceback on purpose: the driver's text can name
+    the database's host and user, and the error is raised on, so the activity's own WARNING keeps the traceback.
+    SQLSTATE class 40, "transaction rollback" (a deadlock or a serialization failure), is retried by Temporal and
+    not said; nor a statement cancelled (57014) or a lock not taken (55P03) - one statement, not the database gone.
+    A failover or a restart (AdminShutdown, a dropped connection) is said: it pages, though Temporal may retry it."""
+    state = str(getattr(exc, "sqlstate", None) or "")
+    if state.startswith("40") or state in _NOT_GONE or getattr(exc, "warden_said", False):
+        return
+    exc.warden_said = True
+    _LOG.error("the audit database could not be reached or could not write (%s): every record, approval and fix "
+               "waits on it", type(exc).__name__)
+
+
 class _Rows:
     """A statement's result, read whole while the store's lock is held: a cursor left to be read later shared the
     one connection with another thread's statements."""
@@ -149,20 +186,21 @@ class _Store:
         self._lock = threading.RLock()
         self.pg = _is_postgres(target)
         if self.pg:
-            self.db = _pg_connect(str(target))
+            with _said_when_unreachable(True):
+                self.db = _pg_connect(str(target))
         else:
             self.db = sqlite3.connect(str(target), isolation_level=None, check_same_thread=False)
             self.db.executescript(_SCHEMA)
 
     def run(self, sql: str, params: tuple | list = ()) -> _Rows:
-        with self._lock:
+        with self._lock, _said_when_unreachable(self.pg):
             return _Rows(self.db.execute(sql.replace("?", "%s") if self.pg else sql, params))
 
     @contextlib.contextmanager
     def transaction(self):
         with self._lock:
             if self.pg:
-                with self.db.transaction():
+                with _said_when_unreachable(True), self.db.transaction():
                     self.db.execute("SELECT pg_advisory_xact_lock(%s)", (_PG_LOCK,))
                     yield
                 return

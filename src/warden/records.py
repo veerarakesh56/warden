@@ -56,6 +56,7 @@ STEP = {
     _REPORT: "Report written", "incident.notify": "Report sent", "incident.plan_fix": "Fix plan looked for",
     "incident.no_plan": NO_PLAN, _AFTER_HOLD: "Looked at again after expected down",
     _EVIDENCE: "Evidence kept for questions",
+    "incident.signatures": "Known failure patterns this evidence matches",
     "record.link": "Linked to another record by an approver",
     "intake.side_effect": "Another alarm started while this fix was checked",
     "remediation.side_effects": "Other alarms started after this fix - each diagnosed on its own", "remediation.rediagnose": "Diagnosed again",
@@ -71,6 +72,8 @@ STEP = {
     "eldane.verdict": "Reviewed by Eldane, the AI critic", "eldane.call": "Eldane asked its model",
     "eldane.trial": "A catch trial for Eldane: a planted bad plan, a test, never applied",
     "autonomy.outcome": "Scored for autonomy",
+    "approval.extended": "The approval wait was extended by an approver (from the discussion)",
+    "approval.wait": "The fix plan's approval wait began",
 }
 # What each message about a fix plan was, by its `what` (activities.announce).
 TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Denied", "expired": "Expired",
