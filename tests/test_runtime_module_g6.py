@@ -642,3 +642,11 @@ def test_the_deploy_role_can_adopt_the_recorder_and_keep_it_on_but_never_change_
         "config:Describe*", "config:ListTagsForResource", "config:StartConfigurationRecorder"]
     assert "AWSServiceRoleForConfig" not in json.dumps(boundary)
 
+
+def test_setup_says_to_attach_the_config_policy_before_the_recorder_is_named():
+    """scripts/render_env_iam.py renders iam/ops/deploy-config.json; a person creates and attaches it, as every other
+    deploy-role policy (CodeRabbit, PR 112). SETUP's runtime step 1 says so, before tf/config_recorder_name is set."""
+    setup = (ROOT / "docs" / "SETUP.md").read_text(encoding="utf-8")
+    step = setup[setup.index("1. Create `WardenEnvBoundary-ops`"):setup.index("2. Create the state bucket")]
+    assert "`WardenEnvDeployConfig-ops` from `iam/ops/deploy-config.json`" in step
+    assert "attach it\n   to `warden-ops-deploy` before setting `tf/config_recorder_name`" in step
