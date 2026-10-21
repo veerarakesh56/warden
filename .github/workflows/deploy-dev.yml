@@ -13,9 +13,9 @@ on:
         options: [infra, apps]
         default: infra
       infra_action:
-        description: "infra only: plan, apply, apply-plan (a plan already reviewed) or destroy"
+        description: "infra only: plan, apply, apply-plan (a plan already reviewed), destroy, or eldane-apply (Eldane, the AI critic, reviews the saved plan and applies exactly it if it approves; refused wherever a person must approve)"
         type: choice
-        options: [plan, apply, apply-plan, destroy]
+        options: [plan, apply, apply-plan, destroy, eldane-apply]
         default: plan
       infra_stack:
         description: "infra only: the full stack, or the small undo lab (terraform/undo-lab)"
@@ -55,6 +55,7 @@ jobs:
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
       EKS_ADMIN_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
+      ELDANE_ANTHROPIC_API_KEY: ${{ secrets.ELDANE_ANTHROPIC_API_KEY }}
     with:
       environment: dev
       upstream: main

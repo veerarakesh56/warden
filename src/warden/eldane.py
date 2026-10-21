@@ -216,11 +216,13 @@ def _calls_today(log: Any) -> int:
     return len(log.entries(kinds=(CALL,), since=datetime.now(UTC) - timedelta(hours=24)))
 
 
-def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], **row: Any) -> CriticVerdict:
+def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], *, system: str = SYSTEM,
+        **row: Any) -> CriticVerdict:
     """One question to Eldane. Fail-closed: an error, an unreadable answer or a citation of anything not in the
-    evidence is a "no", with why."""
+    evidence is a "no", with why. `system`: its instructions - a fix plan's (SYSTEM), or an infrastructure plan's
+    (plan_review.SYSTEM)."""
     try:
-        got = provider.complete(system=SYSTEM, user=user, schema=CriticVerdict)
+        got = provider.complete(system=system, user=user, schema=CriticVerdict)
     except Exception as exc:  # noqa: BLE001 - any provider error means Eldane said nothing and so agrees to nothing
         log.append(incident, CALL, {**row, "ok": False, "error": type(exc).__name__})
         return CriticVerdict(agree=False, reasons=[Reason(text=f"Eldane could not be asked ({type(exc).__name__})")])
