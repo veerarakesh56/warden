@@ -159,13 +159,14 @@ def test_the_activities_record_the_ask_and_read_the_extension(world):
 def test_the_thread_asks_in_plain_words_and_is_answered_in_fixed_ones():
     for text, hours in (("<@UWARDEN> extend the wait", 24), ("extend by 12h please", 12), ("extend approval 6 hours", 6),
                         ("please extend the approval.", 24), ("extend the wait by 6h!", 6),
-                        ("extend the wait... thanks", 24)):
+                        ("extend the wait... thanks", 24), ("extend it by 6h", 6), ("extend 12h", 12)):
         assert discuss.asks_to_extend(text), text
         assert discuss.hours_asked(text) == hours, text
     # A question about what something extends is answered, not taken as a request (CodeRabbit, PR 182).
     for text in ("will this extend the outage", "what is the plan?", "extend", "can you extend it",
                  "will the restart extend it?", "does this extend the time to recover?",
-                 "can you extend the wait by 6h?", "can you extend the wait...?", "extend the wait?!"):
+                 "can you extend the wait by 6h?", "can you extend the wait...?", "extend the wait?!",
+                 "extend by", "extend the outage by 2h"):
         assert not discuss.asks_to_extend(text), text
     said = discuss.extended_said({"workflow_id": WID, "until_said": "2026-10-22 07:00Z", "hours": 24}, INC)
     assert said.startswith(f"The wait for WARDEN's plan `{WID}` is extended by 24 h")
@@ -354,3 +355,17 @@ def test_no_message_no_extension(world):
     assert extend.request(log, policy, incident=INC, user=APPROVER, hours=6, now=datetime.now(UTC),
                           asked="") == {"why": "no message"}
     assert _rows(log) == []
+
+
+def test_a_refused_message_asked_again_stays_refused_even_once_a_plan_waits(world):
+    """A retried "extend" that was refused does not extend a plan made since (CodeRabbit, PR 182)."""
+    log, policy = world
+    talk = DiscussActivities(audit=log, incident=None, policy=policy)
+    turn = _turn("<@UWARDEN> extend the wait by 6 hours", ts="1760000000.000400")
+    assert talk.discuss_extend(turn, INC) == {"why": "no plan waiting"}
+    _plan(log)  # a plan made between the first attempt and its retry
+    assert talk.discuss_extend(turn, INC) == {"why": "no plan waiting"}
+    assert _rows(log) == []
+    assert len(log.entries(f"discuss-{INC}", kinds=("discuss.extend",))) == 1
+    other = talk.discuss_extend(_turn("<@UWARDEN> extend the wait by 6 hours", ts="1760000000.000401"), INC)
+    assert other["hours"] == 6  # a new message is a new request

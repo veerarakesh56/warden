@@ -330,6 +330,16 @@ def _cite_own_fixes(context: ContextBundle, own_step: dict[str, Any]) -> None:
     own_step["items"] = [f["item"] for f in own_step["fixes"] if f["item"]]
 
 
+def _refused_before(log: audit.AuditLog, thread: str, asked: str) -> dict[str, Any]:
+    """The refusal this Slack message already got, from the discussion's record ({} when none): a retried "extend"
+    that was refused stays refused - it does not extend a plan made since (CodeRabbit, PR 182). An extension it got
+    is answered from its own row (extend.answered)."""
+    for e in log.entries(thread, kinds=("discuss.extend",)):
+        if e["body"].get("asked") == asked and e["body"].get("why"):
+            return {k: e["body"][k] for k in ("why", "workflow_id", "until") if e["body"].get(k)}
+    return {}
+
+
 def _deadline(plan: Plan) -> datetime:
     """Until when this plan waits for its approval. A plan recorded before it carried its own wait: the old half hour."""
     return plan.created_at + timedelta(minutes=plan.approval_ttl_minutes or 30)
@@ -2006,13 +2016,15 @@ class DiscussActivities:
 
         turn = Turn.model_validate(turn)
         asked = f"{turn.channel}/{turn.ts}"
+        thread = f"discuss-{incident}"
         hours = hours_asked(turn.text)
-        if hours is None:  # not exactly one whole number of hours: asked again, never guessed
-            got: dict[str, Any] = {"why": "hours unclear"}
+        if refused := _refused_before(self.audit, thread, asked):  # retried: its first "no", not a new decision
+            got: dict[str, Any] = refused
+        elif hours is None:  # not exactly one whole number of hours: asked again, never guessed
+            got = {"why": "hours unclear"}
         else:
             got = extend.request(self.audit, self.policy, incident=incident, user=turn.user, hours=hours,
                                  now=datetime.now(UTC), asked=asked)
-        thread = f"discuss-{incident}"
         self.audit.append_unless(thread, "discuss.extend", {
             "run_id": _run_id(), "user": turn.user, "asked": asked, "ts": turn.ts, "hours": hours,
             "why": got.get("why", ""), "workflow_id": got.get("workflow_id", ""), "until": got.get("until", "")},

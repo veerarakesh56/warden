@@ -75,7 +75,10 @@ REPLAN_SOON = "WARDEN made a new plan for `{incident}` less than an hour ago; as
 # Not "it" or "time" alone (CodeRabbit, PR 182: "will the restart extend it?" became 24 h), and never a question: the
 # clause with "extend" ending in "?" is asked about, not asked for - it gets an answer, and nothing is extended.
 EXTEND = re.compile(r"(?i)\bextend\b([^.?!\n]{0,40})")
-_EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|deadline|by)\b|\d\s*h")
+_EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|deadline)\b")
+# Or how long, right after "extend" ("extend 12h", "extend it by 6h", "extend for six hours") - never a bare "by", nor
+# "by" after something else ("extend the outage by 2h"): CodeRabbit, PR 182.
+_LEAD = re.compile(r"(?i)^\s*(?:it\b\s*)?(?:(?:by|for)\b\s*)?")
 _CLAUSE_END = re.compile(r"(?i)\bextend\b[^.?!\n]*([.?!\n]*)")  # the whole run: "...?" is a question too
 # How long: read strictly from the whole message (CodeRabbit, PR 150: a "6 hours" past a fixed window became 24). One
 # whole number of hours said once ("12h", "12 hours") is that many; no number and no word about time is
@@ -120,11 +123,19 @@ def _says_time(text: str) -> bool:
     return any(w in _TIME_WORDS or w.endswith("teen") for w in _WORD.findall(text.lower()))
 
 
+def _says_how_long(window: str) -> bool:
+    """The words right after "extend" (past "it", "by" or "for") start with a number or a word about time."""
+    first = _LEAD.sub("", window, count=1).split(maxsplit=1)[:1]
+    return bool(first) and (first[0][0].isdigit() or _says_time(first[0]))
+
+
 def asks_to_extend(text: str) -> bool:
-    """An "extend" that names what it extends - the wait, the approval, it, by some hours - not any "extend"."""
+    """An "extend" that names what it extends - the wait, the approval, the plan, or how long - and is not a question;
+    not any "extend"."""
     m = EXTEND.search(text or "")
     end = _CLAUSE_END.search(text or "")
-    return bool(m and _EXTEND_WHAT.search(m.group(1)) and end and "?" not in end.group(1))
+    named = bool(m) and (_EXTEND_WHAT.search(m.group(1)) is not None or _says_how_long(m.group(1)))
+    return bool(named and end and "?" not in end.group(1))
 
 
 def hours_asked(text: str) -> int | None:
