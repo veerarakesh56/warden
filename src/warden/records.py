@@ -660,9 +660,9 @@ _MARK = {True: "passed", False: "failed", None: "not checked"}
 
 
 def trust(r: Record) -> str:
-    """The confidence block (confidence.py): Low, Medium or High in red, amber or green, every signal with what it
+    """The confidence block (trust.py): Low, Medium or High in red, amber or green, every signal with what it
     found, and the ones that decided the level. Never the model's own confidence."""
-    from . import confidence
+    from . import trust as confidence
 
     b = confidence.block(r)
     rows = "".join(f'<li><strong>{_e(s.name.capitalize())}</strong>: {_e(_MARK[s.passed])} - {_e(s.why)}</li>'

@@ -198,7 +198,7 @@ failure each one prevents are listed in [`ai-boundary.md`](ai-boundary.md).
   person; WARDEN never applies a fix on that account.
   The page also lists the related records WARDEN finds in its own rows (a re-diagnosis, an alarm after a fix, a
   relapse, the same alarm or resource), marked as WARDEN's finding.
-- **Confidence block** (`confidence.py`): each incident's page says how far to trust WARDEN's answer - Low
+- **Confidence block** (`trust.py`): each incident's page says how far to trust WARDEN's answer - Low
   (red), Medium (amber), High (green) - from checks on the record only (evidence read, citations grounded,
   rules passed, a second opinion, a verified fix, a proven fix on a linked record), each shown. Never the
   model's own confidence.

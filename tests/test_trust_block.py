@@ -9,7 +9,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from warden import audit, confidence, records
+from warden import audit, records
+from warden import trust as confidence
 
 INC = "inc-cf"
 
