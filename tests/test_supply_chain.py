@@ -202,7 +202,7 @@ def test_each_caching_uv_step_has_a_cache_of_its_own():
     suffixes = [(st.get("with") or {}).get("cache-suffix") for _, _, steps, _ in _steps() for st in steps
                 if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")
                 and (st.get("with") or {}).get("enable-cache") is not False]
-    assert suffixes and None not in suffixes, suffixes
+    assert suffixes and all(isinstance(s, str) and s.strip() for s in suffixes), suffixes
     assert len(set(suffixes)) == len(suffixes), suffixes
 
 
@@ -222,9 +222,11 @@ def test_dependabot_proposes_no_new_python_for_the_images():
     """The images' Python matches their compiled requirements; Dependabot keeps digests current, never the version."""
     cfg = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
     docker = [u for u in cfg["updates"] if u["package-ecosystem"] == "docker"]
-    rules = [r for u in docker for r in u.get("ignore", []) if r.get("dependency-name") == "python"]
-    assert docker and len(rules) == len(docker)
-    assert all({"version-update:semver-major", "version-update:semver-minor"} <= set(r["update-types"]) for r in rules)
+    assert docker
+    for update in docker:
+        rules = [r for r in update.get("ignore", []) if r.get("dependency-name") == "python"]
+        assert len(rules) == 1, update
+        assert {"version-update:semver-major", "version-update:semver-minor"} <= set(rules[0].get("update-types", [])), update
 
 def test_the_image_build_context_is_an_allowlist():
     lines = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
