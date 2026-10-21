@@ -87,7 +87,7 @@ PLAIN = {"approved_for_human": "passed its checks - waits for a person", "escala
 STATUSES = tuple(dict.fromkeys((IN_PROGRESS, "Diagnosed", NO_PLAN, "Waiting for approval",
                                 "Approved - being applied", "Cleared while expected down",
                                 *(label for label, _ in ENDED.values()), "Failed", "Cancelled")))
-_QUIET = {"incident.llm_spend", "incident.llm_reserve", "approval.challenge", "approval.challenge_taken",
+_QUIET = {"incident.llm_spend", "incident.llm_reserve", "llm.call", "approval.challenge", "approval.challenge_taken",
           "approval.link", "approval.link_used", "chatops.thread", "discuss.reply", "intake.reopen_started"}
 
 
