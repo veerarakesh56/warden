@@ -238,8 +238,8 @@ def _matches(pattern: str, host: str, env: dict[str, str] | None = None) -> bool
 # Not globally routable, yet a way out: 6to4 and Teredo carry IPv6 to the internet through public relays, and the
 # shared address space (100.64.0.0/10) is a carrier's network as often as a cluster's. An address in them is refused
 # unless a setting names it exactly (review).
-_NOT_IN_NETWORK = (ipaddress.ip_network("2002::/16"), ipaddress.ip_network("2001::/32"),
-                   ipaddress.ip_network("100.64.0.0/10"))
+_SHARED_ADDRESS_SPACE = ipaddress.IPv4Network((0x64400000, 10))  # 100.64.0.0/10 (RFC 6598), as a network
+_NOT_IN_NETWORK = (ipaddress.ip_network("2002::/16"), ipaddress.ip_network("2001::/32"), _SHARED_ADDRESS_SPACE)
 
 
 def destination_of(host: str | bytes | None, env: dict[str, str] | None = None) -> Destination | None:
@@ -519,7 +519,12 @@ def _url_strings(dest: Destination, parts: urllib.parse.SplitResult) -> list[str
     segments = [urllib.parse.unquote(s) for s in parts.path.split("/") if s]
     # An AWS path is AWS's own address of a resource WARDEN reads (a Lambda's code under its account's id): not scanned.
     # Whose bucket a path-style S3 address names is checked instead (_aws_path_bucket).
-    shown = segments[:1] if dest.secret_path else segments if dest.outside else []
+    if dest.secret_path:
+        shown = segments[:1]
+    elif dest.outside:
+        shown = segments
+    else:
+        shown = []
     extra = [parts.username, parts.password, urllib.parse.unquote(parts.fragment)]
     return shown + [urllib.parse.unquote(e) for e in extra if e]
 
