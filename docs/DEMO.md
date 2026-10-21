@@ -79,7 +79,7 @@ score for fs-07 would count this fix as not the rubric's. The demo shows the fix
 | 1:30-1:45 | 5 min (cut) | The approval page's buttons | "For five minutes - and until the apply starts - a person can say no with their passkey; a person always overrides Eldane." Do not click. Say "cut: 5 minutes". |
 | 1:45-2:15 | about 2 min | Record page (refresh), then the terminal | The record shows the plan applied, then "Fixed - its health checks passed" after 3 healthy checks 30 s apart. Run the verify command below: `ESM Enabled, orders visible=<n>`. |
 | 2:15-2:35 | up to 20 min (cut) | Terminal: the revert command below | "Undo": the harness puts back the exact state it saved (enabled), which is where WARDEN's fix already left it, and waits for the baseline. Had the fix not held, WARDEN would have undone it itself and said so. |
-| 2:35-3:00 | - | Record page, top line; Slack footer | "Signed record: audit head `<hash>` - N row(s), N signed and intact". Show that the head is the same one the Slack footer names. |
+| 2:35-3:00 | - | Record page, top line; Slack footers | The page's "Signed record: audit head `<hash>` - N row(s), N signed and intact", then each Slack message's footer head. Say that they are checkpoints at different moments: each footer is the head when that message was sent, and the page shows the head when it opened, after the later steps were recorded. |
 
 The run stays open after "Fixed": WARDEN re-checks at 15 and 60 minutes (`RECHECK_AFTER`, `src/warden/workflows.py`)
 and records "Fixed and held" or a relapse. A later re-check can be added to the film as a closing card.
@@ -105,7 +105,9 @@ stack.
 
 - **On camera:** the record page's first line is checked when the page opens (`src/warden/records.py`): the audit
   head, how many rows a signed checkpoint covers and are intact, and how many are not signed yet ("a checkpoint signs
-  them shortly"). The Slack footer names the same head (register S17).
+  them shortly"). Each Slack footer names the head as it was when that message was sent (register S17), so it is an
+  earlier checkpoint than the page's whenever steps were recorded after the message. `warden audit show` lists every
+  row's hash, so an earlier footer's head can be found in the chain off camera.
 - **Off camera, by the book:** `warden audit verify` and `warden audit show <incident-id>` recompute every hash and
   check every signature and S3 anchor ([RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md) section 2). In the
   cloud they need `WARDEN_AUDIT_DSN`, and the audit database is reachable only from inside the runtime's VPC; no laptop
