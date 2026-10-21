@@ -64,7 +64,8 @@ def test_apply_makes_the_role_once_and_the_rule_with_its_one_target_and_undo_rem
     iam, events = _Iam(), _Iam()
     forward.apply(p, iam, events)
     created = [kw for n, kw in iam.calls if n == "create_role"]
-    assert created and created[0]["PermissionsBoundary"] == p["boundary"]
+    assert created
+    assert created[0]["PermissionsBoundary"] == p["boundary"]
     assert ("put_targets", {"Rule": p["rule"], "Targets": [{"Id": "runtime-bus", "Arn": p["bus"],
                                                             "RoleArn": "arn:role"}]}) in events.calls
     again = _Iam(exists=True)
@@ -88,7 +89,8 @@ def _event(region):
 def test_intake_keeps_another_regions_alarm_region_and_adds_nothing_for_its_own(monkeypatch):
     monkeypatch.setenv("AWS_REGION", CFG.aws_region)
     there = lambdas.alarm_event(_event(CFG.aws_global_region), "dev").alert
-    assert there.labels["alarm_region"] == CFG.aws_global_region and not there.rejected_labels
+    assert there.labels["alarm_region"] == CFG.aws_global_region
+    assert not there.rejected_labels
     here = lambdas.alarm_event(_event(CFG.aws_region), "dev").alert
     assert "alarm_region" not in here.labels
 

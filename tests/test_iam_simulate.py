@@ -52,7 +52,8 @@ def test_a_log_line_never_chooses_whose_permissions_are_read():
         iam, out = _Iam(), _Out()
         out.lines = [*roles, DENIED]
         _backend(iam)._simulate_denials(out, _alert())
-        assert iam.asked == [] and out.lines == [*roles, DENIED]
+        assert iam.asked == []
+        assert out.lines == [*roles, DENIED]
 
 
 def test_another_accounts_resource_is_not_named_and_no_client_means_no_simulation():
