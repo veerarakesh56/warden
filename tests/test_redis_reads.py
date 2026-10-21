@@ -303,3 +303,63 @@ def test_what_was_read_before_a_later_command_failed_is_kept(monkeypatch):
     assert any(ln.startswith(f"REDIS {P}redis info ") for ln in lines)
     assert any(ln.startswith("TOOL-PARTIAL redis-data") for ln in lines)
     assert fake.closed
+
+
+@pytest.mark.parametrize("where", ["connect", "read"])
+def test_a_failed_cache_read_keeps_only_the_error_kind_never_its_text(monkeypatch, where):
+    """CodeRabbit, PR 151: a connection error's text names the cache's endpoint, and tool errors reach the model's
+    evidence. Only its kind is kept; what was read before it still is."""
+    monkeypatch.setenv(aws_stack.REDIS_DSN, dsn("rediss", "warden_ro", HUNTER2, ENDPOINT))
+    said = f"Error 111 connecting to {ENDPOINT}:6379. Connection refused."
+
+    class Fails(FakeRedis):
+        def execute_command(self, *args):
+            if args[0] == "SLOWLOG GET":
+                raise ConnectionError(said)
+            return super().execute_command(*args)
+
+    def factory(_dsn):
+        if where == "connect":
+            raise ConnectionError(said)
+        return ReadOnlyRedis(Fails())
+
+    backend = _backend(_cache_clients(), redis_factory=factory)
+    lines = backend.logs(_alert(elasticache=f"{P}redis"))
+    partial = [ln for ln in lines if ln.startswith("TOOL-PARTIAL redis-data")]
+    assert len(partial) == 1
+    assert partial[0].endswith("the cache's data was not read (ConnectionError)")
+    assert not any(ENDPOINT in ln for ln in lines if not ln.startswith("REDIS "))
+
+
+def _made_by(monkeypatch, redis_class):
+    made: list[dict] = []
+    redis_mod = types.ModuleType("redis")
+    redis_mod.Redis = redis_class(made)
+    backoff = types.ModuleType("redis.backoff")
+    backoff.NoBackoff = lambda: "no-backoff"
+    retry = types.ModuleType("redis.retry")
+    retry.Retry = lambda b, n: ("retry", b, n)
+    monkeypatch.setitem(sys.modules, "redis", redis_mod)
+    monkeypatch.setitem(sys.modules, "redis.backoff", backoff)
+    monkeypatch.setitem(sys.modules, "redis.retry", retry)
+    redis_reads.connect(dsn("rediss", "warden_ro", HUNTER2, "h.example"))
+    return made[0]
+
+
+def test_the_client_sends_no_client_setinfo_on_redis_py_8(monkeypatch):
+    """CodeRabbit, PR 151: redis-py sends CLIENT SETINFO on connect unless told not to - none of the three commands."""
+    def redis8(made):
+        def make(*, driver_info="unset", **kw):
+            made.append({**kw, "driver_info": driver_info})
+            return FakeRedis()
+        return make
+
+    kw = _made_by(monkeypatch, redis8)
+    assert kw["driver_info"] is None
+    assert "lib_name" not in kw
+
+
+def test_the_client_sends_no_client_setinfo_on_redis_py_5_to_7(monkeypatch):
+    kw = _made_by(monkeypatch, lambda made: lambda **kw: made.append(kw) or FakeRedis())
+    assert (kw["lib_name"], kw["lib_version"]) == (None, None)
+    assert "driver_info" not in kw

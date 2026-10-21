@@ -32,6 +32,7 @@ Deliberate:
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import io
 import json
@@ -1599,16 +1600,23 @@ class StackBackend:
         group = self._ec.describe_replication_groups(ReplicationGroupId=rg)["ReplicationGroups"][0]
         if host not in _cache_endpoints(group):
             raise ToolError(f"{REDIS_DSN} names a host that is not an endpoint of {rg}; the cache's data was not read")
-        conn = self._redis_factory(dsn)
+        conn = None
         lines: list[str] = []
         metrics: dict[str, float] = {}
         try:
+            conn = self._redis_factory(dsn)
             redis_reads.read(conn, rg, lines, metrics)
+        except ToolError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - its text can name the cache's endpoint so only its kind is kept
+            raise ToolError(f"the cache's data was not read ({type(exc).__name__})") from None
         finally:
             # What was read before a later command failed is kept (CodeRabbit, PR 151); the failure is the PARTIAL.
             out.lines += lines
             out.metrics.update(metrics)
-            conn.close()
+            if conn is not None:
+                with contextlib.suppress(Exception):  # a failed close loses nothing read, and says nothing either
+                    conn.close()
 
     def _cache_events(self, out: _Out, alert: Alert, rg: str, members: list[str]) -> None:
         """ElastiCache's events for the replication group and its nodes around the alert, oldest first."""

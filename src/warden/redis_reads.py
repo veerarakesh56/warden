@@ -90,7 +90,23 @@ def connect(dsn: str) -> ReadOnlyRedis:
         host=host, port=port, username=user, password=password,
         ssl=True, ssl_cert_reqs="required", ssl_check_hostname=True,
         protocol=2, retry=Retry(NoBackoff(), 0), socket_keepalive=False,
-        socket_timeout=TIMEOUT_S, socket_connect_timeout=TIMEOUT_S, decode_responses=True))
+        socket_timeout=TIMEOUT_S, socket_connect_timeout=TIMEOUT_S, decode_responses=True,
+        **_no_setinfo(redis.Redis)))
+
+
+def _no_setinfo(client: Any) -> dict[str, None]:
+    """No CLIENT SETINFO on connect: redis-py (5.0 on) sends it unless told not to, and it is none of the three
+    commands this reader may send (CodeRabbit, PR 151). redis-py 8 takes `driver_info=None` and warns on the older
+    `lib_name` / `lib_version`; 5 to 7 know only those."""
+    import inspect
+
+    try:
+        named = inspect.signature(client).parameters
+    except (TypeError, ValueError):
+        named = {}
+    if "driver_info" in named:
+        return {"driver_info": None}
+    return {"lib_name": None, "lib_version": None}
 
 
 def parse_dsn(dsn: str) -> tuple[str, int, str | None, str | None]:
