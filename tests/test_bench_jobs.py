@@ -9,6 +9,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import re
 import sys
 
 import pytest
@@ -320,7 +321,8 @@ def test_a_model_cell_is_an_id_not_free_text_even_when_the_price_list_would_acce
 
 def test_rows_go_at_the_end_of_the_one_table_between_its_markers():
     text = bench_jobs.BENCHMARKS_MD.read_text(encoding="utf-8")
-    assert bench_jobs.with_rows(text, []) == text  # the committed table has the fixed header and no row yet
+    assert bench_jobs.with_rows(text, []) == text  # the committed table has the fixed header
+    assert "(dry run)" not in text  # a dry run's rows are a preview in --out, never a published measurement
     one = bench_jobs.with_rows(text, ["| row 1 |"])
     two = bench_jobs.with_rows(one, ["| row 2 |"])
     body = two.split(bench_jobs.BEGIN)[1].split(bench_jobs.END)[0].splitlines()
@@ -350,3 +352,12 @@ def test_pass_k_counts_a_case_only_when_every_repeat_was_right_and_mcnemar_compa
     assert s["usd_per_answer"] == round(0.5 / 7, 4)
     vs = bench_jobs.compared(a, b)
     assert (vs["incidents"], vs["fixed"], vs["broke"]) == (3, 1, 1)  # c4 is not compared: A never answered it
+
+
+def test_only_the_two_measuring_scripts_ever_set_warden_qualifying():
+    # It lets an unqualified model answer (register M20). The runtime never sets it; the bench sets it only around
+    # its own answers (test_the_paid_client_is_the_named_model_on_the_api_never_the_mock checks it is restored).
+    sets = re.compile(r"""WARDEN_QUALIFYING["']?\]?\s*=(?!=)""")  # environ["..."] = "1", or update(...="1")
+    setters = sorted(str(p.relative_to(ROOT)) for top in ("src", "scripts", "scenarios", "evals")
+                     for p in (ROOT / top).rglob("*.py") if sets.search(p.read_text(encoding="utf-8")))
+    assert setters == ["scripts/bench_jobs.py", "scripts/qualify_provider.py"]

@@ -760,8 +760,9 @@ def load_qualified() -> dict:
 
 def qualified(provider: Provider) -> Provider:
     """The provider, if its exact model passed WARDEN's replay set; otherwise refused (register M20). A fallback to
-    another vendor's model is a different model, so it is held to the same bar. scripts/qualify_provider.py alone
-    sets WARDEN_QUALIFYING, to measure a model that has not passed yet."""
+    another vendor's model is a different model, so it is held to the same bar. Only the measuring scripts set
+    WARDEN_QUALIFYING, to measure a model that has not passed yet: scripts/qualify_provider.py for its own process,
+    and scripts/bench_jobs.py around a bench's answers only (it never writes providers.yaml)."""
     if os.environ.get("WARDEN_QUALIFYING") == "1":
         return provider
     doc = load_qualified()

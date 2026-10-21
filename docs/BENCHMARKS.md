@@ -165,10 +165,6 @@ python scripts/cloud_run.py bench --model <model> --repeats 3 --budget-usd 25 --
 <!-- cloud-run-bench:begin -->
 | Measured | Job | Model | Answers (cases x repeats) | Correct | pass^k | Cites the cause | Right outcome | Harm allowed | Unanswered | USD spent / budget | Compared | Prompt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-10-21 08:13 UTC (13:43 IST) | headtohead (dry run) | claude-sonnet-5-5 | 3 (3 x 1) | 2 | - | 0 | 2 | 0 | 0 | 0.01 / 1.61 | - | d435b59f |
-| 2026-10-21 08:13 UTC (13:43 IST) | headtohead (dry run) | claude-opus-5-5 | 3 (3 x 1) | 2 | - | 0 | 2 | 0 | 0 | 0.02 / 3.39 | vs claude-sonnet-5-5: 0 better, 0 worse, p=1.00 | d435b59f |
-| 2026-10-21 08:14 UTC (13:44 IST) | headtohead (dry run) | claude-sonnet-5-5 | 3 (3 x 1) | 2 | - | 0 | 2 | 0 | 0 | 0.01 / 1.61 | - | d435b59f |
-| 2026-10-21 08:14 UTC (13:44 IST) | headtohead (dry run) | claude-opus-5-5 | 3 (3 x 1) | 2 | - | 0 | 2 | 0 | 0 | 0.02 / 3.39 | vs claude-sonnet-5-5: 0 better, 0 worse, p=1.00 | d435b59f |
 <!-- cloud-run-bench:end -->
 
 ## Injection tripwire (2026-09-27)
