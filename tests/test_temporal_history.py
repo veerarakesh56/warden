@@ -29,7 +29,9 @@ NS = "warden-test"
 
 
 def bound(wid: str = WID, key: bytes = KEY) -> EncryptionCodec:
-    return EncryptionCodec(key).with_context(WorkflowSerializationContext(namespace=NS, workflow_id=wid))
+    return EncryptionCodec(key).with_context(
+        WorkflowSerializationContext(namespace=NS, workflow_id=wid)
+    )
 
 
 def encrypted(value: object, wid: str = WID, key: bytes = KEY) -> Payload:
@@ -39,22 +41,33 @@ def encrypted(value: object, wid: str = WID, key: bytes = KEY) -> Payload:
 
 def scheduled(n: int, name: str, *values: Payload) -> HistoryEvent:
     e = HistoryEvent(event_id=n, event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED)
-    e.activity_task_scheduled_event_attributes.CopyFrom(ActivityTaskScheduledEventAttributes(
-        activity_type=ActivityType(name=name), input=Payloads(payloads=list(values))))
+    e.activity_task_scheduled_event_attributes.CopyFrom(
+        ActivityTaskScheduledEventAttributes(
+            activity_type=ActivityType(name=name), input=Payloads(payloads=list(values))
+        )
+    )
     e.event_time.FromSeconds(1_800_000_000)
     return e
 
 
 def completed(n: int, value: Payload) -> HistoryEvent:
     e = HistoryEvent(event_id=n, event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED)
-    e.activity_task_completed_event_attributes.CopyFrom(ActivityTaskCompletedEventAttributes(
-        result=Payloads(payloads=[value])))
+    e.activity_task_completed_event_attributes.CopyFrom(
+        ActivityTaskCompletedEventAttributes(result=Payloads(payloads=[value]))
+    )
     return e
 
 
 def test_payloads_are_decrypted_in_their_workflow_s_context():
-    text = asyncio.run(render([scheduled(5, "diagnose", encrypted({"service": "checkout"})),
-                               completed(6, encrypted({"verdict": "approved_for_human"}))], bound()))
+    text = asyncio.run(
+        render(
+            [
+                scheduled(5, "diagnose", encrypted({"service": "checkout"})),
+                completed(6, encrypted({"verdict": "approved_for_human"})),
+            ],
+            bound(),
+        )
+    )
     lines = text.splitlines()
     assert lines[0].startswith("#5 ")
     assert lines[0].endswith("ACTIVITY_TASK_SCHEDULED diagnose")
@@ -63,11 +76,14 @@ def test_payloads_are_decrypted_in_their_workflow_s_context():
     assert lines[3] == '    {"verdict":"approved_for_human"}'
 
 
-@pytest.mark.parametrize("payload", [
-    encrypted({"x": 1}, wid="inc-other"),                     # recorded in another workflow
-    encrypted({"x": 1}, key=os.urandom(32)),                   # another key
-    Payload(metadata={"encoding": b"json/plain"}, data=b'{"x": 1}'),  # never encrypted
-])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        encrypted({"x": 1}, wid="inc-other"),  # recorded in another workflow
+        encrypted({"x": 1}, key=os.urandom(32)),  # another key
+        Payload(metadata={"encoding": b"json/plain"}, data=b'{"x": 1}'),  # never encrypted
+    ],
+)
 def test_a_payload_that_does_not_decrypt_here_is_never_shown(payload):
     text = asyncio.run(render([completed(9, payload)], bound()))
     assert UNREADABLE in text
@@ -76,8 +92,11 @@ def test_a_payload_that_does_not_decrypt_here_is_never_shown(payload):
 
 def test_what_is_shown_is_redacted_and_gated():
     secret, email = AWS_ACCESS_KEY_ID, "person" + "@example.com"
-    raw = asyncio.run(render([completed(3, encrypted({"key": secret, "who": email, "note": "\x1b[31mred"}))],
-                             bound()))
+    raw = asyncio.run(
+        render(
+            [completed(3, encrypted({"key": secret, "who": email, "note": "\x1b[31mred"}))], bound()
+        )
+    )
     out = shown(raw)
     assert secret not in out
     assert email not in out
@@ -86,15 +105,23 @@ def test_what_is_shown_is_redacted_and_gated():
 
 def test_a_signal_names_itself():
     e = HistoryEvent(event_id=7, event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED)
-    e.workflow_execution_signaled_event_attributes.CopyFrom(WorkflowExecutionSignaledEventAttributes(
-        signal_name="approve", input=Payloads(payloads=[encrypted({"plan_hash": "abc"})])))
-    assert asyncio.run(render([e], bound())).splitlines()[0] == "#7 ? WORKFLOW_EXECUTION_SIGNALED approve"
+    e.workflow_execution_signaled_event_attributes.CopyFrom(
+        WorkflowExecutionSignaledEventAttributes(
+            signal_name="approve", input=Payloads(payloads=[encrypted({"plan_hash": "abc"})])
+        )
+    )
+    assert (
+        asyncio.run(render([e], bound())).splitlines()[0]
+        == "#7 ? WORKFLOW_EXECUTION_SIGNALED approve"
+    )
 
 
 def test_at_most_max_events_and_long_values_cut(monkeypatch):
     monkeypatch.setattr(temporal_history, "MAX_EVENTS", 2)
     monkeypatch.setattr(temporal_history, "MAX_VALUE_CHARS", 10)
-    text = asyncio.run(render([completed(n, encrypted({"long": "y" * 50})) for n in range(1, 5)], bound()))
+    text = asyncio.run(
+        render([completed(n, encrypted({"long": "y" * 50})) for n in range(1, 5)], bound())
+    )
     assert text.count("COMPLETED") == 2
     assert "more events not shown" in text
     assert "[cut]" in text
@@ -120,7 +147,10 @@ class Client:
 
 
 def test_history_reads_one_workflow_and_decrypts_in_its_context():
-    events = [completed(1, encrypted({"ok": True})), completed(2, encrypted({"ok": True}, wid="inc-other"))]
+    events = [
+        completed(1, encrypted({"ok": True})),
+        completed(2, encrypted({"ok": True}, wid="inc-other")),
+    ]
 
     async def read(_handle):
         for e in events:
@@ -145,7 +175,11 @@ def test_the_cli_loads_what_status_loads_and_no_more():
 
 def test_identifiers_are_masked_and_the_rest_stays_readable():
     email = "person" + "@example.com"
-    out = shown(asyncio.run(render([completed(3, encrypted({"who": email, "service": "checkout"}))], bound())))
+    out = shown(
+        asyncio.run(
+            render([completed(3, encrypted({"who": email, "service": "checkout"}))], bound())
+        )
+    )
     assert email not in out
     assert "checkout" in out  # masked, not withheld: the history is still readable
 
@@ -153,8 +187,11 @@ def test_identifiers_are_masked_and_the_rest_stays_readable():
 def test_control_characters_never_reach_the_terminal():
     """Payload values are JSON (control characters escaped); a name from the history itself is not."""
     e = HistoryEvent(event_id=7, event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED)
-    e.workflow_execution_signaled_event_attributes.CopyFrom(WorkflowExecutionSignaledEventAttributes(
-        signal_name="approve\x07\b", input=Payloads(payloads=[encrypted({"note": "a\bb\x07c"})])))
+    e.workflow_execution_signaled_event_attributes.CopyFrom(
+        WorkflowExecutionSignaledEventAttributes(
+            signal_name="approve\x07\b", input=Payloads(payloads=[encrypted({"note": "a\bb\x07c"})])
+        )
+    )
     out = shown(asyncio.run(render([e], bound())))
     assert "\b" not in out
     assert "\x07" not in out

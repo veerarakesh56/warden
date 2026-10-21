@@ -127,6 +127,8 @@ class LLMClient:
         # Requests that failed without an answer (a refused connection, a 5xx): counted against this run's call
         # ceiling, but not carried to the incident's next run - they reached no model (eighth review, 2026-10-01).
         self.unanswered = 0
+        # The (system, user) text last handed to the provider; None until a real call is sent (never in mock mode).
+        self.last_request: tuple[str, str] | None = None
         self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
         self._provider = provider if provider is not None else (None if self.mock else resolve())
         # The model's own prices (model_prices). A price that is not a finite, non-negative number switched the USD
@@ -203,10 +205,7 @@ class LLMClient:
             # hypothesis. Mocks read typed state through a closure now; text matching is banned.
             return mock_factory()
 
-        prompt = (
-            f"{user}\n\nReturn ONLY a JSON object matching this schema:\n"
-            f"{json.dumps(schema.model_json_schema())}"
-        )
+        prompt = ask_for(user, schema)
         # Refused BEFORE the call (2026-09-27 audit): charging after it meant one oversized prompt
         # could spend past max_usd before the budget ever looked. ~4 characters per token.
         est_in = (len(system) + len(prompt)) // 4
@@ -224,6 +223,9 @@ class LLMClient:
             # still end above the ceiling; the next is then refused.
             self._before_a_call(est_usd)
             completion = None
+            # Exactly what is handed to the provider, kept so the diagnosis records its hash (B36: `warden history`
+            # shows what the model was sent and proves it byte for byte, never a re-render that could differ).
+            self.last_request = (system, prompt)
             try:
                 # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s,
                 # same env var) is the one that actually ends the worker thread and lets the process
@@ -279,6 +281,13 @@ class LLMClient:
                     break
         plural = "attempt" if attempts == 1 else "attempts"
         raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {last}")
+
+
+def ask_for(user: str, schema: Any) -> str:
+    """The user text a structured call hands the provider: the prompt, then the schema it must answer in. The one place
+    it is built - `warden history` (the temporal_history module) rebuilds it with this and checks it against the
+    recorded hash."""
+    return f"{user}\n\nReturn ONLY a JSON object matching this schema:\n{json.dumps(schema.model_json_schema())}"
 
 
 def _max_calls(max_calls: int | None) -> int:
