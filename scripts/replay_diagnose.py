@@ -63,51 +63,77 @@ def replay(src: pathlib.Path, out: pathlib.Path, *, per_scenario: int, only: set
     `quota` ({"stop_after": n}) stops asking after n refusals in a row - the day's quota is gone - and leaves the rest
     unanswered for the next resume; it is shared across the runs of one qualification."""
     if not (resume and out.exists()):
-        out.mkdir(parents=True)
-        shutil.copytree(src / "grading", out / "grading")
-        manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
-        manifest["replay"] = {"of": src.name, "at": dt.datetime.now(dt.UTC).isoformat(),
-                              "note": "a replay, not a measurement: recorded evidence, today's pipeline"}
-        (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        (out / "ground-truth").mkdir()
-        (out / "reports").mkdir()
+        _start(src, out)
     quota = quota if quota is not None else {}
     for gt_path in sorted((src / "ground-truth").glob("*.json")):
         gt = json.loads(gt_path.read_text(encoding="utf-8"))
         if only and gt["scenario_id"] not in only:
             continue
-        runs = []
-        before = out / "ground-truth" / gt_path.name
-        kept = {r.get("index"): r for r in json.loads(before.read_text(encoding="utf-8")).get("runs") or []} \
-            if resume and before.exists() else {}
-        for run in (gt.get("runs") or [])[:per_scenario]:
-            if not run.get("report_written"):
-                # A run that failed in the recorded wave stays an ERROR row (audit A-B-M16): dropping it changed the
-                # denominators, and a replay looked steadier than the run it replays.
-                runs.append(run)
-                log(f"{gt['scenario_id']}.{run.get('index')}: ERROR in the recorded run, kept")
-                continue
-            prior = kept.get(run.get("index"))
-            if prior and prior.get("report_written") and _answered(out / run["report"]):
-                runs.append(prior)  # answered on an earlier day: kept, not asked again
-                continue
-            if quota.get("refused", 0) >= quota.get("stop_after", 10**9):
-                runs.append(prior or {**run, "exit_code": 1, "report_written": False,
-                                      "stderr_tail": "not asked: the model's quota refused the calls before it"})
-                continue
-            report = json.loads((src / run["report"]).read_text(encoding="utf-8"))
-            try:
-                new = rediagnose(report, llm_factory())
-                quota["refused"] = quota.get("refused", 0) + 1 if UNAVAILABLE in new.verdict.policy_ids else 0
-                (out / run["report"]).write_text(new.model_dump_json(indent=2), encoding="utf-8")
-                runs.append({**run, "exit_code": 0, "report_written": True, "stderr_tail": ""})
-                log(f"{gt['scenario_id']}.{run['index']}: {new.proposal.action.value} "
-                    f"{new.verdict.status.value} {new.verdict.policy_ids} calls={new.cost.calls}")
-            except Exception as exc:  # noqa: BLE001  # a failed replay is an ERROR row, never skipped
-                runs.append({**run, "exit_code": 1, "report_written": False, "stderr_tail": str(exc)[:500]})
-                log(f"{gt['scenario_id']}.{run['index']}: ERROR {exc}")
+        kept = _kept(out / "ground-truth" / gt_path.name) if resume else {}
+        runs = _replay_runs(src, out, gt, kept, per_scenario, quota, llm_factory, log)
         (out / "ground-truth" / gt_path.name).write_text(json.dumps({**gt, "runs": runs}, indent=2),
                                                          encoding="utf-8")
+
+
+def _replay_runs(src: pathlib.Path, out: pathlib.Path, gt: dict, kept: dict, per_scenario: int, quota: dict,
+                 llm_factory, log) -> list[dict]:
+    """The rows of one scenario's first `per_scenario` recorded runs: kept as they are, or asked again."""
+    rows = []
+    for run in (gt.get("runs") or [])[:per_scenario]:
+        row = _row_without_asking(out, gt["scenario_id"], run, kept.get(run.get("index")), quota, log)
+        rows.append(row if row is not None else _ask(src, out, gt["scenario_id"], run, quota, llm_factory, log))
+    return rows
+
+
+def _start(src: pathlib.Path, out: pathlib.Path) -> None:
+    """A new replay directory: the run's grading, its manifest marked as a replay, empty ground-truth and reports."""
+    out.mkdir(parents=True)
+    shutil.copytree(src / "grading", out / "grading")
+    manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
+    manifest["replay"] = {"of": src.name, "at": dt.datetime.now(dt.UTC).isoformat(),
+                          "note": "a replay, not a measurement: recorded evidence, today's pipeline"}
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (out / "ground-truth").mkdir()
+    (out / "reports").mkdir()
+
+
+def _kept(before: pathlib.Path) -> dict:
+    """{run index: row} from an earlier replay's ground truth for this scenario ({} when there is none)."""
+    if not before.exists():
+        return {}
+    return {r.get("index"): r for r in json.loads(before.read_text(encoding="utf-8")).get("runs") or []}
+
+
+def _row_without_asking(out: pathlib.Path, scenario: str, run: dict, prior: dict | None, quota: dict,
+                        log) -> dict | None:
+    """The row for a run the model is not asked about - failed in the recorded wave, answered on an earlier day, or
+    past the quota - or None when it must be asked."""
+    if not run.get("report_written"):
+        # A run that failed in the recorded wave stays an ERROR row (audit A-B-M16): dropping it changed the
+        # denominators, and a replay looked steadier than the run it replays.
+        log(f"{scenario}.{run.get('index')}: ERROR in the recorded run, kept")
+        return run
+    if prior and prior.get("report_written") and _answered(out / run["report"]):
+        return prior  # answered on an earlier day: kept, not asked again
+    if quota.get("refused", 0) >= quota.get("stop_after", 10**9):
+        return prior or {**run, "exit_code": 1, "report_written": False,
+                         "stderr_tail": "not asked: the model's quota refused the calls before it"}
+    return None
+
+
+def _ask(src: pathlib.Path, out: pathlib.Path, scenario: str, run: dict, quota: dict, llm_factory, log) -> dict:
+    """Re-diagnose one recorded run, write its report and count a refusal toward the quota; the run's row."""
+    report = json.loads((src / run["report"]).read_text(encoding="utf-8"))
+    try:
+        new = rediagnose(report, llm_factory())
+        quota["refused"] = quota.get("refused", 0) + 1 if UNAVAILABLE in new.verdict.policy_ids else 0
+        (out / run["report"]).write_text(new.model_dump_json(indent=2), encoding="utf-8")
+        log(f"{scenario}.{run['index']}: {new.proposal.action.value} "
+            f"{new.verdict.status.value} {new.verdict.policy_ids} calls={new.cost.calls}")
+        return {**run, "exit_code": 0, "report_written": True, "stderr_tail": ""}
+    except Exception as exc:  # noqa: BLE001  # a failed replay is an ERROR row, never skipped
+        log(f"{scenario}.{run['index']}: ERROR {exc}")
+        return {**run, "exit_code": 1, "report_written": False, "stderr_tail": str(exc)[:500]}
 
 
 def main(argv: list[str] | None = None) -> int:

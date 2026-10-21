@@ -190,27 +190,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.reverify:
             result["reverified"] = reverify(out)
     else:
-        from warden.llm import LLMClient
-
-        probe = LLMClient()
-        budget = Budget(a.budget_usd) if a.budget_usd is not None else None
-        factory = budget
-        if a.pace_s > 0:
-            import time
-
-            inner = budget or LLMClient
-
-            def factory():
-                time.sleep(a.pace_s)
-                return inner()
-        quota = {"stop_after": 3} if a.resume else None
-        for name in RUNS:
-            replay(ROOT / "tests" / "fixtures" / "bench" / name, out / name, per_scenario=1, only=None, resume=a.resume, quota=quota,
-                   **({"llm_factory": factory} if factory else {}))
-        result = {"provider": probe.provider_name, "model": probe.model, "version": probe.provider_version,
-                  "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ"), "prompt": prompt_fingerprint()}
-        if budget:
-            result.update(budget_usd=budget.total, spent_usd=round(budget.spent(), 4))
+        result = _measure(a, out, replay)
     result.update(tally(out))
     doc = load_qualified()
     bar = doc["bar"]
@@ -220,6 +200,38 @@ def main(argv: list[str] | None = None) -> int:
                         and result.get("unanswered", 0) == 0)
     (out / "qualification.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result, indent=2))
+    return _verdict(result, bar)
+
+
+def _measure(a: argparse.Namespace, out: pathlib.Path, replay) -> dict:
+    """Replay every bench run against the configured model (within the budget, at the pace asked) and say which
+    provider, model and prompt were measured, and what it spent."""
+    from warden.llm import LLMClient
+
+    probe = LLMClient()
+    budget = Budget(a.budget_usd) if a.budget_usd is not None else None
+    factory = budget
+    if a.pace_s > 0:
+        import time
+
+        inner = budget or LLMClient
+
+        def factory():
+            time.sleep(a.pace_s)
+            return inner()
+    quota = {"stop_after": 3} if a.resume else None
+    for name in RUNS:
+        replay(ROOT / "tests" / "fixtures" / "bench" / name, out / name, per_scenario=1, only=None, resume=a.resume, quota=quota,
+               **({"llm_factory": factory} if factory else {}))
+    result = {"provider": probe.provider_name, "model": probe.model, "version": probe.provider_version,
+              "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ"), "prompt": prompt_fingerprint()}
+    if budget:
+        result.update(budget_usd=budget.total, spent_usd=round(budget.spent(), 4))
+    return result
+
+
+def _verdict(result: dict, bar: dict) -> int:
+    """Print what to add to providers.yaml when the model passed, or why it is not qualified; the exit code."""
     if result["passed"]:
         print("\nadd to src/warden/data/providers.yaml under `qualified:`")
         print(f"  - {json.dumps({k: v for k, v in result.items() if k not in ("passed", "slo_breaches")})}")
