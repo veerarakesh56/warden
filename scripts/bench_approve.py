@@ -123,6 +123,60 @@ def _post(domain: str, step: str, body: dict) -> tuple[int, dict]:
             return e.code, {}
 
 
+def _read_record(domain: str, key, record: str) -> int:
+    """Print one incident's record (or the newest ones for `latest`), as the bench approver may read it."""
+    from warden import approvals
+
+    issued = datetime.now(UTC).isoformat()
+    wanted = "" if record == "latest" else record
+    status, got = _post(domain, "record", {
+        "approver": NAME, "incident": wanted, "issued_at": issued,
+        "signature": key.sign(approvals.record_request(NAME, wanted, issued)).hex()})
+    print(json.dumps(got, indent=2) if status == 200 else f"no record ({status}): {got.get('error', '')}")
+    return 0 if status == 200 else 1
+
+
+def _deny(domain: str, key, plan: dict, reason: str) -> int:
+    """Deny the waiting plan with this reason, signed as the bench approver."""
+    from warden import approvals
+
+    issued = datetime.now(UTC).isoformat()
+    status, got = _post(domain, "deny", {
+        "approver": NAME, "workflow_id": plan["workflow_id"], "plan_hash": plan["plan_hash"], "reason": reason,
+        "issued_at": issued, "signature": key.sign(approvals.deny_request(
+            NAME, plan["workflow_id"], plan["plan_hash"], reason, issued)).hex()})
+    print("denied as the bench approver" if status == 202 else f"refused ({status}): {got.get('error', '')}")
+    return 0 if status == 202 else 1
+
+
+def _approve(domain: str, key, plan: dict) -> int:
+    """Approve the waiting plan at its tier, signed as the bench approver."""
+    from warden import approvals
+
+    a = approvals.sign(key, approver=NAME, workflow_id=plan["workflow_id"], plan_hash=plan["plan_hash"], tier=plan["tier"])
+    status, got = _post(domain, "approve", json.loads(a.model_dump_json()))
+    print("approved as the bench approver" if status == 202 else f"refused ({status}): {got.get('error', '')}")
+    return 0 if status == 202 else 1
+
+
+def _decide_on_plan(domain: str, key, args: argparse.Namespace) -> int:
+    """Show the incident's waiting plan, then deny it, approve it, or (neither asked) only show it."""
+    from warden import approvals
+
+    issued = datetime.now(UTC).isoformat()
+    status, plan = _post(domain, "plan", {"approver": NAME, "incident": args.incident, "issued_at": issued,
+                                          "signature": key.sign(approvals.plan_request(NAME, args.incident, issued)).hex()})
+    if status != 200:
+        print(f"no plan to approve ({status}): {plan.get('error', '')}")
+        return 1
+    print(f"plan {plan['workflow_id']}: {plan['entry']} on {plan['target']} - tier {plan['tier']}, {plan['environment']}")
+    if args.deny is not None:
+        return _deny(domain, key, plan, args.deny)
+    if not args.approve:
+        return 0
+    return _approve(domain, key, plan)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--new-key", action="store_true")
@@ -148,36 +202,9 @@ def main(argv: list[str] | None = None) -> int:
 
     runtime = default_environment_policies().runtime_environment
     domain = boto3.client("ssm").get_parameter(Name=f"/warden/{runtime}/tf/approval_domain")["Parameter"]["Value"]
-    from warden import approvals
-
-    issued = datetime.now(UTC).isoformat()
     if args.record:
-        wanted = "" if args.record == "latest" else args.record
-        status, got = _post(domain, "record", {
-            "approver": NAME, "incident": wanted, "issued_at": issued,
-            "signature": key.sign(approvals.record_request(NAME, wanted, issued)).hex()})
-        print(json.dumps(got, indent=2) if status == 200 else f"no record ({status}): {got.get('error', '')}")
-        return 0 if status == 200 else 1
-    status, plan = _post(domain, "plan", {"approver": NAME, "incident": args.incident, "issued_at": issued,
-                                          "signature": key.sign(approvals.plan_request(NAME, args.incident, issued)).hex()})
-    if status != 200:
-        print(f"no plan to approve ({status}): {plan.get('error', '')}")
-        return 1
-    print(f"plan {plan['workflow_id']}: {plan['entry']} on {plan['target']} - tier {plan['tier']}, {plan['environment']}")
-    if args.deny is not None:
-        issued = datetime.now(UTC).isoformat()
-        status, got = _post(domain, "deny", {
-            "approver": NAME, "workflow_id": plan["workflow_id"], "plan_hash": plan["plan_hash"], "reason": args.deny,
-            "issued_at": issued, "signature": key.sign(approvals.deny_request(
-                NAME, plan["workflow_id"], plan["plan_hash"], args.deny, issued)).hex()})
-        print("denied as the bench approver" if status == 202 else f"refused ({status}): {got.get('error', '')}")
-        return 0 if status == 202 else 1
-    if not args.approve:
-        return 0
-    a = approvals.sign(key, approver=NAME, workflow_id=plan["workflow_id"], plan_hash=plan["plan_hash"], tier=plan["tier"])
-    status, got = _post(domain, "approve", json.loads(a.model_dump_json()))
-    print("approved as the bench approver" if status == 202 else f"refused ({status}): {got.get('error', '')}")
-    return 0 if status == 202 else 1
+        return _read_record(domain, key, args.record)
+    return _decide_on_plan(domain, key, args)
 
 
 if __name__ == "__main__":

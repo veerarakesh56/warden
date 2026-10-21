@@ -43,10 +43,13 @@ def test_the_suspended_processes_are_resumed_judged_by_the_group_and_its_alarm_a
     f = Suspended()
     p = _p(f)
     live = p.live("asg_resume_processes", ASG)
-    assert live["event"] == {"p-1"} and live["environment"] == "dev" and live["state"]["processes"] == THREE, live
+    assert live["event"] == {"p-1"}, live
+    assert live["environment"] == "dev", live
+    assert live["state"]["processes"] == THREE, live
     assert catalog.validate("asg_resume_processes", PLAN, live) == []
     shown = catalog.change_of("asg_resume_processes", PLAN, live["state"])[0]
-    assert "resume Launch, ReplaceUnhealthy, Terminate" in shown and "not brought back" in shown
+    assert "resume Launch, ReplaceUnhealthy, Terminate" in shown
+    assert "not brought back" in shown
     p.apply("asg_resume_processes", PLAN, snapshot=live["state"], who=WHO)
     assert f.sessions == [{"actions": ["autoscaling:ResumeProcesses"], "resources": [ASG_ARN]}]
     assert f.writes == [("resume_processes", {"AutoScalingGroupName": G, "ScalingProcesses": THREE})]
@@ -68,7 +71,8 @@ def test_a_suspend_that_names_no_process_suspended_them_all():
     f = Suspended(processes=None)
     f.suspended = sorted(_ASG_PROCESSES)
     live = _p(f).live("asg_resume_processes", ASG)
-    assert live["event"] == {"p-1"} and live["state"]["processes"] == sorted(_ASG_PROCESSES)
+    assert live["event"] == {"p-1"}
+    assert live["state"]["processes"] == sorted(_ASG_PROCESSES)
     f.suspended = THREE  # six of the nine run again
     assert "runs again already" in _p(f).live("asg_resume_processes", ASG)["refused"]
 
@@ -91,7 +95,8 @@ def test_a_suspension_wardens_resume_may_not_undo_is_refused(change, why):
     f = Suspended()
     change(f)
     live = _p(f).live("asg_resume_processes", ASG)
-    assert live["event"] == set() and why in live["refused"], live.get("refused")
+    assert live["event"] == set(), live.get("refused")
+    assert why in live["refused"], live.get("refused")
 
 
 def test_a_process_that_runs_again_after_the_plan_is_not_resumed_and_the_plan_is_found_again_for_its_rollback():
@@ -126,12 +131,16 @@ def _proposal():
 def test_the_resolver_plans_the_one_kind_of_change_recorded_and_never_chooses_between_two():
     f = Suspended()
     request, why = resolver.request_for(_alert(), _proposal(), lambda e, params: _p(f).live(e, params))
-    assert why == "" and request["entry"] == "asg_resume_processes" and request["params"] == PLAN, why
+    assert why == "", why
+    assert request["entry"] == "asg_resume_processes", why
+    assert request["params"] == PLAN, why
     g = Groups()  # a desired-capacity change, no suspension
     request, why = resolver.request_for(_alert(), _proposal(), lambda e, params: _p(g).live(e, params))
-    assert why == "" and request["entry"] == "asg_restore_capacity", why
+    assert why == "", why
+    assert request["entry"] == "asg_restore_capacity", why
     both = Suspended()
     both.capacity = 2
     both.events = [*Groups().events, _suspend()]
     request, why = resolver.request_for(_alert(), _proposal(), lambda e, params: _p(both).live(e, params))
-    assert request is None and "more than one kind of recorded change" in why
+    assert request is None
+    assert "more than one kind of recorded change" in why

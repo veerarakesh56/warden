@@ -163,7 +163,7 @@ class KubernetesPlatform:
         try:
             hpas = self._autoscaling.list_namespaced_horizontal_pod_autoscaler(
                 self._ns, _request_timeout=REQUEST_TIMEOUT).items or []
-        except Exception:  # noqa: BLE001 - unknown, and a scale is refused
+        except Exception:  # noqa: BLE001 - unknown; and a scale is refused
             return None
         return any(getattr(getattr(h.spec, "scale_target_ref", None), "kind", "") == "Deployment"
                    and getattr(h.spec.scale_target_ref, "name", "") == deployment for h in hpas)

@@ -38,6 +38,38 @@ LEVELS = ("ERROR", "SECURITY_WARNING", "WARNING", "SUGGESTION")
 KNOWN_UNLISTED = {"rds:EnableInternetAccessGateway"}
 
 
+def _findings(client, path: pathlib.Path) -> list[dict]:
+    """Access Analyzer's findings for one file, every page, without a known-unlisted action's INVALID_ACTION."""
+    findings = []
+    pager = client.get_paginator("validate_policy")
+    # A role's trust policy is a resource policy on the role, checked as such (Phase 1.5).
+    kind = ({"policyType": "RESOURCE_POLICY",
+             "validatePolicyResourceType": "AWS::IAM::AssumeRolePolicyDocument"}
+            if path.name.startswith("trust") else {"policyType": "IDENTITY_POLICY"})
+    for page in pager.paginate(policyDocument=path.read_text(encoding="utf-8"), **kind):
+        findings += page.get("findings") or []
+    return [f for f in findings if not (
+        f.get("issueCode") == "INVALID_ACTION"
+        and any(a in f.get("findingDetails", "") for a in KNOWN_UNLISTED))]
+
+
+def _print_findings(path: pathlib.Path, findings: list[dict], fail_on: set[str]) -> int:
+    """The file's counts, then each finding by severity with where it is. Returns how many are at the threshold."""
+    failing = 0
+    counts = {level: sum(1 for f in findings if f["findingType"] == level) for level in LEVELS}
+    print(f"{path.name}: " + ", ".join(f"{counts[lv]} {lv.lower()}" for lv in LEVELS))
+    for finding in sorted(findings, key=lambda f: LEVELS.index(f["findingType"])):
+        where = ", ".join(
+            "/".join(str(p.get("value", p.get("index", ""))) for p in loc.get("path", []))
+            for loc in finding.get("locations") or []
+        )
+        print(f"   {finding['findingType']:16s} {finding['issueCode']}: "
+              f"{finding['findingDetails'][:160]}" + (f"  [{where}]" if where else ""))
+        if finding["findingType"] in fail_on:
+            failing += 1
+    return failing
+
+
 def main(argv: list[str] | None = None, *, client=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -57,7 +89,7 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
             import boto3
 
             client = boto3.Session(region_name=args.region).client("accessanalyzer")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  # any failure to make the client is exit 2 (could not run); never clean
             print(f"could not create an Access Analyzer client: {type(exc).__name__}: {exc}")
             return 2
 
@@ -65,32 +97,11 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
     failing = 0
     for path in paths:
         try:
-            findings = []
-            pager = client.get_paginator("validate_policy")
-            # A role's trust policy is a resource policy on the role, checked as such (Phase 1.5).
-            kind = ({"policyType": "RESOURCE_POLICY",
-                     "validatePolicyResourceType": "AWS::IAM::AssumeRolePolicyDocument"}
-                    if path.name.startswith("trust") else {"policyType": "IDENTITY_POLICY"})
-            for page in pager.paginate(policyDocument=path.read_text(encoding="utf-8"), **kind):
-                findings += page.get("findings") or []
-            findings = [f for f in findings if not (
-                f.get("issueCode") == "INVALID_ACTION"
-                and any(a in f.get("findingDetails", "") for a in KNOWN_UNLISTED))]
+            findings = _findings(client, path)
         except Exception as exc:  # noqa: BLE001 - a permission or network failure is not a finding
             print(f"{path.name}: could not validate ({type(exc).__name__}: {exc})")
             return 2
-
-        counts = {level: sum(1 for f in findings if f["findingType"] == level) for level in LEVELS}
-        print(f"{path.name}: " + ", ".join(f"{counts[lv]} {lv.lower()}" for lv in LEVELS))
-        for finding in sorted(findings, key=lambda f: LEVELS.index(f["findingType"])):
-            where = ", ".join(
-                "/".join(str(p.get("value", p.get("index", ""))) for p in loc.get("path", []))
-                for loc in finding.get("locations") or []
-            )
-            print(f"   {finding['findingType']:16s} {finding['issueCode']}: "
-                  f"{finding['findingDetails'][:160]}" + (f"  [{where}]" if where else ""))
-            if finding["findingType"] in fail_on:
-                failing += 1
+        failing += _print_findings(path, findings, fail_on)
 
     if failing:
         print(f"\n{failing} finding(s) at or above the threshold.")

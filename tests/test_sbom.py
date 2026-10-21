@@ -31,7 +31,8 @@ def test_the_model_bill_names_the_pinned_detector_and_every_qualified_model():
     import yaml
 
     models = {c["name"]: c for c in sbom.render()["components"] if c["type"] == "machine-learning-model"}
-    assert models[tripwire.MODEL]["version"] == tripwire.REVISION and len(tripwire.REVISION) == 40
+    assert models[tripwire.MODEL]["version"] == tripwire.REVISION
+    assert len(tripwire.REVISION) == 40
     qualified = yaml.safe_load((ROOT / "src" / "warden" / "data" / "providers.yaml").read_text(encoding="utf-8"))
     assert {q["model"] for q in qualified["qualified"]} <= set(models)
 
@@ -46,5 +47,6 @@ def test_the_detector_loads_its_pinned_revision_from_safetensors_only(monkeypatc
         tripwire._classifier()
     finally:
         tripwire._classifier.cache_clear()
-    assert seen["model"] == tripwire.MODEL and seen["revision"] == tripwire.REVISION
+    assert seen["model"] == tripwire.MODEL
+    assert seen["revision"] == tripwire.REVISION
     assert seen["model_kwargs"] == {"use_safetensors": True}

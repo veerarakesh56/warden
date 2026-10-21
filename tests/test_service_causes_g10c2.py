@@ -37,7 +37,8 @@ def test_a_healthy_node_group_adds_no_line():
 def test_a_failed_execution_gives_its_error_name_and_its_cause_only_as_quarantined_text():
     lines = _lines(state_machine=f"{P}saga")
     [state] = [line for line in lines if line.startswith(f"STATE states {P}saga failed execution")]
-    assert state.endswith("error=States.TaskFailed") and "KeyError" not in state
+    assert state.endswith("error=States.TaskFailed")
+    assert "KeyError" not in state
     assert f"EVENT states {P}saga failure: KeyError: 'sku'" in lines
 
 

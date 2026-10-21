@@ -68,8 +68,9 @@ def test_a_plan_carried_to_another_target_is_refused_at_apply():
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
     assert _approve(acts, owner, plan, "rem-1").enough
     acts.precheck(plan)
+    carried = plan.model_copy(update={"target": "dev/k8s:quiet/elsewhere"})
     with pytest.raises(ApplicationError, match="no such plan"):
-        acts.apply(plan.model_copy(update={"target": "dev/k8s:quiet/elsewhere"}), REQ["service"])
+        acts.apply(carried, REQ["service"])
     assert platform.applied == []
 
 
@@ -107,4 +108,5 @@ def test_the_plan_hash_covers_the_environment_the_catalogue_the_code_and_the_rec
         assert activities.plan_hash(plan.entry, plan.params, plan.snapshot, other) != plan.plan_hash, key
     acts.audit.append(REQ["incident_id"], "incident.verify", {"status": "approved_for_human"})
     again = acts.resolve_plan(FixRequest(**REQ), "rem-1")
-    assert again.basis["evidence"] != plan.basis["evidence"] and again.plan_hash != plan.plan_hash
+    assert again.basis["evidence"] != plan.basis["evidence"]
+    assert again.plan_hash != plan.plan_hash

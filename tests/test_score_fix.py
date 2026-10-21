@@ -61,7 +61,8 @@ def test_every_fix_outcome_is_counted(tmp_path, outcome):
     run = _run_dir(tmp_path, {"fix": {"outcome": outcome}, "alarm": {"never_fired": False}})
     scored = score.score_run_dir(run)
     row = scored["rows"][0]
-    assert row["fix"] == outcome and row["diagnosis"] == score.CORRECT
+    assert row["fix"] == outcome
+    assert row["diagnosis"] == score.CORRECT
     summary = score.summarise(scored)
     assert summary["fix_counts"] == {outcome: 1}
     assert "## 8. Fix" in score.render_markdown(scored, summary)

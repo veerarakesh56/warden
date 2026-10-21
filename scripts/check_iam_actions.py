@@ -64,6 +64,31 @@ def actions_in(paths: list[pathlib.Path]) -> dict[str, list[str]]:
 KNOWN_UNLISTED = {"rds:EnableInternetAccessGateway"}
 
 
+def _check_action(action: str, where: str, known: dict[str, set[str]], findings: list[str]) -> bool:
+    """One action against AWS's list: True when confirmed. A finding is appended to `findings`; a wildcard that
+    matches and a known-unlisted action are printed as they are met."""
+    prefix, _, name = action.partition(":")
+    service = known.get(prefix)
+    if service is None:
+        findings.append(f"{action}: unknown service prefix {prefix!r}   [{where}]")
+    elif name.endswith("*"):
+        matches = sum(1 for k in service if k.startswith(name[:-1]))
+        if matches:
+            print(f"  wildcard {action} matches {matches} action(s)")
+        else:
+            findings.append(f"{action}: wildcard matches NOTHING   [{where}]")
+    elif name in service:
+        return True
+    elif action in KNOWN_UNLISTED:
+        print(f"  {action}: not in AWS's list yet - known and proven (see KNOWN_UNLISTED)")
+    else:
+        near = sorted(k for k in service if k.lower().startswith(name.lower()[:6]))[:4]
+        findings.append(
+            f"{action}: not in AWS's list. closest: {near or 'nothing similar'}   [{where}]"
+        )
+    return False
+
+
 def main() -> int:
     # FIRST, before argparse can print: the help text carries marks a cp1252 console cannot encode.
     for stream in (sys.stdout, sys.stderr):
@@ -91,26 +116,7 @@ def main() -> int:
     confirmed = 0
 
     for action in sorted(used):
-        prefix, _, name = action.partition(":")
-        service = known.get(prefix)
-        where = ", ".join(used[action])
-        if service is None:
-            findings.append(f"{action}: unknown service prefix {prefix!r}   [{where}]")
-        elif name.endswith("*"):
-            matches = sum(1 for k in service if k.startswith(name[:-1]))
-            if matches:
-                print(f"  wildcard {action} matches {matches} action(s)")
-            else:
-                findings.append(f"{action}: wildcard matches NOTHING   [{where}]")
-        elif name in service:
-            confirmed += 1
-        elif action in KNOWN_UNLISTED:
-            print(f"  {action}: not in AWS's list yet - known and proven (see KNOWN_UNLISTED)")
-        else:
-            near = sorted(k for k in service if k.lower().startswith(name.lower()[:6]))[:4]
-            findings.append(
-                f"{action}: not in AWS's list. closest: {near or 'nothing similar'}   [{where}]"
-            )
+        confirmed += _check_action(action, ", ".join(used[action]), known, findings)
 
     print(f"\n{len(paths)} file(s), {len(used)} distinct actions, {confirmed} confirmed against "
           f"AWS's list of {sum(len(v) for v in known.values())}")
