@@ -199,6 +199,23 @@ def test_the_workflow_never_asks_for_more_than_three_rounds():
     assert workflows.MAX_ROUNDS == critique.MAX_ROUNDS == 3
 
 
+def test_a_message_the_gate_withholds_is_not_posted_under_eldanes_name(world, slack, monkeypatch):
+    """The outbound gate replaces a message it withholds with a notice; that notice never goes out as Eldane's - an
+    unlabelled message under its name (EU AI Act Art. 50) - nor as WARDEN's."""
+    from warden import chatops
+    from warden.gate import GateResult
+
+    plan = _debate(world, debate._no(), debate._yes(), warden_answers=(debate._answer(),))
+    eldane_slack.eldane_says(world["log"], plan, "", eldane_slack.OPENING)  # the thread, as usual
+    monkeypatch.setattr(chatops, "enforce", lambda *a, **k: GateResult("BLOCK", "A WARDEN message was withheld", ["G5"]))
+    before = len(slack.calls)
+    eldane_slack.eldane_says(world["log"], plan, "", 1)
+    eldane_slack.warden_says(world["log"], plan, "", 1)
+    assert len(slack.calls) == before
+    posted = [e["body"] for e in world["log"].entries(plan.incident_id, kinds=(eldane_slack.POSTED,))]
+    assert [(p["step"], p["delivered"]) for p in posted[-2:]] == [("objections-1", False), ("answers-1", False)]
+
+
 # ----------------------------------------------------------------------------- it posts, it never reads (R12)
 
 def _slack_methods(path: pathlib.Path) -> set[str]:

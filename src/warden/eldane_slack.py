@@ -31,7 +31,7 @@ from .models import inert
 TOKEN = "WARDEN_ELDANE_SLACK_TOKEN"
 THREAD, POSTED = "eldane.thread", "eldane.posted"
 OPENING, CLOSING = 0, critique.MAX_ROUNDS + 1  # the steps: 0 opens the thread, 1..MAX_ROUNDS a round, then the end
-WARDEN = "*WARDEN*"
+ELDANE, WARDEN = f"*{approvals.AI_LABEL}*", "*WARDEN*"  # how each message starts: who says it
 NOTHING = -1  # no review of this plan on the record: nothing is said
 
 
@@ -70,7 +70,7 @@ def _cites(ids: Any) -> str:
 
 
 def opening(plan: Any) -> str:
-    return (f"*{approvals.AI_LABEL}* - an AI, not a person - reviews WARDEN's fix plan for "
+    return (f"{ELDANE} - an AI, not a person - reviews WARDEN's fix plan for "
             f"inc-{plan.incident_id.removeprefix('inc-')}: `{plan.entry}` in {plan.environment}. Its objections and "
             f"WARDEN's answers follow in this thread, at most {critique.MAX_ROUNDS} rounds; then it agrees, or a person "
             "decides. A person's decision always overrides Eldane's. To ask WARDEN about this incident, mention @WARDEN "
@@ -85,7 +85,7 @@ def objections(log: Any, plan: Any, run_id: str, round_no: int) -> str:
                   key=lambda o: int(o.get("index") or 0))
     if not said:
         return ""
-    lines = [f"*{approvals.AI_LABEL}* · round {round_no} of at most {critique.MAX_ROUNDS}: it does not agree yet."]
+    lines = [f"{ELDANE} · round {round_no} of at most {critique.MAX_ROUNDS}: it does not agree yet."]
     lines += [f"{int(o.get('index') or 0) + 1}. ({_said(o.get('kind'))}) {_said(o.get('text'))}{_cites(o.get('evidence'))}"
               for o in said]
     return "\n".join(lines)
@@ -110,7 +110,7 @@ def closing(log: Any, plan: Any, run_id: str) -> str:
     v = autonomy.verdict_of(log, plan, run_id)
     if v is None:
         return ""
-    head = f"*{approvals.AI_LABEL}*"
+    head = ELDANE
     if v.get("skipped"):
         return f"{head} did not review this plan: {_said(v['skipped'])}. A person decides."
     if v.get("agree"):
@@ -155,10 +155,27 @@ class _NewThread:
         return Notification(sink=self.name, delivered=bool(self.ts), detail=f"thread {self.ts}")
 
 
-def post(log: Any, plan: Any, run_id: str, step: str, text: str, *, token: str, opens: bool = False) -> bool:
+class _AsSaid:
+    """A sink that posts only what its speaker says: a text that does not start with the speaker's label - the outbound
+    gate's notice for a message it withheld - is never posted under that speaker's name (EU AI Act Art. 50)."""
+
+    def __init__(self, sink: Any, label: str) -> None:
+        self.sink, self.label, self.name = sink, label, sink.name
+
+    def send(self, text: str, data: dict) -> Any:
+        from .chatops import Notification
+
+        if not text.startswith(self.label):
+            return Notification(sink=self.name, delivered=False, detail="withheld by the outbound gate: nothing posted")
+        return self.sink.send(text, data)
+
+
+def post(log: Any, plan: Any, run_id: str, step: str, text: str, *, token: str, label: str,
+         opens: bool = False) -> bool:
     """`text` in this plan's Eldane thread with `token`, through chatops.notify (the redactor and the outbound gate),
-    once; `opens`: it is the message that starts the thread. Whether it was delivered (now or before)."""
-    if not text or not token:
+    once, and only as `label` says it; `opens`: it is the message that starts the thread. Whether it was delivered
+    (now or before)."""
+    if not text or not token or not text.startswith(label):
         return False
     if _posted(log, plan, run_id, step):
         return True
@@ -172,7 +189,7 @@ def post(log: Any, plan: Any, run_id: str, step: str, text: str, *, token: str, 
         if not channel:
             return False
         sink: Any = _NewThread(token, channel)
-        [sent] = notify(report, sinks=[sink])
+        [sent] = notify(report, sinks=[_AsSaid(sink, label)])
         if sent.delivered:
             log.append(plan.incident_id, THREAD, {"workflow_id": plan.workflow_id, "run_id": run_id,
                                                   "plan_hash": plan.plan_hash, "channel": channel, "ts": sink.ts})
@@ -180,7 +197,7 @@ def post(log: Any, plan: Any, run_id: str, step: str, text: str, *, token: str, 
         return False  # Eldane opens the thread; nothing is posted into one that was never opened
     else:
         # Live with a token: only the critic zone holds Eldane's and only the notify zone WARDEN's (settings.ZONE_SECRETS).
-        [sent] = notify(report, sinks=[SlackThreadSink(token, thread["channel"], thread["ts"], live=True)])
+        [sent] = notify(report, sinks=[_AsSaid(SlackThreadSink(token, thread["channel"], thread["ts"], live=True), label)])
     log.append(plan.incident_id, POSTED, {"workflow_id": plan.workflow_id, "run_id": run_id, "plan_hash": plan.plan_hash,
                                           "step": step, "delivered": sent.delivered, "detail": sent.detail[:200]})
     return sent.delivered
@@ -193,15 +210,18 @@ def eldane_says(log: Any, plan: Any, run_id: str, step: int) -> int:
         return NOTHING
     token = os.environ.get(TOKEN, "").strip()
     if step == OPENING:
-        post(log, plan, run_id, "open", opening(plan), token=token, opens=True)
+        post(log, plan, run_id, "open", opening(plan), token=token, label=ELDANE, opens=True)
+        if thread_of(log, plan, run_id) is None:
+            return NOTHING  # no thread (no token, no channel, or not delivered): nothing more is said
     elif step == CLOSING:
-        post(log, plan, run_id, "close", closing(log, plan, run_id), token=token)
+        post(log, plan, run_id, "close", closing(log, plan, run_id), token=token, label=ELDANE)
     else:
-        post(log, plan, run_id, f"objections-{step}", objections(log, plan, run_id, step), token=token)
+        post(log, plan, run_id, f"objections-{step}", objections(log, plan, run_id, step), token=token, label=ELDANE)
     return rounds(log, plan, run_id)
 
 
 def warden_says(log: Any, plan: Any, run_id: str, round_no: int) -> bool:
     """WARDEN's answers to round `round_no`, with WARDEN's own token (the notify zone), in Eldane's thread."""
     token = os.environ.get("WARDEN_SLACK_BOT_TOKEN", "").strip()
-    return post(log, plan, run_id, f"answers-{round_no}", answers(log, plan, run_id, round_no), token=token)
+    return post(log, plan, run_id, f"answers-{round_no}", answers(log, plan, run_id, round_no), token=token,
+                label=WARDEN)
