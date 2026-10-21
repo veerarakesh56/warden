@@ -83,6 +83,9 @@ LOADABLE = frozenset({
     # Eldane's own Ed25519 signing key (eldane.py, PEM): a secret, read only by the critic zone. Its provider and model
     # are not loadable, as the diagnoser's are not: the task definition sets them (compute.tf).
     "WARDEN_ELDANE_KEY",
+    # Eldane's own Slack bot token (eldane_slack.py, B2): a secret, read only by the critic zone. It posts as
+    # "Eldane · AI critic" in the discussion channel and never reads it.
+    "WARDEN_ELDANE_SLACK_TOKEN",
 })
 
 
@@ -123,6 +126,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_DATADOG_APP_KEY": frozenset({"worker", "lambda-alertmanager"}),
     "WARDEN_DATADOG_WEBHOOK_TOKEN": frozenset({"lambda-alertmanager"}),
     "WARDEN_ELDANE_KEY": frozenset({"worker"}),
+    "WARDEN_ELDANE_SLACK_TOKEN": frozenset({"worker"}),
 }
 
 
@@ -139,7 +143,7 @@ SECRETS = frozenset({
     "WARDEN_GITHUB_TOKEN",
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
     "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
-    "WARDEN_ELDANE_KEY",
+    "WARDEN_ELDANE_KEY", "WARDEN_ELDANE_SLACK_TOKEN",
 })
 
 
@@ -161,8 +165,8 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
                              "WARDEN_GITHUB_TOKEN"},
     "act": _EVERY_ZONE,
     # Eldane, the AI critic (eldane.py): the same Claude API key as the diagnosis (owner, 2026-10-17), and its own
-    # signing key, which nobody else holds.
-    "critic": _EVERY_ZONE | {"ANTHROPIC_API_KEY", "WARDEN_ELDANE_KEY"},
+    # signing key, which nobody else holds; and its own Slack bot token (B2), with which it only posts.
+    "critic": _EVERY_ZONE | {"ANTHROPIC_API_KEY", "WARDEN_ELDANE_KEY", "WARDEN_ELDANE_SLACK_TOKEN"},
 }
 # The runtime's Lambdas (lambdas.py), each with a role of its own that reads exactly these (iam.tf front_door_access;
 # tests/test_runtime_module_g6.py runs each handler's load and holds the two together). Every one but actor-use reaches

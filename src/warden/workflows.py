@@ -42,6 +42,7 @@ with workflow.unsafe.imports_passed_through():
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .autonomy import L2, VETO
     from .catalog import MITIGATES
+    from .critique import MAX_ROUNDS
     from .discuss import (
         ELSEWHERE,
         LIMIT,
@@ -56,6 +57,7 @@ with workflow.unsafe.imports_passed_through():
         Thread,
         Turn,
     )
+    from .eldane_slack import CLOSING, OPENING
     from .models import Alert, ContextBundle, RunReport, ingestion_wait, reread_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
@@ -74,6 +76,10 @@ PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": Retr
 # (CodeRabbit, PR 42): unstarted within 30 seconds, or not done in four minutes, the plan goes to a person as before.
 CRITIC = {"schedule_to_start_timeout": timedelta(seconds=30), "start_to_close_timeout": timedelta(minutes=4),
           "retry_policy": RetryPolicy(maximum_attempts=1)}
+# Eldane's review said in the discussion channel (eldane_slack.py): one Slack message each, a critic zone that is not
+# running holds nobody up, and a message already delivered is never posted again (eldane_slack.POSTED).
+SAY = {"schedule_to_start_timeout": timedelta(seconds=30), "start_to_close_timeout": timedelta(seconds=60),
+       "retry_policy": RetryPolicy(maximum_attempts=2)}
 # Whether Eldane may approve here at all (the environment's autonomy ceiling), asked once: no answer is "no", and the
 # person is asked first, as everywhere Eldane cannot approve.
 CEILING = {"start_to_close_timeout": timedelta(seconds=30), "retry_policy": RetryPolicy(maximum_attempts=1)}
@@ -86,10 +92,12 @@ MAIN_QUEUE = "warden"
 ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold",
                   "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
-         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
+         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed",
+                    "debate_reply"),
          "act": ("apply", "rollback"),
-         # Eldane, the AI critic (eldane.py): its own model, its own signing key, no other zone's credentials.
-         "critic": ("critic_review",)}
+         # Eldane, the AI critic (eldane.py): its own model, its own signing key and its own Slack token
+         # (eldane_slack.py), no other zone's credentials.
+         "critic": ("critic_review", "critic_say")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
 
@@ -261,6 +269,23 @@ class RemediationWorkflow:
         return [(f"WARDEN diagnoses the incident again from what it reads now, as `{got['new']}`, with this fix "
                  "beside its evidence: any fix it finds is a new plan for an approver")]
 
+    async def _eldane_in_slack(self, acts, plan: Plan) -> None:
+        """Eldane's review as a conversation in the discussion channel (eldane_slack.py, B2): it opens a thread, then for
+        each round on the record - never more than MAX_ROUNDS - its objections (critic zone, its own token) and WARDEN's
+        answers (notify zone, WARDEN's token), then how it ended. Slack is never the record: a step that fails ends the
+        conversation and changes nothing else."""
+        with contextlib.suppress(ActivityError):
+            said = await workflow.execute_activity_method(acts.critic_say, **_zoned(acts.critic_say),
+                                                          args=[plan, OPENING], **SAY)
+            if not isinstance(said, int) or said < 0:
+                return  # no review of this plan on the record: nothing to say
+            for n in range(1, min(said, MAX_ROUNDS) + 1):
+                await workflow.execute_activity_method(acts.critic_say, **_zoned(acts.critic_say), args=[plan, n], **SAY)
+                await workflow.execute_activity_method(acts.debate_reply, **_zoned(acts.debate_reply), args=[plan, n],
+                                                       **SAY)
+            await workflow.execute_activity_method(acts.critic_say, **_zoned(acts.critic_say), args=[plan, CLOSING],
+                                                   **SAY)
+
     async def _steps(self, req: FixRequest, acts, wid: str, done: dict, end) -> FixOutcome:
         plan = self._plan = await workflow.execute_activity_method(acts.resolve_plan, **_zoned(acts.resolve_plan), args=[req, wid], **QUICK)
         if plan.problems:
@@ -297,6 +322,8 @@ class RemediationWorkflow:
             with contextlib.suppress(ActivityError):
                 offered = await workflow.execute_activity_method(acts.critic_review, **_zoned(acts.critic_review),
                                                                  args=[plan], **CRITIC)
+            if workflow.patched("eldane-slack"):
+                await self._eldane_in_slack(acts, plan)
             if may_approve and isinstance(offered, SignedApproval):
                 result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
                                                                 args=[plan, offered, []], **QUICK)

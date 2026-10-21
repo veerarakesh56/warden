@@ -335,6 +335,22 @@ class RemediationActivities:
         return eldane.review(self.audit, self.policy, plan, self.critic, run_id=_run_id())
 
     @activity.defn
+    def critic_say(self, plan: Plan, step: int) -> int:
+        """Eldane's part of its review in the discussion channel (eldane_slack.py, B2), in the critic zone with its own
+        Slack token: the thread's opening, one round's objections, or how it ended. The rounds on the record, or -1
+        when it made no review of this plan."""
+        from . import eldane_slack
+
+        return eldane_slack.eldane_says(self.audit, plan, _run_id(), step)
+
+    @activity.defn
+    def debate_reply(self, plan: Plan, round_no: int) -> bool:
+        """WARDEN's answers to one round of Eldane's objections, in Eldane's thread, with WARDEN's own token (notify)."""
+        from . import eldane_slack
+
+        return eldane_slack.warden_says(self.audit, plan, _run_id(), round_no)
+
+    @activity.defn
     def resolve_plan(self, req: FixRequest, workflow_id: str) -> Plan:
         entry = catalog.CATALOG.get(req.entry)
         live = self.platform.live(req.entry, req.params, **_env(self.platform.live, req.environment))

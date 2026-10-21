@@ -30,6 +30,7 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_GITHUB_TOKEN` | opening change-record issues in one repository | create a new fine-grained token limited to issues on that repository, with an expiry; store it, restart, revoke the old one | both work until the old one is revoked |
 | `WARDEN_DB_DSN`, `WARDEN_DB_TERMINATE_DSN`, `WARDEN_STACK_DB_PRIMARY_RO_DSN`, `WARDEN_STACK_DB_REPLICA_RO_DSN` | the database readers and the narrow terminate role (renamed 2026-10-16 from `WARDEN_DB_ADMIN_DSN`, `WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN`, which are still read for one release with a warning; the Secrets Manager slots keep the old names `db-admin-dsn`, `stack-db-writer-dsn` and `stack-db-reader-dsn` until the runtime module renames them) | change the role's password (or let RDS rotate the managed secret), store the new DSN, restart | a database role has one password: rotate, then restart promptly |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock (`ANTHROPIC_API_KEY`: read by the llm zone and by Eldane's critic zone - one key, owner 2026-10-17) | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
+| `WARDEN_ELDANE_SLACK_TOKEN` | Eldane's own Slack bot token (eldane_slack.py; the critic zone's alone): it posts its review in the discussion channel, never reads it | in Eldane's Slack app, OAuth & Permissions: reinstall to get a new bot token (scope `chat:write` only), store it in `warden/<env>/eldane-slack-token`, restart the critic worker, revoke the old token | both work until the old one is revoked; Slack is never the record |
 | `WARDEN_ELDANE_KEY` | Eldane's own Ed25519 signing key (eldane.py; the critic zone's alone): its approvals in dev | `warden audit keygen --private eldane.pem --public eldane.pub.pem --unencrypted` a new pair; put the public key in the approver list's AI entry (a reviewed change) and the private PEM in `warden/<env>/eldane-key`; restart the critic worker; destroy the old private key | Eldane's approvals stop until both halves match: rotate between incidents |
 
 Keys that are not environment secrets:
@@ -64,6 +65,23 @@ approved: a person decides. Each objection and answer is on the incident's recor
 `eldane.rebuttal`). Eldane can read recorded evidence items again in full and the target's state as read when the
 plan was made; it can read nothing live and change nothing. Every request, on the page and in the channel, says the
 fix's **risks if approved** (`catalog.RISKS`).
+
+**Eldane in the discussion channel (B2).** With its own Slack token set, Eldane posts its review of each plan in the
+environment's discussion channel (`WARDEN_DISCUSS_CHANNELS`): it opens a thread naming the incident and the plan, then
+each round's objections, WARDEN's answers (posted by WARDEN's own bot), and how it ended - agreed, or a person
+decides. Every message of Eldane's starts with **Eldane · AI critic**, whatever its Slack app is called (EU AI Act
+Art. 50). It only posts: it never reads the channel, so nothing written there reaches it. What it posts is what is on
+the record, made from the redacted evidence (placeholders and stable ids, never a real value), and every message goes
+through the redactor and the outbound gate. People discuss in the same thread: mention @WARDEN there to ask WARDEN
+(the thread names the incident). Setting it up, once (the owner):
+
+1. Create a Slack app named `Eldane · AI critic` (or any name; its messages carry the label regardless), with the
+   bot scope `chat:write` and nothing else - no read scope, no Socket Mode, no events. Install it and invite it to
+   each environment's discussion channel.
+2. Store its bot token in `warden/<runtime>/eldane-slack-token` (the runtime module makes the slot; only the critic
+   zone's task role can read it) and restart the critic worker.
+
+Without the token nothing is posted and nothing else changes; Eldane's review is on the record either way.
 
 Dev drops to **L1** - Eldane reviews, a person approves - the moment any of these is on the record:
 
