@@ -36,35 +36,43 @@ def test_keygen_refuses_a_clear_key_without_a_passphrase_or_unencrypted(tmp_path
     monkeypatch.delenv("WARDEN_AUDIT_KEY_PASSPHRASE", raising=False)
     monkeypatch.setattr(sys, "stdin", io.StringIO())  # no terminal to type one at
     code, priv, pub = _keygen(tmp_path)
-    assert code == 1 and not priv.exists() and not pub.exists()
+    assert code == 1
+    assert not priv.exists()
+    assert not pub.exists()
     assert "no passphrase, so no key was written" in capsys.readouterr().err
 
 
 def test_keygen_encrypts_with_the_environments_or_a_typed_passphrase(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("WARDEN_AUDIT_KEY_PASSPHRASE", "correct horse")
     code, priv, _ = _keygen(tmp_path / "env")
-    assert code == 0 and priv.read_bytes().startswith(ENCRYPTED)
+    assert code == 0
+    assert priv.read_bytes().startswith(ENCRYPTED)
     audit.load_private_key(priv, b"correct horse")
     monkeypatch.delenv("WARDEN_AUDIT_KEY_PASSPHRASE")
     monkeypatch.setattr(sys, "stdin", _Tty())
     typed = iter(["battery staple", "battery staple"])
     monkeypatch.setattr("getpass.getpass", lambda prompt="": next(typed))
     code, priv, _ = _keygen(tmp_path / "typed")
-    assert code == 0 and priv.read_bytes().startswith(ENCRYPTED)
+    assert code == 0
+    assert priv.read_bytes().startswith(ENCRYPTED)
     audit.load_private_key(priv, b"battery staple")
     differ = iter(["one", "two"])
     monkeypatch.setattr("getpass.getpass", lambda prompt="": next(differ))
     code, priv, _ = _keygen(tmp_path / "differ")
-    assert code == 1 and not priv.exists() and "the two passphrases differ" in capsys.readouterr().err
+    assert code == 1
+    assert not priv.exists()
+    assert "the two passphrases differ" in capsys.readouterr().err
 
 
 def test_keygen_writes_a_clear_key_only_when_told_and_says_why_loudly(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("WARDEN_AUDIT_KEY_PASSPHRASE", "ignored when told --unencrypted")
     code, priv, _ = _keygen(tmp_path, "--unencrypted")
-    assert code == 0 and priv.read_bytes().startswith(CLEAR)
+    assert code == 0
+    assert priv.read_bytes().startswith(CLEAR)
     audit.load_private_key(priv)
     err = capsys.readouterr().err
-    assert "WARNING: --unencrypted: the private key is written IN THE CLEAR" in err and "can sign as its owner" in err
+    assert "WARNING: --unencrypted: the private key is written IN THE CLEAR" in err
+    assert "can sign as its owner" in err
 
 
 def test_a_private_key_is_created_exclusively_and_owner_only(tmp_path):
@@ -102,7 +110,8 @@ def test_the_bench_key_is_encrypted_unless_told_and_an_old_clear_one_still_loads
     monkeypatch.setenv(mod.PASSPHRASE_ENV, "bench pass")
     mod.new_key("dev")
     assert (tmp_path / "a" / BENCH).read_bytes().startswith(ENCRYPTED)
-    assert isinstance(mod.load_key(), Ed25519PrivateKey) and capsys.readouterr().err == ""
+    assert isinstance(mod.load_key(), Ed25519PrivateKey)
+    assert capsys.readouterr().err == ""
     monkeypatch.delenv(mod.PASSPHRASE_ENV)
     with pytest.raises(SystemExit, match="is encrypted: set WARDEN_BENCH_KEY_PASSPHRASE"):
         mod.load_key()
@@ -118,7 +127,8 @@ def test_the_bench_key_is_encrypted_unless_told_and_an_old_clear_one_still_loads
     err = capsys.readouterr().err
     assert f"WARNING: {old} is not encrypted" in err
     # The warning names the variable to set (CodeQL py/clear-text-logging: a name, never its value).
-    assert mod.UNLOCK_VARIABLE == mod.PASSPHRASE_ENV and f"set {mod.PASSPHRASE_ENV}," in err
+    assert mod.UNLOCK_VARIABLE == mod.PASSPHRASE_ENV
+    assert f"set {mod.PASSPHRASE_ENV}," in err
 
     mod = _bench(monkeypatch, tmp_path / "b" / BENCH)
     monkeypatch.delenv(mod.PASSPHRASE_ENV)

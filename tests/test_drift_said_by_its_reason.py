@@ -10,7 +10,9 @@ from warden.activities import OUTCOME
 
 def test_a_voided_plan_is_not_said_to_be_a_changed_target():
     said = OUTCOME["drifted"].format(entry="lambda_move_alias", target="dev/lambda:warden-dev-checkout")
-    assert "changed after the plan" not in said and "the reason is below" in said and "nothing was changed" in said
+    assert "changed after the plan" not in said
+    assert "the reason is below" in said
+    assert "nothing was changed" in said
     assert records.ENDED["drifted"][0] == "Changed since planned - not applied"
     assert records.TOLD["drifted"] == "Changed since planned"
     for words in (records.ENDED["drifted"][0], records.TOLD["drifted"]):

@@ -60,8 +60,10 @@ def test_a_record_says_how_it_ended_who_decided_with_their_note_and_what_tried_t
     log, policy = _log(tmp_path), _named(page_setup[0].policy)
     _incident(log)
     r = records.record(log, INC, policy)
-    assert (r.status, r.kind) == ("Fixed and held", "ok") and r.alarm == "warden-dev-lab-tick-silent"
-    assert r.plan["entry"] == "events_enable_rule" and r.hypothesis == "The schedule was switched off"
+    assert (r.status, r.kind) == ("Fixed and held", "ok")
+    assert r.alarm == "warden-dev-lab-tick-silent"
+    assert r.plan["entry"] == "events_enable_rule"
+    assert r.hypothesis == "The schedule was switched off"
     [d] = r.decisions
     assert (d["what"], d["who"], d["how"], d["note"]) == ("Approved", "Asha Rao", "passkey", HOSTILE)
     assert any("injection check flagged" in f and "L3" in f for f in r.flags)
@@ -77,7 +79,8 @@ def test_a_denial_is_a_decision_with_its_reason_and_nobody_is_shown_by_the_lists
     assert [(d["what"], d["who"], d["note"]) for d in r.decisions] == [("Denied", "Asha Rao", "not now"),
                                                                        ("Denied", "an approver", "x")]
     page = records.incident_page(r) + records.list_page([r])
-    assert "owner" not in page.replace("WARDEN", "") and "ghost" not in page
+    assert "owner" not in page.replace("WARDEN", "")
+    assert "ghost" not in page
 
 
 def test_every_value_on_a_page_is_text_never_markup(page_setup, tmp_path):  # noqa: F811
@@ -85,11 +88,16 @@ def test_every_value_on_a_page_is_text_never_markup(page_setup, tmp_path):  # no
     _incident(log)
     r = records.record(log, INC, _named(page_setup[0].policy))
     for page in (records.list_page([r]), records.incident_page(r)):
-        assert "<script>alert" not in page and "<img src=x" not in page and "onerror=alert(1)>" not in page
+        assert "<script>alert" not in page
+        assert "<img src=x" not in page
+        assert "onerror=alert(1)>" not in page
         assert "&lt;script&gt;" in page or "&lt;img" in page
-        assert page.count("<script") == 1 and "{{" not in page.replace("{{NONCE}}", "")
-    assert "Open the full record" in records.list_page([r]) and f'href="/r/{INC}"' in records.list_page([r])
-    assert "Every step on the record" in records.incident_page(r) and "(" in records.incident_page(r)  # local time
+        assert page.count("<script") == 1
+        assert "{{" not in page.replace("{{NONCE}}", "")
+    assert "Open the full record" in records.list_page([r])
+    assert f'href="/r/{INC}"' in records.list_page([r])
+    assert "Every step on the record" in records.incident_page(r)
+    assert "(" in records.incident_page(r)  # local time
 
 
 # ------------------------------------------------------------------ who may read them
@@ -108,20 +116,30 @@ def test_the_records_open_only_for_an_approver_or_a_listed_viewer_slack_named(pa
     monkeypatch.delenv("WARDEN_RECORD_VIEWERS", raising=False)
     page, _ = _page(page_setup, tmp_path)
     out = page.handle("GET", "/r")
-    assert out.status == 200 and 'href="/s/r"' in out.body and INC not in out.body  # sign in first, nothing shown
+    assert out.status == 200
+    assert 'href="/s/r"' in out.body
+    assert INC not in out.body  # sign in first, nothing shown
     stranger = ["warden_who=" + slack_login.remember(page.slack, OTHER)]
     out = page.handle("GET", "/r", cookies=stranger)
-    assert out.status == 403 and INC not in out.body and "Not on the list" in out.body
+    assert out.status == 403
+    assert INC not in out.body
+    assert "Not on the list" in out.body
     approver = ["warden_who=" + slack_login.remember(page.slack, MEMBER)]
     out = page.handle("GET", "/r", cookies=approver)
-    assert out.status == 200 and INC in out.body and "warden-dev-lab-tick-silent" in out.body
+    assert out.status == 200
+    assert INC in out.body
+    assert "warden-dev-lab-tick-silent" in out.body
     nonce = out.headers["Content-Security-Policy"].split("'nonce-")[1].split("'")[0]
-    assert f'nonce="{nonce}"' in out.body and "{{NONCE}}" not in out.body and "frame-ancestors 'none'" in (
-        out.headers["Content-Security-Policy"])
+    assert f'nonce="{nonce}"' in out.body
+    assert "{{NONCE}}" not in out.body
+    assert ("frame-ancestors 'none'" in (
+        out.headers["Content-Security-Policy"]))
     monkeypatch.setenv("WARDEN_RECORD_VIEWERS", f"{OTHER}, ")
     assert page.handle("GET", "/r", cookies=stranger).status == 200
     one = page.handle("GET", f"/r/{INC}", cookies=approver)
-    assert one.status == 200 and "Asha Rao" in one.body and "Complete findings" in one.body
+    assert one.status == 200
+    assert "Asha Rao" in one.body
+    assert "Complete findings" in one.body
     for path, method in ((f"/r/discuss-{INC}", "GET"), ("/r/no-such", "GET"), ("/r", "POST"), (f"/r/{INC}/x", "GET")):
         assert page.handle(method, path, cookies=approver).status == 404, path
     forged = ["warden_who=" + MEMBER + ".9999999999.forged"]
@@ -133,7 +151,8 @@ def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(
 
     def sign_in(page, slack, path="/s/r"):
         out = page.handle("GET", path)
-        assert out.status == 302 and out.headers["Location"].startswith(slack_login.AUTHORIZE_ENDPOINT)
+        assert out.status == 302
+        assert out.headers["Location"].startswith(slack_login.AUTHORIZE_ENDPOINT)
         cookie = out.headers["Set-Cookie"].split(";")[0]
         asked = urllib.parse.parse_qs(urllib.parse.urlparse(out.headers["Location"]).query)
         assert asked["state"] == [hashlib.sha256(cookie.split("=", 1)[1].encode()).hexdigest()]
@@ -144,18 +163,22 @@ def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(
     slack = Slack()
     page = dataclasses.replace(page, slack=_login(slack))
     back = sign_in(page, slack)
-    assert back.status == 302 and back.headers["Location"] == "/r" and "warden_who=" + MEMBER in back.headers["Set-Cookie"]
+    assert back.status == 302
+    assert back.headers["Location"] == "/r"
+    assert "warden_who=" + MEMBER in back.headers["Set-Cookie"]
     stranger = Slack(**{slack_login.USER_CLAIM: OTHER})
     page = dataclasses.replace(page, slack=_login(stranger))
     refused = sign_in(page, stranger)
-    assert refused.status == 403 and "Set-Cookie" not in refused.headers
+    assert refused.status == 403
+    assert "Set-Cookie" not in refused.headers
     # 2026-10-15: a report's "Full record" button landed on the list once signed in. The incident opened is where
     # the reader comes back to - only an incident id's shape travels through Slack's sign-in.
     page = dataclasses.replace(page, slack=_login(slack))
     signed_out = page.handle("GET", f"/r/{INC}")
     assert f'href="/s/r/{INC}"' in signed_out.body
     assert sign_in(page, slack, f"/s/r/{INC}").headers["Location"] == f"/r/{INC}"
-    assert page.handle("GET", "/s/r/a%2Fb..c d").status == 404 and page.handle("GET", "/s/r/x/y").status == 404
+    assert page.handle("GET", "/s/r/a%2Fb..c d").status == 404
+    assert page.handle("GET", "/s/r/x/y").status == 404
 
 
 def test_open_all_opens_every_panel_and_every_page_leads_to_all_incidents(page_setup, tmp_path):  # noqa: F811
@@ -166,7 +189,8 @@ def test_open_all_opens_every_panel_and_every_page_leads_to_all_incidents(page_s
     log.append(INC, "incident.evidence", {"prompt": "what the model saw"})
     r = records.record(log, INC, _named(page_setup[0].policy))
     page = records.incident_page(r)
-    assert 'querySelectorAll("details.block")' in page and 'id="all"' in page
+    assert 'querySelectorAll("details.block")' in page
+    assert 'id="all"' in page
     assert page.count('<details class="block') == page.count("details class=\"block finding\"") + 2  # evidence, steps
     bare = records.record(log, INC, _named(page_setup[0].policy))
     bare.report = ""
@@ -192,9 +216,13 @@ def test_a_waiting_plans_record_gives_its_approver_a_button_that_opens_the_plan(
     page = dataclasses.replace(page, log=log)
     me = ["warden_who=" + slack_login.remember(page.slack, MEMBER)]
     out = page.handle("GET", f"/r/{INC}", cookies=me)
-    assert out.status == 200 and f'href="/r/{INC}?approve=1"' in out.body and records.APPROVE_LABEL in out.body
+    assert out.status == 200
+    assert f'href="/r/{INC}?approve=1"' in out.body
+    assert records.APPROVE_LABEL in out.body
     go = page.handle("GET", f"/r/{INC}", query="approve=1", cookies=me)
-    assert go.status == 303 and go.headers["Location"].startswith("/a/") and len(go.headers["Location"]) == 3 + 43
+    assert go.status == 303
+    assert go.headers["Location"].startswith("/a/")
+    assert len(go.headers["Location"]) == 3 + 43
     link = page.store.link(go.headers["Location"][3:])
     assert (link.workflow_id, link.approver) == ("rem-dev-9", "owner")
     assert not [e for e in log.entries(INC) if e["kind"].startswith("approval.accepted")]  # nothing approved
@@ -245,7 +273,9 @@ def test_the_channel_gets_the_reports_top_and_the_rest_waits_on_the_record_page(
 
     md = "# T\nAlert\n\n## Summary\n- a\n\n## Who acts now\n- b\n\n## What WARDEN read\n- c\n" + "x" * 5000
     top = slack_summary(md)
-    assert top.endswith("- b") and "What WARDEN read" not in top and len(top) < 100
+    assert top.endswith("- b")
+    assert "What WARDEN read" not in top
+    assert len(top) < 100
     assert len(slack_summary("no sections " * 1000)) <= 2400
 
 
@@ -269,8 +299,10 @@ def test_a_plans_request_is_the_incidents_one_message_with_its_summary_and_recor
                                                       "\n- the summary\n\n## What WARDEN read\n- the rest"})
     _run(world, _no_approval)
     opening = sent[0]
-    assert opening.markdown.startswith("# WARDEN incident report - orders (dev)") and "- the summary" in opening.markdown
-    assert "**Fix plan:** WARDEN's plan" in opening.markdown and "the rest" not in opening.markdown
+    assert opening.markdown.startswith("# WARDEN incident report - orders (dev)")
+    assert "- the summary" in opening.markdown
+    assert "**Fix plan:** WARDEN's plan" in opening.markdown
+    assert "the rest" not in opening.markdown
     assert [label for label, _ in opening.actions] == [chatops.LINK_LABEL, chatops.RECORD_LABEL, chatops.ALL_LABEL]
     assert "## Summary" not in sent[1].markdown  # the halfway reminder is the plan alone
 
@@ -293,12 +325,17 @@ def test_the_complete_findings_are_on_the_page_section_by_section_and_stay_text(
     page = records.incident_page(records.record(log, INC, _named(page_setup[0].policy)))
     assert page.count('<details class="block finding">') == 3  # every section but the Summary, which is above
     assert "<summary>What WARDEN thinks happened  (model)</summary>" in page
-    assert "<strong>disabled</strong>" in page and "<code>07:06</code>" in page
-    assert '<li class="sub">nested <code>x</code></li>' in page and "<em>Identifiers are masked.</em>" in page
+    assert "<strong>disabled</strong>" in page
+    assert "<code>07:06</code>" in page
+    assert '<li class="sub">nested <code>x</code></li>' in page
+    assert "<em>Identifiers are masked.</em>" in page
     assert '<pre class="code">&lt;script&gt;alert(1)&lt;/script&gt; line</pre>' in page
-    assert "<img" not in page and "look &lt;img src=x onerror=alert(2)&gt;" in page  # an ordinary line stays text
-    assert "The evidence WARDEN read, exactly as its model was shown it" in page and "&lt;b&gt;bold?&lt;/b&gt;" in page
-    assert page.count("<script") == 1 and 'id="all"' in page  # one script: "open all"
+    assert "<img" not in page
+    assert "look &lt;img src=x onerror=alert(2)&gt;" in page  # an ordinary line stays text
+    assert "The evidence WARDEN read, exactly as its model was shown it" in page
+    assert "&lt;b&gt;bold?&lt;/b&gt;" in page
+    assert page.count("<script") == 1
+    assert 'id="all"' in page  # one script: "open all"
 
 
 def test_every_incident_stays_listed_with_no_time_limit_newest_first_by_day_fifty_a_page(page_setup, tmp_path):  # noqa: F811
@@ -316,20 +353,28 @@ def test_every_incident_stays_listed_with_no_time_limit_newest_first_by_day_fift
         cid = f"{n:016x}-20261013T{n:06d}Z"
         log.append(cid, "incident.ingest", {"node": "ingest", "alert_id": cid, "env": "dev"})
     ids = records.incident_ids(log)
-    assert len(ids) == 120 and ids[-1] == old and ids[0] == f"{118:016x}-20261013T{118:06d}Z"  # newest first
+    assert len(ids) == 120
+    assert ids[-1] == old
+    assert ids[0] == f"{118:016x}-20261013T{118:06d}Z"  # newest first
 
     policy = _named(page_setup[0].policy)
     policy.approvers["owner"].slack = MEMBER
     page = dataclasses.replace(page_setup[0], log=log, policy=policy, slack=_login(Slack()))
     me = ["warden_who=" + slack_login.remember(page.slack, MEMBER)]
     first, last, beyond = (page.handle("GET", "/r", query=q, cookies=me) for q in ("", "page=3", "page=99"))
-    assert first.body.count('<details class="row">') == 50 and "Page 1 of 3" in first.body
-    assert "120 incidents on the record" in first.body and 'href="/r?page=2" rel="next">Older' in first.body
-    assert last.body.count('<details class="row">') == 20 and "Page 3 of 3" in last.body
-    assert old in last.body and "Tuesday 14 October 2025" in last.body and 'rel="prev">Newer' in last.body
+    assert first.body.count('<details class="row">') == 50
+    assert "Page 1 of 3" in first.body
+    assert "120 incidents on the record" in first.body
+    assert 'href="/r?page=2" rel="next">Older' in first.body
+    assert last.body.count('<details class="row">') == 20
+    assert "Page 3 of 3" in last.body
+    assert old in last.body
+    assert "Tuesday 14 October 2025" in last.body
+    assert 'rel="prev">Newer' in last.body
     assert beyond.body == last.body.replace(_nonce(last), _nonce(beyond))  # past the end: the last page
     assert page.handle("GET", f"/r/{old}", cookies=me).status == 200  # a year on, its own page still opens
-    assert '<h2 class="day">' in first.body and "Tuesday 13 October 2026" in first.body
+    assert '<h2 class="day">' in first.body
+    assert "Tuesday 13 October 2026" in first.body
 
 
 def test_independent_check_fixes_the_records_close_without_sign_in_name_people_and_show_what_was_said(
@@ -347,15 +392,23 @@ def test_independent_check_fixes_the_records_close_without_sign_in_name_people_a
     page = dataclasses.replace(page_setup[0], log=log, slack=None)
     for path in ("/r", f"/r/{INC}"):
         out = page.handle("GET", path)
-        assert out.status == 503 and INC not in out.body and "Sign-in is not set up" in out.body
+        assert out.status == 503
+        assert INC not in out.body
+        assert "Sign-in is not set up" in out.body
     r = records.record(log, INC, _named(page_setup[0].policy))
     one = records.incident_page(r)
-    assert "Asha Rao may not approve T3" in one and "owner" not in one.replace("WARDEN", "")
-    assert "What WARDEN told people" in one and "Asked for approval</strong>" in one
-    assert "Approved</strong>" in one and "kept here, not posted" in one and "approved by `Asha Rao`" in one
+    assert "Asha Rao may not approve T3" in one
+    assert "owner" not in one.replace("WARDEN", "")
+    assert "What WARDEN told people" in one
+    assert "Asked for approval</strong>" in one
+    assert "Approved</strong>" in one
+    assert "kept here, not posted" in one
+    assert "approved by `Asha Rao`" in one
     assert "passed its checks - waits for a person" in one  # the verdict in words, not approved_for_human
     light = records.record(log, INC, _named(page_setup[0].policy), light=True)
-    assert light.evidence == "" and light.report == "" and r.evidence == "L1 kept evidence"
+    assert light.evidence == ""
+    assert light.report == ""
+    assert r.evidence == "L1 kept evidence"
 
 
 def _nonce(r):
@@ -377,9 +430,12 @@ def test_an_incident_whose_fix_run_ends_before_any_message_still_gets_its_one_me
     acts = RemediationActivities(audit=log, policy=_policy(), platform=None)
     assert acts.summary_owed(INC, "failed") == ["test"]
     [said] = sink.sent
-    assert said.startswith("# WARDEN incident report - tick (dev)") and "- the summary" in said
-    assert "ended `failed` before it reached a decision" in said and "the rest" not in said
-    assert acts.summary_owed(INC, "cancelled") == [] and len(sink.sent) == 1  # once, never twice
+    assert said.startswith("# WARDEN incident report - tick (dev)")
+    assert "- the summary" in said
+    assert "ended `failed` before it reached a decision" in said
+    assert "the rest" not in said
+    assert acts.summary_owed(INC, "cancelled") == []
+    assert len(sink.sent) == 1  # once, never twice
     # A fresh incident whose summary went nowhere: the first message about its plan carries it, even with no domain.
     other = "fedcba9876543210-20261014T090000Z"
     log.append(other, "incident.report", {"markdown": report})
@@ -389,4 +445,5 @@ def test_an_incident_whose_fix_run_ends_before_any_message_still_gets_its_one_me
     src = (ROOT / "src" / "warden" / "activities.py").read_text(encoding="utf-8")
     assert "return []  # no approval domain" not in src  # the request goes without buttons, never not at all
     flow = (ROOT / "src" / "warden" / "workflows.py").read_text(encoding="utf-8")
-    assert 'elif workflow.patched("g10-summary-owed"):' in flow and "acts.summary_owed" in flow
+    assert 'elif workflow.patched("g10-summary-owed"):' in flow
+    assert "acts.summary_owed" in flow

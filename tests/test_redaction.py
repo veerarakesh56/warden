@@ -187,7 +187,8 @@ def test_mac_addresses_are_masked_as_device_reidentifiers():
                       ("switch 001a.2b3c.4d5e", "001a.2b3c.4d5e")]:
         r = redact(text)
         assert mac not in r.text, f"MAC {mac} leaked"
-        assert "<MAC_" in r.text and "<IPV6_" not in r.text, "masked as MAC, not IPv6"
+        assert "<MAC_" in r.text, "masked as MAC, not IPv6"
+        assert "<IPV6_" not in r.text, "masked as MAC, not IPv6"
     assert redact("event at 10:02:11 today").size == 0, "a time must not be masked as a MAC"
 
 
@@ -246,7 +247,8 @@ def test_a_secret_that_looks_like_a_placeholder_token_does_not_corrupt():
     """
     text = "tenant_id=UUID_1 trace 3f2504e0-4f89-11d3-9a0c-0305e82c3301"
     r = redact(text)
-    assert "<<" not in r.text and ">>" not in r.text, f"corrupted placeholder: {r.text!r}"
+    assert "<<" not in r.text, f"corrupted placeholder: {r.text!r}"
+    assert ">>" not in r.text, f"corrupted placeholder: {r.text!r}"
     assert r.text.count("<UUID_1>") == 1
     assert r.text.count("<TENANT_1>") == 1
     assert r.restore(r.text) == text, "restore must reproduce the original exactly"
@@ -326,7 +328,8 @@ def test_identifiers_and_timestamps_are_not_masked_as_phone_numbers(text):
 ])
 def test_real_phone_numbers_are_still_masked(text, number):
     r = redact(text)
-    assert number not in r.text and "<PHONE_" in r.text, r.text
+    assert number not in r.text, r.text
+    assert "<PHONE_" in r.text, r.text
     assert ("2026-10-10" in text) == ("2026-10-10" in r.text)
 
 
@@ -340,14 +343,16 @@ def test_a_short_tenant_value_does_not_rewrite_every_status_code():
     """Audit A-C-4: `user_id=500` put "500" in the map and the literal sweep turned every HTTP 500
     in the text into the tenant placeholder."""
     out = redact("user_id=500 then GET /cart HTTP 500 and SELECT 500 FROM t")
-    assert "HTTP 500" in out.text and "SELECT 500" in out.text
+    assert "HTTP 500" in out.text
+    assert "SELECT 500" in out.text
     assert "user_id=<TENANT_1>" in out.text
 
 
 def test_a_mid_length_value_is_swept_only_where_it_stands_alone():
     out = redact("tenant_id=acme42 then acme42 again, but not xacme42x or acme420")
     assert out.text.count("<TENANT_1>") == 2
-    assert "xacme42x" in out.text and "acme420" in out.text
+    assert "xacme42x" in out.text
+    assert "acme420" in out.text
 
 
 def test_a_long_value_is_swept_even_inside_a_longer_token():
@@ -393,7 +398,8 @@ def test_each_pattern_masks_its_own_shape(kind, text, secret):
     """Audit A-C-VT: the older rows passed because a DIFFERENT pattern (BEARER, SECRET, HIGHENTROPY)
     caught the value. Asserting the placeholder kind makes each row fail when its own pattern goes."""
     out = redact(text).text
-    assert secret not in out and f"<{kind}_" in out, out
+    assert secret not in out, out
+    assert f"<{kind}_" in out, out
 
 
 @pytest.mark.parametrize("sep", ["=", ": ", " "])
@@ -402,4 +408,5 @@ def test_a_high_entropy_value_after_any_key_is_masked(sep):
     right after `blob=` (a key no credential pattern names) was never masked."""
     value = "Ab3" + "xK9mQ2" * 7
     out = redact(f"blob{sep}{value}").text
-    assert value not in out and "<HIGHENTROPY_" in out, out
+    assert value not in out, out
+    assert "<HIGHENTROPY_" in out, out
