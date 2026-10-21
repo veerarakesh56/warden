@@ -80,12 +80,16 @@ def test_an_environment_with_no_channel_is_withheld_and_recorded_never_cross_pos
     for env in ("prod", ""):
         slack.clear()
         [sent] = _send(log, "inc-9", _report(env, "inc-9"))
-        assert not sent.delivered and sent.detail.startswith(chatops.WITHHELD) and slack == []
+        assert not sent.delivered
+        assert sent.detail.startswith(chatops.WITHHELD)
+        assert slack == []
     rows = [e["body"]["detail"] for e in log.entries("inc-9", kinds=("chatops.withheld",))]
     assert rows == ["withheld: no channel for prod", "withheld: no channel for an incident with no environment"]
     monkeypatch.delenv("WARDEN_SLACK_BOT_TOKEN")
     [sent] = chatops.notify(_report("dev"))
-    assert not sent.delivered and "WARDEN_SLACK_BOT_TOKEN" in sent.detail and slack == []
+    assert not sent.delivered
+    assert "WARDEN_SLACK_BOT_TOKEN" in sent.detail
+    assert slack == []
 
 
 @pytest.mark.parametrize("value", [
@@ -110,7 +114,8 @@ def test_a_malformed_map_refuses(value, monkeypatch, slack):
 
 def test_both_settings_are_plain_and_loadable():
     for name in ("WARDEN_SLACK_CHANNELS", "WARDEN_DISCUSS_CHANNELS"):
-        assert name in settings.LOADABLE - settings.SECRETS and name not in settings.RESTRICTED
+        assert name in settings.LOADABLE - settings.SECRETS
+        assert name not in settings.RESTRICTED
 
 
 def test_a_thread_is_continued_and_updated_only_in_the_channel_it_is_in(slack, tmp_path, monkeypatch):
@@ -142,8 +147,10 @@ def test_a_thread_is_continued_and_updated_only_in_the_channel_it_is_in(slack, t
         old = {"inc-2": {"ts": "2.000002"}}
         slack.clear()
         chatops.SlackBotSink(TOKEN, DEV, live=True, threads=old).send("y", {"alert": {"id": "inc-2"}})
-        assert slack and all(m == "chat.postMessage" and p.get("thread_ts") != "2.000002" for m, p in slack), single
-        assert old["inc-2"]["channel"] == DEV and old["inc-2"]["ts"] != "2.000002", old
+        assert slack, single
+        assert all(m == "chat.postMessage" and p.get("thread_ts") != "2.000002" for m, p in slack), single
+        assert old["inc-2"]["channel"] == DEV, old
+        assert old["inc-2"]["ts"] != "2.000002", old
 
 
 def test_without_the_map_slack_is_as_before(slack, monkeypatch):
@@ -152,7 +159,8 @@ def test_without_the_map_slack_is_as_before(slack, monkeypatch):
     monkeypatch.setenv("WARDEN_SLACK_WEBHOOK", HOOK)
     for env in ("dev", "prod", None):
         sinks = chatops.resolve_sinks(environment=env)
-        assert [s.name for s in sinks] == ["slack-bot", "slack"] and sinks[0].channel == DEV
+        assert [s.name for s in sinks] == ["slack-bot", "slack"]
+        assert sinks[0].channel == DEV
     monkeypatch.delenv("WARDEN_DISCUSS_CHANNELS", raising=False)
     monkeypatch.setenv("WARDEN_DISCUSS_CHANNEL", DEV_TALK)
     assert discuss.channels() == {DEV_TALK: ""}
@@ -179,11 +187,15 @@ def test_a_discussion_channel_refuses_another_environments_incident_before_readi
     _alarm(log, INCIDENT, "prod")
     dev_turn = _turn("<@UWARDEN> why?").model_copy(update={"environment": "dev"})
     thread = acts.discuss_thread(dev_turn)
-    assert thread.elsewhere and thread.incident == "" and thread.lines == []
+    assert thread.elsewhere
+    assert thread.incident == ""
+    assert thread.lines == []
     [row] = [e["body"] for e in log.entries(f"discuss-{INCIDENT}", kinds=("discuss.turn",))]
-    assert row["refused"] and row["environment"] == "dev"
+    assert row["refused"]
+    assert row["environment"] == "dev"
     prod_turn = dev_turn.model_copy(update={"environment": "prod"})
-    assert acts.discuss_thread(prod_turn).incident == INCIDENT and not acts.discuss_thread(prod_turn).elsewhere
+    assert acts.discuss_thread(prod_turn).incident == INCIDENT
+    assert not acts.discuss_thread(prod_turn).elsewhere
     assert acts.discuss_thread(_turn("<@UWARDEN> why?")).incident == INCIDENT  # one channel for every environment
 
     async def main(turn):
@@ -197,7 +209,8 @@ def test_a_discussion_channel_refuses_another_environments_incident_before_readi
 
     world["posted"].clear()
     said = asyncio.run(main(dev_turn))
-    assert said == discuss.ELSEWHERE.format(environment="dev") and "prod" not in said
+    assert said == discuss.ELSEWHERE.format(environment="dev")
+    assert "prod" not in said
     assert [m for m, *_ in world["posted"]].count("chat.postMessage") == 1  # the refusal; nothing else of it
 
 

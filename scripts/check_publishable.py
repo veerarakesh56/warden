@@ -187,49 +187,67 @@ def _is_text(path: pathlib.Path) -> bool:
     return b"\0" not in chunk
 
 
+def _relative(path: pathlib.Path, root: pathlib.Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _read(path: pathlib.Path) -> str | None:
+    """The file's text, or None when it is gone or unreadable."""
+    if not path.exists():
+        return None
+    try:
+        # A binary file is read through its bytes (audit A-B-L18): it went unscanned, and a SQLite file or an
+        # archive holds text as plain bytes.
+        return (path.read_text(encoding="utf-8", errors="replace") if _is_text(path)
+                else re.sub(rb"[^\x20-\x7e\n]", b" ", path.read_bytes()).decode("ascii"))
+    except OSError:
+        return None
+
+
+def _line_findings(rel: str, number: int, line: str) -> list[str]:
+    """Every value on one line that one of PATTERNS matches and is neither ALLOWED nor a placeholder."""
+    findings: list[str] = []
+    for name, pattern, human in PATTERNS:
+        for match in pattern.finditer(line):
+            value = match.group(1) if match.groups() else match.group(0)
+            if value in ALLOWED:
+                continue
+            # ⛔ THE VALUE, NOT THE LINE. This used to test the whole line, which meant one
+            # placeholder anywhere on a line suppressed EVERY finding on it - and redaction
+            # writes `<ACCOUNT>` into exactly those lines. So redacting an account id turned
+            # off scanning for the real credential sitting beside it, and a JSON report is
+            # usually one line, so a single `<ACCOUNT>` blinded the whole file.
+            #
+            # That defeated the one guarantee this script exists to give: "the redactor ran"
+            # and "the redactor worked" are different claims, and the second was no longer
+            # being checked. Found by planting an AWS key next to an ARN and watching the
+            # publish step wave it through.
+            if PLACEHOLDER.search(value):
+                continue
+            shown = value if len(value) <= 8 else f"{value[:4]}...{value[-2:]}"
+            findings.append(f"{rel}:{number}: {human} ({name}: {shown})")
+    return findings
+
+
 def scan(paths: list[pathlib.Path], *, root: pathlib.Path) -> list[str]:
     findings: list[str] = []
 
     for path in paths:
-        try:
-            rel = path.relative_to(root).as_posix()
-        except ValueError:
-            rel = str(path)
+        rel = _relative(path, root)
 
         if FORBIDDEN_NAMES.search(rel) and not ALLOWED_NAMES.search(rel):
             findings.append(f"{rel}: this file must never be tracked by git")
             continue
 
-        if not path.exists():
-            continue
-        try:
-            # A binary file is read through its bytes (audit A-B-L18): it went unscanned, and a SQLite file or an
-            # archive holds text as plain bytes.
-            text = (path.read_text(encoding="utf-8", errors="replace") if _is_text(path)
-                    else re.sub(rb"[^\x20-\x7e\n]", b" ", path.read_bytes()).decode("ascii"))
-        except OSError:
+        text = _read(path)
+        if text is None:
             continue
 
         for number, line in enumerate(text.splitlines(), start=1):
-            for name, pattern, human in PATTERNS:
-                for match in pattern.finditer(line):
-                    value = match.group(1) if match.groups() else match.group(0)
-                    if value in ALLOWED:
-                        continue
-                    # ⛔ THE VALUE, NOT THE LINE. This used to test the whole line, which meant one
-                    # placeholder anywhere on a line suppressed EVERY finding on it - and redaction
-                    # writes `<ACCOUNT>` into exactly those lines. So redacting an account id turned
-                    # off scanning for the real credential sitting beside it, and a JSON report is
-                    # usually one line, so a single `<ACCOUNT>` blinded the whole file.
-                    #
-                    # That defeated the one guarantee this script exists to give: "the redactor ran"
-                    # and "the redactor worked" are different claims, and the second was no longer
-                    # being checked. Found by planting an AWS key next to an ARN and watching the
-                    # publish step wave it through.
-                    if PLACEHOLDER.search(value):
-                        continue
-                    shown = value if len(value) <= 8 else f"{value[:4]}...{value[-2:]}"
-                    findings.append(f"{rel}:{number}: {human} ({name}: {shown})")
+            findings.extend(_line_findings(rel, number, line))
     return findings
 
 

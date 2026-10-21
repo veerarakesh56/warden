@@ -29,7 +29,9 @@ def _body(*alerts):
 def test_only_a_caller_with_the_secret_gets_in_and_learns_nothing_else():
     for headers in ({}, {"Authorization": "Bearer nope"}, {"Authorization": SECRET}, {"authorization": "Basic x"}):
         r = webhooks.receive(headers, _body(_alert()), secrets=[SECRET], environment="dev")
-        assert r.status == 401 and r.events == [] and r.refused == []
+        assert r.status == 401
+        assert r.events == []
+        assert r.refused == []
     assert webhooks.receive(AUTH, _body(_alert()), secrets=[SECRET], environment="dev").status == 202
     # During a rotation both the new and the old secret work; an empty secret never matches.
     old = {"Authorization": f"Bearer {OLD}"}
@@ -49,17 +51,22 @@ def test_each_alert_becomes_one_event_and_an_unreadable_one_is_refused_alone():
     r = webhooks.receive(AUTH, _body(_alert(), _alert(fp="e5f6", status="resolved"),
                                      _alert(fp="bad", environment="prod; rm -rf")), secrets=[SECRET],
                          environment="dev")
-    assert r.status == 202 and [e.state for e in r.events] == ["ALARM", "OK"]
+    assert r.status == 202
+    assert [e.state for e in r.events] == ["ALARM", "OK"]
     first = r.events[0]
-    assert first.alert.alert_id == "a1b2c3d4" and first.rule == "HighErrorRate" and first.alert.environment == "dev"
+    assert first.alert.alert_id == "a1b2c3d4"
+    assert first.rule == "HighErrorRate"
+    assert first.alert.environment == "dev"
     assert first.transitioned_at.isoformat().startswith("2026-10-03T09:00:00")
-    assert len(r.refused) == 1 and r.refused[0].startswith("alert bad")
+    assert len(r.refused) == 1
+    assert r.refused[0].startswith("alert bad")
 
 
 def test_a_forged_alert_alertmanager_never_fired_is_not_acted_on():
     events = webhooks.receive(AUTH, _body(_alert(), _alert(fp="f0r63d")), secrets=[SECRET], environment="dev").events
     kept, dropped = webhooks.confirm_firing(events, active=lambda: {"a1b2c3d4"})
-    assert [e.alert.alert_id for e in kept] == ["a1b2c3d4"] and "f0r63d" in dropped[0]
+    assert [e.alert.alert_id for e in kept] == ["a1b2c3d4"]
+    assert "f0r63d" in dropped[0]
     nothing, _ = webhooks.confirm_firing(events, active=set)  # Alertmanager unreadable: nothing is confirmed
     assert nothing == []
     decision = intake.decide(kept[0], recent=[], open_incidents={}, verifying={}, open_count=0)
