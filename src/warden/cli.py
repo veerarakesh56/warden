@@ -517,7 +517,7 @@ async def _history(client, workflow_id: str) -> int:
 async def _workflow_command(args: argparse.Namespace) -> int:
     from . import runtime
 
-    if args.cmd == "worker" and not _channels_ok():
+    if args.cmd == "worker" and not _worker_settings_ok(args):
         return 1
     client = await runtime.connect()
     if args.cmd == "history":
@@ -538,14 +538,16 @@ async def _workflow_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def _channels_ok() -> bool:
-    """`warden worker` starts only with a well-formed channel map for every environment."""
-    from . import discuss
+def _worker_settings_ok(args: argparse.Namespace) -> bool:
+    """`warden worker` starts only with a well-formed channel map for every environment and, for the core zone, only
+    zones WARDEN has to vouch for (B35, runtime.heartbeat_zones)."""
+    from . import discuss, runtime
     from .settings import by_environment
 
     try:  # each environment's own channels: a malformed map refuses to start, never routes a guess
         by_environment("WARDEN_SLACK_CHANNELS")
         discuss.channels()
+        runtime.heartbeat_zones(args.zone)
     except ValueError as exc:
         _out(f"error: {exc}", err=True)
         return False
@@ -575,7 +577,7 @@ async def _worker_command(client, args: argparse.Namespace) -> int:
         else:  # register C13: a beat only while a full round trip works; the alarm on silence is outside WARDEN
             await runtime.heartbeat(client, publish, log=lambda line: _out(line, err=True),
                                     shadow=runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC)
-                                    if args.zone == "all" else None)
+                                    if args.zone == "all" else None, zones=runtime.heartbeat_zones(args.zone))
     return 0
 
 
