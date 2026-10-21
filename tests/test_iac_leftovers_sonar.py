@@ -1,13 +1,16 @@
-"""SonarCloud's IaC findings PR 46 left open (2026-10-17), each fixed with an equivalent that costs nothing, or kept by
-design with the reason held here:
+"""SonarCloud's IaC findings PR 46 left open (2026-10-17), each fixed - with an equivalent that costs nothing where
+there is one (owner, 2026-10-20: none stays open by design):
 
 - S6258: the runtime's anchors and witness buckets log every access; the dev stack's ALB logs every request.
 - S6327: the order-events topic is encrypted with the AWS-managed key, and its one publisher may use it through SNS.
 - S5332: the internal ALB answers over HTTPS only, with the stack's own certificate (its caller's side, a real
   handshake included, is tests/test_traffic_alb_tls.py, in the apps lane).
 - S6413: the proving ground keeps its logs 14 days.
-- By design, owner to review: the lab database's public endpoint (S8793) and its backups (S6364), the runtime image's
-  shared /tmp (docker S2612), the webhook routes (S6333) and the negative Pod Security test (S6428).
+- S6364: the lab database keeps 7 days of backups, deleted with it.
+- S2612: no image grants write to others; the runtime image checks Debian's sticky /tmp at build.
+- S6333: the webhook routes pass the gateway only with their bearer secret (a Lambda REQUEST authorizer).
+- S6428: the negative Pod Security test's pod is built when the test runs, never kept as a manifest.
+- Still open, owner to decide (cost): the lab database's public endpoint (S8793).
 """
 
 from __future__ import annotations
@@ -244,9 +247,9 @@ def test_the_lab_database_keeps_seven_days_of_backups_and_leaves_none_behind_a_d
 
 
 def test_no_image_grants_write_to_others_and_the_runtimes_tmp_stays_debians_sticky_1777():
-    """S2612 kept by design (owner to review): the runtime image also runs the front-door Lambdas under a user id
-    Lambda chooses, so /tmp cannot belong to one user. Nothing grants it - Debian's own mode is checked at build -
-    the root filesystem is read-only, the worker runs as one non-root user, and /tmp is a volume gone with the task."""
+    """S2612 fixed: no Dockerfile grants write to others. The runtime image also runs the front-door Lambdas under a user
+    id Lambda chooses, so /tmp stays Debian's sticky 1777, checked at build - the root filesystem is read-only, the
+    worker runs as one non-root user, and /tmp is a volume gone with the task."""
     chmod = re.compile(r"chmod\s+(?:-\S+\s+)*(?:[0-7]?[0-7][0-7][2367]|\S*o[+=]\S*w)\b")
     for dockerfile in [ROOT / "Dockerfile", ROOT / "Dockerfile.runtime", *ROOT.glob("scenarios/**/Dockerfile")]:
         text = _code(dockerfile.read_text(encoding="utf-8"))
