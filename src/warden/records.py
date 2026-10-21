@@ -49,6 +49,7 @@ STEP = {
     "intake.side_effect": "Another alarm started while this fix was checked",
     "remediation.side_effects": "Other alarms started after this fix - each diagnosed on its own", "remediation.rediagnose": "Diagnosed again",
     "incident.later_alarm": "Another alarm started after this fix - diagnosed beside it",
+    "incident.after_deploy": "Fired inside the watch after a deploy - the deploy is a suspect, not the cause",
     "remediation.plan": "Fix plan made", "remediation.gate": "Fix plan checked", "remediation.announce": "Asked for approval",
     "approval.link_viewed": "Approval page opened", "approval.slack_verified": "Signed in with Slack",
     "approval.accepted": "Approved", "approval.refused": "An approval was refused",
