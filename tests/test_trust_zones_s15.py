@@ -20,7 +20,8 @@ from warden.workflows import IncidentWorkflow
 EVERY = {"after_hold", "prepare", "reread", "investigate", "plan_fix", "diagnose", "verify", "second_opinion", "notify", "no_plan", "resolve_plan", "gate", "announce", "check_approval",
          "check_passkey", "precheck", "apply", "check_success", "record_result", "rollback", "finish",
          "discuss_thread", "discuss_facts", "discuss_evidence", "discuss_answer", "discuss_reply", "discuss_replan", "summary_owed",
-         "side_effects", "again_alert"}  # WARDEN's own record only: the core zone
+         "side_effects", "again_alert",  # WARDEN's own record only: the core zone
+         "code_fix_revert"}  # the code-fix pull request (register B4): the act zone
 
 
 def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alone():
@@ -28,7 +29,9 @@ def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alon
     assert set(names) == EVERY and len(names) == len(EVERY)
     zoned = [n for z in workflows.ZONES.values() for n in z]
     assert len(zoned) == len(set(zoned)) and set(zoned) <= EVERY
-    assert workflows.ZONES["act"] == ("apply", "rollback")  # the only writes, with the only actor roles
+    # The only writes: apply and rollback with the only actor roles, and the code-fix pull request with the only
+    # GitHub App key (register B4).
+    assert workflows.ZONES["act"] == ("apply", "rollback", "code_fix_revert")
     # The only model calls: an incident's diagnosis, and an answer in its discussion (G10-45) - which has no tool.
     assert workflows.ZONES["llm"] == ("diagnose", "discuss_answer")
     # investigate reads more of what the alert names (G9-B): the read zone, with the reader roles. reread reads the

@@ -347,7 +347,8 @@ def test_only_the_act_zones_worker_loads_the_apps_secrets():
 def test_commit_diff_reads_parents_then_the_diff_text():
     api, log = fake_api((200, {"parents": [{"sha": SHA}]}), (200, b"diff --git a/x b/x\n"))
     parents, text = RepoWriter(token(), api=api).commit_diff(NEW)
-    assert parents == [SHA] and text == "diff --git a/x b/x\n"
+    assert parents == [SHA]
+    assert text == "diff --git a/x b/x\n"
     assert [c["path"] for c in log] == [f"/repos/{REPO}/commits/{NEW}"] * 2
     assert [c["headers"]["Accept"] for c in log] == ["application/vnd.github+json", "application/vnd.github.diff"]
 

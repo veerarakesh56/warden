@@ -158,10 +158,13 @@ def test_a_revert_pull_request_is_opened_from_a_real_git_diff(tmp_path):
     created = [c for c in writer.calls if c[0] == "create_branch"]
     assert created == [("create_branch", out.branch, HEAD)]
     (_, branch, kw), = [c for c in writer.calls if c[0] == "commit"]
-    assert branch == out.branch and kw["expected_head"] == HEAD
-    assert kw["additions"] == {APP: BEFORE.encode()} and kw["deletions"] == ()
+    assert branch == out.branch
+    assert kw["expected_head"] == HEAD
+    assert kw["additions"] == {APP: BEFORE.encode()}
+    assert kw["deletions"] == ()
     (_, pull), = [c for c in writer.calls if c[0] == "pull"]
-    assert pull["base"] == "dev" and pull["head"] == out.branch
+    assert pull["base"] == "dev"
+    assert pull["head"] == out.branch
     assert "a person reviews and merges it" in pull["body"]
     assert SHA in pull["body"]
 
@@ -191,7 +194,8 @@ def test_code_that_moved_on_is_refused_and_nothing_is_written(tmp_path):
     diff = git_diff(tmp_path, {APP: BEFORE}, {APP: AFTER})
     writer = FakeWriter(diff, {APP: AFTER.replace("* 2", "* 3")})
     out = open_revert(request(), writer=writer)
-    assert out.status == "refused" and "no longer there" in out.reason
+    assert out.status == "refused"
+    assert "no longer there" in out.reason
     assert not writer.wrote()
 
 
@@ -199,7 +203,8 @@ def test_a_file_added_and_changed_since_is_refused(tmp_path):
     new = "scenarios/fullstack/app/new.py"
     diff = git_diff(tmp_path, {APP: BEFORE}, {APP: BEFORE, new: "b = 2\n"})
     out = open_revert(request(), writer=(writer := FakeWriter(diff, {new: "b = 3\n"})))
-    assert out.status == "refused" and "changed since" in out.reason
+    assert out.status == "refused"
+    assert "changed since" in out.reason
     assert not writer.wrote()
 
 
@@ -207,7 +212,8 @@ def test_a_file_added_and_changed_since_is_refused(tmp_path):
 def test_a_merge_or_root_commit_is_refused(tmp_path, parents):
     writer = FakeWriter(git_diff(tmp_path, {APP: BEFORE}, {APP: AFTER}), {APP: AFTER}, parents=parents)
     out = open_revert(request(), writer=writer)
-    assert out.status == "refused" and "merge commit" in out.reason
+    assert out.status == "refused"
+    assert "merge commit" in out.reason
     assert not writer.wrote()
 
 
@@ -216,35 +222,41 @@ def test_a_revert_too_large_for_the_gate_is_refused(tmp_path):
     big_after = "".join(f"y{i} = {i}\n" for i in range(150))
     writer = FakeWriter(git_diff(tmp_path, {APP: big_before}, {APP: big_after}), {APP: big_after})
     out = open_revert(request(), writer=writer)
-    assert out.status == "refused" and out.rules == ("CG1",)
+    assert out.status == "refused"
+    assert out.rules == ("CG1",)
     assert not writer.wrote()
 
 
 def test_off_writes_nothing_and_reads_nothing():
     writer = FakeWriter("", {})
     out = open_revert(request(mode="off"), writer=writer)
-    assert out.status == "skipped" and writer.calls == []
+    assert out.status == "skipped"
+    assert writer.calls == []
 
 
 def test_without_an_app_nothing_is_written(monkeypatch):
     monkeypatch.delenv("WARDEN_CODEFIX_APP_ID", raising=False)
     monkeypatch.delenv("WARDEN_CODEFIX_APP_KEY", raising=False)
     out = open_revert(request())
-    assert out.status == "skipped" and "no GitHub App" in out.reason
+    assert out.status == "skipped"
+    assert "no GitHub App" in out.reason
 
 
 def test_prod_is_never_auto_even_when_asked(tmp_path):
     writer = FakeWriter(git_diff(tmp_path, {APP: BEFORE}, {APP: AFTER}), {APP: AFTER})
     out = open_revert(request(environment="prod", tier="prod", mode="auto"), writer=writer)
-    assert out.mode == "propose" and out.status == "opened"
+    assert out.mode == "propose"
+    assert out.status == "opened"
     (_, pull), = [c for c in writer.calls if c[0] == "pull"]
-    assert pull["base"] == "prod" and "a person reviews and merges it" in pull["body"]
+    assert pull["base"] == "prod"
+    assert "a person reviews and merges it" in pull["body"]
 
 
 def test_a_failed_commit_removes_its_branch(tmp_path):
     writer = FakeWriter(git_diff(tmp_path, {APP: BEFORE}, {APP: AFTER}), {APP: AFTER}, fail_commit=True)
     out = open_revert(request(), writer=writer)
-    assert out.status == "failed" and "was removed" in out.reason
+    assert out.status == "failed"
+    assert "was removed" in out.reason
     assert ("delete_branch", f"warden/revert/inc-42-{SHA[:12]}") in writer.calls
     assert not any(c[0] == "pull" for c in writer.calls)
 
@@ -254,7 +266,8 @@ def test_a_github_failure_is_an_outcome_not_an_exception():
         raise GitHubAppError("the App's installation on the repository: HTTP 404")
 
     out = open_revert(request(), app=app)
-    assert out.status == "failed" and "HTTP 404" in out.reason
+    assert out.status == "failed"
+    assert "HTTP 404" in out.reason
 
 
 @pytest.mark.parametrize("sha", ["", "abc", SHA.upper()])
@@ -278,7 +291,8 @@ def test_the_activity_records_one_row_per_attempt(tmp_path):
     writer = FakeWriter(git_diff(tmp_path, {APP: BEFORE}, {APP: AFTER}), {APP: AFTER})
     audit = Audit()
     row = CodeFixActivities(audit=audit, app=lambda repo: writer).code_fix_revert("inc-42", "dev", SHA)
-    assert row["status"] == "opened" and row["pull_request"] == 12
+    assert row["status"] == "opened"
+    assert row["pull_request"] == 12
     assert audit.rows == [("inc-42", code_fix.AUDIT_KIND, row)]
 
 
@@ -286,7 +300,8 @@ def test_an_unknown_environment_gets_no_code_fix():
     audit = Audit()
     row = CodeFixActivities(audit=audit, app=lambda repo: pytest.fail("no App call")).code_fix_revert(
         "inc-1", "nowhere", SHA)
-    assert row["status"] == "skipped" and "off in nowhere" in row["reason"]
+    assert row["status"] == "skipped"
+    assert "off in nowhere" in row["reason"]
     assert len(audit.rows) == 1
 
 
@@ -315,5 +330,6 @@ def test_a_deleted_file_that_exists_again_is_refused(tmp_path):
     diff = git_diff(tmp_path, {APP: BEFORE, gone: "a = 1\n"}, {APP: BEFORE, gone: None})
     writer = FakeWriter(diff, {APP: BEFORE, gone: "a = 2\n"})
     out = open_revert(request(), writer=writer)
-    assert out.status == "refused" and "exists again" in out.reason
+    assert out.status == "refused"
+    assert "exists again" in out.reason
     assert not writer.wrote()
