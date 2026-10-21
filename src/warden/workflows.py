@@ -44,7 +44,6 @@ with workflow.unsafe.imports_passed_through():
     from .catalog import MITIGATES
     from .discuss import (
         ELSEWHERE,
-        EXTEND,
         LIMIT,
         NEW_PLAN,
         NO_ANSWER,
@@ -56,6 +55,7 @@ with workflow.unsafe.imports_passed_through():
         REPLANNED,
         Thread,
         Turn,
+        asks_to_extend,
         extended_said,
     )
     from .extend import ceiling
@@ -600,7 +600,7 @@ class DiscussWorkflow:
                             IncidentWorkflow.run, Alert.model_validate(got["alert"]), id=f"inc-{got['new']}",
                             task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
                     text = REPLANNED.format(incident=thread.incident, new=f"`{got['new']}`")
-        elif EXTEND.search(turn.text) and workflow.patched("u38-discuss-extend"):
+        elif asks_to_extend(turn.text) and workflow.patched("u38-discuss-extend"):
             # U3-8: an approver extends a waiting plan's wait. Recorded in the audit; the fix's own run reads it there
             # when its time runs out. Nothing here signals or starts a fix.
             text = NOT_READ

@@ -581,20 +581,30 @@ def _extend(world, hours=24):
 def test_an_approvers_extension_keeps_the_plan_waiting_past_its_time_and_it_is_still_checked_before_apply(world,
                                                                                                          owner):
     still, later, out = _extended_run(world, owner, ask=_extend(world), approve_after=True)
-    assert still == "awaiting_approval" and later.approval_ttl_minutes > 60 * 24  # it says its new time
-    assert out.status == "recovered" and out.checklist["prechecked"]  # the precheck still ran before apply
+    assert still == "awaiting_approval"
+    assert later.approval_ttl_minutes > 60 * 24  # it says its new time
+    assert out.status == "recovered"
+    assert out.checklist["prechecked"]  # the precheck still ran before apply
     kinds = [e["kind"] for e in world["log"].entries("inc-42")]
     assert kinds.index("approval.extended") < kinds.index("approval.accepted") < kinds.index("remediation.precheck")
-    # The plan said its new time with fresh links when its first hour ran out.
-    assert sum(1 for e in world["log"].entries("inc-42", kinds=("remediation.announce",))
-               if e["body"].get("what") == "waiting") >= 2  # the halfway reminder, then the new time
+    # The plan said its new time with fresh links when its first hour ran out: the request, the halfway reminder and
+    # then that one (CodeRabbit, PR 150: two were there without it).
+    assert _waiting(world) == 3
     asyncio.run(Replayer(workflows=[RemediationWorkflow], data_converter=CONVERTER, namespace=world["namespace"])
                 .replay_workflow(world["history"]))
 
 
+def _waiting(world):
+    return sum(1 for e in world["log"].entries("inc-42", kinds=("remediation.announce",))
+               if e["body"].get("what") == "waiting")
+
+
 def test_without_an_extension_the_plan_expires_at_its_time(world, owner):
     still, _, out = _extended_run(world, owner, ask=lambda plan: None, approve_after=True)
-    assert still == "expired" and out.status == "expired" and world["platform"].applied == []
+    assert still == "expired"
+    assert out.status == "expired"
+    assert world["platform"].applied == []
+    assert _waiting(world) == 2  # the request and the halfway reminder only
 
 
 def test_an_extension_of_another_plan_does_not_keep_this_one(world, owner):
@@ -602,4 +612,6 @@ def test_an_extension_of_another_plan_does_not_keep_this_one(world, owner):
         world["log"].append("inc-42", "approval.extended", {"workflow_id": plan.workflow_id, "plan_hash": "other",
                                                             "until": (datetime.now(UTC) + timedelta(days=2)).isoformat()})
     still, _, out = _extended_run(world, owner, ask=ask, approve_after=True)
-    assert still == "expired" and out.status == "expired" and world["platform"].applied == []
+    assert still == "expired"
+    assert out.status == "expired"
+    assert world["platform"].applied == []
