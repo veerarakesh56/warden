@@ -34,6 +34,7 @@ from .redaction import redact
 from .reporting import Report, _scrub, reveal_identifiers
 
 _TIMEOUT_S = 8.0
+_DRY_RUN = "dry-run (WARDEN_CHATOPS_LIVE!=1)"
 
 
 @dataclass(frozen=True)
@@ -71,11 +72,11 @@ def _post_json(url: str, payload: dict, sink: str) -> Notification:
         return Notification(sink=sink, delivered=200 <= code < 300, detail=f"HTTP {code}")
     except urllib.error.HTTPError as exc:
         return Notification(sink=sink, delivered=False, detail=f"HTTP {exc.code}")
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except OSError as exc:  # URLError and TimeoutError are OSErrors
         return Notification(sink=sink, delivered=False, detail=f"transport error: {exc}")
 
 
-class ConsoleSink:
+class ConsoleSink(ChatOpsSink):
     """The default when nothing is configured. Prints/returns the payload; sends nothing anywhere."""
 
     name = "console"
@@ -85,7 +86,7 @@ class ConsoleSink:
         return Notification(sink=self.name, delivered=True, detail="rendered locally (not transmitted)")
 
 
-class SlackWebhookSink:
+class SlackWebhookSink(ChatOpsSink):
     name = "slack"
 
     def __init__(self, url: str, *, live: bool) -> None:
@@ -94,7 +95,7 @@ class SlackWebhookSink:
 
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
-            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+            return Notification(sink=self.name, delivered=False, detail=_DRY_RUN)
         parts = slack_messages(split_for_slack(name_people(to_slack_mrkdwn(text), data.get("people"), slack=True)), data)
         # ⛔ No unfurling: with it on, a URL in a message makes Slack's servers FETCH it - data in the
         # query string leaves without anyone clicking (the outbound gate removes URLs too; this is
@@ -133,12 +134,12 @@ def _slack_call(method: str, payload: dict, token: str, *, form: bool = False) -
                 time.sleep(min(float(exc.headers.get("Retry-After") or 1), _MAX_RETRY_AFTER_S))
                 continue
             return None, f"HTTP {exc.code}"
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        except (OSError, ValueError) as exc:  # URLError and TimeoutError are OSErrors
             return None, f"transport error: {type(exc).__name__}"
     return None, "rate limited"
 
 
-class SlackBotSink:
+class SlackBotSink(ChatOpsSink):
     """Slack through a bot token (decision D8, register H3): one thread per incident instead of a new message for
     every report, reminder and expiry. The first message for an incident is a one-line status - "WARDEN · inc-<id> ·
     <headline>" - and every report goes into its thread; each later message updates that first line in place, so the
@@ -158,7 +159,7 @@ class SlackBotSink:
 
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
-            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+            return Notification(sink=self.name, delivered=False, detail=_DRY_RUN)
         incident = str((data.get("alert") or {}).get("id", "")) or "unknown"
         parts = split_for_slack(name_people(to_slack_mrkdwn(text), data.get("people"), slack=True))
         messages = slack_messages(parts, data)
@@ -187,7 +188,7 @@ class SlackBotSink:
         return Notification(sink=self.name, delivered=True, detail=f"thread {root} ({len(parts)} part(s))")
 
 
-class SlackThreadSink:
+class SlackThreadSink(ChatOpsSink):
     """One reply in one Slack thread, with the bot's token (discuss.py): the thread a person mentioned WARDEN in."""
 
     name = "slack-thread"
@@ -197,7 +198,7 @@ class SlackThreadSink:
 
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
-            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+            return Notification(sink=self.name, delivered=False, detail=_DRY_RUN)
         parts = slack_messages(split_for_slack(name_people(to_slack_mrkdwn(text), data.get("people"), slack=True)), data)
         failed = [d for d in (_slack_call("chat.postMessage", {"channel": self.channel, "thread_ts": self.thread_ts,
                                                                "unfurl_links": False, "unfurl_media": False, **m},
@@ -220,7 +221,7 @@ def _dedup(incident: str) -> str:
     return f"inc-{incident.removeprefix('inc-')}"[:255]
 
 
-class PagerDutySink:
+class PagerDutySink(ChatOpsSink):
     """Pages the on-call through PagerDuty (decision D13). The summary is the gated message's first line; nothing
     else of the message leaves - no evidence, no link."""
 
@@ -231,7 +232,7 @@ class PagerDutySink:
 
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
-            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+            return Notification(sink=self.name, delivered=False, detail=_DRY_RUN)
         alert = data.get("alert") or {}
         incident = str(alert.get("id", "")) or "unknown"
         summary = next((line.strip() for line in text.splitlines() if line.strip()), "WARDEN incident")[:1024]
@@ -251,12 +252,12 @@ def page_resolve(incident: str) -> Notification | None:
     if not key:
         return None
     if os.environ.get("WARDEN_CHATOPS_LIVE") != "1":
-        return Notification(sink="pagerduty", delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+        return Notification(sink="pagerduty", delivered=False, detail=_DRY_RUN)
     return _post_json(PAGERDUTY_URL, {"routing_key": key, "event_action": "resolve", "dedup_key": _dedup(incident)},
                       "pagerduty")
 
 
-class TeamsWebhookSink:
+class TeamsWebhookSink(ChatOpsSink):
     name = "teams"
 
     def __init__(self, url: str, *, live: bool) -> None:
@@ -265,7 +266,7 @@ class TeamsWebhookSink:
 
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
-            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+            return Notification(sink=self.name, delivered=False, detail=_DRY_RUN)
         # Microsoft Teams incoming webhook: a legacy MessageCard carries plain text reliably.
         card = {
             "@type": "MessageCard",
@@ -276,7 +277,7 @@ class TeamsWebhookSink:
         return _post_json(self._url, card, self.name)
 
 
-class GenericWebhookSink:
+class GenericWebhookSink(ChatOpsSink):
     """POSTs the structured report data as JSON — for a bot, PagerDuty Events, or a ticket intake."""
 
     name = "webhook"
@@ -287,14 +288,14 @@ class GenericWebhookSink:
 
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
-            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+            return Notification(sink=self.name, delivered=False, detail=_DRY_RUN)
         return _post_json(self._url, data, self.name)
 
 
 WITHHELD = "withheld:"  # how a WithheldSink's detail starts
 
 
-class WithheldSink:
+class WithheldSink(ChatOpsSink):
     """Slack, for an environment WARDEN_SLACK_CHANNELS gives no channel: nothing is sent - never to another
     environment's channel - and the Notification says why, for the caller's audit row."""
 
@@ -324,21 +325,7 @@ def resolve_sinks(threads=None, environment: str | None = None) -> list[ChatOpsS
     from .settings import by_environment
 
     live = os.environ.get("WARDEN_CHATOPS_LIVE") == "1"
-    sinks: list[ChatOpsSink] = []
-    token, channel = os.environ.get("WARDEN_SLACK_BOT_TOKEN"), os.environ.get("WARDEN_SLACK_CHANNEL")
-    if channels := by_environment("WARDEN_SLACK_CHANNELS"):
-        here = channels.get(environment or "")
-        if not here:
-            sinks.append(WithheldSink(f"{WITHHELD} no channel for {environment or 'an incident with no environment'}"))
-        elif not token:
-            sinks.append(WithheldSink(f"{WITHHELD} WARDEN_SLACK_CHANNELS is set but WARDEN_SLACK_BOT_TOKEN is not"))
-        else:
-            sinks.append(SlackBotSink(token, here, live=live, threads=threads))
-    else:
-        if token and channel:
-            sinks.append(SlackBotSink(token, channel, live=live, threads=threads))
-        if url := os.environ.get("WARDEN_SLACK_WEBHOOK"):
-            sinks.append(SlackWebhookSink(url, live=live))
+    sinks = _slack_sinks(by_environment("WARDEN_SLACK_CHANNELS"), environment, live=live, threads=threads)
     if url := os.environ.get("WARDEN_TEAMS_WEBHOOK"):
         sinks.append(TeamsWebhookSink(url, live=live))
     if url := os.environ.get("WARDEN_WEBHOOK_URL"):
@@ -347,6 +334,25 @@ def resolve_sinks(threads=None, environment: str | None = None) -> list[ChatOpsS
         sinks.append(PagerDutySink(key, live=live))
     if not sinks:
         sinks.append(ConsoleSink())
+    return sinks
+
+
+def _slack_sinks(channels: dict[str, str], environment: str | None, *, live: bool, threads) -> list[ChatOpsSink]:
+    """resolve_sinks' Slack part. With the per-environment map: that environment's own channel through the bot, or a
+    WithheldSink saying why not - never a webhook. Without it: the bot's one channel and the webhook, as configured."""
+    token, channel = os.environ.get("WARDEN_SLACK_BOT_TOKEN"), os.environ.get("WARDEN_SLACK_CHANNEL")
+    if channels:
+        here = channels.get(environment or "")
+        if not here:
+            return [WithheldSink(f"{WITHHELD} no channel for {environment or 'an incident with no environment'}")]
+        if not token:
+            return [WithheldSink(f"{WITHHELD} WARDEN_SLACK_CHANNELS is set but WARDEN_SLACK_BOT_TOKEN is not")]
+        return [SlackBotSink(token, here, live=live, threads=threads)]
+    sinks: list[ChatOpsSink] = []
+    if token and channel:
+        sinks.append(SlackBotSink(token, channel, live=live, threads=threads))
+    if url := os.environ.get("WARDEN_SLACK_WEBHOOK"):
+        sinks.append(SlackWebhookSink(url, live=live))
     return sinks
 
 
@@ -376,17 +382,29 @@ def to_slack_mrkdwn(md: str) -> str:
     # A `~~~` block is code too, closed only by `~~~` as CommonMark reads it: its heading was made bold
     # (fifth review, 2026-10-01).
     for line in text.split("\n"):
-        tilde = _TILDE_FENCE.match(line)
-        if (fence in ("", "```") and "```" in line) or (fence in ("", "~~~") and tilde):
-            fence = "" if fence else ("```" if "```" in line else "~~~")
+        if _toggles_fence(line, fence):
+            fence = "" if fence else _fence_opened_by(line)
             out.append(line)
-            continue
-        if not fence:
-            heading = _HEADING.match(line)
-            line = f"*{heading.group(1)}*" if heading else line
-            line = _BOLD.sub(r"*\1*", line)
-        out.append(line)
+        else:
+            out.append(line if fence else _mrkdwn_line(line))
     return "\n".join(out)
+
+
+def _toggles_fence(line: str, fence: str) -> bool:
+    """The line opens a code block (outside one) or closes the open one: ``` closes only ```, ~~~ only ~~~."""
+    return (fence in ("", "```") and "```" in line) or (fence in ("", "~~~") and bool(_TILDE_FENCE.match(line)))
+
+
+def _fence_opened_by(line: str) -> str:
+    """The fence a line outside any code block opens: ``` where the line has one, else ~~~."""
+    return "```" if "```" in line else "~~~"
+
+
+def _mrkdwn_line(line: str) -> str:
+    """One line outside code: a heading becomes a bold line, and **bold** becomes Slack's *bold*."""
+    heading = _HEADING.match(line)
+    line = f"*{heading.group(1)}*" if heading else line
+    return _BOLD.sub(r"*\1*", line)
 
 
 SLACK_PART_CHARS = 3500
@@ -402,10 +420,17 @@ def split_for_slack(text: str, limit: int = SLACK_PART_CHARS) -> list[str]:
     """
     if len(text) <= limit:
         return [text]
+    parts = _line_parts(text, limit)
+    total = len(parts)
+    return [f"_(part {i}/{total})_\n" + "\n".join(lines) for i, lines in enumerate(parts, 1)]
+
+
+def _line_parts(text: str, limit: int) -> list[list[str]]:
+    """split_for_slack's parts, as lines: a new part where the next line would pass the limit (less room for the
+    part's number), with a code block open at the cut closed in one part and reopened in the next."""
     parts: list[list[str]] = [[]]
     size, in_code = 0, False
     for line in text.split("\n"):
-        fence = "```" in line
         if size + len(line) + 1 > limit - 16 and parts[-1]:
             if in_code:
                 parts[-1].append("```")
@@ -413,10 +438,9 @@ def split_for_slack(text: str, limit: int = SLACK_PART_CHARS) -> list[str]:
             size = 4 if in_code else 0
         parts[-1].append(line)
         size += len(line) + 1
-        if fence:
+        if "```" in line:
             in_code = not in_code
-    total = len(parts)
-    return [f"_(part {i}/{total})_\n" + "\n".join(lines) for i, lines in enumerate(parts, 1)]
+    return parts
 
 
 LINK_LABEL = "Open the plan to approve or deny"
