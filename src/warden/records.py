@@ -223,16 +223,35 @@ def _open_status(r: Record, rows: list[dict[str, Any]]) -> tuple[str, str] | Non
 
 # What each kind of row adds to the record (record(), above). A kind not here adds nothing.
 
+def environment_step(env: str, e: dict[str, Any]) -> str:
+    """An incident's environment after its row `e`, given `env` before it: each `incident.alert` row sets it (the last
+    one wins), an `incident.ingest` row only while none is set. The one rule for the records and the pilot metrics
+    (pilot.py), so a reader limited to some environments is counted the incidents the records show them."""
+    if e["kind"] == "incident.alert":
+        a = e["body"].get("alert")
+        return str(a.get("environment") or "") if isinstance(a, dict) else ""
+    if e["kind"] == _INGEST and not env:
+        return str(e["body"].get("env") or "")
+    return env
+
+
+def environment_of(rows: list[dict[str, Any]]) -> str:
+    """The environment record() gives an incident with these rows, in order."""
+    env = ""
+    for e in rows:
+        env = environment_step(env, e)
+    return env
+
+
 def _read_alert(r: Record, e: dict[str, Any]) -> None:
     a = e["body"].get("alert") or {}
     r.alarm = str((a.get("labels") or {}).get("alarm") or a.get("name") or "")
-    r.environment, r.service = str(a.get("environment") or ""), str(a.get("service") or "")
+    r.environment, r.service = environment_step(r.environment, e), str(a.get("service") or "")
     r.severity, r.summary = str(a.get("severity") or ""), str(a.get("summary") or "")
 
 
 def _read_ingest(r: Record, e: dict[str, Any]) -> None:
-    if not r.environment:
-        r.environment = str(e["body"].get("env") or "")
+    r.environment = environment_step(r.environment, e)
 
 
 def _read_diagnosis(r: Record, e: dict[str, Any]) -> None:
@@ -1008,10 +1027,15 @@ def pilot_page(r: Any) -> str:
     rows = "".join(f'<tr><th scope="row">{_e(k)}</th><td>{_e(v)}</td></tr>' for k, v in pilot.lines(r, detail=False))
     chips = "".join(f'<a class="chip" href="/r/{PILOT}?since={pilot.default_since(r.until, d).date().isoformat()}">'
                     f"{d} days</a>" for d in PILOT_DAYS)
-    failed = 0 if r.scoped else len(r.checked.failed)  # audit-wide: only for readers of every environment
+    # Audit-wide: only for readers of every environment.
+    failed = 0 if r.scoped else len(r.checked.failed)
+    bad = 0 if r.scoped else len(r.checked.bad_checkpoints)
     warn = (f'<p class="lede"><span class="badge bad">Not counted</span>{_e(failed)} row(s) of the record failed '
             "verification and are left out of every number below. <code>warden audit verify</code> names them.</p>"
             if failed else "")
+    if bad:
+        warn += (f'<p class="lede"><span class="badge bad">Not verified</span>{_e(bad)} checkpoint(s) of the record '
+                 "failed verification: no row is counted on their word. <code>warden audit verify</code> names them.</p>")
     return _shell("WARDEN pilot metrics", "Pilot metrics",
                   '<h1>Pilot metrics</h1><p class="lede">Read only from rows of WARDEN\'s record whose signatures and '
                   "hash chain check out. How each number is counted: docs/OPERATIONS.md, Pilot metrics.</p>" + warn
@@ -1021,8 +1045,8 @@ def pilot_page(r: Any) -> str:
 
 def pilot_unchecked_page() -> str:
     return _shell("WARDEN pilot metrics", "Pilot metrics", '<h1>Pilot metrics cannot be shown</h1><p class="lede">'
-                  "This runtime cannot check the record's signatures, and no number is shown from rows that were not "
-                  'checked. <a href="/r">See every incident</a>.</p>')
+                  "This runtime cannot read the record or check its signatures, and no number is shown from rows that "
+                  'were not checked. <a href="/r">See every incident</a>.</p>')
 
 
 _RECORDS_STYLE = """

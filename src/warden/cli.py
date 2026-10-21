@@ -652,8 +652,8 @@ def metric_line(name: str, value: str) -> str:
 
 def _report_command(args: argparse.Namespace) -> int:
     """`warden report pilot`: the pilot metrics (pilot.py), read only from audit rows whose hash chain and checkpoint
-    signatures check out against --public-key. Exit 1 when any row failed verification (it is not counted), 2 when the
-    command was given something it cannot read."""
+    signatures check out against --public-key. Exit 1 when any row or checkpoint failed verification (no row is counted
+    on its word), 2 when the command was given something it cannot read."""
     from . import audit, pilot
 
     try:
@@ -679,7 +679,7 @@ def _report_command(args: argparse.Namespace) -> int:
         return 2
     for name, value in pilot.lines(pilot.report(checked, since)):
         _out(metric_line(name, value))
-    return 1 if checked.failed else 0
+    return 0 if checked.intact else 1
 
 
 def _offer_again_command(args: argparse.Namespace) -> int:

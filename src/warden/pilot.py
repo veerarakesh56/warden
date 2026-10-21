@@ -4,7 +4,8 @@ ONLY from WARDEN's signed audit.
 Every row is checked first, the way `warden audit verify` checks the whole log (audit.verify): its hash must be its
 own content's, it must link to the row before it, and a checkpoint whose Ed25519 signature verifies must cover it
 through an unbroken chain. A row that fails is not counted and is reported as such; a row after the last checkpoint is
-not signed yet, and is not counted either (as `AuditLog.intact` treats it).
+not signed yet, and is not counted either (as `AuditLog.intact` treats it). A checkpoint whose signature does not
+verify, or that was signed over a different history, is reported too, as `audit.verify` reports it.
 
 What each number means (docs/OPERATIONS.md, "Pilot metrics", says the same):
 
@@ -36,8 +37,10 @@ What each number means (docs/OPERATIONS.md, "Pilot metrics", says the same):
   incidents. A call row with no cost is NOT RECORDED for that call (counted and said, never estimated); with no
   `llm.call` or `llm.fallback` row anywhere in the verified audit, cost and fallbacks are NOT RECORDED, never 0.
 - **Fallbacks**: `llm.fallback` rows of the incident and its discussion, by `reason` (rules_only, model_refused,
-  budget_cap, provider_unavailable; any other reason is counted as "other", its text never printed). Per incident: fallbacks / incidents. Per
-  model call: fallbacks / `llm.call` rows.
+  budget_cap, provider_unavailable; any other reason is counted as "other", its text never printed). Per incident:
+  fallbacks / incidents. Per model request: fallbacks / `llm.call` rows.
+- **Model requests**: `llm.call` rows, one per request sent - retries, unanswered requests and Eldane's trials
+  included. NOT the same count as model calls (the spend ledger's), so the two are named apart and never compared.
 - **Undo count**: `remediation.rollback` rows with `undone` true, one per plan run; `remediation.rollback_failed`
   rows are counted beside it.
 - A rate with nothing to divide by is "n/a". All times are UTC.
@@ -57,7 +60,7 @@ from typing import Any
 
 from cryptography.exceptions import InvalidSignature
 
-from . import audit
+from . import audit, records
 
 STARTS = ("incident.ingest", "incident.after_hold")  # records.incident_ids lists incidents by these
 FIXED = frozenset({"recovered", "verified"})
@@ -81,7 +84,7 @@ OUTCOMES = (
 )  # of a plan, in the order the report says them
 NA = "n/a"
 NOT_RECORDED = "not recorded"
-# One row per model call, with `cost` (US dollars), `latency_ms`, `prompt_tokens` and `completion_tokens`; one row per
+# One row per model request (retries, unanswered requests and Eldane's trials included), with `cost` (US dollars), `latency_ms`, `prompt_tokens` and `completion_tokens`; one row per
 # fall-back from the model, with its `reason` (lane FDE-F, 2026-10-21). An audit with neither row was written before
 # they existed: its cost and fallbacks are NOT RECORDED, never 0.
 LLM_CALL, FALLBACK = "llm.call", "llm.fallback"
@@ -90,6 +93,8 @@ SCOPED = (
     "every environment"
 )
 FALLBACK_REASONS = ("rules_only", "model_refused", "budget_cap", "provider_unavailable")
+MODEL_REQUESTS = "Model requests (llm.call rows)"
+REQUESTS_ARE = "every request sent, retries, unanswered ones and Eldane's trials included"
 
 
 # ------------------------------------------------------------------ the rows, checked
@@ -97,25 +102,37 @@ FALLBACK_REASONS = ("rules_only", "model_refused", "budget_cap", "provider_unava
 
 @dataclass
 class Checked:
-    """The audit's rows that verified (each: seq, at, correlation_id, kind, body), the ones that did not and why, and
-    how many are not signed yet."""
+    """The audit's rows that verified (each: seq, at, correlation_id, kind, body), the ones that did not and why, how
+    many are not signed yet, and the checkpoints that did not verify and why (as audit.verify reports them)."""
 
     rows: list[dict[str, Any]] = field(default_factory=list)
     failed: list[tuple[int, str]] = field(default_factory=list)
     unsigned: int = 0
     total: int = 0
+    bad_checkpoints: list[tuple[int, str]] = field(default_factory=list)
+
+    @property
+    def intact(self) -> bool:
+        """No row and no checkpoint failed verification: what `warden audit verify` would call intact."""
+        return not (self.failed or self.bad_checkpoints)
 
 
-def _valid_heads(checkpoints: list[Any], hashes: dict[int, str], public_key: Any) -> set[int]:
-    """The checkpoints whose signature verifies with `public_key` and whose head is the stored row's hash."""
+def _valid_heads(
+    checkpoints: list[Any], hashes: dict[int, str], public_key: Any, bad: list[tuple[int, str]]
+) -> set[int]:
+    """The checkpoints whose signature verifies with `public_key` and whose head is the stored row's hash; each other
+    one is added to `bad` with audit.verify's reason (`_check_checkpoints`)."""
     good = set()
     for seq, head, signature in checkpoints:
         try:
             public_key.verify(bytes.fromhex(signature), audit._signed_message(seq, head))
-        except (InvalidSignature, ValueError):
+        except (InvalidSignature, ValueError, TypeError):
+            bad.append((seq, "has an invalid signature"))
             continue
-        if hashes.get(seq) == head:
-            good.add(seq)
+        if hashes.get(seq) != head:
+            bad.append((seq, "was signed over a different history"))
+            continue
+        good.add(seq)
     return good
 
 
@@ -139,7 +156,7 @@ def check(rows: list[Any], checkpoints: list[Any], public_key: Any) -> Checked:
     (seq, hash, signature). A row counts only when its own hash holds, it links to the row before it, and a validly
     signed checkpoint reaches it through rows that all link."""
     out = Checked(total=len(rows))
-    valid = _valid_heads(checkpoints, {r[0]: r[6] for r in rows}, public_key)
+    valid = _valid_heads(checkpoints, {r[0]: r[6] for r in rows}, public_key, out.bad_checkpoints)
     last_checkpoint = max((c[0] for c in checkpoints), default=0)
     changed, unlinked = _own_problems(rows)
     covered = False
@@ -377,14 +394,6 @@ def _alarm_time(alert: dict[str, Any]) -> datetime | None:
     return when.astimezone(UTC) if when.tzinfo is not None else None
 
 
-def _environment(rows: list[dict[str, Any]], alert: dict[str, Any]) -> str:
-    if alert:
-        return str(alert.get("environment") or "")
-    return next(
-        (str(e["body"].get("env") or "") for e in rows if e["kind"] == "incident.ingest"), ""
-    )
-
-
 def _plans(rows: list[dict[str, Any]]) -> list[Plan]:
     plans: dict[tuple[str, str], Plan] = {}
     ends: dict[tuple[str, str], dict[str, Any]] = {}
@@ -479,7 +488,8 @@ def _incident(cid: str, rows: list[dict[str, Any]], discussed: list[dict[str, An
     i = Incident(
         id=cid,
         first=min(e["at"] for e in rows if e["kind"] in STARTS),
-        environment=_environment(rows, alert),
+        # The records' own rule, so a reader is counted the incidents the records show them.
+        environment=records.environment_of(rows),
         alarm=_alarm_time(alert),
     )
     i.plans = _plans(rows)
@@ -561,6 +571,12 @@ def lines(r: Report, *, detail: bool = True) -> list[tuple[str, str]]:
         f"{c.total} read; {len(c.rows)} verified and counted; {failed}; "
         f"{c.unsigned} not signed yet (not counted)"
     )
+    if c.bad_checkpoints:
+        audit_rows += f"; {len(c.bad_checkpoints)} checkpoint(s) failed verification"
+        if detail:
+            audit_rows += ": " + "; ".join(
+                f"checkpoint {s} {why}" for s, why in c.bad_checkpoints[:20]
+            )
     if r.scoped:
         audit_rows = SCOPED
     out = [
@@ -640,8 +656,14 @@ def _model_lines(r: Report, n: int) -> list[tuple[str, str]]:
             else f"{total}; per incident {NA} (0 incidents)",
         )
     )
+    # The llm.call rows count every request sent (retries, unanswered requests and Eldane's trials included), so they
+    # are not the "Model calls" above (the spend ledger's count): named apart, never put side by side as one count.
+    out.append((MODEL_REQUESTS, f"{rows} ({LLM_CALL} rows: {REQUESTS_ARE})"))
     out.append(
-        ("Fallback rate per model call", f"{rate(total, rows)} ({total} / {rows} {LLM_CALL} rows)")
+        (
+            "Fallbacks per model request",
+            f"{rate(total, rows)} ({total} / {rows} {LLM_CALL} rows: {REQUESTS_ARE})",
+        )
     )
     # The closed set by name; any other reason only counted, never printed (its text is the writer's, not ours).
     other = sum(v for k, v in seen.items() if k not in FALLBACK_REASONS)

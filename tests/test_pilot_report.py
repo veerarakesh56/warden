@@ -231,7 +231,8 @@ def test_every_metric_from_the_fixture_is_exact(made):
     # No llm.call or llm.fallback row in this audit: not recorded, never 0.
     assert got["Cost per incident"] == NOT_RECORDED_YET
     assert got["Fallbacks"] == NOT_RECORDED_YET
-    assert "Fallback rate per model call" not in got
+    assert "Fallbacks per model request" not in got
+    assert pilot.MODEL_REQUESTS not in got
     assert got["Undo count"] == "1 (undo failed: 0)"  # two rollback rows of one run: one undo
     assert got["Audit rows"].startswith(
         f"{log.signed_through()} read; {log.signed_through()} verified"
@@ -278,7 +279,11 @@ def test_cost_and_fallbacks_come_from_llm_rows_and_a_missing_cost_is_not_recorde
         "1 row(s) without one: not recorded for those)"
     )
     assert got["Fallbacks"] == "5; per incident 0.71 (5 / 7 incidents)"
-    assert got["Fallback rate per model call"] == "83.3% (5 / 6 llm.call rows)"
+    # The llm.call rows are requests (retries included), named apart from the spend ledger's "Model calls" (12).
+    assert got[pilot.MODEL_REQUESTS] == f"6 (llm.call rows: {pilot.REQUESTS_ARE})"
+    assert (
+        got["Fallbacks per model request"] == f"83.3% (5 / 6 llm.call rows: {pilot.REQUESTS_ARE})"
+    )
     assert got["Fallbacks by reason"] == (
         "rules_only 2, model_refused 1, budget_cap 1, provider_unavailable 0, other 1"
     )
@@ -290,7 +295,7 @@ def test_once_llm_rows_exist_no_fallback_is_a_measured_zero(made):
     log.checkpoint()
     got = _lines(log, key)
     assert got["Fallbacks"] == "0; per incident 0.00 (0 / 7 incidents)"
-    assert got["Fallback rate per model call"] == "0.0% (0 / 1 llm.call rows)"
+    assert got["Fallbacks per model request"] == f"0.0% (0 / 1 llm.call rows: {pilot.REQUESTS_ARE})"
     assert got["Cost per incident"].startswith(
         "US$0.0057 (US$0.0400 in all over 1 llm.call row(s) with a cost)"
     )
@@ -359,7 +364,7 @@ def test_no_incidents_gives_n_a_and_never_divides_by_zero(made):
     assert got["Model calls per incident"].startswith("n/a")
     assert got["Cost per incident"].startswith("n/a")
     assert got["Fallbacks"] == "0; per incident n/a (0 incidents)"
-    assert got["Fallback rate per model call"] == "n/a (0 / 0 llm.call rows)"
+    assert got["Fallbacks per model request"] == f"n/a (0 / 0 llm.call rows: {pilot.REQUESTS_ARE})"
     assert got["Alarm to fixed"] == "median n/a, p90 n/a (0 incident(s))"
 
 
@@ -691,3 +696,138 @@ def test_a_public_key_that_cannot_be_read_is_exit_2_not_a_tamper_alarm(
     pub.write_text("not a key")
     assert _command(pub) == 2
     assert "--public-key is not an Ed25519 public key" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ review fixes (coordinator review, PR 175)
+
+
+def _checkpoint_seqs(path):
+    return [s for (s,) in sqlite3.connect(path).execute("SELECT seq FROM checkpoints ORDER BY seq")]
+
+
+def test_a_history_rewritten_under_a_validly_signed_checkpoint_counts_nothing_it_covers(
+    made, tmp_path, monkeypatch, capsys
+):
+    """Row k and every row after it rewritten, each hash recomputed and every link kept: the chain is consistent, and
+    only the checkpoint's signed head - the stored row's old hash - says the history is not the one signed."""
+    log, key, path = made
+    k = _seq(log, "b", pilot.END)
+    db = _raw(path)
+    prev = db.execute("SELECT hash FROM entries WHERE seq = ?", (k - 1,)).fetchone()[0]
+    for s, at, cid, kind, body in db.execute(
+        "SELECT seq, at, correlation_id, kind, body FROM entries WHERE seq >= ? ORDER BY seq", (k,)
+    ).fetchall():
+        body = FORGED if s == k else body
+        digest = audit._hash(prev, s, at, cid, kind, body)
+        db.execute(
+            "UPDATE entries SET body = ?, prev = ?, hash = ? WHERE seq = ?", (body, prev, digest, s)
+        )
+        prev = digest
+    last = _checkpoint_seqs(path)[-1]
+    checked = pilot.read(log, key.public_key())
+    assert (last, "was signed over a different history") in checked.bad_checkpoints
+    assert not checked.intact
+    # Nothing the rewritten checkpoint covers is counted.
+    assert all(e["seq"] < k for e in checked.rows)
+    assert dict(checked.failed)[k] == "no valid signature covers it"
+    got = dict(pilot.lines(pilot.report(checked, SINCE, now=NOW)))
+    assert f"checkpoint {last} was signed over a different history" in got["Audit rows"]
+    # B's forged "recovered" is not counted either.
+    assert got["Plans denied"] == "0 of 0 ended (n/a)"
+    pub = _keys(tmp_path, monkeypatch, key)
+    assert _command(pub) == 1
+
+
+def _bad_first_checkpoint(log, path):
+    """A row and a second, valid checkpoint after the fixture's; then the first checkpoint's signature forged."""
+    first = _checkpoint_seqs(path)[-1]
+    log.append("h", "incident.ingest", {"node": "ingest", "alert_id": "h", "env": "dev"})
+    log.checkpoint()
+    _raw(path).execute("UPDATE checkpoints SET signature = ? WHERE seq = ?", ("00" * 64, first))
+    return first
+
+
+def test_a_bad_checkpoint_exits_1_though_a_later_one_covers(made, tmp_path, monkeypatch):
+    log, key, path = made
+    first = _bad_first_checkpoint(log, path)
+    checked = pilot.read(log, key.public_key())
+    assert checked.bad_checkpoints == [(first, "has an invalid signature")]
+    assert checked.failed == []  # the later checkpoint still covers every row
+    got = dict(pilot.lines(pilot.report(checked, SINCE, now=NOW)))
+    said = f"1 checkpoint(s) failed verification: checkpoint {first} has an invalid signature"
+    assert said in got["Audit rows"]
+    pub = _keys(tmp_path, monkeypatch, key)
+    assert _command(pub) == 1
+
+
+def test_the_page_counts_a_bad_checkpoint(page_setup, made):  # noqa: F811
+    log, _, path = made
+    _bad_first_checkpoint(log, path)
+    out = _as(_page(page_setup, made))
+    assert out.status == 200
+    assert "1 checkpoint(s) of the record failed verification" in out.body
+    assert "has an invalid signature" not in out.body
+
+
+def test_the_page_answers_503_when_the_record_cannot_be_read(page_setup, made, monkeypatch):  # noqa: F811
+    page = _page(page_setup, made)
+
+    def unreadable(*_a, **_k):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(page.log.store, "run", unreadable)
+    out = _as(page)
+    assert out.status == 503
+    assert "Pilot metrics cannot be shown" in out.body
+    assert "Escalation rate" not in out.body
+
+
+def test_an_incident_is_in_the_environment_the_records_give_it(made):
+    """The records' rule: the last alert row's environment, the ingest row's only while none is set. An incident
+    first alerted as dev, then as prod, is prod on its record - and so for the pilot metrics."""
+    from warden import records
+
+    log, key, _ = made
+    w = Writer(log, Clock())
+    w.start("h", _at(20, 11), env="dev")
+    w.row(
+        _at(20, 11, 5),
+        "h",
+        "incident.alert",
+        {"alert": {"alert_id": "h", "environment": "prod", "started_at": "2026-10-20T11:00:00Z"}},
+    )
+    log.checkpoint()
+    assert records.record(log, "h").environment == "prod"
+    checked = pilot.read(log, key.public_key())
+    dev = pilot.report(checked, SINCE, allowed={"dev"}, now=NOW)
+    assert [i.id for i in dev.incidents] == ["a", "b", "e", "f", "g"]
+    prod = pilot.report(checked, SINCE, allowed={"prod"}, now=NOW)
+    assert [i.id for i in prod.incidents] == ["c", "d", "h"]
+
+
+def test_the_records_environment_rule_falls_back_to_the_ingest_row():
+    from warden import records
+
+    def row(kind, body):
+        return {"kind": kind, "body": body}
+
+    ingest = row("incident.ingest", {"env": "dev"})
+    assert records.environment_of([ingest]) == "dev"
+    assert (
+        records.environment_of([row("incident.alert", {"alert": {"environment": "prod"}}), ingest])
+        == "prod"
+    )
+    # An alert row with no environment clears it, as record() reads it.
+    assert records.environment_of([ingest, row("incident.alert", {"alert": {}})]) == ""
+    assert records.environment_of([row("incident.alert", {"alert": "not a dict"}), ingest]) == "dev"
+
+
+def test_a_negative_or_non_numeric_cost_is_not_recorded_never_counted(made):
+    log, key, _ = made
+    for cost in (-0.5, True, "0.10"):
+        log.append("a", pilot.LLM_CALL, {"cost": cost})
+    log.checkpoint()
+    assert _lines(log, key)["Cost per incident"] == (
+        "US$0.0000 (US$0.0000 in all over 0 llm.call row(s) with a cost; "
+        "3 row(s) without one: not recorded for those)"
+    )

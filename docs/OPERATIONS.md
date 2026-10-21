@@ -117,23 +117,28 @@ denied and fixed are on the record, not posted.
 
 ### Pilot metrics (`warden report pilot`, `/r/pilot`)
 
-The weekly numbers for a client, read only from the signed audit (src/warden/pilot.py):
+The weekly numbers for a client, read only from the signed audit (src/warden/pilot.py), on the command line:
 
     warden report pilot --since 2026-10-14 --db audit.db --public-key audit.pub   # or WARDEN_AUDIT_DSN
 
-The audit it reads is the `--db` SQLite file, or the PostgreSQL DSN in the `WARDEN_AUDIT_DSN` environment variable
+and on the records site at `/r/pilot` (the last 7 days; `?since=YYYY-MM-DD`; links for 7, 30 and 90 days), for the
+same readers as the records and only for the environments they may read, by the records' own environment rule
+(`records.environment_of`).
+
+The command's audit is the `--db` SQLite file, or the PostgreSQL DSN in the `WARDEN_AUDIT_DSN` environment variable
 (never on the command line) - the same source as `warden audit verify`. It is opened read-only (SQLite `mode=ro`; a
 PostgreSQL session set READ ONLY before the first query; SELECT only), a missing or empty file is refused and never
 created, and the command loads no setting but `WARDEN_AUDIT_DSN` (settings.ONLY). The page reads through the approval
-Lambda's own audit connection, with SELECT only. A reader limited to some environments is shown no audit-wide count (rows read, failed,
-not signed yet): those are for readers of every environment.
+Lambda's own audit connection, with SELECT only; when it cannot read the record or check it, it answers 503 and shows
+no number. A reader limited to some environments is shown no audit-wide count (rows read, failed, not signed yet,
+checkpoints that failed): those are for readers of every environment.
 
-and on the records site at `/r/pilot` (the last 7 days; `?since=YYYY-MM-DD`; links for 7, 30 and 90 days), for the
-same readers as the records and only for the environments they may read. Every row is checked first, as
-`warden audit verify` checks the log: its own hash, its link to the row before it, and a checkpoint signature that
-verifies (the command with `--public-key`; the page with the runtime's own audit signing key - no key, no numbers).
-A row that fails is not counted: the command names it and exits 1, the page says how many. Rows after the last
-checkpoint are not signed yet and are not counted either. All times are UTC.
+Every row is checked first, as `warden audit verify` checks the log: its own hash, its link to the row before it, and
+a checkpoint signature that verifies (the command with `--public-key`; the page with the runtime's own audit signing
+key - no key, no numbers). A row that fails is not counted: the command names it and exits 1, the page says how many.
+A checkpoint whose signature does not verify, or that was signed over a different history, covers no row; the
+command names it and exits 1, the page says how many. Rows after the last checkpoint are not signed yet and are not
+counted either. All times are UTC.
 
 | Number | Read from |
 |---|---|
@@ -147,9 +152,10 @@ checkpoint are not signed yet and are not counted either. All times are UTC.
 | Alarm to plan | the first `incident.alert` row's `alert.started_at` to the first `remediation.plan` row |
 | Alarm to fixed | the same alarm time to the first `remediation.result` with `ok` true of a run that ended `recovered` or `verified`; open and unfixed incidents are not in it |
 | Model calls | `calls` of `incident.llm_spend` rows (the incident's and its discussion's) plus one per `eldane.call` row |
+| Model requests | `llm.call` rows: one per request sent - retries, unanswered requests and Eldane's trials included, so NOT the same count as model calls |
 | Spend ledger | `usd` of the same `incident.llm_spend` rows (the budget ledger) |
 | Cost per incident | `cost` (US dollars) of `llm.call` rows (the incident's and its discussion's), over incidents; a row with no `cost` is "not recorded" for that call, never estimated |
-| Fallbacks | `llm.fallback` rows by `reason` (rules_only, model_refused, budget_cap, provider_unavailable; any other reason counted as "other", its text never printed); per incident = fallbacks / incidents, per model call = fallbacks / `llm.call` rows |
+| Fallbacks | `llm.fallback` rows by `reason` (rules_only, model_refused, budget_cap, provider_unavailable; any other reason counted as "other", its text never printed); per incident = fallbacks / incidents, per model request = fallbacks / `llm.call` rows (requests, retries included) |
 | Undo count | runs with a `remediation.rollback` row whose `undone` is true; `remediation.rollback_failed` runs beside it |
 
 The four plan outcomes are rates over ENDED plans, and one plan can be two of them (approved, then drifted and planned
