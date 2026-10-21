@@ -164,6 +164,14 @@ def refused_by_temporal(exc: BaseException) -> bool:
     return isinstance(exc, RPCError) and exc.status in _REFUSED
 
 
+def _say_if_refused(exc: RPCError) -> None:
+    """The ERROR line for a refused key, by its status only (no traceback: the error is raised on, and the heartbeat
+    says it as a missed beat)."""
+    if refused_by_temporal(exc):
+        _LOG.error("Temporal refused this worker's API key (%s): make a new key, put it in Secrets Manager and "
+                   "restart the zones", exc.status.name)
+
+
 async def beat(client: Client, publish: Any, task_queue: str = TASK_QUEUE, wait_s: float = 60,
                zones: tuple[str, ...] = ()) -> str:
     """One heartbeat: '' and a published beat when the round trip works and every zone in `zones` polls, else why
@@ -172,9 +180,7 @@ async def beat(client: Client, publish: Any, task_queue: str = TASK_QUEUE, wait_
     try:
         problem = await check_clock(client, task_queue, wait_s) or await zones_polling(client, zones)
     except RPCError as exc:
-        if refused_by_temporal(exc):
-            _LOG.error("Temporal refused this worker's API key (%s): make a new key, put it in Secrets Manager and "
-                       "restart the zones", exc.status.name)
+        _say_if_refused(exc)
         raise
     if problem:
         return problem

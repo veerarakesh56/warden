@@ -142,12 +142,20 @@ def _said_when_unreachable(pg: bool):
     try:
         yield
     except psycopg.OperationalError as exc:
-        # SQLSTATE class 40, "transaction rollback": a deadlock or a serialization failure, which Temporal retries.
-        if not str(exc.sqlstate or "").startswith("40") and not getattr(exc, "warden_said", False):
-            exc.warden_said = True
-            _LOG.error("the audit database could not be reached or could not write (%s): every record, approval and "
-                       "fix waits on it", type(exc).__name__)
+        _say_unreachable(exc)
         raise
+
+
+def _say_unreachable(exc: Exception) -> None:
+    """The ERROR line, once per error, by the error's kind only. No traceback on purpose: the driver's text can name
+    the database's host and user, and the error is raised on, so the activity's own WARNING keeps the traceback.
+    SQLSTATE class 40, "transaction rollback" (a deadlock or a serialization failure), is retried by Temporal and
+    not said."""
+    if str(getattr(exc, "sqlstate", None) or "").startswith("40") or getattr(exc, "warden_said", False):
+        return
+    exc.warden_said = True
+    _LOG.error("the audit database could not be reached or could not write (%s): every record, approval and fix "
+               "waits on it", type(exc).__name__)
 
 
 class _Rows:

@@ -122,9 +122,10 @@ def test_a_zone_that_cannot_be_described_is_a_missed_beat_never_a_crashed_worker
 
     monkeypatch.setattr(runtime.asyncio, "sleep", sleep)
     client = _Client(error=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""))
+    beating = runtime.heartbeat(client, lambda: beats.append(1), every=timedelta(seconds=1), log=lines.append,
+                                zones=("llm",))
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(runtime.heartbeat(client, lambda: beats.append(1), every=timedelta(seconds=1), log=lines.append,
-                                      zones=("llm",)))
+        asyncio.run(beating)
     assert beats == []
     assert lines
     assert "heartbeat missed" in lines[0]
@@ -189,8 +190,9 @@ def test_the_core_worker_beats_for_the_zones_it_was_given(monkeypatch):
     monkeypatch.setattr(runtime, "approver_policy", lambda: None)
     monkeypatch.setattr(cli, "resolve_backend", lambda: None)
     monkeypatch.setattr(cli, "_install_log_gate", lambda: None)
+    starting = cli._workflow_command(argparse.Namespace(cmd="worker", zone="core", platform="none"))
     with pytest.raises(_Started):
-        asyncio.run(cli._workflow_command(argparse.Namespace(cmd="worker", zone="core", platform="none")))
+        asyncio.run(starting)
     assert seen["zones"] == ("read", "act")
 
 
@@ -211,16 +213,17 @@ def test_temporal_refusing_the_key_is_an_error_line_the_worker_errors_alarm_page
     caplog.set_level(logging.INFO)
     for status in (RPCStatusCode.UNAUTHENTICATED, RPCStatusCode.PERMISSION_DENIED):
         caplog.clear()
+        beating = runtime.beat(_Client(clock_error=RPCError("no", status, b"")), lambda: None)
         with pytest.raises(RPCError):
-            asyncio.run(runtime.beat(_Client(clock_error=RPCError("no", status, b"")), lambda: None))
+            asyncio.run(beating)
         errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
         assert len(errors) == 1
         assert status.name in errors[0].getMessage()
         assert _WORKER_ERRORS.search(_paged_line(errors[0]))
     caplog.clear()
+    beating = runtime.beat(_Client(clock_error=RPCError("busy", RPCStatusCode.UNAVAILABLE, b"")), lambda: None)
     with pytest.raises(RPCError):
-        asyncio.run(runtime.beat(_Client(clock_error=RPCError("busy", RPCStatusCode.UNAVAILABLE, b"")),
-                                 lambda: None))
+        asyncio.run(beating)
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR], "an outage is the missing beats' page"
 
 
@@ -245,9 +248,9 @@ class _Refusing:
     (400, "status_code", False), (404, "status_code", False), (429, "status_code", False), (503, "code", False)])
 def test_the_models_key_refused_is_an_error_line_and_nothing_else_is(caplog, status, attr, paged):
     caplog.set_level(logging.INFO)
+    client = llm.LLMClient(provider=_Refusing(status, attr), mock=False)
     with pytest.raises(llm.ModelRefused):
-        llm.LLMClient(provider=_Refusing(status, attr), mock=False).structured(system="s", user="u", schema=_Toy,
-                                                                                retries=0)
+        client.structured(system="s", user="u", schema=_Toy, retries=0)
     errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert len(errors) == (1 if paged else 0)
     if paged:
@@ -274,8 +277,9 @@ def _store(error: Exception, pg: bool = True) -> Any:
                                    psycopg.errors.AdminShutdown("stopped")])
 def test_the_audit_database_gone_or_full_is_one_error_line(caplog, error):
     caplog.set_level(logging.INFO)
+    store = _store(error)
     with pytest.raises(type(error)):
-        _store(error).run("SELECT 1")
+        store.run("SELECT 1")
     errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert len(errors) == 1
     assert type(error).__name__ in errors[0].getMessage()
@@ -283,8 +287,9 @@ def test_the_audit_database_gone_or_full_is_one_error_line(caplog, error):
     assert "full)" not in errors[0].getMessage()
     assert _WORKER_ERRORS.search(_paged_line(errors[0]))
     again = type(error)("again")
+    store = _store(again)
     with pytest.raises(type(error)), audit._said_when_unreachable(True):
-        _store(again).run("SELECT 1")  # inside a transaction's guard as well: said once, not twice
+        store.run("SELECT 1")  # inside a transaction's guard as well: said once, not twice
     assert len([r for r in caplog.records if r.levelno >= logging.ERROR]) == 2
 
 
@@ -315,8 +320,9 @@ def test_the_audit_database_unreachable_at_start_or_at_commit_is_said_too(caplog
                                            (psycopg.errors.UniqueViolation("dup"), True),
                                            (psycopg.OperationalError("not postgres"), False)])
 def test_a_retried_conflict_a_bad_row_or_sqlite_pages_nobody(caplog, error, pg):
+    store = _store(error, pg)
     with pytest.raises(type(error)):
-        _store(error, pg).run("SELECT 1")
+        store.run("SELECT 1")
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
