@@ -31,6 +31,12 @@ NEWS_BLOG = (FIXTURES / "news_blog.xml").read_bytes()
 LAMBDA_310 = "https://aws.amazon.com/about-aws/whats-new/2026/10/aws-lambda-python-3-10-end-of-support/"
 
 
+@pytest.fixture(autouse=True)
+def _watch_on(monkeypatch):
+    """The watch is on in these tests unless a test turns it off: its steps do nothing when it is off."""
+    monkeypatch.setenv("WARDEN_AWSWATCH", "on")
+
+
 def _script():
     spec = importlib.util.spec_from_file_location("aws_inventory", ROOT / "scripts" / "aws_inventory.py")
     module = importlib.util.module_from_spec(spec)
@@ -476,11 +482,24 @@ def test_a_schedule_temporal_refuses_never_stops_the_worker(monkeypatch, capsys)
     assert "the AWS updates schedule could not be set (RPCError: denied)" in capsys.readouterr().err
 
 
+def test_an_unexpected_schedule_error_never_stops_the_worker_either(monkeypatch, capsys):
+    """CodeRabbit, PR 83 (merge risk): only RPCError and ValueError were caught; any other error stopped the worker."""
+    from warden import cli
+
+    async def broken(client):
+        raise TimeoutError("no answer")
+
+    monkeypatch.setattr(awswatch, "sync_schedule", broken)
+    asyncio.run(cli._sync_awswatch(object()))
+    assert "the AWS updates schedule could not be set (TimeoutError: no answer)" in capsys.readouterr().err
+
+
 
 @pytest.mark.parametrize("text,running", [
     ("Lambda ends support for Python 3.9 and 3.10 on October 31, 2026.", "python3.10"),
     ("Lambda deprecates Node.js 18 and 20.", "nodejs20.x"),
     ("Lambda deprecates the Python 3.8, 3.9 and 3.10 runtimes.", "python3.10"),
+    ("Lambda deprecates Node.js 18.x and 20.x.", "nodejs20.x"),
 ])
 def test_every_version_in_a_list_is_read_so_a_later_one_is_not_missed(text, running):
     """CodeRabbit, PR 83: "Python 3.9 and 3.10" named only 3.9, and a WARDEN on 3.10 read "not affected"."""
@@ -488,6 +507,22 @@ def test_every_version_in_a_list_is_read_so_a_later_one_is_not_missed(text, runn
     mine = {**inv, "versions": {**inv["versions"], "runtime": {"known": [running], "unknown": False}}}
     item = {"feed": "whats-new", **awswatch.facts(text)}
     assert awswatch.verdict(item, mine) == (awswatch.AFFECTED, f"WARDEN runs {running}")
+
+
+@pytest.mark.parametrize("text,family,running", [
+    ("RDS for PostgreSQL 12.4 and 13.5 reach end of standard support.", "postgresql", "13"),
+    ("ElastiCache ends support for Redis OSS 6.2 and 7.0.", "redis", "7"),
+])
+def test_a_listed_version_with_its_minor_is_read_as_its_major(text, family, running):
+    """CodeRabbit, PR 83: "12.4 and 13.5" gave ["12", "13.5"], and a WARDEN on PostgreSQL 13 read "not affected"."""
+    inv = awswatch.inventory()
+    mine = {**inv, "versions": {**inv["versions"], family: {"known": [running], "unknown": False}}}
+    item = {"feed": "whats-new", **awswatch.facts(text)}
+    assert awswatch.verdict(item, mine) == (awswatch.AFFECTED, f"WARDEN runs {running}")
+
+
+def test_a_kubernetes_list_keeps_each_minor():
+    assert awswatch.versions("EKS 1.29 and 1.30 reach end of standard support") == {"kubernetes": ["1.29", "1.30"]}
 
 
 def test_a_list_of_versions_stops_at_what_is_not_one():
@@ -533,3 +568,19 @@ def test_a_retried_post_never_sends_again_what_it_delivered(tmp_path, monkeypatc
     acts.awswatch_post(DIGEST_ID, made)  # the retry
     assert len(posted) == len(set(posted)) + 1  # only the failed one twice
     assert posted.count(DIGEST_ID) == 1
+
+
+def test_a_watch_turned_off_reads_and_posts_nothing_even_if_its_schedule_still_runs(tmp_path, monkeypatch):
+    """CodeRabbit security review, PR 83: a refused schedule deletion left the watch reading and posting while off."""
+    fetched, posted = [], []
+
+    def opener(req, timeout):
+        fetched.append(req.full_url)
+        return _fake_opener(req, timeout)
+
+    monkeypatch.setenv("WARDEN_AWSWATCH", "off")
+    monkeypatch.setattr(awswatch.AwsWatchActivities, "_post_one", staticmethod(lambda *a, **k: posted.append(a)))
+    acts = awswatch.AwsWatchActivities(audit=_log(tmp_path), opener=opener)
+    snap = acts.awswatch_read(DIGEST_ID)
+    acts.awswatch_post(DIGEST_ID, {"digest": "d", "alarms": [{"id": "x", "text": "t"}]})
+    assert (fetched, posted, snap["rows"]) == ([], [], [])

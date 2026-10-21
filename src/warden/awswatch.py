@@ -335,9 +335,15 @@ def without_targets(text: str) -> str:
     return " ".join([*out, text[start:]])
 
 
-def _listed(text: str, m: re.Match[str], shape: str) -> list[str]:
+# The shapes whose version is its major and minor (Ruby 3.3, Kubernetes 1.30); every other family's pattern keeps the
+# major only (PostgreSQL 13.5 -> 13, Node.js 20.x -> 20), so a listed one is cut the same way (CodeRabbit, PR 83).
+_KEEPS_MINOR = frozenset({"ruby{}"})
+
+
+def _listed(text: str, m: re.Match[str], family: str, shape: str) -> list[str]:
     """A family match's version and the bare ones that continue its list ("Python 3.9 and 3.10", "Node.js 18, 20"),
-    each as the pattern's group would hold it. A Python version keeps only its minor (`3.10` -> `10`)."""
+    each as the pattern's group would hold it. A Python version keeps only its minor (`3.10` -> `10`); a PostgreSQL,
+    Redis, Node.js, Java or .NET one only its major (`12.4 and 13.5` -> `12`, `13`)."""
     found, pos = [m.group(1)], m.end()
     while more := _LIST_MORE.match(text, pos):
         raw, pos = more.group(1), more.end()
@@ -345,6 +351,8 @@ def _listed(text: str, m: re.Match[str], shape: str) -> list[str]:
             if not raw.startswith("3."):
                 break
             raw = raw.removeprefix("3.")
+        elif family != "kubernetes" and shape not in _KEEPS_MINOR:
+            raw = raw.split(".", 1)[0]
         found.append(raw)
     return found
 
@@ -356,7 +364,7 @@ def versions(text: str) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for family, rx, shape in _VERSIONS:
         for m in rx.finditer(text):
-            for raw in _listed(text, m, shape):
+            for raw in _listed(text, m, family, shape):
                 v = shape.format(raw.lower())
                 if v not in out.setdefault(family, []):
                     out[family].append(v)
@@ -697,9 +705,13 @@ class AwsWatchActivities:
     def awswatch_read(self, digest_id: str) -> dict[str, Any]:
         """Read zone: both feeds' items of the last MAX_LOOKBACK, as fact rows - the same window every day, so a feed
         that could not be read is read again tomorrow; core leaves out what a delivered digest already showed.
-        Nothing of an item's text leaves this step."""
+        Nothing of an item's text leaves this step. With the watch off it reads nothing: a schedule whose removal
+        Temporal refused must not keep reading the public web (CodeRabbit security review, PR 83)."""
         since, regions = _at(digest_id) - MAX_LOOKBACK, inventory()["regions"]
         snap: dict[str, Any] = {"since": since.isoformat(), "rows": [], "unread": [], "tripwire": []}
+        if not configured():
+            self.audit.append(digest_id, READ, {"run_id": _run_id(), "off": True, "rows": 0})
+            return {**snap, "off": True}
         for feed, url in FEEDS.items():
             try:
                 rows, status = reduce(feed, parse(fetch(url, opener=self.opener)), since=since, regions=regions,
@@ -760,7 +772,10 @@ class AwsWatchActivities:
     def awswatch_post(self, digest_id: str, made: dict[str, Any]) -> dict[str, Any]:
         """Notify zone: the digest in the discussion channel, each alarm in the alerts channel - through the outbound
         gate and the redactor, as everything WARDEN sends. A retried attempt never posts again what this digest's
-        earlier attempt delivered (CodeRabbit, PR 83)."""
+        earlier attempt delivered (CodeRabbit, PR 83). With the watch off it posts nothing (as awswatch_read)."""
+        if not configured():
+            self.audit.append(digest_id, POST, {"run_id": _run_id(), "what": "all", "result": "off"})
+            return {}
         done = {str(e["body"].get("what")) for e in self.audit.entries(digest_id, kinds=(POST,))
                 if e["body"].get("result") == "sent"}
         jobs = [("digest", digest_id, made["digest"], "WARDEN_DISCUSS_CHANNEL", "")]
