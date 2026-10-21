@@ -89,6 +89,11 @@ module "runtime" {
   # (register M20) and every incident is escalated on the rules alone.
   model_provider = lookup(local.tf, "model_provider", "")
   model          = lookup(local.tf, "model", "")
+  # WARDEN's own pages (paging.tf); a budget only when its permissions are in place (docs/SETUP.md).
+  page_repeat_minutes = tonumber(lookup(local.tf, "page_repeat_minutes", "15"))
+  monthly_budget_usd  = tonumber(lookup(local.tf, "monthly_budget_usd", "0"))
+  # Eldane, the AI critic, in the critic zone (eldane.py): the other Claude model than the incident's diagnoser.
+  critic_provider = lookup(local.tf, "critic_provider", "anthropic")
   # The workers' way out outlives them: pausing removes the services and the NAT route in one apply, and a task told to
   # stop on an instance that has already lost its route never hears it - its service stays DRAINING until Terraform
   # gives up after twenty minutes, with the instances still running (2026-10-11, run 38121022138). With this, the

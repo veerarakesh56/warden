@@ -24,6 +24,41 @@ variable "missed_beats_to_page" {
   default     = 2
 }
 
+variable "page_repeat_minutes" {
+  description = "How often an open page of WARDEN's own is said again, Slack and email, until a person acknowledges it (owner, 2026-10-16: 15)."
+  type        = number
+  default     = 15
+  validation {
+    condition     = var.page_repeat_minutes >= 5 && var.page_repeat_minutes <= 120
+    error_message = "page_repeat_minutes is 5 to 120: the pager runs every five minutes."
+  }
+}
+
+variable "temporal_key_warn_days" {
+  description = "Days before a Temporal Cloud API key's end (SSM env/WARDEN_TEMPORAL_KEY_EXPIRES) that it pages."
+  type        = number
+  default     = 7
+}
+
+variable "audit_db_max_connections" {
+  description = "Connections to the audit database above which, for 10 minutes, a person is paged."
+  type        = number
+  default     = 60
+}
+
+variable "audit_db_max_gib" {
+  description = "Aurora audit storage, in GiB, above which a person is paged: far more than a year of incidents."
+  type        = number
+  default     = 10
+}
+
+variable "monthly_budget_usd" {
+  description = "A monthly cost budget, before credits, that emails the page topic at 80% spent and 100% forecast. 0: none (it needs budgets:* for the deploy role and a topic policy for budgets.amazonaws.com)."
+  type        = number
+  default     = 0
+  nullable    = false
+}
+
 variable "anchor_retention_days" {
   description = "How long an audit checkpoint's anchor cannot be deleted or overwritten by anyone (S3 Object Lock, COMPLIANCE mode). 1 in the lab; an install sets its own audit retention."
   type        = number
@@ -170,10 +205,11 @@ variable "zone_sizes" {
     llm    = { cpu = 512, memory = 2048 }
     notify = { cpu = 256, memory = 512 } # Fargate's least memory for a quarter vCPU
     act    = { cpu = 256, memory = 512 }
+    critic = { cpu = 256, memory = 512 } # Eldane: two model calls per plan, no local model
   }
   validation {
-    condition     = toset(keys(var.zone_sizes)) == toset(["core", "read", "llm", "notify", "act"])
-    error_message = "zone_sizes names every trust zone: core, read, llm, notify, act."
+    condition     = toset(keys(var.zone_sizes)) == toset(["core", "read", "llm", "notify", "act", "critic"])
+    error_message = "zone_sizes names every trust zone: core, read, llm, notify, act, critic."
   }
 }
 
@@ -187,6 +223,16 @@ variable "model_provider" {
   description = "The provider the llm zone calls (src/warden/providers.py: gemini, bedrock, ...); empty: the CLI's default. It must be qualified (register M20) or every incident is escalated on the rules alone."
   type        = string
   default     = ""
+}
+
+variable "critic_provider" {
+  description = "The provider Eldane, the AI critic, calls in the critic zone (src/warden/eldane.py): anthropic, with the diagnosis's key, using for each incident the Claude model that did not diagnose it (data/providers.yaml critic); empty: no Eldane, and a person approves every plan as before."
+  type        = string
+  default     = "anthropic"
+  validation {
+    condition     = contains(["", "anthropic"], var.critic_provider)
+    error_message = "critic_provider is empty or anthropic."
+  }
 }
 
 variable "model" {

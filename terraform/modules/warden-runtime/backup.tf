@@ -4,7 +4,8 @@
 # AWS-managed key - no cross-region copy, no continuous backup - carries the record past that.
 #
 # Kept until a person deletes it: the environment boundary denies rds:DeleteDBClusterSnapshot to every role, this
-# backup role included (DenyAlways), so a lifecycle rule could not delete a copy either - none is set. A copy older
+# backup role included (DenyAlways), so a lifecycle rule could not delete a copy either - none is set. Its ceiling
+# lets in only the backup actions used here: no role it bounds can delete, restore or copy out a recovery point. A copy older
 # than 180 days is listed for a person (aws backup list-recovery-points-by-backup-vault). Price, ap-south-2 (AWS Price
 # List API, read 2026-10-20): USD 0.023 per GB-month of Aurora PostgreSQL backup storage beyond the free allocation
 # (the cluster's own size); the audit database is small, so a copy a month is cents. Off with audit_monthly_backup.

@@ -51,6 +51,26 @@ def known_names(alert: Alert, context: ContextBundle) -> tuple[dict[str, set[str
     return by_kind, loose
 
 
+def _why_refused(kind: str, name: str, environment: str, known: tuple[dict[str, set[str]], set[str], set[str]],
+                 labels: dict[str, str]) -> str:
+    """Why one request is refused, or "" when it is accepted. `known`: the names WARDEN knows by kind, the loose
+    names in its trusted evidence, and the names the alert's labels already give."""
+    by_kind, loose, labelled = known
+    if kind not in READABLE:
+        return "not a resource kind WARDEN reads through the environment's reader role"
+    if not _TOKEN.fullmatch(name):
+        return "not a plain resource name"
+    if env_of_name(name) != environment:
+        return "not a resource of the incident's environment"
+    if name not in by_kind.get(kind, set()) and (name in labelled or name not in loose):
+        return "the name is not WARDEN's own knowledge for that kind"
+    if labels.get(kind) and name in labels[kind].split(","):
+        return "already read"
+    if labels.get(kind) and kind not in _LISTS:
+        return f"another {kind} is already read"
+    return ""
+
+
 def widen(alert: Alert, context: ContextBundle, requests: list[dict[str, Any]]) -> tuple[Alert, list, list]:
     """The alert with the accepted requests added to its resource labels, and what was accepted and refused (why)."""
     by_kind, loose = known_names(alert, context)
@@ -60,21 +80,8 @@ def widen(alert: Alert, context: ContextBundle, requests: list[dict[str, Any]]) 
     refused: list[dict[str, str]] = []
     for raw in requests[: MAX_REQUESTS * 2]:
         kind, name = str(raw.get("kind", "")), str(raw.get("name", ""))
-        why = ""
-        if len(accepted) >= MAX_REQUESTS:
-            why = f"at most {MAX_REQUESTS} per round"
-        elif kind not in READABLE:
-            why = "not a resource kind WARDEN reads through the environment's reader role"
-        elif not _TOKEN.fullmatch(name):
-            why = "not a plain resource name"
-        elif env_of_name(name) != alert.environment:
-            why = "not a resource of the incident's environment"
-        elif name not in by_kind.get(kind, set()) and (name in labelled or name not in loose):
-            why = "the name is not WARDEN's own knowledge for that kind"
-        elif labels.get(kind) and name in labels[kind].split(","):
-            why = "already read"
-        elif labels.get(kind) and kind not in _LISTS:
-            why = f"another {kind} is already read"
+        why = (f"at most {MAX_REQUESTS} per round" if len(accepted) >= MAX_REQUESTS
+               else _why_refused(kind, name, alert.environment, (by_kind, loose, labelled), labels))
         if why:
             refused.append({"kind": kind[:40], "name": name[:120], "why": why})
             continue

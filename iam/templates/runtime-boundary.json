@@ -18,7 +18,8 @@
         "apigateway:*",
         "backup:*BackupPlan",
         "backup:*BackupSelection",
-        "backup:*BackupVault",
+        "backup:*eBackupVault",
+        "backup:CopyIntoBackupVault",
         "backup:*Tag*",
         "backup-storage:MountCapsule",
         "tag:*",
@@ -53,7 +54,7 @@
       ]
     },
     {
-      "Sid": "CeilingOwnKeys",
+      "Sid": "CeilingKeys",
       "Effect": "Allow",
       "Action": "kms:*",
       "Resource": [
@@ -62,7 +63,13 @@
       ]
     },
     {
-      "Sid": "CeilingRdsSecret",
+      "Sid": "CeilingPause",
+      "Effect": "Allow",
+      "Action": "ssm:PutParameter",
+      "Resource": "arn:aws:ssm:${region}:*:parameter/warden/${env}/tf/paused"
+    },
+    {
+      "Sid": "CeilingRds",
       "Effect": "Allow",
       "Action": [
         "secretsmanager:CreateSecret",
@@ -80,13 +87,10 @@
         "iam:DeleteRole",
         "iam:GetRole",
         "iam:UpdateRole",
-        "iam:TagRole",
-        "iam:UntagRole",
-        "iam:PutRolePolicy",
-        "iam:GetRolePolicy",
+        "iam:*agRole",
+        "iam:*tRolePolicy",
         "iam:DeleteRolePolicy",
-        "iam:AttachRolePolicy",
-        "iam:DetachRolePolicy",
+        "iam:*tachRolePolicy",
         "iam:PutRolePermissionsBoundary",
         "iam:List*",
         "iam:*InstanceProfile",
@@ -98,7 +102,7 @@
       ]
     },
     {
-      "Sid": "CeilingWatchedRoles",
+      "Sid": "CeilingWatched",
       "Effect": "Allow",
       "Action": [
         "sts:AssumeRole",
@@ -133,13 +137,13 @@
       "Resource": "arn:aws:iam::*:role/aws-service-role/*"
     },
     {
-      "Sid": "CeilingWhoAmI",
+      "Sid": "CeilingSts",
       "Effect": "Allow",
       "Action": "sts:GetCallerIdentity",
       "Resource": "*"
     },
     {
-      "Sid": "DenyRoleWithoutThisBoundary",
+      "Sid": "DenyUnboundedRoles",
       "Effect": "Deny",
       "Action": [
         "iam:CreateRole",
@@ -157,11 +161,7 @@
       "Effect": "Deny",
       "Action": [
         "iam:DeleteRolePermissionsBoundary",
-        "rds:DeleteDBSnapshot",
-        "rds:DeleteDBClusterSnapshot",
-        "backup:DeleteRecoveryPoint",
-        "backup:CopyFromBackupVault",
-        "backup:*Restore*",
+        "rds:DeleteDB*Snapshot",
         "ec2:RunScheduledInstances",
         "ec2:RequestSpot*",
         "ec2:Purchase*",
@@ -230,23 +230,34 @@
       ],
       "NotResource": [
         "arn:aws:s3:::warden-${env}-anchors-*",
-        "arn:aws:s3:::warden-${env}-witness-*"
+        "arn:aws:s3:::warden-${env}-witness-*",
+        "arn:aws:s3:::warden-${env}-access-logs-*"
       ]
+    },
+    {
+      "Sid": "PolicyByDeploy",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutBucketPolicy",
+        "s3:Put*PublicAccessBlock"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/warden-${env}-deploy"
+        }
+      }
     },
     {
       "Sid": "DenySelfEdit",
       "Effect": "Deny",
       "Action": [
-        "iam:PutRolePolicy",
-        "iam:DeleteRolePolicy",
-        "iam:AttachRolePolicy",
-        "iam:DetachRolePolicy",
+        "iam:PutR*",
+        "iam:*eRolePolicy",
+        "iam:*tachRolePolicy",
         "iam:UpdateRole",
-        "iam:UpdateAssumeRolePolicy",
         "iam:DeleteRole",
-        "iam:TagRole",
-        "iam:UntagRole",
-        "iam:PutRolePermissionsBoundary"
+        "iam:*agRole"
       ],
       "Resource": "arn:aws:iam::*:role/warden-${env}-deploy"
     },

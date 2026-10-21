@@ -4,12 +4,50 @@ by accident."""
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 STACKS = (ROOT / "terraform" / "fullstack", ROOT / "terraform" / "modules" / "warden-runtime")
+
+# Every AWS Backup action (AWS Service Reference, servicereference.us-east-1.amazonaws.com/v1/backup/backup.json,
+# read 2026-10-21): the boundary's backup patterns are checked against all of them, not against examples.
+BACKUP_ACTIONS = frozenset([
+    "AssociateBackupVaultMpaApprovalTeam", "CancelLegalHold", "CopyFromBackupVault", "CopyIntoBackupVault",
+    "CreateBackupAccessPoint", "CreateBackupPlan", "CreateBackupSelection", "CreateBackupVault", "CreateFramework",
+    "CreateLegalHold", "CreateLogicallyAirGappedBackupVault", "CreateReportPlan", "CreateRestoreAccessBackupVault",
+    "CreateRestoreTestingPlan", "CreateRestoreTestingSelection", "CreateTieringConfiguration",
+    "DeleteBackupAccessPoint", "DeleteBackupPlan", "DeleteBackupSelection", "DeleteBackupVault",
+    "DeleteBackupVaultAccessPolicy", "DeleteBackupVaultLockConfiguration", "DeleteBackupVaultNotifications",
+    "DeleteBackupVaultSharingPolicy", "DeleteFramework", "DeleteRecoveryPoint", "DeleteReportPlan",
+    "DeleteRestoreTestingPlan", "DeleteRestoreTestingSelection", "DeleteTieringConfiguration",
+    "DescribeBackupAccessPoint", "DescribeBackupJob", "DescribeBackupVault", "DescribeCopyJob",
+    "DescribeFramework", "DescribeGlobalSettings", "DescribeProtectedResource", "DescribeRecoveryPoint",
+    "DescribeRegionSettings", "DescribeReportJob", "DescribeReportPlan", "DescribeRestoreJob", "DescribeScanJob",
+    "DisassociateBackupVaultMpaApprovalTeam", "DisassociateRecoveryPoint", "DisassociateRecoveryPointFromParent",
+    "ExportBackupPlanTemplate", "GetBackupPlan", "GetBackupPlanFromJSON", "GetBackupPlanFromTemplate",
+    "GetBackupSelection", "GetBackupVaultAccessPolicy", "GetBackupVaultNotifications",
+    "GetBackupVaultSharingPolicy", "GetLegalHold", "GetPITRMalwareScanResults", "GetRecoveryPointIndexDetails",
+    "GetRecoveryPointRestoreMetadata", "GetRestoreJobMetadata", "GetRestoreTestingInferredMetadata",
+    "GetRestoreTestingPlan", "GetRestoreTestingSelection", "GetSupportedResourceTypes", "GetTieringConfiguration",
+    "ListBackupAccessPoints", "ListBackupAccessPointsByRecoveryPoint", "ListBackupAccessPointsByResource",
+    "ListBackupJobSummaries", "ListBackupJobs", "ListBackupPlanTemplates", "ListBackupPlanVersions",
+    "ListBackupPlans", "ListBackupSelections", "ListBackupVaults", "ListCopyJobSummaries", "ListCopyJobs",
+    "ListFrameworks", "ListIndexedRecoveryPoints", "ListIndexedRecoveryPointsForSearch", "ListLegalHolds",
+    "ListProtectedResources", "ListProtectedResourcesByBackupVault", "ListRecoveryPointsByBackupVault",
+    "ListRecoveryPointsByLegalHold", "ListRecoveryPointsByResource", "ListReportJobs", "ListReportPlans",
+    "ListRestoreAccessBackupVaults", "ListRestoreJobSummaries", "ListRestoreJobs",
+    "ListRestoreJobsByProtectedResource", "ListRestoreTestingPlans", "ListRestoreTestingSelections",
+    "ListScanJobSummaries", "ListScanJobs", "ListTags", "ListTieringConfigurations", "PutBackupVaultAccessPolicy",
+    "PutBackupVaultLockConfiguration", "PutBackupVaultNotifications", "PutBackupVaultSharingPolicy",
+    "PutRestoreValidationResult", "RevokeRestoreAccessBackupVault", "SearchRecoveryPoint", "StartBackupJob",
+    "StartCopyJob", "StartReportJob", "StartRestoreJob", "StartScanJob", "StopBackupJob", "TagResource",
+    "UntagResource", "UpdateBackupPlan", "UpdateFramework", "UpdateGlobalSettings",
+    "UpdateRecoveryPointIndexSettings", "UpdateRecoveryPointLifecycle", "UpdateRegionSettings", "UpdateReportPlan",
+    "UpdateRestoreTestingPlan", "UpdateRestoreTestingSelection", "UpdateTieringConfiguration",
+])
 
 
 def _code(text: str) -> str:
@@ -73,7 +111,9 @@ def test_every_runtime_log_group_keeps_its_logs_at_least_180_days():
     # function has none, and its role has no permission at all - it writes no log.
     code = {tf.name: _code(tf.read_text(encoding="utf-8")) for tf in RUNTIME.glob("*.tf")}
     functions = {m for text in code.values() for m in re.findall(r'^resource "aws_lambda_function" "(\w+)"', text, re.MULTILINE)}
-    assert functions - {"front_door", "migrate"} == {"ack"}
+    groups_by_name = {name.rsplit(":", 1)[1] for name, _ in groups}
+    # Each function's log group is the resource of the same name (main added webhook_auth and pager).
+    assert {f for f in functions if f not in groups_by_name} == {"ack"}
     found = re.search(r'resource "aws_iam_role" "ack" \{.*?^\}', code["frontdoor.tf"], re.DOTALL | re.MULTILINE)
     assert found, "the ack role is no longer in frontdoor.tf: check this test"
     ack_role = found.group(0)
@@ -153,7 +193,7 @@ def test_the_backup_role_snapshots_this_cluster_into_this_vault_and_deletes_noth
     # Nothing deletes a copy: the boundary denies it to every role it bounds, this one included.
     boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
     always = next(st for st in boundary["Statement"] if st.get("Sid") == "DenyAlways")
-    assert "rds:DeleteDBClusterSnapshot" in always["Action"]
+    assert any(fnmatch.fnmatchcase("rds:DeleteDBClusterSnapshot", a) for a in always["Action"])
 
 
 def test_the_deploy_role_manages_only_the_audit_vault_and_plan_from_its_own_policy():
@@ -174,13 +214,17 @@ def test_the_deploy_role_manages_only_the_audit_vault_and_plan_from_its_own_poli
     assert passing["Condition"] == {"StringEquals": {"iam:PassedToService": "backup.amazonaws.com"}}
     boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
     ceiling = next(st for st in boundary["Statement"] if st.get("Sid") == "CeilingRegional")
-    backup = sorted(a for a in ceiling["Action"] if a.startswith("backup"))
-    assert backup == ["backup-storage:MountCapsule", "backup:*BackupPlan", "backup:*BackupSelection",
-                      "backup:*BackupVault", "backup:*Tag*"]
+    assert sorted(a for a in ceiling["Action"] if a.startswith("backup-storage:")) == ["backup-storage:MountCapsule"]
     assert ceiling["Condition"] == {"StringEquals": {"aws:RequestedRegion": region}}
-    # Never a copy deleted or taken out, never a restore, by any role the boundary bounds (a person restores).
-    always = next(st for st in boundary["Statement"] if st.get("Sid") == "DenyAlways")
-    assert {"backup:DeleteRecoveryPoint", "backup:CopyFromBackupVault", "backup:*Restore*"} <= set(always["Action"])
+    # The ceiling lets in exactly what the deploy role and the backup role use. So no role the boundary bounds can
+    # delete a copy, take one out (CopyFromBackupVault), restore (a person restores), change a copy's lifecycle, set a
+    # vault policy or lock, or make another kind of vault. IAM matches action names case-insensitively.
+    patterns = [a.split(":", 1)[1].lower() for a in ceiling["Action"] if a.startswith("backup:")]
+    allowed = {a for a in BACKUP_ACTIONS if any(fnmatch.fnmatchcase(a.lower(), p) for p in patterns)}
+    used = {a.split(":", 1)[1] for a in by_sid["TheAuditVaultPlanAndSelection"]["Action"]}
+    used |= {"DescribeBackupVault", "CopyIntoBackupVault", "TagResource"}  # the backup role's (backup.tf)
+    assert used <= BACKUP_ACTIONS
+    assert allowed == used
 
 
 def r_region() -> str:
