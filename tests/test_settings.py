@@ -251,4 +251,5 @@ def test_the_never_revert_list_reaches_the_cloud_runtime_from_parameter_store(mo
     fake = _FakeSSM({"/warden/ops/env/WARDEN_NEVER_REVERT_PRINCIPALS": "security-oncall, break-glass"})
     assert "WARDEN_NEVER_REVERT_PRINCIPALS" in load("ops", ssm=fake, secrets=_FakeSecrets({}))
     assert aws.never_revert() == frozenset({"security-oncall", "break-glass"})
-    monkeypatch.delenv("WARDEN_NEVER_REVERT_PRINCIPALS", raising=False)
+    # Not monkeypatch.delenv: load() wrote it into os.environ, and monkeypatch would put it back after _clean_env.
+    os.environ.pop("WARDEN_NEVER_REVERT_PRINCIPALS", None)

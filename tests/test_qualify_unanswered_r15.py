@@ -37,6 +37,9 @@ def test_rows_the_model_never_answered_are_counted(tmp_path, monkeypatch):
 def test_one_unanswered_incident_fails_an_otherwise_passing_run(tmp_path, monkeypatch, capsys):
     rows = [{"policy_ids": ["P0-MODEL-UNAVAILABLE"], "diagnosis": "CORRECT", "gate": "refused", "action": "x"}]
     _fake_scoring(monkeypatch, rows)
+    # main() sets WARDEN_QUALIFYING=1 for its own process: set here first, so teardown removes it - left behind, it
+    # admitted every unqualified model in the tests after this one.
+    monkeypatch.setenv("WARDEN_QUALIFYING", "1")
     (tmp_path / "qualification.json").write_text(json.dumps({"provider": "gemini", "model": "m"}), encoding="utf-8")
     assert qualify.main(["--out", str(tmp_path), "--score-only"]) == 1
     out = capsys.readouterr().out

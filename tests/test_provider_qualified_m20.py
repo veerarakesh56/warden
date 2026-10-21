@@ -76,6 +76,9 @@ def test_the_shipped_list_loads_and_every_entry_meets_its_bar():
 def test_the_production_default_is_a_qualified_model_and_sonnet_5_is_gone(monkeypatch):
     """Owner, 2026-10-15: only Claude Sonnet 5.5 and Opus 5.5 - never Sonnet 5 again. The cloud names no model, so it
     runs the anthropic default: that is Sonnet 5.5, qualified; Sonnet 5 is neither a default nor qualified anywhere."""
+    # First, before any qualified() call: WARDEN_QUALIFYING=1 left by another test admits every model (PR 179: mutmut's
+    # test order showed the gate "DID NOT RAISE").
+    monkeypatch.delenv("WARDEN_QUALIFYING", raising=False)
     doc = providers.load_qualified()
     assert doc["defaults"]["anthropic"] == "claude-sonnet-5-5"
     assert any(e["provider"] == "anthropic" and e["model"] == "claude-sonnet-5-5" for e in doc["qualified"])
@@ -90,7 +93,6 @@ def test_the_production_default_is_a_qualified_model_and_sonnet_5_is_gone(monkey
             qualified(default)
     assert "claude-sonnet-5" not in doc["defaults"].values()
     assert not [e for e in doc["qualified"] if e["model"] == "claude-sonnet-5"]
-    monkeypatch.delenv("WARDEN_QUALIFYING", raising=False)
     retired = _cli(monkeypatch, model="claude-sonnet-5")
     with pytest.raises(providers.ProviderError):
         qualified(retired)

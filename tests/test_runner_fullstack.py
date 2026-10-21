@@ -561,6 +561,8 @@ def test_the_stack_kubeconfig_loads_through_the_real_client(tmp_path, monkeypatc
     assert cli.load_kubeconfig(kube.config, default=cfg) == "warden-dev-eks"
     # kubectl subprocesses (mint_kubeconfig) must use the same file, not ~/.kube/config.
     assert os.environ["KUBECONFIG"] == str(cfg)
+    # load_kubeconfig wrote it straight into os.environ: removed here, so monkeypatch restores "unset", not this file.
+    os.environ.pop("KUBECONFIG")
     monkeypatch.setenv("KUBECONFIG", str(tmp_path / "missing"))
     with pytest.raises(cli.StepError, match="no usable kubeconfig"):
         cli.load_kubeconfig(kube.config, default=cfg)
@@ -579,7 +581,14 @@ def test_a_wave4_report_is_posted_as_the_stack_it_ran_on(tmp_path, capsys):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     capsys.readouterr()
-    assert mod.main(["--run", str(tmp_path), "--print"]) == 0
+    region = os.environ.get("AWS_REGION")
+    try:
+        assert mod.main(["--run", str(tmp_path), "--print"]) == 0
+    finally:  # main() writes the run's region into os.environ when none is set: never left for the tests after
+        if region is None:
+            os.environ.pop("AWS_REGION", None)
+        else:
+            os.environ["AWS_REGION"] = region
     out = capsys.readouterr().out
     assert "assume Kubernetes" not in out
 
