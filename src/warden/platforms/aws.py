@@ -351,6 +351,11 @@ def _reserved_of(item: dict[str, Any]) -> Any:
                 "reservedConcurrentExecutions")
 
 
+def _concurrency_text(reserved: Any) -> str:
+    """A reserved concurrency as a plan names it: `none` when nothing was reserved."""
+    return "none" if reserved is None else str(reserved)
+
+
 def _concurrency_refusal(before: Any, after: Any, reserved: Any, free: Any) -> str:
     """Why a recorded reserved concurrency is not restored: it moved since the change, or the account has no room
     for it (`free` the account's unreserved concurrency) - else ""."""
@@ -659,10 +664,10 @@ def _listed_mappings(lam: Any, **by: str) -> list[dict[str, Any]]:
 
 
 def _same_account_sources(urls: list[str], account: str) -> list[str]:
-    """The names of the first ten source queues in this account: https://sqs.<region>.amazonaws.com/<account>/<name>
-    (a source in this account and Region only)."""
+    """The names of the first ten source queues that are in this account."""
     sources = []
     for u in urls[:10]:
+        # https://sqs.<region>.amazonaws.com/<account>/<name>: a source in this account and Region only.
         parts = u.rstrip("/").split("/")
         acct, qname = (parts[-2], parts[-1]) if len(parts) >= 5 else ("", "")
         if acct == account and qname:
@@ -1216,9 +1221,10 @@ class AwsPlatform:
         return out
 
     def _queue_consumer(self, lam: Any, queue: str) -> tuple[str, Any] | None:
-        """A queue's own alarm (first live run, 2026-10-12): the fix is on the queue's consumer. The mappings AWS holds
-        for exactly this queue's ARN name it; with ONE of them switched off, that function and that mapping are the
-        allowed set - never a function a log line or the model named. None when there is not exactly one."""
+        """(the function, the mapping) consuming the queue - None when there is not exactly one switched off."""
+        # A queue's own alarm (first live run, 2026-10-12): the fix is on the queue's consumer. The mappings AWS
+        # holds for exactly this queue's ARN name it; with ONE of them switched off, that function and that
+        # mapping are the allowed set - never a function a log line or the model named.
         sqs = self._read("sqs")
         arn = sqs.get_queue_attributes(QueueUrl=sqs.get_queue_url(QueueName=queue)["QueueUrl"],
                                        AttributeNames=["QueueArn"])["Attributes"]["QueueArn"]
@@ -1519,8 +1525,9 @@ class AwsPlatform:
                           "waiting": count, "where": self._where(arn)}}
 
     def _redrive_destination(self, sqs: Any, sources: list[str], env: Any) -> str:
-        """The destination: the dead-letter queue's ONLY source (with several, a move would hand one queue's messages
-        to another's consumer - review M3), of the same environment (M2) and not KMS-encrypted either (L7); else ""."""
+        """The queue a redrive moves the dead-letter queue's messages to - else ""."""
+        # The destination: the dead-letter queue's ONLY source (with several, a move would hand one queue's messages
+        # to another's consumer - review M3), of the same environment (M2) and not KMS-encrypted either (L7).
         if len(sources) != 1:
             return ""
         durl = sqs.get_queue_url(QueueName=sources[0])["QueueUrl"]
@@ -2189,7 +2196,7 @@ class AwsPlatform:
         state.update(before=before, after=after)
         why = why or _concurrency_refusal(before, after, reserved, free)
         return {**live, "event": set() if why else {e["event"]},
-                "concurrency": set() if why else {"none" if before is None else str(before)}, "refused": why,
+                "concurrency": set() if why else {_concurrency_text(before)}, "refused": why,
                 "state": state}
 
     def _lambda_restore(self, p, snapshot, now, who, back) -> str:
@@ -2398,9 +2405,9 @@ class AwsPlatform:
         return {**live, "event": set() if why else {e["event"]}, "refused": why, "state": state}
 
     def _route_writes(self, table: str, since: datetime) -> list[dict[str, Any]]:
-        """Every route write to the table in the window: two are a choice WARDEN does not make."""
+        """Every route write to the table in the window."""
         writes: list[dict[str, Any]] = []
-        for name in _ROUTE_EVENTS:
+        for name in _ROUTE_EVENTS:  # every route write to the table: two are a choice WARDEN does not make
             writes += self._trail_writes("EventName", name, since, self._now(),
                                          lambda e, name=name: e["event_name"] == name
                                          and _get(e["request"] or {}, "routeTableId") == table)
