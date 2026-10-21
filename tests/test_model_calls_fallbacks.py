@@ -264,7 +264,7 @@ def test_eldanes_daily_cap_is_one_budget_cap(request):
 
 def test_the_reasons_are_a_closed_set(tmp_path):
     log = audit.AuditLog(tmp_path / "a.db", key=None)
-    assert llm.FALLBACK_REASONS == {"rules_only", "model_refused", "budget_cap", "provider_unavailable"}
+    assert sorted(llm.FALLBACK_REASONS) == ["budget_cap", "model_refused", "provider_unavailable", "rules_only"]
     with pytest.raises(ValueError, match="not a fallback reason"):
         activities.fallback(log, "k", "something else", DIAGNOSE)
 
@@ -276,8 +276,6 @@ def test_the_rows_have_the_shape_the_pilot_report_reads(tmp_path):
     """PR 175 (the pilot report) counts these by name: `llm.call` with model, prompt_tokens, completion_tokens,
     latency_ms and cost - a float in US dollars, not cents - and `llm.fallback` with a reason from the closed set.
     It is not on main yet, so this holds the shape; a test that runs the report over these rows comes with it."""
-    assert llm.CALL == "llm.call"
-    assert llm.FALLBACK == "llm.fallback"
     client = LLMClient(provider=Scripted(_status(503)), mock=False)  # one failed call, then a fallback
     log, key = _diagnose(tmp_path, lambda: client)
     [call] = _rows(log, key, llm.CALL)[:1]
@@ -291,6 +289,7 @@ def test_the_rows_have_the_shape_the_pilot_report_reads(tmp_path):
     # Dollars: 1,000 prompt and 200 completion tokens at the model's prices, the same as the budget charged.
     assert answered.calls[0]["cost"] == pytest.approx(answered.cost.usd)
     assert answered.calls[0]["cost"] == pytest.approx(llm.usd(llm.model_prices("fake-1"), 1000, 200))
+    assert {e["kind"] for e in log.entries(key)} >= {"llm.call", "llm.fallback"}  # the names the report reads
     [fallback_row] = _rows(log, key, llm.FALLBACK)
     assert set(fallback_row) == {REASON, "where", "run_id"}
     assert fallback_row[REASON] in {"rules_only", "model_refused", "budget_cap", "provider_unavailable"}
