@@ -21,6 +21,7 @@ T2_ONLY = "U" + "0" * 3 + "TWOAPP1"
 PERSON = "U" + "0" * 3 + "PERSON1"
 CHANNEL = "C" + "0" * 3 + "CHAN1"
 _MESSAGES = itertools.count(100)
+ID_WITH_H = "U" + "0" * 2 + "7H3" + "ABCD"  # a member id with an "H" between digits, built from parts
 
 
 @pytest.fixture
@@ -214,7 +215,7 @@ def test_eldane_itself_never_extends_a_wait(world):
     # CodeRabbit's case: the hours far from "extend" were cut off by a 40-character window and became 24.
     ("extend the wait for this plan in the incident by 6 hours", 6),
     ("<@U0123ABC> extend the wait on 50ac32d0fe243384-20261021T071413Z (rem-dev-1) by 3h", 3),
-    ("<@U07H3KQ2Z> extend the wait", extend.EXTEND_MAX_HOURS),  # an "H" inside a member's id is not "h"
+    (f"<@{ID_WITH_H}> extend the wait", extend.EXTEND_MAX_HOURS),  # an "H" inside a member's id is not "h"
     ("extend by 30h", 30),  # read as said; the request then refuses it as out of range
 ])
 def test_the_hours_said_are_the_hours_asked(text, hours):
