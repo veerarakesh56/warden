@@ -510,8 +510,7 @@ def test_the_shops_workloads_render_for_dev_with_no_placeholder_and_the_hpa_owns
         assert dep["spec"]["template"]["metadata"]["labels"]["tags.datadoghq.com/env"] == "dev"
         c = dep["spec"]["template"]["spec"]["containers"][0]
         assert c["image"] == "shop-app:set-by-argocd"
-        assert {"catalog-config", "shop-infra", "otel-config"} == {
-            e["configMapRef"]["name"] for e in c["envFrom"]}
+        assert {e["configMapRef"]["name"] for e in c["envFrom"]} == {"catalog-config", "shop-infra", "otel-config"}
     assert docs[("ConfigMap", "otel-config")]["data"]["OTEL_RESOURCE_ATTRIBUTES"] == "deployment.environment=dev"
     assert not any(k == "Secret" or k == "Namespace" for k, _ in docs)  # the pipeline's, never Git's
 

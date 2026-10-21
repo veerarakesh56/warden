@@ -687,6 +687,16 @@ def _deploy(args: argparse.Namespace, out: pathlib.Path, stack_path: pathlib.Pat
             deploy_k8s(stack, tag, out, aws, runner)
 
 
+def _on_the_stack(args: argparse.Namespace, out: pathlib.Path, stack_path: pathlib.Path, aws, runner) -> None:
+    """`bootstrap-db` and `deploy`: both read the stack, then do their one job."""
+    stack = load_stack(stack_path)
+    aws = aws or boto_factory(stack["region"])
+    if args.cmd == "bootstrap-db":
+        bootstrap_db(stack, aws)
+    else:
+        _deploy(args, out, stack_path, stack, aws, runner)
+
+
 def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
     # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and this output carries ⛔/⚠.
     for stream in (sys.stdout, sys.stderr):
@@ -713,16 +723,8 @@ def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
         build_lambdas(out, runner)
         if not getattr(args, "skip_image", False):
             build_image(out, getattr(args, "tag", None) or default_tag(runner), runner)
-        if args.cmd == "build":
-            return 0
-
-    stack = load_stack(stack_path)
-    aws = aws or boto_factory(stack["region"])
-    if args.cmd == "bootstrap-db":
-        bootstrap_db(stack, aws)
-        return 0
-
-    _deploy(args, out, stack_path, stack, aws, runner)
+    if args.cmd != "build":
+        _on_the_stack(args, out, stack_path, aws, runner)
     return 0
 
 
