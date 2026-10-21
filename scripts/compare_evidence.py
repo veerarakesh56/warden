@@ -348,9 +348,22 @@ def _summary_row(s: dict, best: float | None) -> str:
             + _cell(_secs(s["mean_wall_s"])) + _cell(_usd(s["mean_usd"])) + _cell(dep) + "</tr>")
 
 
+def _result(r: dict) -> str:
+    """A run's result as the table shows it: failed, correct, or the diagnosis it gave."""
+    if r["status"] != "ok":
+        return "failed"
+    return "correct" if r["correct"] else r["diagnosis"].lower()
+
+
+def _result_class(r: dict) -> str:
+    """ok for a correct run, warn for a safe one (escalated or did nothing), bad for a failed or wrong one."""
+    if r["correct"]:
+        return "ok"
+    return "bad" if r["status"] != "ok" or r["diagnosis"] != score.SAFE else "warn"
+
+
 def _run_row(r: dict) -> str:
-    result = "failed" if r["status"] != "ok" else ("correct" if r["correct"] else r["diagnosis"].lower())
-    rcls = "ok" if r["correct"] else ("bad" if r["status"] != "ok" or r["diagnosis"] != score.SAFE else "warn")
+    result, rcls = _result(r), _result_class(r)
     gate = {True: "allowed", False: "refused"}.get(r["gate_allowed"], "-")
     tokens = "-" if r["input_tokens"] is None else f"{r['input_tokens']} / {r['output_tokens']}"
     lines = ", ".join(f"{p} {n}" for p, n in (r.get("lines") or {}).items() if n) or "none"
