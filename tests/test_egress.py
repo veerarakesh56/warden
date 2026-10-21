@@ -40,11 +40,15 @@ INVENTORY = {
     "database.py": {"database"},
     "datadog.py": {"datadog"},
     "discuss.py": {"slack"},
+    "findings.py": {"github", "sonarcloud"},  # code review's findings on the deployed pull requests (GET)
     "grafana.py": {"grafana"},
     "k8s_backend.py": {"aws", "in-network"},
     "lambdas.py": {"aws", "database"},
     "observability.py": {"tracing"},
+    "paging.py": {"aws"},  # CloudWatch's metric of a page sent, the page's S3 record
+    "platforms/__init__.py": {"aws"},  # a session in the watched account (STS)
     "platforms/aws.py": {"aws"},
+    "platforms/db.py": {"aws", "database"},
     "platforms/k8s.py": {"aws", "in-network"},
     "providers.py": {"anthropic", "openai", "groq", "openrouter", "gemini", "model-api", "aws"},
     "runtime.py": {"aws"},
@@ -53,6 +57,9 @@ INVENTORY = {
     "slack_login.py": {"slack"},
     "timeline.py": {"github"},
     "webhooks.py": {"datadog", "alertmanager"},
+    # The one https opener (redirects stay on the server asked): it reaches what its callers above name.
+    "web.py": {"github", "slack", "slack-webhook", "teams-webhook", "generic-webhook", "pagerduty", "datadog",
+               "grafana", "alertmanager"},
 }
 _CLIENT = re.compile(
     r"urlopen\(|urllib\.request\.Request\(|\bhttpx\.|import httpx|\brequests\.(?:get|post|put|Session)|aiohttp|slack_sdk"
@@ -175,7 +182,7 @@ def test_a_masked_slack_message_passes_and_is_recorded(tmp_path):
         egress.check_request("https://slack.com/api/chat.postMessage",
                              _slack("user <EMAIL_1> failed at 2026-10-20T06:00:00Z"), JSON, "POST")
     finally:
-        egress._SINK.clear()
+        egress.forget(log)
     [row] = log.entries(kinds=(egress.SENT,))
     body = row["body"]
     assert body["destination"] == "slack"
@@ -189,13 +196,14 @@ def test_an_egress_the_audit_cannot_hold_is_not_made(tmp_path):
         def append(self, *_a):
             raise OSError("the audit is down")
 
-    egress.ledger_to(Broken())
+    broken = Broken()
+    egress.ledger_to(broken)
     try:
         body = _slack("ok")
         with pytest.raises(EgressBlocked, match="ledger row"):
             egress.check_request(SLACK_API, body, JSON, "POST")
     finally:
-        egress._SINK.clear()
+        egress.forget(broken)
 
 
 def test_identifiers_an_operator_could_show_are_not_shown_in_slack():
@@ -339,6 +347,63 @@ def test_wardens_own_link_inside_a_line_of_text_is_its_own(monkeypatch):
                          JSON, "POST")
 
 
+def test_closing_the_newer_log_gives_the_rows_back_to_the_older_one_still_open(tmp_path):
+    first, second = AuditLog(tmp_path / "a.db"), AuditLog(tmp_path / "b.db")
+    egress.ledger_to(first)
+    egress.ledger_to(second)
+    second.close()
+    try:
+        egress.check_request(SLACK_API, _slack("ok"), JSON, "POST")
+        rows = first.entries(kinds=(egress.SENT,))
+    finally:
+        first.close()
+    assert len(rows) == 1
+    assert "audit" not in egress._SINK
+
+
+def test_a_model_host_on_no_destination_is_refused_not_renamed():
+    """Review: an OpenAI-shaped provider pointed at an unlisted host was recorded as `model:openai` and sent where
+    the hook was not installed. Its host must be a destination; a provider with no host is named as itself."""
+    class Unlisted:
+        name, model, base_url = "openai", "m", "https://llm.example.net/v1"
+
+    with pytest.raises(EgressBlocked, match="no destination"):
+        egress.guard_model(Unlisted(), "s", "u")
+
+    class InProcess:
+        name, model = "replay", "m"
+
+    egress.guard_model(InProcess(), "s", "u")
+
+
+def test_the_approver_list_alarm_closes_its_audit_log(monkeypatch):
+    """Review: the approvers-changed path left its audit log open as the egress ledger's sink after a failed write."""
+    from warden import lambdas, runtime
+
+    class Log:
+        closed = False
+
+        def append(self, *_a):
+            raise OSError("the audit is down")
+
+        def close(self):
+            Log.closed = True
+
+    monkeypatch.setattr(runtime, "open_audit", Log)
+
+    class _CW:
+        def put_metric_data(self, **_kw):
+            return {}
+
+    import boto3
+
+    monkeypatch.setattr(boto3, "client", lambda *_a, **_kw: _CW())
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    got = lambdas._approvers_changed({"eventName": "PutParameter", "userIdentity": {"type": "Root"}})
+    assert got["approver_list_changed"] is True
+    assert Log.closed is True
+
+
 def test_a_closed_log_takes_no_more_rows(tmp_path):
     log = AuditLog(tmp_path / "a.db")
     egress.ledger_to(log)
@@ -394,6 +459,38 @@ def test_aws_service_endpoints_are_looked_up_and_the_news_feeds_are_read():
         egress.check_request(feed, None, {"User-Agent": "warden"}, "GET")
     assert egress.destination_of("aws.amazon.com").name == "aws-news"
     assert egress.destination_of("evil.amazon.com") is None
+
+
+def test_code_review_findings_are_read_from_listed_destinations_only():
+    """The findings reader (#41) GETs api.github.com and sonarcloud.io: both are destinations, so its reads pass the
+    hook; the query is checked like any outside one."""
+    from warden.findings import FindingsReader
+
+    hosts: list[str] = []
+
+    class _Answer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, _n):
+            return b"[]"
+
+    def opener(req, timeout):
+        egress.check_request(req.full_url, req.data, dict(req.header_items()), req.get_method())
+        hosts.append(egress.destination_of(req.host.split(":")[0]).name)
+        return _Answer()
+
+    reader = FindingsReader(None, repo="octo/app", sonar_project="octo_app", opener=opener)
+    reader._deadline = float("inf")
+    reader._sonar_issues(7)
+    reader._scanning_alerts(7)
+    assert hosts == ["sonarcloud", "github"]
+    with pytest.raises(EgressBlocked, match="no destination"):  # a look-alike of the host is still on none
+        egress.check_request("https://sonarcloud.io.example.net/api/issues/search?ps=5", None, {}, "GET")
+    assert egress.kinds_in("componentKeys=octo_app&pullRequest=7&issueStatuses=OPEN,CONFIRMED,ACCEPTED&ps=20") == []
 
 
 _REQUESTS = textwrap.dedent("""
