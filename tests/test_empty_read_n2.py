@@ -32,7 +32,8 @@ class _Backend:
 
 def test_a_read_that_returns_nothing_is_recorded_as_empty_and_a_quiet_deploy_window_is_not():
     bundle = gather(_alert(), _Backend(metrics={}))
-    assert bundle.empty_reads == ["metrics"] and bundle.tool_errors == []
+    assert bundle.empty_reads == ["metrics"]
+    assert bundle.tool_errors == []
     bundle = gather(_alert(), _Backend(logs=(), metrics={"error_rate": 0.0}))
     assert bundle.empty_reads == ["logs"]
     full = gather(_alert(), _Backend(metrics={"error_rate": 0.0}, deploys=[{"sha": "abc"}]))
@@ -42,7 +43,8 @@ def test_a_read_that_returns_nothing_is_recorded_as_empty_and_a_quiet_deploy_win
 def test_nothing_to_do_over_an_empty_read_goes_to_a_person():
     proposal = _prop(action=ActionKind.no_action, target="checkout")
     quiet = verify(_alert(), _ctx(empty_reads=["metrics"]), _rc(confidence=0.95), proposal)
-    assert "P23-EMPTY-READ" in quiet.policy_ids and quiet.status is not VerdictStatus.auto_safe
+    assert "P23-EMPTY-READ" in quiet.policy_ids
+    assert quiet.status is not VerdictStatus.auto_safe
     assert "metrics" in " ".join(quiet.reasons)
     read = verify(_alert(), _ctx(), _rc(confidence=0.95), proposal)
     assert "P23-EMPTY-READ" not in read.policy_ids
@@ -50,10 +52,12 @@ def test_nothing_to_do_over_an_empty_read_goes_to_a_person():
 
 def test_nothing_to_do_over_an_errored_read_goes_to_a_person():
     bundle = gather(_alert(), _Backend(metrics={"error_rate": 0.0}, deploys=[{"sha": "abc"}], fail=("metrics",)))
-    assert bundle.tool_errors and "metrics" in bundle.tool_errors[0]
+    assert bundle.tool_errors
+    assert "metrics" in bundle.tool_errors[0]
     v = verify(_alert(), _ctx(tool_errors=bundle.tool_errors), _rc(confidence=0.95),
                _prop(action=ActionKind.no_action, target="checkout"))
-    assert "P8-PARTIAL-CONTEXT" in v.policy_ids and v.status is not VerdictStatus.auto_safe
+    assert "P8-PARTIAL-CONTEXT" in v.policy_ids
+    assert v.status is not VerdictStatus.auto_safe
 
 
 class _AllClear:
@@ -86,6 +90,7 @@ def test_through_the_whole_pipeline_an_empty_metrics_read_is_not_all_clear():
     alert = Alert(**DEMO_ALERTS["inc-001"])
     empty = run(alert, llm=LLMClient(provider=_AllClear(), mock=False), backend=_NoMetrics())
     assert empty.context.empty_reads == ["metrics"]
-    assert "P23-EMPTY-READ" in empty.verdict.policy_ids and empty.verdict.status is not VerdictStatus.auto_safe
+    assert "P23-EMPTY-READ" in empty.verdict.policy_ids
+    assert empty.verdict.status is not VerdictStatus.auto_safe
     full = run(alert, llm=LLMClient(provider=_AllClear(), mock=False))
     assert "P23-EMPTY-READ" not in full.verdict.policy_ids
