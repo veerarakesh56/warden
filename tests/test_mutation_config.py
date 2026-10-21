@@ -123,7 +123,8 @@ def test_one_matrix_job_per_safety_module():
     uv = next(st for st in job["steps"] if str(st.get("uses", "")).startswith("astral-sh/setup-uv@"))
     assert "${{ matrix.module }}" in uv["with"]["cache-suffix"]
     mutate = next(st for st in job["steps"] if str(st.get("name", "")).startswith("Mutate"))
-    assert 'mutmut run "warden.$MODULE*"' in mutate["run"]
+    assert 'mutation_ci.py narrow "$MODULE"' in mutate["run"]
+    assert mutate["run"].rstrip().endswith("mutmut run")  # no name pattern: see test_narrowed
     assert "mutation_ci.py shard" in mutate["run"]
 
 
@@ -136,6 +137,19 @@ def test_one_matrix_job_per_safety_module():
 ])
 def test_shard_runs(module, changed, runs):
     assert mutation_ci.shard_runs(module, changed, mutation_ci.safety_modules()) is runs
+
+
+def test_narrowed_leaves_one_module_and_nothing_else_changed():
+    """PR 179: `mutmut run <pattern>` ran the clean tests by node id and broke on ids with newlines; each job
+    instead narrows its own checkout's only_mutate to its module and runs plain `mutmut run`."""
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    out = mutation_ci.narrowed(text, "bounds")
+    assert mutation_ci.safety_modules_from(out) == ["src/warden/bounds.py"]
+    before, after = tomllib.loads(text), tomllib.loads(out)
+    after["tool"]["mutmut"]["only_mutate"] = before["tool"]["mutmut"]["only_mutate"]
+    assert after == before
+    with pytest.raises(ValueError, match="not a safety module"):
+        mutation_ci.narrowed(text, "llm")
 
 
 def test_shard_from_the_command_line():

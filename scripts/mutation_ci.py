@@ -3,6 +3,10 @@
     git diff --name-only <base>...HEAD | python scripts/mutation_ci.py shard <module>
         # "run" or "skip" for one shard of the workflow's matrix (one safety module per job): a pull request
         # mutates only the modules it changed, or all of them when it changed the setup
+    python scripts/mutation_ci.py narrow <module>
+        # in a CI job's own checkout: pyproject's only_mutate becomes that one module, so a plain `mutmut run` mutates
+        # it. (A name pattern - `mutmut run "warden.gate*"` - makes mutmut run its clean tests by node id, and ids
+        # of tests parametrized with newlines or brackets broke that command on CI, PR 179.)
     git diff --name-only <base>...HEAD | python scripts/mutation_ci.py targets
         # the mutmut name patterns to run on a pull request: the safety modules it changed (`warden.gate*` ...),
         # or nothing - every safety module - when it changed the mutation setup itself (pyproject, lock, workflow)
@@ -18,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import sys
 import tomllib
 
@@ -49,6 +54,21 @@ def shard_runs(module: str, changed: list[str], modules: list[str]) -> bool:
     return not wanted or f"warden.{module}*" in wanted
 
 
+def narrowed(pyproject_text: str, module: str) -> str:
+    """pyproject.toml's text with [tool.mutmut] only_mutate reduced to one safety module (its stem)."""
+    path = next((m for m in safety_modules_from(pyproject_text) if pathlib.PurePosixPath(m).stem == module), None)
+    if path is None:
+        raise ValueError(f"{module} is not a safety module in pyproject.toml [tool.mutmut]")
+    block = re.compile(r"^only_mutate = \[[^\]]*\]", re.MULTILINE)
+    if len(block.findall(pyproject_text)) != 1:
+        raise ValueError("pyproject.toml must hold exactly one only_mutate list")
+    return block.sub(f'only_mutate = ["{path}"]', pyproject_text)
+
+
+def safety_modules_from(pyproject_text: str) -> list[str]:
+    return list(tomllib.loads(pyproject_text)["tool"]["mutmut"]["only_mutate"])
+
+
 def score(stats: dict[str, int]) -> float | None:
     """Killed over every mutant a test ran against; None when no mutant was tested."""
     tested = stats.get("killed", 0) + sum(stats.get(k, 0) for k in NOT_KILLED)
@@ -64,25 +84,29 @@ def summary(stats: dict[str, int]) -> str:
             "`mutmut show <name>` shows one.\n")
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("targets")
-    sh = sub.add_parser("shard")
-    sh.add_argument("module")
-    s = sub.add_parser("summary")
-    s.add_argument("stats", type=pathlib.Path)
-    s.add_argument("--min-score", type=float)
-    args = parser.parse_args(argv)
-    if args.cmd == "targets":
-        print(" ".join(targets(sys.stdin.read().splitlines(), safety_modules())))
-        return 0
-    if args.cmd == "shard":
-        modules = safety_modules()
-        if args.module not in {pathlib.PurePosixPath(m).stem for m in modules}:
-            parser.error(f"{args.module} is not a safety module in pyproject.toml [tool.mutmut]")
-        print("run" if shard_runs(args.module, sys.stdin.read().splitlines(), modules) else "skip")
-        return 0
+def _targets(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    print(" ".join(targets(sys.stdin.read().splitlines(), safety_modules())))
+    return 0
+
+
+def _narrow(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    pyproject = ROOT / "pyproject.toml"
+    try:
+        pyproject.write_text(narrowed(pyproject.read_text(encoding="utf-8"), args.module), encoding="utf-8")
+    except ValueError as exc:
+        parser.error(str(exc))
+    return 0
+
+
+def _shard(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    modules = safety_modules()
+    if args.module not in {pathlib.PurePosixPath(m).stem for m in modules}:
+        parser.error(f"{args.module} is not a safety module in pyproject.toml [tool.mutmut]")
+    print("run" if shard_runs(args.module, sys.stdin.read().splitlines(), modules) else "skip")
+    return 0
+
+
+def _summary(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     if not args.stats.is_file():
         # mutmut stopped before it wrote any result (a failed install or run): the summary says so, never a score.
         print(f"{SUMMARY_TITLE}Mutation score: **unavailable** - no mutation data was produced ({args.stats.name} "
@@ -96,6 +120,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"below the minimum mutation score {args.min_score:.0%}", file=sys.stderr)
             return 1
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("targets")
+    sub.add_parser("shard").add_argument("module")
+    sub.add_parser("narrow").add_argument("module")
+    s = sub.add_parser("summary")
+    s.add_argument("stats", type=pathlib.Path)
+    s.add_argument("--min-score", type=float)
+    args = parser.parse_args(argv)
+    run = {"targets": _targets, "narrow": _narrow, "shard": _shard, "summary": _summary}[args.cmd]
+    return run(args, parser)
 
 
 if __name__ == "__main__":

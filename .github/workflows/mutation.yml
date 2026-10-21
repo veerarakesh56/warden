@@ -85,7 +85,10 @@ jobs:
             exit 0
           fi
           echo "mutating: warden.$MODULE"
-          mutmut run "warden.$MODULE*"
+          # This job's checkout mutates only its module; a name pattern would make mutmut run its clean tests by node
+          # id, which some parametrized ids (newlines, brackets) break.
+          python scripts/mutation_ci.py narrow "$MODULE"
+          mutmut run
 
       - name: Score
         if: always()
