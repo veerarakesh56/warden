@@ -109,7 +109,7 @@ def declarations(text: str | None = None) -> list[dict[str, Any]]:
     for number, one in enumerate(raw, 1):
         try:
             read.append(_entry(one))
-        except Exception as exc:  # noqa: BLE001 - whatever is wrong with it, it covers nothing
+        except Exception as exc:  # noqa: BLE001 - whatever is wrong with it; it covers nothing
             _log.warning("expected-down declaration %d cannot be read (%s): it does not apply", number, type(exc).__name__)
     return read
 

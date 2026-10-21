@@ -27,10 +27,12 @@ def test_database_load_and_its_wait_types_are_read_as_numbers():
     backend = _backend(_clients(rds=_instances(), pi=pi))
     alert = _alert(aurora_cluster=f"{P}aurora")
     metrics = backend.metrics(alert)
-    assert metrics["aurora_db_load"] == 4.0 and metrics["aurora_db_load_lock"] == 3.2
+    assert metrics["aurora_db_load"] == 4.0
+    assert metrics["aurora_db_load_lock"] == 3.2
     assert all(k.replace("_", "").isalnum() and k.islower() for k in metrics), metrics  # a name, never its text
     [(_, call)] = pi.calls
-    assert call["Identifier"] == "db-W" and call["StartTime"] == NOW - LOG_LOOKBACK
+    assert call["Identifier"] == "db-W"
+    assert call["StartTime"] == NOW - LOG_LOOKBACK
     assert not any("IGNORE" in line for line in backend.logs(alert))
 
 
@@ -43,9 +45,11 @@ def test_logs_insights_counts_the_error_lines_over_the_whole_window():
     logs = _events({})
     backend = _backend(_clients(logs=logs))
     metrics = backend.metrics(_alert(ecs_cluster=f"{P}ecs", ecs_service=f"{P}orders-api"))
-    assert metrics["log_error_lines"] == 8.0 and metrics["log_errors_peak_per_min"] == 5.0
+    assert metrics["log_error_lines"] == 8.0
+    assert metrics["log_errors_peak_per_min"] == 5.0
     [query] = [kw for name, kw in logs.calls if name == "start_query"]
-    assert query["logGroupName"] == f"/ecs/{P}orders-api" and query["queryString"] == aws_stack.INSIGHTS_QUERY
+    assert query["logGroupName"] == f"/ecs/{P}orders-api"
+    assert query["queryString"] == aws_stack.INSIGHTS_QUERY
     assert query["endTime"] - query["startTime"] == 2 * LOG_LOOKBACK.total_seconds()
 
 
