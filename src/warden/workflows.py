@@ -782,6 +782,12 @@ async def _notify(acts, pack: Any, diagnosed: Any, verified: Any, *mode: str) ->
                                                args=[pack, diagnosed, verified, *mode], **NOTIFY)
 
 
+def _takes_over(verified: Any, diagnosed: Any) -> bool:
+    """Whether the hard model takes this diagnosis over (routing.after_answer set take_over). Patched last, and only when
+    the rest holds, so histories recorded before model routing replay unchanged."""
+    return bool(verified.route.get("take_over")) and not diagnosed.model_unavailable and workflow.patched("model-routing")
+
+
 def _for_a_person(verified: Any) -> bool:
     """Whether the verifier passed the proposal for a person's approval."""
     return str(getattr(verified.verdict.status, "value", verified.verdict.status)) == "approved_for_human"
@@ -880,7 +886,7 @@ class IncidentWorkflow:
         # hard model takes the diagnosis over: asked on the same evidence, verified, and given its own second opinion
         # like any answer. Only a model qualified to diagnose is ever asked (routing.usable); a takeover that fails or
         # cannot be paid for leaves the earlier answer standing. Patched: histories recorded before it replay unchanged.
-        if verified.route.get("take_over") and not diagnosed.model_unavailable and workflow.patched("model-routing"):
+        if _takes_over(verified, diagnosed):
             pack, diagnosed, verified = await self._take_over(acts, pack, diagnosed, verified, escalate_only)
         # One Slack message per incident (owner, 2026-10-14: "why all that alerts total details and approval thing
         # coming in 3 parts ... i want all in one part only"): the report is recorded first, and said once - in the
