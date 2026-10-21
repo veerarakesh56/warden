@@ -33,7 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 # Hypothesis (MPL-2.0, test-only): property tests of the safety rules. 6.168.3, released 2026-09-28, rather than
 # the newest (released today, 2026-10-15).
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "pytest-xdist>=3.8", "ruff>=0.17.0", "hypothesis==6.168.3"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "pytest-xdist>=3.8", "ruff>=0.17.0", "hypothesis==6.169.1"]
 anthropic = ["anthropic>=1.0"]
 gemini = ["google-genai>=1.0"]          # free tier: aistudio.google.com
 openai = ["openai>=3.27.0"]             # also Groq / OpenRouter / Ollama via WARDEN_BASE_URL
