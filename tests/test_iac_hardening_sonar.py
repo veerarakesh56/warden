@@ -123,5 +123,9 @@ def test_the_ports_are_the_ones_the_apps_use():
     # The traffic Lambda reaches the internal ALB over HTTPS (main moved the listener to 443): the 443 rule covers it.
     assert '"https://${aws_lb.orders.dns_name}"' in lambdas_tf
     assert "http://${aws_lb.orders.dns_name}" not in lambdas_tf
+    # The stack's README says the same (review, PR 129): no HTTP 80 path to the load balancer is left to document.
+    readme = (ROOT / "terraform" / "fullstack" / "README.md").read_text(encoding="utf-8")
+    assert "HTTP 80" not in readme
+    assert "internal load balancer over HTTPS 443" in readme
     other = sorted(set(re.findall(r"port=(\d+)", code)) - {"5432", "6379"})
     assert other == [], f"an app connects to a port its security group does not allow: {other}"
