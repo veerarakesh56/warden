@@ -943,3 +943,70 @@ def test_a_fault_on_what_argo_cd_syncs_is_refused_and_the_pipelines_secret_still
     assert w.snapshot() == before
     fs.FAULTS["fs-23"].inject(c, t)
     assert w.snapshot() != before
+
+
+def test_fs10_revert_with_nothing_saved_changes_nothing():
+    """Characterisation (before the cognitive-complexity split of fs10_revert)."""
+    w, c, t = make()
+    before = copy.deepcopy(w.sg_rules)
+    assert fs.FAULTS["fs-10"].revert(c, t) == {"nothing_saved": True}
+    assert w.sg_rules == before
+
+
+def test_fs10_revert_re_adds_rule_by_rule_when_some_are_already_back_and_drops_every_extra():
+    """Characterisation: a rule already back makes the batch Duplicate, so each rule is re-added on its own; extras -
+    a port range and an all-protocols pair - are revoked one at a time and named in the result, sorted."""
+    w, c, t = make()
+    second = {"IpProtocol": "tcp", "FromPort": 6380, "ToPort": 6380, "UserIdGroupPairs": [{"GroupId": "sg-b"}]}
+    w.sg_rules.append(copy.deepcopy(second))
+    before = copy.deepcopy(w.sg_rules)
+    fs.FAULTS["fs-10"].inject(c, t)
+    w.sg_rules = [copy.deepcopy(second),  # one rule put back by hand: the batch authorise is a Duplicate
+                  {"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-z"}]},
+                  {"IpProtocol": "tcp", "FromPort": 1, "ToPort": 9, "UserIdGroupPairs": [{"GroupId": "sg-y"}]}]
+    out = fs.FAULTS["fs-10"].revert(c, t)
+    assert out == {"restored_rules": 2, "removed_extra": ["sg-z", "sg-y"]}
+    assert fs._group_pairs(w.sg_rules) == fs._group_pairs(before)
+    assert "fs-10" not in t.saved
+
+
+def test_fs10_revert_raises_any_error_that_is_not_a_duplicate():
+    _, c, t = make()
+    fs.FAULTS["fs-10"].inject(c, t)
+
+    def refused(GroupId, IpPermissions):
+        raise Err("UnauthorizedOperation")
+
+    c.ec2.authorize_security_group_ingress = refused
+    with pytest.raises(Err, match="UnauthorizedOperation"):
+        fs.FAULTS["fs-10"].revert(c, t)
+    assert "fs-10" in t.saved
+    calls = []
+
+    def duplicate_then_refused(GroupId, IpPermissions):
+        calls.append(len(IpPermissions))
+        raise Err("InvalidPermission.Duplicate" if len(calls) == 1 else "RequestLimitExceeded")
+
+    c.ec2.authorize_security_group_ingress = duplicate_then_refused
+    with pytest.raises(Err, match="RequestLimitExceeded"):
+        fs.FAULTS["fs-10"].revert(c, t)
+    assert calls == [1, 1]
+
+
+def test_fs10_revert_revokes_an_all_protocols_extra_without_ports():
+    """An all-protocols (-1) pair is revoked by protocol and group only: EC2 takes no port range for it."""
+    w, c, t = make()
+    fs.FAULTS["fs-10"].inject(c, t)
+    w.sg_rules = [{"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-z"}]},
+                  {"IpProtocol": "tcp", "FromPort": 1, "ToPort": 9, "UserIdGroupPairs": [{"GroupId": "sg-y"}]}]
+    revoked = []
+    real = c.ec2.revoke_security_group_ingress
+
+    def record(GroupId, IpPermissions):
+        revoked.extend(IpPermissions)
+        return real(GroupId=GroupId, IpPermissions=IpPermissions)
+
+    c.ec2.revoke_security_group_ingress = record
+    fs.FAULTS["fs-10"].revert(c, t)
+    assert revoked == [{"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-z"}]},
+                       {"IpProtocol": "tcp", "UserIdGroupPairs": [{"GroupId": "sg-y"}], "FromPort": 1, "ToPort": 9}]
