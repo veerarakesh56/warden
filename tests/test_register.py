@@ -159,15 +159,25 @@ def _decorated_off(src: str, func: str) -> bool:
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == func:
             names = [ast.unparse(d.func if isinstance(d, ast.Call) else d) for d in node.decorator_list]
-            return any(name not in _SAFE_DECORATORS for name in names) or _a_case_is_marked_off(node)
+            return any(name not in _SAFE_DECORATORS for name in names) or _a_case_is_marked_off(node, tree)
     return False
 
 
-def _a_case_is_marked_off(node: ast.FunctionDef) -> bool:
+def _a_case_is_marked_off(node: ast.FunctionDef, tree: ast.Module) -> bool:
     """A `pytest.param(..., marks=...)` case marked skip or xfail inside a parametrize (PR 86 review): with only such
-    cases pytest runs nothing. Any marked case refuses the citation - evidence is a test that runs whole."""
+    cases pytest runs nothing. Any marked case refuses the citation - evidence is a test that runs whole. A case list
+    named by a variable is read where the module assigns it; one that cannot be read there is refused too."""
+    assigned = {target.id: stmt.value for stmt in tree.body if isinstance(stmt, ast.Assign)
+                for target in stmt.targets if isinstance(target, ast.Name)}
     for decorator in node.decorator_list:
-        for call in ast.walk(decorator):
+        if not isinstance(decorator, ast.Call):
+            continue
+        parts = [decorator]
+        for name in (arg.id for arg in decorator.args if isinstance(arg, ast.Name)):
+            if name not in assigned:
+                return True  # a case list this file does not spell out: its marks cannot be checked
+            parts.append(assigned[name])
+        for call in (c for part in parts for c in ast.walk(part)):
             if isinstance(call, ast.Call) and ast.unparse(call.func) in ("pytest.param", "param"):
                 marks = " ".join(ast.unparse(k.value) for k in call.keywords if k.arg == "marks")
                 if "skip" in marks or "xfail" in marks:
@@ -358,6 +368,15 @@ def test_a_parametrized_case_marked_off_is_not_evidence(marks):
     assert _decorated_off(src, "test_a")
     plain = "import pytest\n\n@pytest.mark.parametrize('x', [pytest.param(1, id='one')])\ndef test_a(x):\n    pass\n"
     assert not _decorated_off(plain, "test_a")
+
+
+def test_a_named_case_list_is_read_where_it_is_assigned():
+    """PR 86 review: `cases = [pytest.param(1, marks=pytest.mark.skip)]` passed when the decorator named `cases`."""
+    head = "import pytest\n\n"
+    test = "\n@pytest.mark.parametrize('x', cases)\ndef test_a(x):\n    pass\n"
+    assert _decorated_off(head + "cases = [pytest.param(1, marks=pytest.mark.skip)]\n" + test, "test_a")
+    assert _decorated_off(head + "from elsewhere import cases\n" + test, "test_a")  # cannot be read here
+    assert not _decorated_off(head + "cases = [1, pytest.param(2, id='two')]\n" + test, "test_a")
 
 
 def test_a_row_citing_a_test_skipped_over_several_lines_is_refused(tmp_path, monkeypatch):

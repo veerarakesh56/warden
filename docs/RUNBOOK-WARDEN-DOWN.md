@@ -239,7 +239,13 @@ aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --d
    ```
 
 4. Every message in `warden-ops-alarm-dlq` was handled by a person, then deleted (section 3, step 2), and the
-   queue is empty: `aws sqs get-queue-attributes --queue-url <queue-url> --attribute-names ApproximateNumberOfMessages`. WARDEN does not replay them
+   queue is empty: all three counts below are `0` - messages waiting, messages received but not yet deleted (in
+   flight, hidden for up to 15 minutes), and delayed ones. If any is not `0`, wait for the hidden ones to show again
+   and handle them:
+
+   ```
+   aws sqs get-queue-attributes --queue-url <queue-url> --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible ApproximateNumberOfMessagesDelayed
+   ``` WARDEN does not replay them
    itself. (The `alarm` Lambda takes the same EventBridge event, so it can be invoked by hand with a message's body;
    this has not been tried live.)
 5. Alarms that went into ALARM during the outage and are still in ALARM: CloudWatch sends a change only once, so
