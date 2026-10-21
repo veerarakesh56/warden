@@ -106,6 +106,19 @@ def test_every_cited_test_exists_and_is_not_skipped(ref):
     assert not _is_skipped(file, src, func), f"{ref} is skipped (or may be, in CI)"
 
 
+def _resolved(name: str, assigned: dict[str, ast.expr]) -> ast.expr | None:
+    """What a module-level name finally stands for, through `a = b` aliases; None when the chain ends in a name this
+    file does not assign (an import, a loop)."""
+    seen: set[str] = set()
+    while name in assigned and name not in seen:
+        seen.add(name)
+        value = assigned[name]
+        if not isinstance(value, ast.Name):
+            return value
+        name = value.id
+    return None
+
+
 def _is_skipped(file: str, src: str, func: str) -> bool:
     """The register's judgement, with the decorators read by the parser: a decorator over several lines, or a comment
     or blank line before `def`, hid them from a line pattern (PR 82 review)."""
@@ -121,10 +134,12 @@ def _is_skipped(file: str, src: str, func: str) -> bool:
                 for target in stmt.targets if isinstance(target, ast.Name)}
     parts: list[ast.AST] = list(node.decorator_list)
     for decorator in (d for d in node.decorator_list if isinstance(d, ast.Call)):
-        for name in (arg.id for arg in decorator.args if isinstance(arg, ast.Name)):
-            if name not in assigned:
+        given = [*decorator.args, *(k.value for k in decorator.keywords if k.arg == "argvalues")]
+        for name in (arg.id for arg in given if isinstance(arg, ast.Name)):
+            value = _resolved(name, assigned)
+            if value is None:
                 return True
-            parts.append(assigned[name])
+            parts.append(value)
     for call in (c for part in parts for c in ast.walk(part)):
         if isinstance(call, ast.Call) and ast.unparse(call.func) in ("pytest.param", "param"):
             marks = " ".join(ast.unparse(k.value) for k in call.keywords if k.arg == "marks")
@@ -154,6 +169,9 @@ def test_a_named_case_list_is_read_where_it_is_assigned():
     assert _is_skipped("tests/x.py", head + "cases = [pytest.param(1, marks=pytest.mark.skip)]\n" + test, "test_a")
     assert _is_skipped("tests/x.py", head + "from elsewhere import cases\n" + test, "test_a")
     assert not _is_skipped("tests/x.py", head + "cases = [1, pytest.param(2, id='two')]\n" + test, "test_a")
+    keyword = "\n@pytest.mark.parametrize(argnames='x', argvalues=cases)\ndef test_a(x):\n    pass\n"
+    assert _is_skipped("tests/x.py", head + "cases = [pytest.param(1, marks=pytest.mark.skip)]\n" + keyword, "test_a")
+    assert _is_skipped("tests/x.py", head + "from elsewhere import imported\ncases = imported\n" + test, "test_a")
 
 
 def test_a_parametrized_test_is_not_taken_for_a_skipped_one():
