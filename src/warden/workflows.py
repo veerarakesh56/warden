@@ -38,6 +38,7 @@ with workflow.unsafe.imports_passed_through():
         Plan,
         Recorded,
         RemediationActivities,
+        still_held,
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .autonomy import L2, VETO
@@ -781,6 +782,12 @@ async def _notify(acts, pack: Any, diagnosed: Any, verified: Any, *mode: str) ->
                                                args=[pack, diagnosed, verified, *mode], **NOTIFY)
 
 
+def _takes_over(verified: Any, diagnosed: Any) -> bool:
+    """Whether the hard model takes this diagnosis over (routing.after_answer set take_over). Patched last, and only when
+    the rest holds, so histories recorded before model routing replay unchanged."""
+    return bool(verified.route.get("take_over")) and not diagnosed.model_unavailable and workflow.patched("model-routing")
+
+
 def _for_a_person(verified: Any) -> bool:
     """Whether the verifier passed the proposal for a person's approval."""
     return str(getattr(verified.verdict.status, "value", verified.verdict.status)) == "approved_for_human"
@@ -874,6 +881,13 @@ class IncidentWorkflow:
         # approval away. Within the llm zone's budget; patched, so histories recorded before it replay unchanged.
         if (_for_a_person(verified) and not diagnosed.model_unavailable and workflow.patched("second-opinion")):
             verified = await self._second_opinion(acts, pack, diagnosed, verified, escalate_only)
+        # Model routing (owner, 2026-10-17; routing.py): when WARDEN's own signals on the verified answer mark the case
+        # hard - its fix's tier, prod, the two answers disagreeing, weak evidence - and the default model made it, the
+        # hard model takes the diagnosis over: asked on the same evidence, verified, and given its own second opinion
+        # like any answer. Only a model qualified to diagnose is ever asked (routing.usable); a takeover that fails or
+        # cannot be paid for leaves the earlier answer standing. Patched: histories recorded before it replay unchanged.
+        if _takes_over(verified, diagnosed):
+            pack, diagnosed, verified = await self._take_over(acts, pack, diagnosed, verified, escalate_only)
         # One Slack message per incident (owner, 2026-10-14: "why all that alerts total details and approval thing
         # coming in 3 parts ... i want all in one part only"): the report is recorded first, and said once - in the
         # plan's request for approval when a plan opens, else on its own with why there is none.
@@ -968,6 +982,23 @@ class IncidentWorkflow:
                                                                  args=[pack, again], **QUICK)
                 return again, checked
         return diagnosed, verified
+
+    @classmethod
+    async def _take_over(cls, acts, pack: Any, diagnosed: Any, verified: Any, escalate_only: str) -> tuple[Any, Any, Any]:
+        """The hard model's diagnosis, verified, in place of the default model's - or the default model's, unchanged,
+        when the hard model gives no answer. It never lifts the escalation two disagreeing answers caused (still_held)."""
+        hard = pack.model_copy(update={"model": verified.route["model"]})
+        try:
+            again = await _diagnose(acts, hard, escalate_only)
+            if again.model_unavailable:
+                return pack, diagnosed, verified
+            checked = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[hard, again],
+                                                             **QUICK)
+            if _for_a_person(checked):
+                checked = await cls._second_opinion(acts, hard, again, checked, escalate_only)
+        except ActivityError:
+            return pack, diagnosed, verified  # its answer, check or second opinion failed: the earlier answer stands
+        return hard, again, still_held(checked, verified)
 
     @staticmethod
     async def _second_opinion(acts, pack: Any, diagnosed: Any, verified: Any, escalate_only: str) -> Any:

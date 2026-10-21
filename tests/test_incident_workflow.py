@@ -132,9 +132,15 @@ def test_every_step_is_in_the_signed_audit_log(results):
             again = max(i for i, k in enumerate(kinds[:cut]) if k == "incident.diagnose")
             kinds = kinds[:again] + kinds[again + 1:cut] + kinds[cut + 1:]
         # Plus one row of what the run spent on the model, written failed or not (seventh review: the budget is
-        # carried across an incident's runs).
+        # carried across an incident's runs), and which model each answer was asked of (routing.py) - the call's
+        # own record, beside the pipeline's steps.
         assert [k for k in kinds if k not in ("incident.llm_spend", "incident.llm_reserve", "incident.alert",
-                                              "incident.evidence")] == [f"incident.{s['node']}" for s in report.audit], alert_id
+                                              "incident.evidence", "incident.route")] == [f"incident.{s['node']}" for s in report.audit], alert_id
+        # Those routing rows on their own: each answer's model and why, every verified answer's signals.
+        routes = [r["body"] for r in rows if r["kind"] == "incident.route"]
+        assert [r["stage"] for r in routes].count("diagnose") == [r["kind"] for r in rows].count("incident.diagnose"), alert_id
+        assert all({"model", "choice", "why", "fired", "signals", "take_over", "needs_person"} <= set(r)
+                   for r in routes), alert_id
         assert [r["kind"] for r in rows].count("incident.llm_spend") == (2 if second else 1), alert_id
         # And one row of the alarm as it came in, its text redacted, so the incident can be discussed (G10-45).
         assert [r["kind"] for r in rows].count("incident.alert") == 1, alert_id

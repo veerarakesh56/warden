@@ -249,6 +249,21 @@ endpoints, and the local `claude` CLI. The default model per provider and the li
 data in `src/warden/data/providers.yaml`. A model must pass WARDEN's replay qualification before it may
 diagnose; an unqualified model is refused, and every incident is then escalated on the rules alone.
 
+`routing.py` picks the model per case: Claude Sonnet 5.5 by default, Claude Opus 5.5 when one of WARDEN's own
+checkable signals marks the case hard (the fix's tier T2/T3, prod, two diagnoses disagreeing, weak evidence, a
+re-investigation asked for in chat; the top hypotheses being too close is recorded but not yet wired, so it never fires
+in this version). Diagnosing needs the model's `diagnose` role in
+`providers.yaml` and a passing replay-qualification row; reviewing (Eldane) and the discussion channel need only their
+role, `critic` or `chat`, because neither changes anything on its own - so today Opus reviews and answers deep chat
+questions but never diagnoses.
+The signals known before the first answer - prod, a new plan asked for in chat, thin gathered evidence - pick the model
+for it (`diagnose`, `routing.for_diagnosis`). The fix's tier, a disagreement, the cited evidence and the causes' count
+are computed by `verify` and `second_opinion` on the verified answer (`routing.after_answer`). The workflow asks Opus to
+take over (`IncidentWorkflow._take_over`: the same evidence, its answer verified and given its own second opinion) only
+when the route sets `take_over`: the case is hard, Opus may diagnose (the role and a passing row, so no fallback was
+recorded), the answer so far was the default model's, and it had a model at all. Each choice and its signals'
+values are on the audit (`incident.route`, `discuss.route`).
+
 ## Tracing
 
 `observability.py` wires OpenTelemetry: a span for the run, each read, the model call and the verdict,

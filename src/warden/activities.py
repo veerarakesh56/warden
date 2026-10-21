@@ -25,7 +25,18 @@ from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from . import approvals, audit, autonomy, bounds, catalog, datadog, environments, freeze, locks
+from . import (
+    approvals,
+    audit,
+    autonomy,
+    bounds,
+    catalog,
+    datadog,
+    environments,
+    freeze,
+    locks,
+    routing,
+)
 from . import symptom as symptoms
 from .approvals import Plan  # lives there: the approval page reads a plan without this module
 from .audit import AuditLog
@@ -791,6 +802,17 @@ class RemediationActivities:
             out.append((LINK_LABEL + (f" (link of {name})" if len(who) > 1 else ""), f"https://{rp}/a/{token}"))
         return tuple(out)
 
+    def _needs_person(self, plan: Plan, name: str, *, ai: bool = False) -> list[str]:
+        """A hard case its hard model could not answer (not qualified) is a person's to approve (owner, 2026-10-17;
+        routing.needs_person): never an AI's (Eldane) nor the bench approver's, a test identity - by whatever path its
+        approval came. `ai`: the approval was recorded as an AI's, whatever the list says now (PR 42, CWE-863)."""
+        entry = self.policy.approvers.get(name)
+        person = not ai and not self.policy.is_ai(name) and not (entry is not None and approvals.is_bench(name, entry))
+        if person or not routing.needs_person(self.audit, plan.incident_id):
+            return []
+        return [(f"{name} is not a person, and this incident is a hard case its hard model could not answer: a person "
+                 "approves its fix")]
+
     @activity.defn
     def check_approval(self, plan: Plan, approval: approvals.SignedApproval,
                        accepted: list[approvals.SignedApproval]) -> ApprovalResult:
@@ -805,6 +827,9 @@ class RemediationActivities:
             # Eldane's approval counts only at L2 (dev, not demoted), below prod, off WARDEN's own guardrails, with
             # the kill switch off - and its own agreement with exactly this plan on the record (autonomy.py).
             problems += autonomy.ai_problems(self.audit, plan, _run_id())
+        # A hard case the hard model could not answer (it is not qualified) is a person's to approve (owner, 2026-10-17;
+        # routing.needs_person): never an AI's nor the bench approver's.
+        problems += self._needs_person(plan, approval.approver)
         kind = "approval.refused" if problems else _ACCEPTED_ROW
         # Register H1: how long the approver had the plan before signing. Under HASTY_S is recorded as hasty - read
         # by the person who audits approvals, and by the catch trials (G7).
@@ -835,6 +860,7 @@ class RemediationActivities:
         problems: list[str] = []
         approver = self.policy.approvers.get(assertion.approver)
         problems += _approver_problems(plan, assertion.approver, approver)
+        problems += self._needs_person(plan, assertion.approver)
         if (assertion.workflow_id, assertion.plan_hash, assertion.tier) != (plan.workflow_id, plan.plan_hash, plan.tier):
             problems.append("the passkey approval is for a different plan")
         cooling = timedelta(minutes=self.policy.cooling_off_minutes.get(plan.tier, 0))
@@ -928,6 +954,11 @@ class RemediationActivities:
         if any(e["body"].get("ai") is True or self.policy.is_ai(str(e["body"].get("approver"))) for e in approved) and (
                 again := autonomy.ai_problems(self.audit, plan, run)):
             return again
+        # And a needs_person case is applied only on a person's approval (routing.needs_person, PR 169 review): every
+        # recorded approver that is no person is checked again, as recorded.
+        for e in approved:
+            if held := self._needs_person(plan, str(e["body"].get("approver")), ai=e["body"].get("ai") is True):
+                return held
         last_approval = max(e["seq"] for e in approved)
         checks = [e for e in rows(_PRECHECK_ROW) if e["seq"] > last_approval]
         if not checks or checks[-1]["body"].get("problems"):
@@ -1275,6 +1306,8 @@ class EvidencePack(BaseModel):
     # The evidence source the read side used. The report names it, and it is rendered in another zone, whose own
     # WARDEN_BACKEND is unset: live reads were labelled "a recorded demo incident (fixture)" (2026-10-09).
     backend: str = "fixture"
+    # The model a takeover asks (routing.py): set only when WARDEN's checks found the case hard after the first answer.
+    model: str = ""
 
 
 class Diagnosed(BaseModel):
@@ -1285,6 +1318,7 @@ class Diagnosed(BaseModel):
     cost: CostRecord
     steps: list[dict[str, Any]] = Field(default_factory=list)
     model_unavailable: str = ""  # why the model was not used: verify then escalates (register M19)
+    route: dict[str, Any] = Field(default_factory=dict)  # which model was asked for this answer, and why (routing.py)
 
 
 # A cap across incidents (registers M18, A-P-4): a storm of incidents, each within its own budget, still spent without
@@ -1299,6 +1333,8 @@ class Verified(BaseModel):
     verdict: Verdict
     halted_reason: str | None = None
     steps: list[dict[str, Any]] = Field(default_factory=list)
+    # Every routing signal on the verified answer (routing.after_answer): `take_over` when Opus should take it over.
+    route: dict[str, Any] = Field(default_factory=dict)
 
 
 class IncidentActivities:
@@ -1399,6 +1435,12 @@ class IncidentActivities:
             return out
         return out
 
+    def _route(self, alert_id: str, stage: str, route: Any, **more: Any) -> dict[str, Any]:
+        """A routing choice on the signed record (routing.py): the model, the signals with their values, and why."""
+        row = {**route.record(), **more}
+        self.audit.append(alert_id, "incident.route", {"run_id": _run_id(), "stage": stage, **row})
+        return row
+
     def _own_changes(self, alert: Alert, started: datetime) -> tuple[list[dict[str, Any]], set[Any]]:
         """WARDEN's applied fixes and undos that may be told beside this alarm, and the fixes that reopened it."""
         applied = self.audit.entries(kinds=(bounds.APPLIED,), since=started - OWN_FIX_WINDOW)
@@ -1464,14 +1506,21 @@ class IncidentActivities:
         from . import graph
         from .llm import LLMClient
 
+        # Which model answers (owner, 2026-10-17): Sonnet unless WARDEN's own signals mark the case hard.
+        route = None
         try:
-            llm, refused = (self.llm_factory or LLMClient)(), ""
+            route = routing.for_diagnosis(self.audit, pack)
+            llm, refused = routing.client(route.model, factory=self.llm_factory), ""
         except Exception as exc:  # noqa: BLE001 - any model that cannot be built is the rules-only diagnosis
+            # A choice that could not be made is not a model to ask: the rules-only diagnosis, with why (PR 74 review).
+            route = route or routing.Route(model="", choice=routing.FIXED,
+                                           why=f"the model could not be chosen ({_safe_error(exc)})")
             # Live, 2026-10-15: the runtime named a model that was no longer qualified (register M20 refused it, as it
             # must) - and the incident failed here, before any path that tells a person, so it reached nobody. Now it
             # is the degraded, rules-only diagnosis with the reason said (register M19); no model is asked.
             llm, refused = LLMClient(mock=True), f"no qualified model could be used ({_safe_error(exc)})"
             _note(f"ERROR {pack.alert.alert_id}: {refused} - rules-only diagnosis (security review L4)")
+        routed = self._route(pack.alert.alert_id, "diagnose", route, used="" if refused else llm.model)
         # One budget per incident, across its runs. A FAILED run may run again (ALLOW_DUPLICATE_FAILED_ONLY) - also
         # one that failed because it spent its budget - and each run built a fresh client: five restarts spent
         # $3.00 against a $0.50 cap (seventh review, 2026-10-01). Every run records what it spent, failed or not,
@@ -1490,7 +1539,7 @@ class IncidentActivities:
             steps = graph.apply_node(state, graph.node_diagnose(state))
             self._record(pack.alert.alert_id, steps)
             return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps,
-                             model_unavailable=reason)
+                             model_unavailable=reason, route=routed)
         # Reserved BEFORE the call (register R8-O1): what is left of the incident's budget, under an id that this
         # run's spend row settles. A run cancelled, terminated or killed mid-call wrote its spend late or never, and
         # the next run started as if nothing had been spent. Now an unsettled reservation counts as spent: the next
@@ -1512,7 +1561,7 @@ class IncidentActivities:
         self._record(pack.alert.alert_id, steps)
         return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps,
                          model_unavailable=state.get("model_unavailable", ""),
-                         need_evidence=list(state.get("need_evidence") or []))
+                         need_evidence=list(state.get("need_evidence") or []), route=routed)
 
     @activity.defn
     def plan_fix(self, alert: Alert, diagnosed: Diagnosed, verified: Verified) -> dict[str, Any]:
@@ -1846,7 +1895,23 @@ class IncidentActivities:
         verdict = state["verdict"]
         _note(f"{pack.alert.alert_id} alarm={pack.alert.labels.get('alarm', '-')} action={diagnosed.proposal.action.value} "
               f"verdict={verdict.status.value} policies={','.join(verdict.policy_ids) or '-'}")
-        return Verified(verdict=state["verdict"], halted_reason=state.get("halted_reason"), steps=steps)
+        return Verified(verdict=state["verdict"], halted_reason=state.get("halted_reason"), steps=steps,
+                        route=self._after_answer(pack, diagnosed, "verify"))
+
+    def _after_answer(self, pack: EvidencePack, diagnosed: Diagnosed, stage: str, second: Any = None) -> dict[str, Any]:
+        """Every routing signal on a verified answer, on the record; {} when an answer had no model (rules only)."""
+        if diagnosed.model_unavailable:
+            return {}
+        try:
+            return self._route(pack.alert.alert_id, stage, routing.after_answer(self.audit, pack, diagnosed, second))
+        except Exception as exc:  # noqa: BLE001  # whatever routing hit the verdict stands and a person approves
+            why = f"routing could not be done ({_safe_error(exc)})"
+            _note(f"{pack.alert.alert_id} {stage}: {why} - no takeover, a person approves")
+            # Recorded like any choice. The audit took this step's rows a moment ago; if it now fails, the step fails
+            # as it does for every other audit write.
+            row = {**routing.Route(model="", choice=routing.FIXED, why=why).record(), "needs_person": True}
+            self.audit.append(pack.alert.alert_id, "incident.route", {"run_id": _run_id(), "stage": stage, **row})
+            return row
 
     @activity.defn
     def second_opinion(self, pack: EvidencePack, first: Diagnosed, second: Diagnosed, verified: Verified) -> Verified:
@@ -1860,8 +1925,10 @@ class IncidentActivities:
             "run_id": _run_id(), "agree": agree, "first": {"action": a.action.value, "target": a.target},
             "second": ({"action": b.action.value, "target": b.target} if not second.model_unavailable
                        else {"unavailable": str(second.model_unavailable)[:200]})})
+        # The two answers are a routing signal too: when they disagree, the case is hard (routing.py).
+        route = self._after_answer(pack, first, "second_opinion", None if second.model_unavailable else second)
         if agree:
-            return verified
+            return verified.model_copy(update={"route": route})
         why = (f"no second opinion could be had ({str(second.model_unavailable)[:120]})" if second.model_unavailable
                else f"two independent diagnoses disagree: `{a.action.value}` on `{a.target}`, then "
                     f"`{b.action.value}` on `{b.target}`")
@@ -1873,11 +1940,30 @@ class IncidentActivities:
             "reasons": [*verified.verdict.reasons, f"{why}: a person decides, and no fix is offered for approval."]})
         _note(f"{pack.alert.alert_id} second opinion: {'unavailable' if second.model_unavailable else 'differs'} - "
               "escalated")
-        return verified.model_copy(update={"verdict": verdict})
+        return verified.model_copy(update={"verdict": verdict, "route": route})
 
 
 # The policy a disagreement of two independent diagnoses escalates under (IncidentActivities.second_opinion).
 SECOND_OPINION = "P32-SECOND-OPINION-DIFFERS"
+
+
+STILL_HELD = "the two diagnoses before it disagreed: a person decides, and no fix is offered for approval."
+
+
+def still_held(taken_over: Verified, before: Verified) -> Verified:
+    """A takeover (routing.py) never lifts the escalation two disagreeing answers caused: when the answers before it
+    disagreed, its verdict is escalated under SECOND_OPINION too - a person decides. Pure: the workflow calls it."""
+    disagreed = "disagreement" in (before.route.get("fired") or []) or SECOND_OPINION in before.verdict.policy_ids
+    if not disagreed or taken_over.verdict.status.value in (
+            "escalated", "rejected"):
+        return taken_over
+    from .models import VerdictStatus
+
+    verdict = taken_over.verdict.model_copy(update={
+        "status": VerdictStatus.escalated, "requires_approval": True,
+        "policy_ids": [*taken_over.verdict.policy_ids, SECOND_OPINION],
+        "reasons": [*taken_over.verdict.reasons, STILL_HELD]})
+    return taken_over.model_copy(update={"verdict": verdict})
 
 
 def _same_target(a: str, b: str) -> bool:
@@ -2032,7 +2118,6 @@ class DiscussActivities:
         """The model's answer to the mention, as the reply to post. Capped per incident per day and by the daily cap
         every incident shares; the people's words are data to it (discuss.SYSTEM)."""
         from . import discuss
-        from .llm import LLMClient
 
         turn, thread = discuss.Turn.model_validate(turn), discuss.Thread.model_validate(thread)
         key = f"discuss-{thread.incident}"
@@ -2043,8 +2128,11 @@ class DiscussActivities:
         today = self.incident._spent_since(since)
         if calls >= discuss.DAILY_CALLS or today.usd >= DAILY_MAX_USD:
             return discuss.LIMIT
+        # A simple question gets the default model, a deep re-investigation the hard one (routing.py), on the record.
+        route = routing.for_question(turn.text)
+        self.audit.append(key, "discuss.route", {"run_id": _run_id(), "ts": turn.ts, **route.record()})
         try:
-            llm = (self.incident.llm_factory or LLMClient)()
+            llm = routing.client(route.model, factory=self.incident.llm_factory, role=route.role)
         except Exception as exc:  # noqa: BLE001  # a model that cannot be built is no answer: the person is told
             # Review, PR 47: a prompt not yet qualified refuses the model; the person is told, never left waiting.
             _note(f"discuss: no model could be used ({type(exc).__name__})")
