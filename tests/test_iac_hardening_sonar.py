@@ -48,9 +48,18 @@ def test_the_lab_database_is_encrypted_at_rest():
 
 
 def test_every_container_of_the_flagged_manifests_declares_its_resources():
-    for rel in ("k8s/job.yaml", "k8s/test/oom-workload.yaml", "k8s/test/posture-probe.yaml",
-                "k8s/proving-ground/namespace.yaml", "k8s/test/privileged-must-fail.yaml"):
-        for doc in yaml.safe_load_all((ROOT / rel).read_text(encoding="utf-8")):
+    import json
+    import subprocess
+    import sys
+
+    # The negative Pod Security test's pod is built when it runs (scripts/negative_pod.py), never kept as a file.
+    built = subprocess.run([sys.executable, str(ROOT / "scripts" / "negative_pod.py")], capture_output=True, text=True,
+                           check=True).stdout
+    sources = {rel: (ROOT / rel).read_text(encoding="utf-8") for rel in (
+        "k8s/job.yaml", "k8s/test/oom-workload.yaml", "k8s/test/posture-probe.yaml", "k8s/proving-ground/namespace.yaml")}
+    sources["scripts/negative_pod.py"] = json.dumps(json.loads(built))
+    for rel, text in sources.items():
+        for doc in yaml.safe_load_all(text):
             spec = (doc or {}).get("spec", {})
             spec = spec.get("template", {}).get("spec", spec) if doc.get("kind") != "Pod" else spec
             for c in spec.get("containers", []):

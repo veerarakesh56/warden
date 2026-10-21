@@ -10,6 +10,10 @@ the safety properties of the old in-process backend (remediation_k8s.py, removed
   restart` does;
 - its credentials are a separate ServiceAccount that can patch Deployments and nothing else
   (`k8s/remediation-rbac.yaml`) - the RBAC, not this code, is the real boundary.
+In the cloud runtime (`eks_from_environment`) each watched environment's EKS cluster is reached with no kubeconfig and
+no in-cluster identity: reads in the environment's platform-reader role (its access entry: view only), and each write
+in an actor session minted for that one approved plan, whose access entry maps it to the remediator group - the same
+ClusterRole and admission policy, bound in the served namespace only.
 `k8s_rollout_undo` reads no revisions here yet, so the catalogue refuses it: it needs to read
 ReplicaSets and write a pod template, which waits for a ValidatingAdmissionPolicy (audit A-I-11).
 """
@@ -17,6 +21,9 @@ ReplicaSets and write a pod template, which waits for a ValidatingAdmissionPolic
 from __future__ import annotations
 
 import os
+import threading
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -36,8 +43,13 @@ _ENTRIES = {"k8s_restart", "k8s_scale"}
 # Register C4: controllers that undo a direct change. A Deployment carrying one of these is reconciled from Git by
 # Argo CD or Flux, whose self-heal reverts what WARDEN patched. (`app.kubernetes.io/instance` alone is not counted:
 # Helm sets it too, and Helm does not self-heal.)
-_GITOPS = {"argocd.argoproj.io/tracking-id": "Argo CD", "argocd.argoproj.io/instance": "Argo CD",
+ARGO_CD = "Argo CD"
+_GITOPS = {"argocd.argoproj.io/tracking-id": ARGO_CD, "argocd.argoproj.io/instance": ARGO_CD,
            "kustomize.toolkit.fluxcd.io/name": "Flux", "helm.toolkit.fluxcd.io/name": "Flux"}
+# Where Argo CD keeps its Applications (its chart's default), unless an Application's tracking id names another.
+ARGOCD_NAMESPACE = os.environ.get("WARDEN_ARGOCD_NAMESPACE", "argocd")
+# The restart annotation as a JSON Pointer, as an Application's ignoreDifferences names it.
+RESTART_POINTER = "/spec/template/metadata/annotations/" + RESTARTED_AT.replace("~", "~0").replace("/", "~1")
 
 
 class KubernetesPlatformError(RuntimeError):
@@ -52,9 +64,15 @@ class KubernetesPlatformRefused(KubernetesPlatformError):
 
 class KubernetesPlatform:
     def __init__(self, *, apps: Any = None, namespace: str | None = None, kubeconfig: str | None = None,
-                 max_replicas: int = MAX_REPLICAS, autoscaling: Any = None) -> None:
+                 max_replicas: int = MAX_REPLICAS, autoscaling: Any = None,
+                 writer: Callable[[dict[str, Any]], Any] | None = None, cluster_name: str | None = None,
+                 custom: Any = None) -> None:
         self._ns = namespace or os.environ.get("WARDEN_K8S_NAMESPACE", "default")
         self._max = max_replicas
+        # `writer`: an approved plan's who -> the client its writes go through (an actor session's). Without one,
+        # writes go through `apps` - one identity for both, as in a cluster or with a kubeconfig.
+        self._writer = writer
+        self._cluster_name = cluster_name
         if apps is None:
             from kubernetes import client, config
 
@@ -68,7 +86,9 @@ class KubernetesPlatform:
                                                   f"{_one_line(exc)}") from exc
             apps = client.AppsV1Api()
             autoscaling = autoscaling or client.AutoscalingV2Api()
+            custom = custom or client.CustomObjectsApi()
         self._apps = apps
+        self._custom = custom  # Argo CD's Applications; None: whether one ignores a restart is unknown, and refused
         self._autoscaling = autoscaling  # None: whether an HPA owns the count is unknown, and a scale is refused
 
     # ------------------------------------------------------------------ reads
@@ -89,11 +109,49 @@ class KubernetesPlatform:
         except Exception:  # noqa: BLE001 - absent or unreadable allows nothing; the catalogue refuses
             return {}
         labels = getattr(dep.metadata, "labels", None) or {}
-        return {"namespace": {self._ns}, "deployment": {dep.metadata.name}, "current_replicas": _replicas(dep),
+        live = {"namespace": {self._ns}, "deployment": {dep.metadata.name}, "current_replicas": _replicas(dep),
                 "environment": labels.get(ENV_LABEL), "rollout": _rollout(dep), "at_once": _at_once(dep),
                 "gitops": _gitops(dep), "autoscaled": self._autoscaled(dep.metadata.name),
                 "state": {"deployment": dep.metadata.name, "replicas": _replicas(dep),
                           "generation": dep.metadata.generation, "server": self._server()}}
+        if live["gitops"] == ARGO_CD and entry == "k8s_restart":
+            live["gitops_ignores_restart"] = self._argo_ignores_restart(dep)
+        return live
+
+    def _argo_ignores_restart(self, dep: Any) -> bool:
+        """Register C4, owner decision 2026-10-17: does the Argo CD Application tracking this Deployment ignore the
+        restart annotation, so its self-heal leaves a restart in place? True only when proven, from the live
+        Application: the Deployment's own tracking id names it and this exact Deployment, the Application deploys to
+        this namespace, and an ignoreDifferences rule for this Deployment holds a JSON Pointer covering the
+        annotation, with RespectIgnoreDifferences on. Anything else - no tracking id (label tracking), a Flux marker as
+        well, an Application that cannot be read, a rule by jq expression only - is not proof, and the restart stays
+        refused."""
+        spec = self._tracking_application(dep.metadata)
+        if spec is None or (spec.get("destination") or {}).get("namespace") != self._ns:
+            return False
+        # Without RespectIgnoreDifferences, a sync for any other reason applies Git's template and drops the restart
+        # (Argo CD's sync options, review PR 48): the ignore is proof only with it.
+        if "RespectIgnoreDifferences=true" not in ((spec.get("syncPolicy") or {}).get("syncOptions") or []):
+            return False
+        return any(_ignores_restart(rule, dep.metadata.name, self._ns) for rule in spec.get("ignoreDifferences") or [])
+
+    def _tracking_application(self, meta: Any) -> dict[str, Any] | None:
+        """The spec of the Argo CD Application whose tracking id names this exact Deployment, read live; None when there
+        is none to read (label tracking, a Flux marker as well, no client, another resource's id, unreadable)."""
+        marks = {**(getattr(meta, "labels", None) or {}), **(getattr(meta, "annotations", None) or {})}
+        if self._custom is None or any(_GITOPS[k] == "Flux" for k in marks if k in _GITOPS):
+            return None
+        app, _, resource = str(marks.get("argocd.argoproj.io/tracking-id", "")).partition(":")
+        if not app or resource != f"apps/Deployment:{self._ns}/{meta.name}":
+            return None
+        where, _, name = app.rpartition("_")  # `<namespace>_<name>` for an Application outside Argo CD's namespace
+        try:
+            found = self._custom.get_namespaced_custom_object("argoproj.io", "v1alpha1", where or ARGOCD_NAMESPACE,
+                                                              "applications", name, _request_timeout=REQUEST_TIMEOUT)
+        except Exception:  # noqa: BLE001  # unread is unproven
+            return None
+        spec = found.get("spec") if isinstance(found, dict) else None
+        return spec if isinstance(spec, dict) else None
 
     def _autoscaled(self, deployment: str) -> bool | None:
         """Does a HorizontalPodAutoscaler own this Deployment's replica count (register C4)? None when it cannot be
@@ -115,7 +173,7 @@ class KubernetesPlatform:
         host = str(getattr(config, "host", "") or "")
         # In a cluster the address is the `kubernetes` Service's IP - the same in every cluster (seventh review,
         # 2026-10-01): the operator names the cluster.
-        name = os.environ.get("WARDEN_CLUSTER_NAME", "").strip()
+        name = self._cluster_name or os.environ.get("WARDEN_CLUSTER_NAME", "").strip()
         return f"{name} ({host})" if name else host
 
     def knows(self, service: str) -> bool:
@@ -147,17 +205,20 @@ class KubernetesPlatform:
 
     # ------------------------------------------------------------------ writes
 
-    def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None) -> str:
+    def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None,
+              who: dict[str, Any] | None = None) -> str:
         if entry not in _ENTRIES:
             raise KubernetesPlatformRefused(f"{entry} is not something the Kubernetes platform does "
                                           f"(it does {', '.join(sorted(_ENTRIES))} only)")
         self._same_namespace(params)
         if entry == "k8s_restart":
-            return self._restart(params["deployment"])
+            return self._restart(params["deployment"], self._for_write(who, params["deployment"]))
         approved = (snapshot or {}).get("replicas")
-        return self._scale(params["deployment"], params["replicas"], approved if isinstance(approved, int) else None)
+        return self._scale(params["deployment"], params["replicas"], approved if isinstance(approved, int) else None,
+                           who)
 
-    def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
+    def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any],
+                 who: dict[str, Any] | None = None) -> str:
         self._same_namespace(params)
         if entry == "k8s_restart":
             # A restart changes only the template's restartedAt annotation: the old pods are gone, and a second
@@ -167,25 +228,41 @@ class KubernetesPlatform:
             before = snapshot.get("replicas")
             if not isinstance(before, int) or before < 1:
                 raise KubernetesPlatformError("the plan holds no replica count to return to")
-            return self._write_replicas(params["deployment"], expect=params["replicas"], to=before)
+            return self._write_replicas(params["deployment"], expect=params["replicas"], to=before,
+                                        apps=self._for_write(who, params["deployment"]))
         raise KubernetesPlatformError(f"{entry} is not something the Kubernetes platform does")
+
+    def _for_write(self, who: dict[str, Any] | None, deployment: str) -> Any:
+        """The client this plan's write goes through, able to patch its one Deployment in the served namespace only.
+        With a writer (the cloud), an actor session minted for this approved plan - never the reader's."""
+        if self._writer is None:
+            return _Bound(self._apps, self._ns, deployment)
+        if not who or not who.get("approvers"):
+            raise KubernetesPlatformRefused("a write needs the approved plan's actor session; nothing was changed")
+        try:
+            apps = self._writer(who)
+        except Exception as exc:
+            raise KubernetesPlatformRefused(f"no actor session for deployment/{deployment}: {_one_line(exc)}; "
+                                          "nothing was changed") from exc
+        return _Bound(apps, self._ns, deployment)
 
     def _same_namespace(self, params: dict[str, Any]) -> None:
         if params.get("namespace") != self._ns:
             raise KubernetesPlatformRefused(f"namespace {params.get('namespace')!r} is not the one this platform "
                                           f"serves ({self._ns})")
 
-    def _restart(self, deployment: str) -> str:
+    def _restart(self, deployment: str, apps: Any) -> str:
         stamp = datetime.now(UTC).isoformat()
         body = {"spec": {"template": {"metadata": {"annotations": {RESTARTED_AT: stamp}}}}}
         try:
-            self._apps.patch_namespaced_deployment(deployment, self._ns, body, _request_timeout=REQUEST_TIMEOUT)
+            apps.patch_namespaced_deployment(deployment, self._ns, body, _request_timeout=REQUEST_TIMEOUT)
         except Exception as exc:
             _refused_by_the_server(exc, deployment)
             raise KubernetesPlatformError(f"rollout restart of {deployment} failed: {_one_line(exc)}") from exc
         return f"rollout restart of deployment/{deployment} in {self._ns} (restartedAt={stamp})"
 
-    def _scale(self, deployment: str, replicas: Any, approved: int | None = None) -> str:
+    def _scale(self, deployment: str, replicas: Any, approved: int | None = None,
+               who: dict[str, Any] | None = None) -> str:
         try:
             current = _replicas(self._read(deployment))
         except Exception as exc:
@@ -201,9 +278,11 @@ class KubernetesPlatform:
                 or not (current < replicas <= min(current + 2, self._max)) or replicas < 1:
             raise KubernetesPlatformRefused(f"scaling deployment/{deployment} to {replicas!r} is outside the bound "
                                           f"(above {current}, at most {min(current + 2, self._max)})")
-        return self._write_replicas(deployment, expect=current, to=replicas)
+        return self._write_replicas(deployment, expect=current, to=replicas, apps=self._for_write(who, deployment))
 
-    def _write_replicas(self, deployment: str, *, expect: int, to: int) -> str:
+    def _write_replicas(self, deployment: str, *, expect: int, to: int, apps: Any = None) -> str:
+        if apps is None:  # no plan's session given: without a writer the one client, held to this target
+            apps = self._for_write(None, deployment)
         # Conditioned on spec.replicas, not on the object's version: a Deployment's resourceVersion moves
         # whenever its controller writes status. The API server rejects the whole patch if `test` fails.
         try:
@@ -224,7 +303,7 @@ class KubernetesPlatform:
         patch = [{"op": "test", "path": "/spec/replicas", "value": expect},
                  {"op": "replace", "path": "/spec/replicas", "value": to}, *note]
         try:
-            self._apps.patch_namespaced_deployment(deployment, self._ns, patch,
+            apps.patch_namespaced_deployment(deployment, self._ns, patch,
                                                    _content_type="application/json-patch+json",
                                                    _request_timeout=REQUEST_TIMEOUT)
         except Exception as exc:
@@ -236,6 +315,81 @@ class KubernetesPlatform:
             _refused_by_the_server(exc, deployment)
             raise KubernetesPlatformError(f"scaling deployment/{deployment} failed: {_one_line(exc)}") from exc
         return f"scaled deployment/{deployment} in {self._ns} from {expect} to {to} replica(s)"
+
+
+class _Bound:
+    """A write client held to one approved plan's target: a patch of any other Deployment, or in any other namespace,
+    is refused before it is sent. On the server the RBAC (the served namespace) and the admission policy (what may
+    change) are the boundary; this keeps one plan's session to its own Deployment."""
+
+    def __init__(self, apps: Any, namespace: str, deployment: str) -> None:
+        self._apps, self._target = apps, (namespace, deployment)
+
+    def patch_namespaced_deployment(self, name: str, namespace: str, body: Any, **kw: Any) -> Any:
+        if (namespace, name) != self._target:
+            raise KubernetesPlatformRefused(f"deployment/{name} in {namespace} is not this plan's target "
+                                          f"({self._target[1]} in {self._target[0]}); nothing was changed")
+        return self._apps.patch_namespaced_deployment(name, namespace, body, **kw)
+
+
+class _Fresh:
+    """A client made again every `every` seconds. Its EKS token is signed once, when it is made, by the reader session's
+    credentials - which platforms.reader_clients hands out with at least 300 s left (a 900 s session renewed after
+    600 s) - so a client is never kept longer than that (review, PR 48)."""
+
+    def __init__(self, make: Callable[[], Any], every: float = 240) -> None:
+        self._make, self._every, self._held, self._until = make, every, None, 0.0
+        self._lock = threading.Lock()
+
+    def __getattr__(self, name: str) -> Any:
+        with self._lock:
+            if self._held is None or self._until < time.monotonic():
+                self._held, self._until = self._make(), time.monotonic() + self._every
+            return getattr(self._held, name)
+
+
+def eks_from_environment() -> Any:
+    """The Kubernetes platform of each watched environment's EKS cluster (WARDEN_EKS_CLUSTERS, `env=cluster`), for the
+    cloud runtime. Reads: the environment's platform-reader role (`warden-<env>-platform-reader`; its access entry is
+    view-only). Writes: an actor session (`warden-<env>-actor`) minted for one approved plan - SourceIdentity and session
+    name the incident, tags the approvers - whose access entry maps it to the remediator group. Its session policy names
+    the cluster and grants no AWS action (the actor role holds none for EKS): the session's one use is the cluster
+    token. An environment with no cluster configured reads and writes nothing (platforms.Unconfigured): its plans are
+    refused and go to a person."""
+    import boto3
+    from kubernetes import client
+
+    from .. import identity
+    from ..aws_stack import eks_cluster_of
+    from ..environments import region
+    from ..k8s_backend import eks_api_client
+    from . import NotConfigured, PerEnvironment, reader_clients, role_arn, session_clients
+
+    where = region()
+    sts = boto3.client("sts", region_name=where)
+
+    def build(env: str) -> KubernetesPlatform:
+        cluster = eks_cluster_of(env)
+        if not cluster:
+            raise NotConfigured(f"no EKS cluster is configured for {env} (WARDEN_EKS_CLUSTERS)")
+        reader, actor_arn = reader_clients(sts, where, role_arn(env, "platform-reader")), role_arn(env, "actor")
+
+        def read_api() -> Any:
+            return eks_api_client(reader("eks").describe_cluster(name=cluster)["cluster"], reader("sts"), cluster)
+
+        def writer(who: dict[str, Any]) -> Any:
+            described = reader("eks").describe_cluster(name=cluster)["cluster"]
+            creds = identity.actor_session(sts, role_arn=actor_arn, incident=who["incident"],
+                                           plan_hash=who["plan_hash"], approvers=who["approvers"],
+                                           actions=["eks:DescribeCluster"], resources=[described["arn"]])
+            return client.AppsV1Api(eks_api_client(described, session_clients(creds, where)("sts"), cluster))
+
+        return KubernetesPlatform(apps=_Fresh(lambda: client.AppsV1Api(read_api())),
+                                  autoscaling=_Fresh(lambda: client.AutoscalingV2Api(read_api())),
+                                  custom=_Fresh(lambda: client.CustomObjectsApi(read_api())),
+                                  writer=writer, cluster_name=cluster)
+
+    return PerEnvironment(build, "Kubernetes")
 
 
 def _own_check(refused: KubernetesPlatformRefused) -> KubernetesPlatformRefused:
@@ -279,6 +433,25 @@ def _refused_by_the_server(exc: Exception, deployment: str) -> None:
         raise KubernetesPlatformRefused(f"the API server refused the write to deployment/{deployment} "
                                       f"(RBAC or an admission policy: {_one_line(getattr(exc, 'reason', '') or exc)}); "
                                       f"nothing was changed") from exc
+
+
+def _ignores_restart(rule: Any, deployment: str, namespace: str) -> bool:
+    """An ignoreDifferences rule that applies to this Deployment and names the restart annotation, or a field holding
+    it, by JSON Pointer."""
+    if not isinstance(rule, dict) or rule.get("group") != "apps" or rule.get("kind") != "Deployment":
+        return False
+    if rule.get("name") not in (None, deployment) or rule.get("namespace") not in (None, namespace):
+        return False
+    return any(_covers(p) for p in rule.get("jsonPointers") or [])
+
+
+def _covers(pointer: Any) -> bool:
+    """A JSON Pointer (RFC 6901) that names the restart annotation or a field holding it, compared by whole segments
+    (review, PR 48): `""` is the whole document, but `"/"` names the key "" at the root and `"/spec/"` the key "" under
+    `spec` - neither covers the annotation, and Argo CD would not ignore it. Only a pointer that is a strict ancestor or
+    the annotation itself counts; the whole document is not taken as proof either."""
+    return (isinstance(pointer, str) and pointer.startswith("/") and not pointer.endswith("/")
+            and (pointer == RESTART_POINTER or RESTART_POINTER.startswith(pointer + "/")))
 
 
 def _gitops(dep: Any) -> str:
