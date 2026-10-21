@@ -115,7 +115,9 @@ from then. Pause the runtime again before the seventh day, or start it on purpos
 - The runtime's switch - console: Systems Manager → Parameter Store → `/warden/ops/tf/paused` → Edit → `true` (or
   `false`). CLI: `aws ssm put-parameter --name /warden/ops/tf/paused --value true --overwrite`; then *Runtime · ops*
   `apply`.
-- Start the audit again - console: Actions → Start. CLI: `aws rds start-db-instance --db-instance-identifier
+- Start the audit again - console: Actions → Start. CLI (an Aurora audit: `aws rds start-db-cluster
+  --db-cluster-identifier warden-ops-audit` and `aws rds wait db-cluster-available --db-cluster-identifier
+  warden-ops-audit`; the Free plan's instance:) `aws rds start-db-instance --db-instance-identifier
   warden-ops-audit` and `aws rds wait db-instance-available --db-instance-identifier warden-ops-audit`.
 - Restore a lost audit database (resume refuses to do it): console: RDS → Snapshots → the newest
   `warden-ops-audit-pause-...` → Actions → Restore snapshot, identifier `warden-ops-audit`, the audit's subnet group and

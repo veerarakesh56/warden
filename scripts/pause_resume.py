@@ -259,20 +259,31 @@ def _backups(ddb) -> list[dict]:
             return out
 
 
+def _copyable(cluster: dict | None) -> bool:
+    """True for an available cluster, False for none; a cluster in any other state cannot be copied: refused."""
+    if cluster is not None and cluster.get("Status") != "available":
+        raise SystemExit(f"{ax.CLUSTER} is {cluster.get('Status')}: no snapshot can be taken, so nothing is deleted")
+    return cluster is not None
+
+
 def snapshot(stack: str, clients: dict, log=print) -> list[str]:
     """Pause, first step: a copy of every data store of `stack`, each available before this returns."""
     rds = clients["rds"]
     if stack == "fullstack":
+        # A cluster that cannot be copied is found before any writer is stopped (CodeRabbit, PR 103).
+        _copyable(ax.describe(rds, ax.CLUSTER))
         quiesce(clients, log)
-        made = []
-        c = ax.describe(rds, ax.CLUSTER)
-        if c is None:
-            log(f"{ax.CLUSTER}: does not exist - nothing to keep")
-        elif c.get("Status") != "available":
-            raise SystemExit(f"{ax.CLUSTER} is {c.get('Status')}: no snapshot can be taken, so nothing is deleted")
-        else:
-            made.append(snapshot_db(rds, "cluster", ax.CLUSTER, log))
-        return made + backup_tables(clients["dynamodb"], log)
+        try:
+            made = []
+            if _copyable(ax.describe(rds, ax.CLUSTER)):  # again: its state may have changed during the drain
+                made.append(snapshot_db(rds, "cluster", ax.CLUSTER, log))
+            else:
+                log(f"{ax.CLUSTER}: does not exist - nothing to keep")
+            return made + backup_tables(clients["dynamodb"], log)
+        except SystemExit as exc:
+            # Every failure after quiesce() leaves the writers held: say how to start them again.
+            raise SystemExit(f"{exc} - the writers are stopped: `python scripts/pause_resume.py wake` starts them "
+                             "again") from None
     found = audit_db(rds)
     if found is None:
         log(f"{ax.PREFIX}audit: does not exist - nothing to keep")
