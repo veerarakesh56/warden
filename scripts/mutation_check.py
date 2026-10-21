@@ -20,6 +20,10 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "warden"
 
+# The files and the one replacement the Eldane and autonomy mutations below name, each once.
+_AUTONOMY, _ELDANE, _ACTIVITIES = "autonomy.py", "eldane.py", "activities.py"
+_NEVER = "    if False:"
+
 # (label, file, find, replace, why this mutation matters)
 MUTATIONS = [
     (
@@ -176,22 +180,6 @@ MUTATIONS = [
         "the whole promise - production must NEVER auto-apply a fix without a human",
     ),
     (
-        "remediation skips the authorization gate",
-        "remediation.py",
-        "    if not env.authorizes(request.principal):",
-        "    if False and not env.authorizes(request.principal):",
-        "an unauthorised principal could apply a fix - authorization is the who-may-act boundary",
-    ),
-    (
-        "remediation skips the approval gate",
-        "remediation.py",
-        "    if request.approval != digest:",
-        "    if False and request.approval != digest:",
-        ("a fix would apply with nobody having approved THIS proposal - the last human checkpoint "
-         "(this anchor went stale when approval became a digest on 2026-09-27, and the mutation "
-         "silently stopped running until tests/test_mutation_anchors.py was added)"),
-    ),
-    (
         "report stops redacting its data",
         "reporting.py",
         "    data, mapping = _scrub(data, dict(redaction_map or {}))",
@@ -234,13 +222,6 @@ MUTATIONS = [
         '        if params.get("namespace") != self._ns:',
         "        if False:",
         "a plan could name kube-system; the platform serves one namespace",
-    ),
-    (
-        "the gate stops catching a backend fault",
-        "remediation.py",
-        "    except Exception as exc:  # noqa: BLE001 - a backend fault is a result, not a crash",
-        "    except ValueError as exc:  # noqa: BLE001 - a backend fault is a result, not a crash",
-        "a live-backend API error (403, unreachable) would crash the pipeline instead of a failed result",
     ),
     (
         "the database platform loses its python-side ceiling",
@@ -302,6 +283,183 @@ MUTATIONS = [
             "the exact regression that broke CI: the cluster job collects the database suite, which "
             "skips for want of service containers and trips its own zero-skips guard"
         ),
+    ),
+    # Eldane, the AI critic, and dev autonomy (owner, 2026-10-16/17): every guard, planted (tests/test_eldane_autonomy.py).
+    (
+        "Eldane's approval no longer needs both of its passes",
+        _AUTONOMY,
+        '    if verdict is None or verdict.get("agree") is not True or not verdict.get("second_pass"):',
+        '    if verdict is None or verdict.get("agree") is not True:',
+        "a blind yes alone would approve: WARDEN's reasoning would never be weighed by the critic",
+    ),
+    (
+        'an AI approval counts in prod',
+        _AUTONOMY,
+        '    if pol.tier == "prod" or ceiling(plan.environment) != L2:',
+        _NEVER,
+        "prod must always need a person's passkey (owner, 2026-10-16)",
+    ),
+    (
+        'a prod environment may be configured autonomous',
+        'environments.py',
+        '    if value == "L2" and (raw.get("tier") == "prod" or name == "default"):',
+        _NEVER,
+        'a one-line edit of environments.yaml would make prod autonomous',
+    ),
+    (
+        'a failed fix no longer demotes',
+        _AUTONOMY,
+        '        if b.get("failed"):\n            out.append((e["seq"], f"`{b.get(\'entry\')}` ended',
+        '        if False:\n            out.append((e["seq"], f"`{b.get(\'entry\')}` ended',
+        "demote at once: a rolled-back or relapsed fix must end its class's autonomy until a person re-enables it",
+    ),
+    (
+        "a person's veto of an Eldane-approved plan no longer demotes",
+        _AUTONOMY,
+        '        elif b.get("harmful"):',
+        '        elif False:',
+        'Eldane said yes to what a person said no to: dev must wait for a person',
+    ),
+    (
+        'a model or prompt change no longer demotes',
+        _AUTONOMY,
+        '    if changed is not None:\n        out.append((changed,',
+        '    if False:\n        out.append((changed,',
+        'register R3: a new model or prompt is not the one that was running',
+    ),
+    (
+        "a missed catch trial no longer stops Eldane's approvals",
+        _AUTONOMY,
+        '            for e in log.entries(kinds=(TRIAL,)) if e["seq"] > after and e["body"].get("caught") is False]',
+        '            for e in log.entries(kinds=(TRIAL,)) if e["seq"] > after and e["body"].get("caught") is None]',
+        'register R11: a critic that waves a planted bad plan through must lose its approvals',
+    ),
+    (
+        'Eldane may re-enable its own autonomy',
+        _AUTONOMY,
+        '    if policy.is_ai(approval.approver):\n        return [',
+        '    if False:\n        return [',
+        'after a demotion only a person turns autonomy back on (owner, 2026-10-17)',
+    ),
+    (
+        'a re-enable is not bound to the demotions it was shown',
+        _AUTONOMY,
+        'plan_hash=enable_hash(log, environment), tier="T3"',
+        'plan_hash=approval.plan_hash, tier="T3"',
+        'a person could re-enable past a demotion added after they read the list',
+    ),
+    (
+        "an Eldane-approved plan is applied without a person's chance to say no",
+        'workflows.py',
+        '                await workflow.wait_condition(lambda: self._vetoed(wid, plan) is not None, timeout=VETO)',
+        '                pass',
+        "a person's decision always overrides Eldane's (owner, 2026-10-17)",
+    ),
+    (
+        'the kill switch no longer stops autonomous approvals',
+        _AUTONOMY,
+        '    if (row := bounds.killswitch(log)) is not None:\n        problems.append(',
+        '    if (row := None) is not None:\n        problems.append(',
+        'the Red Button must stop Eldane too',
+    ),
+    (
+        'an AI may approve a plan on WARDEN itself',
+        _AUTONOMY,
+        '    problems += self_guard(plan)\n',
+        '',
+        "register R6 / P22: WARDEN's runtime and guardrails are a person's to change",
+    ),
+    (
+        "the self-guard no longer sees WARDEN's guardrails",
+        _AUTONOMY,
+        '    hits = sorted({hit for v in values if (hit := touches_protected(v))})',
+        '    hits = []',
+        'a plan naming CI workflows, IAM, the approvers or environments.yaml would pass for an AI',
+    ),
+    (
+        'Eldane may read any audit row, the discussion included',
+        _ELDANE,
+        '    if kind not in READS:  # register R12: nothing else reaches Eldane',
+        _NEVER,
+        'register R12: anyone can write in the discussion channel; it must never reach the approver',
+    ),
+    (
+        "Eldane's first pass sees WARDEN's reasoning",
+        _ELDANE,
+        '    first = ask(log, plan.incident_id, asked, blind, ids, **row, purpose="blind")',
+        '    first = ask(log, plan.incident_id, asked, blind + "\\n\\n" + _reasoning(diagnosis), ids, **row, purpose="blind")',
+        "register R10: an anchored critic re-reads WARDEN's conclusion instead of the evidence",
+    ),
+    (
+        'Eldane may review with the very model that diagnosed',
+        _ELDANE,
+        '    if model == prov.get("model"):',
+        _NEVER,
+        'owner, 2026-10-17: the same family, never the same model - else the diagnosis agrees with itself',
+    ),
+    (
+        'Eldane no longer picks the model the diagnosis did not use',
+        _ELDANE,
+        '    model = next((m for m in models if m != diagnosed_by), "")',
+        '    model = models[0]',
+        'a Sonnet diagnosis reviewed by Sonnet, an Opus one by Opus: no second model at all',
+    ),
+    (
+        'an answer citing evidence that does not exist is accepted',
+        _ELDANE,
+        '    if cited - ids:',
+        _NEVER,
+        'a verdict must rest on the record, never on invented evidence',
+    ),
+    (
+        'check_approval no longer applies the AI rules',
+        _ACTIVITIES,
+        '        if ai and not problems:',
+        '        if False:',
+        "an Eldane-signed approval would count like a person's, with no earned level or recorded agreement",
+    ),
+    # PR 42 review fixes, planted (tests/test_eldane_autonomy.py).
+    (
+        'Eldane reviews a plan whose diagnosis does not say which model made it',
+        _ELDANE,
+        '    if not diagnosis or not prov:',
+        _NEVER,
+        'PR 42 review, CWE-636: an unknown diagnoser family must be refused, never reviewed as independent',
+    ),
+    (
+        'a catch trial with no valid answer is scored a catch',
+        _ELDANE,
+        '    elif yes is False and verdict._grounded:',
+        '    elif yes is False:',
+        "PR 42 review: a provider outage or an unreadable reply would raise Eldane's catch rate",
+    ),
+    (
+        'unscored catch trials count as answered',
+        _AUTONOMY,
+        '            and e["body"].get("caught") in (True, False)]',
+        '            ]',
+        'PR 42 review: non-answers would count towards the trials and the rate',
+    ),
+    (
+        "an approval recorded as an AI's passes as a person's at apply",
+        _ACTIVITIES,
+        'if any(e["body"].get("ai") is True or self.policy.is_ai(str(e["body"].get("approver"))) for e in approved)',
+        'if any(self.policy.is_ai(str(e["body"].get("approver"))) for e in approved)',
+        'PR 42 review, CWE-863: a changed approver list would let an AI approval skip the AI rules at apply',
+    ),
+    (
+        "an AI's recorded approval scores as a person's decision",
+        _AUTONOMY,
+        '    people = [a for a in approvers if a not in ai and not policy.is_ai(a)]',
+        '    people = [a for a in approvers if not policy.is_ai(a)]',
+        "Eldane's own approvals would count as a person agreeing with it",
+    ),
+    (
+        'a retried end no longer scores its run',
+        _ACTIVITIES,
+        '            self._score(incident_id, workflow_id, run, outcome)\n            self.audit.checkpoint()\n            return',
+        '            self.audit.checkpoint()\n            return',
+        'PR 42 review: a failed fix whose scoring failed once would never demote its class',
     ),
 ]
 

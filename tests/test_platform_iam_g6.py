@@ -214,6 +214,10 @@ def test_the_reader_role_holds_exactly_the_platforms_reads():
 
     xray_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "xray.py").read_text(encoding="utf-8")
     evidence |= {"xray:" + "".join(w.title() for w in m.split("_")) for m in re.findall(r"xray\.([a-z_]+)\(", xray_src)}
+    # And the quota reader's (quotas.py, B14): the quotas it lists (its usage is GetMetricData, granted already).
+    from test_aws_stack import _quota_calls
+
+    evidence |= _quota_calls()
     # And the database token the stack reader signs in this role (aws_stack.iam_dsn): rds-db:connect is no API call.
     stack_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "aws_stack.py").read_text(encoding="utf-8")
     if "generate_db_auth_token(" in stack_src:
@@ -225,7 +229,10 @@ def test_the_reader_role_holds_exactly_the_platforms_reads():
 def test_the_actor_role_holds_exactly_the_platforms_writes_and_every_session_asks_only_for_them():
     _, writes, granted = _exercise()
     implicit = {a for w in writes for a in IMPLICIT.get(w, ())}
-    assert writes | implicit == _actions("actor") == granted
+    # The database platform's one grant: the terminate login's sign-in token, which it asks of each plan's session.
+    db = (ROOT / "src" / "warden" / "platforms" / "db.py").read_text(encoding="utf-8")
+    assert 'actions=["rds-db:connect"]' in db
+    assert writes | implicit == _actions("actor") - {"rds-db:connect"} == granted
     assert not any(a.split(":")[1].startswith(("Get", "List", "Describe")) or a == "apigateway:GET" for a in writes)
 
 
