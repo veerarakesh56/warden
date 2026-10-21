@@ -23,7 +23,7 @@ PER_PAGE = 50  # incidents on one page of the list by default; every incident st
 SIZES = (10, 25, 50, 100)  # the page sizes a reader may choose (owner, 2026-10-16)
 REFRESH_S = 60
 # The steps and words the record and its pages look for in more than one place.
-_INGEST, _AFTER_HOLD = "incident.ingest", "incident.after_hold"
+_INGEST, _AFTER_HOLD, _ALERT = "incident.ingest", "incident.after_hold", "incident.alert"
 _REPORT, _EVIDENCE = "incident.report", "incident.evidence"
 _ANNOUNCE = "remediation.announce"
 IN_PROGRESS, NO_PLAN = "In progress", "No fix plan"
@@ -47,7 +47,7 @@ STEP = {
     "incident.reopened": "Reopened: the alarm came back while the fix was being watched",
     "remediation.did_not_hold": "The fix did not hold - WARDEN will not offer it again on its own",
     "remediation.offer_again": "An approver let WARDEN offer this fix again",
-    "intake.decision": "The alarm came in", "incident.alert": "The alarm was recorded",
+    "intake.decision": "The alarm came in", _ALERT: "The alarm was recorded",
     _INGEST: "WARDEN started reading", "incident.gather": "Evidence read",
     "incident.redact": "Secrets removed from the evidence", "incident.tripwire": "Injection check on the evidence",
     "incident.diagnose": "Diagnosis", "incident.investigate": "Read more of what the alarm names",
@@ -72,6 +72,8 @@ STEP = {
     "eldane.verdict": "Reviewed by Eldane, the AI critic", "eldane.call": "Eldane asked its model",
     "eldane.trial": "A catch trial for Eldane: a planted bad plan, a test, never applied",
     "autonomy.outcome": "Scored for autonomy",
+    "approval.extended": "The approval wait was extended by an approver (from the discussion)",
+    "approval.wait": "The fix plan's approval wait began",
 }
 # What each message about a fix plan was, by its `what` (activities.announce).
 TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Denied", "expired": "Expired",
@@ -224,16 +226,35 @@ def _open_status(r: Record, rows: list[dict[str, Any]]) -> tuple[str, str] | Non
 
 # What each kind of row adds to the record (record(), above). A kind not here adds nothing.
 
+def environment_step(env: str, e: dict[str, Any]) -> str:
+    """An incident's environment after its row `e`, given `env` before it: each `incident.alert` row sets it (the last
+    one wins), an `incident.ingest` row only while none is set. The one rule for the records and the pilot metrics
+    (pilot.py), so a reader limited to some environments is counted the incidents the records show them."""
+    if e["kind"] == _ALERT:
+        a = e["body"].get("alert")
+        return str(a.get("environment") or "") if isinstance(a, dict) else ""
+    if e["kind"] == _INGEST and not env:
+        return str(e["body"].get("env") or "")
+    return env
+
+
+def environment_of(rows: list[dict[str, Any]]) -> str:
+    """The environment record() gives an incident with these rows, in order."""
+    env = ""
+    for e in rows:
+        env = environment_step(env, e)
+    return env
+
+
 def _read_alert(r: Record, e: dict[str, Any]) -> None:
     a = e["body"].get("alert") or {}
     r.alarm = str((a.get("labels") or {}).get("alarm") or a.get("name") or "")
-    r.environment, r.service = str(a.get("environment") or ""), str(a.get("service") or "")
+    r.environment, r.service = environment_step(r.environment, e), str(a.get("service") or "")
     r.severity, r.summary = str(a.get("severity") or ""), str(a.get("summary") or "")
 
 
 def _read_ingest(r: Record, e: dict[str, Any]) -> None:
-    if not r.environment:
-        r.environment = str(e["body"].get("env") or "")
+    r.environment = environment_step(r.environment, e)
 
 
 def _read_diagnosis(r: Record, e: dict[str, Any]) -> None:
@@ -353,7 +374,7 @@ def _read_denial(r: Record, e: dict[str, Any], why: str) -> None:
 
 
 _READ: dict[str, Callable[[Record, dict[str, Any]], None]] = {
-    "incident.alert": _read_alert, _INGEST: _read_ingest, "incident.diagnose": _read_diagnosis,
+    _ALERT: _read_alert, _INGEST: _read_ingest, "incident.diagnose": _read_diagnosis,
     "incident.verify": _read_verify, "incident.tripwire": _read_tripwire, _REPORT: _read_report,
     _EVIDENCE: _read_evidence, "intake.grouped": _read_grouped, "incident.no_plan": _read_no_plan,
     "incident.plan_fix": _read_plan_fix, "remediation.plan": _read_plan, "approval.accepted": _read_accepted,
@@ -969,6 +990,66 @@ def unavailable_page() -> str:
 def refused_page() -> str:
     return _shell(_TITLE, "Records", '<h1>Not on the list</h1><p class="lede">This Slack account is not on '
                   "WARDEN's approver or viewer list, so its records are not shown. Ask an approver to add you.</p>")
+
+
+# ------------------------------------------------------------------ pilot metrics (pilot.py)
+
+# `/r/pilot`: the pilot metrics, for the same readers as the records and limited to the environments they may read. No
+# incident id is this word: intake names incidents `<fingerprint>-<time>` (intake.py).
+PILOT = "pilot"
+PILOT_DAYS = (7, 30, 90)
+
+
+def pilot_since(query: str, now: datetime | None = None) -> datetime | None:
+    """The page's one field, `since=YYYY-MM-DD` (UTC; the last 7 days when absent); None when the query is anything
+    else, or a day still to come."""
+    from . import pilot
+
+    try:
+        pairs = urllib.parse.parse_qsl(query or "", keep_blank_values=True, strict_parsing=bool(query), max_num_fields=1)
+    except ValueError:
+        return None
+    if any(k != "since" for k, _ in pairs):
+        return None
+    raw = pairs[0][1] if pairs else ""
+    if not raw:
+        return pilot.default_since(now)
+    if not _DAY.fullmatch(raw):
+        return None
+    try:
+        return pilot.parse_since(raw, now)
+    except ValueError:
+        return None
+
+
+def pilot_page(r: Any) -> str:
+    """The pilot metrics of `r` (pilot.Report): the same lines as `warden report pilot`, without naming the rows that
+    failed verification (their count is shown)."""
+    from . import pilot
+
+    rows = "".join(f'<tr><th scope="row">{_e(k)}</th><td>{_e(v)}</td></tr>' for k, v in pilot.lines(r, detail=False))
+    chips = "".join(f'<a class="chip" href="/r/{PILOT}?since={pilot.default_since(r.until, d).date().isoformat()}">'
+                    f"{d} days</a>" for d in PILOT_DAYS)
+    # Audit-wide: only for readers of every environment.
+    failed = 0 if r.scoped else len(r.checked.failed)
+    bad = 0 if r.scoped else len(r.checked.bad_checkpoints)
+    warn = (f'<p class="lede"><span class="badge bad">Not counted</span>{_e(failed)} row(s) of the record failed '
+            "verification and are left out of every number below. <code>warden audit verify</code> names them.</p>"
+            if failed else "")
+    if bad:
+        warn += (f'<p class="lede"><span class="badge bad">Not verified</span>{_e(bad)} checkpoint(s) of the record '
+                 "failed verification: no row is counted on their word. <code>warden audit verify</code> names them.</p>")
+    return _shell("WARDEN pilot metrics", "Pilot metrics",
+                  '<h1>Pilot metrics</h1><p class="lede">Read only from rows of WARDEN\'s record whose signatures and '
+                  "hash chain check out. How each number is counted: docs/OPERATIONS.md, Pilot metrics.</p>" + warn
+                  + f'<p class="sizes pad"><span class="quiet">Since</span>{chips}</p>'
+                  + f'<div class="scroll pad"><table>{rows}</table></div>')
+
+
+def pilot_unchecked_page() -> str:
+    return _shell("WARDEN pilot metrics", "Pilot metrics", '<h1>Pilot metrics cannot be shown</h1><p class="lede">'
+                  "This runtime cannot read the record or check its signatures, and no number is shown from rows that "
+                  'were not checked. <a href="/r">See every incident</a>.</p>')
 
 
 _RECORDS_STYLE = """
