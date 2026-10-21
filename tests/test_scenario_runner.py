@@ -191,9 +191,10 @@ def test_a_failed_revert_stops_the_wave(tmp_path, target):
             return super().update_service(**kw)
 
     done: list[dict] = []
+    harness = _harness(target, ecs=RefusingEcs())
     with pytest.raises(runner.RunnerError, match="revert FAILED"):
         runner.run_wave(
-            _harness(target, ecs=RefusingEcs()),
+            harness,
             [SCENARIO, {**SCENARIO, "id": "unit-02"}],
             tmp_path, repeat=1, arm={}, log=lambda _m: None, records=done,
         )
@@ -216,7 +217,8 @@ def test_ground_truth_is_written_before_anything_is_injected(tmp_path, target):
             return super().update_service(**kw)
 
     runner.run_scenario(_harness(target, ecs=WatchingEcs()), SCENARIO, tmp_path, repeat=1, arm={})
-    assert seen and seen[0] is True
+    assert seen
+    assert seen[0] is True
 
 
 def test_repeat_produces_one_report_per_run(tmp_path, target):
@@ -336,9 +338,9 @@ def test_the_abort_message_does_not_claim_something_is_broken_when_nothing_was_i
         def update_service(self, **kw):
             raise OpError("Throttling")
 
+    harness = _harness(target, ecs=RefusingEcs())
     with pytest.raises(runner.RunnerError, match="may simply have had nothing to restore"):
-        runner.run_wave(_harness(target, ecs=RefusingEcs()), [SCENARIO], tmp_path,
-                        repeat=1, arm={}, log=lambda _m: None)
+        runner.run_wave(harness, [SCENARIO], tmp_path, repeat=1, arm={}, log=lambda _m: None)
 
 
 def test_the_abort_message_does_say_so_when_something_is_still_broken(tmp_path, target):
@@ -353,9 +355,9 @@ def test_the_abort_message_does_say_so_when_something_is_still_broken(tmp_path, 
                 raise OpError("AccessDenied")
             return super().update_service(**kw)
 
+    harness = _harness(target, ecs=RefusingRevert())
     with pytest.raises(runner.RunnerError, match="something IS still broken"):
-        runner.run_wave(_harness(target, ecs=RefusingRevert()), [SCENARIO], tmp_path,
-                        repeat=1, arm={}, log=lambda _m: None)
+        runner.run_wave(harness, [SCENARIO], tmp_path, repeat=1, arm={}, log=lambda _m: None)
 
 
 # --------------------------------------------------------------------------- the baseline gate
@@ -437,19 +439,18 @@ def test_resume_refuses_a_run_from_before_evidence_isolation(tmp_path):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     del manifest["evidence_isolation"]
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    resume = ["--resume", str(tmp_path)]
     with pytest.raises(SystemExit, match="evidence isolation"):
-        runner.main(["--resume", str(tmp_path)])
+        runner.main(resume)
 
 
 def test_a_scenario_is_not_injected_when_the_baseline_is_dirty(tmp_path, target):
     """⛔ Load-bearing. Stop BEFORE injecting - a scenario graded against a state nobody injected
     produces a normal-looking row in a normal-looking table."""
     ecs = FakeEcs()
+    harness = _harness(target, ecs=ecs, baseline=lambda: ["2 deployments in flight"])
     with pytest.raises(runner.RunnerError, match="not at baseline"):
-        runner.run_wave(
-            _harness(target, ecs=ecs, baseline=lambda: ["2 deployments in flight"]),
-            [SCENARIO], tmp_path, repeat=1, arm={}, log=lambda _m: None,
-        )
+        runner.run_wave(harness, [SCENARIO], tmp_path, repeat=1, arm={}, log=lambda _m: None)
     assert not [c for c in ecs.calls if c[0] == "update_service"], "it injected anyway"
     assert not (tmp_path / "ground-truth" / "unit-01.json").exists()
 
@@ -457,9 +458,10 @@ def test_a_scenario_is_not_injected_when_the_baseline_is_dirty(tmp_path, target)
 def test_the_wave_stops_at_the_first_dirty_scenario_and_keeps_what_ran(tmp_path, target):
     states = iter([[], ["service is on checkout:17, not the baseline checkout:2"]])
     done: list[dict] = []
+    harness = _harness(target, baseline=lambda: next(states))
     with pytest.raises(runner.RunnerError):
         runner.run_wave(
-            _harness(target, baseline=lambda: next(states)),
+            harness,
             [SCENARIO, {**SCENARIO, "id": "unit-02"}],
             tmp_path, repeat=1, arm={}, log=lambda _m: None, records=done,
         )
@@ -469,9 +471,10 @@ def test_the_wave_stops_at_the_first_dirty_scenario_and_keeps_what_ran(tmp_path,
 def test_the_harness_cannot_be_built_without_saying_what_its_baseline_check_is(target):
     """No default. A field that defaults to 'no check' is exactly how the check stopped running."""
     ecs = FakeEcs()
+    clients = Clients(ecs=ecs, logs=ecs, ec2=ecs, iam=ecs)
     with pytest.raises(TypeError):
         runner.Harness(
-            clients=Clients(ecs=ecs, logs=ecs, ec2=ecs, iam=ecs), target=target,
+            clients=clients, target=target,
             account="111122223333", assume_reader=dict,
             invoke_warden=lambda env, path: (0, ""),
         )
@@ -532,12 +535,14 @@ def test_a_rollout_in_flight_is_not_baseline(target):
 def test_a_missing_service_is_reported_not_crashed_on(target):
     """It raised IndexError on the day the cluster had been deleted - exactly when it matters."""
     problems = _check(_Aws(services=[]), target)
-    assert problems and "not found" in problems[0]
+    assert problems
+    assert "not found" in problems[0]
 
 
 def test_an_inactive_service_is_not_baseline(target):
     problems = _check(_Aws(services=[_service(status="INACTIVE")]), target)
-    assert problems and "not found" in problems[0]
+    assert problems
+    assert "not found" in problems[0]
 
 
 def test_the_revision_is_compared_exactly(target):
@@ -568,10 +573,10 @@ def test_each_thing_a_scenario_breaks_is_checked(target, kw, expected):
 def test_an_exhausted_model_stops_the_wave_and_the_scenario_is_still_reverted(tmp_path, target):
     ecs = FakeEcs()
     done: list[dict] = []
+    harness = _harness(target, ecs=ecs, invoke=lambda env, path: (1, "warden.llm... ProviderExhausted: usage limit"))
     with pytest.raises(runner.RunnerError, match="--resume"):
         runner.run_wave(
-            _harness(target, ecs=ecs,
-                     invoke=lambda env, path: (1, "warden.llm... ProviderExhausted: usage limit")),
+            harness,
             [SCENARIO, {**SCENARIO, "id": "unit-02"}],
             tmp_path, repeat=3, arm={}, log=lambda _m: None, records=done,
         )
@@ -670,8 +675,9 @@ def test_resume_refuses_when_the_rubric_or_catalog_has_changed(tmp_path):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["scoring_sha256"] = "0" * 64
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    resume = ["--resume", str(tmp_path)]
     with pytest.raises(SystemExit, match="two rubrics"):
-        runner.main(["--resume", str(tmp_path)])
+        runner.main(resume)
 
 
 def test_resume_refuses_a_different_cluster(tmp_path):
@@ -681,8 +687,9 @@ def test_resume_refuses_a_different_cluster(tmp_path):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["cluster"] = "some-other-cluster"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    resume = ["--resume", str(tmp_path)]
     with pytest.raises(SystemExit, match="Start a new run"):
-        runner.main(["--resume", str(tmp_path)])
+        runner.main(resume)
 
 
 # --------------------------------------------------------------------------- forced re-runs
@@ -696,8 +703,9 @@ def test_resume_refuses_a_different_cluster(tmp_path):
 def test_a_forced_rerun_without_a_reason_is_refused(tmp_path):
     """⛔ Load-bearing. Without a reason, --rerun is 're-run until you like it'."""
     _run(tmp_path)
+    no_reason = ["--resume", str(tmp_path), "--rerun", "ecs-01"]
     with pytest.raises(SystemExit, match="needs --reason"):
-        runner.main(["--resume", str(tmp_path), "--rerun", "ecs-01"])
+        runner.main(no_reason)
 
 
 def test_a_forced_rerun_keeps_the_old_attempt_and_records_why(tmp_path):
@@ -713,16 +721,17 @@ def test_a_forced_rerun_keeps_the_old_attempt_and_records_why(tmp_path):
 
 
 def test_rerun_without_resume_is_refused(tmp_path):
+    fresh_run = ["--wave", "1", "--dry-run", "--rerun", "ecs-01", "--reason", "x", "--out", str(tmp_path)]
     with pytest.raises(SystemExit, match="only makes sense with --resume"):
-        runner.main(["--wave", "1", "--dry-run", "--rerun", "ecs-01", "--reason", "x",
-                     "--out", str(tmp_path)])
+        runner.main(fresh_run)
 
 
 def test_a_rerun_that_matches_nothing_is_refused(tmp_path):
     """A typo in --rerun must not quietly do nothing and look like it worked."""
     _run(tmp_path)
+    typo = ["--resume", str(tmp_path), "--rerun", "ecs-99", "--reason", "x"]
     with pytest.raises(SystemExit, match="matched no scenario"):
-        runner.main(["--resume", str(tmp_path), "--rerun", "ecs-99", "--reason", "x"])
+        runner.main(typo)
 
 
 def test_warden_never_reads_a_database_wave_as_the_master_login(monkeypatch):

@@ -42,7 +42,8 @@ def test_each_failed_read_is_one_warning_in_outcome_words_only(caplog):
     text = rec.getMessage()
     assert text == ("2 read(s) failed: logs: access denied on FilterLogEvents; metrics datadog metrics: throttled"
                     " | 1 read(s) incomplete: recent_deploys grafana logs"), text
-    assert "ignore" not in text and "sk-live" not in text
+    assert "ignore" not in text
+    assert "sk-live" not in text
 
 
 def test_no_warning_when_every_read_worked(caplog):

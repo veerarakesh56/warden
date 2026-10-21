@@ -71,8 +71,9 @@ def test_apply_refuses_a_plan_changed_under_its_approved_hash(change):
     acts, platform, owner = _acts()
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
     assert _approve(acts, owner, plan, "rem-1").enough
+    forged = plan.model_copy(update=change)
     with pytest.raises(ApplicationError, match="plan"):
-        acts.apply(plan.model_copy(update=change), REQ["service"])
+        acts.apply(forged, REQ["service"])
     assert platform.applied == []
 
 
