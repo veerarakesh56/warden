@@ -112,3 +112,37 @@ def test_revert_mode_reverts_each_named_fault_then_reports_the_baseline(tmp_path
 def test_revert_without_only_is_refused_before_anything_is_touched():
     with pytest.raises(SystemExit, match="--revert needs --only: say which fault to put back"):
         pf.main(["--revert"])
+
+
+class _Clock:
+    """time.monotonic for the script, moved on only by env.sleep - so a settle wait is counted, never slept."""
+
+    def __init__(self):
+        self.now, self.slept = 1000.0, []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+def test_the_settle_waits_in_30_s_steps_until_the_stack_is_clean(tmp_path, capsys, monkeypatch):
+    clock, reads = _Clock(), iter([["catalog red"], ["catalog red"], []])
+    monkeypatch.setattr(pf, "time", clock)
+    env = _env({"fs-12": _fault([], "fs-12")}, baseline=lambda: next(reads))
+    env.sleep = clock.sleep
+    assert pf.main(["--revert", "--only", "fs-12", "--run", str(tmp_path), "--settle-minutes", "2"], env=env) == 0
+    assert clock.slept == [30, 30]
+    assert capsys.readouterr().out.endswith("baseline clean\n")
+
+
+def test_the_settle_gives_up_at_its_deadline(tmp_path, capsys, monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(pf, "time", clock)
+    env = _env({"fs-12": _fault([], "fs-12")}, baseline=lambda: ["catalog red"])
+    env.sleep = clock.sleep
+    assert pf.main(["--revert", "--only", "fs-12", "--run", str(tmp_path), "--settle-minutes", "1.5"], env=env) == 1
+    assert clock.slept == [30, 30, 30]
+    assert capsys.readouterr().out.endswith("NOT AT BASELINE: ['catalog red']\n")
