@@ -17,8 +17,8 @@ How the revert is made, with no model involved:
    A hunk found nowhere or twice - the code moved on since - is refused, never guessed.
 4. The revert's own diff is made from those contents and put through the code gate as a revert (code_gate.check):
    paths, size, secrets, dependencies, suppressions, and CG10, that it is exactly the inverse of the commit.
-5. Only then: a branch `warden/revert/<incident>-<commit>`, one signed commit at the head WARDEN read, and a pull
-   request into the default branch. Every outcome - opened, skipped, refused, failed - is one audit row.
+5. Only then: a branch `warden/revert/<environment>/<incident>-<commit>`, one signed commit at the head WARDEN read,
+   and a pull request into the default branch. Every outcome - opened, skipped, refused, failed - is one audit row.
 """
 
 from __future__ import annotations
@@ -265,7 +265,7 @@ def _open(req: RevertRequest, writer: RepoWriter, mode: CodeFixMode, base: Rever
     if not verdict.allowed:
         return _with(base, status="refused", head=head, rules=verdict.rules,
                      reason="; ".join(str(r) for r in verdict.refusals)[:500])
-    branch = f"warden/revert/{_slug(req.incident)}-{req.sha[:12]}"
+    branch = f"warden/revert/{req.environment}/{_slug(req.incident)}-{req.sha[:12]}"
     writer.create_branch(branch, head)
     title = f"Revert {req.sha[:12]}: the deploy behind incident {_slug(req.incident)}"
     try:
@@ -291,7 +291,7 @@ class CodeFixActivities:
 
     @activity.defn
     def code_fix_revert(self, incident_id: str, environment: str, sha: str) -> dict[str, Any]:
-        """Open the revert pull request for `sha` in `environment`'s branch, or say why not; one audit row."""
+        """Open the revert pull request for `sha`, an incident's in `environment`, or say why not; one audit row."""
         from .environments import default_environment_policies
 
         policies = self._policies or default_environment_policies()

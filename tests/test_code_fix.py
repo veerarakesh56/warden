@@ -157,7 +157,7 @@ def test_a_revert_pull_request_is_opened_from_a_real_git_diff(tmp_path):
     out = open_revert(request(), writer=writer)
     assert out.status == "opened", out.reason
     assert (out.pull_request, out.revert_commit, out.head) == (12, NEW, HEAD)
-    assert out.branch == f"warden/revert/inc-42-{SHA[:12]}"
+    assert out.branch == f"warden/revert/dev/inc-42-{SHA[:12]}"
     created = [c for c in writer.calls if c[0] == "create_branch"]
     assert created == [("create_branch", out.branch, HEAD)]
     (_, branch, kw), = [c for c in writer.calls if c[0] == "commit"]
@@ -261,7 +261,7 @@ def test_a_failed_commit_removes_its_branch(tmp_path):
     out = open_revert(request(), writer=writer)
     assert out.status == "failed"
     assert "was removed" in out.reason
-    assert ("delete_branch", f"warden/revert/inc-42-{SHA[:12]}") in writer.calls
+    assert ("delete_branch", f"warden/revert/dev/inc-42-{SHA[:12]}") in writer.calls
     assert not any(c[0] == "pull" for c in writer.calls)
 
 
