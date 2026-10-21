@@ -27,7 +27,9 @@ def _unset(monkeypatch, *names):
 @pytest.mark.parametrize(("old", "new", "slot"), RENAMES)
 def test_an_old_name_still_reads_for_one_release_and_warns_with_the_new_one(old, new, slot, monkeypatch, caplog):
     _unset(monkeypatch, old, new)
-    assert settings.RENAMED[old] == new and old not in settings.LOADABLE and new in settings.SECRETS
+    assert settings.RENAMED[old] == new
+    assert old not in settings.LOADABLE
+    assert new in settings.SECRETS
     assert settings.getenv(new) == ""
     monkeypatch.setenv(old, "postgresql://old@h/x")
     with caplog.at_level(logging.WARNING, logger="warden.settings"):

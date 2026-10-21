@@ -79,7 +79,8 @@ def _covers(at, text=DECLARED, **alert):
 def test_a_night_a_weekend_and_a_holiday_are_expected_and_the_working_day_is_not():
     assert _covers(_ist(13, 21)) == ("staging nights", _ist(14, 8))       # Tuesday 21:00: until 08:00 tomorrow
     assert _covers(_ist(14, 7, 59)) == ("staging nights", _ist(14, 8))    # crosses midnight
-    assert _covers(_ist(14, 8)) is None and _covers(_ist(14, 19, 59)) is None
+    assert _covers(_ist(14, 8)) is None
+    assert _covers(_ist(14, 19, 59)) is None
     # Friday night runs into the weekend and Sunday night: one cover, ending Monday 08:00.
     assert _covers(_ist(16, 21)) == ("staging nights", _ist(19, 8))
     assert _covers(_ist(17, 12)) == ("staging weekends", _ist(19, 8))
@@ -120,7 +121,8 @@ def test_a_declaration_that_cannot_be_read_covers_nothing_so_a_mistake_never_hid
 
 def test_nothing_is_expected_where_nothing_is_declared(monkeypatch):
     monkeypatch.delenv("WARDEN_EXPECTED_DOWN", raising=False)
-    assert expected.covering(_alert(), _ist(13, 21)) is None and expected.declarations("") == []
+    assert expected.covering(_alert(), _ist(13, 21)) is None
+    assert expected.declarations("") == []
     monkeypatch.setenv("WARDEN_EXPECTED_DOWN", DECLARED)
     assert expected.covering(_alert(), _ist(13, 21))[0] == "staging nights"
     assert "WARDEN_EXPECTED_DOWN" in settings.LOADABLE - settings.SECRETS  # plain configuration, from Parameter Store
@@ -133,11 +135,14 @@ def test_a_covered_alarm_starts_no_incident_now_and_a_person_who_asks_still_gets
     until = _ist(14, 8)
     held = intake.decide(_ev(), recent=[], open_incidents={}, verifying={}, open_count=0,
                          expected=("staging nights", until))
-    assert held.action == "expected" and held.workflow_id == f"inc-{held.fingerprint}-20261014T023000Z"
+    assert held.action == "expected"
+    assert held.workflow_id == f"inc-{held.fingerprint}-20261014T023000Z"
     assert held.reason == "expected down ('staging nights') until 2026-10-14 02:30 UTC: looked at again then"
     forever = intake.decide(_ev(), recent=[], open_incidents={}, verifying={}, open_count=0,
                             expected=("old search cluster", None))
-    assert forever.action == "expected" and forever.workflow_id == "" and "nothing is looked at again" in forever.reason
+    assert forever.action == "expected"
+    assert forever.workflow_id == ""
+    assert "nothing is looked at again" in forever.reason
     for source in ("mcp", "cli"):
         asked = intake.decide(_ev(source=source), recent=[], open_incidents={}, verifying={}, open_count=0,
                               expected=("staging nights", until))
@@ -167,13 +172,17 @@ def test_the_held_alarm_is_started_now_to_run_when_its_cover_ends_once(monkeypat
     log, client = _log(), _Holding()
     first = asyncio.run(intake.submit(client, _ev(at=now), log))
     again = asyncio.run(intake.submit(client, _ev(at=now + timedelta(minutes=5)), log))
-    assert first.action == again.action == "expected" and first.workflow_id == again.workflow_id  # one hold per cover
+    assert first.action == again.action == "expected"
+    assert first.workflow_id == again.workflow_id  # one hold per cover
     (_, wid, args, delay), _ = client.calls
-    assert wid == first.workflow_id and args[1] == "" and args[2] == first.reason
+    assert wid == first.workflow_id
+    assert args[1] == ""
+    assert args[2] == first.reason
     assert args[0].alert_id == wid.removeprefix("inc-")
     assert timedelta(minutes=118) <= delay <= timedelta(hours=2)
     rows = [e["body"] for e in log.entries(kinds=("intake.decision",))]
-    assert [r["action"] for r in rows] == ["expected", "expected"] and "expected down ('tonight')" in rows[0]["reason"]
+    assert [r["action"] for r in rows] == ["expected", "expected"]
+    assert "expected down ('tonight')" in rows[0]["reason"]
     # A held alarm is no part of an alarm storm: the next, unrelated alarm is a plain new incident.
     monkeypatch.delenv("WARDEN_EXPECTED_DOWN")
     assert asyncio.run(intake.submit(_Holding(running={wid}), _ev(at=now, service="other"), log)).action == "start"
@@ -189,7 +198,8 @@ def test_the_alarms_own_state_says_whether_it_still_fires_and_the_record_says_wh
     assert backend.alarm_firing(held) is False
     assert cw.calls == [("describe_alarms", {"AlarmNames": ["warden-dev-q-depth"],
                                              "AlarmTypes": ["MetricAlarm", "CompositeAlarm"]})]
-    assert _backend(None)[0].alarm_firing(held) is None and _backend(_alarm())[0].alarm_firing(_alert()) is None
+    assert _backend(None)[0].alarm_firing(held) is None
+    assert _backend(_alarm())[0].alarm_firing(_alert()) is None
 
     class Backend:
         def __init__(self, answer):
@@ -203,16 +213,21 @@ def test_the_alarms_own_state_says_whether_it_still_fires_and_the_record_says_wh
     log = audit.AuditLog(tmp_path / "a.db", key=None)
     alert = held.model_copy(update={"alert_id": "fp1-20261014T023000Z"})
     said = lambda backend: IncidentActivities(audit=log, backend=backend).after_hold(alert, "why")
-    assert said(Backend(True)) is True and said(Backend(False)) is False
+    assert said(Backend(True)) is True
+    assert said(Backend(False)) is False
     # No alarm to read (another monitoring system, a fixture), or a read that failed: unknown - until intake's own
     # record of this alarm's last transition says.
-    assert said(Backend(None)) is None and said(Backend(RuntimeError("denied"))) is None and said(None) is None
+    assert said(Backend(None)) is None
+    assert said(Backend(RuntimeError("denied"))) is None
+    assert said(None) is None
     log.append("intake-fp1", "intake.event", {"fingerprint": "fp1", "state": "ALARM"})
     assert said(Backend(None)) is True
     log.append("intake-fp1", "intake.event", {"fingerprint": "fp1", "state": "OK"})
-    assert said(Backend(None)) is False and said(Backend(True)) is True  # the alarm itself outranks the record
+    assert said(Backend(None)) is False  # the alarm itself outranks the record
+    assert said(Backend(True)) is True
     rows = [e["body"] for e in log.entries(alert.alert_id, kinds=("incident.after_hold",))]
-    assert rows[0]["held"] == "why" and [r["firing"] for r in rows][:2] == [True, False]
+    assert rows[0]["held"] == "why"
+    assert [r["firing"] for r in rows][:2] == [True, False]
     assert "after_hold" in ZONES["read"]
 
 
@@ -250,7 +265,9 @@ def _run(tmp_path, firing):
 
 def test_an_alarm_that_cleared_while_held_is_no_incident_and_nothing_is_read_or_asked(tmp_path):
     seen = _run(tmp_path, False)
-    assert seen["prepared"] == [] and seen["report"].root_cause is None and seen["report"].verdict is None
+    assert seen["prepared"] == []
+    assert seen["report"].root_cause is None
+    assert seen["report"].verdict is None
     assert seen["report"].halted_reason == ("the alarm had cleared when its hold ended (expected down ('nights')): "
                                            "no incident")
 
@@ -259,7 +276,8 @@ def test_an_alarm_that_cleared_while_held_is_no_incident_and_nothing_is_read_or_
 def test_an_alarm_still_firing_or_unreadable_when_its_cover_ends_is_an_incident_dated_then(tmp_path, firing):
     seen = _run(tmp_path, firing)
     [started] = seen["prepared"]
-    assert started != "2026-10-09T15:00:00+00:00" and datetime.fromisoformat(started).year >= 2026
+    assert started != "2026-10-09T15:00:00+00:00"
+    assert datetime.fromisoformat(started).year >= 2026
     assert datetime.fromisoformat(started) > datetime(2026, 10, 10, tzinfo=UTC)  # around now, not the shutdown
     assert seen["report"].verdict is not None
 
@@ -277,7 +295,8 @@ def test_what_intake_decided_and_what_a_held_alarm_turned_out_to_be_are_each_one
     with caplog.at_level(logging.INFO, logger="warden.lambda"):
         lambdas.alarm(EVENT)
     [line] = [r.getMessage() for r in caplog.records if r.name == "warden.lambda"]
-    assert line.startswith("intake: ALARM ") and line.endswith("-> expected: expected down ('lab test') until later")
+    assert line.startswith("intake: ALARM ")
+    assert line.endswith("-> expected: expected down ('lab test') until later")
     log = audit.AuditLog(tmp_path / "a.db", key=None)
     for firing, said in ((False, "cleared - no incident"), (True, "still firing - an incident now"),
                          (None, "unknown - an incident now")):
@@ -310,7 +329,8 @@ def test_an_incident_from_a_held_alarm_says_so_under_its_title(tmp_path, monkeyp
     diagnosed = acts.diagnose(pack)
     acts.notify(pack, diagnosed, acts.verify(pack, diagnosed))
     title, blank, held = sent[-1].split("\n")[:3]
-    assert title.startswith("# ") and blank == ""
+    assert title.startswith("# ")
+    assert blank == ""
     assert held.startswith("**Held first:** this alarm fired at 2026-10-14 03:44Z")
     assert ("while it was expected down ('lab proof') until 2026-10-14 03:53 UTC; it was still firing when that "
             "ended, so it is an incident from 2026-10-14 03:53Z") in held

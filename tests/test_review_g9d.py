@@ -106,7 +106,9 @@ def test_l6_a_stage_inherits_its_apis_tags_and_the_api_is_what_is_named():
                                blast_radius="single_service", reversible=True)
     live = p.live("apigw_raise_stage_throttle", {"api": "warden-dev-shop", "stage": "prod"})
     req, why = resolver.request_for(alert, prop, lambda e, prm: live)
-    assert why == "" and req["params"]["rate_limit"] == 200 and req["service"] == "warden-dev-shop"
+    assert why == ""
+    assert req["params"]["rate_limit"] == 200
+    assert req["service"] == "warden-dev-shop"
 
 
 def test_h2_a_pause_ends_mitigated_and_never_resolves_the_page(monkeypatch, tmp_path):
@@ -128,7 +130,8 @@ def test_h2_a_pause_ends_mitigated_and_never_resolves_the_page(monkeypatch, tmp_
     world["platform"] = Pause()
     out = _run(world, _approve_with(key), entry="lambda_disable_esm", service="u-1",
                params={"function": "warden-dev-fn", "mapping": "u-1"})
-    assert out.status == "mitigated" and "stays paused until a person resumes it" in out.reasons[0]
+    assert out.status == "mitigated"
+    assert "stays paused until a person resumes it" in out.reasons[0]
     assert resolved == []
 
 

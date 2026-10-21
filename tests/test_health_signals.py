@@ -86,11 +86,11 @@ def test_the_reader_role_already_grants_the_one_read_it_needs():
     ("Average/min", [100.0, 40.0, 100.0], 40.0),
 ])
 def test_a_window_folds_by_its_stat(stat, values, want):
-    assert aws_stack._fold(stat, values) == want
+    assert aws_stack._series_value(stat, values) == want
 
 
 def test_sum_per_second_is_the_busiest_period():
-    assert aws_stack._fold("Sum/s", [60.0, 600.0]) == 600.0 / aws_stack.METRIC_PERIOD_S
+    assert aws_stack._series_value("Sum/s", [60.0, 600.0]) == 600.0 / aws_stack.METRIC_PERIOD_S
 
 
 # --------------------------------------------------------------------------- the reads

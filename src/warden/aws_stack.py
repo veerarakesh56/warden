@@ -84,13 +84,22 @@ SERVED_CANDIDATES = 10
 # and no error. One rule for the evidence (the report's "previous") and the plan (the version moved back to).
 KNOWN_GOOD = timedelta(minutes=30)
 SERVED_PERIOD = 300  # seconds
+# CloudWatch namespaces and names read below, each named once.
+LAMBDA_NAMESPACE = "AWS/Lambda"
+DYNAMODB_NAMESPACE = "AWS/DynamoDB"
+RDS_NAMESPACE = "AWS/RDS"
+ALB_NAMESPACE = "AWS/ApplicationELB"
+APIGW_NAMESPACE = "AWS/ApiGateway"
+LATEST_VERSION = "$LATEST"  # Lambda's unpublished version
+SUM_PER_SECOND = "Sum/s"  # _cw_read: the busiest period's per-second rate
+DB_LOAD_METRIC = "db.load.avg"  # Performance Insights' database load
 
 
 def served_queries(fn: str, alias: str, cands: list[str]) -> list[dict]:
     """GetMetricData queries: each candidate version's invocations (v<i>) and errors (e<i>) on the alias."""
     def spec(prefix: str, metric: str) -> list[dict]:
         return [{"Id": f"{prefix}{i}", "ReturnData": True, "MetricStat": {
-            "Metric": {"Namespace": "AWS/Lambda", "MetricName": metric, "Dimensions": [
+            "Metric": {"Namespace": LAMBDA_NAMESPACE, "MetricName": metric, "Dimensions": [
                 {"Name": "FunctionName", "Value": fn}, {"Name": "Resource", "Value": f"{fn}:{alias}"},
                 {"Name": "ExecutedVersion", "Value": v}]}, "Period": SERVED_PERIOD, "Stat": "Sum"}}
                 for i, v in enumerate(cands)]
@@ -204,18 +213,6 @@ def _parse_time(value) -> datetime | None:
 INSIGHTS_QUERY = ("filter @message like /(?i)(error|exception|fatal|panic|timed? ?out|refused|denied)/ "
                   "| stats count(*) as n by bin(1m)")
 INSIGHTS_WAIT_S = float(os.environ.get("WARDEN_LOGS_INSIGHTS_WAIT_S", "10"))
-
-
-def _fold(stat: str, values: list[float]) -> float:
-    """A window of CloudWatch periods as one value: `Sum` the total (a count), `Sum/s` the busiest period's per-second
-    rate, `.../min` the lowest period (a balance where lower is worse: credits, free storage), any other the highest."""
-    if stat == "Sum":
-        return float(sum(values))
-    if stat.endswith("/s"):  # Sum/s
-        return float(max(values)) / METRIC_PERIOD_S
-    if stat.endswith("/min"):
-        return float(min(values))
-    return float(max(values))
 
 
 def _error_code(exc) -> str:
@@ -448,6 +445,210 @@ def _plain(name) -> str:
     return str(name) if isinstance(name, str) and _PLAIN_NAME.fullmatch(name) else "(name-withheld)"
 
 
+def _metric_queries(queries: dict) -> tuple[dict[str, tuple[str, str]], list[dict]]:
+    """_cw_read's GetMetricData queries: ({query id: (key, stat)}, the queries), one per `queries` item in order."""
+    ids, specs = {}, []
+    for i, (key, q) in enumerate(queries.items()):
+        ids[f"m{i}"] = (key, q[-1])
+        if q[0] == "expr":
+            specs.append({"Id": f"m{i}", "Expression": q[1], "Period": METRIC_PERIOD_S})
+        else:
+            ns, metric, dims, stat = q
+            specs.append({"Id": f"m{i}", "ReturnData": True, "MetricStat": {
+                "Metric": {"Namespace": ns, "MetricName": metric,
+                           "Dimensions": [{"Name": k, "Value": v} for k, v in dims.items()]},
+                "Period": METRIC_PERIOD_S, "Stat": stat.split("/")[0]}})
+    return ids, specs
+
+
+def _series_value(stat: str, values: list) -> float:
+    """One series' value over the window: a `Sum` is summed (a count), `Sum/s` is the busiest period's per-second rate,
+    `.../min` the lowest period (a balance where lower is worse: credits, free storage; U3-3), every other stat the
+    max."""
+    if stat == "Sum":
+        return float(sum(values))
+    if stat == SUM_PER_SECOND:
+        return float(max(values) / METRIC_PERIOD_S)
+    if stat.endswith("/min"):
+        return float(min(values))
+    return float(max(values))
+
+
+def _change_lines(out: _Out, n: str, events: list[dict], broke: Exception | None, truncated: bool,
+                  started: datetime) -> None:
+    """_read_changes' lines for the resource named `n`: its newest CHANGE_MAX writes, then why the list may be short -
+    a failed lookup, more writes than read, CloudTrail not yet delivering, or no write in the window."""
+    events.sort(key=lambda e: str(e.get("EventTime") or ""), reverse=True)
+    writes = [e for e in events if _a_write(e)]
+    lines = out.lines
+    for e in writes[:CHANGE_MAX]:
+        lines.append(f"CHANGE {_z(e.get('EventTime'))} {_safe(e.get('EventSource'))} "
+                     f"{_safe(e.get('EventName'))} on {_safe(n)} by {_principal(e)}{_request_fields(e)}")
+    if broke is not None:
+        lines.append(_partial("changes", broke))
+    elif truncated or len(writes) > CHANGE_MAX:
+        lines.append(_partial("changes", f"[output truncated on LookupEvents] more writes to {_safe(n)} "
+                                         "than were read"))
+    elif not writes and datetime.now(UTC) - started < CLOUDTRAIL_DELIVERY:
+        age = max(0, int((datetime.now(UTC) - started).total_seconds() // 60))
+        lines.append(f"CHANGE none delivered yet on {_safe(n)}: the alert is {age} min old and CloudTrail "
+                     "lists a write about 5 minutes after it, so a write just before the alert may be missing")
+    elif not writes:
+        lines.append(f"CHANGE none on {_safe(n)} in the {int(RECENT_DEPLOY_WINDOW.total_seconds() // 3600)} h "
+                     "before the alert")
+
+
+def _elasticache_queries(members: list[str]) -> dict[str, tuple]:
+    """_cw_read queries for each cache node: `<metric>#<node index>`."""
+    queries = {}
+    for i, node in enumerate(members):
+        d = {"CacheClusterId": node}
+        for metric, stat in (("DatabaseMemoryUsagePercentage", "Maximum"), ("Evictions", "Sum"),
+                             ("CurrConnections", "Maximum"), ("EngineCPUUtilization", "Maximum"),
+                             ("ReplicationLag", "Maximum")):
+            queries[f"{metric}#{i}"] = ("AWS/ElastiCache", metric, d, stat)
+    return queries
+
+
+def _ingress_sources(g: dict, port: int) -> list[str]:
+    """Who security group `g` lets in on tcp/`port`, sorted."""
+    rules = [r for r in g.get("IpPermissions") or [] if r.get("IpProtocol") in ("-1", "tcp")
+             and (r.get("IpProtocol") == "-1" or r.get("FromPort", 0) <= port <= r.get("ToPort", 0))]
+    # Groups, CIDR ranges and prefix lists alike (audit A-B-L5): a rule opening the port to a CIDR or a
+    # prefix list was read as no rule at all.
+    return sorted({p["GroupId"] for r in rules for p in r.get("UserIdGroupPairs") or []}
+                  | {x["CidrIp"] for r in rules for x in r.get("IpRanges") or [] if x.get("CidrIp")}
+                  | {x["CidrIpv6"] for r in rules for x in r.get("Ipv6Ranges") or [] if x.get("CidrIpv6")}
+                  | {x["PrefixListId"] for r in rules for x in r.get("PrefixListIds") or []
+                     if x.get("PrefixListId")})
+
+
+def _datapoint_values(m: dict) -> list:
+    """A Performance Insights metric's numeric datapoint values (a bool is not a number here)."""
+    return [p["Value"] for p in m.get("DataPoints") or []
+            if isinstance(p.get("Value"), int | float) and not isinstance(p.get("Value"), bool)]
+
+
+def _member_load(out: _Out, name: str, got: dict) -> None:
+    """_db_load for one member: its load (and by wait-event type) as metrics, and its TOP_SQL busiest statements'
+    shapes as STATE lines."""
+    top: list[tuple[float, str]] = []
+    for m in got.get("MetricList") or []:
+        values = _datapoint_values(m)
+        if not values:
+            continue
+        dims = (m.get("Key") or {}).get("Dimensions") or {}
+        if "db.sql_tokenized.statement" in dims:
+            top.append((float(max(values)), str(dims.get("db.sql_tokenized.statement") or "")))
+            continue
+        kind = dims.get("db.wait_event_type.name")
+        key = "aurora_db_load" + (f"_{re.sub(r'[^a-z0-9]', '', str(kind).lower())[:20]}" if kind else "")
+        out.metrics[key] = max(out.metrics.get(key, 0.0), float(max(values)))
+    total = out.metrics.get("aurora_db_load", 0.0)
+    for rank, (load, sql) in enumerate(sorted(top, key=lambda t: -t[0])[:TOP_SQL], start=1):
+        share = f" ({load / total:.0%} of the load)" if total else ""
+        out.lines.append(f"STATE aurora {_one_line(name)} top-sql #{rank} load={load:.2f}{share} "
+                         f"{sql_shape(sql)}")
+
+
+def _insights_counts(got: dict) -> list[float]:
+    """The per-minute error counts (field `n`) in a Logs Insights query's results; a value that is not a number is
+    skipped."""
+    counts = []
+    for row in got.get("results") or []:
+        for f in row:
+            if f.get("field") == "n":
+                try:
+                    counts.append(float(f.get("value")))
+                except (TypeError, ValueError):
+                    continue
+    return counts
+
+
+def _ecs_deploy(service: str, d: dict) -> dict:
+    """One ECS deploy as evidence."""
+    # `version`/`previous` are family:revision (what a rollback aims at); the images ride along.
+    return {"kind": "ecs", "service": service, "at": _z(_parse_time(d["at"])),
+            "version": d.get("task_definition", ""),
+            "previous": d.get("previous_task_definition", ""),
+            "image": d.get("image", ""), "previous_image": d.get("previous_image", ""),
+            "revision": d.get("revision", ""),
+            # a rollback: nothing to roll back to, and the evidence says so (audit A-B-M6)
+            **({"rolled_back_from": d["rolled_back_from"]} if d.get("rolled_back_from") else {}),
+            # a config-only revision: the setting NAMES it changed (G10: dropped here before)
+            **({"changed": d["changed"]} if d.get("changed") else {})}
+
+
+def _network_change_lines(out: _Out, name: str, events: list[dict], ids: dict[str, str]) -> int:
+    """_read_network_changes for one event name: a CHANGE line for each write whose request names one of the
+    workload's `ids`; how many there were."""
+    found = 0
+    for e in events:
+        if not _a_write(e):
+            continue
+        try:
+            request = json.loads(e.get("CloudTrailEvent") or "{}").get("requestParameters") or {}
+        except ValueError:
+            request = {}
+        hit = next((v for v in _request_ids(request) if v in ids), None)
+        if hit:
+            found += 1
+            out.lines.append(f"CHANGE {_z(e.get('EventTime'))} ec2.amazonaws.com {_safe(name)} on {_safe(hit)} "
+                             f"(this workload's {ids[hit]}) by {_principal(e)}")
+    return found
+
+
+def _ecs_event_kinds(svc: dict, started: datetime) -> dict[str, int]:
+    """The service's own events in the ECS_EVENT_WINDOW before the alert (to 5 minutes after), counted by kind; an
+    unplaceable task's kind says why it could not be placed."""
+    kinds: dict[str, int] = {}
+    for e in svc.get("events") or []:
+        at = _parse_time(e.get("createdAt"))
+        if at is None or not started - ECS_EVENT_WINDOW <= at <= started + timedelta(minutes=5):
+            continue
+        message = str(e.get("message", ""))
+        kind = next((k for k, rx in _ECS_EVENT_KINDS if rx.search(message)), "other")
+        if kind == "unable_to_place":
+            kind += next((f"_{why}" for why, rx in _PLACE_WHY if rx.search(message)), "")
+        kinds[kind] = kinds.get(kind, 0) + 1
+    return kinds
+
+
+def _stopped_task_lines(out: _Out, service: str, t: dict) -> str:
+    """One stopped task: a STATE line with AWS's stop code and the cause it is classified as, and an EVENT line with
+    its reason text (quarantined downstream). Returns the cause."""
+    reason = " ".join([str(t.get("stoppedReason") or "")]
+                      + [str(c.get("reason") or "") for c in t.get("containers") or []])
+    exits = [c.get("exitCode") for c in t.get("containers") or [] if c.get("exitCode") is not None]
+    cause = task_stop_cause(str(t.get("stopCode") or ""), reason, exits)
+    out.lines.append(
+        f"STATE ecs/{service} stopped task {_safe(str(t.get('taskArn', '')).rsplit('/', 1)[-1][:8])} "
+        f"at={_z(_parse_time(t.get('stoppedAt')))} "
+        f"revision={_safe(str(t.get('taskDefinitionArn', '')).rsplit('/', 1)[-1])} "
+        f"stop={_safe(t.get('stopCode'))} cause={cause}" + (f" exit={int(exits[0])}" if exits else ""))
+    if reason.strip():
+        out.lines.append(f"EVENT ecs/{service} stopped task: {_head_and_tail(reason.strip(), 400)}")
+    return cause
+
+
+def _alarm_threshold(a: dict) -> str:
+    """How the alarm fires, from its structured fields: operator, threshold, datapoints, missing data and state."""
+    return (f"threshold {_safe(a.get('ComparisonOperator'))} {a.get('Threshold')} "
+            f"datapoints={a.get('DatapointsToAlarm') or a.get('EvaluationPeriods')}/{a.get('EvaluationPeriods')} "
+            f"missing={_safe(a.get('TreatMissingData') or 'missing')} state={_safe(a.get('StateValue'))}")
+
+
+def _simulated_resource(resource: str, account: str, prefix: str) -> str:
+    """The resource the IAM simulator is asked about: "*" (the action alone) for another account's resource, or one
+    that is not this environment's."""
+    if resource == "*":
+        return resource
+    in_account = f":{account}:" in resource or ":::" in resource
+    if in_account and prefix in resource:
+        return resource
+    return "*"  # another account's, or not this environment's: the action alone is asked
+
+
 def _partial(reader: str, line_or_exc) -> str:
     text = line_or_exc if isinstance(line_or_exc, str) else failure(line_or_exc)
     return f"{PARTIAL_PREFIX}{reader}: {text.removeprefix(PARTIAL_PREFIX)}"
@@ -576,6 +777,40 @@ def _env_items(variables: dict) -> list[str]:
     return out
 
 
+def _sdk_clients(clients: Any, own: bool, region: str | None) -> tuple[Any, Any, Any]:
+    """(clients, session, cfg): the clients that were not injected, made with the AWS SDK. Every client injected: the
+    clients as given and no session or cfg."""
+    missing = [n for n in NEEDED_CLIENTS if n not in clients]
+    if not missing:
+        return clients, None, None
+    try:
+        import boto3
+        from botocore.config import Config
+    except ImportError as exc:
+        raise ToolError(
+            "WARDEN_BACKEND=stack needs the AWS SDK: pip install -e '.[aws]'"
+        ) from exc
+    cfg = Config(
+        connect_timeout=CONNECT_TIMEOUT, read_timeout=READ_TIMEOUT,
+        retries={"max_attempts": 1, "mode": "standard"},  # see aws_backend note 2
+        user_agent_extra="warden",
+    )
+    region = region or os.environ.get("WARDEN_AWS_REGION") or None
+    try:
+        from .aws_backend import _LazyClients
+
+        session = boto3.session.Session(region_name=region)
+        clients = _LazyClients(session, cfg) if own else clients
+        for n in missing:
+            clients[n] = session.client(n, config=cfg)
+    except Exception as exc:
+        raise ToolError(
+            "WARDEN_BACKEND=stack but no usable AWS credentials or region were found: "
+            f"{_one_line(exc)}"
+        ) from exc
+    return clients, session, cfg
+
+
 class StackBackend:
     """Reads every resource the alert's labels name, one isolated reader each."""
     reads_live_store = True  # its store receives log lines late: evidence waits for them (R23)
@@ -594,33 +829,7 @@ class StackBackend:
         # A mapping that makes clients on first use is kept as given: copied into a plain dict, every service past
         # the first eighteen read "no client" in the cloud (independent review 2026-10-10, H1).
         clients = clients if hasattr(clients, "__missing__") else dict(clients or {})
-        missing = [n for n in NEEDED_CLIENTS if n not in clients]
-        if missing:
-            try:
-                import boto3
-                from botocore.config import Config
-            except ImportError as exc:
-                raise ToolError(
-                    "WARDEN_BACKEND=stack needs the AWS SDK: pip install -e '.[aws]'"
-                ) from exc
-            cfg = Config(
-                connect_timeout=CONNECT_TIMEOUT, read_timeout=READ_TIMEOUT,
-                retries={"max_attempts": 1, "mode": "standard"},  # see aws_backend note 2
-                user_agent_extra="warden",
-            )
-            region = region or os.environ.get("WARDEN_AWS_REGION") or None
-            try:
-                from .aws_backend import _LazyClients
-
-                session = boto3.session.Session(region_name=region)
-                clients = _LazyClients(session, cfg) if own else clients
-                for n in missing:
-                    clients[n] = session.client(n, config=cfg)
-            except Exception as exc:
-                raise ToolError(
-                    "WARDEN_BACKEND=stack but no usable AWS credentials or region were found: "
-                    f"{_one_line(exc)}"
-                ) from exc
+        clients, session, cfg = _sdk_clients(clients, own, region)
         self._lambda = clients["lambda"]
         self._logs = clients["logs"]
         self._cw = clients["cloudwatch"]
@@ -741,20 +950,36 @@ class StackBackend:
             readers.append(("states-failures", lambda out: self._read_sfn_failures(out, lab["state_machine"])))
         readers += [(f"lambda/{f}", lambda out, f=f: self._read_lambda(out, alert, f, _suffix(f, len(fns) > 1))) for f in fns]
         readers += [(f"sqs/{q}", lambda out, q=q: self._read_sqs(out, alert, q, _suffix(q, len(queues) > 1))) for q in queues]
+        readers += self._data_and_traffic_readers(alert)
+        readers += self._platform_readers(alert, deps, rules)
+        return readers
+
+    def _data_and_traffic_readers(self, alert: Alert) -> list[tuple[str, object]]:
+        """_readers, continued: the data stores the labels name, then the load balancer, the API and the ECS service."""
+        lab = alert.labels
+        readers: list[tuple[str, object]] = []
         if lab.get("dynamodb_table"):
             readers.append(("dynamodb", lambda out: self._read_dynamodb(out, alert, lab["dynamodb_table"])))
         if lab.get("elasticache"):
             readers.append(("elasticache", lambda out: self._read_elasticache(out, alert, lab["elasticache"])))
         if lab.get("aurora_cluster"):
-            readers.append(("aurora", lambda out: self._read_aurora(out, alert, lab["aurora_cluster"])))
-            readers.append(("aurora-db-writer", lambda out: self._read_db(out, "WARDEN_STACK_DB_PRIMARY_RO_DSN", "", alert)))
-            readers.append(("aurora-db-reader", lambda out: self._read_db(out, "WARDEN_STACK_DB_REPLICA_RO_DSN", "reader_", alert)))
+            readers.extend([
+                ("aurora", lambda out: self._read_aurora(out, alert, lab["aurora_cluster"])),
+                ("aurora-db-writer", lambda out: self._read_db(out, "WARDEN_STACK_DB_PRIMARY_RO_DSN", "", alert)),
+                ("aurora-db-reader", lambda out: self._read_db(out, "WARDEN_STACK_DB_REPLICA_RO_DSN", "reader_", alert)),
+            ])
         if lab.get("alb_target_group"):
             readers.append(("alb", lambda out: self._read_alb(out, alert, lab["alb_target_group"])))
         if lab.get("apigw"):
             readers.append(("apigw", lambda out: self._read_apigw(out, alert, lab["apigw"])))
         if lab.get("ecs_cluster") and lab.get("ecs_service"):
             readers.append(("ecs", lambda out: self._read_ecs(out, alert)))
+        return readers
+
+    def _platform_readers(self, alert: Alert, deps: list[str], rules: list[str]) -> list[tuple[str, object]]:
+        """_readers, continued: the Kubernetes Deployments, the EKS cluster, the secret, the topic and the rules."""
+        lab = alert.labels
+        readers: list[tuple[str, object]] = []
         ns = lab.get("namespace")
         if ns:
             readers += [(f"k8s/{d}", lambda out, d=d: self._read_k8s(out, alert, ns, d, f"__{d}" if len(deps) > 1 else ""))
@@ -816,17 +1041,23 @@ class StackBackend:
             return
         account = self._account()
         for action, resource in asked[:SIMULATE_MAX]:
-            if resource != "*" and (f":{account}:" not in resource and ":::" not in resource or prefix not in resource):
-                resource = "*"  # another account's, or not this environment's: the action alone is asked
+            resource = _simulated_resource(resource, account, prefix)
             for role in roles:
-                got = self._iam.simulate_principal_policy(PolicySourceArn=f"arn:aws:iam::{account}:role/{role}",
-                                                    ActionNames=[action], ResourceArns=[resource])
-                for r in (got.get("EvaluationResults") or [])[:1]:
-                    by = sorted({str(s.get("SourcePolicyId", "")) for s in r.get("MatchedStatements") or []
-                                 if s.get("SourcePolicyId")})[:3]
-                    out.lines.append(f"STATE iam simulate role={role} action={_safe(action)} "
-                                     f"resource={_safe(resource)} decision={_safe(r.get('EvalDecision'))} "
-                                     f"by={','.join(_safe(b) for b in by) or 'none'}")
+                out.lines += self._simulate(account, role, action, resource)
+
+    def _simulate(self, account: str, role: str, action: str, resource: str) -> list[str]:
+        """_simulate_denials for one role, action and resource: the simulator's first decision as one STATE line."""
+        got = self._iam.simulate_principal_policy(PolicySourceArn=f"arn:aws:iam::{account}:role/{role}",
+                                                  ActionNames=[action], ResourceArns=[resource])
+        results = got.get("EvaluationResults") or []
+        if not results:
+            return []
+        r = results[0]
+        by = sorted({str(s.get("SourcePolicyId", "")) for s in r.get("MatchedStatements") or []
+                     if s.get("SourcePolicyId")})[:3]
+        return [(f"STATE iam simulate role={role} action={_safe(action)} "
+                 f"resource={_safe(resource)} decision={_safe(r.get('EvalDecision'))} "
+                 f"by={','.join(_safe(b) for b in by) or 'none'}")]
 
     # ------------------------------------------------------------------ shared helpers
 
@@ -845,17 +1076,7 @@ class StackBackend:
         if not queries:
             return {}
         _, start, end = self._window(alert)
-        ids, specs = {}, []
-        for i, (key, q) in enumerate(queries.items()):
-            ids[f"m{i}"] = (key, q[-1])
-            if q[0] == "expr":
-                specs.append({"Id": f"m{i}", "Expression": q[1], "Period": METRIC_PERIOD_S})
-            else:
-                ns, metric, dims, stat = q
-                specs.append({"Id": f"m{i}", "ReturnData": True, "MetricStat": {
-                    "Metric": {"Namespace": ns, "MetricName": metric,
-                               "Dimensions": [{"Name": k, "Value": v} for k, v in dims.items()]},
-                    "Period": METRIC_PERIOD_S, "Stat": stat.split("/")[0]}})
+        ids, specs = _metric_queries(queries)
         try:
             resp = self._cw.get_metric_data(MetricDataQueries=specs, StartTime=start, EndTime=end,
                                             ScanBy="TimestampDescending")
@@ -871,7 +1092,7 @@ class StackBackend:
                                           f"{res['StatusCode']} (the series may be incomplete)"))
             if res.get("Id") in ids and values:
                 key, stat = ids[res["Id"]]
-                got[key] = _fold(stat, values)
+                got[key] = _series_value(stat, values)
         return got
 
     def alarm_firing(self, alert: Alert) -> bool | None:
@@ -897,27 +1118,9 @@ class StackBackend:
         self._alarm_history(out, alert, name)
         ns, metric = a.get("Namespace"), a.get("MetricName")
         dims = {str(d.get("Name")): str(d.get("Value")) for d in a.get("Dimensions") or []}
-        threshold = (f"threshold {_safe(a.get('ComparisonOperator'))} {a.get('Threshold')} "
-                     f"datapoints={a.get('DatapointsToAlarm') or a.get('EvaluationPeriods')}/{a.get('EvaluationPeriods')} "
-                     f"missing={_safe(a.get('TreatMissingData') or 'missing')} state={_safe(a.get('StateValue'))}")
+        threshold = _alarm_threshold(a)
         if not (ns and metric):  # metric math: the expression is the owner's text, not read
-            # Its parts are AWS's structured fields, read like a plain alarm's metric (G10 review, 2026-10-10: an API
-            # Gateway fault behind a math alarm showed no symptom at all). AWS's own namespaces only, as below.
-            parts = [q["MetricStat"] for q in a.get("Metrics") or [] if isinstance(q.get("MetricStat"), dict)]
-            out.lines.append(f"ALARM metric-math parts={len(parts)} {threshold}")
-            reads: dict[str, tuple] = {}
-            for q in parts[:MATH_PARTS]:
-                m = q.get("Metric") or {}
-                pns, pmetric, pstat = m.get("Namespace"), m.get("MetricName"), q.get("Stat") or "Maximum"
-                pdims = {str(d.get("Name")): str(d.get("Value")) for d in m.get("Dimensions") or []}
-                if not (pns and pmetric):
-                    continue
-                out.lines.append(f"ALARM part {_safe(pns)}/{_safe(pmetric)} {_dims(pdims)} stat={_safe(pstat)} "
-                                 f"period={q.get('Period')}s")
-                if str(pns).startswith("AWS/"):
-                    reads[f"alarm_part_{_key(pns.split('/')[-1])}_{_key(pmetric)}"] = (pns, pmetric, pdims, pstat)
-            out.metrics.update(self._cw_read(out, "alarm", alert, reads))
-            self._read_changes(out, alert, {})
+            self._read_math_alarm(out, alert, a, threshold)
             return
         stat = a.get("Statistic") or a.get("ExtendedStatistic") or "Maximum"
         out.lines.append(f"ALARM {_safe(ns)}/{_safe(metric)} {_dims(dims)} stat={_safe(stat)} "
@@ -928,9 +1131,32 @@ class StackBackend:
         aws_owned = str(ns).startswith("AWS/")
         out.metrics.update(self._cw_read(out, "alarm", alert, {
             (f"alarm_{_key(metric)}" if aws_owned else "alarm_value"): (ns, metric, dims, stat)}))
-        if not aws_owned:
-            self._read_changes(out, alert, dims)
-            return
+        if aws_owned:
+            self._read_alarm_siblings(out, alert, ns, metric, dims)
+        self._read_changes(out, alert, dims)
+
+    def _read_math_alarm(self, out: _Out, alert: Alert, a: dict, threshold: str) -> None:
+        """_read_alarm for a metric-math alarm: the expression is the owner's text, not read."""
+        # Its parts are AWS's structured fields, read like a plain alarm's metric (G10 review, 2026-10-10: an API
+        # Gateway fault behind a math alarm showed no symptom at all). AWS's own namespaces only, as below.
+        parts = [q["MetricStat"] for q in a.get("Metrics") or [] if isinstance(q.get("MetricStat"), dict)]
+        out.lines.append(f"ALARM metric-math parts={len(parts)} {threshold}")
+        reads: dict[str, tuple] = {}
+        for q in parts[:MATH_PARTS]:
+            m = q.get("Metric") or {}
+            pns, pmetric, pstat = m.get("Namespace"), m.get("MetricName"), q.get("Stat") or "Maximum"
+            pdims = {str(d.get("Name")): str(d.get("Value")) for d in m.get("Dimensions") or []}
+            if not (pns and pmetric):
+                continue
+            out.lines.append(f"ALARM part {_safe(pns)}/{_safe(pmetric)} {_dims(pdims)} stat={_safe(pstat)} "
+                             f"period={q.get('Period')}s")
+            if str(pns).startswith("AWS/"):
+                reads[f"alarm_part_{_key(pns.split('/')[-1])}_{_key(pmetric)}"] = (pns, pmetric, pdims, pstat)
+        out.metrics.update(self._cw_read(out, "alarm", alert, reads))
+        self._read_changes(out, alert, {})
+
+    def _read_alarm_siblings(self, out: _Out, alert: Alert, ns: str, metric: str, dims: dict[str, str]) -> None:
+        """The resource's other recently active metrics in the alarm's (AWS-owned) namespace, same dimensions."""
         listed, _ = _pages(self._cw.list_metrics, "Metrics", token="NextToken", Namespace=ns,
                            Dimensions=[{"Name": k, "Value": v} for k, v in dims.items()], RecentlyActive="PT3H")
         others: dict[str, tuple] = {}
@@ -940,7 +1166,6 @@ class StackBackend:
             if other and other != metric and same and len(others) < SIBLING_METRICS:
                 others[f"alarm_sibling_{_key(ns.split('/')[-1])}_{_key(other)}"] = (ns, other, dims, "Maximum")
         out.metrics.update(self._cw_read(out, "alarm-siblings", alert, others))
-        self._read_changes(out, alert, dims)
 
     def _alarm_history(self, out: _Out, alert: Alert, name: str) -> None:
         """Research 2026-10-15, item 10: the alarm's own history in the ALARM_HISTORY before the alert, from AWS's
@@ -1023,65 +1248,68 @@ class StackBackend:
         names += [v for v in dims.values() if v not in names] if not names else []
         window = {"StartTime": started - RECENT_DEPLOY_WINDOW, "EndTime": started + timedelta(minutes=5)}
         for n in list(dict.fromkeys(names))[:CHANGE_NAMES]:
-            events, broke, truncated = [], None, False
-            kwargs = {"LookupAttributes": [{"AttributeKey": "ResourceName", "AttributeValue": n}], **window}
-            for page in range(CHANGE_PAGES + 1):
-                if page == CHANGE_PAGES:
-                    truncated = True
-                    break
-                try:
-                    got = self._ct.lookup_events(**kwargs)
-                except Exception as exc:  # noqa: BLE001 - CloudTrail allows 2 lookups a second; keep what was read
-                    broke = exc
-                    break
-                events += got.get("Events") or []
-                if not got.get("NextToken"):
-                    break
-                kwargs["NextToken"] = got["NextToken"]
-            event_names, fields = UNNAMED_WRITES.get(kind_of.get(n, ""), ((), ()))
-            for event_name in event_names if broke is None else ():
-                try:
-                    got = self._ct.lookup_events(
-                        LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": event_name}], **window)
-                except Exception as exc:  # noqa: BLE001
-                    broke = exc
-                    break
+            events, broke, truncated = self._lookup_writes(n, window)
+            if broke is None:
+                broke, more = self._unnamed_writes(events, n, kind_of.get(n, ""), window)
+                truncated = truncated or more
+            if broke is None and alert.labels.get("sqs") == n:
+                broke, more = self._queue_mapping_writes(events, n, window)
+                truncated = truncated or more
+            _change_lines(out, n, events, broke, truncated, started)
+
+    def _lookup_writes(self, n: str, window: dict) -> tuple[list[dict], Exception | None, bool]:
+        """CloudTrail's events on the resource named `n` in the window, CHANGE_PAGES pages at most: (the events read,
+        the lookup's error or None, whether more pages were left unread)."""
+        events: list[dict] = []
+        kwargs = {"LookupAttributes": [{"AttributeKey": "ResourceName", "AttributeValue": n}], **window}
+        for _ in range(CHANGE_PAGES):
+            try:
+                got = self._ct.lookup_events(**kwargs)
+            except Exception as exc:  # noqa: BLE001 - CloudTrail allows 2 lookups a second; keep what was read
+                return events, exc, False
+            events += got.get("Events") or []
+            if not got.get("NextToken"):
+                return events, None, False
+            kwargs["NextToken"] = got["NextToken"]
+        return events, None, True
+
+    def _unnamed_writes(self, events: list[dict], n: str, kind: str, window: dict) -> tuple[Exception | None, bool]:
+        """The writes to a `kind` of resource whose CloudTrail record names no resource (UNNAMED_WRITES): looked up by
+        event name and kept when the request names `n`. Added to `events`; (the lookup's error or None, whether a
+        lookup had more than one page)."""
+        event_names, fields = UNNAMED_WRITES.get(kind, ((), ()))
+        truncated = False
+        for event_name in event_names:
+            try:
+                got = self._ct.lookup_events(
+                    LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": event_name}], **window)
+            except Exception as exc:  # noqa: BLE001
+                return exc, truncated
+            truncated = truncated or bool(got.get("NextToken"))
+            seen = {e.get("EventId") for e in events if e.get("EventId")}
+            events += [e for e in got.get("Events") or []
+                       if e.get("EventId") not in seen and _request_names(e, fields, n)]
+        return None, truncated
+
+    def _queue_mapping_writes(self, events: list[dict], n: str, window: dict) -> tuple[Exception | None, bool]:
+        """The writes to the event source mappings AWS holds for queue `n` (they name the mapping, not the queue).
+        Added to `events`; (the lookup's error or None, whether a lookup had more than one page)."""
+        try:
+            mine = self._queue_mappings(n)
+        except Exception:  # noqa: BLE001 - the queue's own reader says its read failed; no change is ruled out
+            mine = set()
+        truncated = False
+        try:
+            for event_name in QUEUE_MAPPING_WRITES if mine else ():
+                got = self._ct.lookup_events(
+                    LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": event_name}], **window)
                 truncated = truncated or bool(got.get("NextToken"))
                 seen = {e.get("EventId") for e in events if e.get("EventId")}
-                events += [e for e in got.get("Events") or []
-                           if e.get("EventId") not in seen and _request_names(e, fields, n)]
-            if broke is None and alert.labels.get("sqs") == n:
-                try:
-                    mine = self._queue_mappings(n)
-                except Exception:  # noqa: BLE001 - the queue's own reader says its read failed; no change is ruled out
-                    mine = set()
-                try:
-                    for event_name in QUEUE_MAPPING_WRITES if mine else ():
-                        got = self._ct.lookup_events(
-                            LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": event_name}], **window)
-                        truncated = truncated or bool(got.get("NextToken"))
-                        seen = {e.get("EventId") for e in events if e.get("EventId")}
-                        events += [e for e in got.get("Events") or [] if e.get("EventId") not in seen
-                                   and any(_request_names(e, ("uUID",), u) for u in mine)]
-                except Exception as exc:  # noqa: BLE001 - CloudTrail allows 2 lookups a second; keep what was read
-                    broke = exc
-            events.sort(key=lambda e: str(e.get("EventTime") or ""), reverse=True)
-            writes = [e for e in events if _a_write(e)]
-            for e in writes[:CHANGE_MAX]:
-                out.lines.append(f"CHANGE {_z(e.get('EventTime'))} {_safe(e.get('EventSource'))} "
-                                 f"{_safe(e.get('EventName'))} on {_safe(n)} by {_principal(e)}{_request_fields(e)}")
-            if broke is not None:
-                out.lines.append(_partial("changes", broke))
-            elif truncated or len(writes) > CHANGE_MAX:
-                out.lines.append(_partial("changes", f"[output truncated on LookupEvents] more writes to {_safe(n)} "
-                                                     "than were read"))
-            elif not writes and datetime.now(UTC) - started < CLOUDTRAIL_DELIVERY:
-                age = max(0, int((datetime.now(UTC) - started).total_seconds() // 60))
-                out.lines.append(f"CHANGE none delivered yet on {_safe(n)}: the alert is {age} min old and CloudTrail "
-                                 "lists a write about 5 minutes after it, so a write just before the alert may be missing")
-            elif not writes:
-                out.lines.append(f"CHANGE none on {_safe(n)} in the {int(RECENT_DEPLOY_WINDOW.total_seconds() // 3600)} h "
-                                 "before the alert")
+                events += [e for e in got.get("Events") or [] if e.get("EventId") not in seen
+                           and any(_request_names(e, ("uUID",), u) for u in mine)]
+        except Exception as exc:  # noqa: BLE001 - CloudTrail allows 2 lookups a second; keep what was read
+            return exc, truncated
+        return None, truncated
 
     def _served_before(self, fn: str, candidates: list[str], before: datetime) -> str:
         """The version `live` last served while known-good in the SERVED_LOOKBACK before `before` (the current
@@ -1098,7 +1326,7 @@ class StackBackend:
         try:
             resp = self._cw.get_metric_data(MetricDataQueries=served_queries(fn, "live", cands),
                                             StartTime=before - SERVED_LOOKBACK, EndTime=before)
-        except Exception:  # noqa: BLE001 - no traffic data: the caller falls back, and says so
+        except Exception:  # noqa: BLE001 - no traffic data: the caller falls back; and says so
             return ""
         return last_known_good(resp.get("MetricDataResults") or [], cands)
 
@@ -1111,6 +1339,23 @@ class StackBackend:
         # Logs first: they carry the traceback, and a failed config read must not cost them.
         self._lambda_logs(alert, fn, out)
         self._insights(out, alert, f"/aws/lambda/{fn}", f"lambda/{fn}", sfx)
+        live, cfg = self._lambda_live_config(out, fn)
+        conc = self._lambda.get_function_concurrency(FunctionName=fn).get("ReservedConcurrentExecutions")
+        versions = self._lambda_versions(out, fn)
+        self._lambda_config_lines(out, alert, fn, sfx, cfg, conc, versions, live)
+        self._lambda_mappings(out, fn, sfx)
+        self._lambda_deploy(out, alert, fn, versions, live)
+        dims = {"FunctionName": fn}
+        out.metrics.update(self._cw_read(out, f"lambda/{fn}", alert, {
+            f"lambda_errors{sfx}": (LAMBDA_NAMESPACE, "Errors", dims, "Sum"),
+            f"lambda_throttles{sfx}": (LAMBDA_NAMESPACE, "Throttles", dims, "Sum"),
+            f"lambda_invocations{sfx}": (LAMBDA_NAMESPACE, "Invocations", dims, "Sum"),
+            f"lambda_duration_max_ms{sfx}": (LAMBDA_NAMESPACE, "Duration", dims, "Maximum"),
+            f"lambda_concurrent_executions{sfx}": (LAMBDA_NAMESPACE, "ConcurrentExecutions", dims, "Maximum"),
+        }))
+
+    def _lambda_live_config(self, out: _Out, fn: str) -> tuple[str | None, dict]:
+        """(the version the `live` alias points at or None, the configuration it serves - else the function's)."""
         alias = None
         try:
             alias = self._lambda.get_alias(FunctionName=fn, Name="live")
@@ -1126,8 +1371,10 @@ class StackBackend:
             out.lines.append(f"STATE lambda {fn} state={_safe(cfg.get('State'))} reason={_safe(cfg.get('StateReasonCode'))} "
                              f"last_update={_safe(cfg.get('LastUpdateStatus'))} "
                              f"update_reason={_safe(cfg.get('LastUpdateStatusReasonCode'))}")
-        conc = self._lambda.get_function_concurrency(FunctionName=fn).get("ReservedConcurrentExecutions")
+        return live, cfg
 
+    def _lambda_versions(self, out: _Out, fn: str) -> list[dict]:
+        """The function's published versions, oldest first; none when there were more pages than read."""
         listed, cut = _pages(self._lambda.list_versions_by_function, "Versions", next_token="NextMarker",
                              FunctionName=fn)
         versions = sorted((v for v in listed if str(v.get("Version")).isdigit()), key=lambda v: int(v["Version"]))
@@ -1135,13 +1382,17 @@ class StackBackend:
             out.lines.append(_partial(f"lambda/{fn} versions", f"[output truncated] more than {LIST_MAX_PAGES} pages; "
                                       "the newest versions were not read"))
             versions = []
+        return versions
 
+    def _lambda_config_lines(self, out: _Out, alert: Alert, fn: str, sfx: str, cfg: dict, conc: Any,
+                             versions: list[dict], live: str | None) -> None:
+        """The function's settings as metrics and one CONFIG line, the role it runs as, and its network's changes."""
         env = _env_items((cfg.get("Environment") or {}).get("Variables") or {})
         out.metrics[f"lambda_timeout_s{sfx}"] = float(cfg.get("Timeout") or 0)
         out.metrics[f"lambda_memory_mb{sfx}"] = float(cfg.get("MemorySize") or 0)
         if conc is not None:
             out.metrics[f"lambda_reserved_concurrency{sfx}"] = float(conc)
-        latest = versions[-1]["Version"] if versions else "$LATEST"
+        latest = versions[-1]["Version"] if versions else LATEST_VERSION
         sgs = sorted((cfg.get("VpcConfig") or {}).get("SecurityGroupIds") or [])  # in-VPC functions only
         sg_part = f"sgs=[{','.join(sgs)}] " if sgs else ""
         out.lines.append(
@@ -1154,6 +1405,8 @@ class StackBackend:
         if sgs:
             self._read_network_changes(out, alert, sgs, (cfg.get("VpcConfig") or {}).get("SubnetIds") or [])
 
+    def _lambda_mappings(self, out: _Out, fn: str, sfx: str) -> None:
+        """The function's event source mappings: one ESM line each, and whether all are enabled."""
         esms, _ = _pages(self._lambda.list_event_source_mappings, "EventSourceMappings", next_token="NextMarker",
                          FunctionName=fn)
         for m in esms:
@@ -1163,6 +1416,8 @@ class StackBackend:
         if esms:
             out.metrics[f"lambda_esm_enabled{sfx}"] = float(all(m.get("State") == "Enabled" for m in esms))
 
+    def _lambda_deploy(self, out: _Out, alert: Alert, fn: str, versions: list[dict], live: str | None) -> None:
+        """The function's deploy in the window, if any."""
         # A deploy: the version `live` points at (else the newest published one) was published
         # inside the window. Its publish time stands in for the alias move, which has no timestamp.
         if live:
@@ -1170,23 +1425,15 @@ class StackBackend:
         else:
             target = versions[-1] if versions else None
         at = _parse_time(target.get("LastModified")) if target else None
-        if target and self._in_window(alert, at):
-            older = [v["Version"] for v in versions if int(v["Version"]) < int(target["Version"])]
-            served = self._served_before(fn, older, at) if live else ""
-            out.deploys.append({"kind": "lambda", "service": fn, "at": _z(at),
-                                "version": target["Version"],
-                                "previous": served or (older[-1] if older else ""),
-                                "previous_basis": ("served live traffic before this version" if served
-                                                   else "numerically previous version (no per-version traffic)")})
-
-        dims = {"FunctionName": fn}
-        out.metrics.update(self._cw_read(out, f"lambda/{fn}", alert, {
-            f"lambda_errors{sfx}": ("AWS/Lambda", "Errors", dims, "Sum"),
-            f"lambda_throttles{sfx}": ("AWS/Lambda", "Throttles", dims, "Sum"),
-            f"lambda_invocations{sfx}": ("AWS/Lambda", "Invocations", dims, "Sum"),
-            f"lambda_duration_max_ms{sfx}": ("AWS/Lambda", "Duration", dims, "Maximum"),
-            f"lambda_concurrent_executions{sfx}": ("AWS/Lambda", "ConcurrentExecutions", dims, "Maximum"),
-        }))
+        if not (target and self._in_window(alert, at)):
+            return
+        older = [v["Version"] for v in versions if int(v["Version"]) < int(target["Version"])]
+        served = self._served_before(fn, older, at) if live else ""
+        out.deploys.append({"kind": "lambda", "service": fn, "at": _z(at),
+                            "version": target["Version"],
+                            "previous": served or (older[-1] if older else ""),
+                            "previous_basis": ("served live traffic before this version" if served
+                                               else "numerically previous version (no per-version traffic)")})
 
     def _lambda_logs(self, alert: Alert, fn: str, out: _Out) -> None:
         group_alert = alert.model_copy(update={"labels": {"log_group": f"/aws/lambda/{fn}"}})
@@ -1197,13 +1444,17 @@ class StackBackend:
                 continue
             stream, stamp, message = (raw.removeprefix("LOG ").split(" ", 2) + ["", ""])[:3]
             m = _STREAM_VERSION.search(stream)
-            version = m.group(1) if m else "$LATEST"
+            version = m.group(1) if m else LATEST_VERSION
             for part in message.splitlines():
                 if part.startswith(("START RequestId", "END RequestId")):
                     continue
                 out.lines.append(_retag_aws_line(f"lambda/{fn}", f"{stream} {stamp} {part}"))
                 physical.append((part, version))
+        self._code_lines(out, fn, physical)
 
+    def _code_lines(self, out: _Out, fn: str, physical: list[tuple[str, str]]) -> None:
+        """The first MAX_CODE_FRAMES distinct tracebacks in the logs: a CODE line each, with the source around it read
+        from the deployment package of the version that ran it."""
         seen, packages = set(), {}
         for tb in parse_tracebacks(physical):
             sig = (tb["path"], tb["line"], tb["exception"], tb["version"])
@@ -1214,12 +1465,16 @@ class StackBackend:
             try:
                 v = tb["version"]
                 if v not in packages:
-                    resp = (self._lambda.get_function(FunctionName=fn, Qualifier=v) if v != "$LATEST"
-                            else self._lambda.get_function(FunctionName=fn))
-                    packages[v] = self._download(resp["Code"]["Location"])
+                    packages[v] = self._package(fn, v)
                 out.lines += source_excerpt(fn, packages[v], tb["path"], tb["line"])
             except Exception as exc:  # noqa: BLE001 - the frame stands without its source
                 out.lines.append(_partial(f"lambda/{fn} code", exc))
+
+    def _package(self, fn: str, version: str) -> bytes:
+        """The deployment package of one version of the function (or of $LATEST), downloaded."""
+        resp = (self._lambda.get_function(FunctionName=fn, Qualifier=version) if version != LATEST_VERSION
+                else self._lambda.get_function(FunctionName=fn))
+        return self._download(resp["Code"]["Location"])
 
     # ------------------------------------------------------------------ sqs
 
@@ -1297,10 +1552,10 @@ class StackBackend:
         out.lines.append(f"TABLE {table} billing={billing} rcu={rcu} wcu={wcu} status={t.get('TableStatus')}")
         dims = {"TableName": table}
         got = self._cw_read(out, "dynamodb", alert, {
-            "ddb_consumed_rcu": ("AWS/DynamoDB", "ConsumedReadCapacityUnits", dims, "Sum/s"),
-            "ddb_consumed_wcu": ("AWS/DynamoDB", "ConsumedWriteCapacityUnits", dims, "Sum/s"),
-            "ddb_read_throttle_events": ("AWS/DynamoDB", "ReadThrottleEvents", dims, "Sum"),
-            "ddb_write_throttle_events": ("AWS/DynamoDB", "WriteThrottleEvents", dims, "Sum"),
+            "ddb_consumed_rcu": (DYNAMODB_NAMESPACE, "ConsumedReadCapacityUnits", dims, SUM_PER_SECOND),
+            "ddb_consumed_wcu": (DYNAMODB_NAMESPACE, "ConsumedWriteCapacityUnits", dims, SUM_PER_SECOND),
+            "ddb_read_throttle_events": (DYNAMODB_NAMESPACE, "ReadThrottleEvents", dims, "Sum"),
+            "ddb_write_throttle_events": (DYNAMODB_NAMESPACE, "WriteThrottleEvents", dims, "Sum"),
             # Published per (TableName, Operation) only; SEARCH sums the operations.
             "ddb_throttled_requests": ("expr", (
                 f"SUM(SEARCH('{{AWS/DynamoDB,Operation,TableName}} MetricName=\"ThrottledRequests\" "
@@ -1320,22 +1575,8 @@ class StackBackend:
         out.metrics["redis_nodes_total"] = float(len(members))
         out.metrics["redis_nodes_available"] = float(
             sum(1 for c in clusters if c.get("CacheClusterStatus") == "available"))
-        started = AwsBackend._started_at(alert)
-        # By source, every page (audit A-B-L4): the whole account's events, one page of them, could hold none of ours.
-        sources = [(rg, "replication-group"), *((m, "cache-cluster") for m in members)]
-        events = [e for sid, kind in sources for e in _pages(
-            self._ec.describe_events, "Events", SourceIdentifier=sid, SourceType=kind,
-            StartTime=started - LOG_LOOKBACK, EndTime=started + LOG_LOOKBACK)[0]]
-        for e in sorted(events, key=lambda e: str(e.get("Date"))):
-            if e.get("SourceIdentifier") in {rg, *members}:
-                out.lines.append(f"EVENT elasticache {rg} {_z(e.get('Date'))} {_one_line(e.get('Message', ''))}")
-        queries = {}
-        for i, node in enumerate(members):
-            d = {"CacheClusterId": node}
-            for metric, stat in (("DatabaseMemoryUsagePercentage", "Maximum"), ("Evictions", "Sum"),
-                                 ("CurrConnections", "Maximum"), ("EngineCPUUtilization", "Maximum"),
-                                 ("ReplicationLag", "Maximum")):
-                queries[f"{metric}#{i}"] = ("AWS/ElastiCache", metric, d, stat)
+        self._cache_events(out, alert, rg, members)
+        queries = _elasticache_queries(members)
         # ⭐ The network path, as evidence. Without these lines an "unreachable cache" report could
         # only say "check the security group" - with them it can name the rule that is missing.
         node_type = next((c.get("CacheNodeType") for c in clusters if c.get("CacheNodeType")), "?")
@@ -1345,16 +1586,7 @@ class StackBackend:
             ng = (group.get("NodeGroups") or [{}])[0]
             port = int((ng.get("PrimaryEndpoint") or {}).get("Port") or 6379)
             for g in self._ec2.describe_security_groups(GroupIds=sgs).get("SecurityGroups") or []:
-                rules = [r for r in g.get("IpPermissions") or [] if r.get("IpProtocol") in ("-1", "tcp")
-                         and (r.get("IpProtocol") == "-1" or r.get("FromPort", 0) <= port <= r.get("ToPort", 0))]
-                # Groups, CIDR ranges and prefix lists alike (audit A-B-L5): a rule opening the port to a CIDR or a
-                # prefix list was read as no rule at all.
-                src = sorted({p["GroupId"] for r in rules for p in r.get("UserIdGroupPairs") or []}
-                             | {x["CidrIp"] for r in rules for x in r.get("IpRanges") or [] if x.get("CidrIp")}
-                             | {x["CidrIpv6"] for r in rules for x in r.get("Ipv6Ranges") or [] if x.get("CidrIpv6")}
-                             | {x["PrefixListId"] for r in rules for x in r.get("PrefixListIds") or []
-                                if x.get("PrefixListId")})
-                out.lines.append(f"SG {g['GroupId']} ingress tcp/{port} from=[{','.join(src)}]")
+                out.lines.append(f"SG {g['GroupId']} ingress tcp/{port} from=[{','.join(_ingress_sources(g, port))}]")
         got = self._cw_read(out, "elasticache", alert, queries)
         # Across nodes: the worst node for percentages and lag, the total for counts.
         for key, metric, agg in (("redis_memory_pct", "DatabaseMemoryUsagePercentage", max),
@@ -1365,6 +1597,18 @@ class StackBackend:
             vals = [v for k, v in got.items() if k.split("#")[0] == metric]
             if vals:
                 out.metrics[key] = float(agg(vals))
+
+    def _cache_events(self, out: _Out, alert: Alert, rg: str, members: list[str]) -> None:
+        """ElastiCache's events for the replication group and its nodes around the alert, oldest first."""
+        started = AwsBackend._started_at(alert)
+        # By source, every page (audit A-B-L4): the whole account's events, one page of them, could hold none of ours.
+        sources = [(rg, "replication-group"), *((m, "cache-cluster") for m in members)]
+        events = [e for sid, kind in sources for e in _pages(
+            self._ec.describe_events, "Events", SourceIdentifier=sid, SourceType=kind,
+            StartTime=started - LOG_LOOKBACK, EndTime=started + LOG_LOOKBACK)[0]]
+        for e in sorted(events, key=lambda e: str(e.get("Date"))):
+            if e.get("SourceIdentifier") in {rg, *members}:
+                out.lines.append(f"EVENT elasticache {rg} {_z(e.get('Date'))} {_one_line(e.get('Message', ''))}")
 
     # ------------------------------------------------------------------ aurora
 
@@ -1392,13 +1636,13 @@ class StackBackend:
                 out.lines.append(f"EVENT aurora {cluster} {_z(e.get('Date'))} {_one_line(e.get('Message', ''))}")
         d = {"DBClusterIdentifier": cluster}
         queries = {
-            "aurora_connections": ("AWS/RDS", "DatabaseConnections", d, "Maximum"),
-            "aurora_acu_utilization_pct": ("AWS/RDS", "ACUUtilization", d, "Maximum"),
-            "aurora_cpu_pct": ("AWS/RDS", "CPUUtilization", d, "Maximum"),
-            "aurora_deadlocks": ("AWS/RDS", "Deadlocks", d, "Maximum"),
+            "aurora_connections": (RDS_NAMESPACE, "DatabaseConnections", d, "Maximum"),
+            "aurora_acu_utilization_pct": (RDS_NAMESPACE, "ACUUtilization", d, "Maximum"),
+            "aurora_cpu_pct": (RDS_NAMESPACE, "CPUUtilization", d, "Maximum"),
+            "aurora_deadlocks": (RDS_NAMESPACE, "Deadlocks", d, "Maximum"),
         }
         for i, r in enumerate(readers):
-            queries[f"lag#{i}"] = ("AWS/RDS", "AuroraReplicaLag", {"DBInstanceIdentifier": r}, "Maximum")
+            queries[f"lag#{i}"] = (RDS_NAMESPACE, "AuroraReplicaLag", {"DBInstanceIdentifier": r}, "Maximum")
         got = self._cw_read(out, "aurora", alert, queries)
         lags = [v for k, v in got.items() if k.startswith("lag#")]
         out.metrics.update({k: v for k, v in got.items() if not k.startswith("lag#")})
@@ -1432,9 +1676,9 @@ class StackBackend:
         by wait-event TYPE (CPU, Lock, IO, LWLock, Client, ...). Numbers under names from that closed list; no SQL
         text and no wait-event names reach the evidence. Free within PI's 7-day window and 1M API calls a month."""
         started = AwsBackend._started_at(alert)
-        queries = [{"Metric": "db.load.avg"},
-                   {"Metric": "db.load.avg", "GroupBy": {"Group": "db.wait_event_type", "Limit": 6}},
-                   {"Metric": "db.load.avg", "GroupBy": {"Group": "db.sql_tokenized", "Limit": TOP_SQL}}]
+        queries = [{"Metric": DB_LOAD_METRIC},
+                   {"Metric": DB_LOAD_METRIC, "GroupBy": {"Group": "db.wait_event_type", "Limit": 6}},
+                   {"Metric": DB_LOAD_METRIC, "GroupBy": {"Group": "db.sql_tokenized", "Limit": TOP_SQL}}]
         for inst in instances:
             name = inst.get("DBInstanceIdentifier", "?")
             if not inst.get("PerformanceInsightsEnabled") or not inst.get("DbiResourceId"):
@@ -1444,27 +1688,10 @@ class StackBackend:
                 got = self._pi.get_resource_metrics(
                     ServiceType="RDS", Identifier=inst["DbiResourceId"], MetricQueries=queries, PeriodInSeconds=60,
                     StartTime=started - LOG_LOOKBACK, EndTime=started + LOG_LOOKBACK)
-            except Exception as exc:  # noqa: BLE001 - one member unread is data, the others still read
+            except Exception as exc:  # noqa: BLE001 - one member unread is data; the others still read
                 out.lines.append(_partial("aurora metrics", exc))
                 continue
-            top: list[tuple[float, str]] = []
-            for m in got.get("MetricList") or []:
-                values = [p["Value"] for p in m.get("DataPoints") or []
-                          if isinstance(p.get("Value"), int | float) and not isinstance(p.get("Value"), bool)]
-                if not values:
-                    continue
-                dims = (m.get("Key") or {}).get("Dimensions") or {}
-                if "db.sql_tokenized.statement" in dims:
-                    top.append((float(max(values)), str(dims.get("db.sql_tokenized.statement") or "")))
-                    continue
-                kind = dims.get("db.wait_event_type.name")
-                key = "aurora_db_load" + (f"_{re.sub(r'[^a-z0-9]', '', str(kind).lower())[:20]}" if kind else "")
-                out.metrics[key] = max(out.metrics.get(key, 0.0), float(max(values)))
-            total = out.metrics.get("aurora_db_load", 0.0)
-            for rank, (load, sql) in enumerate(sorted(top, key=lambda t: -t[0])[:TOP_SQL], start=1):
-                share = f" ({load / total:.0%} of the load)" if total else ""
-                out.lines.append(f"STATE aurora {_one_line(name)} top-sql #{rank} load={load:.2f}{share} "
-                                 f"{sql_shape(sql)}")
+            _member_load(out, name, got)
 
     def _insights(self, out: _Out, alert: Alert, group: str, tag: str, sfx: str) -> None:
         """CloudWatch Logs Insights (requirement R22): error lines per minute over the WHOLE alert window, counted by
@@ -1476,37 +1703,37 @@ class StackBackend:
                 logGroupName=group, queryString=INSIGHTS_QUERY, limit=100,
                 startTime=int((started - LOG_LOOKBACK).timestamp()), endTime=int((started + LOG_LOOKBACK).timestamp()),
             )["queryId"]
-            deadline = time.monotonic() + INSIGHTS_WAIT_S
-            while True:
-                got = self._logs.get_query_results(queryId=qid)
-                status = got.get("status")
-                if status == "Complete":
-                    break
-                if status not in ("Scheduled", "Running"):
-                    outcome = "timed out" if status == "Timeout" else "failed (unclassified)"
-                    out.lines.append(_partial(f"{tag} metrics", f"[{outcome} on GetQueryResults] the Logs Insights query "
-                                                                f"ended {_one_line(status)}"))
-                    return
-                if time.monotonic() > deadline:
-                    self._logs.stop_query(queryId=qid)
-                    out.lines.append(_partial(f"{tag} metrics",
-                                              f"[timed out on GetQueryResults] the Logs Insights query did not "
-                                              f"finish in {INSIGHTS_WAIT_S:.0f}s"))
-                    return
-                self._sleep(0.5)
-        except Exception as exc:  # noqa: BLE001 - the error counts are extra evidence, the logs above still stand
+            got = self._insights_results(out, qid, tag)
+        except Exception as exc:  # noqa: BLE001 - the error counts are extra evidence; the logs above still stand
             out.lines.append(_partial(f"{tag} metrics", exc))
             return
-        counts = []
-        for row in got.get("results") or []:
-            for f in row:
-                if f.get("field") == "n":
-                    try:
-                        counts.append(float(f.get("value")))
-                    except (TypeError, ValueError):
-                        continue
+        if got is None:
+            return
+        counts = _insights_counts(got)
         out.metrics[f"log_error_lines{sfx}"] = sum(counts)
         out.metrics[f"log_errors_peak_per_min{sfx}"] = max(counts, default=0.0)
+
+    def _insights_results(self, out: _Out, qid: str, tag: str) -> dict | None:
+        """The finished Logs Insights query's results, polled until INSIGHTS_WAIT_S; None (and a TOOL-PARTIAL saying
+        why) when it failed, timed out or did not finish in time."""
+        deadline = time.monotonic() + INSIGHTS_WAIT_S
+        while True:
+            got = self._logs.get_query_results(queryId=qid)
+            status = got.get("status")
+            if status == "Complete":
+                return got
+            if status not in ("Scheduled", "Running"):
+                outcome = "timed out" if status == "Timeout" else "failed (unclassified)"
+                out.lines.append(_partial(f"{tag} metrics", f"[{outcome} on GetQueryResults] the Logs Insights query "
+                                                            f"ended {_one_line(status)}"))
+                return None
+            if time.monotonic() > deadline:
+                self._logs.stop_query(queryId=qid)
+                out.lines.append(_partial(f"{tag} metrics",
+                                          f"[timed out on GetQueryResults] the Logs Insights query did not "
+                                          f"finish in {INSIGHTS_WAIT_S:.0f}s"))
+                return None
+            self._sleep(0.5)
 
     def _read_db(self, out: _Out, env: str, prefix: str, alert: Alert) -> None:
         """The existing PostgreSQL backend on one Aurora endpoint, names unchanged (reader: `reader_`)."""
@@ -1551,31 +1778,41 @@ class StackBackend:
         out.metrics["alb_unhealthy_hosts"] = float(unhealthy)
         lbs = tg.get("LoadBalancerArns") or []
         if lbs:
-            lb = lbs[0].split(":loadbalancer/", 1)[-1]
-            tgd = {"TargetGroup": tg["TargetGroupArn"].split(":", 5)[-1], "LoadBalancer": lb}
-            # G9-D: the load balancer's zones and whether ARC may shift traffic away from one - and below, its hosts per
-            # zone: an impaired zone shows as one zone with no healthy host while the others serve.
-            zones: list[str] = []
-            try:
-                [desc] = self._elb.describe_load_balancers(LoadBalancerArns=[lbs[0]])["LoadBalancers"]
-                zones = sorted(z["ZoneName"] for z in desc.get("AvailabilityZones") or [] if z.get("ZoneName"))[:6]
-                attrs = {a.get("Key"): a.get("Value") for a in self._elb.describe_load_balancer_attributes(
-                    LoadBalancerArn=lbs[0]).get("Attributes") or []}
-                out.lines.append(f"CONFIG alb {lb.split('/')[1] if '/' in lb else lb} zones={','.join(zones) or 'none'} "
-                                 f"zonal_shift={attrs.get('zonal_shift.config.enabled') or 'false'}")
-            except Exception as exc:  # noqa: BLE001 - the target health above stands without it
-                out.lines.append(_partial("alb zones", exc))
-            per_zone = {}
-            for z in zones:
-                at = {**tgd, "AvailabilityZone": z}
-                per_zone[f"alb_healthy_hosts_{z}"] = ("AWS/ApplicationELB", "HealthyHostCount", at, "Minimum")
-                per_zone[f"alb_unhealthy_hosts_{z}"] = ("AWS/ApplicationELB", "UnHealthyHostCount", at, "Maximum")
-            out.metrics.update(self._cw_read(out, "alb", alert, {
-                "alb_target_5xx": ("AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", tgd, "Sum"),
-                "alb_elb_5xx": ("AWS/ApplicationELB", "HTTPCode_ELB_5XX_Count", {"LoadBalancer": lb}, "Sum"),
-                "alb_target_response_time_s": ("AWS/ApplicationELB", "TargetResponseTime", tgd, "Maximum"),
-                **per_zone,
-            }))
+            self._read_alb_balancer(out, alert, tg, lbs[0])
+
+    def _read_alb_balancer(self, out: _Out, alert: Alert, tg: dict, lb_arn: str) -> None:
+        """The target group's (first) load balancer: its zones, and the 5xx, response time and hosts per zone."""
+        lb = lb_arn.split(":loadbalancer/", 1)[-1]
+        tgd = {"TargetGroup": tg["TargetGroupArn"].split(":", 5)[-1], "LoadBalancer": lb}
+        # G9-D: the load balancer's zones and whether ARC may shift traffic away from one - and below, its hosts per
+        # zone: an impaired zone shows as one zone with no healthy host while the others serve.
+        zones = self._alb_zones(out, lb_arn, lb)
+        per_zone = {}
+        for z in zones:
+            at = {**tgd, "AvailabilityZone": z}
+            per_zone[f"alb_healthy_hosts_{z}"] = (ALB_NAMESPACE, "HealthyHostCount", at, "Minimum")
+            per_zone[f"alb_unhealthy_hosts_{z}"] = (ALB_NAMESPACE, "UnHealthyHostCount", at, "Maximum")
+        out.metrics.update(self._cw_read(out, "alb", alert, {
+            "alb_target_5xx": (ALB_NAMESPACE, "HTTPCode_Target_5XX_Count", tgd, "Sum"),
+            "alb_elb_5xx": (ALB_NAMESPACE, "HTTPCode_ELB_5XX_Count", {"LoadBalancer": lb}, "Sum"),
+            "alb_target_response_time_s": (ALB_NAMESPACE, "TargetResponseTime", tgd, "Maximum"),
+            **per_zone,
+        }))
+
+    def _alb_zones(self, out: _Out, lb_arn: str, lb: str) -> list[str]:
+        """The load balancer's zones (six at most) and a CONFIG line with whether zonal shift is on; a failed read is a
+        TOOL-PARTIAL, with the zones read before it failed."""
+        zones: list[str] = []
+        try:
+            [desc] = self._elb.describe_load_balancers(LoadBalancerArns=[lb_arn])["LoadBalancers"]
+            zones = sorted(z["ZoneName"] for z in desc.get("AvailabilityZones") or [] if z.get("ZoneName"))[:6]
+            attrs = {a.get("Key"): a.get("Value") for a in self._elb.describe_load_balancer_attributes(
+                LoadBalancerArn=lb_arn).get("Attributes") or []}
+            out.lines.append(f"CONFIG alb {lb.split('/')[1] if '/' in lb else lb} zones={','.join(zones) or 'none'} "
+                             f"zonal_shift={attrs.get('zonal_shift.config.enabled') or 'false'}")
+        except Exception as exc:  # noqa: BLE001 - the target health above stands without it
+            out.lines.append(_partial("alb zones", exc))
+        return zones
 
     def _read_apigw(self, out: _Out, alert: Alert, api_name: str) -> None:
         apis, _ = _pages(self._apigw.get_apis, "Items", token="NextToken")
@@ -1584,9 +1821,9 @@ class StackBackend:
             raise ToolError(f"no HTTP API named '{api_name}'")
         d = {"ApiId": api["ApiId"]}
         out.metrics.update(self._cw_read(out, "apigw", alert, {
-            "apigw_5xx": ("AWS/ApiGateway", "5xx", d, "Sum"),
-            "apigw_4xx": ("AWS/ApiGateway", "4xx", d, "Sum"),
-            "apigw_latency_ms": ("AWS/ApiGateway", "Latency", d, "Maximum"),
+            "apigw_5xx": (APIGW_NAMESPACE, "5xx", d, "Sum"),
+            "apigw_4xx": (APIGW_NAMESPACE, "4xx", d, "Sum"),
+            "apigw_latency_ms": (APIGW_NAMESPACE, "Latency", d, "Maximum"),
         }))
 
     # ------------------------------------------------------------------ ecs / k8s (reused)
@@ -1606,30 +1843,29 @@ class StackBackend:
                          .get("securityGroups") or [])
         if ecs_sgs:
             out.lines.append(f"APPSG ecs/{service} sgs=[{','.join(ecs_sgs)}]")
+        self._ecs_task_role(out, service, svc)
+        self._ecs_deploys(out, a, service)
+        self._read_ecs_tasks(out, alert.labels["ecs_cluster"], service, svc, alert)
+        net = (svc.get("networkConfiguration") or {}).get("awsvpcConfiguration") or {}
+        if net.get("securityGroups"):
+            self._read_network_changes(out, alert, net["securityGroups"], net.get("subnets") or [])
+
+    def _ecs_deploys(self, out: _Out, a: Alert, service: str) -> None:
+        """The service's deploys, read by AwsBackend; a failed read is a TOOL-PARTIAL."""
+        for d in self._aws.deploys(a):
+            if isinstance(d, str):
+                out.lines.append(_partial("ecs deploys", d))
+            else:
+                out.deploys.append(_ecs_deploy(service, d))
+
+    def _ecs_task_role(self, out: _Out, service: str, svc: dict) -> None:
+        """The service's task role: a TASKROLE line."""
         # The identity the service's code runs as (not the execution role): what a denied database
         # login or API call must be granted back to. Absent when the task definition has none.
         if svc.get("taskDefinition"):
             td = self._ecs.describe_task_definition(taskDefinition=svc["taskDefinition"]).get("taskDefinition") or {}
             if td.get("taskRoleArn"):
                 out.lines.append(f"TASKROLE ecs/{service} role={td['taskRoleArn'].rsplit('/', 1)[-1]}")
-        for d in self._aws.deploys(a):
-            if isinstance(d, str):
-                out.lines.append(_partial("ecs deploys", d))
-            else:
-                # `version`/`previous` are family:revision (what a rollback aims at); the images ride along.
-                out.deploys.append({"kind": "ecs", "service": service, "at": _z(_parse_time(d["at"])),
-                                    "version": d.get("task_definition", ""),
-                                    "previous": d.get("previous_task_definition", ""),
-                                    "image": d.get("image", ""), "previous_image": d.get("previous_image", ""),
-                                    "revision": d.get("revision", ""),
-                                    # a rollback: nothing to roll back to, and the evidence says so (audit A-B-M6)
-                                    **({"rolled_back_from": d["rolled_back_from"]} if d.get("rolled_back_from") else {}),
-                                    # a config-only revision: the setting NAMES it changed (G10: dropped here before)
-                                    **({"changed": d["changed"]} if d.get("changed") else {})})
-        self._read_ecs_tasks(out, alert.labels["ecs_cluster"], service, svc, alert)
-        net = (svc.get("networkConfiguration") or {}).get("awsvpcConfiguration") or {}
-        if net.get("securityGroups"):
-            self._read_network_changes(out, alert, net["securityGroups"], net.get("subnets") or [])
 
     def _read_network_changes(self, out: _Out, alert: Alert, sgs: list[str], subnets: list[str]) -> None:
         """G10-C4: writes to the network a workload depends on - its security groups, its subnets' route tables and
@@ -1642,20 +1878,7 @@ class StackBackend:
         ids = dict.fromkeys(sgs, "security group")
         try:
             if subnets:
-                vpcs = {s.get("VpcId") for s in self._ec2.describe_subnets(SubnetIds=subnets).get("Subnets") or []}
-                tables = self._ec2.describe_route_tables(
-                    Filters=[{"Name": "association.subnet-id", "Values": subnets}]).get("RouteTables") or []
-                if len(tables) < len(subnets):  # a subnet with no table of its own uses its VPC's main table
-                    tables += self._ec2.describe_route_tables(Filters=[{"Name": "vpc-id", "Values": sorted(vpcs)},
-                                                                       {"Name": "association.main", "Values": ["true"]}]
-                                                              ).get("RouteTables") or []
-                ids.update(dict.fromkeys((t["RouteTableId"] for t in tables), "route table"))
-                ids.update(dict.fromkeys((a["RouteTableAssociationId"] for t in tables
-                                          for a in t.get("Associations") or [] if a.get("SubnetId") in subnets),
-                                         "route table association"))
-                acls = self._ec2.describe_network_acls(
-                    Filters=[{"Name": "association.subnet-id", "Values": subnets}]).get("NetworkAcls") or []
-                ids.update(dict.fromkeys((a["NetworkAclId"] for a in acls), "network ACL"))
+                self._subnet_network_ids(ids, subnets)
         except Exception as exc:  # noqa: BLE001 - the security groups are still looked up
             out.lines.append(_partial("network workload", exc))
         started = AwsBackend._started_at(alert)
@@ -1670,19 +1893,26 @@ class StackBackend:
                 break
             if got.get("NextToken"):
                 out.lines.append(_partial("network changes", f"[output truncated on LookupEvents] more {name} events than one page in the window"))
-            for e in got.get("Events") or []:
-                if not _a_write(e):
-                    continue
-                try:
-                    request = json.loads(e.get("CloudTrailEvent") or "{}").get("requestParameters") or {}
-                except ValueError:
-                    request = {}
-                hit = next((v for v in _request_ids(request) if v in ids), None)
-                if hit:
-                    found += 1
-                    out.lines.append(f"CHANGE {_z(e.get('EventTime'))} ec2.amazonaws.com {_safe(name)} on {_safe(hit)} "
-                                     f"(this workload's {ids[hit]}) by {_principal(e)}")
+            found += _network_change_lines(out, name, got.get("Events") or [], ids)
         out.metrics["network_changes_before_alert"] = float(found)
+
+    def _subnet_network_ids(self, ids: dict[str, str], subnets: list[str]) -> None:
+        """Adds to `ids` the route tables (a subnet with none of its own: its VPC's main one), the subnets' route table
+        associations and their network ACLs, each with what it is."""
+        vpcs = {s.get("VpcId") for s in self._ec2.describe_subnets(SubnetIds=subnets).get("Subnets") or []}
+        tables = self._ec2.describe_route_tables(
+            Filters=[{"Name": "association.subnet-id", "Values": subnets}]).get("RouteTables") or []
+        if len(tables) < len(subnets):  # a subnet with no table of its own uses its VPC's main table
+            tables += self._ec2.describe_route_tables(Filters=[{"Name": "vpc-id", "Values": sorted(vpcs)},
+                                                               {"Name": "association.main", "Values": ["true"]}]
+                                                      ).get("RouteTables") or []
+        ids.update(dict.fromkeys((t["RouteTableId"] for t in tables), "route table"))
+        ids.update(dict.fromkeys((a["RouteTableAssociationId"] for t in tables
+                                  for a in t.get("Associations") or [] if a.get("SubnetId") in subnets),
+                                 "route table association"))
+        acls = self._ec2.describe_network_acls(
+            Filters=[{"Name": "association.subnet-id", "Values": subnets}]).get("NetworkAcls") or []
+        ids.update(dict.fromkeys((a["NetworkAclId"] for a in acls), "network ACL"))
 
     def _read_ecs_tasks(self, out: _Out, cluster: str, service: str, svc: dict, alert: Alert) -> None:
         """G10-C1: what the console shows first and the evidence lacked (miss analysis 2026-10-10: ecs-06, -07, -12,
@@ -1696,16 +1926,7 @@ class StackBackend:
                 f"running={int(d.get('runningCount') or 0)} pending={int(d.get('pendingCount') or 0)} "
                 f"failed={int(d.get('failedTasks') or 0)} at={_z(_parse_time(d.get('createdAt')))}")
         started = AwsBackend._started_at(alert)
-        kinds: dict[str, int] = {}
-        for e in svc.get("events") or []:
-            at = _parse_time(e.get("createdAt"))
-            if at is None or not started - ECS_EVENT_WINDOW <= at <= started + timedelta(minutes=5):
-                continue
-            message = str(e.get("message", ""))
-            kind = next((k for k, rx in _ECS_EVENT_KINDS if rx.search(message)), "other")
-            if kind == "unable_to_place":
-                kind += next((f"_{why}" for why, rx in _PLACE_WHY if rx.search(message)), "")
-            kinds[kind] = kinds.get(kind, 0) + 1
+        kinds = _ecs_event_kinds(svc, started)
         if kinds:
             counted = " ".join(f"{k}={n}" for k, n in sorted(kinds.items()))
             out.lines.append(f"STATE ecs/{service} service events in the hour before the alert: {counted}")
@@ -1718,18 +1939,8 @@ class StackBackend:
             return
         causes: dict[str, int] = {}
         for t in sorted(tasks, key=lambda t: _parse_time(t.get("stoppedAt")) or started, reverse=True):
-            reason = " ".join([str(t.get("stoppedReason") or "")]
-                              + [str(c.get("reason") or "") for c in t.get("containers") or []])
-            exits = [c.get("exitCode") for c in t.get("containers") or [] if c.get("exitCode") is not None]
-            cause = task_stop_cause(str(t.get("stopCode") or ""), reason, exits)
+            cause = _stopped_task_lines(out, service, t)
             causes[cause] = causes.get(cause, 0) + 1
-            out.lines.append(
-                f"STATE ecs/{service} stopped task {_safe(str(t.get('taskArn', '')).rsplit('/', 1)[-1][:8])} "
-                f"at={_z(_parse_time(t.get('stoppedAt')))} "
-                f"revision={_safe(str(t.get('taskDefinitionArn', '')).rsplit('/', 1)[-1])} "
-                f"stop={_safe(t.get('stopCode'))} cause={cause}" + (f" exit={int(exits[0])}" if exits else ""))
-            if reason.strip():
-                out.lines.append(f"EVENT ecs/{service} stopped task: {_head_and_tail(reason.strip(), 400)}")
         out.metrics["ecs_stopped_tasks"] = float(len(tasks))
         out.metrics["ecs_tasks_failed_to_start"] = float(sum(1 for t in tasks if t.get("stopCode") == "TaskFailedToStart"))
         for cause, n in causes.items():
