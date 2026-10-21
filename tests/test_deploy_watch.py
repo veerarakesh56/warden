@@ -29,9 +29,9 @@ def _ctx(*deploys, logs=()) -> ContextBundle:
     return ContextBundle(logs=list(logs), metrics={}, recent_deploys=list(deploys))
 
 
-def _appconfig(completed: str) -> str:
+def _appconfig(completed: str, started: str = "") -> str:
     return (f"CONFIG appconfig checkout/dev-flags monitors this alarm: deployment=7 state=COMPLETE version=3 "
-            f"completed={completed}")
+            f"completed={completed}" + (f" started={started}" if started else ""))
 
 
 @pytest.mark.parametrize(("raw", "minutes"), [
@@ -86,9 +86,9 @@ def test_an_appconfig_deployment_is_watched_and_one_still_deploying_is_a_suspect
     [done] = deploy_watch.suspects(ALERT, _ctx(logs=[_appconfig("2026-10-21T09:40:00Z")]), window=HOUR)
     assert (done["kind"], done["service"], done["version"], done["minutes"], done["deploying"]) == (
         "appconfig", "checkout/dev-flags", "3", 20, False)
-    [going] = deploy_watch.suspects(ALERT, _ctx(logs=[_appconfig("not yet")]), window=HOUR)
+    [going] = deploy_watch.suspects(ALERT, _ctx(logs=[_appconfig("not yet", "2026-10-21T09:50:00Z")]), window=HOUR)
     assert going["deploying"] is True
-    assert going["minutes"] == 0
+    assert going["minutes"] == 10
     assert deploy_watch.suspects(ALERT, _ctx(logs=[_appconfig("2026-10-21T07:00:00Z")]), window=HOUR) == []
     assert deploy_watch.suspects(ALERT, _ctx(logs=["CONFIG appconfig x monitors this alarm: junk"]), window=HOUR) == []
 
@@ -102,6 +102,18 @@ def test_a_log_line_that_copies_an_appconfig_line_names_no_deploy(line):
     """CodeRabbit, PR 146 (CWE-345): any log text of the right shape became a deploy suspect. Only WARDEN's own
     configuration line - an evidence C item - is read."""
     assert deploy_watch.suspects(ALERT, _ctx(logs=[line]), window=HOUR) == []
+
+
+@pytest.mark.parametrize(("started", "named"), [
+    ("2026-10-21T10:05:00Z", False),  # began after the alarm fired: not what set it off
+    ("", False),  # no start on the record: it cannot be placed
+    ("2026-10-21T07:00:00Z", True),  # began 3 h before and still going when it fired: inside, whatever the watch
+])
+def test_a_deployment_still_going_is_placed_at_its_start(started, named):
+    """CodeRabbit, PR 146: one still deploying was placed at the alarm, so a deployment that began after the alarm
+    fired, before WARDEN read the evidence, was named a suspect."""
+    found = deploy_watch.suspects(ALERT, _ctx(logs=[_appconfig("not yet", started)]), window=HOUR)
+    assert bool(found) is named
 
 
 def test_an_alarm_with_no_start_time_cannot_be_placed():
@@ -133,7 +145,7 @@ def test_the_banner_names_the_deploy_as_a_suspect_never_the_cause():
 
 
 def test_a_deploy_still_going_says_so_and_names_no_time():
-    found = deploy_watch.suspects(ALERT, _ctx(logs=[_appconfig("not yet")]), window=HOUR)
+    found = deploy_watch.suspects(ALERT, _ctx(logs=[_appconfig("not yet", "2026-10-21T09:50:00Z")]), window=HOUR)
     assert "`checkout/dev-flags` version `3` (appconfig), still deploying when WARDEN read it" in \
         deploy_watch.banner(found, HOUR)
 

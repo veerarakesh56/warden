@@ -191,6 +191,15 @@ def test_the_configuration_an_alarm_guards_and_its_latest_deployment_are_read():
     assert evidence._kind(lines[0]) == "C"
 
 
+def test_an_appconfig_deployment_still_going_says_when_it_started():
+    """PR 146: the post-deploy watch places a deployment still going at its start, never at the alarm."""
+    from warden import aws_stack
+
+    assert aws_stack._appconfig_started(None, WHEN) == " started=2026-10-10T12:00:00Z"
+    assert aws_stack._appconfig_started(WHEN, WHEN) == ""
+    assert aws_stack._appconfig_started(None, None) == ""
+
+
 def test_a_metric_math_alarm_reads_the_metrics_it_is_made_of_never_its_expression():
     """G10 review (2026-10-10): a metric-math alarm read nothing but its threshold, so an API Gateway fault behind one
     showed no symptom. Each part's metric is AWS's structured fields and is read like a plain alarm's; the expression

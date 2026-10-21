@@ -32,10 +32,11 @@ KINDS = ("ecs", "lambda", "k8s", "appconfig", "config")
 KIND = "incident.after_deploy"  # the record's row: what the message says, as data
 
 # What WARDEN's readers record for the AppConfig deployment of a configuration the alarm guards
-# (aws_stack._read_appconfig). `completed=not yet`: still deploying when it was read.
+# (aws_stack._read_appconfig). `completed=not yet`: still deploying when it was read, then `started=` when it began.
 _APPCONFIG = re.compile(r"^CONFIG appconfig (?P<name>[^ ]{1,260}) monitors this alarm: deployment=(?P<number>\d{1,9}) "
                         r"state=(?P<state>[A-Z_]{1,40}) version=(?P<version>[^ ]{1,64}) "
-                        r"completed=(?P<completed>not yet|[0-9TZ:.+-]{10,40})", re.ASCII)
+                        r"completed=(?P<completed>not yet|[0-9TZ:.+-]{10,40})"
+                        r"(?: started=(?P<started>[0-9TZ:.+-]{10,40}))?", re.ASCII)
 
 
 def watch(raw: str | None = None) -> timedelta:
@@ -78,7 +79,7 @@ def _appconfig(context: Any, started: datetime) -> list[dict[str, Any]]:
     """The AppConfig deployments WARDEN's own reader recorded, as deploys - only its trusted configuration lines (an
     evidence C item: a line at its start, never inside an application's log text, and no steering words), so a log
     line that copies the shape names no deploy (CodeRabbit, PR 146). One still deploying when it was read is placed at
-    the alarm itself: it was going on then."""
+    its start (`started=`), and left out without one: it may have begun after the alarm fired (CodeRabbit, PR 146)."""
     from .evidence import index
 
     out = []
@@ -86,10 +87,11 @@ def _appconfig(context: Any, started: datetime) -> list[dict[str, Any]]:
         m = _APPCONFIG.match(item.text) if item.id.startswith("C") else None
         if not m:
             continue
-        at = started if m["completed"] == "not yet" else _when(m["completed"])
+        going = m["completed"] == "not yet"
+        at = (_when(m["started"]) if m["started"] else None) if going else _when(m["completed"])
         if at is not None:
             out.append({"kind": "appconfig", "service": m["name"], "version": m["version"], "at": at,
-                        "deploying": m["completed"] == "not yet"})
+                        "deploying": going})
     return out
 
 
@@ -105,7 +107,8 @@ def suspects(alert: Any, context: Any, *, window: timedelta | None = None) -> li
     rows = [{**d, "at": _when(d.get("at"))} for d in deploys if d.get("kind") != "secret"]  # a rotation is no deploy
     for d in rows + _appconfig(context, started):
         at = d["at"]
-        if at is None or not at <= started <= at + span:
+        # Inside the watch from the deploy; one still going when the alarm fired, however long ago it began.
+        if at is None or at > started or (started > at + span and not d.get("deploying")):
             continue
         found.append({"kind": _kind(d), "service": str(d.get("service") or alert.service),
                       "version": _version(d), "at": at, "minutes": int((started - at).total_seconds() // 60),
