@@ -41,7 +41,8 @@ def test_a_queue_alarm_shows_who_reads_the_queue_and_that_it_is_switched_off():
     b = _backend(_clients(**{"lambda": lam, "sqs": _jobs_queue()}))
     a = _stack_alert(sqs=f"{P}jobs")
     line = f"ESM {P}consumer <- {P}jobs State=Disabled BatchSize=10 LastProcessingResult=No records processed"
-    assert line in b.logs(a) and b.metrics(a)["sqs_consumers_enabled"] == 0
+    assert line in b.logs(a)
+    assert b.metrics(a)["sqs_consumers_enabled"] == 0
     assert evidence._kind(line) == "C"  # WARDEN's own read: the model may cite it, and it names a real resource
     assert ("list_event_source_mappings", {"EventSourceArn": JOBS_ARN}) in lam.calls  # this queue's, by its ARN
     on = _backend(_clients(**{"lambda": _lambda(list_event_source_mappings=_mappings("Enabled")), "sqs": _jobs_queue()}))
@@ -58,7 +59,8 @@ def test_a_function_the_alert_names_is_not_listed_twice_and_a_failed_listing_is_
     assert any(ln.startswith(f"ESM {P}consumer <- {P}jobs ") for ln in lines)  # the function, not its alias
     down = _lambda(list_event_source_mappings=RuntimeError("boom"))
     lines = _backend(_clients(**{"lambda": down, "sqs": _jobs_queue()})).logs(_stack_alert(sqs=f"{P}jobs"))
-    assert any(f"sqs/{P}jobs consumers: " in ln for ln in lines) and any(ln.startswith("QUEUE ") for ln in lines)
+    assert any(f"sqs/{P}jobs consumers: " in ln for ln in lines)
+    assert any(ln.startswith("QUEUE ") for ln in lines)
 
 
 class Queue(More):
@@ -84,7 +86,8 @@ def _platform(fake):
 def test_the_live_read_finds_the_queues_one_switched_off_mapping_and_never_chooses():
     f = Queue()
     live = _platform(f).live("lambda_enable_esm", {"queue": QUEUE})
-    assert live["function"] == {FN} and live["mapping"] == {"u-1"}  # not u-2: that one reads a stream
+    assert live["function"] == {FN}
+    assert live["mapping"] == {"u-1"}  # not u-2: that one reads a stream
     f.mappings.append({"UUID": "u-3", "FunctionArn": FN_ARN.replace(FN, "another"), "State": "Disabled",
                        "EventSourceArn": QUEUE_ARN})
     assert _platform(f).live("lambda_enable_esm", {"queue": QUEUE}) == {}  # two are off: a person decides
@@ -99,22 +102,28 @@ def test_resume_flow_on_the_alarms_queue_is_planned_as_switching_its_mapping_on(
     alert, proposal = _alert(sqs=QUEUE, alarm="jobs-age"), _prop(ActionKind.resume_flow, QUEUE)
     assert resolver.no_fix_path(alert, proposal) == ""
     req, why = resolver.request_for(alert, proposal, lambda e, params: _platform(f).live(e, params))
-    assert why == "" and req["entry"] == "lambda_enable_esm"
-    assert req["params"] == {"function": FN, "mapping": "u-1"} and req["service"] == "u-1"
+    assert why == ""
+    assert req["entry"] == "lambda_enable_esm"
+    assert req["params"] == {"function": FN, "mapping": "u-1"}
+    assert req["service"] == "u-1"
     # The plan is the entry's own: the same checks, snapshot and session as one led by the function.
     state = _platform(f).live("lambda_enable_esm", req["params"])
-    assert catalog.validate("lambda_enable_esm", req["params"], state) == [] and state["state"]["source"] == QUEUE_ARN
+    assert catalog.validate("lambda_enable_esm", req["params"], state) == []
+    assert state["state"]["source"] == QUEUE_ARN
     f.mappings.append({"UUID": "u-3", "FunctionArn": FN_ARN.replace(FN, "another"), "State": "Disabled",
                        "EventSourceArn": QUEUE_ARN})
     req, why = resolver.request_for(alert, proposal, lambda e, params: _platform(f).live(e, params))
-    assert req is None and "no single known-good" in why
+    assert req is None
+    assert "no single known-good" in why
     # Independent review 2026-10-10, F6: what the model names never becomes a target. A function it names on a queue's
     # alarm leads to no plan of its own: when that function IS the queue's one switched-off consumer (fs-07, live,
     # 2026-10-15), the plan is exactly the queue's - read by the queue's ARN, the same entry, function and mapping as
     # the queue-named proposal above; any other function, nothing.
     queue_plan = resolver.request_for(alert, proposal, lambda e, params: _platform(Queue()).live(e, params))[0]
     req, why = resolver.request_for(alert, _prop(ActionKind.resume_flow, FN), lambda e, params: _platform(Queue()).live(e, params))
-    assert why == "" and req == queue_plan
+    assert why == ""
+    assert req == queue_plan
     req, why = resolver.request_for(alert, _prop(ActionKind.resume_flow, "warden-dev-another-fn"),
                                     lambda e, params: _platform(Queue()).live(e, params))
-    assert req is None and "is not warden-dev-another-fn" in why
+    assert req is None
+    assert "is not warden-dev-another-fn" in why
