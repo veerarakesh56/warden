@@ -222,3 +222,30 @@ def test_the_status_line_comes_from_providers_yaml_alone():
     line = qc.status_line(doc, "2026-10-21")
     assert line.startswith(qc.STATUS_PREFIX)
     assert ("**none**" in line) is (not qualified_now(doc))
+
+
+def test_a_mistyped_compare_with_stops_before_any_key_or_spend(tmp_path, monkeypatch):
+    called = []
+    monkeypatch.setattr(qc, "measure", lambda *a, **k: called.append("measure"))
+    args = ["--model", SONNET, "--budget-usd", "2", "--compare-with", str(tmp_path / "no-such-run")]
+    with pytest.raises(SystemExit) as stopped:
+        qc.main(args)
+    assert stopped.value.code == 2
+    assert called == [], "nothing was measured, so nothing was spent"
+
+
+def test_a_comparison_that_fails_still_records_the_paid_result(tmp_path, monkeypatch, capsys):
+    written = []
+    monkeypatch.setattr(
+        qc, "write", lambda result, when: written.append(result) or "below the bar: NOT qualified"
+    )
+
+    def broken(*_a):
+        raise ValueError("unreadable run")
+
+    monkeypatch.setattr(qc, "print_comparison", broken)
+    saved = tmp_path / "qualification.json"
+    saved.write_text(json.dumps(_result(correct=0)), encoding="utf-8")
+    assert qc.main(["--from-result", str(saved)]) == 2
+    assert len(written) == 1
+    assert "comparison unavailable" in capsys.readouterr().err

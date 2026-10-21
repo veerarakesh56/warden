@@ -9,6 +9,7 @@ import pathlib
 import shutil
 import sys
 
+import pytest
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -101,3 +102,10 @@ def test_an_earlier_run_directory_is_the_old_side_per_incident(tmp_path):
     old = cmp.old_side({}, None, run / "qualification.json")
     assert old["label"] == "old: m-old"
     assert len(old["incidents"]) == 90
+
+
+def test_an_old_run_without_its_result_is_an_error_not_an_empty_column(tmp_path):
+    missing = tmp_path / "empty-run"
+    missing.mkdir()
+    with pytest.raises(ValueError, match="qualification.json"):
+        cmp.old_side({}, None, missing)

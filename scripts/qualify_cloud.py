@@ -252,6 +252,12 @@ def write(result: dict, when: str) -> str:
     return why
 
 
+def compare_with_result(path: pathlib.Path) -> pathlib.Path | None:
+    """The qualification.json --compare-with names: the file itself, or the one in that run directory; else None."""
+    found = path / "qualification.json" if path.is_dir() else path
+    return found if found.name == "qualification.json" and found.is_file() else None
+
+
 def print_comparison(
     result: dict, run_dir: pathlib.Path | None, compare_with: pathlib.Path | None
 ) -> None:
@@ -298,6 +304,12 @@ def main(argv: list[str] | None = None, *, secrets_client: object = None) -> int
         help="the old side: an earlier run directory (or its qualification.json); default the providers.yaml row",
     )
     a = p.parse_args(argv)
+    if a.compare_with is not None and compare_with_result(a.compare_with) is None:
+        # Before any key is read or any money spent (CodeRabbit, PR 173): a mistyped path is an error, never an empty
+        # old side that reads as "nothing to compare with".
+        p.error(
+            f"--compare-with {a.compare_with}: no qualification.json there (a run directory or that file)"
+        )
     sys.path.insert(0, str(SCRIPTS))
     if a.from_result:
         result = json.loads(a.from_result.read_text(encoding="utf-8"))
@@ -317,7 +329,15 @@ def main(argv: list[str] | None = None, *, secrets_client: object = None) -> int
         if measured
         else dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M")
     )
-    print_comparison(result, a.out, a.compare_with)
+    try:
+        print_comparison(result, a.out, a.compare_with)
+        compared = True
+    except Exception as exc:  # noqa: BLE001  # a paid result is recorded even when the comparison cannot be printed
+        print(
+            f"comparison unavailable ({type(exc).__name__}: {exc}); recording the result anyway",
+            file=sys.stderr,
+        )
+        compared = False
     why = write(result, when)
     ok = why == OK_WORDS
     print(
@@ -329,6 +349,8 @@ def main(argv: list[str] | None = None, *, secrets_client: object = None) -> int
             else ""
         )
     )
+    if not compared:
+        return 2
     return 0 if ok else 1
 
 

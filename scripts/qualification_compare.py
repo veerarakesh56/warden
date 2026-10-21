@@ -151,7 +151,11 @@ def old_side(doc: dict, provider: str | None, compare_with: pathlib.Path | None)
     if compare_with:
         run_dir = compare_with if compare_with.is_dir() else compare_with.parent
         result = run_dir / "qualification.json"
-        totals = json.loads(result.read_text(encoding="utf-8")) if result.exists() else {}
+        if not result.is_file():
+            raise ValueError(
+                f"{compare_with}: no qualification.json (a run directory or that file)"
+            )
+        totals = json.loads(result.read_text(encoding="utf-8"))
         return side(f"old: {totals.get('model', run_dir.name)}", totals, run_dir)
     row = current_row(doc, provider)
     if row is None:
