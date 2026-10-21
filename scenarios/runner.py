@@ -75,6 +75,11 @@ ALERT_FILE = HERE / "alert.yaml"
 # why the Wave 1 alert stopped being shared.
 ALERT_FILES = {"ecs": ALERT_FILE, "k8s": HERE / "alert-k8s.yaml", "db": HERE / "alert-db.yaml"}
 SCORING = HERE / "scoring.yaml"
+CATALOG_GLOB = "*.yaml"  # every catalog file, one wave each
+MANIFEST = "manifest.json"  # a run's own description, in its output directory
+WARDEN_CLI = "warden.cli"  # the tool under test, run as `python -m warden.cli`
+DRY_RUN = "dry run"  # the canned report's every free-text field
+DRY_STARTED_AT = "2026-01-01T00:00:00Z"  # the canned alerts' start, fixed so dry runs compare
 TF_DIR = ROOT / "terraform" / "proving-ground"
 
 # Copied from the operator's shell into WARDEN's, by name. Everything else is dropped. The model
@@ -202,8 +207,6 @@ def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
     ⚠ This checks the state the scenarios manipulate, not everything. A wave that passes here can
     still be contaminated in some way not listed. It is a floor, not a proof.
     """
-    problems: list[str] = []
-
     # ⚠ An absent service must be REPORTED, not crash the check. `["services"][0]` raised IndexError
     # on the day the cluster had been deleted, which is exactly when this check matters most.
     services = clients.ecs.describe_services(
@@ -211,12 +214,18 @@ def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
     ).get("services") or []
     service = next((s for s in services if s.get("status") == "ACTIVE"), None)
     if service is None:
-        problems.append(
+        return [(
             f"service {target.service} not found (or not ACTIVE) in cluster {target.cluster} - "
             "the proving ground is not up"
-        )
-        return problems
+        )]
+    return (_service_problems(service, target) + _log_group_problems(clients, target)
+            + _security_group_problems(clients, target) + _route_table_problems(clients, target)
+            + _reader_role_problems(clients, target))
 
+
+def _service_problems(service: dict, target: ops.Target) -> list[str]:
+    """The ECS service: on the baseline task definition, 2 tasks, steady, one deployment."""
+    problems: list[str] = []
     current = (service.get("taskDefinition") or "").split("/")[-1]
     baseline = target.baseline_task_definition.split("/")[-1]
     if current != baseline:
@@ -240,46 +249,61 @@ def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
             f"{in_flight} deployments in flight - a rollout has not converged, so the next "
             "scenario would read the previous one's rollout as evidence"
         )
+    return problems
 
+
+def _log_group_problems(clients: ops.Clients, target: ops.Target) -> list[str]:
     # This exact group (audit A-B-L19): by prefix, `/ecs/checkout-legacy` passed for a deleted `/ecs/checkout`.
     groups = clients.logs.describe_log_groups(logGroupNamePrefix=target.log_group).get("logGroups") or []
     if not any(g.get("logGroupName") == target.log_group for g in groups):
-        problems.append(f"log group {target.log_group} is missing - a previous run deleted it")
+        return [f"log group {target.log_group} is missing - a previous run deleted it"]
+    return []
 
-    if target.security_group_id:
-        groups = clients.ec2.describe_security_groups(
-            GroupIds=[target.security_group_id],
-        ).get("SecurityGroups") or []
-        if not groups:
-            problems.append(f"security group {target.security_group_id} not found")
-        elif not groups[0].get("IpPermissionsEgress"):
-            problems.append("security group has no egress rule - a previous run revoked it")
 
-    if target.route_table_id:
-        tables = clients.ec2.describe_route_tables(
-            RouteTableIds=[target.route_table_id],
-        ).get("RouteTables") or []
-        if not tables:
-            problems.append(f"route table {target.route_table_id} not found")
-        elif not [r for r in tables[0].get("Routes") or []
-                  if r.get("DestinationCidrBlock") == "0.0.0.0/0"]:
-            problems.append("route table has no default route - a previous run deleted it")
+def _security_group_problems(clients: ops.Clients, target: ops.Target) -> list[str]:
+    if not target.security_group_id:
+        return []
+    groups = clients.ec2.describe_security_groups(
+        GroupIds=[target.security_group_id],
+    ).get("SecurityGroups") or []
+    if not groups:
+        return [f"security group {target.security_group_id} not found"]
+    if not groups[0].get("IpPermissionsEgress"):
+        return ["security group has no egress rule - a previous run revoked it"]
+    return []
 
-    if target.warden_role_name:
-        names = clients.iam.list_role_policies(
-            RoleName=target.warden_role_name,
-        ).get("PolicyNames") or []
-        if names:
-            document = clients.iam.get_role_policy(
-                RoleName=target.warden_role_name, PolicyName=names[0],
-            )["PolicyDocument"]
-            actions = document["Statement"][0].get("Action") or []
-            if len(actions) != 4:
-                problems.append(
-                    f"the reader role grants {len(actions)} action(s), expected 4 - a previous run "
-                    "shrank it and did not restore it"
-                )
-    return problems
+
+def _route_table_problems(clients: ops.Clients, target: ops.Target) -> list[str]:
+    if not target.route_table_id:
+        return []
+    tables = clients.ec2.describe_route_tables(
+        RouteTableIds=[target.route_table_id],
+    ).get("RouteTables") or []
+    if not tables:
+        return [f"route table {target.route_table_id} not found"]
+    if not [r for r in tables[0].get("Routes") or [] if r.get("DestinationCidrBlock") == "0.0.0.0/0"]:
+        return ["route table has no default route - a previous run deleted it"]
+    return []
+
+
+def _reader_role_problems(clients: ops.Clients, target: ops.Target) -> list[str]:
+    if not target.warden_role_name:
+        return []
+    names = clients.iam.list_role_policies(
+        RoleName=target.warden_role_name,
+    ).get("PolicyNames") or []
+    if not names:
+        return []
+    document = clients.iam.get_role_policy(
+        RoleName=target.warden_role_name, PolicyName=names[0],
+    )["PolicyDocument"]
+    actions = document["Statement"][0].get("Action") or []
+    if len(actions) != 4:
+        return [(
+            f"the reader role grants {len(actions)} action(s), expected 4 - a previous run "
+            "shrank it and did not restore it"
+        )]
+    return []
 
 
 # --------------------------------------------------------------------------- the catalog
@@ -287,7 +311,7 @@ def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
 
 def load_wave(wave: int) -> tuple[dict, list[dict]]:
     """Return (catalog document, scenarios) for one wave, in catalog order."""
-    for path in sorted(CATALOG.glob("*.yaml")):
+    for path in sorted(CATALOG.glob(CATALOG_GLOB)):
         # `warden-__ENV__-`: the environment's own prefix, as in the alert templates - a catalogue names no
         # environment (owner, 2026-10-12).
         text = path.read_text(encoding="utf-8").replace("warden-__ENV__-", f"warden-{fault_environment()}-")
@@ -465,7 +489,7 @@ def warden_env(creds: dict[str, str], target: ops.Target, arm: dict[str, str]) -
 def _subprocess_warden(target: ops.Target, timeout_s: float) -> Callable[..., tuple[int, str]]:
     def invoke(env: dict[str, str], report_path: pathlib.Path) -> tuple[int, str]:
         cmd = [
-            sys.executable, "-m", "warden.cli", "run",
+            sys.executable, "-m", WARDEN_CLI, "run",
             "--alert", str(ALERT_FILE),
             "--started-at", "now",
             "--service", target.service,
@@ -561,7 +585,7 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
     except ModelExhausted as exc:
         record["status"] = "exhausted"
         record["error"] = f"model provider exhausted: {exc}"
-    except Exception as exc:  # noqa: BLE001 - recorded as an error, never swallowed
+    except Exception as exc:  # noqa: BLE001 - recorded as an error; never swallowed
         record["status"] = "error"
         record["error"] = f"{type(exc).__name__}: {exc}"
     finally:
@@ -710,7 +734,7 @@ def _live_harness(timeout_s: float) -> Harness:
                 cluster=target.cluster, services=[target.service],
                 WaiterConfig={"Delay": 15, "MaxAttempts": attempts},
             )
-        except Exception as exc:  # noqa: BLE001 - the baseline gate decides, not the waiter
+        except Exception as exc:  # noqa: BLE001 - the baseline gate decides; not the waiter
             print(f"   (services-stable did not converge in ~{attempts * 15}s: "
                   f"{type(exc).__name__}. The baseline check will decide whether to continue.)")
 
@@ -768,14 +792,19 @@ def check_baseline_k8s(clients: ops_k8s.Clients, target: ops_k8s.Target, *,
     here: a Deployment mid-rollout, a liveness probe left behind by the previous variant, or an
     RBAC rule still missing would all make the next scenario measure something nobody injected.
     """
-    problems: list[str] = []
     try:
         dep = ops_k8s._read_deployment(clients, target)
     except Exception as exc:  # noqa: BLE001 - any failure here means "do not start the next one"
         return [f"cannot read deployment {target.deployment!r}: {type(exc).__name__}: {exc}"]
 
     spec = dep.get("spec") or {}
-    status = dep.get("status") or {}
+    return (_replica_problems(spec, dep.get("status") or {}, replicas) + _container_problems(spec, target)
+            + _cluster_role_problems(clients, target))
+
+
+def _replica_problems(spec: dict, status: dict, replicas: int) -> list[str]:
+    """Declared, ready and updated replicas at the baseline, none unavailable (no rollout in flight)."""
+    problems: list[str] = []
     declared = int(spec.get("replicas") or 0)
     if declared != replicas:
         problems.append(f"replicas is {declared}, baseline is {replicas}")
@@ -785,37 +814,41 @@ def check_baseline_k8s(clients: ops_k8s.Clients, target: ops_k8s.Target, *,
             problems.append(f"{label} replicas is {got}, expected {replicas}")
     if int(status.get("unavailableReplicas") or 0):
         problems.append(f"{status['unavailableReplicas']} replica(s) unavailable - rollout in flight")
+    return problems
 
+
+def _container_problems(spec: dict, target: ops_k8s.Target) -> list[str]:
+    """The target container is in the pod template, on the baseline image, with no liveness probe left behind."""
     containers = (spec.get("template") or {}).get("spec", {}).get("containers") or []
     container = next((c for c in containers if c.get("name") == target.container), None)
     if container is None:
-        problems.append(f"container {target.container!r} is missing from the pod template")
-    else:
-        if container.get("image") != target.baseline_image:
-            problems.append(
-                f"image is {container.get('image')!r}, baseline is {target.baseline_image!r}"
-            )
-        if container.get("livenessProbe"):
-            problems.append("a livenessProbe is still set - a previous variant was not reverted")
+        return [f"container {target.container!r} is missing from the pod template"]
+    problems: list[str] = []
+    if container.get("image") != target.baseline_image:
+        problems.append(
+            f"image is {container.get('image')!r}, baseline is {target.baseline_image!r}"
+        )
+    if container.get("livenessProbe"):
+        problems.append("a livenessProbe is still set - a previous variant was not reverted")
+    return problems
 
+
+def _cluster_role_problems(clients: ops_k8s.Clients, target: ops_k8s.Target) -> list[str]:
     # ⛔ The reader role must be whole before the next scenario, or k8s-09's revocation would look
     # like the tool's own blindness in every scenario that followed it.
     try:
         rules = ops_k8s._to_dict(clients.rbac.read_cluster_role(name=target.cluster_role)).get("rules") or []
     except Exception as exc:  # noqa: BLE001
-        problems.append(f"cannot read ClusterRole {target.cluster_role!r}: {type(exc).__name__}")
-    else:
-        granted = {res for rule in rules for res in (rule.get("resources") or [])}
-        for needed in ("pods", "pods/log", "events"):
-            if needed not in granted:
-                problems.append(f"ClusterRole {target.cluster_role!r} no longer grants {needed}")
-    return problems
+        return [f"cannot read ClusterRole {target.cluster_role!r}: {type(exc).__name__}"]
+    granted = {res for rule in rules for res in (rule.get("resources") or [])}
+    return [f"ClusterRole {target.cluster_role!r} no longer grants {needed}"
+            for needed in ("pods", "pods/log", "events") if needed not in granted]
 
 
 def _subprocess_warden_k8s(target: ops_k8s.Target, timeout_s: float) -> Callable[..., tuple[int, str]]:
     def invoke(env: dict[str, str], report_path: pathlib.Path) -> tuple[int, str]:
         cmd = [
-            sys.executable, "-m", "warden.cli", "run",
+            sys.executable, "-m", WARDEN_CLI, "run",
             "--alert", str(ALERT_FILES["k8s"]),
             "--started-at", "now",
             "--service", target.deployment,
@@ -965,7 +998,7 @@ def db_warden_env(creds: dict[str, str], target: ops_db.Target,
     return env
 
 
-def check_baseline_db(clients: ops_db.Clients, target: ops_db.Target) -> list[str]:
+def check_baseline_db(clients: ops_db.Clients) -> list[str]:
     """Is the database back at baseline? Empty list means yes.
 
     ⛔ The gate before every scenario. A session the previous revert failed to close is exactly the
@@ -1017,7 +1050,7 @@ def _subprocess_warden_db(target: ops_db.Target, timeout_s: float) -> Callable[.
         # falls back to $WARDEN_DB_DSN when the alert carries no dsn label, which is exactly the
         # path taken here.
         cmd = [
-            sys.executable, "-m", "warden.cli", "run",
+            sys.executable, "-m", WARDEN_CLI, "run",
             "--alert", str(ALERT_FILES["db"]),
             "--started-at", "now",
             "--service", target.database,
@@ -1110,7 +1143,7 @@ _DRY_REPORT: dict[str, Any] = {
     "alert": {
         "alert_id": "bench", "name": "ECSServiceAlarm", "severity": "high", "service": "checkout",
         "environment": "prod", "summary": "CloudWatch alarm fired for ECS service checkout",
-        "started_at": "2026-01-01T00:00:00Z", "labels": {},
+        "started_at": DRY_STARTED_AT, "labels": {},
     },
     "redaction_map_size": 0,
     "context": {
@@ -1119,13 +1152,13 @@ _DRY_REPORT: dict[str, Any] = {
         "recent_deploys": [{"service": "checkout", "revision": "2", "by": "ecs"}],
         "tool_errors": [],
     },
-    "root_cause": {"hypothesis": "dry run", "confidence": 0.85, "evidence": [], "ruled_out": []},
+    "root_cause": {"hypothesis": DRY_RUN, "confidence": 0.85, "evidence": [], "ruled_out": []},
     "proposal": {
-        "action": "rollback_deploy", "target": "checkout", "reasoning": "dry run",
-        "expected_effect": "dry run", "blast_radius": "single_service", "reversible": True,
+        "action": "rollback_deploy", "target": "checkout", "reasoning": DRY_RUN,
+        "expected_effect": DRY_RUN, "blast_radius": "single_service", "reversible": True,
     },
     "verdict": {
-        "status": "approved_for_human", "reasons": ["dry run"], "policy_ids": [],
+        "status": "approved_for_human", "reasons": [DRY_RUN], "policy_ids": [],
         "requires_approval": True,
     },
     "cost": {"input_tokens": 0, "output_tokens": 0, "usd": 0.0, "calls": 0},
@@ -1207,7 +1240,7 @@ _DRY_REPORT_K8S: dict[str, Any] = {
         "alert_id": "bench", "name": "ECSServiceAlarm", "severity": "high",
         "service": K8S_DEPLOYMENT, "environment": "prod",
         "summary": "CloudWatch alarm fired for ECS service checkout",
-        "started_at": "2026-01-01T00:00:00Z",
+        "started_at": DRY_STARTED_AT,
         "labels": {"namespace": K8S_NAMESPACE, "deployment": K8S_DEPLOYMENT},
     },
     "redaction_map_size": 0,
@@ -1221,13 +1254,13 @@ _DRY_REPORT_K8S: dict[str, Any] = {
         "recent_deploys": [{"service": K8S_DEPLOYMENT, "image": _DRY_IMAGE, "by": "dry-run"}],
         "tool_errors": [],
     },
-    "root_cause": {"hypothesis": "dry run", "confidence": 0.85, "evidence": [], "ruled_out": []},
+    "root_cause": {"hypothesis": DRY_RUN, "confidence": 0.85, "evidence": [], "ruled_out": []},
     "proposal": {
-        "action": "rollback_deploy", "target": K8S_DEPLOYMENT, "reasoning": "dry run",
-        "expected_effect": "dry run", "blast_radius": "single_service", "reversible": True,
+        "action": "rollback_deploy", "target": K8S_DEPLOYMENT, "reasoning": DRY_RUN,
+        "expected_effect": DRY_RUN, "blast_radius": "single_service", "reversible": True,
     },
     "verdict": {
-        "status": "approved_for_human", "reasons": ["dry run"], "policy_ids": [],
+        "status": "approved_for_human", "reasons": [DRY_RUN], "policy_ids": [],
         "requires_approval": True,
     },
     "cost": {"input_tokens": 0, "output_tokens": 0, "usd": 0.0, "calls": 0},
@@ -1287,7 +1320,7 @@ _DRY_REPORT_DB: dict[str, Any] = {
         "alert_id": "bench", "name": "DatabaseAlarm", "severity": "high",
         "service": DB_DATABASE, "environment": "prod",
         "summary": "connection count high on the proving-ground database",
-        "started_at": "2026-01-01T00:00:00Z",
+        "started_at": DRY_STARTED_AT,
         "labels": {"database": DB_DATABASE},
     },
     "redaction_map_size": 0,
@@ -1304,13 +1337,13 @@ _DRY_REPORT_DB: dict[str, Any] = {
         "recent_deploys": [],
         "tool_errors": [],
     },
-    "root_cause": {"hypothesis": "dry run", "confidence": 0.85, "evidence": [], "ruled_out": []},
+    "root_cause": {"hypothesis": DRY_RUN, "confidence": 0.85, "evidence": [], "ruled_out": []},
     "proposal": {
-        "action": "terminate_connections", "target": DB_DATABASE, "reasoning": "dry run",
-        "expected_effect": "dry run", "blast_radius": "single_service", "reversible": False,
+        "action": "terminate_connections", "target": DB_DATABASE, "reasoning": DRY_RUN,
+        "expected_effect": DRY_RUN, "blast_radius": "single_service", "reversible": False,
     },
     "verdict": {
-        "status": "approved_for_human", "reasons": ["dry run"], "policy_ids": [],
+        "status": "approved_for_human", "reasons": [DRY_RUN], "policy_ids": [],
         "requires_approval": True,
     },
     "cost": {"input_tokens": 0, "output_tokens": 0, "usd": 0.0, "calls": 0},
@@ -1330,7 +1363,7 @@ class _FakeDbCursor:
         return False
 
     def execute(self, sql: str, params: Any = None) -> _FakeDbCursor:
-        self._conn.last = sql
+        self._conn.last, self._conn.last_params = sql, params
         return self
 
     def fetchone(self) -> tuple[Any]:
@@ -1338,7 +1371,9 @@ class _FakeDbCursor:
         if "current_database()" in sql:
             return (DB_DATABASE,)
         if "to_regclass" in sql:
-            return (ops_db.SENTINEL_TABLE,)
+            # As PostgreSQL answers: the name of a table that exists, else NULL. The sentinel is the only one here.
+            asked = (self._conn.last_params or (None,))[0]
+            return (asked if asked == ops_db.SENTINEL_TABLE else None,)
         if "max_connections" in sql:
             return ("100",)
         return (0,)
@@ -1347,6 +1382,7 @@ class _FakeDbCursor:
 class _FakeDbConn:
     def __init__(self) -> None:
         self.last = ""
+        self.last_params: Any = None
         self.closed = False
         self.cancelled = False
 
@@ -1369,7 +1405,7 @@ class _FakeDbEc2:
 
     _RULES: ClassVar[list[dict]] = [
         {"IpProtocol": "tcp", "FromPort": 5432, "ToPort": 5432,
-         "IpRanges": [{"CidrIp": "203.0.113.0/32", "Description": "dry run"}]},
+         "IpRanges": [{"CidrIp": "203.0.113.0/32", "Description": DRY_RUN}]},
     ]
 
     def describe_security_groups(self, **_kw: Any) -> dict:
@@ -1467,7 +1503,7 @@ def _db_live_harness(timeout_s: float) -> Harness:
         clients=clients, target=target, account="",
         assume_reader=assume,
         invoke_warden=_subprocess_warden_db(target, timeout_s),
-        baseline=lambda: check_baseline_db(clients, target),
+        baseline=lambda: check_baseline_db(clients),
         # No `stabilize`: the default no-op is right here, not an omission. ECS waits for
         # services-stable and Kubernetes waits for a rollout because both revert ASYNCHRONOUSLY -
         # the API returns before the change lands. Closing a session and cancelling a query return
@@ -1505,7 +1541,7 @@ def _db_dry_harness() -> Harness:
         # As in the Kubernetes dry run: the REAL baseline gate runs against the fake above, because
         # check_baseline_db decides whether a scenario may start and must not first be exercised
         # against a billed database.
-        baseline=lambda: check_baseline_db(clients, target),
+        baseline=lambda: check_baseline_db(clients),
         sleep=lambda _seconds: None,
         build_env=db_warden_env,
         registry=ops_db.OPS,
@@ -1635,26 +1671,8 @@ def main(argv: list[str] | None = None) -> int:
         return _resume(given, args.warden_timeout,
                        rerun=rerun, reason=args.reason.strip())
 
-    arm: dict[str, str] = {}
-    for pair in args.arm:
-        key, sep, value = pair.partition("=")
-        if not sep or not key:
-            raise SystemExit(f"--arm must be K=V, got '{pair}'")
-        arm[key] = value
-
-    _doc, scenarios = load_wave(args.wave)
-    if _doc.get("service") == "fullstack":
-        # ⛔ Wave 4 is operator-driven by the owner's decision (2026-09-25): no loop, no terraform,
-        # WARDEN run by hand one fault at a time. Refused here rather than half-supported.
-        raise SystemExit(
-            "Wave 4 is run step by step: python -m scenarios.fullstack_cli --help "
-            "(soak, inject fs-NN, diagnose fs-NN, fix fs-NN, verify fs-NN, revert fs-NN, watch)"
-        )
-    if args.only:
-        wanted = tuple(prefix.strip() for prefix in args.only.split(",") if prefix.strip())
-        scenarios = [s for s in scenarios if s["id"].startswith(wanted)]
-        if not scenarios:
-            raise SystemExit(f"--only {args.only!r} matched no scenario in wave {args.wave}")
+    arm = _arm_pairs(args.arm)
+    _doc, scenarios = _wave_scenarios(args.wave, args.only)
 
     stamp = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H%M%SZ")
     out = given or paths.bench_dir() / f"wave{args.wave}-{stamp}"
@@ -1671,10 +1689,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             f"--target must be one of {', '.join(sorted(EVIDENCE_REACH_M))}, got {target_kind!r}"
         )
-    if args.dry_run:
-        harness = _DRY_HARNESSES.get(target_kind, _dry_harness)()
-    else:
-        harness = _LIVE_HARNESSES.get(target_kind, _live_harness)(args.warden_timeout)
+    harness = _harness(target_kind, dry_run=args.dry_run, warden_timeout=args.warden_timeout)
     alert_file = ALERT_FILES[target_kind]
     alert = yaml.safe_load(alert_file.read_text(encoding="utf-8")) or {}
 
@@ -1689,16 +1704,55 @@ def main(argv: list[str] | None = None) -> int:
         # A deliberate choice a reader should be able to argue with: the throwaway account is
         # labelled `prod` so the policy gate under test is the one people actually run.
         "environment_label": alert.get("environment"),
-        "catalog_sha256": {p.name: _sha256(p) for p in sorted(CATALOG.glob("*.yaml"))},
+        "catalog_sha256": _catalog_sha256(),
         "scoring_sha256": _sha256(SCORING),
         "git_commit": _git_commit(),
         **describe_target(harness.target),
         "scenario_ids": [s["id"] for s in scenarios],
         "evidence_isolation": _evidence_isolation(target_kind),
     }
-    _write_json(out / "manifest.json", manifest)
+    _write_json(out / MANIFEST, manifest)
     print(f"artefacts -> {out}")
     return _run_and_record(harness, scenarios, out, manifest)
+
+
+def _arm_pairs(pairs: list[str]) -> dict[str, str]:
+    """--arm K=V, each a variable for WARDEN; anything else is refused."""
+    arm: dict[str, str] = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or not key:
+            raise SystemExit(f"--arm must be K=V, got '{pair}'")
+        arm[key] = value
+    return arm
+
+
+def _wave_scenarios(wave: int, only: str) -> tuple[dict, list[dict]]:
+    """The wave's catalog and its scenarios, narrowed by --only (id prefixes, comma-separated)."""
+    doc, scenarios = load_wave(wave)
+    if doc.get("service") == "fullstack":
+        # ⛔ Wave 4 is operator-driven by the owner's decision (2026-09-25): no loop, no terraform,
+        # WARDEN run by hand one fault at a time. Refused here rather than half-supported.
+        raise SystemExit(
+            "Wave 4 is run step by step: python -m scenarios.fullstack_cli --help "
+            "(soak, inject fs-NN, diagnose fs-NN, fix fs-NN, verify fs-NN, revert fs-NN, watch)"
+        )
+    if only:
+        wanted = tuple(prefix.strip() for prefix in only.split(",") if prefix.strip())
+        scenarios = [s for s in scenarios if s["id"].startswith(wanted)]
+        if not scenarios:
+            raise SystemExit(f"--only {only!r} matched no scenario in wave {wave}")
+    return doc, scenarios
+
+
+def _harness(target_kind: str, *, dry_run: bool, warden_timeout: float) -> Harness:
+    if dry_run:
+        return _DRY_HARNESSES.get(target_kind, _dry_harness)()
+    return _LIVE_HARNESSES.get(target_kind, _live_harness)(warden_timeout)
+
+
+def _catalog_sha256() -> dict[str, str]:
+    return {p.name: _sha256(p) for p in sorted(CATALOG.glob(CATALOG_GLOB))}
 
 
 def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] = (),
@@ -1716,47 +1770,16 @@ def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] 
             "Re-running until an answer improves is how a benchmark cheats; the reason is what "
             "makes a legitimate re-run auditable."
         )
-    manifest_path = out / "manifest.json"
+    manifest_path = out / MANIFEST
     if not manifest_path.exists():
-        raise SystemExit(f"--resume {out}: no manifest.json - not a runner output directory")
+        raise SystemExit(f"--resume {out}: no {MANIFEST} - not a runner output directory")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-
-    # ⛔ One rubric. A run graded partly under one catalog and partly under another is two
-    # measurements stitched together, and the manifest would describe only one of them.
-    catalog_now = {p.name: _sha256(p) for p in sorted(CATALOG.glob("*.yaml"))}
-    if (manifest.get("catalog_sha256") != catalog_now
-            or manifest.get("scoring_sha256") != _sha256(SCORING)):
-        raise SystemExit(
-            f"--resume {out}: the scenario catalog or the rubric has changed since this run began. "
-            "Resuming would grade one run under two rubrics. Start a new run instead."
-        )
     # The backend comes from the manifest, never from a flag: resuming a Kubernetes wave with the
     # ECS harness would compare the wrong things and inject the wrong faults.
     recorded_kind = str(manifest.get("target_kind") or "ecs")
-
-    # ⛔ One evidence window too. Resuming a run from before the quiet period existed would give
-    # half its scenarios isolated evidence and half not, under one manifest. Compared against THIS
-    # run's backend: an ECS wave and a Kubernetes wave legitimately wait different amounts, and
-    # comparing a k8s run against ECS's numbers would refuse every resume of a correct run.
-    if manifest.get("evidence_isolation") != _evidence_isolation(recorded_kind):
-        raise SystemExit(
-            f"--resume {out}: this run's evidence isolation {manifest.get('evidence_isolation')} "
-            f"differs from the runner's {_evidence_isolation(recorded_kind)}. Start a new run."
-        )
-    if manifest.get("dry_run"):
-        harness = _DRY_HARNESSES.get(recorded_kind, _dry_harness)()
-    else:
-        harness = _LIVE_HARNESSES.get(recorded_kind, _live_harness)(warden_timeout)
-
-    # ⛔ One environment. A different cluster - or namespace, or kubeconfig context - is a different
-    # fault instance entirely, so the whole descriptor must match what the run recorded.
-    now = describe_target(harness.target)
-    recorded = {k: manifest.get(k) for k in now}
-    if now != recorded:
-        raise SystemExit(
-            f"--resume {out}: this run was in {recorded} and the proving ground is now {now}. "
-            "Start a new run instead."
-        )
+    _refuse_another_rubric(out, manifest, recorded_kind)
+    harness = _harness(recorded_kind, dry_run=bool(manifest.get("dry_run")), warden_timeout=warden_timeout)
+    _refuse_another_proving_ground(out, manifest, harness)
 
     repeat = int(manifest["repeat"])
     _doc, catalog = load_wave(int(manifest["wave"]))
@@ -1767,19 +1790,7 @@ def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] 
     if unmatched:
         raise SystemExit(f"--rerun {unmatched} matched no scenario in this run")
 
-    gt_dir = _run_part(out, "ground-truth")  # a symlink out of the run is refused before any read
-    todo, superseded, forced = [], [], []
-    for scenario in scenarios:
-        gt = _in_folder(gt_dir, f"{scenario['id']}.json")
-        force = scenario["id"].startswith(rerun) if rerun else False
-        if gt.exists():
-            if is_complete(json.loads(gt.read_text(encoding="utf-8")), repeat) and not force:
-                continue
-            superseded.append(supersede(out, scenario["id"]))
-            if force:
-                forced.append(scenario["id"])
-        todo.append(scenario)
-
+    todo, superseded, forced = _left_to_run(out, scenarios, repeat, rerun)
     manifest.setdefault("resumes", []).append({
         "at": _now(),
         "git_commit": _git_commit(),
@@ -1797,6 +1808,58 @@ def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] 
     return _run_and_record(harness, todo, out, manifest, total=len(scenarios))
 
 
+def _refuse_another_rubric(out: pathlib.Path, manifest: dict, recorded_kind: str) -> None:
+    """The run's catalog, rubric and evidence window are still the runner's, or the resume is refused."""
+    # ⛔ One rubric. A run graded partly under one catalog and partly under another is two
+    # measurements stitched together, and the manifest would describe only one of them.
+    if (manifest.get("catalog_sha256") != _catalog_sha256()
+            or manifest.get("scoring_sha256") != _sha256(SCORING)):
+        raise SystemExit(
+            f"--resume {out}: the scenario catalog or the rubric has changed since this run began. "
+            "Resuming would grade one run under two rubrics. Start a new run instead."
+        )
+    # ⛔ One evidence window too. Resuming a run from before the quiet period existed would give
+    # half its scenarios isolated evidence and half not, under one manifest. Compared against THIS
+    # run's backend: an ECS wave and a Kubernetes wave legitimately wait different amounts, and
+    # comparing a k8s run against ECS's numbers would refuse every resume of a correct run.
+    if manifest.get("evidence_isolation") != _evidence_isolation(recorded_kind):
+        raise SystemExit(
+            f"--resume {out}: this run's evidence isolation {manifest.get('evidence_isolation')} "
+            f"differs from the runner's {_evidence_isolation(recorded_kind)}. Start a new run."
+        )
+
+
+def _refuse_another_proving_ground(out: pathlib.Path, manifest: dict, harness: Harness) -> None:
+    # ⛔ One environment. A different cluster - or namespace, or kubeconfig context - is a different
+    # fault instance entirely, so the whole descriptor must match what the run recorded.
+    now = describe_target(harness.target)
+    recorded = {k: manifest.get(k) for k in now}
+    if now != recorded:
+        raise SystemExit(
+            f"--resume {out}: this run was in {recorded} and the proving ground is now {now}. "
+            "Start a new run instead."
+        )
+
+
+def _left_to_run(out: pathlib.Path, scenarios: list[dict], repeat: int,
+                 rerun: tuple[str, ...]) -> tuple[list[dict], list, list[str]]:
+    """(to run, superseded attempts, forced ids): a complete scenario is skipped unless --rerun names it; an
+    incomplete or forced one has its attempt kept under ground-truth/superseded/ and runs again."""
+    gt_dir = _run_part(out, "ground-truth")  # a symlink out of the run is refused before any read
+    todo, superseded, forced = [], [], []
+    for scenario in scenarios:
+        gt = _in_folder(gt_dir, f"{scenario['id']}.json")
+        force = scenario["id"].startswith(rerun) if rerun else False
+        if gt.exists():
+            if is_complete(json.loads(gt.read_text(encoding="utf-8")), repeat) and not force:
+                continue
+            superseded.append(supersede(out, scenario["id"]))
+            if force:
+                forced.append(scenario["id"])
+        todo.append(scenario)
+    return todo, superseded, forced
+
+
 def _run_and_record(harness: Harness, scenarios: list[dict], out: pathlib.Path, manifest: dict,
                     *, total: int | None = None) -> int:
     arm = manifest.get("arm") or {}
@@ -1812,7 +1875,7 @@ def _run_and_record(harness: Harness, scenarios: list[dict], out: pathlib.Path, 
     manifest["ended_at"] = _now()
     manifest["scenarios_completed"] = _completed_on_disk(out, repeat)
     manifest["errors"] = [r["scenario_id"] for r in records if r["status"] != "ok"]
-    _write_json(out / "manifest.json", manifest)
+    _write_json(out / MANIFEST, manifest)
 
     print(f"\n{len(manifest['scenarios_completed'])}/{total or len(scenarios)} scenarios "
           "complete. Score them with:")

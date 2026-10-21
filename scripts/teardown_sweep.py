@@ -115,7 +115,7 @@ def plan(ecs: Any, logs: Any, family: str, log_group: str) -> dict[str, list[str
               if g["logGroupName"] == log_group]
     return {
         "deregister": [a for a in active if a in ours],
-        "delete": [a for a in ours],
+        "delete": list(ours),
         "log_groups": groups,
         "refused": refused,
     }
@@ -170,7 +170,7 @@ def _raw(ec2: Any, call: str, key: str) -> list[dict]:
     sweep said "clean" for an account it never saw)."""
     try:
         return getattr(ec2, call)().get(key) or []
-    except Exception as exc:  # noqa: BLE001 - a denied API must not hide the rest, nor pass as nothing found
+    except Exception as exc:  # noqa: BLE001  # a denied API must not hide the rest; nor pass as nothing found
         return [{"_unreadable": f"could not check {call}: {type(exc).__name__}"}]
 
 

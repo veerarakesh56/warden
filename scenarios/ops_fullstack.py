@@ -48,6 +48,10 @@ REQUIRED_TAGS = {"Project": "warden", "Environment": ENV}
 K8S_LABELS = {"project": "warden", "environment": ENV}
 REGION = region()  # environments.yaml aws_region, or AWS_REGION (owner requirement R17)
 HOLD_APP_PREFIX = "warden-bench-hold-"
+LAMBDA_NAMESPACE = "AWS/Lambda"  # CloudWatch's namespace for Lambda's own metrics
+FILLER_PREFIX = "filler:"  # the only keys the ops Lambda writes or deletes (lambdas/ops/app.py)
+RESTORED = "restored verbatim"  # a revert that put back exactly the saved object
+DATA_PATH = "/data"  # a ConfigMap's or Secret's data, as a JSON patch path
 
 # ⛔ APPLICATION FLAGS the fault injections flip. The stack's baseline MUST set every one of these to
 # its baseline value, so the CONFIG line (which shows env var NAMES, never values) looks identical
@@ -288,9 +292,9 @@ def _cw(c: Clients, ns: str, metric: str, dims: dict[str, str], minutes: int,
 def _lambda_clean(c: Clients, fn: str, minutes: int = 3) -> tuple[bool, str]:
     """No errors and no throttles for `minutes`, and it really was invoked."""
     dims = {"FunctionName": fn}
-    errors = _cw(c, "AWS/Lambda", "Errors", dims, minutes) or 0
-    throttles = _cw(c, "AWS/Lambda", "Throttles", dims, minutes) or 0
-    calls = _cw(c, "AWS/Lambda", "Invocations", dims, minutes) or 0
+    errors = _cw(c, LAMBDA_NAMESPACE, "Errors", dims, minutes) or 0
+    throttles = _cw(c, LAMBDA_NAMESPACE, "Throttles", dims, minutes) or 0
+    calls = _cw(c, LAMBDA_NAMESPACE, "Invocations", dims, minutes) or 0
     ok = errors == 0 and throttles == 0 and calls > 0
     return ok, f"{fn}: {calls:g} invocations, {errors:g} errors, {throttles:g} throttles in {minutes} min"
 
@@ -786,7 +790,7 @@ def fs08_revert(c, t):
     c.sqs.set_queue_attributes(QueueUrl=_queue_url(c, t.notifications_queue),
                                Attributes={"Policy": s["policy"] or ""})
     _done(t, "fs-08")
-    return {"policy": "restored verbatim"}
+    return {"policy": RESTORED}
 
 
 def fs08_verify(c, t):
@@ -853,33 +857,48 @@ def fs10_inject(c, t):
     return {"revoked_rules": len(rules)}
 
 
+def _is_duplicate(exc: Exception) -> bool:
+    return "Duplicate" in f"{type(exc).__name__} {exc}"
+
+
+def _authorize_back(c, gid: str, rules: list[dict]) -> None:
+    """The saved rules back on the group; on a Duplicate, rule by rule. Any other error is raised."""
+    try:
+        c.ec2.authorize_security_group_ingress(GroupId=gid, IpPermissions=rules)
+    except Exception as exc:
+        if not _is_duplicate(exc):
+            raise
+        # Some may be back and some not: re-add one rule at a time.
+        for rule in rules:
+            try:
+                c.ec2.authorize_security_group_ingress(GroupId=gid, IpPermissions=[rule])
+            except Exception as inner:
+                if not _is_duplicate(inner):
+                    raise
+
+
+def _revoke_extra(c, gid: str, saved_rules: list[dict]) -> list[tuple]:
+    """The group-sourced rules the saved set lacks, revoked; the pairs revoked, sorted."""
+    # ⛔ EXACT prior state: a fix may have authorised a group that was never there (WARDEN names the
+    # application SGs it read). Anything group-sourced that the saved set lacks is revoked, one pair
+    # at a time, so the next fault starts from the baseline and not from a wider network.
+    saved = _group_pairs(saved_rules)
+    extra = sorted(_group_pairs([r for r in _sg(c, gid).get("IpPermissions") or []
+                                 if r.get("UserIdGroupPairs")]) - saved)
+    for proto, lo, hi, group in extra:
+        perm = {"IpProtocol": proto, "UserIdGroupPairs": [{"GroupId": group}]}
+        if proto != "-1":
+            perm.update(FromPort=lo, ToPort=hi)
+        c.ec2.revoke_security_group_ingress(GroupId=gid, IpPermissions=[perm])
+    return extra
+
+
 def fs10_revert(c, t):
     s = t.saved.get("fs-10")
     if not s:
         return {"nothing_saved": True}
-    try:
-        c.ec2.authorize_security_group_ingress(GroupId=t.redis_sg_id, IpPermissions=s["rules"])
-    except Exception as exc:
-        if "Duplicate" not in f"{type(exc).__name__} {exc}":
-            raise
-        # Some may be back and some not: re-add one rule at a time.
-        for rule in s["rules"]:
-            try:
-                c.ec2.authorize_security_group_ingress(GroupId=t.redis_sg_id, IpPermissions=[rule])
-            except Exception as inner:
-                if "Duplicate" not in f"{type(inner).__name__} {inner}":
-                    raise
-    # ⛔ EXACT prior state: a fix may have authorised a group that was never there (WARDEN names the
-    # application SGs it read). Anything group-sourced that the saved set lacks is revoked, one pair
-    # at a time, so the next fault starts from the baseline and not from a wider network.
-    saved = _group_pairs(s["rules"])
-    extra = sorted(_group_pairs([r for r in _sg(c, t.redis_sg_id).get("IpPermissions") or []
-                                 if r.get("UserIdGroupPairs")]) - saved)
-    for proto, lo, hi, gid in extra:
-        perm = {"IpProtocol": proto, "UserIdGroupPairs": [{"GroupId": gid}]}
-        if proto != "-1":
-            perm.update(FromPort=lo, ToPort=hi)
-        c.ec2.revoke_security_group_ingress(GroupId=t.redis_sg_id, IpPermissions=[perm])
+    _authorize_back(c, t.redis_sg_id, s["rules"])
+    extra = _revoke_extra(c, t.redis_sg_id, s["rules"])
     _done(t, "fs-10")
     return {"restored_rules": len(s["rules"]), "removed_extra": [e[3] for e in extra]}
 
@@ -934,8 +953,8 @@ def _redis_wait_available(c: Clients, t: Target, timeout_s: float = 2400) -> str
 def fs11_inject(c, t):
     # The node type is saved too: WARDEN's fix for memory pressure is a bigger node, and the revert
     # must put the original size back or every later fault runs on a different cache.
-    _save(t, "fs-11", {"prefix": "filler:", "node_type": _redis_node_type(c, t)})
-    out = ops_invoke(c, t, {"op": "fill", "prefix": "filler:", "mb": int(t.redis_fill_mb)})
+    _save(t, "fs-11", {"prefix": FILLER_PREFIX, "node_type": _redis_node_type(c, t)})
+    out = ops_invoke(c, t, {"op": "fill", "prefix": FILLER_PREFIX, "mb": int(t.redis_fill_mb)})
     return {"filled_mb": int(t.redis_fill_mb), "ops": out}
 
 
@@ -943,7 +962,7 @@ def fs11_revert(c, t):
     if not t.saved.get("fs-11"):
         return {"nothing_saved": True}
     s = t.saved["fs-11"]
-    out = ops_invoke(c, t, {"op": "flush_prefix", "prefix": "filler:"})
+    out = ops_invoke(c, t, {"op": "flush_prefix", "prefix": FILLER_PREFIX})
     resized = None
     if s.get("node_type"):
         status = _redis_wait_available(c, t)
@@ -1230,7 +1249,7 @@ def fs22_inject(c, t):
     data = dict(cm.get("data") or {})
     _save(t, "fs-22", {"data": data})
     c.core.patch_namespaced_config_map(name=t.configmap, namespace=t.namespace, body=[
-        {"op": "replace", "path": "/data", "value": {**data, t.config_key: "not-a-number"}}])
+        {"op": "replace", "path": DATA_PATH, "value": {**data, t.config_key: "not-a-number"}}])
     _restart(c, t, t.catalog)
     return {"configmap": t.configmap, "key": t.config_key}
 
@@ -1240,10 +1259,10 @@ def fs22_revert(c, t):
     if not s:
         return {"nothing_saved": True}
     c.core.patch_namespaced_config_map(name=t.configmap, namespace=t.namespace,
-                                       body=[{"op": "replace", "path": "/data", "value": s["data"]}])
+                                       body=[{"op": "replace", "path": DATA_PATH, "value": s["data"]}])
     _restart(c, t, t.catalog)
     _done(t, "fs-22")
-    return {"configmap": "restored verbatim"}
+    return {"configmap": RESTORED}
 
 
 def _secret_key_refs(dep: dict, secret: str) -> list[str]:
@@ -1276,10 +1295,10 @@ def fs23_revert(c, t):
     if not s:
         return {"nothing_saved": True}
     c.core.patch_namespaced_secret(name=t.k8s_secret, namespace=t.namespace,
-                                   body=[{"op": "replace", "path": "/data", "value": s["data"]}])
+                                   body=[{"op": "replace", "path": DATA_PATH, "value": s["data"]}])
     _restart(c, t, t.catalog)
     _done(t, "fs-23")
-    return {"secret": "restored verbatim"}
+    return {"secret": RESTORED}
 
 
 def _patch_container_field(c, t, fid: str, dep_name: str, key: str, new_value: Any) -> dict:
@@ -1378,7 +1397,7 @@ def fs27_revert(c, t):
 
 def fs27_verify(c, t):
     state = c.events.describe_rule(Name=t.rule)["State"]
-    calls = _cw(c, "AWS/Lambda", "Invocations", {"FunctionName": t.reconciler}, 6) or 0
+    calls = _cw(c, LAMBDA_NAMESPACE, "Invocations", {"FunctionName": t.reconciler}, 6) or 0
     return state == "ENABLED" and calls > 0, f"rule {state}, reconciler invocations in 6 min={calls:g}"
 
 
