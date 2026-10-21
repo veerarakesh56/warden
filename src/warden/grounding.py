@@ -218,6 +218,8 @@ _VALUE = r"(-?\d+(?:\.\d+)?(?:/\d+)?(?![\d.:])|(?:zero|none|false|no|null|never)
 _FIRST = re.compile(r"([\w \-\"']{0,30}?)\s*(?:==|=>|->|\u2192|=|:|\(|\bis\b)?\s*[\"'\[(]*\s*" + _VALUE)
 _NEXT = re.compile(r"\s*[\"'\])]*\s*(?:\((?:was|from)[^)]{0,20}\)\s*)?,?\s*(?:->|=>|\u2192|\bnow\b|\bto\b|\bthen\b)"
                    r"\s*[\"'\[(]*\s*" + _VALUE)
+# A run of lower-case letters: a word as the measures and phrases are read.
+_LETTERS = re.compile(r"[a-z]+")
 _WORD_AFTER = re.compile(r"[\s\"'\])]*([a-z]+)(?![a-z_]*\s*[=:])")
 # A zero that says WHEN, not how many: "restarted 0s ago" is a restart (fifth review, 2026-10-01).
 # "ago" alone, or after a unit; the unit is a word looked up in a set, not an alternation of 16 (Sonar python:S5843,
@@ -276,19 +278,35 @@ def _negated(before: str, key: str, shortage: bool) -> bool:
     words = re.findall(r"\d[\d.:/]*%?|\w[\w.-]*|[^\w\s]", before)
     for i, w in enumerate(reversed(words[-5:])):
         if w in _NEGATORS or re.fullmatch(r"0+(?:\.0+)?%?", w):  # "0% idle" is no idle
-            # "not" reaches past a determiner and the words after it - "not a single pod restarted", "not even
-            # one restart" are none (fifth and sixth reviews) - but no further than the next word otherwise:
-            # "not responding pod restarted" is a restart. The others reach across two words.
-            if w == "not":
-                if between and between[-1] not in ("a", "an", "the", "single", "one", "any", "even", "lone"):
-                    return False
-            elif i > 2:
+            if not _negator_reaches(w, i, between):
                 return False
             return not (shortage and (key in _GOOD or any(b in _GOOD for b in between)))
         if not re.fullmatch(r"[\w-]+", w) or w in _BREAK:
             return False
         between.append(w)
     return False
+
+
+def _negator_reaches(negator: str, i: int, between: list[str]) -> bool:
+    """Whether `negator`, `i` words before the key with `between` read so far, reaches the key."""
+    # "not" reaches past a determiner and the words after it - "not a single pod restarted", "not even
+    # one restart" are none (fifth and sixth reviews) - but no further than the next word otherwise:
+    # "not responding pod restarted" is a restart. The others reach across two words.
+    if negator == "not":
+        return not between or between[-1] in ("a", "an", "the", "single", "one", "any", "even", "lone")
+    return i <= 2
+
+
+def _last_of_transition(after: str, key: str, value: str, pos: int) -> tuple[str, int]:
+    """The last value of a transition ("0 -> 3") that starts with `value` at `pos`, and where it ends."""
+    while nxt := _NEXT.match(after, pos):
+        # After "then", a number followed by another word is another field ("0, then 2 replicas added"), unless
+        # the word is the key itself ("0, then 6 restarts") - sixth review, 2026-10-01.
+        later = re.match(r"[\s\"'\])]*([a-z]+)", after[nxt.end():])
+        if re.search(r"\bthen\b", nxt.group(0)) and later and not later.group(1).startswith(key[:4]):
+            break
+        value, pos = nxt.group(1), nxt.end()
+    return value, pos
 
 
 def _reports_none(after: str, key: str, shortage: bool, before: str = "", idle_short: bool = False) -> bool:
@@ -299,18 +317,12 @@ def _reports_none(after: str, key: str, shortage: bool, before: str = "", idle_s
     phrase, value, pos = m.group(1), m.group(2), m.end()
     if _ago(after, pos):
         return False
-    if not shortage and key in _USE and not _GOOD & set(re.findall(r"[a-z]+", phrase)):
+    if not shortage and key in _USE and not _GOOD & set(_LETTERS.findall(phrase)):
         # A numeric zero of USE is scale_down's evidence ("cpu: 0%"); a missing value ("cpu: null", "no data")
         # or headroom ("0 MiB free") is not (sixth review, 2026-10-01).
-        following = set(re.findall(r"[a-z]+", after[pos:pos + 24])[:3])  # "0 MiB free" reads "0 mi b free"
+        following = set(_LETTERS.findall(after[pos:pos + 24])[:3])  # "0 MiB free" reads "0 mi b free"
         return not (value[:1].isdigit() and float(value.split("/")[0]) == 0 and not _GOOD & following)
-    while nxt := _NEXT.match(after, pos):
-        # After "then", a number followed by another word is another field ("0, then 2 replicas added"), unless
-        # the word is the key itself ("0, then 6 restarts") - sixth review, 2026-10-01.
-        later = re.match(r"[\s\"'\])]*([a-z]+)", after[nxt.end():])
-        if re.search(r"\bthen\b", nxt.group(0)) and later and not later.group(1).startswith(key[:4]):
-            break
-        value, pos = nxt.group(1), nxt.end()
+    value, pos = _last_of_transition(after, key, value, pos)
     word = _WORD_AFTER.match(after, pos)
     # A good word after the value: after a fraction it is a shortage ("0/3 passing"); after a plain zero only a
     # quantity word is ("0 free"), a status word is another field ("restarts: 0 ok") - fifth and sixth reviews.
@@ -318,10 +330,10 @@ def _reports_none(after: str, key: str, shortage: bool, before: str = "", idle_s
     # A quantity word after a zero is a shortage only of a measure of capacity - the key, or a capacity word
     # between it and the value ("queue slots: 0 free") - with no bad thing named beside it; "idle" only where an
     # idle pool is the shortage (scale_up), not where idle sessions are the fault (eighth review).
-    measured = set(re.findall(r"[a-z]+", f"{before} {phrase}"))
-    capacity = key.startswith(_CAPACITY) or any(w.startswith(_CAPACITY) for w in re.findall(r"[a-z]+", phrase))
+    measured = set(_LETTERS.findall(f"{before} {phrase}"))
+    capacity = key.startswith(_CAPACITY) or any(w.startswith(_CAPACITY) for w in _LETTERS.findall(phrase))
     quantity = after_word in _QUANTITY or (idle_short and after_word == "idle")
-    if shortage and (key in _GOOD or _GOOD & set(re.findall(r"[a-z]+", phrase))
+    if shortage and (key in _GOOD or _GOOD & set(_LETTERS.findall(phrase))
                      or (after_word in _GOOD and "/" in value)
                      or (quantity and capacity and not _bad(measured))):
         return False
@@ -341,7 +353,7 @@ def _supports(quote: str, key: str, shortage: bool = True, idle_short: bool = Fa
         # The words naming the measure: the two before the key and the word the key starts ("blocked") - in the
         # key's own clause: "errors: 12, connections: 0 free" is a shortage of connections (register R9-O3).
         clause = re.split(r"[,;()\[\]|]", quote[:m.start()])[-1]
-        before = " ".join([*re.findall(r"[a-z]+", clause)[-2:], re.match(r"[a-z]*", quote[m.start():])[0]])
+        before = " ".join([*_LETTERS.findall(clause)[-2:], re.match(r"[a-z]*", quote[m.start():])[0]])
         if key.startswith("not ") or not _reports_none(quote[m.end():], key, shortage, before, idle_short):
             return True
     return False
@@ -384,6 +396,11 @@ _REQUEST_NAMED = re.compile(r" request=([A-Za-z0-9,]{1,600})$")
 _EVENT_NAME = re.compile(r"(?<![A-Za-z0-9])(?:[A-Z][a-z]+){2,}\w*(?![A-Za-z0-9])", re.ASCII)
 
 
+def _cited_id(citation: Any) -> str:
+    """A citation's evidence id as the items are keyed: `[L3]` and ` L3 ` are `L3`."""
+    return citation.id.strip().strip("[]")
+
+
 def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
                            items: dict[str, Item]) -> str | None:
     keys = ACTION_EVIDENCE.get(proposal.action)
@@ -397,38 +414,10 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
     # Nor an R item: a code-review finding on the deployed change is a suspect, never proof (findings.py) - it names
     # "deploy", "commit", "file", and alone it supported a rollback.
     cited = [c.quote for c in root_cause.citations
-             if c.id.strip().strip("[]") in items and c.id.strip().strip("[]")[:1] not in NO_ACTION_SUPPORT]
+             if _cited_id(c) in items and _cited_id(c)[:1] not in NO_ACTION_SUPPORT]
     if proposal.action is ActionKind.revert_change:
-        # An API's name, never a measure (G10 held-out baseline, 2026-10-10: the keys are run-together event names, but
-        # quotes were split at camelCase first, and the "none" rule read `sg-0d4c` as a zero - P15 held back every
-        # revert WARDEN can carry out). A CamelCase word in the quote holding a family's key supports it.
-        ok = []
-        for c in root_cause.citations:
-            item = items.get(c.id.strip().strip("[]"))
-            if item is None or c.id.strip().strip("[]")[:1] in NO_ACTION_SUPPORT:
-                continue
-            named = _REQUEST_NAMED.search(item.text)
-            fields = set(named.group(1).lower().split(",")) if named else None
-            for w in (w.lower() for w in _EVENT_NAME.findall(c.quote)):
-                key = next((k for k in keys if k in w), None)
-                # The request's fields, when the line holds them, must include one the family undoes: a forced
-                # redeploy's UpdateService names no desiredCount (G10 held-out, 2026-10-10).
-                if key and (fields is None or key not in REVERT_FIELDS or fields & set(REVERT_FIELDS[key])):
-                    ok.append(c.id.strip().strip("[]"))
-        if not ok:
-            return f"none of the cited evidence names a write revert_change undoes (none of: {', '.join(keys[:6])}...)"
-        return _changed_again(list(dict.fromkeys(ok)), items)
-    if proposal.action is ActionKind.rollback_deploy and any(
-            c.id.strip().strip("[]").startswith("D") and c.id.strip().strip("[]") in items for c in root_cause.citations):
-        return None  # WARDEN's own record of the deploy in the window (G10 held-out: `previous=41` quoted from it)
-    if proposal.action is ActionKind.rollback_deploy and any(
-            w.lower().startswith(_DEPLOY_EVENTS) for q in cited for w in _EVENT_NAME.findall(q)):
-        return None  # the deploy's own CloudTrail event (`UpdateFunctionCode20150331v2`)
-    if proposal.action is ActionKind.revert_config and any(
-            i is not None and i.id.startswith("C") and i.text.startswith("CONFIG appconfig ")
-            for i in (items.get(c.id.strip().strip("[]")) for c in root_cause.citations)):
-        # WARDEN's own read of the AppConfig environment whose monitors name this alarm, whichever part of the line
-        # was quoted (G10 held-out, 2026-10-11: `deployment=14 state=COMPLETE version=9` holds no word above).
+        return _revert_support_problem(root_cause, keys, items)
+    if _record_supports(proposal.action, root_cause, cited, items):
         return None
     quotes = [_CAMEL.sub(" ", q).lower() for q in cited]
     shortage = proposal.action is not ActionKind.scale_down
@@ -437,6 +426,52 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
         return None
     return (f"none of the cited evidence bears on {proposal.action.value} "
             f"(it names none of: {', '.join(keys[:6])}...)")
+
+
+def _revert_support_problem(root_cause: RootCause, keys: tuple[str, ...], items: dict[str, Item]) -> str | None:
+    """revert_change: a cited write the action undoes, which no later change has written over."""
+    # An API's name, never a measure (G10 held-out baseline, 2026-10-10: the keys are run-together event names, but
+    # quotes were split at camelCase first, and the "none" rule read `sg-0d4c` as a zero - P15 held back every
+    # revert WARDEN can carry out). A CamelCase word in the quote holding a family's key supports it.
+    ok = []
+    for c in root_cause.citations:
+        cid = _cited_id(c)
+        item = items.get(cid)
+        if item is not None and cid[:1] not in NO_ACTION_SUPPORT and _names_undone_write(c.quote, item, keys):
+            ok.append(cid)
+    if not ok:
+        return f"none of the cited evidence names a write revert_change undoes (none of: {', '.join(keys[:6])}...)"
+    return _changed_again(list(dict.fromkeys(ok)), items)
+
+
+def _names_undone_write(quote: str, item: Item, keys: tuple[str, ...]) -> bool:
+    """A CamelCase word in `quote` holds one of `keys`, for a request that set a field the family undoes."""
+    named = _REQUEST_NAMED.search(item.text)
+    fields = set(named.group(1).lower().split(",")) if named else None
+    for w in (w.lower() for w in _EVENT_NAME.findall(quote)):
+        key = next((k for k in keys if k in w), None)
+        # The request's fields, when the line holds them, must include one the family undoes: a forced
+        # redeploy's UpdateService names no desiredCount (G10 held-out, 2026-10-10).
+        if key and (fields is None or key not in REVERT_FIELDS or fields & set(REVERT_FIELDS[key])):
+            return True
+    return False
+
+
+def _record_supports(action: ActionKind, root_cause: RootCause, cited: list[str], items: dict[str, Item]) -> bool:
+    """WARDEN's own record of the change a rollback or a configuration revert undoes, whatever words were quoted."""
+    ids = [_cited_id(c) for c in root_cause.citations]
+    if action is ActionKind.rollback_deploy:
+        return (
+            # WARDEN's own record of the deploy in the window (G10 held-out: `previous=41` quoted from it)
+            any(i.startswith("D") and i in items for i in ids)
+            # the deploy's own CloudTrail event (`UpdateFunctionCode20150331v2`)
+            or any(w.lower().startswith(_DEPLOY_EVENTS) for q in cited for w in _EVENT_NAME.findall(q)))
+    if action is ActionKind.revert_config:
+        # WARDEN's own read of the AppConfig environment whose monitors name this alarm, whichever part of the line
+        # was quoted (G10 held-out, 2026-10-11: `deployment=14 state=COMPLETE version=9` holds no word above).
+        return any(i is not None and i.id.startswith("C") and i.text.startswith("CONFIG appconfig ")
+                   for i in (items.get(x) for x in ids))
+    return False
 
 
 # Command separators and substitution only. Parentheses and "->" are how models describe a target
@@ -526,14 +561,46 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
     """`scopes`: the incident's namespace and cluster names. A target that names only one of them
     names a whole namespace or cluster, not a resource. `containers`: its namespaces and compute clusters,
     never a failover's target."""
+    target = proposal.target
+    problem = _character_problem(target)
+    if problem:
+        return problem
+    plain = _LEADING.sub("", target)
+    problem = _shape_problem(target, plain)
+    if problem:
+        return problem
+    rest = _unscope(plain)
+    # What stands after an arrow is the state to return to (`checkout -> revert to <image>`), not a
+    # second resource; what is in parentheses describes the one named.
+    outside = re.split(r"->|=>|\u2192", re.sub(r"\([^)]*\)", " ", rest))[0]
+    named = _resources(outside, inventory, scopes)
+    # A database or a cache sits in no namespace or compute cluster: one named anywhere in its target - with a kind
+    # word or without, named beside it or alone - is a second target or the wrong one (ninth review: `aurora ->
+    # cluster=warden-dev-ecs` and `redis, namespace=shop` passed, the kind word cut as a qualifier; a failover of
+    # `shop`, the recorded alert's namespace named like its service, passed because a resource was named).
+    if proposal.action in DATA_ONLY and tokens(plain) & set(containers):
+        return f"target {target!r} names a namespace or a compute cluster, not a database or cache"
+    if named and _scope_beside(rest, outside, (set(scopes) | set(containers)) - named):
+        return f"target {target!r} names a resource and a whole namespace or cluster"
+    if not named and proposal.action is ActionKind.failover_replica:
+        problem = _failover_problem(target, plain, containers)
+        if problem:
+            return problem
+        named = {t for t in tokens(plain) & inventory
+                 if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS}
+    return _one_resource_problem(target, plain, rest, outside, named, inventory, scopes)
+
+
+def _character_problem(target: str) -> str | None:
+    """Shell syntax, or a character a resource name never holds."""
     # A known name does not excuse shell syntax around it: `checkout; kubectl delete ns prod` named
     # `checkout` and passed (2026-09-27 audit). Redirects too (fourth review: `orders > /tmp/x`).
-    if _SHELL.search(_NOT_SHELL.sub(" ", proposal.target)):
-        return f"target {proposal.target!r} contains shell syntax"
+    if _SHELL.search(_NOT_SHELL.sub(" ", target)):
+        return f"target {target!r} contains shell syntax"
     # Resource names are ASCII. Characters outside every dash category still read as one (fourth
     # review, 2026-09-30, C-6: U+2043, U+2500, U+30FC, U+4E00, U+02C9, U+FF70 before `A` or `all`).
-    if any(ord(ch) > 127 and ch not in _PROSE and not _invisible(ch) for ch in _LEADING.sub("", proposal.target)):
-        return f"target {proposal.target!r} holds characters a resource name never does"
+    if any(ord(ch) > 127 and ch not in _PROSE and not _invisible(ch) for ch in _LEADING.sub("", target)):
+        return f"target {target!r} holds characters a resource name never does"
     # A target is a resource name. `-n kube-system` or `--all` would be read by a CLI as a flag, and
     # `x=y` as an assignment or a selector (audit A-C-25).
     # models.inert() prefixes a leading "-" with a zero-width space so no CLI reads it as a flag;
@@ -543,16 +610,20 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
     # (`deployment=checkout (namespace=shop)`); any other `x=y` is a selector or an assignment.
     # models.inert() puts a zero-width space before a leading "-": that one is looked past (it is
     # still a flag). Any other invisible character refuses the target outright.
-    unprefixed = _LEADING.sub("", proposal.target)
-    if any(_invisible(ch) for ch in unprefixed):
-        return f"target {proposal.target!r} contains invisible characters"
-    plain = unprefixed
+    if any(_invisible(ch) for ch in _LEADING.sub("", target)):
+        return f"target {target!r} contains invisible characters"
+    return None
+
+
+def _shape_problem(target: str, plain: str) -> str | None:
+    """A flag, an assignment, a pattern, a list, a command or a whole namespace in place of one resource name."""
+    # Flags and `x=y`: see the comment above the invisible-character check in _character_problem, which runs first.
     # From the start of a name, at most 64 characters: a long word with no `=` was searched again from each of its
     # characters (Sonar python:S8786, 2026-10-16). A longer name matches nothing, so the count below refuses it as before.
     assigned = re.findall(r"(?<![\w.-])([\w.-]{1,64})=", plain)
     if (_FLAGLIKE.search(plain) or plain.count("=") != len(assigned)
             or any(k.lower() not in _RESOURCE_KINDS for k in assigned)):
-        return f"target {proposal.target!r} looks like a flag or an assignment, not a resource name"
+        return f"target {target!r} looks like a flag or an assignment, not a resource name"
     # One named resource, not a pattern or a list (third review: `pod=orders-*`, `namespace=*`,
     # `deployment=orders,payments`; fourth review: `orders-.+`, `orders-%`, `{orders,payments}`,
     # `orders payments`, `orders and payments`), and not a whole namespace or cluster
@@ -560,70 +631,69 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
     # A namespace or cluster that only qualifies a resource is looked past: `deployment=checkout,
     # namespace=shop` and `namespace=shop deployment=checkout` name one deployment.
     if re.search(r"[*?%{}]|\.[+*]|\[[^\]]*\]", plain):
-        return f"target {proposal.target!r} is a pattern or a list, not one resource"
+        return f"target {target!r} is a pattern or a list, not one resource"
     if _COMMAND_WORDS.search(plain):
-        return f"target {proposal.target!r} holds a command, not one resource"
-    rest = _unscope(plain)
-    # What stands after an arrow is the state to return to (`checkout -> revert to <image>`), not a
-    # second resource; what is in parentheses describes the one named.
-    outside = re.split(r"->|=>|\u2192", re.sub(r"\([^)]*\)", " ", rest))[0]
+        return f"target {target!r} holds a command, not one resource"
     if re.search(r"\ball\b|\bevery(?:thing|one)?\b|\beach\b|\bentire\b", plain, re.IGNORECASE):
-        return f"target {proposal.target!r} names a whole namespace or cluster"
+        return f"target {target!r} names a whole namespace or cluster"
+    return None
 
-    def resources(text: str) -> set[str]:
-        found = {t for t in tokens(text) & inventory
-                 if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS and t not in scopes}
-        # A name WARDEN's own reads write as a path - a load balancer's `app/web/3f8a1c0d`, an AppConfig
-        # `application/environment` - is one resource, not a list of its parts (G10 held-out, 2026-10-11: the targets
-        # of a zonal shift and of a configuration revert were refused as lists). Never a path through a namespace or
-        # a cluster: that one still names a scope.
-        for path in PATH.findall(text):
-            if path in inventory and not tokens(path) & set(scopes):
-                found = found - tokens(path) | {path}
-        return found
 
-    named = resources(outside)
-    wide = set(scopes) | set(containers)
-    # A database or a cache sits in no namespace or compute cluster: one named anywhere in its target - with a kind
-    # word or without, named beside it or alone - is a second target or the wrong one (ninth review: `aurora ->
-    # cluster=warden-dev-ecs` and `redis, namespace=shop` passed, the kind word cut as a qualifier; a failover of
-    # `shop`, the recorded alert's namespace named like its service, passed because a resource was named).
-    if proposal.action in DATA_ONLY and tokens(plain) & set(containers):
-        return f"target {proposal.target!r} names a namespace or a compute cluster, not a database or cache"
+def _resources(text: str, inventory: set[str], scopes: frozenset[str] | set[str]) -> set[str]:
+    """The inventory's resources `text` names, past kind words, descriptors and the incident's scopes."""
+    found = {t for t in tokens(text) & inventory
+             if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS and t not in scopes}
+    # A name WARDEN's own reads write as a path - a load balancer's `app/web/3f8a1c0d`, an AppConfig
+    # `application/environment` - is one resource, not a list of its parts (G10 held-out, 2026-10-11: the targets
+    # of a zonal shift and of a configuration revert were refused as lists). Never a path through a namespace or
+    # a cluster: that one still names a scope.
+    for path in PATH.findall(text):
+        if path in inventory and not tokens(path) & set(scopes):
+            found = found - tokens(path) | {path}
+    return found
+
+
+def _scope_beside(rest: str, outside: str, others: set[str]) -> bool:
+    """Whether `others` (whole namespaces or clusters) stand beside the named resource as a second target."""
     # One resource, and beside it a whole namespace or cluster - after an arrow, a comma or "and" - is a second
     # target (eighth review: `warden-pg-fs-aurora -> warden-pg-fs-ecs` passed once the database was no longer a
     # scope). One that qualifies it - `deployment=x (namespace=shop)`, `cluster/service` (an ECS service's ARN
     # path), `service (cluster)`, `service on cluster` - is not (ninth review: those were refused).
-    if named:
-        after = re.split(r"->|=>|\u2192", re.sub(r"\([^)]*\)", " ", rest), maxsplit=1)[1:]
-        beside = re.split(r",|\band\b", outside, flags=re.IGNORECASE)[1:]
-        if tokens(" ".join(after + beside)) & wide - named:
-            return f"target {proposal.target!r} names a resource and a whole namespace or cluster"
-    if not named and proposal.action is ActionKind.failover_replica:
-        # A failover's target IS a cluster: `cluster=warden-dev-aurora` names it, it does not scope it - even
-        # when the alert labels that cluster (fifth and sixth reviews). A namespace is never one.
-        # The word on its own, not inside a name (`orders-ns-db` is a cluster), and plural too; and never a name
-        # the alert gives a namespace or a compute cluster (seventh review: `payments`, `warden-dev-ecs` passed).
-        if re.search(r"(?<![\w-])(?:namespaces?|ns)(?![\w-])", plain, re.IGNORECASE):
-            return f"target {proposal.target!r} names a namespace; a failover's target is a database cluster"
-        if tokens(plain) & set(containers):
-            return f"target {proposal.target!r} names a namespace or a compute cluster, not a database cluster"
-        named = {t for t in tokens(plain) & inventory
-                 if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS}
+    after = re.split(r"->|=>|\u2192", re.sub(r"\([^)]*\)", " ", rest), maxsplit=1)[1:]
+    beside = re.split(r",|\band\b", outside, flags=re.IGNORECASE)[1:]
+    return bool(tokens(" ".join(after + beside)) & others)
+
+
+def _failover_problem(target: str, plain: str, containers: frozenset[str] | set[str]) -> str | None:
+    """Why a failover's target is a namespace or a compute cluster - or None."""
+    # A failover's target IS a cluster: `cluster=warden-dev-aurora` names it, it does not scope it - even
+    # when the alert labels that cluster (fifth and sixth reviews). A namespace is never one.
+    # The word on its own, not inside a name (`orders-ns-db` is a cluster), and plural too; and never a name
+    # the alert gives a namespace or a compute cluster (seventh review: `payments`, `warden-dev-ecs` passed).
+    if re.search(r"(?<![\w-])(?:namespaces?|ns)(?![\w-])", plain, re.IGNORECASE):
+        return f"target {target!r} names a namespace; a failover's target is a database cluster"
+    if tokens(plain) & set(containers):
+        return f"target {target!r} names a namespace or a compute cluster, not a database cluster"
+    return None
+
+
+def _one_resource_problem(target: str, plain: str, rest: str, outside: str, named: set[str], inventory: set[str],
+                          scopes: frozenset[str] | set[str]) -> str | None:
+    """`named` is exactly one resource, and the target's names are in the inventory."""
     if not named and (rest != plain or tokens(plain) & set(scopes)):
-        return f"target {proposal.target!r} names a whole namespace or cluster"
+        return f"target {target!r} names a whole namespace or cluster"
     # Parentheses and what follows an arrow describe the one resource; another resource named there is a
     # second target (fifth review, 2026-10-01: `orders (payments)`, `orders -> payments`,
     # `app in (orders,payments)` passed).
     if (re.search(r",|\band\b|=\s*[(\[]", outside, re.IGNORECASE) or re.search(r"=\s*[(\[]", rest)
-            or len(named | resources(_IMAGE.sub(" ", rest))) > 1):
-        return f"target {proposal.target!r} is a pattern or a list, not one resource"
-    found = tokens(proposal.target)
+            or len(named | _resources(_IMAGE.sub(" ", rest), inventory, scopes)) > 1):
+        return f"target {target!r} is a pattern or a list, not one resource"
+    found = tokens(target)
     if not found & inventory:
-        return f"target {proposal.target!r} names no resource in the inventory"
+        return f"target {target!r} names no resource in the inventory"
     unknown = sorted(t for t in found - inventory if "-" in t or "_" in t)
     if unknown:
-        return f"target {proposal.target!r} names {', '.join(unknown)}, which is not in the inventory"
+        return f"target {target!r} names {', '.join(unknown)}, which is not in the inventory"
     return None
 
 
