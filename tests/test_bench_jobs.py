@@ -167,6 +167,30 @@ def test_the_budget_is_a_hard_ceiling_even_when_every_answer_runs_to_the_output_
         bench_jobs.HardBudget(0, reserve, client)
 
 
+def test_an_answer_on_disk_is_kept_and_one_the_model_never_gave_is_asked_again(few, tmp_path):
+    from replay_diagnose import UNAVAILABLE
+
+    made = []
+
+    def client():
+        made.append(1)
+        return bench_jobs.dry_client(A)
+
+    first = bench_jobs.answer(A, few, 1, tmp_path, bench_jobs.HardBudget(100, 0, client), log=lambda _: None)
+    assert len(made) == len(few)
+    assert first["stopped"] == ""
+    lost = tmp_path / A / "r1" / few[0].set / f"{few[0].id}.json"
+    report = json.loads(lost.read_text(encoding="utf-8"))
+    report["verdict"]["policy_ids"] = [UNAVAILABLE]  # the model was not reached for this one
+    lost.write_text(json.dumps(report), encoding="utf-8")
+
+    made.clear()
+    again = bench_jobs.answer(A, few, 1, tmp_path, bench_jobs.HardBudget(100, 0, client), log=lambda _: None)
+    assert len(made) == 1  # only the unavailable answer is paid for again; the others are read from disk
+    assert UNAVAILABLE not in json.loads(lost.read_text(encoding="utf-8"))["verdict"]["policy_ids"]
+    assert again["rows"] == first["rows"]
+
+
 def test_a_dry_run_reads_no_key_and_writes_neither_docs_nor_providers_yaml(few, no_key, tmp_path, capsys):
     docs = bench_jobs.BENCHMARKS_MD.read_bytes()
     providers = bench_jobs.PROVIDERS_YAML.read_bytes()

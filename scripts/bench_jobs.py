@@ -267,36 +267,54 @@ def answer(model: str, cases: list[Case], repeats: int, out: pathlib.Path, budge
     already on disk is kept (a restarted run pays once; the spend shown is this run's); one the budget did not reach
     is an unanswered row."""
     from heldout_bench import score
-    from replay_diagnose import UNAVAILABLE, rediagnose
-
-    from warden.llm import BudgetExceeded
+    from replay_diagnose import UNAVAILABLE
 
     rows: dict[str, list[dict]] = {}
     stopped = ""
     for r in range(1, repeats + 1):
         for c in cases:
             dest = out / model / f"r{r}" / c.set / f"{c.id}.json"
-            report = json.loads(dest.read_text(encoding="utf-8")) if dest.exists() else None
-            if report is None or UNAVAILABLE in (report.get("verdict") or {}).get("policy_ids", []):
-                report = None
-                if not stopped:
-                    try:
-                        client = budget()
-                    except BudgetExceeded as exc:
-                        stopped = str(exc)
-                        log(f"{model}: {stopped}; the rest are unanswered")
-                    else:
-                        made = rediagnose({"alert": c.doc["alert"], "context": c.doc["context"]}, client)
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        dest.write_text(made.model_dump_json(indent=2), encoding="utf-8")
-                        report = json.loads(dest.read_text(encoding="utf-8"))
-                        log(f"{model} r{r} {c.set}/{c.id}: {made.proposal.action.value} {made.verdict.status.value} "
-                            f"${made.cost.usd:.4f}")
+            report = _kept(dest)
+            if report is None and not stopped:
+                report, stopped = _ask(model, r, c, dest, budget, log)
             row = score(report, c.key) if report else {"grade": "UNANSWERED", "policies": [UNAVAILABLE],
                                                          "cited_cause": False, "outcome": "unanswered",
                                                          "harm_allowed": False}
             rows.setdefault(f"{c.set}/{c.id}", []).append(row)
     return {"rows": rows, "spent_usd": round(budget.spent(), 4), "stopped": stopped}
+
+
+def _kept(dest: pathlib.Path) -> dict | None:
+    """The answer already on disk at `dest`, or None: none there, or one the model never gave (unavailable)."""
+    from replay_diagnose import UNAVAILABLE
+
+    if not dest.exists():
+        return None
+    report = json.loads(dest.read_text(encoding="utf-8"))
+    if UNAVAILABLE in (report.get("verdict") or {}).get("policy_ids", []):
+        return None
+    return report
+
+
+def _ask(model: str, r: int, c: Case, dest: pathlib.Path, budget: HardBudget,
+         log: Callable[[str], None]) -> tuple[dict | None, str]:
+    """One answer from a client the budget still allows, written to `dest` and read back - or no answer and why the
+    budget stopped the run."""
+    from replay_diagnose import rediagnose
+
+    from warden.llm import BudgetExceeded
+
+    try:
+        client = budget()
+    except BudgetExceeded as exc:
+        log(f"{model}: {exc}; the rest are unanswered")
+        return None, str(exc)
+    made = rediagnose({"alert": c.doc["alert"], "context": c.doc["context"]}, client)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(made.model_dump_json(indent=2), encoding="utf-8")
+    log(f"{model} r{r} {c.set}/{c.id}: {made.proposal.action.value} {made.verdict.status.value} "
+        f"${made.cost.usd:.4f}")
+    return json.loads(dest.read_text(encoding="utf-8")), ""
 
 
 def summary(model: str, done: dict, budget_usd: float) -> dict:
@@ -343,9 +361,8 @@ def both_times(when: dt.datetime) -> str:
     return f"{when:%Y-%m-%d %H:%M} UTC ({ist:%H:%M} IST)"
 
 
-def docs_row(job: str, s: dict, when: dt.datetime, prompt: str, vs: dict | None, *, dry_run: bool = False) -> str:
-    """One table row, every cell checked against what it may hold: a row that could carry anything else - a secret,
-    an account id, an email - is refused, never written."""
+def _check_row(job: str, s: dict, prompt: str) -> None:
+    """A row's model, prompt, job, counts and money each of the one shape it may have; else refused."""
     if not _MODEL.fullmatch(s["model"]):
         raise ValueError("a model id is lowercase words and numbers joined by - or .")
     listed_price(s["model"])  # and one providers.yaml prices: a name WARDEN already lists
@@ -359,6 +376,12 @@ def docs_row(job: str, s: dict, when: dt.datetime, prompt: str, vs: dict | None,
         raise ValueError("every count is a whole number")
     if not all(isinstance(s[k], (int, float)) and s[k] >= 0 for k in ("spent_usd", "budget_usd")):
         raise ValueError("money is a number")
+
+
+def docs_row(job: str, s: dict, when: dt.datetime, prompt: str, vs: dict | None, *, dry_run: bool = False) -> str:
+    """One table row, every cell checked against what it may hold: a row that could carry anything else - a secret,
+    an account id, an email - is refused, never written."""
+    _check_row(job, s, prompt)
     other = "-"
     if vs:
         other = f"vs {vs['model']}: {vs['fixed']} better, {vs['broke']} worse, p={vs['p']:.2f}"
@@ -407,14 +430,29 @@ def same_run(out: pathlib.Path, job: str, dry_run: bool) -> None:
     mark.write_text(json.dumps(kind), encoding="utf-8")
 
 
-def run(job: str, a: argparse.Namespace) -> int:
-    models = [a.model, a.vs] if job == "headtohead" else [a.model]
+def _models(job: str, a: argparse.Namespace) -> list[str]:
+    """The models a job answers with: two different ones for headtohead, one for bench; --repeats 1 to 10."""
     if job == "headtohead" and (not a.vs or a.vs == a.model):
         raise SystemExit("headtohead compares two models: --model A --vs B")
     if job != "headtohead" and a.vs:
         raise SystemExit(f"{job} measures one model; --vs is for headtohead")
     if not 1 <= a.repeats <= 10:
         raise SystemExit("--repeats is 1 to 10")
+    return [a.model, a.vs] if job == "headtohead" else [a.model]
+
+
+def _write_rows(a: argparse.Namespace, table: list[str]) -> None:
+    """--record: the rows into docs/BENCHMARKS.md (a dry run's into --out, never docs/); else printed."""
+    if not a.record:
+        print("\n".join(["the rows --record would add to docs/BENCHMARKS.md:", *table]))
+        return
+    dest = a.out / "BENCHMARKS.md" if a.dry_run else BENCHMARKS_MD
+    dest.write_text(with_rows(BENCHMARKS_MD.read_text(encoding="utf-8"), table), encoding="utf-8", newline="\n")
+    print(f"recorded in {dest}" + (" (a dry run never writes docs/)" if a.dry_run else ""))
+
+
+def run(job: str, a: argparse.Namespace) -> int:
+    models = _models(job, a)
     out = a.out
     if ROOT.resolve() in out.parents or out == ROOT.resolve():
         print("refusing to write inside the repository: --out is a new directory outside it")
@@ -453,13 +491,7 @@ def run(job: str, a: argparse.Namespace) -> int:
               "plan": rows, "models": sums}
     (out / "summary.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(sums, indent=2))
-    table = [docs_row(job, s, when, prompt, s.get("compared"), dry_run=a.dry_run) for s in sums]
-    if a.record:
-        dest = out / "BENCHMARKS.md" if a.dry_run else BENCHMARKS_MD
-        dest.write_text(with_rows(BENCHMARKS_MD.read_text(encoding="utf-8"), table), encoding="utf-8", newline="\n")
-        print(f"recorded in {dest}" + (" (a dry run never writes docs/)" if a.dry_run else ""))
-    else:
-        print("\n".join(["the rows --record would add to docs/BENCHMARKS.md:", *table]))
+    _write_rows(a, [docs_row(job, s, when, prompt, s.get("compared"), dry_run=a.dry_run) for s in sums])
     return 1 if any(s["unanswered"] for s in sums) else 0
 
 
