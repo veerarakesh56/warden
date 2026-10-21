@@ -22,9 +22,11 @@ COPY src ./src
 # Only what uv.lock lists, every hash verified (audit A-I-9): the runtime extra (the Lambda runtime interface client,
 # AWS, the PostgreSQL audit, passkeys), Kubernetes for the k8s platform, the Anthropic SDK for the llm zone's model
 # (the Claude API; Bedrock goes through boto3), Slack, and the injection tripwire (guard: transformers and torch, the
-# CPU-only build - pyproject.toml's pytorch-cpu index). Temporal is a core dependency.
+# CPU-only build - pyproject.toml's pytorch-cpu index), and OpenTelemetry's own OTLP/HTTP exporter (otlp), used only when
+# the runtime module's otlp_exporter is on. Temporal is a core dependency.
 # --no-build: wheels only, as ./Dockerfile - no package's build script runs; WARDEN itself is built by uv in process.
-RUN uv sync --locked --no-build --no-editable --extra runtime --extra k8s --extra anthropic --extra slack --extra guard
+RUN uv sync --locked --no-build --no-editable \
+    --extra runtime --extra k8s --extra anthropic --extra slack --extra guard --extra otlp
 # Only the shipped kinds of file (registers R8-O4, R9-O1).
 COPY scripts/check_package.py ./
 RUN /opt/warden/bin/python check_package.py \

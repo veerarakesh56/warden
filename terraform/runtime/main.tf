@@ -90,6 +90,9 @@ module "runtime" {
   monthly_budget_usd  = tonumber(lookup(local.tf, "monthly_budget_usd", "0"))
   # Eldane, the AI critic, in the critic zone (eldane.py): the other Claude model than the incident's diagnoser.
   critic_provider = lookup(local.tf, "critic_provider", "anthropic")
+  # WARDEN's spans over OTLP (item 7b): off unless SSM tf/otlp_exporter is "true" and tf/otlp_endpoint names the collector.
+  otlp_exporter = lookup(local.tf, "otlp_exporter", "false") == "true"
+  otlp_endpoint = lookup(local.tf, "otlp_endpoint", "")
   # The workers' way out outlives them: pausing removes the services and the NAT route in one apply, and a task told to
   # stop on an instance that has already lost its route never hears it - its service stays DRAINING until Terraform
   # gives up after twenty minutes, with the instances still running (2026-10-11, run 38121022138). With this, the
