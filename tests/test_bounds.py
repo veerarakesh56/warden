@@ -158,3 +158,126 @@ def test_a_reset_signs_every_trip_it_was_shown_and_no_later_one(log, clock, owne
     assert bounds.reset(log, both, policy=policy, now=clock.now) == []
     assert log.entries(kinds=(bounds.RESET,))[-1]["body"]["trips"] == [r["seq"] for r in
                                                                         log.entries(kinds=(bounds.TRIPPED,))]
+
+
+# Mutation testing (lane U, mutmut 3.8.0 on bounds.py) found rules the tests above never pinned. Each test below
+# names one of them.
+
+
+def _passkey(approver="owner", *, plan_hash, nonce="nonce-1", workflow_id="killswitch", tier="T3"):
+    from warden.passkeys import PasskeyApproval
+
+    return PasskeyApproval(approver=approver, workflow_id=workflow_id, plan_hash=plan_hash, tier=tier, nonce=nonce,
+                           credential_id="cred-1", new_sign_count=1, approved_at=datetime(2026, 9, 28, tzinfo=UTC))
+
+
+def _no_wait(policy, minutes=None):
+    """The fixture's policy with the T3 cooling-off set to `minutes`, or with no T3 entry at all for None."""
+    return policy.model_copy(update={"cooling_off_minutes": {} if minutes is None else {"T3": minutes}})
+
+
+def test_the_reset_hash_is_sha256_of_the_trip_numbers_joined_by_commas(log):
+    """What an approver signs must not drift between releases: an approval signed on one version is checked by the
+    next during a rollout, and the audit keeps the hash it was for."""
+    bounds.trip(log, "inc-1", "first")
+    bounds.trip(log, "inc-2", "second")
+    assert bounds.trips_hash(log) == ("killswitch-trips-"
+                                      "17f8af97ad4a7f7639a4c9171d5185cbafb85462877a4746c21bdb0a4f940ca0")
+
+
+def test_a_reset_with_the_switch_off_says_the_switch_is_not_on(log, clock, owner, policy):
+    signed = approvals.sign(owner, approver="owner", workflow_id="killswitch", plan_hash=bounds.trips_hash(log),
+                            tier="T3", now=clock.now)
+    assert bounds.reset(log, signed, policy=policy, now=clock.now) == ["the kill switch is not on"]
+
+
+def test_a_reset_row_names_its_approver_its_nonce_and_the_trips_it_cleared(log, clock, owner, policy):
+    bounds.trip(log, "inc-1", "manual stop")
+    signed = approvals.sign(owner, approver="owner", workflow_id="killswitch", plan_hash=bounds.trips_hash(log),
+                            tier="T3", now=clock.now)
+    bounds.reset(log, signed, policy=policy, now=clock.now)
+    assert log.entries(kinds=(bounds.RESET,))[-1]["body"] == {"approver": "owner", "nonce": signed.nonce, "trips": [1]}
+
+
+def test_a_passkey_reset_with_the_switch_off_says_the_switch_is_not_on(log, clock, policy):
+    verified = _passkey(plan_hash=bounds.trips_hash(log))
+    assert bounds.reset_by_passkey(log, verified, policy=policy, now=clock.now) == ["the kill switch is not on"]
+
+
+def test_a_passkey_reset_row_names_the_approver_the_nonce_the_trips_and_the_credential(log, clock, policy):
+    bounds.trip(log, "inc-1", "manual stop")
+    bounds.reset_by_passkey(log, _passkey(plan_hash=bounds.trips_hash(log)), policy=policy, now=clock.now)
+    assert log.entries(kinds=(bounds.RESET,))[-1]["body"] == {
+        "approver": "owner", "nonce": "nonce-1", "trips": [1], "method": "passkey", "credential_id": "cred-1"}
+
+
+def test_a_passkey_approval_of_fewer_trips_than_the_record_says_a_trip_was_added(log, clock, policy):
+    bounds.trip(log, "inc-1", "first")
+    seen = bounds.trips_hash(log)
+    bounds.trip(log, "inc-2", "second, after the approver looked")
+    assert bounds.reset_by_passkey(log, _passkey(plan_hash=seen), policy=policy, now=clock.now) == [
+        "the approval is not of the trips now on the record (a trip was added since)"]
+
+
+def test_a_passkey_approval_is_used_once_even_for_a_later_trip(log, clock, policy):
+    """The approval page checks the challenge with no used nonces (approval_page.py): this is the replay guard."""
+    bounds.trip(log, "inc-1", "first")
+    bounds.reset_by_passkey(log, _passkey(plan_hash=bounds.trips_hash(log)), policy=policy, now=clock.now)
+    bounds.trip(log, "inc-2", "second")
+    replayed = _passkey(plan_hash=bounds.trips_hash(log))
+    assert bounds.reset_by_passkey(log, replayed, policy=policy, now=clock.now) == ["the approval was already used"]
+
+
+def test_a_fresh_passkey_approval_resets_a_switch_that_was_reset_before(log, clock, policy):
+    bounds.trip(log, "inc-1", "first")
+    bounds.reset_by_passkey(log, _passkey(plan_hash=bounds.trips_hash(log)), policy=policy, now=clock.now)
+    bounds.trip(log, "inc-2", "second")
+    fresh = _passkey(plan_hash=bounds.trips_hash(log), nonce="nonce-2")
+    assert bounds.reset_by_passkey(log, fresh, policy=policy, now=clock.now) == []
+
+
+def test_a_policy_without_a_t3_wait_lets_a_passkey_reset_at_once(log, clock, policy):
+    bounds.trip(log, "inc-1", "manual stop")
+    verified = _passkey(plan_hash=bounds.trips_hash(log))
+    assert bounds.reset_by_passkey(log, verified, policy=_no_wait(policy), now=clock.now) == []
+
+
+def test_a_passkey_reset_is_allowed_the_moment_the_t3_wait_ends(log, clock, policy):
+    """The same edge as approvals.check: a plan exactly as old as the cooling-off has waited it out."""
+    bounds.trip(log, "inc-1", "manual stop")
+    verified = _passkey(plan_hash=bounds.trips_hash(log))
+    ends = clock.now + timedelta(minutes=10)
+    assert bounds.reset_by_passkey(log, verified, policy=_no_wait(policy, 10), now=ends) == []
+
+
+def test_a_passkey_reset_a_moment_before_the_t3_wait_ends_is_refused(log, clock, policy):
+    bounds.trip(log, "inc-1", "manual stop")
+    verified = _passkey(plan_hash=bounds.trips_hash(log))
+    early = clock.now + timedelta(minutes=10) - timedelta(microseconds=1)
+    assert bounds.reset_by_passkey(log, verified, policy=_no_wait(policy, 10), now=early) == [
+        "T3 needs the latest trip to be 0:10:00 old before it is reset"]
+
+
+def test_a_success_check_result_does_not_start_the_cool_down(log, clock):
+    bounds.record_result(log, "inc-1", service="orders-api", ok=True, now=clock.now)
+    assert bounds.blocked(log, service="orders-api", action_class="k8s_restart", now=clock.now) == []
+
+
+def test_success_check_results_do_not_count_as_a_services_changes(log, clock):
+    hourly = bounds.Limits(cooldown=timedelta(0))
+    for i in range(3):
+        bounds.record_result(log, f"inc-{i}", service="orders-api", ok=True, now=clock.now)
+    assert bounds.blocked(log, service="orders-api", action_class="k8s_restart", now=clock.now, limits=hourly) == []
+
+
+def test_rows_that_name_an_action_class_but_are_not_changes_do_not_count_toward_its_day(log, clock):
+    daily = bounds.Limits(cooldown=timedelta(0))
+    for i in range(10):
+        bounds.record_result(log, f"inc-{i}", service=f"svc-{i}", ok=True, now=clock.now, action_class="k8s_restart")
+    assert bounds.blocked(log, service="svc-new", action_class="k8s_restart", now=clock.now, limits=daily) == []
+
+
+def test_a_result_row_names_its_service_and_whether_the_check_passed(log, clock):
+    bounds.record_result(log, "inc-1", service="orders-api", ok=False, now=clock.now, workflow_id="rem-1")
+    assert log.entries(kinds=(bounds.RESULT,))[-1]["body"] == {"service": "orders-api", "ok": False,
+                                                               "workflow_id": "rem-1"}
