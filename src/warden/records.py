@@ -23,7 +23,7 @@ PER_PAGE = 50  # incidents on one page of the list by default; every incident st
 SIZES = (10, 25, 50, 100)  # the page sizes a reader may choose (owner, 2026-10-16)
 REFRESH_S = 60
 # The steps and words the record and its pages look for in more than one place.
-_INGEST, _AFTER_HOLD = "incident.ingest", "incident.after_hold"
+_INGEST, _AFTER_HOLD, _ALERT = "incident.ingest", "incident.after_hold", "incident.alert"
 _REPORT, _EVIDENCE = "incident.report", "incident.evidence"
 _ANNOUNCE = "remediation.announce"
 IN_PROGRESS, NO_PLAN = "In progress", "No fix plan"
@@ -47,7 +47,7 @@ STEP = {
     "incident.reopened": "Reopened: the alarm came back while the fix was being watched",
     "remediation.did_not_hold": "The fix did not hold - WARDEN will not offer it again on its own",
     "remediation.offer_again": "An approver let WARDEN offer this fix again",
-    "intake.decision": "The alarm came in", "incident.alert": "The alarm was recorded",
+    "intake.decision": "The alarm came in", _ALERT: "The alarm was recorded",
     _INGEST: "WARDEN started reading", "incident.gather": "Evidence read",
     "incident.redact": "Secrets removed from the evidence", "incident.tripwire": "Injection check on the evidence",
     "incident.diagnose": "Diagnosis", "incident.investigate": "Read more of what the alarm names",
@@ -227,7 +227,7 @@ def environment_step(env: str, e: dict[str, Any]) -> str:
     """An incident's environment after its row `e`, given `env` before it: each `incident.alert` row sets it (the last
     one wins), an `incident.ingest` row only while none is set. The one rule for the records and the pilot metrics
     (pilot.py), so a reader limited to some environments is counted the incidents the records show them."""
-    if e["kind"] == "incident.alert":
+    if e["kind"] == _ALERT:
         a = e["body"].get("alert")
         return str(a.get("environment") or "") if isinstance(a, dict) else ""
     if e["kind"] == _INGEST and not env:
@@ -371,7 +371,7 @@ def _read_denial(r: Record, e: dict[str, Any], why: str) -> None:
 
 
 _READ: dict[str, Callable[[Record, dict[str, Any]], None]] = {
-    "incident.alert": _read_alert, _INGEST: _read_ingest, "incident.diagnose": _read_diagnosis,
+    _ALERT: _read_alert, _INGEST: _read_ingest, "incident.diagnose": _read_diagnosis,
     "incident.verify": _read_verify, "incident.tripwire": _read_tripwire, _REPORT: _read_report,
     _EVIDENCE: _read_evidence, "intake.grouped": _read_grouped, "incident.no_plan": _read_no_plan,
     "incident.plan_fix": _read_plan_fix, "remediation.plan": _read_plan, "approval.accepted": _read_accepted,

@@ -648,30 +648,24 @@ def _model_lines(r: Report, n: int) -> list[tuple[str, str]]:
     for i in r.incidents:
         seen.update(i.fallbacks)
     total = sum(seen.values())
-    out.append(
-        (
-            "Fallbacks",
-            f"{total}; per incident {total / n:.2f} ({total} / {n} incidents)"
-            if n
-            else f"{total}; per incident {NA} (0 incidents)",
-        )
-    )
-    # The llm.call rows count every request sent (retries, unanswered requests and Eldane's trials included), so they
-    # are not the "Model calls" above (the spend ledger's count): named apart, never put side by side as one count.
-    out.append((MODEL_REQUESTS, f"{rows} ({LLM_CALL} rows: {REQUESTS_ARE})"))
-    out.append(
-        (
-            "Fallbacks per model request",
-            f"{rate(total, rows)} ({total} / {rows} {LLM_CALL} rows: {REQUESTS_ARE})",
-        )
-    )
     # The closed set by name; any other reason only counted, never printed (its text is the writer's, not ours).
     other = sum(v for k, v in seen.items() if k not in FALLBACK_REASONS)
-    out.append(
-        (
-            "Fallbacks by reason",
-            ", ".join(f"{k} {seen[k]}" for k in FALLBACK_REASONS) + f", other {other}",
-        )
+    per_incident = f"{total / n:.2f} ({total} / {n} incidents)" if n else f"{NA} (0 incidents)"
+    # The llm.call rows count every request sent (retries, unanswered requests and Eldane's trials included), so they
+    # are not the "Model calls" above (the spend ledger's count): named apart, never put side by side as one count.
+    out.extend(
+        [
+            ("Fallbacks", f"{total}; per incident {per_incident}"),
+            (MODEL_REQUESTS, f"{rows} ({LLM_CALL} rows: {REQUESTS_ARE})"),
+            (
+                "Fallbacks per model request",
+                f"{rate(total, rows)} ({total} / {rows} {LLM_CALL} rows: {REQUESTS_ARE})",
+            ),
+            (
+                "Fallbacks by reason",
+                ", ".join(f"{k} {seen[k]}" for k in FALLBACK_REASONS) + f", other {other}",
+            ),
+        ]
     )
     return out
 
