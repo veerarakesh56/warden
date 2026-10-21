@@ -729,6 +729,14 @@ def _diagnose(state: WardenState, llm: LLMClient) -> WardenState:
                   "processed_in": llm.processed_in,  # register S11: residency recorded with every diagnosis
                   "system_sha256": _sha256(SYSTEM_DIAGNOSE), "prompt_sha256": _sha256(user),
                   "response_sha256": _sha256(d.model_dump_json()), "code": code_version()}
+    # The text the provider was handed, as llm.py handed it (B36): `warden history` shows the prompt only when it hashes
+    # to these - what the model was sent, byte for byte, never a re-render. None in mock mode: nothing was sent.
+    sent = getattr(llm, "last_request", None)
+    if sent:
+        provenance.update(sent_system_sha256=_sha256(sent[0]), sent_user_sha256=_sha256(sent[1]))
+        appended = getattr(llm, "last_appended", "")
+        if appended:  # a retry: the feedback it carried (llm.validation_feedback - paths and error types, no value)
+            provenance["sent_appended"] = appended
     return {
         "root_cause": rc,
         "proposal": proposal,

@@ -315,3 +315,41 @@ it off, set `WARDEN_SECURITY_REVIEW` to anything but `on`, or delete it.
 Known limit, not verified here: the action's false-positive filter checks its API access with a fixed older model
 (`claude-3-5-haiku-20241022` in its code). If that model is retired, the filter step may fail and its findings may
 arrive unfiltered; read the first run's log.
+
+## Reading a workflow's Temporal history (register B36)
+
+Every payload WARDEN puts in Temporal is encrypted and bound to its namespace and workflow (codec.py), so the
+Temporal Cloud web UI shows only ciphertext. To read one workflow's history:
+
+```sh
+warden history <workflow-id>        # e.g. inc-<alert id>, or a remediation's id from `warden status`
+```
+
+It loads what `warden status` loads - the payload key (`WARDEN_TEMPORAL_KEY`, and `WARDEN_TEMPORAL_KEY_PREVIOUS`)
+and a Temporal API key - with your own identity, so only a person who may read those secrets can read a history. Each
+event is shown with its number, time (UTC and local), type and the activity or signal it names, and its payloads as
+JSON; the whole text then goes through the redactor (identifiers and secrets masked) and the terminal's outbound gate.
+A payload that does not decrypt in that workflow's context (another key, another workflow, never encrypted) is shown
+as unreadable, never as data. At most 500 events and 2,000 characters a value (each value is redacted whole
+before it is cut). A payload over 2 MiB, or past 32 MiB for the whole history, is not decrypted: it is shown by its
+size. Nothing is written.
+
+After the events it shows **what the model was sent** for each `diagnose` call: the system text and the user text
+exactly as WARDEN handed them to the model provider. The user text is the redacted prompt recorded in the call's own
+input, with the answer schema added by the same function the call used (`llm.ask_for`); for a retry after an answer
+that failed validation, also the feedback that retry appended, which the call recorded (`sent_appended`: field paths
+and error types only, never a value). Only the final attempt is shown. Each is shown only when its
+SHA-256 equals the hash the call recorded for the text it sent (`sent_system_sha256`, `sent_user_sha256` in the
+diagnosis provenance, kept since 2026-10-21); otherwise the line says it is not shown and why (the prompt or schema
+changed since, no answer recorded, the model not asked, or a call recorded before those hashes existed). The prompt was
+redacted before it was sent, so it holds the same `<KIND_n>` placeholders the model saw, never the values behind them:
+the redaction map never enters Temporal's history, so no decryption here can reveal one. Each text also goes through
+the redactor and the gate; if they change anything it is shown masked and marked "NOT byte-identical". Seeing a masked
+value is a separate, audited reveal by a signed-in person, not this command. What this does not cover: the provider's
+own request envelope (model name, token limits), and the model calls of the critic (Eldane) and of discussion chat.
+
+Not built, by decision (2026-10-21): a codec server for the Temporal web UI. WARDEN's payloads are bound to their
+workflow, which the UI does not send, so one would need a change to the payload format; and a hosted one would put
+the payload key in an internet-facing Lambda. If the web UI view is wanted later, the option is a local codec server
+on an allowed person's computer (loopback only) together with that format change.
+
