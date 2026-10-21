@@ -9,7 +9,8 @@ from warden import mcp_server
 def test_what_a_client_is_shown_is_annotated(monkeypatch):
     monkeypatch.setenv("WARDEN_MCP_PROFILE", "remediate")
     shown = mcp_server.listed_tools()
-    assert len(shown) == len(mcp_server.ANNOTATIONS) and all(t.annotations is not None for t in shown)
+    assert len(shown) == len(mcp_server.ANNOTATIONS)
+    assert all(t.annotations is not None for t in shown)
 
 
 def test_every_tool_served_has_annotations_and_only_reads_are_read_only():

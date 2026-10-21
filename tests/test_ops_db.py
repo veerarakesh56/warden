@@ -131,8 +131,9 @@ def _clients(factory=None, ec2=None):
     (FakeFactory(sentinel=False), "not the proving ground"),
 ])
 def test_a_database_that_is_not_the_proving_ground_is_refused(factory, expected):
+    clients, target = _clients(factory), _target()
     with pytest.raises(OpError, match=expected):
-        OPS["db_open_idle_transactions"](_clients(factory), _target(), count=3)
+        OPS["db_open_idle_transactions"](clients, target, count=3)
     assert not _HELD, "it opened sessions anyway"
 
 
@@ -149,8 +150,9 @@ def test_an_unreachable_database_is_refused_not_assumed_safe():
         def __call__(self):
             raise RuntimeError("connection refused")
 
+    clients, target = _clients(Dead()), _target()
     with pytest.raises(OpError, match="cannot reach the proving-ground database"):
-        OPS["db_take_blocking_lock"](_clients(Dead()), _target())
+        OPS["db_take_blocking_lock"](clients, target)
 
 
 # --------------------------------------------------------------------------- the faults
@@ -169,13 +171,15 @@ def test_saturation_stops_below_the_ceiling_so_warden_can_still_connect():
     saturated pool - a different fault, with its own scenario."""
     factory = FakeFactory(max_connections=100, existing_sessions=10)
     result = OPS["db_saturate_connections"](_clients(factory), _target(), target_pct=80)
-    assert result["opened"] == 70 and result["max_connections"] == 100
+    assert result["opened"] == 70
+    assert result["max_connections"] == 100
 
 
 def test_a_server_refusing_mid_saturation_is_reported_not_hidden():
     factory = FakeFactory(max_connections=100, existing_sessions=10, refuse_after=20)
     result = OPS["db_saturate_connections"](_clients(factory), _target(), target_pct=80)
-    assert "stopped_early" in result and "too many clients" in result["stopped_early"]
+    assert "stopped_early" in result
+    assert "too many clients" in result["stopped_early"]
 
 
 def test_only_one_long_query_may_run_at_a_time():
@@ -208,7 +212,9 @@ def test_the_revert_cancels_the_long_query_rather_than_waiting_for_it():
     OPS["db_run_long_query"](clients, target, seconds=900)
     conn = _LONG_QUERY["conn"]
     result = OPS["db_release_everything"](clients, target)
-    assert conn.cancelled and conn.closed and result["cancelled_long_queries"] == 1
+    assert conn.cancelled
+    assert conn.closed
+    assert result["cancelled_long_queries"] == 1
 
 
 # --------------------------------------------------------------------------- the evidence outage
@@ -216,8 +222,9 @@ def test_the_revert_cancels_the_long_query_rather_than_waiting_for_it():
 
 def test_only_the_proving_grounds_own_security_group_may_be_revoked():
     ec2 = FakeEc2(tagged=False)
+    clients, target = _clients(ec2=ec2), _target()
     with pytest.raises(OpError, match="not tagged"):
-        OPS["db_revoke_ingress"](_clients(ec2=ec2), _target())
+        OPS["db_revoke_ingress"](clients, target)
     assert ec2.revoked == [], "it revoked anyway"
 
 
@@ -236,8 +243,9 @@ def test_ingress_is_restored_verbatim_not_reconstructed():
 
 
 def test_restoring_ingress_that_was_never_revoked_is_an_error():
+    clients, target = _clients(ec2=FakeEc2()), _target()
     with pytest.raises(OpError, match="refusing to guess"):
-        OPS["db_restore_ingress"](_clients(ec2=FakeEc2()), _target())
+        OPS["db_restore_ingress"](clients, target)
 
 
 # --------------------------------------------------------------------------- dispatch
@@ -254,8 +262,9 @@ def test_the_catalog_dispatches_through_the_shared_run_steps():
 
 
 def test_an_unknown_op_names_the_database_registry():
+    clients, target = _clients(), _target()
     with pytest.raises(OpError, match="db_open_idle_transactions"):
-        run_steps(_clients(), _target(), [{"op": "ecs_deploy_variant"}], account="", registry=OPS)
+        run_steps(clients, target, [{"op": "ecs_deploy_variant"}], account="", registry=OPS)
 
 
 def test_the_blocking_lock_refuses_instead_of_hanging_when_the_table_is_already_locked():
@@ -280,8 +289,9 @@ def test_the_blocking_lock_refuses_instead_of_hanging_when_the_table_is_already_
             return conn
 
     factory = Factory()
+    clients, target = _clients(factory), _target()
     with pytest.raises(OpError, match="not at baseline"):
-        OPS["db_take_blocking_lock"](_clients(factory), _target(), waiters=2)
+        OPS["db_take_blocking_lock"](clients, target, waiters=2)
     blocker = factory.handed[-1]
     assert any("lock_timeout" in s for s in blocker.statements), "the blocker must set a lock timeout"
     assert blocker.closed, "a refused blocker must not be left open"
