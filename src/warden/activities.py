@@ -317,9 +317,9 @@ def _approver_problems(plan: Plan, name: str, approver: approvals.Approver | Non
 
 
 def _cite_own_fixes(context: ContextBundle, own_step: dict[str, Any]) -> None:
-    """The ids the model is shown WARDEN's own fixes by, so a citation of one can be told from a citation of anything
-    else - each fix's own trusted (C) item only: an application's log line that copies the words is not WARDEN's
-    (review L2)."""
+    """Each of WARDEN's own fixes matched to the evidence item it is shown as."""
+    # The ids the model is shown them by, so a citation of one can be told from a citation of anything else - each
+    # fix's own trusted (C) item only: an application's log line that copies the words is not WARDEN's (review L2).
     from . import evidence
 
     items = [i for i in evidence.index(context).values() if i.id.startswith("C") and _OWN_FIX in i.text]
@@ -532,14 +532,16 @@ class RemediationActivities:
                        f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})" for b in gave})
 
     def _notes_said(self, gave: list[dict[str, Any]]) -> str:
-        """What each wrote with their approval, in their own words - inert, one line each (_words)."""
+        """The approvers' notes, said in the message."""
+        # What each wrote with their approval, in their own words - inert, one line each (_words).
         notes = [(str(b.get("approver")), str(b["note"])) for b in gave if b.get("note")]
         return "".join((f" Their note: {_words(n)}" if len(gave) == 1 else f" Note from {self.policy.said(a)}: {_words(n)}")
                        + _tried(n) for a, n in notes)
 
     def _plan_said(self, plan: Plan, what: str, shown: str, *, did: list[str], noted: str) -> str:
-        """The sentence that says where the plan stands. Who may approve this tier, and who did (owner, 2026-10-12:
-        "anyone in the channel can click it, and nobody can see who approved"): both from WARDEN's own record."""
+        """The sentence that says where the plan stands."""
+        # Who may approve this tier, and who did (owner, 2026-10-12: "anyone in the channel can click it, and nobody
+        # can see who approved"). Both from WARDEN's own record: the approver list, and this run's accepted approvals.
         tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
         need = self.policy.required.get(plan.tier, 1)
         # The plan's id, for whoever looks it up - not a command to type, in a message most readers act on by its
@@ -568,10 +570,11 @@ class RemediationActivities:
                                                                                       target=shown)
 
     def _denial_said(self, plan: Plan, shown: str, why: list[str], end: _End | None) -> tuple[str, str] | None:
-        """Who said no, how and when - said as an approval is (2026-10-14: a denial did not show who denied it; the
-        message read "was denied ... Why: denied by owner"), with their reason. A denial reaches the workflow only
-        from the approval page, after the approver's passkey over this exact plan (approval_page._deny); who it was
-        is this run's own signed end row. None: the end row names no approver."""
+        """A denial, said with who and when and their reason. None: the end row names no approver."""
+        # Who said no, how and when - said as an approval is (2026-10-14: a denial did not show
+        # who denied it; the message read "was denied ... Why: denied by owner"). A denial reaches the
+        # workflow only from the approval page, after the approver's passkey over this exact plan
+        # (approval_page._deny); who it was is this run's own signed end row.
         who = next((n for n in self.policy.approvers
                     if any(w == f"denied by {n}" or w.startswith(f"denied by {n}: ") for w in why)), "")
         if not who or end is None or end.at is None:
@@ -652,9 +655,10 @@ class RemediationActivities:
         return delivered
 
     def _record_only(self, plan: Plan, what: str, head: str, said: str) -> None:
-        """Approved, denied, fixed: written as ever, through the same gate, and kept for WARDEN's records page - who,
-        how, when and their note - not sent as another message in the channel (owner, 2026-10-14: "i dont want that
-        records coming here in slack everytime")."""
+        """A decision kept on the record only, not sent."""
+        # Approved, denied, fixed: written as ever, through the same gate, and kept for WARDEN's records page -
+        # who, how, when and their note - not sent as another message in the channel (owner, 2026-10-14: "i
+        # dont want that records coming here in slack everytime").
         from .chatops import name_people
         from .gate import enforce
 
@@ -1230,7 +1234,8 @@ class RemediationActivities:
             self._record_change(incident_id, workflow_id, run, end=body, plan=plans[-1])
 
     def _resolve_page(self, incident_id: str, workflow_id: str, run: str) -> None:
-        """Decision D13: the fix is verified, so the incident's page is resolved - and the resolve is on the record."""
+        """The incident's page resolved, on the record."""
+        # Decision D13: the fix is verified, so the incident's page is resolved - and the resolve is on the record.
         from .chatops import page_resolve
 
         resolved = page_resolve(incident_id)
@@ -1241,8 +1246,9 @@ class RemediationActivities:
 
     def _record_change(self, incident_id: str, workflow_id: str, run: str, *, end: dict[str, Any],
                        plan: dict[str, Any]) -> None:
-        """Register O9: a change to a live system is recorded where the team looks for changes - once per run, after
-        the signed end row it cites. A record that could not be written is itself recorded."""
+        """The applied change recorded where the team looks for changes."""
+        # Register O9: a change to a live system is recorded where the team looks for changes - once per run,
+        # after the signed end row it cites. A record that could not be written is itself recorded.
         from .changes import issue_text
 
         title, text = issue_text(incident_id=incident_id, end=end, plan=plan,
@@ -1356,8 +1362,9 @@ class IncidentActivities:
             steps.append({"node": "own_fixes", "fixes": [link for _, link in own]})
 
     def _with_history(self, alert: Alert, prompt: str, steps: list[dict[str, Any]]) -> str:
-        """Past fix plans on the alert's resources, as fixed-vocabulary facts from the signed record (history.
-        prompt_facts) - off unless measured to help; a record that cannot be read adds nothing."""
+        """The prompt, with past fix plans on the alert's resources when there are any."""
+        # Past fix plans on the alert's resources, as fixed-vocabulary facts from the signed record (history.
+        # prompt_facts) - off unless measured to help; a record that cannot be read adds nothing.
         from . import history
 
         try:
@@ -1405,7 +1412,8 @@ class IncidentActivities:
         return [*applied, *self._own_undos(started)], reopened_by
 
     def _own_undos(self, started: datetime) -> list[dict[str, Any]]:
-        """WARDEN's own undos too (live, 2026-10-16): each is told with the fix it undid, at the time of the undo."""
+        """WARDEN's undos in the window, each as the fix it undid."""
+        # WARDEN's own undos too (live, 2026-10-16): each is told with the fix it undid, at the time of the undo.
         undos = []
         for r in self.audit.entries(kinds=(_ROLLBACK_ROW,), since=started - OWN_FIX_WINDOW):
             if r["body"].get("undone") is not True:
@@ -1443,7 +1451,8 @@ class IncidentActivities:
         return line, link
 
     def _note_later_alarm(self, alert: Alert, incident: str, link: dict[str, str]) -> None:
-        """The earlier fix's own record says a later alarm was looked at beside it, and which - once."""
+        """The later alarm, on the earlier fix's own record."""
+        # The earlier fix's own record says a later alarm was looked at beside it, and which - once.
         if not any(r["body"].get("incident") == alert.alert_id and r["body"].get("workflow_id") == link["workflow_id"]
                    for r in self.audit.entries(incident, kinds=("incident.later_alarm",))):
             self.audit.append(incident, "incident.later_alarm", {
@@ -1745,8 +1754,9 @@ class IncidentActivities:
         return [n.sink for n in sent if n.delivered]
 
     def _held_first(self, pack: EvidencePack, markdown: str) -> str:
-        """An alarm held while its resource was expected down, and still firing when that ended, says so under the
-        title: when it first fired, what held it, and that it is an incident from now (register G10-39's limit)."""
+        """The report, with the alarm's hold said under its title."""
+        # An alarm held while its resource was expected down, and still firing when that ended, says so under the
+        # title: when it first fired, what held it, and that it is an incident from now (register G10-39's limit).
         held = [e["body"] for e in self.audit.entries(pack.alert.alert_id, kinds=("incident.after_hold",))
                 if e["body"].get("firing") is not False]
         if not held:
@@ -1889,7 +1899,8 @@ def _thread_messages(turn: Any) -> tuple[list[dict[str, Any]], Any]:
     # A thread comes back oldest first, and some installs get only its first 15: the mention is always kept.
     if turn.ts not in {str(m.get("ts")) for m in messages}:
         messages.append({"user": turn.user, "text": turn.text, "ts": turn.ts})
-    return messages, (me or {}).get("user_id")
+    bot = (me or {}).get("user_id")  # WARDEN's own replies by its id - another app's words never pass as WARDEN's
+    return messages, bot
 
 
 def _author(m: dict[str, Any], bot: Any) -> str:

@@ -369,11 +369,10 @@ class RemediationWorkflow:
         return await self._roll_back(req, acts, plan, end)
 
     async def _critic(self, req: FixRequest, acts, plan: Plan, accepted: list[SignedApproval]) -> tuple[bool, bool]:
-        """Eldane, the AI critic (owner, 2026-10-16), after the gate: it can only add a "no". It reviews the plan in its
-        own zone; where the plan's class is at L2 (autonomy.py; dev, not demoted) its signed approval comes back and is
-        checked like any other approval, and is added to `accepted`. Anything else, or no answer in time, and a person
-        decides as before. Returns whether Eldane's approval is enough on its own, and whether the request for a
-        person's approval was already sent."""
+        """Eldane's review of the plan. Returns whether its approval is enough on its own, and whether the request for a person's approval was already sent."""
+        # Eldane, the AI critic (owner, 2026-10-16), after the gate: it can only add a "no". It reviews the plan in its
+        # own zone; where the plan's class is at L2 (autonomy.py; dev, not demoted) its signed approval comes back and is
+        # checked like any other approval. Anything else, or no answer in time, and a person decides as before.
         if not workflow.patched("eldane-critic"):
             return False, False
         # Where Eldane can never approve (prod, or an environment with no L2 ceiling) the person is asked first,
@@ -399,9 +398,10 @@ class RemediationWorkflow:
         return auto, opened
 
     async def _veto_window(self, acts, wid: str, plan: Plan, end) -> FixOutcome | None:
-        """A person's decision always overrides Eldane's (owner, 2026-10-17): the channel is told Eldane approved, with
-        the page's links, and a person's "no" in the next VETO minutes - or later, until the apply step starts - ends
-        the plan with nothing changed. None: no "no" in the window."""
+        """The window for a person's "no" to Eldane's approval. None: no "no" came."""
+        # A person's decision always overrides Eldane's (owner, 2026-10-17): the channel is told Eldane approved,
+        # with the page's links, and a person's "no" in the next VETO minutes - or later, until the apply step starts - ends the
+        # plan with nothing changed.
         await _announce(acts, plan, "autonomous")
         self._stage = "awaiting_veto"
         with contextlib.suppress(TimeoutError):
@@ -540,9 +540,10 @@ class RemediationWorkflow:
         return await end("recovered")
 
     async def _watch(self, req: FixRequest, acts, plan: Plan, end, *, side: bool) -> FixOutcome | None:
-        """Durable re-checks (register C18a): a fix that holds for minutes and fails within the hour is not a
-        recovery. A relapse is recorded as a failed result (the breaker counts it) and goes to a person: WARDEN never
-        reverses its own fix on its own (register C8). None: it held through every re-check."""
+        """The verified fix watched through its re-checks. None: it held through every one."""
+        # Durable re-checks (register C18a): a fix that holds for minutes and fails within the hour is not a
+        # recovery. A relapse is recorded as a failed result (the breaker counts it) and goes to a person:
+        # WARDEN never reverses its own fix on its own (register C8).
         self._stage = "watching"
         since = workflow.now()
         if workflow.patched("g10-outcome"):
@@ -560,9 +561,10 @@ class RemediationWorkflow:
         return None
 
     async def _until_recheck(self, at: datetime, *, now_too: bool, side: bool) -> None:
-        """Wait for the next re-check. The alarm firing again ends the watch at once (intake signals it): the people are
-        told of the relapse then, and the resource is free for the plan its new incident may open (live, 2026-10-12:
-        the watch slept to its re-check, and the new plan was silently not opened)."""
+        """Wait for the next re-check."""
+        # The alarm firing again ends the watch at once (intake signals it): the people are told of the
+        # relapse then, and the resource is free for the plan its new incident may open (live,
+        # 2026-10-12: the watch slept to its re-check, and the new plan was silently not opened).
         wait = max(at - workflow.now(), timedelta(0))
         if now_too and wait > timedelta(0):
             with contextlib.suppress(TimeoutError):
@@ -638,7 +640,7 @@ class AutonomyWorkflow:
 def _not_answered(thread: Thread, turn: Turn) -> str:
     """The reply to a mention that is not answered: another environment's incident (refused before anything of it was
     read), no incident named, or past today's limit for it."""
-    if thread.elsewhere:
+    if thread.elsewhere:  # another environment's incident: refused before anything of it was read
         return ELSEWHERE.format(environment=turn.environment)
     if not thread.incident:
         return ("Which incident? Mention its id - the one in the footer of any of its messages - with your "
@@ -679,7 +681,8 @@ class DiscussWorkflow:
 
     @staticmethod
     async def _facts_first(acts, turn: Turn, thread: Thread) -> None:
-        """The record's facts first, at once - the incident and the ones like it - then the model's answer."""
+        """The record's facts, posted in the thread."""
+        # The record's facts first, at once - the incident and the ones like it - then the model's answer.
         with contextlib.suppress(ActivityError):
             facts = await workflow.execute_activity_method(
                 acts.discuss_facts, **_zoned(acts.discuss_facts), args=[thread.incident], **QUICK)
@@ -717,7 +720,7 @@ class DiscussWorkflow:
         person is never left waiting in the thread."""
         fresh = NOW.search(turn.text) is not None
         text = NOT_READ
-        with contextlib.suppress(ActivityError):
+        with contextlib.suppress(ActivityError):  # a step that fails still ends in a reply: the person is never left waiting in the thread
             evidence = await workflow.execute_activity_method(
                 acts.discuss_evidence, **_zoned(acts.discuss_evidence), args=[thread.incident, fresh], **PREPARE)
             if evidence is None:
@@ -955,7 +958,7 @@ class IncidentWorkflow:
     async def _repair(acts, pack: Any, note: str, diagnosed: Any, verified: Any, escalate_only: str) -> tuple[Any, Any]:
         """The diagnosis asked once more with the checks' own words, and verified again. The first answer, verified,
         stands when this one fails or the model is unavailable."""
-        with contextlib.suppress(ActivityError):
+        with contextlib.suppress(ActivityError):  # the first answer, verified, stands
             again = await _diagnose(acts, pack.model_copy(update={"prompt": pack.prompt + note}), escalate_only)
             if not again.model_unavailable:
                 checked = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify),
@@ -975,9 +978,10 @@ class IncidentWorkflow:
 
     @staticmethod
     async def _open_plan(acts, first: Alert, pack: Any, diagnosed: Any, verified: Any, *, one: bool) -> None:
-        """G9-D1: a proposal the verifier passed for a person opens its fix plan - a RemediationWorkflow that waits for
-        a signed human approval, as one requested through MCP does. Its own workflow, abandoned by this one: the plan
-        outlives the incident's run. Patched: histories recorded before it replay unchanged."""
+        """The fix plan opened, and the people told when there is none."""
+        # G9-D1: a proposal the verifier passed for a person opens its fix plan - a RemediationWorkflow that waits for
+        # a signed human approval, as one requested through MCP does. Its own workflow, abandoned by this one: the plan
+        # outlives the incident's run. Patched: histories recorded before it replay unchanged.
         try:
             req = await workflow.execute_activity_method(acts.plan_fix, **_zoned(acts.plan_fix),
                                                          args=[first, diagnosed, verified], **QUICK)

@@ -356,9 +356,9 @@ async def _open_runs(client: Any, log: AuditLog, now: datetime) -> tuple[
 
 async def _fixes_in_check(client: Any, log: AuditLog, now: datetime,
                           seen: set[str]) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], str]]:
-    """A fix being verified takes the alarm instead of a new incident (C1). One that was verified and is being watched
-    is told too - it relapsed - and the alarm still starts its incident: a relapse is diagnosed afresh. Both by
-    (environment, service), the latest plan of each."""
+    """The fixes being verified and the ones being watched, by (environment, service)."""
+    # A fix being verified takes the alarm instead of a new incident (C1). One that was verified and is being watched
+    # is told too - it relapsed - and the alarm still starts its incident: a relapse is diagnosed afresh.
     verifying: dict[tuple[str, str], str] = {}
     watching: dict[tuple[str, str], str] = {}
     for e in reversed(log.entries(kinds=("remediation.plan",), since=now - LOOKBACK)):
@@ -392,7 +392,8 @@ def _scoped(d: Decision, ev: AlarmEvent, verifying: dict[tuple[str, str], str],
 
 
 def _record_grouped(log: AuditLog, d: Decision, ev: AlarmEvent) -> None:
-    """On the incident's own record: which other alarm said the same, and where it came from (records.py)."""
+    """The grouped alarm, on the incident's record."""
+    # On the incident's own record: which other alarm said the same, and where it came from (records.py).
     log.append(d.workflow_id.removeprefix("inc-"), "intake.grouped", {
         "rule": ev.rule[:200], "name": ev.alert.name[:200], "via": ev.alert.labels.get("via", ""),
         "at": ev.transitioned_at.isoformat()})
@@ -400,10 +401,11 @@ def _record_grouped(log: AuditLog, d: Decision, ev: AlarmEvent) -> None:
 
 def _mark_reopened(log: AuditLog, d: Decision, held: dict[str, Any], *, pending: dict[str, Any] | None, at: str,
                    rule: str, fp: str) -> None:
-    """On the incident's own record, first, both: the fix it had did not hold, which plan_fix reads before it offers a
-    fix (history.did_not_hold) - and it is open again, the intent a retry of this transition honours if the start
-    fails (reopen_pending). The marker first, and once, on a retry too: an intent is never on the record without it
-    (CodeRabbit, PR 43). The fix's own run is told once the incident has started."""
+    """The reopen, on the incident's record."""
+    # On the incident's own record, first, both: the fix it had did not hold, which plan_fix reads before it
+    # offers a fix (history.did_not_hold) - and it is open again, the intent a retry of this transition honours
+    # if the start below fails (reopen_pending). The marker first, and once, on a retry too: an intent is never
+    # on the record without it (CodeRabbit, PR 43). The fix's own run is told once the incident has started.
     incident = d.workflow_id.removeprefix("inc-")
     _did_not_hold(log, incident, held, at, rule)
     if not pending:
@@ -461,7 +463,8 @@ async def _start_incident(client: Any, log: AuditLog, d: Decision, ev: AlarmEven
 
 
 async def _start_held(client: Any, d: Decision, ev: AlarmEvent, *, now: datetime, queue: str) -> None:
-    """Started now, to run when the cover ends: Temporal holds it, so no schedule and no second trigger to fail."""
+    """The held incident, started to run when its cover ends."""
+    # Started now, to run when the cover ends: Temporal holds it, so no schedule and no second trigger to fail.
     from temporalio.common import WorkflowIDReusePolicy
     from temporalio.exceptions import WorkflowAlreadyStartedError
 
