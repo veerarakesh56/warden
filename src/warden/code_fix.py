@@ -155,7 +155,7 @@ class _Plan:
     additions: dict[str, bytes] = field(default_factory=dict)
     deletions: list[str] = field(default_factory=list)
     diffs: list[str] = field(default_factory=list)
-    sources: list[str] = field(default_factory=list)  # the touched files as they are now, and the restored lines
+    sources: list[str] = field(default_factory=list)  # the touched files as they are now
 
 
 def _delete_added(f: FileChange, current: str | None, plan: _Plan) -> None:
@@ -192,7 +192,10 @@ def _revert_file(writer: RepoWriter, head: str, f: FileChange, plan: _Plan) -> N
         raise RevertError(f"{f.path}: a {'binary file' if f.binary else f'{f.status} file'} is reverted by a person")
     current = _text(writer.read_file(f.path, head), f.path)
     step(f, current, plan)
-    plan.sources += [current or "", "\n".join(f.removed)]
+    # CG6's baseline: the touched files as they are now - never the lines the revert restores, so nothing it brings back
+    # counts as already imported; a subset of what CI's check reads (every import in the tree), so CI never refuses
+    # what passed here.
+    plan.sources.append(current or "")
 
 
 def _slug(text: str) -> str:
