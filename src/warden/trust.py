@@ -33,6 +33,7 @@ NO_DIAGNOSIS = "P0-MODEL-UNAVAILABLE"
 FAILED_FIX = frozenset({"relapsed", "rolled_back", "not_recovered", "rollback_failed", "apply_failed", "side_effects",
                         "failed_after_apply", "cancelled_after_apply"})
 BASE = (EVIDENCE, GROUNDED, RULES)
+GATHER = "incident.gather"  # the evidence read; every check below must come after the newest one
 BACKING = (SECOND, FIX, PROVEN)
 
 
@@ -59,6 +60,16 @@ def _last(r: Any, kind: str) -> dict[str, Any] | None:
     return rows[-1] if rows else None
 
 
+def _stale(r: Any, kind: str) -> bool:
+    """The last `kind` row comes before the newest evidence read: it checked an earlier run's evidence, not this one.
+
+    An incident run restarted under the same id reads its evidence again; until its own checks are on the record, the
+    earlier run's verdict, second opinion or fix do not back it (CodeRabbit security review, PR 100).
+    """
+    at = {e["kind"]: i for i, e in enumerate(r.rows) if e["kind"] in (kind, GATHER)}
+    return kind in at and GATHER in at and at[kind] < at[GATHER]
+
+
 def _count(value: Any) -> int | None:
     """A count as WARDEN writes it - a whole number, 0 or more, or nothing - else None."""
     if value is None:
@@ -67,7 +78,7 @@ def _count(value: Any) -> int | None:
 
 
 def _evidence(r: Any) -> Signal:
-    g = _last(r, "incident.gather")
+    g = _last(r, GATHER)
     if g is None:
         return Signal(EVIDENCE, None, "no evidence read is on the record")
     counts = [_count(g.get(k)) for k in ("logs", "metrics", "deploys", "tool_errors")]
@@ -83,6 +94,8 @@ def _evidence(r: Any) -> Signal:
 
 def _verify(r: Any) -> tuple[str, set[str]] | None:
     v = _last(r, "incident.verify")
+    if v is not None and _stale(r, "incident.verify"):
+        return None
     return (str(v.get("status") or ""), {str(p) for p in v.get("policies") or []}) if v else None
 
 
@@ -99,7 +112,7 @@ def _grounded(r: Any) -> Signal:
 def _rules(r: Any) -> Signal:
     v = _verify(r)
     if v is None:
-        return Signal(RULES, None, "the rules have not checked a diagnosis yet")
+        return Signal(RULES, None, "the rules have not checked a diagnosis of the newest evidence yet")
     status, fired = v
     others = sorted(fired - SELF_CONFIDENCE - GROUNDING - {NO_DIAGNOSIS})
     if status == "rejected":
@@ -113,6 +126,8 @@ def _rules(r: Any) -> Signal:
 
 def _second(r: Any) -> Signal:
     s = _last(r, "incident.second_opinion")
+    if s is not None and _stale(r, "incident.second_opinion"):
+        return Signal(SECOND, None, "the second diagnosis was of evidence read before the newest")
     if s is None:
         return Signal(SECOND, None, "no second diagnosis was asked")
     if s.get("agree") is True:
@@ -122,6 +137,8 @@ def _second(r: Any) -> Signal:
 
 def _fix(r: Any) -> Signal:
     end = _last(r, "workflow.end")
+    if end is not None and _stale(r, "workflow.end"):
+        return Signal(FIX, None, "the last fix ran before the newest evidence was read")
     status = str((end or {}).get("status") or "")
     if status == "recovered":
         return Signal(FIX, True, "the fix's own checks saw recovery, and the re-checks held")

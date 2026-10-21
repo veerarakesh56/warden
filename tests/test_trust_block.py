@@ -179,3 +179,29 @@ def test_the_record_page_still_renders_when_the_block_cannot_be_worked_out(log, 
 
     monkeypatch.setattr(confidence, "block", broken)
     assert "Confidence: not worked out" in records.incident_page(r)
+
+
+def _restarted(log, **kw):
+    """The run checked and backed, then restarted under the same id: it read its evidence again, nothing checked yet."""
+    _incident(log, **kw)
+    log.append(INC, "incident.gather", {"node": "gather", "logs": 4, "metrics": 0, "deploys": 0, "tool_errors": 0})
+    return records.record(log, INC)
+
+
+@pytest.mark.parametrize("kw", [{"agree": True}, {"end": "recovered"}])
+def test_an_earlier_runs_checks_never_back_the_newest_evidence(log, kw):
+    """CodeRabbit security review, PR 100: a restarted run showed High from the earlier run's verdict and backing."""
+    b = confidence.block(_restarted(log, **kw))
+    assert b.level == "Medium"
+
+
+def test_an_earlier_runs_checks_are_said_to_be_of_older_evidence(log):
+    b = confidence.block(_restarted(log, agree=True, end="recovered"))
+    assert [_signal(b, n).passed for n in ("grounded", "rules", "second opinion", "fix verified")] == [None] * 4
+
+
+def test_checks_made_after_the_newest_read_count_again(log):
+    _restarted(log)
+    log.append(INC, "incident.verify", {"status": "approved_for_human", "policies": []})
+    log.append(INC, "incident.second_opinion", {"agree": True})
+    assert confidence.block(records.record(log, INC)).level == "High"
