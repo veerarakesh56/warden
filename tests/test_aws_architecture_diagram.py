@@ -274,10 +274,11 @@ def test_every_function_rule_alarm_and_zone_of_the_runtime_is_on_it():
         assert f"warden-ops-{alarm}" in names, alarm
     iam = (module / "iam.tf").read_text(encoding="utf-8")
     zones = _keys(iam.split("  zones = {", 1)[1].split("\n  }", 1)[0])
-    assert zones == ["core", "read", "llm", "notify", "act"]
+    assert zones == ["core", "read", "llm", "notify", "act", "critic"]
     for zone in zones:
         assert f"warden-ops-{zone}" in names, zone
-    assert "warden-ops-<zone> (5)" in text
+    assert f"warden-ops-<zone> ({len(zones)})" in text
+    assert f"{len(zones)} task queues" in text  # one per zone, on Temporal Cloud
     lambdas = _keys(iam.split("front_door_access = {", 1)[1].split("\n  }", 1)[0])
     assert f"warden-ops-<name>-lambda ({len(lambdas)})" in text
     secrets = (module / "secrets.tf").read_text(encoding="utf-8").split("toset([", 1)[1].split("])", 1)[0]

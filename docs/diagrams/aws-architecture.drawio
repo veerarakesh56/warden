@@ -307,7 +307,7 @@
         <mxCell id="pr83" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #83 (not built): one more rule&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;warden-ops-healthchanges-events: AWS Health&#x27;s&lt;br&gt;scheduled changes → alarm Lambda, for a digest&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
           <mxGeometry x="1700" y="662" width="300" height="48" as="geometry" />
         </mxCell>
-        <mxCell id="ops-l-ack" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;warden-ops-ack, warden-ops-webhook-auth&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;zip, no VPC: Slack&#x27;s click note in 3 s;&lt;br&gt;the webhooks&#x27; bearer check&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFF9E8;strokeColor=#E8A33D;align=left;spacingLeft=46;" vertex="1" parent="1">
+        <mxCell id="ops-l-ack" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;warden-ops-ack, -webhook-auth&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;zip, no VPC: /s/interact, Slack&#x27;s click note&lt;br&gt;in 3 s; the webhooks&#x27; bearer check&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFF9E8;strokeColor=#E8A33D;align=left;spacingLeft=46;" vertex="1" parent="1">
           <mxGeometry x="2114" y="644" width="268" height="48" as="geometry" />
         </mxCell>
         <mxCell id="ops-l-ack-i" value="" style="sketch=0;outlineConnect=0;gradientColor=none;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" vertex="1" parent="1">
@@ -391,7 +391,7 @@
         <mxCell id="z-act" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;act · service and role warden-ops-act · queue warden-act&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;apply once, check, roll back · a per-plan warden-&amp;lt;env&amp;gt;-actor session only · db-admin-dsn&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFF0ED;strokeColor=#FF7E6B;align=left;spacingLeft=10;strokeWidth=1.5;" vertex="1" parent="1">
           <mxGeometry x="1366" y="1298" width="724" height="58" as="geometry" />
         </mxCell>
-        <mxCell id="pr42" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #42, #125 (not built): critic · warden-ops-critic&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;Eldane, the AI critic · reads anthropic-api-key and its own eldane-key · assumes no role&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
+        <mxCell id="z-critic" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;critic · service and role warden-ops-critic · queue warden-critic&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;Eldane, the AI critic · anthropic-api-key and its own eldane-key · assumes no role&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F3EEFE;strokeColor=#8B5CF6;align=left;spacingLeft=10;strokeWidth=1.5;" vertex="1" parent="1">
           <mxGeometry x="1366" y="1368" width="724" height="58" as="geometry" />
         </mxCell>
         <mxCell id="ops-audit" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;Aurora PostgreSQL warden-ops-audit&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;Serverless v2, 0-2 ACU, pauses after 1 h idle, 2 instances, backups, deletion protection · login warden_audit_writer: SELECT + INSERT, IAM token&lt;br&gt;on the AWS Free plan (tf/aws_free_plan): one RDS PostgreSQL db.t4g.micro instead&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=50;" vertex="1" parent="1">
@@ -421,7 +421,7 @@
         <mxCell id="ops-logs-i" value="" style="sketch=0;outlineConnect=0;gradientColor=none;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cloudwatch_2;" vertex="1" parent="1">
           <mxGeometry x="2046" y="1577" width="30" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="ops-secrets" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;Secrets Manager warden/ops/&amp;lt;name&amp;gt;&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;19 empty slots from Terraform, each value set by a&lt;br&gt;person · every zone and Lambda reads only its own&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=50;" vertex="1" parent="1">
+        <mxCell id="ops-secrets" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;Secrets Manager warden/ops/&amp;lt;name&amp;gt;&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;21 empty slots from Terraform, each value set by a&lt;br&gt;person · every zone and Lambda reads only its own&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=50;" vertex="1" parent="1">
           <mxGeometry x="1324" y="1638" width="346" height="68" as="geometry" />
         </mxCell>
         <mxCell id="ops-secrets-i" value="" style="sketch=0;outlineConnect=0;gradientColor=none;fillColor=#DD344C;strokeColor=#ffffff;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.secrets_manager;" vertex="1" parent="1">
@@ -439,7 +439,7 @@
         <mxCell id="ops-cw-i" value="" style="sketch=0;outlineConnect=0;gradientColor=none;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cloudwatch_2;" vertex="1" parent="1">
           <mxGeometry x="2046" y="1657" width="30" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="ops-iam" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;IAM roles&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;warden-ops-&amp;lt;zone&amp;gt; (5), warden-ops-task-execution, warden-ops-&amp;lt;name&amp;gt;-lambda (4),&lt;br&gt;warden-ops-ack, warden-ops-migrate, warden-ops-pager, warden-ops-webhook-auth · each under the boundary WardenEnvBoundary-ops&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=50;" vertex="1" parent="1">
+        <mxCell id="ops-iam" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;IAM roles&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;warden-ops-&amp;lt;zone&amp;gt; (6), warden-ops-task-execution, warden-ops-&amp;lt;name&amp;gt;-lambda (4),&lt;br&gt;warden-ops-ack, warden-ops-migrate, warden-ops-pager, warden-ops-webhook-auth · each under the boundary WardenEnvBoundary-ops&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=50;" vertex="1" parent="1">
           <mxGeometry x="1324" y="1718" width="702" height="68" as="geometry" />
         </mxCell>
         <mxCell id="ops-iam-i" value="" style="sketch=0;outlineConnect=0;gradientColor=none;fillColor=#DD344C;strokeColor=#ffffff;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.identity_and_access_management;" vertex="1" parent="1">
@@ -472,7 +472,7 @@
         <mxCell id="browser" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;Approver&#x27;s browser&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;Sign in with Slack, then a passkey&lt;br&gt;(WebAuthn) over the exact plan hash&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFF0ED;strokeColor=#FF7E6B;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="2440" y="538" width="370" height="88" as="geometry" />
         </mxCell>
-        <mxCell id="temporal" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;Temporal Cloud&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;one namespace (WARDEN_TEMPORAL_ADDRESS, :7233)&lt;br&gt;the workflows, 5 task queues; an API key per&lt;br&gt;zone and one for the Lambdas · payloads&lt;br&gt;AES-256-GCM encrypted by WARDEN (codec.py)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#4B5563;align=left;spacingLeft=10;" vertex="1" parent="1">
+        <mxCell id="temporal" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;Temporal Cloud&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;one namespace (WARDEN_TEMPORAL_ADDRESS, :7233)&lt;br&gt;the workflows, 6 task queues; an API key per&lt;br&gt;zone and one for the Lambdas · payloads&lt;br&gt;AES-256-GCM encrypted by WARDEN (codec.py)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#4B5563;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="2440" y="840" width="370" height="130" as="geometry" />
         </mxCell>
         <mxCell id="kmcp" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;AWS Knowledge MCP&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;knowledge-mcp.global.api.aws&lt;br&gt;error codes only, as reference&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F4F6F8;strokeColor=#4B5563;align=left;spacingLeft=10;" vertex="1" parent="1">
@@ -539,21 +539,24 @@
           <mxGeometry x="2454" y="1566" width="342" height="24" as="geometry" />
         </mxCell>
         <mxCell id="lg-z-core" value="&lt;span style=&#x27;font-size:11px&#x27;&gt;core&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#E6F9F1;strokeColor=#12C483;strokeWidth=1.5;align=center;spacing=2;" vertex="1" parent="1">
-          <mxGeometry x="2454" y="1596" width="65.2" height="24" as="geometry" />
+          <mxGeometry x="2454" y="1596" width="53.6667" height="24" as="geometry" />
         </mxCell>
         <mxCell id="lg-z-read" value="&lt;span style=&#x27;font-size:11px&#x27;&gt;read&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#EAF7FE;strokeColor=#3DB9F5;strokeWidth=1.5;align=center;spacing=2;" vertex="1" parent="1">
-          <mxGeometry x="2523.2" y="1596" width="65.2" height="24" as="geometry" />
+          <mxGeometry x="2511.67" y="1596" width="53.6667" height="24" as="geometry" />
         </mxCell>
         <mxCell id="lg-z-llm" value="&lt;span style=&#x27;font-size:11px&#x27;&gt;llm&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#E8F2FC;strokeColor=#1A8FE3;strokeWidth=1.5;align=center;spacing=2;" vertex="1" parent="1">
-          <mxGeometry x="2592.4" y="1596" width="65.2" height="24" as="geometry" />
+          <mxGeometry x="2569.33" y="1596" width="53.6667" height="24" as="geometry" />
         </mxCell>
         <mxCell id="lg-z-notify" value="&lt;span style=&#x27;font-size:11px&#x27;&gt;notify&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#EFFDF7;strokeColor=#7DF2C4;strokeWidth=1.5;align=center;spacing=2;" vertex="1" parent="1">
-          <mxGeometry x="2661.6" y="1596" width="65.2" height="24" as="geometry" />
+          <mxGeometry x="2627" y="1596" width="53.6667" height="24" as="geometry" />
         </mxCell>
         <mxCell id="lg-z-act" value="&lt;span style=&#x27;font-size:11px&#x27;&gt;act&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFF0ED;strokeColor=#FF7E6B;strokeWidth=1.5;align=center;spacing=2;" vertex="1" parent="1">
-          <mxGeometry x="2730.8" y="1596" width="65.2" height="24" as="geometry" />
+          <mxGeometry x="2684.67" y="1596" width="53.6667" height="24" as="geometry" />
         </mxCell>
-        <mxCell id="lg-zt" value="&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;the five trust zones · icons: AWS Architecture Icons&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+        <mxCell id="lg-z-critic" value="&lt;span style=&#x27;font-size:11px&#x27;&gt;critic&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#F3EEFE;strokeColor=#8B5CF6;strokeWidth=1.5;align=center;spacing=2;" vertex="1" parent="1">
+          <mxGeometry x="2742.33" y="1596" width="53.6667" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-zt" value="&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;the six trust zones · icons: AWS Architecture Icons&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="2454" y="1626" width="342" height="16" as="geometry" />
         </mxCell>
         <mxCell id="e-alarms-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;alarm state changes of warden-dev-* · ECS, RDS and AWS Health events (default bus)&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
@@ -570,9 +573,6 @@
         </mxCell>
         <mxCell id="e-browser-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;HTTPS, approval domain&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="2396" y="514" width="150" height="14" as="geometry" />
-        </mxCell>
-        <mxCell id="e-api-ack-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;/s/interact&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
-          <mxGeometry x="2296" y="638" width="70" height="14" as="geometry" />
         </mxCell>
         <mxCell id="e-slack-ack-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;button click&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="2300" y="696" width="80" height="14" as="geometry" />
@@ -592,8 +592,8 @@
         <mxCell id="e-notify-slack-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;one report per incident&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="2102" y="1241" width="150" height="14" as="geometry" />
         </mxCell>
-        <mxCell id="pr-e-critic-w" value="&lt;span style=&#x27;color:#5C4A00&#x27;&gt;open PR #42&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
-          <mxGeometry x="2102" y="1381" width="80" height="14" as="geometry" />
+        <mxCell id="e-critic-anthropic-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;each plan, the other model&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="2102" y="1381" width="170" height="14" as="geometry" />
         </mxCell>
         <mxCell id="e-read-dev-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;per incident: assume&lt;br&gt;warden-dev-platform-reader&lt;br&gt;(SourceIdentity inc-&amp;lt;id&amp;gt;):&lt;br&gt;describe, metrics, logs,&lt;br&gt;CloudTrail, EKS (view),&lt;br&gt;SQL (tf/watched_db_egress)&lt;br&gt;- read only&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=10;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="1136" y="1025" width="136" height="91" as="geometry" />
@@ -637,7 +637,7 @@
         <mxCell id="pr-e-codefix-w" value="&lt;span style=&#x27;color:#5C4A00&#x27;&gt;open PR #120, #127: a code fix as a pull request&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="860" y="241" width="300" height="14" as="geometry" />
         </mxCell>
-        <mxCell id="footer" value="Drawn from origin/main 4c0385b (2026-10-21) and the open pull requests named on it, dashed yellow (#85 and #92 change only IAM policies, #116 renames a variable, #129 narrows a security group; none adds a resource). Not drawn: terraform/proving-ground and the terraform/ root module - validated in CI, applied by no pipeline. Pausing the runtime (/warden/ops/tf/paused) removes the ECS services, the NAT and the alarm intake; the data stays. One incident in detail: incident-flow.drawio · identities: architecture-detailed.drawio page 2 · delivery: delivery.drawio." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+        <mxCell id="footer" value="Drawn from origin/main 8f6973a (2026-10-21) and the open pull requests named on it, dashed yellow (#85 and #92 change only IAM policies, #116 renames a variable, #129 narrows a security group; none adds a resource). Not drawn: terraform/proving-ground and the terraform/ root module - validated in CI, applied by no pipeline. Pausing the runtime (/warden/ops/tf/paused) removes the ECS services, the NAT and the alarm intake; the data stays. One incident in detail: incident-flow.drawio · identities: architecture-detailed.drawio page 2 · delivery: delivery.drawio." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="30" y="2016" width="2780" height="36" as="geometry" />
         </mxCell>
         <mxCell id="lg-a" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=0.5;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="lg-a-s" target="lg-a-e">
@@ -706,7 +706,7 @@
         <mxCell id="e-notify-slack" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.3587;entryDx=0;entryDy=0;" edge="1" parent="1" source="z-notify" target="slack">
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2090" y="1257" /></Array></mxGeometry>
         </mxCell>
-        <mxCell id="pr-e-critic" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#C98A1B;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.06;entryY=1;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="pr42" target="anthropic">
+        <mxCell id="e-critic-anthropic" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.06;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="z-critic" target="anthropic">
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="2432" y="1397" /><mxPoint x="2462.2" y="1397" /></Array></mxGeometry>
         </mxCell>
         <mxCell id="e-read-dev" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.4976;entryDx=0;entryDy=0;" edge="1" parent="1" source="z-read" target="dev">
