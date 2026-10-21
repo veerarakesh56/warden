@@ -115,6 +115,60 @@ Sign in with Slack; it opens for the approvers and for the Slack members in the 
 `/warden/<env>/env/WARDEN_RECORD_VIEWERS` (comma-separated member ids). Slack gets one message per incident; approved,
 denied and fixed are on the record, not posted.
 
+### Pilot metrics (`warden report pilot`, `/r/pilot`)
+
+The weekly numbers for a client, read only from the signed audit (src/warden/pilot.py), on the command line:
+
+    warden report pilot --since 2026-10-14 --db audit.db --public-key audit.pub   # or WARDEN_AUDIT_DSN
+
+and on the records site at `/r/pilot` (the last 7 days; `?since=YYYY-MM-DD`; links for 7, 30 and 90 days), for the
+same readers as the records and only for the environments they may read, by the records' own environment rule
+(`records.environment_of`).
+
+The command's audit is the `--db` SQLite file, or the PostgreSQL DSN in the `WARDEN_AUDIT_DSN` environment variable
+(never on the command line) - the same source as `warden audit verify`. It is opened read-only (SQLite `mode=ro`; a
+PostgreSQL session set READ ONLY before the first query; SELECT only), a missing or empty file is refused and never
+created, and the command loads no setting but `WARDEN_AUDIT_DSN` (settings.ONLY). The page reads through the approval
+Lambda's own audit connection, with SELECT only; when it cannot read the record or check it, it answers 503 and shows
+no number. A reader limited to some environments is shown no audit-wide count (rows read, failed, not signed yet,
+checkpoints that failed): those are for readers of every environment.
+
+Every row is checked first, as `warden audit verify` checks the log: its own hash, its link to the row before it, and
+a checkpoint signature that verifies (the command with `--public-key`; the page with the runtime's own audit signing
+key - no key, no numbers). A row that fails is not counted: the command names it and exits 1, the page says how many.
+A checkpoint whose signature does not verify, or that was signed over a different history, covers no row; the
+command names it and exits 1, the page says how many. Rows after the last checkpoint are not signed yet and are not
+counted either. All times are UTC.
+
+| Number | Read from |
+|---|---|
+| Incidents | ids (not `discuss-...`) whose first `incident.ingest` or `incident.after_hold` row is at or after `--since` |
+| Plans | each fix run: a `remediation.plan` row's `workflow_id` and `run_id`; *open* until its `workflow.end` row |
+| Approved | the end row's `checklist.approved` is true (the tier's quorum) |
+| Denied | end status `denied` |
+| Re-planned | end status `drifted` or `refused_at_apply` and the same workflow planned again, or an approver's new plan (`discuss.replan` with `started`) after it |
+| Escalated (plan) | end status `rollback_failed`, `apply_failed`, `cancelled_after_apply` or `failed_after_apply`: a person takes over |
+| Escalation rate | incidents whose last `incident.verify` says `escalated`, or whose `incident.second_opinion` says the two diagnoses disagree, over incidents |
+| Alarm to plan | the first `incident.alert` row's `alert.started_at` to the first `remediation.plan` row |
+| Alarm to fixed | the same alarm time to the first `remediation.result` with `ok` true of a run that ended `recovered` or `verified`; open and unfixed incidents are not in it |
+| Model calls | `calls` of `incident.llm_spend` rows (the incident's and its discussion's) plus one per `eldane.call` row |
+| Model requests | `llm.call` rows: one per request sent - retries, unanswered requests and Eldane's trials included, so NOT the same count as model calls |
+| Spend ledger | `usd` of the same `incident.llm_spend` rows (the budget ledger) |
+| Cost per incident | `cost` (US dollars) of `llm.call` rows (the incident's and its discussion's), over incidents; a row with no `cost` is "not recorded" for that call, never estimated |
+| Fallbacks | `llm.fallback` rows by `reason` (rules_only, model_refused, budget_cap, provider_unavailable; any other reason counted as "other", its text never printed); per incident = fallbacks / incidents, per model request = fallbacks / `llm.call` rows (requests, retries included) |
+| Undo count | runs with a `remediation.rollback` row whose `undone` is true; `remediation.rollback_failed` runs beside it |
+
+The four plan outcomes are rates over ENDED plans, and one plan can be two of them (approved, then drifted and planned
+again). Median is the middle value (the mean of the two middle ones for an even count); p90 is the nearest rank,
+sorted[ceil(0.9 x n) - 1]. A rate with nothing to divide by is "n/a". A time whose alarm is later than its plan or fix
+(the alarm source's clock ahead) is left out and counted.
+
+`llm.call` and `llm.fallback` rows are new (lane FDE-F, 2026-10-21): an audit with neither row anywhere says cost and
+fallbacks are "not recorded", never 0. Once either row exists, no fallback in the window is a measured 0.
+
+Not in the audit, so not in the report: a cost for a call row without one, the cost of Eldane's `eldane.call` rows in
+the spend ledger (they record tokens, not US dollars), and any time a person spent outside WARDEN.
+
 ## Pause and resume to save money (owner update 5, 2026-10-17)
 
 Between uses, pause instead of destroy: every data store is copied first, and resume brings it back from the newest
@@ -297,3 +351,41 @@ it off, set `WARDEN_SECURITY_REVIEW` to anything but `on`, or delete it.
 Known limit, not verified here: the action's false-positive filter checks its API access with a fixed older model
 (`claude-3-5-haiku-20241022` in its code). If that model is retired, the filter step may fail and its findings may
 arrive unfiltered; read the first run's log.
+
+## Reading a workflow's Temporal history (register B36)
+
+Every payload WARDEN puts in Temporal is encrypted and bound to its namespace and workflow (codec.py), so the
+Temporal Cloud web UI shows only ciphertext. To read one workflow's history:
+
+```sh
+warden history <workflow-id>        # e.g. inc-<alert id>, or a remediation's id from `warden status`
+```
+
+It loads what `warden status` loads - the payload key (`WARDEN_TEMPORAL_KEY`, and `WARDEN_TEMPORAL_KEY_PREVIOUS`)
+and a Temporal API key - with your own identity, so only a person who may read those secrets can read a history. Each
+event is shown with its number, time (UTC and local), type and the activity or signal it names, and its payloads as
+JSON; the whole text then goes through the redactor (identifiers and secrets masked) and the terminal's outbound gate.
+A payload that does not decrypt in that workflow's context (another key, another workflow, never encrypted) is shown
+as unreadable, never as data. At most 500 events and 2,000 characters a value (each value is redacted whole
+before it is cut). A payload over 2 MiB, or past 32 MiB for the whole history, is not decrypted: it is shown by its
+size. Nothing is written.
+
+After the events it shows **what the model was sent** for each `diagnose` call: the system text and the user text
+exactly as WARDEN handed them to the model provider. The user text is the redacted prompt recorded in the call's own
+input, with the answer schema added by the same function the call used (`llm.ask_for`); for a retry after an answer
+that failed validation, also the feedback that retry appended, which the call recorded (`sent_appended`: field paths
+and error types only, never a value). Only the final attempt is shown. Each is shown only when its
+SHA-256 equals the hash the call recorded for the text it sent (`sent_system_sha256`, `sent_user_sha256` in the
+diagnosis provenance, kept since 2026-10-21); otherwise the line says it is not shown and why (the prompt or schema
+changed since, no answer recorded, the model not asked, or a call recorded before those hashes existed). The prompt was
+redacted before it was sent, so it holds the same `<KIND_n>` placeholders the model saw, never the values behind them:
+the redaction map never enters Temporal's history, so no decryption here can reveal one. Each text also goes through
+the redactor and the gate; if they change anything it is shown masked and marked "NOT byte-identical". Seeing a masked
+value is a separate, audited reveal by a signed-in person, not this command. What this does not cover: the provider's
+own request envelope (model name, token limits), and the model calls of the critic (Eldane) and of discussion chat.
+
+Not built, by decision (2026-10-21): a codec server for the Temporal web UI. WARDEN's payloads are bound to their
+workflow, which the UI does not send, so one would need a change to the payload format; and a hosted one would put
+the payload key in an internet-facing Lambda. If the web UI view is wanted later, the option is a local codec server
+on an allowed person's computer (loopback only) together with that format change.
+
