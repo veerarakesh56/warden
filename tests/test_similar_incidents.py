@@ -42,12 +42,15 @@ def test_the_incidents_like_this_one_say_what_was_done_how_it_ended_and_whether_
     found = history.similar(log, "inc-now", link=lambda i: f"https://approve.example.test/r/{i}")
     assert [r["incident"] for r in found["rows"]] == ["inc-b", "inc-a"]
     a = next(r for r in found["rows"] if r["incident"] == "inc-a")
-    assert a["why"] == ["same alarm", "same service"] and a["fix"]["status"] == "recovered"
-    assert a["stable"] is False and a["next"] == "inc-b"  # it worked, then an incident like it came back
+    assert a["why"] == ["same alarm", "same service"]
+    assert a["fix"]["status"] == "recovered"
+    assert a["stable"] is False
+    assert a["next"] == "inc-b"  # it worked, then an incident like it came back
     text = history.similar_text(found)
     assert "<https://approve.example.test/r/inc-a|inc-a>" in text
     assert "`lambda_enable_esm` on `dev/lambda:warden-dev-orders` worked · approved by @@owner@@" in text
-    assert "came back" in text and "did not work" in text
+    assert "came back" in text
+    assert "did not work" in text
     assert "*Pattern:* 3 incidents like this one in the last 7 days" in text
     assert "`resume_flow` was proposed 2 times before" in text
     assert "earlier fix(es) worked and then an incident like this came back" in text
@@ -58,6 +61,8 @@ def test_an_incident_with_nothing_like_it_says_so():
     log = _log()
     _incident(log, "inc-alone")
     text = history.similar_text(history.similar(log, "inc-alone"))
-    assert "nothing like it in the last 30 days" in text and "Pattern" not in text
-    assert history.similar(log, "inc-missing")["current"] is None and history.similar_text(
-        history.similar(log, "inc-missing")) == ""
+    assert "nothing like it in the last 30 days" in text
+    assert "Pattern" not in text
+    assert history.similar(log, "inc-missing")["current"] is None
+    assert (history.similar_text(
+        history.similar(log, "inc-missing")) == "")

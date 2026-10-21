@@ -103,7 +103,8 @@ def test_a_revoked_rbac_rule_stops_the_next_scenario():
 def test_an_unreadable_deployment_stops_the_wave_rather_than_passing():
     problems = runner.check_baseline_k8s(
         _clients(FakeK8s(raises=RuntimeError("connection refused"))), _target())
-    assert problems and "cannot read deployment" in problems[0]
+    assert problems
+    assert "cannot read deployment" in problems[0]
 
 
 # --------------------------------------------------------------------------- the identity
@@ -141,7 +142,8 @@ def test_describe_target_names_the_backend_and_its_environment():
     ecs = runner.describe_target(ops.Target(
         region="ap-south-2", cluster="warden-pg-1", service="checkout",
         log_group="/ecs/checkout", baseline_task_definition="arn:...:checkout:2"))
-    assert ecs["target_kind"] == "ecs" and ecs["cluster"] == "warden-pg-1"
+    assert ecs["target_kind"] == "ecs"
+    assert ecs["cluster"] == "warden-pg-1"
 
 
 # --------------------------------------------------------------------------- which ops dispatch
