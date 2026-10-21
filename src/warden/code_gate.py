@@ -478,6 +478,7 @@ class _File:
     def __init__(self, old: str, new: str) -> None:
         self.old, self.new, self.status = old, new, _MODIFIED
         self.modes = {"old": _REGULAR, "new": _REGULAR}
+        self.mode_from = ""  # "header" (mode lines) or "index" (an index line's mode): never both
         self.binary = False
         self.added: list[str] = []
         self.removed: list[str] = []
@@ -506,15 +507,28 @@ class _File:
     def _header(self, line: str) -> None:
         m, index = _MODE.fullmatch(line), _INDEX.fullmatch(line)
         if m:
+            self._mode_source("header")
             self._mode(*m.groups())
         elif index:
-            if index.group(1):
-                self.modes = {"old": index.group(1), "new": index.group(1)}
+            self._index_mode(index.group(1))
         elif line.startswith(("Binary files ", "GIT binary patch")):
             self.binary = True
         elif not (self._names(line) or line.startswith(_IGNORED)):
             # A copy, or anything else: what the gate cannot read is never passed.
             raise CodeGateError(f"a diff header line the gate does not read: {line[:80]!r}")
+
+    def _index_mode(self, mode: str | None) -> None:
+        """An `index` line without a mode leaves the mode lines (or the regular default) as they are."""
+        if mode:
+            self._mode_source("index")
+            self.modes = {"old": mode, "new": mode}
+
+    def _mode_source(self, source: str) -> None:
+        """git writes a mode either in `old/new mode` lines or at the end of the `index` line, never both: a patch with
+        both could show the gate one mode while `git apply` sets the other, so it is refused."""
+        if self.mode_from and self.mode_from != source:
+            raise CodeGateError("a diff gives a file's mode both in mode lines and in its index line")
+        self.mode_from = source
 
     def _names(self, line: str) -> bool:
         """`rename from/to`, `---` and `+++`: each must name the file the `diff --git` line names (`/dev/null` only for
