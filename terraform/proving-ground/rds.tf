@@ -7,8 +7,9 @@
 # protocol, so `WARDEN_BACKEND=postgres` with the instance endpoint in the DSN is the whole
 # integration. Worth stating plainly rather than implying a bespoke RDS backend exists.
 #
-# Cheapest instance that actually exists: db.t4g.micro (Graviton), 20 GB gp2, single AZ, no backups.
-# Every one of those is wrong for production and right for an instance that lives for an hour. On an
+# Cheapest instance that actually exists: db.t4g.micro (Graviton), 20 GB gp2, single AZ, 7 days of automated
+# backups (deleted with the instance). The first three are wrong for production and right for an instance that lives
+# for an hour. On an
 # account under 12 months old the free tier covers it entirely. Encrypted at rest with the AWS-managed
 # key (2026-10-16, Sonar terraform:S6303): it costs nothing and leaves nothing to clean up.
 
@@ -21,19 +22,20 @@ resource "aws_db_subnet_group" "this" {
 resource "aws_security_group" "db" {
   count       = var.enable_rds ? 1 : 0
   name        = "${local.name}-db"
-  description = "Proving-ground database. PostgreSQL from one IP only."
+  description = "Proving-ground database. PostgreSQL from the database tunnel only."
   vpc_id      = aws_vpc.this.id
 
   ingress {
     # ⚠ No apostrophe, deliberately. EC2 rejects any rule description outside
     # [0-9A-Za-z_ .:/()#,@[]+=&;{}!$*-], and `terraform validate` does NOT catch it - it fails at
     # plan against the live API. "operator's" shipped here once; tests/test_terraform_descriptions.py
-    # now fails before that can happen again.
-    description = "PostgreSQL from the operator address only, and nowhere else."
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = [var.my_ip_cidr]
+    # now fails before that can happen again. Inline, so db-06 (scenarios/ops_db.py) revokes and re-authorises it
+    # exactly as declared and a later plan sees no drift.
+    description     = "PostgreSQL from the database tunnel only, and nowhere else."
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.db_tunnel[0].id]
   }
 }
 
@@ -56,15 +58,24 @@ resource "aws_db_instance" "this" {
   password = var.db_password
   port     = 5432
 
+  # Private (Sonar terraform:S8793, owner 2026-10-21): no public address; the operator reaches it through the SSM
+  # port-forward in db_tunnel.tf, and PostgreSQL 16 on RDS refuses a connection without TLS (rds.force_ssl defaults to 1
+  # from 15 on).
   db_subnet_group_name   = aws_db_subnet_group.this[0].name
   vpc_security_group_ids = [aws_security_group.db[0].id]
-  publicly_accessible    = true # no NAT Gateway and no bastion; bounded by the SG above
+  publicly_accessible    = false
 
-  multi_az                = false
-  backup_retention_period = 0    # ⛔ no backups. Deliberate: it makes destroy fast and free
-  skip_final_snapshot     = true # ⛔ without this, `terraform destroy` FAILS and leaves the bill running
-  deletion_protection     = false
-  apply_immediately       = true
+  # Seven days of automated backups (Sonar terraform:S6364, owner 2026-10-20). No extra cost: RDS keeps backup storage
+  # up to the database's size free, and a destroy deletes the automated backups with the instance
+  # (delete_automated_backups defaults to true; skip_final_snapshot below leaves no snapshot either). Developers report
+  # that AWS Free plan accounts refuse more than 1 day (FreeTierRestrictionError); no AWS page says so (searched
+  # 2026-10-20), so the rule's 7 days stand, and an apply on such an account fails loudly at create, before any cost.
+  multi_az                 = false
+  backup_retention_period  = 7
+  delete_automated_backups = true
+  skip_final_snapshot      = true # ⛔ without this, `terraform destroy` FAILS and leaves the bill running
+  deletion_protection      = false
+  apply_immediately        = true
 
   # A t4g.micro takes about six minutes to come up. Performance Insights and enhanced monitoring are
   # both billable and neither is read by anything here.
