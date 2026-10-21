@@ -452,6 +452,14 @@ def test_a_result_whose_counts_cannot_be_rates_is_refused(bench):
             bench.bench_row(doc)
 
 
+def test_completeness_comes_from_the_counts_not_the_result_s_flag(bench):
+    good = _result(bench)
+    doc = {**good, "complete": True, "metrics": {**good["metrics"], "not_asked": 3}}
+    assert "(incomplete: 3 plans not asked, cap reached)" in bench.bench_row(doc)
+    assert "(incomplete: 3 plans not asked" in bench.readme_line(doc)
+    assert "incomplete" not in bench.bench_row({**good, "complete": False})
+
+
 def test_recording_the_same_result_twice_adds_one_row(bench):
     text = f"{bench.BENCH_BEGIN}\n| not yet measured |\n{bench.BENCH_END}\n"
     once = bench._between(text, bench.BENCH_BEGIN, bench.BENCH_END, "| row |", keep_rows=True)

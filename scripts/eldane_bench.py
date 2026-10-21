@@ -724,7 +724,7 @@ def bench_row(doc: dict[str, Any]) -> str:
     ) or not re.fullmatch(r"[0-9a-f]{12}", str(doc["eldane_prompt"])):
         raise Refused("REFUSED: the result's date or prompt hash is not in its fixed format")
     _check_counts(m)
-    done = "" if doc["complete"] else f" (incomplete: {int(m['not_asked'])} not asked, cap reached)"
+    done = _incomplete(m)
     return (
         f"| {doc['measured_at']} | {doc['model']} ({doc['effort']}) | `{doc['eldane_prompt']}` | "
         f"{_pct(int(m['right_approved']), int(m['right_asked']))} | "
@@ -735,14 +735,21 @@ def bench_row(doc: dict[str, Any]) -> str:
     )
 
 
+def _incomplete(m: dict[str, Any]) -> str:
+    """From the counts themselves, never the result's own `complete` flag: any plan not asked makes it incomplete."""
+    return f" (incomplete: {m['not_asked']} plans not asked, cap reached)" if m["not_asked"] else ""
+
+
 def readme_line(doc: dict[str, Any]) -> str:
     m = doc["metrics"]
+    _check_counts(m)
     return (
         f"- **The AI critic.** Eldane ({doc['model']}, blind first pass, {doc['measured_at'][:10]}) approved "
         f"{_pct(int(m['right_approved']), int(m['right_asked']))} right fixes, caught "
         f"{_pct(int(m['bad_caught']), int(m['bad_asked']))} wrong or harmful ones and blocked "
-        f"{_pct(int(m['right_blocked']), int(m['right_asked']))} right ones, on plans built from the 172 held-out "
-        "cases: [docs/BENCHMARKS.md](docs/BENCHMARKS.md#the-ai-critic-eldane-on-the-g10-held-out-set)."
+        f"{_pct(int(m['right_blocked']), int(m['right_asked']))} right ones, on plans built from the 172 cases of "
+        f"the G10 held-out set{_incomplete(m)}: "
+        "[docs/BENCHMARKS.md](docs/BENCHMARKS.md#the-ai-critic-eldane-on-the-g10-held-out-set)."
     )
 
 
