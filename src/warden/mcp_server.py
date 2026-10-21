@@ -20,6 +20,7 @@ Built on the official `mcp` Python SDK v2 (2026-07-28 spec, stateless request/re
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 from collections.abc import Awaitable, Generator
@@ -284,9 +285,30 @@ def _workflow_tools() -> list[types.Tool]:
     ]
 
 
+# What the workflow tools import, in the order they always did. Loaded before a tool's try: a missing or broken
+# Temporal install escapes as the ImportError it is, never as a tool's error reply.
+_WORKFLOW_IMPORTS = (
+    ("temporalio.client", ("WorkflowExecutionStatus",)),
+    ("temporalio.common", ("WorkflowIDReusePolicy",)),
+    ("temporalio.exceptions", ("WorkflowAlreadyStartedError",)),
+    (".runtime", ()),
+    (".activities", ("FixRequest",)),
+    (".workflows", ("IncidentWorkflow", "RemediationWorkflow")),
+)
+
+
+def _load_workflow_imports() -> None:
+    for module, names in _WORKFLOW_IMPORTS:
+        loaded = importlib.import_module(module, __package__)
+        missing = [n for n in names if not hasattr(loaded, n)]
+        if missing:
+            raise ImportError(f"cannot import name {missing[0]!r} from {loaded.__name__!r}")
+
+
 async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> types.CallToolResult:
     tools = {"start_incident_diagnosis": _start_incident_diagnosis, "request_remediation": _request_remediation,
              "workflow_status": _workflow_status}
+    _load_workflow_imports()
     try:
         if name in WORKFLOW_TOOLS and name not in profile():
             return _err(f"{name} is not allowed for this client (WARDEN_MCP_PROFILE)")

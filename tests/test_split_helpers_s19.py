@@ -5,7 +5,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import urllib.error
+from types import SimpleNamespace
+
+import pytest
 
 from warden import mcp_server, settings
 from warden.models import Alert
@@ -24,6 +28,63 @@ def test_a_remediation_outside_the_catalogue_is_refused_by_name(monkeypatch):
             "params": {}}
     result = asyncio.run(mcp_server.call_workflow_tool("request_remediation", args, client=None))
     assert "'not_in_the_catalogue' is not in the catalogue" in result.content[0].text
+
+
+@pytest.mark.parametrize("module", ["temporalio.client", "temporalio.common", "temporalio.exceptions",
+                                    "warden.runtime", "warden.activities", "warden.workflows"])
+def test_a_missing_workflow_module_escapes_instead_of_becoming_a_tool_error(module, monkeypatch):
+    """As on main: the workflow tools' imports run before the tool's try, so a broken Temporal install is the
+    ImportError it is - for every tool name, even one this client may not use - never an `_err` reply."""
+    monkeypatch.setitem(sys.modules, module, None)
+    call = mcp_server.call_workflow_tool("workflow_status", {"workflow_id": "w"}, client=None)
+    with pytest.raises(ImportError):
+        asyncio.run(call)
+
+
+def test_a_missing_name_in_a_workflow_module_escapes_too(monkeypatch):
+    """`from .workflows import RemediationWorkflow` failed with an ImportError on main; so does the loader."""
+    import warden.workflows
+
+    monkeypatch.delattr(warden.workflows, "RemediationWorkflow")
+    call = mcp_server.call_workflow_tool("workflow_status", {"workflow_id": "w"}, client=None)
+    with pytest.raises(ImportError, match="RemediationWorkflow"):
+        asyncio.run(call)
+
+
+class _FakeTemporal:
+    """Just enough of a Temporal client for the tools: starts nothing, and describes any workflow as running."""
+
+    async def start_workflow(self, *args, **kwargs):
+        return None
+
+    def get_workflow_handle(self, wid):
+        async def describe():
+            return SimpleNamespace(workflow_type="RemediationWorkflow", status=SimpleNamespace(name="RUNNING"))
+        return SimpleNamespace(describe=describe)
+
+
+_REMEDIATION = {"incident_id": "inc-42", "entry": "k8s_rollout_undo", "service": "orders", "environment": "dev",
+                "params": {"namespace": "shop", "deployment": "orders", "to_revision": "6"}}
+
+
+def _status_after_a_remediation(monkeypatch) -> str:
+    monkeypatch.setenv("WARDEN_MCP_PROFILE", "remediate")
+    monkeypatch.setattr(mcp_server, "_STARTED", set())
+
+    async def no_status(client, wid):
+        return "awaiting approval", None
+    from warden import runtime
+    monkeypatch.setattr(runtime, "status", no_status)
+    client = _FakeTemporal()
+    started = asyncio.run(mcp_server.call_workflow_tool("request_remediation", _REMEDIATION, client))
+    wid = json.loads(started.content[0].text)["workflow_id"]
+    return asyncio.run(mcp_server.call_workflow_tool("workflow_status", {"workflow_id": wid}, client)).content[0].text
+
+
+def test_status_answers_for_a_remediation_this_server_started(monkeypatch):
+    """workflow_status answers only for workflows this server started (audit A-B-H4): a remediation it started
+    itself is one - checked without Temporal, so a lost `_STARTED.add` is caught locally."""
+    assert '"stage": "awaiting approval"' in _status_after_a_remediation(monkeypatch)
 
 
 def test_a_finished_workflows_result_never_carries_the_evidence_read():
