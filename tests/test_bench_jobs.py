@@ -90,7 +90,8 @@ def test_the_estimate_is_each_models_own_listed_price_and_an_unpriced_model_is_r
     p_in, p_out = load_qualified()["prices"][A]
     assert e["answers"] == 4
     assert e["input_tokens"] == 40_000
-    assert e["expected_usd"] == round((40_000 * p_in + 4 * bench_jobs.EXPECTED_OUT_TOKENS * p_out) / 1e6, 2)
+    estimated, priced = e["expected_usd"], round((40_000 * p_in + 4 * bench_jobs.EXPECTED_OUT_TOKENS * p_out) / 1e6, 2)
+    assert estimated == priced
     assert e["worst_usd"] > e["expected_usd"]
     assert e["reserve_usd"] == round((30_000 / 3 * p_in + MAX_OUTPUT_TOKENS * p_out) / 1e6, 4)
     with pytest.raises(SystemExit, match="no row in providers.yaml"):
