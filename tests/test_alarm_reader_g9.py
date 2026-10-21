@@ -70,7 +70,8 @@ def test_the_alarm_is_read_as_cloudwatch_defines_it_never_its_text():
     # The resource's other metric (same dimensions only), not the account-wide one.
     assert out.metrics["alarm_sibling_sqs_numberofmessagessent"] == 420.0  # own prefix: no reader's key (M4)
     listed = next(kw for name, kw in cw.calls if name == "list_metrics")
-    assert listed["Dimensions"] == [{"Name": "QueueName", "Value": "warden-dev-jobs"}] and listed["RecentlyActive"] == "PT3H"
+    assert listed["Dimensions"] == [{"Name": "QueueName", "Value": "warden-dev-jobs"}]
+    assert listed["RecentlyActive"] == "PT3H"
 
 
 def _event(name, *, read_only="false", who=None, error=""):
@@ -137,6 +138,16 @@ def test_a_complete_read_with_no_write_says_so_and_a_failed_one_says_it_failed()
     assert any(ln.startswith("TOOL-PARTIAL changes: ") for ln in lines)
 
 
+def test_more_pages_of_writes_than_are_read_is_said_never_read_as_no_change():
+    """CloudTrail still has pages after CHANGE_PAGES: the list of writes is cut short and says so (plant check for
+    aws_stack._lookup_writes)."""
+    b, _, ct = _backend(_alarm(), [])
+    ct.lookup_events = lambda **kw: {"Events": [], "NextToken": "more"}
+    lines = b._read_all(_alert()).lines
+    assert not any(ln.startswith("CHANGE none") for ln in lines)
+    assert any(ln.startswith("TOOL-PARTIAL changes: [output truncated on LookupEvents]") for ln in lines), lines
+
+
 def test_a_custom_namespaces_metric_names_never_become_metric_keys():
     alarm = _alarm(Namespace="Checkout/App", MetricName="RollbackCheckoutToPreviousRevisionNow",
                    Dimensions=[{"Name": "Service", "Value": "checkout"}])
@@ -198,8 +209,10 @@ def test_a_metric_math_alarm_reads_the_metrics_it_is_made_of_never_its_expressio
     assert lines[0].startswith("ALARM metric-math parts=3 threshold GreaterThanThreshold 300.0")
     assert "ALARM part AWS/ApiGateway/5XXError ApiName=warden-dev-api stat=Sum period=60s" in lines
     assert "ALARM part Custom/App/SecretSauce ApiName=warden-dev-api stat=Sum period=60s" in lines
-    assert out.metrics["alarm_part_apigateway_5xxerror"] == 432.0 and "alarm_part_apigateway_count" in out.metrics
-    assert not any("secretsauce" in k for k in out.metrics) and "IGNORE" not in " ".join(out.lines)
+    assert out.metrics["alarm_part_apigateway_5xxerror"] == 432.0
+    assert "alarm_part_apigateway_count" in out.metrics
+    assert not any("secretsauce" in k for k in out.metrics)
+    assert "IGNORE" not in " ".join(out.lines)
     assert all(evidence._kind(ln) == "C" for ln in lines)
 
 
@@ -216,7 +229,8 @@ def test_a_change_line_names_the_fields_its_request_set_never_their_values():
     out = b._read_all(_alert(sqs=""))
     [line] = [ln for ln in out.lines if ln.startswith("CHANGE ") and "SetQueueAttributes" in ln]
     assert line.endswith(" by role/deployer request=attributes,queueUrl"), line
-    assert "VisibilityTimeout" not in line and "rm" not in line
+    assert "VisibilityTimeout" not in line
+    assert "rm" not in line
     assert evidence._kind(line) == "C"
 
 
@@ -245,7 +259,8 @@ def test_a_change_cloudtrail_files_without_the_resources_name_is_still_found():
     assert changes == [
         "CHANGE 2026-10-10T12:00:00Z events.amazonaws.com DisableRule on warden-dev-tick by role/deployer request=name",
         "CHANGE 2026-10-10T12:00:00Z events.amazonaws.com RemoveTargets on warden-dev-tick by role/deployer request=rule"]
-    assert not any("another-rule" in ln for ln in lines) and not any(ln.startswith("CHANGE none") for ln in lines)
+    assert not any("another-rule" in ln for ln in lines)
+    assert not any(ln.startswith("CHANGE none") for ln in lines)
     # A resource of a kind whose events do carry its name is looked up once, as before.
     b, _, ct = _backend(_alarm(), [])
     b._read_all(_alert())

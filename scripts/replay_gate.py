@@ -70,6 +70,25 @@ def replay_one(path: pathlib.Path) -> tuple[str, str, list[str]]:
     return d["verdict"]["status"], verdict.status.value, verdict.policy_ids
 
 
+def _replay_all(files: list[pathlib.Path]) -> tuple[list[dict], collections.Counter, list[str]]:
+    """(one row per report replayed, the old -> new verdict counts, the reports that could not be read), printing
+    each verdict that changed."""
+    rows, matrix, skipped = [], collections.Counter(), []
+    for path in files:
+        try:
+            old, new, policies = replay_one(path)
+        except Exception as exc:  # noqa: BLE001  # a finding; never papered over
+            # A report the current models cannot parse predates a schema change. Say so and move on;
+            # guessing at the missing fields would invent evidence.
+            skipped.append(f"{path.name}: {type(exc).__name__}: {str(exc)[:120]}")
+            continue
+        rows.append({"report": path.name, "old": old, "new": new, "policies": policies})
+        matrix[(old, new)] += 1
+        if old != new:
+            print(f"  {path.name:46} {old:18} -> {new:18} {', '.join(policies) or '-'}")
+    return rows, matrix, skipped
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -108,19 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\nreports  : {reports}")
     print(f"measured at commit {recorded} · replayed by the gate at commit {_git_commit()}\n")
 
-    rows, matrix, skipped = [], collections.Counter(), []
-    for path in files:
-        try:
-            old, new, policies = replay_one(path)
-        except Exception as exc:  # noqa: BLE001 - a finding, never papered over
-            # A report the current models cannot parse predates a schema change. Say so and move on;
-            # guessing at the missing fields would invent evidence.
-            skipped.append(f"{path.name}: {type(exc).__name__}: {str(exc)[:120]}")
-            continue
-        rows.append({"report": path.name, "old": old, "new": new, "policies": policies})
-        matrix[(old, new)] += 1
-        if old != new:
-            print(f"  {path.name:46} {old:18} -> {new:18} {', '.join(policies) or '-'}")
+    rows, matrix, skipped = _replay_all(files)
 
     changed = sum(1 for r in rows if r["old"] != r["new"])
     print(f"\n{len(rows)} report(s) replayed, {changed} verdict(s) changed, {len(skipped)} skipped")

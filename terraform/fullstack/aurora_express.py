@@ -150,8 +150,10 @@ def merge_stack(path: pathlib.Path, values: dict) -> None:
         raw = json.loads(src.read())
     wrapped = any(isinstance(v, dict) and "value" in v for v in raw.values())
     for key, value in values.items():
-        raw[key] = {"value": value, "sensitive": False,
-                    "type": "string" if isinstance(value, str) else "object"} if wrapped else value
+        if wrapped:
+            raw[key] = {"value": value, "sensitive": False, "type": "string" if isinstance(value, str) else "object"}
+        else:
+            raw[key] = value
     with open(real, "w", encoding="utf-8") as out:
         out.write(json.dumps(raw, indent=1))
 
@@ -173,6 +175,24 @@ def create(rds, sm, stack: pathlib.Path, cluster: str | None = None, log=print) 
     if c.get("IAMDatabaseAuthenticationEnabled") is not True:
         raise SystemExit(f"{cluster}: IAM database authentication is not enabled - refusing to go on")
 
+    c = _set_capacity(rds, cluster, c, log)
+    _add_reader(rds, cluster, c, log)
+    rds.get_waiter("db_instance_available").wait(
+        Filters=[{"Name": "db-cluster-id", "Values": [cluster]}], WaiterConfig=WAIT)
+
+    found = facts(rds, cluster)
+    sm.put_secret_value(SecretId=SECRET_ID, SecretString=json.dumps({
+        "username": APP_USER, "dbname": DB_NAME, "port": PORT,
+        "host": found["aurora_writer_endpoint"], "reader": found["aurora_reader_endpoint"]}))
+    merge_stack(stack, found)
+    log(f"writer {found['aurora_writer_instance']}, reader endpoint {found['aurora_reader_endpoint']}; "
+        f"{SECRET_ID} and {stack} updated")
+    return found
+
+
+def _set_capacity(rds, cluster: str, c: dict, log) -> dict:
+    """Serverless v2 at ACU: changed when it differs, then polled until it IS the target and the cluster is
+    available again. The cluster as last described."""
     scaling = c.get("ServerlessV2ScalingConfiguration") or {}
     if (scaling.get("MinCapacity"), scaling.get("MaxCapacity")) != (ACU["MinCapacity"], ACU["MaxCapacity"]):
         log(f"serverless v2 capacity {scaling or 'default'} -> {ACU}")
@@ -189,7 +209,12 @@ def create(rds, sm, stack: pathlib.Path, cluster: str | None = None, log=print) 
             time.sleep(15)
         else:
             raise SystemExit(f"{cluster}: capacity change to {ACU} did not complete in 30 minutes")
+    return c
 
+
+def _add_reader(rds, cluster: str, c: dict, log) -> None:
+    """The reader <cluster>-2 (promotion tier 1, another AZ than the writer's when there is one), unless it is
+    already a member or the account's plan allows no more instances."""
     reader = f"{cluster}-2"  # named after THIS cluster, so --cluster never attaches a reader elsewhere
     members = {m["DBInstanceIdentifier"] for m in c.get("DBClusterMembers") or []}
     if reader not in members:
@@ -210,17 +235,6 @@ def create(rds, sm, stack: pathlib.Path, cluster: str | None = None, log=print) 
                 raise
             log(f"no reader {reader}: the account's plan allows no more database instances - the reader endpoint "
                 "serves the writer, and the reader and failover faults (fs-14, fs-15) cannot run here")
-    rds.get_waiter("db_instance_available").wait(
-        Filters=[{"Name": "db-cluster-id", "Values": [cluster]}], WaiterConfig=WAIT)
-
-    found = facts(rds, cluster)
-    sm.put_secret_value(SecretId=SECRET_ID, SecretString=json.dumps({
-        "username": APP_USER, "dbname": DB_NAME, "port": PORT,
-        "host": found["aurora_writer_endpoint"], "reader": found["aurora_reader_endpoint"]}))
-    merge_stack(stack, found)
-    log(f"writer {found['aurora_writer_instance']}, reader endpoint {found['aurora_reader_endpoint']}; "
-        f"{SECRET_ID} and {stack} updated")
-    return found
 
 
 def status(rds, cluster: str | None = None, log=print) -> bool:
@@ -396,11 +410,36 @@ def destroy(rds, cluster: str | None = None, log=print) -> None:
     log(f"{cluster}: gone")
 
 
-def main(argv: list[str] | None = None, *, clients=None) -> int:
-    # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and the help text carries ⛔.
+def _utf8_console() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+
+
+def _use_checked(stack_arg: pathlib.Path, stack: dict) -> None:
+    """use(WARDEN_ENV) - refused with none set, with another environment's stack.json, or another app user."""
+    env = os.environ.get("WARDEN_ENV", "")
+    if not env:
+        raise SystemExit("refusing: set WARDEN_ENV to the environment whose Aurora this is")
+    if stack.get("environment") not in (None, env):
+        raise SystemExit(f"refusing: {stack_arg} is environment {stack['environment']!r}, WARDEN_ENV is {env!r}")
+    use(env)
+    if (stack.get("db_users") or {}).get("app", APP_USER) != APP_USER:
+        raise SystemExit(f"refusing: {stack_arg} names the app user {stack['db_users']['app']!r}, not {APP_USER!r}")
+
+
+def _clients(region: str | None) -> dict:
+    if not region:
+        raise SystemExit("refusing: no region - set AWS_REGION or pass --region")
+    import boto3
+
+    session = boto3.Session(region_name=region)
+    return {"rds": session.client("rds"), "secretsmanager": session.client("secretsmanager")}
+
+
+def main(argv: list[str] | None = None, *, clients=None) -> int:
+    # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and the help text carries ⛔.
+    _utf8_console()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["create", "status", "destroy"])
     ap.add_argument("--from-snapshot", default="none",
@@ -418,24 +457,11 @@ def main(argv: list[str] | None = None, *, clients=None) -> int:
     except ValueError as e:
         raise SystemExit(f"refused: {e}") from None
     stack = _read_stack(stack_path)
-    env = os.environ.get("WARDEN_ENV", "")
-    if not env:
-        raise SystemExit("refusing: set WARDEN_ENV to the environment whose Aurora this is")
-    if stack.get("environment") not in (None, env):
-        raise SystemExit(f"refusing: {args.stack} is environment {stack['environment']!r}, WARDEN_ENV is {env!r}")
-    use(env)
-    if (stack.get("db_users") or {}).get("app", APP_USER) != APP_USER:
-        raise SystemExit(f"refusing: {args.stack} names the app user {stack['db_users']['app']!r}, not {APP_USER!r}")
+    _use_checked(args.stack, stack)
     args.cluster = args.cluster or CLUSTER
     guard(args.cluster)
     args.region = args.region or os.environ.get("AWS_REGION") or stack.get("region")
-    if clients is None and not args.region:
-        raise SystemExit("refusing: no region - set AWS_REGION or pass --region")
-    if clients is None:
-        import boto3
-
-        session = boto3.Session(region_name=args.region)
-        clients = {"rds": session.client("rds"), "secretsmanager": session.client("secretsmanager")}
+    clients = clients if clients is not None else _clients(args.region)
     rds = clients["rds"]
     if args.cmd == "create" and args.from_snapshot != "none":
         restore(rds, args.cluster, args.from_snapshot)

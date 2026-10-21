@@ -40,7 +40,9 @@ def test_backticks_inside_a_tilde_block_do_not_end_it():
 def test_a_full_width_dot_does_not_keep_a_domain_whole(dot):
     """A browser opens `evil<U+3002>com` as evil.com; only ASCII dots were defanged."""
     out = gate.enforce(f"see evil{dot}com/x?d=1 and www{dot}evil{dot}com").text
-    assert "evil[.]com" in out and "www[.]evil[.]com" in out and dot not in out
+    assert "evil[.]com" in out
+    assert "www[.]evil[.]com" in out
+    assert dot not in out
 
 
 def test_the_stub_of_a_withheld_report_cleans_the_alert_id():
@@ -48,13 +50,15 @@ def test_the_stub_of_a_withheld_report_cleans_the_alert_id():
     # Not `click.evil.example`: it shares `example` with the key, and such an id is named by a hash (R9-O1).
     result = gate.enforce(f"key {SECRET}", alert_id="click.evil.invalid")
     assert result.verdict == "BLOCK"
-    assert "click[.]evil[.]invalid" in result.text and "click.evil.invalid" not in result.text
+    assert "click[.]evil[.]invalid" in result.text
+    assert "click.evil.invalid" not in result.text
 
 
 def test_the_stub_of_a_withheld_report_redacts_a_key_shaped_alert_id():
     """Sixth review (2026-10-01): the stub cleaned the id's links but never checked it for secrets."""
     result = gate.enforce(f"key {SECRET}", alert_id=SECRET)
-    assert result.verdict == "BLOCK" and SECRET not in result.text, result.text
+    assert result.verdict == "BLOCK", result.text
+    assert SECRET not in result.text, result.text
 
 
 @pytest.mark.parametrize("mark", [chr(0x200B), chr(0x2060), chr(0xFEFF), chr(0x00AD), chr(0x034F), chr(0x180B),
@@ -62,7 +66,9 @@ def test_the_stub_of_a_withheld_report_redacts_a_key_shaped_alert_id():
 def test_an_invisible_character_at_a_dot_does_not_keep_a_domain_whole(mark):
     """Sixth review (2026-10-01): `evil.<ZWSP>com` passed whole."""
     out = gate.enforce(f"see evil.{mark}com/x and www{mark}.evil.com and evil.c{mark}om/y").text
-    assert "evil[.]com/x" in out and "www[.]evil[.]com" in out and "evil[.]com/y" in out, out
+    assert "evil[.]com/x" in out, out
+    assert "www[.]evil[.]com" in out, out
+    assert "evil[.]com/y" in out, out
 
 
 def test_zwnj_and_zwj_are_left_in_prose():
@@ -70,7 +76,8 @@ def test_zwnj_and_zwj_are_left_in_prose():
     Persian text (`mi<ZWNJ>khaham`) - the gate answered REWRITE with its spelling changed."""
     text = "user wrote: " + "".join(map(chr, (0x645, 0x6CC, 0x200C, 0x62E, 0x648, 0x627, 0x647, 0x645)))
     result = gate.enforce(text)
-    assert result.verdict == "PASS" and result.text == text, result
+    assert result.verdict == "PASS", result
+    assert result.text == text, result
 
 
 @pytest.mark.parametrize("before", ["password=Tr0ub4dor-x9q", "curl --token Tr0ub4dor-x9q", "Authorization: Tr0ub4dor-x9q"])
@@ -78,7 +85,8 @@ def test_the_stub_masks_an_alert_id_that_is_a_secret_in_the_blocked_text(before)
     """Seventh review (2026-10-01): the id was redacted on its own - `Tr0ub4dor-x9q` alone is no secret - so the
     gate blocked a value and then sent it in the stub."""
     result = gate.enforce(redact(before).text, before_redaction=before, alert_id="Tr0ub4dor-x9q")
-    assert result.verdict == "BLOCK" and "Tr0ub4dor" not in result.text, result.text
+    assert result.verdict == "BLOCK", result.text
+    assert "Tr0ub4dor" not in result.text, result.text
 
 
 # Every code point a WHATWG URL parser drops from a host (Node 22, all 1.1M code points; seventh review). The test

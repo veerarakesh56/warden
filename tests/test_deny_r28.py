@@ -28,9 +28,13 @@ def test_the_approver_denies_with_a_passkey_after_seeing_the_plan(setup):
     _show(page, device, token)
     response = _ceremony(page, device, token, "deny")
     ok = page.handle("POST", f"/a/{token}/deny", json.dumps({"response": response, "note": "wrong target"}))
-    assert ok.status == 200 and sent == []
+    assert ok.status == 200
+    assert sent == []
     [(wf, d)] = denied
-    assert wf == PLAN.workflow_id and d.approver == "owner" and d.plan_hash == PLAN.plan_hash and d.reason == "wrong target"
+    assert wf == PLAN.workflow_id
+    assert d.approver == "owner"
+    assert d.plan_hash == PLAN.plan_hash
+    assert d.reason == "wrong target"
     assert page.handle("GET", f"/a/{token}").status == 404  # the link is used
 
 
@@ -42,7 +46,8 @@ def test_a_deny_without_the_passkey_is_refused(setup):
     _show(page, device, token)
     page.handle("POST", f"/a/{token}/deny-options")
     bad = page.handle("POST", f"/a/{token}/deny", json.dumps({"response": {"id": "forged"}}))
-    assert bad.status == 403 and denied == []
+    assert bad.status == 403
+    assert denied == []
 
 
 def test_a_denied_plan_ends_with_nothing_changed(tmp_path):
@@ -60,10 +65,13 @@ def test_a_denied_plan_ends_with_nothing_changed(tmp_path):
                                                             plan_hash=plan.plan_hash, reason="not now"))
 
     out = _run(world, deny)
-    assert out.status == "denied" and out.reasons == ["denied by owner: not now"]
-    assert world["platform"].applied == [] and not out.checklist["approved"]
+    assert out.status == "denied"
+    assert out.reasons == ["denied by owner: not now"]
+    assert world["platform"].applied == []
+    assert not out.checklist["approved"]
     end = [e["body"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
-    assert end and end[-1].get("status") == "denied"
+    assert end
+    assert end[-1].get("status") == "denied"
 
 
 def test_a_denial_names_a_plain_approver():

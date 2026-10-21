@@ -295,7 +295,8 @@ def test_no_register_row_is_dropped_for_its_shape():
 def test_a_row_split_by_a_pipe_is_reported_not_dropped():
     table = "| ID | Group | Status | Evidence |\n|---|---|---|---|\n| X | G1 | OPEN | `a||b` |\n"
     malformed: list[str] = []
-    assert rows(table, malformed) == [] and malformed
+    assert rows(table, malformed) == []
+    assert malformed
     escaped = table.replace("a||b", "a\\|\\|b")
     assert rows(escaped)[0]["Evidence"] == "`a\\|\\|b`"
 
@@ -445,10 +446,12 @@ def test_rows_github_shows_are_read_whatever_their_pipes():
              "| X-1 | a | G1 | OPEN | e |\n  | X-2 | b | G1 | OPEN | e |\nX-3 | c | G0 | OPEN | e |\n"
              "X-4 | d | G1 | done | e\n\nafter the table\n")
     bad: list[str] = []
-    assert [r["ID"] for r in rows(table, bad)] == ["X-1", "X-2", "X-3", "X-4"] and bad == []
+    assert [r["ID"] for r in rows(table, bad)] == ["X-1", "X-2", "X-3", "X-4"]
+    assert bad == []
     renamed = "| ID | Finding | Group | State | Evidence |\n|---|---|---|---|---|\n| X-5 | e | G0 | OPEN | e |\n"
     rows(renamed, bad)
-    assert bad and "without Group and Status" in bad[0]
+    assert bad
+    assert "without Group and Status" in bad[0]
 
 
 def test_rows_end_where_githubs_tables_end():
@@ -482,7 +485,8 @@ def test_the_registers_hold_no_table_the_parser_cannot_read():
         text = (ROOT / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
         quoted = [n for n, line in enumerate(text.split("\n"), 1) if _unread_table_line(line)]
         html = [n for n, line in enumerate(text.split("\n"), 1) if re.search(r"<(?:table|tr|td|th)\b", line, re.IGNORECASE)]
-        assert not quoted and not html, (rel, quoted[:5], html[:5])
+        assert not quoted, (rel, quoted[:5], html[:5])
+        assert not html, (rel, quoted[:5], html[:5])
 
 
 def _unread_table_line(line: str) -> bool:

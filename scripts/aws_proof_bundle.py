@@ -60,13 +60,9 @@ def _load(path: pathlib.Path) -> dict | None:
         return None
 
 
-def _summarise(report: dict) -> list[str]:
-    ctx = report.get("context") or {}
-    verdict = report.get("verdict") or {}
-    proposal = report.get("proposal") or {}
-    root = report.get("root_cause") or {}
+def _evidence_lines(ctx: dict) -> list[str]:
+    """What the run read: the counts, every metric, and the tools that failed (a partial context)."""
     metrics = ctx.get("metrics") or {}
-
     read = (
         f"- **evidence read**: {len(ctx.get('logs') or [])} log lines, "
         f"{len(metrics)} metrics, {len(ctx.get('recent_deploys') or [])} deploy(s)"
@@ -77,6 +73,15 @@ def _summarise(report: dict) -> list[str]:
         lines.append(f"- **metrics**: {shown}")
     if ctx.get("tool_errors"):
         lines.append(f"- **partial context** (policy P8 sees this): {'; '.join(ctx['tool_errors'])}")
+    return lines
+
+
+def _decision_lines(report: dict) -> list[str]:
+    """What the run concluded: the hypothesis, the proposed fix, the verdict and what the model cost."""
+    verdict = report.get("verdict") or {}
+    proposal = report.get("proposal") or {}
+    root = report.get("root_cause") or {}
+    lines = []
     if root:
         lines.append(f"- **hypothesis**: {root.get('hypothesis', '?')} (confidence {root.get('confidence', 0):.2f})")
     if proposal:
@@ -88,6 +93,10 @@ def _summarise(report: dict) -> list[str]:
     if cost:
         lines.append(f"- **model cost**: ${cost.get('usd', 0):.4f} over {cost.get('calls', 0)} call(s)")
     return lines
+
+
+def _summarise(report: dict) -> list[str]:
+    return [*_evidence_lines(report.get("context") or {}), *_decision_lines(report)]
 
 
 def main() -> int:
