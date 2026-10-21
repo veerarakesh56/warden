@@ -189,6 +189,9 @@ The CloudWatch log groups keep 90 days until lane N's retention change lands.
 
   To see who revealed what, look for the `incident.reveal` rows on the record, and the `kms:Decrypt` events by
   `warden-<env>-approval-lambda` in CloudTrail.
+- **The records CLI** (`warden records list|show`, lane Z's #147, when it lands): read-only over the audit, for an
+  operator's terminal. It masks every reader-facing string again before printing, never imports the vault or the
+  reveal, and never puts a masked value back. The reveal stays on the records page only.
 - **Retention and deletion.** A sealed map expires after `WARDEN_VAULT_DAYS` (default and minimum 180) and is deleted
   by the next seal. The audit's index and hash remain, so what existed stays provable.
   - **Erasure request:** the database owner deletes the incident's row with
