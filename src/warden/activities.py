@@ -422,6 +422,20 @@ def _send(log: AuditLog, incident: str, report: Any) -> list[Any]:
     return sent
 
 
+def _redacted(value: Any, mapping: dict[str, str] | None = None) -> Any:
+    """Every string in `value` redacted, its shape kept; one mapping, so one value gets one placeholder throughout."""
+    from .redaction import redact
+
+    mapping = {} if mapping is None else mapping
+    if isinstance(value, str):
+        return redact(value, mapping=mapping).text
+    if isinstance(value, list):
+        return [_redacted(v, mapping) for v in value]
+    if isinstance(value, dict):
+        return {k: _redacted(v, mapping) for k, v in value.items()}
+    return value
+
+
 class RemediationActivities:
     def __init__(self, *, audit: AuditLog, policy: approvals.ApproverPolicy, platform: Platform,
                  limits: bounds.Limits = bounds.DEFAULT_LIMITS, changes: Any = None, critic: Any = None) -> None:
@@ -471,6 +485,8 @@ class RemediationActivities:
         if entry:
             problems += _environment_problems(req.environment, entry, req.params, live)
         snapshot = live.get("state", {})
+        if entry and not problems:
+            problems += self._permissions(req, snapshot, workflow_id)
         basis = {"environment": req.environment, "catalog": catalog.fingerprint(), "code": code_version(),
                  "evidence": self.audit.head(req.incident_id)}
         key = f"{req.environment}/{catalog.target_key(req.entry, req.params)}" if entry else ""
@@ -482,11 +498,36 @@ class RemediationActivities:
         self.audit.append(req.incident_id, _PLAN_ROW,
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
-                           "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
+                           # A refused plan's parameters are kept redacted: never applied, and a caller may have put
+                           # anything in one the reader ignores (review, PR 76). A plan that can be applied keeps them
+                           # exact - apply compares them with this row.
+                           "params": _redacted(req.params) if problems else req.params,
+                           "target": key, "basis": basis, "plan_hash": plan.plan_hash,
                            "problems": problems, "soak_minutes": req.soak_minutes,
                            # Until when it waits, and from when its ceiling counts (U3-8, extend.py).
                            "approval_until": _deadline(plan).isoformat(), "made": plan.created_at.isoformat()})
         return plan
+
+    def _permissions(self, req: FixRequest, snapshot: dict[str, Any], workflow_id: str) -> list[str]:
+        """B12: the actor role's own permissions for this plan's calls, read before anyone is asked to approve it
+        (permits.py). On the record always; only a call the role's policies deny refuses the plan - one the check
+        cannot decide, or a check that fails or runs past its budget, is said in the row and changes nothing. A
+        platform without the check (Kubernetes, a database) writes no row."""
+        from . import permits
+
+        check = getattr(self.platform, "permitted", None)
+        try:
+            # Within its own budget (permits.BUDGET_S): a hung read leaves the plan unconfirmed, never late.
+            got = permits.within(lambda: check(req.entry, req.params, snapshot, incident=req.incident_id,
+                                               environment=req.environment)) if check else None
+        except (*permits.aws_errors(), LookupError, ValueError) as exc:  # the check failed: the plan goes on
+            got = {"checked": False, "denied": [], "unconfirmed": [f"the check failed: {_safe_error(exc)}"]}
+        if got is None:  # a platform with no such check (Kubernetes, a database, a test's): nothing to record
+            return []
+        got = _redacted(got)  # an error's text may name an account or a resource the record must not keep
+        self.audit.append(req.incident_id, "remediation.permissions", {"workflow_id": workflow_id, "run_id": _run_id(),
+                                                                       "entry": req.entry, **got})
+        return [str(d) for d in got.get("denied") or []]
 
     @activity.defn
     def approval_wait(self, plan: Plan, until: str) -> None:
