@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import secrets
 from concurrent.futures import ThreadPoolExecutor
@@ -28,7 +29,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from temporalio.api.enums.v1 import TaskQueueType
+from temporalio.api.taskqueue.v1 import TaskQueue
+from temporalio.api.workflowservice.v1 import DescribeTaskQueueRequest
 from temporalio.client import Client
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.worker import Worker
 
 from . import approvals, audit
@@ -54,6 +59,7 @@ from .workflows import (
 )
 
 TASK_QUEUE = MAIN_QUEUE  # the workflows and the core zone (register S15)
+_LOG = logging.getLogger("warden.runtime")
 
 
 class NoPlatform:
@@ -108,9 +114,82 @@ HEARTBEAT_EVERY = timedelta(seconds=int(os.environ.get("WARDEN_HEARTBEAT_SECONDS
 HEARTBEAT_METRIC = "Heartbeat"
 
 
-async def beat(client: Client, publish: Any, task_queue: str = TASK_QUEUE, wait_s: float = 60) -> str:
-    """One heartbeat: '' and a published beat when the round trip works, else why not - and nothing published."""
-    problem = await check_clock(client, task_queue, wait_s)
+# B35 self-alarms: only the core zone beats, so a read, llm, notify, act (or critic) worker that died, or whose own
+# Temporal key stopped working, paged nobody. The core zone's beat now also needs every zone the runtime deploys
+# (WARDEN_HEARTBEAT_ZONES, compute.tf) to have a worker that polled its queue lately: Temporal lists a queue's
+# pollers with their last poll; a live worker long-polls about once a minute, and one gone for five minutes is no
+# longer listed. Describing a queue is not one of Temporal Cloud's billed action kinds, and no metric is added: the
+# heartbeat alarm that already exists pages.
+ZONE_POLL_FRESH = timedelta(minutes=2)
+
+
+def heartbeat_zones(zone: str = "core") -> tuple[str, ...]:
+    """The zones the core zone's beat vouches for (WARDEN_HEARTBEAT_ZONES, comma-separated); none when unset - a
+    laptop's `--zone all` runs every zone in its own process - and none for any worker but the core zone's. A zone
+    WARDEN does not have refuses the worker's start: a beat that checks a queue nobody serves would page for ever,
+    and one that skipped it would vouch for nothing."""
+    if zone != "core":
+        return ()
+    zones = tuple(z.strip() for z in os.environ.get("WARDEN_HEARTBEAT_ZONES", "").split(",") if z.strip())
+    unknown = sorted(set(zones) - set(ZONES))
+    if unknown:
+        raise ValueError(f"WARDEN_HEARTBEAT_ZONES names zones WARDEN does not have: {', '.join(unknown)} "
+                         f"(one of {', '.join(ZONES)})")
+    return zones
+
+
+async def zones_polling(client: Client, zones: tuple[str, ...] | list[str], *,
+                        fresh: timedelta = ZONE_POLL_FRESH) -> str:
+    """'' when each zone's queue has a worker that polled it within `fresh`; else which zones have none."""
+    silent = []
+    for zone in zones:
+        got = await client.workflow_service.describe_task_queue(DescribeTaskQueueRequest(
+            namespace=client.namespace, task_queue=TaskQueue(name=zone_queue(zone)),
+            task_queue_type=TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY))
+        now = datetime.now(UTC)
+        if not any(now - p.last_access_time.ToDatetime(tzinfo=UTC) <= fresh for p in got.pollers):
+            silent.append(zone)
+    if not silent:
+        return ""
+    return (f"no worker of the {', '.join(silent)} zone{'s' if len(silent) > 1 else ''} has polled "
+            f"{'its' if len(silent) == 1 else 'their'} task queue for {int(fresh.total_seconds() // 60)} minutes: "
+            "the task stopped, or Temporal refuses its key")
+
+
+_REFUSED = (RPCStatusCode.UNAUTHENTICATED, RPCStatusCode.PERMISSION_DENIED)
+
+
+def refused_by_temporal(exc: BaseException) -> bool:
+    """Temporal refused this worker's API key: expired, revoked, or without the namespace's access."""
+    return isinstance(exc, RPCError) and exc.status in _REFUSED
+
+
+async def _zones_in_time(client: Client, zones: tuple[str, ...], wait_s: float) -> str:
+    """zones_polling within the beat's own deadline: a Temporal that never answers is a missed beat, said as such."""
+    try:
+        return await asyncio.wait_for(zones_polling(client, zones), timeout=wait_s)
+    except TimeoutError:
+        return f"Temporal did not list the zones' pollers within {wait_s:g} s"
+
+
+def _say_if_refused(exc: RPCError) -> None:
+    """The ERROR line for a refused key, by its status only (no traceback: the error is raised on, and the heartbeat
+    says it as a missed beat)."""
+    if refused_by_temporal(exc):
+        _LOG.error("Temporal refused this worker's API key (%s): make a new key, put it in Secrets Manager and "
+                   "restart the zones", exc.status.name)
+
+
+async def beat(client: Client, publish: Any, task_queue: str = TASK_QUEUE, wait_s: float = 60,
+               zones: tuple[str, ...] = ()) -> str:
+    """One heartbeat: '' and a published beat when the round trip works and every zone in `zones` polls, else why
+    not - and nothing published. Temporal refusing the key is also an ERROR line: the worker-errors alarm pages it
+    by name at once, before the missing beats do."""
+    try:
+        problem = await check_clock(client, task_queue, wait_s) or await _zones_in_time(client, zones, wait_s)
+    except RPCError as exc:
+        _say_if_refused(exc)
+        raise
     if problem:
         return problem
     publish()
@@ -162,13 +241,14 @@ def synthetic() -> str:
 
 
 async def heartbeat(client: Client, publish: Any, *, every: timedelta = HEARTBEAT_EVERY, task_queue: str = TASK_QUEUE,
-                    log: Any = None, shadow: Any = None) -> None:
+                    log: Any = None, shadow: Any = None, zones: tuple[str, ...] = ()) -> None:
     """Beat until cancelled. A failed beat publishes nothing - the missing metric is the page - and is said once.
-    With `shadow` (a publisher of the synthetic metric), the synthetic incident runs once a day as well."""
+    With `shadow` (a publisher of the synthetic metric), the synthetic incident runs once a day as well; with
+    `zones`, a beat also needs each of those zones' workers polling (zones_polling)."""
     last_synthetic: datetime | None = None
     while True:
         try:
-            problem = await beat(client, publish, task_queue)
+            problem = await beat(client, publish, task_queue, zones=zones)
         except Exception as exc:  # noqa: BLE001 - a beat that cannot run is a missed beat; never a crashed worker
             problem = f"the heartbeat could not run: {type(exc).__name__}"
         if problem and log:
