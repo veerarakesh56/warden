@@ -213,63 +213,85 @@ def scan(items: dict[str, Item], classify: Any = None, *,
         return "ran", {}
     try:
         classify = classify or _classifier()
-    except Exception as exc:  # noqa: BLE001 - the extra is missing, or the weights are not available
+    except Exception as exc:  # noqa: BLE001 - the extra is missing; or the weights are not available
         return f"unavailable: model not loaded ({type(exc).__name__})", {}
     try:
-        exact = hasattr(classify, "model") and hasattr(classify, "tokenizer")
-
-        def windows_of(text: str) -> list:
-            return _id_windows(text, classify.tokenizer) if exact else _char_windows(text)
-
-        def short_windows_of(text: str) -> list:
-            """Only where the text is longer than one short window: otherwise the long one IS it."""
-            if exact:
-                ws = _id_windows(text, classify.tokenizer, SHORT_TOKENS, SHORT_STEP)
-            else:
-                ws = _char_windows(text, SHORT_CHARS, SHORT_STEP_CHARS)
-            return ws if len(ws) > 1 else []
-
-        def segment_windows_of(text: str) -> list:
-            parts = [seg for seg in _SEGMENT.split(text) if len(seg.strip()) >= MIN_SEGMENT_CHARS]
-            if len(parts) < 2:
-                return []
-            return [w for seg in parts for w in windows_of(seg)]
-
-        def cost(ws: list) -> int:
-            return sum(len(w) for w in ws) if exact else sum(len(w) for w in ws) // 4
-
-        # The budget counts the text the model reads, once. Its short windows and sentences score that
-        # same text again (about 3x its tokens) and are bounded by it: counted too, 8,000 tokens of real
-        # evidence - under the 14,121 recorded incidents need - escalated as too much text (measured
-        # 2026-10-01 with the real model).
-        windows, owner, size = [], [], 0
-        for item_id, text in must:
-            long = windows_of(text)
-            ws = long + short_windows_of(text) + segment_windows_of(text)
-            windows += ws
-            owner += [item_id] * len(ws)
-            size += cost(long)
+        cut = _Windows(classify)
+        windows, owner, size = _read_windows(cut, must)
         if size > MAX_SCAN_TOKENS:
             return "ran", {TOO_MUCH_TEXT: 1.0}
-        scanned = 0
-        for item_id, text in logs:
-            ws = windows_of(text)
-            if size + cost(ws) > MAX_SCAN_TOKENS:
-                continue
-            windows += ws
-            owner += [item_id] * len(ws)
-            size += cost(ws)
-            scanned += 1
-        if exact:
-            scores = _score_ids(classify, windows) if windows else []
-        else:
-            scores = [_malicious(r) for r in classify(windows, batch_size=16)] if windows else []
+        scanned = _add_log_windows(cut, logs, windows, owner, size)
         worst: dict[str, float] = {}
-        for item_id, score in zip(owner, scores, strict=True):
+        for item_id, score in zip(owner, cut.scores(windows), strict=True):
             worst[item_id] = max(worst.get(item_id, 0.0), score)
-    except Exception as exc:  # noqa: BLE001 - missing library, no model access, a classify error (A-C-12)
+    except Exception as exc:  # noqa: BLE001 - missing library; no model access; a classify error (A-C-12)
         return f"unavailable: {type(exc).__name__}", {}
     status = "ran" if scanned == len(logs) else f"ran-partial: {scanned} of {len(logs)} log lines"
     return status, {i: round(s, 3) for i, s in worst.items() if s >= limit}
+
+
+class _Windows:
+    """How one classifier's input is cut: by its own tokenizer when it has one (exact), else by characters."""
+
+    def __init__(self, classify: Any) -> None:
+        self.classify = classify
+        self.exact = hasattr(classify, "model") and hasattr(classify, "tokenizer")
+
+    def of(self, text: str) -> list:
+        return _id_windows(text, self.classify.tokenizer) if self.exact else _char_windows(text)
+
+    def short(self, text: str) -> list:
+        """Only where the text is longer than one short window: otherwise the long one IS it."""
+        if self.exact:
+            ws = _id_windows(text, self.classify.tokenizer, SHORT_TOKENS, SHORT_STEP)
+        else:
+            ws = _char_windows(text, SHORT_CHARS, SHORT_STEP_CHARS)
+        return ws if len(ws) > 1 else []
+
+    def segments(self, text: str) -> list:
+        parts = [seg for seg in _SEGMENT.split(text) if len(seg.strip()) >= MIN_SEGMENT_CHARS]
+        if len(parts) < 2:
+            return []
+        return [w for seg in parts for w in self.of(seg)]
+
+    def cost(self, ws: list) -> int:
+        return sum(len(w) for w in ws) if self.exact else sum(len(w) for w in ws) // 4
+
+    def scores(self, windows: list) -> list[float]:
+        if self.exact:
+            return _score_ids(self.classify, windows) if windows else []
+        return [_malicious(r) for r in self.classify(windows, batch_size=16)] if windows else []
+
+
+def _read_windows(cut: _Windows, must: list[tuple[str, str]]) -> tuple[list, list[str], int]:
+    """(windows, the id each came from, the budget used) for the texts the model reads."""
+    # The budget counts the text the model reads, once. Its short windows and sentences score that
+    # same text again (about 3x its tokens) and are bounded by it: counted too, 8,000 tokens of real
+    # evidence - under the 14,121 recorded incidents need - escalated as too much text (measured
+    # 2026-10-01 with the real model).
+    windows: list = []
+    owner: list[str] = []
+    size = 0
+    for item_id, text in must:
+        long = cut.of(text)
+        ws = long + cut.short(text) + cut.segments(text)
+        windows += ws
+        owner += [item_id] * len(ws)
+        size += cut.cost(long)
+    return windows, owner, size
+
+
+def _add_log_windows(cut: _Windows, logs: list[tuple[str, str]], windows: list, owner: list[str], size: int) -> int:
+    """Add each log line's windows while the budget allows (a line past it is skipped); how many were added."""
+    scanned = 0
+    for item_id, text in logs:
+        ws = cut.of(text)
+        if size + cut.cost(ws) > MAX_SCAN_TOKENS:
+            continue
+        windows.extend(ws)
+        owner.extend([item_id] * len(ws))
+        size += cut.cost(ws)
+        scanned += 1
+    return scanned
 
 
