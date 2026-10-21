@@ -325,6 +325,8 @@ DESTROY_CALLS = {
 DATA_CALLS = {
     "aws_availability_zones": [call("ec2:DescribeAvailabilityZones", "*")],
     "aws_caller_identity": [call("sts:GetCallerIdentity", "*")],
+    # v6.66.0 ec2_eips_data_source.go -> findEIPs: one DescribeAddresses (filtered by tag; fullstack's runtime NAT).
+    "aws_eips": [call("ec2:DescribeAddresses", "*")],
     "aws_iam_policy_document": [],
     "aws_iam_session_context": [call("iam:GetRole", "deploy-role")],
     "aws_ssm_parameter": [call("ssm:GetParameter", "param")],
