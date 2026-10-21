@@ -28,6 +28,11 @@ resource "aws_sqs_queue" "main" {
 
 resource "aws_sns_topic" "order_events" {
   name = "${local.name}-order-events"
+  # Encrypted at rest with the AWS-managed key (Sonar terraform:S6327, 2026-10-17): no key to create or pay for each
+  # month. SNS reuses a data key for up to 5 minutes, so one publisher costs about 18,000 KMS requests a month, inside
+  # KMS's free 20,000. The publisher (checkout) holds kms:GenerateDataKey*/Decrypt through SNS only (EncryptOrderEvents
+  # below, and the boundary's CeilingKms). SNS decrypts before it delivers to the notifications queue, which stays as it is.
+  kms_master_key_id = "alias/aws/sns"
 }
 
 # fs-08 replaces this policy with one that no longer allows the topic; the harness restores it.
@@ -127,7 +132,8 @@ locals {
       in_vpc  = true # reaches the internal ALB; API Gateway through the NAT
       env = {
         API_URL           = aws_apigatewayv2_api.api.api_endpoint
-        ALB_URL           = "http://${aws_lb.orders.dns_name}"
+        ALB_URL           = "https://${aws_lb.orders.dns_name}"
+        ALB_CA_PEM        = tls_self_signed_cert.alb.cert_pem # the only certificate its ALB calls trust
         ORDERS_QUEUE_URL  = aws_sqs_queue.main["orders"].id
         CHECKOUTS_PER_MIN = "10"
         ORDERS_PER_MIN    = "10"
@@ -150,6 +156,7 @@ locals {
     checkout = [
       { Sid = "WriteCarts", Effect = "Allow", Action = ["dynamodb:PutItem"], Resource = [aws_dynamodb_table.carts.arn] },
       { Sid = "PublishOrderEvents", Effect = "Allow", Action = ["sns:Publish"], Resource = [aws_sns_topic.order_events.arn] },
+      { Sid = "EncryptOrderEvents", Effect = "Allow", Action = ["kms:GenerateDataKey*", "kms:Decrypt"], Resource = ["arn:aws:kms:${local.region}:${data.aws_caller_identity.current.account_id}:key/*"], Condition = { StringEquals = { "kms:ViaService" = "sns.${local.region}.amazonaws.com" } } },
       { Sid = "ReadApiToken", Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = [aws_secretsmanager_secret.api_token.arn] },
     ]
     order-processor = [
