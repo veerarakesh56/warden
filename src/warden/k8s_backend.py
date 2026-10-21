@@ -282,7 +282,7 @@ class KubernetesBackend:
                     break
             else:
                 lines.append(f"{PARTIAL_PREFIX}events: [output truncated] more than {EVENT_MAX_PAGES} pages read")
-        except Exception as exc:  # noqa: BLE001  # partial failure; reported as such
+        except Exception as exc:  # noqa: BLE001 - partial failure; reported as such
             lines.append(f"{PARTIAL_PREFIX}events: {_api_error(exc)}")
         return events
 

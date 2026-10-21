@@ -432,6 +432,26 @@ def test_deploys_carry_kind_and_previous(dsns):
     assert all(d["at"].endswith("Z") for d in deploys)
 
 
+def test_an_ecs_deploy_names_the_revision_it_moved_from_and_why():
+    """Plant check for aws_stack._ecs_deploy: `previous` is the revision before, never the new one."""
+    from warden.aws_stack import _ecs_deploy
+
+    got = _ecs_deploy("svc", {"at": "2026-10-10T12:00:00+00:00", "task_definition": "fam:8",
+                              "previous_task_definition": "fam:7", "image": "app:8", "previous_image": "app:7",
+                              "revision": "8", "rolled_back_from": "fam:9", "changed": "environment"})
+    assert got == {"kind": "ecs", "service": "svc", "at": "2026-10-10T12:00:00Z", "version": "fam:8",
+                   "previous": "fam:7", "image": "app:8", "previous_image": "app:7", "revision": "8",
+                   "rolled_back_from": "fam:9", "changed": "environment"}
+
+
+def test_an_ecs_deploy_with_no_rollback_or_config_change_carries_neither():
+    from warden.aws_stack import _ecs_deploy
+
+    got = _ecs_deploy("svc", {"at": "2026-10-10T12:00:00+00:00", "task_definition": "fam:8"})
+    assert "rolled_back_from" not in got
+    assert "changed" not in got
+
+
 def test_an_old_lambda_version_is_not_a_deploy():
     lam = _lambda(get_alias={"FunctionVersion": "6"})
     assert _backend(_clients(**{"lambda": lam})).deploys(_alert(**{"lambda": f"{P}checkout"})) == []
@@ -591,6 +611,15 @@ def test_code_and_source_lines_from_the_running_version():
     assert f"CODE {P}checkout app.py:41 in handler: KeyError: 'sku'" in lines
     assert f"SOURCE {P}checkout app.py:41 >|     sku = body['sku']" in lines
     assert ("get_function", {"FunctionName": f"{P}checkout", "Qualifier": "7"}) in lam.calls
+
+
+def test_no_more_than_max_code_frames_distinct_tracebacks_become_code_lines(monkeypatch):
+    """Plant check for aws_stack._code_lines: the cap on distinct frames holds."""
+    monkeypatch.setattr(aws_stack, "MAX_CODE_FRAMES", 1)
+    tb = "[ERROR] KeyError: 'sku'\rTraceback (most recent call last):\r  File \"/var/task/app.py\", line {}, in handler"
+    logs = _events({f"/aws/lambda/{P}checkout": [("s/[7]x", tb.format(41)), ("s/[7]y", tb.format(42))]})
+    lines = _backend(_clients(logs=logs)).logs(_alert(**{"lambda": f"{P}checkout"}))
+    assert [ln for ln in lines if ln.startswith("CODE ")] == [f"CODE {P}checkout app.py:41 in handler: KeyError: 'sku'"]
 
 
 def test_a_failed_code_download_keeps_the_frame_and_reports_the_gap():

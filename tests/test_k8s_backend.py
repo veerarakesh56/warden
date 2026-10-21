@@ -749,6 +749,14 @@ def test_a_healthy_pod_adds_no_status_line_and_no_previous_read():
     assert core.previous_calls == [], "a container that never restarted has no previous output to read"
 
 
+def test_a_restarted_container_running_again_still_says_how_it_last_died():
+    """Restarts alone earn a STATUS line: a container back up and running hides its last crash otherwise
+    (plant check for k8s_backend._container_status_line)."""
+    lines = _backend(_CoreWithPrevious(pods=[_pod(restarts=2, last_reason="Error")])).logs(_alert())
+    status = [ln for ln in lines if ln.startswith("STATUS ")]
+    assert status == ["STATUS checkout-abc/checkout: restarts 2; last exit: Error (code ?)"], status
+
+
 def test_the_crashed_containers_own_output_is_read():
     """`kubectl logs --previous`: the fatal line is in the container that died, not the one restarted."""
     core = _CoreWithPrevious(pods=[_pod(restarts=3, last_reason="Error")], previous_text="fatal: configuration invalid")

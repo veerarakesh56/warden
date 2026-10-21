@@ -329,7 +329,7 @@ class AwsBackend:
         partial: list[str] = []
         try:
             self._read_windows(base, windows, start_ms, events, partial)
-        except Exception as exc:  # noqa: BLE001  # a missing group is data and not a crash
+        except Exception as exc:  # noqa: BLE001 - a missing group is data; not a crash
             if not events:
                 return [f"{PARTIAL_PREFIX}logs: {group}: {failure(exc)}"]
             partial.append(f"{PARTIAL_PREFIX}logs: {group}: {failure(exc)}")

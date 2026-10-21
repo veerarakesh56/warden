@@ -1310,7 +1310,7 @@ class StackBackend:
         try:
             resp = self._cw.get_metric_data(MetricDataQueries=served_queries(fn, "live", cands),
                                             StartTime=before - SERVED_LOOKBACK, EndTime=before)
-        except Exception:  # noqa: BLE001  # no traffic data: the caller falls back and says so
+        except Exception:  # noqa: BLE001 - no traffic data: the caller falls back; and says so
             return ""
         return last_known_good(resp.get("MetricDataResults") or [], cands)
 
@@ -1672,7 +1672,7 @@ class StackBackend:
                 got = self._pi.get_resource_metrics(
                     ServiceType="RDS", Identifier=inst["DbiResourceId"], MetricQueries=queries, PeriodInSeconds=60,
                     StartTime=started - LOG_LOOKBACK, EndTime=started + LOG_LOOKBACK)
-            except Exception as exc:  # noqa: BLE001  # one member unread is data; the others still read
+            except Exception as exc:  # noqa: BLE001 - one member unread is data; the others still read
                 out.lines.append(_partial("aurora metrics", exc))
                 continue
             _member_load(out, name, got)
@@ -1688,7 +1688,7 @@ class StackBackend:
                 startTime=int((started - LOG_LOOKBACK).timestamp()), endTime=int((started + LOG_LOOKBACK).timestamp()),
             )["queryId"]
             got = self._insights_results(out, qid, tag)
-        except Exception as exc:  # noqa: BLE001  # the error counts are extra evidence; the logs above still stand
+        except Exception as exc:  # noqa: BLE001 - the error counts are extra evidence; the logs above still stand
             out.lines.append(_partial(f"{tag} metrics", exc))
             return
         if got is None:

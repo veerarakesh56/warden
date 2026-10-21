@@ -106,7 +106,7 @@ class EncryptionCodec(PayloadCodec, WithSerializationContext):
                 key_id = p.metadata.get("encryption-key-id", b"")
                 plain = Payload()
                 plain.ParseFromString(self._by_id[key_id].decrypt(p.data[:12], p.data[12:], self._aad(key_id)))
-            except Exception:  # noqa: BLE001  # wrong key; forged or changed bytes; another workflow
+            except Exception:  # noqa: BLE001 - wrong key; forged or changed bytes; another workflow
                 plain = Payload(metadata={"encoding": REFUSED})
             out.append(plain)
         return out

@@ -33,7 +33,7 @@ from temporalio.worker import Worker
 
 from . import approvals, audit
 from .activities import DiscussActivities, IncidentActivities, Plan, RemediationActivities
-from .runtime_base import (  # noqa: F401  # re-exported: runtime.connect and runtime.open_audit and the rest as before
+from .runtime_base import (  # noqa: F401 - re-exported: runtime.connect; runtime.open_audit; ... as before
     _path,
     approver_policy,
     audit_anchor,
@@ -169,7 +169,7 @@ async def heartbeat(client: Client, publish: Any, *, every: timedelta = HEARTBEA
     while True:
         try:
             problem = await beat(client, publish, task_queue)
-        except Exception as exc:  # noqa: BLE001  # a beat that cannot run is a missed beat and never a crashed worker
+        except Exception as exc:  # noqa: BLE001 - a beat that cannot run is a missed beat; never a crashed worker
             problem = f"the heartbeat could not run: {type(exc).__name__}"
         if problem and log:
             log(f"heartbeat missed: {problem}")

@@ -46,7 +46,7 @@ class XRayReader:
         out: list[str] = []
         try:
             xray = self._client(alert)
-        except Exception as exc:  # noqa: BLE001  # no client is a read that did not happen and never health
+        except Exception as exc:  # noqa: BLE001 - no client is a read that did not happen; never health
             return [f"{PARTIAL}xray: {type(exc).__name__} - not read"]
         for svc in [s for s in services(alert) if _NAME.match(s)]:
             out += _traces_of(xray, svc, start, end)
