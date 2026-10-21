@@ -44,7 +44,8 @@ def test_a_live_store_is_read_only_after_the_wait(monkeypatch):
         reads_live_store = True
 
     graph.node_gather({"alert": _fresh_alert(), "backend": _Live()})
-    assert slept and 0 < slept[0] <= LOG_INGEST_LAG.total_seconds()
+    assert slept
+    assert 0 < slept[0] <= LOG_INGEST_LAG.total_seconds()
     slept.clear()
     graph.node_gather({"alert": _fresh_alert(), "backend": FixtureBackend()})  # a recording has its lines already
     assert slept == []

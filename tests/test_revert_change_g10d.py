@@ -77,7 +77,8 @@ def test_a_revoked_egress_rule_is_authorized_again_exactly_and_only_on_that_grou
     f = Groups()
     p = _platform(f)
     live = p.live("ec2_revert_sg_change", PARAMS)
-    assert live["event"] == {"e-1"} and live["environment"] == "dev", live.get("refused")
+    assert live["event"] == {"e-1"}, live.get("refused")
+    assert live["environment"] == "dev", live.get("refused")
     plan = {**PARAMS, "event": "e-1"}
     assert catalog.validate("ec2_revert_sg_change", plan, live) == []
     p.apply("ec2_revert_sg_change", plan, snapshot=live["state"], who=WHO)
@@ -99,7 +100,8 @@ def test_health_is_the_rule_back_and_the_alarm_ok_and_the_rollback_revokes_it_ag
     f.alarm_state = "OK"
     assert p.healthy(SG, entry="ec2_revert_sg_change", params=plan)
     p.rollback("ec2_revert_sg_change", plan, snap, who=WHO)
-    assert f.sessions[-1]["actions"] == ["ec2:RevokeSecurityGroupEgress"] and f.sessions[-1]["resources"] == [SG_ARN]
+    assert f.sessions[-1]["actions"] == ["ec2:RevokeSecurityGroupEgress"]
+    assert f.sessions[-1]["resources"] == [SG_ARN]
     assert f.writes[-1][0] == "revoke_security_group_egress"
 
 
@@ -114,7 +116,8 @@ def test_an_added_ingress_rule_is_revoked_by_the_rule_it_created_only():
     live = p.live("ec2_revert_sg_change", PARAMS)
     assert live["event"] == {"e-1"}, live.get("refused")
     p.apply("ec2_revert_sg_change", {**PARAMS, "event": "e-1"}, snapshot=live["state"], who=WHO)
-    assert f.sessions[0]["actions"] == ["ec2:RevokeSecurityGroupIngress"] and f.sessions[0]["resources"] == [SG_ARN]
+    assert f.sessions[0]["actions"] == ["ec2:RevokeSecurityGroupIngress"]
+    assert f.sessions[0]["resources"] == [SG_ARN]
     assert f.writes[0][1]["IpPermissions"][0]["IpRanges"] == [{"CidrIp": "203.0.113.0/24"}]
 
 
@@ -144,13 +147,15 @@ def test_every_refusal_allows_no_event_and_says_why(change, why):
     f = Groups()
     change(f)
     live = _platform(f).live("ec2_revert_sg_change", PARAMS)
-    assert live["event"] == set() and why in live["refused"], live.get("refused")
+    assert live["event"] == set(), live.get("refused")
+    assert why in live["refused"], live.get("refused")
 
 
 def test_a_named_security_principals_change_is_never_reverted(monkeypatch):
     monkeypatch.setenv("WARDEN_NEVER_REVERT_PRINCIPALS", "security-response, ops")
     live = _platform(Groups()).live("ec2_revert_sg_change", PARAMS)
-    assert live["event"] == set() and "never reverts" in live["refused"]
+    assert live["event"] == set()
+    assert "never reverts" in live["refused"]
 
 
 def test_a_failed_attempt_and_another_groups_change_are_not_this_groups_writes():
@@ -184,10 +189,13 @@ def test_the_resolver_plans_the_one_change_the_platform_allows_and_says_why_when
     f = Groups()
     p = _platform(f)
     req, why = resolver.request_for(_alert(), _revert(SG), lambda e, params: p.live(e, params))
-    assert why == "" and req["entry"] == "ec2_revert_sg_change" and req["params"] == {**PARAMS, "event": "e-1"}
+    assert why == ""
+    assert req["entry"] == "ec2_revert_sg_change"
+    assert req["params"] == {**PARAMS, "event": "e-1"}
     f.alarm_state = "OK"
     req, why = resolver.request_for(_alert(), _revert(SG), lambda e, params: p.live(e, params))
-    assert req is None and "not in ALARM" in why
+    assert req is None
+    assert "not in ALARM" in why
 
 
 def test_a_disabled_rule_is_reverted_through_its_enable_entry_and_a_function_through_its_concurrency():

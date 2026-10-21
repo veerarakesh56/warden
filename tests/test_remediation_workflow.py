@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, Worker
 
@@ -137,7 +138,8 @@ async def _no_approval(handle):
 
 def test_an_approved_fix_is_applied_once_verified_and_fully_audited(world, owner):
     out = _run(world, _approve_with(owner))
-    assert out.status == "recovered" and out.checklist == dict.fromkeys(STEPS, True)
+    assert out.status == "recovered"
+    assert out.checklist == dict.fromkeys(STEPS, True)
     assert world["platform"].applied == [("k8s_rollout_undo", REQ["params"])]
     kinds = [e["kind"] for e in world["log"].entries("inc-42")]
     assert "remediation.check" in kinds  # every real health check is on the record (fourth review)
@@ -151,7 +153,8 @@ def test_an_approved_fix_is_applied_once_verified_and_fully_audited(world, owner
 
 def test_without_an_approval_nothing_happens_and_it_expires(world):
     out = _run(world, _no_approval)
-    assert out.status == "expired" and not out.checklist["approved"]
+    assert out.status == "expired"
+    assert not out.checklist["approved"]
     assert world["platform"].applied == []
 
 
@@ -174,14 +177,16 @@ def test_an_approval_of_a_different_plan_does_not_count(world, owner):
 
 def test_a_target_warden_did_not_read_is_refused_before_anything_else(world, owner):
     out = _run(world, _no_approval, params={**REQ["params"], "deployment": "payments; rm -rf /"})
-    assert out.status == "refused" and not out.checklist["planned"]
+    assert out.status == "refused"
+    assert not out.checklist["planned"]
     assert world["platform"].applied == []
 
 
 def test_the_kill_switch_blocks_it(world, owner):
     bounds.trip(world["log"], "inc-0", "manual stop")
     out = _run(world, _no_approval)
-    assert out.status == "blocked" and out.reasons == ["the kill switch is on: manual stop"]
+    assert out.status == "blocked"
+    assert out.reasons == ["the kill switch is on: manual stop"]
 
 
 def _ends(world):
@@ -192,11 +197,13 @@ def test_a_target_that_changed_after_approval_is_not_touched_and_the_plan_is_mad
     """Decision D7: never applied unseen - made again from what WARDEN reads now, and put to the approvers again."""
     world["platform"].drift_on_second_read = True
     out = _run(world, _approve_with(owner))
-    assert world["platform"].applied == [] and out.status == "expired"  # the new plan waited; nobody approved it
+    assert world["platform"].applied == []
+    assert out.status == "expired"  # the new plan waited; nobody approved it
     (first, why), (last, _) = _ends(world)
-    assert first == "drifted" and why == [
+    assert first == "drifted"
+    assert (why == [
         "the target changed after the plan was made; it needs a new plan",
-        "WARDEN makes the plan again from what it reads now and asks for an approval once more (1 of 2)"]
+        "WARDEN makes the plan again from what it reads now and asks for an approval once more (1 of 2)"])
     assert last == "expired"
 
 
@@ -218,10 +225,12 @@ def test_the_plan_made_again_is_applied_once_it_is_approved_in_its_turn(world, o
         await _approve_with(owner)(handle)
 
     out = _run(world, twice)
-    assert out.status == "recovered" and len(world["platform"].applied) == 1
+    assert out.status == "recovered"
+    assert len(world["platform"].applied) == 1
     assert [s for s, _ in _ends(world)] == ["drifted", "recovered"]
     plans = [e["body"]["plan_hash"] for e in world["log"].entries("inc-42", kinds=("remediation.plan",))]
-    assert len(plans) == 2 and plans[0] != plans[1]  # a new plan, with its own approval
+    assert len(plans) == 2
+    assert plans[0] != plans[1]  # a new plan, with its own approval
 
 
 def test_a_target_that_keeps_changing_is_planned_again_at_most_twice_then_goes_to_a_person(world, owner):
@@ -233,7 +242,8 @@ def test_a_target_that_keeps_changing_is_planned_again_at_most_twice_then_goes_t
     world2["platform"].drift_on_second_read = True
     world2["platform"].reads = 0
     out = _run(world2, _approve_with(owner), replans=REPLAN_MAX)
-    assert out.status == "drifted" and out.reasons == ["the target changed after the plan was made; it needs a new plan"]
+    assert out.status == "drifted"
+    assert out.reasons == ["the target changed after the plan was made; it needs a new plan"]
     with pytest.raises(ValueError):
         FixRequest(**{**REQ, "replans": REPLAN_MAX + 1})
 
@@ -241,7 +251,9 @@ def test_a_target_that_keeps_changing_is_planned_again_at_most_twice_then_goes_t
 def test_a_fix_that_does_not_recover_is_rolled_back(world, owner):
     world["platform"].healthy_after = None
     out = _run(world, _approve_with(owner))
-    assert out.status == "rolled_back" and out.checklist["applied"] and not out.checklist["verified"]
+    assert out.status == "rolled_back"
+    assert out.checklist["applied"]
+    assert not out.checklist["verified"]
     assert world["platform"].rolled_back == [{"revision": "7", "image": "orders:bad"}]
     assert world["log"].entries("inc-42", kinds=(bounds.RESULT,))[0]["body"]["ok"] is False
 
@@ -249,7 +261,8 @@ def test_a_fix_that_does_not_recover_is_rolled_back(world, owner):
 def test_a_failed_apply_is_not_retried_or_rolled_back_blindly(world, owner):
     world["platform"].apply_error = "API timeout"
     out = _run(world, _approve_with(owner))
-    assert out.status == "apply_failed" and not out.checklist["applied"]
+    assert out.status == "apply_failed"
+    assert not out.checklist["applied"]
     assert world["platform"].rolled_back == []
     intents = world["log"].entries("inc-42", kinds=("remediation.intent",))
     assert len(intents) == 1  # maximum_attempts=1: tried once
@@ -259,7 +272,8 @@ def test_a_failed_apply_is_not_retried_or_rolled_back_blindly(world, owner):
 def test_an_approver_limited_to_t1_cannot_approve_a_t2_fix(world, owner):
     world["policy"].approvers["owner"].tiers = ["T1"]
     out = _run(world, _approve_with(owner))
-    assert out.status == "expired" and "owner may not approve T2" in out.reasons
+    assert out.status == "expired"
+    assert "owner may not approve T2" in out.reasons
 
 
 def test_the_checklist_cannot_be_given_as_input():
@@ -294,9 +308,12 @@ def test_a_failed_rollback_still_ends_signed_and_trips_the_kill_switch(world, ow
     world["platform"].healthy_after = None
     world["platform"].rollback_error = "422 the count moved"
     out = _run(world, _approve_with(owner))
-    assert out.status == "rollback_failed" and out.checklist["applied"] and not out.checklist["verified"]
+    assert out.status == "rollback_failed"
+    assert out.checklist["applied"]
+    assert not out.checklist["verified"]
     kinds = [e["kind"] for e in world["log"].entries("inc-42")]
-    assert "remediation.rollback_failed" in kinds and kinds[-2:] == ["workflow.end", "remediation.announce"]
+    assert "remediation.rollback_failed" in kinds
+    assert kinds[-2:] == ["workflow.end", "remediation.announce"]
     assert bounds.killswitch(world["log"]) is not None
     assert audit.verify(world["db"], world["log"].key.public_key()).unsigned_tail == 0
 
@@ -305,7 +322,9 @@ def test_a_rollback_row_names_its_run_and_plan(world, owner):
     world["platform"].healthy_after = None
     _run(world, _approve_with(owner))
     row = world["log"].entries("inc-42", kinds=("remediation.rollback",))[0]["body"]
-    assert row["run_id"] and row["plan_hash"] and row["workflow_id"]
+    assert row["run_id"]
+    assert row["plan_hash"]
+    assert row["workflow_id"]
 
 
 def test_a_fix_with_nothing_to_undo_is_not_called_rolled_back(world, owner):
@@ -314,7 +333,9 @@ def test_a_fix_with_nothing_to_undo_is_not_called_rolled_back(world, owner):
     world["platform"].healthy_after = None
     world["platform"].nothing_to_undo = True
     out = _run(world, _approve_with(owner))
-    assert out.status == "not_recovered" and out.checklist["applied"] and not out.checklist["verified"]
+    assert out.status == "not_recovered"
+    assert out.checklist["applied"]
+    assert not out.checklist["verified"]
     assert any("nothing to roll back" in r for r in out.reasons), out.reasons
 
 
@@ -349,7 +370,8 @@ def test_health_is_asked_only_of_the_platform_that_made_the_change():
 
     k8s, db = Says(True), Says(False)
     routed = RoutedPlatform(k8s=k8s, db=db)
-    assert routed.healthy_for("k8s_scale", "orders") is True and db.asked == 0
+    assert routed.healthy_for("k8s_scale", "orders") is True
+    assert db.asked == 0
     assert routed.healthy_for("db_terminate_idle_in_tx", "orders") is False
     assert RoutedPlatform(db=db).healthy_for("k8s_scale", "orders") is False  # none connected: not healthy
 
@@ -364,7 +386,8 @@ def test_a_platform_that_refuses_before_writing_reports_nothing_changed(world, o
 
     world["platform"].apply = refuse
     out = _run(world, _approve_with(owner))
-    assert out.status == "refused_at_apply" and not out.checklist["applied"], out
+    assert out.status == "refused_at_apply", out
+    assert not out.checklist["applied"], out
     assert world["log"].entries("inc-42", kinds=("remediation.refused",))
 
 
@@ -380,7 +403,8 @@ def test_an_end_that_leaves_the_target_unknown_trips_the_kill_switch(world, stat
     assert bounds.killswitch(world["log"]) is None
     acts.finish("inc-42", "rem-x", FixOutcome(status=status, reasons=["Timeout"], checklist={}))
     tripped = bounds.killswitch(world["log"])
-    assert tripped is not None and status in str(tripped), tripped
+    assert tripped is not None, tripped
+    assert status in str(tripped), tripped
 
 
 def test_an_ordinary_end_leaves_the_kill_switch_alone(world):
@@ -408,7 +432,7 @@ def test_a_run_cancelled_after_apply_ends_on_the_record_and_trips_the_kill_switc
             await asyncio.sleep(0.05)
         await handle.cancel()
 
-    with pytest.raises(Exception):  # noqa: B017 - the run ends cancelled, as asked
+    with pytest.raises(WorkflowFailureError):  # the run ends cancelled, as asked
         _run(world, drive)
     ends = [e["body"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
     assert [e["status"] for e in ends] == ["cancelled_after_apply"], ends
@@ -471,7 +495,7 @@ def _cancel_once(world, owner, started, release):
         await asyncio.sleep(0.5)
         release.set()
 
-    with pytest.raises(Exception):  # noqa: B017 - the run ends cancelled, as asked
+    with pytest.raises(WorkflowFailureError):  # the run ends cancelled, as asked
         _run(world, drive)
     return [e["body"]["status"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
 
@@ -492,7 +516,7 @@ def test_a_cancel_before_apply_ends_on_the_record_without_a_trip(world):
         await _until_awaiting_approval(handle)
         await handle.cancel()
 
-    with pytest.raises(Exception):  # noqa: B017 - the run ends cancelled, as asked
+    with pytest.raises(WorkflowFailureError):  # the run ends cancelled, as asked
         _run(world, drive)
     statuses = [e["body"]["status"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
     assert statuses == ["cancelled"], statuses
@@ -509,8 +533,9 @@ def test_a_retried_finish_signs_an_end_row_its_first_try_left_unsigned(world, mo
     acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
     real = world["log"].checkpoint
     monkeypatch.setattr(world["log"], "checkpoint", lambda: (_ for _ in ()).throw(RuntimeError("worker died")))
+    recovered = FixOutcome(status="recovered", checklist={})
     with pytest.raises(RuntimeError, match="worker died"):
-        acts.finish("inc-42", "rem-a", FixOutcome(status="recovered", checklist={}))
+        acts.finish("inc-42", "rem-a", recovered)
     monkeypatch.setattr(world["log"], "checkpoint", real)
     acts.finish("inc-42", "rem-a", FixOutcome(status="recovered", checklist={}))
     assert len(world["log"].entries("inc-42", kinds=("workflow.end",))) == 1

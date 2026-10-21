@@ -69,7 +69,8 @@ def test_every_action_the_runtimes_own_roles_hold_fits_the_boundary():
     iam_tf = "\n".join((MODULE / f).read_text(encoding="utf-8") for f in ("iam.tf", "migrate.tf"))
     actions = {a for block in re.findall(r"Action\s*=\s*\[([^\]]*)\]", iam_tf) for a in re.findall(r'"([^"]+)"', block)}
     assert {"secretsmanager:GetSecretValue", "kms:Sign", "sts:AssumeRole", "rds-db:connect"} <= actions
-    assert not [a for a in actions if a.startswith("bedrock:")] and "bedrock:" not in json.dumps(boundary)  # no Bedrock
+    assert not [a for a in actions if a.startswith("bedrock:")]
+    assert "bedrock:" not in json.dumps(boundary)  # no Bedrock
     assert [a for a in sorted(actions) if not _matches(a, ceiling)] == []
     assert [a for a in sorted(actions) if _matches(a, flat)] == []
 
@@ -79,7 +80,8 @@ def test_the_worker_reaches_other_environments_only_through_their_reader_and_act
     assert _sid(boundary, "CeilingWatched")["Resource"] == [
         "arn:aws:iam::*:role/warden-*-platform-reader", "arn:aws:iam::*:role/warden-*-actor"]
     other = _sid(boundary, "DenyOtherEnvResources")
-    assert other["NotAction"] == "sts:*" and "Action" not in other  # every other service stays out
+    assert other["NotAction"] == "sts:*"
+    assert "Action" not in other  # every other service stays out
     assert other["Condition"]["StringNotEquals"] == {"aws:ResourceTag/Environment": RUNTIME}
     for kind, zones in (("actor-trust", ("act",)), ("platform-reader-trust", ("read", "notify", "act"))):
         principals = {p for st in json.loads((ROOT / "iam" / "templates" / f"{kind}.json").read_text(encoding="utf-8"))
@@ -136,5 +138,6 @@ def test_an_address_comes_off_its_aws_managed_interface_and_nothing_more():
     """A NAT gateway's network interface is AWS-managed and untagged, so the tag-conditioned DisassociateAddress was
     refused and pausing the runtime stopped half-way (2026-10-10). The interface side is allowed for that action only."""
     st = _sid(_load("deploy-ec2"), "AnAddressOffItsAwsManagedInterface")
-    assert st["Action"] == "ec2:DisassociateAddress" and "Condition" not in st
+    assert st["Action"] == "ec2:DisassociateAddress"
+    assert "Condition" not in st
     assert st["Resource"] == f"arn:aws:ec2:{r.names(RUNTIME).region}:*:network-interface/*"
