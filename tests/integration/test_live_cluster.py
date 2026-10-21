@@ -40,10 +40,7 @@ from warden.tools import PARTIAL_PREFIX, gather
 
 @pytest.fixture(scope="module")
 def backend():
-    try:
-        return KubernetesBackend()
-    except Exception as exc:  # noqa: BLE001
-        pytest.fail(f"WARDEN_K8S_INTEGRATION=1 but no cluster is reachable: {exc}")
+    return KubernetesBackend()  # WARDEN_K8S_INTEGRATION=1 and no reachable cluster: the error fails every test
 
 
 @pytest.fixture(scope="module")

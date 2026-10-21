@@ -68,8 +68,9 @@ def test_a_plan_carried_to_another_target_is_refused_at_apply():
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
     assert _approve(acts, owner, plan, "rem-1").enough
     acts.precheck(plan)
+    carried = plan.model_copy(update={"target": "dev/k8s:quiet/elsewhere"})
     with pytest.raises(ApplicationError, match="no such plan"):
-        acts.apply(plan.model_copy(update={"target": "dev/k8s:quiet/elsewhere"}), REQ["service"])
+        acts.apply(carried, REQ["service"])
     assert platform.applied == []
 
 

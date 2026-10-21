@@ -92,9 +92,10 @@ def test_a_permission_error_is_never_retried_into_looking_like_success():
         raise Throttled(code="AccessDeniedException")
 
     ecs.deregister_task_definition = denied
+    logs = FakeLogs(groups=())
     with pytest.raises(Throttled):
-        ts.apply(ecs, FakeLogs(groups=()), {"deregister": [BASE + "checkout:1"], "delete": [],
-                                            "log_groups": []}, sleep=lambda _s: None)
+        ts.apply(ecs, logs, {"deregister": [BASE + "checkout:1"], "delete": [], "log_groups": []},
+                 sleep=lambda _s: None)
 
 
 class FakeLogs:

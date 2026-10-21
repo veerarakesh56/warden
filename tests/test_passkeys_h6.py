@@ -135,11 +135,10 @@ def test_each_impersonation_is_refused_for_its_own_reason(attack, reason):
 def test_enrolment_needs_the_right_origin_and_user_verification():
     device = SoftAuthenticator()
     options, challenge = passkeys.registration_options(rp_id=RP, rp_name="WARDEN", approver="owner")
+    wrong_origin = device.register(options, origin="https://evil.example.test")
     with pytest.raises(passkeys.InvalidRegistrationResponse):
-        passkeys.finish_registration(device.register(options, origin="https://evil.example.test"), approver="owner",
-                                     challenge=challenge, rp_id=RP, origin=ORIGIN)
-    lazy = SoftAuthenticator(uv=False)
+        passkeys.finish_registration(wrong_origin, approver="owner", challenge=challenge, rp_id=RP, origin=ORIGIN)
+    unverified = SoftAuthenticator(uv=False).register(options)
     with pytest.raises(passkeys.InvalidRegistrationResponse):
-        passkeys.finish_registration(lazy.register(options), approver="owner", challenge=challenge, rp_id=RP,
-                                     origin=ORIGIN)
+        passkeys.finish_registration(unverified, approver="owner", challenge=challenge, rp_id=RP, origin=ORIGIN)
     assert _enrol(SoftAuthenticator(synced=True)).device_bound is False

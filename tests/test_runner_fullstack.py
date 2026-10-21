@@ -180,15 +180,17 @@ def test_the_saved_prior_state_survives_between_processes(tmp_path):
 
 def test_inject_is_refused_on_a_dirty_stack(tmp_path):
     events: list[str] = []
+    env = fake_env(events, baseline=["checkout reserved concurrency is 0"])
     with pytest.raises(cli.StepError, match="not at baseline"):
-        cli.step_inject(fake_env(events, baseline=["checkout reserved concurrency is 0"]), tmp_path, "fs-03")
+        cli.step_inject(env, tmp_path, "fs-03")
     assert "inject" not in events
 
 
 def test_an_alarm_already_firing_blocks_the_next_inject(tmp_path):
     events: list[str] = []
+    env = fake_env(events, firing_before=True)
     with pytest.raises(cli.StepError, match="alarm"):
-        cli.step_inject(fake_env(events, firing_before=True), tmp_path, "fs-03")
+        cli.step_inject(env, tmp_path, "fs-03")
     assert "inject" not in events
 
 
@@ -217,9 +219,9 @@ def test_a_fault_is_measured_once(tmp_path):
 
 def test_a_failed_inject_is_reverted_at_once(tmp_path):
     events: list[str] = []
+    env = fake_env(events, alarm_state="OK", inject_raises=RuntimeError("boom"))
     with pytest.raises(cli.StepError, match="inject failed"):
-        cli.step_inject(fake_env(events, alarm_state="OK", inject_raises=RuntimeError("boom")),
-                        tmp_path, "fs-05")
+        cli.step_inject(env, tmp_path, "fs-05")
     assert "revert" in events
     assert _record(tmp_path, "fs-05")["revert_ok"] is True
 
@@ -372,8 +374,9 @@ def test_the_harness_does_not_import_the_tool_under_test():
 
 def test_no_fault_is_injected_before_a_soak(tmp_path):
     fresh = tmp_path / "never-soaked"
+    env = fake_env([], alarm_state="OK")
     with pytest.raises(cli.StepError, match="run `soak` first"):
-        cli.step_inject(fake_env([], alarm_state="OK"), fresh, "fs-03", wait_alarm=False)
+        cli.step_inject(env, fresh, "fs-03", wait_alarm=False)
 
 
 def test_soak_needs_health_and_the_minimum_time(tmp_path):
@@ -501,8 +504,10 @@ def test_preflight_plans_by_default_and_applies_every_fault_on_request(tmp_path,
     out = capsys.readouterr().out
     assert out.count("OK   fs-") == len(fs.FAULTS) - 1
     # An interrupted preflight is finished by its own --revert (fullstack_cli's revert refuses it).
+    revert_all = ["--revert", "--run", str(tmp_path)]
+    env = cli.dry_env()
     with pytest.raises(SystemExit, match="--revert needs --only"):
-        mod.main(["--revert", "--run", str(tmp_path)], env=cli.dry_env())
+        mod.main(revert_all, env=env)
     assert mod.main(["--revert", "--only", "fs-12", "--run", str(tmp_path)], env=cli.dry_env()) == 0
     assert "revert fs-12" in capsys.readouterr().out
 
@@ -676,8 +681,9 @@ def test_a_fault_needs_a_full_soak_and_a_destroy_a_full_watch_after_the_last_act
     env = cli.dry_env()
     run = tmp_path
     assert cli.step_soak(env, run, min_s=60, every_s=60) is True
+    first_fault = next(iter(cli._catalog()))
     with pytest.raises(cli.StepError, match="the recorded soak was 1 min"):
-        cli.step_inject(env, run, next(iter(cli._catalog())))
+        cli.step_inject(env, run, first_fault)
     with pytest.raises(cli.StepError, match="at least 30 minutes"):
         cli.step_watch(env, run, minutes=5)
     assert any("no finished watch" in p for p in cli.destroy_problems(run))

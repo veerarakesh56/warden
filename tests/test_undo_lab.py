@@ -231,8 +231,9 @@ def test_a_fault_is_one_change_on_a_lab_at_its_baseline_and_its_restore_writes_t
     f = Lab()
     undo_lab.inject(fault, ENV, f)
     assert f.calls == [WRITES[fault][0]]
+    second = min(set(undo_lab.FAULTS) - {fault})
     with pytest.raises(undo_lab.NotAtBaseline):  # a second fault on top of the first would not be ONE change
-        undo_lab.inject(min(set(undo_lab.FAULTS) - {fault}), ENV, f)
+        undo_lab.inject(second, ENV, f)
     with pytest.raises(undo_lab.NotAtBaseline):
         undo_lab.inject(fault, ENV, f)
     assert f.calls == [WRITES[fault][0]]

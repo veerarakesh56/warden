@@ -143,35 +143,41 @@ def test_the_ceiling_holds_in_python_even_if_the_server_returns_more():
 ])
 def test_a_plan_outside_the_bounds_or_for_another_database_is_refused_before_any_close(change, match):
     conn = _Conn()
+    platform = _platform(conn=conn)
     with pytest.raises(DatabasePlatformError, match=match):
-        _platform(conn=conn).apply("db_terminate_idle_in_tx", {**PARAMS, **change})
+        platform.apply("db_terminate_idle_in_tx", {**PARAMS, **change})
     assert conn.killed == []
 
 
 def test_no_app_logins_named_closes_nothing():
     conn = _Conn()
+    platform = _platform(conn=conn, users=[" ", ""])
     with pytest.raises(DatabasePlatformError, match="no application logins"):
-        _platform(conn=conn, users=[" ", ""]).apply("db_terminate_idle_in_tx", PARAMS)
+        platform.apply("db_terminate_idle_in_tx", PARAMS)
     assert conn.killed == []
 
 
 @pytest.mark.parametrize("engine", ["redis", "mongo", "sqlite"])
 def test_engines_without_an_idle_in_transaction_state_are_refused(engine):
+    conn = _Conn()
     with pytest.raises(DatabasePlatformError, match="no terminate support"):
-        DatabasePlatform(engine=engine, conn=_Conn(), app_users=APP)
+        DatabasePlatform(engine=engine, conn=conn, app_users=APP)
 
 
 def test_other_entries_and_faults_are_errors():
+    platform = _platform()
     with pytest.raises(DatabasePlatformError, match="not something the database platform does"):
-        _platform().apply("aurora_failover", {"cluster": "orders", "target_instance": "b"})
+        platform.apply("aurora_failover", {"cluster": "orders", "target_instance": "b"})
+    failing = _platform(conn=_Conn(fail=True))
     with pytest.raises(DatabasePlatformError):
-        _platform(conn=_Conn(fail=True)).apply("db_terminate_idle_in_tx", PARAMS)
+        failing.apply("db_terminate_idle_in_tx", PARAMS)
 
 
 def test_ids_are_ints_before_they_reach_kill():
     conn = _Conn(stuck=["7; DROP TABLE orders"])
+    platform = _platform("mysql", conn)
     with pytest.raises(DatabasePlatformError, match="invalid literal for int"):
-        _platform("mysql", conn).apply("db_terminate_idle_in_tx", PARAMS)
+        platform.apply("db_terminate_idle_in_tx", PARAMS)
     assert not any(sql.startswith("KILL") for sql, _ in conn.sql)
 
 
@@ -208,8 +214,9 @@ def test_its_own_login_is_never_an_application_login(engine):
     """Sixth review (2026-10-01): WARDEN_DB_APP_USERS could name the terminate role's own login, so it closed other
     WARDEN sessions. Refused before anything is listed or closed."""
     conn = _Conn(me="orders_app")
+    platform = _platform(engine, conn, users=["orders_app"])
     with pytest.raises(DatabasePlatformError, match="own login"):
-        _platform(engine, conn, users=["orders_app"]).apply("db_terminate_idle_in_tx", PARAMS)
+        platform.apply("db_terminate_idle_in_tx", PARAMS)
     assert conn.killed == []
     assert (not any("innodb_trx" in s or "pg_stat_activity" in s or "dm_exec_sessions" in s
                     for s, _ in conn.sql))
@@ -293,8 +300,9 @@ def test_its_own_login_in_another_letter_case_is_refused_too(engine, named):
     """Seventh review (2026-10-01): MySQL's processlist.user and SQL Server's login_name match without case, so an
     allowlist naming the platform's own login in capitals had it close its own sessions."""
     conn = _Conn(me="orders_app")
+    platform = _platform(engine, conn, users=[named])
     with pytest.raises(DatabasePlatformError, match="own login"):
-        _platform(engine, conn, users=[named]).apply("db_terminate_idle_in_tx", PARAMS)
+        platform.apply("db_terminate_idle_in_tx", PARAMS)
     assert conn.killed == []
 
 
@@ -341,8 +349,9 @@ def test_the_plan_names_the_server_the_driver_really_reaches(monkeypatch, engine
 def test_its_own_login_reported_in_capitals_is_refused_too(engine):
     """Eighth review: the fold was tested only with a lowercase own login - folding the allowlist alone passed."""
     conn = _Conn(me="ORDERS_APP")
+    platform = _platform(engine, conn, users=["orders_app"])
     with pytest.raises(DatabasePlatformError, match="own login"):
-        _platform(engine, conn, users=["orders_app"]).apply("db_terminate_idle_in_tx", PARAMS)
+        platform.apply("db_terminate_idle_in_tx", PARAMS)
     assert conn.killed == []
 
 
@@ -426,9 +435,10 @@ def test_a_blocker_close_refuses_what_the_plan_did_not_show(params, snapshot, ne
     with pytest.raises(DatabasePlatformError, match=needle):
         platform.apply("db_terminate_blocker", params, snapshot)
     assert conn.killed == []
+    mysql = _platform("mysql", _blocking())
     with pytest.raises(DatabasePlatformError, match="PostgreSQL only"):
-        _platform("mysql", _blocking()).apply("db_terminate_blocker", {"database": "orders", "pid": "4242"},
-                                              {"blocker": {"pid": "4242", "backend_start": STARTED}})
+        mysql.apply("db_terminate_blocker", {"database": "orders", "pid": "4242"},
+                    {"blocker": {"pid": "4242", "backend_start": STARTED}})
 
 
 def test_a_database_with_a_blocker_is_not_healthy():

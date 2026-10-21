@@ -12,6 +12,8 @@ import pathlib
 import re
 import sys
 
+import pytest
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
@@ -58,10 +60,8 @@ def test_what_the_harness_creates_carries_what_terraform_puts_on_its_own():
 
 
 def test_nothing_is_created_without_the_stacks_tags():
-    import pytest as _pytest
-
     bare = ops.Target(region="r", cluster="c", service="s", log_group="g", baseline_task_definition="t")
-    with _pytest.raises(ops.OpError):
+    with pytest.raises(ops.OpError):
         ops.create_tags(bare)
 
 

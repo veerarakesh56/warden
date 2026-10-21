@@ -61,7 +61,7 @@ def test_the_password_never_reaches_the_manifest():
     assert described["target_kind"] == "db"
 
 
-def test_the_dsn_is_never_put_on_the_command_line():
+def test_the_dsn_is_never_put_on_the_command_line(monkeypatch):
     """An argv is readable by every other process on the box, and lands in crash dumps."""
     captured: dict[str, list[str]] = {}
 
@@ -70,12 +70,10 @@ def test_the_dsn_is_never_put_on_the_command_line():
         raise AssertionError("stop here - the command line is all this test needs")
 
     invoke = _subprocess_warden_db(_target(), timeout_s=5)
+    report = pathlib.Path("report.json")
+    monkeypatch.setattr(subprocess, "run", fake_run)  # undone by monkeypatch when the test ends
     with pytest.raises(AssertionError):
-        real, subprocess.run = subprocess.run, fake_run
-        try:
-            invoke({"WARDEN_DB_DSN": DSN}, pathlib.Path("report.json"))
-        finally:
-            subprocess.run = real
+        invoke({"WARDEN_DB_DSN": DSN}, report)
 
     assert PASSWORD not in " ".join(captured["cmd"])
     assert DSN not in " ".join(captured["cmd"])

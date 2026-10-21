@@ -128,16 +128,17 @@ def test_a_scale_is_bounded_and_conditioned_on_the_count_just_read():
 @pytest.mark.parametrize("replicas", [2, 1, 5, 0, True, "3"])
 def test_a_scale_outside_the_bound_is_refused_before_any_write(replicas):
     apps = _Apps(replicas=2)
+    platform = _platform(apps)
     with pytest.raises(KubernetesPlatformError, match="outside the bound"):
-        _platform(apps).apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": replicas})
+        platform.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": replicas})
     assert apps.patches == []
 
 
 def test_the_ceiling_holds_even_within_two_more():
     apps = _Apps(replicas=9)
+    platform = _platform(apps, max_replicas=10)
     with pytest.raises(KubernetesPlatformError, match="outside the bound"):
-        _platform(apps, max_replicas=10).apply("k8s_scale", {"namespace": NS, "deployment": "orders",
-                                                            "replicas": 11})
+        platform.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 11})
 
 
 def test_a_count_that_moved_is_refused_and_nothing_changes():
@@ -145,8 +146,9 @@ def test_a_count_that_moved_is_refused_and_nothing_changes():
     nobody approved."""
     apps = _Apps(replicas=2)
     apps.moved_to = 3
+    platform = _platform(apps)
     with pytest.raises(KubernetesPlatformError, match="something else scaled it; nothing was changed"):
-        _platform(apps).apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 4})
+        platform.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 4})
     assert apps.replicas["orders"] == 3
 
 
@@ -161,18 +163,21 @@ def test_a_restart_sets_the_rollout_annotation():
 
 @pytest.mark.parametrize("entry", ["k8s_rollout_undo", "db_terminate_idle_in_tx", "delete_deployment"])
 def test_every_other_entry_is_refused(entry):
+    platform = _platform(_Apps())
     with pytest.raises(KubernetesPlatformError, match="not something the Kubernetes platform does"):
-        _platform(_Apps()).apply(entry, {"namespace": NS, "deployment": "orders"})
+        platform.apply(entry, {"namespace": NS, "deployment": "orders"})
 
 
 def test_another_namespace_is_refused():
+    platform = _platform(_Apps())
     with pytest.raises(KubernetesPlatformError, match="not the one this platform serves"):
-        _platform(_Apps()).apply("k8s_restart", {"namespace": "kube-system", "deployment": "orders"})
+        platform.apply("k8s_restart", {"namespace": "kube-system", "deployment": "orders"})
 
 
 def test_an_api_fault_is_an_error_not_a_silent_success():
+    platform = _platform(_Apps(fail=True))
     with pytest.raises(KubernetesPlatformError, match="failed"):
-        _platform(_Apps(fail=True)).apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
+        platform.apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
 
 
 def test_rollback_returns_the_scale_to_the_planned_snapshot_and_a_restart_needs_none():
@@ -411,8 +416,9 @@ def test_a_write_that_never_reached_the_api_server_changed_nothing():
         def patch_namespaced_deployment(self, name, ns, body, **kw):
             raise urllib3.exceptions.ProtocolError("Connection aborted.", ConnectionResetError())
 
+    platform = _platform(_Reset(replicas=2))
     with pytest.raises(KubernetesPlatformError) as unknown:  # sent, then lost: nobody knows - not "refused"
-        _platform(_Reset(replicas=2)).apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
+        platform.apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
     assert not isinstance(unknown.value, KubernetesPlatformRefused)
 
 
@@ -423,16 +429,19 @@ def test_an_undo_refused_because_the_deployment_moved_is_wardens_own_check_and_a
     params = {"namespace": NS, "deployment": "orders", "replicas": 4}
     apps = _Apps(replicas=4)
     apps.marks["orders"] = {"warden.io/scaled-from": "3"}  # not the count the fix was planned from
+    platform = _platform(apps)
     with pytest.raises(KubernetesPlatformRefused) as mark:
-        _platform(apps).rollback("k8s_scale", params, {"replicas": 2})
+        platform.rollback("k8s_scale", params, {"replicas": 2})
     assert mark.value.own_check is True
     assert mark.value.nothing_changed is True
     apps = _Apps(replicas=4)
     apps.marks["orders"] = {"warden.io/scaled-from": "2"}
     apps.moved_to = 5  # someone scaled it after the fix
+    platform = _platform(apps)
     with pytest.raises(KubernetesPlatformRefused, match="something else scaled it") as moved:
-        _platform(apps).rollback("k8s_scale", params, {"replicas": 2})
+        platform.rollback("k8s_scale", params, {"replicas": 2})
     assert moved.value.own_check is True
+    unreadable = _platform(_Apps(replicas=4, fail=True))
     with pytest.raises(KubernetesPlatformRefused, match="could not read") as unread:
-        _platform(_Apps(replicas=4, fail=True)).rollback("k8s_scale", params, {"replicas": 2})
+        unreadable.rollback("k8s_scale", params, {"replicas": 2})
     assert getattr(unread.value, "own_check", False) is False

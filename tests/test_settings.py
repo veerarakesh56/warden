@@ -234,8 +234,10 @@ def test_the_secrets_are_fetched_at_the_same_time_and_a_failure_of_any_still_rai
     assert sorted(slow.asked) == sorted(settings.secret_id("dev", n) for n in only)  # each asked once, its own call
     for name in only:
         os.environ.pop(name, None)
+    ssm = _FakeSSM({})
+    refusing = Slow(held, refuse=settings.secret_id("dev", "WARDEN_TEAMS_WEBHOOK"))
     with pytest.raises(ClientError):  # a refusal is not "not there": it raises, as before
-        settings.load("dev", only=only, ssm=_FakeSSM({}), secrets=Slow(held, refuse=settings.secret_id("dev", "WARDEN_TEAMS_WEBHOOK")))
+        settings.load("dev", only=only, ssm=ssm, secrets=refusing)
 
 
 def test_the_never_revert_list_reaches_the_cloud_runtime_from_parameter_store(monkeypatch):

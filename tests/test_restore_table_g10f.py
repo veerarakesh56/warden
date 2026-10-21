@@ -135,9 +135,9 @@ def test_a_capacity_that_moved_after_the_plan_is_never_written_over():
     for bad in ("100", "0/400", "100/x", "-1/400", "100/400/1"):
         g = Tables()
         q = _p(g)
+        snapshot = q.live("dynamodb_restore_capacity", TP)["state"]
         with pytest.raises(AwsPlatformRefused):
-            q.apply("dynamodb_restore_capacity", {**PLAN, "throughput": bad},
-                    snapshot=q.live("dynamodb_restore_capacity", TP)["state"], who=WHO)
+            q.apply("dynamodb_restore_capacity", {**PLAN, "throughput": bad}, snapshot=snapshot, who=WHO)
         assert g.writes == []
     assert f.writes == []
 

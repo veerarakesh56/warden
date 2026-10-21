@@ -50,7 +50,7 @@ def test_only_a_whole_run_of_the_suite_is_judged():
     assert not conftest._full_run(_config(["tests/test_a.py"], base=tests.parent))
 
 
-def test_a_rebound_test_is_not_genuine(pytester=None):
+def test_a_rebound_test_is_not_genuine():
     """`globals()["test_x"] = lambda: None` is collected under the name, but it is not the function the file
     defines - and the guard must see that."""
     import inspect

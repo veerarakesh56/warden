@@ -56,8 +56,9 @@ def test_every_read_of_an_incident_runs_in_its_environments_reader_role():
 
 def test_an_unknown_environment_is_a_failed_read_never_a_read_as_the_worker():
     b, made = _worker_backend()
+    nowhere = _alert("nowhere")
     with pytest.raises(ToolError, match="not a configured environment"):
-        b.logs(_alert("nowhere"))
+        b.logs(nowhere)
     assert made == []
 
 

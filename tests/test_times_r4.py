@@ -32,8 +32,9 @@ def test_the_zone_is_the_installs_and_its_daylight_saving_is_its_own(monkeypatch
     monkeypatch.setenv("WARDEN_DISPLAY_ZONE", "UTC")
     assert both_times(datetime(2026, 10, 3, 1, 0, tzinfo=UTC)) == "2026-10-03 01:00:00Z"
     monkeypatch.setenv("WARDEN_DISPLAY_ZONE", "Mars/Olympus")
+    when = datetime(2026, 10, 3, tzinfo=UTC)
     with pytest.raises(environments.EnvironmentPolicyError):
-        both_times(datetime(2026, 10, 3, tzinfo=UTC))
+        both_times(when)
 
 
 def test_the_report_and_so_slack_show_both():

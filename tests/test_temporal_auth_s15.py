@@ -42,8 +42,9 @@ def test_temporal_cloud_is_reached_with_the_api_key_over_tls(seen, monkeypatch):
 @pytest.mark.parametrize("address", ["ns.acct.tmprl.cloud:7233", "10.0.3.7:7233", "temporal.internal:7233"])
 def test_a_remote_server_without_a_key_is_refused_before_any_connection(seen, monkeypatch, address):
     monkeypatch.setenv("WARDEN_TEMPORAL_ADDRESS", address)
+    connecting = runtime.connect(key=KEY)  # a coroutine: nothing runs until asyncio.run awaits it
     with pytest.raises(RuntimeError, match="unauthenticated"):
-        asyncio.run(runtime.connect(key=KEY))
+        asyncio.run(connecting)
     assert seen == []
 
 

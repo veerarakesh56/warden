@@ -71,24 +71,28 @@ def test_the_member_is_whoever_slack_says_and_every_other_answer_is_refused():
     assert form["grant_type"] == "authorization_code"
     for wrong, needle in (({"iss": "https://evil.test"}, "not issued by Slack"), ({"aud": "another-app"}, "not issued"),
                           ({"exp": 1}, "expired"), ({slack_login.USER_CLAIM: "", "sub": ""}, "named no member")):
+        wrong_token = _login(Slack(**wrong))
         with pytest.raises(slack_login.SlackLoginError, match=needle):
-            _login(Slack(**wrong)).member("c", redirect_uri="r", nonce="n")
+            wrong_token.member("c", redirect_uri="r", nonce="n")
     with pytest.raises(slack_login.SlackLoginError, match="does not belong to this page"):
         login.member("c", redirect_uri="r", nonce="another-pages-nonce")
     for answer in ({"ok": False, "error": "invalid_code"}, {"ok": True}, "not json", {"ok": True, "id_token": "x"}):
+        bad_answer = _login(lambda url, form, a=answer: a)
         with pytest.raises(slack_login.SlackLoginError):
-            _login(lambda url, form, a=answer: a).member("c", redirect_uri="r", nonce="n")
+            bad_answer.member("c", redirect_uri="r", nonce="n")
 
     def down(url, form):
         raise TimeoutError("no route to Slack")
+    unreachable = _login(down)
     with pytest.raises(slack_login.SlackLoginError, match="could not be reached"):
-        _login(down).member("c", redirect_uri="r", nonce="n")
+        unreachable.member("c", redirect_uri="r", nonce="n")
 
 
 def test_the_authorize_address_is_slacks_with_state_and_nonce_and_the_feature_is_off_without_both_settings(monkeypatch):
     url = urllib.parse.urlparse(_login().authorize_url(redirect_uri="https://x.test/s/callback", state="st", nonce="no"))
     asked = urllib.parse.parse_qs(url.query)
-    assert f"{url.scheme}://{url.netloc}{url.path}" == slack_login.AUTHORIZE_ENDPOINT
+    sent_to = f"{url.scheme}://{url.netloc}{url.path}"
+    assert sent_to == slack_login.AUTHORIZE_ENDPOINT
     assert asked == {"response_type": ["code"], "scope": ["openid profile"], "client_id": [CLIENT], "state": ["st"],
                      "nonce": ["no"], "redirect_uri": ["https://x.test/s/callback"]}
     for name in ("WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET"):

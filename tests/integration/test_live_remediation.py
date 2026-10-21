@@ -46,10 +46,7 @@ def _admin():
 
 @pytest.fixture(scope="module")
 def apps():
-    try:
-        return _admin()
-    except Exception as exc:  # noqa: BLE001
-        pytest.fail(f"WARDEN_K8S_INTEGRATION=1 but no cluster is reachable: {exc}")
+    return _admin()  # WARDEN_K8S_INTEGRATION=1 and no reachable cluster: the error fails every test that needs it
 
 
 @pytest.fixture(scope="module")
@@ -126,8 +123,9 @@ def test_a_restart_stamps_the_rollout_annotation(apps, target):
 def test_a_rollout_undo_is_refused_against_a_real_cluster_too(apps, target):
     p = KubernetesPlatform(apps=apps, namespace=NS)
     assert p.live("k8s_rollout_undo", _params()) == {}
+    undo = _params(to_revision="1")
     with pytest.raises(KubernetesPlatformError):
-        p.apply("k8s_rollout_undo", _params(to_revision="1"))
+        p.apply("k8s_rollout_undo", undo)
 
 
 def test_the_platform_works_as_the_least_privilege_service_account(apps, target):
@@ -168,12 +166,13 @@ def test_the_admission_policy_refuses_a_pod_spec_change_by_the_remediator(apps, 
 
     before = apps.read_namespaced_deployment(NAME, NS).spec.template.spec.containers[0].image
     patch = {"spec": {"template": {"spec": {"containers": [{"name": "pause", "image": "busybox:1.36"}]}}}}
+    remediator = _as_remediator()
     with pytest.raises(ApiException) as refused:
-        _as_remediator().patch_namespaced_deployment(NAME, NS, patch)
+        remediator.patch_namespaced_deployment(NAME, NS, patch)
     assert refused.value.status in (403, 422), refused.value
     assert apps.read_namespaced_deployment(NAME, NS).spec.template.spec.containers[0].image == before
     with pytest.raises(ApiException):
-        _as_remediator().patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 9}})
+        remediator.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 9}})
 
 
 def test_the_remediator_can_still_restart_through_the_policy(apps, target):
@@ -225,8 +224,9 @@ def test_the_admission_policy_holds_the_deployments_metadata_and_rollout_fields(
     from kubernetes.client.exceptions import ApiException
 
     before = apps.read_namespaced_deployment(NAME, NS).to_dict()
+    remediator = _as_remediator()
     with pytest.raises(ApiException) as refused:
-        _as_remediator().patch_namespaced_deployment(NAME, NS, patch)
+        remediator.patch_namespaced_deployment(NAME, NS, patch)
     assert refused.value.status in (403, 422), refused.value
     after = apps.read_namespaced_deployment(NAME, NS).to_dict()
     assert after["metadata"]["owner_references"] == before["metadata"]["owner_references"]
@@ -241,8 +241,9 @@ def test_the_admission_policy_caps_the_replica_count(apps, target):
     try:
         for before, n in ((1, 3), (3, 5), (5, 7), (7, 9)):  # each step up records where it came from (R7-O3)
             remediator.patch_namespaced_deployment(NAME, NS, _step(n, str(before)))
+        past_the_ceiling = _step(11, "9")
         with pytest.raises(ApiException):
-            remediator.patch_namespaced_deployment(NAME, NS, _step(11, "9"))
+            remediator.patch_namespaced_deployment(NAME, NS, past_the_ceiling)
         assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == 9
     finally:
         _reset(apps)
@@ -310,8 +311,9 @@ def test_the_policy_refuses_removing_a_template_annotation_or_pausing(apps, targ
     apps.patch_namespaced_deployment(NAME, NS, {"spec": {"template": {"metadata": {"annotations": {
         "example.com/kept": "yes"}}}}})
     before = apps.read_namespaced_deployment(NAME, NS).to_dict()["spec"]
+    remediator = _as_remediator()
     with pytest.raises(ApiException) as refused:
-        _as_remediator().patch_namespaced_deployment(NAME, NS, patch)
+        remediator.patch_namespaced_deployment(NAME, NS, patch)
     assert refused.value.status in (403, 422), refused.value
     assert apps.read_namespaced_deployment(NAME, NS).to_dict()["spec"] == before
 
@@ -322,8 +324,9 @@ def test_the_policy_refuses_a_big_step_down(apps, target):
 
     try:
         apps.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 5}})
+        remediator = _as_remediator()
         with pytest.raises(ApiException):
-            _as_remediator().patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 1}})
+            remediator.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 1}})
         assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == 5
     finally:
         apps.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 1}})
