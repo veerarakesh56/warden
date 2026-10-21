@@ -11,10 +11,12 @@ requests on GitHub and reads, with GET requests only:
 
 All of it is text a pull request's author, or a bot reading their code, wrote: UNTRUSTED. None of it is passed on as
 written. Each finding becomes one typed line - tool, rule id, severity, file, line, status, category, each value from
-a closed set or a checked shape - and a finding whose fields fail their shape, or a CodeRabbit comment whose own prose
-uses instruction-like or action words, is held back and only counted. SonarCloud's and code scanning's text is a rule
-catalogue's fixed wording ("code execution", "privilege escalation") around names from the code: it is never read for
-steering words, which would hold back the most serious findings, and it is dropped like every finding's text. The typed lines are evidence kind R (evidence.py): the model is shown
+a closed set or a checked shape - and a finding whose rule id or file path fails its shape, or a CodeRabbit comment
+whose own prose uses instruction-like or action words, is held back and only counted; a severity, category or line
+outside its closed set or range becomes `unknown`, `comment` or no line. SonarCloud's and code scanning's text is a
+rule catalogue's fixed wording ("code execution", "privilege escalation") around names from the code: it is never
+read for steering words, which would hold back the most serious findings, and it is dropped like every finding's
+text. The typed lines are evidence kind R (evidence.py): the model is shown
 them between data markers and may cite them; they go through redaction and the tripwire like every item it reads;
 grounding never lets one support an action on its own (a finding is a suspect, never proof). A read that fails is
 named as not read - never "no findings".
