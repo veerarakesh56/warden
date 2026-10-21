@@ -27,8 +27,9 @@ def _with(monkeypatch, entries):
 
 def test_an_unmeasured_model_is_refused(monkeypatch):
     _with(monkeypatch, [])
+    cli = _cli(monkeypatch)
     with pytest.raises(ProviderError, match="M20"):
-        qualified(_cli(monkeypatch))
+        qualified(cli)
     with pytest.raises(ProviderError, match="M20"):
         resolve("claude_cli")
 
@@ -38,14 +39,17 @@ def test_only_the_exact_model_that_passed_the_bar_is_admitted(monkeypatch):
               "prompt": PROMPT}
     _with(monkeypatch, [passed])
     assert qualified(_cli(monkeypatch)).model == "claude-sonnet-5-5"
+    another_model = _cli(monkeypatch, "claude-opus-5-5")
     with pytest.raises(ProviderError):
-        qualified(_cli(monkeypatch, "claude-opus-5-5"))  # another model is another qualification
+        qualified(another_model)  # another model is another qualification
     _with(monkeypatch, [{**passed, "wrong_and_allowed": 1}])  # an entry under the bar admits nothing
+    cli = _cli(monkeypatch)
     with pytest.raises(ProviderError):
-        qualified(_cli(monkeypatch))
+        qualified(cli)
     _with(monkeypatch, [{**passed, "correct": 16}])
+    cli = _cli(monkeypatch)
     with pytest.raises(ProviderError):
-        qualified(_cli(monkeypatch))
+        qualified(cli)
 
 
 def test_a_row_measured_on_another_prompt_admits_nothing(monkeypatch):
@@ -87,16 +91,17 @@ def test_the_production_default_is_a_qualified_model_and_sonnet_5_is_gone(monkey
     assert "claude-sonnet-5" not in doc["defaults"].values()
     assert not [e for e in doc["qualified"] if e["model"] == "claude-sonnet-5"]
     monkeypatch.delenv("WARDEN_QUALIFYING", raising=False)
+    retired = _cli(monkeypatch, model="claude-sonnet-5")
     with pytest.raises(providers.ProviderError):
-        qualified(_cli(monkeypatch, model="claude-sonnet-5"))
+        qualified(retired)
 
 
-def test_reverify_puts_stored_answers_through_todays_gate(tmp_path):
+def test_reverify_puts_stored_answers_through_todays_gate(tmp_path, monkeypatch):
     """--reverify: a gate fix made after a qualification run counts, and no model is called to apply it."""
     import json
-    import sys
+    import pathlib
 
-    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "scripts"))
+    monkeypatch.syspath_prepend(str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
     import qualify_provider
 
     from warden.cli import DEMO_ALERTS

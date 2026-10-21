@@ -518,7 +518,7 @@ def test_an_approval_recorded_as_an_ai_s_is_checked_as_one_at_apply_whatever_the
         "owner": world["policy"].approvers["owner"],
         "eldane": approvals.Approver(public_key=world["policy"].approvers["eldane"].public_key, tiers=["T1", "T2"])})
     acts = RemediationActivities(audit=world["log"], policy=changed, platform=None)
-    refused = acts._not_approved(plan, "orders")
+    refused = acts._not_approved(plan)
     assert any("no agreement with this exact plan" in p for p in refused)
     # And it never scores as a person agreeing with Eldane.
     row = autonomy.record_outcome(world["log"], INC, plan={"environment": "dev", "entry": plan.entry},

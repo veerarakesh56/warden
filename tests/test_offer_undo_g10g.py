@@ -77,10 +77,12 @@ def test_held_by_p31_alone_the_undo_of_that_change_is_offered(tmp_path, caplog):
     lab = Lab()
     acts = _acts(tmp_path, lab)
     request = acts.plan_fix(ALERT, _diag(), _held(P31))
-    assert request["entry"] == "dynamodb_restore_capacity" and lab.asked == ["dynamodb_restore_capacity"]
+    assert request["entry"] == "dynamodb_restore_capacity"
+    assert lab.asked == ["dynamodb_restore_capacity"]
     assert request["params"] == {"alarm": ALARM, "table": TABLE, "event": "e-1", "throughput": "5/10"}
     row = acts.audit.entries("inc-1", kinds=("incident.plan_fix",))[-1]["body"]
-    assert row["planned"] is True and row["offered"] == activities.OFFERED_UNDO
+    assert row["planned"] is True
+    assert row["offered"] == activities.OFFERED_UNDO
     line = [r.getMessage() for r in caplog.records if r.name == "warden.incident"][-1]
     assert line == f"inc-1 fix plan opened: dynamodb_restore_capacity ({activities.OFFERED_UNDO})"
     # A verdict that passed is planned as proposed, and says nothing of an offer.
@@ -97,16 +99,19 @@ def test_held_by_p31_alone_the_undo_of_that_change_is_offered(tmp_path, caplog):
 def test_nothing_is_offered_beside_another_policy_or_when_the_live_read_refuses(tmp_path, verified):
     lab = Lab()
     acts = _acts(tmp_path, lab)
-    assert acts.plan_fix(ALERT, _diag(), verified) == {} and lab.asked == []
+    assert acts.plan_fix(ALERT, _diag(), verified) == {}
+    assert lab.asked == []
     row = acts.audit.entries("inc-1", kinds=("incident.plan_fix",))[-1]["body"]
-    assert row["why"].startswith("the verdict is") and "offered" not in row
+    assert row["why"].startswith("the verdict is")
+    assert "offered" not in row
     # Held by P31 alone but the platform may not undo the change (infrastructure as code, a second change, ...): the
     # refusal is the reason, and no plan opens. A target the labels do not name is no resource to undo anything on.
     refusing = Lab(refused="the change was made by infrastructure as code (Terraform): undo it in the code")
     acts = _acts(tmp_path, refusing)
     assert acts.plan_fix(ALERT, _diag(), _held(P31)) == {}
     row = acts.audit.entries("inc-1", kinds=("incident.plan_fix",))[-1]["body"]
-    assert "infrastructure as code" in row["why"] and row["offered"] == activities.OFFERED_UNDO
+    assert "infrastructure as code" in row["why"]
+    assert row["offered"] == activities.OFFERED_UNDO
     other = Lab()
     assert _acts(tmp_path, other).plan_fix(ALERT, _diag(target="some-other-table"), _held(P31)) == {}
     assert other.asked == []

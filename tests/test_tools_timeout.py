@@ -75,7 +75,9 @@ def test_a_timed_out_tool_reaches_the_verifier_as_partial_context():
 def test_healthy_tools_are_unaffected_by_the_ceiling():
     ctx = gather(_alert(), FixtureBackend(), timeout=5.0)
     assert ctx.tool_errors == []
-    assert ctx.logs and ctx.metrics and ctx.recent_deploys
+    assert ctx.logs
+    assert ctx.metrics
+    assert ctx.recent_deploys
 
 
 def test_a_tool_error_message_is_redacted_before_it_reaches_the_audit_or_the_report():
@@ -108,6 +110,8 @@ def test_one_placeholder_means_one_value_across_tool_errors_and_logs():
     out = node_redact({"alert": _alert(), "context": ctx})
     logs, errors, mapping = out["context"].logs, out["context"].tool_errors, out["redaction_map"]
     by_value = {v: k for k, v in mapping.items()}
-    assert by_value["10.0.0.5"] in logs[1] and by_value["10.0.0.5"] in errors[0], "same host, same name"
-    assert by_value["10.0.0.7"] in errors[1] and by_value["10.0.0.7"] not in " ".join(logs)
+    assert by_value["10.0.0.5"] in logs[1], "same host, same name"
+    assert by_value["10.0.0.5"] in errors[0], "same host, same name"
+    assert by_value["10.0.0.7"] in errors[1]
+    assert by_value["10.0.0.7"] not in " ".join(logs)
     assert len({by_value[ip] for ip in ("10.0.0.9", "10.0.0.5", "10.0.0.7")}) == 3, "three hosts, three names"

