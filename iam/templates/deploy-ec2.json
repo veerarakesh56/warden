@@ -21,7 +21,7 @@
         "rds:AddTagsToResource",
         "rds:RestoreDBClusterFromSnapshot"
       ],
-      "Resource": "arn:aws:rds:*:*:cluster-snapshot:warden-${env}-*"
+      "Resource": "arn:aws:rds:${region}:*:cluster-snapshot:warden-${env}-*"
     },
     {
       "Sid": "Ec2ReadCreate",

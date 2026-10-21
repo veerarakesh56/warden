@@ -313,9 +313,18 @@ def test_pause_fails_when_a_table_backup_does_not_become_available(pr):
         pr.snapshot("fullstack", clients, log=lambda *_: None)
 
 
-def test_pause_refuses_an_aurora_cluster_it_cannot_copy(pr):
-    clients = _full(FakeRds(cluster=_cluster("modifying")), FakeDdb())
+def test_pause_refuses_an_aurora_cluster_it_cannot_copy_before_any_writer_stops(pr):
+    """CodeRabbit (PR 103): found before quiesce(), so a refused pause leaves the shop running."""
+    writers = FakeWriters()
+    clients = _full(FakeRds(cluster=_cluster("modifying")), FakeDdb(), writers)
     with pytest.raises(SystemExit, match="no snapshot can be taken, so nothing is deleted"):
+        pr.snapshot("fullstack", clients, log=lambda *_: None)
+    assert writers.log == []
+
+
+def test_a_pause_that_fails_after_stopping_the_writers_says_how_to_start_them(pr):
+    clients = _full(FakeRds(), FakeDdb(tables={"warden-dev-carts"}, fail=True))
+    with pytest.raises(SystemExit, match="the writers are stopped: `python scripts/pause_resume.py wake`"):
         pr.snapshot("fullstack", clients, log=lambda *_: None)
 
 
@@ -765,6 +774,21 @@ def test_the_runtime_deploy_policy_writes_the_pause_switch_alone():
                                                                      else s["Action"])]
     assert [(w["Sid"], w["Resource"].rsplit(":parameter", 1)[1]) for w in writes] == [
         ("ThePauseSwitch", "/warden/ops/tf/paused")]
+
+
+@pytest.mark.parametrize("env", ["dev", "prod"])
+@pytest.mark.parametrize("action", ["rds:DeleteDBClusterSnapshot", "rds:ModifyDBClusterSnapshotAttribute",
+                                    "rds:CopyDBClusterSnapshot"])
+def test_the_deploy_policies_alone_grant_no_snapshot_delete_copy_or_share(env, action):
+    """CodeRabbit (PR 103): the identity layer on its own, conditions evaluated (not only unconditional statements),
+    the boundary left out - so the second layer holds whatever the boundary says."""
+    ev = _evaluator()
+    region = ev.r.names(env).region
+    own = f"arn:aws:rds:{region}:{ev.ACCOUNT}:cluster-snapshot:warden-{env}-aurora-final-20261020t062500z"
+    ctx = {"aws:RequestedRegion": region, "aws:ResourceTag/Environment": env, "aws:RequestTag/Environment": env}
+    identity = [st for kind in ("deploy", "deploy-ec2") for st in ev._load(env, kind)["Statement"]]
+    granting = [st.get("Sid") for st in identity if st["Effect"] == "Allow" and ev._statement_matches(st, action, own, ctx)]
+    assert granting == []
 
 
 @pytest.mark.parametrize("env", ["dev", "prod"])
