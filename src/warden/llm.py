@@ -16,6 +16,7 @@ CI and the eval suite use. A demo that only works with a paid key is a demo nobo
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import math
@@ -166,7 +167,8 @@ def _complete_within(provider: Provider, *, system: str, user: str, seconds: flo
         with _CarriedToCaller(box):
             box["ok"] = provider.complete(system=system, user=user, schema=schema)
 
-    th = threading.Thread(target=_worker, name="warden-llm-call", daemon=True)
+    # In the caller's context: the egress ledger names the incident from the Temporal activity running the call.
+    th = threading.Thread(target=contextvars.copy_context().run, args=(_worker,), name="warden-llm-call", daemon=True)
     th.start()
     th.join(seconds)
     if th.is_alive():
@@ -218,13 +220,17 @@ class ModelDeclined(ModelCutOff):
 CALL = "llm.call"
 FALLBACK = "llm.fallback"
 RULES_ONLY, MODEL_REFUSED, BUDGET_CAP = "rules_only", "model_refused", "budget_cap"
-FALLBACK_REASONS = frozenset({RULES_ONLY, MODEL_REFUSED, BUDGET_CAP, PROVIDER_UNAVAILABLE})
+# The egress check refused the call (egress.EgressBlocked, an SDK's wrapping included): a configuration or security
+# event, not the model's answer and not an outage - told apart from model_refused, and it pages nobody.
+EGRESS_BLOCKED = "egress_blocked"
+FALLBACK_REASONS = frozenset({RULES_ONLY, MODEL_REFUSED, BUDGET_CAP, PROVIDER_UNAVAILABLE, EGRESS_BLOCKED})
 
 
 def fallback_reason(stopped_by: str) -> str:
     """The fallback reason of a failed model call, from its client's `stopped_by`: a spent budget, the provider down -
     else the model's own failure (no valid answer, a refusal, a cut-off, a permanent 4xx, a prompt too large)."""
-    return {BUDGET_REACHED: BUDGET_CAP, PROVIDER_UNAVAILABLE: PROVIDER_UNAVAILABLE}.get(stopped_by, MODEL_REFUSED)
+    return {BUDGET_REACHED: BUDGET_CAP, PROVIDER_UNAVAILABLE: PROVIDER_UNAVAILABLE,
+            EGRESS_BLOCKED: EGRESS_BLOCKED}.get(stopped_by, MODEL_REFUSED)
 
 
 def call_record(*, model: str, ts: str, started: float, prompt_tokens: int, completion_tokens: int, cost: float,
@@ -240,8 +246,10 @@ def usd(prices: tuple[float, float], prompt_tokens: int, completion_tokens: int)
 
 
 def failure_reason(exc: Exception) -> str:
-    """The fallback reason of a provider error: the provider unavailable (a connection error, a 429, a 5xx), else the
-    model refused (a permanent 4xx)."""
+    """The fallback reason of a provider error: the egress check's refusal, the provider unavailable (a connection
+    error, a 429, a 5xx), else the model refused (a permanent 4xx)."""
+    if _refused_here(exc):
+        return EGRESS_BLOCKED
     return PROVIDER_UNAVAILABLE if _is_transient(exc) else MODEL_REFUSED
 
 
@@ -386,7 +394,9 @@ class LLMClient:
                 return answer
             if sent is None:
                 break
-        self.stopped_by = _provider_down(last)
+        # The egress check's refusal is named apart (its fallback reason, egress_blocked); it is no paging condition -
+        # paging.model_condition counts only the provider down and a spent budget, and _provider_down stays "".
+        self.stopped_by = EGRESS_BLOCKED if last is not None and _refused_here(last) else _provider_down(last)
         plural = "attempt" if attempts == 1 else "attempts"
         raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {refusal_reason(last, schema)}")
 
@@ -566,6 +576,21 @@ def _reached_the_model(exc: BaseException) -> bool:
     return True
 
 
+def _refused_here(exc: BaseException) -> bool:
+    """Was this error, or one in its chain, the egress check's refusal? An SDK wraps it in its own connection error,
+    which reads as transient (review: a refused model call was retried twice, refused each time)."""
+    from .egress import EgressBlocked
+
+    seen: list[BaseException] = []
+    e: BaseException | None = exc
+    while e is not None and e not in seen and len(seen) < 8:
+        if isinstance(e, EgressBlocked):
+            return True
+        seen.append(e)
+        e = e.__cause__ or e.__context__
+    return False
+
+
 # B35 self-alarms: a model key that stopped working (revoked, out of its workspace, the wrong one) fails every
 # diagnosis, and an activity's failure is only a WARNING - nobody was paged until the daily synthetic incident had
 # missed for a day. An ERROR line names it now, and the worker-errors alarm (paging.tf) pages at once.
@@ -574,6 +599,8 @@ _LOG = logging.getLogger("warden.llm")
 
 
 def _say_if_key_refused(exc: Exception) -> None:
+    if _refused_here(exc):
+        return  # WARDEN's own egress check refused the call: no key was refused (egress_blocked, not this alarm)
     status = getattr(exc, "status_code", None)
     status = getattr(exc, "code", None) if status is None else status
     try:  # some providers give the status as text ("401"), as _is_transient already accepts
@@ -589,6 +616,8 @@ def _is_transient(exc: Exception) -> bool:
     """Is this provider error worth retrying? A connection/socket error (no HTTP status) or a
     429/5xx is transient; a 4xx (401/403/400) is permanent. Duck-typed across SDKs, which expose the
     status as `.status_code` (openai, anthropic) or `.code` (google-genai)."""
+    if _refused_here(exc):
+        return False  # the egress check refused it (egress.EgressBlocked, wrapped by the SDK): it would be refused again
     status = getattr(exc, "status_code", None)
     if status is None:
         status = getattr(exc, "code", None)

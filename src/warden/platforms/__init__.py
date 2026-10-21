@@ -69,6 +69,11 @@ class RoutedPlatform:
             p = p.for_environment(environment)
         return getattr(p, "_read", None)
 
+    def writes_reader(self, entry: str, environment: str) -> Any | None:
+        """B21: `writes(names, since, until)` - CloudTrail's write events naming this entry's target, as the platform that
+        carries it out reads them (AwsPlatform.writes_on); None when that platform has no such reader."""
+        return getattr(self._for(entry, environment), "writes_on", None)
+
     def healthy_for(self, entry: str, service: str, params: dict[str, Any] | None = None,
                     environment: str | None = None) -> bool:
         """Health as the platform that carries out `entry` sees it - only that one (sixth review, 2026-10-01: a
@@ -77,6 +82,14 @@ class RoutedPlatform:
         a name, and a service is named by its cluster too."""
         p = self._for(entry, environment)
         return bool(p and p.healthy(service, **_accepted(p.healthy, entry=entry, params=params)))
+
+    def permitted(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any], incident: str,
+                  environment: str) -> dict[str, Any] | None:
+        """B12: whether the actor allows this plan's calls, from the platform that carries it out; None when that
+        platform has no such check (Kubernetes, a database) or none is connected."""
+        p = self._for(entry, environment)
+        check = getattr(p, "permitted", None)
+        return check(entry, params, snapshot, incident=incident, environment=environment) if check else None
 
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any],
                  who: dict[str, Any] | None = None, environment: str | None = None) -> str:
