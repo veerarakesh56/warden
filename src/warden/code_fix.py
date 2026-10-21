@@ -150,27 +150,40 @@ class _Plan:
     sources: list[str] = field(default_factory=list)  # the touched files as they are now, and the restored lines
 
 
+def _delete_added(f: FileChange, current: str | None, plan: _Plan) -> None:
+    """The commit added the file: the revert deletes it, if it is still exactly that."""
+    if current is None or current.splitlines() != list(f.added):
+        raise RevertError(f"{f.path}: the file the commit added has changed since, or is gone")
+    plan.deletions.append(f.path)
+    plan.diffs.append(diff_of(f.path, current, None, f.new_mode or "100644"))
+
+
+def _restore_deleted(f: FileChange, current: str | None, plan: _Plan) -> None:
+    """The commit deleted the file: the revert brings it back, if nothing took its place."""
+    if current is not None:
+        raise RevertError(f"{f.path}: a file of that name exists again")
+    restored = "\n".join(f.removed) + "\n"
+    plan.additions[f.path] = restored.encode("utf-8")
+    plan.diffs.append(diff_of(f.path, None, restored, f.old_mode or "100644"))
+
+
+def _take_back_modified(f: FileChange, current: str | None, plan: _Plan) -> None:
+    if current is None:
+        raise RevertError(f"{f.path}: the file is gone")
+    new = take_back(current, f)
+    plan.additions[f.path] = new.encode("utf-8")
+    plan.diffs.append(diff_of(f.path, current, new))
+
+
+_BY_STATUS = {"added": _delete_added, "deleted": _restore_deleted, "modified": _take_back_modified}
+
+
 def _revert_file(writer: RepoWriter, head: str, f: FileChange, plan: _Plan) -> None:
-    if f.binary or f.status == "renamed":
-        raise RevertError(f"{f.path}: a {'binary file' if f.binary else 'renamed file'} is reverted by a person")
+    step = _BY_STATUS.get(f.status)
+    if f.binary or step is None:
+        raise RevertError(f"{f.path}: a {'binary file' if f.binary else f'{f.status} file'} is reverted by a person")
     current = _text(writer.read_file(f.path, head), f.path)
-    if f.status == "added":  # the commit added the file: the revert deletes it, if it is still exactly that
-        if current is None or current.splitlines() != list(f.added):
-            raise RevertError(f"{f.path}: the file the commit added has changed since, or is gone")
-        plan.deletions.append(f.path)
-        plan.diffs.append(diff_of(f.path, current, None, f.new_mode or "100644"))
-    elif f.status == "deleted":  # the commit deleted it: the revert brings it back, if nothing took its place
-        if current is not None:
-            raise RevertError(f"{f.path}: a file of that name exists again")
-        restored = "\n".join(f.removed) + "\n"
-        plan.additions[f.path] = restored.encode("utf-8")
-        plan.diffs.append(diff_of(f.path, None, restored, f.old_mode or "100644"))
-    else:
-        if current is None:
-            raise RevertError(f"{f.path}: the file is gone")
-        new = take_back(current, f)
-        plan.additions[f.path] = new.encode("utf-8")
-        plan.diffs.append(diff_of(f.path, current, new))
+    step(f, current, plan)
     plan.sources += [current or "", "\n".join(f.removed)]
 
 

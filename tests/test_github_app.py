@@ -355,16 +355,18 @@ def test_commit_diff_reads_parents_then_the_diff_text():
 
 def test_commit_diff_refuses_a_parent_that_is_not_a_commit_id():
     api, _ = fake_api((200, {"parents": [{"sha": "abc"}]}), (200, b""))
+    writer = RepoWriter(token(), api=api)
     with pytest.raises(GitHubAppError, match="full commit id"):
-        RepoWriter(token(), api=api).commit_diff(NEW)
+        writer.commit_diff(NEW)
 
 
 def test_delete_branch_only_warden_branches():
     api, log = fake_api((204, b""))
     RepoWriter(token(), api=api).delete_branch("warden/revert/x")
     assert (log[0]["method"], log[0]["path"]) == ("DELETE", f"/repos/{REPO}/git/refs/heads/warden/revert/x")
+    other = RepoWriter(token(), api=fake_api()[0])
     with pytest.raises(GitHubAppError, match="its own branches"):
-        RepoWriter(token(), api=fake_api()[0]).delete_branch("dev")
+        other.delete_branch("dev")
 
 
 def test_default_branch_is_read_and_checked():

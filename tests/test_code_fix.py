@@ -139,8 +139,9 @@ def test_take_back_finds_hunks_after_later_lines_moved_them():
 
 def test_take_back_refuses_code_that_moved_on():
     (change,) = parse_diff(diff_of(APP, BEFORE, AFTER))
+    moved = AFTER.replace("* 2", "* 3")
     with pytest.raises(RevertError, match="no longer there"):
-        take_back(AFTER.replace("* 2", "* 3"), change)
+        take_back(moved, change)
 
 
 def test_take_back_refuses_a_hunk_found_twice():
@@ -336,4 +337,17 @@ def test_a_deleted_file_that_exists_again_is_refused(tmp_path):
     out = open_revert(request(), writer=writer)
     assert out.status == "refused"
     assert "exists again" in out.reason
+    assert not writer.wrote()
+
+
+@pytest.mark.parametrize("diff, says", [
+    ((f"diff --git a/{APP} b/scenarios/fullstack/app/moved.py\nsimilarity index 100%\nrename from {APP}\n"
+      "rename to scenarios/fullstack/app/moved.py\n"), "renamed file"),
+    (f"diff --git a/{APP} b/{APP}\nindex 1..2 100644\nBinary files a/{APP} and b/{APP} differ\n", "binary file"),
+])
+def test_a_rename_or_a_binary_is_reverted_by_a_person(diff, says):
+    writer = FakeWriter(diff, {APP: AFTER})
+    out = open_revert(request(), writer=writer)
+    assert out.status == "refused"
+    assert says in out.reason
     assert not writer.wrote()
