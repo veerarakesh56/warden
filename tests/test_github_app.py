@@ -299,6 +299,8 @@ def test_a_refused_commit_raises(reply):
     ({"additions": {"../x.py": b"x"}}, "plain relative path"),
     ({"deletions": ("/etc/x",)}, "plain relative path"),
     ({"additions": {"a.py": b"a"}, "headline": "line\nbreak"}, "one plain line"),
+    ({"additions": {"a.py": b"a"}, "headline": "tab\there"}, "one plain line"),
+    ({"additions": {"a.py": b"a"}, "headline": "x" * 201}, "one plain line"),
     ({"additions": {"a.py": b"a"}, "expected_head": "abc"}, "full commit id"),
 ])
 def test_commit_input_is_checked(kw, match):
@@ -308,13 +310,33 @@ def test_commit_input_is_checked(kw, match):
         writer.commit("warden/x", **args)
 
 
-def test_a_pull_request_from_warden_into_an_environment_branch():
-    api, log = fake_api((201, {"number": 7, "html_url": "https://github.com/x/y/pull/7"}))
-    got = RepoWriter(token(), api=api).open_pull_request(head="warden/fix/inc-1", base="dev", title="Revert abc",
-                                                         body="b")
+DEFAULT = (200, {"default_branch": "main"})
+
+
+def test_a_pull_request_from_warden_into_the_default_branch():
+    api, log = fake_api(DEFAULT, (201, {"number": 7, "html_url": "https://github.com/x/y/pull/7"}))
+    got = RepoWriter(token(), api=api).open_pull_request(head="warden/fix/inc-1", base="main",
+                                                         title='Revert "Fix the cart (#123)"', body="b")
     assert got == (7, "https://github.com/x/y/pull/7")
-    assert log[0]["body"] == {"head": "warden/fix/inc-1", "base": "dev", "title": "Revert abc", "body": "b",
-                              "maintainer_can_modify": False}
+    assert log[1]["body"] == {"head": "warden/fix/inc-1", "base": "main", "title": 'Revert "Fix the cart (#123)"',
+                              "body": "b", "maintainer_can_modify": False}
+
+
+@pytest.mark.parametrize("base", ["dev", "prod"])
+def test_a_pull_request_into_any_branch_but_the_default_is_refused(base):
+    api, log = fake_api(DEFAULT, (201, {"number": 1}))
+    with pytest.raises(GitHubAppError, match="default branch"):
+        RepoWriter(token(), api=api).open_pull_request(head="warden/x", base=base, title="t", body="")
+    assert [entry["method"] for entry in log] == ["GET"]  # nothing was opened
+
+
+def test_default_branch_is_read_and_checked():
+    api, _log = fake_api((200, {"default_branch": "main"}), (200, {"default_branch": "warden/x"}), (200, {}))
+    writer = RepoWriter(token(), api=api)
+    assert writer.default_branch() == "main"
+    for _ in range(2):
+        with pytest.raises(GitHubAppError, match="default branch"):
+            writer.default_branch()
 
 
 @pytest.mark.parametrize("base", ["warden/fix/x", "warden", "", "dev/x", "../dev"])
@@ -325,9 +347,9 @@ def test_a_pull_request_base_is_never_a_warden_branch(base):
 
 
 def test_a_pull_request_reply_without_a_number_raises():
-    writer = RepoWriter(token(), api=fake_api((201, {}))[0])
+    writer = RepoWriter(token(), api=fake_api(DEFAULT, (201, {}))[0])
     with pytest.raises(GitHubAppError, match="no number"):
-        writer.open_pull_request(head="warden/x", base="dev", title="t", body="")
+        writer.open_pull_request(head="warden/x", base="main", title="t", body="")
 
 
 # ------------------------------------------------------------------------------------------------ who holds the key
