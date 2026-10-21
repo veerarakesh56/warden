@@ -815,6 +815,7 @@ def test_the_github_client_sends_its_token_only_through_wardens_redirect_safe_op
     assert GitHub(REPO, TOKEN)._open is web.urlopen
     req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/tarball", headers={"Authorization": "x"})
     archive = "https://codeload.github.com/example-owner/example-repo/legacy.tar.gz/main"
+    redirects = web._Redirects()
     with pytest.raises(urllib.error.HTTPError) as refused:
-        web._Redirects().redirect_request(req, None, 302, "Found", {"Location": archive}, archive)
+        redirects.redirect_request(req, None, 302, "Found", {"Location": archive}, archive)
     assert refused.value.headers.get("Location") == archive
