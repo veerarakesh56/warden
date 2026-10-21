@@ -359,9 +359,10 @@ hard, and "hard" is decided by facts WARDEN can check itself, never by how sure 
   state), or too little was gathered at all;
 - someone asked in the discussion channel for a new plan, or to investigate again.
 
-One of these is enough. Production and a new plan asked for in chat are known before the first answer, so once Opus may
-diagnose it answers from the start; the others are known only after Sonnet has answered, and then Opus diagnoses again
-on the same evidence and its answer replaces Sonnet's, after the same checks. Opus may diagnose only when
+One of these is enough. Production, a new plan asked for in chat and too little gathered evidence are known before
+the first answer, so once Opus may diagnose it answers from the start; the fix's tier, a disagreement, the cited
+evidence and the causes' count are known only after Sonnet has answered, and then Opus diagnoses again on the same
+evidence and its answer replaces Sonnet's, after the same checks. Opus may diagnose only when
 `providers.yaml` gives it the `diagnose` role AND it has passed the replay set; today neither holds, so Sonnet answers
 every case and a hard one is marked for a person. Its answer can never undo the hand-off to a person
 that two disagreeing answers caused. In the discussion channel a plain question gets Sonnet and a request to look
