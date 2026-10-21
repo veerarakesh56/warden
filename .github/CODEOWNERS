@@ -14,6 +14,7 @@
 /src/warden/decide.py              @veerarakesh56
 /src/warden/eldane.py              @veerarakesh56
 /src/warden/critique.py            @veerarakesh56
+/src/warden/eldane_slack.py        @veerarakesh56
 /src/warden/evidence.py            @veerarakesh56
 /src/warden/freeze.py              @veerarakesh56
 /src/warden/gate.py                @veerarakesh56

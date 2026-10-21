@@ -390,6 +390,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   kinds, a pydantic schema for each side's answer, at most three rounds, and each turn a row on the record. A debate
   or multi-agent framework would add a loop the code can no longer bound and an orchestrator to trust; this is two
   calls through `providers.py` per round, checked in code.
+- Eldane in the discussion channel - `eldane_slack.py` (owner, 2026-10-17, B2): Slack's own Web API through the
+  `chatops.py` sinks every message already uses (redaction, the outbound gate). A Slack bot framework (Bolt) would
+  add an event loop that reads the channel; Eldane only posts, never reads, so one `chat.postMessage` per turn is all
+  it needs.
 - Number checks in the model's prose - `numbers.py`: a unit library (pint) would convert units, but naming which
   metric a number in free prose refers to is the hard part, and no library does it.
 - Telling English logs from others - `language.py`: language-detection libraries (lingua, langdetect) answer
