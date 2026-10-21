@@ -19,6 +19,7 @@ Names below use the runtime environment `ops` (environments.yaml `runtime:`). Gi
 | Workers | Six ECS Fargate services in the cluster `warden-ops-runtime`, one per trust zone: `warden-ops-core` (workflows, audit steps, heartbeat), `warden-ops-read` (evidence), `warden-ops-llm` (the model, the daily synthetic incident), `warden-ops-notify` (Slack, GitHub), `warden-ops-act` (the only one that changes anything), `warden-ops-critic` (Eldane, the AI critic: reviews plans, approves in `dev` only) | [compute.tf](../terraform/modules/warden-runtime/compute.tf) |
 | Temporal Cloud | Holds every workflow's state; the workers and Lambdas reach it with API keys | outside AWS; `connect` in [runtime.py](../src/warden/runtime.py) |
 | Front door Lambdas | `warden-ops-alarm` (CloudWatch alarm changes and service events), `warden-ops-alertmanager` (Alertmanager and Datadog webhooks), `warden-ops-approval` (the approval page and records page), `warden-ops-actor-use` (actor-role sessions), `warden-ops-ack` (answers Slack's button note) | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf), [witness.tf](../terraform/modules/warden-runtime/witness.tf) |
+| Pager | `warden-ops-pager`: says every self-alarm's page again in Slack and by email every 15 minutes until an approver acknowledges it with a passkey; no image, no VPC, no database | [paging.tf](../terraform/modules/warden-runtime/paging.tf) |
 | Lost-alarm queue | `warden-ops-alarm-dlq`: an alarm change EventBridge could not deliver to the `alarm` Lambda after 8 retries within an hour lands here and is kept 14 days | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf) |
 | Audit | The audit database `warden-ops-audit`: an Aurora PostgreSQL cluster, or one RDS PostgreSQL instance on the AWS Free plan; checkpoints anchored to an S3 bucket with Object Lock | [aurora.tf](../terraform/modules/warden-runtime/aurora.tf), [anchors.tf](../terraform/modules/warden-runtime/anchors.tf) |
 | Kill switch | A row in the audit, checked inside every apply right before the change | [bounds.py](../src/warden/bounds.py), [activities.py](../src/warden/activities.py) |
@@ -187,7 +188,7 @@ aws rds describe-db-instances --db-instance-identifier warden-ops-audit --query 
 ```
 
 It keeps automated backups with point-in-time recovery (`audit_db_backup_days`, at least 7 days outside the AWS Free
-plan) and deletion protection. A restore has not been drilled yet ([register O4](FAILURE-MODES.md)): a restore drill is **planned**. Do
+plan) and deletion protection. A restore has not been drilled yet ([register O4b](FAILURE-MODES.md)): a restore drill is **planned**. Do
 not restore over the running database; restore to a new one and keep the old one as evidence.
 
 **The model.** With the model unreachable (provider down, key expired, budget spent) WARDEN does not stop: it

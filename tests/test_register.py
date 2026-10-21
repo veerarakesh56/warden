@@ -176,27 +176,39 @@ def _resolved(name: str, assigned: dict[str, ast.expr]) -> ast.expr | None:
     return None
 
 
+def _case_parts(decorator: ast.Call, assigned: dict[str, ast.expr]) -> list[ast.AST] | None:
+    """The decorator and every case list it names by a variable, read where the module assigns it; None when a named
+    list is not spelled out in this file."""
+    parts: list[ast.AST] = [decorator]
+    given = [*decorator.args, *(k.value for k in decorator.keywords if k.arg == "argvalues")]
+    for name in (arg.id for arg in given if isinstance(arg, ast.Name)):
+        value = _resolved(name, assigned)
+        if value is None:
+            return None
+        parts.append(value)
+    return parts
+
+
+def _param_marked_off(node: ast.AST) -> bool:
+    """`pytest.param(..., marks=...)` whose marks skip or xfail."""
+    if not (isinstance(node, ast.Call) and ast.unparse(node.func) in ("pytest.param", "param")):
+        return False
+    marks = " ".join(ast.unparse(k.value) for k in node.keywords if k.arg == "marks")
+    return "skip" in marks or "xfail" in marks
+
+
 def _a_case_is_marked_off(node: ast.FunctionDef, tree: ast.Module) -> bool:
     """A `pytest.param(..., marks=...)` case marked skip or xfail inside a parametrize (PR 86 review): with only such
     cases pytest runs nothing. Any marked case refuses the citation - evidence is a test that runs whole. A case list
     named by a variable is read where the module assigns it; one that cannot be read there is refused too."""
     assigned = {target.id: stmt.value for stmt in tree.body if isinstance(stmt, ast.Assign)
                 for target in stmt.targets if isinstance(target, ast.Name)}
-    for decorator in node.decorator_list:
-        if not isinstance(decorator, ast.Call):
-            continue
-        parts: list[ast.AST] = [decorator]
-        given = [*decorator.args, *(k.value for k in decorator.keywords if k.arg == "argvalues")]
-        for name in (arg.id for arg in given if isinstance(arg, ast.Name)):
-            value = _resolved(name, assigned)
-            if value is None:
-                return True  # a case list this file does not spell out: its marks cannot be checked
-            parts.append(value)
-        for call in (c for part in parts for c in ast.walk(part)):
-            if isinstance(call, ast.Call) and ast.unparse(call.func) in ("pytest.param", "param"):
-                marks = " ".join(ast.unparse(k.value) for k in call.keywords if k.arg == "marks")
-                if "skip" in marks or "xfail" in marks:
-                    return True
+    for decorator in (d for d in node.decorator_list if isinstance(d, ast.Call)):
+        parts = _case_parts(decorator, assigned)
+        if parts is None:
+            return True  # a case list this file does not spell out: its marks cannot be checked
+        if any(_param_marked_off(c) for part in parts for c in ast.walk(part)):
+            return True
     return False
 
 
