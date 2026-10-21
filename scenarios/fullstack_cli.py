@@ -401,7 +401,7 @@ def cmd_hold(env: Env, run: pathlib.Path, fid: str) -> int:
         deadline = time.monotonic() + HOLD_MAX_S
         while time.monotonic() < deadline and not (hold / f"{fid}.stop").exists():
             time.sleep(2)
-    except Exception as exc:  # noqa: BLE001 - reported to the waiting inject, then exit
+    except Exception as exc:  # noqa: BLE001 - reported to the waiting inject; then exit
         _write_json(hold / f"{fid}.ready.json", {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
     finally:
         for conn in held:
@@ -415,19 +415,21 @@ def cmd_hold(env: Env, run: pathlib.Path, fid: str) -> int:
 
 # --------------------------------------------------------------------------- dry run
 
+DRY_RUN = "dry run"  # the canned alert's and report's free text
+
 
 _DRY_REPORT = {
     "alert": {"alert_id": "bench", "name": "StackAlarm", "severity": "high", "service": "shop",
-              "environment": "prod", "summary": "dry run", "started_at": "2026-01-01T00:00:00+00:00",
+              "environment": "prod", "summary": DRY_RUN, "started_at": "2026-01-01T00:00:00+00:00",
               "labels": {}},
     "redaction_map_size": 0,
     "context": {"logs": [f"LOG lambda/{fs.PREFIX}checkout 2026-01-01T00:00:00Z dry"],
                 "metrics": {"lambda_invocations__checkout": 1.0, "dlq_visible__orders": 0.0},
                 "recent_deploys": [], "tool_errors": []},
-    "root_cause": {"hypothesis": "dry run", "confidence": 0.8, "evidence": [], "ruled_out": []},
+    "root_cause": {"hypothesis": DRY_RUN, "confidence": 0.8, "evidence": [], "ruled_out": []},
     "proposal": {"action": "escalate_to_human", "target": "shop", "reasoning": "dry",
                  "expected_effect": "dry", "blast_radius": "single_service", "reversible": True},
-    "verdict": {"status": "approved_for_human", "reasons": ["dry run"], "policy_ids": [],
+    "verdict": {"status": "approved_for_human", "reasons": [DRY_RUN], "policy_ids": [],
                 "requires_approval": False},
     "cost": {"input_tokens": 0, "output_tokens": 0, "usd": 0.0, "calls": 0},
     "audit": [], "halted_reason": None,
@@ -455,7 +457,7 @@ def dry_env() -> Env:
         now[0] += seconds  # a dry run waits for nothing, but its clock still moves
 
     stub = fs.Fault(lambda c, t: flip(True), lambda c, t: flip(False),
-                    lambda c, t: (True, "dry run"), "rule")
+                    lambda c, t: (True, DRY_RUN), "rule")
     # The live DSNs' shape (warden_dsns: the reader user, a password - there an IAM token - and sslmode), with a
     # placeholder for the token and a host that never resolves (.invalid, RFC 6761). It was a URL with no password,
     # a shape the live run never has (Sonar python:S2115, 2026-10-16).
@@ -609,26 +611,11 @@ def step_inject(env: Env, run: pathlib.Path, key: str, *, skip_quiet: bool = Fal
     open_run(env, run)
     _bind_saved(env, run)
     state = _state(run)
-    if state.get("active"):
-        raise StepError(f"{state['active']} is still injected - revert it first")
-    if not state.get("soaked_at"):
-        # ⛔ The owner's order: soak (every component healthy for 30 unbroken minutes) BEFORE any fault.
-        raise StepError("no soak recorded for this run - run `soak` first")
-    if (state.get("soak_minutes") or 0) < SOAK_MINUTES:
-        raise StepError(f"the recorded soak was {state.get('soak_minutes') or 0:g} min; the owner's rule is "
-                        f"{SOAK_MINUTES} unbroken minutes before any fault - run `soak` again")
-    existing = _record(run, sid)
-    if existing and existing.get("runs"):
-        raise StepError(f"{sid} already has a measured run; one run per fault (the owner's choice)")
-
+    _refuse_a_second_fault(run, sid, state)
     # ⛔ Evidence isolation: nothing another fault did may be inside WARDEN's evidence window.
     last = state.get("last_activity_at")
     if last and not skip_quiet:
-        idle = (dt.datetime.now(dt.UTC) - dt.datetime.fromisoformat(last)).total_seconds()
-        if idle < QUIET_SECONDS:
-            raise StepError(f"only {idle / 60:.0f} min since the last fault's revert; WARDEN reads "
-                            f"up to {max(LOG_LOOKBACK_M, METRIC_WINDOW_M, DEPLOY_WINDOW_M)} min back. Wait {(QUIET_SECONDS - idle) / 60:.0f} more "
-                            "minutes, or pass --skip-quiet (recorded in the ground truth).")
+        _refuse_before_the_quiet_period(last)
     problems = stack_problems(env)
     if problems:
         raise StepError("the stack is not at baseline, so this fault would be graded against a state "
@@ -658,24 +645,52 @@ def step_inject(env: Env, run: pathlib.Path, key: str, *, skip_quiet: bool = Fal
     _save_record(run, record)
     env.log(f"{sid}: injected {record['injected']}")
 
+    record["alarm"] = {**_wait_for_the_alarm(env, scenario, record["settle_seconds"], wait_alarm), "at": _now()}
+    _save_record(run, record)
+    return record
+
+
+def _refuse_a_second_fault(run: pathlib.Path, sid: str, state: dict) -> None:
+    """One fault at a time, only after a full soak, and one measured run per fault."""
+    if state.get("active"):
+        raise StepError(f"{state['active']} is still injected - revert it first")
+    if not state.get("soaked_at"):
+        # ⛔ The owner's order: soak (every component healthy for 30 unbroken minutes) BEFORE any fault.
+        raise StepError("no soak recorded for this run - run `soak` first")
+    if (state.get("soak_minutes") or 0) < SOAK_MINUTES:
+        raise StepError(f"the recorded soak was {state.get('soak_minutes') or 0:g} min; the owner's rule is "
+                        f"{SOAK_MINUTES} unbroken minutes before any fault - run `soak` again")
+    existing = _record(run, sid)
+    if existing and existing.get("runs"):
+        raise StepError(f"{sid} already has a measured run; one run per fault (the owner's choice)")
+
+
+def _refuse_before_the_quiet_period(last: str) -> None:
+    idle = (dt.datetime.now(dt.UTC) - dt.datetime.fromisoformat(last)).total_seconds()
+    if idle < QUIET_SECONDS:
+        raise StepError(f"only {idle / 60:.0f} min since the last fault's revert; WARDEN reads "
+                        f"up to {max(LOG_LOOKBACK_M, METRIC_WINDOW_M, DEPLOY_WINDOW_M)} min back. Wait {(QUIET_SECONDS - idle) / 60:.0f} more "
+                        "minutes, or pass --skip-quiet (recorded in the ground truth).")
+
+
+def _wait_for_the_alarm(env: Env, scenario: dict, settle_seconds: int, wait_alarm: bool) -> dict:
+    """The scenario's alarm: after the settle time, polled until ALARM or its timeout - unless not waited for."""
     alarm = {"name": scenario.get("alarm"), "expected": scenario.get("expect_alarm", True)}
     if wait_alarm and alarm["expected"]:
-        env.sleep(record["settle_seconds"])
+        env.sleep(settle_seconds)
         env.log(f"   waiting up to {scenario.get('alarm_timeout_s')}s for {alarm['name']} -> ALARM")
         fired, waited = _poll_until(
             env, lambda: env.alarm(alarm["name"]).get("state") == "ALARM",
             float(scenario.get("alarm_timeout_s") or 0), ALARM_POLL_S)
         alarm.update({"fired": bool(fired), "never_fired": not fired,
-                      "waited_s": round(record["settle_seconds"] + waited)})
+                      "waited_s": round(settle_seconds + waited)})
         env.log(f"   alarm {'fired' if fired else 'NEVER FIRED'} after {alarm['waited_s']}s")
     elif alarm["expected"]:
         alarm["waited"] = False
-    record["alarm"] = {**alarm, "at": _now()}
-    _save_record(run, record)
-    return record
+    return alarm
 
 
-def _alert_file(env: Env, run: pathlib.Path, scenario: dict, alarm: dict) -> pathlib.Path:
+def _alert_file(run: pathlib.Path, scenario: dict, alarm: dict) -> pathlib.Path:
     alert = yaml.safe_load(ALERT_TEMPLATE.read_text(encoding="utf-8"))
     alert["name"] = scenario.get("alarm") or alert["name"]
     alert["summary"] = alarm.get("description") or alert["summary"]
@@ -706,32 +721,14 @@ def step_diagnose(env: Env, run: pathlib.Path, key: str, *, arm: dict[str, str] 
     open_run(env, run)
     record = _require(run, sid)
     if record.get("runs"):
-        prior = record["runs"][0]
-        if prior.get("report_written"):
-            raise StepError(f"{sid} already has WARDEN's report; one run per fault")
-        if not retry_reason:
-            raise StepError(f"{sid}: WARDEN wrote no report (exit {prior.get('exit_code')}). One run per "
-                            "fault means one ANSWER: a retry is allowed only with --retry-reason, and the "
-                            "failed attempt stays on record and in RESULTS.md section 7.")
-        # ⛔ Kept, never replaced: in the record, and listed where a reader of the results sees it.
-        # Only an attempt WITHOUT a report may be retried - re-asking until the answer improves is
-        # how a benchmark cheats; a crash before any answer measures the tool, not the diagnosis.
-        record.setdefault("attempts_without_report", []).append({**prior, "retry_reason": retry_reason})
-        record["runs"] = []
-        manifest_path = run / "manifest.json"
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest.setdefault("resumes", []).append({
-            "at": _now(), "git_commit": _git_commit(), "rerun": [sid], "superseded": [],
-            "forced": [], "reason": f"{sid}: {retry_reason} (the failed attempt is kept in its record)"})
-        _write_json(manifest_path, manifest)
-        _save_record(run, record)
+        _keep_the_failed_attempt(run, sid, record, retry_reason)
     live_alarm = env.alarm(scenario.get("alarm") or "")
     alarm = record.setdefault("alarm", {"name": scenario.get("alarm"),
                                         "expected": scenario.get("expect_alarm", True)})
     alarm["state_at_diagnose"] = live_alarm.get("state")
     if alarm.get("expected") and "never_fired" not in alarm:
         alarm["never_fired"] = live_alarm.get("state") != "ALARM"
-    alert = _alert_file(env, run, scenario, live_alarm)
+    alert = _alert_file(run, scenario, live_alarm)
 
     # ⭐ Assumed per run and recorded: "WARDEN read only as warden-dev-reader" must be checkable.
     creds = env.assume_reader()
@@ -756,6 +753,29 @@ def step_diagnose(env: Env, run: pathlib.Path, key: str, *, arm: dict[str, str] 
     _save_record(run, record)
     env.log(f"{sid}: WARDEN exit {code}, report {'written' if entry['report_written'] else 'MISSING'}")
     return record
+
+
+def _keep_the_failed_attempt(run: pathlib.Path, sid: str, record: dict, retry_reason: str | None) -> None:
+    """A second diagnose only after an attempt that wrote no report, and only with a reason; that attempt is kept."""
+    prior = record["runs"][0]
+    if prior.get("report_written"):
+        raise StepError(f"{sid} already has WARDEN's report; one run per fault")
+    if not retry_reason:
+        raise StepError(f"{sid}: WARDEN wrote no report (exit {prior.get('exit_code')}). One run per "
+                        "fault means one ANSWER: a retry is allowed only with --retry-reason, and the "
+                        "failed attempt stays on record and in RESULTS.md section 7.")
+    # ⛔ Kept, never replaced: in the record, and listed where a reader of the results sees it.
+    # Only an attempt WITHOUT a report may be retried - re-asking until the answer improves is
+    # how a benchmark cheats; a crash before any answer measures the tool, not the diagnosis.
+    record.setdefault("attempts_without_report", []).append({**prior, "retry_reason": retry_reason})
+    record["runs"] = []
+    manifest_path = run / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.setdefault("resumes", []).append({
+        "at": _now(), "git_commit": _git_commit(), "rerun": [sid], "superseded": [],
+        "forced": [], "reason": f"{sid}: {retry_reason} (the failed attempt is kept in its record)"})
+    _write_json(manifest_path, manifest)
+    _save_record(run, record)
 
 
 def step_fix(env: Env, run: pathlib.Path, key: str) -> dict:
@@ -789,7 +809,10 @@ def step_verify(env: Env, run: pathlib.Path, key: str, *, timeout_s: float | Non
     run0 = (record.get("runs") or [{}])[0]
     fix = run0.get("fix") or {}
     applied = fix.get("outcome") == "applied"
-    budget = float(timeout_s if timeout_s is not None else (scenario.get("recover_within") or 0) if applied else 0)
+    if timeout_s is not None:
+        budget = float(timeout_s)
+    else:
+        budget = float((scenario.get("recover_within") or 0) if applied else 0)
     last = {"ok": False, "detail": ""}
 
     def check() -> bool:
@@ -864,7 +887,10 @@ def step_soak(env: Env, run: pathlib.Path, *, min_s: float = 1800, max_s: float 
     while True:
         problems = stack_problems(env)
         now = env.clock()
-        healthy_since = None if problems else (now if healthy_since is None else healthy_since)
+        if problems:
+            healthy_since = None
+        elif healthy_since is None:
+            healthy_since = now
         streak = 0.0 if healthy_since is None else now - healthy_since
         env.log(f"soak {(now - start) / 60:5.1f} min: " + (f"healthy for {streak / 60:.1f} min" if not problems
                                                            else "; ".join(problems)))
@@ -963,11 +989,13 @@ def _parse_arm(pairs: list[str]) -> dict[str, str]:
     return arm
 
 
-def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
-    # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and this output carries ⛔/⚠.
+def _utf8_console() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+
+
+def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="scenarios.fullstack_cli", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", default=os.environ.get("WARDEN_FS_RUN") or str(DEFAULT_RUN))
@@ -1004,7 +1032,51 @@ def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
     s.add_argument("--skip-quiet", action="store_true")
     s.add_argument("--arm", action="append", default=[], metavar="K=V")
     sub.add_parser("_hold").add_argument("fault")
-    args = ap.parse_args(argv)
+    return ap
+
+
+def _destroy_check(run: pathlib.Path) -> int:
+    problems = destroy_problems(run)
+    print("\n".join(f"not yet: {p}" for p in problems) or "the stack may be destroyed: a full watch followed "
+          "the last activity")
+    return 1 if problems else 0
+
+
+def _step(env: Env, run: pathlib.Path, args: argparse.Namespace) -> int:
+    """The one step the command names; its exit code."""
+    if args.cmd == "_hold":
+        return cmd_hold(env, run, fs.fault_of(args.fault))
+    if args.cmd == "soak":
+        return 0 if step_soak(env, run, min_s=args.min_minutes * 60, max_s=args.max_minutes * 60) else 1
+    if args.cmd == "revert":
+        record = step_revert(env, run, args.fault, settle_s=args.settle_minutes * 60)
+        return 0 if record["baseline_after"]["clean"] else 1
+    if args.cmd == "watch":
+        return 0 if step_watch(env, run, minutes=args.minutes) else 1
+    _recorded_step(env, run, args)
+    return 0
+
+
+def _recorded_step(env: Env, run: pathlib.Path, args: argparse.Namespace) -> None:
+    """A step whose outcome is its record (exit 0 unless it stops with a StepError)."""
+    if args.cmd == "inject":
+        step_inject(env, run, args.fault, skip_quiet=args.skip_quiet, wait_alarm=not args.no_wait)
+    elif args.cmd == "diagnose":
+        step_diagnose(env, run, args.fault, arm=_parse_arm(args.arm), retry_reason=args.retry_reason)
+    elif args.cmd == "fix":
+        step_fix(env, run, args.fault)
+    elif args.cmd == "verify":
+        step_verify(env, run, args.fault, timeout_s=args.timeout)
+    elif args.cmd == "status":
+        step_status(env, run, check=not args.no_check)
+    elif args.cmd == "run":
+        step_run(env, run, args.fault, skip_quiet=args.skip_quiet, arm=_parse_arm(args.arm))
+
+
+def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
+    # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and this output carries ⛔/⚠.
+    _utf8_console()
+    args = _parser().parse_args(argv)
 
     try:
         run = paths.inside(args.run)  # from the command line: only where the tools work (warden.paths)
@@ -1015,37 +1087,13 @@ def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
         from . import score
         return score.main(["--run", str(run)])
     if args.cmd == "destroy-check":
-        problems = destroy_problems(run)
-        print("\n".join(f"not yet: {p}" for p in problems) or "the stack may be destroyed: a full watch followed "
-              "the last activity")
-        return 1 if problems else 0
+        return _destroy_check(run)
     try:
         env = env or (dry_env() if args.dry_run else live_env(run, warden_timeout=args.warden_timeout))
-        if args.cmd == "_hold":
-            return cmd_hold(env, run, fs.fault_of(args.fault))
-        if args.cmd == "soak":
-            return 0 if step_soak(env, run, min_s=args.min_minutes * 60, max_s=args.max_minutes * 60) else 1
-        if args.cmd == "inject":
-            step_inject(env, run, args.fault, skip_quiet=args.skip_quiet, wait_alarm=not args.no_wait)
-        elif args.cmd == "diagnose":
-            step_diagnose(env, run, args.fault, arm=_parse_arm(args.arm), retry_reason=args.retry_reason)
-        elif args.cmd == "fix":
-            step_fix(env, run, args.fault)
-        elif args.cmd == "verify":
-            step_verify(env, run, args.fault, timeout_s=args.timeout)
-        elif args.cmd == "revert":
-            record = step_revert(env, run, args.fault, settle_s=args.settle_minutes * 60)
-            return 0 if record["baseline_after"]["clean"] else 1
-        elif args.cmd == "status":
-            step_status(env, run, check=not args.no_check)
-        elif args.cmd == "watch":
-            return 0 if step_watch(env, run, minutes=args.minutes) else 1
-        elif args.cmd == "run":
-            step_run(env, run, args.fault, skip_quiet=args.skip_quiet, arm=_parse_arm(args.arm))
+        return _step(env, run, args)
     except (StepError, fs.OpError) as exc:
         print(f"STOPPED: {exc}", file=sys.stderr)
         return 1
-    return 0
 
 
 if __name__ == "__main__":

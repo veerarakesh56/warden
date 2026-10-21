@@ -67,7 +67,8 @@ def test_no_minute_that_began_before_the_fix_settled_is_counted(aws, at, first):
 def test_a_fix_judged_by_metrics_gets_the_time_that_takes(aws):  # noqa: F811
     _, p = aws
     live = p.live("lambda_move_alias", {"function": FN, "alias": "live", "to_version": "3"})
-    assert live and live["recover_minutes"] >= aws_mod.METRIC_SETTLE_MINUTES
+    assert live
+    assert live["recover_minutes"] >= aws_mod.METRIC_SETTLE_MINUTES
 
 
 def test_check_success_hands_the_platform_the_time_this_run_applied_the_fix(tmp_path):
