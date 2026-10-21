@@ -62,6 +62,9 @@ LOADABLE = frozenset({
     # Each environment's own alerts and discussion channels, `env=channel[,env=channel]` (by_environment): a dev
     # incident is told only in dev's, a prod one only in prod's (owner, 2026-10-16).
     "WARDEN_SLACK_CHANNELS", "WARDEN_DISCUSS_CHANNELS",
+    # VPC Reachability Analyzer as evidence (reachability.py, B16): off unless "1" - each analysis is billed - and the
+    # operator's paths, `source=destination:port`.
+    "WARDEN_REACHABILITY", "WARDEN_REACHABILITY_PATHS",
     # Datadog (datadog.py): its site is plain; the API key and the scoped, read-only application key are secrets.
     "WARDEN_DATADOG_SITE", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN",
     # X-Ray (xray.py) and which tools a run reads: plain. Grafana's reader (grafana.py) is not loaded from the store:

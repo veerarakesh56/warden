@@ -28,7 +28,7 @@ TEMPLATES = ROOT / "iam" / "templates"
 # platform-reader roles are WARDEN's own per-environment identities for its AWS platform (G6, audit A-P-5): the
 # runtime worker assumes the reader to read, and the actor - for one approved plan - to write.
 KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust", "actor", "actor-trust", "platform-reader", "platform-diagnose",
-         "platform-reader-trust", "kill-switch")
+         "platform-reader-trust", "kill-switch", "platform-reachability")
 TRUSTS = ("trust", "actor-trust", "platform-reader-trust")
 # WARDEN's own runtime environment (`runtime:` in environments.yaml) gets no application IAM: its deploy role - the one
 # runtime.yml assumes - and the boundary on every role terraform/runtime makes come from the runtime-* templates (G6).
