@@ -49,7 +49,8 @@ JWT_BACKDATE_S = 60
 _REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9_.-]{1,100}")
 _APP_ID = re.compile(r"\d{1,12}|Iv[0-9A-Za-z.]{2,40}")  # the App's numeric id, or its client id
 _BRANCH = re.compile(r"warden/[a-z0-9][a-z0-9._-]{0,60}(?:/[a-z0-9][a-z0-9._-]{0,60}){0,2}")
-_BASE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,60}")
+# A repository branch WARDEN reads or opens a pull request into: `main`, or one with folders (`release/1.0`).
+_BASE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,60}(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,60}){0,3}")
 _SHA = re.compile(r"[0-9a-f]{40}")
 # A headline or title: one line of up to 200 printable characters - what a revert's subject holds (`Revert "Fix the
 # cart (#123)"`): quotes, #, brackets, !, +, @, & - and no control character, line break or other whitespace.
@@ -251,6 +252,7 @@ class RepoWriter:
     def __init__(self, token: InstallationToken, *, api: Api | None = None) -> None:
         self._token, self._api = token, api or Api()
         self.repo = token.repository
+        self._created: set[str] = set()  # the branches this writer made: the only ones it commits to
 
     def _call(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:
         return self._api.call(method, f"/repos/{self.repo}{path}", token=self._token.token, body=body)
@@ -280,14 +282,18 @@ class RepoWriter:
         return data
 
     def create_branch(self, branch: str, sha: str) -> None:
-        status, _ = self._call("POST", "/git/refs", {"ref": f"refs/heads/{_branch(branch)}",
-                                                      "sha": _sha(sha, "the branch's start")})
+        branch = _branch(branch)
+        status, _ = self._call("POST", "/git/refs", {"ref": f"refs/heads/{branch}", "sha": _sha(sha, "the branch's start")})
         _expect(status, 201, f"the branch {branch}")
+        self._created.add(branch)
 
     def commit(self, branch: str, *, expected_head: str, headline: str, body: str = "",
                additions: Mapping[str, bytes] | None = None, deletions: tuple[str, ...] = ()) -> str:
         """One signed commit on `branch` (createCommitOnBranch); its id. Fails if the branch moved from
-        `expected_head`."""
+        `expected_head`. Only a branch this writer created: never another `warden/` branch that already exists."""
+        branch = _branch(branch)
+        if branch not in self._created:
+            raise GitHubAppError("WARDEN commits only to a branch it has just created")
         additions = dict(additions or {})
         if not additions and not deletions:
             raise GitHubAppError("a commit with no change")
