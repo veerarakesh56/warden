@@ -158,13 +158,14 @@ def test_the_activities_record_the_ask_and_read_the_extension(world):
 
 def test_the_thread_asks_in_plain_words_and_is_answered_in_fixed_ones():
     for text, hours in (("<@UWARDEN> extend the wait", 24), ("extend by 12h please", 12), ("extend approval 6 hours", 6),
-                        ("please extend the approval.", 24), ("extend the wait by 6h!", 6)):
+                        ("please extend the approval.", 24), ("extend the wait by 6h!", 6),
+                        ("extend the wait... thanks", 24)):
         assert discuss.asks_to_extend(text), text
         assert discuss.hours_asked(text) == hours, text
     # A question about what something extends is answered, not taken as a request (CodeRabbit, PR 182).
     for text in ("will this extend the outage", "what is the plan?", "extend", "can you extend it",
                  "will the restart extend it?", "does this extend the time to recover?",
-                 "can you extend the wait by 6h?"):
+                 "can you extend the wait by 6h?", "can you extend the wait...?", "extend the wait?!"):
         assert not discuss.asks_to_extend(text), text
     said = discuss.extended_said({"workflow_id": WID, "until_said": "2026-10-22 07:00Z", "hours": 24}, INC)
     assert said.startswith(f"The wait for WARDEN's plan `{WID}` is extended by 24 h")

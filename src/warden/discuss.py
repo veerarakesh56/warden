@@ -76,7 +76,7 @@ REPLAN_SOON = "WARDEN made a new plan for `{incident}` less than an hour ago; as
 # clause with "extend" ending in "?" is asked about, not asked for - it gets an answer, and nothing is extended.
 EXTEND = re.compile(r"(?i)\bextend\b([^.?!\n]{0,40})")
 _EXTEND_WHAT = re.compile(r"(?i)\b(?:wait|waiting|approval|plan|deadline|by)\b|\d\s*h")
-_CLAUSE_END = re.compile(r"(?i)\bextend\b[^.?!\n]*([.?!\n]?)")
+_CLAUSE_END = re.compile(r"(?i)\bextend\b[^.?!\n]*([.?!\n]*)")  # the whole run: "...?" is a question too
 # How long: read strictly from the whole message (CodeRabbit, PR 150: a "6 hours" past a fixed window became 24). One
 # whole number of hours said once ("12h", "12 hours") is that many; no number and no word about time is
 # EXTEND_MAX_HOURS; anything else - a second duration, another unit, a number standing alone, a decimal or a spelled-out
@@ -124,7 +124,7 @@ def asks_to_extend(text: str) -> bool:
     """An "extend" that names what it extends - the wait, the approval, it, by some hours - not any "extend"."""
     m = EXTEND.search(text or "")
     end = _CLAUSE_END.search(text or "")
-    return bool(m and _EXTEND_WHAT.search(m.group(1)) and end and end.group(1) != "?")
+    return bool(m and _EXTEND_WHAT.search(m.group(1)) and end and "?" not in end.group(1))
 
 
 def hours_asked(text: str) -> int | None:

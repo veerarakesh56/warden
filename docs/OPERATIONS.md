@@ -206,7 +206,8 @@ the footer of its messages) and a question; WARDEN answers in that thread from t
 as the diagnosis read it, or around now when the question asks about now ("still", "again", "now") - and from what its
 record says it decided. Follow-ups mention `@WARDEN` in the same thread. Anyone may ask; WARDEN changes nothing from
 this channel, and says who may ask for a new plan (an enrolled approver; the plan still needs their passkey in the alerts
-channel). Its answers are capped at 20 per incident a day and count toward the daily model cap every incident shares.
+channel). The one exception: an approver of a waiting plan may extend how long it waits (below) - its wait only; the
+plan still needs their passkey, and nothing is applied from here. Its answers are capped at 20 per incident a day and count toward the daily model cap every incident shares.
 
 A fix plan waits for its approval as long as its environment says (`approval_wait_hours` in environments.yaml: 72 hours
 unless set, at most 168). When a discussion needs longer (U3-8), an approver who may approve that plan - its risk level
