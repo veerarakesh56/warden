@@ -166,6 +166,31 @@ def test_a_hung_model_call_times_out_fast_instead_of_hanging_the_run():
     assert elapsed < 12, f"the wall-clock did not fire: waited {elapsed:.1f}s"
 
 
+class _ExitingProvider:
+    """Raises SystemExit inside the call - a BaseException that is not an Exception."""
+
+    name = "exiting"
+    model = "exiting-1"
+
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
+        raise SystemExit("the provider exited")
+
+
+def test_a_base_exception_in_the_call_thread_reaches_the_caller_unchanged(monkeypatch):
+    """The call runs on its own thread: a SystemExit raised there is carried back and raised to the caller as it
+    was, not lost with the thread (and not mistaken for a missing answer). The thread itself also ends with it;
+    WARDEN's own thread hook (observability.install_log_gate) says nothing for a SystemExit, so the test records
+    the hook instead of pytest's."""
+    import threading
+
+    ended_with: list[type] = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: ended_with.append(args.exc_type))
+    c = LLMClient(provider=_ExitingProvider(), mock=False, call_timeout_s=2.0)
+    with pytest.raises(SystemExit, match="the provider exited"):
+        c.structured(system="s", user="u", schema=Toy, retries=0)
+    assert ended_with == [SystemExit]
+
+
 class _FlakyProvider:
     """Raises a transient error on the first N calls, then returns valid JSON — a 503/429/reset."""
 
