@@ -1,6 +1,7 @@
 """Before a live database wave: run every fault op for real, smallest size, and prove it reverts.
 
     export WARDEN_BENCH_DB_DSN=... WARDEN_BENCH_DB_SG=...     # as for the wave itself
+    # (with the database tunnel open: terraform -chdir=terraform/proving-ground output -raw db_tunnel_command)
     python scripts/preflight_db_ops.py
 
 For each op: inject at minimum size, CHECK THE FAULT IS REALLY THERE (a session idle in a

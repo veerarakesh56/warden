@@ -57,16 +57,30 @@ locals {
     Condition = { StringEquals = { "cloudwatch:namespace" = "WARDEN/${var.environment}" } }
   }
   own = concat(local.audit_and_settings, [local.who_may_approve, local.its_own_metrics])
+  acknowledge_pages = [
+    { Sid = "ListPages", Effect = "Allow", Action = ["s3:ListBucket"], Resource = [aws_s3_bucket.anchors.arn] },
+    { Sid = "ReadPages", Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${aws_s3_bucket.anchors.arn}/pages/*", "${aws_s3_bucket.anchors.arn}/acks/*"] },
+    { Sid = "Acknowledge", Effect = "Allow", Action = ["s3:PutObject"], Resource = ["${aws_s3_bucket.anchors.arn}/acks/*"] },
+  ]
   # Register S15, as settings.ZONE_SECRETS and settings.secret_id name them (tests/test_runtime_module_g6.py holds the
   # two together): every zone's own, and each zone's. Each zone also reads its own Temporal key, temporal-api-key-<zone>.
   every_zone_secrets = ["temporal-key"]
+  # `platforms`: what the zone's worker connects (`warden worker --platform`, compute.tf). The read zone reads every
+  # platform's targets and health, the act zone writes through each; notify reads AWS alarms only. Kubernetes and the
+  # database are each watched environment's own (WARDEN_EKS_CLUSTERS, WARDEN_DB_ENVIRONMENT): one without them reads
+  # and changes nothing there, and its plans go to a person.
   zones = {
-    core   = { secrets = [], assumes = [] }
-    read   = { secrets = ["stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key"], assumes = ["platform-reader"] }
-    llm    = { secrets = ["anthropic-api-key"], assumes = [] }
-    notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "github-token"], assumes = ["platform-reader"] }
-    # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts.
-    act = { secrets = ["codefix-app-id", "codefix-app-key"], assumes = ["platform-reader", "actor"] }
+    core   = { secrets = [], assumes = [], platforms = [] }
+    read   = { secrets = ["stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key", "github-read-token"], assumes = ["platform-reader"], platforms = ["aws", "k8s", "db"] }
+    llm    = { secrets = ["anthropic-api-key"], assumes = [], platforms = [] }
+    notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "github-token"], assumes = ["platform-reader"], platforms = ["aws"] }
+    # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts. Its secrets: the
+    # terminate login's DSN (no password in it: each close signs in with a token the plan's actor signs) and the code-fix
+    # GitHub App's id and private key (github_app.py, B4).
+    act = { secrets = ["db-admin-dsn", "codefix-app-id", "codefix-app-key"], assumes = ["platform-reader", "actor"], platforms = ["aws", "k8s", "db"] }
+    # Eldane, the AI critic (eldane.py): the diagnosis's Claude key (owner, 2026-10-17) and its own signing key; it
+    # reads the audit and assumes nothing.
+    critic = { secrets = ["anthropic-api-key", "eldane-key"], assumes = [], platforms = [] }
   }
   # The Lambdas (frontdoor.tf), as settings.LAMBDA_SECRETS names what each handler reads (tests/test_runtime_module_g6.py
   # runs each one's load and holds the two together). Only the approval page reads who may approve; only actor-use
@@ -74,7 +88,7 @@ locals {
   front_door_access = {
     alarm        = { secrets = ["temporal-key", "temporal-api-key"], approvers = false, metrics = false }
     alertmanager = { secrets = ["temporal-key", "temporal-api-key", "datadog-webhook-token", "datadog-api-key", "datadog-app-key"], approvers = false, metrics = false }
-    approval     = { secrets = ["temporal-key", "temporal-api-key", "slack-client-secret"], approvers = true, metrics = false }
+    approval     = { secrets = ["temporal-key", "temporal-api-key", "slack-client-secret"], approvers = true, metrics = true }
     actor-use    = { secrets = [], approvers = false, metrics = true }
   }
 }
@@ -160,6 +174,8 @@ resource "aws_iam_role_policy" "front_door" {
   role     = aws_iam_role.front_door[each.key].id
   policy = jsonencode({ Version = "2012-10-17", Statement = concat(local.audit_and_settings,
     each.value.approvers ? [local.who_may_approve] : [], each.value.metrics ? [local.its_own_metrics] : [],
+    # WARDEN's own pages (paging.tf): the approval page shows them and writes an approver's acknowledgement.
+    [for s in local.acknowledge_pages : s if each.key == "approval"],
     length(each.value.secrets) == 0 ? [] : [{
       Sid      = "ItsOwnSecrets"
       Effect   = "Allow"

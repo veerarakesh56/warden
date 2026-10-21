@@ -183,33 +183,37 @@ def appconfig_for_alarm(client: Any, alarm_arn: str) -> tuple[list[tuple[dict, d
     """The (application, environment) pairs whose monitors name this alarm, and whether every application was read
     (review-e M3: a second guard among the unread ones made the first look like the only one). An application the
     reader is refused (another environment's, by tag) is not this environment's: it does not make the read partial."""
-    apps, token, complete = [], None, True
-    for _ in range(3):
-        page = client.list_applications(MaxResults=50, **({"NextToken": token} if token else {}))
-        apps += page.get("Items") or []
-        token = page.get("NextToken")
-        if not token:
-            break
+    apps, token = _three_pages(client.list_applications)
     complete = not token and len(apps) <= APPCONFIG_APPS
     out = []
     for app in apps[:APPCONFIG_APPS]:
         try:
-            envs, etoken = [], None
-            for _ in range(3):
-                page = client.list_environments(ApplicationId=app["Id"], MaxResults=50,
-                                                **({"NextToken": etoken} if etoken else {}))
-                envs += page.get("Items") or []
-                etoken = page.get("NextToken")
-                if not etoken:
-                    break
+            envs, etoken = _three_pages(client.list_environments, ApplicationId=app["Id"])
             complete = complete and not etoken
-        except Exception as exc:  # noqa: BLE001
-            code = str(((getattr(exc, "response", None) or {}).get("Error") or {}).get("Code") or type(exc).__name__)
-            if "Denied" not in code and "Forbidden" not in code:
+        except Exception as exc:  # noqa: BLE001  # a failed read is data: partial unless refused
+            if not _refused(exc):
                 complete = False
             continue
         out += [(app, e) for e in envs if any(m.get("AlarmArn") == alarm_arn for m in e.get("Monitors") or [])]
     return out, complete
+
+
+def _three_pages(call: Any, **kwargs: Any) -> tuple[list, str | None]:
+    """Up to three pages of a list call's `Items`, and the token left over when there were more."""
+    items, token = [], None
+    for _ in range(3):
+        page = call(**kwargs, MaxResults=50, **({"NextToken": token} if token else {}))
+        items += page.get("Items") or []
+        token = page.get("NextToken")
+        if not token:
+            break
+    return items, token
+
+
+def _refused(exc: Exception) -> bool:
+    """AWS refused the read (another environment's application, by tag), by the error's code or else its class."""
+    code = str(((getattr(exc, "response", None) or {}).get("Error") or {}).get("Code") or type(exc).__name__)
+    return "Denied" in code or "Forbidden" in code
 
 
 def latest_deployment(client: Any, app_id: str, env_id: str) -> dict | None:
@@ -236,20 +240,24 @@ def _value(v: Any) -> str:
         # held-out, 2026-10-11: a file system's size in bytes reached the model as `Value=<PHONE_1>`).
         return f"{v:_}"
     if isinstance(v, (list, tuple)):
-        # A list of resources is its count and how many are in each state; a Route 53 checker's report counts by
-        # its first word (Success / Failure), never its text.
-        states = [str(_get(x, "State") or _get(x, "Status") or _get(x, "JobRunState") or _get(x, "HealthStatus")
-                      or str(_get(x, "StatusReport.Status") or "").split(":")[0] or "")
-                  for x in v if isinstance(x, Mapping)]
-        states = [_safe(s) for s in states if s]
-        if states:
-            return f"{len(v)}(" + ",".join(f"{s}:{states.count(s)}" for s in sorted(set(states))) + ")"
-        if v and all(isinstance(x, str) and len(x) <= 24 for x in v):  # enum values (REGIONAL, EDGE)
-            return "+".join(_safe(x) for x in v)
-        return str(len(v))
+        return _list_value(v)
     if isinstance(v, Mapping):
         return "+".join(sorted(_safe(k) for k in v)) or "none"
     return _safe(v)
+
+
+def _list_value(v: list | tuple) -> str:
+    """A list of resources is its count and how many are in each state; a Route 53 checker's report counts by its
+    first word (Success / Failure), never its text."""
+    states = [str(_get(x, "State") or _get(x, "Status") or _get(x, "JobRunState") or _get(x, "HealthStatus")
+                  or str(_get(x, "StatusReport.Status") or "").split(":")[0] or "")
+              for x in v if isinstance(x, Mapping)]
+    states = [_safe(s) for s in states if s]
+    if states:
+        return f"{len(v)}(" + ",".join(f"{s}:{states.count(s)}" for s in sorted(set(states))) + ")"
+    if v and all(isinstance(x, str) and len(x) <= 24 for x in v):  # enum values (REGIONAL, EDGE)
+        return "+".join(_safe(x) for x in v)
+    return str(len(v))
 
 
 def field_name(fields: tuple[str, ...], dotted: str) -> str:

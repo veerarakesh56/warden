@@ -518,6 +518,9 @@ def test_parse_diff_reads_deletes_renames_modes_and_binaries():
     "diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/other.py\n",
     "diff --git a/x.py b/x.py\n--- /dev/null\n+++ b/x.py\n",                          # /dev/null for a modified file
     "diff --git a/x.py b/x.py\nindex 1..2 1006444\n",                                  # a mode of the wrong shape
+    "diff --git a/x.py b/x.py\nold mode 100644\nnew mode 100755\nindex 1..2 100644\n",  # two modes that disagree
+    "diff --git a/x.py b/x.py\nindex 1..2 100644\nold mode 100644\nnew mode 120000\n",
+    "diff --git a/x.py b/x.py\nnew file mode 120000\nindex 0..2 100644\n",
 ])
 def test_parse_diff_refuses_what_it_cannot_read(text):
     with pytest.raises(CodeGateError):
@@ -532,6 +535,13 @@ def test_an_unchanged_mode_in_the_index_line_is_read():
                              f"+++ b/scenarios/fullstack/app/l.py\n@@ -1 +1 @@\n-a.py\n+b.py\n")
         assert (link.old_mode, link.new_mode) == (mode, mode)
         assert "CG7" in rules([link, added_test()])
+
+
+def test_a_mode_change_with_an_index_line_without_mode_is_read():
+    """What git writes for `chmod +x`: mode lines, then an `index` line with no mode."""
+    (f,) = parse_diff("diff --git a/x.py b/x.py\nold mode 100644\nnew mode 100755\nindex 1a..2b\n--- a/x.py\n"
+                      "+++ b/x.py\n@@ -1 +1 @@\n-a\n+b\n")
+    assert (f.old_mode, f.new_mode) == ("100644", "100755")
 
 
 def test_dev_null_only_for_the_side_a_file_does_not_have():

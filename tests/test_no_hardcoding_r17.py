@@ -115,6 +115,7 @@ NOT_AN_ENVIRONMENT = {
     "src/warden/mcp_server.py": ({"prod"}, "a sample alert in a tool's description"),
     "src/warden/verifier.py": ({"prod", "ops"}, "the prod TIER (P2), and a vocabulary of plain words"),
     "src/warden/reporting.py": ({"prod"}, "the tier ranks"),
+    "src/warden/autonomy.py": ({"prod"}, "the prod TIER, which is never autonomous"),
     "src/warden/grounding.py": ({"prod", "dev"}, "a vocabulary of scope words"),
     "src/warden/redaction.py": ({"prod", "dev"}, "a vocabulary of common words never swept as secrets"),
     "src/warden/code_gate.py": ({"prod"}, "the prod TIER, whose code fixes a person always merges"),
@@ -122,6 +123,7 @@ NOT_AN_ENVIRONMENT = {
     "scenarios/runner.py": ({"prod"}, "the dry runs' sample alerts"),
     "scenarios/fullstack_cli.py": ({"prod"}, "the dry run's sample alert"),
     "scenarios/ops_fullstack.py": ({"ops"}, "a result key named `ops`"),
+    "scripts/pause_resume.py": ({"ops"}, "the full stack's Lambda named `ops` (its lambda.tf)"),
 }
 
 
@@ -219,7 +221,7 @@ LEGACY_OR_REGION_ALLOWED = {
     "scripts/prove_boundary.py": ({"legacy"}, PROVING_GROUND),
     "scripts/teardown_sweep.py": ({"legacy"}, PROVING_GROUND),
     "terraform/proving-ground/operator-policy-boundary.json": ({"legacy", "region"}, PROVING_GROUND),
-    "terraform/proving-ground/operator-policy-rds-eks.json": ({"region"}, PROVING_GROUND),
+    "terraform/proving-ground/operator-policy-rds-eks.json": ({"legacy", "region"}, PROVING_GROUND),
     "terraform/proving-ground/operator-policy.json": ({"legacy", "region"}, PROVING_GROUND),
     "terraform/proving-ground/terraform.tfvars.example": ({"region"}, PROVING_GROUND),
     "terraform/proving-ground/variables.tf": ({"legacy"}, PROVING_GROUND),
