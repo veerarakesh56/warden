@@ -303,7 +303,16 @@ def _webhook_gate(monkeypatch, stored: dict, calls: list):
     import types
     import zipfile
 
-    from botocore.exceptions import ClientError
+    class ClientError(Exception):
+        """botocore's, as far as the gate uses it (the workflow scan's lane has no botocore)."""
+
+        def __init__(self, error_response, operation_name):
+            super().__init__(operation_name)
+            self.response = error_response
+
+    monkeypatch.setitem(sys.modules, "botocore", types.ModuleType("botocore"))
+    monkeypatch.setitem(sys.modules, "botocore.exceptions", types.SimpleNamespace(
+        ClientError=ClientError, BotoCoreError=type("BotoCoreError", (Exception,), {})))
 
     source = (RUNTIME / "webhook_auth" / "webhook_auth.py").read_bytes()
     with zipfile.ZipFile(RUNTIME / "webhook_auth.zip") as z:  # what is deployed is exactly the reviewed source
