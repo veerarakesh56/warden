@@ -22,7 +22,7 @@ jobs:
       vars.WARDEN_SECURITY_REVIEW == 'on'
       && github.event.pull_request.head.repo.full_name == github.repository
       && github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read        # read the change
