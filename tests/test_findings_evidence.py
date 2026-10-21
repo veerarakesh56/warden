@@ -387,7 +387,7 @@ def test_the_reader_is_one_of_the_evidence_tools_only_when_switched_on(monkeypat
         assert (reader.max_prs, reader.max_per_pr) == want, (prs[:8], per_pr)
     from warden.settings import LOADABLE, SECRETS
 
-    assert {"WARDEN_FINDINGS", "WARDEN_SONAR_PROJECT"} <= LOADABLE
+    assert LOADABLE >= {"WARDEN_FINDINGS", "WARDEN_SONAR_PROJECT"}
     assert "WARDEN_SONAR_TOKEN" not in LOADABLE | SECRETS
 
 
