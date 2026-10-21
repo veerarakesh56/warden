@@ -250,8 +250,9 @@ data in `src/warden/data/providers.yaml`. A model must pass WARDEN's replay qual
 diagnose; an unqualified model is refused, and every incident is then escalated on the rules alone.
 
 `routing.py` picks the model per case: Claude Sonnet 5.5 by default, Claude Opus 5.5 when one of WARDEN's own
-checkable signals marks the case hard (the fix's tier T2/T3, prod, two diagnoses disagreeing, weak evidence, the top
-hypotheses too close, a re-investigation asked for in chat). Diagnosing needs the model's `diagnose` role in
+checkable signals marks the case hard (the fix's tier T2/T3, prod, two diagnoses disagreeing, weak evidence, a
+re-investigation asked for in chat; the top hypotheses being too close is recorded but not yet wired, so it never fires
+in this version). Diagnosing needs the model's `diagnose` role in
 `providers.yaml` and a passing replay-qualification row; reviewing (Eldane) and the discussion channel need only their
 role, `critic` or `chat`, because neither changes anything on its own - so today Opus reviews and answers deep chat
 questions but never diagnoses.

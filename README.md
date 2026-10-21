@@ -353,15 +353,17 @@ hard, and "hard" is decided by facts WARDEN can check itself, never by how sure 
 - the fix it proposes is of risk tier T2 or T3 (service-wide, or not reversible);
 - the incident is in production;
 - two diagnoses of the same evidence disagree (another fix, or another target);
-- the two most likely causes are too close to call, counting the evidence for and against each (this needs the
-  ranked causes that are still being added; until then it never fires);
+- the two most likely causes are too close to call, counting the evidence for and against each (not yet wired to
+  the ranked causes, so in this version it never fires);
 - the evidence is weak: fewer than 2 of the cited facts are WARDEN's own readings (a metric, a deploy, a resource's
   state), or too little was gathered at all;
 - someone asked in the discussion channel for a new plan, or to investigate again.
 
-One of these is enough. Production and a new plan asked for in chat are known before the first answer, so Opus answers
-from the start; the others are known only after Sonnet has answered, and then Opus diagnoses again on the same
-evidence and its answer replaces Sonnet's, after the same checks. Its answer can never undo the hand-off to a person
+One of these is enough. Production and a new plan asked for in chat are known before the first answer, so once Opus may
+diagnose it answers from the start; the others are known only after Sonnet has answered, and then Opus diagnoses again
+on the same evidence and its answer replaces Sonnet's, after the same checks. Opus may diagnose only when
+`providers.yaml` gives it the `diagnose` role AND it has passed the replay set; today neither holds, so Sonnet answers
+every case and a hard one is marked for a person. Its answer can never undo the hand-off to a person
 that two disagreeing answers caused. In the discussion channel a plain question gets Sonnet and a request to look
 again in depth gets Opus. Eldane, the AI that reviews fixes, always uses the other of the two models from the one
 that made the diagnosis. Every choice is written to the signed audit log with the facts that decided it and their
