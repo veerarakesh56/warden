@@ -303,6 +303,15 @@ def _freeze(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dic
             "environment": alert.environment, "incident_id": alert.alert_id}, ""
 
 
+def soak_minutes() -> int:
+    """WARDEN_SOAK_MINUTES: how long a verified fix is watched before it is called held - 60 by default, at most a
+    day (FixRequest's own bounds). A value that is not a whole number of minutes is the default, never a guess."""
+    import os
+
+    raw = os.environ.get("WARDEN_SOAK_MINUTES", "").strip()
+    return min(max(int(raw), 60), 24 * 60) if raw.isdigit() else 60
+
+
 # FixRequest's own bounds for the verify window (activities.py; tests/test_recover_window.py holds them equal).
 RECOVER_MINUTES = (5, 120)
 
@@ -327,6 +336,8 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
 
         request["approval_ttl_minutes"] = default_environment_policies().for_env(
             alert.environment).approval_wait_hours * 60
+    if request:
+        request["soak_minutes"] = soak_minutes()
     if request and request["entry"] in windows:
         lo, hi = RECOVER_MINUTES
         request["recover_within_minutes"] = min(max(windows[request["entry"]], lo), hi)

@@ -2834,30 +2834,17 @@ def from_environment() -> AwsPlatform:
 
 def _platform(sts: Any, where: str, reader_arn: str, actor_arn: str) -> AwsPlatform:
     """One environment's platform: reads in its reader role, each write in an actor session for one plan."""
-    import boto3
-
     from .. import identity
+    from . import reader_clients, session_clients
 
-    def session(creds: dict[str, str]) -> Clients:
-        s = boto3.Session(**creds, region_name=where)
-        return lambda service: s.client(service)
-
-    held: dict[str, Any] = {}
-
-    def reader(service: str) -> Any:
-        # The reader session lasts 15 minutes; it is renewed after 10, so no read runs on one about to expire.
-        import time
-
-        if held.get("until", 0) < time.monotonic():
-            held["clients"] = session(identity.reader_session(sts, role_arn=reader_arn, incident="warden-worker"))
-            held["until"] = time.monotonic() + 600
-        return held["clients"](service)
+    reader = reader_clients(sts, where, reader_arn)
 
     def actor(who: dict[str, Any], actions: list[str], resources: list[str], condition: dict | None,
               also: tuple = ()) -> Clients:
-        return session(identity.actor_session(sts, role_arn=actor_arn, incident=who["incident"],
-                                              plan_hash=who["plan_hash"], approvers=who["approvers"],
-                                              actions=actions, resources=resources, condition=condition, also=also))
+        return session_clients(identity.actor_session(sts, role_arn=actor_arn, incident=who["incident"],
+                                                      plan_hash=who["plan_hash"], approvers=who["approvers"],
+                                                      actions=actions, resources=resources, condition=condition,
+                                                      also=also), where)
 
     return AwsPlatform(reader=reader, actor=actor)
 
