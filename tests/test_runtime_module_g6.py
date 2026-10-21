@@ -332,7 +332,8 @@ def test_the_github_token_is_the_notify_zones_whose_activities_read_it():
 
     from warden import activities, changes, runtime, settings, timeline, workflows
 
-    assert "self.changes.open(" in inspect.getsource(activities.RemediationActivities.finish)
+    assert "self._record_change(" in inspect.getsource(activities.RemediationActivities.finish)
+    assert "self.changes.open(" in inspect.getsource(activities.RemediationActivities._record_change)
     assert "changes=from_environment()" in inspect.getsource(runtime._activities)
     assert '"WARDEN_GITHUB_TOKEN"' in inspect.getsource(changes.from_environment)
     assert "timeline.recent(" in inspect.getsource(activities.IncidentActivities.notify)

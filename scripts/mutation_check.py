@@ -351,8 +351,8 @@ MUTATIONS = [
     (
         "an Eldane-approved plan is applied without a person's chance to say no",
         'workflows.py',
-        '                await workflow.wait_condition(lambda: self._vetoed(wid, plan) is not None, timeout=VETO)',
-        '                pass',
+        '            await workflow.wait_condition(lambda: self._vetoed(wid, plan) is not None, timeout=VETO)',
+        '            pass',
         "a person's decision always overrides Eldane's (owner, 2026-10-17)",
     ),
     (

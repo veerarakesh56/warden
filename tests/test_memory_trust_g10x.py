@@ -114,8 +114,10 @@ def test_past_incidents_reach_a_diagnosis_only_as_fixed_facts_and_only_when_swit
     acts = _src("activities.py")
     prepare = _function(acts, "prepare")
     assert 'os.environ.get("WARDEN_HISTORY_IN_PROMPT", "").strip() == "1"' in prepare
-    assert "history.for_prompt(history.past(alert, self.audit), self.audit)" in prepare
-    assert '"node": "history_shown"' in prepare
+    assert "prompt = self._with_history(alert, prompt, steps)" in prepare
+    with_history = _function(acts, "_with_history")
+    assert "history.for_prompt(history.past(alert, self.audit), self.audit)" in with_history
+    assert '"node": "history_shown"' in with_history
 
 
 def test_a_diagnosis_is_shown_only_past_runs_the_signed_record_vouches_for(tmp_path):
