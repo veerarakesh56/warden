@@ -15,7 +15,7 @@ import pytest
 
 from test_eldane_autonomy import FakeModel, _review
 from test_eldane_autonomy import world as eldane_world  # noqa: F401 - the fixture, read by _eldane
-from warden import activities, audit, discuss, eldane, llm, paging
+from warden import activities, audit, autonomy, discuss, eldane, llm, paging
 from warden.activities import DiscussActivities, IncidentActivities
 from warden.cli import DEMO_ALERTS
 from warden.graph import Diagnosis
@@ -87,7 +87,8 @@ def test_each_request_of_a_diagnosis_has_one_metadata_only_row_with_its_cost(tmp
         assert row["ok"] is answered
         assert row["latency_ms"] >= 0
         tokens = (1000, 200) if answered else (0, 0)
-        assert (row["prompt_tokens"], row["completion_tokens"]) == tokens
+        assert row["prompt_tokens"] == tokens[0]
+        assert row["completion_tokens"] == tokens[1]
         assert row["cost"] == pytest.approx(llm.usd(prices, *tokens))
         assert row["where"] == DIAGNOSE
 
@@ -182,6 +183,54 @@ def test_no_log_line_holds_the_prompt_or_the_answer(tmp_path, caplog, request):
     assert text.count(CANARY_ANSWER) == 0
 
 
+def _exported(exporter) -> str:
+    """Everything a span exporter would send: names, attributes, events and their attributes, status descriptions."""
+    out = []
+    for sp in exporter.get_finished_spans():
+        out += [sp.name, str(dict(sp.attributes or {})), str(sp.status.description or "")]
+        out += [f"{ev.name} {dict(ev.attributes or {})}" for ev in sp.events]
+    return "\n".join(out)
+
+
+def test_no_exported_span_holds_the_prompt_or_the_answer(tmp_path, monkeypatch, request):
+    """With otlp_exporter on, spans leave the account for the owner's collector (item 7b): a new destination. What
+    they carry is metadata - never the prompt or the answer, not even inside an error's text."""
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from warden import observability
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(observability, "tracer", lambda: provider.get_tracer("canary"))
+    answers = (f"not json {CANARY_ANSWER}", f'{{"root_cause": "{CANARY_ANSWER}"}}', _status(503))
+    for i, answer in enumerate(answers):
+        (tmp_path / str(i)).mkdir()
+        _, acts = _acts(tmp_path / str(i), lambda a=answer: LLMClient(provider=Scripted(a), mock=False))
+        pack = acts.prepare(Alert(**DEMO_ALERTS["inc-002"]))
+        acts.diagnose(pack.model_copy(update={"prompt": f"{CANARY_PROMPT}\n{pack.prompt}"}))
+    critic_world = _eldane(request)
+    critic_world["model"].answer = CANARY_ANSWER
+    _review(critic_world)
+    assert exporter.get_finished_spans()  # spans were made - the scan is not of nothing
+    text = _exported(exporter)
+    assert text.count(CANARY_PROMPT) == 0
+    assert text.count(CANARY_ANSWER) == 0
+
+
+def test_a_mock_answer_that_failed_is_a_call_not_answered():
+    client = LLMClient(mock=True)
+
+    def broken():
+        raise ValueError("no answer")
+
+    with pytest.raises(ValueError, match="no answer"):
+        client.structured(system="s", user="u", schema=Diagnosis, mock_factory=broken)
+    assert [c["ok"] for c in client.calls] == [False]
+
+
 # --------------------------------------------------------------------------- (3) exactly one llm.fallback row
 
 
@@ -248,6 +297,20 @@ def test_eldane_without_an_answer_is_one_fallback(request, failure, reason):
         critic_world["model"].answer = failure
     _review(critic_world)
     assert _reasons(critic_world["log"]) == [reason]  # the first "no" ends the review: one question, one row
+
+
+def test_a_catch_trial_eldane_could_not_answer_is_no_second_fallback(request):
+    """A catch trial asks about a planted plan WARDEN never acts on: with the provider down, the plan's own question
+    is the one fallback - the trial's failure is unscored, not a second row for the same plan."""
+    critic_world = _eldane(request)
+
+    def down(**kw):
+        raise ConnectionError("down")
+
+    critic_world["model"].complete = down
+    _review(critic_world, chance=lambda n: 0)  # 0: a catch trial this time
+    assert len(critic_world["log"].entries(kinds=(autonomy.TRIAL,))) == 1  # the trial was asked
+    assert _reasons(critic_world["log"]) == [llm.PROVIDER_UNAVAILABLE]
 
 
 def test_eldanes_daily_cap_is_one_budget_cap(request):

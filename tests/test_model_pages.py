@@ -111,7 +111,7 @@ def test_a_spent_budget_pages_once(tmp_path, counted):
 MOCK_CEILING = "mock-ceiling"
 
 
-@pytest.mark.parametrize("how", ["spent-in-a-call", "call-ceiling-before-a-call", "prompt-too-large", MOCK_CEILING])
+@pytest.mark.parametrize("how", ["spent-in-a-call", "call-ceiling-before-a-call", MOCK_CEILING])
 def test_every_way_the_budget_stops_a_call_names_the_budget(how):
     from warden.llm import BudgetExceeded
 
@@ -119,13 +119,29 @@ def test_every_way_the_budget_stops_a_call_names_the_budget(how):
     # Spent in a call: the request's own estimate passes, and the answer's 100,000 tokens of input then cost more.
     client = LLMClient(provider=None if mock else Scripted(Completion(GOOD, 100_000, 5)), mock=mock, max_calls=1,
                        max_usd=0.01 if how == "spent-in-a-call" else 10.0)
-    ask = {"system": "s", "user": "u" * (llm.MAX_PROMPT_TOKENS * 5 if how == "prompt-too-large" else 1), "schema": Toy,
-           "mock_factory": lambda: Toy(answer="a", score=1)}
+    ask = {"system": "s", "user": "u", "schema": Toy, "mock_factory": lambda: Toy(answer="a", score=1)}
     if how in ("call-ceiling-before-a-call", MOCK_CEILING):
         client.structured(**ask)
     with pytest.raises(BudgetExceeded):
         client.structured(**ask)
     assert client.stopped_by == paging.BUDGET
+
+
+def test_a_prompt_too_large_is_no_spent_budget_and_pages_nobody(tmp_path, counted, monkeypatch):
+    """A prompt over the size ceiling is refused before any call, but no budget was spent: it is the model path's own
+    failure (model_refused), never the "an incident spent its model budget" page."""
+    from warden.llm import BudgetExceeded
+
+    client = LLMClient(provider=Scripted(GOOD), mock=False)
+    with pytest.raises(BudgetExceeded):
+        client.structured(system="s", user="u" * (llm.MAX_PROMPT_TOKENS * 5), schema=Toy)
+    assert client.stopped_by == ""
+    monkeypatch.setattr(llm, "MAX_PROMPT_TOKENS", 10)  # every incident's prompt is now too large
+    log = _incidents(tmp_path, lambda: Scripted(GOOD), n=2)
+    assert _paged(log) == []
+    assert counted == []
+    reasons = [e["body"]["reason"] for e in log.entries(kinds=(llm.FALLBACK,))]
+    assert reasons == [llm.MODEL_REFUSED, llm.MODEL_REFUSED]
 
 
 def test_the_daily_cap_pages_once_for_every_incident_it_stops(tmp_path, counted):
