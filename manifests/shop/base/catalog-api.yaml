@@ -66,7 +66,7 @@ spec:
         - name: app
           image: shop-app  # the commit's image, set by the shop Application
           ports:
-            - name: http
+            - name: https
               containerPort: 8080
           env:
             - name: APP_ROLE
@@ -90,12 +90,14 @@ spec:
             httpGet:
               path: /ready
               port: 8080
+              scheme: HTTPS  # the app's own certificate; the kubelet does not verify a probe's certificate
             periodSeconds: 5
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /health
               port: 8080
+              scheme: HTTPS  # the app's own certificate; the kubelet does not verify a probe's certificate
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:
@@ -130,9 +132,10 @@ spec:
   selector:
     app: catalog-api
   ports:
-    - name: http
-      port: 80
+    - name: https  # the pods serve HTTPS only (Sonar python:S5332, owner row 25)
+      port: 443
       targetPort: 8080
+      appProtocol: https
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

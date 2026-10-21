@@ -9,3 +9,5 @@ opentelemetry-instrumentation-psycopg
 opentelemetry-instrumentation-redis
 opentelemetry-instrumentation-botocore
 opentelemetry-instrumentation-logging
+# The certificate each container makes for itself at start (Sonar python:S5332, owner row 25): PyCA's own library.
+cryptography==50.0.2

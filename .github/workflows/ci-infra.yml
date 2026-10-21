@@ -34,8 +34,11 @@ on:
       - "tests/test_runtime_network_g6.py"
       - "tests/test_backups.py"
       - "tests/test_iac_hardening_sonar.py"
+      - "tests/test_iac_leftovers_sonar.py"
+      - "tests/test_stack_paths_s2083.py"
       - "tests/test_helios_gate_r56.py"
       - "scripts/helios_gate.py"
+      - "src/warden/paths.py"  # helios_gate.py and aurora_express.py import it
       - "tests/test_platform_iam_g6.py"
       - "tests/test_aws_platform_g6.py"
       - "src/warden/platforms/aws.py"
@@ -77,8 +80,11 @@ on:
       - "tests/test_runtime_network_g6.py"
       - "tests/test_backups.py"
       - "tests/test_iac_hardening_sonar.py"
+      - "tests/test_iac_leftovers_sonar.py"
+      - "tests/test_stack_paths_s2083.py"
       - "tests/test_helios_gate_r56.py"
       - "scripts/helios_gate.py"
+      - "src/warden/paths.py"  # helios_gate.py and aurora_express.py import it
       - "tests/test_platform_iam_g6.py"
       - "tests/test_aws_platform_g6.py"
       - "src/warden/platforms/aws.py"
