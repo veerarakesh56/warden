@@ -69,8 +69,9 @@ def test_the_api_key_goes_only_to_the_configured_namespace_endpoint(seen, monkey
     monkeypatch.setenv("WARDEN_TEMPORAL_ADDRESS", address)
     monkeypatch.setenv("WARDEN_TEMPORAL_NAMESPACE", "ns.acct")
     monkeypatch.setenv("WARDEN_TEMPORAL_API_KEY", "k" * 8)
+    connecting = runtime.connect(key=KEY)
     with pytest.raises(RuntimeError, match="only the namespace's own"):
-        asyncio.run(runtime.connect(key=KEY))
+        asyncio.run(connecting)
     assert seen == []
 
 
@@ -79,8 +80,9 @@ def test_a_namespace_that_is_not_name_dot_account_is_refused(seen, monkeypatch, 
     monkeypatch.setenv("WARDEN_TEMPORAL_ADDRESS", "ns.acct.tmprl.cloud:7233")
     monkeypatch.setenv("WARDEN_TEMPORAL_NAMESPACE", namespace)
     monkeypatch.setenv("WARDEN_TEMPORAL_API_KEY", "k" * 8)
+    connecting = runtime.connect(key=KEY)
     with pytest.raises(RuntimeError, match="not a Temporal Cloud namespace"):
-        asyncio.run(runtime.connect(key=KEY))
+        asyncio.run(connecting)
     assert seen == []
 
 
