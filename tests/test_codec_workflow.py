@@ -63,7 +63,8 @@ def test_a_plain_signal_after_apply_does_not_stop_the_rollback():
             return out, platform
 
     out, platform = asyncio.run(main())
-    assert out.status == "rolled_back" and platform.rolled_back
+    assert out.status == "rolled_back"
+    assert platform.rolled_back
 
 
 
@@ -139,7 +140,8 @@ def test_a_forged_ciphertext_signal_after_apply_does_not_stop_the_rollback():
             return await asyncio.wait_for(h.result(), 60), platform
 
     out, platform = asyncio.run(main())
-    assert out.status == "rolled_back" and platform.rolled_back
+    assert out.status == "rolled_back"
+    assert platform.rolled_back
 
 
 def test_a_replayed_approval_does_not_apply_another_workflow():
@@ -305,4 +307,5 @@ def test_an_unreadable_gate_answer_blocks_instead_of_passing():
                 RemediationWorkflow.run, FixRequest(**REQ), id=f"rem-{uuid.uuid4()}", task_queue="nullgate"), 60)
 
     out = asyncio.run(main())
-    assert out.status == "blocked" and platform.applied == []
+    assert out.status == "blocked"
+    assert platform.applied == []

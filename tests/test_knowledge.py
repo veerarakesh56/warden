@@ -176,7 +176,8 @@ def test_the_catalog_is_offered_as_a_candidate_not_as_an_answer(monkeypatch):
 
     monkeypatch.setenv("WARDEN_KNOWLEDGE_IN_PROMPT", "1")
     blob = _evidence_blob(_state(ContextBundle(logs=["OOMKilled"])))
-    assert "not a" in blob and "conclusion" in blob
+    assert "not a" in blob
+    assert "conclusion" in blob
 
 
 def test_an_incident_the_catalog_does_not_cover_adds_nothing(monkeypatch):
