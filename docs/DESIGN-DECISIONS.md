@@ -317,6 +317,8 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
+- Credentialed outbound HTTPS: Python's own urllib, behind one opener that speaks https only and follows a
+  redirect only to the same https host and port, so no token or key is ever sent to another host - `web.py`.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
   Alertmanager webhook, the approval page) - `lambdas.py`, thin adapters over intake, webhooks and the approval page.
 - Who used an actor role: AWS CloudTrail (a management-event trail, the only record WARDEN itself does not write)
@@ -325,6 +327,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Which change broke it: GitHub's Deployments REST API and AWS CloudTrail's LookupEvents, merged with WARDEN's own
   applied fixes - `timeline.py`. Cursor's Rollouts and Sentry's release tracking answer the same question as paid or
   heavy services (2026-09-27 research); three reads cover WARDEN's stages.
+- What code review flagged on that change: built - `findings.py`, GET reads of SonarCloud's issue search, GitHub code
+  scanning's alerts and CodeRabbit's pull-request comments with the standard library (register G10-59). The tools'
+  own MCP servers return the findings' prose, which WARDEN must never pass on; four reads keep it to typed fields.
 - Who is at the approval page: adopted - Slack's OpenID Connect sign-in (its authorize address and token method),
   through `slack_login.py`: two HTTPS calls with the standard library. An OAuth client library (Authlib) would be a
   dependency for those two calls; the ID token comes straight from Slack's token endpoint over TLS, which OpenID
