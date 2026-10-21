@@ -3,12 +3,12 @@
 WARDEN diagnoses a production incident and proposes at most one fix. A model writes the diagnosis; plain
 code decides what may happen next; a person approves any change; and WARDEN itself applies, checks and,
 when needed, undoes it. This page describes how the code does that. Every module named here is in
-`src/warden/`; if this page and the code disagree, the code is right and this page is a bug.
+`warden/src/warden/`; if this page and the code disagree, the code is right and this page is a bug.
 
-Related reading: [`ai-boundary.md`](ai-boundary.md) (why the model never decides),
+Related reading: [`ai-boundary.md`](../warden/docs/ai-boundary.md) (why the model never decides),
 [`PRODUCTION-ARCHITECTURE.md`](PRODUCTION-ARCHITECTURE.md) (how it runs in AWS),
 [`SYSTEM-COMPONENTS.md`](SYSTEM-COMPONENTS.md) (every outside component and its cost),
-[`FAILURE-MODES.md`](FAILURE-MODES.md) (what can go wrong, and what holds it).
+[`FAILURE-MODES.md`](../warden/docs/FAILURE-MODES.md) (what can go wrong, and what holds it).
 
 ## The whole system on one page
 
@@ -155,7 +155,7 @@ Each activity runs on the task queue of the zone that holds its credentials (`wo
 | act (`warden-act`) | apply, rollback | no standing role: a per-plan actor session only |
 
 In the cloud each zone is its own service with its own task role and its own Temporal API key
-(`terraform/modules/warden-runtime`). The AWS actor session (`identity.py`) lasts at most 900 seconds,
+(`infra/terraform/modules/warden-runtime`). The AWS actor session (`identity.py`) lasts at most 900 seconds,
 carries the incident as its SourceIdentity and the approvers and plan as session tags, and has a session
 policy that allows only the plan's actions on the plan's exact resources. A separate check
 (`actor_use.py`) reads CloudTrail for every use of an actor role and pages a person if the audit shows no
@@ -178,7 +178,7 @@ approval for it.
 The verifier's verdicts, by precedence: `rejected` (nothing runs) > `escalated` (a person decides) >
 `auto_safe` (only `no_action` or `escalate_to_human`, which change nothing) > `approved_for_human` (a fix a
 person may approve). Every policy that applies is recorded, not just the first. The main policies and the
-failure each one prevents are listed in [`ai-boundary.md`](ai-boundary.md).
+failure each one prevents are listed in [`ai-boundary.md`](../warden/docs/ai-boundary.md).
 
 ## People and records
 
@@ -235,7 +235,7 @@ or no line instead.
 
 **Kubernetes access** is a ClusterRole holding six reads (list pods, get pod logs, list events, get
 deployments, list replicasets, list horizontalpodautoscalers), granted by a RoleBinding in each namespace
-WARDEN may diagnose, never a ClusterRoleBinding (`k8s/rbac.yaml`). CI asks a real API server both ways:
+WARDEN may diagnose, never a ClusterRoleBinding (`infra/k8s/rbac.yaml`). CI asks a real API server both ways:
 those reads must be allowed, and writes, unbound namespaces, cluster-scoped reads and secrets must be denied.
 
 ## Model access
@@ -246,7 +246,7 @@ US dollars and stops when either is reached; a daily cap across incidents is rea
 
 `providers.py` holds the providers: `anthropic` (the default), `bedrock`, `gemini`, OpenAI-compatible
 endpoints, and the local `claude` CLI. The default model per provider and the list of qualified models are
-data in `src/warden/data/providers.yaml`. A model must pass WARDEN's replay qualification before it may
+data in `warden/src/warden/data/providers.yaml`. A model must pass WARDEN's replay qualification before it may
 diagnose; an unqualified model is refused, and every incident is then escalated on the rules alone.
 
 ## Tracing
@@ -256,7 +256,7 @@ with confidence, action, verdict, policies and token cost as attributes. No expo
 `OTEL_EXPORTER_OTLP_ENDPOINT` sends spans to a collector, `WARDEN_TRACE_CONSOLE=1` prints them, and
 `WARDEN_TRACE=0` turns tracing off. Telemetry never takes the system down: a missing exporter falls back
 to the console. In the cloud runtime the endpoint is set only when SSM `tf/otlp_exporter` is `true`
-(`terraform/modules/warden-runtime`, variables `otlp_exporter` and `otlp_endpoint`: https on port 443, off by
+(`infra/terraform/modules/warden-runtime`, variables `otlp_exporter` and `otlp_endpoint`: https on port 443, off by
 default), and the runtime image carries OpenTelemetry's OTLP/HTTP exporter for it.
 
 ## Running without Temporal or a model
@@ -267,9 +267,9 @@ deterministic answers built from typed state, so the demo and CI need no key and
 
 ## Testing
 
-- `tests/`: unit and property tests. Every policy has a test that proves it can fire, and the tests that
+- `warden/tests/`: unit and property tests. Every policy has a test that proves it can fire, and the tests that
   guard a safety rule are checked by breaking the rule and watching the test fail.
-- `evals/`: behavioural checks in mock mode: routing per incident, that nothing is applied without
+- `warden/evals/`: behavioural checks in mock mode: routing per incident, that nothing is applied without
   approval, redaction, cost recording and budget enforcement. They catch drift in the deterministic parts;
   they do not measure live model quality.
 - CI also runs a real k3d cluster with a pod that really runs out of memory, and the five database engines

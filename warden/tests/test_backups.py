@@ -7,8 +7,8 @@ from __future__ import annotations
 import pathlib
 import re
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-STACKS = (ROOT / "terraform" / "fullstack", ROOT / "terraform" / "modules" / "warden-runtime")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+STACKS = (ROOT / "infra" / "terraform" / "fullstack", ROOT / "infra" / "terraform" / "modules" / "warden-runtime")
 
 
 def _code(text: str) -> str:
@@ -45,7 +45,7 @@ def test_the_audit_database_keeps_backups_and_a_final_snapshot():
         value = re.search(r"backup_retention_period\s*=\s*(\S+)", body).group(1)
         assert value == "var.audit_db_backup_days", (name, value)
     # The variable can never be 0 (no automated backups): its validation asks for 7 days, or 1 on the AWS Free plan.
-    variables = _code((ROOT / "terraform/modules/warden-runtime/variables.tf").read_text(encoding="utf-8"))
+    variables = _code((ROOT / "infra/terraform/modules/warden-runtime/variables.tf").read_text(encoding="utf-8"))
     block = variables.split('variable "audit_db_backup_days" {', 1)[1].split("\n}", 1)[0]
     condition = re.search(r"condition\s*=\s*(.+)", block).group(1).strip()
     assert condition == ("var.audit_db_backup_days >= 7 || (var.aws_free_plan && var.audit_db_backup_days >= 1)"), \

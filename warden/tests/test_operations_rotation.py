@@ -1,4 +1,4 @@
-"""Register S4: secret rotation. Every secret WARDEN can load has a rotation row in docs/OPERATIONS.md, and the
+"""Register S4: secret rotation. Every secret WARDEN can load has a rotation row in warden/docs/OPERATIONS.md, and the
 payload codec - whose key cannot simply change under running workflows - decrypts with previous keys."""
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from temporalio.api.common.v1 import Payload
 
 from warden import codec, settings
 
-OPS = pathlib.Path(__file__).resolve().parents[1] / "docs" / "OPERATIONS.md"
+OPS = pathlib.Path(__file__).resolve().parents[2] / "warden" / "docs" / "OPERATIONS.md"
 
 
 def test_every_loadable_secret_has_a_rotation_row():

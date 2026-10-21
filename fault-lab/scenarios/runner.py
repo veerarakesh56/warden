@@ -40,7 +40,7 @@ stopped, re-running only incomplete scenarios. Launch it so it does not share th
 
 ⚠ This module writes RAW artefacts — a task-definition ARN contains the 12-digit account id. They
 land OUTSIDE the repository by default (`~/warden-bench-runs/`). Redaction is
-`scripts/aws_proof_bundle.py` and the gate is `scripts/check_publishable.py`; duplicating either
+`fault-lab/scripts/aws_proof_bundle.py` and the gate is `warden/scripts/check_publishable.py`; duplicating either
 here would create two redactors that can disagree about what a secret looks like.
 """
 
@@ -68,10 +68,10 @@ from scenarios.region import EXAMPLE_ACCOUNT, fault_environment, region
 from . import ops, ops_db, ops_k8s, paths
 
 HERE = pathlib.Path(__file__).resolve().parent
-ROOT = HERE.parent
+ROOT = HERE.parents[1]
 CATALOG = HERE / "catalog"
 ALERT_FILE = HERE / "alert.yaml"
-# One alert per platform, identical within a wave - see the header of scenarios/alert-k8s.yaml for
+# One alert per platform, identical within a wave - see the header of fault-lab/scenarios/alert-k8s.yaml for
 # why the Wave 1 alert stopped being shared.
 ALERT_FILES = {"ecs": ALERT_FILE, "k8s": HERE / "alert-k8s.yaml", "db": HERE / "alert-db.yaml"}
 SCORING = HERE / "scoring.yaml"
@@ -80,7 +80,7 @@ MANIFEST = "manifest.json"  # a run's own description, in its output directory
 WARDEN_CLI = "warden.cli"  # the tool under test, run as `python -m warden.cli`
 DRY_RUN = "dry run"  # the canned report's every free-text field
 DRY_STARTED_AT = "2026-01-01T00:00:00Z"  # the canned alerts' start, fixed so dry runs compare
-TF_DIR = ROOT / "terraform" / "proving-ground"
+TF_DIR = ROOT / "infra" / "terraform" / "proving-ground"
 
 # Copied from the operator's shell into WARDEN's, by name. Everything else is dropped. The model
 # provider settings and the provider key have to come through — WARDEN cannot reason without them.
@@ -329,7 +329,7 @@ def _sha256(path: pathlib.Path) -> str:
     published bundle from a Linux or macOS clone would get a different hash, and the scorer's drift
     check would announce "THE RUBRIC CHANGED AFTER THIS RUN" about results that were never touched.
     A tamper check that fires on honest data is worse than none. Normalising to LF makes the hash
-    the same on every platform. Must stay identical to scenarios/score.py::_content_sha256.
+    the same on every platform. Must stay identical to fault-lab/scenarios/score.py::_content_sha256.
     """
     return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
@@ -748,7 +748,7 @@ def _live_harness(timeout_s: float) -> Harness:
 
 # --------------------------------------------------------------------------- Kubernetes wiring
 #
-# Wave 2 runs against EKS. The ops speak the Kubernetes API (scenarios/ops_k8s.py); everything below
+# Wave 2 runs against EKS. The ops speak the Kubernetes API (fault-lab/scenarios/ops_k8s.py); everything below
 # is the harness around them: what WARDEN's environment looks like, what "back to baseline" means
 # for a Deployment, and how the tool is given an identity that can only read.
 
@@ -928,7 +928,7 @@ def _k8s_live_harness(timeout_s: float) -> Harness:
     if baseline is None:
         raise RunnerError(
             f"deployment {target.deployment!r} has no container named {target.container!r} - "
-            "apply k8s/proving-ground/ first"
+            "apply fault-lab/k8s/proving-ground/ first"
         )
     target.baseline_image = baseline["image"]
 
@@ -1427,7 +1427,7 @@ def _reader_dsn(harness_dsn: str) -> str:
     reader = os.environ.get("WARDEN_BENCH_DB_READER_DSN", "").strip()
     if not reader:
         raise RunnerError("set WARDEN_BENCH_DB_READER_DSN: WARDEN reads as a pg_monitor login, never as the master "
-                          "(`python scripts/setup_proving_ground_db.py --apply --reader` creates it)")
+                          "(`python fault-lab/scripts/setup_proving_ground_db.py --apply --reader` creates it)")
     if urllib.parse.urlparse(reader).username == urllib.parse.urlparse(harness_dsn).username:
         raise RunnerError("WARDEN_BENCH_DB_READER_DSN uses the harness's own login - WARDEN must read as the "
                           "pg_monitor login, not the master")
@@ -1441,9 +1441,9 @@ def _db_live_harness(timeout_s: float) -> Harness:
     marked sensitive would print it into whatever captured the runner's output. The operator
     exports it deliberately:
 
-        $(terraform -chdir=terraform/proving-ground output -raw db_tunnel_command)   # another terminal, kept open
-        export WARDEN_BENCH_DB_DSN="$(terraform -chdir=terraform/proving-ground output -raw db_dsn)"
-        export WARDEN_BENCH_DB_SG="$(terraform -chdir=terraform/proving-ground output -raw db_security_group_id)"
+        $(terraform -chdir=infra/terraform/proving-ground output -raw db_tunnel_command)   # another terminal, kept open
+        export WARDEN_BENCH_DB_DSN="$(terraform -chdir=infra/terraform/proving-ground output -raw db_dsn)"
+        export WARDEN_BENCH_DB_SG="$(terraform -chdir=infra/terraform/proving-ground output -raw db_security_group_id)"
     """
     dsn = os.environ.get("WARDEN_BENCH_DB_DSN", "").strip()
     if not dsn:

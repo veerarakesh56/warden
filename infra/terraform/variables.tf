@@ -87,7 +87,7 @@ variable "otlp_endpoint" {
 }
 
 variable "environment" {
-  description = "The environment this deployment belongs to (a key of src/warden/data/environments.yaml)."
+  description = "The environment this deployment belongs to (a key of warden/src/warden/data/environments.yaml)."
   type        = string
   default     = null # WARDEN's own environment: environments.yaml `runtime` (main.tf)
   validation {

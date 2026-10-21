@@ -16,7 +16,7 @@ from test_revert_change_g10d import SG, Groups, _event
 from warden import catalog
 from warden.platforms.aws import AwsPlatform
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 PREFIX = {"lambda": "lambda", "events": "events", "dynamodb": "dynamodb", "ecs": "ecs",
           "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch", "cloudtrail": "cloudtrail", "rds": "rds",
           "sqs": "sqs", "athena": "athena", "apigateway": "apigateway", "sts": "sts", "elbv2": "elasticloadbalancing",
@@ -194,12 +194,12 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
 
 
 def _actions(name: str) -> set[str]:
-    doc = json.loads((ROOT / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))
+    doc = json.loads((ROOT / "infra" / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))
     return {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
 
 
 def test_the_reader_role_holds_exactly_the_platforms_reads():
-    """And the evidence reader's (aws_backend.py, held to this role by tests/test_aws_backend.py): the cloud runtime
+    """And the evidence reader's (aws_backend.py, held to this role by warden/tests/test_aws_backend.py): the cloud runtime
     reads each incident in this role, and it held no logs read at all (2026-10-09)."""
     import reader_iam
 
@@ -212,14 +212,14 @@ def test_the_reader_role_holds_exactly_the_platforms_reads():
     # And X-Ray's reader (xray.py, G10-54): each X-Ray call it makes, as its IAM action.
     import re
 
-    xray_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "xray.py").read_text(encoding="utf-8")
+    xray_src = (pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden" / "xray.py").read_text(encoding="utf-8")
     evidence |= {"xray:" + "".join(w.title() for w in m.split("_")) for m in re.findall(r"xray\.([a-z_]+)\(", xray_src)}
     # And the quota reader's (quotas.py, B14): the quotas it lists (its usage is GetMetricData, granted already).
     from test_aws_stack import _quota_calls
 
     evidence |= _quota_calls()
     # And the database token the stack reader signs in this role (aws_stack.iam_dsn): rds-db:connect is no API call.
-    stack_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "aws_stack.py").read_text(encoding="utf-8")
+    stack_src = (pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden" / "aws_stack.py").read_text(encoding="utf-8")
     if "generate_db_auth_token(" in stack_src:
         evidence.add("rds-db:connect")
     assert reads <= reader_iam.granted()
@@ -230,7 +230,7 @@ def test_the_actor_role_holds_exactly_the_platforms_writes_and_every_session_ask
     _, writes, granted = _exercise()
     implicit = {a for w in writes for a in IMPLICIT.get(w, ())}
     # The database platform's one grant: the terminate login's sign-in token, which it asks of each plan's session.
-    db = (ROOT / "src" / "warden" / "platforms" / "db.py").read_text(encoding="utf-8")
+    db = (ROOT / "warden" / "src" / "warden" / "platforms" / "db.py").read_text(encoding="utf-8")
     assert 'actions=["rds-db:connect"]' in db
     assert writes | implicit == _actions("actor") - {"rds-db:connect"} == granted
     assert not any(a.split(":")[1].startswith(("Get", "List", "Describe")) or a == "apigateway:GET" for a in writes)
@@ -239,15 +239,15 @@ def test_the_actor_role_holds_exactly_the_platforms_writes_and_every_session_ask
 def test_the_roles_trust_only_the_runtime_zones_and_the_actor_needs_the_approval_tags():
     # Register S15: the actor only the act zone; the reader the zones that read (read, notify, and act, which re-reads).
     for name, zones in (("actor-trust", {"act"}), ("platform-reader-trust", {"read", "notify", "act"})):
-        doc = json.loads((ROOT / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))
+        doc = json.loads((ROOT / "infra" / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))
         principals = {p for st in doc["Statement"] for p in ([st["Principal"]["AWS"]] if isinstance(
             st["Principal"]["AWS"], str) else st["Principal"]["AWS"])}
         # The runtime's own environment is the template's `${runtime}` (environments.yaml), never a name written here.
         assert principals == {f"arn:aws:iam::${{account}}:role/warden-${{runtime}}-{z}" for z in zones}
-    actor = json.loads((ROOT / "iam" / "templates" / "actor-trust.json").read_text(encoding="utf-8"))["Statement"]
+    actor = json.loads((ROOT / "infra" / "iam" / "templates" / "actor-trust.json").read_text(encoding="utf-8"))["Statement"]
     tag = next(st for st in actor if st["Action"] == "sts:TagSession")
     assert tag["Condition"]["Null"] == {f"aws:RequestTag/{k}": "false" for k in ("approver", "incident", "plan")}
     assume = next(st for st in actor if "sts:AssumeRole" in st["Action"])
     assert assume["Condition"] == {"StringLike": {"sts:SourceIdentity": "inc-*"}}
-    actor_policy = json.loads((ROOT / "iam" / "templates" / "actor.json").read_text(encoding="utf-8"))["Statement"]
+    actor_policy = json.loads((ROOT / "infra" / "iam" / "templates" / "actor.json").read_text(encoding="utf-8"))["Statement"]
     assert all(st["Condition"]["StringLike"]["aws:SourceIdentity"] == "inc-*" for st in actor_policy)

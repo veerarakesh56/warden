@@ -1,6 +1,6 @@
 """Publishing a benchmark run must ship the rubric that run was graded under.
 
-⛔ Why this file exists. `scenarios/scoring.yaml` is one file for every wave, so the day a later
+⛔ Why this file exists. `fault-lab/scenarios/scoring.yaml` is one file for every wave, so the day a later
 wave adds a fault class, its hash stops matching every already-published run and re-scoring them
 raises "THE RUBRIC CHANGED AFTER THIS RUN" - the loudest warning this project has, fired for a
 change that never touched the entries those runs were graded by. A bundle that carries its own
@@ -17,15 +17,15 @@ import sys
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "fault-lab" / "scripts"))
 import publish_bench_run as pub  # after the sys.path line above
 
 
 def _head_rubric() -> tuple[str, bytes]:
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
                             capture_output=True, text=True, check=True).stdout.strip()
-    blob = subprocess.run(["git", "show", f"{commit}:scenarios/scoring.yaml"], cwd=ROOT,
+    blob = subprocess.run(["git", "show", f"{commit}:fault-lab/scenarios/scoring.yaml"], cwd=ROOT,
                           capture_output=True, check=True).stdout
     return commit, blob
 
@@ -67,12 +67,12 @@ def test_publishing_without_a_recorded_commit_is_refused(tmp_path):
 
 
 def test_the_published_bundles_can_still_be_rescored_against_their_own_rubric():
-    """The property, asserted against what is actually committed: every bundle in tests/fixtures/bench has a
+    """The property, asserted against what is actually committed: every bundle in warden/tests/fixtures/bench has a
     frozen rubric whose hash matches its manifest. Without this a reader gets the drift banner and
     numbers they cannot reproduce."""
-    bench = ROOT / "tests" / "fixtures" / "bench"
+    bench = ROOT / "warden" / "tests" / "fixtures" / "bench"
     bundles = [p for p in bench.glob("wave*") if (p / "manifest.json").exists()]
-    assert bundles, "no published bundles found - has tests/fixtures/bench moved?"
+    assert bundles, "no published bundles found - has warden/tests/fixtures/bench moved?"
     for bundle in bundles:
         manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
         frozen = bundle / "grading" / "scoring.yaml"

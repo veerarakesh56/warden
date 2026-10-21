@@ -1,6 +1,6 @@
 """Eldane, the AI critic, and dev autonomy (owner, 2026-10-16/17; eldane.py, autonomy.py).
 
-Every guard has a test here that fails when the guard is removed (scripts/mutation_check.py plants each one):
+Every guard has a test here that fails when the guard is removed (warden/scripts/mutation_check.py plants each one):
 Eldane cannot override the gate; prod is never autonomous; each demotion trigger demotes; catch trials are scored and a
 miss turns Eldane's approvals off; a plan on WARDEN's own runtime or guardrails is refused; a critic on
 the diagnoser's own model is refused; Eldane reads the evidence blind, and never the discussion channel.
@@ -294,7 +294,7 @@ def test_an_ai_approver_is_bounded_and_always_said_to_be_an_ai(world):
     (PARAMS, "ops"),
     ({"secret": "warden/dev/approvers"}, "dev"),
     ({"function": ".github/dependabot.yml"}, "dev"),  # anything under .github/: its workflows too
-    ({"stack": "src/warden/data/environments.yaml"}, "dev"),
+    ({"stack": "warden/src/warden/data/environments.yaml"}, "dev"),
     ({"role": "arn:aws:iam::" + "0" * 12 + ":role/warden-dev-actor"}, "dev"),
     ({"file": "CODEOWNERS"}, "dev"),
 ])

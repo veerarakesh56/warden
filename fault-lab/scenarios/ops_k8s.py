@@ -6,7 +6,7 @@ The same rules as `ops.py`, restated because they are the rules, not preferences
      `project=warden-proving-ground` before it touches anything. `default` in somebody's cluster is
      one typo away from a scenario id, and a benchmark that breaks a real workload is an incident.
   2. ⛔ EVERY INJECT HAS A REVERT, and the revert restores what was SAVED rather than what the code
-     assumes was there. `tests/test_no_scenario_leakage.py` fails a catalog entry that breaks
+     assumes was there. `warden/tests/test_no_scenario_leakage.py` fails a catalog entry that breaks
      something without saying how to put it back.
   3. ⛔ THE FAULT MUST BE REAL. These ops change an image, a command, a probe, a replica count or an
      RBAC rule, and then the kubelet, the scheduler and the kernel produce the symptoms. Nothing

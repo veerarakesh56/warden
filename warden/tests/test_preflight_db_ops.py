@@ -1,4 +1,4 @@
-"""scripts/preflight_db_ops.py with the database faked (characterisation before the cognitive-complexity split of
+"""fault-lab/scripts/preflight_db_ops.py with the database faked (characterisation before the cognitive-complexity split of
 main): the baseline gate first, each op's landed check and revert, the ingress cut and restore, every line it
 prints and its exit code."""
 
@@ -10,8 +10,8 @@ import types
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("preflight_db_ops", ROOT / "scripts" / "preflight_db_ops.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("preflight_db_ops", ROOT / "fault-lab" / "scripts" / "preflight_db_ops.py")
 pdb = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(pdb)
 

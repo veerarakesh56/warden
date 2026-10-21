@@ -1,4 +1,4 @@
-"""Wave 4, run by an operator one step at a time (docs/FULLSTACK-LAB.md).
+"""Wave 4, run by an operator one step at a time (demo-app/docs/FULLSTACK-LAB.md).
 
     python -m scenarios.fullstack_cli soak               # wait: every component healthy + 30 min
     python -m scenarios.fullstack_cli inject fs-07       # capture prior state, break it, wait for the alarm
@@ -30,7 +30,7 @@ holder's control files).
 ⛔ WARDEN runs with ONLY the reader identity: the assumed role warden-dev-reader, a token-only
 kubeconfig for ServiceAccount warden in shop, and DSNs for warden_ro whose IAM token is signed with
 THAT role's credentials (its rds-db:connect grant is what lets WARDEN in) - built from nothing, as
-in every earlier wave (scenarios/runner.py explains why). There are no database passwords: Aurora
+in every earlier wave (fault-lab/scenarios/runner.py explains why). There are no database passwords: Aurora
 runs in express configuration, IAM authentication only (2026-09-26). The provider comes from the operator's
 environment (WARDEN_PROVIDER=claude_cli for a Claude subscription).
 """
@@ -77,10 +77,10 @@ DEFAULT_RUN = pathlib.Path.home() / "warden-bench-runs" / "wave4-fullstack"
 DEFAULT_STACK = pathlib.Path.home() / "warden-fullstack-build" / "stack.json"
 DEFAULT_KUBECONFIG = pathlib.Path.home() / "warden-fullstack-build" / "kubeconfig"
 
-# What the stack description file must / may carry: `terraform output -json` of terraform/fullstack,
+# What the stack description file must / may carry: `terraform output -json` of infra/terraform/fullstack,
 # either wrapped {"k": {"value": v}} or flat {"k": v}, plus `ecs_baseline_task_definition`, which
-# `scripts/deploy_fullstack_apps.py deploy ecs` adds, plus the Aurora keys that
-# `terraform/fullstack/aurora_express.py create` merges in. NO PASSWORD exists anywhere:
+# `demo-app/scripts/deploy_fullstack_apps.py deploy ecs` adds, plus the Aurora keys that
+# `infra/terraform/fullstack/aurora_express.py create` merges in. NO PASSWORD exists anywhere:
 #   - the harness's admin connection is the master user (db_master_username, `postgres`) with an
 #     IAM token signed by the OPERATOR's credentials, fresh for every connection - never given to WARDEN;
 #   - WARDEN's warden_ro token is signed with the ASSUMED READER ROLE's credentials (warden_dsns).
@@ -157,7 +157,7 @@ def load_stack(path: pathlib.Path) -> dict[str, Any]:
     flat = {k: (v.get("value") if isinstance(v, dict) and "value" in v else v) for k, v in raw.items()}
     missing = [k for k in STACK_KEYS["required"] if not flat.get(k)]
     if missing:
-        hint = (" - the aurora_* keys come from `python terraform/fullstack/aurora_express.py create`"
+        hint = (" - the aurora_* keys come from `python infra/terraform/fullstack/aurora_express.py create`"
                 if any(k.startswith("aurora_") for k in missing) else "")
         raise StepError(f"{path} is missing {missing}{hint}")
     return flat
@@ -282,7 +282,7 @@ def load_kubeconfig(kube_config, default: pathlib.Path | None = None) -> str:
         return context
     except Exception as exc:  # any kubeconfig problem is an operator setup error
         raise StepError(f"no usable kubeconfig ({type(exc).__name__}: {exc}). Run `python "
-                        "scripts/deploy_fullstack_apps.py deploy k8s` (it writes "
+                        "demo-app/scripts/deploy_fullstack_apps.py deploy k8s` (it writes "
                         f"{default}) or set KUBECONFIG.") from exc
 
 

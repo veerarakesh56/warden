@@ -1,7 +1,7 @@
 # The shop's workloads in Git: Argo CD syncs them (owner, 2026-10-16), from the environment's overlay
-# (manifests/shop/<env>), pinned to the deployed commit (k8s/argocd/shop.yaml). A change is a pull request to these
+# (demo-app/manifests/shop/<env>), pinned to the deployed commit (demo-app/k8s/argocd/shop.yaml). A change is a pull request to these
 # files - never a patch on the cluster, which Argo CD's self-heal undoes. What the pipeline owns instead - the
-# namespace, the Secret, the infrastructure's endpoints - is k8s/shop-pipeline.
+# namespace, the Secret, the infrastructure's endpoints - is demo-app/k8s/shop-pipeline.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

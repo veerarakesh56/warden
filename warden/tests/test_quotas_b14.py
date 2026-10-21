@@ -1,4 +1,4 @@
-"""B14: service quotas and their usage as read-only evidence (src/warden/quotas.py).
+"""B14: service quotas and their usage as read-only evidence (warden/src/warden/quotas.py).
 
 A service at its AWS limit fails like a broken application. WARDEN lists the alert's services' quotas that have a usage
 metric, reads that usage around the alarm in ONE GetMetricData call, and states each quota's value, its peak and the
@@ -254,7 +254,7 @@ def test_through_gather_a_quota_line_reaches_the_evidence_and_a_failed_one_is_be
 
 
 def test_the_reader_roles_grant_every_call_it_makes():
-    """The runtime's reader role (iam/templates/platform-*.json) and the harness reader role's (fullstack reader.tf, held to the code by test_aws_stack.py):
+    """The runtime's reader role (infra/iam/templates/platform-*.json) and the harness reader role's (fullstack reader.tf, held to the code by test_aws_stack.py):
     a quota read the role cannot make would be denied in every incident."""
     import reader_iam
     from test_aws_stack import _granted, _quota_calls

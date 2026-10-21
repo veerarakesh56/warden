@@ -95,7 +95,7 @@ def _platform(apps, **kw):
 
 
 def test_live_reads_the_named_deployment_with_one_get_and_lists_nothing():
-    """The write ServiceAccount may get and patch Deployments, not list them (k8s/remediation-rbac.yaml)."""
+    """The write ServiceAccount may get and patch Deployments, not list them (infra/k8s/remediation-rbac.yaml)."""
     apps = _Apps()
     apps.list_namespaced_deployment = None  # a call would raise: the RBAC does not grant list
     live = _platform(apps).live("k8s_scale", {"deployment": "orders"})
@@ -258,7 +258,7 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
 
     import yaml
 
-    text = (pathlib.Path(__file__).resolve().parents[1] / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8")
+    text = (pathlib.Path(__file__).resolve().parents[2] / "infra" / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8")
     docs = {d["kind"]: d for d in yaml.safe_load_all(text) if d}
     vap, binding = docs["ValidatingAdmissionPolicy"], docs["ValidatingAdmissionPolicyBinding"]
     assert vap["spec"]["failurePolicy"] == "Fail"
@@ -291,7 +291,7 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
     assert "restartedAt" in rules
     assert "paused" in rules
     # The ceiling is the platform's default ceiling.
-    k8s_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "platforms" / "k8s.py").read_text()
+    k8s_src = (pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden" / "platforms" / "k8s.py").read_text()
     assert '"WARDEN_REMEDIATION_MAX_REPLICAS", "10"' in k8s_src
     assert "object.spec.replicas <= 10 " in rules
     # The ceiling only when the count changes: a restart of a Deployment above ten was refused (eighth review).

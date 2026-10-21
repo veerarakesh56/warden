@@ -1,8 +1,8 @@
 # Who the runtime is (G6). The worker runs as five processes, one per trust zone (register S15), each with its own
 # task role `warden-<env>-<zone>` - for the `ops` runtime, `warden-ops-read`, `-notify` and `-act` are the principals
-# iam/templates/platform-reader-trust.json and actor-trust.json trust. No zone holds a standing write to any watched
+# infra/iam/templates/platform-reader-trust.json and actor-trust.json trust. No zone holds a standing write to any watched
 # resource: the read and notify zones may assume a watched environment's platform reader, and only the act zone - for
-# one approved plan - its actor (src/warden/identity.py), each naming the incident and, for the actor, the approvers.
+# one approved plan - its actor (warden/src/warden/identity.py), each naming the incident and, for the actor, the approvers.
 # No zone calls a model through AWS (no Bedrock: owner, 2026-10-09). Each zone reads only its own secrets
 # (settings.ZONE_SECRETS). Each Lambda has a role of its own, narrower still: no AWS role to assume, and only the
 # secrets and settings its own handler reads (settings.LAMBDA_SECRETS).
@@ -62,7 +62,7 @@ locals {
     { Sid = "ReadPages", Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${aws_s3_bucket.anchors.arn}/pages/*", "${aws_s3_bucket.anchors.arn}/acks/*"] },
     { Sid = "Acknowledge", Effect = "Allow", Action = ["s3:PutObject"], Resource = ["${aws_s3_bucket.anchors.arn}/acks/*"] },
   ]
-  # Register S15, as settings.ZONE_SECRETS and settings.secret_id name them (tests/test_runtime_module_g6.py holds the
+  # Register S15, as settings.ZONE_SECRETS and settings.secret_id name them (warden/tests/test_runtime_module_g6.py holds the
   # two together): every zone's own, and each zone's. Each zone also reads its own Temporal key, temporal-api-key-<zone>.
   every_zone_secrets = ["temporal-key"]
   # `platforms`: what the zone's worker connects (`warden worker --platform`, compute.tf). The read zone reads every
@@ -81,7 +81,7 @@ locals {
     # reads the audit and assumes nothing.
     critic = { secrets = ["anthropic-api-key", "eldane-key"], assumes = [], platforms = [] }
   }
-  # The Lambdas (frontdoor.tf), as settings.LAMBDA_SECRETS names what each handler reads (tests/test_runtime_module_g6.py
+  # The Lambdas (frontdoor.tf), as settings.LAMBDA_SECRETS names what each handler reads (warden/tests/test_runtime_module_g6.py
   # runs each one's load and holds the two together). Only the approval page reads who may approve; only actor-use
   # counts a metric - and reads no secret: the audit's address is its environment's (frontdoor.tf), and KMS signs.
   front_door_access = {

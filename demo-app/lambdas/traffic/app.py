@@ -4,7 +4,7 @@ Per run: CHECKOUTS_PER_MIN x POST {API_URL}/checkout, the same number of GET {AL
 ORDERS_PER_MIN order messages onto the orders queue. Tiny payloads. Failures are logged, never
 raised: the generator must keep generating while the stack is broken.
 
-The internal ALB answers over HTTPS with the stack's own self-signed certificate (terraform/fullstack/ecs.tf): its
+The internal ALB answers over HTTPS with the stack's own self-signed certificate (infra/terraform/fullstack/ecs.tf): its
 calls trust that one certificate, ALB_CA_PEM, and nothing else.
 """
 import json

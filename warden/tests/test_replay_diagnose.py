@@ -11,11 +11,11 @@ from scenarios.score import score_run_dir
 
 from warden.llm import LLMClient
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "scripts"))
 import replay_diagnose as rd  # after the sys.path line above
 
-RUN = ROOT / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z"
+RUN = ROOT / "warden" / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z"
 pytestmark = pytest.mark.skipif(not RUN.exists(), reason="the published run is not in this checkout")
 
 
@@ -44,7 +44,7 @@ def test_a_failed_diagnosis_is_an_error_row_not_a_gap(tmp_path):
 
 
 def test_refuses_to_write_inside_docs():
-    assert rd.main(["--run", str(RUN), "--out", str(ROOT / "tests" / "fixtures" / "bench" / "x")]) == 2
+    assert rd.main(["--run", str(RUN), "--out", str(ROOT / "warden" / "tests" / "fixtures" / "bench" / "x")]) == 2
 
 
 def test_a_resumed_replay_keeps_what_was_answered_and_stops_when_the_quota_refuses(tmp_path):

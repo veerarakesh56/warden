@@ -5,7 +5,7 @@
 #
 # What runs: every minute the schedule invokes the producer, which writes WRITES items over the same keys (the table
 # does not grow) and sends a few messages; the consumer drains the queue. Each alarm follows ONE setting a person can
-# change and WARDEN can set back (scripts/undo_lab.py makes those changes, as the fault-injection role):
+# change and WARDEN can set back (fault-lab/scripts/undo_lab.py makes those changes, as the fault-injection role):
 #
 #   orders-write-throttles   the table's write capacity cut            -> dynamodb_restore_capacity
 #   producer-dropped         the producer's reserved concurrency at 0  -> lambda_restore_concurrency
@@ -15,18 +15,18 @@
 #                            names the queue, the fix is on the function)
 #
 # Terraform never repairs a fault: every setting a fault changes is in `ignore_changes`, so an apply made while one is
-# in place leaves it there (scripts/undo_lab.py restore sets the baseline back).
+# in place leaves it there (fault-lab/scripts/undo_lab.py restore sets the baseline back).
 #
 # Everything is named warden-<env>-lab-* (the prefix the environment's boundary and WARDEN's reader and actor roles
 # scope to) and tagged Project=warden. An alarm's description never names its cause.
 
 terraform {
-  required_version = ">= 1.15.0, < 1.17.0" # CI pins 1.16.4, as terraform/fullstack
+  required_version = ">= 1.15.0, < 1.17.0" # CI pins 1.16.4, as infra/terraform/fullstack
   required_providers {
     aws     = { source = "hashicorp/aws", version = ">= 6.0, < 7.0" }
     archive = { source = "hashicorp/archive", version = ">= 2.4, < 3.0" }
   }
-  # No backend block on purpose: CI writes a backend_override.tf (S3) before init, as for terraform/fullstack.
+  # No backend block on purpose: CI writes a backend_override.tf (S3) before init, as for infra/terraform/fullstack.
 }
 
 provider "aws" {
@@ -39,7 +39,7 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 
 variable "region" {
-  description = "AWS region override. Default: src/warden/data/environments.yaml aws_region (R17)."
+  description = "AWS region override. Default: warden/src/warden/data/environments.yaml aws_region (R17)."
   type        = string
   default     = null
 }
@@ -55,12 +55,12 @@ variable "writes_per_minute" {
 }
 
 locals {
-  region       = coalesce(var.region, yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region)
-  env          = terraform.workspace # the environment IS the workspace, as in terraform/fullstack
-  environments = keys(yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).environments)
+  region       = coalesce(var.region, yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).aws_region)
+  env          = terraform.workspace # the environment IS the workspace, as in infra/terraform/fullstack
+  environments = keys(yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).environments)
   name         = "warden-${local.env}-lab"
   # Only where its fault-injection role exists: environments.yaml `fault_environments`, never named here.
-  lab_environments = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).fault_environments
+  lab_environments = yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).fault_environments
   tags = {
     Project     = "warden"
     Environment = local.env
@@ -327,7 +327,7 @@ resource "aws_lambda_permission" "tick" {
 
 # --------------------------------------------------------------------------- the alarms
 #
-# One-minute periods: the verify window follows the alarm's own evaluation time (tests/test_recover_window.py). No
+# One-minute periods: the verify window follows the alarm's own evaluation time (warden/tests/test_recover_window.py). No
 # alarm action: the runtime's own rule takes every warden-<env>-* alarm's state change to intake.
 
 resource "aws_cloudwatch_metric_alarm" "orders_write_throttles" {

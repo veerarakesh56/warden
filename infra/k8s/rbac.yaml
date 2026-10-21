@@ -42,7 +42,7 @@ metadata:
   labels:
     app.kubernetes.io/name: warden
 # MINIMAL means: exactly the verb/resource pairs the code calls, and nothing else. The ruler is
-# src/warden/k8s_backend.py - six client calls, six grants (the sixth, `list horizontalpodautoscalers`,
+# warden/src/warden/k8s_backend.py - six client calls, six grants (the sixth, `list horizontalpodautoscalers`,
 # added 2026-09-25 so WARDEN can see whether an autoscaler owns the replica count it might scale). A review of the first draft found
 # 12 of 16 granted pairs had no caller (every `watch`, the whole events.k8s.io group, `get pods`).
 # "Read-only" was true; "minimal" was not. CI now also asserts that `watch pods` is DENIED.

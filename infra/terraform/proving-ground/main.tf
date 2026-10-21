@@ -1,7 +1,7 @@
 # The proving ground: a throwaway VPC with real ECS, RDS and EKS in it, so WARDEN can be run
 # against live AWS instead of recorded fixtures.
 #
-# ⛔ This is NOT how to run WARDEN in production. Read terraform/proving-ground/README.md for the
+# ⛔ This is NOT how to run WARDEN in production. Read infra/terraform/proving-ground/README.md for the
 # cost sheet and for the one deliberate deviation (public subnets, no NAT Gateway).
 
 terraform {
@@ -32,7 +32,7 @@ resource "random_id" "suffix" {
 
 locals {
   # The region: an override, else environments.yaml aws_region (owner requirement R17: never a literal).
-  region = coalesce(var.region, yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region)
+  region = coalesce(var.region, yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).aws_region)
   name   = "${var.name}-${random_id.suffix.hex}"
 
   tags = {
@@ -41,7 +41,7 @@ locals {
     # Project=warden + Environment: what the all-region sweep's tag audit requires (owner rule R53,
     # independent review 2026-09-28). The stack itself is named by Stack.
     Project     = "warden"
-    Environment = coalesce(var.environment, yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).fault_environments[0])
+    Environment = coalesce(var.environment, yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).fault_environments[0])
     Stack       = "warden-proving-ground"
     ManagedBy   = "terraform"
     # ⛔ There was a `DeleteAfter = formatdate(..., timeadd(timestamp(), "24h"))` here. It broke

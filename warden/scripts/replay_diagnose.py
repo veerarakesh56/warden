@@ -1,6 +1,6 @@
 """Re-diagnose a published run's recorded evidence with today's pipeline, then score it the same way.
 
-    python scripts/replay_diagnose.py --run tests/fixtures/bench/wave1-2026-09-11T155744Z \\
+    python warden/scripts/replay_diagnose.py --run warden/tests/fixtures/bench/wave1-2026-09-11T155744Z \\
         --out ~/warden-bench-runs/replay/wave1-baseline
     python -m scenarios.score --run ~/warden-bench-runs/replay/wave1-baseline \\
         --rubric ~/warden-bench-runs/replay/wave1-baseline/grading/scoring.yaml
@@ -27,7 +27,7 @@ from warden.graph import node_diagnose, node_redact, node_tripwire, node_verify
 from warden.llm import LLMClient
 from warden.models import Alert, ContextBundle, RunReport
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def rediagnose(report: dict, llm: LLMClient) -> RunReport:
@@ -139,13 +139,15 @@ def _ask(src: pathlib.Path, out: pathlib.Path, scenario: str, run: dict, quota: 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--run", required=True, type=pathlib.Path, help="a published run directory")
-    p.add_argument("--out", required=True, type=pathlib.Path, help="a NEW directory outside the repository's docs/ and tests/fixtures/")
+    p.add_argument("--out", required=True, type=pathlib.Path, help="a NEW directory outside the repository's docs folders and warden/tests/fixtures/")
     p.add_argument("--runs-per-scenario", type=int, default=1)
     p.add_argument("--only", nargs="*", help="scenario ids to replay (default: all)")
     a = p.parse_args(argv)
     out = a.out.expanduser().resolve()
-    if any((ROOT / d).resolve() in out.parents for d in ("docs", "tests/fixtures")):
-        print("refusing to write a replay inside docs/ or tests/fixtures/: it would sit beside published measurements")
+    if any((ROOT / d).resolve() in out.parents for d in ("docs", "warden/docs", "infra/docs", "demo-app/docs",
+                                                         "fault-lab/docs", "warden/tests/fixtures")):
+        print("refusing to write a replay inside a docs folder or warden/tests/fixtures/: it would sit beside published "
+              "measurements")
         return 2
     replay(a.run, out, per_scenario=a.runs_per_scenario, only=set(a.only) if a.only else None)
     print(f"\nscore: python -m scenarios.score --run {out} --rubric {out / 'grading' / 'scoring.yaml'}")

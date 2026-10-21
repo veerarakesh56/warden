@@ -4,7 +4,7 @@ there is one (owner, 2026-10-20: none stays open by design):
 - S6258: the runtime's anchors and witness buckets log every access; the dev stack's ALB logs every request.
 - S6327: the order-events topic is encrypted with the AWS-managed key, and its one publisher may use it through SNS.
 - S5332: the internal ALB answers over HTTPS only, with the stack's own certificate (its caller's side, a real
-  handshake included, is tests/test_traffic_alb_tls.py, in the apps lane).
+  handshake included, is warden/tests/test_traffic_alb_tls.py, in the apps lane).
 - S6413: the proving ground keeps its logs 14 days.
 - S6364: the lab database keeps 7 days of backups, deleted with it.
 - S2612: no image grants write to others; the runtime image checks Debian's sticky /tmp at build.
@@ -22,10 +22,10 @@ import re
 
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-RUNTIME = ROOT / "terraform" / "modules" / "warden-runtime"
-FULLSTACK = ROOT / "terraform" / "fullstack"
-LAB = ROOT / "terraform" / "proving-ground"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+RUNTIME = ROOT / "infra" / "terraform" / "modules" / "warden-runtime"
+FULLSTACK = ROOT / "infra" / "terraform" / "fullstack"
+LAB = ROOT / "infra" / "terraform" / "proving-ground"
 
 
 def _code(text: str) -> str:
@@ -49,7 +49,7 @@ def _flat(body: str) -> str:
 
 
 def _iam(env: str, kind: str) -> dict:
-    return json.loads((ROOT / "iam" / env / f"{kind}.json").read_text(encoding="utf-8"))
+    return json.loads((ROOT / "infra" / "iam" / env / f"{kind}.json").read_text(encoding="utf-8"))
 
 
 def _assert_private_tls_only_bucket(path: pathlib.Path, name: str, keep_days: int) -> str:
@@ -321,7 +321,7 @@ def test_the_operator_may_start_only_a_nano_and_end_only_the_labs_own_instances(
 
 
 def test_the_proof_run_reaches_the_database_through_the_tunnel_and_closes_it():
-    script = (ROOT / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")
+    script = (ROOT / "fault-lab" / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")
     section = script[script.index("# ---------------------------------------------------------------------------"
                                   " E: RDS"):script.index("# --------------------------------------------------"
                                                           "------------------------- the bundle")]
@@ -354,17 +354,17 @@ def test_no_image_grants_write_to_others_and_the_runtimes_tmp_stays_debians_stic
     id Lambda chooses, so /tmp stays Debian's sticky 1777, checked at build - the root filesystem is read-only, the
     worker runs as one non-root user, and /tmp is a volume gone with the task."""
     chmod = re.compile(r"chmod\s+(?:-\S+\s+)*(?:[0-7]?[0-7][0-7][2367]|\S*o[+=]\S*w)\b")
-    for dockerfile in [ROOT / "Dockerfile", ROOT / "Dockerfile.runtime", *ROOT.glob("scenarios/**/Dockerfile")]:
+    for dockerfile in [ROOT / "warden" / "Dockerfile", ROOT / "warden" / "Dockerfile.runtime", *ROOT.glob("demo-app/app/**/Dockerfile")]:
         text = _code(dockerfile.read_text(encoding="utf-8"))
         assert not chmod.search(text), dockerfile
         assert "--chmod" not in text, dockerfile
-    runtime = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+    runtime = (ROOT / "warden" / "Dockerfile.runtime").read_text(encoding="utf-8")
     assert ('RUN useradd --create-home --uid 10001 warden \\\n'
             '    && test "$(stat -c \'%a %U\' /tmp)" = "1777 root"\nVOLUME ["/tmp"]\nUSER warden') in runtime
     compute = _flat(_block(RUNTIME / "compute.tf", "aws_ecs_task_definition", "zone"))
     assert 'user = "10001" readonlyRootFilesystem = true' in compute
     assert 'mountPoints = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]' in compute
-    ci = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")
+    ci = (ROOT / ".github" / "workflows" / "warden-ci.yml").read_text(encoding="utf-8")
     assert "docker run --rm --read-only --entrypoint /opt/warden/bin/python warden-runtime:ci" in ci
 
 
@@ -490,20 +490,20 @@ def test_a_secret_rotated_out_stops_opening_its_route_at_once(monkeypatch):
 
 def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
     """S6428 (owner, 2026-10-20: fixed, not kept by design): the negative Pod Security test is unchanged, but its pod is
-    built when the test runs (scripts/negative_pod.py) - no manifest in the tree asks for a privileged container, so
+    built when the test runs (fault-lab/scripts/negative_pod.py) - no manifest in the tree asks for a privileged container, so
     nothing applies one by mistake and no linter needs a skip. It only ever goes to a server-side dry run."""
     import json
     import subprocess
     import sys
 
-    built = subprocess.run([sys.executable, str(ROOT / "scripts" / "negative_pod.py")], capture_output=True, text=True,
+    built = subprocess.run([sys.executable, str(ROOT / "fault-lab" / "scripts" / "negative_pod.py")], capture_output=True, text=True,
                            check=True).stdout
     pod = json.loads(built)
     assert pod["metadata"]["namespace"] == "warden"
     context = pod["spec"]["containers"][0]["securityContext"]
     assert context["privileged"] is True
     assert context["runAsUser"] == 0
-    namespace = yaml.safe_load((ROOT / "k8s" / "namespace.yaml").read_text(encoding="utf-8"))
+    namespace = yaml.safe_load((ROOT / "infra" / "k8s" / "namespace.yaml").read_text(encoding="utf-8"))
     assert namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "restricted"
     # No manifest anywhere asks for a privileged container any more.
     manifests = [p for p in ROOT.rglob("*.y*ml") if ".venv" not in p.parts and ".git" not in p.parts
@@ -511,16 +511,16 @@ def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
     assert manifests
     assert not [p for p in manifests if "privileged: true" in p.read_text(encoding="utf-8", errors="replace")]
     # Everything that builds it pipes it into a server-side dry run, and checks Pod Security's own reason.
-    uses = [line.strip() for p in [*ROOT.glob(".github/workflows/*.yml"), *ROOT.glob("scripts/*.sh")]
+    uses = [line.strip() for p in [*ROOT.glob(".github/workflows/*.yml"), *ROOT.glob("fault-lab/scripts/*.sh")]
             for line in p.read_text(encoding="utf-8", errors="replace").splitlines()
             if "negative_pod.py" in line and not line.strip().startswith("#")]
     assert len(uses) == 2, uses
-    ci = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")
-    assert "python3 scripts/negative_pod.py | kubectl apply --dry-run=server -f - 2>err.txt" in ci
+    ci = (ROOT / ".github" / "workflows" / "warden-ci.yml").read_text(encoding="utf-8")
+    assert "python3 fault-lab/scripts/negative_pod.py | kubectl apply --dry-run=server -f - 2>err.txt" in ci
     assert 'grep -q "violates PodSecurity" err.txt' in ci
     # The proof run builds it on its own first (a generator failure stops the run, never reads as a refusal), sends
     # it to the same dry run and reports enforcement only on Pod Security's own reason (CodeRabbit, PR 62).
-    proof = (ROOT / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")
+    proof = (ROOT / "fault-lab" / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")
     assert '"$PY" "$HERE/scripts/negative_pod.py" > "$OUT/privileged-pod.json" || die' in proof
     assert 'kubectl apply --dry-run=server -f "$OUT/privileged-pod.json"' in proof
     lines = [line.strip() for line in proof.splitlines()]
@@ -535,7 +535,7 @@ def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
 # ----------------------------------------------------------------- the shop's own HTTPS (owner row 25)
 
 def test_the_alb_reaches_the_orders_tasks_over_https_and_checks_their_health_over_https():
-    """Sonar python:S5332 (row 25): the tasks serve HTTPS themselves (tests/test_shop_https_s5332.py), so the target
+    """Sonar python:S5332 (row 25): the tasks serve HTTPS themselves (warden/tests/test_shop_https_s5332.py), so the target
     group and its health check speak HTTPS to them - the placeholder too, before the first deploy."""
     ecs = FULLSTACK / "ecs.tf"
     tg = _flat(_block(ecs, "aws_lb_target_group", "orders"))
@@ -562,7 +562,7 @@ def test_nothing_reaches_the_alb_or_the_orders_tasks_except_through_their_own_se
         assert not [rule for rule in ingress if "prefix_list" in rule], ingress
     assert "security_groups = [aws_security_group.lambda.id]" in alb
     assert "security_groups = [aws_security_group.alb.id]" in ecs
-    for tf in sorted(ROOT.joinpath("terraform").rglob("*.tf")):
+    for tf in sorted(ROOT.joinpath("infra", "terraform").rglob("*.tf")):
         text = _code(tf.read_text(encoding="utf-8"))
         for kind in ("aws_vpc_security_group_ingress_rule", "aws_security_group_rule"):
             for name in re.findall(rf'^resource "{kind}" "(\w+)"', text, re.MULTILINE):

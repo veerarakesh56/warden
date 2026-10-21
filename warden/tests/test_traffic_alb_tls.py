@@ -15,14 +15,14 @@ import sys
 import threading
 import types
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 HOST = "internal-warden-test-alb-1234567890.example.elb.amazonaws.com"
 
 
 def _traffic(monkeypatch):
     monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(client=lambda *a, **k: None))
     spec = importlib.util.spec_from_file_location(
-        "fs_traffic_tls", ROOT / "scenarios" / "fullstack" / "lambdas" / "traffic" / "app.py")
+        "fs_traffic_tls", ROOT / "demo-app" / "lambdas" / "traffic" / "app.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

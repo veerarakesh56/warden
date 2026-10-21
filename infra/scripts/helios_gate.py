@@ -1,9 +1,9 @@
 """Helios checks every Terraform change before it is applied (register R56).
 
 For each scenario - an outage of every zone the stack uses, plus the resource losses in
-terraform/fullstack/helios/scenarios/ - Helios (github.com/veerarakesh56/helios) simulates the saved
+infra/terraform/fullstack/helios/scenarios/ - Helios (github.com/veerarakesh56/helios) simulates the saved
 plan and the current state. The change is refused when the plan fails anything under a scenario that
-today's stack survives, or that terraform/fullstack/helios/accepted.json does not accept (the accepted
+today's stack survives, or that infra/terraform/fullstack/helios/accepted.json does not accept (the accepted
 set matters only for a first create, when there is no state to compare with - and, after a first
 create that stopped part-way, for the resources today's state does not hold yet). A scenario Helios
 cannot run refuses the change; one it cannot decide on a plan (exit 3: a value unknown until apply)
@@ -27,12 +27,12 @@ import re
 import subprocess  # nosec B404 - runs the pinned Helios binary with fixed arguments
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))  # warden.paths is stdlib only: the deploy job installs no package
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "src"))  # warden.paths is stdlib only: the deploy job installs no package
 
 from warden import paths  # after the sys.path line above, deliberately
 
-HELIOS = ROOT / "terraform" / "fullstack" / "helios"
+HELIOS = ROOT / "infra" / "terraform" / "fullstack" / "helios"
 INCONCLUSIVE = 3
 AZ = "az-outage"
 
@@ -199,13 +199,13 @@ def main(argv: list[str] | None = None) -> int:
     target.add_argument("--after", type=pathlib.Path)
     ap.add_argument("--baseline", type=pathlib.Path)
     ap.add_argument("--out-dir", type=pathlib.Path, required=True)
-    # Each stack is judged by its OWN scenarios and accepted failures (terraform/<stack>/helios): the undo lab's first
+    # Each stack is judged by its OWN scenarios and accepted failures (infra/terraform/<stack>/helios): the undo lab's first
     # plan was refused for not holding the full stack's node group, queue and cache (2026-10-11).
     ap.add_argument("--stack", default="fullstack")
     args = ap.parse_args(argv)
-    helios_dir = ROOT / "terraform" / args.stack / "helios"
+    helios_dir = ROOT / "infra" / "terraform" / args.stack / "helios"
     if not args.stack.replace("-", "").isalnum() or not (helios_dir / "accepted.json").is_file():
-        print(f"refused: terraform/{args.stack}/helios/accepted.json does not exist - a stack says what it accepts, "
+        print(f"refused: infra/terraform/{args.stack}/helios/accepted.json does not exist - a stack says what it accepts, "
               "even when that is nothing")
         return 1
     # Every file it reads, writes or hands Helios lies where the job works (RUNNER_TEMP, the checkout): a path from the
@@ -226,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     accepted = json.loads((helios_dir / "accepted.json").read_text(encoding="utf-8"))
     regressions = _regressions(helios_dir / "regressions.json")
     if regressions is None:
-        print(f"refused: terraform/{args.stack}/helios/regressions.json must be an object of scenario kind to a list "
+        print(f"refused: infra/terraform/{args.stack}/helios/regressions.json must be an object of scenario kind to a list "
               "of resource addresses")
         return 1
     # The current state is simulated only when it is a document Helios can read.
@@ -234,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     lines, refused = _scenario_rows(args, document, compare_with, scenarios(doc, out_dir, helios_dir),
                                     (accepted, existing, regressions))
     if len(lines) == 4:
-        lines += ["", f"terraform/{args.stack} declares no scenario it must survive and has no subnet: nothing to run."]
+        lines += ["", f"infra/terraform/{args.stack} declares no scenario it must survive and has no subnet: nothing to run."]
     if baseline is None:
         lines += ["", "No current state: a first create, compared with the accepted failures only."]
     if refused and args.after:

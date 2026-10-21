@@ -1,4 +1,4 @@
-"""Fault injection for the FULL STACK proving ground - Wave 4 (docs/FULLSTACK-LAB.md).
+"""Fault injection for the FULL STACK proving ground - Wave 4 (demo-app/docs/FULLSTACK-LAB.md).
 
 The same four rules as `ops.py`, `ops_k8s.py` and `ops_db.py`:
 
@@ -21,7 +21,7 @@ carries `application_name = warden-bench-hold-<fault>`, so the revert can always
 (the Wave 3 lesson in ops_db.py: a revert that waits on a lock forever hangs the whole wave).
 
 The end of this file records a fix outcome from the gate's verdict alone (`decide_fix`): the harness runs no
-fix command (docs/FULLSTACK-LAB.md section 6).
+fix command (demo-app/docs/FULLSTACK-LAB.md section 6).
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ FLAGS: dict[str, tuple[str, str, str]] = {
 
 @dataclass
 class Target:
-    """The stack's names. Defaults are docs/FULLSTACK-LAB.md section 1; endpoints and ids come
+    """The stack's names. Defaults are demo-app/docs/FULLSTACK-LAB.md section 1; endpoints and ids come
     from the stack description file (fullstack_cli.load_stack)."""
 
     region: str = REGION
@@ -1226,7 +1226,7 @@ def _restart(c, t, name) -> None:
 
 # Argo CD marks what it syncs (v3 tracks by annotation; the label is the older method). A direct change to such an
 # object is undone by its self-heal within seconds, so a fault injected that way would heal itself before WARDEN saw
-# it - and the run would prove nothing. Such a fault is a commit to manifests/ instead (owner decision pending,
+# it - and the run would prove nothing. Such a fault is a commit to demo-app/manifests/ instead (owner decision pending,
 # 2026-10-16); until then it is refused, said plainly.
 _ARGO_MARKS = ("argocd.argoproj.io/tracking-id", "argocd.argoproj.io/instance")
 
@@ -1235,7 +1235,7 @@ def _not_argo_managed(obj: dict, what: str) -> None:
     meta = obj.get("metadata") or {}
     if any(k in (meta.get("annotations") or {}) or k in (meta.get("labels") or {}) for k in _ARGO_MARKS):
         raise OpError(f"{what} is synced by Argo CD, whose self-heal undoes a direct change within seconds: this fault "
-                      "is injected as a commit to manifests/, not as a patch on the cluster")
+                      "is injected as a commit to demo-app/manifests/, not as a patch on the cluster")
 
 
 def _jp(key: str) -> str:
@@ -1644,7 +1644,7 @@ def op_fs_revert(clients: Clients, target: Target, *, fault: str, account: str =
     return FAULTS[fault_of(fault)].revert(clients, target)
 
 
-# ⛔ The registry a catalog's `op:` names are looked up in (tests/test_scenario_ops.py checks it).
+# ⛔ The registry a catalog's `op:` names are looked up in (warden/tests/test_scenario_ops.py checks it).
 OPS: dict[str, Callable[..., dict]] = {"fs_inject": op_fs_inject, "fs_revert": op_fs_revert}
 _VARIANTS: dict[str, dict[str, Any]] = {}
 

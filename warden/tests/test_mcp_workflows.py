@@ -19,8 +19,8 @@ from warden import audit, codec, mcp_server, runtime
 from warden.cli import _alert_from
 from warden.llm import LLMClient
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "src" / "warden" / "data" / "mcp_manifest.sha256"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+MANIFEST = ROOT / "warden" / "src" / "warden" / "data" / "mcp_manifest.sha256"
 FORBIDDEN_TOOL = re.compile(r"approv|sign|killswitch|kill_switch|reset|apply|execut|shell", re.IGNORECASE)
 FORBIDDEN_PARAM = re.compile(r"key|secret|token|passw|credential|signature|approval|nonce", re.IGNORECASE)
 

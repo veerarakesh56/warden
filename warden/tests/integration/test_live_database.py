@@ -1,7 +1,7 @@
 """Against REAL databases. Skipped unless opted in; FAILS (never skips) if opted in and the database
 you named is unreachable.
 
-    WARDEN_DB_INTEGRATION=1 WARDEN_TEST_PG_DSN=postgresql://... pytest tests/integration -q
+    WARDEN_DB_INTEGRATION=1 WARDEN_TEST_PG_DSN=postgresql://... pytest warden/tests/integration -q
 
 Each engine is configured by its own DSN variable, and an engine with no DSN set is simply not part of
 this run:

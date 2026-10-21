@@ -9,7 +9,7 @@ from __future__ import annotations
 import pathlib
 import re
 
-WORKFLOWS = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
+WORKFLOWS = pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows"
 HOLD_THE_ACCOUNT = ("AWS_ROLE_ARN", "RUNTIME_ECR_REPOSITORY", "EKS_ADMIN_ROLE_ARNS")
 
 
@@ -21,10 +21,10 @@ def test_no_workflow_reads_an_account_holding_value_as_a_variable():
 
 def test_the_deploys_read_them_as_secrets():
     text = {p.name: p.read_text(encoding="utf-8") for p in WORKFLOWS.glob("*.yml")}
-    assert "role-to-assume: ${{ secrets.AWS_ROLE_ARN }}" in text["_infra-deploy.yml"]
-    assert "role-to-assume: ${{ secrets.AWS_ROLE_ARN }}" in text["_apps-deploy.yml"]
-    assert text["runtime.yml"].count("role-to-assume: ${{ secrets.AWS_ROLE_ARN }}") == 3
-    assert "REPOSITORY: ${{ secrets.RUNTIME_ECR_REPOSITORY }}" in text["runtime.yml"]
+    assert "role-to-assume: ${{ secrets.AWS_ROLE_ARN }}" in text["infra-deploy.yml"]
+    assert "role-to-assume: ${{ secrets.AWS_ROLE_ARN }}" in text["demo-app-deploy.yml"]
+    assert text["warden-runtime-deploy.yml"].count("role-to-assume: ${{ secrets.AWS_ROLE_ARN }}") == 3
+    assert "REPOSITORY: ${{ secrets.RUNTIME_ECR_REPOSITORY }}" in text["warden-runtime-deploy.yml"]
 
 
 def test_every_caller_passes_them_and_the_deploys_require_the_role():
@@ -35,8 +35,8 @@ def test_every_caller_passes_them_and_the_deploys_require_the_role():
     callers = [n for n in text if n.startswith(("deploy-", "on-merge-"))]
     assert len(callers) == 4
     for name in callers:
-        for called in ("_infra-deploy.yml", "_apps-deploy.yml"):
+        for called in ("infra-deploy.yml", "demo-app-deploy.yml"):
             after = text[name].split(f"uses: $/.github/workflows/{called}", 1)[1]
             assert after.lstrip().startswith("secrets:\n      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}"), (name, called)
-    for called in ("_infra-deploy.yml", "_apps-deploy.yml"):
+    for called in ("infra-deploy.yml", "demo-app-deploy.yml"):
         assert "    secrets:\n      AWS_ROLE_ARN:\n        required: true\n" in text[called], called

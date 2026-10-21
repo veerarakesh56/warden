@@ -4,7 +4,7 @@ A green suite proves the tests ran. It does not prove they would notice if the c
 This deliberately breaks the code in specific, meaningful ways and asserts the suite goes RED for
 each one. A mutation that survives is a hole in the tests, reported by name.
 
-Run:  python scripts/mutation_check.py
+Run:  python warden/scripts/mutation_check.py
 """
 
 from __future__ import annotations
@@ -17,17 +17,17 @@ import signal
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[1]  # warden/: the project the suite runs in
 SRC = ROOT / "src" / "warden"
 
 # The files and the one replacement the Eldane and autonomy mutations below name, each once.
 _AUTONOMY, _ELDANE, _ACTIVITIES = "autonomy.py", "eldane.py", "activities.py"
 _NEVER = "    if False:"
 
-# The files more than one mutation changes (relative to src/warden).
+# The files more than one mutation changes (relative to warden/src/warden).
 VERIFIER = "verifier.py"
 K8S_BACKEND = "k8s_backend.py"
-K8S_RBAC = "../../k8s/rbac.yaml"
+K8S_RBAC = "../../../infra/k8s/rbac.yaml"
 K8S_PLATFORM = "platforms/k8s.py"
 DB_PLATFORM = "platforms/db.py"
 
@@ -174,7 +174,7 @@ MUTATIONS = [
     ),
     (
         "Job loses its deadline",
-        "../../k8s/job.yaml",
+        "../../../infra/k8s/job.yaml",
         "  activeDeadlineSeconds: 300",
         "  # activeDeadlineSeconds removed",
         "a stalled run keeps the Job active forever with a token mounted - reproduced live",
@@ -283,15 +283,15 @@ MUTATIONS = [
     ),
     (
         "the cluster CI job swallows the database suite again",
-        "../../.github/workflows/ci-tool.yml",
-        "          pytest tests/integration/test_live_cluster.py tests/integration/test_live_remediation.py -q -rs | tee it.txt",
-        "          pytest tests/integration -q -rs | tee it.txt",
+        "../../.github/actions/k8s-regression/action.yml",
+        "        pytest tests/integration/test_live_cluster.py tests/integration/test_live_remediation.py -q -rs | tee it.txt",
+        "        pytest tests/integration -q -rs | tee it.txt",
         (
             "the exact regression that broke CI: the cluster job collects the database suite, which "
             "skips for want of service containers and trips its own zero-skips guard"
         ),
     ),
-    # Eldane, the AI critic, and dev autonomy (owner, 2026-10-16/17): every guard, planted (tests/test_eldane_autonomy.py).
+    # Eldane, the AI critic, and dev autonomy (owner, 2026-10-16/17): every guard, planted (warden/tests/test_eldane_autonomy.py).
     (
         "Eldane's approval no longer needs both of its passes",
         _AUTONOMY,
@@ -425,7 +425,7 @@ MUTATIONS = [
         '        if False:',
         "an Eldane-signed approval would count like a person's, with no earned level or recorded agreement",
     ),
-    # PR 42 review fixes, planted (tests/test_eldane_autonomy.py).
+    # PR 42 review fixes, planted (warden/tests/test_eldane_autonomy.py).
     (
         'Eldane reviews a plan whose diagnosis does not say which model made it',
         _ELDANE,

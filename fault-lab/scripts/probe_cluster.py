@@ -2,7 +2,7 @@
 
 Not a test. A way to read the evidence with your own eyes before trusting a verdict built on it.
 
-    WARDEN_BACKEND=k8s python scripts/probe_cluster.py [service] [namespace]
+    WARDEN_BACKEND=k8s python fault-lab/scripts/probe_cluster.py [service] [namespace]
 """
 
 from __future__ import annotations

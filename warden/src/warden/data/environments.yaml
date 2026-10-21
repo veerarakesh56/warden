@@ -6,7 +6,7 @@
 # allowlist entry or an authorised principal needs no code change.
 #
 # The environments (owner, 2026-10-16): dev and prod, each deployed only from the branch of its own name; main deploys
-# nothing. They are listed in promotion order - main is promoted to dev, dev to prod (tests/test_ci_lanes.py holds each
+# nothing. They are listed in promotion order - main is promoted to dev, dev to prod (warden/tests/test_ci_lanes.py holds each
 # deploy workflow's `upstream` to this order).
 #   - dev  : run as production (owner rule "dev is prod"), and the one environment faults are injected into
 #            (fault_environments) - which is why its tier is nonprod. Its lists are explicit, never "*" (below).
@@ -64,7 +64,7 @@ aws_region: ap-south-2
 # only when the alarm's event came from there.
 aws_global_region: us-east-1
 
-# WARDEN's OWN environment: the runtime (runtime.yml in G6; names warden-ops-*, parameters under
+# WARDEN's OWN environment: the runtime (warden-runtime-deploy.yml in G6; names warden-ops-*, parameters under
 # /warden/ops/, secrets in Secrets Manager under warden/ops/ - the W0-now Slack webhook is
 # warden/ops/slack-webhook). NOT an application environment: no
 # app pipeline deploys into it, no app IAM is rendered for it, and WARDEN never remediates it - it
@@ -79,9 +79,9 @@ fault_environments: [dev]
 
 # This repository, as GitHub's OIDC token names it - what the deploy roles' trust policies accept: its name, and the
 # immutable subject GitHub issues for it (owner@owner-id/repository@repository-id).
-# runtime_branch (owner, 2026-10-16): the branch the runtime pipeline (runtime.yml, environment `ops`) runs from - an
+# runtime_branch (owner, 2026-10-16): the branch the runtime pipeline (warden-runtime-deploy.yml, environment `ops`) runs from - an
 # application environment's own branch, so the runtime runs code that has reached that environment: dev until prod
-# exists. iam/ops/trust.json and runtime.yml's guards and signing identity name it (tests hold them equal).
+# exists. infra/iam/ops/trust.json and warden-runtime-deploy.yml's guards and signing identity name it (tests hold them equal).
 github:
   repository: veerarakesh56/warden
   subject: veerarakesh56@171412850/warden@1341685493
@@ -101,7 +101,7 @@ environments:
 # and how long its approval link works. The target is read again before anything is applied, whatever the wait.
 # `tripwire: off | on | required` (default off) sets the injection detector per environment; the stricter of it and
 # WARDEN_TRIPWIRE applies. The runtime image carries Prompt Guard 2 (the pinned weights, checked at build:
-# scripts/bake_tripwire.py; register R47, 2026-10-14), so every environment scans (`on`): a flagged text escalates.
+# warden/scripts/bake_tripwire.py; register R47, 2026-10-14), so every environment scans (`on`): a flagged text escalates.
 # `required` also escalates an incident the detector could not scan; prod takes it once the MCP
 # check and the replay tools run the scan instead of reusing a recorded result (they escalate everything until then).
 
@@ -114,7 +114,7 @@ environments:
     auto_remediate: false
     require_human_approval: true
     # Exactly the action classes that a catalogue entry carries out (catalog.FOR_ACTION), that prod allows, and that
-    # WARDEN's own table classes reversible (models.ACTION_FACTS) - tests/test_environments.py derives the list from
+    # WARDEN's own table classes reversible (models.ACTION_FACTS) - warden/tests/test_environments.py derives the list from
     # those three and holds it equal. P2 keeps irreversible actions out of the prod tier only, so dev names the four
     # irreversible classes in deny_actions itself: no later edit of allow_actions can let one in. clear_cache is
     # reversible and prod allows it, but no catalogue entry carries it out (advice only). No dev-only class exists.

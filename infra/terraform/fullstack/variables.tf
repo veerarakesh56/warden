@@ -1,5 +1,5 @@
 variable "region" {
-  description = "AWS region override. Default: src/warden/data/environments.yaml aws_region (R17)."
+  description = "AWS region override. Default: warden/src/warden/data/environments.yaml aws_region (R17)."
   type        = string
   default     = null
 }

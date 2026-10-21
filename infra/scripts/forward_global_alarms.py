@@ -1,8 +1,8 @@
 """Forward the watched environments' alarms from AWS's global-services Region to WARDEN's runtime Region (G10-F1).
 
-    python scripts/forward_global_alarms.py            # print what would be made, change nothing
-    python scripts/forward_global_alarms.py --apply    # make it (the setup role, in the live window)
-    python scripts/forward_global_alarms.py --undo     # remove exactly what --apply made
+    python infra/scripts/forward_global_alarms.py            # print what would be made, change nothing
+    python infra/scripts/forward_global_alarms.py --apply    # make it (the setup role, in the live window)
+    python infra/scripts/forward_global_alarms.py --undo     # remove exactly what --apply made
 
 CloudFront and Route 53 health checks publish their metrics - and so keep their alarms - only in AWS's global-services
 Region (environments.yaml `aws_global_region`). WARDEN's intake listens in its runtime Region (`aws_region`). One rule
@@ -21,8 +21,8 @@ import pathlib
 import sys
 from typing import Any
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "src"))
 from warden.environments import EnvironmentPolicies
 
 

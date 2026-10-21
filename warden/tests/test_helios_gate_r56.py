@@ -1,4 +1,4 @@
-"""Register R56: Helios checks every Terraform change. scripts/helios_gate.py refuses a plan that fails
+"""Register R56: Helios checks every Terraform change. infra/scripts/helios_gate.py refuses a plan that fails
 anything under a scenario today's stack survives, refuses what Helios cannot run, re-checks on the applied
 state what a plan cannot decide, and runs Helios without the job's credentials; the deploy job applies only
 the plan Helios checked."""
@@ -13,8 +13,8 @@ import sys
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("helios_gate", ROOT / "scripts" / "helios_gate.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("helios_gate", ROOT / "infra" / "scripts" / "helios_gate.py")
 gate = importlib.util.module_from_spec(_spec)
 sys.modules["helios_gate"] = gate
 _spec.loader.exec_module(gate)
@@ -73,7 +73,7 @@ def test_a_regression_the_owner_chose_passes_named_and_nothing_else_rides_on_it(
 def test_a_malformed_regressions_file_is_refused_cleanly(tmp_path, monkeypatch, capsys, text):
     """PR 44 review: regressions.json is checked before any scenario runs - an object of lists of addresses, or the
     change is refused with a reason, never a traceback (a string would have excused every address it contains)."""
-    own = tmp_path / "terraform" / "other" / "helios"
+    own = tmp_path / "infra" / "terraform" / "other" / "helios"
     (own / "scenarios").mkdir(parents=True)
     (own / "accepted.json").write_text("{}", encoding="utf-8")
     (own / "regressions.json").write_text(text, encoding="utf-8")
@@ -82,7 +82,7 @@ def test_a_malformed_regressions_file_is_refused_cleanly(tmp_path, monkeypatch, 
     monkeypatch.setattr(gate, "ROOT", tmp_path)
     monkeypatch.setattr(gate, "simulate", lambda *a: set())
     assert gate.main(["--helios", "h", "--plan", str(plan), "--out-dir", str(tmp_path / "s"), "--stack", "other"]) == 1
-    assert "refused: terraform/other/helios/regressions.json must be an object" in capsys.readouterr().out
+    assert "refused: infra/terraform/other/helios/regressions.json must be an object" in capsys.readouterr().out
     (own / "regressions.json").write_text('{"az-outage": ["aws_eks_node_group.this"]}', encoding="utf-8")
     assert gate.main(["--helios", "h", "--plan", str(plan), "--out-dir", str(tmp_path / "s"), "--stack", "other"]) == 0
 
@@ -150,7 +150,7 @@ def test_a_document_that_is_not_terraform_json_is_refused(tmp_path):
 
 
 def test_every_scenario_and_accepted_failure_names_a_resource_the_stack_declares():
-    tf = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "fullstack").glob("*.tf"))
+    tf = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "infra" / "terraform" / "fullstack").glob("*.tf"))
     declared = set(re.findall(r'^resource "(\w+)" "(\w+)"', tf, re.MULTILINE))
     accepted = json.loads((gate.HELIOS / "accepted.json").read_text(encoding="utf-8"))
     ids = [a for v in accepted.values() for a in v]
@@ -163,7 +163,7 @@ def test_every_scenario_and_accepted_failure_names_a_resource_the_stack_declares
 
 def test_each_stack_is_judged_by_its_own_scenarios_and_one_that_declares_none_is_refused(tmp_path, monkeypatch, capsys):
     """2026-10-11: the undo lab's first plan was refused for not holding the full stack's node group, queue and cache.
-    A stack says what it accepts in its own terraform/<stack>/helios/accepted.json - the lab accepts nothing and names
+    A stack says what it accepts in its own infra/terraform/<stack>/helios/accepted.json - the lab accepts nothing and names
     no scenario (it exists to be broken); a stack with no such file, or a name that is no stack's, is refused."""
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps({"planned_values": {"root_module": {"resources": [
@@ -175,14 +175,14 @@ def test_each_stack_is_judged_by_its_own_scenarios_and_one_that_declares_none_is
 
     assert run("undo-lab") == 0
     assert "declares no scenario" in capsys.readouterr().out
-    assert json.loads((ROOT / "terraform" / "undo-lab" / "helios" / "accepted.json").read_text(encoding="utf-8")) == {}
-    assert not list((ROOT / "terraform" / "undo-lab" / "helios").glob("scenarios/*.json"))
+    assert json.loads((ROOT / "infra" / "terraform" / "undo-lab" / "helios" / "accepted.json").read_text(encoding="utf-8")) == {}
+    assert not list((ROOT / "infra" / "terraform" / "undo-lab" / "helios").glob("scenarios/*.json"))
     assert run("fullstack") == 1  # its own three scenarios run - and here cannot
     for stack in ("runtime", "no-such-stack", "../fullstack", ""):
         assert run(stack) == 1, stack
         assert "refused" in capsys.readouterr().out, stack
     # A stack's own accepted failures excuse its own scenario - never another stack's file.
-    own = tmp_path / "terraform" / "other" / "helios"
+    own = tmp_path / "infra" / "terraform" / "other" / "helios"
     (own / "scenarios").mkdir(parents=True)
     (own / "scenarios" / "table-loss.json").write_text("{}", encoding="utf-8")
     (own / "accepted.json").write_text(json.dumps({"table-loss": ["aws_lambda_function.reader"]}), encoding="utf-8")
@@ -196,7 +196,7 @@ def test_each_stack_is_judged_by_its_own_scenarios_and_one_that_declares_none_is
 
 @pytest.fixture
 def deploy():
-    return (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
+    return (ROOT / ".github" / "workflows" / "infra-deploy.yml").read_text(encoding="utf-8")
 
 
 def test_the_deploy_applies_only_the_plan_helios_checked(deploy):

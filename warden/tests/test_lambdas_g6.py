@@ -181,7 +181,7 @@ def test_a_cold_start_says_where_its_time_went_once_and_the_one_a_person_waits_f
         lambdas.approval(event)  # warm: nothing more is said
     [line] = [r.getMessage() for r in caplog.records]
     assert re.fullmatch(r"approval cold start: settings=\d+ms page=\d+ms request=\d+ms", line)  # durations, nothing else
-    tf = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
+    tf = (pathlib.Path(__file__).resolve().parents[2] / "infra" / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert re.search(r'approval\s+= \{ handler = "warden\.lambdas\.approval", timeout = 30, memory = 1769 \}', tf)
     assert "memory_size   = each.value.memory" in tf
     assert tf.count("memory = 512 }") == 3

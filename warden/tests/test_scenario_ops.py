@@ -187,7 +187,7 @@ def test_the_injector_does_not_import_the_tool_under_test():
             offenders += [a.name for a in node.names if a.name.split(".")[0] == "warden"]
         if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "warden":
             offenders.append(node.module or "")
-    assert not offenders, f"scenarios/ops.py must not import warden; found {offenders}"
+    assert not offenders, f"fault-lab/scenarios/ops.py must not import warden; found {offenders}"
 
 
 def test_an_untagged_cluster_is_refused(target):
@@ -403,8 +403,8 @@ def _registry_for(service: str):
 def _catalogs():
     import yaml
 
-    root = pathlib.Path(__file__).resolve().parents[1]
-    catalog = root / "scenarios" / "catalog"
+    root = pathlib.Path(__file__).resolve().parents[2]
+    catalog = root / "fault-lab" / "scenarios" / "catalog"
     if not catalog.exists():
         pytest.skip("no catalog in this checkout")
     for path in sorted(catalog.glob("*.yaml")):

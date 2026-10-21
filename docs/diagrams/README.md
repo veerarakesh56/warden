@@ -43,7 +43,7 @@ done
 `--theme light` keeps the colours as drawn. Without it, draw.io makes the SVG change its colours in a dark theme.
 Pages are numbered from 1. The exports here also used `-b 16`, a 16-pixel margin.
 
-Then run `python scripts/check_publishable.py`. A PNG's compressed bytes can hold a run of digits that the scan
+Then run `python warden/scripts/check_publishable.py`. A PNG's compressed bytes can hold a run of digits that the scan
 reads as an account id; if it flags a PNG, save the same image again at another compression level (for example
 with Pillow, `compress_level=9`) and scan again. The pixels do not change.
 

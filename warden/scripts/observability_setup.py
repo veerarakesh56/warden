@@ -1,6 +1,6 @@
 """Make WARDEN's narrow Datadog credentials from broader setup ones; store them in AWS.
 
-    python scripts/observability_setup.py --env ops --stack dev --site ap1.datadoghq.com
+    python warden/scripts/observability_setup.py --env ops --stack dev --site ap1.datadoghq.com
 
 Asks for three keys, in this order, each typed at a prompt that does not echo it or given one per line on stdin
 (piped from a secret manager): the Datadog API key the runtime reads with; a Datadog application key that may manage
@@ -31,8 +31,8 @@ import sys
 import urllib.parse
 from typing import Any
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(ROOT / "warden" / "src"), str(ROOT / "warden" / "scripts")]
 
 from datadog_setup import Datadog, credential
 
@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None, *, aws: Any = None, dd_call: Any = None)
 
     for line in store.done:
         print(line)
-    print("Restart the runtime (runtime.yml restart) so the workers read the new values, and redeploy the test stack's "
+    print("Restart the runtime (warden-runtime-deploy.yml restart) so the workers read the new values, and redeploy the test stack's "
           "apps so its agent sends with its own key; then revoke the Datadog application key given above.")
     return 0
 

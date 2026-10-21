@@ -1,11 +1,11 @@
 """The bench approver (owner, 2026-10-15): Claude's own test identity - its own Ed25519 key, `dev` only, T1/T2 - shown an
 incident's waiting plan and approving it through the approval page's signed path (approval_page._signed_request).
 
-    python scripts/bench_approve.py --new-key --environment <env>  # once: makes the key, prints the approver entry
-    python scripts/bench_approve.py --incident <id>                # shows the plan this approver may approve
-    python scripts/bench_approve.py --incident <id> --approve      # signs and sends the approval
-    python scripts/bench_approve.py --record <id|latest>           # reads a record (dev only, read only)
-    python scripts/bench_approve.py --incident <id> --deny "<why>"  # denies the waiting plan, with the reason
+    python fault-lab/scripts/bench_approve.py --new-key --environment <env>  # once: makes the key, prints the approver entry
+    python fault-lab/scripts/bench_approve.py --incident <id>                # shows the plan this approver may approve
+    python fault-lab/scripts/bench_approve.py --incident <id> --approve      # signs and sends the approval
+    python fault-lab/scripts/bench_approve.py --record <id|latest>           # reads a record (dev only, read only)
+    python fault-lab/scripts/bench_approve.py --incident <id> --deny "<why>"  # denies the waiting plan, with the reason
 
 The key is bench-approver.pem in WARDEN_BENCH_KEY_DIR (default ~/.warden-bench), never in the repository. The approval
 domain comes from the runtime's settings (SSM /warden/<runtime env>/tf/approval_domain) only: a signed approval is sent
@@ -35,7 +35,7 @@ from datetime import UTC, datetime
 NAME = "bench"
 PASSPHRASE_ENV = "WARDEN_BENCH_KEY_PASSPHRASE"
 # What the clear-key warning tells a person to set: the variable's name, printed; never its value.
-UNLOCK_VARIABLE = "WARDEN_BENCH_KEY_PASSPHRASE"  # = PASSPHRASE_ENV (tests/test_key_at_rest.py holds them equal)
+UNLOCK_VARIABLE = "WARDEN_BENCH_KEY_PASSPHRASE"  # = PASSPHRASE_ENV (warden/tests/test_key_at_rest.py holds them equal)
 
 
 KEY_NAME = "bench-approver.pem"

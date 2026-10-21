@@ -22,7 +22,7 @@ mutants/
 *.log
 
 # Local-only working material: per-machine notes, reports and assistant settings. Never published;
-# tests/test_local_only_paths.py fails if any of these is ever tracked.
+# warden/tests/test_local_only_paths.py fails if any of these is ever tracked.
 /research_notes/
 /reports/
 /.claude/
@@ -68,13 +68,13 @@ crash.log
 crash.*.log
 .terraform.lock.hcl.bak
 # The undo lab's function archives, built at plan time.
-terraform/undo-lab/.build/
+infra/terraform/undo-lab/.build/
 
-# Benchmark run output. Only the held-out sets (docs/bench/heldout-*) and the recorded runs the tests
-# replay (tests/fixtures/bench) are published; raw runs stay outside the repository.
-docs/bench/**/runner*.log
-docs/bench/**/runs/
+# Benchmark run output. Only the held-out sets (fault-lab/docs/bench/heldout-*) and the recorded runs the tests
+# replay (warden/tests/fixtures/bench) are published; raw runs stay outside the repository.
+fault-lab/docs/bench/**/runner*.log
+fault-lab/docs/bench/**/runs/
 
-# A published AWS proof bundle keeps its transcript. scripts/aws_proof.sh writes every run outside the
-# repository, redacts it, and copies it in only after scripts/check_publishable.py passes on it.
-!docs/aws-proof-*/run.log
+# A published AWS proof bundle keeps its transcript. fault-lab/scripts/aws_proof.sh writes every run outside the
+# repository, redacts it, and copies it in only after warden/scripts/check_publishable.py passes on it.
+!fault-lab/docs/aws-proof-*/run.log

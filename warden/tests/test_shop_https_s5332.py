@@ -1,4 +1,4 @@
-"""The shop's containers serve HTTPS only (Sonar python:S5332 on scenarios/fullstack/app/app.py, owner row 25).
+"""The shop's containers serve HTTPS only (Sonar python:S5332 on demo-app/app/app.py, owner row 25).
 
 Each container makes its own self-signed certificate at start: nothing is stored, nothing costs, and the key never
 leaves the container. That is safe only while no caller verifies the certificate, so these tests also pin down who
@@ -21,9 +21,9 @@ import types
 import pytest
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-APP = ROOT / "scenarios" / "fullstack" / "app" / "app.py"
-K8S = ROOT / "manifests" / "shop"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+APP = ROOT / "demo-app" / "app" / "app.py"
+K8S = ROOT / "demo-app" / "manifests" / "shop"
 
 
 def _load_app(monkeypatch, role="orders-api"):
@@ -192,7 +192,10 @@ def test_nothing_in_the_repo_calls_a_shop_service_by_its_cluster_name():
     (or ought to), and would need a shared certificate instead of the per-container one."""
     names = ("catalog-api.shop", "cart-worker.shop", "//catalog-api", "//cart-worker")
     hits = []
-    for top in ("src", "scripts", "scenarios", "manifests", "k8s", "terraform", "helm"):
+    for top in ("warden/src", "warden/scripts", "infra/scripts", "demo-app/scripts", "fault-lab/scripts",
+                "fault-lab/scenarios", "demo-app/app", "demo-app/lambdas", "demo-app/sql", "demo-app/manifests",
+                "infra/k8s", "demo-app/k8s", "fault-lab/k8s", "infra/terraform", "infra/helm"):
+        assert (ROOT / top).is_dir(), top  # a folder that moved must not make this pass with nothing read
         for path in (ROOT / top).rglob("*"):
             if path.is_file() and path.suffix in (".py", ".yaml", ".yml", ".tf", ".json", ".sh", ".tpl"):
                 text = path.read_text(encoding="utf-8", errors="replace")

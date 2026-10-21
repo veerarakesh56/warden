@@ -1,8 +1,8 @@
 # CI ONLY - never applied to a real cluster (review, PR 48). On EKS WARDEN's actor role signs in through its access
-# entry as group warden-remediators (terraform/fullstack/eks.tf), bound in the shop namespace alone by
-# manifests/shop/base/warden-rbac.yaml. The CI k3d cluster's test Deployment lives in `default`, so the ci-tool workflow
-# binds the group there, to the same ClusterRole and admission policy (k8s/remediation-rbac.yaml), to prove the group's
-# path on a real API server (tests/integration/test_live_remediation.py).
+# entry as group warden-remediators (infra/terraform/fullstack/eks.tf), bound in the shop namespace alone by
+# demo-app/manifests/shop/base/warden-rbac.yaml. The CI k3d cluster's test Deployment lives in `default`, so the warden-ci workflow
+# binds the group there, to the same ClusterRole and admission policy (infra/k8s/remediation-rbac.yaml), to prove the group's
+# path on a real API server (warden/tests/integration/test_live_remediation.py).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:

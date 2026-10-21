@@ -110,7 +110,7 @@ resource "aws_ecs_task_definition" "orders_api" {
 
   container_definitions = jsonencode([{
     name = "orders-api"
-    # The app image's own base (scenarios/fullstack/app/Dockerfile), for its openssl: the placeholder serves HTTPS like
+    # The app image's own base (demo-app/app/Dockerfile), for its openssl: the placeholder serves HTTPS like
     # the app (Sonar python:S5332, owner row 25), with a certificate it makes for itself at start.
     image        = "public.ecr.aws/docker/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f"
     essential    = true
@@ -157,8 +157,8 @@ resource "aws_lb" "orders" {
 
 # ----------------------------------------------------------------- the ALB's access logs
 # ⚠ The environment's boundary must allow s3:PutBucketPolicy and s3:PutBucketPublicAccessBlock on
-# warden-<env>-alb-logs-* (iam/templates/boundary.json, DenyS3Policy) and the deploy role must hold s3 on those names
-# (iam/templates/deploy-ec2.json, AlbLogsBucket) before this applies. force_destroy: the stack is ephemeral, and a
+# warden-<env>-alb-logs-* (infra/iam/templates/boundary.json, DenyS3Policy) and the deploy role must hold s3 on those names
+# (infra/iam/templates/deploy-ec2.json, AlbLogsBucket) before this applies. force_destroy: the stack is ephemeral, and a
 # destroy must not stop on a bucket of logs.
 resource "aws_s3_bucket" "alb_logs" {
   bucket_prefix = "${local.name}-alb-logs-"

@@ -1,4 +1,4 @@
-"""Every mutation in scripts/mutation_check.py must still find its anchor.
+"""Every mutation in warden/scripts/mutation_check.py must still find its anchor.
 
 The mutation check is slow, so CI does not run it. On 2026-09-27 approval became a digest and the
 approval-gate mutation's anchor stopped existing, so that mutation silently stopped being tested.
@@ -12,8 +12,8 @@ import pathlib
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("mutation_check", ROOT / "scripts" / "mutation_check.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("mutation_check", ROOT / "warden" / "scripts" / "mutation_check.py")
 mutation_check = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(mutation_check)
 
@@ -85,7 +85,7 @@ def test_sigterm_ends_a_run_the_way_ctrl_c_does():
     """Register R7-O4: Ctrl-C stopped the workers and restored the file; SIGTERM (a CI cancel) did neither."""
     with pytest.raises(KeyboardInterrupt):
         mutation_check._terminate_like_ctrl_c(15, None)
-    source = (ROOT / "scripts" / "mutation_check.py").read_text(encoding="utf-8")
+    source = (ROOT / "warden" / "scripts" / "mutation_check.py").read_text(encoding="utf-8")
     assert "signal.signal(signal.SIGTERM, _terminate_like_ctrl_c)" in source
 
 

@@ -264,7 +264,7 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     # A Lambda's reserved concurrency again too (G10-B): the schema tells the model raise_limit means it, and the
     # held-out author's key agreed - so a right answer was never planned. Review H1's harm stays closed by its other
     # half: raise_limit's own evidence words (grounding: throttl, quota, 429, burst) - "too many connections" or an
-    # error rate supports it no more (tests/test_review_g9d.py h1), and P11 refuses it against an OOM.
+    # error rate supports it no more (warden/tests/test_review_g9d.py h1), and P11 refuses it against an OOM.
     ActionKind.raise_limit: {"apigw": "apigw_raise_stage_throttle", "lambda": "lambda_set_reserved_concurrency"},
     ActionKind.cancel_query: {"athena": "athena_stop_query"},
     ActionKind.shift_traffic: {"elb": "arc_zonal_shift"},
@@ -420,7 +420,7 @@ def shown_target(environment: str, name: str, params: dict[str, Any]) -> str:
 # Research 2026-10-16 ("who will change this field back, and when?"): a runtime fix lasts only as long as whatever else
 # owns the field leaves it. Each entry says how long its fix lasts and what has to follow, and the approver reads it
 # before deciding - a rollback the next deploy undoes, or a value the next infrastructure apply sets back, is not a fix
-# that holds. A new entry without one fails tests/test_fix_lasts.py.
+# that holds. A new entry without one fails warden/tests/test_fix_lasts.py.
 _RESTORES = ("restores", ("it puts back the state from before the change. The change was made outside the normal "
                          "path: find who made it and why, so it is not made again."))
 _UNTIL_DEPLOY = ("until_deploy", ("it lasts until the next deploy of this code or configuration. Revert or fix the "

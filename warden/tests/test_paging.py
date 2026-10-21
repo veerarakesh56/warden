@@ -2,7 +2,7 @@
 (owner, 2026-10-16): the kill switch going on, the heartbeat or synthetic missing, the dead-letter queue, an
 unapproved actor, a worker's or a front door's errors, the audit database, a Temporal key about to expire.
 
-The pager is a function of its own (terraform/modules/warden-runtime/pager/pager.py: boto3 and the standard library,
+The pager is a function of its own (infra/terraform/modules/warden-runtime/pager/pager.py: boto3 and the standard library,
 no WARDEN code, no VPC); the approval page's `/p` writes the acknowledgement after an approver's passkey signed
 exactly the pages shown. Both sides are driven here against one bucket, so their layouts are held together."""
 
@@ -21,8 +21,8 @@ import pytest
 from test_killswitch_reset_g10m import World
 from warden import bounds, paging
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODULE = ROOT / "terraform" / "modules" / "warden-runtime"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+MODULE = ROOT / "infra" / "terraform" / "modules" / "warden-runtime"
 T0 = datetime(2026, 10, 16, 1, 0, tzinfo=UTC)
 
 

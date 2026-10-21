@@ -1,4 +1,4 @@
-"""Turn the raw output of `scripts/aws_proof.sh` into a readable, publishable evidence bundle.
+"""Turn the raw output of `fault-lab/scripts/aws_proof.sh` into a readable, publishable evidence bundle.
 
 Two jobs, and the second matters as much as the first:
 
@@ -20,7 +20,7 @@ import pathlib
 import re
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "warden" / "src"))
 
 from warden import paths  # after the sys.path line above, deliberately
 
@@ -136,8 +136,8 @@ def main() -> int:
         "",
         f"Run: `{out.name}` · region `{args.region}` · account `<ACCOUNT>` (redacted)",
         "",
-        "Every number below was read from a live AWS account by `src/warden/aws_backend.py`,",
-        "`src/warden/k8s_backend.py` and `src/warden/database.py`. Nothing here is a fixture.",
+        "Every number below was read from a live AWS account by `warden/src/warden/aws_backend.py`,",
+        "`warden/src/warden/k8s_backend.py` and `warden/src/warden/database.py`. Nothing here is a fixture.",
         "",
         "| | Read by | Service |",
         "|---|---|---|",
@@ -176,7 +176,7 @@ def main() -> int:
         "",
         "- The proving ground runs in **public subnets with public IPs**. That is a cost decision",
         "  (a NAT Gateway costs more than everything else here combined), not a recommendation. The",
-        "  deployment module in `terraform/` uses private subnets.",
+        "  deployment module in `infra/terraform/` uses private subnets.",
         "- The ECS incident is **staged**: a task definition that allocates more memory than the",
         "  task is given. The *kill* is real and so is every signal WARDEN reads, but the cause was",
         "  chosen rather than encountered.",

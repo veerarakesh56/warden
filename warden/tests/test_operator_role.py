@@ -16,11 +16,11 @@ import pathlib
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-POLICY = json.loads((ROOT / "iam" / "operator" / "policy.json").read_text(encoding="utf-8"))
-TRUST = json.loads((ROOT / "iam" / "operator" / "trust.json").read_text(encoding="utf-8"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+POLICY = json.loads((ROOT / "infra" / "iam" / "operator" / "policy.json").read_text(encoding="utf-8"))
+TRUST = json.loads((ROOT / "infra" / "iam" / "operator" / "trust.json").read_text(encoding="utf-8"))
 
-_spec = importlib.util.spec_from_file_location("roles_anywhere_cert", ROOT / "scripts" / "roles_anywhere_cert.py")
+_spec = importlib.util.spec_from_file_location("roles_anywhere_cert", ROOT / "infra" / "scripts" / "roles_anywhere_cert.py")
 rac = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(rac)
 
@@ -61,7 +61,7 @@ def test_the_sweep_role_is_assumed_only_in_the_callers_own_account():
     policy lets it assume is the one the sweep script assumes: the runtime environment's (renamed 2026-10-16)."""
     sweep = next(st for st in _allow_statements() if st["Sid"] == "SweepEveryRegionReadOnly")
     assert sweep.get("Condition") == {"StringEquals": {"aws:ResourceAccount": "${aws:PrincipalAccount}"}}
-    spec = importlib.util.spec_from_file_location("account_sweep", ROOT / "scripts" / "account_sweep.py")
+    spec = importlib.util.spec_from_file_location("account_sweep", ROOT / "infra" / "scripts" / "account_sweep.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     from warden.environments import EnvironmentPolicies, names
@@ -79,7 +79,7 @@ def test_chaining_into_the_sweep_role_keeps_the_source_identity():
 
     sweep = next(st for st in _allow_statements() if st["Sid"] == "SweepEveryRegionReadOnly")
     assert sorted(_list(sweep["Action"])) == sorted(CHAIN)
-    spec = importlib.util.spec_from_file_location("account_sweep", ROOT / "scripts" / "account_sweep.py")
+    spec = importlib.util.spec_from_file_location("account_sweep", ROOT / "infra" / "scripts" / "account_sweep.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     written = {}
@@ -150,4 +150,4 @@ def test_anything_but_a_home_region_anchor_arn_is_refused(bad):
 
 def test_the_filled_in_trust_is_never_committed():
     patterns = [ln.strip() for ln in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()]
-    assert any(fnmatch.fnmatch("iam/operator/trust.local.json", p) for p in patterns if p)
+    assert any(fnmatch.fnmatch("infra/iam/operator/trust.local.json", p) for p in patterns if p)

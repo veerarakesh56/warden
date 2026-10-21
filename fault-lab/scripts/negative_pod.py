@@ -1,10 +1,10 @@
-"""The NEGATIVE Pod Security test's pod, built when the test runs (2026-10-20; was k8s/test/privileged-must-fail.yaml).
+"""The NEGATIVE Pod Security test's pod, built when the test runs (2026-10-20; was fault-lab/k8s/test/privileged-must-fail.yaml).
 
-    python scripts/negative_pod.py | kubectl apply --dry-run=server -f -     # must be REFUSED: "violates PodSecurity"
+    python fault-lab/scripts/negative_pod.py | kubectl apply --dry-run=server -f -     # must be REFUSED: "violates PodSecurity"
 
 A positive test (the Job is admitted) cannot tell "restricted is enforced" from "the namespace label is mistyped and
 nothing is enforced". This pod can: privileged, root, none of the hardening the real workloads carry, in the `warden`
-namespace - exactly what its restricted Pod Security must refuse. CI (ci-tool.yml, k3d) and scripts/aws_proof.sh (EKS)
+namespace - exactly what its restricted Pod Security must refuse. CI (warden-ci.yml, k3d) and fault-lab/scripts/aws_proof.sh (EKS)
 pipe it into a server-side dry run and fail if the API server ACCEPTS it, or refuses it for any other reason. It is
 never created.
 

@@ -16,7 +16,7 @@ import uuid
 import pytest
 from scenarios import runner
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 # Under the home directory, in none of the tools' folders, with a name no one else has: a regression writes only here.
 OUTSIDE_DIR = pathlib.Path.home() / f".warden-test-outside-{uuid.uuid4().hex}"
 
@@ -30,7 +30,7 @@ def _nothing_left_outside():
 
 
 def _gate():
-    spec = importlib.util.spec_from_file_location("helios_gate_s8705", ROOT / "scripts" / "helios_gate.py")
+    spec = importlib.util.spec_from_file_location("helios_gate_s8705", ROOT / "infra" / "scripts" / "helios_gate.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

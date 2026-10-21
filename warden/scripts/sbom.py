@@ -1,11 +1,11 @@
 """WARDEN's software and model bill of materials, as CycloneDX 1.6 JSON (registers S9, A-P-7).
 
-    python scripts/sbom.py            # writes docs/sbom/warden.cdx.json
+    python warden/scripts/sbom.py            # writes warden/docs/sbom/warden.cdx.json
 
 Software: every package uv.lock pins, with its version, purl and the sha256 of its source distribution - the hashes
 `uv sync --locked` installs against. Models (the ML-BOM): the Prompt Guard 2 revision the tripwire loads, and every
 model data/providers.yaml qualified, with its measured result. Deterministic - no timestamp, a serial number derived
-from the lock - so tests/test_sbom.py can require the committed file to be exactly a fresh render.
+from the lock - so warden/tests/test_sbom.py can require the committed file to be exactly a fresh render.
 """
 
 from __future__ import annotations
@@ -19,15 +19,15 @@ import uuid
 
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-OUT = ROOT / "docs" / "sbom" / "warden.cdx.json"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+OUT = ROOT / "warden" / "docs" / "sbom" / "warden.cdx.json"
 
 
 def render() -> dict:
-    sys.path.insert(0, str(ROOT / "src"))
+    sys.path.insert(0, str(ROOT / "warden" / "src"))
     from warden import tripwire
 
-    lock_text = (ROOT / "uv.lock").read_text(encoding="utf-8")
+    lock_text = (ROOT / "warden" / "uv.lock").read_text(encoding="utf-8")
     lock = tomllib.loads(lock_text)
     project = next(p for p in lock["package"] if (p.get("source") or {}).get("editable") or
                    (p.get("source") or {}).get("virtual"))
@@ -49,7 +49,7 @@ def render() -> dict:
                "name": tripwire.MODEL, "version": tripwire.REVISION,
                "purl": f"pkg:huggingface/{org}/{name}@{tripwire.REVISION}",
                "description": "the injection tripwire (P16): a signal that escalates, never a gate that allows"}]
-    providers = yaml.safe_load((ROOT / "src" / "warden" / "data" / "providers.yaml").read_text(encoding="utf-8"))
+    providers = yaml.safe_load((ROOT / "warden" / "src" / "warden" / "data" / "providers.yaml").read_text(encoding="utf-8"))
     for q in sorted(providers["qualified"], key=lambda q: (q["provider"], q["model"])):
         models.append({
             "type": "machine-learning-model", "bom-ref": f"model:{q['provider']}/{q['model']}", "name": q["model"],

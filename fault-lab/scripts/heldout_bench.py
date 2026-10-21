@@ -1,6 +1,6 @@
 """Run WARDEN on a held-out incident set and score diagnosis and mitigation separately (G9-F).
 
-    WARDEN_PROVIDER=anthropic python scripts/heldout_bench.py --cases ~/warden-heldout/g9-2026-10-10 \\
+    WARDEN_PROVIDER=anthropic python fault-lab/scripts/heldout_bench.py --cases ~/warden-heldout/g9-2026-10-10 \\
         --out ~/warden-bench-runs/heldout/g9-sonnet-5
 
 A held-out set is written by someone who has not seen WARDEN's signatures, policies, prompt or rubrics: its cases
@@ -26,7 +26,7 @@ import json
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 PASSIVE = {"no_action", "escalate_to_human"}
 
 
@@ -172,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--docs", action="store_true",
                    help="fetch AWS's documentation on the evidence's error codes first, as the read zone does (G10-C6)")
     args = p.parse_args(argv)
-    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.path.insert(0, str(ROOT / "warden" / "scripts"))
     key = answer_key(args.cases)
     reports = args.out / "reports"
     reports.mkdir(parents=True, exist_ok=True)

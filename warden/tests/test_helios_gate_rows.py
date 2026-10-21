@@ -1,4 +1,4 @@
-"""scripts/helios_gate.py's table rows (split out of main for S3776): with a current state, each scenario is also
+"""infra/scripts/helios_gate.py's table rows (split out of main for S3776): with a current state, each scenario is also
 simulated on it and judged against what the stack fails today; without one, only against the accepted failures."""
 
 from __future__ import annotations
@@ -7,8 +7,8 @@ import argparse
 import importlib.util
 import pathlib
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("helios_gate_rows", ROOT / "scripts" / "helios_gate.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("helios_gate_rows", ROOT / "infra" / "scripts" / "helios_gate.py")
 gate = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gate)
 PLAN, BASELINE, SCENARIO = pathlib.Path("plan.json"), pathlib.Path("baseline.json"), pathlib.Path("lose-x.json")

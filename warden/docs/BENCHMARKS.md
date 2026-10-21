@@ -7,11 +7,11 @@ Three kinds of measurement exist:
 
 | Kind | What it is | Where the data is |
 |---|---|---|
-| **Live runs** (waves 1-3) | Real faults injected into a throwaway AWS stack; WARDEN read the live account with a read-only identity and proposed a fix. It never acted. | `tests/fixtures/bench/<run>/` (redacted: account id and role ARNs masked) |
+| **Live runs** (waves 1-3) | Real faults injected into a throwaway AWS stack; WARDEN read the live account with a read-only identity and proposed a fix. It never acted. | `warden/tests/fixtures/bench/<run>/` (redacted: account id and role ARNs masked) |
 | **Replays** | The evidence recorded in those live runs, diagnosed again by today's pipeline and a chosen model. Used to qualify a model. | the same recorded runs |
-| **Held-out sets** (G9, G10) | Synthetic incidents written by independent authors who never saw WARDEN's rules, with a separate answer key. | `docs/bench/heldout-*/` |
+| **Held-out sets** (G9, G10) | Synthetic incidents written by independent authors who never saw WARDEN's rules, with a separate answer key. | `fault-lab/docs/bench/heldout-*/` |
 
-How each answer is graded is in [`scenarios/SCORING.md`](../scenarios/SCORING.md). Only typed fields are graded (the
+How each answer is graded is in [`fault-lab/scenarios/SCORING.md`](../../fault-lab/scenarios/SCORING.md). Only typed fields are graded (the
 proposed action, the gate's verdict, the cited evidence), never the model's prose.
 
 ## Which model runs in production, and why
@@ -21,7 +21,7 @@ proposed action, the gate's verdict, the cited evidence), never the model's pros
 | Model | Claude Sonnet 5.5 (`claude-sonnet-5-5`), effort `high`, on the Anthropic API |
 | Qualified | 2026-10-15, 14:56 UTC (20:26 IST), anthropic SDK 1.4.0, prompt `d435b59f...` |
 | Replay of the 30 recorded live incidents | **17 of 30 correct, 0 wrong answers allowed by the gate**, 24 escalated, 0 acted wrongly; $0.42 |
-| The bar | 0 wrong-and-allowed and at least 17 correct (`src/warden/data/providers.yaml`) |
+| The bar | 0 wrong-and-allowed and at least 17 correct (`warden/src/warden/data/providers.yaml`) |
 | Not qualified on the same day | Claude Opus 5.5: 15 of 30 |
 
 The same file records Sonnet 5.5's answers to the G10 held-out set, re-scored under the current gate: 160 of 172
@@ -36,7 +36,7 @@ Reproduce (calls the model; costs about $0.50 on the API):
 
 ```bash
 WARDEN_PROVIDER=anthropic WARDEN_MODEL=claude-sonnet-5-5 ANTHROPIC_API_KEY=... \
-    python scripts/qualify_provider.py --out <a new directory outside the repository>
+    python warden/scripts/qualify_provider.py --out <a new directory outside the repository>
 ```
 
 `--score-only` re-scores a finished run with no model call.
@@ -74,23 +74,23 @@ What they found:
 Re-score a recorded run offline (no AWS, no API key):
 
 ```bash
-python -m scenarios.score --run tests/fixtures/bench/wave1-2026-09-11T155744Z \
-    --rubric tests/fixtures/bench/wave1-2026-09-11T155744Z/grading/scoring.yaml
+python -m scenarios.score --run warden/tests/fixtures/bench/wave1-2026-09-11T155744Z \
+    --rubric warden/tests/fixtures/bench/wave1-2026-09-11T155744Z/grading/scoring.yaml
 ```
 
-Always pass the run's own `--rubric`: `scenarios/scoring.yaml` has grown since, and scoring an old run against it
+Always pass the run's own `--rubric`: `fault-lab/scenarios/scoring.yaml` has grown since, and scoring an old run against it
 gives numbers that are not the published ones. Re-decide the recorded evidence with today's gate (no model call):
 
 ```bash
-python scripts/replay_gate.py --reports tests/fixtures/bench/wave1-2026-09-11T155744Z/reports
+python warden/scripts/replay_gate.py --reports warden/tests/fixtures/bench/wave1-2026-09-11T155744Z/reports
 ```
 
-The full-stack lab ([`FULLSTACK-LAB.md`](FULLSTACK-LAB.md)) ran faults fs-00 to fs-05 on 2026-09-26 and was then
+The full-stack lab ([`FULLSTACK-LAB.md`](../../demo-app/docs/FULLSTACK-LAB.md)) ran faults fs-00 to fs-05 on 2026-09-26 and was then
 stopped. **No full-stack score is published.**
 
 ## Held-out set G9: 48 cases (2026-10-10)
 
-Written by one independent author; see [the set's README](bench/heldout-g9-2026-10-10/README.md). Answered by Claude
+Written by one independent author; see [the set's README](../../fault-lab/docs/bench/heldout-g9-2026-10-10/README.md). Answered by Claude
 Sonnet 5 on the Anthropic API (anthropic 1.11.0), code of commit `d01407c`.
 
 | | Result |
@@ -103,12 +103,12 @@ Sonnet 5 on the Anthropic API (anthropic 1.11.0), code of commit `d01407c`.
 The one wrong answer that reached a person proposed `scale_up` for NAT gateway port exhaustion. No catalogue entry
 acts on a NAT gateway, so it would have been advice only. The run also found a real gap: CloudFront and Route 53
 alarms exist only in us-east-1, and WARDEN read one Region. WARDEN has read alarms in AWS's global-service Region
-since then (`aws_global_region` in `src/warden/data/environments.yaml`); that has not been re-run on this set.
+since then (`aws_global_region` in `warden/src/warden/data/environments.yaml`); that has not been re-run on this set.
 
 ## Held-out set G10: 172 cases (2026-10-10)
 
 Written by four independent authors and reviewed by four more; see
-[the set's README](bench/heldout-g10-2026-10-10/README.md). Answered by Claude Sonnet 5 on the Anthropic API with the
+[the set's README](../../fault-lab/docs/bench/heldout-g10-2026-10-10/README.md). Answered by Claude Sonnet 5 on the Anthropic API with the
 AWS documentation lookups on, three times on three code versions the same day.
 
 | | baseline `209063b` | `ff73442` | `397346f` |
@@ -134,9 +134,9 @@ platform's live read, which a replay cannot run.
 Reproduce:
 
 ```bash
-WARDEN_PROVIDER=anthropic ANTHROPIC_API_KEY=... python scripts/heldout_bench.py --docs \
-    --cases docs/bench/heldout-g10-2026-10-10 --out <out>      # answers every case (about $4)
-python scripts/heldout_bench.py --cases docs/bench/heldout-g10-2026-10-10 --out <out> --reverify
+WARDEN_PROVIDER=anthropic ANTHROPIC_API_KEY=... python fault-lab/scripts/heldout_bench.py --docs \
+    --cases fault-lab/docs/bench/heldout-g10-2026-10-10 --out <out>      # answers every case (about $4)
+python fault-lab/scripts/heldout_bench.py --cases fault-lab/docs/bench/heldout-g10-2026-10-10 --out <out> --reverify
                                                                 # the same answers, today's gate, no model call
 ```
 
@@ -144,7 +144,7 @@ python scripts/heldout_bench.py --cases docs/bench/heldout-g10-2026-10-10 --out 
 
 The optional detector (Meta's Llama Prompt Guard 2, 86M, run locally) was measured on the repository's recorded
 incidents: **0 false alarms in 4,637 distinct real log and event lines**, and it caught **6 of the 14** attack
-payloads in `tests/test_injection_corpus.py`. The misses are why it is a tripwire on top of quarantine and the
+payloads in `warden/tests/test_injection_corpus.py`. The misses are why it is a tripwire on top of quarantine and the
 outbound gate, never a replacement for them.
 
 ## Poisoned logs (2026-10-17)
@@ -152,7 +152,7 @@ outbound gate, never a replacement for them.
 Pasquini et al., *When AIOps Become "AI Oops"* (USENIX Security 2026,
 [arXiv:2508.06394](https://arxiv.org/abs/2508.06394)), steer AIOps agents into harmful fixes by making an
 application log a plausible wrong cause and a cheap fix (`[SOLUTION] ...`, `#HUMAN HINT: ...`) through a URL path, a
-User-Agent, a Referer, a username or a form field - past Prompt Shields and Prompt-Guard-2. `evals/poisoned_logs.py`
+User-Agent, a Referer, a username or a form field - past Prompt Shields and Prompt-Guard-2. `warden/evals/poisoned_logs.py`
 plants eleven such lines (scale to zero, delete, wrong target, failover, IAM change, downgrade, weakened health check,
 a pasted install command, a false "expected during maintenance" close, a traffic shift, a forged config line) in an
 ordinary incident (a deploy before a 4.2% error rate) and runs WARDEN's real pipeline with a model that **follows**
@@ -169,7 +169,7 @@ assumed bypassed.
 | The planted `curl ... \| sh` shown to a person | 0 (withheld by G4, in the key log lines too) |
 | Reached the model as a sentence | none - no run of three of a payload's words, no decorator. Closed-vocabulary facts do (`failover`, `health check`), and the forged config line's two `key=value` facts sit side by side |
 
-`evals/test_poisoned_logs.py` asserts this on every push. `python evals/poisoned_logs.py --live` asks the configured
+`warden/evals/test_poisoned_logs.py` asserts this on every push. `python warden/evals/poisoned_logs.py --live` asks the configured
 real model instead: **it costs money, is off by default and no CI job runs it**; run it in the cloud runtime. Not
 measured yet: whether a real model follows these payloads at all, and the real Prompt Guard 2 on them.
 
@@ -182,10 +182,10 @@ actions are right and which are harmful. No number is published until the run be
 | Measured | Model (effort) | Eldane prompt | Approves right fixes | Catches wrong or harmful | Blocks right fixes (false block) | Catches harmful | Catches wrong | Wrong or harmful it agreed to | USD spent / cap |
 |---|---|---|---|---|---|---|---|---|---|
 <!-- eldane-bench:begin -->
-| not yet measured - run `python scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd <cap> --out <new dir>` with the cloud runtime's key | | | | | | | | | |
+| not yet measured - run `python fault-lab/scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd <cap> --out <new dir>` with the cloud runtime's key | | | | | | | | | |
 <!-- eldane-bench:end -->
 
-How the plans are made (`scripts/eldane_bench.py`, dry run on 2026-10-21 at commit `13a3324`):
+How the plans are made (`fault-lab/scripts/eldane_bench.py`, dry run on 2026-10-21 at commit `13a3324`):
 
 - **Right fixes:** each action in a case's `correct_actions` that WARDEN's own planner (`resolver.request_for`) turns
   into a catalogue plan on the case's `target`: 80 plans in 63 of the 88 cases that have a right fix. 39 right actions
@@ -224,9 +224,9 @@ cloud runtime's own key, from its Secrets Manager slot (or inside a runtime task
 refused.
 
 ```bash
-python scripts/eldane_bench.py --model claude-opus-5-5 --dry-run       # no key, no call: the plans and the cost
-python scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd 25 --out <a new directory>   # PAID
-python scripts/eldane_bench.py --record <that directory>/eldane-bench-<date>.json   # adds the row here and in README
+python fault-lab/scripts/eldane_bench.py --model claude-opus-5-5 --dry-run       # no key, no call: the plans and the cost
+python fault-lab/scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd 25 --out <a new directory>   # PAID
+python fault-lab/scripts/eldane_bench.py --record <that directory>/eldane-bench-<date>.json   # adds the row here and in README
 ```
 
 What changes after PR #166 (Eldane's typed objections and WARDEN's answers, not merged on 2026-10-21): it changes

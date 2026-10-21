@@ -17,7 +17,7 @@ import pytest
 
 from warden import cli, paths
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 # Under the home directory, in none of the tools' folders: where a steered path would lead (~/.ssh, ~/.aws). A folder
 # of its own with a name no one else has, so a regression that writes there harms nothing, and the clean-up below can
 # only ever remove what this run wrote.
@@ -34,7 +34,8 @@ def _nothing_left_outside():
 
 
 def _script(name: str):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
+    spec = importlib.util.spec_from_file_location(
+        name, next(p for c in ("warden", "infra", "demo-app", "fault-lab") if (p := ROOT / c / "scripts" / f"{name}.py").exists()))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -43,15 +44,16 @@ def _script(name: str):
 def test_the_harness_has_the_same_rule_without_importing_the_tool():
     """The harness runs WARDEN's own rule, loaded from its file: one copy of it, and no `warden` package imported."""
     code = ("import sys; from scenarios import paths; "
-            "assert paths.RULE.samefile('src/warden/paths.py'), paths.RULE; "
+            "assert paths.RULE.samefile('../warden/src/warden/paths.py'), paths.RULE; "
             "assert not any(m == 'warden' or m.startswith('warden.') for m in sys.modules), sorted(sys.modules)")
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-    done = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+    done = subprocess.run([sys.executable, "-c", code], cwd=ROOT / "fault-lab", env=env, capture_output=True, text=True,
+                          check=False)
     assert done.returncode == 0, done.stderr
 
 
 def test_a_path_in_the_working_directory_or_the_temp_folder_is_used_resolved(tmp_path):
-    assert paths.inside("pyproject.toml") == (ROOT / "pyproject.toml").resolve()
+    assert paths.inside("pyproject.toml") == (ROOT / "warden" / "pyproject.toml").resolve()
     assert paths.inside(tmp_path / "x.json") == (tmp_path / "x.json").resolve()
 
 
@@ -130,7 +132,7 @@ def test_warden_run_reads_no_alert_and_writes_no_report_outside(capsys):
 
 def test_warden_audit_reads_keys_from_the_key_folder_only_and_no_database_outside(tmp_path, capsys):
     # A file that exists, outside the key folder: not read as a key.
-    assert cli.main(["audit", "verify", "--db", str(tmp_path / "a.db"), "--public-key", str(ROOT / "pyproject.toml")]) == 2
+    assert cli.main(["audit", "verify", "--db", str(tmp_path / "a.db"), "--public-key", str(ROOT / "warden" / "pyproject.toml")]) == 2
     assert "key files are kept only there" in capsys.readouterr().err
     assert cli.main(["audit", "verify", "--db", str(OUTSIDE), "--public-key", str(tmp_path / "k.pub")]) == 2
     assert "error: --db" in capsys.readouterr().err
@@ -138,7 +140,7 @@ def test_warden_audit_reads_keys_from_the_key_folder_only_and_no_database_outsid
 
 def test_an_approver_key_outside_the_key_folder_is_not_read():
     with pytest.raises(SystemExit, match="outside"):
-        cli._approver_key(ROOT / "pyproject.toml")
+        cli._approver_key(ROOT / "warden" / "pyproject.toml")
     with pytest.raises(SystemExit, match="never-written|cannot find|No such file"):
         cli._approver_key(OUTSIDE)  # its folder does not exist
 

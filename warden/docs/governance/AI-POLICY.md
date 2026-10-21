@@ -2,7 +2,7 @@
 
 This is the written policy for how WARDEN, an AI system, may be used, changed and stopped. It applies to every
 install. Who does what is in `RACI.md`; how it can go wrong and what holds it is in `IMPACT-ASSESSMENT.md` and the
-register (`docs/FAILURE-MODES.md`).
+register (`warden/docs/FAILURE-MODES.md`).
 
 ## Purpose and scope
 
@@ -21,7 +21,7 @@ for on-call engineers. It is not an autonomous operator.
 4. **Least privilege and a record of everything.** Short-lived, scoped identities; a tamper-evident audit signed by
    a key WARDEN cannot export (S12).
 5. **Stop is always available.** The kill switch stops every change (B9), and the runbook for incidents WARDEN
-   itself causes (`docs/RUNBOOK-WARDEN-INCIDENT.md`) says what to do.
+   itself causes (`warden/docs/RUNBOOK-WARDEN-INCIDENT.md`) says what to do.
 6. **Say what it cannot do.** Limits are written down, not discovered: an install with a single approver lets one
    person decide a change alone, some checks match English words only (M23), and the calibrated decider does not
    yet beat the base rate.

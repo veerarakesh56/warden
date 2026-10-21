@@ -1,4 +1,4 @@
-"""scripts/check_iam_actions.py, offline: AWS's action list is stubbed, so every outcome the check reports - an unknown
+"""infra/scripts/check_iam_actions.py, offline: AWS's action list is stubbed, so every outcome the check reports - an unknown
 service, a wildcard that matches or matches nothing, a confirmed action, a known-unlisted one, a near miss - and its
 exit code are pinned (characterisation before the cognitive-complexity split of main)."""
 
@@ -9,8 +9,8 @@ import json
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("check_iam_actions", ROOT / "scripts" / "check_iam_actions.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("check_iam_actions", ROOT / "infra" / "scripts" / "check_iam_actions.py")
 mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(mod)
 

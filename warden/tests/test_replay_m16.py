@@ -11,11 +11,11 @@ from scenarios.score import score_run_dir
 
 from warden.llm import LLMClient
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "scripts"))
 import replay_diagnose as rd  # after the sys.path line above
 
-RUN = ROOT / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z"
+RUN = ROOT / "warden" / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z"
 
 
 def test_the_tripwire_runs_in_a_replay_as_in_production(tmp_path):

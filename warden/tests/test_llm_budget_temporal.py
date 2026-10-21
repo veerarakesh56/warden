@@ -73,7 +73,7 @@ def test_one_alert_is_one_incident_with_one_budget():
     import ast
     import pathlib
 
-    root = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden"
+    root = pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden"
     starts = []
     for path in root.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):

@@ -1,5 +1,5 @@
 """G9-E (2026-10-10): the policies that blocked correct answers (audit-coverage-limits E1, E3), changed only where it
-is safe - P5 counts a configuration-only revision as a deploy (tests/test_aws_backend.py). P29 (a benign failed read
+is safe - P5 counts a configuration-only revision as a deploy (warden/tests/test_aws_backend.py). P29 (a benign failed read
 is not P8's partial picture) was observed beside P8 until the owner enforced it on 2026-10-11, after three held-out
 runs: 19, 22 and 21 more right fix plans reached the approver and no wrong one."""
 
@@ -103,7 +103,7 @@ def test_every_signature_metric_is_emitted_by_a_backend_or_named_dead():
 
     import yaml
 
-    root = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden"
+    root = pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden"
     doc = yaml.safe_load((root / "data" / "incident_signatures.yaml").read_text(encoding="utf-8"))
     keys = {k for s in doc["signatures"] for c in ("metric_gte", "metric_lte")
             for k in ((s.get("detect") or {}).get(c) or {})}

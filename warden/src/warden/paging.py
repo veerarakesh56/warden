@@ -1,10 +1,10 @@
 """WARDEN's own pages, seen from the approval page: which are open, and a person's acknowledgement of them.
 
-The pager (terraform/modules/warden-runtime/pager/pager.py, a function of its own with no WARDEN code in it) writes
+The pager (infra/terraform/modules/warden-runtime/pager/pager.py, a function of its own with no WARDEN code in it) writes
 each page as `pages/<key>.json` in the runtime's anchors bucket and says it again every 15 minutes until an
 `acks/<key>.json` names the same opening time. Only this side writes an acknowledgement, and only after an
 approver's passkey signed exactly the pages shown (approval_page `/p`); the acknowledgement is on WARDEN's record
-first (`page.acknowledged`), then in the bucket. tests/test_paging.py holds this layout to the pager's.
+first (`page.acknowledged`), then in the bucket. warden/tests/test_paging.py holds this layout to the pager's.
 
 The kill switch going on is one of the alarms that page: `KILLSWITCH_METRIC`, counted on every trip (bounds.trip).
 So are the model's three conditions (item 7c, `model_condition`): the provider unavailable, the daily cap reached, an

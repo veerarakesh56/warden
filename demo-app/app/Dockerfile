@@ -1,5 +1,5 @@
 # The one image of the Wave 4 stack; APP_ROLE selects orders-api / catalog-api / cart-worker.
-# Built and pushed by `python scripts/deploy_fullstack_apps.py build|deploy ecs`, never by terraform.
+# Built and pushed by `python demo-app/scripts/deploy_fullstack_apps.py build|deploy ecs`, never by terraform.
 # Base image by digest (audit A-I-24), read 2026-10-01; Dependabot (docker) proposes new digests.
 FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
 

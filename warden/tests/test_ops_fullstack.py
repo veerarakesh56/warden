@@ -2,7 +2,7 @@
 
 ⚠ What this proves: every inject changes the state it claims to, every revert puts back EXACTLY
 what was captured, the guard refuses what is not ours, and the allow-list refuses every command
-shape it should. It proves nothing about the real APIs - scripts/preflight_fullstack_ops.py asks
+shape it should. It proves nothing about the real APIs - fault-lab/scripts/preflight_fullstack_ops.py asks
 those.
 """
 

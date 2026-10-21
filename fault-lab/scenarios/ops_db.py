@@ -40,7 +40,7 @@ from .ops import OpError
 # setup; every op checks it before touching anything.
 SENTINEL_TABLE = "warden_proving_ground"
 PROVING_GROUND_DB = "warden"
-STACK_TAG = ("Stack", "warden-proving-ground")  # see scenarios/ops.py STACK_TAG
+STACK_TAG = ("Stack", "warden-proving-ground")  # see fault-lab/scenarios/ops.py STACK_TAG
 # How long the lock-contention blocker may wait for its own lock before refusing (see that op).
 LOCK_TIMEOUT_S = 15
 
@@ -100,7 +100,7 @@ def _guard_database(clients: Clients, target: Target) -> None:
                 raise OpError(
                     f"database {name!r} has no {SENTINEL_TABLE} table, so it is not the proving "
                     "ground. Refusing. If it really is, mark it deliberately: "
-                    "python scripts/setup_proving_ground_db.py --apply"
+                    "python fault-lab/scripts/setup_proving_ground_db.py --apply"
                 )
     finally:
         conn.close()

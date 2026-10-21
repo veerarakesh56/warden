@@ -10,8 +10,8 @@ import types
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "infra" / "scripts"))
 import apply_operator_policy  # after the sys.path line above
 import prove_boundary
 
@@ -58,7 +58,7 @@ def test_a_probe_grant_a_killed_run_left_is_removed_first():
 
 
 def test_the_probe_grant_is_created_not_default_and_made_default_inside_the_restoring_block():
-    source = (ROOT / "scripts" / "prove_boundary.py").read_text(encoding="utf-8")
+    source = (ROOT / "infra" / "scripts" / "prove_boundary.py").read_text(encoding="utf-8")
     created = source.index("temp = iam.create_policy_version(")
     assert "SetAsDefault=False" in source[created:created + 200]
     assert source.index("    try:\n        iam.set_default_policy_version(PolicyArn=op, VersionId=temp)") > created

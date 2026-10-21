@@ -62,7 +62,7 @@ def _count(args: dict, key: str, ceiling: int = 1000) -> int:
 
 # What each tool does to the world, as MCP's tool annotations say it (research 2026-10-15, item 16): a client may
 # warn on, or refuse, a tool that is not read-only. Hints only - WARDEN's own checks decide - and every tool has
-# one: tests/test_mcp_annotations.py holds this table to the tools served.
+# one: warden/tests/test_mcp_annotations.py holds this table to the tools served.
 ANNOTATIONS = {
     "verify_remediation": types.ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False),
     "redact_text": types.ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False),
@@ -752,7 +752,7 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 - the last line of defence for what reaches the terminal
         failed = exc
     # One gated line, logged after the handler and never with its traceback: the error text can quote evidence or a
-    # key, and stdout is the protocol (tests/test_slack_logging_review4.py).
+    # key, and stdout is the protocol (warden/tests/test_slack_logging_review4.py).
     log.error("error: %s: %s", type(failed).__name__, failed)
     return 1
 

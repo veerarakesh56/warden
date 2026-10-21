@@ -11,9 +11,9 @@ import re
 import pytest
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
-UV_RANGE = re.search(r'required-version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1)
+UV_RANGE = re.search(r'required-version = "([^"]+)"', (ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8")).group(1)
 
 
 def _steps():
@@ -49,7 +49,7 @@ def test_no_install_runs_a_packages_build_script():
         syncs += [line for line in (ROOT / name).read_text(encoding="utf-8").splitlines() if line.startswith("RUN uv sync")]
     assert len(syncs) >= 13, syncs
     assert all("--no-build" in line for line in syncs), [s for s in syncs if "--no-build" not in s]
-    app = (ROOT / "scenarios" / "fullstack" / "app" / "Dockerfile").read_text(encoding="utf-8")
+    app = (ROOT / "demo-app" / "app" / "Dockerfile").read_text(encoding="utf-8")
     pips = [line for line in app.splitlines() if "pip install" in line]
     assert pips
     assert all("--only-binary :all:" in line for line in pips), pips
@@ -96,9 +96,9 @@ def test_every_uv_names_its_python():
         for st in steps:
             if str(st.get("uses", "")).startswith("astral-sh/setup-uv@"):
                 assert re.fullmatch(r"3\.\d+", str(st["with"].get("python-version", ""))), (wf, job)
-    requires = SpecifierSet(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    requires = SpecifierSet(tomllib.loads((ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8"))["project"]
                             ["requires-python"])
-    local = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+    local = (ROOT / "warden" / ".python-version").read_text(encoding="utf-8").strip()
     assert re.fullmatch(r"3\.\d+", local), local
     assert f"{local}.0" in requires, local
     for dockerfile in ("Dockerfile", "Dockerfile.runtime"):
@@ -139,7 +139,7 @@ def test_a_job_that_holds_credentials_restores_no_cache():
 
 
 def test_the_deployed_requirements_are_audited_where_they_change():
-    text = (ROOT / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
+    text = (ROOT / ".github" / "workflows" / "demo-app-check.yml").read_text(encoding="utf-8")
     assert "pip-audit -r" in text
     assert "--require-hashes" in text
     assert "bandit" in text
@@ -147,26 +147,26 @@ def test_the_deployed_requirements_are_audited_where_they_change():
 
 def test_every_image_is_pinned_by_digest():
     images = [(wf, svc["image"]) for wf, _, _, job in _steps() for svc in (job.get("services") or {}).values()]
-    for dockerfile in [ROOT / "Dockerfile", *ROOT.glob("scenarios/**/Dockerfile")]:
+    for dockerfile in [ROOT / "warden" / "Dockerfile", *ROOT.glob("demo-app/app/**/Dockerfile")]:
         images += [(dockerfile.name, m) for m in re.findall(r"^FROM\s+(\S+)", dockerfile.read_text(encoding="utf-8"),
                                                               re.MULTILINE)]
     # The workloads CI applies to its cluster; `warden:local` is built in the job and imported, never pulled.
-    for manifest in (ROOT / "k8s" / "test").glob("*.yaml"):
+    for manifest in (ROOT / "fault-lab" / "k8s" / "test").glob("*.yaml"):
         images += [(manifest.name, m) for m in re.findall(r"^\s*image:\s*(\S+)", manifest.read_text(encoding="utf-8"),
                                                            re.MULTILINE) if m != "warden:local"]
     # k3d's node and tools images, and the full stack's placeholder ECS image (fifth review E: by tag).
-    tool = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")
-    images += [("ci-tool.yml", m) for m in re.findall(r"^\s*(?:K3S_IMAGE|K3D_IMAGE_TOOLS):\s*(\S+)", tool, re.MULTILINE)]
+    tool = (ROOT / ".github" / "workflows" / "warden-ci.yml").read_text(encoding="utf-8")
+    images += [("warden-ci.yml", m) for m in re.findall(r"^\s*(?:K3S_IMAGE|K3D_IMAGE_TOOLS):\s*(\S+)", tool, re.MULTILINE)]
     assert '--image "$K3S_IMAGE"' in tool
     images += [("ecs.tf", m) for m in re.findall(r'^\s*image\s*=\s*"([^"$]+)"',
-                                                 (ROOT / "terraform" / "fullstack" / "ecs.tf").read_text(encoding="utf-8"),
+                                                 (ROOT / "infra" / "terraform" / "fullstack" / "ecs.tf").read_text(encoding="utf-8"),
                                                  re.MULTILINE)]
     assert len(images) >= 13, images
     loose = [i for i in images if not re.search(r"@sha256:[0-9a-f]{64}$", i[1])]
     assert not loose, loose
 
 
-@pytest.mark.parametrize("req", sorted(ROOT.glob("scenarios/**/requirements.txt")), ids=lambda p: p.parent.name)
+@pytest.mark.parametrize("req", sorted(ROOT.glob("demo-app/**/requirements.txt")), ids=lambda p: p.parent.name)
 def test_every_app_requirement_carries_hashes(req):
     """pip turns on hash checking for the whole file once any line has a hash; each pin must have one."""
     text = req.read_text(encoding="utf-8")
@@ -179,7 +179,7 @@ def test_every_app_requirement_carries_hashes(req):
 
 def test_the_build_downloads_no_unpinned_tool():
     """setuptools was fetched by build isolation outside uv.lock's hashes; uv builds with its own copy."""
-    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    text = (ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(r'build-backend = "uv_build"', text)
     # uv builds with its bundled backend only when its own version satisfies this - CI's pinned uv must.
     from packaging.specifiers import SpecifierSet
@@ -189,14 +189,14 @@ def test_the_build_downloads_no_unpinned_tool():
     backend = re.search(r'requires = \["uv_build([^"]+)"\]', text).group(1)
     assert ci, (ci, backend)
     assert all(v in SpecifierSet(backend) for v in ci), (ci, backend)
-    assert (ROOT / "uv.lock").is_file()
+    assert (ROOT / "warden" / "uv.lock").is_file()
 
 
 RUNNER = "ubuntu-24.04"  # ubuntu-latest moves to 26.04 from 2026-10-19 (actions/runner-images#14748)
 
 
 def _check_job_step(name: str) -> list[str]:
-    return [st["run"] for wf, job_id, steps, _ in _steps() if (wf, job_id) == ("ci-tool.yml", "check")
+    return [st["run"] for wf, job_id, steps, _ in _steps() if (wf, job_id) == ("warden-ci.yml", "check")
             for st in steps if st.get("name") == name]
 
 
@@ -222,7 +222,7 @@ def test_the_unit_job_leaves_the_live_tests_to_their_own_jobs():
     The rest of the suite skips nothing in CI (10 redis tests did, for want of the extra): a new skip fails the step."""
     unit = _check_job_step("Unit tests")
     assert len(unit) == 1, unit
-    assert "--ignore=tests/integration" in unit[0].split()
+    assert "--ignore=warden/tests/integration" in unit[0].split()
     assert "set -o pipefail" in unit[0]
     assert re.search(r"grep -qE ' skipped' \S+ && \{[^}]*exit 1; \}", unit[0]), unit[0]
     install = _check_job_step("Install (locked)")
@@ -242,10 +242,10 @@ def test_dependabot_proposes_no_new_python_for_the_images():
 
 
 def test_the_image_build_context_is_an_allowlist():
-    lines = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    lines = [ln.strip() for ln in (ROOT / "warden" / ".dockerignore").read_text(encoding="utf-8").splitlines()
              if ln.strip() and not ln.startswith("#")]
     assert lines[0] == "*"
-    copied = set(re.findall(r"^COPY (?!--from)(.+?) \S+$", (ROOT / "Dockerfile").read_text(encoding="utf-8"),
+    copied = set(re.findall(r"^COPY (?!--from)(.+?) \S+$", (ROOT / "warden" / "Dockerfile").read_text(encoding="utf-8"),
                             re.MULTILINE))
     allowed = {ln[1:].rstrip("/") for ln in lines if ln.startswith("!")}
     assert {f for c in copied for f in c.split()} <= allowed, (copied, allowed)
@@ -256,10 +256,10 @@ def test_the_image_build_gets_every_licence_file_the_package_names():
     ("`project.license-files` glob `NOTICE` did not match any files") - the gate does not build the images."""
     import tomllib
 
-    names = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["license-files"]
+    names = tomllib.loads((ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8"))["project"]["license-files"]
     dockerfiles = sorted(ROOT.glob("Dockerfile*"))
     assert len(dockerfiles) >= 2, dockerfiles  # the CLI image and the runtime image
-    allowed = {ln.strip()[1:] for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    allowed = {ln.strip()[1:] for ln in (ROOT / "warden" / ".dockerignore").read_text(encoding="utf-8").splitlines()
                if ln.strip().startswith("!")}
     assert names, names
     assert all((ROOT / n).is_file() for n in names), names
@@ -293,8 +293,8 @@ def test_the_lock_was_made_from_this_pyproject():
     every pipeline red on 2026-10-01 (`uv sync --locked` refuses a stale lock); this fails it locally."""
     import tomllib
 
-    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    project = tomllib.loads((ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((ROOT / "warden" / "uv.lock").read_text(encoding="utf-8"))
     meta = next(p for p in lock["package"] if p["name"] == "warden")["metadata"]
 
     def locked(entries):
@@ -335,21 +335,21 @@ def test_the_groups_that_build_the_lambdas_carry_pip():
     so CI · apps failed on 83f65e6. Both apps groups must lock it."""
     import tomllib
 
-    script = (ROOT / "scripts" / "deploy_fullstack_apps.py").read_text(encoding="utf-8")
+    script = (ROOT / "demo-app" / "scripts" / "deploy_fullstack_apps.py").read_text(encoding="utf-8")
     assert '"-m", "pip"' in script
-    groups = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["dependency-groups"]
+    groups = tomllib.loads((ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8"))["dependency-groups"]
     for name in ("apps-check", "apps-deploy"):
         assert any(_requirement(r)[0] == "pip" for r in groups[name]), name
 
 
 def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
     """Sixth review (2026-10-01): five patterns - a git-ignored tfstate (the database master password in plaintext)
-    or tfvars under src/ would still ship from a local build."""
+    or tfvars under warden/src/ would still ship from a local build."""
     import fnmatch
     import tomllib
 
-    backend = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["uv"]["build-backend"]
-    docker = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    backend = tomllib.loads((ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["uv"]["build-backend"]
+    docker = [ln.strip() for ln in (ROOT / "warden" / ".dockerignore").read_text(encoding="utf-8").splitlines()
               if ln.strip().startswith("**/")]
     # One list in three places, kept equal.
     assert backend["source-exclude"] == backend["wheel-exclude"]
@@ -373,14 +373,14 @@ def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
     # Files inside a client's config directory, by directory.
     for path in (".docker/config.json", ".kube/config", ".azure/accessTokens.json"):
         assert any(fnmatch.fnmatchcase(path, p.removeprefix("**/")) for p in backend["wheel-exclude"]), path
-    # Nothing re-includes what the excludes keep out: the last matching line wins, and `!src/**` after them would
+    # Nothing re-includes what the excludes keep out: the last matching line wins, and `!warden/src/**` after them would
     # bring everything back (eighth review).
-    lines = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    lines = [ln.strip() for ln in (ROOT / "warden" / ".dockerignore").read_text(encoding="utf-8").splitlines()
              if ln.strip() and not ln.startswith("#")]
     first_exclude = next(i for i, ln in enumerate(lines) if ln.startswith("**/"))
     assert not any(ln.startswith("!") for ln in lines[first_exclude:]), lines[first_exclude:]
     # And the image keeps no copy of the source in any layer: it is built in two stages.
-    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "warden" / "Dockerfile").read_text(encoding="utf-8")
     final = dockerfile.split("\nFROM ")[-1]
     assert " AS build" in dockerfile
     # The final stage copies the installed environment and nothing else (eighth review: a string check passed
@@ -392,7 +392,7 @@ def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
 def test_the_deployed_requirements_are_audited_every_week():
     """Sixth review (2026-10-01): the apps pipeline ran only on a change, so a new CVE in a pinned dependency of
     what is deployed waited for the next change."""
-    apps = yaml.safe_load((ROOT / ".github" / "workflows" / "ci-apps.yml").read_text(encoding="utf-8"))
+    apps = yaml.safe_load((ROOT / ".github" / "workflows" / "demo-app-ci.yml").read_text(encoding="utf-8"))
     assert apps[True].get("schedule"), "CI · apps has no schedule"
     # And it fires every week: any day of the month and month, one fixed minute, hour and weekday - a cron that never
     # fires (`0 0 31 2 *`) passed the check above (seventh review, 2026-10-01).
@@ -405,7 +405,7 @@ def test_the_deployed_requirements_are_audited_every_week():
     assert dow in tuple("0123456"), cron
     assert 0 <= int(minute) <= 59, cron
     assert 0 <= int(hour) <= 23, cron  # `99 25 * * 1` is rejected by GitHub: it never runs
-    check = (ROOT / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
+    check = (ROOT / ".github" / "workflows" / "demo-app-check.yml").read_text(encoding="utf-8")
     assert "pip-audit -r" in check
 
 
@@ -424,10 +424,10 @@ def test_dependabot_never_updates_the_root_package_with_pip():
 
 def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
     """Registers R8-O4, R9-O1: the build backend's excludes are a list matched with letter case - `SECRET.ENV` and
-    `Prod.TFVARS` under src/ shipped. The image build checks what it installed against an allowlist instead."""
+    `Prod.TFVARS` under warden/src/ shipped. The image build checks what it installed against an allowlist instead."""
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("check_package", ROOT / "scripts" / "check_package.py")
+    spec = importlib.util.spec_from_file_location("check_package", ROOT / "warden" / "scripts" / "check_package.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     planted = ["SECRET.ENV", "Prod.TFVARS", "warden/.env", "server.PEM", "notes.txt", "audit.DB", "x.tfstate",
@@ -436,14 +436,14 @@ def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
     shipped = ["warden/__init__.py", "warden/__pycache__/cli.cpython-313.pyc", "warden/data/environments.yaml",
                "warden/fixtures/inc-001.json", "warden/data/mcp_manifest.sha256", "warden/CLI.PY"]
     assert mod.outside(shipped) == []
-    assert mod.main([str(ROOT / "src" / "warden")]) == 0  # the real package passes
+    assert mod.main([str(ROOT / "warden" / "src" / "warden")]) == 0  # the real package passes
     # One certificate file by its exact path (PR 48), holding certificates only; no other .crt, and no key in it.
     assert mod.outside(["warden/data/rds-ca-bundle.crt"]) == []
     assert mod.outside(["warden/data/other.crt", "warden/rds-ca-bundle.crt"]) == ["warden/data/other.crt",
                                                                                  "warden/rds-ca-bundle.crt"]
     from fakes import private_key_block
 
-    bundle = (ROOT / "src" / "warden" / "data" / "rds-ca-bundle.crt").read_text(encoding="ascii")
+    bundle = (ROOT / "warden" / "src" / "warden" / "data" / "rds-ca-bundle.crt").read_text(encoding="ascii")
     assert mod.only_certificates(bundle)
     # One real certificate (the bundle's first) for the cases below; `AA==` is base64 but no certificate.
     first = bundle.index("-----BEGIN CERTIFICATE-----")
@@ -462,7 +462,7 @@ def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
     assert not mod.only_certificates(cert + "-----BEGIN CERTIFICATE-----\nAA==\n")
     assert not mod.only_certificates("-----BEGIN CERTIFICATE-----\nnot base64!\n-----END CERTIFICATE-----\n")
     assert not mod.only_certificates("header\n" + private_key_block("RSA", "AA==") + cert)
-    stages = (ROOT / "Dockerfile").read_text(encoding="utf-8").split(chr(10) + "FROM ")
+    stages = (ROOT / "warden" / "Dockerfile").read_text(encoding="utf-8").split(chr(10) + "FROM ")
     [build] = [st for st in stages if " AS build" in st]
     sync = build.index("RUN uv sync")
     assert "check_package.py" in build[sync:], "the image build does not check what it installed"
@@ -475,7 +475,7 @@ def test_an_install_outside_the_lock_cannot_take_a_known_vulnerable_aiohttp():
 
     from packaging.requirements import Requirement
 
-    slack = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["optional-dependencies"]["slack"]
+    slack = tomllib.loads((ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8"))["project"]["optional-dependencies"]["slack"]
     (aiohttp,) = [Requirement(r) for r in slack if Requirement(r).name == "aiohttp"]
     assert "3.14.3" not in aiohttp.specifier
     assert "3.14.4" in aiohttp.specifier

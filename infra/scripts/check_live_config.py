@@ -4,7 +4,7 @@ revert_change sets a value back to what AWS Config recorded just before the chan
 made once per account and Region by an administrator (docs/SETUP.md, "AWS Config"), not by a stack that is
 destroyed after a test. This read-only check compares it with the code:
 
-    AWS_PROFILE=warden python scripts/check_live_config.py
+    AWS_PROFILE=warden python infra/scripts/check_live_config.py
 
 Exit 0 when the recorder is on, records continuously, delivers, and records every resource type the code reads;
 1 with each difference named otherwise. Only names and states are printed.
@@ -16,12 +16,12 @@ import pathlib
 import re
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def needed_types() -> set[str]:
     """Every AWS Config resource type the undo code reads (platforms/aws.py), from the code itself."""
-    text = (ROOT / "src" / "warden" / "platforms" / "aws.py").read_text(encoding="utf-8")
+    text = (ROOT / "warden" / "src" / "warden" / "platforms" / "aws.py").read_text(encoding="utf-8")
     return set(re.findall(r'"(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+)"', text))
 
 

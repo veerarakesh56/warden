@@ -453,7 +453,7 @@ AUDIT_WRITER = "warden_audit_writer"
 
 
 def migrate(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
-    """Once per deploy (runtime.yml invokes it after apply): the audit's tables and append-only triggers on the
+    """Once per deploy (warden-runtime-deploy.yml invokes it after apply): the audit's tables and append-only triggers on the
     runtime's Aurora, and its writer login - SELECT and INSERT only, signing in with an IAM token, no password. The
     only code that reads the cluster's master secret, which RDS keeps in Secrets Manager; its role reads that secret
     and nothing else. Idempotent."""

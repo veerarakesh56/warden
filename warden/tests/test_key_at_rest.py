@@ -15,7 +15,7 @@ import pytest
 
 from warden import audit, cli
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 # PEM headers built from parts, so a secret scanner does not take this file for a leaked key (the repo's rule).
 ENCRYPTED = b"-----BEGIN " + b"ENCRYPTED PRIVATE KEY-----"
 CLEAR = b"-----BEGIN " + b"PRIVATE KEY-----"
@@ -89,7 +89,7 @@ BENCH = "bench-approver.pem"
 
 
 def _bench(monkeypatch, path):
-    spec = importlib.util.spec_from_file_location("bench_approve", ROOT / "scripts" / "bench_approve.py")
+    spec = importlib.util.spec_from_file_location("bench_approve", ROOT / "fault-lab" / "scripts" / "bench_approve.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     monkeypatch.setenv("WARDEN_BENCH_KEY_DIR", str(path.parent))

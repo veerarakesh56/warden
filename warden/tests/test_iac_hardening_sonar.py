@@ -9,7 +9,7 @@ import re
 
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _code(text: str) -> str:
@@ -17,7 +17,7 @@ def _code(text: str) -> str:
 
 
 def _blocks(stack: str, kind: str):
-    for tf in sorted((ROOT / "terraform" / stack).glob("*.tf")):
+    for tf in sorted((ROOT / "infra" / "terraform" / stack).glob("*.tf")):
         text = _code(tf.read_text(encoding="utf-8"))
         for m in re.finditer(rf'^resource "{kind}" "(\w+)" \{{', text, re.MULTILINE):
             end = re.search(r"^\}", text[m.end():], re.MULTILINE)
@@ -36,14 +36,14 @@ def test_every_log_group_of_the_dev_stack_the_runtime_and_the_undo_lab_keeps_14_
 
 
 def test_the_eks_nodes_never_take_a_public_address_and_keep_the_cluster_security_group():
-    lt = dict(_blocks("fullstack", "aws_launch_template"))["terraform/fullstack/eks.tf:nodes"]
+    lt = dict(_blocks("fullstack", "aws_launch_template"))["infra/terraform/fullstack/eks.tf:nodes"]
     nic = re.search(r"network_interfaces \{(.*?)\}", lt, re.DOTALL).group(1)
     assert re.search(r"associate_public_ip_address\s*=\s*false", nic)
     assert re.search(r"security_groups\s*=\s*\[aws_eks_cluster\.this\.vpc_config\[0\]\.cluster_security_group_id\]", nic)
 
 
 def test_the_lab_database_is_encrypted_at_rest():
-    db = dict(_blocks("proving-ground", "aws_db_instance"))["terraform/proving-ground/rds.tf:this"]
+    db = dict(_blocks("proving-ground", "aws_db_instance"))["infra/terraform/proving-ground/rds.tf:this"]
     assert re.search(r"storage_encrypted\s*=\s*true", db)
 
 
@@ -52,12 +52,12 @@ def test_every_container_of_the_flagged_manifests_declares_its_resources():
     import subprocess
     import sys
 
-    # The negative Pod Security test's pod is built when it runs (scripts/negative_pod.py), never kept as a file.
-    built = subprocess.run([sys.executable, str(ROOT / "scripts" / "negative_pod.py")], capture_output=True, text=True,
+    # The negative Pod Security test's pod is built when it runs (fault-lab/scripts/negative_pod.py), never kept as a file.
+    built = subprocess.run([sys.executable, str(ROOT / "fault-lab" / "scripts" / "negative_pod.py")], capture_output=True, text=True,
                            check=True).stdout
     sources = {rel: (ROOT / rel).read_text(encoding="utf-8") for rel in (
-        "k8s/job.yaml", "k8s/test/oom-workload.yaml", "k8s/test/posture-probe.yaml", "k8s/proving-ground/namespace.yaml")}
-    sources["scripts/negative_pod.py"] = json.dumps(json.loads(built))
+        "infra/k8s/job.yaml", "fault-lab/k8s/test/oom-workload.yaml", "fault-lab/k8s/test/posture-probe.yaml", "fault-lab/k8s/proving-ground/namespace.yaml")}
+    sources["fault-lab/scripts/negative_pod.py"] = json.dumps(json.loads(built))
     for rel, text in sources.items():
         for doc in yaml.safe_load_all(text):
             spec = (doc or {}).get("spec", {})

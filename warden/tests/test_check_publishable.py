@@ -19,8 +19,8 @@ import pytest
 
 from fakes import AWS_ACCESS_KEY_ID
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "check_publishable.py"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "warden" / "scripts" / "check_publishable.py"
 
 
 def _synth(*parts: str) -> str:
@@ -116,8 +116,8 @@ def test_no_path_is_exempt_from_the_scan(tmp_path):
     refuse each one. A path exemption, for a file or a directory, fails this."""
     tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True,
                              check=True).stdout.splitlines()
-    assert "src/warden/redaction.py" in tracked
-    assert "tests/test_redaction.py" in tracked
+    assert "warden/src/warden/redaction.py" in tracked
+    assert "warden/tests/test_redaction.py" in tracked
     key = _synth("AKIA", "Q3RZ7XKM", "2PLW5NBT")
     for rel in tracked:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)

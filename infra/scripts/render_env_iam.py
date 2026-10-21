@@ -1,12 +1,12 @@
-"""Render the per-environment IAM files from iam/templates/ - one boundary, deploy policy and trust
-policy per environment in src/warden/data/environments.yaml (v2 Phase 1.5).
+"""Render the per-environment IAM files from infra/iam/templates/ - one boundary, deploy policy and trust
+policy per environment in warden/src/warden/data/environments.yaml (v2 Phase 1.5).
 
-    python scripts/render_env_iam.py            # write iam/<env>/{boundary,deploy,deploy-ec2,trust,actor,...}.json
-    python scripts/render_env_iam.py --account   # also trust.local.json with the real account id
+    python infra/scripts/render_env_iam.py            # write infra/iam/<env>/{boundary,deploy,deploy-ec2,trust,actor,...}.json
+    python infra/scripts/render_env_iam.py --account   # also trust.local.json with the real account id
                                                  # (gitignored; for pasting into the console)
 
 The rendered files are COMMITTED: the owner pastes them from GitHub, IAM Access Analyzer validates
-exactly these bytes, and tests/test_env_iam.py fails if a file drifts from its template. The
+exactly these bytes, and warden/tests/test_env_iam.py fails if a file drifts from its template. The
 committed trust.json carries `<ACCOUNT_ID>`, never the account id.
 """
 
@@ -19,11 +19,11 @@ import re
 import string
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "src"))
 from warden.environments import EnvironmentPolicies, names
 
-TEMPLATES = ROOT / "iam" / "templates"
+TEMPLATES = ROOT / "infra" / "iam" / "templates"
 # The deploy role's permissions are two managed policies: one is near IAM's 6,144-character limit. The actor and
 # platform-reader roles are WARDEN's own per-environment identities for its AWS platform (G6, audit A-P-5): the
 # runtime worker assumes the reader to read, and the actor - for one approved plan - to write.
@@ -31,7 +31,7 @@ KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust", "actor", "
          "platform-reader-trust", "kill-switch")
 TRUSTS = ("trust", "actor-trust", "platform-reader-trust")
 # WARDEN's own runtime environment (`runtime:` in environments.yaml) gets no application IAM: its deploy role - the one
-# runtime.yml assumes - and the boundary on every role terraform/runtime makes come from the runtime-* templates (G6).
+# warden-runtime-deploy.yml assumes - and the boundary on every role infra/terraform/runtime makes come from the runtime-* templates (G6).
 RUNTIME_KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust")
 # The benchmark harness and the undo lab run only where environments.yaml `fault_environments` says, as the operator
 # on the laptop (owner, 2026-10-02; audit A-I-18) - the list is configuration, never named here.
@@ -74,7 +74,7 @@ def runtime_environment() -> str:
 
 
 def render_runtime(env: str, account: str = ACCOUNT_PLACEHOLDER) -> dict[str, str]:
-    """{kind: JSON text} for the runtime environment, from iam/templates/runtime-<kind>.json."""
+    """{kind: JSON text} for the runtime environment, from infra/iam/templates/runtime-<kind>.json."""
     out = {}
     for kind in RUNTIME_KINDS:
         text = string.Template((TEMPLATES / f"runtime-{kind}.json").read_text(encoding="utf-8"))
@@ -91,7 +91,7 @@ def _write(path: pathlib.Path, text: str) -> None:
 
 def _write_environment(p: argparse.ArgumentParser, env: str, account: str | None, cluster: str | None) -> None:
     """One environment's committed files, plus its `.local.json` files when an account or a cluster is given."""
-    d = ROOT / "iam" / env
+    d = ROOT / "infra" / "iam" / env
     d.mkdir(parents=True, exist_ok=True)
     for kind, text in render(env).items():
         _write(d / f"{kind}.json", text)
@@ -125,13 +125,13 @@ def main(argv: list[str] | None = None) -> int:
     for env in environments():
         _write_environment(p, env, account, args.cluster_resource_id)
     runtime = runtime_environment()
-    d = ROOT / "iam" / runtime
+    d = ROOT / "infra" / "iam" / runtime
     d.mkdir(parents=True, exist_ok=True)
     for kind, text in render_runtime(runtime).items():
         _write(d / f"{kind}.json", text)
     if account:
         _write(d / "trust.local.json", render_runtime(runtime, account)["trust"])
-    print(f"rendered {len(environments())} environments and the runtime ({runtime}) into iam/")
+    print(f"rendered {len(environments())} environments and the runtime ({runtime}) into infra/iam/")
     return 0
 
 

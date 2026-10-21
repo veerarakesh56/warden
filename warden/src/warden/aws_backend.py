@@ -4,7 +4,7 @@ Drops into `gather(alert, backend=AwsBackend())` with no change above it — the
 contract (`logs` / `metrics` / `deploys`) is the one `FixtureBackend` and `KubernetesBackend`
 already satisfy.
 
-Why this module exists at all: `terraform/main.tf` granted the task role ten read actions and,
+Why this module exists at all: `infra/terraform/main.tf` granted the task role ten read actions and,
 until this file, **nothing in the package called any of them**. The IAM policy described a
 capability the code did not have. This module makes exactly four calls, the policy now grants
 exactly those four, and a test asserts set equality in both directions:
@@ -20,7 +20,7 @@ cluster taught the Kubernetes backend:
 
 1. **Read-only.** Every call above is a read. A test greps this module for write-shaped API names —
    but that grep is a tripwire, not the boundary. **The task role is the boundary**: the role in
-   `terraform/` cannot mutate anything, so a bug here cannot either. Run it locally with an admin
+   `infra/terraform/` cannot mutate anything, so a bug here cannot either. Run it locally with an admin
    profile and the boundary is whatever that profile allows — say so rather than pretend otherwise.
 
 2. **Every client call carries connect and read timeouts, and retries are capped at one attempt.**
@@ -412,7 +412,7 @@ class AwsBackend:
         #
         # `failedTasks` rides in the SAME DescribeServices response this method already reads, so
         # there is no extra API call and no extra IAM action. It is the number an operator reads off
-        # the console first. See tests/fixtures/bench/wave1-2026-09-11T155744Z.
+        # the console first. See warden/tests/fixtures/bench/wave1-2026-09-11T155744Z.
         out["deployment_failed_tasks"] = float(
             sum(int(d.get("failedTasks") or 0) for d in deployments)
         )

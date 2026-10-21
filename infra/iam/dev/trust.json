@@ -14,8 +14,8 @@
           "token.actions.githubusercontent.com:sub": "repo:veerarakesh56@171412850/warden@1341685493:environment:dev",
           "token.actions.githubusercontent.com:ref": "refs/heads/dev",
           "token.actions.githubusercontent.com:job_workflow_ref": [
-            "veerarakesh56/warden/.github/workflows/_infra-deploy.yml@refs/heads/dev",
-            "veerarakesh56/warden/.github/workflows/_apps-deploy.yml@refs/heads/dev"
+            "veerarakesh56/warden/.github/workflows/infra-deploy.yml@refs/heads/dev",
+            "veerarakesh56/warden/.github/workflows/demo-app-deploy.yml@refs/heads/dev"
           ]
         }
       }

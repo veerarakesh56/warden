@@ -341,7 +341,7 @@ def test_the_scorer_does_not_import_the_tool_under_test():
             offenders += [a.name for a in node.names if a.name.split(".")[0] == "warden"]
         if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "warden":
             offenders.append(node.module or "")
-    assert not offenders, f"scenarios/score.py must not import warden; found {offenders}"
+    assert not offenders, f"fault-lab/scenarios/score.py must not import warden; found {offenders}"
 
 
 def test_a_rubric_edited_after_the_run_is_reported_loudly(tmp_path, monkeypatch):

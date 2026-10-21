@@ -1,9 +1,9 @@
 """Before the Wave 4 faults are run for real: every inject + revert once, against the real stack.
 
-    python scripts/preflight_fullstack_ops.py                   # prints the plan, touches nothing
-    python scripts/preflight_fullstack_ops.py --apply           # inject + revert each fault
-    python scripts/preflight_fullstack_ops.py --apply --only fs-07,fs-19
-    python scripts/preflight_fullstack_ops.py --revert --only fs-12  # finish an interrupted one
+    python fault-lab/scripts/preflight_fullstack_ops.py                   # prints the plan, touches nothing
+    python fault-lab/scripts/preflight_fullstack_ops.py --apply           # inject + revert each fault
+    python fault-lab/scripts/preflight_fullstack_ops.py --apply --only fs-07,fs-19
+    python fault-lab/scripts/preflight_fullstack_ops.py --revert --only fs-12  # finish an interrupted one
 
 For each fault: the stack must be at baseline, the inject runs at minimum size (small cache fill,
 no alarm wait, no WARDEN), the fault's own area must then SHOW the fault (reported - a CloudWatch-
@@ -11,7 +11,7 @@ based symptom takes minutes, so an absent symptom is a warning, not a failure), 
 the same whole-stack baseline the operator CLI gates on must come back clean. Non-zero exit on any
 failure.
 
-⛔ WHY (the lesson of scripts/preflight_db_ops.py and preflight_k8s_ops.py): fakes accept what the
+⛔ WHY (the lesson of fault-lab/scripts/preflight_db_ops.py and preflight_k8s_ops.py): fakes accept what the
 real APIs reject. A revert that fails for the first time in the middle of a measured run leaves the
 stack broken under every later fault. The state is written to its own run directory, so an
 interrupted preflight is reverted with `--revert --only fs-NN` (fullstack_cli's own `revert` refuses:
@@ -25,7 +25,7 @@ import pathlib
 import sys
 import time
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from scenarios import fullstack_cli as cli
 from scenarios import ops_fullstack as fs
 

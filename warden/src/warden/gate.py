@@ -355,7 +355,7 @@ def hedge(text: str) -> str:
 # (any `delete`, `drop`, `rm`, `kill`) is for a one-name target - in prose it would mark plain English.
 # A command, not the story of one: the model often says what happened ("a Terraform apply at 07:31 rewrote the
 # schedules", "a 'kubectl rollout restart' replaced the pods", "queued behind a DDL on invoices"). Measured on
-# the 2,035 recorded model strings in the repository (docs/bench, evals, tests; 2026-10-16), a looser first version
+# the 2,035 recorded model strings in the repository (fault-lab/docs/bench, evals, tests; 2026-10-16), a looser first version
 # withheld 8 of those and no command; so each shape here needs what makes it runnable - the program in lower case,
 # an aws verb-noun operation, a kubectl object, a terraform or helm flag or line end, an SQL object and clause in
 # capitals ("update its set of rules" is English), a call's parenthesis.

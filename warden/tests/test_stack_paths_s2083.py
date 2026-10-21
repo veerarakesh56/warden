@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 # Under the home directory, in none of the tools' folders, with a name no one else has: a regression writes only here.
 OUTSIDE_DIR = pathlib.Path.home() / f".warden-test-outside-{uuid.uuid4().hex}"
 
@@ -33,8 +33,8 @@ def _load(name: str, path: pathlib.Path):
     return mod
 
 
-aurora = _load("aurora_express_s2083", ROOT / "terraform" / "fullstack" / "aurora_express.py")
-apps = _load("deploy_fullstack_apps_s2083", ROOT / "scripts" / "deploy_fullstack_apps.py")
+aurora = _load("aurora_express_s2083", ROOT / "infra" / "terraform" / "fullstack" / "aurora_express.py")
+apps = _load("deploy_fullstack_apps_s2083", ROOT / "demo-app" / "scripts" / "deploy_fullstack_apps.py")
 
 
 class _NoCall:

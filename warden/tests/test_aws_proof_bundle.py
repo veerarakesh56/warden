@@ -19,8 +19,8 @@ import pytest
 
 from fakes import HUNTER2, dsn
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "aws_proof_bundle.py"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "fault-lab" / "scripts" / "aws_proof_bundle.py"
 ACCOUNT = "111122223333"
 
 

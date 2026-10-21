@@ -1,11 +1,11 @@
 """Qualify a provider and model on WARDEN's replay set before it may diagnose (register M20).
 
     WARDEN_PROVIDER=claude_cli WARDEN_MODEL=claude-sonnet-5-5 \\
-        python scripts/qualify_provider.py --out ~/warden-bench-runs/qualify/sonnet-5-5
+        python warden/scripts/qualify_provider.py --out ~/warden-bench-runs/qualify/sonnet-5-5
 
 The recorded evidence of the three published runs (ECS, EKS, databases: 30 incidents) is re-diagnosed through
 today's pipeline by the configured model, and each run is scored against its own committed rubric. It passes the bar
-in src/warden/data/providers.yaml or it does not; on a pass it prints the entry to add there. Only this script may
+in warden/src/warden/data/providers.yaml or it does not; on a pass it prints the entry to add there. Only this script may
 run an unqualified model: it sets WARDEN_QUALIFYING for its own process. `--score-only` re-scores a finished run.
 """
 
@@ -19,7 +19,7 @@ import os
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUNS = ("wave1-2026-09-11T155744Z", "wave2-2026-09-24T115746Z", "wave3-2026-09-25T044307Z")
 
 
@@ -191,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         print("refusing to write inside the repository")
         return 2
     os.environ["WARDEN_QUALIFYING"] = "1"
-    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.path.insert(0, str(ROOT / "warden" / "scripts"))
     from replay_diagnose import replay
 
     from warden.providers import load_qualified
@@ -232,7 +232,7 @@ def _measure(a: argparse.Namespace, out: pathlib.Path, replay) -> dict:
             return inner()
     quota = {"stop_after": 3} if a.resume else None
     for name in RUNS:
-        replay(ROOT / "tests" / "fixtures" / "bench" / name, out / name, per_scenario=1, only=None, resume=a.resume, quota=quota,
+        replay(ROOT / "warden" / "tests" / "fixtures" / "bench" / name, out / name, per_scenario=1, only=None, resume=a.resume, quota=quota,
                **({"llm_factory": factory} if factory else {}))
     result = {"provider": probe.provider_name, "model": probe.model, "version": probe.provider_version,
               "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ"), "prompt": prompt_fingerprint()}
@@ -244,7 +244,7 @@ def _measure(a: argparse.Namespace, out: pathlib.Path, replay) -> dict:
 def _verdict(result: dict, bar: dict) -> int:
     """Print what to add to providers.yaml when the model passed, or why it is not qualified; the exit code."""
     if result["passed"]:
-        print("\nadd to src/warden/data/providers.yaml under `qualified:`")
+        print("\nadd to warden/src/warden/data/providers.yaml under `qualified:`")
         print(f"  - {json.dumps({k: v for k, v in result.items() if k not in ("passed", "slo_breaches")})}")
         return 0
     if result.get("unanswered"):

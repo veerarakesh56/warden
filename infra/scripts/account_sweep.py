@@ -1,8 +1,8 @@
 """List everything that can cost money in the account, in EVERY region, without trusting tags.
 
-    python scripts/account_sweep.py                # assume warden-<runtime>-sweep (read-only), sweep
-    python scripts/account_sweep.py --no-assume    # sweep with the current credentials
-    python scripts/account_sweep.py --write-trust  # write the sweep role's trust policy (local)
+    python infra/scripts/account_sweep.py                # assume warden-<runtime>-sweep (read-only), sweep
+    python infra/scripts/account_sweep.py --no-assume    # sweep with the current credentials
+    python infra/scripts/account_sweep.py --write-trust  # write the sweep role's trust policy (local)
 
 Read-only: it lists, it never deletes. A resource counts whatever its tags say - an untagged NAT
 bills the same as a tagged one. Default VPCs, default security groups, AWS-managed keys and
@@ -21,8 +21,8 @@ Kinesis, Redshift and EMR) cannot hold anything; it is listed once as NOT ENABLE
 "clean").
 
 The role `warden-<runtime>-sweep` (environments.yaml `runtime`) may make exactly the listing calls below and read
-tags (iam/operator/sweep-policy.json - no secret values, no object contents), and it trusts only the operator role
-warden-<runtime>-operator (iam/operator/, since W0-now). Billing -> Bills stays the ground truth for
+tags (infra/iam/operator/sweep-policy.json - no secret values, no object contents), and it trusts only the operator role
+warden-<runtime>-operator (infra/iam/operator/, since W0-now). Billing -> Bills stays the ground truth for
 charges; this is the resource-level view.
 """
 
@@ -45,11 +45,11 @@ from warden.environments import EnvironmentPolicies
 # environments.yaml `aws_global_region`, named there once.
 AWS_GLOBAL_REGION = EnvironmentPolicies.load().aws_global_region
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 _POLICIES = EnvironmentPolicies.load()
 # The operator's helper, so it is named in WARDEN's own environment, like the operator (renamed 2026-10-16).
 ROLE = f"{environments.names(_POLICIES.runtime_environment).prefix}-sweep"
-TRUST_FILE = ROOT / "iam" / "operator" / "sweep-trust.local.json"
+TRUST_FILE = ROOT / "infra" / "iam" / "operator" / "sweep-trust.local.json"
 ENVIRONMENTS = set(_POLICIES.known_environments) | ({_POLICIES.runtime_environment} - {None})
 NOT_ENABLED = {"SubscriptionRequiredException", "OptInRequired"}
 LIVE = ("pending", "available", "running", "stopping", "stopped", "creating", "modifying")

@@ -11,7 +11,7 @@ import pytest
 
 from warden import cli
 
-RUNBOOK = pathlib.Path(__file__).resolve().parents[1] / "docs" / "RUNBOOK-WARDEN-INCIDENT.md"
+RUNBOOK = pathlib.Path(__file__).resolve().parents[2] / "warden" / "docs" / "RUNBOOK-WARDEN-INCIDENT.md"
 
 
 class _Parsed(BaseException):  # not an Exception: main() must not swallow it

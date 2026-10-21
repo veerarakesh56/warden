@@ -1,4 +1,4 @@
-# catalog-api's identity. EKS Pod Identity (terraform/fullstack/eks.tf, association shop/catalog-api)
+# catalog-api's identity. EKS Pod Identity (infra/terraform/fullstack/eks.tf, association shop/catalog-api)
 # gives its pods role warden-dev-catalog-pod, whose one grant is rds-db:connect as database user
 # catalog. No Kubernetes API token is mounted: the Pod Identity agent injects its own.
 apiVersion: v1
@@ -19,10 +19,10 @@ metadata:
     app: catalog-api
     project: warden
     # Datadog's standard labels: its agent tags this workload's container logs and Kubernetes metrics env and service
-    # from them (the monitors filter on both, scripts/datadog_setup.py).
+    # from them (the monitors filter on both, warden/scripts/datadog_setup.py).
     tags.datadoghq.com/service: catalog-api
 spec:
-  # No replicas here: the HorizontalPodAutoscaler below owns the count, and Argo CD is told so (k8s/argocd).
+  # No replicas here: the HorizontalPodAutoscaler below owns the count, and Argo CD is told so (demo-app/k8s/argocd).
   selector:
     matchLabels:
       app: catalog-api
@@ -72,7 +72,7 @@ spec:
               value: catalog-api
             - name: OTEL_SERVICE_NAME
               value: catalog-api
-            # Required at start (scenarios/fullstack/app/app.py); fs-23 removes the key.
+            # Required at start (demo-app/app/app.py); fs-23 removes the key.
             - name: CATALOG_SIGNING_KEY
               valueFrom:
                 secretKeyRef:

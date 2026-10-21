@@ -8,7 +8,7 @@ import re
 
 from warden import catalog
 
-SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden"
+SRC = pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden"
 DDL = re.compile(r"\b(?:CREATE|ALTER|DROP)\s+(?:UNIQUE\s+)?(?:INDEX|TABLE|SCHEMA|VIEW|DATABASE)\b|\bREINDEX\b",
                  re.IGNORECASE)
 # WARDEN's own audit store (SQLite, or PostgreSQL through `audit migrate`) creates its own tables and indexes. (The

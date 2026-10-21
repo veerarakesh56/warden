@@ -101,7 +101,7 @@ def test_reverify_puts_stored_answers_through_todays_gate(tmp_path, monkeypatch)
     import json
     import pathlib
 
-    monkeypatch.syspath_prepend(str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+    monkeypatch.syspath_prepend(str(pathlib.Path(__file__).resolve().parents[2] / "warden" / "scripts"))
     import qualify_provider
 
     from warden.cli import DEMO_ALERTS

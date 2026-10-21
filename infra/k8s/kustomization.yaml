@@ -1,5 +1,5 @@
-# kubectl apply -k k8s/        -> the DURABLE parts: namespace, ServiceAccount, ClusterRole, RoleBinding
-# kubectl create -f k8s/job.yaml -> ONE diagnosis (generateName; a Job is immutable, so never `apply` it)
+# kubectl apply -k infra/k8s/      -> the DURABLE parts: namespace, ServiceAccount, ClusterRole, RoleBinding
+# kubectl create -f infra/k8s/job.yaml -> ONE diagnosis (generateName; a Job is immutable, so never `apply` it)
 #
 # Plain manifests with kustomize (built into kubectl) rather than a Helm chart: no extra tool to
 # install, and every resource is readable as-is. Re-applying this tree is idempotent (measured:

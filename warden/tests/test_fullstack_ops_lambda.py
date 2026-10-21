@@ -11,8 +11,8 @@ import types
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-LAMBDAS = ROOT / "scenarios" / "fullstack" / "lambdas"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+LAMBDAS = ROOT / "demo-app" / "lambdas"
 INFO = {
     "used_memory": 1,
     "maxmemory": 2,

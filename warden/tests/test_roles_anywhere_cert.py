@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 _spec = importlib.util.spec_from_file_location(
-    "roles_anywhere_cert", pathlib.Path(__file__).resolve().parents[1] / "scripts" / "roles_anywhere_cert.py")
+    "roles_anywhere_cert", pathlib.Path(__file__).resolve().parents[2] / "infra" / "scripts" / "roles_anywhere_cert.py")
 rac = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(rac)
 

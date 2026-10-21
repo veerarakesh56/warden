@@ -28,8 +28,8 @@ resource "aws_security_group" "db" {
   ingress {
     # ⚠ No apostrophe, deliberately. EC2 rejects any rule description outside
     # [0-9A-Za-z_ .:/()#,@[]+=&;{}!$*-], and `terraform validate` does NOT catch it - it fails at
-    # plan against the live API. "operator's" shipped here once; tests/test_terraform_descriptions.py
-    # now fails before that can happen again. Inline, so db-06 (scenarios/ops_db.py) revokes and re-authorises it
+    # plan against the live API. "operator's" shipped here once; warden/tests/test_terraform_descriptions.py
+    # now fails before that can happen again. Inline, so db-06 (fault-lab/scenarios/ops_db.py) revokes and re-authorises it
     # exactly as declared and a later plan sees no drift.
     description     = "PostgreSQL from the database tunnel only, and nowhere else."
     from_port       = 5432
@@ -51,7 +51,7 @@ resource "aws_db_instance" "this" {
   storage_type      = "gp2"
   storage_encrypted = true # aws/rds, the AWS-managed key: no key to create, pay for or delete
   # On an instance created before 2026-10-16 this replaces it with a new, empty database: run
-  # scripts/setup_proving_ground_db.py again, so the harness's sentinel guard marks the new one (CodeRabbit, PR 46).
+  # fault-lab/scripts/setup_proving_ground_db.py again, so the harness's sentinel guard marks the new one (CodeRabbit, PR 46).
 
   db_name  = "warden"
   username = "warden"

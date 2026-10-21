@@ -1,6 +1,6 @@
 """AwsBackend, against a stubbed boto3 API.
 
-The live path is proven by `scripts/aws_proof.sh` against a real account (ECS + CloudWatch, with
+The live path is proven by `fault-lab/scripts/aws_proof.sh` against a real account (ECS + CloudWatch, with
 EKS covered by the k8s backend and RDS by the database backend). These tests exist for the failure
 modes that are expensive or slow to stage on a real account, and for the properties that must never
 regress.
@@ -25,7 +25,7 @@ from warden.aws_backend import AwsBackend, _family_revision
 from warden.models import Alert, Severity
 from warden.tools import PARTIAL_PREFIX, ToolError, gather, resolve_backend
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 NOW = datetime.now(UTC)
 
 
@@ -477,7 +477,7 @@ def _api_calls() -> set[tuple[str, str]]:
 
 
 def test_backend_cannot_write_checked_on_the_ast_not_the_text():
-    """A tripwire, not the boundary. The task role in terraform/ is the boundary, and this test
+    """A tripwire, not the boundary. The task role in infra/terraform/ is the boundary, and this test
     says so. Walked on the AST rather than grepped, so prose in a docstring cannot trip it and a
     `getattr` cannot slip past it."""
     src = pathlib.Path(inspect.getsourcefile(aws_backend)).read_text(encoding="utf-8")
@@ -523,11 +523,11 @@ def _iam_action(client_attr: str, method: str) -> str:
 
 
 def _terraform_task_actions() -> set[str]:
-    text = (ROOT / "terraform" / "main.tf").read_text(encoding="utf-8")
+    text = (ROOT / "infra" / "terraform" / "main.tf").read_text(encoding="utf-8")
     block = re.search(
         r'data "aws_iam_policy_document" "task_readonly".*?\n}\n', text, re.DOTALL
     )
-    assert block, "task_readonly policy document not found in terraform/main.tf"
+    assert block, "task_readonly policy document not found in infra/terraform/main.tf"
     actions = re.search(r"actions\s*=\s*\[(.*?)\]", block.group(0), re.DOTALL)
     assert actions, "no actions list in task_readonly"
     return set(re.findall(r'"([^"]+)"', actions.group(1)))
@@ -563,7 +563,7 @@ def test_every_call_the_code_makes_is_a_read():
 def test_the_task_definition_declares_the_aws_backend():
     """The Terraform grants CloudWatch/ECS read actions. If the container does not run with
     WARDEN_BACKEND=aws it reads shipped fixtures instead, and the whole role is decoration."""
-    text = (ROOT / "terraform" / "main.tf").read_text(encoding="utf-8")
+    text = (ROOT / "infra" / "terraform" / "main.tf").read_text(encoding="utf-8")
     env_block = re.search(r"environment\s*=\s*\[(.*?)\]", text, re.DOTALL)
     assert env_block, "no environment block in the task definition"
     assert re.search(
@@ -572,7 +572,7 @@ def test_the_task_definition_declares_the_aws_backend():
 
 
 def test_readme_documents_the_aws_backend():
-    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    text = (ROOT / "warden" / "README.md").read_text(encoding="utf-8")
     assert "WARDEN_BACKEND=aws" in text
 
 
@@ -643,10 +643,10 @@ def test_it_falls_back_to_the_previous_revision_when_the_service_is_steady():
 
 def test_the_proving_ground_reader_grants_exactly_what_the_code_calls():
     """The benchmark's reader role carries its own copy of the list, and its comment claimed this
-    test covered it while only terraform/main.tf was read (found 2026-09-25). Now both are."""
-    text = (ROOT / "terraform" / "proving-ground" / "iam.tf").read_text(encoding="utf-8")
+    test covered it while only infra/terraform/main.tf was read (found 2026-09-25). Now both are."""
+    text = (ROOT / "infra" / "terraform" / "proving-ground" / "iam.tf").read_text(encoding="utf-8")
     block = re.search(r'sid\s*=\s*"ReadObservabilitySignals".*?actions\s*=\s*\[(.*?)\]', text, re.DOTALL)
-    assert block, "ReadObservabilitySignals statement not found in terraform/proving-ground/iam.tf"
+    assert block, "ReadObservabilitySignals statement not found in infra/terraform/proving-ground/iam.tf"
     granted = set(re.findall(r'"([^"]+)"', block.group(1)))
     called = {_iam_action(attr, method) for attr, method in _api_calls()}
     assert called == granted, (

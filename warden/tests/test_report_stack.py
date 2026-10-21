@@ -1,6 +1,6 @@
 """Wave 4 report side: the markdown shows the code-level finding and what each stack reader read - and
 nothing leaks or arrives as a placeholder. (The runbook and the fix commands it aimed at the stack's
-components were removed on 2026-10-16; tests/test_no_commands.py holds that no report carries a command.)
+components were removed on 2026-10-16; warden/tests/test_no_commands.py holds that no report carries a command.)
 """
 
 from __future__ import annotations

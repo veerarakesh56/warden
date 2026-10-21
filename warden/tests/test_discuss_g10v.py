@@ -25,7 +25,7 @@ from warden.models import Alert
 from warden.tools import FixtureBackend
 from warden.workflows import ZONES, DiscussWorkflow
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 CHANNEL = "C" + "0" * 3 + "DISCUSS1"
 PERSON = "U" + "0" * 3 + "PERSON1"
 APPROVER = "U" + "0" * 3 + "APPROV1"
@@ -270,7 +270,7 @@ def test_the_whole_conversation_runs_as_a_workflow_and_changes_nothing(world):
     assert said.startswith("(a test answer)")
     assert any(m == "chat.postMessage" for m, *_ in world["posted"])
     # Discussion is reading and talking only: no step of it can start a fix, a plan, or anything that writes.
-    source = (ROOT / "src" / "warden" / "discuss.py").read_text(encoding="utf-8")
+    source = (ROOT / "warden" / "src" / "warden" / "discuss.py").read_text(encoding="utf-8")
     for never in ("RemediationWorkflow", "catalog", "platforms", "start_child_workflow", "apply("):
         assert never not in source, never
     # A step that fails still ends in a reply: evidence that cannot be read, then a model step that fails.
@@ -297,7 +297,7 @@ def test_the_whole_conversation_runs_as_a_workflow_and_changes_nothing(world):
                                                          task_queue="discuss-fail")
         assert asyncio.run(failing("<@UWARDEN> why?")) == said_then, step
         assert any(m == "chat.postMessage" for m, *_ in world["posted"]), step
-    flow = (ROOT / "src" / "warden" / "workflows.py").read_text(encoding="utf-8")
+    flow = (ROOT / "warden" / "src" / "warden" / "workflows.py").read_text(encoding="utf-8")
     body = flow[flow.index("class DiscussWorkflow"):flow.index("class ClockWorkflow")]
     # It may start a diagnosis (an approver's new plan, below) - never a fix: a plan waits for a passkey elsewhere.
     assert body.count("start_child_workflow(") == 1
@@ -360,17 +360,17 @@ def test_the_runtime_gives_the_listener_its_token_in_the_notify_zone_alone():
     for zone in ("core", "read", "llm", "act"):
         assert "WARDEN_SLACK_APP_TOKEN" not in settings.loadable_for("worker", zone), zone
     assert "WARDEN_DISCUSS_CHANNEL" in settings.LOADABLE - settings.SECRETS
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime")
     assert '"slack-app-token",' in (tf / "secrets.tf").read_text(encoding="utf-8")
     assert '"slack-bot-token", "slack-app-token",' in (tf / "iam.tf").read_text(encoding="utf-8")
-    # The runtime's workers are built from Dockerfile.runtime (runtime.yml); Dockerfile is the general image.
+    # The runtime's workers are built from Dockerfile.runtime (warden-runtime-deploy.yml); Dockerfile is the general image.
     for image in ("Dockerfile.runtime", "Dockerfile"):
-        assert "--extra slack" in (ROOT / image).read_text(encoding="utf-8"), image
-    assert 'slack = ["slack-sdk>=3.44.1,<3.45"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    cli = (ROOT / "src" / "warden" / "cli.py").read_text(encoding="utf-8")
+        assert "--extra slack" in (ROOT / "warden" / image).read_text(encoding="utf-8"), image
+    assert 'slack = ["slack-sdk>=3.44.1,<3.45"' in (ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8")
+    cli = (ROOT / "warden" / "src" / "warden" / "cli.py").read_text(encoding="utf-8")
     assert 'if args.zone == "notify" and discuss.configured():' in cli
     # A listener that cannot connect is logged; the notify worker - every alert WARDEN sends - keeps running.
     guard = cli[cli.index('if args.zone == "notify" and discuss.configured():'):]
     assert guard.index("try:") < guard.index("await discuss.listen(") < guard.index("except Exception")
     # Slack's async web client; 3.14.4 is the first release without CVE-2026-111063/-111064 (PR 98).
-    assert '"aiohttp>=3.14.4"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert '"aiohttp>=3.14.4"' in (ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8")

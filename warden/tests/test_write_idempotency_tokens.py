@@ -12,7 +12,7 @@ import re
 
 import botocore.session
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 # The IAM prefix as botocore names the service (where they differ). apigateway:PATCH is REST, not an operation;
 # rds-db:connect is a database sign-in token (platforms/db.py), no API call at all.
 SERVICE = {"elasticloadbalancing": "elbv2"}
@@ -21,7 +21,7 @@ TOKENS = ("ClientToken", "ClientRequestToken", "clientToken", "IdempotencyToken"
 
 
 def _writes() -> list[str]:
-    doc = json.loads((ROOT / "iam" / "templates" / "actor.json").read_text(encoding="utf-8"))
+    doc = json.loads((ROOT / "infra" / "iam" / "templates" / "actor.json").read_text(encoding="utf-8"))
     actions = set()
     for st in doc["Statement"]:
         if st["Effect"] == "Allow":
@@ -35,7 +35,7 @@ def _snake(op: str) -> str:
 
 def test_every_write_passes_the_token_its_api_offers():
     session = botocore.session.get_session()
-    source = (ROOT / "src" / "warden" / "platforms" / "aws.py").read_text(encoding="utf-8")
+    source = (ROOT / "warden" / "src" / "warden" / "platforms" / "aws.py").read_text(encoding="utf-8")
     offered = {}
     for action in _writes():
         prefix, op = action.split(":", 1)

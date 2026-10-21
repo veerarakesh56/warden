@@ -10,7 +10,7 @@ and why**, with the affected runs re-scored — never a quiet edit.
 ## What WARDEN is told, and what it is not
 
 Every scenario in a wave is given the **same alert**, byte for byte. Wave 1 (ECS) uses
-`scenarios/alert.yaml`; from 2026-09-25 each platform has its own - `alert-k8s.yaml`,
+`fault-lab/scenarios/alert.yaml`; from 2026-09-25 each platform has its own - `alert-k8s.yaml`,
 `alert-db.yaml` - naming the platform and the resource and still no cause.
 
 ⚠ **The published Wave 2 (EKS) run used the ECS-worded alert below.** On a Kubernetes cluster it
@@ -23,7 +23,7 @@ ECSServiceAlarm — CloudWatch alarm fired for ECS service checkout
 ```
 
 ⛔ **It names no cause, and that is the single most important thing about it.** The alert's name and
-summary are the first line of the reasoning prompt (`src/warden/graph.py::_evidence_blob`). The five
+summary are the first line of the reasoning prompt (`warden/src/warden/graph.py::_evidence_blob`). The five
 bundled demo incidents each name their own cause — one of them is literally `PodOOMKilled — Repeated
 OOM kills, memory at 94% of limit`. Running the wave with that would hand the model the answer on
 the two OOM scenarios and feed it a *false* answer on the other twelve, while the results table
@@ -127,7 +127,7 @@ before anything is published.
 
 ## Fault classes → actions
 
-The nine `ActionKind` values are a closed set (`src/warden/models.py:61-78`):
+The nine `ActionKind` values are a closed set (`warden/src/warden/models.py:61-78`):
 `restart_pods` · `scale_up` · `scale_down` · `rollback_deploy` · `failover_replica` ·
 `clear_cache` · `terminate_connections` · `no_action` · `escalate_to_human`.
 
@@ -135,7 +135,7 @@ The nine `ActionKind` values are a closed set (`src/warden/models.py:61-78`):
 deliberate design choice in WARDEN (a model that can invent an action can invent `delete_database`),
 and its consequence is measured here: for those classes the **best available answer is
 `escalate_to_human`**, and that is what the `fixes` column holds. (The `fixes` column is the
-`correct` key of each class in `scenarios/scoring.yaml`, which is what the scorer reads.) Escalation
+`correct` key of each class in `fault-lab/scenarios/scoring.yaml`, which is what the scorer reads.) Escalation
 is therefore gradeable rather than a free pass — a tool that escalated *everything* would still score
 0% on the classes whose correct answer is something else: ten in Wave 1 (the count when this was
 written), fifteen of the 22 classes in the rubric today.
@@ -194,7 +194,7 @@ genuinely different from Waves 1 and 2, and that is a finding rather than a gap.
 
 ⭐ **This is the first wave graded on an action WARDEN can really perform.**
 `terminate_connections` is a live remediation (then `database_remediation.py`; since D16 the database
-platform behind the RemediationWorkflow, `src/warden/platforms/db.py`), and its grade
+platform behind the RemediationWorkflow, `warden/src/warden/platforms/db.py`), and its grade
 flips on evidence the tool actually reads: whether a session is idle inside a transaction, or
 active and doing work.
 
@@ -212,7 +212,7 @@ an "undersized instance" scenario would score the model for the tool's blindness
 
 ### Wave 4 — the full stack (added 2026-09-25, before any run)
 
-Design: [`docs/FULLSTACK-LAB.md`](../docs/FULLSTACK-LAB.md). Machine-readable rows and full reasoning: `scoring.yaml`. A
+Design: [`demo-app/docs/FULLSTACK-LAB.md`](../../demo-app/docs/FULLSTACK-LAB.md). Machine-readable rows and full reasoning: `scoring.yaml`. A
 fault shipped as a new version is `rollback_deploy`; a setting one of the nine actions really
 changes is that action; everything else (IAM, security groups, policies, mappings, rules,
 ConfigMaps, Secrets, an index) is `escalate_to_human`, and the new **Fix** score measures whether
@@ -251,7 +251,7 @@ the commands the report printed, applied verbatim, removed the fault.
 
 ⭐ **2026-09-26, before any Wave 4 fault ran:** fs-21 now injects `db_iam_auth_revoked` (Aurora in
 express configuration - the AWS Free plan - has IAM authentication only, so there is no password to
-rotate; see docs/FULLSTACK-LAB.md section 1). The `secret_rotated_stale_credentials`
+rotate; see demo-app/docs/FULLSTACK-LAB.md section 1). The `secret_rotated_stale_credentials`
 row stays, unused, so nothing graded under it changes on a re-score.
 
 **4. Fix** (Wave 4 only; runs without a `fix` record - every earlier wave - render exactly as

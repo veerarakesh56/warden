@@ -97,7 +97,7 @@ def pytest_configure(config):
     asyncio.run(warm())
 
 
-# Evidence must have run (fifth review, 2026-10-01). tests/test_register.py refuses the skips it can see in
+# Evidence must have run (fifth review, 2026-10-01). warden/tests/test_register.py refuses the skips it can see in
 # the source, but pytest has more ways to skip than any source check can list (a decorator split over two
 # lines, `raise unittest.SkipTest`, an empty parametrize, a skipping fixture...). So the full run itself
 # checks: every test a DONE-local register row cites must have run its body and passed - not skipped, not
@@ -245,7 +245,7 @@ def pytest_runtest_logreport(report):
 
 
 def _full_run(config) -> bool:
-    """Judged: a run of the whole `tests` directory - however the path is spelled (`tests`, `tests/.`, `.`, an
+    """Judged: a run of the whole `tests` directory - however the path is spelled (`tests`, `warden/tests/.`, `.`, an
     absolute path; sixth review, 2026-10-01) - nothing filtered, and something actually run."""
     here = pathlib.Path(__file__).resolve().parent
     base = pathlib.Path(getattr(getattr(config, "invocation_params", None), "dir", None) or pathlib.Path.cwd())

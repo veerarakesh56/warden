@@ -1,7 +1,7 @@
 """The database platform behind the RemediationWorkflow (decision D16) - fake connections, no server.
 
 The real servers' grammar and the session ACTUALLY closing are proven in CI's db job
-(tests/integration/test_live_database.py). Here: the scoping the removed backend lacked (its own
+(warden/tests/integration/test_live_database.py). Here: the scoping the removed backend lacked (its own
 database, the application's logins only - audit A-B-H1), the ceiling twice, and the refusals."""
 
 from __future__ import annotations

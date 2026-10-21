@@ -1,4 +1,4 @@
-"""The undo lab (terraform/undo-lab, scripts/undo_lab.py; owner 2026-10-11: prove each undo on real AWS on a small
+"""The undo lab (infra/terraform/undo-lab, fault-lab/scripts/undo_lab.py; owner 2026-10-11: prove each undo on real AWS on a small
 system first). Checked offline: every name inside the prefix WARDEN's roles scope to, every role with its boundary,
 each alarm reaching the resolver as the resource its undo changes, the fault script making ONE change on a lab at
 its baseline and nothing anywhere else, and its role allowed nothing outside the lab."""
@@ -14,15 +14,16 @@ from datetime import UTC, datetime
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "infra" / "scripts"))
+sys.path.insert(0, str(ROOT / "fault-lab" / "scripts"))
 import render_env_iam
 import undo_lab
 
 from warden import catalog, resolver, resources
 from warden.models import ActionKind, Alert, RemediationProposal, Severity
 
-TF = (ROOT / "terraform" / "undo-lab" / "main.tf").read_text(encoding="utf-8")
+TF = (ROOT / "infra" / "terraform" / "undo-lab" / "main.tf").read_text(encoding="utf-8")
 BLOCKS = re.findall(r'^resource "(\w+)" "(\w+)" \{\n(.*?)^\}', TF, re.DOTALL | re.MULTILINE)
 ENV = "dev"
 
@@ -57,8 +58,8 @@ def test_the_lab_exists_only_where_its_fault_role_does():
 
     assert re.search(r'lab_environments = yamldecode\(file\("[^"]*environments\.yaml"\)\)\.fault_environments', TF)
     assert undo_lab.LAB_ENVS == render_env_iam.HARNESS_ENVS == EnvironmentPolicies.load().fault_environments == (ENV,)
-    assert (ROOT / "iam" / ENV / "harness-lab.json").exists()
-    assert not (ROOT / "iam" / "prod" / "harness-lab.json").exists()
+    assert (ROOT / "infra" / "iam" / ENV / "harness-lab.json").exists()
+    assert not (ROOT / "infra" / "iam" / "prod" / "harness-lab.json").exists()
 
 
 def test_the_scripts_baseline_is_the_one_terraform_declares():
@@ -261,7 +262,7 @@ def test_the_command_line_refuses_without_a_fault_and_says_when_in_both_zones(ca
 
 
 def test_the_fault_role_may_write_only_what_the_script_writes_and_only_in_the_lab():
-    policy = json.loads((ROOT / "iam" / ENV / "harness-lab.json").read_text(encoding="utf-8"))
+    policy = json.loads((ROOT / "infra" / "iam" / ENV / "harness-lab.json").read_text(encoding="utf-8"))
     writes, reads = set(), set()
     for s in policy["Statement"]:
         assert s["Effect"] == "Allow"

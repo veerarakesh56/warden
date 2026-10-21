@@ -1,5 +1,5 @@
 # The cloud runtime's image (G6): the Temporal worker on ECS and the three Lambdas (warden.lambdas) from ONE image,
-# built, signed and attested by .github/workflows/runtime.yml and referenced by digest only.
+# built, signed and attested by .github/workflows/warden-runtime-deploy.yml and referenced by digest only.
 #   ECS:    command ["warden", "worker", "--platform", "aws"]
 #   Lambda: entry point ["/opt/warden/bin/python", "-m", "awslambdaric"], command ["warden.lambdas.alarm"] (or
 #           .alertmanager, .approval) - AWS's runtime interface client in a non-AWS base image, as AWS documents.
@@ -34,7 +34,7 @@ RUN /opt/warden/bin/python check_package.py \
 # The tripwire's weights (register R47): Prompt Guard 2 at the pinned revision, fetched with the owner's Hugging Face
 # token - a build secret, in no layer - every file checked against the measured copy's hash, then loaded offline and run
 # once (an injection must be caught, a plain alert not), or the build fails. The worker never reaches Hugging Face.
-# CI builds the image to check what else it carries, with no token: WARDEN_DETECTOR=absent there, and runtime.yml - the
+# CI builds the image to check what else it carries, with no token: WARDEN_DETECTOR=absent there, and warden-runtime-deploy.yml - the
 # only build that is deployed - refuses an image without the weights.
 COPY scripts/bake_tripwire.py ./
 ARG WARDEN_DETECTOR=baked

@@ -1,6 +1,6 @@
-"""No file holds a credential-shaped literal: the tests build theirs from parts, in tests/fakes.py.
+"""No file holds a credential-shaped literal: the tests build theirs from parts, in warden/tests/fakes.py.
 
-Naming audit items 5 and 16 (2026-10-16). scripts/check_publishable.py catches the shapes that are real secrets.
+Naming audit items 5 and 16 (2026-10-16). warden/scripts/check_publishable.py catches the shapes that are real secrets.
 This catches the fixture shapes that are not, but that gitleaks, trufflehog and GitHub push protection flag as if
 they were: AWS's documented example key, a JWT, an armoured private key, a vendor token prefix with a body, the
 stock fake password, and a quoted literal given to a password. Each pattern is written so that it cannot match its
@@ -17,7 +17,7 @@ import pytest
 
 import fakes
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 SHAPES = {
     "an AWS access key id": r"\b(?:AKIA|ASIA)[0-9A-Z]{12,}",
@@ -39,7 +39,7 @@ PATTERNS = {shape: re.compile(pattern) for shape, pattern in SHAPES.items()}
 
 
 def _publish_check():
-    spec = importlib.util.spec_from_file_location("check_publishable_for_literals", ROOT / "scripts" / "check_publishable.py")
+    spec = importlib.util.spec_from_file_location("check_publishable_for_literals", ROOT / "warden" / "scripts" / "check_publishable.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -55,7 +55,7 @@ def test_no_file_holds_a_credential_shaped_literal():
         rel = path.relative_to(ROOT).as_posix()
         for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
             found += [f"{rel}:{number}: {shape}" for shape, pattern in PATTERNS.items() if pattern.search(line)]
-    assert not found, "build these from parts with tests/fakes.py:\n" + "\n".join(found)
+    assert not found, "build these from parts with warden/tests/fakes.py:\n" + "\n".join(found)
 
 
 @pytest.mark.parametrize("shape, sample", [

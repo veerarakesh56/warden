@@ -1,6 +1,6 @@
 """KubernetesBackend, against a stubbed API.
 
-The live path is covered by tests/integration/ and the CI `k8s` job against a real k3d cluster.
+The live path is covered by warden/tests/integration/ and the CI `k8s` job against a real k3d cluster.
 These tests exist for the failure modes that are hard to stage on demand against a real API
 server, and for the properties that must never regress. Several were written AFTER an adversarial
 review found the first version wanting; those say so in their docstrings.
@@ -34,7 +34,7 @@ from warden.models import (
 from warden.tools import PARTIAL_PREFIX, ToolError, gather
 from warden.verifier import verify
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 # --------------------------------------------------------------------------- fakes
@@ -557,7 +557,7 @@ def test_backend_cannot_write_checked_on_the_ast_not_the_text():
 def test_rbac_manifest_is_structurally_read_only():
     """Structural, not textual. Review finding: the old grep passed with `roleRef: cluster-admin`,
     with `verbs: [get, list, delete]` (unquoted), and with a block-list `- delete`."""
-    docs = [d for d in yaml.safe_load_all((ROOT / "k8s" / "rbac.yaml").read_text(encoding="utf-8")) if d]
+    docs = [d for d in yaml.safe_load_all((ROOT / "infra" / "k8s" / "rbac.yaml").read_text(encoding="utf-8")) if d]
     kinds = {d["kind"] for d in docs}
     assert "ClusterRoleBinding" not in kinds, "cluster-wide binding"
     assert kinds == {"ServiceAccount", "ClusterRole", "RoleBinding"}
@@ -599,7 +599,7 @@ def test_rbac_grants_exactly_what_the_code_calls():
     if "list_namespaced_replica_set(" in src: needed.add(("apps", "replicasets", "list"))
     if "list_namespaced_horizontal_pod_autoscaler(" in src: needed.add(("autoscaling", "horizontalpodautoscalers", "list"))
 
-    docs = [d for d in yaml.safe_load_all((ROOT / "k8s" / "rbac.yaml").read_text(encoding="utf-8")) if d]
+    docs = [d for d in yaml.safe_load_all((ROOT / "infra" / "k8s" / "rbac.yaml").read_text(encoding="utf-8")) if d]
     granted = set()
     for d in docs:
         if d["kind"] != "ClusterRole":
@@ -615,7 +615,7 @@ def test_rbac_grants_exactly_what_the_code_calls():
 def test_job_manifest_cannot_hang_or_lose_evidence():
     """Review findings: no activeDeadlineSeconds (a stalled run kept the Job active forever, proven
     live) and a 1-hour TTL that deleted the only record of the diagnosis."""
-    job = yaml.safe_load((ROOT / "k8s" / "job.yaml").read_text(encoding="utf-8"))
+    job = yaml.safe_load((ROOT / "infra" / "k8s" / "job.yaml").read_text(encoding="utf-8"))
     spec = job["spec"]
     assert 0 < spec["activeDeadlineSeconds"] <= 900
     assert spec["ttlSecondsAfterFinished"] >= 7 * 24 * 3600
@@ -640,7 +640,7 @@ def test_job_pod_satisfies_restricted_pss_so_it_runs_on_eks_not_just_k3d():
     The one people forget is seccompProfile: RuntimeDefault — it is required by `restricted` and its
     absence is the single most common reason a hardened-looking pod is refused on managed Kubernetes.
     """
-    job = yaml.safe_load((ROOT / "k8s" / "job.yaml").read_text(encoding="utf-8"))
+    job = yaml.safe_load((ROOT / "infra" / "k8s" / "job.yaml").read_text(encoding="utf-8"))
     pod = job["spec"]["template"]["spec"]
     psc = pod.get("securityContext", {})
     csc = pod["containers"][0].get("securityContext", {})
@@ -663,7 +663,7 @@ def test_job_pod_satisfies_restricted_pss_so_it_runs_on_eks_not_just_k3d():
         assert "hostPath" not in vol, "hostPath volumes are forbidden under restricted"
 
     # and the namespace must actually ENFORCE restricted, or none of the above is checked at admission
-    ns = yaml.safe_load((ROOT / "k8s" / "namespace.yaml").read_text(encoding="utf-8"))
+    ns = yaml.safe_load((ROOT / "infra" / "k8s" / "namespace.yaml").read_text(encoding="utf-8"))
     assert ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "restricted"
 
 

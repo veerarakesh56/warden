@@ -4,7 +4,7 @@ A record of the defects this project found in **itself**, kept because each one 
 works, and because they nearly all share one shape: *a check that passed because nothing ran, or
 because it asked an easier question than the one that mattered.*
 
-None of this is needed to use WARDEN — the [README](../README.md) covers that. This is for anyone who
+None of this is needed to use WARDEN — the [README](../warden/README.md) covers that. This is for anyone who
 wants to know what the guarantees on the front page actually cost, and why each is tested the way it is.
 
 ---
@@ -156,7 +156,7 @@ CI creates a **k3d** cluster on every push and:
    `get pods` (only `list` is granted), `delete pods`, `patch deployments`, `get secrets`,
    `list pods -n kube-system`, `get nodes` → must each be **`no`**. A check that only confirmed the
    reads would pass a `*`-verb ClusterRoleBinding.
-3. Deploys `k8s/test/oom-workload.yaml` — a pod that **actually OOM-kills itself** (300 MiB into a
+3. Deploys `fault-lab/k8s/test/oom-workload.yaml` — a pod that **actually OOM-kills itself** (300 MiB into a
    48Mi limit) — and waits for the kubelet to record `lastState.terminated.reason: OOMKilled`.
 4. Runs WARDEN against it from outside and asserts the *output*: `"backend": "kubernetes"`,
    `scale_up`, `VERDICT : ESCALATED`, `P11-ACTION-CONTRADICTS-EVIDENCE`, `"tool_errors": []`, and
@@ -164,5 +164,5 @@ CI creates a **k3d** cluster on every push and:
 5. Imports the image and runs WARDEN **inside** the cluster as the Job, under the read-only
    ServiceAccount, and asserts the same `scale_up` / `ESCALATED` / P11 / empty-`tool_errors` from its
    logs. That the process runs as uid 10001 on a read-only root filesystem is asserted separately,
-   by a posture-probe pod (`k8s/test/posture-probe.yaml`) whose log must read `uid=10001` and
+   by a posture-probe pod (`fault-lab/k8s/test/posture-probe.yaml`) whose log must read `uid=10001` and
    `rootfs=READONLY`.

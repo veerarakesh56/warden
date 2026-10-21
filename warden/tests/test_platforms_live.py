@@ -360,19 +360,19 @@ def test_an_eks_client_is_made_again_before_the_credentials_that_signed_it_can_e
 
 
 def test_the_shipped_remediation_binding_names_the_service_account_only_and_ci_binds_the_group_apart():
-    """Review, PR 48: applying k8s/remediation-rbac.yaml must not grant the EKS actor's group anything in `default`.
+    """Review, PR 48: applying infra/k8s/remediation-rbac.yaml must not grant the EKS actor's group anything in `default`.
     The group is bound in shop alone on EKS, and in CI's test namespace by a CI-only file the workflow applies."""
     import yaml
 
-    root = pathlib.Path(__file__).resolve().parents[1]
-    docs = [d for d in yaml.safe_load_all((root / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8")) if d]
+    root = pathlib.Path(__file__).resolve().parents[2]
+    docs = [d for d in yaml.safe_load_all((root / "infra" / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8")) if d]
     [shipped] = [d for d in docs if d["kind"] == "RoleBinding"]
     assert shipped["subjects"] == [{"kind": "ServiceAccount", "name": "warden-remediator", "namespace": "warden"}]
-    [ci] = yaml.safe_load_all((root / "k8s" / "ci" / "remediation-group-binding.yaml").read_text(encoding="utf-8"))
+    [ci] = yaml.safe_load_all((root / "infra" / "k8s" / "ci" / "remediation-group-binding.yaml").read_text(encoding="utf-8"))
     assert ci["subjects"] == [{"kind": "Group", "name": "warden-remediators", "apiGroup": "rbac.authorization.k8s.io"}]
     assert ci["roleRef"]["name"] == "warden-remediator"
-    # (the CI applies it: tests/test_ci_lanes.py, which runs where the workflows change)
-    assert "ci/" not in (root / "k8s" / "kustomization.yaml").read_text(encoding="utf-8")  # never in a real deploy
+    # (the CI applies it: warden/tests/test_ci_lanes.py, which runs where the workflows change)
+    assert "ci/" not in (root / "infra" / "k8s" / "kustomization.yaml").read_text(encoding="utf-8")  # never in a real deploy
 
 
 def test_a_close_without_an_approved_plan_is_refused_and_mints_nothing(db_cloud, monkeypatch):

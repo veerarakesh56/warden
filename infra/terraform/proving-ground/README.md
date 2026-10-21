@@ -3,7 +3,7 @@
 A **throwaway** AWS environment that exists for one reason: to run WARDEN against real ECS, real
 RDS and real EKS instead of recorded fixtures, and to leave an evidence bundle behind.
 
-This is **not** the deployment module. That is `terraform/`, one directory up — a task definition
+This is **not** the deployment module. That is `infra/terraform/`, one directory up — a task definition
 with a read-only role, meant for an account that already has a cluster and a VPC. This directory
 *creates* the things under investigation, on purpose, so there is something real to investigate.
 
@@ -51,7 +51,7 @@ it cannot drift from this table.
 ### Four guards against the forgotten-environment bill
 
 1. **RDS and EKS default to off.** Turn one on for the wave that needs it, and only then.
-2. `terraform destroy` runs from an **EXIT trap** in `scripts/aws_proof.sh`, so it happens even if
+2. `terraform destroy` runs from an **EXIT trap** in `fault-lab/scripts/aws_proof.sh`, so it happens even if
    the run fails and even on Ctrl-C.
 3. An **AWS Budget** at `var.budget_usd` (default $5) emails you at 60% / 90% of *forecast* and
    100% of actual. Forecast matters: by the time actual spend crosses $5, a forgotten cluster has
@@ -96,7 +96,7 @@ aws sts get-caller-identity    # must print YOUR account - this is the one that 
 ## Run it
 
 ```bash
-cd terraform/proving-ground
+cd infra/terraform/proving-ground
 cp terraform.tfvars.example terraform.tfvars   # then edit: your IP, your email, your region
 terraform init
 terraform apply                                 # ~3 minutes with the default switches
@@ -105,7 +105,7 @@ terraform apply                                 # ~3 minutes with the default sw
 Or let the harness do the whole thing, including teardown:
 
 ```bash
-bash scripts/aws_proof.sh
+bash fault-lab/scripts/aws_proof.sh
 ```
 
 Turning on what a later wave needs:
@@ -129,4 +129,4 @@ Then **check it actually went**, because a destroy can partially fail — the qu
 `terraform.tfvars` holds your home IP and your email. `terraform.tfstate` holds **every `sensitive`
 value in plaintext**, including the RDS master password — marking a variable `sensitive` hides it
 from CLI output, not from state. Both are in `.gitignore`, and
-`python scripts/check_publishable.py` fails the build if either is ever tracked.
+`python warden/scripts/check_publishable.py` fails the build if either is ever tracked.

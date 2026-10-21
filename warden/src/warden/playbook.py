@@ -378,7 +378,7 @@ def _errors(ctx: ContextBundle, found: list[Pattern]) -> list[Pattern]:
 
 # --------------------------------------------------------------------------- the full stack (Wave 4)
 #
-# Built against the evidence contract in docs/FULLSTACK-LAB.md section 4: the tagged lines of C (LOG/CONFIG/ESM/CODE/SOURCE/
+# Built against the evidence contract in demo-app/docs/FULLSTACK-LAB.md section 4: the tagged lines of C (LOG/CONFIG/ESM/CODE/SOURCE/
 # QUEUE/POLICY/TABLE/EVENT/CLUSTER/TARGET/TARGETGROUP/SECRET/RULE), the metrics of B (with the
 # `__<short>` suffix when several resources of a kind are labelled) and the deploy records of D.
 # Each pattern's advice names what the evidence shows (a version, a value, a missing rule) in words; a

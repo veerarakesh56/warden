@@ -13,7 +13,7 @@ Configuration, all from the environment (SSM in the cloud through settings.py):
 
 The worker holds no approver key and no standing write credential. With no platform (`--platform none`) a
 remediation against a live system is refused at planning (`NoPlatform` reads nothing, and a catalogue entry
-needs values WARDEN read); `--platform k8s|db|aws|all` connects the platforms in src/warden/platforms/, the AWS
+needs values WARDEN read); `--platform k8s|db|aws|all` connects the platforms in warden/src/warden/platforms/, the AWS
 one writing only through a per-plan actor session (identity.py).
 """
 

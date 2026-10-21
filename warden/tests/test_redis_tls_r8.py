@@ -14,16 +14,16 @@ import time
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def test_redis_takes_tls_in_transit_and_every_app_client_uses_it():
-    data = (ROOT / "terraform" / "fullstack" / "data.tf").read_text(encoding="utf-8")
+    data = (ROOT / "infra" / "terraform" / "fullstack" / "data.tf").read_text(encoding="utf-8")
     group = data[data.index('resource "aws_elasticache_replication_group" "redis"'):]
     group = group[:group.index("\n}\n")]
     assert re.search(r"transit_encryption_enabled = true\b", group)
     assert re.search(r"at_rest_encryption_enabled = true\b", group)
-    clients = [(p, line) for p in (ROOT / "scenarios" / "fullstack").rglob("*.py")
+    clients = [(p, line) for d in ("app", "lambdas") for p in (ROOT / "demo-app" / d).rglob("*.py")
                for line in p.read_text(encoding="utf-8").splitlines() if "redis.Redis(" in line]
     assert len(clients) >= 3, clients
     assert all("ssl=True" in line for _, line in clients), [str(p) for p, line in clients if "ssl=True" not in line]
@@ -55,8 +55,8 @@ def _is_redis_client(node: ast.AST) -> bool:
 def _client_calls() -> dict[str, dict]:
     """{file: the keyword arguments of its one redis.Redis(...) call}; retry= is kept as its source text."""
     found: dict[str, dict] = {}
-    base = ROOT / "scenarios" / "fullstack"
-    for path in sorted(base.rglob("*.py")):
+    base = ROOT / "demo-app"
+    for path in sorted(p for d in ("app", "lambdas") for p in (base / d).rglob("*.py")):
         for node in filter(_is_redis_client, ast.walk(ast.parse(path.read_text(encoding="utf-8")))):
             rel = path.relative_to(base).as_posix()
             assert rel not in found, f"{rel}: more than one redis.Redis(...) call"
@@ -123,7 +123,7 @@ def test_the_app_cache_client_is_the_one_checked(redis, monkeypatch):
     pytest.importorskip("psycopg")
     pytest.importorskip("boto3")
     monkeypatch.setenv("REDIS_HOST", "cache.example.invalid")
-    spec = importlib.util.spec_from_file_location("fullstack_app_r8", ROOT / "scenarios" / "fullstack" / "app" / "app.py")
+    spec = importlib.util.spec_from_file_location("fullstack_app_r8", ROOT / "demo-app" / "app" / "app.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     _assert_connection(redis, module.cache().connection_pool.make_connection(), TIMEOUTS["app/app.py"])

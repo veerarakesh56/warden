@@ -1,7 +1,7 @@
-"""G6: WARDEN's own runtime IAM - iam/<runtime>/, rendered from iam/templates/runtime-*.json. The deploy role is the one
-.github/workflows/runtime.yml assumes, and the boundary bounds it AND every role terraform/runtime makes (worker, front
+"""G6: WARDEN's own runtime IAM - infra/iam/<runtime>/, rendered from infra/iam/templates/runtime-*.json. The deploy role is the one
+.github/workflows/warden-runtime-deploy.yml assumes, and the boundary bounds it AND every role infra/terraform/runtime makes (worker, front
 door, task execution, ECS instance). The deploy policies fitting the boundary, the size limit and the folder's presence
-are held by tests/test_env_iam.py; this file holds what is the runtime's own."""
+are held by warden/tests/test_env_iam.py; this file holds what is the runtime's own."""
 
 from __future__ import annotations
 
@@ -11,16 +11,16 @@ import pathlib
 import re
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "infra" / "scripts"))
 import render_env_iam as r  # after the sys.path line above
 
 RUNTIME = r.runtime_environment()
-MODULE = ROOT / "terraform" / "modules" / "warden-runtime"
+MODULE = ROOT / "infra" / "terraform" / "modules" / "warden-runtime"
 
 
 def _load(kind):
-    return json.loads((ROOT / "iam" / RUNTIME / f"{kind}.json").read_text(encoding="utf-8"))
+    return json.loads((ROOT / "infra" / "iam" / RUNTIME / f"{kind}.json").read_text(encoding="utf-8"))
 
 
 def _list(x):
@@ -37,8 +37,8 @@ def _matches(action, patterns):
 
 def test_the_committed_files_are_exactly_the_render():
     for kind, text in r.render_runtime(RUNTIME).items():
-        committed = (ROOT / "iam" / RUNTIME / f"{kind}.json").read_text(encoding="utf-8")
-        assert committed == text, f"iam/{RUNTIME}/{kind}.json drifted: run scripts/render_env_iam.py"
+        committed = (ROOT / "infra" / "iam" / RUNTIME / f"{kind}.json").read_text(encoding="utf-8")
+        assert committed == text, f"infra/iam/{RUNTIME}/{kind}.json drifted: run infra/scripts/render_env_iam.py"
 
 
 def test_only_the_runtime_pipeline_on_its_branch_may_assume_the_deploy_role():
@@ -56,7 +56,7 @@ def test_only_the_runtime_pipeline_on_its_branch_may_assume_the_deploy_role():
         "token.actions.githubusercontent.com:sub": f"repo:veerarakesh56@171412850/warden@1341685493:environment:{RUNTIME}",
         "token.actions.githubusercontent.com:ref": f"refs/heads/{branch}",
         "token.actions.githubusercontent.com:job_workflow_ref":
-            f"veerarakesh56/warden/.github/workflows/runtime.yml@refs/heads/{branch}"}}
+            f"veerarakesh56/warden/.github/workflows/warden-runtime-deploy.yml@refs/heads/{branch}"}}
 
 
 def test_every_action_the_runtimes_own_roles_hold_fits_the_boundary():
@@ -84,10 +84,10 @@ def test_the_worker_reaches_other_environments_only_through_their_reader_and_act
     assert "Action" not in other  # every other service stays out
     assert other["Condition"]["StringNotEquals"] == {"aws:ResourceTag/Environment": RUNTIME}
     for kind, zones in (("actor-trust", ("act",)), ("platform-reader-trust", ("read", "notify", "act"))):
-        principals = {p for st in json.loads((ROOT / "iam" / "templates" / f"{kind}.json").read_text(encoding="utf-8"))
+        principals = {p for st in json.loads((ROOT / "infra" / "iam" / "templates" / f"{kind}.json").read_text(encoding="utf-8"))
                       ["Statement"] for p in _list(st["Principal"]["AWS"])}  # and those roles trust only its zones
         assert principals == {f"arn:aws:iam::${{account}}:role/warden-${{runtime}}-{z}" for z in zones}
-        rendered = json.loads((ROOT / "iam" / "dev" / f"{kind}.json").read_text(encoding="utf-8"))
+        rendered = json.loads((ROOT / "infra" / "iam" / "dev" / f"{kind}.json").read_text(encoding="utf-8"))
         assert {p for st in rendered["Statement"] for p in _list(st["Principal"]["AWS"])} == {
             f"arn:aws:iam::<ACCOUNT_ID>:role/warden-{RUNTIME}-{z}" for z in zones}  # and rendered: the runtime's own
 

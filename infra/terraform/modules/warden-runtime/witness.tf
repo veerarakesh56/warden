@@ -184,7 +184,7 @@ resource "aws_lambda_permission" "approvers_changed" {
 
 resource "aws_cloudwatch_metric_alarm" "approvers_changed" {
   alarm_name          = "warden-${var.environment}-approvers-changed"
-  alarm_description   = "The list of who may approve WARDEN's plans was written, or a write to it was refused. If that was not you, treat it as a security incident: docs/RUNBOOK-WARDEN-INCIDENT.md."
+  alarm_description   = "The list of who may approve WARDEN's plans was written, or a write to it was refused. If that was not you, treat it as a security incident: warden/docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "WARDEN/${var.environment}"
   metric_name         = "ApproverListChanged"
   statistic           = "Sum"
@@ -199,7 +199,7 @@ resource "aws_cloudwatch_metric_alarm" "approvers_changed" {
 
 resource "aws_cloudwatch_metric_alarm" "unapproved_actor" {
   alarm_name          = "warden-${var.environment}-unapproved-actor"
-  alarm_description   = "An actor role was assumed without an approval WARDEN's audit holds, or one the check could not read. Treat it as a security incident: docs/RUNBOOK-WARDEN-INCIDENT.md."
+  alarm_description   = "An actor role was assumed without an approval WARDEN's audit holds, or one the check could not read. Treat it as a security incident: warden/docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "WARDEN/${var.environment}"
   metric_name         = "UnapprovedActorUse"
   statistic           = "Sum"

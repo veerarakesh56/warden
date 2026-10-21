@@ -1,6 +1,6 @@
 """Check every IAM action in the operator policies against AWS's own published action list.
 
-    python scripts/check_iam_actions.py
+    python infra/scripts/check_iam_actions.py
 
 ⛔ WHY THIS EXISTS. `budgets:DescribeBudget` was in `operator-policy.json` and does not exist. It
 looked entirely plausible — `DescribeBudget` is a real *API operation* — but AWS Budgets deliberately
@@ -15,7 +15,7 @@ Generator. ~22,000 actions across ~455 services.
 added recently may be missing here and reported as invalid. So a finding is "check this by hand",
 not "this is definitely wrong". It also says nothing about whether a *condition* on a statement is
 correct — a global-service action under `aws:RequestedRegion` is a real action that grants nothing,
-and that is `tests/test_operator_policy.py`'s job, not this one.
+and that is `warden/tests/test_operator_policy.py`'s job, not this one.
 
 ⚠ It needs network. The offline structural checks live in the test suite and run in CI; this does
 not.
@@ -30,8 +30,8 @@ import sys
 import urllib.request
 
 SOURCE = "https://awspolicygen.s3.amazonaws.com/js/policies.js"
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-DEFAULT_GLOB = "terraform/proving-ground/operator-policy*.json"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+DEFAULT_GLOB = "infra/terraform/proving-ground/operator-policy*.json"
 
 
 def fetch_actions(url: str = SOURCE, timeout: float = 60.0) -> dict[str, set[str]]:

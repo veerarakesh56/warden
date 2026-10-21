@@ -197,7 +197,7 @@ resource "aws_lambda_permission" "alarms" {
 # An alarm that never reached intake pages a person: the dead-letter queue is never silently full.
 resource "aws_cloudwatch_metric_alarm" "alarm_dlq" {
   alarm_name          = "warden-${var.environment}-alarm-dlq"
-  alarm_description   = "An alarm change or an actor session did not reach WARDEN after every retry. Read the queue and handle it by hand: docs/RUNBOOK-WARDEN-INCIDENT.md."
+  alarm_description   = "An alarm change or an actor session did not reach WARDEN after every retry. Read the queue and handle it by hand: warden/docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "AWS/SQS"
   metric_name         = "ApproximateNumberOfMessagesVisible"
   dimensions          = { QueueName = aws_sqs_queue.alarm_dlq.name }

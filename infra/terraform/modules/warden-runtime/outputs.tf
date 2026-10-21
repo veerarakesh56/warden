@@ -29,6 +29,6 @@ output "approval_dns_target" {
 }
 
 output "migrate_function" {
-  description = "The Lambda that creates the audit's schema and writer login; runtime.yml invokes it after each apply."
+  description = "The Lambda that creates the audit's schema and writer login; warden-runtime-deploy.yml invokes it after each apply."
   value       = aws_lambda_function.migrate.function_name
 }

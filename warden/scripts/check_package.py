@@ -1,9 +1,9 @@
 """Refuse a WARDEN package that holds any file outside an allowlist: the shipped kinds, compared without letter case.
 
-    python scripts/check_package.py <the installed warden package directory, or a .whl>
+    python warden/scripts/check_package.py <the installed warden package directory, or a .whl>
 
 The build backend has only an exclude list, matched with letter case: a local `SECRET.ENV` or `Prod.TFVARS` under
-src/ shipped (registers R8-O4, R9-O1). The image build runs this on what it installed, so such a file fails the build
+warden/src/ shipped (registers R8-O4, R9-O1). The image build runs this on what it installed, so such a file fails the build
 instead of shipping. Exit 0: clean; 1: files outside the allowlist, listed.
 """
 

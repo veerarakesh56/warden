@@ -1,4 +1,4 @@
-"""scripts/post_bench_reports.py: what it prints and sends for a recorded run (characterisation before the
+"""fault-lab/scripts/post_bench_reports.py: what it prints and sends for a recorded run (characterisation before the
 cognitive-complexity split of main) - a scenario without a report is skipped by name, each post is headed with the
 injected fault and the grade, every sink's delivery is printed, and any undelivered post fails the run."""
 
@@ -13,7 +13,7 @@ import pytest
 from scenarios import fullstack_cli as cli
 from scenarios import runner
 
-_spec = importlib.util.spec_from_file_location("post_bench_reports", runner.ROOT / "scripts" / "post_bench_reports.py")
+_spec = importlib.util.spec_from_file_location("post_bench_reports", runner.ROOT / "fault-lab" / "scripts" / "post_bench_reports.py")
 post = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(post)
 

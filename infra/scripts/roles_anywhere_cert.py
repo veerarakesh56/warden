@@ -1,8 +1,8 @@
 """Issue the laptop's IAM Roles Anywhere certificate, with the private key inside the TPM.
 
-    python scripts/roles_anywhere_cert.py issue      # Windows: new TPM key + CSR, sign, install
-    python scripts/roles_anywhere_cert.py show       # the installed certificate (public data only)
-    python scripts/roles_anywhere_cert.py trust ARN  # iam/operator/trust.local.json for the console
+    python infra/scripts/roles_anywhere_cert.py issue      # Windows: new TPM key + CSR, sign, install
+    python infra/scripts/roles_anywhere_cert.py show       # the installed certificate (public data only)
+    python infra/scripts/roles_anywhere_cert.py trust ARN  # infra/iam/operator/trust.local.json for the console
 
 Why: the laptop's long-lived access key is replaced by IAM Roles Anywhere. The key that proves
 the laptop's identity is created by Windows inside the TPM (Microsoft Platform Crypto Provider,
@@ -117,11 +117,11 @@ def issue(csr_pem: bytes, now: dt.datetime, days: int = DAYS) -> tuple[bytes, by
 
 
 ANCHOR_ARN = re.compile(r"arn:aws:rolesanywhere:[a-z]{2}(?:-[a-z]+)+-\d:(\d{12}):trust-anchor/([0-9a-f-]{36})")
-TRUST = pathlib.Path(__file__).resolve().parents[1] / "iam" / "operator" / "trust.json"
+TRUST = pathlib.Path(__file__).resolve().parents[2] / "infra" / "iam" / "operator" / "trust.json"
 
 
 def render_trust(anchor_arn: str) -> str:
-    """iam/operator/trust.json with the real anchor filled in - for the local, gitignored copy."""
+    """infra/iam/operator/trust.json with the real anchor filled in - for the local, gitignored copy."""
     m = ANCHOR_ARN.fullmatch(anchor_arn.strip())
     if not m:
         raise ValueError("expected arn:aws:rolesanywhere:<region>:<12 digits>:trust-anchor/<uuid>")

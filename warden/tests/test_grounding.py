@@ -21,7 +21,7 @@ from warden.models import (
 )
 from warden.verifier import verify
 
-# The alerts are in `staging`: a test-only nonprod environment that allows these actions (tests/conftest.py; the
+# The alerts are in `staging`: a test-only nonprod environment that allows these actions (warden/tests/conftest.py; the
 # shipped policy has dev and prod only since 2026-10-16).
 pytestmark = pytest.mark.usefixtures("staging_policy")
 
@@ -138,7 +138,7 @@ def test_untrusted_lines_are_fenced_with_a_nonce_a_log_line_cannot_forge():
 
 
 def test_a_v1_report_is_replayed_without_grounding_a_new_one_with(tmp_path, monkeypatch):
-    monkeypatch.syspath_prepend(str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+    monkeypatch.syspath_prepend(str(pathlib.Path(__file__).resolve().parents[2] / "warden" / "scripts"))
     import replay_gate
 
     rc = {"hypothesis": "h", "confidence": 0.9}

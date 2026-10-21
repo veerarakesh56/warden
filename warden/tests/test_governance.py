@@ -12,8 +12,8 @@ import pytest
 
 from warden import cli
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-GOV = ROOT / "docs" / "governance"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+GOV = ROOT / "warden" / "docs" / "governance"
 REQUIRED = {
     "AI-POLICY.md": ["## Purpose and scope", "## Principles", "## Prohibited uses", "## Change control", "## Review"],
     "RACI.md": ["accountable", "| Activity |"],
@@ -49,7 +49,7 @@ def test_every_raci_activity_has_exactly_one_accountable_role():
 
 def test_every_register_row_cited_exists():
     ids = {i for f in ("FAILURE-MODES.md",)
-           for i in ROW.findall((ROOT / "docs" / f).read_text(encoding="utf-8"))}
+           for i in ROW.findall((ROOT / "warden" / "docs" / f).read_text(encoding="utf-8"))}
     for name in REQUIRED:
         cited = set(re.findall(r"(?<![\w-])(R\d+-O\d+|A-P-\d+|CW\d+|[BCEHMNOQRS]\d{1,2}b?)\b", _text(name)))
         assert cited - ids == set(), (name, sorted(cited - ids))

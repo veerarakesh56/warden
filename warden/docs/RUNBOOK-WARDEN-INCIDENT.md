@@ -4,7 +4,7 @@ For incidents WARDEN causes or suffers: a change it applied made things worse, i
 model behaves strangely, its record may have been tampered with, or it is down. Organised on the NIST incident
 lifecycle as the Coalition for Secure AI's *AI Incident Response Framework* v1.0 adapts it for AI systems
 (coalitionforsecureai.org, OASIS Open; read 2026-10-03). Every `warden` command below is checked against the real
-command line by `tests/test_runbook_commands.py`.
+command line by `warden/tests/test_runbook_commands.py`.
 
 Times: give every time in UTC and in the install's display zone (IST here), as WARDEN's own reports do.
 
@@ -108,5 +108,5 @@ warden killswitch reset --approver <your-id> --key ~/.warden/<your-id>.pem --tri
 ```
 
 - Write down what happened, with times in UTC and the display zone, and the audit hashes that prove it.
-- Add the case to the register (`docs/FAILURE-MODES.md`) with a test that fails without its fix, and plant-check it.
+- Add the case to the register (`warden/docs/FAILURE-MODES.md`) with a test that fails without its fix, and plant-check it.
 - If a policy would have caught it, add it in observe mode first (audit A-P-8), measure it, then enforce it.

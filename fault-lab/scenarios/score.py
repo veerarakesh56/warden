@@ -59,14 +59,14 @@ THREE_COLUMN_RULE = "|---|---|---|"  # a three-column Markdown table's header ru
 FIX_OUTCOMES = ("fixed", "not_fixed", "no_fix_printed", "fix_not_allowed", "blocked_by_gate", "not_approved",
                 "execution_disabled")
 
-# The two passive actions. Straight from src/warden/models.py::ActionKind, and cross-checked against
+# The two passive actions. Straight from warden/src/warden/models.py::ActionKind, and cross-checked against
 # `action_kinds.passive` in the rubric at load time so a drift between them cannot go unnoticed.
 PASSIVE = ("escalate_to_human", "no_action")
 
 
 def _content_sha256(path: pathlib.Path) -> str:
     """LF-normalised hash, so a CRLF checkout and an LF checkout agree. Identical to
-    scenarios/runner.py::_sha256 - see there for why raw bytes gave a false tamper alarm."""
+    fault-lab/scenarios/runner.py::_sha256 - see there for why raw bytes gave a false tamper alarm."""
     return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 

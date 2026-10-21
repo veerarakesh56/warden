@@ -12,8 +12,8 @@ import sys
 import threading
 import types
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-LAMBDAS = ROOT / "scenarios" / "fullstack" / "lambdas"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+LAMBDAS = ROOT / "demo-app" / "lambdas"
 TOKEN = "t" * 48
 
 
@@ -118,10 +118,10 @@ def test_the_traffic_lambda_follows_no_redirect_so_the_token_goes_nowhere_else(m
 
 
 def test_the_token_is_in_no_plan_or_state_and_only_its_two_lambdas_read_it():
-    tf = (ROOT / "terraform" / "fullstack" / "api_auth.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "fullstack" / "api_auth.tf").read_text(encoding="utf-8")
     assert 'ephemeral "random_password" "api_token"' in tf
     assert "secret_string_wo         = ephemeral.random_password.api_token.result" in tf
     assert "secret_string =" not in tf
     assert "secret_string=" not in tf
-    lam = (ROOT / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
+    lam = (ROOT / "infra" / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
     assert lam.count("aws_secretsmanager_secret.api_token.arn") == 4  # two env values, two grants

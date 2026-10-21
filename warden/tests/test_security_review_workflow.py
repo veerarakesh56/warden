@@ -8,7 +8,7 @@ import re
 
 import yaml
 
-FLOWS = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
+FLOWS = pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows"
 NAME = "security-review.yml"
 ACTION = "anthropics/claude-code-security-review"
 
@@ -62,7 +62,7 @@ def test_anthropics_action_is_pinned_by_a_full_commit_and_names_its_model():
 
 
 def test_the_owner_has_the_steps_to_turn_it_on_and_its_cost():
-    ops = (FLOWS.parents[1] / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+    ops = (FLOWS.parents[1] / "warden" / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
     section = " ".join(ops[ops.index("## Optional: Claude's security review"):].split())  # line breaks are spaces
     for needed in ("WARDEN_SECURITY_REVIEW", "SECURITY_REVIEW_ANTHROPIC_API_KEY", "WARDEN_SECURITY_REVIEW_MODEL",
                    "Require approval for all external contributors", "per pull request"):

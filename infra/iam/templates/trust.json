@@ -14,8 +14,8 @@
           "token.actions.githubusercontent.com:sub": "repo:${github_subject}:environment:${env}",
           "token.actions.githubusercontent.com:ref": "refs/heads/${env}",
           "token.actions.githubusercontent.com:job_workflow_ref": [
-            "${github_repository}/.github/workflows/_infra-deploy.yml@refs/heads/${env}",
-            "${github_repository}/.github/workflows/_apps-deploy.yml@refs/heads/${env}"
+            "${github_repository}/.github/workflows/infra-deploy.yml@refs/heads/${env}",
+            "${github_repository}/.github/workflows/demo-app-deploy.yml@refs/heads/${env}"
           ]
         }
       }

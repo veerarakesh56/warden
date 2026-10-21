@@ -9,7 +9,7 @@ import pathlib
 import sys
 import types
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def test_a_failed_route_is_logged_by_its_route_not_the_request_line(monkeypatch, caplog):
@@ -17,7 +17,7 @@ def test_a_failed_route_is_logged_by_its_route_not_the_request_line(monkeypatch,
     stubs = {"psycopg": {}, "redis": {}, "redis.backoff": {"NoBackoff": object}, "redis.retry": {"Retry": object}}
     for name, names in stubs.items():
         monkeypatch.setitem(sys.modules, name, types.SimpleNamespace(**names))
-    spec = importlib.util.spec_from_file_location("shop_app_s5145", ROOT / "scenarios" / "fullstack" / "app" / "app.py")
+    spec = importlib.util.spec_from_file_location("shop_app_s5145", ROOT / "demo-app" / "app" / "app.py")
     app = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(app)
 

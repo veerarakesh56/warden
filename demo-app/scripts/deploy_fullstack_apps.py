@@ -1,10 +1,10 @@
 """The APPS pipeline of the Wave 4 stack: build and deploy the code that runs on it.
 
-    python scripts/deploy_fullstack_apps.py build   [--skip-image] [--tag TAG]
-    python scripts/deploy_fullstack_apps.py deploy  lambdas|ecs|k8s|all
-    python scripts/deploy_fullstack_apps.py bootstrap-db
+    python demo-app/scripts/deploy_fullstack_apps.py build   [--skip-image] [--tag TAG]
+    python demo-app/scripts/deploy_fullstack_apps.py deploy  lambdas|ecs|k8s|all
+    python demo-app/scripts/deploy_fullstack_apps.py bootstrap-db
 
-Three pipelines, each usable alone: INFRA (terraform/fullstack) produces stack.json; this tool reads
+Three pipelines, each usable alone: INFRA (infra/terraform/fullstack) produces stack.json; this tool reads
 it and never calls terraform; WARDEN's own CI is a third. Everything lands OUTSIDE the repo, in
 --out (default ~/warden-fullstack-build): lambda/<fn>.zip, image-tag.txt, kubeconfig. --out and --stack must
 lie in ~/warden-fullstack-build, the temp folder (RUNNER_TEMP) or the working directory (warden.paths).
@@ -17,15 +17,15 @@ lie in ~/warden-fullstack-build, the temp folder (RUNNER_TEMP) or the working di
                 IAM database tokens as user app; DB_USER injected from the metadata secret),
                 update-service, wait until stable. Records the revision in stack.json as
                 `ecs_baseline_task_definition` - the revision the harness reverts to.
-  deploy k8s    the agents and Argo CD; then what the pipeline owns (k8s/shop-pipeline: the
+  deploy k8s    the agents and Argo CD; then what the pipeline owns (demo-app/k8s/shop-pipeline: the
                 namespace, the Secret with a generated signing key over stdin, the infrastructure's
-                endpoints from stack.json) with the ClusterRole from k8s/rbac.yaml; then the shop
-                Application (k8s/argocd/shop.yaml) pinned to this commit and its image, and waits
+                endpoints from stack.json) with the ClusterRole from infra/k8s/rbac.yaml; then the shop
+                Application (demo-app/k8s/argocd/shop.yaml) pinned to this commit and its image, and waits
                 until Argo CD has synced exactly that commit and the shop is Healthy.
   deploy all    build, then lambdas, ecs, k8s.
-  bootstrap-db  scenarios/fullstack/sql/bootstrap.sql as the master user postgres, logged in with
+  bootstrap-db  demo-app/sql/bootstrap.sql as the master user postgres, logged in with
                 an IAM token signed by YOUR credentials (rds-db:connect on dbuser:*/postgres,
-                terraform/proving-ground/operator-policy.json). There is no database password.
+                infra/terraform/proving-ground/operator-policy.json). There is no database password.
 
 stack.json is `terraform output -json` with the sensitive entries removed (README).
 """
@@ -43,16 +43,16 @@ import sys
 import tempfile
 import zipfile
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))  # warden.paths is stdlib only: the apps jobs need no WARDEN install
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "src"))  # warden.paths is stdlib only: the apps jobs need no WARDEN install
 
 from warden import paths  # after the sys.path line above, deliberately
 
-APPS = ROOT / "scenarios" / "fullstack"
-# The shop's workloads are in Git (manifests/shop, synced by Argo CD); the pipeline applies only what it owns.
-MANIFESTS = ROOT / "manifests" / "shop"
-K8S_PIPELINE = ROOT / "k8s" / "shop-pipeline"
-SHOP_APP = ROOT / "k8s" / "argocd" / "shop.yaml"
+APPS = ROOT / "demo-app"
+# The shop's workloads are in Git (demo-app/manifests/shop, synced by Argo CD); the pipeline applies only what it owns.
+MANIFESTS = ROOT / "demo-app" / "manifests" / "shop"
+K8S_PIPELINE = ROOT / "demo-app" / "k8s" / "shop-pipeline"
+SHOP_APP = ROOT / "demo-app" / "k8s" / "argocd" / "shop.yaml"
 SYNC_TIMEOUT_S, SYNC_POLL_S = 600, 10
 DEFAULT_OUT = pathlib.Path.home() / "warden-fullstack-build"
 LAMBDA_SRC = APPS / "lambdas"
@@ -92,7 +92,7 @@ def lambda_names() -> list[str]:
     return sorted(p.name for p in LAMBDA_SRC.iterdir() if (p / "app.py").is_file())
 
 
-LAMBDA_PYTHON = "3.12"  # the runtime terraform/fullstack/lambda.tf declares
+LAMBDA_PYTHON = "3.12"  # the runtime infra/terraform/fullstack/lambda.tf declares
 
 
 def requested_extras(requirements: pathlib.Path) -> dict[str, set[str]]:
@@ -251,7 +251,7 @@ _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 def image_by_digest(stack: dict, tag: str, aws) -> str:
     """The pushed image named by its digest, `<repository>@sha256:...` (owner B26): the repository's tags are mutable
-    (terraform/fullstack/ecs.tf), so a tag can name other bytes tomorrow; the digest is exactly what was built."""
+    (infra/terraform/fullstack/ecs.tf), so a tag can name other bytes tomorrow; the digest is exactly what was built."""
     repo = stack["ecr_repository_url"]
     found = aws("ecr").describe_images(repositoryName=repo.split("/", 1)[1],
                                        imageIds=[{"imageTag": tag}]).get("imageDetails") or []
@@ -285,7 +285,7 @@ def task_definition(stack: dict, image: str) -> dict:
                 {"name": "DB_HOST", "value": stack["aurora_writer_endpoint"]},
                 {"name": "DB_NAME", "value": stack["db_name"]},
                 {"name": "AWS_REGION", "value": stack["region"]},
-                # Fault flag at its baseline value (scenarios/ops_fullstack.py FLAGS, fs-20).
+                # Fault flag at its baseline value (fault-lab/scenarios/ops_fullstack.py FLAGS, fs-20).
                 {"name": "ORDERS_FF_1", "value": "0"},
             ],
             # DB_USER (= app) comes from the metadata secret on purpose: no password exists any
@@ -341,11 +341,11 @@ def render(manifest: str, values: dict[str, str]) -> str:
 def cluster_role() -> str:
     import yaml
 
-    docs = yaml.safe_load_all((ROOT / "k8s" / "rbac.yaml").read_text(encoding="utf-8"))
+    docs = yaml.safe_load_all((ROOT / "infra" / "k8s" / "rbac.yaml").read_text(encoding="utf-8"))
     role = next(d for d in docs if d and d.get("kind") == "ClusterRole")
     # The remediator's cluster-scoped half: its ClusterRole and the admission policy that narrows its patches. Its
-    # binding is namespaced (manifests/shop/base/warden-rbac.yaml, synced by Argo CD); the CI ServiceAccount is not.
-    remediation = [d for d in yaml.safe_load_all((ROOT / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8"))
+    # binding is namespaced (demo-app/manifests/shop/base/warden-rbac.yaml, synced by Argo CD); the CI ServiceAccount is not.
+    remediation = [d for d in yaml.safe_load_all((ROOT / "infra" / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8"))
                    if d and d.get("kind") in ("ClusterRole", "ValidatingAdmissionPolicy",
                                               "ValidatingAdmissionPolicyBinding")]
     return yaml.safe_dump_all([role, *remediation], sort_keys=False)
@@ -361,13 +361,13 @@ DATADOG_SITES = frozenset({"datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.
                            "us2.ddog-gov.com"})
 
 
-# Argo CD (owner, 2026-10-16: GitOps for the cluster - the shop is synced from manifests/ in this repository). The
+# Argo CD (owner, 2026-10-16: GitOps for the cluster - the shop is synced from demo-app/manifests/ in this repository). The
 # chart's own package, fetched from the argo-helm release and installed only if its bytes are these: a pinned version
-# number alone would install whatever the repository serves under it. Settings: helm/argo-cd/values.yaml (why each).
+# number alone would install whatever the repository serves under it. Settings: infra/helm/argo-cd/values.yaml (why each).
 ARGOCD_CHART = "10.10.5"  # Argo CD v3.5.5 (owner B26, 2026-10-17); v3.5.4 fixed the Critical advisories of 2026-10-07
 ARGOCD_CHART_URL = f"https://github.com/argoproj/argo-helm/releases/download/argo-cd-{ARGOCD_CHART}/argo-cd-{ARGOCD_CHART}.tgz"
 ARGOCD_CHART_SHA256 = "ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a"
-ARGOCD_VALUES = ROOT / "helm" / "argo-cd" / "values.yaml"
+ARGOCD_VALUES = ROOT / "infra" / "helm" / "argo-cd" / "values.yaml"
 
 
 def _fetch_chart(url: str) -> bytes:
@@ -420,7 +420,7 @@ def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
          "--set", "datadog.apiKeyExistingSecret=datadog-secret",
          "--set", "datadog.logs.enabled=true", "--set", "datadog.logs.containerCollectAll=true",
          # Every metric and log from this agent carries the stack's env (the monitors filter on it); the pods' own
-         # tags.datadoghq.com labels (manifests/shop) give env and service per workload.
+         # tags.datadoghq.com labels (demo-app/manifests/shop) give env and service per workload.
          "--set", f"datadog.tags[0]=env:{stack['environment']}",
          # The apps' OpenTelemetry data, from the collector on the same node (deploy_otel): every tool gets the same
          # spans, so the comparison is fair - no second, Datadog-only instrumentation.
@@ -445,7 +445,7 @@ def otel_config(region: str, *, datadog: bool = False) -> dict:
     Not both (cost plan, 2026-10-17: the owner's last ~USD 104 of credits): with Datadog on, the X-Ray copy cost about
     USD 8.5 a month in stored traces (USD 3 more of Application Signals, expected to stop with them), and nothing read it - the runtime's
     WARDEN_EVIDENCE_TOOLS names datadog and github, which leaves X-Ray's reader out (tools.evidence_tools). The X-Ray
-    arm of scripts/compare_evidence.py needs the apps deployed without Datadog."""
+    arm of fault-lab/scripts/compare_evidence.py needs the apps deployed without Datadog."""
     exporters: dict = {} if datadog else {"awsxray": {"region": region}}
     traces, metrics, logs = list(exporters), [], []
     if datadog:
@@ -524,7 +524,7 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision:
         "CATALOG_SIGNING_KEY": secrets.token_hex(32),
     })
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)
-    # The workloads: Argo CD syncs manifests/shop/<env> at exactly this commit, with this commit's image, by digest.
+    # The workloads: Argo CD syncs demo-app/manifests/shop/<env> at exactly this commit, with this commit's image, by digest.
     rev = revision or commit()
     app = render(SHOP_APP.read_text(encoding="utf-8"), {
         "REPO_URL": repo_url(), "REVISION": rev, "IMAGE": image_by_digest(stack, tag, aws),

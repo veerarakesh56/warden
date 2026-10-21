@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from warden import evidence, grafana, settings, tools
 from warden.models import Alert
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 AT = datetime(2026, 10, 14, 7, 14, 13, tzinfo=UTC)
 ENV = {"WARDEN_GRAFANA_READ_TOKEN": "glc_" + "test", "WARDEN_GRAFANA_LOGS_URL": "https://logs.example.test",
        "WARDEN_GRAFANA_LOGS_USER": "111", "WARDEN_GRAFANA_TRACES_URL": "https://traces.example.test",
@@ -109,7 +109,7 @@ def test_nothing_read_is_said_as_nothing_read_never_as_health():
 
 def test_the_names_it_queries_come_from_the_alert_never_from_text():
     assert grafana.services(_alert(deployment="shop/orders", lambda_="x")) == ["checkout", "orders"]
-    # A service map lists every workload in one label (scenarios/alert-fullstack.yaml): each is read, four at most.
+    # A service map lists every workload in one label (fault-lab/scenarios/alert-fullstack.yaml): each is read, four at most.
     assert grafana.services(_alert(deployment="catalog-api,cart-worker", **{"lambda": "a,b,c"})) == [
         "checkout", "catalog-api", "cart-worker", "a"]
     hostile = _alert(deployment='x"} |= "', ecs_service="ok-svc")
@@ -166,7 +166,7 @@ def test_the_read_keys_are_the_read_zones_alone_and_grafana_has_no_slot():
             assert name not in settings.loadable_for("worker", zone), (name, zone)
         assert {n for n, names in settings.LAMBDA_SECRETS.items() if name in names} == {"alertmanager"}, name
     assert not [n for n in settings.LOADABLE | settings.SECRETS | set(settings.RESTRICTED) if "GRAFANA" in n]
-    tf = ROOT / "terraform" / "modules" / "warden-runtime"
+    tf = ROOT / "infra" / "terraform" / "modules" / "warden-runtime"
     slots = (tf / "secrets.tf").read_text(encoding="utf-8")
     assert all(f'"{n}",' in slots for n in ("datadog-api-key", "datadog-app-key"))
     assert "grafana" not in slots

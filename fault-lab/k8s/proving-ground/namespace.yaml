@@ -1,12 +1,12 @@
 # The Kubernetes proving ground - Wave 2's throwaway workload.
 #
-# ⛔ THE LABEL IS THE SAFETY MECHANISM. `scenarios/ops_k8s.py` refuses to touch any namespace that
+# ⛔ THE LABEL IS THE SAFETY MECHANISM. `fault-lab/scenarios/ops_k8s.py` refuses to touch any namespace that
 # does not carry `project: warden-proving-ground`, and every injector checks it before it writes.
 # `default` exists in every cluster on earth and is one typo away from a scenario's namespace, so
 # the guard is the difference between a benchmark and an incident. Do not apply this to a cluster
 # you care about.
 #
-# Apply with:  kubectl apply -f k8s/proving-ground/
+# Apply with:  kubectl apply -f fault-lab/k8s/proving-ground/
 apiVersion: v1
 kind: Namespace
 metadata:

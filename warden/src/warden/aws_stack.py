@@ -1,7 +1,7 @@
-"""The full-stack evidence backend (`WARDEN_BACKEND=stack`) - the full-stack lab, docs/FULLSTACK-LAB.md.
+"""The full-stack evidence backend (`WARDEN_BACKEND=stack`) - the full-stack lab, demo-app/docs/FULLSTACK-LAB.md.
 
 Same three-method contract as every other backend. The alert's labels name the application's
-resources (docs/FULLSTACK-LAB.md section 4, contract A); one READER per resource reads it, and the metric names and
+resources (demo-app/docs/FULLSTACK-LAB.md section 4, contract A); one READER per resource reads it, and the metric names and
 line formats it emits are exactly contract B, C and D.
 
 Deliberate:
@@ -26,7 +26,7 @@ Deliberate:
 5. **Read-only.** No write API, no `secretsmanager:GetSecretValue` (DescribeSecret: metadata only),
    no `s3:GetObject`, no `ssm:GetParameter*`. The Lambda deployment package is fetched through the
    pre-signed URL `lambda:GetFunction` returns, into memory, capped, never to disk. The IAM role in
-   terraform/fullstack/reader.tf is the boundary; tests/test_aws_stack.py asserts its actions equal
+   infra/terraform/fullstack/reader.tf is the boundary; warden/tests/test_aws_stack.py asserts its actions equal
    the calls in this module (and aws_backend's) in both directions.
 """
 

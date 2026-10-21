@@ -8,7 +8,7 @@ import re
 
 from test_aws_stack import _api_calls
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # Billed per call (or per data scanned), and the cost-table row that prices it (read 2026-10-03).
 BILLED = {

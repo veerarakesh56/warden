@@ -2,7 +2,7 @@
 
 On 2026-09-28 v0.10.0 was announced as "Phase 2 done" while 21 of the 22 register rows for that phase
 were still open. This test makes that impossible to repeat. It reads every table of the failure-mode
-register (docs/FAILURE-MODES.md) and fails when:
+register (warden/docs/FAILURE-MODES.md) and fails when:
 - a row claims DONE-local but cites no test, or a test that does not exist, or one that is skipped;
 - a row claims DONE-live without naming the window;
 - a row is DEFERRED without the owner's recorded agreement;
@@ -16,10 +16,10 @@ import re
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 # The audit and requirements-trace registers were internal working records and are no longer published; their
 # open rows were carried into this one.
-REGISTERS = ("docs/FAILURE-MODES.md",)
+REGISTERS = ("warden/docs/FAILURE-MODES.md",)
 ORDER = ("G0", "W0-now", "G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
 CURRENT_GROUP = "G0"  # advance only when every row of the group is closed
 STATUSES = {"OPEN", "DONE-local", "DONE-live", "DEFERRED", "WITHHELD"}
@@ -30,10 +30,10 @@ WINDOWS = ("W-T", "W0-now", "W0", "W-B", "W1", "W2", "W3")
 # The cell must START with the window and the date it ran (third review, 2026-09-30: "not W0 ...",
 # "W1 is planned for 2027-02-01" and "W3 9999-99-99" all passed a search anywhere in the cell).
 WINDOW = re.compile(r"^(?:" + "|".join(re.escape(w) for w in WINDOWS) + r") (\d{4}-\d{2}-\d{2})\b")
-TEST_REF = re.compile(r"(tests/[\w/]+\.py)::(test_\w+)")
+TEST_REF = re.compile(r"(warden/tests/[\w/]+\.py)::(test_\w+)")
 # A citation of either form: `tests/x.py::test_a`, or the shorthand `::test_b` for the file cited last.
-_ANY_REF = re.compile(r"(tests/[\w/]+\.py)?(?<![\w.])::(test_\w+)|(tests/[\w/]+\.py)::(test_\w+)")
-# A citation the cell itself says does NOT cover the row: "NOT covered: tests/...", "no test: ...".
+_ANY_REF = re.compile(r"(warden/tests/[\w/]+\.py)?(?<![\w.])::(test_\w+)|(warden/tests/[\w/]+\.py)::(test_\w+)")
+# A citation the cell itself says does NOT cover the row: "NOT covered: warden/tests/...", "no test: ...".
 _NEGATION = re.compile(r"\b(?:not|no|without|missing|lacks?|gap)\b[^.;]{0,40}$", re.IGNORECASE)
 # Decorators that never skip a test. Any other one - an alias imported from a helper module - might.
 _SAFE_DECORATORS = frozenset({"pytest.mark.parametrize", "pytest.mark.asyncio", "pytest.mark.timeout",
@@ -104,8 +104,8 @@ def all_rows() -> list[tuple[str, dict[str, str]]]:
 
 # Module-level skips that CI does NOT hit, each with its reason. Anything else skipping is refused.
 SKIP_OK = {
-    "tests/test_fullstack_infra.py": "skips only when terraform/fullstack is absent; it is in this repository",
-    "tests/test_providers.py": ("skips (module and in-test importorskip) only without a provider extra; CI's unit job "
+    "warden/tests/test_fullstack_infra.py": "skips only when infra/terraform/fullstack is absent; it is in this repository",
+    "warden/tests/test_providers.py": ("skips (module and in-test importorskip) only without a provider extra; CI's unit job "
                                 "installs them: uv sync --locked --extra dev --extra all-providers ..."),
 }
 
@@ -114,9 +114,9 @@ SKIP_OK = {
 # unit job; the named job runs the file and fails if anything in it skips (owner, 2026-10-02), so a citation of one
 # is evidence: test_every_ci_only_file_runs_where_a_skip_fails_the_job holds each to that.
 CI_ONLY = {
-    "tests/integration/test_live_cluster.py": "k8s",
-    "tests/integration/test_live_remediation.py": "k8s",
-    "tests/integration/test_live_database.py": "db",
+    "warden/tests/integration/test_live_cluster.py": "k8s",
+    "warden/tests/integration/test_live_remediation.py": "k8s",
+    "warden/tests/integration/test_live_database.py": "db",
 }
 
 
@@ -255,7 +255,7 @@ def test_the_registers_are_parsed_at_all():
 
 
 @pytest.mark.parametrize("row,expect", [
-    ({"#": "X", "Group": "G1", "Status": "DONE-local", "Evidence": "tests/test_register.py::test_nope"},
+    ({"#": "X", "Group": "G1", "Status": "DONE-local", "Evidence": "warden/tests/test_register.py::test_nope"},
      "does not exist"),
     ({"#": "X", "Group": "G1", "Status": "DONE-local", "Evidence": "trust me"}, "cites no test"),
     ({"#": "X", "Group": "G1", "Status": "DEFERRED", "Evidence": "later"}, "owner-agreed"),
@@ -320,10 +320,10 @@ def test_a_parametrized_test_is_still_evidence():
 
 
 @pytest.mark.parametrize(("evidence", "expect"), [
-    ("NOT covered: tests/test_register.py::test_the_registers_are_parsed_at_all", "NOT covering"),
-    ("no test yet - tests/test_register.py::test_the_registers_are_parsed_at_all", "NOT covering"),
+    ("NOT covered: warden/tests/test_register.py::test_the_registers_are_parsed_at_all", "NOT covering"),
+    ("no test yet - warden/tests/test_register.py::test_the_registers_are_parsed_at_all", "NOT covering"),
     ("::test_the_registers_are_parsed_at_all", "names no file"),
-    ("tests/test_register.py::test_the_registers_are_parsed_at_all, ::test_nothing_here", "does not exist"),
+    ("warden/tests/test_register.py::test_the_registers_are_parsed_at_all, ::test_nothing_here", "does not exist"),
 ])
 def test_a_negated_or_dangling_citation_is_not_evidence(evidence, expect):
     row = {"#": "X", "Group": "G1", "Status": "DONE-local", "Evidence": evidence}
@@ -339,7 +339,7 @@ def test_a_deferral_needs_a_real_past_agreement_first(evidence):
 
 def test_a_skip_allowed_in_ci_is_still_installed_there():
     """SKIP_OK's reason for test_providers.py holds only while CI's unit job installs the extras."""
-    ci = (ROOT / ".github/workflows/ci-tool.yml").read_text(encoding="utf-8")
+    ci = (ROOT / ".github/workflows/warden-ci.yml").read_text(encoding="utf-8")
     assert re.search(r"uv sync --locked --no-build --extra dev --extra all-providers", ci), \
         "CI no longer installs the provider extras"
 
@@ -421,7 +421,7 @@ def test_every_ci_only_file_runs_where_a_skip_fails_the_job():
     when anything in it skips. Each listed file must be in a run step of that job holding both checks."""
     import yaml
 
-    flow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8"))
+    flow = yaml.safe_load((ROOT / ".github" / "workflows" / "warden-ci.yml").read_text(encoding="utf-8"))
     jobs = {key: job for key, job in flow["jobs"].items()}
     for file, job in CI_ONLY.items():
         steps = [s.get("run", "") for s in jobs[job]["steps"]]

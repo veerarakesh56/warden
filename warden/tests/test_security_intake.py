@@ -3,7 +3,7 @@
 The events are built from AWS's documented shapes: GuardDuty's "GuardDuty Finding" event (its detail is one finding as
 GetFindings returns it) and Security Hub CSPM's "Security Hub Findings - Imported" (ASFF), as the GuardDuty and
 Security Hub user guides and API models give them (read 2026-10-17), with this lab's names. Account ids, addresses and
-keys are documentation placeholders built from parts (tests/fakes.py)."""
+keys are documentation placeholders built from parts (warden/tests/fakes.py)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from warden.activities import IncidentActivities
 from warden.llm import LLMClient
 from warden.models import ActionKind, Alert, Severity, VerdictStatus
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 ACCOUNT = "1" * 4 + "2" * 4 + "3" * 4  # the documentation's placeholder account, built from parts
 REMOTE_IP, PRIVATE_IP = "198.51.100." + "7", "10.0.4." + "21"  # documentation and private ranges
 FINDING_ID = "60baffd3f9042e38640f2300d5c5a631"
@@ -310,7 +310,7 @@ def test_the_alarm_lambda_takes_findings_and_ignores_what_it_does_not_take(submi
 
 
 def test_the_runtime_subscribes_to_medium_and_above_findings_with_retries_and_the_dead_letter_queue():
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     gd = tf[tf.index("    guardduty = jsonencode({"):tf.index("    securityhub = jsonencode({")]
     assert 'source        = ["aws.guardduty"]' in gd
     assert '"detail-type" = ["GuardDuty Finding"]' in gd

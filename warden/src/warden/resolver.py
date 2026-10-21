@@ -328,7 +328,7 @@ def soak_minutes() -> int:
     return min(max(int(raw), 60), 24 * 60) if raw.isdigit() else 60
 
 
-# FixRequest's own bounds for the verify window (activities.py; tests/test_recover_window.py holds them equal).
+# FixRequest's own bounds for the verify window (activities.py; warden/tests/test_recover_window.py holds them equal).
 RECOVER_MINUTES = (5, 120)
 
 

@@ -1,6 +1,6 @@
 # Design decisions
 
-Why WARDEN is built the way it is, and what each choice costs. The [README](../README.md) covers what
+Why WARDEN is built the way it is, and what each choice costs. The [README](../warden/README.md) covers what
 the tool does; this covers why, including the places where the honest answer is a limit rather than a
 feature.
 
@@ -31,7 +31,7 @@ A plain word after a credential key ("--token not set", "api_key=true") is not t
 Nothing here can see a secret no pattern matched.
 
 The check that CAN fail is the outbound gate's G5, which re-runs every pattern on what leaves and
-blocks the message (`tests/test_gate.py`, `tests/test_cli.py`). An earlier re-scan inside `redact()`
+blocks the message (`warden/tests/test_gate.py`, `warden/tests/test_cli.py`). An earlier re-scan inside `redact()`
 used the sweep's own rule, so it could never fire on a real leak; the second independent review
 (2026-09-30) found that, and it was removed.
 
@@ -176,10 +176,10 @@ validated on a clean runner.
    on ECS, managed EKS and RDS PostgreSQL; later many more AWS services, RDS Performance Insights,
    Datadog, Grafana and X-Ray.
 2. **A scored eval against the live model**, separate from the deterministic CI gate. Done as the replay
-   qualification and the held-out sets ([`BENCHMARKS.md`](BENCHMARKS.md)), run by hand rather than nightly.
+   qualification and the held-out sets ([`BENCHMARKS.md`](../warden/docs/BENCHMARKS.md)), run by hand rather than nightly.
 3. ~~Slack approval.~~ Done: a Slack button opens the passkey approval page (section 16).
 4. **Narrow the IAM read policy** with condition blocks. Partly done: the per-environment reader role
-   (`iam/templates/platform-reader.json`) scopes most reads by name or tag; a few reads AWS cannot scope
+   (`infra/iam/templates/platform-reader.json`) scopes most reads by name or tag; a few reads AWS cannot scope
    stay account-wide.
 5. ~~Checkpointing.~~ Done by Temporal: IncidentWorkflow and RemediationWorkflow are durable, and a worker
    restart replays the history.
@@ -239,7 +239,7 @@ quality, not cost.
 - *(Superseded 2026-10-15)* **Claude Sonnet 5 on the Claude API for the cloud window** (owner, 2026-10-09: the owner's API credits; replaces the
   Gemini choice below). Qualified on the API the same day with the SDK the runtime image ships - 20 of 30 correct,
   none wrong and allowed, every incident answered, $0.48; an earlier run on an older SDK scored 18 (both pass;
-  src/warden/data/providers.yaml). Sonnet 5, not the newer Sonnet 5.5, which failed the same bar.
+  warden/src/warden/data/providers.yaml). Sonnet 5, not the newer Sonnet 5.5, which failed the same bar.
 - *(Superseded 2026-10-09)* **Gemini on Google AI Studio's free tier for the first cloud window** (owner, 2026-10-04), while Bedrock access waits
   on AWS Support. Accepted with its costs stated: Google may use free-tier prompts to improve its products (WARDEN sends
   only redacted prompts - typed facts, never raw logs), and the free quota is small (on 2026-10-03 it answered 4 of 30
@@ -248,7 +248,7 @@ quality, not cost.
 - *(Superseded 2026-10-09: the production model is on the Claude API, above. Bedrock stays a supported
   provider.)* **Bedrock Claude Sonnet 5 for production** (owner, 2026-10-03), chosen by WARDEN's own replay
   results, never by public leaderboards, which flip between systems. On the 30 recorded incidents
-  (src/warden/data/providers.yaml): Fable 5.1 and Fable 5 scored 20 correct, Sonnet 5 19, Sonnet 5.5 16,
+  (warden/src/warden/data/providers.yaml): Fable 5.1 and Fable 5 scored 20 correct, Sonnet 5 19, Sonnet 5.5 16,
   Opus 5 15 and Opus 5.5 10, none with a wrong fix let through. Sonnet 5 passed the bar at a fifth of
   Fable 5.1's price. Opus 5.5, the earlier choice, failed it: it escalated 26 of 30 incidents.
 - **Single tenant per company.** No shared namespace, database or bucket across companies.
@@ -262,7 +262,7 @@ quality, not cost.
   - The key is created in the TPM and cannot be exported.
   - The CA is discarded after signing.
   - Roles Anywhere has no additional cost and is available in ap-south-2 (checked 2026-09-28).
-  - The operator role only reads (`iam/operator/`).
+  - The operator role only reads (`infra/iam/operator/`).
 - **One AWS account, hardened, for the lab** (owner decision). Separate accounts per environment are
   the production recommendation, and the IaC supports them.
 - **Quarantine keys are filtered word by word, not by an allowlist** (2026-09-30).
@@ -282,7 +282,7 @@ quality, not cost.
 
 The rule: use a ready-made production tool wherever one does the job; build only where none does, and say
 why. The options were researched live on 2026-10-03 (the research notes are not published).
-`tests/test_build_or_adopt_r9.py` requires every module in `src/warden/` to be named here.
+`warden/tests/test_build_or_adopt_r9.py` requires every module in `warden/src/warden/` to be named here.
 
 **Adopted** (WARDEN's code is the wiring around them):
 
@@ -389,7 +389,7 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   separated, complete reads, a consistent outcome), each a rule over results the verifier already computed; a
   calibration library would score the model's own number, which is what it must not use (owner U3-1).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
-  sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
+  sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by warden/scripts/train_decider.py.
 - Autonomy and the AI critic - `autonomy.py`, `eldane.py` (owner, 2026-10-16/17): dev's level is read from
   WARDEN's own signed audit rows (its demotions since a person's signed re-enable), so a feature-flag service would
   be a second, mutable store beside the record. Dev is autonomous through Eldane from the first plan; prod always

@@ -1,6 +1,6 @@
 """Audit row CW3: environmental impact was not measured. WARDEN measures its own share - model calls and tokens per
 incident and per day, from its audit (`warden usage`) - and the account's emissions come from AWS's Customer Carbon
-Footprint Tool (docs/governance/ENVIRONMENT.md)."""
+Footprint Tool (warden/docs/governance/ENVIRONMENT.md)."""
 
 from __future__ import annotations
 

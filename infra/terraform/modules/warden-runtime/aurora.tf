@@ -1,4 +1,4 @@
-# The shared audit (G6): every worker and Lambda appends to one hash chain here (src/warden/audit.py, PostgreSQL).
+# The shared audit (G6): every worker and Lambda appends to one hash chain here (warden/src/warden/audit.py, PostgreSQL).
 # Register O4: automated backups with point-in-time recovery, deletion protection, a final snapshot, encryption; the
 # restore drill is window W2's. The master password is managed by RDS in Secrets Manager; the runtime's own user
 # (SELECT and INSERT only) comes from `warden audit migrate`. Serverless v2 pauses to 0 capacity when idle.
@@ -47,7 +47,7 @@ resource "aws_rds_cluster_instance" "audit" {
 }
 
 # The AWS Free plan creates Aurora only "WithExpressConfiguration" (FreeTierRestrictionError, 2026-10-09; already
-# recorded for Wave 4 in terraform/fullstack/aurora_express.py): no VPC, reachable through an internet gateway, and not
+# recorded for Wave 4 in infra/terraform/fullstack/aurora_express.py): no VPC, reachable through an internet gateway, and not
 # settable from the AWS provider. A lab on that plan gets one RDS PostgreSQL instance instead (a Free plan class), in the
 # same private subnets and security group, with the same protections - one AZ, no reader. Never in production.
 resource "aws_db_instance" "audit" {

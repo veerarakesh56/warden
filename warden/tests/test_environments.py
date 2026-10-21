@@ -14,7 +14,7 @@ from warden.models import ActionKind
 # ------------------------------------------------------------------ the shipped policy
 
 def test_bundled_policy_is_dev_then_prod():
-    """Owner, 2026-10-16: two environments, in promotion order (main -> dev -> prod; tests/test_ci_lanes.py reads the
+    """Owner, 2026-10-16: two environments, in promotion order (main -> dev -> prod; warden/tests/test_ci_lanes.py reads the
     order from here)."""
     pol = default_environment_policies()
     assert pol.known_environments == ("dev", "prod")

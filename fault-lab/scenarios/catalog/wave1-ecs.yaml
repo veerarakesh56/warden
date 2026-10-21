@@ -3,8 +3,8 @@
 # ⛔ NOTHING IN THIS FILE IS EVER SHOWN TO WARDEN.  The runner reads it to break things and to put
 # them back; the scorer reads it to grade.  The tool under test receives only what a real operator
 # would have: a backend name, a cluster name, a service name and an alert timestamp.
-# `tests/test_no_scenario_leakage.py` fails CI if any id or fault_class below appears anywhere
-# under src/warden/.
+# `warden/tests/test_no_scenario_leakage.py` fails CI if any id or fault_class below appears anywhere
+# under warden/src/warden/.
 #
 # ⛔ AND THERE IS NO EXPECTED HYPOTHESIS TEXT HERE, deliberately.  Grading prose against prose is
 # where a benchmark quietly becomes an opinion.  Only the typed ActionKind, the typed VerdictStatus
@@ -56,7 +56,7 @@
 # ⛔ SECOND CHANGE, 2026-09-11.  `ecs-01-healthy-control` gains `deployments_in_flight == 1`.  A
 # healthy control ran mid-rollout because the harness started the next scenario before the previous
 # revert had converged; see that scenario's inline comment.  Stricter, not easier.  The harness bug
-# that caused it is fixed separately in scenarios/runner.py - this assertion is the backstop that
+# that caused it is fixed separately in fault-lab/scenarios/runner.py - this assertion is the backstop that
 # would have reported the contamination instead of scoring it.
 # ---------------------------------------------------------------------------------------------
 

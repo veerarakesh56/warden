@@ -14,7 +14,7 @@ import re
 
 import pytest
 
-TERRAFORM = pathlib.Path(__file__).resolve().parents[1] / "terraform" / "proving-ground"
+TERRAFORM = pathlib.Path(__file__).resolve().parents[2] / "infra" / "terraform" / "proving-ground"
 
 # EC2's own rule, quoted from the error it returns:
 #   "ingress.0.description" doesn't comply with restrictions ("^[0-9A-Za-z_ .:/()#,@\[\]+=&;{}!$*-]*$")

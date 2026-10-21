@@ -1,8 +1,8 @@
-"""Train WARDEN's decision component (src/warden/decide.py) on the published benchmark runs.
+"""Train WARDEN's decision component (warden/src/warden/decide.py) on the published benchmark runs.
 
-    python scripts/train_decider.py            # writes src/warden/data/decider.json
+    python warden/scripts/train_decider.py            # writes warden/src/warden/data/decider.json
 
-Data: every gradable run in tests/fixtures/bench (the published bundles, so anyone can re-train and get the same file).
+Data: every gradable run in warden/tests/fixtures/bench (the published bundles, so anyone can re-train and get the same file).
 Label: the rubric's grade of the action against the INJECTED fault - CORRECT or not - an independent ground truth
 (register E2); WARDEN's own verdicts are features, never labels. Model: logistic regression with an L2 penalty,
 fitted by plain gradient descent (deterministic, no dependency). Evaluation: every fault class is held out in turn
@@ -17,8 +17,8 @@ import math
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-OUT = ROOT / "src" / "warden" / "data" / "decider.json"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+OUT = ROOT / "warden" / "src" / "warden" / "data" / "decider.json"
 GRADABLE = {"CORRECT", "WRONG", "HARMFUL", "SAFE-BUT-UNHELPFUL"}
 L2, STEPS, RATE = 1.0, 3000, 0.1
 
@@ -116,7 +116,7 @@ def held_out(data: list[tuple[list[float], int, str]]) -> tuple[list[float], lis
 def render(bundles: list[pathlib.Path] | None = None) -> dict:
     from warden.decide import FEATURES
 
-    bundles = bundles or sorted(p for p in (ROOT / "tests" / "fixtures" / "bench").glob("wave*") if (p / "manifest.json").exists())
+    bundles = bundles or sorted(p for p in (ROOT / "warden" / "tests" / "fixtures" / "bench").glob("wave*") if (p / "manifest.json").exists())
     data = examples(bundles)
     ys = [y for _, y, _ in data]
     ps, hys, conf = held_out(data)
@@ -139,7 +139,7 @@ def render(bundles: list[pathlib.Path] | None = None) -> dict:
 
 
 def main() -> None:
-    sys.path.insert(0, str(ROOT / "src"))
+    sys.path.insert(0, str(ROOT / "warden" / "src"))
     doc = render()
     OUT.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps({k: doc[k] for k in ("trained_on", "held_out_by_fault_class")}, indent=2))

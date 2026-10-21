@@ -7,7 +7,7 @@ AWS proof runs, the Wave 4 build). ~/.ssh, ~/.aws, /etc or a synced folder are r
 spelled - also when a tool runs from, or is pointed at, the home directory, which is then no place. Key files have
 a folder of their own (audit.key_path). Stdlib only: the deploy jobs import this without installing the package, and
 the benchmark harness loads this one file by its path without importing the tool under test. The tool names nothing of
-the harness in return (tests/test_no_scenario_leakage.py).
+the harness in return (warden/tests/test_no_scenario_leakage.py).
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ import pathlib
 import tempfile
 
 BENCH_DIR_ENV = "WARDEN_BENCH_DIR"
-# The tools' output folders under the home directory (the bench runner, scripts/aws_proof.sh,
-# scripts/deploy_fullstack_apps.py), and the variables that move the first two elsewhere.
+# The tools' output folders under the home directory (the bench runner, fault-lab/scripts/aws_proof.sh,
+# demo-app/scripts/deploy_fullstack_apps.py), and the variables that move the first two elsewhere.
 HOME_FOLDERS = ("warden-bench-runs", "warden-proof-runs", "warden-fullstack-build")
 FOLDER_ENVS = (BENCH_DIR_ENV, "WARDEN_PROOF_DIR", "RUNNER_TEMP")
 

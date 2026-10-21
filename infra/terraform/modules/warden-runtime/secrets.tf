@@ -1,7 +1,7 @@
 # Decision D5: every secret the runtime reads lives in Secrets Manager, as warden/<env>/<name> - the names
-# src/warden/settings.py's SECRETS loads (secret_id). Terraform creates the slots only; a person sets each value in the
+# warden/src/warden/settings.py's SECRETS loads (secret_id). Terraform creates the slots only; a person sets each value in the
 # console, and no secret value is ever in Terraform state. Only the secrets a zone or a Lambda of this runtime reads
-# have a slot (settings.ZONE_SECRETS, settings.LAMBDA_SECRETS; tests/test_runtime_module_g6.py holds the list to them):
+# have a slot (settings.ZONE_SECRETS, settings.LAMBDA_SECRETS; warden/tests/test_runtime_module_g6.py holds the list to them):
 # a slot nobody reads is one more place a value could be left (secrets audit, 2026-10-16).
 locals {
   secrets = toset([

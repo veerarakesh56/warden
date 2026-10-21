@@ -9,19 +9,19 @@ import sys
 
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 # The one pod that reads the cluster: WARDEN's own Job, bound to its read-only role.
 NEEDS_A_TOKEN = {("job.yaml", "Job")}
 
 
 def _docs():
-    # And what Argo CD syncs (manifests/, 2026-10-16): a token mounted there is mounted all the same.
-    for path in sorted([*(ROOT / "k8s").rglob("*.yaml"), *(ROOT / "manifests").rglob("*.yaml")]):
+    # And what Argo CD syncs (demo-app/manifests/, 2026-10-16): a token mounted there is mounted all the same.
+    for path in sorted([*(p for c in ("infra", "demo-app", "fault-lab") for p in (ROOT / c / "k8s").rglob("*.yaml")), *(ROOT / "demo-app" / "manifests").rglob("*.yaml")]):
         for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")):
             if doc:
                 yield path, doc
-    # And the negative Pod Security test's pod, built when the test runs (2026-10-20; was a manifest under k8s/test).
-    script = ROOT / "scripts" / "negative_pod.py"
+    # And the negative Pod Security test's pod, built when the test runs (2026-10-20; was a manifest under fault-lab/k8s/test).
+    script = ROOT / "fault-lab" / "scripts" / "negative_pod.py"
     built = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, check=True).stdout
     yield script, json.loads(built)
 

@@ -6,8 +6,8 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("check_live_config", ROOT / "scripts" / "check_live_config.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location("check_live_config", ROOT / "infra" / "scripts" / "check_live_config.py")
 check = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(check)
 

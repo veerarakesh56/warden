@@ -16,7 +16,7 @@ from warden import cli
 from warden.observability import GatedFormatter
 
 SECRET = AWS_ACCESS_KEY_ID
-SRC = str(pathlib.Path(__file__).resolve().parents[1] / "src")
+SRC = str(pathlib.Path(__file__).resolve().parents[2] / "warden" / "src")
 
 
 def _child(code: str) -> subprocess.CompletedProcess:

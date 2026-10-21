@@ -2,9 +2,9 @@
 #
 # Run WARDEN against a REAL AWS account and leave an evidence bundle behind.
 #
-#   bash scripts/aws_proof.sh
+#   bash fault-lab/scripts/aws_proof.sh
 #
-# It stands up terraform/proving-ground/, stages five situations against it, records what WARDEN
+# It stands up infra/terraform/proving-ground/, stages five situations against it, records what WARDEN
 # said about each, and tears everything down. Roughly 45 minutes end to end and roughly $0.25, most
 # of both being EKS.
 #
@@ -30,8 +30,8 @@
 
 set -Eeuo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TF_DIR="$HERE/terraform/proving-ground"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"  # the repository root
+TF_DIR="$HERE/infra/terraform/proving-ground"
 STAMP="$(date -u +%Y-%m-%dT%H%M%SZ)"
 # ⛔ OUTSIDE the repository, deliberately.
 #
@@ -194,12 +194,12 @@ if [[ -n "$EKS_CLUSTER" ]]; then
   kubectl wait --for=condition=Ready node --all --timeout=300s 2>&1 | tee -a "$OUT/run.log"
   kubectl get nodes -o wide 2>&1 | tee -a "$OUT/reports/D-eks-nodes.txt"
 
-  kubectl apply -k "$HERE/k8s/"                              2>&1 | tee -a "$OUT/run.log"
-  kubectl apply -f "$HERE/k8s/test/oom-workload.yaml"        2>&1 | tee -a "$OUT/run.log"
+  kubectl apply -k "$HERE/infra/k8s/"                           2>&1 | tee -a "$OUT/run.log"
+  kubectl apply -f "$HERE/fault-lab/k8s/test/oom-workload.yaml"        2>&1 | tee -a "$OUT/run.log"
 
   # The same negative check CI runs on k3d, now on a cluster that enforces Pod Security for real.
   # The pod is built first, on its own: a generator failure must not read as Pod Security's refusal (CodeRabbit, PR 62).
-  "$PY" "$HERE/scripts/negative_pod.py" > "$OUT/privileged-pod.json" || die "scripts/negative_pod.py failed"
+  "$PY" "$HERE/fault-lab/scripts/negative_pod.py" > "$OUT/privileged-pod.json" || die "fault-lab/scripts/negative_pod.py failed"
   if kubectl apply --dry-run=server -f "$OUT/privileged-pod.json" 2>"$OUT/reports/D-privileged-rejected.txt"; then
     note "⛔ EKS ACCEPTED a privileged pod — Pod Security is not enforced on this namespace"
   elif grep -q "violates PodSecurity" "$OUT/reports/D-privileged-rejected.txt"; then
@@ -226,7 +226,7 @@ DSN="$(terraform -chdir="$TF_DIR" output -raw db_dsn 2>/dev/null || true)"
 if [[ -n "$DSN" ]]; then
   log "E — RDS PostgreSQL"
   # The database is private (Sonar terraform:S8793): the DSN points at 127.0.0.1, where an SSM port-forward through
-  # the lab's t4g.nano (terraform/proving-ground/db_tunnel.tf) carries it to RDS. No SSH, no inbound rule anywhere.
+  # the lab's t4g.nano (infra/terraform/proving-ground/db_tunnel.tf) carries it to RDS. No SSH, no inbound rule anywhere.
   command -v session-manager-plugin >/dev/null 2>&1 \
     || die "situation E needs the AWS CLI's Session Manager plugin (session-manager-plugin) on PATH"
   TUNNEL_PORT="$(terraform -chdir="$TF_DIR" output -raw db_tunnel_local_port)"
@@ -263,7 +263,7 @@ fi
 # --------------------------------------------------------------------------- the bundle
 
 log "Writing the evidence bundle"
-"$PY" "$HERE/scripts/aws_proof_bundle.py" \
+"$PY" "$HERE/fault-lab/scripts/aws_proof_bundle.py" \
     --dir "$OUT" --account "$ACCOUNT" --region "$REGION" \
     --cluster "$CLUSTER" --service "$SERVICE" --eks "$EKS_CLUSTER" 2>&1 | tee -a "$OUT/run.log"
 
@@ -285,8 +285,8 @@ log "Checking the bundle is safe to publish"
 # The bundle has been redacted. Now VERIFY that, independently, before anything enters the git
 # working tree - because "the redactor ran" and "the redactor worked" are different claims, and only
 # the second one matters.
-if "$PY" "$HERE/scripts/check_publishable.py" --dir "$OUT" 2>&1 | tee -a "$OUT/run.log"; then
-  DEST="$HERE/docs/aws-proof-$STAMP"
+if "$PY" "$HERE/warden/scripts/check_publishable.py" --dir "$OUT" 2>&1 | tee -a "$OUT/run.log"; then
+  DEST="$HERE/fault-lab/docs/aws-proof-$STAMP"
   mkdir -p "$DEST"
   cp -r "$OUT/." "$DEST/"
   note "bundle copied into the repo: $DEST"

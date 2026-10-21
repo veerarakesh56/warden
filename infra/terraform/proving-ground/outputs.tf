@@ -7,7 +7,7 @@ output "region" {
   value = local.region
 }
 
-# The tags the harness (scenarios/ops.py create_tags) and scripts/prove_boundary.py put on what they
+# The tags the harness (fault-lab/scenarios/ops.py create_tags) and infra/scripts/prove_boundary.py put on what they
 # create: exactly what this stack puts on its own, read from here - never typed into the harness.
 output "resource_tags" {
   value = { for key in ["Project", "Environment", "Stack"] : key => local.tags[key] }

@@ -1,11 +1,11 @@
 """Pause an environment to save money, and resume it, without losing its data (owner update 5, 2026-10-17).
 
-    WARDEN_ENV=<env> python scripts/pause_resume.py snapshot --stack fullstack|runtime   # pause, BEFORE anything goes
-    WARDEN_ENV=<env> python scripts/pause_resume.py restore-tables > imports.txt          # fullstack resume, before apply
-    WARDEN_ENV=<env> python scripts/pause_resume.py stop-db                               # runtime pause, after apply
-    WARDEN_ENV=<env> python scripts/pause_resume.py start-db                              # runtime resume, before apply
-    WARDEN_ENV=<env> python scripts/pause_resume.py report --stack fullstack|runtime [--keep N]
-    WARDEN_ENV=<env> python scripts/pause_resume.py wake                                  # fullstack resume, after apply
+    WARDEN_ENV=<env> python infra/scripts/pause_resume.py snapshot --stack fullstack|runtime   # pause, BEFORE anything goes
+    WARDEN_ENV=<env> python infra/scripts/pause_resume.py restore-tables > imports.txt          # fullstack resume, before apply
+    WARDEN_ENV=<env> python infra/scripts/pause_resume.py stop-db                               # runtime pause, after apply
+    WARDEN_ENV=<env> python infra/scripts/pause_resume.py start-db                              # runtime resume, before apply
+    WARDEN_ENV=<env> python infra/scripts/pause_resume.py report --stack fullstack|runtime [--keep N]
+    WARDEN_ENV=<env> python infra/scripts/pause_resume.py wake                                  # fullstack resume, after apply
 
 ⛔ The writers stop FIRST (fullstack): a write after the copy would be lost with the stack. Only Lambdas write the data
 kept (read 2026-10-20): checkout puts carts into DynamoDB; traffic queues orders that order-processor INSERTs into
@@ -15,13 +15,13 @@ consumer still runs), then every function of the stack is held at 0. `wake` undo
 pause that failed before anything was deleted.
 
 What each data store is, and how it is kept:
-  fullstack  the shop's Aurora (express, terraform/fullstack/aurora_express.py) - a cluster snapshot; the DynamoDB
+  fullstack  the shop's Aurora (express, infra/terraform/fullstack/aurora_express.py) - a cluster snapshot; the DynamoDB
              tables (TABLES) - an on-demand backup each. The pipeline then destroys the whole stack (it all bills
              while idle) and, on resume, restores the tables before `terraform apply` (and imports them into its
              state) and Aurora after it (`aurora_express.py create --from-snapshot latest`).
   runtime    WARDEN's audit database warden-<env>-audit (an Aurora cluster, or one RDS instance on the AWS Free plan)
              - a snapshot, then it is STOPPED, not deleted. Compute, the NAT and the self-alarms' actions go through
-             SSM /warden/<env>/tf/paused and Terraform (terraform/runtime). RDS starts a stopped database again by
+             SSM /warden/<env>/tf/paused and Terraform (infra/terraform/runtime). RDS starts a stopped database again by
              itself after 7 days (AWS's rule): `report` says so.
 
 Names: `<data store>-pause-<UTC time>` (warden-dev-carts-pause-20261017t113000z), tagged Project/Environment where AWS
@@ -47,16 +47,16 @@ import pathlib
 import sys
 import time
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("aurora_express", ROOT / "terraform" / "fullstack" / "aurora_express.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("aurora_express", ROOT / "infra" / "terraform" / "fullstack" / "aurora_express.py")
 ax = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ax)
 
-# The full stack's DynamoDB tables (terraform/fullstack/*.tf), as <name suffix>: <terraform address>. A test holds this
+# The full stack's DynamoDB tables (infra/terraform/fullstack/*.tf), as <name suffix>: <terraform address>. A test holds this
 # equal to the aws_dynamodb_table blocks there, so a new table is never left out of a pause.
 TABLES = {"carts": "aws_dynamodb_table.carts"}
 BACKUP_WAIT = {"Delay": 15, "MaxAttempts": 120}  # 30 minutes
-# The full stack's writers, as terraform/fullstack/lambda.tf names them (a test holds these equal to it): the schedules
+# The full stack's writers, as infra/terraform/fullstack/lambda.tf names them (a test holds these equal to it): the schedules
 # that start work, the functions through which writes enter, the queue whose consumer writes Aurora, and every function.
 SCHEDULES = ("reconcile-5m", "traffic-1m")
 ENTRY_FUNCTIONS = ("checkout", "traffic")
@@ -282,7 +282,7 @@ def snapshot(stack: str, clients: dict, log=print) -> list[str]:
             return made + backup_tables(clients["dynamodb"], log)
         except (SystemExit, Exception) as exc:  # any failure from here - a waiter, an AWS error - not only ours
             # The writers may be held (all, or some if quiesce() itself failed): say how to start them again.
-            raise SystemExit(f"{exc} - the writers are stopped: `python scripts/pause_resume.py wake` starts them "
+            raise SystemExit(f"{exc} - the writers are stopped: `python infra/scripts/pause_resume.py wake` starts them "
                              "again") from exc
     found = audit_db(rds)
     if found is None:
@@ -335,7 +335,7 @@ def _wait_stopped(rds, ident: str, log) -> str:
 
 def start_db(rds, log=print) -> None:
     """Runtime resume, first step: start the audit database and wait until it is available. A database that is gone
-    while a pause snapshot of it exists is NOT recreated empty: that is a restore, for a person (docs/OPERATIONS.md)."""
+    while a pause snapshot of it exists is NOT recreated empty: that is a restore, for a person (warden/docs/OPERATIONS.md)."""
     ident = ax.PREFIX + "audit"
     found = audit_db(rds)
     if found is None:
@@ -343,7 +343,7 @@ def start_db(rds, log=print) -> None:
                 if ax.is_pause_name(ident, s["name"])]
         if kept:
             raise SystemExit(f"refusing: {ident} is gone but pause snapshots of it exist ({', '.join(s['name'] for s in kept)})"
-                             " - restore it by hand (docs/OPERATIONS.md) so the audit is not started empty")
+                             " - restore it by hand (warden/docs/OPERATIONS.md) so the audit is not started empty")
         log(f"{ident}: does not exist and no pause snapshot - Terraform creates it (a first install)")
         return
     kind, status = found[0], _db_status(*found)

@@ -17,24 +17,24 @@ import uuid
 
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "scripts"))
 import bake_tripwire  # after the sys.path line above
 
 from warden import tripwire
 
-DOCKERFILE = re.sub(r"\\\n\s*", "", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
+DOCKERFILE = re.sub(r"\\\n\s*", "", (ROOT / "warden" / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
 
 
 def test_the_image_installs_the_detector_with_cpu_only_torch():
     sync = next(line for line in DOCKERFILE.splitlines() if line.startswith("RUN uv sync"))
     assert "--locked" in sync
     assert "--extra guard" in sync
-    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    pyproject = (ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8")
     assert 'url = "https://download.pytorch.org/whl/cpu"' in pyproject
     assert "explicit = true" in pyproject
     assert 'torch = [{ index = "pytorch-cpu", marker = "sys_platform == \'linux\'" }]' in pyproject
-    lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
+    lock = (ROOT / "warden" / "uv.lock").read_text(encoding="utf-8")
     assert 'version = "2.14.1+cpu"' in lock
     assert not re.search(r'^name = "(nvidia-|cuda-|triton)', lock, re.MULTILINE)  # no GPU stack in the image
 
@@ -45,7 +45,7 @@ def test_the_weights_are_baked_at_build_from_the_pinned_revision_with_the_token_
     assert "ARG WARDEN_DETECTOR=baked" in DOCKERFILE
     assert "WORKDIR /app" in DOCKERFILE.split("bake_tripwire.py hf")[0].splitlines()  # so hf/ is /app/hf, copied below
     # The script reaches the build: .dockerignore keeps scripts/ out but these two (a deploy failed on it, 2026-10-14).
-    assert "!scripts/bake_tripwire.py" in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    assert "!scripts/bake_tripwire.py" in (ROOT / "warden" / ".dockerignore").read_text(encoding="utf-8").splitlines()
     assert "ARG HF" not in DOCKERFILE
     assert "HF_TOKEN" not in DOCKERFILE  # never a build argument or an image variable
     assert "COPY --from=build /app/hf /opt/hf" in DOCKERFILE
@@ -77,13 +77,13 @@ def test_the_bake_refuses_a_copy_that_is_not_the_measured_one(tmp_path, monkeypa
 
 
 def test_the_pipeline_passes_the_token_as_a_build_secret_only_and_deploys_no_image_without_the_weights():
-    wf = (ROOT / ".github" / "workflows" / "runtime.yml").read_text(encoding="utf-8")
+    wf = (ROOT / ".github" / "workflows" / "warden-runtime-deploy.yml").read_text(encoding="utf-8")
     assert "HF_TOKEN: ${{ secrets.HF_TOKEN }}" in wf
     assert '--secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime' in wf
     assert "--build-arg" not in wf  # never WARDEN_DETECTOR=absent, never the token as an argument
     assert "rglob('model.safetensors')), 'no tripwire weights'" in wf
     # CI's check build has no token and says so; it is never deployed.
-    ci = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")
+    ci = (ROOT / ".github" / "workflows" / "warden-ci.yml").read_text(encoding="utf-8")
     assert "--build-arg WARDEN_DETECTOR=absent -f Dockerfile.runtime -t warden-runtime:ci" in ci
 
 
@@ -120,14 +120,14 @@ def test_the_bake_without_a_token_fails_unless_the_build_says_absent(tmp_path, m
 
 
 def test_the_read_zone_has_room_for_the_model():
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "variables.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "variables.tf").read_text(encoding="utf-8")
     read = re.search(r"read\s*=\s*\{\s*cpu\s*=\s*(\d+),\s*memory\s*=\s*(\d+)\s*\}", tf)
     assert int(read.group(1)) >= 1024
     assert int(read.group(2)) >= 3072  # 1.1 GB of weights, torch, the worker
 
 
 def test_every_environment_scans():
-    envs = yaml.safe_load((ROOT / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8"))
+    envs = yaml.safe_load((ROOT / "warden" / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8"))
     modes = {name: e.get("tripwire") for name, e in envs["environments"].items()}
     assert modes, modes
     assert all(m in ("on", "required") for m in modes.values()), modes

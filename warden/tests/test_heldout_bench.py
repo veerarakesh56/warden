@@ -6,8 +6,8 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("heldout_bench", ROOT / "scripts" / "heldout_bench.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location("heldout_bench", ROOT / "fault-lab" / "scripts" / "heldout_bench.py")
 hb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hb)
 
@@ -106,7 +106,7 @@ def test_the_answer_key_is_named_as_one_and_an_old_copy_still_reads_with_a_warni
     """Naming audit item 8 (2026-10-16): `key.json` is the usual name of a GCP service-account key, so the committed
     sets name theirs answer-key.json; a set outside the repository still named key.json reads, and says so."""
     for name in ("heldout-g9-2026-10-10", "heldout-g10-2026-10-10"):
-        cases = ROOT / "docs" / "bench" / name
+        cases = ROOT / "fault-lab" / "docs" / "bench" / name
         assert not (cases / "key.json").exists(), name
         assert hb.answer_key(cases), name
     (tmp_path / "key.json").write_text('{"a": {"kind": "fault"}}', encoding="utf-8")

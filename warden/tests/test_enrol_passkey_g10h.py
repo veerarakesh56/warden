@@ -22,7 +22,7 @@ from test_passkeys_h6 import RP, SoftAuthenticator
 from warden import approvals, audit, cli
 from warden.approval_page import LINK_TTL, ApprovalPage, AuditLinkStore, invite
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _pem(key):
@@ -176,9 +176,9 @@ def test_the_command_signs_a_link_the_page_accepts_and_opens_it_without_printing
 
 
 def test_the_api_routes_the_enrolment_steps_the_page_serves():
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert '"GET /e/{token}", "POST /e/{token}/{step}"' in tf
-    src = (ROOT / "src" / "warden" / "approval_page.py").read_text(encoding="utf-8")
+    src = (ROOT / "warden" / "src" / "warden" / "approval_page.py").read_text(encoding="utf-8")
     assert set(re.findall(r'post\("([a-z]+)"', src.split("_ENROL = ")[1].split("_PAGE = ")[0])) == {"options", "finish"}
     assert '("POST", "options")' in src
     assert '("POST", "finish")' in src

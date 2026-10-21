@@ -7,7 +7,7 @@ metadata:
     app: cart-worker
     project: warden
     # Datadog's standard labels: its agent tags this workload's container logs and Kubernetes metrics env and service
-    # from them (the monitors filter on both, scripts/datadog_setup.py).
+    # from them (the monitors filter on both, warden/scripts/datadog_setup.py).
     tags.datadoghq.com/service: cart-worker
 spec:
   replicas: 2  # like production (owner, 2026-10-15); was 1

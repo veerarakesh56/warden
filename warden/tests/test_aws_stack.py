@@ -1,6 +1,6 @@
 """StackBackend (WARDEN_BACKEND=stack), against fake AWS clients - no account, no network.
 
-The load-bearing tests are the two at the bottom: the IAM role in terraform/fullstack/reader.tf is
+The load-bearing tests are the two at the bottom: the IAM role in infra/terraform/fullstack/reader.tf is
 checked against every call this module (and the AwsBackend it reuses) makes, in both directions,
 and the module is walked for anything write-shaped.
 """
@@ -25,7 +25,7 @@ from warden.aws_stack import StackBackend, parse_tracebacks, source_excerpt
 from warden.models import Alert, Severity
 from warden.tools import PARTIAL_PREFIX, gather, resolve_backend
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 NOW = datetime.now(UTC).replace(microsecond=0)
 P = "warden-dev-"
 
@@ -738,7 +738,7 @@ def _api_calls() -> set[tuple[str, str]]:
 
 
 def _xray_calls() -> set[str]:
-    """X-Ray's reader (src/warden/xray.py) calls a client it is handed (`xray.get_trace_summaries(...)`), not a
+    """X-Ray's reader (warden/src/warden/xray.py) calls a client it is handed (`xray.get_trace_summaries(...)`), not a
     `self._` one: its calls are collected here, so its grant is held to the code like the rest."""
     from warden import xray
 
@@ -749,7 +749,7 @@ def _xray_calls() -> set[str]:
 
 
 def _quota_calls() -> set[str]:
-    """The quota reader (src/warden/quotas.py, B14) calls the clients it is handed: `client.list_service_quotas(...)`
+    """The quota reader (warden/src/warden/quotas.py, B14) calls the clients it is handed: `client.list_service_quotas(...)`
     and `cloudwatch.get_metric_data(...)` - collected here, so its grant is held to the code like the rest."""
     from warden import quotas
 
@@ -772,9 +772,9 @@ def _iam_action(attr: str, method: str) -> str:
 
 
 def _granted() -> set[str]:
-    text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    text = (ROOT / "infra" / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     block = re.search(r'data "aws_iam_policy_document" "fs_reader" \{.*?\n\}\n', text, re.DOTALL)
-    assert block, "fs_reader policy document not found in terraform/fullstack/reader.tf"
+    assert block, "fs_reader policy document not found in infra/terraform/fullstack/reader.tf"
     lists = re.findall(r"actions\s*=\s*\[(.*?)\]", block.group(0), re.DOTALL)
     assert lists, "no actions in fs_reader"
     return {a for chunk in lists for a in re.findall(r'"([^"]+)"', chunk)}
@@ -782,8 +782,8 @@ def _granted() -> set[str]:
 
 # ⭐ The ONE grant that is not a call in the code. rds-db:connect is not an AWS API WARDEN invokes:
 # the harness signs WARDEN's warden_ro database token with this role's assumed credentials
-# (scenarios/fullstack_cli.py warden_dsns), and Aurora checks the grant when WARDEN connects. So the
-# reader role must hold it, as warden_ro only (terraform/fullstack/reader.tf), and nothing in
+# (fault-lab/scenarios/fullstack_cli.py warden_dsns), and Aurora checks the grant when WARDEN connects. So the
+# reader role must hold it, as warden_ro only (infra/terraform/fullstack/reader.tf), and nothing in
 # aws_stack.py / aws_backend.py calls it. Named here so it cannot grow into a general loophole.
 NOT_A_CALL = {"rds-db:connect"}
 
@@ -843,7 +843,7 @@ def test_the_stack_backend_cannot_write_checked_on_the_ast():
 
 
 def test_no_account_id_or_email_in_the_owned_files():
-    for path in (ROOT / "src/warden/aws_stack.py", ROOT / "terraform/fullstack/reader.tf"):
+    for path in (ROOT / "warden/src/warden/aws_stack.py", ROOT / "infra/terraform/fullstack/reader.tf"):
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"(?<!\d)\d{12}(?!\d)", text), path
         assert not re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", text), path
@@ -871,7 +871,7 @@ def test_the_cache_network_path_is_evidence(dsns):
 
 
 def test_the_only_database_login_the_reader_role_holds_is_wardens_own_reader():
-    text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    text = (ROOT / "infra" / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     block = re.search(r'statement \{\s*sid\s*=\s*"ConnectAsWardenRo"(.*?)\n  \}', text, re.DOTALL).group(1)
     assert re.findall(r"resources\s*=\s*\[(.+)\]", block) == ['local.dbuser_arn["ro"]']
 
@@ -917,7 +917,7 @@ def test_a_lambda_rollback_targets_the_version_that_served_traffic_not_the_numer
 def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
     """Audit A-I-19: every read was Resource "*". Where the action takes a resource and the code passes its identity,
     the grant names only the stack's own resources (AWS's Service Reference, read 2026-10-01)."""
-    text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    text = (ROOT / "infra" / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     own = re.search(r'sid\s*=\s*"ReadOwnStack"(.*?)\n  \}', text, re.DOTALL).group(1)
     anywhere = re.search(r'sid\s*=\s*"ReadAnywhere"(.*?)\n  \}', text, re.DOTALL).group(1)
     resources = re.findall(r'"(arn:[^"]+)"', own)
@@ -964,7 +964,7 @@ def test_every_reader_arn_has_the_shape_aws_gives_its_resource():
     """Seventh review (2026-10-01): the scoping test checked where each action sits, not its ARN - seven format
     mutants passed (`table/` -> `tables/`, `cluster:` -> `db:`, a typo in `/aws/lambda/`, an sqs prefix...). Each ARN
     must be its service's published format with the stack's name where the resource's name goes."""
-    text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    text = (ROOT / "infra" / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     own = re.search(r'sid\s*=\s*"ReadOwnStack"(.*?)\n  \}', text, re.DOTALL).group(1)
     arns = re.findall(r'"arn:aws:([a-z0-9-]+):\$\{local\.reader_arn\}:([^"]+)"', own)
     assert len(arns) == 14, arns  # + the stack's alarms (G9-A2a), + its database instances' error logs (2026-10-15)

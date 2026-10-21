@@ -23,7 +23,7 @@ token can still hold a few plain words; the verifier, not the model, decides. It
 count and the ids they came from, so a thousand identical INFO lines cost one line of prompt.
 
 Honest limit: this also hides whatever the facts cannot express - a free-text error message's
-wording. That is measured, not assumed (scripts/replay_diagnose.py on recorded incidents); the plan's
+wording. That is measured, not assumed (warden/scripts/replay_diagnose.py on recorded incidents); the plan's
 fallback is a richer typed vocabulary, never raw text.
 """
 

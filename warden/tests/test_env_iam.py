@@ -1,11 +1,11 @@
 """Per-environment IAM (v2 Phase 1.5): one boundary, deploy policy and trust policy per environment,
-rendered from iam/templates/ by scripts/render_env_iam.py and committed.
+rendered from infra/iam/templates/ by infra/scripts/render_env_iam.py and committed.
 
 What must hold for every environment: the committed files are exactly the templates' render; each
 fits IAM's limit; no file names another environment; parameters and buckets are only its own; the
 deploy policy fits inside its boundary; new roles must carry its boundary; and only GitHub's
-environment of the same name may assume the deploy role. (iam/operator/ is the operator identity,
-not an environment; tests/test_operator_role.py covers it.)
+environment of the same name may assume the deploy role. (infra/iam/operator/ is the operator identity,
+not an environment; warden/tests/test_operator_role.py covers it.)
 """
 
 from __future__ import annotations
@@ -18,12 +18,12 @@ import sys
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "infra" / "scripts"))
 import render_env_iam as r  # after the sys.path line above
 
 ENVS = r.environments()
-RUNTIME = r.runtime_environment()  # iam/<runtime>/: same kinds, from the runtime-* templates (test_runtime_iam_g6.py)
+RUNTIME = r.runtime_environment()  # infra/iam/<runtime>/: same kinds, from the runtime-* templates (test_runtime_iam_g6.py)
 LIMIT = 6144
 # Actions no policy grants or denies: GetCallerIdentity "requires no permissions ... you can still perform this
 # operation" under an explicit deny (STS API reference, read 2026-10-14). The deploy policy names it; the environment
@@ -32,7 +32,7 @@ NEEDS_NO_PERMISSION = {"sts:GetCallerIdentity"}
 
 
 def _load(env, kind):
-    return json.loads((ROOT / "iam" / env / f"{kind}.json").read_text(encoding="utf-8"))
+    return json.loads((ROOT / "infra" / "iam" / env / f"{kind}.json").read_text(encoding="utf-8"))
 
 
 def _list(x):
@@ -52,7 +52,7 @@ def _allows(doc):
 
 
 def test_every_environment_has_its_files_and_nothing_else_exists():
-    dirs = {p.name for p in (ROOT / "iam").iterdir() if p.is_dir()} - {"templates", "operator"}
+    dirs = {p.name for p in (ROOT / "infra" / "iam").iterdir() if p.is_dir()} - {"templates", "operator"}
     assert dirs == {*ENVS, RUNTIME}
     assert len(ENVS) == 2  # dev and prod (owner, 2026-10-16: staging, qa-staging, pre-prod and qa-prod went)
 
@@ -60,8 +60,8 @@ def test_every_environment_has_its_files_and_nothing_else_exists():
 @pytest.mark.parametrize("env", ENVS)
 def test_committed_files_are_exactly_the_render(env):
     for kind, text in r.render(env).items():
-        committed = (ROOT / "iam" / env / f"{kind}.json").read_text(encoding="utf-8")
-        assert committed == text, f"iam/{env}/{kind}.json drifted: run scripts/render_env_iam.py"
+        committed = (ROOT / "infra" / "iam" / env / f"{kind}.json").read_text(encoding="utf-8")
+        assert committed == text, f"infra/iam/{env}/{kind}.json drifted: run infra/scripts/render_env_iam.py"
 
 
 @pytest.mark.parametrize("env", [*ENVS, RUNTIME])
@@ -202,7 +202,7 @@ def test_only_the_managed_policies_terraform_uses_can_be_attached(env):
               and any(fnmatch.fnmatchcase("iam:AttachRolePolicy", a) for a in _list(st["Action"]))]
     assert len(grants) == 1, [st.get("Sid") for st in grants]
     allowed = set(grants[0]["Condition"]["ArnEquals"]["iam:PolicyARN"])
-    tf = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "fullstack").glob("*.tf"))
+    tf = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "infra" / "terraform" / "fullstack").glob("*.tf"))
     used = set(re.findall(r'"(arn:aws:iam::aws:policy/[\w/-]+[\w-])"', tf))
     used |= {f"arn:aws:iam::aws:policy/service-role/{n}" for n in re.findall(r'"(AWSLambda\w+ExecutionRole)"', tf)}
     assert allowed == used, (sorted(allowed - used), sorted(used - allowed))
@@ -213,7 +213,7 @@ def test_the_boundary_carries_every_guardrail_its_roles_could_break(env):
     """Audit A-I-3/A-I-20: the guardrails were attached to the deploy role only, so a role it created - bound
     only by the boundary - could make a bucket, snapshot or function public. Every guardrail action the
     boundary's ceiling grants is denied in the boundary too, under the same condition."""
-    guard = json.loads((ROOT / "terraform" / "proving-ground" / "operator-guardrails.json").read_text(encoding="utf-8"))
+    guard = json.loads((ROOT / "infra" / "terraform" / "proving-ground" / "operator-guardrails.json").read_text(encoding="utf-8"))
     boundary = _load(env, "boundary")
     ceiling = _allows(boundary)
     # A deny on every resource, or on every resource but this environment's ALB access-log buckets (2026-10-17, Sonar
@@ -291,7 +291,7 @@ def test_only_main_and_the_two_deploy_workflows_may_assume(env):
     assert cond["StringEquals"]["token.actions.githubusercontent.com:ref"] == f"refs/heads/{env}"
     refs = cond["StringEquals"]["token.actions.githubusercontent.com:job_workflow_ref"]
     assert all(r.endswith(f"@refs/heads/{env}") for r in refs), refs
-    assert sorted(r.split("@")[0].rsplit("/", 1)[-1] for r in refs) == ["_apps-deploy.yml", "_infra-deploy.yml"]
+    assert sorted(r.split("@")[0].rsplit("/", 1)[-1] for r in refs) == ["demo-app-deploy.yml", "infra-deploy.yml"]
 
 
 @pytest.mark.parametrize("env", ENVS)
@@ -410,7 +410,7 @@ def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functio
     assert set(invoke["Condition"]) == {"StringNotEquals"}
     assert sorted(granted) == ["apigateway.amazonaws.com",
                                                                                      "events.amazonaws.com"]
-    tf = (ROOT / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
     assert set(re.findall(r'principal\s*=\s*"([^"]+)"', tf)) == set(granted)
 
 
@@ -515,8 +515,8 @@ def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, mon
     """Audit A-I-18 (owner, 2026-10-02): the operator runs the Wave 4 harness from the laptop, in dev only. Its policy
     writes only dev's named or tagged resources, and logs in to Aurora - as the master user, which the faults need -
     only on dev's cluster, named by its resource id: `dbuser:*` would reach every environment's database."""
-    assert [e for e in ENVS if (ROOT / "iam" / e / "harness.json").exists()] == list(r.HARNESS_ENVS) == ["dev"]
-    policy = json.loads((ROOT / "iam" / "dev" / "harness.json").read_text(encoding="utf-8"))
+    assert [e for e in ENVS if (ROOT / "infra" / "iam" / e / "harness.json").exists()] == list(r.HARNESS_ENVS) == ["dev"]
+    policy = json.loads((ROOT / "infra" / "iam" / "dev" / "harness.json").read_text(encoding="utf-8"))
     for st in policy["Statement"]:
         resources = _list(st["Resource"])
         if st["Sid"] in ("ReadTheStack", "TaskDefinitionsTakeNoName", "EventSourceMappingsOfThisEnvironmentsFunctions", "EsmsOfThisEnvsFunctions",
@@ -535,7 +535,7 @@ def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, mon
     with pytest.raises(SystemExit):
         r.main(["--cluster-resource-id", "*"])
     assert r.main(["--cluster-resource-id", "cluster-ABCDEFGHIJ1234"]) == 0
-    local = (tmp_path / "iam" / "dev" / "harness.local.json").read_text(encoding="utf-8")
+    local = (tmp_path / "infra" / "iam" / "dev" / "harness.local.json").read_text(encoding="utf-8")
     assert "dbuser:cluster-ABCDEFGHIJ1234/postgres" in local
     assert "<CLUSTER_RESOURCE_ID>" not in local
 
@@ -544,12 +544,12 @@ def test_only_the_operator_role_of_this_account_may_assume_the_harness_role():
     """Register R18 (owner, 2026-10-02): the harness is its own identity, warden-dev-harness - not permissions added to
     the read-only operator role. Only that role may assume it, in this account, keeping its source identity and
     its certificate's session tags (a chained AssumeRole without sts:TagSession was refused live, 2026-10-02)."""
-    trust = json.loads((ROOT / "iam" / "dev" / "harness-trust.json").read_text(encoding="utf-8"))
+    trust = json.loads((ROOT / "infra" / "iam" / "dev" / "harness-trust.json").read_text(encoding="utf-8"))
     [st] = trust["Statement"]
     assert st["Effect"] == "Allow"
     assert st["Principal"] == {"AWS": "arn:aws:iam::<ACCOUNT_ID>:role/warden-ops-operator"}
     assert sorted(_list(st["Action"])) == ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
-    assert [e for e in ENVS if (ROOT / "iam" / e / "harness-trust.json").exists()] == list(r.HARNESS_ENVS)
+    assert [e for e in ENVS if (ROOT / "infra" / "iam" / e / "harness-trust.json").exists()] == list(r.HARNESS_ENVS)
 
 
 def test_an_apis_access_logs_go_only_to_its_own_environments_group():
@@ -557,7 +557,7 @@ def test_an_apis_access_logs_go_only_to_its_own_environments_group():
     prod's log group. The stage itself names the destination, and API Gateway checks it as a condition key on
     /apis/<id>/stages: a stage written with any other destination is denied. A write that sets no logging is not."""
     for env in ENVS:
-        doc = json.loads((ROOT / "iam" / env / "deploy-ec2.json").read_text(encoding="utf-8"))
+        doc = json.loads((ROOT / "infra" / "iam" / env / "deploy-ec2.json").read_text(encoding="utf-8"))
         [st] = [s for s in doc["Statement"] if s.get("Sid") == "AccessLogsOnlyToThisEnvironmentsGroup"]
         assert st["Effect"] == "Deny"
         assert sorted(_list(st["Action"])) == ["apigateway:PATCH", "apigateway:POST"]
@@ -576,7 +576,7 @@ def test_every_aws_call_the_fault_scripts_make_is_allowed_by_the_harness_policy(
     """The first live status run with the harness (2026-10-15) was refused cloudwatch:DescribeAlarms, lambda:ListTags
     and elasticache:ListTagsForResource: the policy was written by hand from the calls remembered. Every call through
     the harness's clients (`c.<client>.<method>(`) now maps to an allowed action."""
-    src = "".join((ROOT / "scenarios" / f).read_text(encoding="utf-8") for f in ("ops_fullstack.py", "fullstack_cli.py"))
+    src = "".join((ROOT / "fault-lab" / "scenarios" / f).read_text(encoding="utf-8") for f in ("ops_fullstack.py", "fullstack_cli.py"))
     calls = set(re.findall(r"\bc\.(" + "|".join(_HARNESS_CLIENTS) + r")\.([a-z_]+)\(", src))
     assert len(calls) >= 50, "the call scan found too little - the clients were renamed"
     allowed = [a for s in _load("dev", "harness")["Statement"] if s["Effect"] == "Allow" for a in _list(s["Action"])]
@@ -606,7 +606,7 @@ def test_the_harness_can_carry_the_operators_source_identity_to_the_reader():
     without sts:TagSession, for the certificate's transitive session tags (2026-10-15)."""
     st = next(s for s in _load("dev", "harness")["Statement"] if s.get("Sid") == "AssumeThisEnvironmentsReader")
     assert sorted(_list(st["Action"])) == ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
-    trust = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    trust = (ROOT / "infra" / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     assert 'actions = ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]' in trust
 
 
@@ -644,10 +644,10 @@ def test_the_actor_connects_only_as_this_accounts_terminate_login_and_its_render
     import sys
     import types
 
-    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    monkeypatch.syspath_prepend(str(ROOT / "infra" / "scripts"))
     import render_env_iam as r
 
-    actor = json.loads((ROOT / "iam" / "dev" / "actor.json").read_text(encoding="utf-8"))
+    actor = json.loads((ROOT / "infra" / "iam" / "dev" / "actor.json").read_text(encoding="utf-8"))
     [connect] = [s for s in actor["Statement"] if s["Action"] == "rds-db:connect"]
     assert connect["Resource"].split(":")[4] == "<ACCOUNT_ID>"
     monkeypatch.setattr(r, "ROOT", tmp_path)
@@ -656,10 +656,10 @@ def test_the_actor_connects_only_as_this_accounts_terminate_login_and_its_render
     fake.client = lambda name: types.SimpleNamespace(get_caller_identity=lambda: {"Account": "1" * 12})
     monkeypatch.setitem(sys.modules, "boto3", fake)
     assert r.main(["--account"]) == 0
-    local = json.loads((tmp_path / "iam" / "dev" / "actor.local.json").read_text(encoding="utf-8"))
+    local = json.loads((tmp_path / "infra" / "iam" / "dev" / "actor.local.json").read_text(encoding="utf-8"))
     [connect] = [s for s in local["Statement"] if s["Action"] == "rds-db:connect"]
     assert connect["Resource"].split(":")[4] == "1" * 12
-    assert (tmp_path / "iam" / "dev" / "actor-trust.local.json").is_file()
+    assert (tmp_path / "infra" / "iam" / "dev" / "actor-trust.local.json").is_file()
 
 
 def test_main_writes_every_file_each_option_asks_for_and_nothing_else(monkeypatch, tmp_path, capsys):
@@ -675,7 +675,7 @@ def test_main_writes_every_file_each_option_asks_for_and_nothing_else(monkeypatc
     cluster = "cluster-ABCDEFGHIJ1234"
     assert r.main(["--account", "--cluster-resource-id", cluster]) == 0
     runtime = r.runtime_environment()
-    assert capsys.readouterr().out == f"rendered {len(r.environments())} environments and the runtime ({runtime}) into iam/\n"
+    assert capsys.readouterr().out == f"rendered {len(r.environments())} environments and the runtime ({runtime}) into infra/iam/\n"
     want = {}
     for env in r.environments():
         want.update({f"{env}/{kind}.json": text for kind, text in r.render(env).items()})
@@ -687,7 +687,7 @@ def test_main_writes_every_file_each_option_asks_for_and_nothing_else(monkeypatc
             want[f"{env}/harness.local.json"] = r.render(env, cluster=cluster)["harness"]
     want.update({f"{runtime}/{kind}.json": text for kind, text in r.render_runtime(runtime).items()})
     want[f"{runtime}/trust.local.json"] = r.render_runtime(runtime, account)["trust"]
-    written = {p.relative_to(tmp_path / "iam").as_posix(): p.read_bytes() for p in (tmp_path / "iam").rglob("*.json")}
+    written = {p.relative_to(tmp_path / "infra" / "iam").as_posix(): p.read_bytes() for p in (tmp_path / "infra" / "iam").rglob("*.json")}
     assert sorted(written) == sorted(want)
     for name, text in want.items():
         assert written[name] == text.encode("utf-8"), name
@@ -696,4 +696,4 @@ def test_main_writes_every_file_each_option_asks_for_and_nothing_else(monkeypatc
 def test_main_without_options_writes_no_local_file(monkeypatch, tmp_path):
     monkeypatch.setattr(r, "ROOT", tmp_path)
     assert r.main([]) == 0
-    assert not list((tmp_path / "iam").rglob("*.local.json"))
+    assert not list((tmp_path / "infra" / "iam").rglob("*.local.json"))

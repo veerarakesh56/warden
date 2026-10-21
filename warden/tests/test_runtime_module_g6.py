@@ -1,4 +1,4 @@
-"""G6: the runtime module (terraform/modules/warden-runtime), held to the code it serves. Register C13: the alarm on
+"""G6: the runtime module (infra/terraform/modules/warden-runtime), held to the code it serves. Register C13: the alarm on
 missing heartbeats reads the exact metric the worker publishes, and reads silence as failure."""
 
 from __future__ import annotations
@@ -8,8 +8,8 @@ import re
 
 from warden import runtime
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODULE = ROOT / "terraform" / "modules" / "warden-runtime"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+MODULE = ROOT / "infra" / "terraform" / "modules" / "warden-runtime"
 
 
 def _block(text: str, kind: str, name: str) -> str:
@@ -112,7 +112,7 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
     # longer retention (FreeTierRestrictionError, 2026-10-09). Never set in production.
     assert ("condition     = var.audit_db_backup_days >= 7 || (var.aws_free_plan && var.audit_db_backup_days >= 1)"
             in variables)
-    root = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+    root = (ROOT / "infra" / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert 'aws_free_plan = lookup(local.tf, "aws_free_plan", "false") == "true"' in " ".join(root.split())
     net = (MODULE / "network.tf").read_text(encoding="utf-8")
     ingress = _block(net, "aws_vpc_security_group_ingress_rule", "audit_db_from_runtime")
@@ -127,7 +127,7 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
 def test_a_secret_the_owner_made_by_hand_is_adopted_not_created_again():
     """The Slack webhook's slot was made in the console before the first apply, which then failed with
     ResourceExistsException (2026-10-09). The root imports it - only an exact, single name match."""
-    root = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+    root = (ROOT / "infra" / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert 'adopt = ["slack-webhook"]' in root
     assert "to = module.runtime.aws_secretsmanager_secret.runtime[each.key]" in root
     assert 'if data.aws_secretsmanager_secrets.adopt[n].names == toset(["warden/${local.env}/${n}"])' in root
@@ -172,10 +172,10 @@ def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
     role = _block(iam, "aws_iam_role", "zone")
     assert "for_each             = local.zones" in role
     assert 'name                 = "warden-${var.environment}-${each.key}"' in role
-    reader = json.loads((ROOT / "iam" / "templates" / "platform-reader-trust.json").read_text(encoding="utf-8"))
+    reader = json.loads((ROOT / "infra" / "iam" / "templates" / "platform-reader-trust.json").read_text(encoding="utf-8"))
     assert {p for st in reader["Statement"] for p in st["Principal"]["AWS"]} == {
         f"arn:aws:iam::${{account}}:role/warden-${{runtime}}-{z}" for z in ("read", "notify", "act")}
-    actor = json.loads((ROOT / "iam" / "templates" / "actor-trust.json").read_text(encoding="utf-8"))
+    actor = json.loads((ROOT / "infra" / "iam" / "templates" / "actor-trust.json").read_text(encoding="utf-8"))
     assert {st["Principal"]["AWS"] for st in actor["Statement"]} == {"arn:aws:iam::${account}:role/warden-${runtime}-act"}
     actions = set(re.findall(r'"([a-z0-9-]+:[A-Za-z*]+)"', iam))
     assert not {a for a in actions if a.split(":")[0] in ("lambda", "ecs", "dynamodb", "events", "rds", "elasticache")}
@@ -184,8 +184,8 @@ def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
     module = _module_text().replace('variable "model_provider"', "")
     assert "bedrock:" not in module
     assert "bedrock_model_arns" not in module
-    assert "bedrock" not in (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8").lower()
-    assert "bedrock" not in (ROOT / "iam" / "templates" / "runtime-boundary.json").read_text(encoding="utf-8")
+    assert "bedrock" not in (ROOT / "infra" / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8").lower()
+    assert "bedrock" not in (ROOT / "infra" / "iam" / "templates" / "runtime-boundary.json").read_text(encoding="utf-8")
 
 
 # What each front door's handler reads from Secrets Manager, and the module that reads it - the map each Lambda's role
@@ -209,7 +209,7 @@ def test_each_lambda_has_its_own_role_that_reads_only_what_its_handler_reads():
     access = _front_door_access(iam)
     doors = re.findall(r"^    ([\w-]+)\s+= \{ handler = ", _frontdoor(), re.MULTILINE)
     assert set(access) == set(doors) == set(READS) == set(settings.LAMBDA_SECRETS)
-    src = ROOT / "src" / "warden"
+    src = ROOT / "warden" / "src" / "warden"
     for name, reads in READS.items():
         assert settings.LAMBDA_SECRETS[name] == set(reads), name
         assert access[name]["secrets"] == {_slug(n) for n in reads}, name
@@ -322,7 +322,7 @@ ZONE_READS = {
 def test_each_zone_reads_exactly_the_secrets_its_code_reads():
     from warden import settings
 
-    src = ROOT / "src" / "warden"
+    src = ROOT / "warden" / "src" / "warden"
     held = {n: {z for z, names in settings.ZONE_SECRETS.items() if n in names}
             for n in set().union(*settings.ZONE_SECRETS.values())}
     assert set(held) == set(ZONE_READS), "a zone secret with no reader named here, or a reader with no grant"
@@ -430,8 +430,8 @@ def test_the_lambdas_get_the_names_the_runtime_reads():
 
 
 def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_extra():
-    text = re.sub(r"\\\n\s*", "", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
-    plain = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    text = re.sub(r"\\\n\s*", "", (ROOT / "warden" / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
+    plain = (ROOT / "warden" / "Dockerfile").read_text(encoding="utf-8")
     froms = re.findall(r"^FROM (\S+)", text, re.MULTILINE)
     assert froms
     assert all("@sha256:" in f for f in froms)
@@ -439,7 +439,7 @@ def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_ex
     assert "uv sync --locked --no-build --no-editable --extra runtime" in text
     assert "USER warden" in text
     assert "check_package.py" in text
-    py = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    py = (ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(r'^runtime = \["awslambdaric>=4\.1"', py, re.MULTILINE)
     # The SDK of every model provider the deploy may pick for the llm zone (qualified in data/providers.yaml).
     from warden.providers import load_qualified
@@ -462,7 +462,7 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     assert 'cpu_architecture        = "X86_64"' in task
     assert 'mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]' in task
     assert "linuxParameters" not in task  # Fargate has no tmpfs
-    dockerfile = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "warden" / "Dockerfile.runtime").read_text(encoding="utf-8")
     # The volume takes the image's /tmp: Debian's 1777, checked at build (else it would be root's 0755).
     assert ('RUN useradd --create-home --uid 10001 warden \\\n'
             '    && test "$(stat -c \'%a %U\' /tmp)" = "1777 root"\nVOLUME ["/tmp"]\nUSER warden') in dockerfile
@@ -478,7 +478,7 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     assert "for_each                 = local.zones" in task
     # Cost plan 2026-10-16: Container Insights was ~USD 40 a month of custom metrics nothing reads.
     assert re.search(r'name\s*=\s*"containerInsights"\s*value\s*=\s*"disabled"', _block(tf, "aws_ecs_cluster", "runtime"))
-    uid = re.search(r"useradd --create-home --uid (\d+)", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))
+    uid = re.search(r"useradd --create-home --uid (\d+)", (ROOT / "warden" / "Dockerfile.runtime").read_text(encoding="utf-8"))
     assert f'user                   = "{uid.group(1)}"' in task
     assert 'command                = ["worker", "--zone", each.key, "--platform", length(each.value.platforms) > 0 ? join(",", each.value.platforms) : "none"]' in task
     assert 'WARDEN_HEARTBEAT_NAMESPACE   = "WARDEN/${var.environment}"' in task
@@ -590,7 +590,7 @@ def test_paused_the_runtime_keeps_its_audit_and_stops_its_spend():
     assert 'state       = var.paused ? "DISABLED" : "ENABLED"' in _block(front, "aws_cloudwatch_event_rule", "alarms")
     beat = (MODULE / "heartbeat.tf").read_text(encoding="utf-8")
     assert beat.count("actions_enabled     = !var.paused") == 2
-    net = (ROOT / "terraform" / "runtime" / "network.tf").read_text(encoding="utf-8")
+    net = (ROOT / "infra" / "terraform" / "runtime" / "network.tf").read_text(encoding="utf-8")
     assert "count  = local.paused ? 0 : var.nat_gateways" in net
     assert "count         = local.paused ? 0 : var.nat_gateways" in net
     assert "count                  = local.paused ? 0 : 2" in net

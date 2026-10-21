@@ -166,7 +166,7 @@ READ_OPERATIONS = frozenset({
     "DescribeUserPool", "ListServices", "GetJobRuns", "GetWorkGroup", "DescribeKey",
     "DescribeCertificate", "GetCanary",
     # Every other read the stack readers call (G10 review, 2026-10-10: a failed ListExecutions or StartQuery lost its
-    # operation; tests/test_evidence_g10a.py derives this set from the readers' source so it cannot fall behind).
+    # operation; warden/tests/test_evidence_g10a.py derives this set from the readers' source so it cannot fall behind).
     "DescribeExecution", "DescribeLoadBalancerAttributes", "DescribeNetworkAcls", "DescribeNodegroup",
     "DescribeRouteTables", "DescribeScalingActivities", "DescribeSubnets", "DescribeTasks", "GetQueryResults",
     "GetResourceMetrics", "ListApplications", "ListDeployments", "ListEnvironments", "ListExecutions",

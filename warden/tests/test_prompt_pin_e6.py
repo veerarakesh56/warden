@@ -12,8 +12,8 @@ import pytest
 
 from warden.providers import load_qualified
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("qualify_provider_e6", ROOT / "scripts" / "qualify_provider.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("qualify_provider_e6", ROOT / "warden" / "scripts" / "qualify_provider.py")
 qualify = importlib.util.module_from_spec(_spec)
 sys.modules["qualify_provider_e6"] = qualify
 _spec.loader.exec_module(qualify)
@@ -22,8 +22,8 @@ _spec.loader.exec_module(qualify)
 def test_the_prompt_is_the_one_the_models_were_qualified_with():
     pinned = load_qualified()["prompt"]["sha"]
     assert qualify.prompt_fingerprint() == pinned, (
-        "the prompt changed: qualify the model again with it (scripts/qualify_provider.py) and update the pin in "
-        "src/warden/data/providers.yaml in the same commit")
+        "the prompt changed: qualify the model again with it (warden/scripts/qualify_provider.py) and update the pin in "
+        "warden/src/warden/data/providers.yaml in the same commit")
 
 
 def test_the_fingerprint_is_stable_and_ignores_only_the_random_data_marker():

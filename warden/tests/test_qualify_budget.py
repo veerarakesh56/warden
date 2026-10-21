@@ -1,4 +1,4 @@
-"""A paid model's qualification run has a hard total-spend ceiling (scripts/qualify_provider.py --budget-usd)."""
+"""A paid model's qualification run has a hard total-spend ceiling (warden/scripts/qualify_provider.py --budget-usd)."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import pytest
 
 from warden.llm import BudgetExceeded
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("qualify_provider_b", ROOT / "scripts" / "qualify_provider.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("qualify_provider_b", ROOT / "warden" / "scripts" / "qualify_provider.py")
 qualify = importlib.util.module_from_spec(_spec)
 sys.modules["qualify_provider_b"] = qualify
 _spec.loader.exec_module(qualify)

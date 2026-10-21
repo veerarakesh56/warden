@@ -1,7 +1,7 @@
 # Messaging (SQS, SNS), the six Lambdas, their triggers (SQS mappings, EventBridge, API Gateway).
 #
 # ⛔ The Lambdas are created from a PLACEHOLDER zip and every code field is ignored afterwards. The
-# real code is deployed by `scripts/deploy_fullstack_apps.py deploy lambdas`, which also publishes a
+# real code is deployed by `demo-app/scripts/deploy_fullstack_apps.py deploy lambdas`, which also publishes a
 # version and moves checkout's `live` alias. Configuration (env, timeout, memory, VPC) stays here.
 
 # --------------------------------------------------------------------------- SQS + SNS
@@ -66,8 +66,8 @@ data "archive_file" "placeholder" {
   source {
     filename = "app.py"
     content  = <<-PY
-      # Placeholder created by terraform/fullstack. The APPS pipeline replaces this code:
-      #   python scripts/deploy_fullstack_apps.py deploy lambdas
+      # Placeholder created by infra/terraform/fullstack. The APPS pipeline replaces this code:
+      #   python demo-app/scripts/deploy_fullstack_apps.py deploy lambdas
       def handler(event, context):
           print("placeholder code: the apps pipeline has not deployed this function yet")
           return {"statusCode": 503, "body": "not deployed"}
@@ -96,7 +96,7 @@ locals {
         TABLE_NAME = aws_dynamodb_table.carts.name
         TOPIC_ARN  = aws_sns_topic.order_events.arn
         # Fault flags at their baseline values, so the variable NAMES never change during a fault
-        # (scenarios/ops_fullstack.py FLAGS): fs-01 sets v2, fs-02 sets 2000.
+        # (fault-lab/scenarios/ops_fullstack.py FLAGS): fs-01 sets v2, fs-02 sets 2000.
         CHECKOUT_FF_1    = "v1"
         CHECKOUT_FF_2    = "0"
         API_TOKEN_SECRET = aws_secretsmanager_secret.api_token.arn # A-I-13: the token POST /checkout requires

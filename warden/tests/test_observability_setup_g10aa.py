@@ -1,4 +1,4 @@
-"""scripts/observability_setup.py: from the owner's broader setup keys, WARDEN's narrow Datadog credentials made and
+"""warden/scripts/observability_setup.py: from the owner's broader setup keys, WARDEN's narrow Datadog credentials made and
 stored - again and again without a second of anything, and never printed. The runtime and the test stack's agent each
 hold an API key of their own (secrets audit, 2026-10-16)."""
 
@@ -13,7 +13,7 @@ import urllib.parse
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 API_KEY = "dd-api-" + "a" * 12
 AGENT_KEY = "dd-agent-" + "e" * 12
 ADMIN_APP = "dd-admin-" + "b" * 12
@@ -22,7 +22,7 @@ ids = itertools.count(1)
 
 
 def _setup():
-    spec = importlib.util.spec_from_file_location("observability_setup", ROOT / "scripts" / "observability_setup.py")
+    spec = importlib.util.spec_from_file_location("observability_setup", ROOT / "warden" / "scripts" / "observability_setup.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

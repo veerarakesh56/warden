@@ -15,7 +15,7 @@ from test_killswitch_reset_g10m import World
 from warden import bounds, cli
 from warden.approval_page import RESET_INVITE, STOP_INVITE
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 WHY = "orders is flapping after every fix; stop until we look"
 
 
@@ -89,5 +89,5 @@ def test_the_cli_never_says_on_for_a_switch_it_did_not_reach(tmp_path, monkeypat
 
 
 def test_the_front_door_routes_the_stop():
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert '"GET /x/{token}", "POST /x/{token}/{step}"' in tf

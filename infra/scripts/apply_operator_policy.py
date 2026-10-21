@@ -1,15 +1,15 @@
 """The operator editing its own policy - the self-edit the permissions boundary makes safe.
 
-    python scripts/apply_operator_policy.py [DOC.json] [POLICY_NAME]            # dry run: compare only
-    python scripts/apply_operator_policy.py [DOC.json] [POLICY_NAME] --apply    # push it
+    python infra/scripts/apply_operator_policy.py [DOC.json] [POLICY_NAME]            # dry run: compare only
+    python infra/scripts/apply_operator_policy.py [DOC.json] [POLICY_NAME] --apply    # push it
 
 Without --apply nothing is written (audit A-B-L21: it changed IAM the moment it was run, even imported).
 
 Defaults to operator-policy.json -> WardenProvingGroundOperator, run as the operator itself.
 To push the BOUNDARY instead, name both:
 
-    python scripts/apply_operator_policy.py \
-        terraform/proving-ground/operator-policy-boundary.json WardenProvingGroundBoundary
+    python infra/scripts/apply_operator_policy.py \
+        infra/terraform/proving-ground/operator-policy-boundary.json WardenProvingGroundBoundary
 
 ⛔ THE SECOND FORM CANNOT BE RUN BY warden-operator, and that is the point. The boundary denies
 the operator every write to the boundary itself (`DenyTouchingThisBoundary`), so raising the
@@ -17,8 +17,8 @@ ceiling requires an identity outside it. Run it with the admin credentials that 
 boundary; running it as the operator fails with AccessDenied and changes nothing.
 
 Pushes the document as the new default version of WardenProvingGroundOperator and checks the live
-document is byte-for-byte the repo's. Run `pytest tests/test_operator_policy.py` and
-`scripts/validate_policies.py` first; the boundary is the ceiling, those are the review.
+document is byte-for-byte the repo's. Run `pytest warden/tests/test_operator_policy.py` and
+`infra/scripts/validate_policies.py` first; the boundary is the ceiling, those are the review.
 
 Prints version ids and error CODES only: AWS error messages carry the account id.
 Keeps the previous default as the rollback; deletes the oldest non-default only if all 5 are used.
@@ -29,7 +29,7 @@ import pathlib
 import sys
 import urllib.parse
 
-DEFAULT_DOC = pathlib.Path(__file__).resolve().parents[1] / "terraform" / "proving-ground" / "operator-policy.json"
+DEFAULT_DOC = pathlib.Path(__file__).resolve().parents[2] / "infra" / "terraform" / "proving-ground" / "operator-policy.json"
 
 
 def main(argv: list[str] | None = None) -> int:

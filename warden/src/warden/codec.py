@@ -30,7 +30,7 @@ Honest limits:
 Rotation (register S4): payloads are always encrypted with the current key, and decrypted with whichever key their
 metadata names - the current one or one of `WARDEN_TEMPORAL_KEY_PREVIOUS` (comma-separated, base64). A workflow
 started before a rotation keeps reading its own history; drop the old key once no running workflow needs it
-(docs/OPERATIONS.md).
+(warden/docs/OPERATIONS.md).
 """
 
 from __future__ import annotations

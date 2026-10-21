@@ -2,7 +2,7 @@
 # Deployments, ConfigMap, Secret, the warden ServiceAccount) is applied by the APPS pipeline from
 # k8s/fullstack/.
 #
-# Lessons carried over from terraform/proving-ground/eks.tf (Wave 2, measured):
+# Lessons carried over from infra/terraform/proving-ground/eks.tf (Wave 2, measured):
 #  - endpoint_private_access MUST be true while the public endpoint is locked to one IP, or nodes
 #    reach the API from their own public IPs, are refused, and never join (~20 billed minutes).
 #  - on a fresh account create the node-group service-linked role FIRST (README): CreateNodegroup
@@ -60,7 +60,7 @@ resource "aws_eks_cluster" "this" {
 # public endpoint through their NAT gateways, so those addresses are let in - read by the runtime's own NAT names, never
 # written here. A paused runtime has no NAT and adds nothing; an un-paused one has new addresses, so re-apply this stack
 # after resuming the runtime, or WARDEN's cluster reads and fixes are refused and go to a person until then.
-# Only the runtime stack's own addresses (review, PR 48): its name, and the tags terraform/runtime's provider sets on
+# Only the runtime stack's own addresses (review, PR 48): its name, and the tags infra/terraform/runtime's provider sets on
 # everything it makes. The runtime lives in this account and in environments.yaml's region; a stack applied in another
 # region would find no addresses and silently leave WARDEN out, so that plan is refused instead.
 data "aws_eips" "runtime_nat" {
@@ -83,14 +83,14 @@ data "aws_eips" "runtime_nat" {
 
   lifecycle {
     precondition {
-      condition     = local.region == yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region
+      condition     = local.region == yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).aws_region
       error_message = "WARDEN's runtime runs in environments.yaml's aws_region; this stack's region differs, so its NAT addresses cannot be found to let it reach the cluster endpoint."
     }
   }
 }
 
 locals {
-  runtime_env    = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).runtime
+  runtime_env    = yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).runtime
   eks_cidrs_base = coalesce(var.eks_public_access_cidrs, [local.my_ip_cidr])
   # An endpoint already open to everyone (EKS_PUBLIC_CIDRS, audit A-I-16) needs no more addresses.
   eks_public_access_cidrs = contains(local.eks_cidrs_base, "0.0.0.0/0") ? local.eks_cidrs_base : distinct(concat(
@@ -116,12 +116,12 @@ resource "aws_eks_access_entry" "warden_reader" {
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-platform-reader"
   # And one read beyond the view policy: the shop's Argo CD Application, to prove its self-heal ignores a restart
-  # (register C4; k8s/argocd/shop.yaml grants exactly that).
+  # (register C4; demo-app/k8s/argocd/shop.yaml grants exactly that).
   kubernetes_groups = ["warden-readers"]
 }
 
-# WARDEN's actor writes only as the remediator group (k8s/remediation-rbac.yaml: get and patch Deployments, list HPAs,
-# bound in the shop namespace by manifests/shop/base/warden-rbac.yaml; the admission policy holds each patch to a
+# WARDEN's actor writes only as the remediator group (infra/k8s/remediation-rbac.yaml: get and patch Deployments, list HPAs,
+# bound in the shop namespace by demo-app/manifests/shop/base/warden-rbac.yaml; the admission policy holds each patch to a
 # restart or a bounded scale). No access policy: RBAC alone decides. The username carries the session name - the
 # incident (identity.actor_session) - into the Kubernetes audit log. The role is assumed only for one approved plan.
 resource "aws_eks_access_entry" "warden_actor" {

@@ -238,7 +238,7 @@ def _github(doc: dict[str, Any], envs: dict[str, EnvPolicy]) -> dict[str, str]:
         raise EnvironmentPolicyError("`github` needs `repository` (owner/name) and `subject` "
                                      "(owner@owner-id/name@repository-id)")
     # The runtime pipeline runs from an application environment's own branch (owner, 2026-10-16): the branch the
-    # runtime's deploy role trusts, rendered into iam/<runtime>/trust.json.
+    # runtime's deploy role trusts, rendered into infra/iam/<runtime>/trust.json.
     branch = github.get("runtime_branch")
     if github and not (isinstance(branch, str) and branch in envs):
         raise EnvironmentPolicyError("`github.runtime_branch` must name an application environment, whose branch "

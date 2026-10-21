@@ -1,13 +1,13 @@
 # AWS setup for the proving ground — which identity, which permissions
 
-Read this before running anything in `terraform/proving-ground/`, the single-platform stack the recorded
+Read this before running anything in `infra/terraform/proving-ground/`, the single-platform stack the recorded
 ECS, EKS and RDS benchmark runs used. It answers one question: **what do I create in AWS, and with what
-permissions?** For WARDEN's runtime and the per-environment roles, see [SETUP.md](SETUP.md).
+permissions?** For WARDEN's runtime and the per-environment roles, see [SETUP.md](../../docs/SETUP.md).
 
 > **Status (audit 2026-10-16).** The proving ground is not deployed: none of the `warden-pg-*` roles and
 > none of the `WardenProvingGround*` policies below exist in the account. They are what a re-run of Waves
-> 1-3 would create (R52/R53, owner 2026-10-02). Today's operator is the role in `iam/operator/`; the
-> per-environment roles are rendered into `iam/<env>/`.
+> 1-3 would create (R52/R53, owner 2026-10-02). Today's operator is the role in `infra/iam/operator/`; the
+> per-environment roles are rendered into `infra/iam/<env>/`.
 
 ---
 
@@ -18,11 +18,11 @@ permissions?** For WARDEN's runtime and the per-environment roles, see [SETUP.md
 | **The operator** | **You**, by hand, once | Create and destroy the proving ground; inject faults into it | Terraform and the fault injector run as this |
 | **The reader** (`warden-pg-*-reader`) | **Terraform**, every apply | **Four read actions and nothing else** | ⭐ WARDEN runs as this, so "read-only" is enforced by IAM during a run rather than asserted about the source code |
 
-⛔ **Do not create the reader role by hand.** `terraform/proving-ground/iam.tf` creates it, and
-`tests/test_aws_backend.py` asserts both the deployment module's task role (`terraform/main.tf`)
-and the proving-ground reader (`terraform/proving-ground/iam.tf`) grant exactly the calls
-`src/warden/aws_backend.py` makes — in *both* directions, so neither can drift from the code. (Until
-2026-09-25 only `terraform/main.tf` was under that test, although the reader's comment said
+⛔ **Do not create the reader role by hand.** `infra/terraform/proving-ground/iam.tf` creates it, and
+`warden/tests/test_aws_backend.py` asserts both the deployment module's task role (`infra/terraform/main.tf`)
+and the proving-ground reader (`infra/terraform/proving-ground/iam.tf`) grant exactly the calls
+`warden/src/warden/aws_backend.py` makes — in *both* directions, so neither can drift from the code. (Until
+2026-09-25 only `infra/terraform/main.tf` was under that test, although the reader's comment said
 otherwise.) A
 hand-made copy would drift on the first change and nothing would notice.
 
@@ -51,8 +51,8 @@ statements over identity and data-store destruction.
 with a region condition. This identity can still create networking and compute in that region. It
 is meant not to touch your IAM users or access keys. **⚠ Known gap:** `operator-policy.json` lets
 the operator log in to a proving-ground database as its master user and edit its own policy. Use it only
-in an account that holds nothing else, and prefer the read-only, key-less operator role in `iam/operator/`
-([SETUP.md](SETUP.md), section 3d) for anything that is not building the proving ground.
+in an account that holds nothing else, and prefer the read-only, key-less operator role in `infra/iam/operator/`
+([SETUP.md](../../docs/SETUP.md), section 3d) for anything that is not building the proving ground.
 
 ### 3. Never: the root user
 
@@ -70,7 +70,7 @@ credentials, so there is no long-lived secret on your laptop to leak. The AWS Ag
 `aws login` uses this browser flow.
 
 If you use an IAM user instead: **enable MFA on it**, and treat its access key as a real secret —
-`scripts/check_publishable.py` will fail the build if one is ever committed, but the better answer is
+`warden/scripts/check_publishable.py` will fail the build if one is ever committed, but the better answer is
 for it never to exist.
 
 ### Step 2 — attach the policy
@@ -135,7 +135,7 @@ aws sts get-caller-identity     # must print YOUR account. This is the one that 
 Then:
 
 ```bash
-cd terraform/proving-ground
+cd infra/terraform/proving-ground
 cp terraform.tfvars.example terraform.tfvars
 # set: region, your public IP as a /32 (curl -s https://checkip.amazonaws.com), budget email
 terraform init
@@ -197,7 +197,7 @@ account - EKS for Wave 2 and RDS for Wave 3, 2026-09-24/25 - and the fixes that 
 commits `feb6183` (two service-linked roles and an IP) and `8ceb9dd` (EKS nodes reaching an API
 endpoint locked to one address).
 
-⭐ Before pasting any policy, run `python scripts/check_iam_actions.py`. It checks every action
+⭐ Before pasting any policy, run `python infra/scripts/check_iam_actions.py`. It checks every action
 against AWS's own published list — it would have caught `budgets:DescribeBudget`, which was in this
 file and does not exist. It cannot tell you an action is *missing*; only an apply does that.
 

@@ -121,7 +121,7 @@ variable "aws_free_plan" {
 }
 
 variable "watched_environments" {
-  description = "The environments this runtime diagnoses and fixes: their platform-reader and actor roles (iam/<env>/) are the only roles the worker may assume."
+  description = "The environments this runtime diagnoses and fixes: their platform-reader and actor roles (infra/iam/<env>/) are the only roles the worker may assume."
   type        = list(string)
   validation {
     condition     = length(var.watched_environments) > 0 && alltrue([for e in var.watched_environments : can(regex("^[a-z][a-z0-9-]{1,30}$", e))])
@@ -130,7 +130,7 @@ variable "watched_environments" {
 }
 
 variable "runtime_image" {
-  description = "The runtime image (Dockerfile.runtime) by digest: the ECR URI ending @sha256:... that runtime.yml built, signed and attested."
+  description = "The runtime image (Dockerfile.runtime) by digest: the ECR URI ending @sha256:... that warden-runtime-deploy.yml built, signed and attested."
   type        = string
   validation {
     condition     = can(regex("@sha256:[0-9a-f]{64}$", var.runtime_image))
@@ -213,13 +213,13 @@ variable "permissions_boundary_arn" {
 }
 
 variable "model_provider" {
-  description = "The provider the llm zone calls (src/warden/providers.py: gemini, bedrock, ...); empty: the CLI's default. It must be qualified (register M20) or every incident is escalated on the rules alone."
+  description = "The provider the llm zone calls (warden/src/warden/providers.py: gemini, bedrock, ...); empty: the CLI's default. It must be qualified (register M20) or every incident is escalated on the rules alone."
   type        = string
   default     = ""
 }
 
 variable "critic_provider" {
-  description = "The provider Eldane, the AI critic, calls in the critic zone (src/warden/eldane.py): anthropic, with the diagnosis's key, using for each incident the Claude model that did not diagnose it (data/providers.yaml critic); empty: no Eldane, and a person approves every plan as before."
+  description = "The provider Eldane, the AI critic, calls in the critic zone (warden/src/warden/eldane.py): anthropic, with the diagnosis's key, using for each incident the Claude model that did not diagnose it (data/providers.yaml critic); empty: no Eldane, and a person approves every plan as before."
   type        = string
   default     = "anthropic"
   validation {

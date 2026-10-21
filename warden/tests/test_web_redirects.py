@@ -35,7 +35,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from warden import changes, chatops, datadog, grafana, slack_login, timeline, web, webhooks
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 HOME, ELSEWHERE = "api.warden.test", "elsewhere.test"  # .test is reserved (RFC 2606): both resolve to 127.0.0.1 here
 CREDENTIAL = "Bearer " + "test" + "-credential-" + "0" * 16
 PROXIES = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
@@ -252,7 +252,8 @@ class _FakeHTTPS(urllib.request.BaseHandler):
 
 
 def _script(name: str):
-    spec = importlib.util.spec_from_file_location(f"rd_{name}", ROOT / "scripts" / f"{name}.py")
+    spec = importlib.util.spec_from_file_location(
+        f"rd_{name}", next(p for c in ("warden", "infra", "demo-app", "fault-lab") if (p := ROOT / c / "scripts" / f"{name}.py").exists()))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -322,7 +323,7 @@ def test_every_credentialed_caller_reads_a_redirect_elsewhere_as_a_failed_read(c
 # A string that names a credential header: the bearer/basic header, a cookie, an API key or token header.
 _CREDENTIAL_HEADER = re.compile(r"(?i)authorization|proxy-authorization|cookie|x-api-key|dd-[a-z-]*-key|x-[a-z-]*-(token|key)")
 _BARE = {"urllib.request.urlopen", "urllib.request.build_opener", "urllib.request.OpenerDirector"}
-SOURCES = [*sorted((ROOT / "src" / "warden").rglob("*.py")), *sorted((ROOT / "scripts").glob("*.py"))]
+SOURCES = [*sorted((ROOT / "warden" / "src" / "warden").rglob("*.py")), *sorted(p for c in ("warden", "infra", "demo-app", "fault-lab") for p in (ROOT / c / "scripts").glob("*.py"))]
 
 
 @functools.cache

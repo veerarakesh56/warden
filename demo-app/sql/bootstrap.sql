@@ -1,4 +1,4 @@
--- Wave 4 schema + roles. Applied by `python scripts/deploy_fullstack_apps.py bootstrap-db` as the
+-- Wave 4 schema + roles. Applied by `python demo-app/scripts/deploy_fullstack_apps.py bootstrap-db` as the
 -- master user postgres (an IAM token from the operator's own identity), NOT by terraform.
 -- Idempotent: safe to run again.
 --
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 
--- fs-16 drops orders_customer_id_idx (scenarios/ops_fullstack.py Target.slow_index) and the
+-- fs-16 drops orders_customer_id_idx (fault-lab/scenarios/ops_fullstack.py Target.slow_index) and the
 -- reconciler's by_customer lookup starts scanning; the fix is CREATE INDEX CONCURRENTLY.
 CREATE INDEX IF NOT EXISTS orders_customer_id_idx ON orders (customer_id);
 CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders (created_at);
@@ -63,7 +63,7 @@ GRANT SELECT ON orders TO __CATALOG__;
 GRANT pg_monitor TO __RO__;
 
 -- WARDEN's one write to the database: closing the application's sessions an approved plan names
--- (src/warden/platforms/db.py). pg_signal_backend to close a non-superuser's session, pg_read_all_stats to see
+-- (warden/src/warden/platforms/db.py). pg_signal_backend to close a non-superuser's session, pg_read_all_stats to see
 -- whose sessions are idle or blocking - no table, no CONNECT beyond PUBLIC's. Its token is signed only by an
--- approved plan's actor session (iam/<env>/actor.json: rds-db:connect as this user, SourceIdentity inc-*).
+-- approved plan's actor session (infra/iam/<env>/actor.json: rds-db:connect as this user, SourceIdentity inc-*).
 GRANT pg_signal_backend, pg_read_all_stats TO __TERMINATE__;

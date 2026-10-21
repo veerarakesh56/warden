@@ -23,7 +23,7 @@ from warden.llm import LLMClient
 from warden.models import Alert, ContextBundle, Severity
 from warden.workflows import INVESTIGATE_ROUNDS, IncidentWorkflow
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 QUEUE = "investigate-test"
 
 
@@ -94,7 +94,7 @@ def test_a_bad_request_is_dropped_never_the_answer():
 
 
 def test_the_llm_zone_holds_six_calls_and_a_quarter_dollar_per_incident(monkeypatch):
-    compute = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
+    compute = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
     assert 'each.key == "llm" ? { WARDEN_MAX_CALLS = "6", WARDEN_MAX_USD = "0.25" } : {}' in compute
     monkeypatch.setenv("WARDEN_MAX_CALLS", "6")
     monkeypatch.setenv("WARDEN_MAX_USD", "0.25")

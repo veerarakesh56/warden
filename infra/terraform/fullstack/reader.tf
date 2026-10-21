@@ -3,9 +3,9 @@
 # Expects from the other files in this module (declared there, not here):
 #   local.permissions_boundary, local.region, local.tags, data.aws_caller_identity.current
 #
-# ⭐ The policy below is EXACTLY the calls src/warden/aws_stack.py makes, plus the ones
-# src/warden/aws_backend.py makes (the stack backend reuses it for ECS and for log reads).
-# tests/test_aws_stack.py walks both modules' AST and asserts set equality with this list in BOTH
+# ⭐ The policy below is EXACTLY the calls warden/src/warden/aws_stack.py makes, plus the ones
+# warden/src/warden/aws_backend.py makes (the stack backend reuses it for ECS and for log reads).
+# warden/tests/test_aws_stack.py walks both modules' AST and asserts set equality with this list in BOTH
 # directions, so the grant can neither fall behind the code (an AccessDenied mid-incident) nor
 # drift ahead of it (a standing grant nothing uses). Every action is a read. Deliberately absent:
 # secretsmanager:GetSecretValue (DescribeSecret is metadata only), s3:GetObject (the Lambda package
@@ -143,10 +143,10 @@ data "aws_iam_policy_document" "fs_reader" {
       "logs:StopQuery",
       "rds:DescribeDBInstances",
       "rds:DescribeEvents",
-      # Quotas that have a usage metric (B14, src/warden/quotas.py, on with WARDEN_QUOTAS=1): no resource is named.
+      # Quotas that have a usage metric (B14, warden/src/warden/quotas.py, on with WARDEN_QUOTAS=1): no resource is named.
       "servicequotas:ListServiceQuotas",
       "sts:GetCallerIdentity",
-      # Failed traces of the named services (G10-54, src/warden/xray.py, on with WARDEN_XRAY=1): no resource type.
+      # Failed traces of the named services (G10-54, warden/src/warden/xray.py, on with WARDEN_XRAY=1): no resource type.
       "xray:GetTraceSummaries",
     ]
     resources = ["*"]
@@ -162,8 +162,8 @@ data "aws_iam_policy_document" "fs_reader" {
   }
 
   # ⭐ NOT a call WARDEN makes. The harness signs WARDEN's warden_<env>_ro database token with THIS role's
-  # credentials (scenarios/fullstack_cli.py), so the database login WARDEN uses is authorised by the
-  # role WARDEN runs as - and by nothing else. tests/test_aws_stack.py names it as the one exception
+  # credentials (fault-lab/scenarios/fullstack_cli.py), so the database login WARDEN uses is authorised by the
+  # role WARDEN runs as - and by nothing else. warden/tests/test_aws_stack.py names it as the one exception
   # to "grant exactly what the code calls". That user holds pg_monitor only (bootstrap.sql).
   statement {
     sid       = "ConnectAsWardenRo"

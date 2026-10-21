@@ -8,8 +8,8 @@ import pathlib
 
 from botocore.exceptions import ClientError
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("account_sweep", ROOT / "scripts" / "account_sweep.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("account_sweep", ROOT / "infra" / "scripts" / "account_sweep.py")
 sweep_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sweep_mod)
 
@@ -122,7 +122,7 @@ def test_every_region_is_swept_not_only_the_home_region():
 
 
 def test_the_sweep_role_policy_allows_every_call_the_sweep_makes_and_nothing_else():
-    """iam/operator/sweep-policy.json is least privilege: one listing action per
+    """infra/iam/operator/sweep-policy.json is least privilege: one listing action per
     check, plus the tag reads. A check added without its action would come back BLIND."""
     import json
 
@@ -136,7 +136,7 @@ def test_the_sweep_role_policy_allows_every_call_the_sweep_makes_and_nothing_els
         action = action.replace("Db", "DB")  # rds spells it DescribeDBInstances
         action = {"ListBuckets": "ListAllMyBuckets"}.get(action, action)  # IAM's name for the S3 call
         wanted.add(f"{prefix.get(service, service)}:{action}")
-    policy = json.loads((ROOT / "iam" / "operator" / "sweep-policy.json").read_text())
+    policy = json.loads((ROOT / "infra" / "iam" / "operator" / "sweep-policy.json").read_text())
     listed = set(policy["Statement"][0]["Action"])
     assert listed == wanted, (wanted - listed, listed - wanted)
     api = policy["Statement"][1]

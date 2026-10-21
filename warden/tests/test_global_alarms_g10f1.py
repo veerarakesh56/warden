@@ -17,8 +17,8 @@ from warden.environments import EnvironmentPolicies
 from warden.models import Alert, Severity
 from warden.tools import ToolError
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("forward", ROOT / "scripts" / "forward_global_alarms.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location("forward", ROOT / "infra" / "scripts" / "forward_global_alarms.py")
 forward = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(forward)
 CFG = EnvironmentPolicies.load()
@@ -139,7 +139,7 @@ def test_a_region_that_is_not_a_region_name_reads_nothing():
 
 
 def test_the_reader_role_may_read_the_global_regions_alarms_metrics_and_changes_only_there():
-    doc = json.loads((ROOT / "iam" / "templates" / "platform-diagnose.json").read_text(encoding="utf-8"))
+    doc = json.loads((ROOT / "infra" / "iam" / "templates" / "platform-diagnose.json").read_text(encoding="utf-8"))
     st = {s["Sid"]: s for s in doc["Statement"]}
     assert st["GlobalServicesAlarmsOfThisEnvironment"]["Resource"] == \
         "arn:aws:cloudwatch:${global_region}:*:alarm:warden-${env}-*"

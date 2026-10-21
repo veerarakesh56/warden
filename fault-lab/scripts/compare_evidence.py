@@ -1,17 +1,17 @@
 """Which observability tool helps WARDEN most? The same fault diagnosed four times, one tool beside AWS each time.
 
-    python scripts/compare_evidence.py --dry-run                      # the plan; touches nothing
-    python scripts/compare_evidence.py --out ~/warden-bench-runs/compare-evidence/2026-10-14
-    python scripts/compare_evidence.py --faults fs-10,fs-16 --tools none,xray --out DIR
+    python fault-lab/scripts/compare_evidence.py --dry-run                      # the plan; touches nothing
+    python fault-lab/scripts/compare_evidence.py --out ~/warden-bench-runs/compare-evidence/2026-10-14
+    python fault-lab/scripts/compare_evidence.py --faults fs-10,fs-16 --tools none,xray --out DIR
 
 Owner, 2026-10-14: "use all 3 of them (X-Ray, Grafana, Datadog) and compare and show which is better".
 
-Per fault, on the test stack (terraform/fullstack), with the Wave 4 harness's own steps (scenarios/fullstack_cli.py):
+Per fault, on the test stack (infra/terraform/fullstack), with the Wave 4 harness's own steps (fault-lab/scenarios/fullstack_cli.py):
 inject it and wait for its alarm (step_inject), then diagnose the SAME injected state once per tool - evidence from
 AWS alone ("none"), AWS + X-Ray, AWS + Grafana, AWS + Datadog - by setting WARDEN_EVIDENCE_TOOLS in WARDEN's
-environment (src/warden/tools.py evidence_tools), each diagnosis through step_diagnose in its own run directory
+environment (warden/src/warden/tools.py evidence_tools), each diagnosis through step_diagnose in its own run directory
 (<out>/<tool>/, which scenarios.score can grade on its own), then revert (step_revert). Each run is graded with the
-harness's rubric (scenarios/score.py score_one) and measured: correct or not, the action and whether the gate let it
+harness's rubric (fault-lab/scenarios/score.py score_one) and measured: correct or not, the action and whether the gate let it
 through, tokens and cost (the report's CostRecord), the wall time of WARDEN's process, and what the tool added (its
 XRAY / GRAFANA / DATADOG / GITHUB lines, and whether a dependency line named the faulted component).
 
@@ -20,7 +20,7 @@ The order of the tools rotates from fault to fault, so no tool is always the one
 The tools' settings: WARDEN's environment is built from nothing (runner.py), so the chosen tool's settings are added to
 that one run's environment only, never recorded on disk. They come from this shell, or from the
 --settings-env environment's SSM parameters and Secrets Manager secrets (default the WARDEN runtime's - environments.yaml `runtime` - where
-scripts/observability_setup.py keeps them; src/warden/settings.py load), read with this shell's credentials; this process's environment is put back afterwards.
+warden/scripts/observability_setup.py keeps them; warden/src/warden/settings.py load), read with this shell's credentials; this process's environment is put back afterwards.
 
 Before a live run: the stack soaked (`python -m scenarios.fullstack_cli soak`), WARDEN_PROVIDER and its key set, as
 for any Wave 4 diagnose. The run directory (--run) is the harness's, outside the repository.
@@ -41,9 +41,9 @@ import sys
 import time
 from typing import Any
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "warden" / "src"))
 
 import yaml
 from scenarios import fullstack_cli as cli
@@ -104,7 +104,7 @@ def _environ_restored():
 
 def evidence_settings(tools: list[str], *, store: str = "") -> dict[str, str]:
     """The chosen tools' settings, from this shell or - with `store` - from that environment's SSM and Secrets
-    Manager: the WARDEN runtime's (`ops`, where scripts/observability_setup.py keeps them), not the stack's own."""
+    Manager: the WARDEN runtime's (`ops`, where warden/scripts/observability_setup.py keeps them), not the stack's own."""
     names = frozenset(n for t in tools for n in SETTINGS[t])
     with _environ_restored():
         if store and names:
@@ -132,8 +132,8 @@ def queried_services() -> list[str]:
 
 
 def traced_services() -> list[str]:
-    """The workloads the test stack sends traces from (OTEL_SERVICE_NAME in manifests/shop)."""
-    text = "".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "manifests" / "shop" / "base").glob("*.yaml")))
+    """The workloads the test stack sends traces from (OTEL_SERVICE_NAME in demo-app/manifests/shop)."""
+    text = "".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "demo-app" / "manifests" / "shop" / "base").glob("*.yaml")))
     return sorted(set(re.findall(r"name: OTEL_SERVICE_NAME\s+value: ([\w.-]+)", text)))
 
 
@@ -147,9 +147,9 @@ def warnings() -> list[str]:
                        f"{', '.join(traced) or 'nothing'}: the tools' traces will not be read")
     except Exception as exc:  # noqa: BLE001 - a warning that cannot be computed is still said
         out.append(f"could not work out which services the readers ask about ({type(exc).__name__})")
-    reader = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    reader = (ROOT / "infra" / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     if "xray:GetTraceSummaries" not in reader:
-        out.append("the harness's reader role (terraform/fullstack/reader.tf) has no xray:GetTraceSummaries: "
+        out.append("the harness's reader role (infra/terraform/fullstack/reader.tf) has no xray:GetTraceSummaries: "
                    "every X-Ray read will be refused")
     return out
 

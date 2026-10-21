@@ -6,14 +6,14 @@ from __future__ import annotations
 import pathlib
 import re
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-DOC = (ROOT / "docs" / "COMPLIANCE-CROSSWALK.md").read_text(encoding="utf-8")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+DOC = (ROOT / "warden" / "docs" / "COMPLIANCE-CROSSWALK.md").read_text(encoding="utf-8")
 ROW = re.compile(r"^\| ([A-Z][A-Za-z0-9-]*) \|", re.MULTILINE)
 
 
 def _ids() -> set[str]:
     return {i for f in ("FAILURE-MODES.md",)
-            for i in ROW.findall((ROOT / "docs" / f).read_text(encoding="utf-8"))}
+            for i in ROW.findall((ROOT / "warden" / "docs" / f).read_text(encoding="utf-8"))}
 
 
 def test_every_row_the_crosswalk_cites_exists():

@@ -40,7 +40,7 @@ def test_an_old_name_still_reads_for_one_release_and_warns_with_the_new_one(old,
     with caplog.at_level(logging.WARNING, logger="warden.settings"):
         assert settings.getenv(new) == "postgresql://new@h/x"
     assert caplog.text == ""
-    # The slot a deployed runtime already holds, and its task roles may read (terraform/modules/warden-runtime).
+    # The slot a deployed runtime already holds, and its task roles may read (infra/terraform/modules/warden-runtime).
     assert settings.secret_id("dev", new) == f"warden/dev/{slot}"
 
 

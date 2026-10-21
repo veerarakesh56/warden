@@ -1,8 +1,8 @@
-# Wave 4 - the full stack (docs/FULLSTACK-LAB.md, section 5). 28 faults, one run each.
+# Wave 4 - the full stack (demo-app/docs/FULLSTACK-LAB.md, section 5). 28 faults, one run each.
 #
 # Operator-driven, not a loop: `python -m scenarios.fullstack_cli inject|diagnose|fix|verify|revert
 # fs-NN`, one step at a time (see that module). Every fault's inject/revert/verifier is in
-# scenarios/ops_fullstack.py under the same fs-NN key.
+# fault-lab/scenarios/ops_fullstack.py under the same fs-NN key.
 #
 # Per fault:
 #   alarm             the CloudWatch alarm whose ALARM state is the alert. WARDEN gets its name and
@@ -18,7 +18,7 @@
 #                     contract C line prefixes. Metric names carry the `__<short>` suffix because
 #                     the service map names several functions / queues / Deployments.
 #
-# ⛔ Nothing here says what the answer is. Grading is scenarios/scoring.yaml, by fault class.
+# ⛔ Nothing here says what the answer is. Grading is fault-lab/scenarios/scoring.yaml, by fault class.
 
 wave: 4
 service: fullstack

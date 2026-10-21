@@ -309,7 +309,7 @@ def test_the_runner_does_not_import_the_tool_under_test():
             offenders += [a.name for a in node.names if a.name.split(".")[0] == "warden"]
         if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "warden":
             offenders.append(node.module or "")
-    assert not offenders, f"scenarios/runner.py must not import warden; found {offenders}"
+    assert not offenders, f"fault-lab/scenarios/runner.py must not import warden; found {offenders}"
 
 
 def test_a_stale_report_is_not_scored_as_this_runs_answer(tmp_path, target):

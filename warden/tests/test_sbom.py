@@ -8,19 +8,19 @@ import sys
 import tomllib
 import types
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "scripts"))
 import sbom  # after the sys.path line above
 
 from warden import tripwire
 
 
 def test_the_committed_bill_is_exactly_a_fresh_render():
-    assert json.loads(sbom.OUT.read_text(encoding="utf-8")) == sbom.render(), "run python scripts/sbom.py"
+    assert json.loads(sbom.OUT.read_text(encoding="utf-8")) == sbom.render(), "run python warden/scripts/sbom.py"
 
 
 def test_every_locked_package_is_listed_with_its_hash():
-    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    lock = tomllib.loads((ROOT / "warden" / "uv.lock").read_text(encoding="utf-8"))
     libs = {c["name"]: c for c in sbom.render()["components"] if c["type"] == "library"}
     locked = {p["name"]: p["version"] for p in lock["package"] if p["name"] != "warden"}
     assert {n: c["version"] for n, c in libs.items()} == locked
@@ -33,7 +33,7 @@ def test_the_model_bill_names_the_pinned_detector_and_every_qualified_model():
     models = {c["name"]: c for c in sbom.render()["components"] if c["type"] == "machine-learning-model"}
     assert models[tripwire.MODEL]["version"] == tripwire.REVISION
     assert len(tripwire.REVISION) == 40
-    qualified = yaml.safe_load((ROOT / "src" / "warden" / "data" / "providers.yaml").read_text(encoding="utf-8"))
+    qualified = yaml.safe_load((ROOT / "warden" / "src" / "warden" / "data" / "providers.yaml").read_text(encoding="utf-8"))
     assert {q["model"] for q in qualified["qualified"]} <= set(models)
 
 

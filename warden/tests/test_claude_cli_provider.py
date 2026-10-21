@@ -2,7 +2,7 @@
 
 ⛔ THE TWO THAT MATTER are `test_every_tool_is_disabled` and
 `test_it_runs_outside_the_repository`. A headless Claude launched inside this repo can read files,
-and `scenarios/catalog/` holds the fault classes while `scenarios/scoring.yaml` holds the answer key.
+and `fault-lab/scenarios/catalog/` holds the fault classes while `fault-lab/scenarios/scoring.yaml` holds the answer key.
 A diagnosing model that can grep those is not being measured — it is looking the answer up, and the
 whole benchmark becomes worthless in a way no result would reveal.
 
@@ -20,7 +20,7 @@ import pytest
 from fakes import ANTHROPIC_KEY_PREFIX
 from warden.providers import ClaudeCliProvider, ProviderError
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class _Recorder:
@@ -81,8 +81,8 @@ def test_it_runs_outside_the_repository(provider, monkeypatch):
     rec = _Recorder()
     _run(provider, rec, monkeypatch)
     cwd = pathlib.Path(rec.kwargs["cwd"]).resolve()
-    assert ROOT not in cwd.parents, f"the CLI runs at {cwd}, inside the repo - scenarios/ is reachable from there"
-    assert cwd != ROOT, f"the CLI runs at {cwd}, inside the repo - scenarios/ is reachable from there"
+    assert ROOT not in cwd.parents, f"the CLI runs at {cwd}, inside the repo - fault-lab/scenarios/ is reachable from there"
+    assert cwd != ROOT, f"the CLI runs at {cwd}, inside the repo - fault-lab/scenarios/ is reachable from there"
 
 
 def test_the_prompt_goes_in_on_stdin_not_as_an_argument(provider, monkeypatch):

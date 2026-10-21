@@ -12,8 +12,8 @@ from __future__ import annotations
 import json
 import pathlib
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-IAM = ROOT / "iam"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+IAM = ROOT / "infra" / "iam"
 WRITES = {"iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy"}
 FAULT_ROLES = {"checkout", "ecs-exec", "orders-api-task"}
 
@@ -56,4 +56,4 @@ def test_the_licence_notice_names_its_author_and_ships_with_the_package():
     notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
     assert "Copyright 2026 Veera Rakesh Kethari" in notice
     assert "Copyright 2026 Veera Rakesh Kethari" in (ROOT / "LICENSE").read_text(encoding="utf-8")
-    assert 'license-files = ["LICENSE", "NOTICE"]' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'license-files = ["LICENSE", "NOTICE"]' in (ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8")

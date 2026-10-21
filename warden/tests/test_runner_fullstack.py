@@ -1,4 +1,4 @@
-"""Wave 4's operator steps (scenarios/fullstack_cli.py) against a fake environment - no AWS.
+"""Wave 4's operator steps (fault-lab/scenarios/fullstack_cli.py) against a fake environment - no AWS.
 
 The order of a fault's life is the thing under test: quiet period -> baseline gate -> inject ->
 alarm wait -> WARDEN -> fix (through the allow-list) -> verify -> revert -> baseline. Plus the
@@ -495,7 +495,7 @@ def test_every_fault_has_exactly_one_catalog_entry_and_its_fields():
 def test_preflight_plans_by_default_and_applies_every_fault_on_request(tmp_path, capsys):
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("preflight_fs", runner.ROOT / "scripts" / "preflight_fullstack_ops.py")
+    spec = importlib.util.spec_from_file_location("preflight_fs", runner.ROOT / "fault-lab" / "scripts" / "preflight_fullstack_ops.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod.main(["--only", "fs-07"]) == 0
@@ -575,7 +575,7 @@ def test_a_wave4_report_is_posted_as_the_stack_it_ran_on(tmp_path, capsys):
     cli.step_inject(env, tmp_path, "fs-03", wait_alarm=False)
     cli.step_diagnose(env, tmp_path, "fs-03")
     assert cli.main(["--run", str(tmp_path), "--dry-run", "score"]) == 0
-    spec = importlib.util.spec_from_file_location("post", runner.ROOT / "scripts" / "post_bench_reports.py")
+    spec = importlib.util.spec_from_file_location("post", runner.ROOT / "fault-lab" / "scripts" / "post_bench_reports.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     capsys.readouterr()

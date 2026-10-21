@@ -8,14 +8,14 @@ was done, because nothing else *can* be.
 Three rules this module exists to enforce:
 
 1. **It only touches the proving ground.** Every call is scoped to the cluster, service, security
-   group and roles created by `terraform/proving-ground/`: `_guard_cluster()` refuses any cluster
+   group and roles created by `infra/terraform/proving-ground/`: `_guard_cluster()` refuses any cluster
    not tagged `Stack=warden-proving-ground`, and role operations refuse names without the
    `warden-` prefix. A fault injector that can reach production is not
    a test harness, it is an outage waiting for a typo.
 
 2. **Everything is reversible, and the reverse is declared next to the break.** `revert` is not
    best-effort cleanup bolted on afterwards; it is part of the operation's definition, and
-   `tests/test_no_scenario_leakage.py` fails any scenario that breaks something without one.
+   `warden/tests/test_no_scenario_leakage.py` fails any scenario that breaks something without one.
 
 3. ⛔ **It shares nothing with the tool under test.** This module never imports from `warden`, and a
    test asserts that. The injector and the responder must not be able to agree with each other
@@ -37,10 +37,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-# The proving ground's own tag (terraform/proving-ground/main.tf `Stack`), checked before anything is
+# The proving ground's own tag (infra/terraform/proving-ground/main.tf `Stack`), checked before anything is
 # touched. It was `Project=warden-proving-ground` until the stacks moved to Project=warden +
 # Environment (owner rule R53, a7a9b10); the guards did not move with it, so every injection refused
-# and the teardown sweep lost its tag filter (second review, 2026-09-30). tests/test_proving_ground_tags.py
+# and the teardown sweep lost its tag filter (second review, 2026-09-30). warden/tests/test_proving_ground_tags.py
 # reads main.tf, so the two cannot drift apart again.
 STACK_TAG = ("Stack", "warden-proving-ground")
 FAULT_IMAGE_TAG = "3.12.7-alpine"  # the python image every faulty variant runs (pinned, as the baseline)
@@ -98,7 +98,7 @@ def _guard_cluster(clients: Clients, target: Target) -> None:
     """Refuse to operate on anything that is not the proving ground.
 
     ⛔ This is the one check that must never be relaxed for convenience. The tag is applied by
-    `terraform/proving-ground/main.tf` to every resource it creates; an untagged cluster is, by
+    `infra/terraform/proving-ground/main.tf` to every resource it creates; an untagged cluster is, by
     definition, not ours to break.
     """
     resp = clients.ecs.describe_clusters(clusters=[target.cluster], include=["TAGS"])

@@ -10,8 +10,8 @@ import random
 import sys
 import types
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-LAMBDAS = ROOT / "scenarios" / "fullstack" / "lambdas"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+LAMBDAS = ROOT / "demo-app" / "lambdas"
 LOADERS = ("traffic", "reconciler")
 
 

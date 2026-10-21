@@ -1,7 +1,7 @@
 """Post a benchmark run's reports to ChatOps - the same report WARDEN would have sent, one per scenario.
 
-    python scripts/post_bench_reports.py --run ~/warden-bench-runs/wave2-...          # print only
-    WARDEN_CHATOPS_LIVE=1 WARDEN_SLACK_WEBHOOK=... python scripts/post_bench_reports.py --run ...
+    python fault-lab/scripts/post_bench_reports.py --run ~/warden-bench-runs/wave2-...          # print only
+    WARDEN_CHATOPS_LIVE=1 WARDEN_SLACK_WEBHOOK=... python fault-lab/scripts/post_bench_reports.py --run ...
 
 The benchmark runs WARDEN with `--json` and no ChatOps, on purpose: a Slack post is not part of what
 is measured. This re-renders each recorded run through the real `build_report` + `notify` path, so
@@ -22,8 +22,8 @@ import os
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "src"))
 sys.path.insert(0, str(ROOT))
 
 from warden.chatops import notify, resolve_sinks

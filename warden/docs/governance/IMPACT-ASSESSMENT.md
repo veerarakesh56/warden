@@ -30,6 +30,6 @@ tamper-evident record of what was proposed, approved and done.
 
 ## Regulatory position
 
-See `docs/COMPLIANCE-CROSSWALK.md`: for a typical company WARDEN is very likely not a high-risk system under the EU AI
+See `warden/docs/COMPLIANCE-CROSSWALK.md`: for a typical company WARDEN is very likely not a high-risk system under the EU AI
 Act; at an operator of critical digital infrastructure it could be argued in, and a written Article 6(3) assessment
 should then be kept with this document.

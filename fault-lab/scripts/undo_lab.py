@@ -1,12 +1,12 @@
-"""The undo lab's faults (terraform/undo-lab): ONE change a person could make, made as the fault-injection role - so
+"""The undo lab's faults (infra/terraform/undo-lab): ONE change a person could make, made as the fault-injection role - so
 CloudTrail records a person's change, AWS Config records the value before it, and WARDEN has something to undo.
 
-    python scripts/undo_lab.py status                      # every alarm and setting, read-only
-    python scripts/undo_lab.py inject table_capacity       # make the change (the lab's alarm follows in minutes)
-    python scripts/undo_lab.py restore table_capacity      # set it back by hand (a test WARDEN did not fix)
+    python fault-lab/scripts/undo_lab.py status                      # every alarm and setting, read-only
+    python fault-lab/scripts/undo_lab.py inject table_capacity       # make the change (the lab's alarm follows in minutes)
+    python fault-lab/scripts/undo_lab.py restore table_capacity      # set it back by hand (a test WARDEN did not fix)
 
 A fault is made only on a lab at its baseline, and a restore writes only the baseline: neither ever touches a
-resource outside warden-<env>-lab-*, which is all the role's policy (iam/<env>/harness-lab.json) allows. The role is
+resource outside warden-<env>-lab-*, which is all the role's policy (infra/iam/<env>/harness-lab.json) allows. The role is
 warden-<env>-harness; the laptop's operator role may assume it and nothing else may. Region and names come from
 environments.yaml and the environment's name, never from a literal.
 """
@@ -20,14 +20,14 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "src"))
 from warden.environments import EnvironmentPolicies
 from warden.environments import names as environment_names
 
 # Where a lab may exist: where the fault-injection role does - environments.yaml `fault_environments`, never named here.
 LAB_ENVS = EnvironmentPolicies.load().fault_environments
-# The baseline terraform/undo-lab/main.tf declares (tests/test_undo_lab.py holds the two equal).
+# The baseline infra/terraform/undo-lab/main.tf declares (warden/tests/test_undo_lab.py holds the two equal).
 WRITE_UNITS, TIMEOUT_SECONDS = 10, 30
 CUT_WRITE_UNITS, CUT_TIMEOUT_SECONDS = 1, 1
 IST = timezone(timedelta(hours=5, minutes=30))

@@ -3,9 +3,9 @@
 Run it before a commit, after a commit, and after a push — it reads what git actually tracks, so it
 tells you what is *really* on GitHub rather than what you meant to put there:
 
-    python scripts/check_publishable.py            # every file git tracks
-    python scripts/check_publishable.py --dir path # a proof bundle, before copying it in
-    python scripts/check_publishable.py --staged   # only what is about to be committed
+    python warden/scripts/check_publishable.py            # every file git tracks
+    python warden/scripts/check_publishable.py --dir path # a proof bundle, before copying it in
+    python warden/scripts/check_publishable.py --staged   # only what is about to be committed
 
 Exit code 0 means clean. Non-zero means do not push, and the output says which file and which line.
 
@@ -30,25 +30,25 @@ import re
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # Values that LOOK like findings and are not. Every entry needs a reason, because an allowlist is
 # how a real leak eventually gets waved through.
 ALLOWED = {
     # AWS's own documented example credentials, published in AWS's public documentation: a page or a
     # report quoting them is not a leak. Built from parts (2026-10-16, like every fixture in
-    # tests/fakes.py), so this file does not hold the literal a scanner would flag.
+    # warden/tests/fakes.py), so this file does not hold the literal a scanner would flag.
     "AKIA" + "IOSFODNN7EXAMPLE",
     "wJalr" + "XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
     # Reserved documentation account ids (RFC-style placeholders used throughout AWS docs).
     "111122223333",
     "123456789012",
     "999988887777",
-    # The held-out benchmark (docs/bench/heldout-g9-2026-10-10): two byte counts (200 GiB, 152 GB) and the tail of a
+    # The held-out benchmark (fault-lab/docs/bench/heldout-g9-2026-10-10): two byte counts (200 GiB, 152 GB) and the tail of a
     # Lambda RequestId UUID - 12 digits, not account ids. The cases are kept exactly as their author wrote and WARDEN
     # answered them.
     "214748364800", "152000000000", "455006823552",
-    # The G10 held-out set (docs/bench/heldout-g10-2026-10-10), each checked in context on 2026-10-10: the tails of
+    # The G10 held-out set (fault-lab/docs/bench/heldout-g10-2026-10-10), each checked in context on 2026-10-10: the tails of
     # Lambda RequestId UUIDs (six), two RDS byte counts (162.14 GB, 161.06 GB), Kinesis shard ids
     # (shardId-000000000008/9) and a hex x-amzn-RequestId fragment - 12 digits, not account ids.
     "707439788935", "770152377302", "287065300186", "401447169594", "549286324564", "629890871542",
@@ -60,9 +60,9 @@ ALLOWED = {
 # ⛔ No file is exempt (2026-10-16, naming audit item 5). Seven files used to be skipped whole -
 # the redaction tests, three other tests, the redaction module and the CI workflow - because their
 # fixtures "had to look real", so a real secret pasted into any of them would have been published
-# unscanned. The fixtures still look real at run time: tests/fakes.py builds each one from parts,
+# unscanned. The fixtures still look real at run time: warden/tests/fakes.py builds each one from parts,
 # and the CI service-container passwords are derived per run. A path exemption must not come back;
-# tests/test_check_publishable.py fails if one does.
+# warden/tests/test_check_publishable.py fails if one does.
 
 # Files whose mere presence in git is a failure, whatever they contain.
 FORBIDDEN_NAMES = re.compile(

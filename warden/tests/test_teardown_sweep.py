@@ -13,7 +13,7 @@ import sys
 
 import pytest
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "infra" / "scripts"))
 import teardown_sweep as ts
 
 BASE = "arn:aws:ecs:ap-south-2:111122223333:task-definition/"

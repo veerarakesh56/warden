@@ -9,7 +9,7 @@ import pathlib
 
 import yaml
 
-CONFIG = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "data" / "environments.yaml"
+CONFIG = pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden" / "data" / "environments.yaml"
 
 
 # AWS's own documentation account, for dry runs and fakes - never a real one, and written in parts so that no

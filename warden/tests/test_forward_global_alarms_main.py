@@ -1,4 +1,4 @@
-"""scripts/forward_global_alarms.py main (S3516, one return): a dry run prints the plan and changes nothing; --apply
+"""infra/scripts/forward_global_alarms.py main (S3516, one return): a dry run prints the plan and changes nothing; --apply
 and --undo hand the plan to apply() and print what it did - each exits 0."""
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ import types
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("forward_main", ROOT / "scripts" / "forward_global_alarms.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("forward_main", ROOT / "infra" / "scripts" / "forward_global_alarms.py")
 forward = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(forward)
 ACCOUNT = "0" * 12

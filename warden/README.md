@@ -1,8 +1,8 @@
 # WARDEN
 
-[![CI](https://github.com/veerarakesh56/warden/actions/workflows/ci-tool.yml/badge.svg)](https://github.com/veerarakesh56/warden/actions/workflows/ci-tool.yml)
+[![CI](https://github.com/veerarakesh56/warden/actions/workflows/warden-ci.yml/badge.svg)](https://github.com/veerarakesh56/warden/actions/workflows/warden-ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](../LICENSE)
 
 WARDEN is an AI on-call engineer for AWS. When an alarm fires, it gathers the evidence, finds the likely cause, writes
 a short report in Slack and proposes a fix. Nothing changes until that exact fix is approved: in production always
@@ -26,12 +26,12 @@ says no first. Then WARDEN applies it, checks that it worked and undoes it if it
    ask for a new plan. If anything the fix depends on changes first, WARDEN makes the plan again and asks again.
 7. **It applies the fix once, checks that the service recovered, and undoes the fix if it did not.**
 
-[![WARDEN: how it fits together](docs/diagrams/architecture-overview.png)](docs/diagrams/architecture-overview.svg)
+[![WARDEN: how it fits together](../docs/diagrams/architecture-overview.png)](../docs/diagrams/architecture-overview.svg)
 
 *The whole system on one page: an alarm comes in, WARDEN's separate parts read the evidence, ask the AI, check its
 answer and report, and nothing changes until the exact fix is approved. Click a picture for a sharp copy.*
 
-[![WARDEN: one incident, end to end](docs/diagrams/incident-flow.png)](docs/diagrams/incident-flow.svg)
+[![WARDEN: one incident, end to end](../docs/diagrams/incident-flow.png)](../docs/diagrams/incident-flow.svg)
 
 *One incident from the alarm to the signed record, step by step, with every safety check marked.*
 
@@ -78,7 +78,7 @@ the same way). It is not offered as a product to adopt as-is. Read [the benchmar
   knows is not caught.
 - **One person approves.** This deployment's approver list has one person, whose approval decides alone; the code
   supports requiring two. `dev`, where the test bench runs, also has a second, labelled approver: a test key that Claude
-  (the AI that helps build WARDEN) holds, `scripts/bench_approve.py`. It may approve only small, reversible fixes,
+  (the AI that helps build WARDEN) holds, `fault-lab/scripts/bench_approve.py`. It may approve only small, reversible fixes,
   only in `dev` (tiers T1 and T2, set by the owner on 2026-10-15), and every approval it gives is recorded as
   `bench`. WARDEN refuses the bench approver in any environment that is not of the nonprod tier, whatever its
   entry in the approver list says, and makes its key only for a nonprod environment.
@@ -90,12 +90,14 @@ the same way). It is not offered as a product to adopt as-is. Read [the benchmar
 No cloud account and no API key: mock mode runs the whole pipeline deterministically on five recorded incidents.
 
 ```bash
+cd warden                         # the product's folder: its compose file, image and package
 docker compose up                 # mock mode by default
 ```
 
 or
 
 ```bash
+cd warden
 pip install -e ".[dev]"
 WARDEN_MOCK=1 warden demo --verbose
 WARDEN_MOCK=1 warden run --incident inc-004 --report      # one incident, with its redacted report
@@ -129,28 +131,28 @@ with `warden status <workflow-id>` and `warden approve <workflow-id> --plan-hash
 
 ### Deploy it
 
-[docs/SETUP.md](docs/SETUP.md) walks through the AWS roles, the GitHub environments, secrets and variables, Temporal
-Cloud and Slack. The runtime is a Terraform module, [`terraform/modules/warden-runtime`](terraform/modules/warden-runtime);
-day-two operations (key rotation, the kill switch) are in [docs/OPERATIONS.md](docs/OPERATIONS.md), and what to do
-when WARDEN itself misbehaves is in [docs/RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBOOK-WARDEN-INCIDENT.md).
+[docs/SETUP.md](../docs/SETUP.md) walks through the AWS roles, the GitHub environments, secrets and variables, Temporal
+Cloud and Slack. The runtime is a Terraform module, [`infra/terraform/modules/warden-runtime`](../infra/terraform/modules/warden-runtime);
+day-two operations (key rotation, the kill switch) are in [warden/docs/OPERATIONS.md](docs/OPERATIONS.md), and what to do
+when WARDEN itself misbehaves is in [warden/docs/RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBOOK-WARDEN-INCIDENT.md).
 
 ## Documentation
 
 | Document | What it covers |
 |---|---|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflows, trust zones, the approval page, the gate and quarantine |
-| [diagrams/](docs/diagrams/README.md) | The overview, detailed, incident-flow and delivery diagrams, and their editable sources |
+| [ARCHITECTURE.md](../docs/ARCHITECTURE.md) | Workflows, trust zones, the approval page, the gate and quarantine |
+| [diagrams/](../docs/diagrams/README.md) | The overview, detailed, incident-flow and delivery diagrams, and their editable sources |
 | [ai-boundary.md](docs/ai-boundary.md) | Why the model never decides, and the policy table |
-| [SETUP.md](docs/SETUP.md) | Setting WARDEN up in your own AWS and GitHub accounts |
-| [AWS-SETUP.md](docs/AWS-SETUP.md) | The AWS identities the benchmark stack uses |
-| [PRODUCTION-ARCHITECTURE.md](docs/PRODUCTION-ARCHITECTURE.md), [SYSTEM-COMPONENTS.md](docs/SYSTEM-COMPONENTS.md) | The cloud runtime, its components and their cost |
+| [SETUP.md](../docs/SETUP.md) | Setting WARDEN up in your own AWS and GitHub accounts |
+| [AWS-SETUP.md](../infra/docs/AWS-SETUP.md) | The AWS identities the benchmark stack uses |
+| [PRODUCTION-ARCHITECTURE.md](../docs/PRODUCTION-ARCHITECTURE.md), [SYSTEM-COMPONENTS.md](../docs/SYSTEM-COMPONENTS.md) | The cloud runtime, its components and their cost |
 | [OPERATIONS.md](docs/OPERATIONS.md), [RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBOOK-WARDEN-INCIDENT.md) | Running it, and what to do when WARDEN itself is the incident |
-| [BENCHMARKS.md](docs/BENCHMARKS.md), [scenarios/SCORING.md](scenarios/SCORING.md) | Every measured result, and how it is graded |
-| [FULLSTACK-LAB.md](docs/FULLSTACK-LAB.md) | The full-stack test environment and its injected faults |
+| [BENCHMARKS.md](docs/BENCHMARKS.md), [fault-lab/scenarios/SCORING.md](../fault-lab/scenarios/SCORING.md) | Every measured result, and how it is graded |
+| [FULLSTACK-LAB.md](../demo-app/docs/FULLSTACK-LAB.md) | The full-stack test environment and its injected faults |
 | [FAILURE-MODES.md](docs/FAILURE-MODES.md) | What can go wrong with an automated WARDEN, and what holds each |
-| [DESIGN-DECISIONS.md](docs/DESIGN-DECISIONS.md), [ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | Why each choice was made; defects found while building it |
+| [DESIGN-DECISIONS.md](../docs/DESIGN-DECISIONS.md), [ENGINEERING-NOTES.md](../docs/ENGINEERING-NOTES.md) | Why each choice was made; defects found while building it |
 | [COMPLIANCE-CROSSWALK.md](docs/COMPLIANCE-CROSSWALK.md), [governance/](docs/governance/) | NIST AI RMF, ISO/IEC 42001, OWASP and EU AI Act mapping; policy documents |
-| [ROADMAP.md](docs/ROADMAP.md), [CHANGELOG.md](CHANGELOG.md) | What is next, and what changed |
+| [ROADMAP.md](../docs/ROADMAP.md), [CHANGELOG.md](../CHANGELOG.md) | What is next, and what changed |
 
 ## How it is built
 
@@ -186,13 +188,13 @@ alert -> gather evidence -> redact -> quarantine -> diagnose (one model call) ->
    person denies it first. WARDEN applies it once, checks that the service recovered, and rolls back if it did not.
 
 Everything runs as [Temporal](https://temporal.io) workflows: `IncidentWorkflow` for a diagnosis and one
-`RemediationWorkflow` per target. The full design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and why the
-model never decides is argued in [docs/ai-boundary.md](docs/ai-boundary.md).
+`RemediationWorkflow` per target. The full design is in [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md), and why the
+model never decides is argued in [warden/docs/ai-boundary.md](docs/ai-boundary.md).
 
 ### The whole system on one page
 
 Every box is a module or file in this repository, and every arrow is a call that exists in the code. Dotted arrows
-are optional (a flag, a setting, or a part hosted by the cloud runtime). `tests/test_readme_architecture_r30.py`
+are optional (a flag, a setting, or a part hosted by the cloud runtime). `warden/tests/test_readme_architecture_r30.py`
 checks that every module and activity named here exists.
 
 ```mermaid
@@ -268,7 +270,7 @@ flowchart TB
     AUD -.->|"KMS signer and anchor<br/>adapters, cloud runtime"| ANCHOR
     FIN -.->|"WARDEN_CHANGE_REPO"| GH
 
-    subgraph DATA[Data, pinned by hash - <i>src/warden/data/</i>]
+    subgraph DATA[Data, pinned by hash - <i>warden/src/warden/data/</i>]
         D1[incident_signatures, environments,<br/>freeze, providers, decider]
     end
     D1 --> VER & GATE & PLAN
@@ -276,15 +278,15 @@ flowchart TB
 
 ### How a change to WARDEN is delivered
 
-[![WARDEN: how changes are checked and delivered](docs/diagrams/delivery.png)](docs/diagrams/delivery.svg)
+[![WARDEN: how changes are checked and delivered](../docs/diagrams/delivery.png)](../docs/diagrams/delivery.svg)
 
 *How a change reaches an environment: `main` runs the tests and deploys nothing; the `dev` and `prod` branches each
 deploy their own environment, without stored AWS keys, and infrastructure changes only from a reviewed plan.*
 
 Every component by its real name is in the detailed diagrams:
-[the runtime](docs/diagrams/architecture-detailed-1.svg) and
-[identities, environments and outside services](docs/diagrams/architecture-detailed-2.svg). Their editable sources
-and how to re-export them are in [docs/diagrams/](docs/diagrams/README.md).
+[the runtime](../docs/diagrams/architecture-detailed-1.svg) and
+[identities, environments and outside services](../docs/diagrams/architecture-detailed-2.svg). Their editable sources
+and how to re-export them are in [docs/diagrams/](../docs/diagrams/README.md).
 
 ## Safety model
 
@@ -304,7 +306,7 @@ Each control below is enforced in code and covered by tests; the limits are stat
 | **Budget** | Per-incident USD and call ceilings (`WARDEN_MAX_USD`, `WARDEN_MAX_CALLS`) and a daily cap (`WARDEN_DAILY_MAX_USD`). With no model, or over the cap, an incident is escalated on the rules alone. | Prices come from `providers.yaml`; a provider that reports no usage is made to over-estimate. |
 | **Audit** | Every step is recorded in a hash chain with signed checkpoints; the cloud runtime signs with KMS and anchors to S3 Object Lock. | |
 
-Environments are data: [`src/warden/data/environments.yaml`](src/warden/data/environments.yaml) sets each
+Environments are data: [`warden/src/warden/data/environments.yaml`](src/warden/data/environments.yaml) sets each
 environment's allowed actions and principals. An environment it does not list falls to a default that can only
 escalate.
 
@@ -322,7 +324,7 @@ for a prod-tier environment is refused when the file is loaded.
 ## Configuration
 
 Everything is set by environment variables. In the cloud runtime, plain values come from SSM Parameter Store and
-secrets from AWS Secrets Manager (`src/warden/settings.py`); each trust zone may read only its own secrets.
+secrets from AWS Secrets Manager (`warden/src/warden/settings.py`); each trust zone may read only its own secrets.
 
 | Variable | Meaning |
 |---|---|
@@ -340,9 +342,9 @@ secrets from AWS Secrets Manager (`src/warden/settings.py`); each trust zone may
 
 **Models.** WARDEN is not tied to one vendor: `providers.py` supports the Anthropic API, Amazon Bedrock, Gemini,
 OpenAI-compatible hosts (OpenAI, Groq, OpenRouter, Ollama for fully local use) and the `claude` command-line tool.
-But a model diagnoses only after it passes WARDEN's replay set: `scripts/qualify_provider.py` re-diagnoses 30
+But a model diagnoses only after it passes WARDEN's replay set: `warden/scripts/qualify_provider.py` re-diagnoses 30
 incidents recorded on a live AWS account, and only a model with no wrong answer let through and at least 17 correct
-is listed in [`src/warden/data/providers.yaml`](src/warden/data/providers.yaml). Any other pair is refused. Today the
+is listed in [`warden/src/warden/data/providers.yaml`](src/warden/data/providers.yaml). Any other pair is refused. Today the
 one qualified model is **Claude Sonnet 5.5** (`claude-sonnet-5-5`) on the Anthropic API. Qualify another before you
 use it.
 
@@ -352,14 +354,15 @@ a secret manager; never type one on the command line, where it stays in the shel
 Examples of each evidence source:
 
 ```bash
+cd warden   # the package installs from its own folder
 pip install -e ".[aws]"; WARDEN_BACKEND=aws WARDEN_AWS_CLUSTER=<cluster> warden run --incident inc-002 --service <service> --started-at now
 pip install -e ".[k8s]"; WARDEN_BACKEND=k8s warden run --incident inc-002       # the cluster your kubeconfig points at
 pip install -e ".[postgres]"; WARDEN_BACKEND=postgres warden run --incident inc-005   # WARDEN_DB_DSN exported
 ```
 
-For Kubernetes, `kubectl apply -k k8s/` installs a read-only ServiceAccount (get and list only, bound per namespace)
-and `k8s/job.yaml` runs one diagnosis as a Job under the `restricted` Pod Security standard. The separate write
-identity is [`k8s/remediation-rbac.yaml`](k8s/remediation-rbac.yaml): get and patch deployments, held by an admission
+For Kubernetes, `kubectl apply -k infra/k8s/` installs a read-only ServiceAccount (get and list only, bound per namespace)
+and `infra/k8s/job.yaml` runs one diagnosis as a Job under the `restricted` Pod Security standard. The separate write
+identity is [`infra/k8s/remediation-rbac.yaml`](../infra/k8s/remediation-rbac.yaml): get and patch deployments, held by an admission
 policy to the replica count and the restart annotation. In the cloud runtime the read and act zones connect Kubernetes
 and the database too (`--platform aws,k8s,db`): reads in each watched environment's platform-reader role (view-only on
 EKS; the database's pg_monitor login), every write in the approved plan's own actor session (on EKS the remediator
@@ -382,16 +385,16 @@ Version 0.10.0. Measured, as of 2026-10-16:
 
 - **Reading live systems.** WARDEN has read a real AWS account: ECS with CloudWatch (42 runs), managed EKS (30) and
   RDS for PostgreSQL (18), all in September 2026, under an older version. Results:
-  [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+  [warden/docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 - **Generalising.** On 172 synthetic held-out incidents written by independent authors, WARDEN chose the right action
   in 132-138 of 172 across three runs, against a floor of 103 for an answer that always escalates; the gate stopped
   all but one harmful or wrong proposal in each run. The cases are synthetic and the runs are single runs.
 <!-- eldane-bench-readme:begin -->
 - **The AI critic.** How often Eldane approves a right fix, catches a wrong or harmful one, and blocks a right one is
   **not yet measured**: with the cloud runtime's key, run
-  `python scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd <cap> --out <a new directory>`, after the same
+  `python fault-lab/scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd <cap> --out <a new directory>`, after the same
   command with `--dry-run` in place of the last two
-  ([docs/BENCHMARKS.md](docs/BENCHMARKS.md#the-ai-critic-eldane-on-the-g10-held-out-set)).
+  ([warden/docs/BENCHMARKS.md](docs/BENCHMARKS.md#the-ai-critic-eldane-on-the-g10-held-out-set)).
 <!-- eldane-bench-readme:end -->
 - **Choosing the model.** The production model, Claude Sonnet 5.5, scored 17 of 30 on the replay set with no wrong
   answer let through (2026-10-15). The bar is 17.
@@ -411,38 +414,39 @@ Not done, or not measured:
   backend client too.
 - The model is not deterministic: the same evidence can get different answers on repeated runs.
 
-The defects found so far, and what holds each, are in [docs/FAILURE-MODES.md](docs/FAILURE-MODES.md). The design
-choices and their costs are in [docs/DESIGN-DECISIONS.md](docs/DESIGN-DECISIONS.md).
+The defects found so far, and what holds each, are in [warden/docs/FAILURE-MODES.md](docs/FAILURE-MODES.md). The design
+choices and their costs are in [docs/DESIGN-DECISIONS.md](../docs/DESIGN-DECISIONS.md).
 
 ## Tests
 
 ```bash
-make check     # ruff, unit tests and the eval gate - what CI runs
+cd warden && make check     # ruff, unit tests and the eval gate - what CI runs
 ```
 
-Over 5,000 tests (`tests/`, kept a lower bound by `tests/test_docs_honesty.py`) and 26 evals (`evals/`: routing,
+Over 5,000 tests (`warden/tests/`, kept a lower bound by `warden/tests/test_docs_honesty.py`) and 26 evals (`warden/evals/`: routing,
 safety invariants, cost, budget, audit trail), the poisoned-log eval (11 planted-log attacks a model follows, each
 run in dev and prod and followed two ways: 44 runs; [results](docs/BENCHMARKS.md#poisoned-logs-2026-10-17)), plus 42 opt-in live-infrastructure tests (29 against a live
 Kubernetes cluster, 13 against five real database engines), which CI runs against k3d and service containers:
 
 ```bash
+cd warden
 WARDEN_K8S_INTEGRATION=1 pytest tests/integration/test_live_cluster.py   # needs a cluster
 WARDEN_DB_INTEGRATION=1 WARDEN_TEST_PG_DSN=postgresql://... pytest tests/integration/test_live_database.py
 ```
 
 CI asserts the demo's actual verdicts, not just its exit code, and an integration step fails if anything in it skips.
-`scripts/mutation_check.py` breaks the safety code on purpose and requires the suite to notice.
+`warden/scripts/mutation_check.py` breaks the safety code on purpose and requires the suite to notice.
 
 ## Related
 
 [Helios](https://github.com/veerarakesh56/helios) is a Rust and Z3 infrastructure failure simulator built on the same
 principle: a rigorous core around an AI shell. WARDEN's infrastructure deploy runs Helios on every Terraform plan and
-refuses a plan that fails under a zone outage or resource loss the stack survives today (`scripts/helios_gate.py`).
+refuses a plan that fails under a zone outage or resource loss the stack survives today (`infra/scripts/helios_gate.py`).
 
 ## Security and licence
 
-Report a vulnerability privately as described in [SECURITY.md](SECURITY.md). WARDEN is released under the
-[Apache License 2.0](LICENSE).
+Report a vulnerability privately as described in [SECURITY.md](../SECURITY.md). WARDEN is released under the
+[Apache License 2.0](../LICENSE).
 
 The optional injection detector's model is not part of WARDEN and is never bundled with it. Each deployment downloads
 Meta's Llama Prompt Guard 2 from Hugging Face under its own account, after accepting Meta's Llama 4 Community License

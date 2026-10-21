@@ -1,4 +1,4 @@
-"""G6: the runtime's own network and model. terraform/runtime makes a VPC across two availability zones - private
+"""G6: the runtime's own network and model. infra/terraform/runtime makes a VPC across two availability zones - private
 subnets for the workers, Lambdas and audit database, public ones for the way out through a NAT gateway (one for a lab
 window, one per zone for production), a free S3 gateway endpoint - and the module runs on its private subnets. The
 model is set for the llm zone alone, by the deploy, never by a setting anyone can change in SSM."""
@@ -8,10 +8,10 @@ from __future__ import annotations
 import pathlib
 import re
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-NET = (ROOT / "terraform" / "runtime" / "network.tf").read_text(encoding="utf-8")
-MAIN = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
-COMPUTE = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+NET = (ROOT / "infra" / "terraform" / "runtime" / "network.tf").read_text(encoding="utf-8")
+MAIN = (ROOT / "infra" / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+COMPUTE = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
 
 
 def test_the_runtime_runs_in_its_own_private_subnets_across_two_zones():

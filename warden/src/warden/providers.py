@@ -497,7 +497,7 @@ class ClaudeCliProvider:
     # isolation flags. Re-measured 2026-09-30 through this provider, same prompt, both ways: no
     # instructions loaded either way, 6.8 s vs 7.1 s. Stripping them now isolates nothing and can
     # break the CLI where the home directory is not otherwise resolvable (a minimal container whose
-    # user has no passwd entry), so they pass. tests/test_claude_cli_provider.py pins the flags.
+    # user has no passwd entry), so they pass. warden/tests/test_claude_cli_provider.py pins the flags.
     #
     # ⛔ An ALLOWLIST, not a denylist. The child is a model: it gets only what a process needs to start,
     # find its home and temp directories, and authenticate. WARDEN's own environment holds cloud
@@ -761,14 +761,14 @@ def load_qualified() -> dict:
 
 def qualified(provider: Provider) -> Provider:
     """The provider, if its exact model passed WARDEN's replay set; otherwise refused (register M20). A fallback to
-    another vendor's model is a different model, so it is held to the same bar. scripts/qualify_provider.py alone
+    another vendor's model is a different model, so it is held to the same bar. warden/scripts/qualify_provider.py alone
     sets WARDEN_QUALIFYING, to measure a model that has not passed yet."""
     if os.environ.get("WARDEN_QUALIFYING") == "1":
         return provider
     doc = load_qualified()
     bar = doc["bar"]
     # A row qualifies the model on the prompt it was measured with, never a later one (review, PR 47): a changed prompt
-    # is a model nobody has measured, so it is refused until scripts/qualify_provider.py records a row on it. Refused,
+    # is a model nobody has measured, so it is refused until warden/scripts/qualify_provider.py records a row on it. Refused,
     # the incident gets the rules-only diagnosis and reaches a person (activities.diagnose, register M19).
     pinned = (doc.get("prompt") or {}).get("sha")
     for entry in doc["qualified"]:
@@ -778,7 +778,7 @@ def qualified(provider: Provider) -> Provider:
                 and int(entry.get("correct", -1)) >= int(bar["min_correct"])):
             return provider
     raise ProviderError(f"{provider.name} {provider.model} has not passed WARDEN's replay set on today's prompt "
-                        "(register M20); measure it with scripts/qualify_provider.py")
+                        "(register M20); measure it with warden/scripts/qualify_provider.py")
 
 
 def resolve(name: str | None = None) -> Provider:

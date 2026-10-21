@@ -1,8 +1,8 @@
 # Compliance crosswalk
 
-What in WARDEN answers each part of four frameworks, by register row (`docs/FAILURE-MODES.md`), and where it does
+What in WARDEN answers each part of four frameworks, by register row (`warden/docs/FAILURE-MODES.md`), and where it does
 not. The frameworks were read live on 2026-10-03; every row id here is held to the register by
-`tests/test_compliance_crosswalk.py`. **Not legal advice.** A row still open in the register is listed under Open.
+`warden/tests/test_compliance_crosswalk.py`. **Not legal advice.** A row still open in the register is listed under Open.
 
 ## NIST AI RMF 1.0 (AI 100-1) and the Generative AI Profile (AI 600-1)
 
@@ -16,7 +16,7 @@ infrastructure.
 | GOVERN 2 accountability | the RACI (H5) and the AI policy (CW1); the approvers named in every change record | - |
 | GOVERN 4 a culture of communicating risk | the register's honesty rules; N11 | H4 |
 | GOVERN 5 engaging relevant AI actors | a channel to raise concerns (CW4); change records in GitHub (O9) | - |
-| GOVERN 6 third-party and supply chain | B14, M15, M20, S9; a software bill of materials (`docs/sbom/`) and pinned dependencies | - |
+| GOVERN 6 third-party and supply chain | B14, M15, M20, S9; a software bill of materials (`warden/docs/sbom/`) and pinned dependencies | - |
 | MAP 1-4 context, categorisation, capabilities, component risk | environments and S6; the closed catalogue and tiers; the replay benchmark and N6; M20; S11 | - |
 | MAP 5 impacts on people and organisations | the impact assessment (CW2) | - |
 | MEASURE 1-2 metrics and trustworthy characteristics | N6, H1, B1, B2, B3, M20, N5, E5, E6, M2 | - |

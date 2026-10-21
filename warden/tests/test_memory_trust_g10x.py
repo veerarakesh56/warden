@@ -11,7 +11,7 @@ from __future__ import annotations
 import pathlib
 import re
 
-SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden"
+SRC = pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden"
 
 # Every module that fetches text from outside WARDEN. A new one is a reviewed change: whatever it reads is untrusted,
 # and must reach the model, if at all, only through the quarantine and the tripwire.

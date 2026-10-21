@@ -17,7 +17,7 @@ import pytest
 from test_lambdas_g6 import submitted  # noqa: F401
 from warden import intake, lambdas
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 ACCOUNT = "1" * 4 + "2" * 4 + "3" * 4  # the documentation's placeholder, built from parts
 SERVICE_ARN = f"arn:aws:ecs:ap-south-2:{ACCOUNT}:service/warden-dev-shop/warden-dev-checkout"
 
@@ -100,7 +100,7 @@ def test_the_alarm_lambda_takes_both_and_an_expected_down_service_event_is_recor
 
 
 def test_the_runtime_subscribes_to_those_events_for_the_watched_environments_resources_only():
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     block = tf[tf.index("  service_events = {"):tf.index('resource "aws_cloudwatch_event_rule" "service_events"')]
     assert '["ECS Service Action", "ECS Deployment State Change"]' in block
     assert 'eventType = ["WARN", "ERROR"]' in block
@@ -160,7 +160,7 @@ def test_every_other_health_notice_starts_nothing(event):
 
 
 def test_the_runtime_listens_for_open_account_issues_only():
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     block = tf[tf.index("    health = jsonencode({"):tf.index("    rds = jsonencode({")]
     assert 'source        = ["aws.health"]' in block
     assert '"detail-type" = ["AWS Health Event"]' in block

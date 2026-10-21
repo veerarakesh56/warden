@@ -1,6 +1,6 @@
 """Live proof that the permissions boundary holds even when the operator grants itself escalation.
 
-    python scripts/prove_boundary.py      # as warden-operator; changes nothing it does not restore
+    python infra/scripts/prove_boundary.py      # as warden-operator; changes nothing it does not restore
 
 0. Recover first: a run killed mid-way (Ctrl-C ends in the restore below; a SIGKILL or a closed
    terminal does not) left the operator policy's default on the temporary grant. That version is
@@ -29,7 +29,7 @@ import urllib.parse
 
 from botocore.exceptions import ClientError
 
-REPO = pathlib.Path(__file__).resolve().parents[1] / "terraform" / "proving-ground"
+REPO = pathlib.Path(__file__).resolve().parents[2] / "infra" / "terraform" / "proving-ground"
 PROBE_SID = "TemporaryEscalationProbe"
 TRUST = json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {
     "Service": "ecs-tasks.amazonaws.com"}, "Action": "sts:AssumeRole"}]})

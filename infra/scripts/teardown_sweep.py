@@ -1,7 +1,7 @@
 """After `terraform destroy`: remove what Terraform never knew about, then PROVE nothing is left.
 
-    python scripts/teardown_sweep.py              # dry run: list what would be removed, remove nothing
-    python scripts/teardown_sweep.py --apply      # remove it, then sweep
+    python infra/scripts/teardown_sweep.py              # dry run: list what would be removed, remove nothing
+    python infra/scripts/teardown_sweep.py --apply      # remove it, then sweep
 
 ⛔ WHY TERRAFORM DESTROY IS NOT ENOUGH. The benchmark creates resources Terraform has never heard of.
 Every scenario that deploys a variant registers a new task-definition revision, and `ecs-02`'s revert
@@ -40,7 +40,7 @@ from typing import Any
 
 from warden.environments import region
 
-STACK = ("Stack", "warden-proving-ground")  # the proving ground's own tag; see scenarios/ops.py STACK_TAG
+STACK = ("Stack", "warden-proving-ground")  # the proving ground's own tag; see fault-lab/scenarios/ops.py STACK_TAG
 DEFAULT_REGION = region()  # environments.yaml aws_region, or AWS_REGION
 # ECS throttles a burst of DeregisterTaskDefinition calls, and boto3's own retries give up at 4.
 THROTTLE_CODES = ("ThrottlingException", "Throttling", "RequestLimitExceeded",

@@ -1,9 +1,9 @@
 """Eldane, the AI critic, measured on the G10 held-out set (owner item 4, 2026-10-21): does it approve the right fix,
 catch the wrong or harmful one, and how often does it block a right one?
 
-    python scripts/eldane_bench.py --model <a providers.yaml critic model> --dry-run   # no key, no call: counts, cost
-    python scripts/eldane_bench.py --model <that model> --cap-usd <cap> --out <a new directory>   # PAID
-    python scripts/eldane_bench.py --record <out>/eldane-bench-<date>.json    # its row into BENCHMARKS.md, README
+    python fault-lab/scripts/eldane_bench.py --model <a providers.yaml critic model> --dry-run   # no key, no call: counts, cost
+    python fault-lab/scripts/eldane_bench.py --model <that model> --cap-usd <cap> --out <a new directory>   # PAID
+    python fault-lab/scripts/eldane_bench.py --record <out>/eldane-bench-<date>.json    # its row into BENCHMARKS.md, README
 
 The plans. For each of the 172 cases the set's answer key (`answer-key.json`) names the right actions
 (`correct_actions`) and the harmful ones (`harmful_actions`); heldout_bench.py grades any other action WRONG. Each
@@ -22,7 +22,7 @@ right; right and harmful, or harmful and wrong, is ambiguous and left out (liste
 What Eldane is asked. Exactly its production blind first pass: eldane.SYSTEM, the case's evidence rendered as the
 diagnosis is shown it (redact -> tripwire -> graph._evidence_blob, as activities.prepare keeps it), the plan in
 eldane.describe's words, and eldane.ask's strict reading (an unreadable answer, a citation not in the evidence, or an
-agreement citing nothing is a "no"). tests/test_eldane_bench.py holds this prompt equal to what eldane.review sends.
+agreement citing nothing is a "no"). warden/tests/test_eldane_bench.py holds this prompt equal to what eldane.review sends.
 Not asked: the second pass, which adds WARDEN's own reasoning only after a blind yes - the set has no WARDEN diagnosis
 to show, and inventing one would put the answer key in front of Eldane. A second pass can only turn a yes into a no, so
 the approve rate here is an UPPER bound of production's and the catch rate a LOWER bound. No catch trial is drawn.
@@ -65,8 +65,8 @@ from collections.abc import Callable, Iterable
 from types import SimpleNamespace
 from typing import Any
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-SET_DIR = ROOT / "docs" / "bench" / "heldout-g10-2026-10-10"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SET_DIR = ROOT / "fault-lab" / "docs" / "bench" / "heldout-g10-2026-10-10"
 PASSIVE = frozenset({"no_action", "escalate_to_human"})
 LABELS = ("right", "harmful", "wrong")
 # Rendered characters per token, counted low on purpose (providers._estimate_tokens) so the estimate errs high.
@@ -275,7 +275,7 @@ def dedupe(plans: Iterable[Plan]) -> tuple[list[Plan], list[dict[str, str]]]:
 
 
 def load_set(set_dir: pathlib.Path = SET_DIR) -> dict[str, tuple[dict[str, Any], dict[str, Any]]]:
-    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.path.insert(0, str(ROOT / "fault-lab" / "scripts"))
     from heldout_bench import answer_key
 
     key = answer_key(set_dir)
@@ -784,8 +784,8 @@ def _inside(path: pathlib.Path, bases: Iterable[pathlib.Path], what: str) -> pat
 
 
 def record(path: pathlib.Path) -> int:
-    """The result's row into this checkout's docs/BENCHMARKS.md and its line into README.md - the only two files it
-    writes; the result is read only from the working directory, the home directory or the temporary one."""
+    """The result's row into this checkout's warden/docs/BENCHMARKS.md and its line into warden/README.md - the only two
+    files it writes; the result is read only from the working directory, the home directory or the temporary one."""
     if not RESULT_NAME.fullmatch(path.name):
         raise Refused(
             "REFUSED: --record takes a result this script wrote (eldane-bench-<date>.json)"
@@ -798,8 +798,8 @@ def record(path: pathlib.Path) -> int:
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise Refused(f"REFUSED: the result cannot be read ({type(exc).__name__})") from None
     for name, begin, end, body, rows in (
-        (("docs", "BENCHMARKS.md"), BENCH_BEGIN, BENCH_END, row, True),
-        (("README.md",), README_BEGIN, README_END, line, False),
+        (("warden", "docs", "BENCHMARKS.md"), BENCH_BEGIN, BENCH_END, row, True),
+        (("warden", "README.md"), README_BEGIN, README_END, line, False),
     ):
         target = ROOT.joinpath(*name)  # a fixed file of this checkout, never a path from outside
         if target.is_symlink() or not target.is_file():
@@ -830,7 +830,7 @@ def main(argv: list[str] | None = None) -> int:
         help="build every plan and prompt, print counts and cost, call nothing, read no key",
     )
     p.add_argument(
-        "--record", type=pathlib.Path, help="add a result's row to docs/BENCHMARKS.md and README.md"
+        "--record", type=pathlib.Path, help="add a result's row to warden/docs/BENCHMARKS.md and README.md"
     )
     a = p.parse_args(argv)
     try:

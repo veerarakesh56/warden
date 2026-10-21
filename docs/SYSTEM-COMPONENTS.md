@@ -11,7 +11,7 @@ configure it) · **OPTIONAL** (an extra you can turn on).
 
 | Component | Used for | Status | Notes |
 |---|---|---|---|
-| Anthropic API, Claude Sonnet 5.5 (`claude-sonnet-5-5`) | the diagnosis | IN USE | the default provider and model (`src/warden/data/providers.yaml`); key from Secrets Manager |
+| Anthropic API, Claude Sonnet 5.5 (`claude-sonnet-5-5`) | the diagnosis | IN USE | the default provider and model (`warden/src/warden/data/providers.yaml`); key from Secrets Manager |
 | Anthropic API, Claude Opus 5.5 | the diagnosis | SUPPORTED | measured below WARDEN's qualification bar on 2026-10-15, so refused until it passes |
 | Amazon Bedrock | the diagnosis, inside AWS | SUPPORTED | `WARDEN_PROVIDER=bedrock` with an inference-profile id; must pass the qualification first |
 | Google Gemini, OpenAI-compatible endpoints (Groq, OpenRouter, local Ollama) | the diagnosis | SUPPORTED | must pass the qualification first |
@@ -53,7 +53,7 @@ configure it) · **OPTIONAL** (an extra you can turn on).
 | pip-audit, bandit, zizmor (CI) | IN USE | free |
 | Dependabot (with a cooldown), actions pinned to commit SHAs | IN USE | free |
 | cosign keyless signing of the runtime image | IN USE | free |
-| `scripts/check_publishable.py` (WARDEN's own secret and account-id scanner) | IN USE | free |
+| `warden/scripts/check_publishable.py` (WARDEN's own secret and account-id scanner) | IN USE | free |
 | CodeQL (GitHub's default setup) | IN USE | free on public repositories |
 | GitHub secret scanning and push protection | OPTIONAL | free on public repositories |
 

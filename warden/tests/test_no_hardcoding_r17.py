@@ -12,13 +12,13 @@ import pytest
 
 from warden import environments
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 # Every AWS partition's regions: commercial (eu-west-1), China (cn-north-1), GovCloud (us-gov-west-1), the ISO
 # partitions (us-iso-east-1, us-isob-east-1) and the European Sovereign Cloud (eusc-de-east-1) (CodeRabbit, PR 37).
 REGION = re.compile(r"\b(?:[a-z]{2}|eusc-[a-z]{2})(?:-gov|-iso[a-z]?)?-"
                     r"(?:north|south|east|west|central|northeast|southeast|northwest|southwest)-\d\b")
 # AWS serves its global services (IAM, CloudFront, region discovery) from us-east-1: AWS's fixed choice, named once as
-# scripts/account_sweep.py AWS_GLOBAL_REGION - never where WARDEN or an application runs.
+# infra/scripts/account_sweep.py AWS_GLOBAL_REGION - never where WARDEN or an application runs.
 AWS_GLOBAL = "us-east-1"
 
 
@@ -40,7 +40,8 @@ def _literals(path: pathlib.Path) -> list[str]:
 
 
 def test_no_python_string_in_the_tool_the_scripts_or_the_harness_names_a_region():
-    offenders = [f"{p.relative_to(ROOT)}: {m}" for top in ("src/warden", "scripts", "scenarios")
+    offenders = [f"{p.relative_to(ROOT)}: {m}" for top in ("warden/src/warden", "warden/scripts", "infra/scripts", "demo-app/scripts", "fault-lab/scripts",
+                                 "fault-lab/scenarios", "demo-app/app", "demo-app/lambdas")
                  for p in (ROOT / top).rglob("*.py") for text in _literals(p) for m in REGION.findall(text)
                  if not (m == AWS_GLOBAL and p.name == "account_sweep.py")]
     assert not offenders, offenders
@@ -48,13 +49,13 @@ def test_no_python_string_in_the_tool_the_scripts_or_the_harness_names_a_region(
 
 def test_no_terraform_line_and_no_iam_template_names_a_region():
     offenders = []
-    for p in (ROOT / "terraform").rglob("*.tf"):
+    for p in (ROOT / "infra" / "terraform").rglob("*.tf"):
         if ".terraform" in p.parts:
             continue
         for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
             code = line.split("#", 1)[0]
             offenders += [f"{p.relative_to(ROOT)}:{i}" for _ in REGION.findall(code)]
-    for p in (ROOT / "iam" / "templates").glob("*.json"):
+    for p in (ROOT / "infra" / "iam" / "templates").glob("*.json"):
         offenders += [str(p.relative_to(ROOT))] * len(REGION.findall(p.read_text(encoding="utf-8")))
     assert not offenders, offenders
 
@@ -80,7 +81,8 @@ CFG = environments.EnvironmentPolicies.load()
 ENV_NAMES = (*CFG.known_environments, CFG.runtime_environment)
 ENV_RESOURCE = re.compile("warden-(?:" + "|".join(map(re.escape, ENV_NAMES)) + ")-[a-z0-9]")
 MODEL_ID = re.compile(r"\b(?:claude-(?:opus|sonnet|haiku|fable|mythos)|gemini|gpt)-[0-9][\w.-]*")
-CODE_DIRS = ("src/warden", "scripts", "scenarios")
+CODE_DIRS = ("warden/src/warden", "warden/scripts", "infra/scripts", "demo-app/scripts", "fault-lab/scripts",
+             "fault-lab/scenarios", "demo-app/app", "demo-app/lambdas")
 
 
 def _python_files():
@@ -96,8 +98,9 @@ def test_no_code_names_a_resource_of_one_environment():
     """`warden-dev-orders`, `warden-ops-read`: a name with an environment in it is built from the environment."""
     offenders = [f"{p.relative_to(ROOT)}: {m}" for p in _python_files() for text in _literals(p)
                  for m in ENV_RESOURCE.findall(text)]
-    # The workflows are held to the same rule where the tests that read them run (tests/test_runtime_pipeline_s9.py).
-    for pattern in ("terraform/**/*.tf", "iam/templates/*.json", "scenarios/catalog/*.yaml", "k8s/**/*.yaml"):
+    # The workflows are held to the same rule where the tests that read them run (warden/tests/test_runtime_pipeline_s9.py).
+    for pattern in ("infra/terraform/**/*.tf", "infra/iam/templates/*.json", "fault-lab/scenarios/catalog/*.yaml", "infra/k8s/**/*.yaml", "demo-app/k8s/**/*.yaml",
+                    "fault-lab/k8s/**/*.yaml"):
         for p in ROOT.glob(pattern):
             if ".terraform" in p.parts:
                 continue
@@ -111,19 +114,19 @@ def test_no_code_names_a_resource_of_one_environment():
 # of common words the checks read, or the environment of a bundled sample incident. Named file by file with why - a
 # new file that writes an environment's name is a decision, not a habit.
 NOT_AN_ENVIRONMENT = {
-    "src/warden/environments.py": ({"prod"}, "the prod TIER, which no fault environment may be"),
-    "src/warden/cli.py": ({"prod"}, "the bundled demo incidents' own environment"),
-    "src/warden/mcp_server.py": ({"prod"}, "a sample alert in a tool's description"),
-    "src/warden/verifier.py": ({"prod", "ops"}, "the prod TIER (P2), and a vocabulary of plain words"),
-    "src/warden/reporting.py": ({"prod"}, "the tier ranks"),
-    "src/warden/autonomy.py": ({"prod"}, "the prod TIER, which is never autonomous"),
-    "src/warden/grounding.py": ({"prod", "dev"}, "a vocabulary of scope words"),
-    "src/warden/redaction.py": ({"prod", "dev"}, "a vocabulary of common words never swept as secrets"),
-    "scripts/probe_cluster.py": ({"prod"}, "a manual probe's sample alert"),
-    "scenarios/runner.py": ({"prod"}, "the dry runs' sample alerts"),
-    "scenarios/fullstack_cli.py": ({"prod"}, "the dry run's sample alert"),
-    "scenarios/ops_fullstack.py": ({"ops"}, "a result key named `ops`"),
-    "scripts/pause_resume.py": ({"ops"}, "the full stack's Lambda named `ops` (its lambda.tf)"),
+    "warden/src/warden/environments.py": ({"prod"}, "the prod TIER, which no fault environment may be"),
+    "warden/src/warden/cli.py": ({"prod"}, "the bundled demo incidents' own environment"),
+    "warden/src/warden/mcp_server.py": ({"prod"}, "a sample alert in a tool's description"),
+    "warden/src/warden/verifier.py": ({"prod", "ops"}, "the prod TIER (P2), and a vocabulary of plain words"),
+    "warden/src/warden/reporting.py": ({"prod"}, "the tier ranks"),
+    "warden/src/warden/autonomy.py": ({"prod"}, "the prod TIER, which is never autonomous"),
+    "warden/src/warden/grounding.py": ({"prod", "dev"}, "a vocabulary of scope words"),
+    "warden/src/warden/redaction.py": ({"prod", "dev"}, "a vocabulary of common words never swept as secrets"),
+    "fault-lab/scripts/probe_cluster.py": ({"prod"}, "a manual probe's sample alert"),
+    "fault-lab/scenarios/runner.py": ({"prod"}, "the dry runs' sample alerts"),
+    "fault-lab/scenarios/fullstack_cli.py": ({"prod"}, "the dry run's sample alert"),
+    "fault-lab/scenarios/ops_fullstack.py": ({"ops"}, "a result key named `ops`"),
+    "infra/scripts/pause_resume.py": ({"ops"}, "the full stack's Lambda named `ops` (its lambda.tf)"),
 }
 
 
@@ -141,7 +144,7 @@ def test_no_code_writes_an_environments_name_outside_the_named_exceptions():
 def test_where_faults_may_be_injected_is_one_list_in_the_configuration(tmp_path):
     assert CFG.fault_environments
     assert all(CFG.for_env(e).tier != "prod" for e in CFG.fault_environments)
-    text = (ROOT / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")
+    text = (ROOT / "warden" / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")
     for bad in ("fault_environments: [prod]", "fault_environments: [nowhere]", "fault_environments: dev"):
         doc = tmp_path / "e.yaml"
         doc.write_text(re.sub(r"(?m)^fault_environments: .*$", bad, text), encoding="utf-8")
@@ -159,30 +162,30 @@ def test_the_repository_is_named_in_the_configuration_and_nowhere_in_code(tmp_pa
     owner = repo.split("/")[0]
     assert subject.split("@")[0] == owner
     assert subject.split("/")[1].split("@")[0] == repo.split("/")[1]
-    for p in [*(ROOT / "iam" / "templates").glob("*.json"), *_python_files()]:
+    for p in [*(ROOT / "infra" / "iam" / "templates").glob("*.json"), *_python_files()]:
         assert repo not in p.read_text(encoding="utf-8"), p.name
         assert subject not in p.read_text(encoding="utf-8"), p.name
-    trust = (ROOT / "iam" / "templates" / "trust.json").read_text(encoding="utf-8")
+    trust = (ROOT / "infra" / "iam" / "templates" / "trust.json").read_text(encoding="utf-8")
     assert "repo:${github_subject}:environment:${env}" in trust
     assert "${github_repository}/.github/workflows/" in trust
     # Owner, 2026-10-16: each environment deploys from the branch of its own name, the runtime from
     # `github.runtime_branch` - no template names a branch of its own.
     assert trust.count("refs/heads/${env}") == 3
-    runtime_trust = (ROOT / "iam" / "templates" / "runtime-trust.json").read_text(encoding="utf-8")
+    runtime_trust = (ROOT / "infra" / "iam" / "templates" / "runtime-trust.json").read_text(encoding="utf-8")
     assert runtime_trust.count("refs/heads/${runtime_branch}") == 2
-    literal = [p.name for p in (ROOT / "iam" / "templates").glob("*.json")
+    literal = [p.name for p in (ROOT / "infra" / "iam" / "templates").glob("*.json")
                if re.search(r"refs/heads/(?!\$\{(?:env|runtime_branch)\})", p.read_text(encoding="utf-8"))]
     assert not literal, literal
-    yaml_text = (ROOT / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")
+    yaml_text = (ROOT / "warden" / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")
     for bad in ("  runtime_branch: main", "  runtime_branch: [dev]", "  runtime_branch: nowhere"):
         doc = tmp_path / "branch.yaml"
         doc.write_text(re.sub(r"(?m)^  runtime_branch: .*$", bad, yaml_text), encoding="utf-8")
         with pytest.raises(environments.EnvironmentPolicyError, match="runtime_branch"):
             environments.EnvironmentPolicies.load(doc)
-    rendered = (ROOT / "iam" / CFG.fault_environments[0] / "trust.json").read_text(encoding="utf-8")
+    rendered = (ROOT / "infra" / "iam" / CFG.fault_environments[0] / "trust.json").read_text(encoding="utf-8")
     assert f"repo:{subject}:environment:" in rendered
     assert f"{repo}/.github/workflows/" in rendered
-    text = (ROOT / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")
+    text = (ROOT / "warden" / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")
     for bad in ("  repository: not a repository", "  repository: 42"):
         doc = tmp_path / "e.yaml"
         doc.write_text(re.sub(r"(?m)^  repository: .*$", bad, text), encoding="utf-8")
@@ -202,7 +205,7 @@ def test_no_code_names_a_model_and_every_default_is_configuration():
     with pytest.raises(providers.ProviderError):
         providers.default_model("no-such-provider")
     # Every provider takes WARDEN_MODEL first and the configured default after - none a default of its own.
-    source = (ROOT / "src" / "warden" / "providers.py").read_text(encoding="utf-8")
+    source = (ROOT / "warden" / "src" / "warden" / "providers.py").read_text(encoding="utf-8")
     assert source.count('os.environ.get("WARDEN_MODEL") or default_model(self.name)') == 4
     assert 'os.environ.get("WARDEN_MODEL", ' not in source
 
@@ -217,20 +220,20 @@ def test_no_code_names_a_model_and_every_default_is_configuration():
 LEGACY_NAME = re.compile(r"\bwarden-pg\b")
 PROVING_GROUND = "the Wave 1-3 proving ground and what drives it, kept for re-runs (R52/R53, owner 2026-10-02)"
 LEGACY_OR_REGION_ALLOWED = {
-    "src/warden/data/environments.yaml": ({"region"}, "the one place the region is configured"),
-    "iam/operator/policy.json": ({"region"}, "the operator's own policy, pasted by the owner, not rendered"),
-    "iam/operator/trust.json": ({"region"}, "the operator's Roles Anywhere trust, pasted by the owner, not rendered"),
-    "k8s/proving-ground/namespace.yaml": ({"legacy"}, PROVING_GROUND),
-    "k8s/proving-ground/rbac.yaml": ({"legacy"}, PROVING_GROUND),
-    "scenarios/runner.py": ({"legacy"}, PROVING_GROUND),
-    "scripts/aws_proof_bundle.py": ({"legacy"}, PROVING_GROUND),
-    "scripts/prove_boundary.py": ({"legacy"}, PROVING_GROUND),
-    "scripts/teardown_sweep.py": ({"legacy"}, PROVING_GROUND),
-    "terraform/proving-ground/operator-policy-boundary.json": ({"legacy", "region"}, PROVING_GROUND),
-    "terraform/proving-ground/operator-policy-rds-eks.json": ({"legacy", "region"}, PROVING_GROUND),
-    "terraform/proving-ground/operator-policy.json": ({"legacy", "region"}, PROVING_GROUND),
-    "terraform/proving-ground/terraform.tfvars.example": ({"region"}, PROVING_GROUND),
-    "terraform/proving-ground/variables.tf": ({"legacy"}, PROVING_GROUND),
+    "warden/src/warden/data/environments.yaml": ({"region"}, "the one place the region is configured"),
+    "infra/iam/operator/policy.json": ({"region"}, "the operator's own policy, pasted by the owner, not rendered"),
+    "infra/iam/operator/trust.json": ({"region"}, "the operator's Roles Anywhere trust, pasted by the owner, not rendered"),
+    "fault-lab/k8s/proving-ground/namespace.yaml": ({"legacy"}, PROVING_GROUND),
+    "fault-lab/k8s/proving-ground/rbac.yaml": ({"legacy"}, PROVING_GROUND),
+    "fault-lab/scenarios/runner.py": ({"legacy"}, PROVING_GROUND),
+    "fault-lab/scripts/aws_proof_bundle.py": ({"legacy"}, PROVING_GROUND),
+    "infra/scripts/prove_boundary.py": ({"legacy"}, PROVING_GROUND),
+    "infra/scripts/teardown_sweep.py": ({"legacy"}, PROVING_GROUND),
+    "infra/terraform/proving-ground/operator-policy-boundary.json": ({"legacy", "region"}, PROVING_GROUND),
+    "infra/terraform/proving-ground/operator-policy-rds-eks.json": ({"legacy", "region"}, PROVING_GROUND),
+    "infra/terraform/proving-ground/operator-policy.json": ({"legacy", "region"}, PROVING_GROUND),
+    "infra/terraform/proving-ground/terraform.tfvars.example": ({"region"}, PROVING_GROUND),
+    "infra/terraform/proving-ground/variables.tf": ({"legacy"}, PROVING_GROUND),
 }
 
 
@@ -245,8 +248,11 @@ def _legacy_and_region(path: pathlib.Path) -> set[str]:
 
 def _scanned_files() -> list[str]:
     listed = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
-    rendered = tuple(f"iam/{env}/" for env in ENV_NAMES)  # scripts/render_env_iam.py writes the region into these
-    return [f for f in listed.splitlines() if not f.startswith(("docs/", "tests/", *rendered))
+    rendered = tuple(f"infra/iam/{env}/" for env in ENV_NAMES)  # infra/scripts/render_env_iam.py writes the region into these
+    # Every component's docs, as docs/ was before the split; and Helios (helios/), a product of its own whose
+    # fixtures and golden files are synthetic AWS plans - regions are its subject - checked by its own CI.
+    left_out = ("docs/", "warden/docs/", "infra/docs/", "demo-app/docs/", "fault-lab/docs/", "helios/")
+    return [f for f in listed.splitlines() if not f.startswith((*left_out, "warden/tests/", *rendered))
             and not f.endswith(".md") and (ROOT / f).is_file()]
 
 

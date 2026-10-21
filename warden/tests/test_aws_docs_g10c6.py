@@ -106,7 +106,6 @@ def test_the_read_zone_fetches_references_only_when_switched_on(monkeypatch, ena
 def test_the_cloud_runtime_turns_it_on_in_the_read_zone_only():
     import pathlib
 
-    compute = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "modules" / "warden-runtime" /
-               "compute.tf").read_text(encoding="utf-8")
+    compute = (pathlib.Path(__file__).resolve().parents[2] / "infra" / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
     assert 'each.key == "read" ? { WARDEN_AWS_DOCS = "on" } : {}' in compute
     assert compute.count("WARDEN_AWS_DOCS") == 1

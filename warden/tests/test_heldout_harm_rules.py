@@ -20,8 +20,8 @@ from warden.models import (
 )
 from warden.verifier import verify
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-CASES = ROOT / "docs" / "bench" / "heldout-g10-2026-10-10" / "incidents"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+CASES = ROOT / "fault-lab" / "docs" / "bench" / "heldout-g10-2026-10-10" / "incidents"
 ALERT = Alert(alert_id="a", name="n", service="search-api", environment="dev", severity=Severity.high, summary="s",
               started_at="2026-10-10T08:00:00+00:00")
 

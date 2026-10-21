@@ -10,7 +10,7 @@ from __future__ import annotations
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "infra" / "scripts"))
 import validate_policies as vp
 
 
@@ -38,29 +38,29 @@ def _finding(kind):
 
 
 def test_a_clean_policy_is_clean():
-    assert vp.main(["--glob", "terraform/proving-ground/operator-policy.json"], client=_Client()) == 0
+    assert vp.main(["--glob", "infra/terraform/proving-ground/operator-policy.json"], client=_Client()) == 0
 
 
 def test_an_error_fails():
-    assert vp.main(["--glob", "terraform/proving-ground/operator-policy.json"],
+    assert vp.main(["--glob", "infra/terraform/proving-ground/operator-policy.json"],
                    client=_Client([_finding("ERROR")])) == 1
 
 
 def test_a_security_warning_fails_even_without_strict():
     """⛔ A security finding is never a warning to wave through."""
-    assert vp.main(["--glob", "terraform/proving-ground/operator-policy.json"],
+    assert vp.main(["--glob", "infra/terraform/proving-ground/operator-policy.json"],
                    client=_Client([_finding("SECURITY_WARNING")])) == 1
 
 
 def test_a_plain_warning_fails_only_under_strict():
-    args = ["--glob", "terraform/proving-ground/operator-policy.json"]
+    args = ["--glob", "infra/terraform/proving-ground/operator-policy.json"]
     assert vp.main(args, client=_Client([_finding("WARNING")])) == 0
     assert vp.main(args + ["--strict"], client=_Client([_finding("WARNING")])) == 1
 
 
 def test_being_unable_to_run_is_not_a_clean_result():
     """⛔ An AccessDenied must not print "clean". Exit 2 says the check did not happen."""
-    assert vp.main(["--glob", "terraform/proving-ground/operator-policy.json"],
+    assert vp.main(["--glob", "infra/terraform/proving-ground/operator-policy.json"],
                    client=_Client(raises=RuntimeError("AccessDeniedException"))) == 2
 
 

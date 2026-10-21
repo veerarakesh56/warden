@@ -1,4 +1,4 @@
-# The audit's schema and its writer login (G6): `warden.lambdas.migrate`, invoked by .github/workflows/runtime.yml
+# The audit's schema and its writer login (G6): `warden.lambdas.migrate`, invoked by .github/workflows/warden-runtime-deploy.yml
 # after each apply. The only identity that reads the cluster's master secret (RDS keeps it in Secrets Manager); it
 # creates the tables, the append-only triggers and `warden_audit_writer` - SELECT and INSERT only, a login with no
 # password that signs in with an IAM token. Every other runtime identity connects as that writer (iam.tf).

@@ -33,7 +33,7 @@ from .evidence import Item
 MODEL = os.environ.get("WARDEN_TRIPWIRE_MODEL", "meta-llama/Llama-Prompt-Guard-2-86M")
 # The exact weights (registers S9, A-P-7): a Hub commit, so a change upstream cannot change the detector unseen. Every
 # measurement in this file was made on it (the commit the Hub served on 2026-10-03, and the one cached since
-# 2026-09-29). docs/sbom/warden.cdx.json lists it in the ML-BOM.
+# 2026-09-29). warden/docs/sbom/warden.cdx.json lists it in the ML-BOM.
 REVISION = os.environ.get("WARDEN_TRIPWIRE_REVISION", "a8ded8e697ce7c355e395a0df51f94adb4a2fd27")
 # Prompt Guard reads 512 tokens. A long text is scanned in overlapping windows and scores its worst
 # window, so an instruction cannot hide behind padding. ⛔ Audit A-C-21: the windows were 1,200

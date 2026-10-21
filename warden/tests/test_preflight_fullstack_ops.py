@@ -1,4 +1,4 @@
-"""scripts/preflight_fullstack_ops.py beyond the happy path (characterisation before the cognitive-complexity split
+"""fault-lab/scripts/preflight_fullstack_ops.py beyond the happy path (characterisation before the cognitive-complexity split
 of main): each refusal, a dirty stack before or after, an inject that raises, a revert that raises, a fault not yet
 visible - each with the exact line it prints and its exit code."""
 
@@ -11,7 +11,7 @@ from scenarios import fullstack_cli as cli
 from scenarios import ops_fullstack as fs
 from scenarios import runner
 
-_spec = importlib.util.spec_from_file_location("preflight_fs", runner.ROOT / "scripts" / "preflight_fullstack_ops.py")
+_spec = importlib.util.spec_from_file_location("preflight_fs", runner.ROOT / "fault-lab" / "scripts" / "preflight_fullstack_ops.py")
 pf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(pf)
 

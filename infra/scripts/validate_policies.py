@@ -1,7 +1,7 @@
 """Validate the IAM policies with AWS IAM Access Analyzer - AWS's own validator, not a list.
 
-    python scripts/validate_policies.py            # every operator-policy*.json
-    python scripts/validate_policies.py --strict   # also fail on WARNING, not just ERROR/SECURITY
+    python infra/scripts/validate_policies.py            # every operator-policy*.json
+    python infra/scripts/validate_policies.py --strict   # also fail on WARNING, not just ERROR/SECURITY
 
 ⛔ WHY THIS EXISTS NEXT TO check_iam_actions.py. That script checks action NAMES against the data
 behind AWS's Policy Generator. It is useful and it is not authoritative: it can lag, it knows nothing
@@ -25,8 +25,8 @@ import argparse
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-DEFAULT_GLOB = "terraform/proving-ground/operator-policy*.json"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+DEFAULT_GLOB = "infra/terraform/proving-ground/operator-policy*.json"
 # In order of severity, as Access Analyzer reports them.
 LEVELS = ("ERROR", "SECURITY_WARNING", "WARNING", "SUGGESTION")
 

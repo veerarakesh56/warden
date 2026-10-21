@@ -2,8 +2,8 @@
 
 In the cloud, WARDEN is a set of services, each with its own machine identity. It starts when an alarm
 fires, holds no person's credentials and no long-lived access key, and pages a person when it cannot do
-its job. Everything on this page is defined in `terraform/runtime` (the network and the environment's
-settings) and `terraform/modules/warden-runtime` (the services). How the pieces fit inside the code is in
+its job. Everything on this page is defined in `infra/terraform/runtime` (the network and the environment's
+settings) and `infra/terraform/modules/warden-runtime` (the services). How the pieces fit inside the code is in
 [`ARCHITECTURE.md`](ARCHITECTURE.md); every outside component and its price is in
 [`SYSTEM-COMPONENTS.md`](SYSTEM-COMPONENTS.md); setting it up is in [`SETUP.md`](SETUP.md).
 
@@ -60,7 +60,7 @@ gates: published adaptive attacks beat every detector, so the architecture carri
 | Pause | `/warden/<env>/tf/paused = true` removes compute, the NAT route and alarm intake between uses; the data stays |
 
 The runtime is one deployment, the `ops` environment, that watches the application environments listed in
-`watched_environments`. It is deployed by its own manual pipeline (`.github/workflows/runtime.yml`).
+`watched_environments`. It is deployed by its own manual pipeline (`.github/workflows/warden-runtime-deploy.yml`).
 
 ## How each part gets access (no keys anywhere)
 
@@ -76,7 +76,7 @@ The runtime is one deployment, the `ops` environment, that watches the applicati
 - **The audit database** is reached as `warden_audit_writer`, which may only SELECT and INSERT and signs in
   with an IAM token, not a password.
 - **CI** has no AWS keys. GitHub's OIDC token is exchanged for a per-environment deploy role
-  (`iam/templates`).
+  (`infra/iam/templates`).
 
 ## Human approval
 
@@ -93,7 +93,7 @@ The runtime is one deployment, the `ops` environment, that watches the applicati
 
 The llm worker calls **Claude Sonnet 5.5 (`claude-sonnet-5-5`) through the Anthropic API**, with the key
 read from Secrets Manager (`warden/<env>/anthropic-api-key`). That is the code's default
-(`src/warden/data/providers.yaml`: provider `anthropic`, default model `claude-sonnet-5-5`); an install can
+(`warden/src/warden/data/providers.yaml`: provider `anthropic`, default model `claude-sonnet-5-5`); an install can
 choose another provider and model with `/warden/<env>/tf/model_provider` and `/warden/<env>/tf/model`.
 The code also supports Amazon Bedrock, Gemini and OpenAI-compatible endpoints, but the runtime module
 grants no Bedrock access and creates no slot for another provider's key (owner, 2026-10-09: the Anthropic API
@@ -101,7 +101,7 @@ only); a slot comes back only with a zone that reads it.
 
 A model is used only after it passes WARDEN's replay qualification on recorded incidents, never because of
 a public leaderboard; the deploy refuses a model that is not on the qualified list. The results are in
-[`BENCHMARKS.md`](BENCHMARKS.md). The model sees only redacted, typed facts. Each incident may make at most
+[`BENCHMARKS.md`](../warden/docs/BENCHMARKS.md). The model sees only redacted, typed facts. Each incident may make at most
 6 model calls and spend at most US$0.25 in the cloud, and a daily cap applies across incidents.
 
 If there is no model, the budget is spent, or the provider is down, WARDEN produces a **rules-only report
@@ -118,8 +118,8 @@ and hands the incident to a person** instead of guessing.
 
 ## Operations
 
-[`OPERATIONS.md`](OPERATIONS.md) covers rotating every secret and key.
-[`RUNBOOK-WARDEN-INCIDENT.md`](RUNBOOK-WARDEN-INCIDENT.md) covers what to do when WARDEN itself is the
+[`OPERATIONS.md`](../warden/docs/OPERATIONS.md) covers rotating every secret and key.
+[`RUNBOOK-WARDEN-INCIDENT.md`](../warden/docs/RUNBOOK-WARDEN-INCIDENT.md) covers what to do when WARDEN itself is the
 incident.
 
 ## Limits

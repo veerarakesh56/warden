@@ -1,4 +1,4 @@
-"""B18: the second kill switch - an IAM deny on the actor role that only a person turns (scripts/iam_kill_switch.py)."""
+"""B18: the second kill switch - an IAM deny on the actor role that only a person turns (infra/scripts/iam_kill_switch.py)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import pathlib
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("iam_kill_switch", ROOT / "scripts" / "iam_kill_switch.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location("iam_kill_switch", ROOT / "infra" / "scripts" / "iam_kill_switch.py")
 ks = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ks)
 
@@ -17,7 +17,7 @@ ENVS = ks.EnvironmentPolicies.load().known_environments
 
 
 def _load(env, kind):
-    return json.loads((ROOT / "iam" / env / f"{kind}.json").read_text(encoding="utf-8"))
+    return json.loads((ROOT / "infra" / "iam" / env / f"{kind}.json").read_text(encoding="utf-8"))
 
 
 def _denied(env, tags):
@@ -61,7 +61,7 @@ def test_the_role_cannot_turn_its_own_switch_and_no_session_can_override_it(env)
 
 
 def test_the_live_check_compares_the_kill_switch_policy_too():
-    spec_live = importlib.util.spec_from_file_location("check_live_iam", ROOT / "scripts" / "check_live_iam.py")
+    spec_live = importlib.util.spec_from_file_location("check_live_iam", ROOT / "infra" / "scripts" / "check_live_iam.py")
     live = importlib.util.module_from_spec(spec_live)
     spec_live.loader.exec_module(live)
     assert ("WardenKillSwitch-{env}", "kill-switch") in live.POLICIES

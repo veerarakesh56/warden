@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 DENY = [re.compile(p) for p in (
     r"^research_notes/", r"^reports/", r"^\.claude/", r"^\.review/", r"^notes/", r"^scratch/",
@@ -20,7 +20,7 @@ DENY = [re.compile(p) for p in (
     r"\.tfstate(\.|$)", r"\.tfvars$", r"(^|/)tfplan", r"\.tfplan",
     r"(^|/)(\.venv|__pycache__|\.pytest_cache|\.ruff_cache|\.mypy_cache|\.hypothesis|\.terraform|\.vscode|\.idea)/",
     r"(^|/)(\.DS_Store|Thumbs\.db|desktop\.ini)$", r"(^|/)\.coverage(\.|$)",
-    r"^docs/bench/.*/runs/", r"^docs/bench/.*runner[^/]*\.log$",
+    r"^fault-lab/docs/bench/.*/runs/", r"^fault-lab/docs/bench/.*runner[^/]*\.log$",
 )]
 
 
@@ -56,18 +56,18 @@ def test_gitignore_keeps_the_local_only_lines():
 
 @pytest.mark.parametrize("path", [
     "research_notes/x/notes.md", "reports/a.md", ".claude/settings.local.json", "docs/SESSION-HANDOFF-2026-09-09.md",
-    ".env", ".env.prod", "keys/deploy.pem", "a/b.key", "iam/dev/trust.local.json", "terraform/x/terraform.tfstate",
+    ".env", ".env.prod", "keys/deploy.pem", "a/b.key", "infra/iam/dev/trust.local.json", "terraform/x/terraform.tfstate",
     "terraform/x/terraform.tfvars", "terraform/x/tfplan", "src/__pycache__/a.pyc", ".vscode/settings.json",
-    "docs/bench/heldout-g10-2026-10-10/runs/a.json", "docs/bench/w/runner-1.log", "NEXT-SESSION-PROMPT.txt",
+    "fault-lab/docs/bench/heldout-g10-2026-10-10/runs/a.json", "fault-lab/docs/bench/w/runner-1.log", "NEXT-SESSION-PROMPT.txt",
 ])
 def test_each_local_only_shape_is_denied(path):
     assert denied(path)
 
 
 @pytest.mark.parametrize("path", [
-    "README.md", "docs/SETUP.md", ".env.example", "terraform/x/terraform.tfvars.example", "src/warden/keys.py",
-    "docs/bench/heldout-g10-2026-10-10/incidents/a.json", "tests/fixtures/bench/w/reports/a.json",
-    "iam/dev/trust.json", "docs/governance/RACI.md",
+    "README.md", "docs/SETUP.md", ".env.example", "terraform/x/terraform.tfvars.example", "warden/src/warden/keys.py",
+    "fault-lab/docs/bench/heldout-g10-2026-10-10/incidents/a.json", "warden/tests/fixtures/bench/w/reports/a.json",
+    "infra/iam/dev/trust.json", "warden/docs/governance/RACI.md",
 ])
 def test_published_shapes_are_not_denied(path):
     assert not denied(path)

@@ -1,6 +1,6 @@
-# WARDEN's own runtime (G6): the root configuration that deploys terraform/modules/warden-runtime for one runtime
-# environment - `ops` - from .github/workflows/runtime.yml, with the runtime image that workflow built, signed and
-# attested, by digest. Infrastructure only, like terraform/fullstack: no code is built here.
+# WARDEN's own runtime (G6): the root configuration that deploys infra/terraform/modules/warden-runtime for one runtime
+# environment - `ops` - from .github/workflows/warden-runtime-deploy.yml, with the runtime image that workflow built, signed and
+# attested, by digest. Infrastructure only, like infra/terraform/fullstack: no code is built here.
 #
 # THE ENVIRONMENT IS THE WORKSPACE (`terraform workspace select -or-create ops`), refused unless it is environments.yaml's
 # `runtime:` - WARDEN's own environment, never an application one. Every per-install value comes from SSM Parameter Store, /warden/<env>/tf/*, never a tfvars file and never a
@@ -10,16 +10,16 @@ terraform {
   required_providers {
     aws = { source = "hashicorp/aws", version = ">= 6.0, < 7.0" }
   }
-  # No backend block on purpose: CI writes a backend_override.tf (S3) before init, as for terraform/fullstack.
+  # No backend block on purpose: CI writes a backend_override.tf (S3) before init, as for infra/terraform/fullstack.
 }
 
 variable "runtime_image" {
-  description = "The runtime image by digest (runtime.yml passes the digest it signed and attested)."
+  description = "The runtime image by digest (warden-runtime-deploy.yml passes the digest it signed and attested)."
   type        = string
 }
 
 locals {
-  config  = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml"))
+  config  = yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml"))
   env     = terraform.workspace
   runtime = local.config.runtime
   # Per-install values; the optional ones may be absent.
@@ -57,9 +57,9 @@ resource "terraform_data" "environment_is_known" {
     # every diagnosis was refused at run time). The model the llm worker is given must be one WARDEN qualified.
     precondition {
       condition = lookup(local.tf, "model", "") == "" || contains(
-        [for e in yamldecode(file("${path.module}/../../src/warden/data/providers.yaml")).qualified : e.model
+        [for e in yamldecode(file("${path.module}/../../../warden/src/warden/data/providers.yaml")).qualified : e.model
       if e.provider == lookup(local.tf, "model_provider", "")], lookup(local.tf, "model", ""))
-      error_message = "SSM /warden/<env>/tf/model is not a qualified model for tf/model_provider (src/warden/data/providers.yaml, register M20)."
+      error_message = "SSM /warden/<env>/tf/model is not a qualified model for tf/model_provider (warden/src/warden/data/providers.yaml, register M20)."
     }
   }
 }

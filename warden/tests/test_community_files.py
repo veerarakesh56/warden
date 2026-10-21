@@ -9,8 +9,8 @@ import re
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-FILES = ("CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md", "docs/DATA-RETENTION.md",
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+FILES = ("CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md", "warden/docs/DATA-RETENTION.md",
          ".github/pull_request_template.md", ".github/ISSUE_TEMPLATE/bug_report.md",
          ".github/ISSUE_TEMPLATE/feature_request.md")
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")

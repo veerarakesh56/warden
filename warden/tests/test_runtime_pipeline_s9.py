@@ -1,7 +1,7 @@
-"""Register S9 (supply chain) and G6: WARDEN's own runtime pipeline, .github/workflows/runtime.yml. The image is built
+"""Register S9 (supply chain) and G6: WARDEN's own runtime pipeline, .github/workflows/warden-runtime-deploy.yml. The image is built
 before the job holds a credential, pushed by the commit's SHA, signed by digest with cosign (keyless, this workflow's
 own identity) and given build provenance; the deploy verifies both - signed by this workflow on the runtime branch -
-before it plans, and applies only the plan it made, with that digest. terraform/runtime takes every per-install value
+before it plans, and applies only the plan it made, with that digest. infra/terraform/runtime takes every per-install value
 from SSM. The pipeline runs from environments.yaml `github.runtime_branch` only (owner, 2026-10-16: dev, until prod
 exists), at a commit promoted onto it from its upstream branch."""
 
@@ -13,8 +13,8 @@ import re
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-FLOW = (ROOT / ".github" / "workflows" / "runtime.yml").read_text(encoding="utf-8")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+FLOW = (ROOT / ".github" / "workflows" / "warden-runtime-deploy.yml").read_text(encoding="utf-8")
 IMAGE_JOB = FLOW[FLOW.index("\n  image:"):FLOW.index("\n  deploy:")]
 DEPLOY_JOB = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]
 GUARD = "Runtime deploys run from the runtime branch only"
@@ -40,11 +40,11 @@ def test_the_runtime_runs_only_from_its_branch_at_a_promoted_commit_and_signs_as
         assert first["name"] == GUARD, job_id
         assert first["if"] == f"github.ref != 'refs/heads/{branch}'", job_id
         assert "exit 1" in first["run"], job_id
-    signer = f"${{{{ github.server_url }}}}/${{{{ github.repository }}}}/.github/workflows/runtime.yml@refs/heads/{branch}"
+    signer = f"${{{{ github.server_url }}}}/${{{{ github.repository }}}}/.github/workflows/warden-runtime-deploy.yml@refs/heads/{branch}"
     signers = [s["env"]["SIGNER"] for s in doc["jobs"]["image"]["steps"] if "SIGNER" in s.get("env", {})]
     assert signers == [signer]
     assert doc["jobs"]["deploy"]["env"]["SIGNER"] == signer
-    assert FLOW.count("runtime.yml@refs/heads/") == 2
+    assert FLOW.count("warden-runtime-deploy.yml@refs/heads/") == 2
     steps = doc["jobs"]["image"]["steps"]
     at = {s.get("name") or s.get("uses", "").split("@")[0]: i for i, s in enumerate(steps)}
     check = at["The commit was promoted from its upstream branch"]
@@ -97,10 +97,10 @@ def test_the_digest_is_signed_and_given_provenance():
 
 def test_nothing_is_deployed_that_this_workflow_did_not_sign_and_attest():
     verify = DEPLOY_JOB.index("cosign verify")
-    assert verify < DEPLOY_JOB.index("terraform -chdir=terraform/runtime init") < DEPLOY_JOB.index("plan -input=false")
+    assert verify < DEPLOY_JOB.index("terraform -chdir=infra/terraform/runtime init") < DEPLOY_JOB.index("plan -input=false")
     assert '--certificate-identity "$SIGNER"' in DEPLOY_JOB
     assert "--certificate-oidc-issuer https://token.actions.githubusercontent.com" in DEPLOY_JOB
-    assert f"/.github/workflows/runtime.yml@refs/heads/{_runtime_branch()}" in DEPLOY_JOB  # this workflow, its branch
+    assert f"/.github/workflows/warden-runtime-deploy.yml@refs/heads/{_runtime_branch()}" in DEPLOY_JOB  # this workflow, its branch
     assert 'gh attestation verify "oci://$IMAGE" --repo "$REPO"' in DEPLOY_JOB
     assert '-var "runtime_image=$IMAGE"' in DEPLOY_JOB
     assert 'apply -input=false -no-color "$RUNNER_TEMP/tfplan"' in DEPLOY_JOB
@@ -137,7 +137,7 @@ def test_restart_redeploys_the_zone_services_without_an_image_or_a_plan():
 
 
 def test_the_runtime_root_reads_every_per_install_value_from_ssm():
-    tf = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert re.search(r'\n  source\s+= "\.\./modules/warden-runtime"\n', tf)
     assert 'path = "/warden/${local.env}/tf"' in tf
     assert re.search(r"\n  env\s+= terraform\.workspace\n", tf)
@@ -146,7 +146,7 @@ def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     assert "WardenEnvBoundary-${local.env}" in tf
     assert not re.search(r"\b\d{12}\b", tf)  # no account id
     assert not re.search(r"\b(?:ap|us|eu|ca|sa|me|af|il)-[a-z]+-\d\b", tf)  # no region
-    module = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "modules" / "warden-runtime").glob("*.tf"))
+    module = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "infra" / "terraform" / "modules" / "warden-runtime").glob("*.tf"))
     # Every role the module makes carries the boundary - counted against the roles themselves.
     assert module.count("permissions_boundary = var.permissions_boundary_arn") == module.count(
         'resource "aws_iam_role" "') == 7  # the EC2 instance role went with Fargate (2026-10-14); the webhook gate's and the pager's came
@@ -236,7 +236,7 @@ def test_a_deploy_fails_unless_every_zone_runs_the_new_image():
 
 
 def test_a_deploy_never_starts_an_extra_task():
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
     assert "deployment_minimum_healthy_percent = var.worker_instances > 1 ? 50 : 0" in tf
     assert "deployment_maximum_percent         = var.worker_instances > 1 ? 150 : 100" in tf
     # ECS refuses a maximum of 100% while Availability Zone rebalancing is on (2026-10-15).

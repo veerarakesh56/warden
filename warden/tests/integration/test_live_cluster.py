@@ -1,9 +1,9 @@
 """Against a REAL cluster. Skipped unless opted into; FAILS if opted into and the cluster is absent.
 
-    WARDEN_K8S_INTEGRATION=1 pytest tests/integration -q
+    WARDEN_K8S_INTEGRATION=1 pytest warden/tests/integration -q
 
 Preconditions (the CI `k8s` job sets them up; locally: `k3d cluster create` then
-`kubectl apply -f k8s/test/oom-workload.yaml` and wait for an OOMKilled status):
+`kubectl apply -f fault-lab/k8s/test/oom-workload.yaml` and wait for an OOMKilled status):
   - a kubeconfig that reaches a cluster
   - the synthetic OOM workload deployed as Deployment `checkout` in `default`
 
@@ -104,7 +104,7 @@ def test_end_to_end_scale_up_on_an_oom_crash_loop_is_escalated_by_p11(backend, a
     help: since 2026-09-25 P11 escalates the scale_up the mock model proposes. This asserted
     approved_for_human until then - the exact shape of all three EKS runs the gate wrongly allowed.
     """
-    # The ingestion wait (requirement R23, tests/test_ingest_lag_r23.py) would sleep up to 2 minutes for this alert,
+    # The ingestion wait (requirement R23, warden/tests/test_ingest_lag_r23.py) would sleep up to 2 minutes for this alert,
     # which fires as the module starts; this test is about the gate, so it reads at once.
     monkeypatch.setattr("time.sleep", lambda s: None)
     report = run(alert, llm=LLMClient(mock=True), backend=backend)

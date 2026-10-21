@@ -1,16 +1,16 @@
 """Aurora PostgreSQL in EXPRESS configuration for the Wave 4 stack. Part of the INFRA pipeline.
 
-    WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py create   [--stack PATH]   # after terraform apply
-    WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py create --from-snapshot latest|<id>   # resume
-    WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py status   [--stack PATH]
-    WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py destroy  [--stack PATH]   # before terraform destroy
+    WARDEN_ENV=<env> python infra/terraform/fullstack/aurora_express.py create   [--stack PATH]   # after terraform apply
+    WARDEN_ENV=<env> python infra/terraform/fullstack/aurora_express.py create --from-snapshot latest|<id>   # resume
+    WARDEN_ENV=<env> python infra/terraform/fullstack/aurora_express.py status   [--stack PATH]
+    WARDEN_ENV=<env> python infra/terraform/fullstack/aurora_express.py destroy  [--stack PATH]   # before terraform destroy
 
 The environment is WARDEN_ENV, and nothing else: with none set the script refuses, and a stack.json from
 another environment is refused (audit A-I-23: it acted on dev unless told otherwise). The region is
 AWS_REGION (or stack.json's `region`). --stack (default ~/warden-fullstack-build/stack.json) must lie
 there, in the temp folder (RUNNER_TEMP) or in the working directory (warden.paths).
 
-⛔ WHY THIS IS NOT TERRAFORM (2026-09-26, docs/FULLSTACK-LAB.md section 1). The
+⛔ WHY THIS IS NOT TERRAFORM (2026-09-26, demo-app/docs/FULLSTACK-LAB.md section 1). The
 account is on the AWS Free plan, which creates an Aurora cluster only "WithExpressConfiguration",
 and the AWS provider (6.66.0, and main) cannot set it. Express configuration means:
   - the cluster and ONE Aurora Serverless writer instance, named by AWS - this script records the name;
@@ -47,7 +47,7 @@ import re
 import sys
 import time
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "src"))  # warden.paths is stdlib only: the
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "warden" / "src"))  # warden.paths is stdlib only: the
 # infra deploy job installs boto3 and no package
 
 from warden import paths  # after the sys.path line above, deliberately

@@ -121,7 +121,7 @@ def test_a_missing_dsn_is_an_error_not_a_guess(monkeypatch, capsys):
 
 # ---- characterisation of --reader and the printed lines (before the cognitive-complexity split of main)
 
-READER_PASSWORD = HUNTER2 + "-reader"  # tests/fakes.py: built from parts, a fake, never a credential
+READER_PASSWORD = HUNTER2 + "-reader"  # warden/tests/fakes.py: built from parts, a fake, never a credential
 
 
 class ReaderConn(FakeConn):

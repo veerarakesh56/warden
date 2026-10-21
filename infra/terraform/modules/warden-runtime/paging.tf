@@ -264,7 +264,7 @@ resource "aws_cloudwatch_log_metric_filter" "worker_errors" {
 resource "aws_cloudwatch_metric_alarm" "worker_errors" {
   alarm_name          = "warden-${var.environment}-worker-errors"
   actions_enabled     = !var.paused
-  alarm_description   = "A WARDEN worker logged an error. Read /warden/${var.environment}/worker around this time: docs/RUNBOOK-WARDEN-INCIDENT.md."
+  alarm_description   = "A WARDEN worker logged an error. Read /warden/${var.environment}/worker around this time: warden/docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "WARDEN/${var.environment}"
   metric_name         = "WorkerErrors"
   statistic           = "Sum"

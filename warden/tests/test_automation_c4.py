@@ -10,7 +10,7 @@ import yaml
 from test_platform_k8s import _Apps, _Hpas, _platform
 from warden import catalog
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 OK = {"namespace": "shop", "deployment": "orders"}
 
 
@@ -160,7 +160,7 @@ def test_an_ignore_of_the_annotation_or_a_field_holding_it_is_proof(pointer):
 
 def test_the_shop_application_ignores_the_restart_and_the_reader_may_read_it_alone():
     """What the pipeline deploys: the Application's own rule, and the reader's one Argo CD grant."""
-    docs = [d for d in yaml.safe_load_all((ROOT / "k8s" / "argocd" / "shop.yaml").read_text(encoding="utf-8")) if d]
+    docs = [d for d in yaml.safe_load_all((ROOT / "demo-app" / "k8s" / "argocd" / "shop.yaml").read_text(encoding="utf-8")) if d]
     app = next(d for d in docs if d["kind"] == "Application")
     from warden.platforms.k8s import _ignores_restart
 
@@ -171,12 +171,12 @@ def test_the_shop_application_ignores_the_restart_and_the_reader_may_read_it_alo
         {"apiGroups": ["argoproj.io"], "resources": ["applications"], "resourceNames": [app["metadata"]["name"]],
          "verbs": ["get"]}]
     binding = next(d for d in docs if d["kind"] == "RoleBinding")
-    # (The reader's access entry gives it that group: tests/test_fullstack_infra.py.)
+    # (The reader's access entry gives it that group: warden/tests/test_fullstack_infra.py.)
     assert binding["subjects"] == [{"kind": "Group", "name": "warden-readers", "apiGroup": "rbac.authorization.k8s.io"}]
 
 
 def test_the_remediator_may_list_autoscalers_and_change_none():
-    docs = list(yaml.safe_load_all((ROOT / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8")))
+    docs = list(yaml.safe_load_all((ROOT / "infra" / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8")))
     rules = next(d for d in docs if d and d.get("kind") == "ClusterRole")["rules"]
     hpa = [r for r in rules if "autoscaling" in r["apiGroups"]]
     assert hpa == [{"apiGroups": ["autoscaling"], "resources": ["horizontalpodautoscalers"], "verbs": ["list"]}]

@@ -8,7 +8,7 @@ import pathlib
 import re
 import tomllib
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _props() -> dict[str, str]:
@@ -28,7 +28,7 @@ def test_every_test_file_is_analysed_as_a_test_and_only_as_one():
     assert props["sonar.sources"] == "."
     # Each test path is left out of the sources, or Sonar would index the file twice and stop.
     assert sorted(excluded) == sorted(t if t.endswith(".py") else f"{t}/**" for t in tests)
-    pytest_paths = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]
+    pytest_paths = tomllib.loads((ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]
     assert set(pytest_paths["testpaths"]) <= set(tests)
     tracked = [p for p in ROOT.rglob("*.py") if ".venv" not in p.parts and "node_modules" not in p.parts]
     test_like = [p.relative_to(ROOT).as_posix() for p in tracked
@@ -38,7 +38,7 @@ def test_every_test_file_is_analysed_as_a_test_and_only_as_one():
 
 
 def test_the_python_versions_start_where_pyproject_does():
-    requires = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["requires-python"]
+    requires = tomllib.loads((ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8"))["project"]["requires-python"]
     floor = re.fullmatch(r">=\s*(3\.\d+)", requires).group(1)
     versions = _listed(_props()["sonar.python.version"])
     assert versions[0] == floor
@@ -49,7 +49,7 @@ def test_the_aws_provider_version_is_the_major_the_deployed_stacks_lock():
     stacks = ["fullstack", "modules/warden-runtime", "proving-ground", "runtime", "undo-lab"]
     majors = set()
     for stack in stacks:
-        lock = (ROOT / "terraform" / stack / ".terraform.lock.hcl").read_text(encoding="utf-8")
+        lock = (ROOT / "infra" / "terraform" / stack / ".terraform.lock.hcl").read_text(encoding="utf-8")
         block = lock[lock.index('provider "registry.terraform.io/hashicorp/aws"'):]
         majors.add(re.search(r'version\s*=\s*"(\d+)\.', block).group(1))
     assert majors == {_props()["sonar.terraform.provider.aws.version"]}

@@ -6,13 +6,13 @@ from __future__ import annotations
 import json
 import pathlib
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 READER_POLICIES = ("platform-reader", "platform-diagnose")
 
 
 def statements() -> list[dict]:
     return [st for name in READER_POLICIES
-            for st in json.loads((ROOT / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))["Statement"]]
+            for st in json.loads((ROOT / "infra" / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))["Statement"]]
 
 
 def granted() -> set[str]:

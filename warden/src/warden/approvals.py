@@ -331,7 +331,7 @@ def sign(key: Ed25519PrivateKey, *, approver: str, workflow_id: str, plan_hash: 
     return approval
 
 
-# The bench approver (owner, 2026-10-15): a labelled test identity Claude holds (scripts/bench_approve.py), for dev.
+# The bench approver (owner, 2026-10-15): a labelled test identity Claude holds (fault-lab/scripts/bench_approve.py), for dev.
 # It approves only in an environment of the nonprod tier (environments.yaml), whatever its entry in the approver list
 # names: an edit of that list cannot let a test identity approve in production.
 BENCH = "bench"

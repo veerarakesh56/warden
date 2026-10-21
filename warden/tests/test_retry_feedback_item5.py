@@ -20,7 +20,7 @@ from warden.llm import RETRY_FEEDBACK, BudgetExceeded, LLMClient, ModelRefused, 
 from warden.models import Alert
 from warden.providers import Completion
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 # Values a wrong answer carries: none may reach the next prompt. Built from parts, so no file holds a value of the
 # kind the answer would echo.
 PLANTED = "evidence-" + "value-7741"
@@ -193,7 +193,7 @@ def test_feedback_that_would_pass_the_prompt_ceiling_is_left_out(monkeypatch):
 
 
 def test_the_retry_text_is_part_of_the_qualified_prompt(monkeypatch):
-    spec = importlib.util.spec_from_file_location("qualify_provider_item5", ROOT / "scripts" / "qualify_provider.py")
+    spec = importlib.util.spec_from_file_location("qualify_provider_item5", ROOT / "warden" / "scripts" / "qualify_provider.py")
     qualify = importlib.util.module_from_spec(spec)
     sys.modules["qualify_provider_item5"] = qualify
     spec.loader.exec_module(qualify)
@@ -239,7 +239,7 @@ def test_an_answer_that_never_validates_leaves_no_value_in_the_audit_or_the_repo
 def test_the_rendered_retry_is_part_of_the_qualified_prompt(monkeypatch):
     """Review, PR 132: the hash covers the retry as a model receives it - its paths and error types - not only the
     template."""
-    spec = importlib.util.spec_from_file_location("qualify_provider_item5b", ROOT / "scripts" / "qualify_provider.py")
+    spec = importlib.util.spec_from_file_location("qualify_provider_item5b", ROOT / "warden" / "scripts" / "qualify_provider.py")
     qualify = importlib.util.module_from_spec(spec)
     sys.modules["qualify_provider_item5b"] = qualify
     spec.loader.exec_module(qualify)

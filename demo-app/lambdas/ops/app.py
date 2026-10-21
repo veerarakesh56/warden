@@ -5,7 +5,7 @@ because ElastiCache is unreachable from outside the VPC.
   {"op": "fill", "prefix": "filler:", "mb": 400}      -> write filler keys (TTL 1 h, so volatile-lru evicts them)
   {"op": "flush_prefix", "prefix": "filler:"}         -> delete every key under the prefix
 
-The payload is scenarios/ops_fullstack.py's ops_invoke contract.
+The payload is fault-lab/scenarios/ops_fullstack.py's ops_invoke contract.
 
 Only prefixes starting with "filler:" are accepted: this function never deletes application keys.
 """

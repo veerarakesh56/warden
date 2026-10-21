@@ -13,7 +13,7 @@
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
           "token.actions.githubusercontent.com:sub": "repo:${github_subject}:environment:${env}",
           "token.actions.githubusercontent.com:ref": "refs/heads/${runtime_branch}",
-          "token.actions.githubusercontent.com:job_workflow_ref": "${github_repository}/.github/workflows/runtime.yml@refs/heads/${runtime_branch}"
+          "token.actions.githubusercontent.com:job_workflow_ref": "${github_repository}/.github/workflows/warden-runtime-deploy.yml@refs/heads/${runtime_branch}"
         }
       }
     }

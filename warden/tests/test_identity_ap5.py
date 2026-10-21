@@ -56,7 +56,7 @@ def test_an_incident_the_audit_names_without_the_prefix_still_gets_the_name_the_
     [call] = sts.calls
     assert call["SourceIdentity"] == call["RoleSessionName"] == f"inc-{live}"
     assert {t["Key"]: t["Value"] for t in call["Tags"]}["incident"] == live  # the audit's id, as actor_use reads it
-    templates = pathlib.Path(__file__).resolve().parents[1] / "iam" / "templates"
+    templates = pathlib.Path(__file__).resolve().parents[2] / "infra" / "iam" / "templates"
     for name in ("actor-trust.json", "platform-reader-trust.json"):
         trusts = [s["Condition"]["StringLike"]["sts:SourceIdentity"]
                   for s in json.loads((templates / name).read_text(encoding="utf-8"))["Statement"]

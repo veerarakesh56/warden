@@ -18,7 +18,7 @@ from warden.llm import LLMClient
 from warden.models import Alert
 from warden.providers import Completion
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 VOCAB = re.compile(r"\b(bench(mark)?|scenarios?|faults?|inject\w*|wave\s*\d|chaos|harness|proving.ground|"
                    r"(fs|ecs|k8s|db)-\d\d|synthetic|simulat\w*|drill|evaluat\w*|grad(ed|er|ing)|rubric)\b", re.IGNORECASE)
 
@@ -45,9 +45,9 @@ def _prompt(alert: Alert) -> str:
     return cap.prompts[0]
 
 
-@pytest.mark.parametrize("template", sorted(p.name for p in (ROOT / "scenarios").glob("alert*.yaml")))
+@pytest.mark.parametrize("template", sorted(p.name for p in (ROOT / "fault-lab" / "scenarios").glob("alert*.yaml")))
 def test_no_benchmark_alert_puts_evaluation_vocabulary_in_the_prompt(template):
-    alert = yaml.safe_load((ROOT / "scenarios" / template).read_text(encoding="utf-8").replace("__ENV__", "dev"))
+    alert = yaml.safe_load((ROOT / "fault-lab" / "scenarios" / template).read_text(encoding="utf-8").replace("__ENV__", "dev"))
     found = sorted({m.group(0) for m in VOCAB.finditer(_prompt(Alert(**alert)))})
     assert found == [], f"{template}: the prompt tells the model it is being measured: {found}"
 

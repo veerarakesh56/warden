@@ -55,10 +55,11 @@ def test_every_time_the_docs_give_in_utc_also_gives_ist():
     import pathlib
     import re
 
-    root = pathlib.Path(__file__).resolve().parents[1]
+    root = pathlib.Path(__file__).resolve().parents[2]
     pat = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?(?:\s*-\s*\d{1,2}:\d{2})? UTC\b")
-    files = [root / "README.md", root / "CHANGELOG.md"] + [
-        p for p in (root / "docs").rglob("*.md") if "research" not in p.relative_to(root).parts]
+    files = [root / "warden" / "README.md", root / "CHANGELOG.md"] + [
+        p for d in ("docs", "warden/docs", "infra/docs", "demo-app/docs", "fault-lab/docs")
+        for p in (root / d).rglob("*.md") if "research" not in p.relative_to(root).parts]
     missing = [(f.name, s[m.start():m.end()]) for f in files for s in [f.read_text(encoding="utf-8")]
                for m in pat.finditer(s) if "IST" not in s[m.end():m.end() + 60]]
     assert len(files) > 20

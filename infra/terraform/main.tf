@@ -9,7 +9,7 @@
 #    lands in state. State files get committed, copied and shared far more often than anyone plans.
 
 locals {
-  environment = coalesce(var.environment, yamldecode(file("${path.module}/../src/warden/data/environments.yaml")).runtime)
+  environment = coalesce(var.environment, yamldecode(file("${path.module}/../../warden/src/warden/data/environments.yaml")).runtime)
   # Every name carries its environment, as every other stack's does (warden-<env>-...; audit 2026-10-16).
   name = "${var.name}-${local.environment}"
   # Project and Environment on everything: the all-region sweep reports anything without them
@@ -84,9 +84,9 @@ data "aws_iam_policy_document" "task_readonly" {
     sid    = "ReadObservabilitySignals"
     effect = "Allow"
 
-    # ⭐ These are EXACTLY the four API calls `src/warden/aws_backend.py` makes, and a test asserts
+    # ⭐ These are EXACTLY the four API calls `warden/src/warden/aws_backend.py` makes, and a test asserts
     # the two lists are equal in both directions
-    # (tests/test_aws_backend.py::test_iam_policy_grants_exactly_what_the_code_calls).
+    # (warden/tests/test_aws_backend.py::test_iam_policy_grants_exactly_what_the_code_calls).
     #
     # Under-granting is an AccessDenied discovered during a real incident. Over-granting is the
     # thing every least-privilege review actually finds: a standing permission on a production
@@ -173,7 +173,7 @@ resource "aws_ecs_task_definition" "warden" {
       readonlyRootFilesystem = true
       user                   = "10001"
 
-      # Drop every Linux capability, mirroring the k8s Job (k8s/job.yaml drops ALL). Fargate keeps
+      # Drop every Linux capability, mirroring the k8s Job (infra/k8s/job.yaml drops ALL). Fargate keeps
       # only the caps a container declares, so with none declared the task holds none — the same
       # posture the manifest twin claims parity with. Without this the task ran with the full
       # default bounding set (CHOWN, SETUID, NET_RAW, ...).

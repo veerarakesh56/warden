@@ -1,4 +1,4 @@
-"""G6: the audit on PostgreSQL, checked without a database (the real one runs in CI: tests/integration/
+"""G6: the audit on PostgreSQL, checked without a database (the real one runs in CI: warden/tests/integration/
 test_live_audit_pg.py). Every append takes the chain's advisory lock inside its transaction; the schema and the
 runtime role's grants come only from `migrate`; a role name is never pasted into SQL unchecked."""
 

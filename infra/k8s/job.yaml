@@ -5,7 +5,7 @@
 # pod spec created per alert by a controller (Alertmanager webhook -> Job) with the alert passed
 # as env and a real provider configured. That controller is deliberately not included.
 #
-# Create with `kubectl create -f k8s/job.yaml` - NOT apply. A Job's pod template is immutable and
+# Create with `kubectl create -f infra/k8s/job.yaml` - NOT apply. A Job's pod template is immutable and
 # its name must be unique, so `generateName` mints a fresh Job each time and `create` is the only
 # verb that honours it. (The first version used a fixed name under `kubectl apply -k`: the second
 # apply was a silent no-op and changing --incident was rejected as "field is immutable". Measured.)

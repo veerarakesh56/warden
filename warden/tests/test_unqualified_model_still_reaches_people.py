@@ -14,7 +14,7 @@ from warden.cli import DEMO_ALERTS
 from warden.models import Alert
 from warden.providers import ProviderError
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _refused():
@@ -35,6 +35,6 @@ def test_a_model_that_cannot_be_built_is_the_rules_only_diagnosis_said_plainly(t
 
 
 def test_the_runtime_deploy_refuses_a_model_that_is_not_qualified():
-    tf = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert re.search(r'yamldecode\(file\("\$\{path\.module\}/\.\./\.\./src/warden/data/providers\.yaml"\)\)\.qualified', tf)
     assert "SSM /warden/<env>/tf/model is not a qualified model" in tf

@@ -6,8 +6,8 @@ from __future__ import annotations
 import pathlib
 import re
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-REGISTER = ROOT / "docs" / "FAILURE-MODES.md"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+REGISTER = ROOT / "warden" / "docs" / "FAILURE-MODES.md"
 # The classes of the research map (2026-09-28), copied here when the research notes stopped being published.
 CLASSES = ("Goal hijack / prompt injection", "Tool misuse / excessive agency", "Identity", "Supply chain",
            "Code execution / output handling", "Memory poisoning", "Inter-agent communication", "Cascading failures",

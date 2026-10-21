@@ -1515,7 +1515,7 @@ The gate stops taking the model's word for anything that could loosen it.
 The release where WARDEN was measured against a real AWS account instead of described. The
 benchmark found bugs in the tool, and two in itself, and everything below is published rather than
 summarised: both runs, their rubrics, their hashes and the scorer are in the repository (since 2026-10-16 the
-recorded runs live in `tests/fixtures/bench/`, summarised in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)).
+recorded runs live in `tests/fixtures/bench/`, summarised in [`docs/BENCHMARKS.md`](warden/docs/BENCHMARKS.md)).
 
 ### The measurement
 

@@ -10,7 +10,7 @@ things that must never drift. They are NOT a measure of live model quality.
 
 ⛔ TO BE UNAMBIGUOUS: there is no nightly scored eval against a live model in this repository, and
 no CI job runs one. Measuring live model quality is a different instrument, and the one being built
-for it is the fault-injection benchmark in the `scenarios/` directory — which has its own rubric,
+for it is the fault-injection benchmark in the `fault-lab/scenarios/` directory — which has its own rubric,
 committed before the runs it grades. Until that has run against a real account, nothing here is
 evidence about how good the model is at anything.
 """

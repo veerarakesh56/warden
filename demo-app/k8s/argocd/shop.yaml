@@ -11,7 +11,7 @@ metadata:
   labels:
     project: warden
 spec:
-  description: "The shop's workloads, synced from manifests/shop"
+  description: "The shop's workloads, synced from demo-app/manifests/shop"
   sourceRepos:
     - "__REPO_URL__"
   destinations:
@@ -42,7 +42,7 @@ spec:
   source:
     repoURL: "__REPO_URL__"
     targetRevision: "__REVISION__"
-    path: manifests/shop/__ENVIRONMENT__
+    path: demo-app/manifests/shop/__ENVIRONMENT__
     kustomize:
       images:
         - "shop-app=__IMAGE__"
@@ -81,7 +81,7 @@ spec:
 ---
 # Register C4 (owner decision 2026-10-17): WARDEN may restart a Deployment Argo CD manages only once it has read, from
 # this Application itself, that self-heal ignores the restart annotation. Its reader role signs in to the cluster as
-# group warden-readers (terraform/fullstack/eks.tf); this lets it get this one Application and nothing else of Argo CD.
+# group warden-readers (infra/terraform/fullstack/eks.tf); this lets it get this one Application and nothing else of Argo CD.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

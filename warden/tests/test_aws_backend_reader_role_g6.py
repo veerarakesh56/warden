@@ -13,7 +13,7 @@ import pytest
 from warden import aws_backend
 from warden.tools import ToolError
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 TEMPLATE = "arn:aws:iam::" + "0" * 12 + ":role/warden-{env}-{role}"
 
 
@@ -93,7 +93,7 @@ def test_a_bound_incidents_clients_are_its_threads_own():
 
 
 def test_only_the_read_zone_reads_live_aws():
-    compute = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
+    compute = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
     assert compute.count("WARDEN_BACKEND") == 1
     assert 'each.key == "read" ? { WARDEN_BACKEND = "stack" } : {}' in compute
     assert "WARDEN_AWS_ROLE_ARN_TEMPLATE = " in compute
@@ -144,7 +144,7 @@ def test_the_session_is_named_inc_alert_id_which_the_reader_roles_trust():
     assert call["SourceIdentity"] == "inc-9ea51c0d74dcb9d6-20261009T185039Z"
     import json
 
-    trust = json.loads((ROOT / "iam" / "templates" / "platform-reader-trust.json").read_text(encoding="utf-8"))
+    trust = json.loads((ROOT / "infra" / "iam" / "templates" / "platform-reader-trust.json").read_text(encoding="utf-8"))
     import fnmatch
 
     allowed = trust["Statement"][0]["Condition"]["StringLike"]["sts:SourceIdentity"]

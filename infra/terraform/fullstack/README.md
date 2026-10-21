@@ -1,13 +1,13 @@
 # The full-stack lab (infrastructure)
 
-The AWS side of the full-stack lab ([`docs/FULLSTACK-LAB.md`](../../docs/FULLSTACK-LAB.md)): VPC (+ one NAT gateway), ElastiCache Redis,
+The AWS side of the full-stack lab ([`demo-app/docs/FULLSTACK-LAB.md`](../../../demo-app/docs/FULLSTACK-LAB.md)): VPC (+ one NAT gateway), ElastiCache Redis,
 DynamoDB, SQS/SNS, six Lambdas, API Gateway, ALB + ECS Fargate, EKS, Secrets Manager, EventBridge
 and the CloudWatch alarms that are the alert source - and, through `aurora_express.py` in this
 directory, Aurora PostgreSQL Serverless v2. Everything is named `warden-<env>-*` (the Terraform
 workspace is the environment; `dev` in the examples) and tagged `Project=warden` +
 `Environment=<env>`.
 
-⛔ **Built for an account on the AWS Free plan (docs/FULLSTACK-LAB.md section 1).** That plan
+⛔ **Built for an account on the AWS Free plan (demo-app/docs/FULLSTACK-LAB.md section 1).** That plan
 creates Aurora only in EXPRESS configuration, which the Terraform provider cannot do, so
 `aurora_express.py create` makes the cluster after `terraform apply` and `aurora_express.py destroy`
 removes it before `terraform destroy`. Express configuration has no VPC (the Aurora internet access
@@ -20,8 +20,8 @@ application code:
 | pipeline | what | how | reads |
 |---|---|---|---|
 | infra | this directory | `terraform apply` locally, or `.github/workflows/deploy-<env>.yml` (by hand, from the branch `<env>`; part: infra), or a plan on a push to the branch `<env>` (`on-merge-<env>.yml`) | - |
-| apps | Lambdas, container image, the shop (`manifests/shop`, synced by Argo CD; `k8s/shop-pipeline`) | `scripts/deploy_fullstack_apps.py`, or `.github/workflows/deploy-<env>.yml` (by hand, from the branch `<env>`; part: apps), or a push to the branch `<env>` (`on-merge-<env>.yml`) | `stack.json` |
-| WARDEN CI | the tool | `.github/workflows/ci-tool.yml` | - |
+| apps | Lambdas, container image, the shop (`demo-app/manifests/shop`, synced by Argo CD; `demo-app/k8s/shop-pipeline`) | `demo-app/scripts/deploy_fullstack_apps.py`, or `.github/workflows/deploy-<env>.yml` (by hand, from the branch `<env>`; part: apps), or a push to the branch `<env>` (`on-merge-<env>.yml`) | `stack.json` |
+| WARDEN CI | the tool | `.github/workflows/warden-ci.yml` | - |
 
 Branches (owner, 2026-10-16): an environment deploys only from the branch of its own name, and `main` deploys
 nothing (CI only). The `dev` branch deploys dev; it is `main` fast-forwarded. The `prod` branch deploys prod, every
@@ -32,7 +32,7 @@ Lambdas are created from a placeholder zip, ECS from a placeholder container tha
 every path over HTTPS; every code field is in `ignore_changes`, so a re-apply never rolls the apps back.
 
 The shop's containers serve HTTPS only (Sonar python:S5332, owner row 25): each makes its own self-signed certificate
-at start (`scenarios/fullstack/app/app.py`; the placeholder with the image's openssl), so nothing is stored and nothing
+at start (`demo-app/app/app.py`; the placeholder with the image's openssl), so nothing is stored and nothing
 costs. Their only callers do not verify a target's certificate: the ALB (target group and health check on HTTPS) and the
 kubelet's `scheme: HTTPS` probes. The ALB's own listener has the stack's certificate, which the traffic Lambda pins.
 Kubernetes objects are not in terraform at all.
@@ -41,7 +41,7 @@ Kubernetes objects are not in terraform at all.
 
 Measured in Cost Explorer for 2026-10-15 (a full day, before credits: USD 0.65/hour for this stack,
 USD 0.99/hour with WARDEN's runtime), ap-south-2 prices from the AWS Price List API the same day, then
-the cost plan of 2026-10-16/17 subtracted. WARDEN's runtime (terraform/runtime) adds about USD
+the cost plan of 2026-10-16/17 subtracted. WARDEN's runtime (infra/terraform/runtime) adds about USD
 0.28/hour (was 0.34; every zone stays on on-demand Fargate): together about USD 0.81/hour, so about USD 19.4/day (was 23.81).
 
 | resource | per hour | note |
@@ -70,10 +70,10 @@ address in SSM `/warden/<env>/tf/budget_email` (SecureString) on forecast 60%/90
 
 ## Before the first apply
 
-The identities that build this stack are the environment's rendered IAM (`iam/<env>/`, from `iam/templates/` by
-`scripts/render_env_iam.py`) and the operator role (`iam/operator/`). Create the environment's deploy role,
+The identities that build this stack are the environment's rendered IAM (`infra/iam/<env>/`, from `infra/iam/templates/` by
+`infra/scripts/render_env_iam.py`) and the operator role (`infra/iam/operator/`). Create the environment's deploy role,
 permissions boundary, state bucket, Parameter Store values and GitHub environment as
-[`docs/SETUP.md`](../../docs/SETUP.md) section 3 describes. On a fresh account, also create two service-linked
+[`docs/SETUP.md`](../../../docs/SETUP.md) section 3 describes. On a fresh account, also create two service-linked
 roles once (the calls that need them check a path-less ARN the boundary does not match):
 
     aws iam create-service-linked-role --aws-service-name eks-nodegroup.amazonaws.com
@@ -84,9 +84,9 @@ No AWS keys are stored anywhere: CI reaches AWS through the OIDC role `warden-<e
 ## Apply (the environment's deploy role)
 
 The stack belongs to an **environment** (dev or prod - the keys of
-`src/warden/data/environments.yaml`), and the environment is the **Terraform workspace**. Names are
+`warden/src/warden/data/environments.yaml`), and the environment is the **Terraform workspace**. Names are
 `warden-<env>-*`, every resource is tagged `Project=warden` + `Environment=<env>`, and every role
-carries `WardenEnvBoundary-<env>` (`iam/<env>/boundary.json`). The two per-environment values are
+carries `WardenEnvBoundary-<env>` (`infra/iam/<env>/boundary.json`). The two per-environment values are
 read from SSM Parameter Store, never from a file: `/warden/<env>/tf/my_ip_cidr` (String) and
 `/warden/<env>/tf/budget_email` (SecureString). A workspace that is not an environment - including
 `default` - is refused before anything is built.
@@ -111,22 +111,22 @@ account id: it lives outside the repo and is never published.
 
 Then the apps pipeline:
 
-    python scripts/deploy_fullstack_apps.py build
-    python scripts/deploy_fullstack_apps.py bootstrap-db     # as postgres, IAM token from YOUR credentials
-    python scripts/deploy_fullstack_apps.py deploy all
+    python demo-app/scripts/deploy_fullstack_apps.py build
+    python demo-app/scripts/deploy_fullstack_apps.py bootstrap-db     # as postgres, IAM token from YOUR credentials
+    python demo-app/scripts/deploy_fullstack_apps.py deploy all
 
 `deploy ecs` writes the revision it registered into stack.json as `ecs_baseline_task_definition`
 (the revision the harness reverts ECS faults to). A later `terraform output` rewrite drops that key:
 run `deploy ecs` again after re-generating stack.json.
 
-`deploy k8s` also applies the ClusterRole `warden-readonly` from `k8s/rbac.yaml` (the six reads);
-`manifests/shop/base/warden-rbac.yaml` binds it in `shop` only.
+`deploy k8s` also applies the ClusterRole `warden-readonly` from `infra/k8s/rbac.yaml` (the six reads);
+`demo-app/manifests/shop/base/warden-rbac.yaml` binds it in `shop` only.
 
 ## Destroy
 
     WARDEN_ENV=dev python aurora_express.py destroy  # FIRST: terraform does not know the cluster exists
     terraform destroy
-    python scripts/account_sweep.py     # every region, every service, never trusts tags
+    python infra/scripts/account_sweep.py     # every region, every service, never trusts tags
 
 `aurora_express.py destroy` never deletes the cluster without a final snapshot, `warden-<env>-aurora-final-<UTC time>`
 (for example `warden-dev-aurora-final-20261017t113000z`), tagged like the cluster; it stops the teardown if the
@@ -142,7 +142,7 @@ while Lambda releases the in-VPC functions' network interfaces; that is AWS, not
 |---|---|---|
 | Public subnets | the NAT gateway (its Elastic IP) only; `map_public_ip_on_launch = false` | nothing inbound |
 | Private subnets | ECS tasks (no public IP), EKS nodes and control-plane interfaces, in-VPC Lambdas, Redis, the ALB (**internal**) | inside the VPC only; the ALB only from the Lambda security group |
-| AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway: throttled; `POST /checkout` needs a bearer token, which the checkout Lambda checks in constant time against a Secrets Manager secret written write-only (in no plan or state, `api_auth.tf`); `GET /health` is open and touches nothing; JSON access logs go to `/aws/vendedlogs/warden-<env>-api-access`. EKS API: `/warden/<env>/tf/my_ip_cidr` by default, IAM auth through access entries - **but open to `0.0.0.0/0` while the `EKS_PUBLIC_CIDRS` variable is set on the GitHub environment (`eks_public_access_cidrs`), and it stays open until an apply without it**. The fix, an in-VPC deploy path, is an open row in `docs/FAILURE-MODES.md` (A-I-16) |
+| AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway: throttled; `POST /checkout` needs a bearer token, which the checkout Lambda checks in constant time against a Secrets Manager secret written write-only (in no plan or state, `api_auth.tf`); `GET /health` is open and touches nothing; JSON access logs go to `/aws/vendedlogs/warden-<env>-api-access`. EKS API: `/warden/<env>/tf/my_ip_cidr` by default, IAM auth through access entries - **but open to `0.0.0.0/0` while the `EKS_PUBLIC_CIDRS` variable is set on the GitHub environment (`eks_public_access_cidrs`), and it stays open until an apply without it**. The fix, an in-VPC deploy path, is an open row in `warden/docs/FAILURE-MODES.md` (A-I-16) |
 | Outside the VPC | Aurora in express configuration (the Free plan's only form) | IAM database authentication only, no password exists |
 
 No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT.
@@ -168,7 +168,7 @@ and the traffic Lambda trusts that one certificate (`ALB_CA_PEM`). Its access lo
   one, so no peering reaches the private endpoint, and its Fargate workers arrive through their NAT. Pausing the
   runtime releases its NAT address; re-apply this stack after resuming it, or cluster reads and fixes are refused
   (and go to a person) until then. WARDEN's actor role has an access entry of its own: group `warden-remediators`, no
-  access policy - the remediator RBAC and admission policy (`k8s/remediation-rbac.yaml`) decide.
+  access policy - the remediator RBAC and admission policy (`infra/k8s/remediation-rbac.yaml`) decide.
 - **No autoscaling on DynamoDB, no ECS circuit breaker, catalog-api rolls with maxSurge 0, cart-worker
   uses Recreate:** each would mask a fault before anything read it.
 - **Rules a fault revokes are separate resources** (Redis ingress per app SG, the ECS execution

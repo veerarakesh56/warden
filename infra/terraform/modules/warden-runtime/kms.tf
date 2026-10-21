@@ -1,8 +1,8 @@
 # Register S12: the key that signs every audit checkpoint is an Ed25519 key held by AWS KMS. Nobody - WARDEN included
 # - can export it, so a copy of the database and the code is not enough to sign a rewritten history; CloudTrail records
 # every kms:Sign as an independent witness. The runtime signs through it when WARDEN_AUDIT_KMS_KEY_ID names it
-# (src/warden/runtime.py audit_signer). An asymmetric key has no automatic rotation: a new key is a new alias target,
-# and `warden audit verify` keeps the retired public keys (docs/OPERATIONS.md).
+# (warden/src/warden/runtime.py audit_signer). An asymmetric key has no automatic rotation: a new key is a new alias target,
+# and `warden audit verify` keeps the retired public keys (warden/docs/OPERATIONS.md).
 data "aws_caller_identity" "current" {}
 
 resource "aws_kms_key" "audit_signer" {

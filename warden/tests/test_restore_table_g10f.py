@@ -167,9 +167,9 @@ def test_every_config_type_a_restore_reads_is_in_the_owners_recorder_step():
     import pathlib
     import re
 
-    root = pathlib.Path(__file__).resolve().parents[1]
+    root = pathlib.Path(__file__).resolve().parents[2]
     read = set(re.findall(r'"(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+)"',
-                          (root / "src/warden/platforms/aws.py").read_text(encoding="utf-8")))
+                          (root / "warden/src/warden/platforms/aws.py").read_text(encoding="utf-8")))
     step = (root / "docs/SETUP.md").read_text(encoding="utf-8")
     assert "AWS::DynamoDB::Table" in read
     assert len(read) >= 8

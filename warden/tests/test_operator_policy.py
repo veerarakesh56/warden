@@ -23,8 +23,8 @@ import re
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-TF_DIR = ROOT / "terraform" / "proving-ground"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+TF_DIR = ROOT / "infra" / "terraform" / "proving-ground"
 POLICIES = sorted(TF_DIR.glob("operator-policy*.json"))
 
 # Services with a single global endpoint. An `aws:RequestedRegion` condition on one of these does
@@ -94,8 +94,8 @@ def test_the_region_matches_the_terraform_default(path):
     """A policy pinned to one region and a Terraform region of another denies every call, and the
     error does not say the word 'region'. Terraform's region is environments.yaml aws_region (R17)."""
     main_tf = (TF_DIR / "main.tf").read_text(encoding="utf-8")
-    assert 'coalesce(var.region, yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region)' in main_tf
-    tf_default = re.search(r"^aws_region:\s*(\S+)", (TF_DIR.parents[1] / "src" / "warden" / "data" / "environments.yaml")
+    assert 'coalesce(var.region, yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).aws_region)' in main_tf
+    tf_default = re.search(r"^aws_region:\s*(\S+)", (TF_DIR.parents[2] / "warden" / "src" / "warden" / "data" / "environments.yaml")
                            .read_text(encoding="utf-8"), re.MULTILINE)
     assert tf_default, "could not find aws_region in environments.yaml"
     pinned = set(re.findall(r'"aws:RequestedRegion":\s*"([^"]+)"',
@@ -107,8 +107,8 @@ def test_the_region_matches_the_terraform_default(path):
 
 def test_every_action_the_fault_injector_calls_is_granted():
     """The injector's ops are useless if the operator cannot make the call. Checked against the
-    boto3 method names in scenarios/ops.py rather than against a list somebody maintains by hand."""
-    ops_src = (ROOT / "scenarios" / "ops.py").read_text(encoding="utf-8")
+    boto3 method names in fault-lab/scenarios/ops.py rather than against a list somebody maintains by hand."""
+    ops_src = (ROOT / "fault-lab" / "scenarios" / "ops.py").read_text(encoding="utf-8")
     called = set(re.findall(r"clients\.(ecs|logs|ec2|iam)\.(\w+)\(", ops_src))
 
     granted: set[str] = set()
@@ -128,7 +128,7 @@ def test_every_action_the_fault_injector_calls_is_granted():
         if action not in granted and wildcard not in granted:
             missing.append(action)
     assert not missing, (
-        "scenarios/ops.py makes these calls and no operator policy grants them:\n  "
+        "fault-lab/scenarios/ops.py makes these calls and no operator policy grants them:\n  "
         + "\n  ".join(missing)
     )
 
@@ -268,15 +268,14 @@ def test_no_account_id_is_written_into_a_policy(path):
 
 
 def test_the_guardrails_policy_only_denies_and_leaves_terraform_its_own_work():
-    """terraform/proving-ground/operator-guardrails.json (2026-09-27 audit): a deny-only policy the
+    """infra/terraform/proving-ground/operator-guardrails.json (2026-09-27 audit): a deny-only policy the
     owner attaches to the operator. The boundary is full (6,130 of 6,144 characters) and the operator
     cannot detach a user policy, so these hold. It must never grant, and must not deny what the
     stacks' own apply/destroy does (budgets, the bucket public-access block being SET)."""
     import json
     import pathlib
 
-    doc = json.loads((pathlib.Path(__file__).resolve().parents[1] / "terraform" / "proving-ground"
-                      / "operator-guardrails.json").read_text(encoding="utf-8"))
+    doc = json.loads((pathlib.Path(__file__).resolve().parents[2] / "infra" / "terraform" / "proving-ground" / "operator-guardrails.json").read_text(encoding="utf-8"))
     assert all(st["Effect"] == "Deny" for st in doc["Statement"])
     denied = {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
     assert "iam:UpdateAssumeRolePolicy" in denied

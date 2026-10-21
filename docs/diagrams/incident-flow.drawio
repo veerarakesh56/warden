@@ -10,7 +10,7 @@
         <mxCell id="title" value="&lt;b&gt;WARDEN · one incident, end to end&lt;/b&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#0B2530;fontSize=24;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="98" y="24" width="1100" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="subtitle" value="Time runs down the page. Each column is where a step runs: a trust zone (its own ECS service, role and secrets), the front door, or a person. Workflows: src/warden/workflows.py." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=13;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+        <mxCell id="subtitle" value="Time runs down the page. Each column is where a step runs: a trust zone (its own ECS service, role and secrets), the front door, or a person. Workflows: warden/src/warden/workflows.py." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=13;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="98" y="56" width="1300" height="22" as="geometry" />
         </mxCell>
         <mxCell id="lane-people" value="People · Slack" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#3D0E06;fontSize=13;startSize=30;fillColor=#FF7E6B;swimlaneFillColor=#FFF7F5;strokeColor=#FF7E6B;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;" vertex="1" parent="1">

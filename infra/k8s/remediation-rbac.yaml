@@ -14,7 +14,7 @@
 # patch of managedFields alone could hand a field to a server-side-apply manager). A step up records the count it
 # replaced in the `warden.io/scaled-from` annotation, and a step down goes only back to that count, clearing it: no
 # series of patches takes a Deployment below where WARDEN found it (register R7-O3). Proven in CI against the
-# real API server (tests/integration/test_live_remediation.py).
+# real API server (warden/tests/integration/test_live_remediation.py).
 #
 # Proven from the API server's own view, both sides, in CI:
 #   kubectl auth can-i patch  deployments -n default     --as=system:serviceaccount:warden:warden-remediator -> yes
@@ -44,7 +44,7 @@ metadata:
   labels:
     app.kubernetes.io/name: warden
     app.kubernetes.io/component: remediation
-# The ruler is src/warden/platforms/k8s.py: it calls read_namespaced_deployment (get) and
+# The ruler is warden/src/warden/platforms/k8s.py: it calls read_namespaced_deployment (get) and
 # patch_namespaced_deployment (patch). Two grants, two callers. Nothing else - not even list; CI runs the
 # platform impersonating this ServiceAccount to prove the two are enough.
 rules:
@@ -72,7 +72,7 @@ subjects:
     name: warden-remediator
     namespace: warden
   # Not the EKS actor's group (warden-remediators): that is bound only where it serves, in shop, by
-  # manifests/shop/base/warden-rbac.yaml. CI binds it in its own test namespace from k8s/ci/ (review, PR 48).
+  # demo-app/manifests/shop/base/warden-rbac.yaml. CI binds it in its own test namespace from infra/k8s/ci/ (review, PR 48).
 roleRef:
   kind: ClusterRole
   name: warden-remediator

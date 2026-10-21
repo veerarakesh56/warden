@@ -299,7 +299,7 @@ def _mock_proposal(s: Signals) -> RemediationProposal:
 
 
 # The diagnosis prompt (owner U3-1, 2026-10-17): the same rules as before, in XML-tagged sections, with worked examples
-# of the three outcomes. Changing it changes the pin in data/providers.yaml (tests/test_prompt_pin_e6.py); a model is
+# of the three outcomes. Changing it changes the pin in data/providers.yaml (warden/tests/test_prompt_pin_e6.py); a model is
 # qualified only on the prompt it was measured with (providers.qualified).
 SYSTEM_DIAGNOSE = (
     "<role>You are an incident analyst for WARDEN. You read REDACTED evidence (identifiers appear as <TYPE_n> "

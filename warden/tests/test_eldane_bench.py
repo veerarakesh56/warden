@@ -1,4 +1,4 @@
-"""scripts/eldane_bench.py (owner item 4, 2026-10-21): Eldane measured on the G10 held-out set.
+"""fault-lab/scripts/eldane_bench.py (owner item 4, 2026-10-21): Eldane measured on the G10 held-out set.
 
 Guards, each planted (PR body): the scorer's exact rates from stored fake answers; the paid run refuses any key but
 the cloud runtime's, before a model is built; the cost cap stops the run before a call whose worst case would pass it;
@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from warden import approvals, audit, eldane
 from warden.providers import Completion
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 FAKE_KEY = "not-a-real-" + "key-for-tests"
 MODEL = "claude-opus-5-5"
 PRICES = (4.0, 20.0)
@@ -30,9 +30,9 @@ EVIDENCE = "[M1] error_rate orders 41% since 10:02Z\n[C1] DEPLOY orders revision
 
 
 def _script():
-    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.path.insert(0, str(ROOT / "fault-lab" / "scripts"))
     spec = importlib.util.spec_from_file_location(
-        "eldane_bench", ROOT / "scripts" / "eldane_bench.py"
+        "eldane_bench", ROOT / "fault-lab" / "scripts" / "eldane_bench.py"
     )
     mod = importlib.util.module_from_spec(spec)
     sys.modules["eldane_bench"] = mod  # its dataclasses look their module up
@@ -384,12 +384,12 @@ def _result(bench, **over):
 
 
 def _checkout(bench, root):
-    (root / "docs").mkdir()
-    (root / "docs" / "BENCHMARKS.md").write_text(
+    (root / "warden" / "docs").mkdir(parents=True)
+    (root / "warden" / "docs" / "BENCHMARKS.md").write_text(
         f"x\n{bench.BENCH_BEGIN}\n| not yet measured - run it | |\n{bench.BENCH_END}\ny\n",
         encoding="utf-8",
     )
-    (root / "README.md").write_text(
+    (root / "warden" / "README.md").write_text(
         f"a\n{bench.README_BEGIN}\n- not yet measured\n{bench.README_END}\nb\n", encoding="utf-8"
     )
 
@@ -402,11 +402,11 @@ def test_record_replaces_the_not_yet_measured_row_and_the_readme_line(bench, tmp
     path = tmp_path / "eldane-bench-2026-10-22T0930Z.json"
     path.write_text(json.dumps(_result(bench)), encoding="utf-8")
     assert bench.record(path) == 0
-    text = (root / "docs" / "BENCHMARKS.md").read_text(encoding="utf-8")
+    text = (root / "warden" / "docs" / "BENCHMARKS.md").read_text(encoding="utf-8")
     assert "not yet measured" not in text
     row = "| 2026-10-22T09:30Z | claude-opus-5-5 (medium) | `0123456789ab` | 1 of 1 (100%) | 1 of 1 (100%) |"
     assert row in text
-    readme = (root / "README.md").read_text(encoding="utf-8")
+    readme = (root / "warden" / "README.md").read_text(encoding="utf-8")
     assert "1 of 1 (100%) right fixes, caught 1 of 1 (100%)" in readme
 
 
@@ -426,14 +426,14 @@ def test_record_writes_only_numbers_a_date_a_hash_and_a_listed_model(bench, tmp_
 
 def test_the_published_entry_is_the_placeholder_or_a_recorded_row():
     """Before the first paid run: "not yet measured" and the command; after --record: a dated row, and never both."""
-    text = (ROOT / "docs" / "BENCHMARKS.md").read_text(encoding="utf-8")
+    text = (ROOT / "warden" / "docs" / "BENCHMARKS.md").read_text(encoding="utf-8")
     table = text.split("<!-- eldane-bench:begin -->", 1)[1].split("<!-- eldane-bench:end -->", 1)[0]
     measured = re.search(r"^\| \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z \|", table, re.MULTILINE) is not None
-    placeholder = "not yet measured" in table and "scripts/eldane_bench.py" in table
+    placeholder = "not yet measured" in table and "fault-lab/scripts/eldane_bench.py" in table
     assert measured != placeholder
     assert FIXTURE_PROMPT not in table
     assert FIXTURE_DATE not in table
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme = (ROOT / "warden" / "README.md").read_text(encoding="utf-8")
     block = readme.split("<!-- eldane-bench-readme:begin -->", 1)[1].split("<!--", 1)[0]
     assert ("not yet measured" in block) != measured
     assert FIXTURE_DATE[:10] not in block
@@ -490,7 +490,7 @@ def test_record_refuses_a_linked_result_or_docs_that_are_links(bench, tmp_path, 
     link.symlink_to(result)
     with pytest.raises(bench.Refused, match="is a link"):
         bench.record(link)
-    readme = root / "README.md"
+    readme = root / "warden" / "README.md"
     outside = tmp_path / "README-elsewhere.md"
     readme.rename(outside)
     readme.symlink_to(outside)

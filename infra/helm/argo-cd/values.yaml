@@ -7,13 +7,13 @@
 # from both packages, 2026-10-20): server.enabled (default true, for an Argo CD Core install), PodDisruptionBudgets keep
 # a maxUnavailable of 0, dex v2.46.0 (disabled here), redis_exporter v1.94.0 (metrics off here); the CRDs are
 # byte-identical. Under two weeks old when pinned: the owner chose this release (B26).
-# Installed by the apps pipeline (scripts/deploy_fullstack_apps.py deploy_argocd), the way the Datadog agent is. Every
+# Installed by the apps pipeline (demo-app/scripts/deploy_fullstack_apps.py deploy_argocd), the way the Datadog agent is. Every
 # key below is read from that chart's own values.yaml, 10.10.5 (checked again 2026-10-20).
 #
 # Nobody logs in to it: the Applications are Kubernetes objects the pipeline applies, and WARDEN acts on the workloads
-# through the Kubernetes API with its own restricted service account (k8s/remediation-rbac.yaml) - restarts and the
+# through the Kubernetes API with its own restricted service account (infra/k8s/remediation-rbac.yaml) - restarts and the
 # replicas an HPA owns, which the shop Application tells Argo CD to ignore. Anything else is a pull request to
-# manifests/, which Argo CD syncs.
+# demo-app/manifests/, which Argo CD syncs.
 
 # Kept when the chart is removed: the lab's teardown deletes the Applications first (their resources finalizer cleans
 # the shop objects up while the controller still runs), then the chart, then these CRDs.

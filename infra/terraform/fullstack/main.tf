@@ -1,7 +1,7 @@
-# The full-stack lab (docs/FULLSTACK-LAB.md section 1). Infrastructure ONLY.
+# The full-stack lab (demo-app/docs/FULLSTACK-LAB.md section 1). Infrastructure ONLY.
 #
 # ⛔ Terraform here never builds or deploys application code. Lambdas are created with a
-# placeholder zip and ECS with a placeholder container; `scripts/deploy_fullstack_apps.py` (the
+# placeholder zip and ECS with a placeholder container; `demo-app/scripts/deploy_fullstack_apps.py` (the
 # APPS pipeline) owns code, images and everything in Kubernetes. Every code field is in
 # `ignore_changes`, so a re-apply never rolls an app back. The product of this directory is
 #
@@ -9,7 +9,7 @@
 #
 # which the apps pipeline and the harness read. Neither calls terraform.
 #
-# Everything is named warden-<env>-* (the prefix that environment's boundary, iam/<env>/boundary.json, scopes IAM to)
+# Everything is named warden-<env>-* (the prefix that environment's boundary, infra/iam/<env>/boundary.json, scopes IAM to)
 # and tagged Project=warden (what every fault injector checks before it touches anything).
 
 terraform {
@@ -21,7 +21,7 @@ terraform {
     tls     = { source = "hashicorp/tls", version = ">= 4.4, < 5.0" }    # the internal ALB's certificate (ecs.tf)
   }
   # No backend block on purpose: a local apply keeps local state. CI writes a backend_override.tf
-  # (S3) before init - see .github/workflows/_infra-deploy.yml.
+  # (S3) before init - see .github/workflows/infra-deploy.yml.
 }
 
 provider "aws" {
@@ -39,13 +39,13 @@ data "aws_availability_zones" "available" {
 
 locals {
   # The region: an override, else environments.yaml aws_region (owner requirement R17: never a literal).
-  region = coalesce(var.region, yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region)
+  region = coalesce(var.region, yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).aws_region)
   # ⛔ THE ENVIRONMENT IS THE WORKSPACE (v2 Phase 1.5). `terraform workspace select -or-create dev`
   # before plan/apply. Every name, tag, boundary and parameter below is derived from it, the same way
-  # src/warden/environments.py derives them, and the precondition on the VPC refuses any workspace
+  # warden/src/warden/environments.py derives them, and the precondition on the VPC refuses any workspace
   # that is not an environment in environments.yaml - including "default".
   env          = terraform.workspace
-  environments = keys(yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).environments)
+  environments = keys(yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).environments)
   name         = "warden-${local.env}"
   tags = {
     Project     = "warden"
@@ -53,11 +53,11 @@ locals {
     ManagedBy   = "terraform"
     Lifecycle   = "ephemeral"
     # No timestamp() tag: it changes between plan and apply and breaks every saved plan
-    # (the proving ground learned this the hard way - see terraform/proving-ground/main.tf).
+    # (the proving ground learned this the hard way - see infra/terraform/proving-ground/main.tf).
   }
   azs = slice(data.aws_availability_zones.available.names, 0, 2)
 
-  # Every role here carries its environment's boundary (iam/<env>/boundary.json); the boundary itself
+  # Every role here carries its environment's boundary (infra/iam/<env>/boundary.json); the boundary itself
   # denies creating a role without it.
   permissions_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
 
@@ -80,7 +80,7 @@ data "aws_ssm_parameter" "budget_email" {
 # Public subnets hold ONLY the NAT gateway (2026-09-27 network review). Everything else - ECS tasks,
 # EKS nodes, the internal ALB, ElastiCache and the in-VPC Lambdas - is in private subnets and
 # reaches the internet through ONE NAT gateway in public[0]: Aurora in express configuration is outside the VPC, reachable only through
-# its internet access gateway (changed 2026-09-26, docs/FULLSTACK-LAB.md section 1).
+# its internet access gateway (changed 2026-09-26, demo-app/docs/FULLSTACK-LAB.md section 1).
 # ⚠ One NAT is a single-AZ dependency: if that AZ fails, the in-VPC Lambdas lose the database.
 # Accepted for a benchmark stack; a production stack runs one NAT per AZ.
 
@@ -88,7 +88,7 @@ resource "aws_vpc" "this" {
   lifecycle {
     precondition {
       condition     = contains(local.environments, local.env)
-      error_message = "Select a workspace named after an environment in src/warden/data/environments.yaml (dev or prod), not \"default\" or a typo."
+      error_message = "Select a workspace named after an environment in warden/src/warden/data/environments.yaml (dev or prod), not \"default\" or a typo."
     }
     precondition {
       condition     = local.my_ip_cidr != "0.0.0.0/0" && can(cidrhost(local.my_ip_cidr, 0))
@@ -258,7 +258,7 @@ locals {
 # ⛔ THE SPENDING ALARM FOR THIS STACK. The proving ground's budget went with its teardown, so the
 # stack (measured 2026-10-15, with the runtime: ~USD 1/h, before credits) carries its own. Forecast alarms fire first on purpose: by the time
 # ACTUAL spend crosses a line, the hours that caused it are already billed. The name is inside the
-# deploy role's budgets scope (budget/warden-<env>-*, iam/templates/deploy.json).
+# deploy role's budgets scope (budget/warden-<env>-*, infra/iam/templates/deploy.json).
 resource "aws_budgets_budget" "guard" {
   name         = "${local.name}-guard"
   budget_type  = "COST"

@@ -3,7 +3,7 @@ the right answer, learned from independent ground truth - not the model's own co
 
 A model's self-reported confidence is not calibrated (P9's note: 0.85 on everything). This scores a proposal from
 facts WARDEN measured - how much evidence there is, whether a known signature agrees with the action, how grounded
-the citations are, what the gate found - with a logistic model trained by `scripts/train_decider.py` on recorded
+the citations are, what the gate found - with a logistic model trained by `warden/scripts/train_decider.py` on recorded
 runs whose label is the rubric's grade of the injected fault (register E2: never WARDEN's own verdicts). The
 coefficients are plain JSON (`data/decider.json`); the runtime is a dot product and a sigmoid, so nothing is
 unpickled.

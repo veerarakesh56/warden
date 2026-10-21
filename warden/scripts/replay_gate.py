@@ -1,6 +1,6 @@
 """Replay published benchmark reports through the CURRENT gate.
 
-    python scripts/replay_gate.py --reports tests/fixtures/bench/wave1-2026-09-11T155744Z/reports
+    python warden/scripts/replay_gate.py --reports warden/tests/fixtures/bench/wave1-2026-09-11T155744Z/reports
 
 ⛔ THIS IS NOT A MEASUREMENT, AND MUST NEVER BE PRESENTED AS ONE. It re-decides OLD evidence with
 NEW policy. Every alert, context, hypothesis and proposal is read verbatim from artefacts that were
@@ -24,8 +24,8 @@ import pathlib
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "src"))
 
 from warden import paths  # after the sys.path line above, deliberately
 from warden.models import (  # after the sys.path line above, deliberately

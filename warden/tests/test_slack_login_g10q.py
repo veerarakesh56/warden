@@ -24,7 +24,7 @@ from test_passkeys_h6 import RP, SoftAuthenticator
 from warden import approvals, audit, settings, slack_login
 from warden.approval_page import ApprovalPage, AuditLinkStore, invite
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 CLIENT = "1234.5678"
 MEMBER = "U" + "0" * 3 + "ABCDEFG"  # placeholder ids, built from parts
 TEAM = "T" + "0" * 3 + "TEAM1"
@@ -210,15 +210,15 @@ def test_the_runtime_gives_the_secret_to_the_approval_lambda_alone_and_routes_th
         assert "WARDEN_SLACK_CLIENT_SECRET" not in settings.loadable_for("worker", zone)
     assert "WARDEN_SLACK_CLIENT_SECRET" not in settings.loadable_for("lambda-alarm")
     assert settings.secret_id("ops", "WARDEN_SLACK_CLIENT_SECRET") == "warden/ops/slack-client-secret"
-    iam = (ROOT / "terraform" / "modules" / "warden-runtime" / "iam.tf").read_text(encoding="utf-8")
+    iam = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "iam.tf").read_text(encoding="utf-8")
     approval = next(line for line in iam.splitlines() if line.strip().startswith("approval "))
     assert '"slack-client-secret"' in approval
     assert iam.count('"slack-client-secret"') == 1
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert '"GET /s/callback", "GET /s/{kind}/{token}"' in tf
-    lambdas = (ROOT / "src" / "warden" / "lambdas.py").read_text(encoding="utf-8")
+    lambdas = (ROOT / "warden" / "src" / "warden" / "lambdas.py").read_text(encoding="utf-8")
     assert 'query=str(event.get("rawQueryString") or ""), cookies=event.get("cookies") or []' in lambdas
-    src = (ROOT / "src" / "warden").rglob("*.py")
+    src = (ROOT / "warden" / "src" / "warden").rglob("*.py")
     assert not any(CLIENT in p.read_text(encoding="utf-8") for p in src)  # no app's id is written into the code
 
 

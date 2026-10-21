@@ -1,15 +1,15 @@
 """Before a live database wave: run every fault op for real, smallest size, and prove it reverts.
 
     export WARDEN_BENCH_DB_DSN=... WARDEN_BENCH_DB_SG=...     # as for the wave itself
-    # (with the database tunnel open: terraform -chdir=terraform/proving-ground output -raw db_tunnel_command)
-    python scripts/preflight_db_ops.py
+    # (with the database tunnel open: terraform -chdir=infra/terraform/proving-ground output -raw db_tunnel_command)
+    python fault-lab/scripts/preflight_db_ops.py
 
 For each op: inject at minimum size, CHECK THE FAULT IS REALLY THERE (a session idle in a
 transaction, a lock waiter, an active query, a refused connection), revert, and require the same
 baseline gate the wave uses (`check_baseline_db`) to come back clean. Exits non-zero on any failure.
 
 ⛔ WHY. The Kubernetes wave's first live run stopped twice on harness bugs that every unit test had
-passed, because the fakes accepted what the real server did not (scripts/preflight_k8s_ops.py).
+passed, because the fakes accepted what the real server did not (fault-lab/scripts/preflight_k8s_ops.py).
 This is the database counterpart: it asks the real Postgres, and the real security group, instead.
 """
 
@@ -19,7 +19,7 @@ import pathlib
 import sys
 import time
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from scenarios import ops_db
 from scenarios.runner import _db_live_harness, check_baseline_db
 

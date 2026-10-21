@@ -1,6 +1,6 @@
 # The shop's own settings, in Git (Argo CD syncs them). fs-22 writes an invalid value into catalog-config. The
 # endpoints of the infrastructure under it are not here: they come from Terraform's outputs, in the pipeline's
-# ConfigMap shop-infra (k8s/shop-pipeline/infra.yaml).
+# ConfigMap shop-infra (demo-app/k8s/shop-pipeline/infra.yaml).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -25,7 +25,7 @@ metadata:
 data:
   OTEL_SDK_DISABLED: "false"
   # Plain HTTP on purpose, and the name in full so it is plainly in-cluster: the collector's ClusterIP Service
-  # (scripts/deploy_fullstack_apps.py deploy_otel), reachable on the cluster network only, never through a load
+  # (demo-app/scripts/deploy_fullstack_apps.py deploy_otel), reachable on the cluster network only, never through a load
   # balancer. The collector sends on to X-Ray, Grafana and Datadog over HTTPS.
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"
   OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
@@ -33,4 +33,4 @@ data:
   OTEL_METRICS_EXPORTER: "otlp"
   OTEL_LOGS_EXPORTER: "otlp"
   OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
-  OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=unset"  # set by the environment's overlay (manifests/shop/dev)
+  OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=unset"  # set by the environment's overlay (demo-app/manifests/shop/dev)

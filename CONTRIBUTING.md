@@ -1,8 +1,8 @@
 # Contributing to WARDEN
 
 Thank you for helping. WARDEN changes live systems, so the rules below are strict: every change is small, tested and
-honest about what it proves. Please read [README.md](README.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-[the failure-mode register](docs/FAILURE-MODES.md) before you start.
+honest about what it proves. Please read [README.md](warden/README.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[the failure-mode register](warden/docs/FAILURE-MODES.md) before you start.
 
 By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report a security problem as
 [SECURITY.md](SECURITY.md) says, never in a public issue.
@@ -10,9 +10,12 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Re
 ## Set up
 
 You need Python 3.12 or later and [uv](https://docs.astral.sh/uv/). No cloud account and no model key are needed:
-mock mode runs the whole pipeline on recorded incidents.
+mock mode runs the whole pipeline on recorded incidents. The repository holds five components
+([docs/REPO-LAYOUT.md](docs/REPO-LAYOUT.md)); WARDEN's package, tests and tools are in `warden/`, and the commands
+below run there unless they say otherwise.
 
 ```
+cd warden
 uv sync --locked --extra dev
 WARDEN_MOCK=1 uv run warden demo
 ```
@@ -25,42 +28,43 @@ uv sync --locked --extra dev --extra all-providers --extra mcp --extra k8s --ext
 
 ## Check your change the way CI does
 
-These are the commands of the `CI · tool` workflow ([ci-tool.yml](.github/workflows/ci-tool.yml)):
+These are the commands of the `CI · tool` workflow ([warden-ci.yml](.github/workflows/warden-ci.yml), its steps in
+[warden/.github/actions](warden/.github/actions)), from `warden/`:
 
 ```
-ruff check src tests evals scripts scenarios
+ruff check src tests evals scripts ../fault-lab/scenarios ../fault-lab/scripts ../demo-app/app ../demo-app/lambdas ../demo-app/scripts ../infra/scripts
 python scripts/check_publishable.py
 pytest tests -q -n auto -rs -o faulthandler_timeout=300
 pytest evals -q
 ```
 
-And the security scans (`uv sync --locked --group scan` first):
+And the security scans (`uv sync --locked --group scan` first; the last two from the repository root):
 
 ```
 uv export --locked --all-extras --all-groups --no-emit-project --format requirements-txt -o locked.txt
 pip-audit -r locked.txt --require-hashes --disable-pip
-bandit -q -r src scenarios scripts -ll
-zizmor --offline --format plain .github
+bandit -q -r warden/src warden/scripts fault-lab/scenarios fault-lab/scripts demo-app/app demo-app/lambdas demo-app/scripts infra/scripts -ll
+zizmor --offline --format plain .github warden/.github infra/.github demo-app/.github fault-lab/.github helios/.github
 ```
 
 These cover `CI · tool`. The other required checks run only in CI, each on the paths it watches; their exact commands
-are in their workflows: `CI · infra` ([ci-infra.yml](.github/workflows/ci-infra.yml)), `CI · apps`
-([ci-apps.yml](.github/workflows/ci-apps.yml)) and `Scan · workflows`
+are in their workflows: `CI · infra` ([infra-ci.yml](.github/workflows/infra-ci.yml)), `CI · apps`
+([demo-app-ci.yml](.github/workflows/demo-app-ci.yml)) and `Scan · workflows`
 ([scan-workflows.yml](.github/workflows/scan-workflows.yml)), plus CodeQL and SonarCloud.
 
-Tests under `tests/integration` need a live Kubernetes cluster or database servers. They skip on your machine and run
+Tests under `warden/tests/integration` need a live Kubernetes cluster or database servers. They skip on your machine and run
 in CI's own jobs, which fail if any of them skips.
 
-Terraform is checked by the `terraform` job of `CI · tool` and, for the stacks under `terraform/fullstack`,
-`terraform/undo-lab`, `terraform/modules` and `terraform/runtime`, by `CI · infra`. From the repository root:
+Terraform is checked by the `terraform` job of `CI · tool` and, for the stacks under `infra/terraform/fullstack`,
+`infra/terraform/undo-lab`, `infra/terraform/modules` and `infra/terraform/runtime`, by `CI · infra`. From the repository root:
 
 ```
-terraform -chdir=terraform fmt -check -recursive
-terraform -chdir=terraform init -backend=false
-terraform -chdir=terraform validate
+terraform -chdir=infra/terraform fmt -check -recursive
+terraform -chdir=infra/terraform init -backend=false
+terraform -chdir=infra/terraform validate
 ```
 
-Each other root module (for example `terraform/proving-ground`) is initialised and validated the same way with its
+Each other root module (for example `infra/terraform/proving-ground`) is initialised and validated the same way with its
 own `-chdir`.
 
 ## What a pull request needs
@@ -70,12 +74,12 @@ own `-chdir`.
 - **A plant check for every new guard.** Break the guard on purpose, see its test fail, restore it. Say in the pull
   request which plant checks you did.
 - **The register stays true.** If your change closes or opens a failure mode, update
-  [docs/FAILURE-MODES.md](docs/FAILURE-MODES.md). A row marked done must cite a test that exists and is not skipped;
-  [tests/test_register.py](tests/test_register.py) fails CI otherwise.
+  [warden/docs/FAILURE-MODES.md](warden/docs/FAILURE-MODES.md). A row marked done must cite a test that exists and is not skipped;
+  [warden/tests/test_register.py](warden/tests/test_register.py) fails CI otherwise.
 - **No suppressions without a reason.** Do not add `# noqa`, `# nosec`, `type: ignore`, `pragma: no cover`, a skip or
   an xfail unless it is truly needed, with a one-line reason on the same line.
 - **No secrets, account ids, email addresses or real-looking tokens** anywhere, tests included. Build test credentials
-  from parts at run time, as [tests/fakes.py](tests/fakes.py) does. No environment, Region or account literals in
+  from parts at run time, as [warden/tests/fakes.py](warden/tests/fakes.py) does. No environment, Region or account literals in
   `src`: they come from configuration.
 - **Pin what you add.** GitHub Actions by full commit SHA, Python packages through `uv.lock`, images by digest.
 - **Plain words** in docs, reports and messages. Anything not built yet is called "planned".

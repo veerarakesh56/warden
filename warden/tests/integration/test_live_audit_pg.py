@@ -1,7 +1,7 @@
 """The audit on a REAL PostgreSQL (G6: Aurora in the runtime). Skipped unless opted in; fails if opted in and the
-database is unreachable - like tests/integration/test_live_database.py, and run in the same CI job.
+database is unreachable - like warden/tests/integration/test_live_database.py, and run in the same CI job.
 
-    WARDEN_DB_INTEGRATION=1 WARDEN_TEST_PG_DSN=postgresql://... pytest tests/integration/test_live_audit_pg.py -q
+    WARDEN_DB_INTEGRATION=1 WARDEN_TEST_PG_DSN=postgresql://... pytest warden/tests/integration/test_live_audit_pg.py -q
 
 Many writers, one chain: workers and Lambdas append at once, each append holding the chain's advisory lock.
 """

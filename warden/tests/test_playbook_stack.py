@@ -1,6 +1,6 @@
-"""Wave 4: every fault class of docs/FULLSTACK-LAB.md section 5 is detected from contract-shaped
-evidence (docs/FULLSTACK-LAB.md section 4, B/C/D), and its advice names what that evidence shows. The advice holds
-no command (2026-10-16; tests/test_no_commands.py): it used to carry exact fix commands, checked here
+"""Wave 4: every fault class of demo-app/docs/FULLSTACK-LAB.md section 5 is detected from contract-shaped
+evidence (demo-app/docs/FULLSTACK-LAB.md section 4, B/C/D), and its advice names what that evidence shows. The advice holds
+no command (2026-10-16; warden/tests/test_no_commands.py): it used to carry exact fix commands, checked here
 against a mirror of the harness allow-list.
 
 The contexts below are built from the contract text, not from a live run: the stack backend is built
@@ -18,7 +18,7 @@ from warden.models import Alert, ContextBundle, Severity
 from warden.playbook import detect
 
 # A real redaction placeholder looks like <EMAIL_1> or <IPV4_1>; anything else in angle brackets is a
-# hole. (tests/test_report_structure.py's _HOLE, widened to labels with digits as redaction.py makes them.)
+# hole. (warden/tests/test_report_structure.py's _HOLE, widened to labels with digits as redaction.py makes them.)
 _HOLE = re.compile(r"<(?![A-Z][A-Z0-9]*_\d+>)[^>\n]{1,40}>")
 ACCT = "0" * 12   # synthetic, so the redaction of account ids is exercised without writing one
 TS = "2026-09-26T10:00:01Z"

@@ -1138,7 +1138,7 @@ def _json(status: int, payload: dict) -> Response:
 # background, a wave on touch). Everything is in the page: the Content-Security-Policy admits no font, image, frame or
 # script from anywhere, and no style attribute - so the system font, classes only, and a nonce on the one style and
 # the one script. Colours are custom properties, light and dark, chosen by the reader (remembered in this browser) or
-# by the device; every pair of text and ground passes WCAG 2.2 AA (tests/test_pages_ux.py measures them). The
+# by the device; every pair of text and ground passes WCAG 2.2 AA (warden/tests/test_pages_ux.py measures them). The
 # background - a slow aurora, a faint grid, a drifting constellation - lies behind solid panels, holds still for
 # reduced motion and pauses in a hidden tab. Labelled controls, keyboard order, a visible focus, a status always in
 # words (never colour alone), targets of 24px and more, readable at 200% and at a phone's width.

@@ -1,6 +1,6 @@
 """Before a live Kubernetes wave: send every op's exact request to the REAL API server, dry-run.
 
-    python scripts/preflight_k8s_ops.py [--context CONTEXT]      # default: warden-eks
+    python fault-lab/scripts/preflight_k8s_ops.py [--context CONTEXT]      # default: warden-eks
 
 Every mutating call carries dryRun=All, so the server validates it completely - schema, admission,
 RBAC field rules - and persists nothing. Exits non-zero if the server rejects anything.
@@ -16,7 +16,7 @@ revoke, with the fix it accepts all 16 calls.
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from kubernetes import client as k
 from kubernetes import config
 from scenarios import ops_k8s

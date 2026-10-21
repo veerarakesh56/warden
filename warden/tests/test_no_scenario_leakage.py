@@ -7,9 +7,9 @@ test rather than a paragraph, because a paragraph cannot fail CI.
 What it enforces:
 
 1. **No scenario knowledge inside the tool.** No scenario id and no fault-class name may appear
-   anywhere under `src/warden/`. If a future change ever special-cases `ecs-03-oom-new-revision`,
+   anywhere under `warden/src/warden/`. If a future change ever special-cases `ecs-03-oom-new-revision`,
    or branches on `fault_class == "image_pull_failure"`, this goes red.
-2. **The tool cannot read the answers.** Nothing under `src/warden/` may reference `scenarios/`,
+2. **The tool cannot read the answers.** Nothing under `warden/src/warden/` may reference `scenarios/` (fault-lab/scenarios/),
    the ground-truth directory, or the rubric.
 3. **The catalog contains no expected answers.** A scenario entry may not carry a hypothesis, an
    expected action or an expected verdict — that would move the rubric into the fixture, where it
@@ -32,9 +32,9 @@ import re
 import pytest
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-SRC = ROOT / "src" / "warden"
-SCENARIOS = ROOT / "scenarios"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SRC = ROOT / "warden" / "src" / "warden"
+SCENARIOS = ROOT / "fault-lab" / "scenarios"
 CATALOG = SCENARIOS / "catalog"
 
 pytestmark = pytest.mark.skipif(

@@ -1,4 +1,4 @@
-"""scripts/bench_approve.py main after its split (S3776): which signed step each option posts, what it prints and
+"""fault-lab/scripts/bench_approve.py main after its split (S3776): which signed step each option posts, what it prints and
 its exit code - a record read, a plan shown, denied or approved - with the approval domain faked."""
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import types
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("bench_approve_flow", ROOT / "scripts" / "bench_approve.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("bench_approve_flow", ROOT / "fault-lab" / "scripts" / "bench_approve.py")
 bench = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bench)
 PLAN = {"workflow_id": "wf-1", "entry": "scale_up", "target": "svc", "tier": "T1", "environment": "dev",

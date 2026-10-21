@@ -8,8 +8,8 @@ import re
 
 from warden import activities
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-README = ROOT / "README.md"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+README = ROOT / "warden" / "README.md"
 
 
 def _section() -> str:
@@ -27,7 +27,7 @@ def test_every_module_the_diagram_names_exists():
         if n.startswith("warden ") or (ROOT / n).exists():  # a command of the warden CLI, or a path
             continue
         stem = n[:-3] if n.endswith(".py") else n.split(".")[0]
-        if not (ROOT / "src" / "warden" / f"{stem}.py").exists():
+        if not (ROOT / "warden" / "src" / "warden" / f"{stem}.py").exists():
             missing.append(n)
     assert missing == []
 
@@ -40,4 +40,4 @@ def test_every_activity_is_on_the_diagram_and_every_command_on_it_is_real():
     for name in defined:
         assert re.search(rf"\b{name}\b", section), name
     for cmd in re.findall(r"warden ([a-z]+)", section):
-        assert f'add_parser("{cmd}"' in (ROOT / "src" / "warden" / "cli.py").read_text(encoding="utf-8"), cmd
+        assert f'add_parser("{cmd}"' in (ROOT / "warden" / "src" / "warden" / "cli.py").read_text(encoding="utf-8"), cmd

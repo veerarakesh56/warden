@@ -6,8 +6,9 @@ import json
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "scripts"))
+sys.path.insert(0, str(ROOT / "fault-lab" / "scripts"))
 import aws_proof_bundle  # after the sys.path line above
 import check_publishable
 import publish_bench_run

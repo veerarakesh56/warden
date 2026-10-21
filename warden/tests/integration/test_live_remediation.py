@@ -1,7 +1,7 @@
 """The Kubernetes platform behind the RemediationWorkflow (decision D16) against a REAL cluster. Skipped
 unless opted in; fails (not skips) if opted in and no cluster is reachable.
 
-    WARDEN_K8S_INTEGRATION=1 pytest tests/integration/test_live_remediation.py -q
+    WARDEN_K8S_INTEGRATION=1 pytest warden/tests/integration/test_live_remediation.py -q
 
 It is self-contained: it creates its own throwaway Deployment, so it cannot disturb the read-path
 integration tests (which operate on `checkout`). It proves what the unit tests cannot - that against a
@@ -131,7 +131,7 @@ def test_a_rollout_undo_is_refused_against_a_real_cluster_too(apps, target):
 def test_the_platform_works_as_the_least_privilege_service_account(apps, target):
     """Everything above runs with the runner's admin kubeconfig, which can do anything - so a platform
     that needed more than the write ServiceAccount grants would pass there and fail in a real cluster.
-    This impersonates `warden-remediator` (k8s/remediation-rbac.yaml: get and patch deployments, not
+    This impersonates `warden-remediator` (infra/k8s/remediation-rbac.yaml: get and patch deployments, not
     even list; CI applies it before this step): reading, scaling and rolling back must all work as it."""
     from kubernetes import client
 
@@ -160,7 +160,7 @@ def _as_remediator():
 
 def test_the_admission_policy_refuses_a_pod_spec_change_by_the_remediator(apps, target):
     """Audit A-I-11: `patch deployments` could rewrite the pod template - an image, a command, a service account.
-    The ValidatingAdmissionPolicy in k8s/remediation-rbac.yaml refuses that for the remediator, on the real API
+    The ValidatingAdmissionPolicy in infra/k8s/remediation-rbac.yaml refuses that for the remediator, on the real API
     server."""
     from kubernetes.client.exceptions import ApiException
 
@@ -184,7 +184,7 @@ def test_the_remediator_can_still_restart_through_the_policy(apps, target):
 
 def test_the_eks_actors_group_is_bound_and_held_by_the_same_policy(apps, target):
     """On EKS WARDEN's actor role signs in through its access entry as user `warden-remediator:<session>` in group
-    warden-remediators (terraform/fullstack/eks.tf), not as the ServiceAccount. Impersonated here: the group may scale
+    warden-remediators (infra/terraform/fullstack/eks.tf), not as the ServiceAccount. Impersonated here: the group may scale
     (as an approved plan's writer) and the admission policy still refuses it a pod spec change."""
     from kubernetes import client
     from kubernetes.client.exceptions import ApiException

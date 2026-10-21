@@ -11,8 +11,8 @@ import pytest
 
 from warden import observability as obs
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODULE = ROOT / "terraform" / "modules" / "warden-runtime"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+MODULE = ROOT / "infra" / "terraform" / "modules" / "warden-runtime"
 OFFICIAL = "opentelemetry-exporter-otlp-proto-http"
 ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
@@ -42,7 +42,7 @@ def _endpoint_rule() -> _Rule:
 def test_the_exporter_is_off_by_default_everywhere():
     assert re.search(r"default\s*=\s*false", _variable("otlp_exporter"))
     assert re.search(r'default\s*=\s*""', _variable("otlp_endpoint"))
-    root = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+    root = (ROOT / "infra" / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert 'otlp_exporter = lookup(local.tf, "otlp_exporter", "false") == "true"' in root
     assert 'otlp_endpoint = lookup(local.tf, "otlp_endpoint", "")' in root
 
@@ -83,11 +83,11 @@ def test_no_new_way_out_is_opened_for_it():
 
 
 def test_the_image_carries_the_official_exporter_from_the_lockfile():
-    docker = re.sub(r"\\\n\s*", "", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
+    docker = re.sub(r"\\\n\s*", "", (ROOT / "warden" / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
     assert "--extra otlp" in re.search(r"uv sync --locked --no-build --no-editable(.*)", docker).group(1)
-    py = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    py = (ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(rf'^otlp = \["{OFFICIAL}>=[0-9.]+"\]$', py, re.MULTILINE)
-    assert f'name = "{OFFICIAL}"' in (ROOT / "uv.lock").read_text(encoding="utf-8")
+    assert f'name = "{OFFICIAL}"' in (ROOT / "warden" / "uv.lock").read_text(encoding="utf-8")
 
 
 def test_the_app_ships_spans_only_when_the_endpoint_is_set(monkeypatch):

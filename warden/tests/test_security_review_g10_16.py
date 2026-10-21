@@ -74,7 +74,7 @@ def test_on_todays_redaction_sso_actors_are_read_and_guardrails_still_caught():
     from warden import graph, verifier
     from warden.models import Alert, ContextBundle
 
-    root = pathlib.Path(__file__).resolve().parents[1] / "docs" / "bench" / "heldout-g10-2026-10-10" / "incidents"
+    root = pathlib.Path(__file__).resolve().parents[2] / "fault-lab" / "docs" / "bench" / "heldout-g10-2026-10-10" / "incidents"
     revert = RemediationProposal(action=ActionKind.revert_change, target="x", reasoning="r", expected_effect="e",
                                  blast_radius="single_service", reversible=True)
     for case, deliberate in (("g10-029", False), ("g10-051", False), ("g10-094", False), ("g10-166", False),

@@ -1,4 +1,4 @@
-"""Wave 4 infrastructure, checked offline: terraform/fullstack, the policies, the shop's manifests, the
+"""Wave 4 infrastructure, checked offline: infra/terraform/fullstack, the policies, the shop's manifests, the
 apps' handlers, the bootstrap SQL and the two pipeline workflows.
 
 What `terraform validate` cannot see: names outside the prefix the boundary scopes IAM to, a role
@@ -17,20 +17,20 @@ import re
 import pytest
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-TF = ROOT / "terraform" / "fullstack"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+TF = ROOT / "infra" / "terraform" / "fullstack"
 TF_FILES = sorted(TF.glob("*.tf"))
-# The shop: its workloads in Git (Argo CD syncs manifests/shop), and what the apps pipeline owns (k8s/shop-pipeline).
-K8S = ROOT / "manifests" / "shop" / "base"
-K8S_PIPELINE = ROOT / "k8s" / "shop-pipeline"
-APPS = ROOT / "scenarios" / "fullstack"
-BOUNDARY = ROOT / "terraform" / "proving-ground" / "operator-policy-boundary.json"
+# The shop: its workloads in Git (Argo CD syncs demo-app/manifests/shop), and what the apps pipeline owns (demo-app/k8s/shop-pipeline).
+K8S = ROOT / "demo-app" / "manifests" / "shop" / "base"
+K8S_PIPELINE = ROOT / "demo-app" / "k8s" / "shop-pipeline"
+APPS = ROOT / "demo-app"
+BOUNDARY = ROOT / "infra" / "terraform" / "proving-ground" / "operator-policy-boundary.json"
 # What the stack runs under since Phase 1.5: the dev environment's rendered deploy policy and boundary.
-ENV_DEPLOY = ROOT / "iam" / "dev" / "deploy.json"
-ENV_BOUNDARY = ROOT / "iam" / "dev" / "boundary.json"
+ENV_DEPLOY = ROOT / "infra" / "iam" / "dev" / "deploy.json"
+ENV_BOUNDARY = ROOT / "infra" / "iam" / "dev" / "boundary.json"
 POLICY_LIMIT = 6144  # managed policy, whitespace not counted
 
-pytestmark = pytest.mark.skipif(not TF_FILES, reason="terraform/fullstack not in this checkout")
+pytestmark = pytest.mark.skipif(not TF_FILES, reason="infra/terraform/fullstack not in this checkout")
 
 
 def _blocks(kind: str) -> list[tuple[str, str, str]]:
@@ -60,7 +60,7 @@ def test_the_names_and_tags_come_from_the_environment():
     assert re.search(r'^\s+name\s+=\s+"warden-\$\{local\.env\}"$', main, re.MULTILINE)
     assert re.search(r'Project\s+=\s+"warden"', main)
     assert re.search(r'Environment\s+=\s+local\.env', main)
-    assert "src/warden/data/environments.yaml" in main
+    assert "warden/src/warden/data/environments.yaml" in main
     assert "contains(local.environments, local.env)" in main
 
 
@@ -184,7 +184,7 @@ def test_security_group_descriptions_are_ones_ec2_accepts():
     assert not bad, bad
 
 
-# Words that would name a fault's CAUSE (docs/FULLSTACK-LAB.md section 5). The symptom may be
+# Words that would name a fault's CAUSE (demo-app/docs/FULLSTACK-LAB.md section 5). The symptom may be
 # named ("5xx", "memory usage", "not ready"); the cause may not.
 CAUSE_WORDS = ["reserved concurrency", "concurrency", "keyerror", "health path", "healthz", "timeout",
                "timed out", "iam", "permission", "accessdenied", "access denied", "poison", "disabled",
@@ -203,7 +203,7 @@ def _alarms() -> dict[str, str]:
 def test_there_is_an_alarm_for_every_symptom_family():
     alarms = _alarms()
     assert len(alarms) >= 18, sorted(alarms)
-    catalog = ROOT / "scenarios" / "catalog" / "wave4-fullstack.yaml"
+    catalog = ROOT / "fault-lab" / "scenarios" / "catalog" / "wave4-fullstack.yaml"
     if catalog.exists():  # every alarm the harness polls must exist
         polled = set(re.findall(r"^\s+alarm: warden-__ENV__-([a-z0-9-]+)", catalog.read_text(encoding="utf-8"), re.MULTILINE))
         assert polled, sorted(polled - set(alarms))
@@ -221,7 +221,8 @@ def test_alarm_descriptions_name_the_symptom_never_the_cause(name, desc):
 
 def test_no_account_id_or_email_in_any_file():
     files = TF_FILES + [BOUNDARY, TF / "README.md", TF / "terraform.tfvars.example"]
-    files += [p for p in list(K8S.rglob("*")) + list(APPS.rglob("*")) if p.is_file() and "__pycache__" not in p.parts]
+    files += [p for p in list(K8S.rglob("*")) + [q for d in ("app", "lambdas", "sql") for q in (APPS / d).rglob("*")]
+              if p.is_file() and "__pycache__" not in p.parts]
     for f in files:
         # A package hash is not an account id: a run of 12 digits inside one matched (2026-10-01).
         text = re.sub(r"sha256:[0-9a-f]{64}", "", f.read_text(encoding="utf-8"))
@@ -239,7 +240,7 @@ def _list(v):
     return [v] if isinstance(v, str) else list(v or [])
 
 
-OPERATOR = ROOT / "terraform" / "proving-ground" / "operator-policy.json"
+OPERATOR = ROOT / "infra" / "terraform" / "proving-ground" / "operator-policy.json"
 
 
 @pytest.mark.parametrize("path", [BOUNDARY, OPERATOR], ids=lambda p: p.name)
@@ -360,7 +361,7 @@ def test_the_namespace_enforces_restricted_pod_security():
     assert ns["metadata"]["labels"]["project"] == "warden"
 
 
-# catalog-api: no replicas in Git - its HPA owns the count (Argo CD is told to ignore it, k8s/argocd/shop.yaml).
+# catalog-api: no replicas in Git - its HPA owns the count (Argo CD is told to ignore it, demo-app/k8s/argocd/shop.yaml).
 @pytest.mark.parametrize("name,replicas", [("catalog-api", None), ("cart-worker", 2)])
 def test_deployments_pass_restricted_pod_security(name, replicas):
     dep = next(d for d in _k8s_docs() if d["kind"] == "Deployment" and d["metadata"]["name"] == name)
@@ -415,7 +416,7 @@ def test_warden_is_bound_in_shop_only_to_the_real_read_only_clusterrole():
     rb = next(d for d in docs if d["kind"] == "RoleBinding")
     assert rb["metadata"]["namespace"] == "shop"
     assert rb["subjects"] == [{"kind": "ServiceAccount", "name": "warden", "namespace": "shop"}]
-    rbac = [d for d in yaml.safe_load_all((ROOT / "k8s" / "rbac.yaml").read_text(encoding="utf-8")) if d]
+    rbac = [d for d in yaml.safe_load_all((ROOT / "infra" / "k8s" / "rbac.yaml").read_text(encoding="utf-8")) if d]
     role = next(d for d in rbac if d["kind"] == "ClusterRole")
     assert rb["roleRef"] == {"kind": "ClusterRole", "name": role["metadata"]["name"],
                              "apiGroup": "rbac.authorization.k8s.io"}
@@ -441,13 +442,13 @@ def test_every_terraform_lambda_has_a_handler():
 
 
 def test_every_app_file_compiles(tmp_path):
-    files = [p for p in APPS.rglob("*.py")]
+    files = [p for d in ("app", "lambdas", "sql") for p in (APPS / d).rglob("*.py")]
     assert len(files) >= 7
     for f in files:
         py_compile.compile(str(f), cfile=str(tmp_path / "x.pyc"), doraise=True)
 
 
-# The fault flags scenarios/ops_fullstack.py flips must exist at their baseline value from the start,
+# The fault flags fault-lab/scenarios/ops_fullstack.py flips must exist at their baseline value from the start,
 # so a variable NAME never appears only during a fault.
 BASELINE_FLAGS = {"checkout": {"CHECKOUT_FF_1": "v1", "CHECKOUT_FF_2": "0"},
                   "reconciler": {"RECONCILER_FF_1": "by_id"}}
@@ -501,63 +502,63 @@ def _workflow(name: str) -> dict:
 
 
 def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
-    wf = _workflow("ci-infra.yml")
-    # Its destroy-permission check (B40) reads the IAM files and terraform/fullstack: an infra input too.
-    own = {"tests/test_destroy_permissions.py"}
+    wf = _workflow("infra-ci.yml")
+    # Its destroy-permission check (B40) reads the IAM files and infra/terraform/fullstack: an infra input too.
+    own = {"warden/tests/test_destroy_permissions.py"}
     # Pause and resume (owner update 5): its script restores the stack's data stores, its test reads the IAM and terraform.
-    own |= {"tests/test_pause_resume.py", "scripts/pause_resume.py"}
+    own |= {"warden/tests/test_pause_resume.py", "infra/scripts/pause_resume.py"}
     # The infra pipeline's own inputs count as infra: its test files (every one its check runs - ninth review CI),
     # the IAM files it validates and what they render from. Its jobs install from uv.lock, so the lock and
     # pyproject.toml trigger it too (2026-10-01). Nothing of the tool's or the apps' own code.
-    checks = {"tests/test_fullstack_infra.py", "tests/test_aws_stack.py", "tests/test_docs_honesty.py",
-              "tests/test_supply_chain.py", "tests/test_terraform_versions.py", "tests/test_env_iam.py",
-              "tests/test_helios_gate_r56.py", "tests/test_platform_iam_g6.py", "tests/test_aws_platform_g6.py",
-              "tests/test_runtime_module_g6.py", "tests/test_runtime_pipeline_s9.py", "tests/test_runtime_iam_g6.py", "tests/test_actor_use_g6.py", "tests/test_redis_tls_r8.py", "tests/test_api_auth_ai13.py", "tests/test_runtime_network_g6.py",
-              "tests/test_backups.py", "tests/test_iac_hardening_sonar.py", "tests/test_iac_leftovers_sonar.py", "tests/test_stack_paths_s2083.py"}
-    assert all(p.startswith(("terraform/fullstack/", "terraform/undo-lab/", "terraform/modules/", "terraform/runtime/", ".github/workflows/", "iam/")) or p in checks
-               or p in ("uv.lock", "pyproject.toml", "scripts/render_env_iam.py", "scripts/helios_gate.py", "src/warden/platforms/aws.py",
-                         "src/warden/data/environments.yaml", "src/warden/paths.py")
+    checks = {"warden/tests/test_fullstack_infra.py", "warden/tests/test_aws_stack.py", "warden/tests/test_docs_honesty.py",
+              "warden/tests/test_supply_chain.py", "warden/tests/test_terraform_versions.py", "warden/tests/test_env_iam.py",
+              "warden/tests/test_helios_gate_r56.py", "warden/tests/test_platform_iam_g6.py", "warden/tests/test_aws_platform_g6.py",
+              "warden/tests/test_runtime_module_g6.py", "warden/tests/test_runtime_pipeline_s9.py", "warden/tests/test_runtime_iam_g6.py", "warden/tests/test_actor_use_g6.py", "warden/tests/test_redis_tls_r8.py", "warden/tests/test_api_auth_ai13.py", "warden/tests/test_runtime_network_g6.py",
+              "warden/tests/test_backups.py", "warden/tests/test_iac_hardening_sonar.py", "warden/tests/test_iac_leftovers_sonar.py", "warden/tests/test_stack_paths_s2083.py"}
+    assert all(p.startswith(("infra/terraform/fullstack/", "infra/terraform/undo-lab/", "infra/terraform/modules/", "infra/terraform/runtime/", ".github/workflows/", "infra/iam/")) or p in checks
+               or p in ("uv.lock", "pyproject.toml", "infra/scripts/render_env_iam.py", "infra/scripts/helios_gate.py", "warden/src/warden/platforms/aws.py",
+                         "warden/src/warden/data/environments.yaml", "warden/src/warden/paths.py")
                for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"] if p not in own)
     assert "workflow_dispatch" not in wf["on"]
-    for name in ("ci-infra.yml", "_infra-validate.yml"):
+    for name in ("infra-ci.yml", "infra-validate.yml"):
         text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
         assert "id-token" not in text, name
         assert "configure-aws-credentials" not in text, name
-    deploy = _workflow("_infra-deploy.yml")
+    deploy = _workflow("infra-deploy.yml")
     assert deploy["on"] == {"workflow_call": deploy["on"]["workflow_call"]}  # only ever called
     assert deploy["jobs"]["run"]["permissions"]["id-token"] == "write"
-    text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
+    text = (ROOT / ".github" / "workflows" / "infra-deploy.yml").read_text(encoding="utf-8")
     assert "aws-access-key-id" not in text
     assert "AWS_SECRET_ACCESS_KEY" not in text
 
 
-@pytest.mark.parametrize("name", ["ci-apps.yml", "ci-infra.yml"])
+@pytest.mark.parametrize("name", ["demo-app-ci.yml", "infra-ci.yml"])
 def test_a_lane_that_runs_a_script_importing_warden_paths_also_runs_when_paths_changes(name):
-    """deploy_fullstack_apps.py, aurora_express.py and helios_gate.py read their path rule from src/warden/paths.py
+    """deploy_fullstack_apps.py, aurora_express.py and helios_gate.py read their path rule from warden/src/warden/paths.py
     (PR 63): a change to that file alone must run the lanes that run them, or a broken rule reaches a deploy unseen."""
     import fnmatch
 
     wf = _workflow(name)
-    scripts = [p for p in [*ROOT.glob("scripts/*.py"), *ROOT.glob("terraform/*/*.py")]
+    scripts = [p for p in [*(p for c in ("warden", "infra", "demo-app", "fault-lab") for p in (ROOT / c / "scripts").glob("*.py")), *ROOT.glob("infra/terraform/*/*.py")]
                if "from warden import paths" in p.read_text(encoding="utf-8")]
     for event in ("push", "pull_request"):
         globs = wf["on"][event]["paths"]
         importing = [p.relative_to(ROOT).as_posix() for p in scripts
                      if any(fnmatch.fnmatch(p.relative_to(ROOT).as_posix(), g) for g in globs)]
         assert importing, f"{name} runs no script that imports warden.paths: drop it from this test"
-        assert "src/warden/paths.py" in globs, (name, event, importing)
+        assert "warden/src/warden/paths.py" in globs, (name, event, importing)
 
 
 def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform():
-    wf = _workflow("ci-apps.yml")
+    wf = _workflow("demo-app-ci.yml")
     paths = wf["on"]["push"]["paths"]
-    assert not any(p.startswith("terraform/") for p in paths)
+    assert not any(p.startswith("infra/terraform/") for p in paths)
     assert "scenarios/fullstack/**" in paths
-    assert "manifests/**" in paths
+    assert "demo-app/manifests/**" in paths
     assert "workflow_dispatch" not in wf["on"]
-    deploy = _workflow("_apps-deploy.yml")
+    deploy = _workflow("demo-app-deploy.yml")
     assert deploy["on"] == {"workflow_call": deploy["on"]["workflow_call"]}
-    text = (ROOT / ".github" / "workflows" / "_apps-deploy.yml").read_text(encoding="utf-8")
+    text = (ROOT / ".github" / "workflows" / "demo-app-deploy.yml").read_text(encoding="utf-8")
     assert not re.search(r"^\s*(- run: |run: )?terraform ", text, re.MULTILINE), "the apps deploy calls terraform"
     assert "aws-access-key-id" not in text
 
@@ -565,7 +566,7 @@ def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform(
 def test_bootstrap_sql_has_no_password_and_no_placeholder():
     """2026-09-26: IAM authentication only. Every role gets rds_iam; no PASSWORD clause. The only placeholders
     are the four users, named for the environment when the file is sent (audit A-I-2)."""
-    text = (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
+    text = (ROOT / "demo-app" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
     assert "{" not in text
     assert "}" not in text
@@ -578,7 +579,7 @@ def test_bootstrap_sql_has_no_password_and_no_placeholder():
 
 def test_the_stack_carries_its_own_budget_alarm():
     """The proving ground's budget went with its teardown; a ~USD 0.50/h stack must not run unwatched."""
-    tf = (ROOT / "terraform" / "fullstack" / "main.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "fullstack" / "main.tf").read_text(encoding="utf-8")
     assert 'resource "aws_budgets_budget" "guard"' in tf
     assert 'name         = "${local.name}-guard"' in tf
     assert 'type = "FORECASTED"' in tf
@@ -943,19 +944,19 @@ def test_aurora_status_says_whether_the_cluster_is_up():
 
 
 def test_the_infra_pipeline_creates_aurora_after_apply_and_destroys_it_first():
-    text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
+    text = (ROOT / ".github" / "workflows" / "infra-deploy.yml").read_text(encoding="utf-8")
     # One workflow, two stacks (2026-10-11): Aurora is the full stack's only, and the undo lab never reaches it.
     # The stack.json upload (a plan kept for review is copied to the bucket earlier, 2026-10-16).
-    assert (text.index('"terraform/$STACK" apply') < text.index("aurora_express.py create")
+    assert (text.index('"infra/terraform/$STACK" apply') < text.index("aurora_express.py create")
             < text.index('aws s3 cp "$RUNNER_TEMP/stack.json"'))
-    assert text.index("aurora_express.py destroy") < text.index('"terraform/$STACK" destroy')
+    assert text.index("aurora_express.py destroy") < text.index('"infra/terraform/$STACK" destroy')
     # A re-apply keeps the apps deploy's baseline revision (lost once, 2026-10-15), merged in before the upload.
     keep = text.index('select(.key == "ecs_baseline_task_definition")')
     assert text.index("aurora_express.py create") < keep < text.index('aws s3 cp "$RUNNER_TEMP/stack.json"')
     for step in ("aurora_express.py create", "aurora_express.py destroy"):
         assert 'if [ "$STACK" = fullstack ]; then' in text[text.index(step) - 90:text.index(step)], step
     assert 'case "$STACK" in fullstack|undo-lab) ;;' in text
-    assert "terraform/fullstack apply" not in text
+    assert "infra/terraform/fullstack apply" not in text
     assert "MASTER_PASSWORD" not in text
     assert "db_master_password" not in text
 
@@ -1012,7 +1013,7 @@ def test_workloads_opt_out_of_the_observability_addons_auto_instrumentation():
     rejected - no catalog-api pod could be created (first real deploy, 2026-09-26)."""
     import yaml as _yaml
     for name in ("catalog-api.yaml", "cart-worker.yaml"):
-        for doc in _yaml.safe_load_all((ROOT / "manifests" / "shop" / "base" / name).read_text(encoding="utf-8")):
+        for doc in _yaml.safe_load_all((ROOT / "demo-app" / "manifests" / "shop" / "base" / name).read_text(encoding="utf-8")):
             if doc and doc.get("kind") == "Deployment":
                 ann = doc["spec"]["template"]["metadata"].get("annotations") or {}
                 for lang in ("java", "python", "nodejs", "dotnet"):
@@ -1064,8 +1065,8 @@ def test_everything_the_stack_creates_carries_project_and_environment_tags():
 
 
 
-ROOTS = {"root": ROOT / "terraform", "proving-ground": ROOT / "terraform" / "proving-ground",
-         "fullstack": ROOT / "terraform" / "fullstack"}
+ROOTS = {"root": ROOT / "infra" / "terraform", "proving-ground": ROOT / "infra" / "terraform" / "proving-ground",
+         "fullstack": ROOT / "infra" / "terraform" / "fullstack"}
 
 
 def _blocks_in(text, kind):
@@ -1177,7 +1178,7 @@ def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
     ax = _aurora()
     ax.use("qa-staging")
     assert ax.APP_USER == "warden_qa_staging_app"
-    tf = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "fullstack" / "data.tf").read_text(encoding="utf-8")
+    tf = (pathlib.Path(__file__).resolve().parents[2] / "infra" / "terraform" / "fullstack" / "data.tf").read_text(encoding="utf-8")
     assert re.search(r'db_users = \{ for k in \["app"', tf)
     assert '"warden_${replace(local.env, "-", "_")}_${k}"' in tf
     path = tmp_path / "s.json"
@@ -1192,7 +1193,7 @@ def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
 def test_the_public_api_writes_access_logs_to_a_vended_log_group():
     """Audit A-I-13: the public HTTP API had no access logs. The group is under /aws/vendedlogs/, which the owner's
     one account-level delivery policy covers (docs/SETUP.md, 3e), so nothing writes a resource policy."""
-    text = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
+    text = (pathlib.Path(__file__).resolve().parents[2] / "infra" / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
     assert 'name              = "/aws/vendedlogs/${local.name}-api-access"' in text
     stage = text[text.index('resource "aws_apigatewayv2_stage" "default"'):]
     stage = stage[:stage.index("\n}\n")]
@@ -1216,7 +1217,7 @@ def test_a_fault_flag_names_nothing_and_its_value_is_never_shown():
     value reached the evidence too. Flag names are opaque, and not names whose values WARDEN shows."""
     from scenarios.ops_fullstack import FLAGS
 
-    # This lane has no WARDEN install: that the value stays hidden is checked in tests/test_aws_stack.py.
+    # This lane has no WARDEN install: that the value stays hidden is checked in warden/tests/test_aws_stack.py.
     for fault, (name, _baseline, _value) in FLAGS.items():
         assert re.fullmatch(r"[A-Z]+_FF_\d+", name), (fault, name)
 
@@ -1236,7 +1237,7 @@ def test_a_health_alarm_reads_missing_data_as_failure_and_an_error_alarm_does_no
     """Register C18b: a dead service stops emitting data. An alarm that wants a signal PRESENT (fewer than N
     healthy, too few runs) must go to ALARM on silence (`breaching`); an alarm that counts errors must not,
     or every quiet minute pages someone."""
-    text = (ROOT / "terraform" / "fullstack" / "alarms.tf").read_text(encoding="utf-8")
+    text = (ROOT / "infra" / "terraform" / "fullstack" / "alarms.tf").read_text(encoding="utf-8")
     body = text[text.index("  alarms = {"):text.index('resource "aws_cloudwatch_metric_alarm"')]
     entries = dict(re.findall(r"^    ([a-z0-9-]+) = \{\n(.*?)^    \}", body, re.MULTILINE | re.DOTALL))
     assert len(entries) >= 20
@@ -1251,7 +1252,7 @@ def test_a_health_alarm_reads_missing_data_as_failure_and_an_error_alarm_does_no
 def test_the_cloud_read_role_may_only_view_the_cluster():
     import re
 
-    tf = (ROOT / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
     block = tf[tf.index('resource "aws_eks_access_policy_association" "warden_reader"'):]
     block = block[:block.index("\n}\n")]
     assert re.search(r'policy_arn\s+= "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"', block)
@@ -1260,9 +1261,9 @@ def test_the_cloud_read_role_may_only_view_the_cluster():
 
 
 # --------------------------------------------------------------------------- item 4: Kubernetes and the database live
-# (the platforms themselves: tests/test_platforms_live.py)
+# (the platforms themselves: warden/tests/test_platforms_live.py)
 def test_the_act_and_read_zones_start_with_kubernetes_and_the_database():
-    iam = (ROOT / "terraform" / "modules" / "warden-runtime" / "iam.tf").read_text(encoding="utf-8")
+    iam = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "iam.tf").read_text(encoding="utf-8")
     zones = {z: re.search(r"platforms = \[([^\]]*)\]", body).group(1)
              for z, body in re.findall(r"^\s+(\w+)\s+= \{(.*)\}$", iam[iam.index("  zones = {"):], re.MULTILINE)
              if "platforms" in body}
@@ -1273,34 +1274,34 @@ def test_the_act_and_read_zones_start_with_kubernetes_and_the_database():
 
 
 def test_the_actor_maps_to_the_remediator_group_only_and_connects_only_as_the_terminate_login():
-    eks = (ROOT / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
+    eks = (ROOT / "infra" / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
     entry = eks[eks.index('resource "aws_eks_access_entry" "warden_actor"'):]
     entry = entry[:entry.index("\n}\n")]
     assert 'kubernetes_groups = ["warden-remediators"]' in entry
     assert "-actor" in entry
     assert '"warden-remediator:{{SessionName}}"' in entry  # the incident, into the Kubernetes audit log
     assert "warden_actor" not in eks.replace('"aws_eks_access_entry" "warden_actor"', "")  # no access policy: RBAC only
-    # The reader's one group: the shop Application's get (register C4, k8s/argocd/shop.yaml; tests/test_automation_c4).
+    # The reader's one group: the shop Application's get (register C4, demo-app/k8s/argocd/shop.yaml; tests/test_automation_c4).
     reader = eks[eks.index('resource "aws_eks_access_entry" "warden_reader"'):]
     assert 'kubernetes_groups = ["warden-readers"]' in reader[:reader.index("\n}\n")]
     # In the shop namespace only, to the remediator role the admission policy narrows (test_platform_k8s).
-    docs = list(yaml.safe_load_all((ROOT / "manifests" / "shop" / "base" / "warden-rbac.yaml").read_text(encoding="utf-8")))
+    docs = list(yaml.safe_load_all((ROOT / "demo-app" / "manifests" / "shop" / "base" / "warden-rbac.yaml").read_text(encoding="utf-8")))
     [rb] = [d for d in docs if d["kind"] == "RoleBinding" and d["roleRef"]["name"] == "warden-remediator"]
     assert rb["metadata"]["namespace"] == "shop"
     assert rb["subjects"] == [{"kind": "Group", "name": "warden-remediators", "apiGroup": "rbac.authorization.k8s.io"}]
-    actor = json.loads((ROOT / "iam" / "templates" / "actor.json").read_text(encoding="utf-8"))
+    actor = json.loads((ROOT / "infra" / "iam" / "templates" / "actor.json").read_text(encoding="utf-8"))
     connects = [st for st in actor["Statement"] if "rds-db:connect" in str(st["Action"])]
     assert [st["Resource"] for st in connects] == ["arn:aws:rds-db:${region}:${account}:dbuser:*/warden_${env_sql}_terminate"]
     assert connects[0]["Condition"] == {"StringLike": {"aws:SourceIdentity": "inc-*"}}
 
 
 def test_the_runtimes_nat_addresses_reach_the_cluster_endpoint_by_name_not_by_literal():
-    eks = (ROOT / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
+    eks = (ROOT / "infra" / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
     assert "public_access_cidrs     = local.eks_public_access_cidrs" in eks
     assert 'data "aws_eips" "runtime_nat"' in eks
     assert "data.aws_eips.runtime_nat.public_ips" in eks
-    # environments.yaml's runtime, as terraform/runtime/network.tf names its NAT
-    assert 'runtime_env    = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).runtime' in eks
+    # environments.yaml's runtime, as infra/terraform/runtime/network.tf names its NAT
+    assert 'runtime_env    = yamldecode(file("${path.module}/../../../warden/src/warden/data/environments.yaml")).runtime' in eks
     lookup = eks[eks.index('data "aws_eips" "runtime_nat"'):]
     lookup = lookup[:lookup.index("\n}\n")]
     assert '"warden-${local.runtime_env}-nat-*"' in lookup
@@ -1309,7 +1310,7 @@ def test_the_runtimes_nat_addresses_reach_the_cluster_endpoint_by_name_not_by_li
         assert f'name   = "tag:{tag}"\n    values = [{value}]' in lookup, tag
     assert "precondition" in lookup
     assert "local.region == yamldecode(" in lookup
-    runtime = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+    runtime = (ROOT / "infra" / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert 'tags = { Project = "warden", Environment = local.env, ManagedBy = "terraform" }' in runtime
     assert not re.search(r"\d+\.\d+\.\d+\.\d+/\d+", eks.replace("0.0.0.0/0", ""))
 

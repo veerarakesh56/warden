@@ -13,7 +13,7 @@ from warden import aws_describe, resources
 from warden.aws_stack import StackBackend
 from warden.models import Alert, Severity
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 ACCT = "0" * 12
 # Billed per request, and the cost-table row that prices it (docs/SYSTEM-COMPONENTS.md); every other entry is a
 # control-plane read AWS does not bill.
@@ -198,7 +198,7 @@ NOT_READ = {
 def test_every_resource_label_has_a_reader_or_a_reason_it_has_none():
     import re
 
-    src = (ROOT / "src" / "warden" / "aws_stack.py").read_text(encoding="utf-8")
+    src = (ROOT / "warden" / "src" / "warden" / "aws_stack.py").read_text(encoding="utf-8")
     direct = set(re.findall(r'lab\["(\w+)"\]', src)) | {"lambda", "sqs", "eventbridge_rule", "deployment"}
     missing = sorted(k for k in resources.LABEL_KEYS if k not in aws_describe.TABLE and k not in direct and k not in NOT_READ)
     assert missing == []

@@ -23,9 +23,9 @@ from warden import decide
 from warden.models import ActionKind, VerdictStatus
 from warden.verifier import _enforce, verify
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-DECIDER = ROOT / "src" / "warden" / "data" / "decider.json"
-_spec = importlib.util.spec_from_file_location("train_decider", ROOT / "scripts" / "train_decider.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+DECIDER = ROOT / "warden" / "src" / "warden" / "data" / "decider.json"
+_spec = importlib.util.spec_from_file_location("train_decider", ROOT / "warden" / "scripts" / "train_decider.py")
 train = importlib.util.module_from_spec(_spec)
 sys.modules["train_decider"] = train
 _spec.loader.exec_module(train)

@@ -1,4 +1,4 @@
-"""The full run's register guard (tests/conftest.py) - itself under test (sixth review, 2026-10-01: flipping
+"""The full run's register guard (warden/tests/conftest.py) - itself under test (sixth review, 2026-10-01: flipping
 its directory check turned it off and no test failed)."""
 from __future__ import annotations
 

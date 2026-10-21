@@ -191,14 +191,14 @@ def test_g4_marks_no_model_text_on_record_in_the_bundled_runs():
 
 def test_g4_changes_no_recorded_model_prose_in_the_repository():
     """The false-positive measure, kept as a test (2026-10-16): every model-written diagnosis, proposal and ruled-out
-    cause recorded in the repository (2,035 strings in docs/bench, evals and tests) passes G4 unchanged. A looser
+    cause recorded in the repository (2,035 strings in fault-lab/docs/bench, evals and tests) passes G4 unchanged. A looser
     first G4 withheld 8 of them - each a story of a command ("a Terraform apply at 07:31 rewrote ..."), none a
     command to run."""
     import pathlib
 
     from warden.models import inert
 
-    root = pathlib.Path(__file__).resolve().parents[1]
+    root = pathlib.Path(__file__).resolve().parents[2]
     prose = ("hypothesis", "evidence", "reasoning", "expected_effect", "cause", "why", "answer")
     seen, changed = 0, []
 
@@ -216,7 +216,7 @@ def test_g4_changes_no_recorded_model_prose_in_the_repository():
             if gate.withhold_commands(text) != text:
                 changed.append(text[:200])
 
-    for path in [*root.glob("docs/bench/**/*.json"), *root.glob("evals/**/*.json"), *root.glob("tests/**/*.json")]:
+    for path in [*root.glob("fault-lab/docs/bench/**/*.json"), *root.glob("warden/evals/**/*.json"), *root.glob("warden/tests/**/*.json")]:
         try:
             walk(json.loads(path.read_text(encoding="utf-8")))
         except (ValueError, UnicodeDecodeError):

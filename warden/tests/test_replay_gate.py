@@ -12,11 +12,11 @@ import sys
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "scripts"))
 import replay_gate as rg  # after the sys.path line above
 
-REPORTS = ROOT / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z" / "reports"
+REPORTS = ROOT / "warden" / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z" / "reports"
 
 pytestmark = pytest.mark.skipif(
     not REPORTS.exists(), reason="the published benchmark run is not in this checkout"

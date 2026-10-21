@@ -1,4 +1,4 @@
-"""scripts/deploy_fullstack_apps.py with fakes: no network, no docker, no AWS, no cluster."""
+"""demo-app/scripts/deploy_fullstack_apps.py with fakes: no network, no docker, no AWS, no cluster."""
 from __future__ import annotations
 
 import base64
@@ -9,8 +9,8 @@ import zipfile
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("deploy_fullstack_apps", ROOT / "scripts" / "deploy_fullstack_apps.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location("deploy_fullstack_apps", ROOT / "demo-app" / "scripts" / "deploy_fullstack_apps.py")
 tool = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tool)
 
@@ -168,8 +168,8 @@ REV = "0123456789abcdef0123456789abcdef01234567"
 
 
 def _pipeline_render():
-    """What `kubectl kustomize k8s/shop-pipeline` prints: its files, placeholders unfilled."""
-    return "\n---\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "k8s" / "shop-pipeline").glob("*.yaml"))
+    """What `kubectl kustomize demo-app/k8s/shop-pipeline` prints: its files, placeholders unfilled."""
+    return "\n---\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "demo-app" / "k8s" / "shop-pipeline").glob("*.yaml"))
                            if p.name != "kustomization.yaml")
 
 
@@ -208,7 +208,7 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     app = next(d for d in yaml.safe_load_all(app_in) if d and d["kind"] == "Application")
     src = app["spec"]["source"]
     assert (src["repoURL"], src["targetRevision"], src["path"]) == ("https://github.com/owner/warden", REV,
-                                                                    "manifests/shop/dev")
+                                                                    "demo-app/manifests/shop/dev")
     # B26: by digest - the repository's tags are mutable, the digest names exactly the bytes built.
     assert src["kustomize"]["images"] == [f"shop-app={STACK['ecr_repository_url']}@{DIGEST}"]
     assert app["spec"]["syncPolicy"]["automated"] == {"enabled": True, "prune": True, "selfHeal": True}
@@ -408,9 +408,9 @@ def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_p
     dep = next(d for d in docs if d["kind"] == "Deployment")
     assert dep["spec"]["template"]["spec"]["containers"][0]["image"] == tool.OTEL_IMAGE.replace(":v", ":v")
     assert tool.OTEL_IMAGE.endswith(":v0.50.0")
-    k8s = (ROOT / "manifests" / "shop" / "base" / "config.yaml").read_text(encoding="utf-8")
+    k8s = (ROOT / "demo-app" / "manifests" / "shop" / "base" / "config.yaml").read_text(encoding="utf-8")
     assert 'OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"' in k8s
-    assert "OTEL_SDK_DISABLED=true" in (ROOT / "scenarios" / "fullstack" / "app" / "Dockerfile").read_text(encoding="utf-8")
+    assert "OTEL_SDK_DISABLED=true" in (ROOT / "demo-app" / "app" / "Dockerfile").read_text(encoding="utf-8")
 
 
 def test_the_collector_sends_in_plaintext_only_to_the_agent_on_its_own_node():
@@ -439,7 +439,7 @@ def _no_chart_download(monkeypatch):
 
 def test_argocd_is_installed_from_the_checked_package_with_its_settings(tmp_path):
     """Owner, 2026-10-16: GitOps for the cluster. Argo CD v3.5.5 (chart 10.10.5, B26) from the argo-helm release's own
-    package - installed only if its sha256 is the pinned one - with helm/argo-cd/values.yaml."""
+    package - installed only if its sha256 is the pinned one - with infra/helm/argo-cd/values.yaml."""
     run = Runner({})
     tool.deploy_argocd("kc", tmp_path, run)
     helm = next(c for c in run.cmds if c[:3] == ["helm", "upgrade", "--install"])
@@ -452,7 +452,7 @@ def test_argocd_is_installed_from_the_checked_package_with_its_settings(tmp_path
     assert tool.ARGOCD_CHART_URL.startswith("https://github.com/argoproj/argo-helm/")
     # The pinned bytes of argo-cd-10.10.5.tgz (downloaded and hashed 2026-10-20); the test above patches the constant.
     assert 'ARGOCD_CHART_SHA256 = "ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a"' in \
-        (ROOT / "scripts" / "deploy_fullstack_apps.py").read_text(encoding="utf-8")
+        (ROOT / "demo-app" / "scripts" / "deploy_fullstack_apps.py").read_text(encoding="utf-8")
 
 
 def test_a_chart_package_that_is_not_the_pinned_one_installs_nothing(tmp_path, monkeypatch):
@@ -497,7 +497,7 @@ def test_the_shops_workloads_render_for_dev_with_no_placeholder_and_the_hpa_owns
 
     if not shutil.which("kubectl"):
         pytest.skip("kubectl renders kustomize")
-    out = subprocess.run(["kubectl", "kustomize", str(ROOT / "manifests" / "shop" / "dev")], capture_output=True,
+    out = subprocess.run(["kubectl", "kustomize", str(ROOT / "demo-app" / "manifests" / "shop" / "dev")], capture_output=True,
                          text=True, check=True).stdout
     assert not tool.PLACEHOLDER.search(out)
     assert "unset" not in out
@@ -525,7 +525,7 @@ def test_the_applications_image_override_leaves_only_the_digest_and_never_the_ba
 
     if not shutil.which("kubectl"):
         pytest.skip("kubectl renders kustomize")
-    shutil.copytree(ROOT / "manifests" / "shop", tmp_path / "shop")
+    shutil.copytree(ROOT / "demo-app" / "manifests" / "shop", tmp_path / "shop")
     dev = tmp_path / "shop" / "dev" / "kustomization.yaml"
     repo = STACK["ecr_repository_url"]
     dev.write_text(dev.read_text(encoding="utf-8") + yaml.safe_dump(

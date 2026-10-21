@@ -1,4 +1,4 @@
-"""scripts/replay_gate.py's tally of every report (split out of main for S3776): one row per report replayed, the
+"""warden/scripts/replay_gate.py's tally of every report (split out of main for S3776): one row per report replayed, the
 old -> new verdict counts, the reports it could not read - and a printed line for each verdict that changed."""
 
 from __future__ import annotations
@@ -6,8 +6,8 @@ from __future__ import annotations
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "scripts"))
 import replay_gate as rg  # after the sys.path line above
 
 ANSWERS = {"a.json": ("allowed", "refused", ["P3"]), "b.json": ("allowed", "allowed", []),

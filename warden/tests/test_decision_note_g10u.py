@@ -33,7 +33,7 @@ from warden.cli import DEMO_ALERTS
 from warden.llm import LLMClient
 from warden.models import Alert
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 RLO, ZWSP, BOM, ZWJ, NUL, BELL = chr(0x202E), chr(0x200B), chr(0xFEFF), chr(0x200D), chr(0), chr(7)
 TELUGU = "".join(map(chr, (0x0C38, 0x0C30, 0x0C47)))  # a word in a script that is not Latin
 FAMILY = chr(0x1F468) + ZWJ + chr(0x1F469)             # an emoji joined by a zero-width joiner, which is text
@@ -179,7 +179,7 @@ def test_no_model_is_ever_shown_an_approvers_words(world, monkeypatch, tmp_path)
     assert "ZZ-NOTE-MARKER" not in pack.prompt
     # ...and nothing in the diagnosis path imports what reads those rows.
     for module in ("graph.py", "llm.py", "providers.py", "quarantine.py"):
-        text = (ROOT / "src" / "warden" / module).read_text(encoding="utf-8")
+        text = (ROOT / "warden" / "src" / "warden" / module).read_text(encoding="utf-8")
         assert "approval.accepted" not in text, module
         assert "workflow.end" not in text, module
         assert "import history" not in text, module
@@ -289,6 +289,6 @@ def test_the_message_names_what_a_note_tried_beside_the_decision_and_nothing_for
     real = approvals.note("password=" + HUNTER2.capitalize() + "Secret!", incoming=True)
     assert approvals.note(real) == real
     assert "a password or a key" in _tried(real)
-    page = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "approval_page.py").read_text(encoding="utf-8")
+    page = (pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden" / "approval_page.py").read_text(encoding="utf-8")
     assert page.count('approvals.note(data.get("note"), incoming=True)') == 2
     assert 'approvals.note(data.get("note"))' not in page

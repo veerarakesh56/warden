@@ -6,7 +6,7 @@ from __future__ import annotations
 import pathlib
 import re
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _section() -> str:
@@ -19,7 +19,7 @@ def _section() -> str:
 def test_every_module_is_named_as_adopted_or_built():
     section = _section()
     named = set(re.findall(r"`([a-z0-9_]+\.py)`", section))
-    modules = {p.name for p in (ROOT / "src" / "warden").glob("*.py") if p.name != "__init__.py"}
+    modules = {p.name for p in (ROOT / "warden" / "src" / "warden").glob("*.py") if p.name != "__init__.py"}
     assert modules - named == set(), f"modules with no build-or-adopt line: {sorted(modules - named)}"
     assert named - modules == set(), f"lines for modules that no longer exist: {sorted(named - modules)}"
 

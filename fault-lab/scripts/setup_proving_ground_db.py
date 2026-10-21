@@ -1,9 +1,9 @@
 """Create the sentinel table that marks a database as the Wave 3 proving ground. Run once.
 
-    $(terraform -chdir=terraform/proving-ground output -raw db_tunnel_command)   # another terminal; keep it open
-    export WARDEN_BENCH_DB_DSN="$(terraform -chdir=terraform/proving-ground output -raw db_dsn)"  # 127.0.0.1, the tunnel
-    python scripts/setup_proving_ground_db.py            # say what it would do
-    python scripts/setup_proving_ground_db.py --apply    # create it
+    $(terraform -chdir=infra/terraform/proving-ground output -raw db_tunnel_command)   # another terminal; keep it open
+    export WARDEN_BENCH_DB_DSN="$(terraform -chdir=infra/terraform/proving-ground output -raw db_dsn)"  # 127.0.0.1, the tunnel
+    python fault-lab/scripts/setup_proving_ground_db.py            # say what it would do
+    python fault-lab/scripts/setup_proving_ground_db.py --apply    # create it
 
 ⛔ WHY THIS IS A SEPARATE, DELIBERATE STEP AND NOT PART OF THE HARNESS.
 

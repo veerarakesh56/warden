@@ -9,7 +9,7 @@ the safety properties of the old in-process backend (remediation_k8s.py, removed
 - a restart sets the `kubectl.kubernetes.io/restartedAt` template annotation, as `kubectl rollout
   restart` does;
 - its credentials are a separate ServiceAccount that can patch Deployments and nothing else
-  (`k8s/remediation-rbac.yaml`) - the RBAC, not this code, is the real boundary.
+  (`infra/k8s/remediation-rbac.yaml`) - the RBAC, not this code, is the real boundary.
 In the cloud runtime (`eks_from_environment`) each watched environment's EKS cluster is reached with no kubeconfig and
 no in-cluster identity: reads in the environment's platform-reader role (its access entry: view only), and each write
 in an actor session minted for that one approved plan, whose access entry maps it to the remediator group - the same
@@ -155,7 +155,7 @@ class KubernetesPlatform:
 
     def _autoscaled(self, deployment: str) -> bool | None:
         """Does a HorizontalPodAutoscaler own this Deployment's replica count (register C4)? None when it cannot be
-        read: the remediator's role lists HPAs and nothing else of theirs (k8s/remediation-rbac.yaml)."""
+        read: the remediator's role lists HPAs and nothing else of theirs (infra/k8s/remediation-rbac.yaml)."""
         if self._autoscaling is None:
             return None
         try:

@@ -9,9 +9,9 @@ import pytest
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODULES = [ROOT / "terraform", ROOT / "terraform" / "fullstack", ROOT / "terraform" / "proving-ground",
-           ROOT / "terraform" / "modules" / "warden-runtime", ROOT / "terraform" / "runtime"]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+MODULES = [ROOT / "infra" / "terraform", ROOT / "infra" / "terraform" / "fullstack", ROOT / "infra" / "terraform" / "proving-ground",
+           ROOT / "infra" / "terraform" / "modules" / "warden-runtime", ROOT / "infra" / "terraform" / "runtime"]
 
 
 def _spec(constraint: str) -> SpecifierSet:

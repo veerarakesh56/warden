@@ -15,5 +15,5 @@ budget_usd   = 5
 # enable_eks = true   # Wave 2 only. $0.10/hour for the control plane, idle or not. ~$73/month if forgotten.
 # enable_rds = true   # Wave 3 only. ~$0.021/hour, free for 12 months on a new account.
 
-# db_password is NOT set here. scripts/aws_proof.sh generates one per run and passes it with
+# db_password is NOT set here. fault-lab/scripts/aws_proof.sh generates one per run and passes it with
 # -var. Setting it in a file means a real credential sitting on disk after the environment is gone.

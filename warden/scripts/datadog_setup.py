@@ -1,7 +1,7 @@
 """Set Datadog up for WARDEN, as code (owner, 2026-10-14: "set the total ... logs traces monitoring and dashboards ...
 and also alerts too for warden to see and immediately work on them").
 
-    python scripts/datadog_setup.py --env ops --stack dev
+    python warden/scripts/datadog_setup.py --env ops --stack dev
 
 In one run, and again idempotently - every object is found by its name and updated, never duplicated:
 - the `warden` webhook: Datadog POSTs WARDEN's payload template (webhooks.DATADOG_PAYLOAD) to the approval domain's
@@ -33,8 +33,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "src"))
 
 from warden import web
 from warden.datadog import SITES
@@ -95,7 +95,7 @@ def dashboard(stack: str) -> dict[str, Any]:
         return {"definition": {"type": "timeseries", "title": title, "requests": [{"q": query, "display_type": "line"}]}}
 
     return {"title": f"WARDEN {stack}: the test stack", "layout_type": "ordered", "tags": [],
-            "description": "Made by scripts/datadog_setup.py - the signals WARDEN's monitors watch.",
+            "description": "Made by warden/scripts/datadog_setup.py - the signals WARDEN's monitors watch.",
             "widgets": [graph("Container restarts", f"sum:kubernetes.containers.restarts{{kube_namespace:shop,env:{stack}}}"
                                                      " by {kube_deployment}"),
                         graph("Unavailable replicas", "max:kubernetes_state.deployment.replicas_unavailable"
@@ -202,7 +202,7 @@ def main(argv: list[str] | None = None, *, aws: Any = None, call: Any = None) ->
     for line in ensure_monitors(dd, args.stack):
         print(f"monitor {line}")
     print(f"dashboard: {ensure_dashboard(dd, args.stack)}")
-    print("The webhook Lambda reads the new token on its next cold start; redeploy (runtime.yml restart) to be sure.")
+    print("The webhook Lambda reads the new token on its next cold start; redeploy (warden-runtime-deploy.yml restart) to be sure.")
     return 0
 
 

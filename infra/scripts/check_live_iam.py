@@ -1,8 +1,8 @@
-"""Every WARDEN policy and trust, live, against its file in iam/ - so a paste into the wrong policy is caught the same
+"""Every WARDEN policy and trust, live, against its file in infra/iam/ - so a paste into the wrong policy is caught the same
 day (2026-10-15: the boundary's statements had been pasted into WardenPlatformReader-dev on 2026-10-14, and the cloud
 read role was no longer read-only).
 
-    AWS_PROFILE=warden python scripts/check_live_iam.py [--env NAME ...]
+    AWS_PROFILE=warden python infra/scripts/check_live_iam.py [--env NAME ...]
 
 Read-only: iam:GetPolicy, GetPolicyVersion, GetRole by name (the operator may not list policies). A file with
 placeholders is compared through its git-ignored `.local.json` render when there is one. Exit 1 when anything
@@ -21,7 +21,7 @@ import urllib.parse
 from collections.abc import Callable
 from typing import Any
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 # (live policy name, file kind) per environment; the env is filled in.
 POLICIES = (("WardenEnvBoundary-{env}", "boundary"), ("WardenEnvDeploy-{env}", "deploy"),
             ("WardenEnvDeployEc2-{env}", "deploy-ec2"), ("WardenPlatformReader-{env}", "platform-reader"),
@@ -49,7 +49,7 @@ def norm(doc: Any) -> Any:
 
 def _file(env: str, kind: str) -> pathlib.Path | None:
     for name in (f"{kind}.local.json", f"{kind}.json"):
-        p = ROOT / "iam" / env / name
+        p = ROOT / "infra" / "iam" / env / name
         if p.is_file():
             return p
     return None
@@ -100,13 +100,13 @@ def check(iam: Any, account: str, envs: list[str]) -> list[tuple[str, str]]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--env", action="append", default=[], help="an environment folder under iam/ (default: every one with a boundary.json)")
+    ap.add_argument("--env", action="append", default=[], help="an environment folder under infra/iam/ (default: every one with a boundary.json)")
     args = ap.parse_args(argv)
     import boto3
 
     session = boto3.Session()
     account = session.client("sts").get_caller_identity()["Account"]
-    envs = args.env or sorted(p.parent.name for p in (ROOT / "iam").glob("*/boundary.json"))
+    envs = args.env or sorted(p.parent.name for p in (ROOT / "infra" / "iam").glob("*/boundary.json"))
     iam, results = session.client("iam"), []
     for env in envs:
         found = check(iam, account, [env])

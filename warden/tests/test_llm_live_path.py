@@ -178,7 +178,7 @@ def test_a_hung_model_call_times_out_fast_instead_of_hanging_the_run():
 
 
 def _secret_like() -> str:
-    """A message shaped like a leaked key, built from parts (tests/fakes.py) - it must never be printed or logged."""
+    """A message shaped like a leaked key, built from parts (warden/tests/fakes.py) - it must never be printed or logged."""
     return "token=" + ANTHROPIC_KEY_PREFIX + "api03-" + "q" * 24
 
 
@@ -267,7 +267,7 @@ def test_a_base_exception_in_the_call_thread_logs_nothing_through_the_gate(kind)
     """In a process that installed WARDEN's log gate (every entry point does), a BaseException raised in the
     call's thread writes no `warden.uncaught` record (CRITICAL: it would page) and nothing else on stderr; the
     caller, which gets it, decides what to say."""
-    src = str(pathlib.Path(__file__).resolve().parents[1] / "src")
+    src = str(pathlib.Path(__file__).resolve().parents[2] / "warden" / "src")
     env = {**os.environ, "PYTHONPATH": src, "PYTHONIOENCODING": "utf-8"}
     env.pop("WARDEN_MOCK", None)
     child = subprocess.run([sys.executable, "-c", _GATED_CHILD.format(secret=_secret_like(), kind=kind)],

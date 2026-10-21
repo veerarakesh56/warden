@@ -7,13 +7,13 @@ decided.
 
 | Part | Where |
 |---|---|
-| The stack (infrastructure only) | `terraform/fullstack/` and `terraform/fullstack/aurora_express.py` |
-| The applications that run on it | `scripts/deploy_fullstack_apps.py`, `manifests/shop/` (synced by Argo CD), `k8s/shop-pipeline/` |
-| The fault catalogue | `scenarios/catalog/wave4-fullstack.yaml` (28 entries: a healthy control and 27 faults) |
-| Inject, revert and "fixed when" checks | `scenarios/ops_fullstack.py` |
-| The operator's step-by-step tool | `scenarios/fullstack_cli.py` |
-| Grading | `scenarios/score.py` with the rubric `scenarios/scoring.yaml` ([SCORING.md](../scenarios/SCORING.md)) |
-| WARDEN's evidence reader for it | `src/warden/aws_stack.py` (`WARDEN_BACKEND=stack`) |
+| The stack (infrastructure only) | `infra/terraform/fullstack/` and `infra/terraform/fullstack/aurora_express.py` |
+| The applications that run on it | `demo-app/scripts/deploy_fullstack_apps.py`, `demo-app/manifests/shop/` (synced by Argo CD), `demo-app/k8s/shop-pipeline/` |
+| The fault catalogue | `fault-lab/scenarios/catalog/wave4-fullstack.yaml` (28 entries: a healthy control and 27 faults) |
+| Inject, revert and "fixed when" checks | `fault-lab/scenarios/ops_fullstack.py` |
+| The operator's step-by-step tool | `fault-lab/scenarios/fullstack_cli.py` |
+| Grading | `fault-lab/scenarios/score.py` with the rubric `fault-lab/scenarios/scoring.yaml` ([SCORING.md](../../fault-lab/scenarios/SCORING.md)) |
+| WARDEN's evidence reader for it | `warden/src/warden/aws_stack.py` (`WARDEN_BACKEND=stack`) |
 
 The catalogue, the pass criteria and the rubric were written before any fault ran, so they could not be tuned to
 what a run produced. Every later change is dated in the files themselves.
@@ -22,7 +22,7 @@ what a run produced. Every later change is dated in the files themselves.
 
 Everything belongs to one environment: the Terraform workspace is the environment, names are `warden-<env>-*`,
 and every resource is tagged `Project=warden` and `Environment=<env>`. A workspace that is not an environment in
-`src/warden/data/environments.yaml` is refused before anything is built.
+`warden/src/warden/data/environments.yaml` is refused before anything is built.
 
 | Component | Shape |
 |---|---|
@@ -40,7 +40,7 @@ and every resource is tagged `Project=warden` and `Environment=<env>`. A workspa
 | CloudWatch | one alarm per signal a fault trips: these alarms are the alert source |
 | Budget | `warden-<env>-guard`, USD 50 a month by default |
 
-[terraform/fullstack/README.md](../terraform/fullstack/README.md) has the apply and destroy commands, the network
+[infra/terraform/fullstack/README.md](../../infra/terraform/fullstack/README.md) has the apply and destroy commands, the network
 table and the cost table (about USD 0.50 an hour while it is up).
 
 ### Why Aurora is not in Terraform, and why m7i-flex.large
@@ -69,14 +69,14 @@ lab and is a deliberate example of a single point of failure; a production stack
 
 | Pipeline | Owns | Runs |
 |---|---|---|
-| infra (`ci-infra.yml`; deploys through `deploy-<env>.yml`) | `terraform/fullstack/` | validates on a change; plans on a push to the environment's own branch; applies only a saved, reviewed plan |
-| apps (`ci-apps.yml`, `scripts/deploy_fullstack_apps.py`) | the Lambdas, the container image, the shop's Kubernetes objects, the database bootstrap SQL | tests and builds on a change; deploys on a push to the environment's own branch (`on-merge-<env>.yml`), or by hand from that branch (`deploy-<env>.yml`) |
-| tool (`ci-tool.yml`) | WARDEN itself | on any other change |
+| infra (`infra-ci.yml`; deploys through `deploy-<env>.yml`) | `infra/terraform/fullstack/` | validates on a change; plans on a push to the environment's own branch; applies only a saved, reviewed plan |
+| apps (`demo-app-ci.yml`, `demo-app/scripts/deploy_fullstack_apps.py`) | the Lambdas, the container image, the shop's Kubernetes objects, the database bootstrap SQL | tests and builds on a change; deploys on a push to the environment's own branch (`on-merge-<env>.yml`), or by hand from that branch (`deploy-<env>.yml`) |
+| tool (`warden-ci.yml`) | WARDEN itself | on any other change |
 
 An environment deploys only from the branch of its own name, and `main` deploys nothing: `main` runs CI only. The
 `dev` branch deploys dev; it is `main` fast-forwarded. The `prod` branch deploys prod, with a person's approval; it
 is `dev` merged by pull request. A commit that did not come that way is refused before the job holds a credential
-([SETUP.md section 4b](SETUP.md#4b-which-branch-deploys-what)).
+([SETUP.md section 4b](../../docs/SETUP.md#4b-which-branch-deploys-what)).
 
 Terraform never deploys application code: it creates the functions and the ECS service from placeholders and
 ignores later code changes, so a re-apply never rolls the apps back. The apps pipeline and the harness read
@@ -86,11 +86,11 @@ ignores later code changes, so a re-apply never rolls the apps back. The apps pi
 
 WARDEN only reads here. Its identities:
 
-- **AWS:** the role `warden-<env>-reader` (`terraform/fullstack/reader.tf`), assumed per run. Its policy is
-  exactly the read calls the stack backend makes - `tests/test_aws_stack.py` checks this in both directions -
+- **AWS:** the role `warden-<env>-reader` (`infra/terraform/fullstack/reader.tf`), assumed per run. Its policy is
+  exactly the read calls the stack backend makes - `warden/tests/test_aws_stack.py` checks this in both directions -
   plus one grant that is not an API call: `rds-db:connect` as the read-only database user. No write, no
   `secretsmanager:GetSecretValue`.
-- **Kubernetes:** the ServiceAccount `warden` in `shop`, bound to the six-read ClusterRole in `k8s/rbac.yaml`,
+- **Kubernetes:** the ServiceAccount `warden` in `shop`, bound to the six-read ClusterRole in `infra/k8s/rbac.yaml`,
   through a token-only kubeconfig.
 - **Aurora:** the read-only database user above.
 - **Redis:** none. ElastiCache is VPC-only, so WARDEN reads it through CloudWatch and the ElastiCache API. This
@@ -227,7 +227,7 @@ applied by WARDEN's own remediation workflow after a signed approval. The lab's 
 
 Tear-down: `aurora_express.py destroy` first (Terraform does not know the cluster exists; it keeps a final
 snapshot, `<cluster>-final-<UTC time>`, and never skips it), then `terraform destroy`, then
-`python scripts/account_sweep.py`, which must end clean apart from the final snapshots the owner chose to keep.
+`python infra/scripts/account_sweep.py`, which must end clean apart from the final snapshots the owner chose to keep.
 
 ## 7. Status and what the lab has shown
 

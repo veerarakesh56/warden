@@ -1,5 +1,5 @@
 variable "region" {
-  description = "AWS region override. Default: src/warden/data/environments.yaml aws_region (R17)."
+  description = "AWS region override. Default: warden/src/warden/data/environments.yaml aws_region (R17)."
   type        = string
   default     = null
 }
@@ -124,7 +124,7 @@ variable "eks_public_access_cidrs" {
 }
 
 variable "environment" {
-  description = "The environment this stack belongs to (a key of src/warden/data/environments.yaml)."
+  description = "The environment this stack belongs to (a key of warden/src/warden/data/environments.yaml)."
   type        = string
   default     = null # the fault environment: the first of environments.yaml `fault_environments` (main.tf)
   validation {

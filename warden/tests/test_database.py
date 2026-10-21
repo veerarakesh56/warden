@@ -462,7 +462,7 @@ def _statements_this_module_can_execute(path: pathlib.Path) -> list[str]:
 def test_the_read_backend_contains_no_executable_write_verb():
     """Read-only BY CONSTRUCTION. The write path lives in platforms/db.py, behind its own
     credential — exactly as the k8s read backend is separate from the k8s write backend."""
-    path = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "database.py"
+    path = pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden" / "database.py"
     offenders = [
         (verb, s) for s in _statements_this_module_can_execute(path)
         for verb in WRITE_VERBS if verb in s.lower()
@@ -473,7 +473,7 @@ def test_the_read_backend_contains_no_executable_write_verb():
 def test_the_tripwire_can_actually_fire():
     """A guard nobody has watched fail is not a guard. The database platform DOES write, so the same
     check must flag it — otherwise the test above passes for the wrong reason."""
-    path = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "platforms" / "db.py"
+    path = pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden" / "platforms" / "db.py"
     found = [
         verb for s in _statements_this_module_can_execute(path)
         for verb in WRITE_VERBS if verb in s.lower()
@@ -489,7 +489,7 @@ def test_the_tripwire_reads_the_read_backend_at_all():
     ZERO statements and asserted `not []`. It was green and blind, and the mutation that replaces a
     SELECT with a DELETE survived. Assert the collector actually sees the module's SQL.
     """
-    path = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "database.py"
+    path = pathlib.Path(__file__).resolve().parents[2] / "warden" / "src" / "warden" / "database.py"
     statements = _statements_this_module_can_execute(path)
     assert len(statements) >= 10, f"expected the read backend's SQL, collected {len(statements)}"
     joined = " ".join(statements).lower()

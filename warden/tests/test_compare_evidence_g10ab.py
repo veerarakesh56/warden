@@ -1,4 +1,4 @@
-"""The evidence-tool comparison (scripts/compare_evidence.py) against the harness's fake environment - no AWS, no model.
+"""The evidence-tool comparison (fault-lab/scripts/compare_evidence.py) against the harness's fake environment - no AWS, no model.
 
 Under test: the plan, the per-tool environment (one tool per run, its settings in that run only, nothing left behind),
 the grading and its aggregation, a failed run kept as failed, and the page escaping what it shows.
@@ -16,8 +16,8 @@ import pytest
 from scenarios import fullstack_cli as cli
 from scenarios import score
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("compare_evidence", ROOT / "scripts" / "compare_evidence.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("compare_evidence", ROOT / "fault-lab" / "scripts" / "compare_evidence.py")
 ce = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ce)
 

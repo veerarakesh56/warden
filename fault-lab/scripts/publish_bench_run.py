@@ -1,6 +1,6 @@
 """Turn a benchmark run directory into something safe to commit.
 
-    python scripts/publish_bench_run.py --run ~/warden-bench-runs/wave1-... --into tests/fixtures/bench
+    python fault-lab/scripts/publish_bench_run.py --run ~/warden-bench-runs/wave1-... --into warden/tests/fixtures/bench
 
 A wave writes RAW artefacts outside the repository on purpose: a task-definition ARN contains the
 12-digit account id, and so does every assumed-role ARN. This copies a run in, redacted, and refuses
@@ -26,13 +26,13 @@ import shutil
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 MANIFEST = "manifest.json"  # what every runner output directory holds
 
-# The same shapes scripts/aws_proof_bundle.py masks. Deliberately duplicated in behaviour but kept
+# The same shapes fault-lab/scripts/aws_proof_bundle.py masks. Deliberately duplicated in behaviour but kept
 # to one implementation here by importing it, so the two cannot drift into disagreeing about what a
 # secret looks like.
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "fault-lab" / "scripts"))
 from aws_proof_bundle import _redact
 
 
@@ -71,7 +71,7 @@ def _account_from(run: pathlib.Path) -> str:
 
 
 def _content_sha256(data: bytes) -> str:
-    """LF-normalised, exactly as scenarios/runner.py hashes it - see there for why."""
+    """LF-normalised, exactly as fault-lab/scenarios/runner.py hashes it - see there for why."""
     return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
 
 
@@ -90,13 +90,13 @@ def _from_commit(commit: str, repo_path: str) -> bytes:
 def _freeze_grading_inputs(run: pathlib.Path, staging: pathlib.Path, account: str) -> list[str]:
     """Copy the rubric and catalog AS OF THE RUN'S COMMIT into the bundle, and prove it by hash.
 
-    ⛔ WHY THIS EXISTS. `scenarios/scoring.yaml` is one file for every wave, so the day Wave 2 adds
+    ⛔ WHY THIS EXISTS. `fault-lab/scenarios/scoring.yaml` is one file for every wave, so the day Wave 2 adds
     a fault class, its hash stops matching every already-published run - and re-scoring those runs
     raises "THE RUBRIC CHANGED AFTER THIS RUN", which is the loudest warning this project has. The
     warning would be true and useless: the entries those runs were graded by had not changed at all.
     A bundle that carries its own rubric can always be re-scored exactly:
 
-        python -m scenarios.score --run tests/fixtures/bench/<run> --rubric tests/fixtures/bench/<run>/grading/scoring.yaml
+        python -m scenarios.score --run warden/tests/fixtures/bench/<run> --rubric warden/tests/fixtures/bench/<run>/grading/scoring.yaml
 
     ⛔ FROM THE COMMIT, NOT THE WORKING TREE. Freezing whatever happens to be on disk at publish
     time would silently ship a rubric the run was never graded under, which is the very substitution
@@ -112,7 +112,7 @@ def _freeze_grading_inputs(run: pathlib.Path, staging: pathlib.Path, account: st
     grading = staging / "grading"
     grading.mkdir(parents=True, exist_ok=True)
 
-    rubric = _from_commit(commit, "scenarios/scoring.yaml")
+    rubric = _from_commit(commit, "fault-lab/scenarios/scoring.yaml")
     recorded = str(manifest.get("scoring_sha256") or "")
     actual = _content_sha256(rubric)
     if recorded and actual != recorded:
@@ -128,7 +128,7 @@ def _freeze_grading_inputs(run: pathlib.Path, staging: pathlib.Path, account: st
     # The catalog is frozen for INSPECTION, not for re-scoring: score.py always reads the catalog
     # from the working tree. Said plainly here rather than implied, so nobody assumes otherwise.
     for name, recorded_hash in (manifest.get("catalog_sha256") or {}).items():
-        blob = _from_commit(commit, f"scenarios/catalog/{name}")
+        blob = _from_commit(commit, f"fault-lab/scenarios/catalog/{name}")
         got = _content_sha256(blob)
         if recorded_hash and got != recorded_hash:
             raise SystemExit(
@@ -145,7 +145,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run", required=True, help="a directory written by scenarios.runner")
-    parser.add_argument("--into", default="tests/fixtures/bench", help="destination inside the repo")
+    parser.add_argument("--into", default="warden/tests/fixtures/bench", help="destination inside the repo")
     args = parser.parse_args()
 
     sys.stdout.reconfigure(encoding="utf-8")  # a Windows console is cp1252 and cannot print ⛔
@@ -178,7 +178,7 @@ def main() -> int:
     # ⛔ Verify INDEPENDENTLY, before anything enters the working tree.
     print("\nverifying the redacted copy with the repo's own scanner:")
     check = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "check_publishable.py"), "--dir", str(staging)],
+        [sys.executable, str(ROOT / "warden" / "scripts" / "check_publishable.py"), "--dir", str(staging)],
         capture_output=True, text=True, check=False,
     )
     print(check.stdout.rstrip() or check.stderr.rstrip())
@@ -197,7 +197,7 @@ def main() -> int:
     summary = json.loads((run / "results.json").read_text(encoding="utf-8"))["summary"]
     print(f"  {summary['runs']} runs over {summary['scenarios']} scenarios")
     print(f"  DIAGNOSIS WRONG AND GATE ALLOWED: {summary['headline_wrong_and_allowed']}")
-    print("\nNow run:  python scripts/check_publishable.py --staged   (after git add)")
+    print("\nNow run:  python warden/scripts/check_publishable.py --staged   (after git add)")
     return 0
 
 

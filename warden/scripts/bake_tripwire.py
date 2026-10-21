@@ -1,7 +1,7 @@
 """Put the injection tripwire's weights into the runtime image (register R47), at build time only.
 
     bake_tripwire.py <cache dir> baked    # inside Dockerfile.runtime, with the token as the build secret hf_token
-    bake_tripwire.py <cache dir> absent   # CI's check build: no token, no weights (runtime.yml never deploys one)
+    bake_tripwire.py <cache dir> absent   # CI's check build: no token, no weights (warden-runtime-deploy.yml never deploys one)
 
 The cache dir lies in the working directory or the temp folder (warden.paths): the build writes it under /app and the
 image's last stage copies it to /opt/hf.
@@ -97,7 +97,7 @@ def main(argv: list[str]) -> int:
         raise SystemExit(f"refused: {e}") from None
     if argv[2] == "absent":
         cache.mkdir(parents=True, exist_ok=True)
-        print("tripwire NOT baked: a check build - runtime.yml refuses to deploy an image without the weights")
+        print("tripwire NOT baked: a check build - warden-runtime-deploy.yml refuses to deploy an image without the weights")
         return 0
     token = SECRET.read_text(encoding="utf-8").strip() if SECRET.is_file() else ""
     if not token:

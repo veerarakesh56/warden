@@ -1,6 +1,6 @@
-"""Shared by tests/ and evals/: the injection detector is a stand-in that flags nothing, unless a test sets its own.
+"""Shared by warden/tests/ and warden/evals/: the injection detector is a stand-in that flags nothing, unless a test sets its own.
 
-Every environment scans for injections (src/warden/data/environments.yaml tripwire "on",
+Every environment scans for injections (warden/src/warden/data/environments.yaml tripwire "on",
 register R47, 2026-10-14). Without this, every pipeline test would load the real Prompt Guard 2 where it is cached
 (minutes per run) and report it unavailable where it is not (CI), so no test would depend on what it names. For the
 whole session: module-wide fixtures run the pipeline before any per-test fixture. Tests of the detector patch it
@@ -20,7 +20,7 @@ def _flags_nothing(texts, batch_size=16):
 def _tripwire_stand_in():
     try:
         from warden import tripwire
-    except ImportError:  # a job that tests the apps alone, without WARDEN's dependencies (ci-apps)
+    except ImportError:  # a job that tests the apps alone, without WARDEN's dependencies (demo-app-ci)
         yield
         return
 

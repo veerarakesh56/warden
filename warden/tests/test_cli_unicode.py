@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import json
+import pathlib
 import sys
 
 from warden import cli, graph
@@ -30,6 +31,7 @@ def test_a_hypothesis_the_terminal_cannot_encode_does_not_lose_the_report(tmp_pa
     monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO(), encoding="cp1252"))
     out = tmp_path / "report.json"
 
-    assert cli.main(["run", "--alert", "scenarios/alert.yaml", "--json", str(out)]) == 0
+    monkeypatch.chdir(pathlib.Path(__file__).resolve().parents[2])  # the repository root: the alert path is from there
+    assert cli.main(["run", "--alert", "fault-lab/scenarios/alert.yaml", "--json", str(out)]) == 0
     assert out.exists(), "the report must be written even if the terminal cannot display it"
     assert "→" in json.loads(out.read_text(encoding="utf-8"))["root_cause"]["hypothesis"]

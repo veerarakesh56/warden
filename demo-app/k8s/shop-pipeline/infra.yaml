@@ -1,6 +1,6 @@
 # Owned by the apps pipeline, not by Argo CD: the endpoints and names of the infrastructure under the shop, from
 # Terraform's outputs (stack.json) - they change whenever the stack is rebuilt, and the shop's Deployments read them
-# with envFrom. Filled by scripts/deploy_fullstack_apps.py, which refuses to apply a placeholder left unfilled.
+# with envFrom. Filled by demo-app/scripts/deploy_fullstack_apps.py, which refuses to apply a placeholder left unfilled.
 apiVersion: v1
 kind: ConfigMap
 metadata:

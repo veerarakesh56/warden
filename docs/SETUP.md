@@ -8,7 +8,7 @@ placeholder such as `<ACCOUNT_ID>` or `<your-org>/<your-repo>`.
 Nothing here stores a long-lived AWS key. GitHub Actions reaches AWS through OpenID Connect (OIDC), and every
 secret WARDEN reads at run time lives in AWS Secrets Manager.
 
-> **Read [ai-boundary.md](ai-boundary.md) and [ARCHITECTURE.md](ARCHITECTURE.md) first.** WARDEN can change
+> **Read [ai-boundary.md](../warden/docs/ai-boundary.md) and [ARCHITECTURE.md](ARCHITECTURE.md) first.** WARDEN can change
 > infrastructure after a signed approval. Set it up in an account you can afford to experiment in.
 
 ## 1. Before you start
@@ -23,7 +23,7 @@ You need:
 
 Costs: IAM, OIDC, GitHub environments and Parameter Store (Standard tier) are free. Each Secrets Manager secret
 costs about USD 0.40 a month. The runtime itself (section 5) and the full-stack lab
-([FULLSTACK-LAB.md](FULLSTACK-LAB.md)) bill by the hour while they are up; check current AWS prices for your
+([FULLSTACK-LAB.md](../demo-app/docs/FULLSTACK-LAB.md)) bill by the hour while they are up; check current AWS prices for your
 Region before you start them.
 
 ## 2. Tell the code about your account and repository
@@ -31,7 +31,7 @@ Region before you start them.
 Two data files hold every per-install value the code needs. Code never names a Region, an account or an
 environment of its own.
 
-`src/warden/data/environments.yaml`:
+`warden/src/warden/data/environments.yaml`:
 
 | Key | Set it to |
 |---|---|
@@ -43,27 +43,27 @@ environment of its own.
 | `github.subject` | GitHub's immutable OIDC subject for your repository, `<owner>@<owner-id>/<repo>@<repo-id>`. Read the two ids with `gh api repos/<your-org>/<your-repo> --jq '.owner.id, .id'`. |
 | `environments.<name>` | one entry per application environment, with what WARDEN may do there. An unlisted environment falls to `default`, which can only do nothing or escalate. |
 
-`src/warden/data/providers.yaml` lists the models WARDEN has qualified. The runtime refuses a model that is not
+`warden/src/warden/data/providers.yaml` lists the models WARDEN has qualified. The runtime refuses a model that is not
 on its `qualified` list (section 8).
 
-Some of these files are safety-pinned: `docs/safety-pins.sha256` holds their hashes and a test fails when a file
+Some of these files are safety-pinned: `warden/docs/safety-pins.sha256` holds their hashes and a test fails when a file
 changes without the pins being re-rendered. After editing them, run:
 
 ```bash
-PYTHONPATH=src python scripts/safety_pins.py
+PYTHONPATH=src python warden/scripts/safety_pins.py
 ```
 
 ## 3. AWS identities
 
-All IAM documents are rendered from `iam/templates/` into `iam/<env>/` by one script:
+All IAM documents are rendered from `infra/iam/templates/` into `infra/iam/<env>/` by one script:
 
 ```bash
-python scripts/render_env_iam.py            # the committed files, with <ACCOUNT_ID> as a placeholder
-python scripts/render_env_iam.py --account  # also *.local.json copies with your real account id, for pasting
+python infra/scripts/render_env_iam.py            # the committed files, with <ACCOUNT_ID> as a placeholder
+python infra/scripts/render_env_iam.py --account  # also *.local.json copies with your real account id, for pasting
 ```
 
-The `*.local.json` files are git-ignored and must never be committed. `tests/test_env_iam.py` fails if a
-committed file drifts from its template. `scripts/check_live_iam.py` compares what is live in your account with
+The `*.local.json` files are git-ignored and must never be committed. `warden/tests/test_env_iam.py` fails if a
+committed file drifts from its template. `infra/scripts/check_live_iam.py` compares what is live in your account with
 these files (read-only).
 
 ### 3a. GitHub's identity provider (once per account)
@@ -75,10 +75,10 @@ IAM → **Identity providers** → **Add provider** → **OpenID Connect**, prov
 
 For each environment in `environments.yaml` that you deploy (`dev` shown):
 
-1. Create three managed policies from the complete files: `WardenEnvBoundary-dev` from `iam/dev/boundary.json`,
-   `WardenEnvDeploy-dev` from `iam/dev/deploy.json` and `WardenEnvDeployEc2-dev` from `iam/dev/deploy-ec2.json`.
+1. Create three managed policies from the complete files: `WardenEnvBoundary-dev` from `infra/iam/dev/boundary.json`,
+   `WardenEnvDeploy-dev` from `infra/iam/dev/deploy.json` and `WardenEnvDeployEc2-dev` from `infra/iam/dev/deploy-ec2.json`.
    (The deploy permissions are two policies because one would pass IAM's 6,144-character limit.)
-2. Create the role `warden-dev-deploy` with a custom trust policy: the whole of `iam/dev/trust.local.json`.
+2. Create the role `warden-dev-deploy` with a custom trust policy: the whole of `infra/iam/dev/trust.local.json`.
    Attach the two deploy policies, set the permissions boundary to `WardenEnvBoundary-dev`, and tag it
    `Project=warden`, `Environment=dev`.
 3. Create the state bucket `warden-dev-tfstate-<random suffix>` in your Region: versioning on, public access
@@ -87,14 +87,14 @@ For each environment in `environments.yaml` that you deploy (`dev` shown):
    reach the EKS API, never `0.0.0.0/0`) and `/warden/dev/tf/budget_email` (SecureString, where budget alarms go).
 
 The trust policy accepts only a token from your repository's GitHub environment of the same name, running one of
-the two reusable deploy workflows (`_infra-deploy.yml`, `_apps-deploy.yml`) from the branch the template names.
+the two reusable deploy workflows (`infra-deploy.yml`, `demo-app-deploy.yml`) from the branch the template names.
 The callers (`deploy-<env>.yml`, `on-merge-<env>.yml`) can be renamed; the two reusable workflows cannot, unless
 the template changes with them.
 
 ### 3c. WARDEN's own roles in each watched environment
 
 The runtime worker reads and acts in an application environment through two roles there, both rendered into
-`iam/<env>/`:
+`infra/iam/<env>/`:
 
 | Role | Policies | What it is for |
 |---|---|---|
@@ -107,13 +107,13 @@ zone roles.
 
 ### 3d. Optional: the operator and the fault-injection harness
 
-- `iam/operator/` is a read-only operator role for a person's workstation (it sees the runtime's secret names,
+- `infra/iam/operator/` is a read-only operator role for a person's workstation (it sees the runtime's secret names,
   never their values, and may assume only the read-only
-  sweep role `warden-ops-sweep`, whose policy is `iam/operator/sweep-policy.json`, and the harness role). `scripts/roles_anywhere_cert.py` issues a certificate for IAM Roles
+  sweep role `warden-ops-sweep`, whose policy is `infra/iam/operator/sweep-policy.json`, and the harness role). `infra/scripts/roles_anywhere_cert.py` issues a certificate for IAM Roles
   Anywhere, so the workstation needs no access key.
-- `iam/<env>/harness.json` and `harness-trust.json` exist only for the environments in `fault_environments`. The
+- `infra/iam/<env>/harness.json` and `harness-trust.json` exist only for the environments in `fault_environments`. The
   harness role breaks and restores only that environment's resources; render it with
-  `python scripts/render_env_iam.py --account --cluster-resource-id <id>` once the lab's Aurora cluster exists.
+  `python infra/scripts/render_env_iam.py --account --cluster-resource-id <id>` once the lab's Aurora cluster exists.
 
 ### 3e. Account-wide pieces
 
@@ -121,7 +121,7 @@ zone roles.
   `delivery.logs.amazonaws.com` write to `/aws/vendedlogs/warden-*` in your account and Region. The deploy role
   may not create resource policies, so an administrator creates it once.
 - **Global-services alarms** (CloudFront, Route 53 health checks) live only in AWS's global Region
-  (`aws_global_region`). `python scripts/forward_global_alarms.py` prints the forwarding rule it would make;
+  (`aws_global_region`). `python infra/scripts/forward_global_alarms.py` prints the forwarding rule it would make;
   `--apply` makes it and `--undo` removes it.
 - **IAM Access Analyzer** (free): an external-access analyzer in your Region flags any role, bucket, key, queue,
   secret or function reachable from outside the account.
@@ -134,14 +134,14 @@ recorder those plans are refused and nothing else changes. One recorder per acco
 
 1. **AWS Config** → your Region → **Settings**.
 2. Recording strategy **Specific resource types**, frequency **Continuous**, with these types (the ones
-   `src/warden/platforms/aws.py` reads): `AWS::ECS::Service`, `AWS::Lambda::Function`,
+   `warden/src/warden/platforms/aws.py` reads): `AWS::ECS::Service`, `AWS::Lambda::Function`,
    `AWS::AutoScaling::AutoScalingGroup`, `AWS::ApiGateway::Stage`, `AWS::SQS::Queue`, `AWS::Kinesis::Stream`,
    `AWS::EC2::RouteTable`, `AWS::DynamoDB::Table`.
 3. IAM role: the AWS Config service-linked role.
 4. Delivery: a new bucket such as `warden-<env>-config-<suffix>`, no SNS topic.
 
-Check it, read-only: `python scripts/check_live_config.py`. It exits 0 when the recorder is on, records
-continuously, delivers, and records every type the code reads. `tests/test_restore_table_g10f.py` fails if the
+Check it, read-only: `python infra/scripts/check_live_config.py`. It exits 0 when the recorder is on, records
+continuously, delivers, and records every type the code reads. `warden/tests/test_restore_table_g10f.py` fails if the
 code reads a type this list does not name.
 
 ## 4. GitHub
@@ -173,9 +173,9 @@ An environment deploys only from the branch of its own name, and `main` deploys 
 A deploy can also be run by hand from the same branch (`deploy-<env>.yml`). Before any job holds a credential, it
 checks that the commit was promoted: it is on the upstream branch (`main` for dev, `dev` for prod), or it is a merge
 of it that changes nothing. A commit pushed straight onto `dev` or `prod` is refused, and the push that creates a
-branch deploys nothing. The deploy roles' trust policies (`iam/<env>/trust.json`) accept only `refs/heads/<env>`.
+branch deploys nothing. The deploy roles' trust policies (`infra/iam/<env>/trust.json`) accept only `refs/heads/<env>`.
 
-The runtime pipeline (`runtime.yml`, GitHub environment `ops`) runs from the branch `environments.yaml` names in
+The runtime pipeline (`warden-runtime-deploy.yml`, GitHub environment `ops`) runs from the branch `environments.yaml` names in
 `github.runtime_branch`: `dev`, until prod exists.
 
 Set each GitHub environment's **Deployment branches** to the single branch of its own name (`dev` for dev, `prod`
@@ -192,17 +192,17 @@ the same commit.
 - Rulesets on `dev` and `prod` that block deletion and force pushes and require the `zizmor` status check;
   on `prod`, also require a pull request and allow merge commits only.
 - **Require actions to be pinned to a full-length commit SHA** (every workflow here is pinned, and
-  `tests/test_ci_lanes.py` checks it).
+  `warden/tests/test_ci_lanes.py` checks it).
 - Dependabot alerts and security updates, and CodeQL default setup. All free on a public repository.
 
 ## 5. WARDEN's runtime (`ops`)
 
-The runtime is `terraform/runtime` (with `terraform/modules/warden-runtime`), deployed only by
-`.github/workflows/runtime.yml`, by hand. Its actions are `image` (build, push by commit SHA, sign keylessly with
+The runtime is `infra/terraform/runtime` (with `infra/terraform/modules/warden-runtime`), deployed only by
+`.github/workflows/warden-runtime-deploy.yml`, by hand. Its actions are `image` (build, push by commit SHA, sign keylessly with
 cosign and attest), `plan`, `apply` (each verifies that signature first) and `restart`.
 
-1. Create `WardenEnvBoundary-ops`, `WardenEnvDeploy-ops` and `WardenEnvDeployEc2-ops` from `iam/ops/`, and the
-   role `warden-ops-deploy` with `iam/ops/trust.local.json` (maximum session 2 hours: creating the audit database
+1. Create `WardenEnvBoundary-ops`, `WardenEnvDeploy-ops` and `WardenEnvDeployEc2-ops` from `infra/iam/ops/`, and the
+   role `warden-ops-deploy` with `infra/iam/ops/trust.local.json` (maximum session 2 hours: creating the audit database
    can take most of one).
 2. Create the state bucket `warden-ops-tfstate-<suffix>` and an ECR repository `warden-ops-runtime` with
    immutable tags and scan on push. Allow Lambda to pull from it with a repository policy limited to your
@@ -222,7 +222,7 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
 4. Fill in the `ops` GitHub environment (section 4a), then run **Runtime · ops** with `image`, then `plan`. Read
    the plan before you run `apply`.
 5. After the first apply, Terraform has created empty secret slots named `warden/ops/<name>`
-   (`terraform/modules/warden-runtime/secrets.tf` lists them). Set the values in the console, never in a file or a
+   (`infra/terraform/modules/warden-runtime/secrets.tf` lists them). Set the values in the console, never in a file or a
    chat, then run **Runtime · ops** with `restart`. Each trust zone's role reads only its own secrets.
 6. Approvers: create each approver's Ed25519 key pair with
    `warden audit keygen --private ~/.warden/<name>.pem --public ~/.warden/<name>.pub.pem`. It asks for a passphrase
@@ -230,10 +230,10 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
    `~/.warden`, created private if missing); a path outside it, through a symlink, or naming a file that exists is
    refused. Then `warden enrol --approver <name> --key ~/.warden/<name>.pem`
    opens a 15-minute link where the approver creates a passkey. Save the approver list the page shows as the
-   Parameter Store value `/warden/ops/approvers` and restart the workers. [OPERATIONS.md](OPERATIONS.md) covers
+   Parameter Store value `/warden/ops/approvers` and restart the workers. [OPERATIONS.md](../warden/docs/OPERATIONS.md) covers
    rotating keys and passkeys.
 7. WARDEN's own pages repeat, in Slack and by email, every 15 minutes until an approver acknowledges them with a
-   passkey at `https://<approval domain>/p` (`terraform/modules/warden-runtime/paging.tf`). `/p` needs Sign in with
+   passkey at `https://<approval domain>/p` (`infra/terraform/modules/warden-runtime/paging.tf`). `/p` needs Sign in with
    Slack (below) and an approver entry with no `environments` whose `slack` is that person's member id: without the
    Slack app nobody reads or acknowledges the pages there, and they repeat until it is set up. Confirm the topic's
    email subscription, and make `warden/ops/slack-webhook` a webhook of the channel to page. Optional:
@@ -262,7 +262,7 @@ Create one namespace-scoped service account per trust zone, so Temporal's audit 
 needs it to poll and complete tasks). Store each API key in its slot `warden/ops/temporal-api-key-<zone>`. Give
 every key an expiry and replace it before then.
 
-Workflow payloads are encrypted before they reach Temporal (`src/warden/codec.py`). Store 32 random bytes,
+Workflow payloads are encrypted before they reach Temporal (`warden/src/warden/codec.py`). Store 32 random bytes,
 base64-encoded, in `warden/ops/temporal-key`, for example from CloudShell without displaying it:
 
 ```bash
@@ -272,10 +272,10 @@ aws secretsmanager put-secret-value --secret-id warden/ops/temporal-key \
 
 ### Eldane, the AI critic (dev's approver)
 
-The sixth zone, `critic`, runs Eldane (`src/warden/eldane.py`). Until the two steps below are done it does nothing,
+The sixth zone, `critic`, runs Eldane (`warden/src/warden/eldane.py`). Until the two steps below are done it does nothing,
 and a person approves every plan in dev as in prod. Its model key is the diagnosis's own
 `warden/ops/anthropic-api-key`, which the critic zone may read too; it uses, for each incident, the other Claude
-model from the one that diagnosed it (`src/warden/data/providers.yaml`, `critic`).
+model from the one that diagnosed it (`warden/src/warden/data/providers.yaml`, `critic`).
 
 1. Its Temporal key: the service account `warden-ops-critic` above, its key in `warden/ops/temporal-api-key-critic`.
 2. Its signing key, on your own machine: `warden audit keygen --private eldane.pem --public eldane.pub.pem
@@ -283,7 +283,7 @@ model from the one that diagnosed it (`src/warden/data/providers.yaml`, `critic`
    approver list (`/warden/ops/approvers`) with the contents of `eldane.pub.pem`:
    `eldane: {public_key: "<eldane.pub.pem>", tiers: [T1, T2], environments: [dev], ai: true}`. WARDEN always shows it
    as "Eldane · AI critic", refuses it for T3 and in prod, and a person's "no" on the approval page stops any plan it
-   approved until the apply step starts. Demotions and a person's re-enable are in [OPERATIONS.md](OPERATIONS.md).
+   approved until the apply step starts. Demotions and a person's re-enable are in [OPERATIONS.md](../warden/docs/OPERATIONS.md).
 
 ## 7. Slack
 
@@ -300,33 +300,33 @@ channel. Create one Slack app (api.slack.com/apps):
 | who besides the approvers may read the records page | plain value `/warden/ops/env/WARDEN_RECORD_VIEWERS` (Slack member ids, comma-separated) |
 
 Socket Mode means WARDEN connects out to Slack, so Slack needs no public address of yours and no signing secret.
-[OPERATIONS.md](OPERATIONS.md) has the discussion-channel steps and the per-environment channel maps in detail.
+[OPERATIONS.md](../warden/docs/OPERATIONS.md) has the discussion-channel steps and the per-environment channel maps in detail.
 
 ## 8. The model
 
 The runtime calls Claude through the Anthropic API. Create an API key for the runtime alone (a service account in
 the Claude Console, with an expiry) and store it in `warden/ops/anthropic-api-key`. Only the llm zone can read it.
 
-The model must be on `qualified` in `src/warden/data/providers.yaml`: today that is `claude-sonnet-5-5` with
+The model must be on `qualified` in `warden/src/warden/data/providers.yaml`: today that is `claude-sonnet-5-5` with
 provider `anthropic`. A model that is not qualified is refused at deploy time and at run time, and every incident
-is then escalated to a person on the rules alone. To qualify another model, run `scripts/qualify_provider.py`
-against the recorded incidents (it spends API credit; see [BENCHMARKS.md](BENCHMARKS.md)).
+is then escalated to a person on the rules alone. To qualify another model, run `warden/scripts/qualify_provider.py`
+against the recorded incidents (it spends API credit; see [BENCHMARKS.md](../warden/docs/BENCHMARKS.md)).
 
 ## 9. Check the setup
 
-- `python scripts/check_live_iam.py` - every policy and trust live in AWS against its file (read-only).
-- `python scripts/check_live_config.py` - the AWS Config recorder (read-only).
-- `python scripts/account_sweep.py` (through the read-only sweep role) - every Region and service, listed by service, never trusting tags: what
+- `python infra/scripts/check_live_iam.py` - every policy and trust live in AWS against its file (read-only).
+- `python infra/scripts/check_live_config.py` - the AWS Config recorder (read-only).
+- `python infra/scripts/account_sweep.py` (through the read-only sweep role) - every Region and service, listed by service, never trusting tags: what
   exists and what it costs. Run it after every tear-down.
 - A first **Deploy · dev** run with `part=infra`, `infra_action=plan` proves the deploy role's trust without
   changing anything.
 - An alarm in a watched environment (or a test alert to the Alertmanager webhook) should produce one Slack
-  message with a **Full record** link. See [RUNBOOK-WARDEN-INCIDENT.md](RUNBOOK-WARDEN-INCIDENT.md) for what to
+  message with a **Full record** link. See [RUNBOOK-WARDEN-INCIDENT.md](../warden/docs/RUNBOOK-WARDEN-INCIDENT.md) for what to
   do when WARDEN itself misbehaves.
 
 ## Undo
 
-Delete in reverse order: the runtime (`runtime.yml` cannot destroy it; run `terraform destroy` in
-`terraform/runtime` with the `ops` workspace and the deploy role), its secrets, parameters, repository and state
+Delete in reverse order: the runtime (`warden-runtime-deploy.yml` cannot destroy it; run `terraform destroy` in
+`infra/terraform/runtime` with the `ops` workspace and the deploy role), its secrets, parameters, repository and state
 bucket; then each environment's actor, reader and deploy roles, their policies and state buckets; then the GitHub
-environments. Finish with `python scripts/account_sweep.py`.
+environments. Finish with `python infra/scripts/account_sweep.py`.

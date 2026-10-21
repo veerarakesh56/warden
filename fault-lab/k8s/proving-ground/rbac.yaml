@@ -1,6 +1,6 @@
 # The identity WARDEN reads the proving ground as.
 #
-# ⛔ WHY THIS EXISTS SEPARATELY FROM k8s/rbac.yaml. That one binds the `warden` ServiceAccount to
+# ⛔ WHY THIS EXISTS SEPARATELY FROM infra/k8s/rbac.yaml. That one binds the `warden` ServiceAccount to
 # the `default` namespace, for the deployed tool. The benchmark needs the same reads scoped to
 # `warden-pg`, and scenario k8s-09 REMOVES one of them (`pods/log`) mid-run. Pointing the benchmark
 # at the deployed role would mean a scenario editing the production role, which is the kind of
@@ -11,7 +11,7 @@
 # while proving nothing - the exact trap Wave 1's IAM scenario documents. The harness runs WARDEN
 # with a kubeconfig bound to this ServiceAccount, so the revocation really bites.
 #
-# ⚠ Exactly six verbs, matching what src/warden/k8s_backend.py actually calls: list pods,
+# ⚠ Exactly six verbs, matching what warden/src/warden/k8s_backend.py actually calls: list pods,
 # get pods/log, list events, get deployments, list replicasets, list horizontalpodautoscalers.
 # No writes, no secrets, no watch, and nothing cluster-scoped. Wave 2 (2026-09-24) ran with the
 # first five; the HPA read was added 2026-09-25 and has not yet been measured on EKS.

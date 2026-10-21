@@ -1,4 +1,4 @@
-"""scripts/check_live_iam.py: a policy pasted into the wrong place is caught (2026-10-15: the boundary's statements had
+"""infra/scripts/check_live_iam.py: a policy pasted into the wrong place is caught (2026-10-15: the boundary's statements had
 been pasted into WardenPlatformReader-dev the day before)."""
 
 from __future__ import annotations
@@ -7,9 +7,9 @@ import json
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 ACCOUNT = "0" * 12  # built from parts, never an id-shaped literal
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "infra" / "scripts"))
 
 import check_live_iam as c
 
@@ -66,7 +66,7 @@ def test_every_verdict_for_policies_and_trusts_in_order(tmp_path, monkeypatch):
     """Characterisation (before the cognitive-complexity split of check): each verdict for a policy and for a trust -
     placeholders without a render, a `.local.json` render compared even when it holds `<`/`>`, matches (a trust given
     URL-encoded as IAM returns it), differs, not in the account, unreadable - in POLICIES then TRUSTS order."""
-    folder = tmp_path / "iam" / "lab"
+    folder = tmp_path / "infra" / "iam" / "lab"
     folder.mkdir(parents=True)
     doc = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}]}
     angled = {"Statement": [{"Effect": "Deny", "Action": "*", "Resource": "*", "Sid": "x<y>"}]}

@@ -1,5 +1,5 @@
 # Register M20: a provider and model may diagnose only after passing WARDEN's replay set. An entry here is a measured
-# result written by scripts/qualify_provider.py, never a claim: the recorded evidence of the three published runs,
+# result written by warden/scripts/qualify_provider.py, never a claim: the recorded evidence of the three published runs,
 # re-diagnosed through today's pipeline by the named model and scored against each run's committed rubric.
 #
 # The bar: no graded diagnosis that was wrong (or harmful) and allowed by the gate, and at least as many correct
@@ -28,30 +28,30 @@ bar:
   wrong_and_allowed: 0
   min_correct: 17
 # Register E6: the prompt the models were qualified with - system text, answer schema and the rendered evidence of
-# every bundled incident, hashed by scripts/qualify_provider.py prompt_fingerprint() (the per-call data marker
+# every bundled incident, hashed by warden/scripts/qualify_provider.py prompt_fingerprint() (the per-call data marker
 # normalised). Checked 2026-10-03: the prompt of commit 5b71048, which the claude-sonnet-5 run of 2026-10-02 22:46Z
-# used (19 correct), hashes to this same value. A prompt change fails tests/test_prompt_pin_e6.py until the model is
+# used (19 correct), hashes to this same value. A prompt change fails warden/tests/test_prompt_pin_e6.py until the model is
 # qualified again with it and this pin is updated in the same commit.
 prompt:
   # ⚠ NOT YET QUALIFIED (2026-10-17, item 7: 2-4 ranked hypotheses with citations for and against; U3-1: a typed
   # outcome, XML-tagged sections and worked examples, R items named; 2026-10-21, item 5: a retry after an answer that
   # failed validation names the failed fields, llm.RETRY_FEEDBACK, hashed as rendered). No model has
   # answered this prompt: the qualified rows below were measured on d435b59f. Neither Claude Sonnet 5.5 nor Claude Opus
-  # 5.5 is qualified on it: both must be measured again with scripts/qualify_provider.py in the cloud runtime. A row
+  # 5.5 is qualified on it: both must be measured again with warden/scripts/qualify_provider.py in the cloud runtime. A row
   # qualifies a model only on the prompt it was measured with (providers.qualified), so until a row on this prompt is
   # recorded here every model is refused and each incident gets the rules-only diagnosis (escalated to a person,
   # register M19).
   sha: 1fe14308adb82a78b2879c4864da09e52ac84a10e1be74fd36c98043ba83bb96
   pinned: "2026-10-21"  # U3-1 + item 5 (1225fb36 before: item 7; d435b59f before that: G10-57, the last qualified one)
 # Register N6: escalating everything is safe and useless, so it is measured. "Escalated" = the gate refused, or the
-# model itself proposed escalate_to_human. Measured 2026-10-03 (scenarios/score.py act_abstain, stored answers):
+# model itself proposed escalate_to_human. Measured 2026-10-03 (fault-lab/scenarios/score.py act_abstain, stored answers):
 #   model                escalated  acted right  escalated a right fix  escalated rightly  stopped wrong  acted wrongly
 #   claude-sonnet-5        25/30         4                10                    5                 9              0
 #   claude-fable-5-1       28/30         2                13                    5                 8              0
 #   claude-fable-5         23/30         5                11                    4                 8              0
 #   claude-opus-5-5        29/30         1                 2                    7                18              0
 # The SLO is the production model's measured level (D12): no model may act wrongly, and none may escalate more than
-# it did. Reported beside the bar by scripts/qualify_provider.py, not part of it. Lowering "escalated a right fix"
+# it did. Reported beside the bar by warden/scripts/qualify_provider.py, not part of it. Lowering "escalated a right fix"
 # (10 of Sonnet 5's 14 right fixes) is calibration's job (G7), measured against this baseline.
 slo:
   max_escalated: 25
@@ -104,7 +104,7 @@ qualified:
   # fields kept as facts; $0.56): 18/30, every incident answered, 0 wrong-and-allowed - within chance of 19 (two runs
   # of one prompt differ by 2). P4 fired more often (escalated 23, was 20): the model reported lower confidence with
   # the same diagnoses. The 30 recordings predate the reader fixes, so they cannot show those. On the 48 held-out
-  # cases (docs/bench/heldout-g9-2026-10-10) the same prompt scored 35/48 (was 34), cited the cause 41 (39), novel
+  # cases (fault-lab/docs/bench/heldout-g9-2026-10-10) the same prompt scored 35/48 (was 34), cited the cause 41 (39), novel
   # kinds 6/11 (4/11), and no wrong answer reached a person (1 before); no-fault controls 4/8 (5/8).
   # Before (prompt 992fb387): {"measured": "2026-10-10T01:52Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0}
   # G10-D1 (revert_change in the schema; $0.55): 19/30, every incident answered, 0 wrong-and-allowed, escalated 21. The
@@ -115,7 +115,7 @@ qualified:
   # Before (prompt 9c2e187d, G10-D1): {"measured": "2026-10-10T08:57Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0}
   # G10 readers, trust and grounding fixes (code 397346f, same prompt; $0.53): 21/30, every incident answered, 0
   # wrong-and-allowed, escalated 22 - within the 18-22 band. The 30 recordings predate the readers, so the gains
-  # show on the held-out set (docs/bench/heldout-g10-2026-10-10), not here.
+  # show on the held-out set (fault-lab/docs/bench/heldout-g10-2026-10-10), not here.
   # Before (code of 2026-10-10 09:29Z): {"measured": "2026-10-10T09:29Z", "correct": 22, "runs": 30, "wrong_and_allowed": 0}
   # REMOVED 2026-10-15 (retired): {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.4.0", "measured": "2026-10-10T12:51Z", "correct": 21, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
 # Measured on the PREVIOUS prompt (03300eac..., 2026-10-03) and so no longer qualified until measured again on this one

@@ -4,10 +4,10 @@
 
 Every secret WARDEN loads is a Secrets Manager secret named `warden/<environment>/<name>` (settings.py; decision D5),
 read when a process starts: after a rotation, restart the workers (or let the deployment roll them) and the new value
-is in use. `tests/test_operations_rotation.py` fails if a secret WARDEN can load has no row here.
+is in use. `warden/tests/test_operations_rotation.py` fails if a secret WARDEN can load has no row here.
 
 WARDEN's own cloud runtime has a slot only for the secrets one of its zones or Lambdas reads (settings.ZONE_SECRETS and
-LAMBDA_SECRETS, terraform/modules/warden-runtime/secrets.tf; secrets audit, 2026-10-16). A rotation's `_PREVIOUS`
+LAMBDA_SECRETS, infra/terraform/modules/warden-runtime/secrets.tf; secrets audit, 2026-10-16). A rotation's `_PREVIOUS`
 secret, the Alertmanager webhook's token, PagerDuty, Teams, another model's key and the terminate role's DSN have none
 there: before using one, add it to the zone or Lambda that reads it, to secrets.tf and to iam.tf, and apply.
 
@@ -23,8 +23,8 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_AUDIT_DSN` | the runtime's connection to the shared audit (Aurora PostgreSQL) | rotate the audit writer's password with Secrets Manager's managed rotation for the database, then restart the workers so they reconnect | none needed: the audit rows do not change |
 | `WARDEN_AUDIT_KEY_PASSPHRASE` | the local audit signing key's encryption | re-encrypt the key file under a new passphrase, store the new passphrase | none needed: the key itself does not change |
 | `WARDEN_SLACK_BOT_TOKEN` | posting into the incident channel | regenerate the bot token in the Slack app's settings, store it, restart | the old token stops at once: rotate in a quiet hour |
-| `WARDEN_DATADOG_API_KEY`, `WARDEN_DATADOG_APP_KEY` | reading logs, spans and metrics from Datadog (datadog.py; the read zone's alone; the application key scoped to `logs_read_data`, `logs_read_index_data`, `apm_read`, `timeseries_query`, `events_read`, `monitors_read`) | run `scripts/observability_setup.py` again: it makes a new scoped key, stores it and deletes the older one; then restart the read workers (runtime.yml restart) | the old key stops when it is deleted: rotate between incidents |
-| `WARDEN_DATADOG_WEBHOOK_TOKEN` | Datadog monitors' webhook into WARDEN (`POST /datadog`; the webhook Lambda's alone) | run `scripts/datadog_setup.py` again: it makes a new token, stores it and puts it in the webhook's header in one step | none: rotate between alerts |
+| `WARDEN_DATADOG_API_KEY`, `WARDEN_DATADOG_APP_KEY` | reading logs, spans and metrics from Datadog (datadog.py; the read zone's alone; the application key scoped to `logs_read_data`, `logs_read_index_data`, `apm_read`, `timeseries_query`, `events_read`, `monitors_read`) | run `warden/scripts/observability_setup.py` again: it makes a new scoped key, stores it and deletes the older one; then restart the read workers (warden-runtime-deploy.yml restart) | the old key stops when it is deleted: rotate between incidents |
+| `WARDEN_DATADOG_WEBHOOK_TOKEN` | Datadog monitors' webhook into WARDEN (`POST /datadog`; the webhook Lambda's alone) | run `warden/scripts/datadog_setup.py` again: it makes a new token, stores it and puts it in the webhook's header in one step | none: rotate between alerts |
 | `WARDEN_SLACK_APP_TOKEN` | the discussion channel's Socket Mode connection (discuss.py; the notify zone's alone) | in the Slack app's Basic Information, App-Level Tokens: generate a new token with `connections:write`, store it, restart the notify workers, then revoke the old token | both work until the old one is revoked |
 | `WARDEN_SLACK_WEBHOOK`, `WARDEN_TEAMS_WEBHOOK`, `WARDEN_WEBHOOK_URL` | posting through an incoming webhook | create a new webhook, store it, restart, delete the old one | both work until the old one is deleted |
 | `WARDEN_GITHUB_TOKEN` | opening change-record issues in one repository | create a new fine-grained token limited to issues on that repository, with an expiry; store it, restart, revoke the old one | both work until the old one is revoked |
@@ -39,9 +39,9 @@ Keys that are not environment secrets:
 |---|---|
 | The audit signing key (KMS, register S12) | KMS has no automatic rotation for asymmetric keys: create a new key, point the signer at it, and keep every retired public key - `warden audit verify` checks each checkpoint with the key it was signed by (G6). |
 | An approver's Ed25519 break-glass key | `warden audit keygen` a new pair, replace the public key in the approvers file through a reviewed change, destroy the old private key. |
-| An approver's passkey | `warden enrol --approver <name> --key ~/.warden/<name>.pem` (key files are read only from the key folder, `WARDEN_KEY_DIR`, default `~/.warden`) opens a 15-minute link in the browser; the approval page creates the passkey and shows the approver list with it; save that list as the `approvers` parameter and restart the workers (`runtime.yml`, action `restart`). Remove the old credential from the list the same way; a lost device is removed at once. |
+| An approver's passkey | `warden enrol --approver <name> --key ~/.warden/<name>.pem` (key files are read only from the key folder, `WARDEN_KEY_DIR`, default `~/.warden`) opens a 15-minute link in the browser; the approval page creates the passkey and shows the approver list with it; save that list as the `approvers` parameter and restart the workers (`warden-runtime-deploy.yml`, action `restart`). Remove the old credential from the list the same way; a lost device is removed at once. |
 | The webhook's bearer secret (webhooks.py) | add the new secret beside the old one (both are accepted), change Alertmanager's `http_config.authorization`, then remove the old one. |
-| The operator's IAM Roles Anywhere certificate (if you use one) | before it expires, run `python scripts/roles_anywhere_cert.py issue` and at once replace the trust anchor's certificate bundle with the new CA (sign-ins fail between the two steps); see [SETUP.md](SETUP.md), section 3d. |
+| The operator's IAM Roles Anywhere certificate (if you use one) | before it expires, run `python infra/scripts/roles_anywhere_cert.py issue` and at once replace the trust anchor's certificate bundle with the new CA (sign-ins fail between the two steps); see [SETUP.md](../../docs/SETUP.md), section 3d. |
 
 ## Dev autonomy: Eldane, demotions and a person's re-enable (owner, 2026-10-17)
 
@@ -99,7 +99,7 @@ finding's text reaches the model, the report or Slack: only typed fields.
 | `WARDEN_GITHUB_READ_TOKEN` | optional for a public repository's pull requests and comments; needed for code scanning. A fine-grained token on that one repository, read-only: **Pull requests: Read**, **Code scanning alerts: Read**, and **Contents: Read** for the deploy's commits (`WARDEN_COMMITS`, the same token), plus Metadata: Read, which GitHub adds; with an expiry. In the cloud runtime it is the Secrets Manager secret `warden/<env>/github-read-token`, read by the read zone's worker only (set its value in the console, then restart the workers); a GitHub App's installation token replaces it when the App exists (B4) |
 | `WARDEN_SONAR_TOKEN` | only for a private SonarCloud project: a token of a user who can browse it |
 
-`WARDEN_SONAR_TOKEN` has no Secrets Manager slot yet (terraform/modules/warden-runtime would need one, granted to the
+`WARDEN_SONAR_TOKEN` has no Secrets Manager slot yet (infra/terraform/modules/warden-runtime would need one, granted to the
 read zone alone): today it is set in the read worker's own environment, or left unset for a public project.
 
 ## WARDEN's records (registers G10-46, G10-47)
@@ -134,7 +134,7 @@ a reserved concurrency of 0 and their running invocations are waited out (their 
 drained by its consumer (three empty readings in a row: SQS's counters are approximate), then every function of the
 stack is held
 (only these Lambdas write the data kept; the ECS orders-api and the shop's pods only read it or write the Redis cache).
-A queue that does not drain in 15 minutes stops the pause before any copy; `python scripts/pause_resume.py wake`
+A queue that does not drain in 15 minutes stops the pause before any copy; `python infra/scripts/pause_resume.py wake`
 (also run by resume) turns them on again. Nothing is deleted or stopped until every copy is **available** (the step
 fails otherwise, and no later step runs). Resume takes the newest available `-pause-` copy by the time AWS made it, so the
 copies made by hand on 2026-10-17 (`warden-dev-aurora-pause-20261017`, `warden-dev-carts-pause-20261017`,
@@ -185,7 +185,7 @@ from then. Pause the runtime again before the seventh day, or start it on purpos
   security group. CLI: `aws rds restore-db-instance-from-db-snapshot --db-instance-identifier warden-ops-audit
   --db-snapshot-identifier <snapshot> --db-subnet-group-name <the audit's> --vpc-security-group-ids <the audit's>
   --no-publicly-accessible`. Then adopt it into Terraform's state:
-  `terraform -chdir=terraform/runtime import 'module.runtime.aws_db_instance.audit[0]' warden-ops-audit`, and run
+  `terraform -chdir=infra/terraform/runtime import 'module.runtime.aws_db_instance.audit[0]' warden-ops-audit`, and run
   `apply`. An Aurora audit is a cluster and its instance:
   `aws rds restore-db-cluster-from-snapshot --db-cluster-identifier warden-ops-audit --snapshot-identifier <snapshot>
   --engine aurora-postgresql --db-subnet-group-name <the audit's> --vpc-security-group-ids <the audit's>

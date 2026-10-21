@@ -1,4 +1,4 @@
-"""scenarios/runner.py's command line, split into steps (Sonar S3776): what each step refuses, and which harness a
+"""fault-lab/scenarios/runner.py's command line, split into steps (Sonar S3776): what each step refuses, and which harness a
 backend gets. Dry runs only - nothing here reaches AWS or a cluster."""
 
 from __future__ import annotations

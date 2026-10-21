@@ -32,7 +32,7 @@ class IdentityError(ValueError):
 
 def correlation(incident: str) -> str:
     """The one name an incident goes by in AWS: `inc-<id>`. The watched environments' roles trust that SourceIdentity
-    and no other (iam/templates/*-trust.json), and the audit's own id may come without the prefix - the bare id was
+    and no other (infra/iam/templates/*-trust.json), and the audit's own id may come without the prefix - the bare id was
     refused for the reader on 2026-10-09 and for the actor, at the first live apply, on 2026-10-12."""
     return (incident if incident.startswith("inc-") else f"inc-{incident}")[:64]
 

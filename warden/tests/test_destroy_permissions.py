@@ -2,14 +2,14 @@
 
 2026-10-17: the dev full-stack destroy failed. The deploy role was refused lambda:GetEventSourceMapping,
 ec2:DeleteTags and ec2:DisassociateAddress. All three actions were already in the policy. Their conditions were the
-problem, and the older check (tests/test_env_iam.py) compared action and resource names only:
+problem, and the older check (warden/tests/test_env_iam.py) compared action and resource names only:
 - lambda:GetEventSourceMapping was granted only with `lambda:FunctionArn` = one of this environment's functions. The
   provider's delete waiter polls the mapping until it is gone. A mapping that no longer exists has no function to
   check the condition against, so the last poll is refused instead of answered "not found".
 - ec2:DisassociateAddress was granted only on resources tagged Environment=<env>. The call is authorised on the
   address AND on the network interface it is attached to (AWS Service Reference: resource types elastic-ip and
   network-interface). A NAT gateway's interface is created by AWS and carries no tag. The runtime stack hit the
-  same refusal on 2026-10-10 (tests/test_runtime_iam_g6.py).
+  same refusal on 2026-10-10 (warden/tests/test_runtime_iam_g6.py).
 - ec2:DeleteTags: `aws_ec2_tag` puts the stack's tags, one resource per key, on the security group EKS creates for
   the cluster. Destroy removes the keys in parallel. Once `Environment` is gone the group no longer matches the
   Environment-tag grant, so the remaining keys are refused.
@@ -41,12 +41,12 @@ import sys
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "infra" / "scripts"))
 import render_env_iam as r  # after the sys.path line above
 
 ENVS = r.environments()
-STACKS = ("fullstack", "undo-lab")  # the stacks _infra-deploy.yml runs (its `case "$STACK"` line)
+STACKS = ("fullstack", "undo-lab")  # the stacks infra-deploy.yml runs (its `case "$STACK"` line)
 ACCOUNT = "1111" + "22223333"  # AWS's documentation example account, built from parts
 
 # --- the evaluator --------------------------------------------------------------------------------------------------
@@ -57,7 +57,7 @@ def _list(x):
 
 
 def _load(env, kind):
-    return json.loads((ROOT / "iam" / env / f"{kind}.json").read_text(encoding="utf-8"))
+    return json.loads((ROOT / "infra" / "iam" / env / f"{kind}.json").read_text(encoding="utf-8"))
 
 
 def _any_like(value, patterns):
@@ -178,7 +178,7 @@ ARNS = {
     "cert": "arn:aws:acm:{r}:{a}:certificate/0a1b2c3d-aaaa-bbbb-cccc-ddddeeeeffff",
     "alb-logs": "arn:aws:s3:::{p}-alb-logs-20261021000000000000000001",
     "alb-logs-obj": "arn:aws:s3:::{p}-alb-logs-20261021000000000000000001/AWSLogs/{a}/elasticloadbalancing/x.log.gz",
-    # The S3 backend keeps a workspace's state at env:/<workspace>/<key>; _infra-deploy.yml sets key=<stack>/... and
+    # The S3 backend keeps a workspace's state at env:/<workspace>/<key>; infra-deploy.yml sets key=<stack>/... and
     # the workspace to the environment; use_lockfile writes <state>.tflock beside it.
     **{f"state-{stack}": f"arn:aws:s3:::{{p}}-tfstate-abc/env:/{{env}}/{stack}/terraform.tfstate" for stack in STACKS},
     **{f"lock-{stack}": f"arn:aws:s3:::{{p}}-tfstate-abc/env:/{{env}}/{stack}/terraform.tfstate.tflock"
@@ -355,12 +355,12 @@ DATA_CALLS = {
     "aws_iam_session_context": [call("iam:GetRole", "deploy-role")],
     "aws_ssm_parameter": [call("ssm:GetParameter", "param")],
 }
-# The S3 backend with use_lockfile=true (_infra-deploy.yml): read and write the state, take and drop the lock object.
+# The S3 backend with use_lockfile=true (infra-deploy.yml): read and write the state, take and drop the lock object.
 BACKEND_CALLS = [call("s3:ListBucket", "state-bucket")] + [
     call(action, f"{kind}-{stack}") for stack in STACKS
     for action, kind in (("s3:GetObject", "state"), ("s3:PutObject", "state"), ("s3:GetObject", "lock"),
                          ("s3:PutObject", "lock"), ("s3:DeleteObject", "lock"))]
-# terraform/fullstack/aurora_express.py destroy runs first in the same job (the cluster is not a terraform resource).
+# infra/terraform/fullstack/aurora_express.py destroy runs first in the same job (the cluster is not a terraform resource).
 # Its boto3 calls and waiters, as IAM actions (a waiter polls a describe call).
 AURORA_CALLS = {"describe_db_clusters": "rds:DescribeDBClusters", "describe_db_instances": "rds:DescribeDBInstances",
                 "delete_db_instance": "rds:DeleteDBInstance", "delete_db_cluster": "rds:DeleteDBCluster",
@@ -424,7 +424,7 @@ NEEDS_NO_PERMISSION = {"sts:GetCallerIdentity"}
 def _types(kind):
     found = set()
     for stack in STACKS:
-        for tf in (ROOT / "terraform" / stack).glob("*.tf"):
+        for tf in (ROOT / "infra" / "terraform" / stack).glob("*.tf"):
             found |= set(re.findall(rf'^{kind} "(aws_[a-z0-9_]+)"', tf.read_text(encoding="utf-8"), re.MULTILINE))
     return found
 
@@ -438,7 +438,7 @@ def test_every_resource_type_in_the_stacks_has_its_calls_listed():
 
 def test_the_provider_version_the_calls_were_read_from_is_the_one_locked():
     for stack in STACKS:
-        lock = (ROOT / "terraform" / stack / ".terraform.lock.hcl").read_text(encoding="utf-8")
+        lock = (ROOT / "infra" / "terraform" / stack / ".terraform.lock.hcl").read_text(encoding="utf-8")
         block = lock.split('provider "registry.terraform.io/hashicorp/aws"', 1)[1]
         assert re.search(r'version\s+=\s+"6\.66\.0"', block.split("}", 1)[0]), \
             f"{stack}: the AWS provider moved - re-read its Read/Delete calls and update DESTROY_CALLS"
@@ -449,7 +449,7 @@ def test_the_provider_version_the_calls_were_read_from_is_the_one_locked():
 REQUIRED_CALLS = {
     "destroy": [c for group in (*DESTROY_CALLS.values(), *DATA_CALLS.values(), BACKEND_CALLS) for c in group],
 }
-# Pause and resume (owner update 5): scripts/pause_resume.py and aurora_express.py's restore, beside the destroy and
+# Pause and resume (owner update 5): infra/scripts/pause_resume.py and aurora_express.py's restore, beside the destroy and
 # the apply. A copy being made, a cluster or table being restored and AWS's own default subnet group carry no
 # Environment tag yet; a request that tags names this environment (aws:RequestTag).
 ARNS |= {
@@ -508,7 +508,7 @@ def test_every_call_a_stack_action_makes_is_allowed(env, stack_action):
 
 def _aurora_destroy_calls():
     """The rds methods and waiters reachable from aurora_express.destroy, through the module's own functions."""
-    tree = ast.parse((ROOT / "terraform" / "fullstack" / "aurora_express.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ROOT / "infra" / "terraform" / "fullstack" / "aurora_express.py").read_text(encoding="utf-8"))
     defs = {f.name: f for f in tree.body if isinstance(f, ast.FunctionDef)}
     todo, seen, used = ["destroy"], set(), set()
     while todo:
@@ -595,7 +595,7 @@ def test_the_new_grants_stay_narrow(env):
 def test_every_tag_key_the_stack_sets_can_be_taken_off_again():
     """An update that drops a key the stack set needs DeleteTags for that key: the untag grant names every key the
     full stack's EC2 resources carry - the default tags and each resource's own - and no other."""
-    tf = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "fullstack").glob("*.tf"))
+    tf = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "infra" / "terraform" / "fullstack").glob("*.tf"))
     blocks = []
     for m in re.finditer(r"\btags\s*=\s*\{", tf):  # each map, to its own closing brace (past any ${...})
         depth, i = 1, m.end()

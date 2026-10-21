@@ -1,8 +1,8 @@
-# The alert source. One alarm per signal the faults in docs/FULLSTACK-LAB.md section 5 trip.
+# The alert source. One alarm per signal the faults in demo-app/docs/FULLSTACK-LAB.md section 5 trip.
 #
 # ⛔ Descriptions name the SYMPTOM a user or an on-call engineer would see, never the cause. The
 # alarm text reaches WARDEN verbatim; a description that said what was broken would hand it the
-# answer. tests/test_fullstack_infra.py fails on cause words.
+# answer. warden/tests/test_fullstack_infra.py fails on cause words.
 #
 # No alarm actions: the harness polls alarm state and turns an ALARM into WARDEN's alert.
 
@@ -14,7 +14,7 @@ locals {
   }
   shop_dims = { ClusterName = aws_eks_cluster.this.name, Namespace = "shop" }
 
-  # name suffix => metric. Names match scenarios/catalog/wave4-fullstack.yaml (the harness polls them).
+  # name suffix => metric. Names match fault-lab/scenarios/catalog/wave4-fullstack.yaml (the harness polls them).
   # op: GreaterThanOrEqualToThreshold unless stated.
   alarms = {
     api-5xx = {

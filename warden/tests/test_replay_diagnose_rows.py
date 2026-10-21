@@ -1,4 +1,4 @@
-"""scripts/replay_diagnose.py: one recorded run is one row. A log that fails after the report was written makes that
+"""warden/scripts/replay_diagnose.py: one recorded run is one row. A log that fails after the report was written makes that
 run's row an ERROR row - never a success row and an ERROR row both, which counted the run twice (audit A-B-M16:
 the denominators must be the recorded run's)."""
 
@@ -10,11 +10,11 @@ import sys
 
 from warden.llm import LLMClient
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "scripts"))
 import replay_diagnose as rd  # after the sys.path line above
 
-RUN = ROOT / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z"
+RUN = ROOT / "warden" / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z"
 SCENARIO = "ecs-01-healthy-control"
 
 

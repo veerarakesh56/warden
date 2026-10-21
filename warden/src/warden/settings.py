@@ -40,7 +40,7 @@ RENAMED = {"WARDEN_DB_ADMIN_DSN": "WARDEN_DB_TERMINATE_DSN",
            "WARDEN_STACK_DB_WRITER_DSN": "WARDEN_STACK_DB_PRIMARY_RO_DSN",
            "WARDEN_STACK_DB_READER_DSN": "WARDEN_STACK_DB_REPLICA_RO_DSN"}
 _OLD_NAME = {new: old for old, new in RENAMED.items()}
-# Their Secrets Manager slots keep the old names until terraform/modules/warden-runtime renames them (secrets.tf and
+# Their Secrets Manager slots keep the old names until infra/terraform/modules/warden-runtime renames them (secrets.tf and
 # iam.tf, owned separately): until then each new name is read from its old slot, so a deployed runtime reads the same
 # secret it read before and its task roles need no change.
 _SLOT = {new: old.lower().removeprefix("warden_").replace("_", "-") for old, new in RENAMED.items()}
@@ -154,7 +154,7 @@ SECRETS = frozenset({
 
 
 # Register S15: what each trust zone's worker reads in WARDEN's own cloud runtime - and so the only secrets its task
-# role may read, and the only slots terraform/modules/warden-runtime makes (secrets.tf, iam.tf). Every zone holds the
+# role may read, and the only slots infra/terraform/modules/warden-runtime makes (secrets.tf, iam.tf). Every zone holds the
 # payload codec key and its own Temporal service account's key. The audit's address is the module's own setting
 # (WARDEN_AUDIT_DSN, compute.tf) and the cloud signs with KMS, so neither is a secret there. A secret the code can load
 # but no zone uses (another model's key, Teams, PagerDuty, a rotation's previous key) has no slot until it is used:
@@ -177,7 +177,7 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
     "critic": _EVERY_ZONE | {"ANTHROPIC_API_KEY", "WARDEN_ELDANE_KEY"},
 }
 # The runtime's Lambdas (lambdas.py), each with a role of its own that reads exactly these (iam.tf front_door_access;
-# tests/test_runtime_module_g6.py runs each handler's load and holds the two together). Every one but actor-use reaches
+# warden/tests/test_runtime_module_g6.py runs each handler's load and holds the two together). Every one but actor-use reaches
 # Temporal (runtime.connect: the codec key and its API key); the webhook Lambda checks Datadog's bearer secret and asks
 # Datadog whether the monitor is alerting; the approval page signs in with Slack. actor-use reads the audit only.
 LAMBDA_SECRETS: dict[str, frozenset[str]] = {

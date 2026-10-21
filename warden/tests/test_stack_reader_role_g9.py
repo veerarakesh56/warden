@@ -11,7 +11,7 @@ from warden.aws_stack import NEEDED_CLIENTS, StackBackend
 from warden.models import Alert, Severity
 from warden.tools import ToolError
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 NEEDED = NEEDED_CLIENTS
 
 
@@ -66,7 +66,7 @@ def test_injected_clients_are_never_rebound_and_the_read_zone_runs_the_stack_bac
     b = StackBackend(clients={n: object() for n in NEEDED})
     assert b._per_env is None
     assert b._incident(_alert()) is b
-    compute = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
+    compute = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
     assert 'each.key == "read" ? { WARDEN_BACKEND = "stack" } : {}' in compute
 
 

@@ -1,4 +1,4 @@
-"""Datadog monitors start incidents in WARDEN (register G10-53), and Datadog is set up as code (scripts/datadog_setup.py).
+"""Datadog monitors start incidents in WARDEN (register G10-53), and Datadog is set up as code (warden/scripts/datadog_setup.py).
 
 Owner, 2026-10-14: "set the total ... logs traces monitoring and dashboards ... and also alerts too for warden to
 see and immediately work on them". The same who / how much / is it real as Alertmanager's webhook."""
@@ -18,7 +18,7 @@ import pytest
 from warden import lambdas, settings, webhooks
 from warden.models import Severity
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 TOKEN = "dd-hook-" + "x" * 24
 WHEN = datetime(2026, 10, 14, 7, 14, 13, tzinfo=UTC)
 
@@ -110,7 +110,7 @@ def test_the_route_reaches_intake_with_its_own_secret(monkeypatch):
     assert len(got) == 1
     assert json.loads(call(_delivery(monitor="999"))["body"]) == {"accepted": 0, "dropped": 1}
     assert settings.RESTRICTED["WARDEN_DATADOG_WEBHOOK_TOKEN"] == {"lambda-alertmanager"}
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert re.search(r'route_key\s*=\s*"POST /datadog"', tf)
 
 
@@ -118,7 +118,7 @@ def test_the_route_reaches_intake_with_its_own_secret(monkeypatch):
 
 
 def _setup():
-    spec = importlib.util.spec_from_file_location("datadog_setup", ROOT / "scripts" / "datadog_setup.py")
+    spec = importlib.util.spec_from_file_location("datadog_setup", ROOT / "warden" / "scripts" / "datadog_setup.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

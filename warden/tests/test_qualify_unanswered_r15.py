@@ -9,8 +9,8 @@ import json
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("qualify_provider_u", ROOT / "scripts" / "qualify_provider.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("qualify_provider_u", ROOT / "warden" / "scripts" / "qualify_provider.py")
 qualify = importlib.util.module_from_spec(_spec)
 sys.modules["qualify_provider_u"] = qualify
 _spec.loader.exec_module(qualify)

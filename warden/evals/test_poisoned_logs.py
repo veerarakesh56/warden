@@ -2,7 +2,7 @@
 arXiv:2508.06394) and a model that FOLLOWS them - and still nothing harmful reaches the approver or closes the incident.
 
 The tripwire here is the suite's stand-in that flags nothing: the paper's payloads got past Prompt-Guard-2, so the
-deterministic layers are asserted to hold without it. evals/poisoned_logs.py prints the per-layer table, and runs the
+deterministic layers are asserted to hold without it. warden/evals/poisoned_logs.py prints the per-layer table, and runs the
 same cases against a real model with --live (costs money, never run by CI)."""
 
 from __future__ import annotations

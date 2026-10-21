@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from warden import approvals
 from warden.environments import default_environment_policies
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _policy(key, environments, name="bench", label=""):
@@ -71,12 +71,12 @@ def test_the_bench_approver_never_approves_outside_a_nonprod_environment_whateve
     bench = _policy(key, prod, name="bench").approvers["bench"]
     assert approvals.environment_refusal("bench", bench, prod[0])
     for src in ("activities.py", "approval_page.py"):
-        assert "approvals.environment_refusal(" in (ROOT / "src" / "warden" / src).read_text(encoding="utf-8"), src
+        assert "approvals.environment_refusal(" in (ROOT / "warden" / "src" / "warden" / src).read_text(encoding="utf-8"), src
 
 
 def test_the_bench_key_is_made_only_for_a_nonprod_environment(tmp_path, monkeypatch):
     nonprod, prod = _tiers()
-    spec = importlib.util.spec_from_file_location("bench_approve", ROOT / "scripts" / "bench_approve.py")
+    spec = importlib.util.spec_from_file_location("bench_approve", ROOT / "fault-lab" / "scripts" / "bench_approve.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     folder = tmp_path / "k"

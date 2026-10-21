@@ -1,4 +1,4 @@
-"""scripts/deploy_fullstack_apps.py's helpers split out for S3776: the checked paths (build output inside the
+"""demo-app/scripts/deploy_fullstack_apps.py's helpers split out for S3776: the checked paths (build output inside the
 repository is refused with its reason, before any folder is made), the deploy loop's image tag, and when one Argo CD
 status counts as synced."""
 
@@ -10,8 +10,8 @@ import pathlib
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("deploy_fullstack_paths", ROOT / "scripts" / "deploy_fullstack_apps.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("deploy_fullstack_paths", ROOT / "demo-app" / "scripts" / "deploy_fullstack_apps.py")
 tool = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tool)
 

@@ -1,17 +1,17 @@
 """The files that decide what WARDEN may do, pinned by hash (register N8): the model's instructions (graph.py), the
 policies (verifier, gate, grounding, quarantine, tripwire, bounds, freeze), the approval and remediation rules
 (approvals, catalog, activities, workflows) and every data file. A pull request that changes one must also change
-docs/safety-pins.sha256, which CODEOWNERS routes to a named reviewer - a quiet edit to a policy cannot hide in a
-large diff. Regenerate after a reviewed change: `python scripts/safety_pins.py`."""
+warden/docs/safety-pins.sha256, which CODEOWNERS routes to a named reviewer - a quiet edit to a policy cannot hide in a
+large diff. Regenerate after a reviewed change: `python warden/scripts/safety_pins.py`."""
 
 from __future__ import annotations
 
 import hashlib
 import pathlib
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-PINS = ROOT / "docs" / "safety-pins.sha256"
-PACKAGE = "src/warden"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+PINS = ROOT / "warden" / "docs" / "safety-pins.sha256"
+PACKAGE = "warden/src/warden"
 PINNED = ("activities.py", "approval_page.py", "approvals.py", "autonomy.py", "bounds.py", "catalog.py", "decide.py", "eldane.py", "evidence.py", "freeze.py", "gate.py",
           "graph.py", "grounding.py", "mcp_server.py", "passkeys.py", "quarantine.py", "redaction.py", "reporting.py", "runtime.py",
           "tripwire.py", "verifier.py", "workflows.py", "audit.py", "locks.py")

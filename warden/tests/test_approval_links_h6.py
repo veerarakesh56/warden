@@ -98,7 +98,7 @@ def test_slack_is_told_its_note_of_a_button_click_arrived_and_nothing_is_done_wi
     answered = page.handle("POST", "/s/interact", "payload=%7B%22type%22%3A%22block_actions%22%7D")
     assert (answered.status, answered.body) == (200, "")
     assert page.handle("GET", "/s/interact").status == 404
-    tf = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf")
+    tf = (pathlib.Path(__file__).resolve().parents[2] / "infra" / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf")
     assert '"POST /s/interact"' in tf.read_text(encoding="utf-8")
 
 
@@ -185,7 +185,7 @@ def test_the_note_is_answered_by_a_function_with_nothing_in_it_and_no_permission
     import re
     import zipfile
 
-    module = pathlib.Path(__file__).resolve().parents[1] / "terraform" / "modules" / "warden-runtime"
+    module = pathlib.Path(__file__).resolve().parents[2] / "infra" / "terraform" / "modules" / "warden-runtime"
     source = (module / "ack" / "ack.py").read_bytes().replace(b"\r\n", b"\n")
     with zipfile.ZipFile(module / "ack.zip") as z:  # what is deployed is exactly the reviewed source, and only it
         assert z.namelist() == ["ack.py"]

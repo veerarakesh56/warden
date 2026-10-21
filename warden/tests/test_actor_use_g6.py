@@ -11,8 +11,8 @@ import pytest
 
 from warden import actor_use, lambdas, settings
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODULE = ROOT / "terraform" / "modules" / "warden-runtime"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+MODULE = ROOT / "infra" / "terraform" / "modules" / "warden-runtime"
 ACCOUNT = "0" * 12
 ROLE = f"arn:aws:iam::{ACCOUNT}:role/warden-dev-actor"
 PLAN = "ab" * 32
@@ -203,8 +203,8 @@ def test_the_runtime_watches_its_own_approver_list_and_each_approval_names_the_l
 
     from warden import approvals
 
-    root = pathlib.Path(__file__).resolve().parents[1]
-    tf = (root / "terraform" / "modules" / "warden-runtime" / "witness.tf").read_text(encoding="utf-8")
+    root = pathlib.Path(__file__).resolve().parents[2]
+    tf = (root / "infra" / "terraform" / "modules" / "warden-runtime" / "witness.tf").read_text(encoding="utf-8")
     rule = tf[tf.index('resource "aws_cloudwatch_event_rule" "approvers_changed"'):]
     assert 'requestParameters = { name = ["/warden/${var.environment}/approvers"] }' in rule
     assert all(name in rule for name in lambdas._LIST_WRITES)
@@ -219,5 +219,5 @@ def test_the_runtime_watches_its_own_approver_list_and_each_approval_names_the_l
     two.approvers["owner"].name = "Someone Else"
     assert one.fingerprint() != two.fingerprint()
     assert one.fingerprint() == one.model_copy(deep=True).fingerprint()
-    acts = (root / "src" / "warden" / "activities.py").read_text(encoding="utf-8")
+    acts = (root / "warden" / "src" / "warden" / "activities.py").read_text(encoding="utf-8")
     assert acts.count('"approver_list": self.policy.fingerprint()') == 2  # the passkey's row and the signing key's

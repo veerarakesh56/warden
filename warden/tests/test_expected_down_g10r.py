@@ -31,7 +31,7 @@ from warden.workflows import ZONES, IncidentWorkflow
 
 IST = timedelta(hours=5, minutes=30)
 # `staging` and `qa-staging` stand for nonprod environments beside dev: test-only since 2026-10-16, when the shipped
-# policy kept dev and prod (tests/conftest.py; an unknown `qa-staging` is the restrictive default, never nonprod).
+# policy kept dev and prod (warden/tests/conftest.py; an unknown `qa-staging` is the restrictive default, never nonprod).
 pytestmark = pytest.mark.usefixtures("staging_policy")
 DECLARED = """
 - name: staging nights

@@ -68,7 +68,7 @@ resource "aws_s3_bucket_policy" "anchors" {
 # runtime's log groups. Log delivery supports SSE-S3 only, so the bucket uses it.
 #
 # ⚠ The runtime's permissions boundary must allow s3:PutBucketPolicy and s3:PutBucketPublicAccessBlock on
-# warden-<env>-access-logs-* before this applies (iam/templates/runtime-boundary.json, DenyBucketPolicy).
+# warden-<env>-access-logs-* before this applies (infra/iam/templates/runtime-boundary.json, DenyBucketPolicy).
 
 resource "aws_s3_bucket" "access_logs" {
   bucket_prefix = "warden-${var.environment}-access-logs-"

@@ -1,4 +1,4 @@
-"""Pause and resume without losing data (owner update 5, 2026-10-17): scripts/pause_resume.py, aurora_express.py's
+"""Pause and resume without losing data (owner update 5, 2026-10-17): infra/scripts/pause_resume.py, aurora_express.py's
 restore, the pipelines' order and the permissions they need. Fake AWS clients only; every guard here was plant-checked
 (the PR lists them)."""
 
@@ -13,7 +13,7 @@ import re
 import pytest
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 FLOWS = ROOT / ".github" / "workflows"
 UTC = datetime.UTC
 
@@ -27,7 +27,7 @@ def _load(name: str, path: pathlib.Path):
 
 @pytest.fixture
 def pr():
-    mod = _load("pause_resume", ROOT / "scripts" / "pause_resume.py")
+    mod = _load("pause_resume", ROOT / "infra" / "scripts" / "pause_resume.py")
     mod.ax.use("dev")
     mod.BACKUP_WAIT = {"Delay": 0, "MaxAttempts": 3}
     mod.SETTLE_MARGIN_S = 0
@@ -325,7 +325,7 @@ def test_pause_refuses_an_aurora_cluster_it_cannot_copy_before_any_writer_stops(
 
 def test_a_pause_that_fails_after_stopping_the_writers_says_how_to_start_them(pr):
     clients = _full(FakeRds(), FakeDdb(tables={"warden-dev-carts"}, fail=True))
-    with pytest.raises(SystemExit, match="the writers are stopped: `python scripts/pause_resume.py wake`"):
+    with pytest.raises(SystemExit, match="the writers are stopped: `python infra/scripts/pause_resume.py wake`"):
         pr.snapshot("fullstack", clients, log=lambda *_: None)
 
 
@@ -385,7 +385,7 @@ def test_wake_frees_every_function_and_turns_the_schedules_back_on(pr):
 
 
 def test_the_writers_named_are_the_full_stacks_own(pr):
-    tf = (ROOT / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
     lambdas = tf.split("lambdas = {", 1)[1]
     found = set(re.findall(r"^    ([a-z-]+|\"[a-z-]+\") = \{", lambdas, re.MULTILINE))
     assert {f.strip('"') for f in found} == set(pr.FUNCTIONS)
@@ -396,7 +396,7 @@ def test_the_writers_named_are_the_full_stacks_own(pr):
 
 
 def test_every_dynamodb_table_in_the_full_stack_is_paused(pr):
-    tf = "".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "fullstack").glob("*.tf"))
+    tf = "".join(p.read_text(encoding="utf-8") for p in (ROOT / "infra" / "terraform" / "fullstack").glob("*.tf"))
     blocks = re.findall(r'^resource "aws_dynamodb_table" "(\w+)"', tf, re.MULTILINE)
     assert sorted(pr.TABLES.values()) == sorted(f"aws_dynamodb_table.{b}" for b in blocks)
     for suffix, address in pr.TABLES.items():
@@ -488,7 +488,7 @@ def test_a_failure_that_is_not_ours_after_the_writers_stop_still_says_wake(pr):
             raise RuntimeError("ThrottlingException")
 
     clients = _full(FakeRds(), Throttled(tables={"warden-dev-carts"}))
-    with pytest.raises(SystemExit, match="ThrottlingException - the writers are stopped: `python scripts/pause_resume.py wake`"):
+    with pytest.raises(SystemExit, match="ThrottlingException - the writers are stopped: `python infra/scripts/pause_resume.py wake`"):
         pr.snapshot("fullstack", clients, log=lambda *_: None)
 
 
@@ -673,7 +673,7 @@ def test_report_says_a_stopped_database_starts_again_after_7_days(pr):
 
 
 def test_the_script_never_deletes_a_copy():
-    source = (ROOT / "scripts" / "pause_resume.py").read_text(encoding="utf-8")
+    source = (ROOT / "infra" / "scripts" / "pause_resume.py").read_text(encoding="utf-8")
     # Deleting a snapshot, a backup or a database - never; only a function's concurrency limit is removed (wake).
     assert not re.search(r"\.delete_(db|backup|table)|DeleteBackup|DeleteDB", source)
     assert re.findall(r"\.delete_\w+", source) == [".delete_function_concurrency"]
@@ -691,7 +691,7 @@ def _index(steps, needle):
 
 
 def test_the_infra_pause_copies_everything_before_the_destroy_and_nothing_runs_after_a_failure():
-    steps = _steps(FLOWS / "_infra-deploy.yml", "run")
+    steps = _steps(FLOWS / "infra-deploy.yml", "run")
     copy, destroy = _index(steps, "pause_resume.py snapshot"), _index(steps, "aurora_express.py destroy")
     assert copy < destroy
     assert steps[copy]["if"] == "env.ACTION == 'pause'"
@@ -702,11 +702,11 @@ def test_the_infra_pause_copies_everything_before_the_destroy_and_nothing_runs_a
 
 
 def test_the_infra_resume_restores_and_imports_before_the_plan_and_restores_aurora_after_the_apply():
-    steps = _steps(FLOWS / "_infra-deploy.yml", "run")
+    steps = _steps(FLOWS / "infra-deploy.yml", "run")
     tables, plan = _index(steps, "restore-tables"), _index(steps, "plan, and Helios on it")
     apply = _index(steps, "aurora_express.py create")
     assert tables < plan < apply
-    assert "terraform -chdir=\"terraform/$STACK\" import" in steps[tables]["run"]
+    assert "terraform -chdir=\"infra/terraform/$STACK\" import" in steps[tables]["run"]
     assert "env.ACTION == 'resume'" in steps[plan]["if"]
     assert "env.ACTION == 'resume'" in steps[apply]["if"]
     assert '--from-snapshot "$FROM_SNAPSHOT"' in steps[apply]["run"]
@@ -717,7 +717,7 @@ def test_the_infra_resume_restores_and_imports_before_the_plan_and_restores_auro
 
 
 def test_the_infra_resume_wakes_the_writers_after_the_apply_and_the_pause_never_does():
-    steps = _steps(FLOWS / "_infra-deploy.yml", "run")
+    steps = _steps(FLOWS / "infra-deploy.yml", "run")
     wake = _index(steps, "pause_resume.py wake")
     assert steps[wake]["if"] == "env.ACTION == 'resume'"
     assert _index(steps, "aurora_express.py create") < wake
@@ -736,26 +736,26 @@ def test_a_deploy_can_pause_and_resume_and_resume_brings_the_apps_back_in_the_sa
 
 
 def test_the_runtime_pause_copies_the_audit_before_the_switch_and_stops_it_after_the_apply():
-    steps = _steps(FLOWS / "runtime.yml", "deploy")
+    steps = _steps(FLOWS / "warden-runtime-deploy.yml", "deploy")
     copy, apply = _index(steps, "pause_resume.py snapshot --stack runtime"), _index(steps, "apply the plan just made")
     run = steps[copy]["run"]
     assert run.index("pause_resume.py snapshot") < run.index("tf/paused\" --value true")
-    assert copy < _index(steps, "terraform -chdir=terraform/runtime plan") < apply < _index(steps, "pause_resume.py stop-db")
+    assert copy < _index(steps, "terraform -chdir=infra/terraform/runtime plan") < apply < _index(steps, "pause_resume.py stop-db")
     start = _index(steps, "pause_resume.py start-db")
     assert steps[start]["run"].index("start-db") < steps[start]["run"].index("--value false")
     assert start < apply
     assert not [s for s in steps if re.search(r"always\(\)|failure\(\)|continue-on-error", json.dumps(s))]
-    flow = yaml.safe_load((FLOWS / "runtime.yml").read_text(encoding="utf-8"))
+    flow = yaml.safe_load((FLOWS / "warden-runtime-deploy.yml").read_text(encoding="utf-8"))
     on = flow.get("on") or flow.get(True)
     assert {"pause", "resume"} <= set(on["workflow_dispatch"]["inputs"]["action"]["options"])
     # The runtime job names its environment RUNTIME_ENV; the script refuses without WARDEN_ENV.
-    calls = re.findall(r"^\s*(.*)python scripts/pause_resume.py", "\n".join(s.get("run", "") for s in steps), re.MULTILINE)
+    calls = re.findall(r"^\s*(.*)python infra/scripts/pause_resume.py", "\n".join(s.get("run", "") for s in steps), re.MULTILINE)
     assert calls, calls
     assert all(c == 'WARDEN_ENV="$RUNTIME_ENV" ' for c in calls), calls
 
 
 def test_the_runtime_installs_its_tools_before_it_holds_credentials():
-    steps = _steps(FLOWS / "runtime.yml", "deploy")
+    steps = _steps(FLOWS / "warden-runtime-deploy.yml", "deploy")
     creds = next(i for i, s in enumerate(steps) if "configure-aws-credentials" in s.get("uses", ""))
     uv = next(i for i, s in enumerate(steps) if "setup-uv" in s.get("uses", ""))
     sync = _index(steps, "uv sync --locked --no-build --only-group infra-deploy")
@@ -767,7 +767,7 @@ def test_the_runtime_installs_its_tools_before_it_holds_credentials():
 
 
 def _evaluator():
-    return _load("test_destroy_permissions", ROOT / "tests" / "test_destroy_permissions.py")
+    return _load("test_destroy_permissions", ROOT / "warden" / "tests" / "test_destroy_permissions.py")
 
 
 RUNTIME_CALLS = [
@@ -802,7 +802,7 @@ def test_the_runtime_pause_switch_is_the_only_parameter_the_role_may_write():
 def test_the_runtime_boundary_lets_no_role_write_any_parameter_but_the_pause_switch():
     """CodeRabbit (PR 88): the ceiling, not only the deploy policy, names tf/paused alone - a role under this boundary
     whose own policy granted more still could not rewrite the model or the approvers."""
-    boundary = json.loads((ROOT / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
+    boundary = json.loads((ROOT / "infra" / "iam" / "ops" / "boundary.json").read_text(encoding="utf-8"))
     writes = [s for s in boundary["Statement"] if s["Effect"] == "Allow"
               and any(re.fullmatch(a.replace("*", ".*"), "ssm:PutParameter", re.IGNORECASE)
                       for a in ([s["Action"]] if isinstance(s["Action"], str) else s["Action"]))]
@@ -812,7 +812,7 @@ def test_the_runtime_boundary_lets_no_role_write_any_parameter_but_the_pause_swi
 
 def test_the_runtime_deploy_policy_writes_the_pause_switch_alone():
     """Both layers name tf/paused alone: the deploy policy as well as the boundary above it."""
-    deploy = json.loads((ROOT / "iam" / "ops" / "deploy.json").read_text(encoding="utf-8"))
+    deploy = json.loads((ROOT / "infra" / "iam" / "ops" / "deploy.json").read_text(encoding="utf-8"))
     writes = [s for s in deploy["Statement"] if "ssm:PutParameter" in ([s["Action"]] if isinstance(s["Action"], str)
                                                                      else s["Action"])]
     assert [(w["Sid"], w["Resource"].rsplit(":parameter", 1)[1]) for w in writes] == [

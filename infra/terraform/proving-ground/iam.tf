@@ -13,7 +13,7 @@
 #
 # So the runner assumes THIS role — four read actions, nothing else — and every scenario is answered
 # by a process that genuinely cannot do anything but read. That is a checkable claim rather than a
-# design intention, and `scenarios/runner.py` records the assumed-role ARN in the evidence bundle.
+# design intention, and `fault-lab/scenarios/runner.py` records the assumed-role ARN in the evidence bundle.
 
 data "aws_iam_policy_document" "reader_assume" {
   statement {
@@ -36,8 +36,8 @@ data "aws_iam_policy_document" "reader" {
     sid    = "ReadObservabilitySignals"
     effect = "Allow"
 
-    # ⭐ EXACTLY the four calls src/warden/aws_backend.py makes, and the same four the deployment
-    # module one directory up grants. tests/test_aws_backend.py asserts set equality with the code for
+    # ⭐ EXACTLY the four calls warden/src/warden/aws_backend.py makes, and the same four the deployment
+    # module one directory up grants. warden/tests/test_aws_backend.py asserts set equality with the code for
     # BOTH lists, in both directions (this one since 2026-09-25), so neither can drift silently.
     actions = [
       "cloudwatch:GetMetricData",
@@ -52,7 +52,7 @@ data "aws_iam_policy_document" "reader" {
 
 resource "aws_iam_role" "reader" {
   permissions_boundary = local.permissions_boundary
-  # The `warden-` prefix is load-bearing: scenarios/ops.py refuses to modify any role whose name
+  # The `warden-` prefix is load-bearing: fault-lab/scenarios/ops.py refuses to modify any role whose name
   # does not start with it, which is what stops a fault injection reaching a real role.
   name                 = "${local.name}-reader"
   assume_role_policy   = data.aws_iam_policy_document.reader_assume.json

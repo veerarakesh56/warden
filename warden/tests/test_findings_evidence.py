@@ -179,7 +179,7 @@ def test_a_real_coderabbit_comment_is_read_and_steering_in_its_own_prose_is_stil
     assert "Verify each finding" not in prose
     assert "cr-indicator" not in prose
     assert "no `state` filter" in prose
-    f = _coderabbit(_rabbit(REAL_RABBIT, path="src/warden/findings.py", line=231))
+    f = _coderabbit(_rabbit(REAL_RABBIT, path="warden/src/warden/findings.py", line=231))
     assert f is not None
     assert (f["severity"], f["category"], f["status"], f["line"]) == ("major", "potential-issue", "open", 231)
     lines = _read(_GitHub(comments=[_rabbit(REAL_RABBIT)]))
@@ -368,7 +368,7 @@ def test_a_path_maps_to_a_service_the_incident_names_best_effort():
     alert = _alert(service="warden-dev-orders", labels={"lambda": "warden-dev-cart,warden-dev-pay"})
     assert service_of("apps/orders/handler.py", alert) == "warden-dev-orders"
     assert service_of("src/cart.py", alert) == "warden-dev-cart"
-    assert service_of("src/warden/dev.py", alert) == ""  # a project prefix names every service: never a match
+    assert service_of("warden/src/warden/dev.py", alert) == ""  # a project prefix names every service: never a match
     assert service_of("lib/util.py", alert) == ""
 
 

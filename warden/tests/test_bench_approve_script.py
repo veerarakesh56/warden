@@ -1,4 +1,4 @@
-"""scripts/bench_approve.py: one bench key, never overwritten, and its approver entry is dev only, T1/T2."""
+"""fault-lab/scripts/bench_approve.py: one bench key, never overwritten, and its approver entry is dev only, T1/T2."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ import yaml
 
 from warden.approvals import ApproverPolicy
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _script():
-    spec = importlib.util.spec_from_file_location("bench_approve", ROOT / "scripts" / "bench_approve.py")
+    spec = importlib.util.spec_from_file_location("bench_approve", ROOT / "fault-lab" / "scripts" / "bench_approve.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

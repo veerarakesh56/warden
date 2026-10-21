@@ -1,6 +1,6 @@
 # The data layer: ElastiCache Redis, DynamoDB, and the application's connection metadata.
 #
-# ⛔ AURORA IS NOT HERE (changed 2026-09-26, docs/FULLSTACK-LAB.md section 1). The
+# ⛔ AURORA IS NOT HERE (changed 2026-09-26, demo-app/docs/FULLSTACK-LAB.md section 1). The
 # account is on the AWS Free plan, which only creates Aurora clusters in EXPRESS configuration, and
 # the AWS provider cannot create one. `aurora_express.py create` (this directory, the INFRA
 # pipeline) creates cluster warden-dev-aurora after `terraform apply`; `destroy` removes it
@@ -8,7 +8,7 @@
 # database passwords anywhere in this stack.
 #
 # ⛔ The schema and the roles warden_<env>_app / _catalog / _ro / _terminate are NOT created here: they are SQL, applied
-# by `scripts/deploy_fullstack_apps.py bootstrap-db` from scenarios/fullstack/sql/bootstrap.sql.
+# by `demo-app/scripts/deploy_fullstack_apps.py bootstrap-db` from demo-app/sql/bootstrap.sql.
 
 locals {
   aurora_cluster = "${local.name}-aurora" # created by aurora_express.py, not by terraform

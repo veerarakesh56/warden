@@ -9,7 +9,7 @@ import pathlib
 from warden import discuss
 from warden.observability import gated
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def test_a_printed_line_goes_out_as_the_log_gate_lets_it():
@@ -20,7 +20,7 @@ def test_a_printed_line_goes_out_as_the_log_gate_lets_it():
 
 
 def test_every_print_in_the_lambdas_is_gated():
-    tree = ast.parse((ROOT / "src" / "warden" / "lambdas.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ROOT / "warden" / "src" / "warden" / "lambdas.py").read_text(encoding="utf-8"))
     prints = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "print"]
     assert prints, "the walk found no print - the test itself has rotted"
     for call in prints:
@@ -30,7 +30,7 @@ def test_every_print_in_the_lambdas_is_gated():
 
 
 def test_no_function_inside_listen_shadows_one_of_the_module():
-    tree = ast.parse((ROOT / "src" / "warden" / "discuss.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ROOT / "warden" / "src" / "warden" / "discuss.py").read_text(encoding="utf-8"))
     module = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
     listen = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "listen")
     inner = {n.name for n in ast.walk(listen) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))} - {"listen"}

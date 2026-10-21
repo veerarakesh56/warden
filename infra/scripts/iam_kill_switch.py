@@ -1,13 +1,13 @@
 """WARDEN's second kill switch (B18): an IAM deny on the role that applies fixes, outside WARDEN's own code.
 
 The first switch lives in WARDEN's audit database (bounds.py) and is honoured by WARDEN's own gate. This one does not
-depend on WARDEN: the managed policy WardenKillSwitch-<env> (iam/<env>/kill-switch.json), attached to the actor role
+depend on WARDEN: the managed policy WardenKillSwitch-<env> (infra/iam/<env>/kill-switch.json), attached to the actor role
 warden-<env>-actor, denies every action unless the role carries the tag `warden-kill-switch` = `off`. AWS itself
 then refuses every fix, whatever WARDEN's code, its database or its model do.
 
-    python scripts/iam_kill_switch.py status --env dev     # anyone who may read the role (the operator may)
-    python scripts/iam_kill_switch.py on --env dev         # a person with iam:TagRole (the owner's console/CloudShell)
-    python scripts/iam_kill_switch.py off --env dev --confirm
+    python infra/scripts/iam_kill_switch.py status --env dev     # anyone who may read the role (the operator may)
+    python infra/scripts/iam_kill_switch.py on --env dev         # a person with iam:TagRole (the owner's console/CloudShell)
+    python infra/scripts/iam_kill_switch.py off --env dev --confirm
 
 - Fail closed: no tag, or any value other than `off`, is ON. Removing the tag stops every fix too.
 - Only a person turns it: the role is hand-made (the deploy role may not tag it, deploy-guard), the policy denies the
@@ -27,8 +27,8 @@ import pathlib
 import sys
 from typing import Any
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "warden" / "src"))
 from warden.environments import EnvironmentPolicies, names
 
 TAG = "warden-kill-switch"

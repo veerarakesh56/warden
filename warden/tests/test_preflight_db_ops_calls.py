@@ -1,4 +1,4 @@
-"""scripts/preflight_db_ops.py runs only live, against the real database, so no unit test ever executes its calls of
+"""fault-lab/scripts/preflight_db_ops.py runs only live, against the real database, so no unit test ever executes its calls of
 the baseline gate. This reads them instead: every call of `check_baseline_db` and `_settle_to_baseline` in the script
 must bind to the function's signature as the script imports it, each variable passed by position to the parameter of
 its own name. Two branches that each change one side (the gate's
@@ -13,7 +13,7 @@ import pathlib
 
 import pytest
 
-SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "preflight_db_ops.py"
+SCRIPT = pathlib.Path(__file__).resolve().parents[2] / "fault-lab" / "scripts" / "preflight_db_ops.py"
 CHECKED = ("check_baseline_db", "_settle_to_baseline")
 
 

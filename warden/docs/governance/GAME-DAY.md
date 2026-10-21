@@ -17,7 +17,7 @@ warden killswitch on --reason "quarterly game day: people diagnose without WARDE
 warden killswitch status
 ```
 
-2. Inject three faults from the benchmark catalogue (`scenarios/`) into the proving-ground stack, one at a time: one
+2. Inject three faults from the benchmark catalogue (`fault-lab/scenarios/`) into the proving-ground stack, one at a time: one
    the team has seen, one it has not, and one healthy control.
 3. For each fault, the on-call engineer diagnoses and proposes a fix from the dashboards, logs and runbooks alone, and
    writes the time to diagnosis and the fix down.

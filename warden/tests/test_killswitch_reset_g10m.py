@@ -19,7 +19,7 @@ from test_passkeys_h6 import RP, SoftAuthenticator, _enrol
 from warden import approvals, audit, bounds, cli
 from warden.approval_page import RESET_INVITE, ApprovalPage, AuditLinkStore, invite
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 WAIT = timedelta(minutes=10)  # the example policy's T3 cooling-off
 
 
@@ -147,10 +147,10 @@ def test_the_command_opens_a_signed_link_without_printing_it_or_opening_the_audi
 
 
 def test_the_api_routes_the_reset_and_the_message_names_the_way_to_it():
-    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
+    tf = (ROOT / "infra" / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert '"GET /k/{token}", "POST /k/{token}/{step}"' in tf
-    acts = (ROOT / "src" / "warden" / "activities.py").read_text(encoding="utf-8")
+    acts = (ROOT / "warden" / "src" / "warden" / "activities.py").read_text(encoding="utf-8")
     assert "`warden killswitch " in acts
     assert "link --approver YOU --key YOUR.pem` opens the page" in acts
-    lambdas = (ROOT / "src" / "warden" / "lambdas.py").read_text(encoding="utf-8")
+    lambdas = (ROOT / "warden" / "src" / "warden" / "lambdas.py").read_text(encoding="utf-8")
     assert "store=AuditLinkStore(log), log=log" in lambdas  # the Lambda's page is given the audit

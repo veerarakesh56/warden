@@ -1,6 +1,6 @@
 """Every way out of the process passes the outbound gate (audit A-C-8, A-C-9).
 
-Slack/Teams/webhook go through chatops.notify (tests/test_gate.py). This covers the others: stdout,
+Slack/Teams/webhook go through chatops.notify (warden/tests/test_gate.py). This covers the others: stdout,
 the --json report file, MCP results and errors, and the deployed-source block in a report.
 """
 

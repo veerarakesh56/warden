@@ -218,11 +218,13 @@ def _decisions(approvers: list[str], *, ai: frozenset[str], policy: Any, status:
 
 # Register R6: what neither WARDEN nor Eldane may ever approve a change to. Paths a code change could touch, and the
 # names WARDEN's own control plane goes by in a watched account - its roles, its parameters and its secrets.
+# A path matches anywhere as a suffix (`/{path}`), so these component-relative spellings hold in the repository's
+# layout (warden/src/warden/gate.py, infra/iam/...) and in a component split out on its own alike.
 PROTECTED_PATHS = (".github/", "CODEOWNERS", "src/warden/data/", "src/warden/gate.py", "src/warden/verifier.py",
                    "src/warden/catalog.py", "src/warden/approvals.py", "src/warden/autonomy.py", "src/warden/eldane.py",
                    "src/warden/bounds.py", "src/warden/audit.py", "src/warden/activities.py", "src/warden/workflows.py",
                    "src/warden/passkeys.py", "src/warden/approval_page.py", "docs/safety-pins.sha256", "iam/",
-                   "terraform/")
+                   "terraform/", "helios/")
 _PROTECTED_NAMES = re.compile(
     r"(?i)(?:^|[/:])/?warden/|:role/|:policy/|\biam\b|codeowners|environments\.ya?ml|\bapprovers?\b|"
     r"eldane|^warden-[a-z0-9-]+-(?:deploy|actor|platform-reader|fault[a-z-]*)$|WardenEnvBoundary")

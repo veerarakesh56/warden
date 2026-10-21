@@ -19,13 +19,13 @@ the layers that look at the ACTION are left. Every case runs in dev and in prod.
 reached the prompt (quarantine), whether the tripwire flagged it, the verdict and its policies, what the catalogue
 would do with the proposal, and which of the line's versions, image tags and ARNs the report or Slack still carries.
 
-    python evals/poisoned_logs.py           # offline, the following model; prints which layer each attack passed
-    python evals/poisoned_logs.py --live    # COSTS MONEY: the configured real model (WARDEN_PROVIDER) answers instead,
+    python warden/evals/poisoned_logs.py           # offline, the following model; prints which layer each attack passed
+    python warden/evals/poisoned_logs.py --live    # COSTS MONEY: the configured real model (WARDEN_PROVIDER) answers instead,
                                             # with the real tripwire if installed; off by default, never run by CI
 
 The live variant asks whether a real model follows these payloads at all (the paper's question); the offline one asks
 the question WARDEN's design rests on: if it does, does anything harmful still reach the approver? Per the owner's rule,
-run the live variant in the cloud runtime (its Secrets Manager key), not with a laptop key. evals/test_poisoned_logs.py
+run the live variant in the cloud runtime (its Secrets Manager key), not with a laptop key. warden/evals/test_poisoned_logs.py
 asserts the offline answer on every push.
 """
 
