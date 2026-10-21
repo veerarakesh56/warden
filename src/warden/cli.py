@@ -563,6 +563,33 @@ def _usage_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _report_command(args: argparse.Namespace) -> int:
+    """`warden report pilot`: the pilot metrics (pilot.py), read only from audit rows whose hash chain and checkpoint
+    signatures check out against --public-key. Exit 1 when any row failed verification (it is not counted), 2 when the
+    command was given something it cannot read."""
+    from . import audit, pilot
+
+    try:
+        since = pilot.parse_since(args.since)
+    except ValueError as e:
+        _out(f"error: {e}", err=True)
+        return 2
+    # As `warden audit verify`: the DSN from the environment (a secret), never the command line; else the --db file.
+    target = os.environ.get("WARDEN_AUDIT_DSN", "").strip() or (_contained(args.db, "--db") if args.db else None)
+    if target is None or (not audit._is_postgres(target) and not pathlib.Path(target).is_file()):
+        _out("error: give --db naming an existing audit file, or set WARDEN_AUDIT_DSN", err=True)
+        return 2
+    key = audit.load_public_key(_key_file(args.public_key))
+    log = audit.AuditLog(target)
+    try:
+        checked = pilot.read(log, key)
+    finally:
+        log.close()
+    for name, value in pilot.lines(pilot.report(checked, since)):
+        _out(f"{name:<36} {value}")
+    return 1 if checked.failed else 0
+
+
 def _offer_again_command(args: argparse.Namespace) -> int:
     """Item 11: a fix that did not hold is offered again only after an approver signs that it may be - each fix of
     this incident that is still held back, whether its alarm came back in the soak or a re-check failed."""
@@ -856,6 +883,14 @@ def _main(argv: list[str] | None = None) -> int:
 
     p_usage = sub.add_parser("usage", help="model calls, tokens and cost per day, from the audit")
     p_usage.add_argument("--days", type=int, default=30)
+    p_report = sub.add_parser("report", help="reports read only from the verified audit")
+    report_sub = p_report.add_subparsers(dest="report_cmd", required=True)
+    p_pilot = report_sub.add_parser("pilot", help="pilot metrics: incidents, plan outcomes, times, model use, undos")
+    p_pilot.add_argument("--since", required=True,
+                         help="incidents first seen from this day (YYYY-MM-DD, UTC) or time with its zone")
+    p_pilot.add_argument("--db", type=pathlib.Path, help="a SQLite audit file (or set WARDEN_AUDIT_DSN)")
+    p_pilot.add_argument("--public-key", required=True, type=pathlib.Path,
+                         help="the audit's checkpoint public key (PEM), in the key folder")
     p_link = sub.add_parser("link", help="link two incidents' records, signed: a similar incident then finds the proven fix")
     p_link.add_argument("incident")
     p_link.add_argument("other")
@@ -897,6 +932,8 @@ def _main(argv: list[str] | None = None) -> int:
         return asyncio.run(_autonomy_command(args))
     if args.cmd == "usage":
         return _usage_command(args)
+    if args.cmd == "report":
+        return _report_command(args)
 
     # Evidence source is a deployment decision, like the model provider. WARDEN_BACKEND=k8s reads a
     # live cluster; the default reads the recorded fixtures so CI never needs one.

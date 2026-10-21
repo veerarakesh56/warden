@@ -804,6 +804,61 @@ def refused_page() -> str:
                   "WARDEN's approver or viewer list, so its records are not shown. Ask an approver to add you.</p>")
 
 
+# ------------------------------------------------------------------ pilot metrics (pilot.py)
+
+# `/r/pilot`: the pilot metrics, for the same readers as the records and limited to the environments they may read. No
+# incident id is this word: intake names incidents `<fingerprint>-<time>` (intake.py).
+PILOT = "pilot"
+PILOT_DAYS = (7, 30, 90)
+
+
+def pilot_since(query: str, now: datetime | None = None) -> datetime | None:
+    """The page's one field, `since=YYYY-MM-DD` (UTC; the last 7 days when absent); None when the query is anything
+    else, or a day still to come."""
+    from . import pilot
+
+    try:
+        pairs = urllib.parse.parse_qsl(query or "", keep_blank_values=True, strict_parsing=bool(query), max_num_fields=1)
+    except ValueError:
+        return None
+    if any(k != "since" for k, _ in pairs):
+        return None
+    raw = pairs[0][1] if pairs else ""
+    if not raw:
+        return pilot.default_since(now)
+    if not _DAY.fullmatch(raw):
+        return None
+    try:
+        return pilot.parse_since(raw, now)
+    except ValueError:
+        return None
+
+
+def pilot_page(r: Any) -> str:
+    """The pilot metrics of `r` (pilot.Report): the same lines as `warden report pilot`, without naming the rows that
+    failed verification (their count is shown)."""
+    from . import pilot
+
+    rows = "".join(f'<tr><th scope="row">{_e(k)}</th><td>{_e(v)}</td></tr>' for k, v in pilot.lines(r, detail=False))
+    chips = "".join(f'<a class="chip" href="/r/{PILOT}?since={pilot.default_since(r.until, d).date().isoformat()}">'
+                    f"{d} days</a>" for d in PILOT_DAYS)
+    failed = len(r.checked.failed)
+    warn = (f'<p class="lede"><span class="badge bad">Not counted</span>{_e(failed)} row(s) of the record failed '
+            "verification and are left out of every number below. <code>warden audit verify</code> names them.</p>"
+            if failed else "")
+    return _shell("WARDEN pilot metrics", "Pilot metrics",
+                  '<h1>Pilot metrics</h1><p class="lede">Read only from rows of WARDEN\'s record whose signatures and '
+                  "hash chain check out. How each number is counted: docs/OPERATIONS.md, Pilot metrics.</p>" + warn
+                  + f'<p class="sizes pad"><span class="quiet">Since</span>{chips}</p>'
+                  + f'<div class="scroll pad"><table>{rows}</table></div>')
+
+
+def pilot_unchecked_page() -> str:
+    return _shell("WARDEN pilot metrics", "Pilot metrics", '<h1>Pilot metrics cannot be shown</h1><p class="lede">'
+                  "This runtime cannot check the record's signatures, and no number is shown from rows that were not "
+                  'checked. <a href="/r">See every incident</a>.</p>')
+
+
 _RECORDS_STYLE = """
 .page.wide{max-width:66rem}
 .sheet h1{margin-top:1.375rem}

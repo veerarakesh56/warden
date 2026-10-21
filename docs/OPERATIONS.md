@@ -115,6 +115,42 @@ Sign in with Slack; it opens for the approvers and for the Slack members in the 
 `/warden/<env>/env/WARDEN_RECORD_VIEWERS` (comma-separated member ids). Slack gets one message per incident; approved,
 denied and fixed are on the record, not posted.
 
+### Pilot metrics (`warden report pilot`, `/r/pilot`)
+
+The weekly numbers for a client, read only from the signed audit (src/warden/pilot.py):
+
+    warden report pilot --since 2026-10-14 --db audit.db --public-key audit.pub   # or WARDEN_AUDIT_DSN
+
+and on the records site at `/r/pilot` (the last 7 days; `?since=YYYY-MM-DD`; links for 7, 30 and 90 days), for the
+same readers as the records and only for the environments they may read. Every row is checked first, as
+`warden audit verify` checks the log: its own hash, its link to the row before it, and a checkpoint signature that
+verifies (the command with `--public-key`; the page with the runtime's own audit signing key - no key, no numbers).
+A row that fails is not counted: the command names it and exits 1, the page says how many. Rows after the last
+checkpoint are not signed yet and are not counted either. All times are UTC.
+
+| Number | Read from |
+|---|---|
+| Incidents | ids (not `discuss-...`) whose first `incident.ingest` or `incident.after_hold` row is at or after `--since` |
+| Plans | each fix run: a `remediation.plan` row's `workflow_id` and `run_id`; *open* until its `workflow.end` row |
+| Approved | the end row's `checklist.approved` is true (the tier's quorum) |
+| Denied | end status `denied` |
+| Re-planned | end status `drifted` or `refused_at_apply` and the same workflow planned again, or an approver's new plan (`discuss.replan` with `started`) after it |
+| Escalated (plan) | end status `rollback_failed`, `apply_failed`, `cancelled_after_apply` or `failed_after_apply`: a person takes over |
+| Escalation rate | incidents whose last `incident.verify` says `escalated`, or whose `incident.second_opinion` says the two diagnoses disagree, over incidents |
+| Alarm to plan | the first `incident.alert` row's `alert.started_at` to the first `remediation.plan` row |
+| Alarm to fixed | the same alarm time to the first `remediation.result` with `ok` true of a run that ended `recovered` or `verified`; open and unfixed incidents are not in it |
+| Model calls | `calls` of `incident.llm_spend` rows (the incident's and its discussion's) plus one per `eldane.call` row |
+| Cost | `usd` of the same `incident.llm_spend` rows |
+| Undo count | runs with a `remediation.rollback` row whose `undone` is true; `remediation.rollback_failed` runs beside it |
+
+The four plan outcomes are rates over ENDED plans, and one plan can be two of them (approved, then drifted and planned
+again). Median is the middle value (the mean of the two middle ones for an even count); p90 is the nearest rank,
+sorted[ceil(0.9 x n) - 1]. A rate with nothing to divide by is "n/a". A time whose alarm is later than its plan or fix
+(the alarm source's clock ahead) is left out and counted.
+
+Not in the audit, so not in the report: the cost of Eldane's calls (`eldane.call` records tokens, not US dollars: the
+report says "not recorded"); and any time a person spent outside WARDEN.
+
 ## Pause and resume to save money (owner update 5, 2026-10-17)
 
 Between uses, pause instead of destroy: every data store is copied first, and resume brings it back from the newest
