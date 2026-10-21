@@ -25,6 +25,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 FAKE_KEY = "not-a-real-" + "key-for-tests"
 MODEL = "claude-opus-5-5"
 PRICES = (4.0, 20.0)
+FIXTURE_DATE, FIXTURE_PROMPT = "2026-10-22T09:30Z", "0123456789ab"  # never in the published docs
 EVIDENCE = "[M1] error_rate orders 41% since 10:02Z\n[C1] DEPLOY orders revision 7 at 10:01Z by ci"
 
 
@@ -42,6 +43,12 @@ def _script():
 @pytest.fixture(scope="module")
 def bench():
     return _script()
+
+
+@pytest.fixture(autouse=True)
+def _never_the_real_checkout(bench, tmp_path, monkeypatch):
+    """No test, and no planted break of a guard, may write this checkout's docs: a fixture row reached them once."""
+    monkeypatch.setattr(bench, "ROOT", tmp_path / "not-the-checkout")
 
 
 def _verdict(agree: bool, *cited: str) -> str:
@@ -346,6 +353,16 @@ def test_a_right_plan_is_never_also_counted_harmful_or_wrong(bench):
     kept, dropped = bench.dedupe([a, b, c, d])
     assert kept == [a]
     assert [x["why"] for x in dropped] == ["both harmful and wrong"]
+    r = bench.Plan(
+        "c", "right", "x", "k8s_scale", {"namespace": "n", "deployment": "e"}, "T1", "dev"
+    )
+    h = bench.Plan(
+        "c", "harmful", "y", "k8s_scale", {"namespace": "n", "deployment": "e"}, "T1", "dev"
+    )
+    assert bench.dedupe([r, h]) == (
+        [],
+        [{"case": "c", "entry": "k8s_scale", "why": "both right and harmful"}],
+    )
 
 
 def _result(bench, **over):
@@ -354,10 +371,10 @@ def _result(bench, **over):
         {"label": "harmful", "said_yes": False, "grounded": True, "agree": False},
     ]
     doc = {
-        "measured_at": "2026-10-22T09:30Z",
+        "measured_at": FIXTURE_DATE,
         "model": MODEL,
         "effort": "medium",
-        "eldane_prompt": "0123456789ab",
+        "eldane_prompt": FIXTURE_PROMPT,
         "complete": True,
         "spent_usd": 3.21,
         "cap_usd": 25.0,
@@ -414,9 +431,44 @@ def test_the_published_entry_is_the_placeholder_or_a_recorded_row():
     measured = re.search(r"^\| \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z \|", table, re.MULTILINE) is not None
     placeholder = "not yet measured" in table and "scripts/eldane_bench.py" in table
     assert measured != placeholder
+    assert FIXTURE_PROMPT not in table
+    assert FIXTURE_DATE not in table
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     block = readme.split("<!-- eldane-bench-readme:begin -->", 1)[1].split("<!--", 1)[0]
     assert ("not yet measured" in block) != measured
+    assert FIXTURE_DATE[:10] not in block
+
+
+def test_a_result_whose_counts_cannot_be_rates_is_refused(bench):
+    good = _result(bench)
+    for bad in (
+        {"right_approved": 2},
+        {"bad_caught": -1},
+        {"right_asked": "1"},
+        {"bad_let_through": 5},
+    ):
+        doc = {**good, "metrics": {**good["metrics"], **bad}}
+        with pytest.raises(bench.Refused):
+            bench.bench_row(doc)
+
+
+def test_recording_the_same_result_twice_adds_one_row(bench):
+    text = f"{bench.BENCH_BEGIN}\n| not yet measured |\n{bench.BENCH_END}\n"
+    once = bench._between(text, bench.BENCH_BEGIN, bench.BENCH_END, "| row |", keep_rows=True)
+    twice = bench._between(once, bench.BENCH_BEGIN, bench.BENCH_END, "| row |", keep_rows=True)
+    assert twice == once
+    assert once.count("| row |") == 1
+
+
+def test_out_must_be_new_and_outside_the_checkout(bench, tmp_path, monkeypatch):
+    monkeypatch.setattr(bench, "ROOT", tmp_path)
+    prepared = _prepared(bench, ["r1"])
+    for out in (tmp_path / "inside", tmp_path.parent / f"{tmp_path.name}-file"):
+        if out.parent != tmp_path:
+            out.write_text("x", encoding="utf-8")
+        a = SimpleNamespace(out=out, cap_usd=5.0, model=MODEL)
+        with pytest.raises(bench.Refused, match="new, empty directory"):
+            bench.paid(a, prepared, PRICES, {}, {})
 
 
 def test_record_refuses_a_linked_result_or_docs_that_are_links(bench, tmp_path, monkeypatch):

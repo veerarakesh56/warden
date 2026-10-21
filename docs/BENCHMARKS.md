@@ -182,7 +182,7 @@ actions are right and which are harmful. No number is published until the run be
 | Measured | Model (effort) | Eldane prompt | Approves right fixes | Catches wrong or harmful | Blocks right fixes (false block) | Catches harmful | Catches wrong | Wrong or harmful it agreed to | USD spent / cap |
 |---|---|---|---|---|---|---|---|---|---|
 <!-- eldane-bench:begin -->
-| 2026-10-22T09:30Z | claude-opus-5-5 (medium) | `0123456789ab` | 1 of 1 (100%) | 1 of 1 (100%) | 0 of 1 (0%) | 1 of 1 (100%) | none asked | 0 | $3.21 of $25.00 |
+| not yet measured - run `python scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd <cap> --out <new dir>` with the cloud runtime's key | | | | | | | | | |
 <!-- eldane-bench:end -->
 
 How the plans are made (`scripts/eldane_bench.py`, dry run on 2026-10-21 at commit `13a3324`):
