@@ -1092,6 +1092,10 @@ class StackBackend:
                                           f"{res['StatusCode']} (the series may be incomplete)"))
             if res.get("Id") in ids and values:
                 key, stat = ids[res["Id"]]
+                # A lowest-of-the-window (`/min`, U3-3) from an unfinished series may miss its lowest point and read
+                # healthier than it was: not given at all, only said above (CodeRabbit, PR 144).
+                if stat.endswith("/min") and res.get("StatusCode") not in (None, "Complete"):
+                    continue
                 got[key] = _series_value(stat, values)
         return got
 

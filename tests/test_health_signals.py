@@ -117,6 +117,23 @@ def test_efs_burst_credits_are_the_lowest_of_the_window():
     assert asked["Metric"]["Dimensions"] == [{"Name": "FileSystemId", "Value": "fs-0abc"}]
 
 
+def test_a_lowest_of_the_window_from_an_unfinished_series_is_not_given():
+    """CodeRabbit, PR 144: a PartialData series can miss its lowest point, so a balance read from it looks healthier
+    than it was. It is said as partial and not given; a highest-of-the-window from the same answer still is."""
+    def get_metric_data(MetricDataQueries, **_):
+        values = {"BurstCreditBalance": [2.0e12], "PercentIOLimit": [100.0]}
+        return {"MetricDataResults": [
+            {"Id": q["Id"], "Values": values.get(q["MetricStat"]["Metric"]["MetricName"], []),
+             "StatusCode": "PartialData"} for q in MetricDataQueries]}
+
+    backend = _backend(_clients(cloudwatch=Fake(get_metric_data=get_metric_data)))
+    alert = _alert(efs="fs-0abc")
+    metrics = backend.metrics(alert)
+    assert "efs_burst_credit_balance_bytes" not in metrics
+    assert metrics["efs_percent_io_limit"] == 100.0
+    assert any(ln.startswith("TOOL-PARTIAL") and "efs_burst_credit_balance_bytes" in ln for ln in backend.logs(alert))
+
+
 def test_a_signal_with_no_datapoint_is_absent_not_zero():
     metrics, _ = _read({}, efs="fs-0abc")
     assert "efs_burst_credit_balance_bytes" not in metrics
