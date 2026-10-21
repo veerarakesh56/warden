@@ -568,7 +568,7 @@ def test_the_stack_kubeconfig_loads_through_the_real_client(tmp_path, monkeypatc
         cli.load_kubeconfig(kube.config, default=cfg)
 
 
-def test_a_wave4_report_is_posted_as_the_stack_it_ran_on(tmp_path, capsys):
+def test_a_wave4_report_is_posted_as_the_stack_it_ran_on(tmp_path, capsys, monkeypatch):
     """WARDEN ran with WARDEN_BACKEND=stack. The Slack re-render had no mapping for Wave 4's
     target_kind, so a report without stack labels fell back to "assume Kubernetes" commands."""
     import importlib.util
@@ -581,14 +581,11 @@ def test_a_wave4_report_is_posted_as_the_stack_it_ran_on(tmp_path, capsys):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     capsys.readouterr()
-    region = os.environ.get("AWS_REGION")
-    try:
-        assert mod.main(["--run", str(tmp_path), "--print"]) == 0
-    finally:  # main() writes the run's region into os.environ when none is set: never left for the tests after
-        if region is None:
-            os.environ.pop("AWS_REGION", None)
-        else:
-            os.environ["AWS_REGION"] = region
+    # main() writes the run's region into os.environ when none is set. setenv then delenv makes monkeypatch record
+    # AWS_REGION as it was before the test (setenv) and leave it unset for main(), so teardown undoes main()'s write.
+    monkeypatch.setenv("AWS_REGION", "recorded-by-monkeypatch")
+    monkeypatch.delenv("AWS_REGION")
+    assert mod.main(["--run", str(tmp_path), "--print"]) == 0
     out = capsys.readouterr().out
     assert "assume Kubernetes" not in out
 
