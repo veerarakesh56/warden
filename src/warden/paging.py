@@ -24,6 +24,7 @@ from typing import Any
 KILLSWITCH_METRIC = "KillSwitchTripped"
 _PAGE_KEY = re.compile(r"[A-Za-z0-9._-]{1,200}")  # the pager's own key shape (pager._KEY): the only ones it writes
 ACK = "page.acknowledged"
+_LOG = logging.getLogger("warden.paging")
 WORKFLOW = "page-ack"  # what an acknowledgement's passkey signs for: no plan is ever this
 
 
@@ -61,7 +62,7 @@ def model_condition(log: Any, condition: str, *, now: datetime | None = None) ->
             return False
         log.append("pages", MODEL_PAGED, {"condition": condition, "day": day})
     except Exception:  # noqa: BLE001 - a page never stops the incident; it still goes to a person
-        logging.getLogger("warden.paging").warning("the model's %s page could not be recorded", condition)
+        _LOG.warning("the model's %s page could not be recorded", condition)
         return False
     _count(metric)
     return True
@@ -81,7 +82,7 @@ def _count(metric: str) -> None:
         boto3.client("cloudwatch", region_name=region()).put_metric_data(
             Namespace=namespace, MetricData=[{"MetricName": metric, "Value": 1, "Unit": "Count"}])
     except Exception:  # noqa: BLE001 - the condition stands on the record
-        logging.getLogger("warden.paging").warning("the page count %s could not be sent", metric)
+        _LOG.warning("the page count %s could not be sent", metric)
 
 
 def signed_for(pages: list[dict[str, Any]]) -> str:
@@ -155,7 +156,7 @@ def open_pages(store: Any) -> list[dict[str, Any]]:
         try:
             page = store.get(name)
         except Exception:  # noqa: BLE001 - one unreadable page must not hide the others
-            logging.getLogger("warden.paging").warning("a page could not be read: skipped")
+            _LOG.warning("a page could not be read: skipped")
             continue
         if not (isinstance(page, dict) and isinstance(page.get("key"), str) and _PAGE_KEY.fullmatch(page["key"])
                 and isinstance(page.get("opened_at"), str)):

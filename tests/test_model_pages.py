@@ -15,7 +15,7 @@ import pytest
 from pydantic import BaseModel
 
 from test_paging import MODULE, _world, pager
-from warden import activities, audit, eldane, paging
+from warden import activities, audit, eldane, llm, paging
 from warden.activities import IncidentActivities
 from warden.cli import DEMO_ALERTS
 from warden.llm import LLMClient, ModelRefused
@@ -26,6 +26,9 @@ from warden.providers import Completion, ProviderError, ProviderExhausted
 SECRET = "sk-" + "ant-" + "x" * 24
 EVIDENCE = "orders-db-" + "7f3a9"
 DAY = datetime(2026, 10, 21, 9, 0, tzinfo=UTC)
+GOOD = '{"answer": "ok", "score": 1}'
+CAP_METRIC, BUDGET_METRIC = paging.MODEL_METRICS[paging.DAILY_CAP], paging.MODEL_METRICS[paging.BUDGET]
+CONDITION = "condition"
 
 
 class Toy(BaseModel):
@@ -95,14 +98,34 @@ def _paged(log) -> list[dict[str, Any]]:
                          ids=["503", "429", "no-status", "exhausted"])
 def test_an_unavailable_provider_pages_once_however_many_incidents_it_stops(tmp_path, counted, failure):
     log = _incidents(tmp_path, lambda: Scripted(failure), n=3)
-    assert [r["condition"] for r in _paged(log)] == [paging.PROVIDER_UNAVAILABLE]
+    assert [r[CONDITION] for r in _paged(log)] == [paging.PROVIDER_UNAVAILABLE]
     assert _metrics(counted) == ["ModelProviderUnavailable"]
 
 
 def test_a_spent_budget_pages_once(tmp_path, counted):
     log = _incidents(tmp_path, lambda: Scripted("not json"), n=2, max_usd=0.00001)
-    assert [r["condition"] for r in _paged(log)] == [paging.BUDGET]
-    assert _metrics(counted) == ["ModelBudgetReached"]
+    assert [r[CONDITION] for r in _paged(log)] == [paging.BUDGET]
+    assert _metrics(counted) == [BUDGET_METRIC]
+
+
+MOCK_CEILING = "mock-ceiling"
+
+
+@pytest.mark.parametrize("how", ["spent-in-a-call", "call-ceiling-before-a-call", "prompt-too-large", MOCK_CEILING])
+def test_every_way_the_budget_stops_a_call_names_the_budget(how):
+    from warden.llm import BudgetExceeded
+
+    mock = how == MOCK_CEILING
+    # Spent in a call: the request's own estimate passes, and the answer's 100,000 tokens of input then cost more.
+    client = LLMClient(provider=None if mock else Scripted(Completion(GOOD, 100_000, 5)), mock=mock, max_calls=1,
+                       max_usd=0.01 if how == "spent-in-a-call" else 10.0)
+    ask = {"system": "s", "user": "u" * (llm.MAX_PROMPT_TOKENS * 5 if how == "prompt-too-large" else 1), "schema": Toy,
+           "mock_factory": lambda: Toy(answer="a", score=1)}
+    if how in ("call-ceiling-before-a-call", MOCK_CEILING):
+        client.structured(**ask)
+    with pytest.raises(BudgetExceeded):
+        client.structured(**ask)
+    assert client.stopped_by == paging.BUDGET
 
 
 def test_the_daily_cap_pages_once_for_every_incident_it_stops(tmp_path, counted):
@@ -114,8 +137,8 @@ def test_the_daily_cap_pages_once_for_every_incident_it_stops(tmp_path, counted)
     for i in range(3):
         acts.diagnose(acts.prepare(Alert(**{**DEMO_ALERTS["inc-002"], "alert_id": f"inc-cap-{i}"})))
     assert p.calls == 0  # the cap stopped the model before any call
-    assert [r["condition"] for r in _paged(log)] == [paging.DAILY_CAP]
-    assert _metrics(counted) == ["ModelDailyCapReached"]
+    assert [r[CONDITION] for r in _paged(log)] == [paging.DAILY_CAP]
+    assert _metrics(counted) == [CAP_METRIC]
 
 
 def test_eldanes_daily_call_cap_pages_once(tmp_path, counted):
@@ -126,8 +149,8 @@ def test_eldanes_daily_call_cap_pages_once(tmp_path, counted):
     for _ in range(3):
         assert "daily ceiling" in eldane._skip(log, {"d": 1}, {"model": "other"}, rows["model"], "why",
                                                rows["evidence"])
-    assert [r["condition"] for r in _paged(log)] == [paging.DAILY_CAP]
-    assert _metrics(counted) == ["ModelDailyCapReached"]
+    assert [r[CONDITION] for r in _paged(log)] == [paging.DAILY_CAP]
+    assert _metrics(counted) == [CAP_METRIC]
 
 
 def test_each_condition_pages_again_the_next_day_and_not_before(tmp_path, counted):
@@ -136,7 +159,7 @@ def test_each_condition_pages_again_the_next_day_and_not_before(tmp_path, counte
     assert not paging.model_condition(log, paging.BUDGET, now=DAY + timedelta(hours=14))  # 23:00 the same day
     assert paging.model_condition(log, paging.PROVIDER_UNAVAILABLE, now=DAY)  # another condition is its own page
     assert paging.model_condition(log, paging.BUDGET, now=DAY + timedelta(days=1))
-    assert _metrics(counted) == ["ModelBudgetReached", "ModelProviderUnavailable", "ModelBudgetReached"]
+    assert _metrics(counted) == [BUDGET_METRIC, "ModelProviderUnavailable", BUDGET_METRIC]
 
 
 def test_no_condition_counts_nothing(tmp_path, counted):
@@ -150,8 +173,8 @@ def test_no_condition_counts_nothing(tmp_path, counted):
 # --------------------------------------------------------------------------- normal errors page nobody
 
 
-@pytest.mark.parametrize("script", [("not json",), (_status(503), '{"answer": "ok", "score": 1}'), (_status(401),),
-                                    (_status(400),), ('{"answer": "ok", "score": 1}',)],
+@pytest.mark.parametrize("script", [("not json",), (_status(503), GOOD), (_status(401),),
+                                    (_status(400),), (GOOD,)],
                          ids=["bad-json", "retry-got-through", "bad-key", "malformed-request", "answered"])
 def test_a_normal_error_pages_nobody(tmp_path, counted, script):
     log = audit.AuditLog(tmp_path / "a.db", key=None)

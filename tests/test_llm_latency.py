@@ -19,6 +19,7 @@ from warden.providers import Completion, ProviderError
 
 PAUSE_S = 0.02  # each fake request takes at least this long, so a measured time is seen to be one
 GOOD = '{"answer": "ok", "score": 1}'
+LATENCY = "latency_ms"
 
 
 class Toy(BaseModel):
@@ -119,7 +120,7 @@ def test_the_incidents_spend_row_carries_each_requests_time(tmp_path):
     acts.diagnose(pack)
     [row] = [e["body"] for e in log.entries(pack.alert.alert_id, kinds=("incident.llm_spend",))]
     assert p.calls == 3
-    _measured(row["latency_ms"], 3)
+    _measured(row[LATENCY], 3)
 
 
 def test_a_mock_diagnosis_row_has_a_time_for_its_one_call(tmp_path):
@@ -128,8 +129,8 @@ def test_a_mock_diagnosis_row_has_a_time_for_its_one_call(tmp_path):
     pack = acts.prepare(Alert(**DEMO_ALERTS["inc-002"]))
     acts.diagnose(pack)
     [row] = [e["body"] for e in log.entries(pack.alert.alert_id, kinds=("incident.llm_spend",))]
-    assert len(row["latency_ms"]) == 1
-    assert row["latency_ms"][0] >= 0
+    assert len(row[LATENCY]) == 1
+    assert row[LATENCY][0] >= 0
 
 
 @pytest.mark.parametrize("answer", [ProviderError("down"), '{"agree": true, "reasons": []}'], ids=["failed", "answered"])
@@ -137,5 +138,5 @@ def test_eldanes_call_row_has_its_time(tmp_path, answer):
     log = audit.AuditLog(tmp_path / "a.db", key=None)
     eldane.ask(log, "inc-1", Scripted(answer), "evidence", set(), purpose="blind")
     [row] = [e["body"] for e in log.entries("inc-1", kinds=(eldane.CALL,))]
-    assert isinstance(row["latency_ms"], int)
-    assert row["latency_ms"] >= PAUSE_S * 1000 * 0.5
+    assert isinstance(row[LATENCY], int)
+    assert row[LATENCY] >= PAUSE_S * 1000 * 0.5

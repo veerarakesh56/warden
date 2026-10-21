@@ -14,6 +14,7 @@ from warden import observability as obs
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MODULE = ROOT / "terraform" / "modules" / "warden-runtime"
 OFFICIAL = "opentelemetry-exporter-otlp-proto-http"
+ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
 
 def _variable(name: str) -> str:
@@ -56,7 +57,7 @@ def test_any_other_endpoint_is_refused(url):
 def test_every_zone_gets_the_endpoint_only_when_it_is_on():
     compute = (MODULE / "compute.tf").read_text(encoding="utf-8")
     assert "var.otlp_exporter ? { OTEL_EXPORTER_OTLP_ENDPOINT = var.otlp_endpoint } : {}" in compute
-    assert compute.count("OTEL_EXPORTER_OTLP_ENDPOINT") == 1
+    assert compute.count(ENV) == 1
     module = "\n".join(p.read_text(encoding="utf-8") for p in sorted(MODULE.glob("*.tf")))
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in module  # no credential travels as a plain environment variable
 
@@ -78,8 +79,8 @@ def test_the_image_carries_the_official_exporter_from_the_lockfile():
 
 
 def test_the_app_ships_spans_only_when_the_endpoint_is_set(monkeypatch):
-    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv(ENV, raising=False)
     monkeypatch.delenv("WARDEN_TRACE_CONSOLE", raising=False)
     assert obs._build_exporter() is None
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otlp.example.test")
+    monkeypatch.setenv(ENV, "https://otlp.example.test")
     assert obs._build_exporter() is not None
