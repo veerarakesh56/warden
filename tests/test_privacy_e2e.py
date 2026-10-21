@@ -15,7 +15,7 @@ import urllib.request
 
 import pytest
 
-from warden import changes, chatops, egress, graph
+from warden import changes, chatops, egress, graph, web
 from warden.cli import DEMO_ALERTS
 from warden.egress import EgressBlocked
 from warden.llm import LLMClient
@@ -56,6 +56,7 @@ def wire(monkeypatch):
         return _Answer()
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(web, "urlopen", urlopen)  # the one https opener every sink uses since #168
     monkeypatch.setenv("WARDEN_CHATOPS_LIVE", "1")
     return sent
 
