@@ -90,7 +90,7 @@ def test_the_estimate_is_each_models_own_listed_price_and_an_unpriced_model_is_r
     p_in, p_out = load_qualified()["prices"][A]
     assert e["answers"] == 4
     assert e["input_tokens"] == 40_000
-    assert round((40_000 * p_in + 4 * bench_jobs.EXPECTED_OUT_TOKENS * p_out) / 1e6, 2) == e["expected_usd"]
+    assert e["expected_usd"] == round((40_000 * p_in + 4 * bench_jobs.EXPECTED_OUT_TOKENS * p_out) / 1e6, 2)
     assert e["worst_usd"] > e["expected_usd"]
     assert e["reserve_usd"] == round((30_000 / 3 * p_in + MAX_OUTPUT_TOKENS * p_out) / 1e6, 4)
     with pytest.raises(SystemExit, match="no row in providers.yaml"):
@@ -210,8 +210,9 @@ def test_a_dry_run_reads_no_key_and_writes_neither_docs_nor_providers_yaml(few, 
     assert code == 0
     assert secrets.asked == []
     assert "ANTHROPIC_API_KEY" not in os.environ
-    assert bench_jobs.BENCHMARKS_MD.read_bytes() == docs
-    assert bench_jobs.PROVIDERS_YAML.read_bytes() == providers
+    docs_now, providers_now = bench_jobs.BENCHMARKS_MD.read_bytes(), bench_jobs.PROVIDERS_YAML.read_bytes()
+    assert docs_now == docs
+    assert providers_now == providers
     assert "DRY RUN" in said
     preview = (out / "BENCHMARKS.md").read_text(encoding="utf-8")
     rows = [line for line in preview.splitlines() if "| headtohead (dry run) |" in line]
