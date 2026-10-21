@@ -42,7 +42,8 @@ CHAIN = ("sts:AssumeRole", "sts:SetSourceIdentity")
 
 def test_every_allowed_action_only_reads_except_assuming_the_sweep_role():
     for st in _allow_statements():
-        assert "NotAction" not in st and "NotResource" not in st, st["Sid"]
+        assert "NotAction" not in st, st["Sid"]
+        assert "NotResource" not in st, st["Sid"]
         for action in _list(st["Action"]):
             name = action.split(":")[1]
             assert "*" not in action, action

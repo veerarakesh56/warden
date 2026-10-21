@@ -20,6 +20,7 @@
 6. Restore: previous default back, temporary version deleted, live == repo verified.
 Prints codes only - AWS error messages carry the account id.
 """
+import functools
 import json
 import pathlib
 import subprocess
@@ -55,6 +56,62 @@ def recover(iam, arn: str) -> list[str]:
     return sorted(v["VersionId"] for v in probes)
 
 
+def _attempt(results: list[bool], label: str, fn, expect_denied: bool, cleanup=None) -> str:
+    """Run one probe: DENIED, ALLOWED (its cleanup run at once) or ERROR <code>; its PASS/FAIL line printed and
+    appended to `results`."""
+    try:
+        fn()
+        outcome = "ALLOWED"
+        if cleanup:
+            cleanup()
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        outcome = "DENIED" if code in ("AccessDenied", "AccessDeniedException") else f"ERROR {code}"
+    ok = (outcome == "DENIED") == expect_denied and not outcome.startswith("ERROR")
+    results.append(ok)
+    print(f"  {'PASS' if ok else 'FAIL'}  {label}: {outcome} (expected {'DENIED' if expect_denied else 'ALLOWED'})")
+    return outcome
+
+
+def _make_room(iam, op: str) -> str:
+    """The operator policy's default version id; at IAM's five-version limit the oldest non-default is deleted."""
+    versions = iam.list_policy_versions(PolicyArn=op)["Versions"]
+    previous = next(v["VersionId"] for v in versions if v["IsDefaultVersion"])
+    if len(versions) >= 5:
+        oldest = min((v for v in versions if not v["IsDefaultVersion"]), key=lambda v: v["CreateDate"])
+        iam.delete_policy_version(PolicyArn=op, VersionId=oldest["VersionId"])
+    return previous
+
+
+def _wait_for_grant(control) -> None:
+    """Until the control SUCCEEDS (2 minutes): only then is a later denial the boundary's, not propagation."""
+    for _ in range(24):
+        try:
+            control()
+            print("  control allowed - the temporary grant is live")
+            return
+        except ClientError:
+            time.sleep(5)
+    raise SystemExit("control never succeeded - cannot tell a boundary denial from propagation")
+
+
+def _restore(iam, op: str, previous: str, temp: str, repo_doc: dict) -> None:
+    """Step 6: the previous default back, the temporary version deleted, and what is left printed and checked."""
+    print("6. restore")
+    iam.set_default_policy_version(PolicyArn=op, VersionId=previous)
+    iam.delete_policy_version(PolicyArn=op, VersionId=temp)
+    live = _document(iam, op, previous)
+    left = [v["VersionId"] for v in iam.list_policy_versions(PolicyArn=op)["Versions"]]
+    print(f"  default back to {previous}; temporary {temp} deleted; versions now {sorted(left)}; "
+          f"live identical to repo: {live == repo_doc}")
+    for name in ("warden-pg-probe-nobound", "warden-pg-probe-bounded"):
+        try:
+            iam.get_role(RoleName=name)
+            print(f"  !! {name} STILL EXISTS")
+        except ClientError as e:
+            print(f"  {name}: gone ({e.response['Error']['Code']})")
+
+
 def main() -> int:
     import boto3
 
@@ -70,20 +127,7 @@ def main() -> int:
                                      capture_output=True, text=True).stdout)
     tags = [{"Key": k, "Value": v} for k, v in tags.items()] + [{"Key": "Purpose", "Value": "boundary-probe"}]
     results = []
-
-    def attempt(label, fn, expect_denied, cleanup=None):
-        try:
-            fn()
-            outcome = "ALLOWED"
-            if cleanup:
-                cleanup()
-        except ClientError as e:
-            code = e.response["Error"]["Code"]
-            outcome = "DENIED" if code in ("AccessDenied", "AccessDeniedException") else f"ERROR {code}"
-        ok = (outcome == "DENIED") == expect_denied and not outcome.startswith("ERROR")
-        results.append(ok)
-        print(f"  {'PASS' if ok else 'FAIL'}  {label}: {outcome} (expected {'DENIED' if expect_denied else 'ALLOWED'})")
-        return outcome
+    attempt = functools.partial(_attempt, results)
 
     def control():
         sqs.list_queues()
@@ -103,11 +147,7 @@ def main() -> int:
         "Action": ["sqs:ListQueues", "iam:CreatePolicyVersion", "iam:PutUserPermissionsBoundary"],
         "Resource": "*",
     })
-    versions = iam.list_policy_versions(PolicyArn=op)["Versions"]
-    previous = next(v["VersionId"] for v in versions if v["IsDefaultVersion"])
-    if len(versions) >= 5:
-        oldest = min((v for v in versions if not v["IsDefaultVersion"]), key=lambda v: v["CreateDate"])
-        iam.delete_policy_version(PolicyArn=op, VersionId=oldest["VersionId"])
+    previous = _make_room(iam, op)
     temp = iam.create_policy_version(PolicyArn=op, PolicyDocument=json.dumps(probe_doc),
                                      SetAsDefault=False)["PolicyVersion"]["VersionId"]
 
@@ -115,15 +155,7 @@ def main() -> int:
         iam.set_default_policy_version(PolicyArn=op, VersionId=temp)
         print(f"  temporary version {temp} is default (previous {previous})")
         print("3. waiting for the grant to take effect (the control must now SUCCEED)")
-        for _ in range(24):
-            try:
-                control()
-                print("  control allowed - the temporary grant is live")
-                break
-            except ClientError:
-                time.sleep(5)
-        else:
-            raise SystemExit("control never succeeded - cannot tell a boundary denial from propagation")
+        _wait_for_grant(control)
 
         print("4. escalation probes")
         boundary_doc = (REPO / "operator-policy-boundary.json").read_text(encoding="utf-8")
@@ -144,19 +176,7 @@ def main() -> int:
                                         PermissionsBoundary=boundary, Tags=tags), False,
                 cleanup=lambda: iam.delete_role(RoleName="warden-pg-probe-bounded"))
     finally:
-        print("6. restore")
-        iam.set_default_policy_version(PolicyArn=op, VersionId=previous)
-        iam.delete_policy_version(PolicyArn=op, VersionId=temp)
-        live = _document(iam, op, previous)
-        left = [v["VersionId"] for v in iam.list_policy_versions(PolicyArn=op)["Versions"]]
-        print(f"  default back to {previous}; temporary {temp} deleted; versions now {sorted(left)}; "
-              f"live identical to repo: {live == repo_doc}")
-        for name in ("warden-pg-probe-nobound", "warden-pg-probe-bounded"):
-            try:
-                iam.get_role(RoleName=name)
-                print(f"  !! {name} STILL EXISTS")
-            except ClientError as e:
-                print(f"  {name}: gone ({e.response['Error']['Code']})")
+        _restore(iam, op, previous, temp, repo_doc)
 
     print(f"\n{sum(results)}/{len(results)} checks passed")
     return 0 if all(results) else 1
