@@ -218,10 +218,11 @@ def test_no_matching_pods_is_an_error_not_a_clean_bill_of_health():
     A typo'd namespace has no Deployment in it either - that is what keeps this an error now that a
     Deployment which exists with zero pods is reported as evidence instead."""
     b = _backend(FakeCore(pods=[]), FakeApps(deployment=None))
+    alert = _alert()
     with pytest.raises(ToolError, match="no live pods match"):
-        b.metrics(_alert())
+        b.metrics(alert)
     with pytest.raises(ToolError):
-        b.logs(_alert())
+        b.logs(alert)
 
 
 def test_no_pods_reaches_the_verifier_as_a_tool_error():
@@ -426,8 +427,9 @@ def test_missing_deployment_is_an_empty_list_not_an_error():
 
 def test_non_404_api_errors_are_not_swallowed():
     """A 403 means the RBAC is wrong. Hiding it would make a broken deployment look healthy."""
+    backend, alert = _backend(apps=FakeApps(status=403)), _alert()
     with pytest.raises(_ApiErr) as exc:
-        _backend(apps=FakeApps(status=403)).deploys(_alert())
+        backend.deploys(alert)
     assert exc.value.status == 403
 
 

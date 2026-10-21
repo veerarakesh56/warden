@@ -117,8 +117,9 @@ def test_an_unlabelled_namespace_is_never_touched(labels):
     be proven to refuse, and to refuse BEFORE anything is written."""
     apps = FakeApps()
     clients = _clients(core=FakeCore(labels=labels), apps=apps)
+    target = _target()
     with pytest.raises(OpError, match="proving ground"):
-        OPS["k8s_patch_variant"](clients, _target(), variant="oom")
+        OPS["k8s_patch_variant"](clients, target, variant="oom")
     assert apps.patches == [], "it patched anyway"
 
 
@@ -137,8 +138,9 @@ def test_a_namespace_that_cannot_be_read_is_refused_not_assumed_safe():
         def read_namespace(self, *, name):
             raise RuntimeError("connection refused")
 
+    clients, target = _clients(core=Unreadable()), _target()
     with pytest.raises(OpError, match="cannot read namespace"):
-        OPS["k8s_scale"](_clients(core=Unreadable()), _target(), replicas=0)
+        OPS["k8s_scale"](clients, target, replicas=0)
 
 
 # --------------------------------------------------------------------------- the variants
@@ -174,8 +176,9 @@ def test_a_probe_from_a_previous_variant_is_cleared_not_inherited():
 
 
 def test_an_unknown_variant_is_refused():
+    clients, target = _clients(), _target()
     with pytest.raises(OpError, match="unknown variant"):
-        OPS["k8s_patch_variant"](_clients(), _target(), variant="make_it_broken_somehow")
+        OPS["k8s_patch_variant"](clients, target, variant="make_it_broken_somehow")
 
 
 # --------------------------------------------------------------------------- revert
@@ -223,8 +226,9 @@ def test_every_variant_reverts_to_exactly_the_baseline(variant):
 
 
 def test_restoring_without_a_saved_spec_refuses_rather_than_guessing():
+    clients, target = _clients(), _target()
     with pytest.raises(OpError, match="refusing to guess"):
-        OPS["k8s_restore_baseline"](_clients(), _target())
+        OPS["k8s_restore_baseline"](clients, target)
 
 
 class ModelRbac:
@@ -304,8 +308,9 @@ def test_deleting_a_pod_picks_one_and_reports_which():
 
 def test_deleting_a_pod_when_none_match_is_an_error_not_a_silent_pass():
     """A scenario that injected nothing must be reported as an error, never scored as a result."""
+    clients, target = _clients(core=FakeCore(pods=())), _target()
     with pytest.raises(OpError, match="nothing to measure"):
-        OPS["k8s_delete_one_pod"](_clients(core=FakeCore(pods=())), _target())
+        OPS["k8s_delete_one_pod"](clients, target)
 
 
 def test_revoking_log_access_removes_only_the_log_rule():
@@ -321,8 +326,9 @@ def test_revoking_log_access_removes_only_the_log_rule():
 def test_revoking_log_access_refuses_when_the_role_never_had_it():
     """⛔ Injecting nothing and calling it a fault would score the model against a healthy cluster."""
     rbac = FakeRbac(rules=[{"apiGroups": [""], "resources": ["pods"], "verbs": ["list"]}])
+    clients, target = _clients(rbac=rbac), _target()
     with pytest.raises(OpError, match="measure nothing"):
-        OPS["k8s_revoke_log_access"](_clients(rbac=rbac), _target())
+        OPS["k8s_revoke_log_access"](clients, target)
 
 
 def test_rbac_is_restored_from_the_saved_rules():
@@ -350,5 +356,6 @@ def test_the_catalog_dispatches_through_the_shared_run_steps():
 
 
 def test_an_unknown_op_names_the_kubernetes_registry_not_the_ecs_one():
+    clients, target = _clients(), _target()
     with pytest.raises(OpError, match="k8s_patch_variant"):
-        run_steps(_clients(), _target(), [{"op": "ecs_deploy_variant"}], account="", registry=OPS)
+        run_steps(clients, target, [{"op": "ecs_deploy_variant"}], account="", registry=OPS)

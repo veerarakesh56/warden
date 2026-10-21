@@ -146,8 +146,9 @@ def test_one_api_key_for_both_is_refused_and_nothing_is_stored(monkeypatch):
 def test_refuses_a_site_that_is_not_datadogs(tmp_path, monkeypatch):
     mod = _setup()
     args = _keys(tmp_path, monkeypatch)
+    aws, dd = Aws(), DD()
     with pytest.raises(SystemExit):
-        mod.main([*args[:4], "--site", "evil.example", *args[6:]], aws=Aws(), dd_call=DD())
+        mod.main([*args[:4], "--site", "evil.example", *args[6:]], aws=aws, dd_call=dd)
 
 
 def test_the_setup_keys_are_asked_for_not_read_from_disk_and_an_old_key_file_warns(tmp_path, monkeypatch, capsys):
@@ -172,8 +173,9 @@ def test_the_setup_keys_are_asked_for_not_read_from_disk_and_an_old_key_file_war
     monkeypatch.setattr("getpass.getpass", lambda prompt="": next(typed))
     assert mod.main(ARGS, aws=Aws(), dd_call=DD()) == 0
     monkeypatch.setattr("getpass.getpass", lambda prompt="": "  ")
+    aws, dd = Aws(), DD()
     with pytest.raises(SystemExit, match="the Datadog API key the runtime reads with was not given"):
-        mod.main(ARGS, aws=Aws(), dd_call=DD())
+        mod.main(ARGS, aws=aws, dd_call=dd)
 
     aws = Aws()
     assert mod.main(_keys(tmp_path, monkeypatch), aws=aws, dd_call=DD()) == 0

@@ -164,8 +164,9 @@ def test_a_prepare_that_keeps_failing_ends_the_incident_instead_of_retrying_fore
                                activity_executor=ThreadPoolExecutor(2)):
             handle = await env.client.start_workflow(IncidentWorkflow.run, Alert(**DEMO_ALERTS["inc-002"]),
                                                      id="inc-broken", task_queue=QUEUE)
+            result = handle.result()
             with pytest.raises(WorkflowFailureError):
-                await asyncio.wait_for(handle.result(), 120)
+                await asyncio.wait_for(result, 120)
 
     asyncio.run(main())
     assert 1 <= _Broken.attempts <= 3

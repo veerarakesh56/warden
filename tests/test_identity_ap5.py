@@ -75,10 +75,12 @@ def test_the_session_allows_only_the_plans_actions_on_its_exact_resources():
     _mint(sts)
     doc = json.loads(sts.calls[0]["Policy"])
     assert doc["Statement"] == [{"Effect": "Allow", "Action": ["lambda:UpdateAlias"], "Resource": [FN]}]
+    wildcard_sts = _Sts()
     with pytest.raises(identity.IdentityError, match="exact ARNs"):
-        _mint(_Sts(), resources=["arn:aws:lambda:*:*:function:*"])
+        _mint(wildcard_sts, resources=["arn:aws:lambda:*:*:function:*"])
+    too_long_sts, too_many = _Sts(), [f"{FN}-{i}" for i in range(40)]
     with pytest.raises(identity.IdentityError, match="2048"):
-        _mint(_Sts(), resources=[f"{FN}-{i}" for i in range(40)])
+        _mint(too_long_sts, resources=too_many)
 
 
 def test_no_session_without_an_approver_or_with_a_value_sts_would_refuse():
@@ -107,5 +109,6 @@ def test_a_wildcard_resource_only_with_an_exact_condition():
     assert json.loads(sts.calls[0]["Policy"])["Statement"][0]["Condition"] == cond
     for resources, condition in ((["*"], None), (["*"], {"ArnLike": {"lambda:FunctionArn": FN[:-8] + "*"}}),
                                  ([FN, "*"], cond)):
+        refused_sts = _Sts()
         with pytest.raises(identity.IdentityError):
-            _mint(_Sts(), resources=resources, condition=condition)
+            _mint(refused_sts, resources=resources, condition=condition)

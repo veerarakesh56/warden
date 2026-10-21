@@ -41,9 +41,10 @@ def test_a_beat_that_cannot_run_is_missed_never_a_crashed_worker(monkeypatch):
             raise asyncio.CancelledError
 
     monkeypatch.setattr(runtime.asyncio, "sleep", sleep)
+    client = _Client(error=RuntimeError("temporal down"))
+    beating = runtime.heartbeat(client, lambda: beats.append(1), every=timedelta(seconds=1), log=lines.append)
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(runtime.heartbeat(_Client(error=RuntimeError("temporal down")), lambda: beats.append(1),
-                                      every=timedelta(seconds=1), log=lines.append))
+        asyncio.run(beating)
     assert beats == []
     assert len(lines) == 2
     assert all("heartbeat missed" in line for line in lines)
@@ -151,8 +152,9 @@ def test_the_synthetic_runs_once_a_day_and_publishes_only_on_success(monkeypatch
         return ""
     monkeypatch.setattr(runtime.asyncio, "sleep", sleep)
     monkeypatch.setattr(runtime, "beat", beat)
+    beating = runtime.heartbeat(_Client(), lambda: None, shadow=lambda: shadows.append(1))
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(runtime.heartbeat(_Client(), lambda: None, shadow=lambda: shadows.append(1)))
+        asyncio.run(beating)
     assert len(runs) == 2
     assert runs[1] - runs[0] == timedelta(hours=24)
     assert shadows == [1]  # published for the first (passed), not the second (failed)

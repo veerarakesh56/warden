@@ -921,11 +921,14 @@ def test_nothing_in_the_environment_may_delete_or_share_a_final_snapshot(action)
 def test_aurora_script_refuses_a_cluster_outside_the_stack(cmd, tmp_path, monkeypatch):
     monkeypatch.setenv("WARDEN_ENV", "dev")
     ax, rds = _aurora(), FakeRds()
+    argv = [cmd, "--cluster", "prod-db", "--stack", str(tmp_path / "s.json")]
+    clients = {"rds": rds, "secretsmanager": FakeSm()}
     with pytest.raises(SystemExit, match="refusing"):
-        ax.main([cmd, "--cluster", "prod-db", "--stack", str(tmp_path / "s.json")],
-                clients={"rds": rds, "secretsmanager": FakeSm()})
+        ax.main(argv, clients=clients)
+    command = getattr(ax, cmd)
+    create_args = [FakeSm(), tmp_path / "s.json"] if cmd == "create" else []
     with pytest.raises(SystemExit, match="refusing"):
-        getattr(ax, cmd)(rds, *([FakeSm(), tmp_path / "s.json"] if cmd == "create" else []), "prod-db")
+        command(rds, *create_args, "prod-db")
     assert rds.calls == []
 
 
@@ -986,8 +989,9 @@ def test_aurora_touches_no_other_cluster_even_in_its_own_environment(tmp_path):
     """Only warden-<env>-aurora: the reader is named after it (the create test), and another name - even one with
     the environment's prefix - is refused before any call (seventh review: a prefix let qa reach qa-prod)."""
     ax, rds, sm = _aurora(), FakeRds(), FakeSm()
+    stack = _wrapped_stack(tmp_path)
     with pytest.raises(SystemExit, match="not this environment's cluster"):
-        ax.create(rds, sm, _wrapped_stack(tmp_path), cluster="warden-dev-other", log=lambda *_: None)
+        ax.create(rds, sm, stack, cluster="warden-dev-other", log=lambda *_: None)
     assert rds.calls == []
 
 
@@ -1104,8 +1108,10 @@ def test_aurora_script_needs_its_environment_said(cmd, tmp_path, monkeypatch):
     """Audit A-I-23: with no WARDEN_ENV the script acted on dev, whatever stack it was handed."""
     monkeypatch.delenv("WARDEN_ENV", raising=False)
     ax, rds = _aurora(), FakeRds()
+    argv = [cmd, "--stack", str(tmp_path / "s.json")]
+    clients = {"rds": rds, "secretsmanager": FakeSm()}
     with pytest.raises(SystemExit, match="WARDEN_ENV"):
-        ax.main([cmd, "--stack", str(tmp_path / "s.json")], clients={"rds": rds, "secretsmanager": FakeSm()})
+        ax.main(argv, clients=clients)
     assert rds.calls == []
 
 
@@ -1115,8 +1121,10 @@ def test_aurora_script_refuses_a_stack_of_another_environment(tmp_path, monkeypa
     stack.write_text(json.dumps({"environment": {"value": "prod", "sensitive": False, "type": "string"}}),
                      encoding="utf-8")
     ax, rds = _aurora(), FakeRds()
+    argv = ["create", "--stack", str(stack)]
+    clients = {"rds": rds, "secretsmanager": FakeSm()}
     with pytest.raises(SystemExit, match="'prod'"):
-        ax.main(["create", "--stack", str(stack)], clients={"rds": rds, "secretsmanager": FakeSm()})
+        ax.main(argv, clients=clients)
     assert rds.calls == []
 
 
@@ -1155,9 +1163,10 @@ def test_aurora_acts_only_on_its_own_environments_cluster(tmp_path, monkeypatch,
     warden-qa-prod-aurora and `destroy` deleted it."""
     ax = _aurora()
     monkeypatch.setenv("WARDEN_ENV", env)
+    argv = ["destroy", "--cluster", cluster, "--stack", str(tmp_path / "s.json")]
+    clients = {"rds": FakeRds(), "secretsmanager": FakeSm()}
     with pytest.raises(SystemExit, match="refusing"):
-        ax.main(["destroy", "--cluster", cluster, "--stack", str(tmp_path / "s.json")],
-                clients={"rds": FakeRds(), "secretsmanager": FakeSm()})
+        ax.main(argv, clients=clients)
 
 
 def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
@@ -1174,8 +1183,10 @@ def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
     path = tmp_path / "s.json"
     path.write_text(json.dumps({"environment": "dev", "db_users": {"app": "warden_prod_app"}}), encoding="utf-8")
     monkeypatch.setenv("WARDEN_ENV", "dev")
+    argv = ["status", "--stack", str(path)]
+    clients = {"rds": FakeRds(), "secretsmanager": FakeSm()}
     with pytest.raises(SystemExit, match="names the app user"):
-        ax.main(["status", "--stack", str(path)], clients={"rds": FakeRds(), "secretsmanager": FakeSm()})
+        ax.main(argv, clients=clients)
 
 
 def test_the_public_api_writes_access_logs_to_a_vended_log_group():
