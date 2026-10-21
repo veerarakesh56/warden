@@ -196,3 +196,9 @@ def test_a_decimal_reference_is_ascii_digits_only():
     before `[0-9]` became `\\d` (an unflagged `\\d` also matches every Unicode digit)."""
     assert sanitise_text("a &#123; b") == "a &amp;#123; b"
     assert sanitise_text("a &#\u0661\u0662\u0663; b") == "a &#\u0661\u0662\u0663; b"
+
+
+def test_a_key_split_by_a_control_character_is_still_a_leak():
+    """A terminal shows `AKIA<BEL>...` as one key: the view without control characters must see it whole (ninth
+    review). Without that view no test failed (plant check, S19)."""
+    assert leaked_kinds("key " + AWS_ACCESS_KEY_ID[:8] + "\x07" + AWS_ACCESS_KEY_ID[8:]) == ["APIKEY"]
