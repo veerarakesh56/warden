@@ -579,8 +579,6 @@ def _report_command(args: argparse.Namespace) -> int:
     """`warden report pilot`: the pilot metrics (pilot.py), read only from audit rows whose hash chain and checkpoint
     signatures check out against --public-key. Exit 1 when any row failed verification (it is not counted), 2 when the
     command was given something it cannot read."""
-    import sqlite3
-
     from . import audit, pilot
 
     try:
@@ -594,17 +592,10 @@ def _report_command(args: argparse.Namespace) -> int:
         _out("error: give --db naming an existing audit file, or set WARDEN_AUDIT_DSN", err=True)
         return 2
     key = audit.load_public_key(_key_file(args.public_key))
-    unreadable: tuple[type[BaseException], ...] = (FileNotFoundError, sqlite3.Error)
-    if audit._is_postgres(target):
-        import psycopg
-
-        unreadable += (psycopg.Error,)
     try:
         checked = pilot.read_only(target, key)  # read-only: never creates or writes the audit
-    except unreadable as e:
-        # A database's error text can name its host or user: the kind of error only (CodeRabbit, PR 175).
-        why = type(e).__name__ if audit._is_postgres(target) else _one(e)
-        _out(f"error: the audit cannot be read: {why}", err=True)
+    except pilot.Unreadable as e:
+        _out(f"error: the audit cannot be read: {_one(e)}", err=True)
         return 2
     for name, value in pilot.lines(pilot.report(checked, since)):
         _out(metric_line(name, value))

@@ -197,33 +197,48 @@ def read(log: Any, public_key: Any) -> Checked:
     return check([tuple(r) for r in rows], [tuple(c) for c in checkpoints], public_key)
 
 
-def read_only(target: Any, public_key: Any) -> Checked:
-    """Every row of the audit at `target`, opened READ-ONLY, checked against `public_key`: a SQLite file through a
-    `mode=ro` URI (FileNotFoundError when it is missing - never created), or a PostgreSQL DSN whose session is set
-    READ ONLY before the first query. SELECT only; nothing is created or written (an AuditLog would create the tables
-    on an empty file)."""
-    if audit._is_postgres(target):
-        with audit._pg_connect(str(target)) as db:
+class Unreadable(Exception):
+    """The audit could not be read (missing, empty, unreachable): said, never a crash and never a verification
+    failure."""
+
+
+def _pg_rows(dsn: str) -> tuple[list[Any], list[Any]]:
+    import psycopg
+
+    try:
+        with audit._pg_connect(dsn) as db:
             # Autocommit, so the SET is its own statement and every SELECT after it starts a READ ONLY transaction
             # (CodeRabbit, PR 175) - whatever the connection factory's default.
             db.autocommit = True
             db.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
-            rows, checkpoints = (
-                db.execute(ROWS_SQL).fetchall(),
-                db.execute(CHECKPOINTS_SQL).fetchall(),
-            )
-    else:
-        path = pathlib.Path(target)
-        if not path.is_file():
-            raise FileNotFoundError(f"no audit file at {path}")
+            return db.execute(ROWS_SQL).fetchall(), db.execute(CHECKPOINTS_SQL).fetchall()
+    except psycopg.Error as e:
+        # A database's error text can name its host or user: the kind of error only.
+        raise Unreadable(type(e).__name__) from None
+
+
+def _sqlite_rows(path: pathlib.Path) -> tuple[list[Any], list[Any]]:
+    if not path.is_file():
+        raise Unreadable(f"no audit file at {path}")
+    try:
         db = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
         try:
-            rows, checkpoints = (
-                db.execute(ROWS_SQL).fetchall(),
-                db.execute(CHECKPOINTS_SQL).fetchall(),
-            )
+            return db.execute(ROWS_SQL).fetchall(), db.execute(CHECKPOINTS_SQL).fetchall()
         finally:
             db.close()
+    except sqlite3.Error as e:
+        raise Unreadable(f"{type(e).__name__}: {e}") from None
+
+
+def read_only(target: Any, public_key: Any) -> Checked:
+    """Every row of the audit at `target`, opened READ-ONLY, checked against `public_key`: a SQLite file through a
+    `mode=ro` URI (missing: Unreadable - never created), or a PostgreSQL DSN whose session is set READ ONLY before the
+    first query. SELECT only; nothing is created or written (an AuditLog would create the tables on an empty file).
+    Unreadable when the audit cannot be read; a verification problem is never that."""
+    if audit._is_postgres(target):
+        rows, checkpoints = _pg_rows(str(target))
+    else:
+        rows, checkpoints = _sqlite_rows(pathlib.Path(target))
     return check([tuple(r) for r in rows], [tuple(c) for c in checkpoints], public_key)
 
 
