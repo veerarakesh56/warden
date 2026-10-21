@@ -560,7 +560,7 @@ def test_nothing_reaches_the_alb_or_the_orders_tasks_except_through_their_own_se
         assert ingress
         assert not [rule for rule in ingress if "cidr" in rule], ingress
         assert not [rule for rule in ingress if "prefix_list" in rule], ingress
-    assert "security_groups = [aws_security_group.lambda.id]" in alb
+    assert "security_groups = [aws_security_group.traffic.id]" in alb  # the traffic Lambda alone (PR 129)
     assert "security_groups = [aws_security_group.alb.id]" in ecs
     for tf in sorted(ROOT.joinpath("terraform").rglob("*.tf")):
         text = _code(tf.read_text(encoding="utf-8"))

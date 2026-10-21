@@ -94,10 +94,16 @@ def _shop_egress(name: str) -> list[dict[str, str]]:
 
 EVERYWHERE = '["0.0.0.0/0"]'
 REDIS = "[aws_security_group.redis.id]"
+# Owner decision 2026-10-21 (PR 129): AWS's APIs through interface endpoints, so the internet is left only where no
+# endpoint can serve: 5432 to Aurora express (no VPC, no security group), 443 for orders-api's placeholder image on
+# public.ecr.aws, and 443 for the traffic Lambda's calls to the PUBLIC HTTP API, in a group of its own.
 SHOP_EGRESS = {
     "ecs": {("443", EVERYWHERE), ("5432", EVERYWHERE), ("6379", REDIS)},
-    "lambda": {("443", EVERYWHERE), ("5432", EVERYWHERE), ("6379", REDIS)},
+    "lambda": {("5432", EVERYWHERE), ("6379", REDIS)},
+    "traffic": {("443", EVERYWHERE)},
 }
+# The groups whose HTTPS to AWS goes to the endpoints, by a separate rule (the groups name each other).
+TO_ENDPOINTS = {"ecs", "lambda"}
 
 
 @pytest.mark.parametrize("name", sorted(SHOP_EGRESS))
@@ -111,6 +117,78 @@ def test_each_app_group_allows_exactly_the_egress_its_code_needs(name):
     got = {(r["from_port"], r.get("cidr_blocks") or r.get("security_groups")) for r in rules}
     assert got == SHOP_EGRESS[name], (name, got)
     assert len(rules) == len(got), (name, rules)
+
+
+def test_https_to_aws_goes_to_the_endpoints_and_only_the_in_vpc_groups_reach_them():
+    text = SHOP_MAIN.read_text(encoding="utf-8")
+    egress = re.search(r'^resource "aws_vpc_security_group_egress_rule" "to_endpoints" \{\n(.*?)^\}', text,
+                       re.DOTALL | re.MULTILINE)
+    assert egress, "no egress rule to the endpoints"
+    body = egress.group(1)
+    assert set(re.findall(r"(\w+) = aws_security_group\.\1\.id", body)) == TO_ENDPOINTS
+    assert "referenced_security_group_id = aws_security_group.endpoints.id" in body
+    assert re.search(r"from_port\s*=\s*443", body)
+    assert re.search(r"to_port\s*=\s*443", body)
+    assert "cidr" not in body
+    ingress = re.search(r'^resource "aws_vpc_security_group_ingress_rule" "endpoints" \{\n(.*?)^\}', text,
+                        re.DOTALL | re.MULTILINE)
+    assert ingress, "no ingress rule on the endpoints"
+    assert set(re.findall(r"(\w+) = aws_security_group\.\1\.id", ingress.group(1))) == TO_ENDPOINTS | {"traffic"}
+    assert "cidr" not in ingress.group(1)
+    group = _shop_group("endpoints")
+    assert "egress" not in group
+    assert "ingress" not in group
+    endpoint = re.search(r'^resource "aws_vpc_endpoint" "interface" \{\n(.*?)^\}', text, re.DOTALL | re.MULTILINE)
+    assert endpoint, "no interface endpoints"
+    for line in ("private_dns_enabled = true", "subnet_ids          = aws_subnet.private[*].id",
+                 "security_group_ids  = [aws_security_group.endpoints.id]"):
+        assert line in endpoint.group(1), line
+
+
+# boto3 service name -> its interface endpoint; a client of a service not here fails the test below until it is
+# mapped (and given an endpoint, or shown to make no network call).
+_ENDPOINT_OF = {"secretsmanager": "secretsmanager", "sqs": "sqs", "sns": "sns", "dynamodb": "dynamodb",
+                "rds": "rds"}
+
+
+def _in_vpc_functions() -> set[str]:
+    lambdas = (ROOT / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
+    return set(re.findall(r"^    ([\w-]+) = \{\n(?:(?!^    \}).)*?in_vpc\s*=\s*true", lambdas, re.DOTALL | re.MULTILINE))
+
+
+def test_every_aws_call_the_in_vpc_code_makes_has_an_interface_endpoint():
+    """Derived from the code: the boto3 clients of orders-api and of every in-VPC Lambda, plus what Fargate itself
+    fetches for orders-api (its image from ECR, its logs, its secrets). A client whose only call is local - the RDS
+    client signs IAM database tokens, no request - needs none; DynamoDB and S3 have gateway endpoints."""
+    in_vpc = _in_vpc_functions()
+    assert in_vpc == {"order-processor", "reconciler", "traffic", "ops"}, in_vpc
+    sources = [SHOP_APPS / "app" / "app.py"] + [SHOP_APPS / "lambdas" / fn / "app.py" for fn in sorted(in_vpc)]
+    needed = set()
+    for src in sources:
+        code = src.read_text(encoding="utf-8")
+        for service in re.findall(r'boto3\.(?:client|resource)\("([a-z0-9-]+)"', code):
+            assert service in _ENDPOINT_OF, (src.name, service)
+            if service == "rds":  # only ever generate_db_auth_token, which signs locally
+                assert set(re.findall(r"\b(?:rds|RDS)\.(\w+)\(", code)) == {"generate_db_auth_token"}, src
+                continue
+            needed.add(_ENDPOINT_OF[service])
+    ecs = (ROOT / "terraform" / "fullstack" / "ecs.tf").read_text(encoding="utf-8")
+    assert '"awslogs-group"' in ecs
+    needed.add("logs")
+    assert "aws_ecr_repository" in ecs
+    needed |= {"ecr.api", "ecr.dkr"}  # the APPS pipeline's image; its layers through the S3 gateway endpoint
+    apps = (ROOT / "scripts" / "deploy_fullstack_apps.py").read_text(encoding="utf-8")
+    assert '"valueFrom": f"{secret}:' in apps  # orders-api's task secrets, which Fargate reads through the task ENI
+    needed.add("secretsmanager")
+    text = SHOP_MAIN.read_text(encoding="utf-8")
+    listed = re.search(r'interface_endpoints = toset\(\[([^\]]*)\]\)', text)
+    assert listed, "no interface endpoint list"
+    have = set(re.findall(r'"([a-z0-9.-]+)"', listed.group(1)))
+    gateway = re.search(r'resource "aws_vpc_endpoint" "gateway" \{\n\s*for_each\s*=\s*toset\(\[([^\]]*)\]\)', text)
+    assert gateway, "no gateway endpoints"
+    free = set(re.findall(r'"([a-z0-9.-]+)"', gateway.group(1)))
+    assert free == {"s3", "dynamodb"}
+    assert needed - free == have, (sorted(needed - free), sorted(have))  # nothing missing, nothing paid for unused
 
 
 def test_the_ports_are_the_ones_the_apps_use():

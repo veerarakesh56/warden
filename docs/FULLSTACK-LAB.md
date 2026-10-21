@@ -26,7 +26,7 @@ and every resource is tagged `Project=warden` and `Environment=<env>`. A workspa
 
 | Component | Shape |
 |---|---|
-| Network | one VPC over two availability zones; private subnets for everything except the NAT gateway; one NAT gateway; free gateway endpoints for S3 and DynamoDB; no interface endpoints (Secrets Manager and SQS calls go through the NAT, since 2026-10-16) |
+| Network | one VPC over two availability zones; private subnets for everything except the NAT gateway; one NAT gateway; free gateway endpoints for S3 and DynamoDB; interface endpoints for Secrets Manager, SQS, CloudWatch Logs and ECR (owner decision 2026-10-21: the AWS calls stay off the internet) |
 | Lambda | `checkout` (the API, alias `live`), `order-processor` (SQS consumer, in the VPC, writes to Aurora), `notifier`, `reconciler` (every 5 minutes, in the VPC, reads Aurora and Redis), `traffic` (a load generator, every minute), `ops` (harness-only admin commands for Redis) |
 | API Gateway | an HTTP API: `POST /checkout` (bearer token, from Secrets Manager) and `GET /health`, with access logs |
 | ECS | `orders-api` on Fargate (2 tasks) behind an **internal** ALB |

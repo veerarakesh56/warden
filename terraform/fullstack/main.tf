@@ -180,10 +180,60 @@ resource "aws_vpc_endpoint" "gateway" {
   tags              = { Name = "${local.name}-${each.key}" }
 }
 
-# No interface endpoints (cost plan, 2026-10-16): Secrets Manager and SQS were USD 0.0129/hour each, about
-# USD 19 a month together, for a few thousand calls a day that the NAT carries for cents - ECR, STS and the
-# rest already went that way. They also sat in private[0] alone, an accepted az-outage failure (helios). TLS
-# and IAM still guard every call; no policy here conditions on aws:SourceVpce.
+# Interface endpoints (owner decision 2026-10-21, replacing the cost plan of 2026-10-16): every AWS API the in-VPC
+# code calls goes through one, so no application security group needs HTTPS to the internet for AWS. The list comes
+# from the code (tests/test_iac_hardening_sonar.py derives it again and compares):
+#   secretsmanager - order-processor, reconciler and traffic read a secret; Fargate fetches orders-api's `secrets`
+#   sqs            - traffic sends orders
+#   logs           - orders-api's awslogs driver (a Lambda's logs go through the Lambda service, not its ENI)
+#   ecr.api, ecr.dkr - orders-api's image from this stack's ECR (its layers come through the S3 gateway endpoint)
+# Not here, because the code makes no such call: STS (credentials come from the Lambda environment and the ECS
+# credentials endpoint), KMS (Secrets Manager decrypts server-side), RDS (generate_db_auth_token signs locally).
+# Not execute-api: with private DNS it would take the traffic Lambda's calls to the PUBLIC HTTP API, which a VPC
+# endpoint cannot serve. Price (AWS Price List API, ap-south-2, published 2026-10-16, read 2026-10-21): USD 0.013 per
+# endpoint-hour per AZ - in both private subnets, USD 18.98 a month each, USD 94.90 for the five, plus USD 0.01/GB.
+locals {
+  interface_endpoints = toset(["secretsmanager", "sqs", "logs", "ecr.api", "ecr.dkr"])
+}
+
+resource "aws_security_group" "endpoints" {
+  name        = "${local.name}-endpoints"
+  description = "Interface endpoints. HTTPS from the in-VPC application groups only."
+  vpc_id      = aws_vpc.this.id
+  tags        = { Name = "${local.name}-endpoints" }
+}
+
+# Separate rules: the endpoint group and the application groups name each other (a cycle inside the blocks).
+resource "aws_vpc_security_group_ingress_rule" "endpoints" {
+  for_each                     = { ecs = aws_security_group.ecs.id, lambda = aws_security_group.lambda.id, traffic = aws_security_group.traffic.id }
+  security_group_id            = aws_security_group.endpoints.id
+  description                  = "HTTPS from the ${each.key} group"
+  ip_protocol                  = "tcp"
+  from_port                    = 443
+  to_port                      = 443
+  referenced_security_group_id = each.value
+}
+
+resource "aws_vpc_security_group_egress_rule" "to_endpoints" {
+  for_each                     = { ecs = aws_security_group.ecs.id, lambda = aws_security_group.lambda.id }
+  security_group_id            = each.value
+  description                  = "HTTPS to the AWS API interface endpoints only"
+  ip_protocol                  = "tcp"
+  from_port                    = 443
+  to_port                      = 443
+  referenced_security_group_id = aws_security_group.endpoints.id
+}
+
+resource "aws_vpc_endpoint" "interface" {
+  for_each            = local.interface_endpoints
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${local.region}.${each.key}"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = true
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.endpoints.id]
+  tags                = { Name = "${local.name}-${replace(each.key, ".", "-")}" }
+}
 
 # --------------------------------------------------------------------------- security groups
 #
@@ -193,15 +243,15 @@ resource "aws_vpc_endpoint" "gateway" {
 
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb"
-  description = "Orders API load balancer, internal. HTTP from the in-VPC Lambdas only."
+  description = "Orders API load balancer, internal. HTTPS from the traffic Lambda only."
   vpc_id      = aws_vpc.this.id
   ingress {
-    description = "HTTPS from the Lambda security group only"
+    description = "HTTPS from the traffic Lambda group only"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    # Only the Lambdas inside the VPC (the traffic generator) - never the internet.
-    security_groups = [aws_security_group.lambda.id]
+    # Only the traffic generator - never the internet.
+    security_groups = [aws_security_group.traffic.id]
   }
   egress {
     description = "To the ECS tasks (HTTPS on 8080)"
@@ -223,12 +273,17 @@ resource "aws_security_group" "ecs" {
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
-  # Least egress (owner B28), from what orders-api does (scenarios/fullstack/app/app.py): HTTPS to AWS's APIs (image
-  # pulls from ECR and public.ecr.aws, Secrets Manager, CloudWatch Logs; S3 through its gateway endpoint), PostgreSQL
-  # to Aurora - in express configuration it is outside the VPC, reached through the NAT, so its address is not
-  # known here - and Redis to the cache's own group. DNS and the time service are not filtered by security groups.
+  # Least egress (owner B28), from what orders-api does (scenarios/fullstack/app/app.py): HTTPS to the AWS API
+  # interface endpoints (a separate rule, aws_vpc_security_group_egress_rule.to_endpoints), PostgreSQL to Aurora and
+  # Redis to the cache's own group. DNS and the time service are not filtered by security groups.
+  # Still open to the internet, each for a reason no endpoint covers:
+  # - 443: terraform's PLACEHOLDER image is on public.ecr.aws (ecs.tf), which no VPC endpoint serves. The APPS
+  #   pipeline's real image comes from this stack's ECR through the endpoints. Removing this rule needs the
+  #   placeholder pulled through an ECR pull-through cache (an IAM change; owner's choice, PR 129).
+  # - 5432: Aurora in EXPRESS configuration (the Free plan's only form) has no VPC and no security group; its only way
+  #   in is the Aurora internet access gateway, which cannot be disabled, at no fixed address (aurora_express.py).
   egress {
-    description = "HTTPS to AWS APIs and image registries, through the NAT"
+    description = "HTTPS to public.ecr.aws for the placeholder image only, through the NAT"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -252,18 +307,12 @@ resource "aws_security_group" "ecs" {
 
 resource "aws_security_group" "lambda" {
   name        = "${local.name}-lambda"
-  description = "In-VPC Lambdas. Egress only."
+  description = "In-VPC Lambdas but traffic. Egress only."
   vpc_id      = aws_vpc.this.id
-  # Least egress (owner B28), from what the in-VPC functions do (scenarios/fullstack/lambdas): order-processor and
-  # reconciler read Aurora (express: outside the VPC, through the NAT), reconciler and ops read Redis, and traffic
-  # calls the public API and the internal load balancer, both over HTTPS (the ALB listens on 443 only, ecs.tf).
-  egress {
-    description = "HTTPS to AWS APIs and the public API, through the NAT"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  # Least egress (owner B28), from what these functions do (scenarios/fullstack/lambdas): order-processor and
+  # reconciler read a secret (the endpoints, aws_vpc_security_group_egress_rule.to_endpoints) and Aurora, reconciler
+  # and ops read Redis. Still open to the internet: 5432 only - Aurora EXPRESS has no VPC and no security group, its
+  # only way in is its internet access gateway, at no fixed address (aurora_express.py).
   egress {
     description = "PostgreSQL to Aurora express, outside the VPC, through the NAT"
     from_port   = 5432
@@ -277,6 +326,22 @@ resource "aws_security_group" "lambda" {
     to_port         = 6379
     protocol        = "tcp"
     security_groups = [aws_security_group.redis.id]
+  }
+}
+
+# The traffic Lambda alone (fs load generator): it calls the shop's PUBLIC HTTP API, which no VPC endpoint can serve,
+# so it keeps HTTPS to the internet - in a group of its own, so no other function shares that rule. The same 443
+# rule reaches the internal ALB and, through private DNS, the Secrets Manager and SQS endpoints.
+resource "aws_security_group" "traffic" {
+  name        = "${local.name}-traffic"
+  description = "The traffic Lambda. Egress only."
+  vpc_id      = aws_vpc.this.id
+  egress {
+    description = "HTTPS to the public API (internet), the ALB and the endpoints"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 

@@ -129,7 +129,7 @@ locals {
     traffic = {
       timeout = 55
       memory  = 128
-      in_vpc  = true # reaches the internal ALB; API Gateway through the NAT
+      in_vpc  = true # reaches the internal ALB; API Gateway through the NAT (its own security group, main.tf)
       env = {
         API_URL           = aws_apigatewayv2_api.api.api_endpoint
         ALB_URL           = "https://${aws_lb.orders.dns_name}"
@@ -236,7 +236,7 @@ resource "aws_lambda_function" "fn" {
     for_each = each.value.in_vpc ? [1] : []
     content {
       subnet_ids         = aws_subnet.private[*].id
-      security_group_ids = [aws_security_group.lambda.id]
+      security_group_ids = [each.key == "traffic" ? aws_security_group.traffic.id : aws_security_group.lambda.id]
     }
   }
 

@@ -345,9 +345,8 @@ resource "aws_ecs_service" "orders_api" {
   network_configuration {
     subnets         = aws_subnet.private[*].id
     security_groups = [aws_security_group.ecs.id]
-    # Private: no public IP. There are no ECR interface endpoints and the placeholder image is on
-    # public.ecr.aws, so image pulls go through the NAT (only S3 has a gateway endpoint); the rest of
-    # the egress uses the NAT the stack already has, so this adds no fixed cost.
+    # Private: no public IP. The APPS pipeline's image comes through the ECR interface endpoints (its layers
+    # through the S3 gateway endpoint); terraform's placeholder is on public.ecr.aws, so it goes through the NAT.
     assign_public_ip = false
   }
 

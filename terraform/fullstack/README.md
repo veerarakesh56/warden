@@ -37,12 +37,13 @@ costs. Their only callers do not verify a target's certificate: the ALB (target 
 kubelet's `scheme: HTTPS` probes. The ALB's own listener has the stack's certificate, which the traffic Lambda pins.
 Kubernetes objects are not in terraform at all.
 
-## ⛔ Cost - about USD 0.53/hour, USD 13/day (after the cost plan)
+## ⛔ Cost - about USD 0.66/hour, USD 16/day (after the cost plan, with the interface endpoints of 2026-10-21)
 
 Measured in Cost Explorer for 2026-10-15 (a full day, before credits: USD 0.65/hour for this stack,
 USD 0.99/hour with WARDEN's runtime), ap-south-2 prices from the AWS Price List API the same day, then
 the cost plan of 2026-10-16/17 subtracted. WARDEN's runtime (terraform/runtime) adds about USD
-0.28/hour (was 0.34; every zone stays on on-demand Fargate): together about USD 0.81/hour, so about USD 19.4/day (was 23.81).
+0.28/hour (was 0.34; every zone stays on on-demand Fargate): together about USD 0.94/hour, so about USD 22.5/day (was 19.4
+before the endpoints, 23.81 before the cost plan).
 
 | resource | per hour | note |
 |---|---|---|
@@ -50,15 +51,17 @@ the cost plan of 2026-10-16/17 subtracted. WARDEN's runtime (terraform/runtime) 
 | EKS control plane | 0.10 | standard support pinned; extended support would be 0.60 |
 | Aurora Serverless v2 (express), 1 instance at the 0.5 ACU floor (0.18 per ACU-hour) | ~0.095 | does not scale to zero at a 0.5 floor |
 | Container Insights enhanced (EKS add-on) | ~0.07 | per observation; the pod_status alarms read it. No X-Ray copy of the traces while Datadog is on |
-| NAT gateway (one, public[0]) + data processed | ~0.06 | also carries Secrets Manager, SQS and ECR calls |
+| Interface endpoints: secretsmanager, sqs, logs, ecr.api, ecr.dkr, each in 2 AZs (0.013 per endpoint-hour per AZ) + 0.01/GB | 0.13 | owner decision 2026-10-21: the AWS calls stay off the internet; USD 94.90 a month |
+| NAT gateway (one, public[0]) + data processed | ~0.06 | Aurora express, the public API (traffic Lambda), the placeholder image |
 | Fargate, 2 x (0.25 vCPU, 0.5 GB) on-demand, x86 | ~0.026 | ARM would be ~0.014 |
 | ALB | ~0.024 | |
 | ElastiCache, 1 x cache.t4g.micro | 0.02 | was 2 with failover |
 | Public IPv4 address (the NAT gateway's Elastic IP only) | 0.005 | |
 | DynamoDB, alarms, secrets, Lambda/SQS/SNS/API calls, Config's share | ~0.03 | |
-| **total** | **~0.53** | |
+| **total** | **~0.66** | |
 
-No interface endpoints since 2026-10-16 (they were 0.026/hour for the two); see main.tf. The one
+Interface endpoints again since 2026-10-21 (owner: AWS calls off the internet; the price is from the AWS Price List
+API for ap-south-2, published 2026-10-16); see main.tf. The one
 EKS node and the one cache node no longer survive a zone outage: Helios (R56) lets those two through
 only because they are listed in `helios/regressions.json`, the owner's choice of 2026-10-17. Back to
 production shape: 2 nodes, 2 cache nodes with failover, and that file deleted.
@@ -141,13 +144,15 @@ while Lambda releases the in-VPC functions' network interfaces; that is AWS, not
 | Where | What | Reachable from |
 |---|---|---|
 | Public subnets | the NAT gateway (its Elastic IP) only; `map_public_ip_on_launch = false` | nothing inbound |
-| Private subnets | ECS tasks (no public IP), EKS nodes and control-plane interfaces, in-VPC Lambdas, Redis, the ALB (**internal**) | inside the VPC only; the ALB only from the Lambda security group |
+| Private subnets | ECS tasks (no public IP), EKS nodes and control-plane interfaces, in-VPC Lambdas, Redis, the ALB (**internal**) | inside the VPC only; the ALB only from the traffic Lambda's security group |
 | AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway: throttled; `POST /checkout` needs a bearer token, which the checkout Lambda checks in constant time against a Secrets Manager secret written write-only (in no plan or state, `api_auth.tf`); `GET /health` is open and touches nothing; JSON access logs go to `/aws/vendedlogs/warden-<env>-api-access`. EKS API: `/warden/<env>/tf/my_ip_cidr` by default, IAM auth through access entries - **but open to `0.0.0.0/0` while the `EKS_PUBLIC_CIDRS` variable is set on the GitHub environment (`eks_public_access_cidrs`), and it stays open until an apply without it**. The fix, an in-VPC deploy path, is an open row in `docs/FAILURE-MODES.md` (A-I-16) |
 | Outside the VPC | Aurora in express configuration (the Free plan's only form) | IAM database authentication only, no password exists |
 
-No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT, and the application groups allow only what the apps use (owner B28, `tests/test_iac_hardening_sonar.py`): HTTPS 443 and PostgreSQL 5432 out (Aurora express is outside the VPC), Redis 6379 to the cache's group only; the traffic Lambda reaches the internal load balancer over HTTPS 443 (the same 443 rule). Destinations on 443 and 5432 stay open: AWS's API addresses and Aurora express's address change, and the controls that would name them (interface endpoints, a firewall) cost money this lab does not spend.
-There are no interface endpoints (Secrets Manager, SQS and ECR calls go through the NAT), and the placeholder image comes from `public.ecr.aws`, so image
-pulls go through the NAT as well; only S3 and DynamoDB have (free) gateway endpoints. A production app with a domain would put a **public** ALB in
+No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT, and the application groups allow only what the apps use (owner B28, `tests/test_iac_hardening_sonar.py`): HTTPS to AWS goes to the interface endpoints only (Secrets Manager, SQS, CloudWatch Logs, ECR; S3 and DynamoDB through
+free gateway endpoints), Redis 6379 to the cache's group only. The internet is left only where no endpoint can serve,
+each with its reason in main.tf: PostgreSQL 5432 to Aurora express (no VPC, no security group, no fixed address),
+HTTPS 443 for orders-api's placeholder image on `public.ecr.aws`, and HTTPS 443 for the traffic Lambda - in a group of
+its own - which calls the shop's public API and reaches the internal load balancer over HTTPS 443. A production app with a domain would put a **public** ALB in
 front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so its ALB is internal - and still HTTPS only
 (2026-10-17): the stack makes a self-signed certificate for the ALB's DNS name and imports it into ACM (no charge),
 and the traffic Lambda trusts that one certificate (`ALB_CA_PEM`). Its access logs go to `warden-<env>-alb-logs-*`
