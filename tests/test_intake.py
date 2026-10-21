@@ -41,9 +41,11 @@ def _decide(ev, recent=(), open_incidents=None, verifying=None, open_count=0):
 
 def test_only_an_alarm_state_starts_an_incident_and_its_id_is_the_transition():
     """C20: OK and INSUFFICIENT_DATA start nothing; one transition is one id, the next transition another."""
-    assert _decide(_ev("OK")).action == "ignore" and _decide(_ev("INSUFFICIENT_DATA")).action == "ignore"
+    assert _decide(_ev("OK")).action == "ignore"
+    assert _decide(_ev("INSUFFICIENT_DATA")).action == "ignore"
     first = _decide(_ev())
-    assert first.action == "start" and first.workflow_id == f"inc-{first.fingerprint}-20261003T010000Z"
+    assert first.action == "start"
+    assert first.workflow_id == f"inc-{first.fingerprint}-20261003T010000Z"
     assert _decide(_ev()).workflow_id == first.workflow_id
     assert _decide(_ev(at=T0 + timedelta(hours=2))).workflow_id != first.workflow_id
 
@@ -52,7 +54,8 @@ def test_a_flapping_alarm_goes_to_a_person_without_the_model():
     """C21: the fourth change inside the window is an escalate-only incident."""
     assert _decide(_ev(), recent=[{}] * (intake.FLAP_FLIPS - 2)).action == "start"
     flapping = _decide(_ev(), recent=[{}] * (intake.FLAP_FLIPS - 1))
-    assert flapping.action == "escalate_only" and "flapping" in flapping.reason
+    assert flapping.action == "escalate_only"
+    assert "flapping" in flapping.reason
 
 
 def test_a_repeat_signals_the_open_incident_and_a_storm_is_capped():
@@ -130,7 +133,8 @@ def test_submit_counts_ok_transitions_toward_flapping_and_starts_escalate_only()
     d = asyncio.run(intake.submit(client, _ev(state="OK", at=now + timedelta(minutes=3)), log))
     assert d.action == "ignore"
     d = asyncio.run(intake.submit(client, _ev(at=now + timedelta(minutes=4)), log))
-    assert d.action == "escalate_only" and client.calls[-1] == ("start", d.workflow_id, d.reason)
+    assert d.action == "escalate_only"
+    assert client.calls[-1] == ("start", d.workflow_id, d.reason)
 
 
 def test_an_alarm_during_the_verify_window_rolls_the_fix_back():
@@ -153,7 +157,8 @@ def test_an_alarm_during_the_verify_window_rolls_the_fix_back():
         raise AssertionError("never reached verifying")
 
     out = _run(world, drive)
-    assert out.status == "rolled_back" and "alarm fired again" in out.reasons[0], out
+    assert out.status == "rolled_back", out
+    assert "alarm fired again" in out.reasons[0], out
     assert world["platform"].rolled_back
 
 
@@ -180,5 +185,7 @@ def test_an_escalate_only_incident_asks_no_model_and_ends_on_the_record():
             return (await h.describe()).status.name, log.entries(alert.alert_id, kinds=("incident.verify",))
 
     status, verified = asyncio.run(main())
-    assert _Counting.calls == 0 and status == "FAILED"
-    assert verified[0]["body"]["status"] == "escalated" and "P0-MODEL-UNAVAILABLE" in verified[0]["body"]["policies"]
+    assert _Counting.calls == 0
+    assert status == "FAILED"
+    assert verified[0]["body"]["status"] == "escalated"
+    assert "P0-MODEL-UNAVAILABLE" in verified[0]["body"]["policies"]

@@ -31,7 +31,8 @@ RUN uv sync --locked --no-build --no-editable --extra k8s --extra anthropic --ex
 # Only the shipped kinds of file, compared without letter case (registers R8-O4, R9-O1): the build backend's exclude
 # list matches with case, so a local `SECRET.ENV` or `Prod.TFVARS` under src/ would ship. The build fails instead.
 COPY scripts/check_package.py ./
-RUN /opt/warden/bin/python check_package.py "$(/opt/warden/bin/python -c 'import os, warden; print(os.path.dirname(warden.__file__))')"
+RUN /opt/warden/bin/python check_package.py \
+    "$(/opt/warden/bin/python -c 'import os, warden; print(os.path.dirname(warden.__file__))')"
 
 FROM ghcr.io/veerarakesh56/warden-mirror/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
 

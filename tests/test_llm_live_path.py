@@ -97,10 +97,12 @@ def test_a_good_response_is_parsed_and_charged():
     c = _client(p)
     out = c.structured(system="s", user="u", schema=Toy)
 
-    assert out.answer == "ok" and out.score == 7
+    assert out.answer == "ok"
+    assert out.score == 7
     assert p.calls == 1
     assert c.cost.calls == 1
-    assert c.cost.input_tokens == 100 and c.cost.output_tokens == 50
+    assert c.cost.input_tokens == 100
+    assert c.cost.output_tokens == 50
     assert c.cost.usd > 0
 
 
@@ -113,16 +115,18 @@ def test_a_bad_response_is_retried_then_succeeds():
 
 def test_persistent_garbage_raises_rather_than_returning_something_unvalidated():
     p = FakeProvider("nope")
+    client = _client(p)
     with pytest.raises(ModelRefused):
-        _client(p).structured(system="s", user="u", schema=Toy, retries=2)
+        client.structured(system="s", user="u", schema=Toy, retries=2)
     assert p.calls == 3  # initial + 2 retries
 
 
 def test_a_schema_violation_is_not_accepted():
     """Right shape, wrong types. Validation must reject it, not coerce it through."""
     p = FakeProvider('{"answer": "ok", "score": "not-a-number"}')
+    client = _client(p)
     with pytest.raises(ModelRefused):
-        _client(p).structured(system="s", user="u", schema=Toy, retries=0)
+        client.structured(system="s", user="u", schema=Toy, retries=0)
 
 
 def test_failed_attempts_still_cost_money():
@@ -309,8 +313,9 @@ def test_a_transient_provider_error_is_retried_not_fatal():
 
 def test_persistent_provider_errors_end_in_ModelRefused_not_a_raw_traceback():
     p = _FlakyProvider(fail_times=99)
+    client = LLMClient(provider=p, mock=False)
     with pytest.raises(ModelRefused):
-        LLMClient(provider=p, mock=False).structured(system="s", user="u", schema=Toy, retries=2)
+        client.structured(system="s", user="u", schema=Toy, retries=2)
     assert p.calls == 3  # initial + 2 retries, all transient failures
 
 
@@ -334,8 +339,9 @@ def test_a_permanent_auth_error_fails_fast_without_burning_retries():
     """A 401 will fail identically every attempt, so it must fail after ONE call, not three - the
     operator needs the bad-key failure surfaced now, not after two pointless retries."""
     p = _AuthErrorProvider()
+    client = LLMClient(provider=p, mock=False)
     with pytest.raises(ModelRefused):
-        LLMClient(provider=p, mock=False).structured(system="s", user="u", schema=Toy, retries=2)
+        client.structured(system="s", user="u", schema=Toy, retries=2)
     assert p.calls == 1, "a permanent 4xx must not be retried"
 
 
@@ -349,8 +355,10 @@ def test_is_transient_classification():
         e503 = RuntimeError("unavailable"); setattr(e503, code_attr, 503)
         e401 = RuntimeError("bad key"); setattr(e401, code_attr, 401)
         e400 = RuntimeError("bad request"); setattr(e400, code_attr, 400)
-        assert _is_transient(e429) is True and _is_transient(e503) is True
-        assert _is_transient(e401) is False and _is_transient(e400) is False
+        assert _is_transient(e429) is True
+        assert _is_transient(e503) is True
+        assert _is_transient(e401) is False
+        assert _is_transient(e400) is False
 
 
 def test_call_ceiling_is_enforced_across_separate_calls():
@@ -436,11 +444,13 @@ def test_an_explicit_budget_wins_and_a_non_number_is_refused(monkeypatch):
     assert _client(FakeProvider("x")).max_usd == 1000.0
     for bad in ("nan", "inf", "-1", "0"):
         monkeypatch.setenv("WARDEN_MAX_USD", bad)
+        provider = FakeProvider("x")
         with pytest.raises(ValueError):
-            _client(FakeProvider("x"))
+            _client(provider)
     monkeypatch.delenv("WARDEN_MAX_USD")
+    provider, nan = FakeProvider("x"), float("nan")
     with pytest.raises(ValueError):
-        _client(FakeProvider("x"), max_usd=float("nan"))
+        _client(provider, max_usd=nan)
 
 
 

@@ -71,7 +71,8 @@ def test_the_message_names_the_incident_and_the_head_of_its_signed_record(monkey
     [row] = log.entries("inc-001", kinds=("incident.notify",))
     assert f"incident `inc-001` · audit head `{row['body']['head'][:16]}`" in text
     assert "check it on its Full record page, which shows the same head with its signatures checked" in text
-    assert "warden audit show" not in text and row["body"]["delivered"] == ["capture"]
+    assert "warden audit show" not in text
+    assert row["body"]["delivered"] == ["capture"]
     assert row["body"]["head"] in {e["hash"] for e in log.entries("inc-001")}
 
 
@@ -83,7 +84,9 @@ def test_an_incident_escalated_without_the_model_still_tells_a_person(monkeypatc
             raise ProviderError("the provider is down")
 
     status, sink, _, _, _ = _incident(monkeypatch, provider=_Down())
-    assert status == "FAILED" and len(sink.texts) == 1 and "audit head" in sink.texts[0]
+    assert status == "FAILED"
+    assert len(sink.texts) == 1
+    assert "audit head" in sink.texts[0]
 
 
 def test_audit_show_lists_the_hash_the_footer_names(monkeypatch, capsys, tmp_path):
@@ -96,7 +99,8 @@ def test_audit_show_lists_the_hash_the_footer_names(monkeypatch, capsys, tmp_pat
                                                   serialization.PublicFormat.SubjectPublicKeyInfo))
     assert main(["audit", "show", "inc-001", "--db", str(db), "--public-key", str(pub)]) == 0
     out = capsys.readouterr().out
-    assert head[:16] in out and "the chain is intact" in out
+    assert head[:16] in out
+    assert "the chain is intact" in out
     assert main(["audit", "show", "inc-none", "--db", str(db), "--public-key", str(pub)]) == 1  # no such record
 
 
@@ -127,7 +131,9 @@ def test_a_hash_that_begins_with_sixteen_digits_is_still_shown_and_sent():
 
     digest = "4507307866213908" + "ab" + "0" * 46
     shown = audit_mod.short(digest)
-    assert shown == "4507307866213908a" and digest.startswith(shown)
+    assert shown == "4507307866213908a"
+    assert digest.startswith(shown)
     assert audit_mod.short("2d79092d9c4d96c0" + "0" * 48) == "2d79092d9c4d96c0"
     footer = f"WARDEN · incident `inc-001` · audit head `{shown}` · check it on its Full record page"
-    assert enforce(footer).verdict != "BLOCK" and shown in redact(footer).text
+    assert enforce(footer).verdict != "BLOCK"
+    assert shown in redact(footer).text

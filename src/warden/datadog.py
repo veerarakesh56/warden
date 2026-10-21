@@ -20,6 +20,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from . import web
 from .grafana import PARTIAL, _alert_time, _iso, services
 from .models import Alert
 
@@ -62,7 +63,7 @@ class DatadogReader:
         req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body else None, headers={
             "DD-API-KEY": self.keys[0], "DD-APPLICATION-KEY": self.keys[1], "Content-Type": "application/json",
             "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:  # nosec B310 - https to a known Datadog site
+        with web.urlopen(req, timeout=TIMEOUT_S) as resp:
             return json.loads(resp.read() or b"{}")
 
     def _ask(self, what: str, method: str, path: str, body: dict | None = None,

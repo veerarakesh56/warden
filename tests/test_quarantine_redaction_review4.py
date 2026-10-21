@@ -49,7 +49,9 @@ _HEX40 = hashlib.sha1(b"fixture-" + b"two").hexdigest()
 ])
 def test_a_hex_key_under_any_key_name_is_masked(line):
     out = redact(line).text
-    assert _HEX64[:32] not in out and _HEX40 not in out and "<SECRET_" in out, out
+    assert _HEX64[:32] not in out, out
+    assert _HEX40 not in out, out
+    assert "<SECRET_" in out, out
 
 
 def test_a_short_hex_value_or_a_non_key_name_is_left():
@@ -126,7 +128,8 @@ def test_a_quoted_secret_holding_a_token_restores_in_one_step(line):
     `<JWT_1>` in the operator's report. The stored value is the restored text."""
     original = line.format(jwt=_jwt())
     result = redact(original)
-    assert _jwt() not in result.text and HUNTER2 not in result.text.replace("<", " ")
+    assert _jwt() not in result.text
+    assert HUNTER2 not in result.text.replace("<", " ")
     assert not any("<" in v for v in result.mapping.values()), result.mapping
     assert result.restore(result.text) == original, (result.text, result.mapping)
 

@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 
+from . import web
 from .audit import short
 from .environments import both_times
 from .gate import enforce
@@ -64,7 +65,7 @@ class GitHubIssues:
             headers={"Authorization": f"Bearer {self._token}", "Accept": "application/vnd.github+json",
                      "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:  # nosec B310 - a fixed https API
+            with web.urlopen(req, timeout=_TIMEOUT_S) as resp:
                 return json.loads(resp.read()).get("html_url"), "opened"
         except urllib.error.HTTPError as exc:
             return None, f"HTTP {exc.code}"
