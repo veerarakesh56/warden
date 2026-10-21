@@ -16,8 +16,9 @@ _spec.loader.exec_module(tool)
 
 @pytest.mark.parametrize("inside", [ROOT, ROOT / "build-here-never-made"])
 def test_out_in_the_repository_is_refused_before_anything_is_made(inside):
+    argv = ["--out", str(inside), "build", "--skip-image"]
     with pytest.raises(SystemExit, match="is inside the repository; build output must live outside it"):
-        tool.main(["--out", str(inside), "build", "--skip-image"])
+        tool.main(argv)
     assert not (ROOT / "build-here-never-made").exists()
 
 
