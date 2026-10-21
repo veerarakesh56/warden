@@ -1,8 +1,8 @@
 """Eldane, the AI critic, measured on the G10 held-out set (owner item 4, 2026-10-21): does it approve the right fix,
 catch the wrong or harmful one, and how often does it block a right one?
 
-    python scripts/eldane_bench.py --model claude-opus-5-5 --dry-run            # no key, no call: counts and cost
-    python scripts/eldane_bench.py --model claude-opus-5-5 --cap-usd 5 --out <a new directory>   # PAID
+    python scripts/eldane_bench.py --model <a providers.yaml critic model> --dry-run   # no key, no call: counts, cost
+    python scripts/eldane_bench.py --model <that model> --cap-usd <cap> --out <a new directory>   # PAID
     python scripts/eldane_bench.py --record <out>/eldane-bench-<date>.json    # its row into BENCHMARKS.md, README
 
 The plans. For each of the 172 cases the set's answer key (`answer-key.json`) names the right actions
