@@ -50,7 +50,8 @@ PROBE_DOC = {"Statement": [*REPO_DOC["Statement"], {"Sid": prove_boundary.PROBE_
 def test_a_probe_grant_a_killed_run_left_is_removed_first():
     iam = FakeIam({"v1": REPO_DOC, "v2": PROBE_DOC}, default="v2")
     assert prove_boundary.recover(iam, "arn") == ["v2"]
-    assert iam.default == "v1" and list(iam.docs) == ["v1"]
+    assert iam.default == "v1"
+    assert list(iam.docs) == ["v1"]
     assert prove_boundary.recover(iam, "arn") == []
 
 

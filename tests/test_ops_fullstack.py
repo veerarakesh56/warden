@@ -568,7 +568,8 @@ def test_the_prior_state_is_persisted_before_the_first_write(fid):
             spy(obj, name)
     fs.FAULTS[fid].inject(c, t)
     if fid in ("fs-12", "fs-13", "fs-16"):  # SQL/holder faults: saved before the session opens
-        assert persisted and persisted[0] == fid
+        assert persisted
+        assert persisted[0] == fid
     else:
         assert real_patch.get("first_write_persisted") is True, fid
     assert w.snapshot() != snap
@@ -608,11 +609,13 @@ def test_iam_auth_revoke_removes_the_task_roles_db_login_and_the_revert_puts_it_
     before = copy.deepcopy(w.iam["warden-dev-orders-api-task"])
     assert fs.check_baseline(c, t, ["ecs"]) == []
     fs.FAULTS["fs-21"].inject(c, t)
-    assert w.iam["warden-dev-orders-api-task"] == {} and w.forced == 1
+    assert w.iam["warden-dev-orders-api-task"] == {}
+    assert w.forced == 1
     assert "warden-dev-orders-api-task no longer grants rds-db:connect" in fs.check_baseline(c, t, ["ecs"])
     assert w.iam["warden-dev-ecs-exec"], "the execution role is fs-18's, not this fault's"
     fs.FAULTS["fs-21"].revert(c, t)
-    assert w.iam["warden-dev-orders-api-task"] == before and w.forced == 2
+    assert w.iam["warden-dev-orders-api-task"] == before
+    assert w.forced == 2
     assert "fs-21" not in t.saved
 
 
@@ -807,7 +810,8 @@ def test_the_fix_outcome_is_the_verdicts_and_nothing_runs(verdict, outcome):
     """2026-09-27 audit: the harness runs no fix command at all; `--prof admin` beat the allow-list. Since
     2026-10-16 the report prints no command, so there is nothing to count or check either."""
     assert fs.decide_fix(verdict) == outcome
-    assert not hasattr(fs, "execute_fix") and not hasattr(fs, "undo_fix_effects")
+    assert not hasattr(fs, "execute_fix")
+    assert not hasattr(fs, "undo_fix_effects")
 
 
 def test_this_module_does_not_import_the_tool_under_test():
@@ -839,7 +843,8 @@ def test_fs11_revert_puts_the_original_node_type_back():
     fs.FAULTS["fs-11"].inject(c, t)
     w.redis_node_type = "cache.t4g.small"                                   # what the fix did
     out = fs.FAULTS["fs-11"].revert(c, t)
-    assert w.redis_node_type == "cache.t4g.micro" and out["node_type_restored"]
+    assert w.redis_node_type == "cache.t4g.micro"
+    assert out["node_type_restored"]
 
 
 def test_fs11_revert_refuses_while_a_resize_is_still_running():
@@ -904,7 +909,8 @@ def test_fs12_holds_until_the_server_refuses_not_until_its_own_count():
     c = fs.Clients(**{**{f: None for f in fs.Clients.__dataclass_fields__}, "sql": server.sql})
     held, info = fs.hold_connections(c, None, "fs-12", headroom=3, workers=8)
     assert info["held"] == len(held) == 37 == server.open
-    assert info["refused"] == 50 + 50 - 40 and info["stopped_by"] == "RuntimeError"
+    assert info["refused"] == 50 + 50 - 40
+    assert info["stopped_by"] == "RuntimeError"
 
 
 def test_fs12_revert_waits_out_backends_that_are_still_exiting(monkeypatch):
