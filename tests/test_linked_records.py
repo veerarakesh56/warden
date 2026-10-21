@@ -404,3 +404,79 @@ def test_finding_links_reads_every_plan_only_for_an_incident_that_is_a_relapse(w
     monkeypatch.setattr(log, "entries", spy)
     links.found(log, "inc-b")
     assert every_plan == []
+
+
+# ------------------------------------------------------------------ the same known failure pattern (owner B8)
+def test_the_evidence_step_records_which_known_failure_patterns_it_matched(tmp_path):
+    """The prepare activity puts the catalogue's matches on the record - ids and scores, no text - and nothing when
+    none matches."""
+    from warden.activities import IncidentActivities
+    from warden.cli import DEMO_ALERTS
+    from warden.models import Alert
+
+    log = audit.AuditLog(tmp_path / "sig.db")
+    acts = IncidentActivities(audit=log)
+    for inc in ("inc-002", "inc-004"):
+        acts.prepare(Alert(**DEMO_ALERTS[inc]))
+    [row] = [e["body"] for e in log.entries("inc-002", kinds=(links.SIGNATURE_ROW,))]
+    assert (row["ids"][0], set(row)) == ("K8S-OOM-001", {"node", "ids", "scores"})
+
+
+def test_no_known_failure_pattern_matched_writes_no_row(tmp_path):
+    from warden.activities import IncidentActivities
+    from warden.cli import DEMO_ALERTS
+    from warden.models import Alert
+
+    log = audit.AuditLog(tmp_path / "sig.db")
+    IncidentActivities(audit=log).prepare(Alert(**DEMO_ALERTS["inc-004"]))
+    assert log.entries("inc-004", kinds=(links.SIGNATURE_ROW,)) == []
+
+
+def _signatures(log, incident, *ids):
+    log.append(incident, links.SIGNATURE_ROW, {"node": "signatures", "ids": list(ids), "scores": {i: 1 for i in ids}})
+
+
+def test_an_incident_that_matched_the_same_known_pattern_in_one_environment_is_found(world):
+    _, _, _, log = world
+    here, other, elsewhere = f"{FP}-20261003T100000Z", f"{FP2}-20261002T100000Z", f"{FP2}-20261002T110000Z"
+    _incident(log, here, service="warden-dev-a")
+    _incident(log, other, service="warden-dev-b")
+    _incident(log, elsewhere, env="prod", service="warden-prod-b")
+    _signatures(log, here, "K8S-OOM-001", "K8S-CLB-001")
+    _signatures(log, other, "K8S-OOM-001")
+    _signatures(log, elsewhere, "K8S-OOM-001")
+    _signatures(log, "inc-c", "DB-POOL-001")  # another pattern
+    assert [(k["with"], k["side"]) for k in links.found(log, here) if k["side"] == "same-signature"] == [
+        (other, "same-signature")]
+
+
+def test_the_same_alarm_is_not_found_again_as_the_same_pattern(world):
+    _, _, _, log = world
+    here, again = f"{FP}-20261003T100000Z", f"{FP}-20261002T100000Z"
+    for inc in (here, again):
+        _incident(log, inc)
+        _signatures(log, inc, "K8S-OOM-001")
+    assert {k["side"] for k in links.found(log, here) if k["with"] == again} == {"same-alarm"}
+
+
+def test_at_most_the_newest_few_incidents_of_the_same_pattern_are_found(world):
+    _, _, _, log = world
+    here = f"{FP}-20261009T100000Z"
+    _incident(log, here, service="warden-dev-x")
+    _signatures(log, here, "K8S-OOM-001")
+    for i in range(links.FOUND_MOST + 2):
+        other = f"{FP2[:-1]}{i}-20261001T10{i:02d}00Z"
+        _incident(log, other, service=f"warden-dev-s{i}")
+        _signatures(log, other, "K8S-OOM-001")
+    assert len([k for k in links.found(log, here) if k["side"] == "same-signature"]) == links.FOUND_MOST
+
+
+def test_the_record_page_says_the_same_known_pattern_in_plain_words(world):
+    _, _, policy, log = world
+    here, other = f"{FP}-20261003T100000Z", f"{FP2}-20261002T100000Z"
+    _incident(log, here, service="warden-dev-a")
+    _incident(log, other, service="warden-dev-b")
+    _signatures(log, here, "K8S-OOM-001")
+    _signatures(log, other, "K8S-OOM-001")
+    page = records.incident_page(records.record(log, here, policy))
+    assert f'This incident matched the same known failure pattern as <a href="/r/{other}">' in page

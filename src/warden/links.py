@@ -235,7 +235,9 @@ FOUND_WORDS = {
     "rediagnosis-of": "is a new diagnosis, after a failed fix, of", "rediagnosed-as": "was diagnosed again as",
     "followed-fix-of": "started after a fix of", "followed-by": "was followed, after its fix, by",
     "relapse-of": "is the alarm coming back after a fix of", "relapsed-as": "came back, after its fix, as",
-    "same-alarm": "has the same alarm as", "same-resource": "is on the same resource as"}
+    "same-alarm": "has the same alarm as", "same-resource": "is on the same resource as",
+    "same-signature": "matched the same known failure pattern as"}
+SIGNATURE_ROW = "incident.signatures"  # graph.signature_row, recorded with the evidence
 FOUND_DAYS, FOUND_MOST = 30, 5
 _FP = re.compile(r"^([0-9a-f]{16})-\d{8}T\d{6}Z$")
 
@@ -302,12 +304,17 @@ def _relapse_links(log: Any, incident: str, now: datetime) -> list[tuple[str, st
     return out
 
 
-def _alike_links(log: Any, incident: str, now: datetime) -> list[tuple[str, str]]:
-    """(other incident, side) for the same alarm or the same resource, newest first, FOUND_MOST of each."""
+def _recent(log: Any, now: datetime) -> dict[str, tuple[str, str, datetime]]:
+    """incident -> (environment, service, when) for every incident whose alarm was recorded in the last FOUND_DAYS."""
     seen: dict[str, tuple[str, str, datetime]] = {}
     for e in log.entries(kinds=(ALERT_ROW,), since=now - timedelta(days=FOUND_DAYS)):
         a = e["body"].get("alert") or {}
         seen[str(e["correlation_id"])] = (str(a.get("environment") or ""), str(a.get("service") or ""), e["at"])
+    return seen
+
+
+def _alike_links(seen: dict[str, tuple[str, str, datetime]], incident: str) -> list[tuple[str, str]]:
+    """(other incident, side) for the same alarm or the same resource, newest first, FOUND_MOST of each."""
     if incident not in seen:
         return []
     env, service, _ = seen[incident]
@@ -318,11 +325,31 @@ def _alike_links(log: Any, incident: str, now: datetime) -> list[tuple[str, str]
     return [(k, "same-alarm") for k in same_alarm] + [(k, "same-resource") for k in same_resource]
 
 
+def _signature_links(log: Any, seen: dict[str, tuple[str, str, datetime]], incident: str,
+                     now: datetime) -> list[tuple[str, str]]:
+    """(other incident, "same-signature") for incidents in the same environment whose evidence matched a known failure
+    pattern this one's did, newest first, FOUND_MOST - and not one already found by its alarm (owner B8)."""
+    matched: dict[str, set[str]] = {}
+    for e in log.entries(kinds=(SIGNATURE_ROW,), since=now - timedelta(days=FOUND_DAYS)):
+        ids = e["body"].get("ids")
+        if isinstance(ids, list):
+            matched.setdefault(str(e["correlation_id"]), set()).update(str(i) for i in ids)
+    mine = matched.get(incident, set())
+    if not mine or incident not in seen:
+        return []
+    fp = _FP.match(incident)
+    alike = [k for k in matched if k != incident and k in seen and seen[k][0] == seen[incident][0] and matched[k] & mine
+             and not (fp and k.startswith(fp.group(1)))]
+    return [(k, "same-signature") for k in sorted(alike, key=lambda k: seen[k][2], reverse=True)[:FOUND_MOST]]
+
+
 def found(log: Any, incident: str, *, now: datetime | None = None) -> list[dict[str, Any]]:
     """The links WARDEN finds for this incident in its own record, one per other incident and side, in a fixed order:
-    through a fix first, then the same alarm, then the same resource."""
+    through a fix first, then the same alarm, the same resource, the same known failure pattern."""
     now = now or datetime.now(UTC)
-    pairs = _fix_links(log, incident) + _relapse_links(log, incident, now) + _alike_links(log, incident, now)
+    seen = _recent(log, now)
+    pairs = (_fix_links(log, incident) + _relapse_links(log, incident, now) + _alike_links(seen, incident)
+             + _signature_links(log, seen, incident, now))
     out, kept = [], set()
     for other, side in pairs:
         if (other, side) not in kept and other != incident:

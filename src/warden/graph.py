@@ -404,9 +404,23 @@ def node_gather(state: WardenState) -> WardenState:
                 # A count: the text is raw until node_redact, which audits it scrubbed (A-C-5).
                 "tool_errors": len(context.tool_errors),
                 "references": len(context.references),
-            }
+            },
+            *signature_row(state["alert"], context),
         ],
     }
+
+
+def signature_row(alert: Alert, context: ContextBundle) -> list[dict[str, Any]]:
+    """The known failure patterns (knowledge.py) this evidence matches, as the record's own row - ids and scores only,
+    no text - so a later incident that matches the same pattern can be found (links.found, owner B8). Matched on the
+    evidence as read, the same deterministic match the verifier and the report use; nothing when none matches."""
+    from .knowledge import default_knowledge_base
+
+    matches = default_knowledge_base().match(alert, context)
+    if not matches:
+        return []
+    return [{"node": "signatures", "ids": [m.signature.id for m in matches],
+             "scores": {m.signature.id: m.score for m in matches}}]
 
 
 # An IAM Identity Center role's opaque 16-hex suffix, in a change line from any source: the live reader drops it at the
