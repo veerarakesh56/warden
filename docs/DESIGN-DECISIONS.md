@@ -381,6 +381,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - The decision rules - `verifier.py`, `grounding.py`, `catalog.py`, `bounds.py`, `freeze.py`, `intake.py`,
   `read_scope.py`, `gate.py`'s rules: most policies need evidence that Python computes first
   (section 16 records why not OPA or Cedar).
+- The confidence a person reads - `confidence.py`: a level from checks WARDEN can show (grounded, decisive,
+  separated, complete reads, a consistent outcome), each a rule over results the verifier already computed; a
+  calibration library would score the model's own number, which is what it must not use (owner U3-1).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
 - Autonomy and the AI critic - `autonomy.py`, `eldane.py` (owner, 2026-10-16/17): dev's level is read from
