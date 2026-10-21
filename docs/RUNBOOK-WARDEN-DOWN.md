@@ -16,7 +16,7 @@ Names below use the runtime environment `ops` (environments.yaml `runtime:`). Gi
 
 | Part | What it is | Where |
 |---|---|---|
-| Workers | Five ECS Fargate services in the cluster `warden-ops-runtime`, one per trust zone: `warden-ops-core` (workflows, audit steps, heartbeat), `warden-ops-read` (evidence), `warden-ops-llm` (the model, the daily synthetic incident), `warden-ops-notify` (Slack, GitHub), `warden-ops-act` (the only one that changes anything) | [compute.tf](../terraform/modules/warden-runtime/compute.tf) |
+| Workers | Six ECS Fargate services in the cluster `warden-ops-runtime`, one per trust zone: `warden-ops-core` (workflows, audit steps, heartbeat), `warden-ops-read` (evidence), `warden-ops-llm` (the model, the daily synthetic incident), `warden-ops-notify` (Slack, GitHub), `warden-ops-act` (the only one that changes anything), `warden-ops-critic` (Eldane, the AI critic: reviews plans, approves in `dev` only) | [compute.tf](../terraform/modules/warden-runtime/compute.tf) |
 | Temporal Cloud | Holds every workflow's state; the workers and Lambdas reach it with API keys | outside AWS; `connect` in [runtime.py](../src/warden/runtime.py) |
 | Front door Lambdas | `warden-ops-alarm` (CloudWatch alarm changes and service events), `warden-ops-alertmanager` (Alertmanager and Datadog webhooks), `warden-ops-approval` (the approval page and records page), `warden-ops-actor-use` (actor-role sessions), `warden-ops-ack` (answers Slack's button note) | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf), [witness.tf](../terraform/modules/warden-runtime/witness.tf) |
 | Lost-alarm queue | `warden-ops-alarm-dlq`: an alarm change EventBridge could not deliver to the `alarm` Lambda after 8 retries within an hour lands here and is kept 14 days | [frontdoor.tf](../terraform/modules/warden-runtime/frontdoor.tf) |
@@ -33,19 +33,27 @@ Names below use the runtime environment `ops` (environments.yaml `runtime:`). Gi
 | The alarm `warden-ops-alarm-dlq` pages | At least one alarm change could not be delivered to WARDEN. Those alarms were **not** diagnosed. An alarm the `alarm` Lambda received but failed on does not land here (section 5, Temporal). |
 | A watched alarm is red in CloudWatch but no Slack thread exists | The `alarm` Lambda, Temporal, the `notify` zone or Slack is broken. |
 | A plan waits but the approval link does not open | The `warden-ops-approval` Lambda, the HTTP API `warden-ops-front` or the audit is broken. |
+| The alarm `warden-ops-worker-errors` pages | A worker, in any zone, logged an ERROR or CRITICAL line. Read `/warden/ops/worker` around that time. |
+| A page says a worker task stopped (the rule `warden-ops-worker-stopped`) | A worker task in one of the six zones exited or never started, other than for a deploy. |
+| The alarm `warden-ops-lambda-errors` or `warden-ops-lambda-throttles` pages | A front door Lambda, Slack's answer or the pager itself failed or was throttled. An `alarm` Lambda error means an alarm may not have been diagnosed (section 5, Temporal). |
+| The alarm `warden-ops-audit-db-cpu`, `warden-ops-audit-db-connections` or `warden-ops-audit-db-storage` pages | The audit database is overloaded, out of connections or filling up (section 5, the audit). |
+| The alarm `warden-ops-killswitch-on` pages | The kill switch went on, by a person or by WARDEN's breaker: nothing is applied until it is reset. |
+| The alarm `warden-ops-unapproved-actor` or `warden-ops-approvers-changed` pages | An actor role was used without an approval on the record, or the approver list was written. Treat it as a security incident ([the incident runbook](RUNBOOK-WARDEN-INCIDENT.md)). |
+| A page says a Temporal key is near its end | Rotate the key before it ends (section 5, Temporal). |
 
 These pages go to WARDEN's own SNS topic (SSM `/warden/ops/tf/page_topic_arn`), never to WARDEN's intake, so they
-work while WARDEN is down.
+work while WARDEN is down. Each one reaches the pager, which says it again in Slack and by email every 15 minutes
+(the email through the alarm `warden-ops-page-repeat`) until an approver acknowledges it with a passkey on the
+approval page (`/p`). The pager has no image, no VPC and no database: a dead worker or audit does not silence it.
 
 **Gaps you must know about (honest, today):**
 
-- **Only the `core` zone beats.** The heartbeat alarm reads one task queue (`warden`). If `read`, `notify` or `act`
-  is down while `core` runs, nothing pages: incidents start and then wait or fail. Check every zone (section 4).
-  Alarms for each zone, the Lambdas' errors, the audit database and key expiry are **planned** (self-alarms, B35).
+- **Only the `core` zone beats.** The heartbeat alarm reads one task queue (`warden`). A zone whose task stops, or
+  that logs an error, pages; but if `read`, `notify` or `act` hangs while its task keeps running and logs nothing,
+  nothing pages: incidents start and then wait. Check every zone (section 4).
 - **The watched environments' own alarms do not page anyone directly.** In this install their CloudWatch alarms have
   no alarm actions (`terraform/fullstack` sets none); they reach people only through WARDEN's Slack report. With
   WARDEN down, someone must look at the alarms by hand (section 3).
-- **A page is sent once.** A repeating page until someone acknowledges it is **planned** (the pager, PR #43).
 - **Paused on purpose.** Between test windows the runtime may be paused (SSM `/warden/ops/tf/paused` = `true`): no
   worker runs, the alarm intake is off and the self-alarms send nothing. That is not an outage. Check it first:
 
@@ -110,8 +118,19 @@ aws ecs describe-services --cluster warden-ops-runtime --services warden-ops-act
 The first command only asks ECS to scale down; a running task can still act until it stops. Treat changes as stopped
 only when the last command shows `0` and `0`. If the update fails, or the count does not reach `0`, do not go on:
 stop the task by hand (ECS console, the service, Tasks, Stop), and if that also fails, page the AWS account's owner.
-Approved plans then wait; nothing is applied until the count is set back. A second, IAM-level kill switch (a deny
-policy on the actor roles) is **planned** (B18).
+Approved plans then wait; nothing is applied until the count is set back.
+
+A second kill switch does not depend on WARDEN at all (B18): an IAM deny on each watched environment's actor role,
+`warden-<env>-actor`, that refuses every AWS call unless the role's tag says `off`. A person with `iam:TagRole` turns
+it on from their own machine or CloudShell:
+
+```
+python scripts/iam_kill_switch.py on --env <env>
+python scripts/iam_kill_switch.py status --env <env>
+```
+
+It covers AWS fixes only (a Kubernetes fix is authorised by the cluster), and it protects nothing unless its policy
+is attached to the role: `status` says so and fails when it is not. It has not yet been proven in a live window.
 
 On a laptop set up for the cloud runtime (`WARDEN_APPROVAL_RP_ID` set, no `WARDEN_AUDIT_DSN`), `warden killswitch
 status` refuses rather than read the laptop's own file, which says nothing about the cloud; the approval page is
@@ -122,7 +141,7 @@ where the cloud's switch is read.
 **Workers.** Running and desired count of every zone:
 
 ```
-aws ecs describe-services --cluster warden-ops-runtime --services warden-ops-core warden-ops-read warden-ops-llm warden-ops-notify warden-ops-act --query "services[].[serviceName,runningCount,desiredCount]" --output table
+aws ecs describe-services --cluster warden-ops-runtime --services warden-ops-core warden-ops-read warden-ops-llm warden-ops-notify warden-ops-act warden-ops-critic --query "services[].[serviceName,runningCount,desiredCount]" --output table
 aws logs tail /warden/ops/worker --since 30m --log-stream-name-prefix core
 ```
 

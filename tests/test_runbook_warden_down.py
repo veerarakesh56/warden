@@ -127,10 +127,15 @@ def test_the_runbook_names_every_zone_and_every_self_alarm():
     """A zone or a self-alarm added later must be added here too, or the runbook stops covering it."""
     text = _text()
     missing = [z for z in _keys_of("zones") if f"warden-{RUNTIME_ENV}-{z}" not in text]
-    alarms = re.findall(r'alarm_name\s*=\s*"warden-\$\{var\.environment\}-([a-z-]+)"', _hcl())
-    self_alarms = [a for a in alarms if a in ("heartbeat-missing", "synthetic-missing", "alarm-dlq")]
-    assert sorted(self_alarms) == ["alarm-dlq", "heartbeat-missing", "synthetic-missing"], alarms
-    missing += [a for a in self_alarms if f"warden-{RUNTIME_ENV}-{a}" not in text]
+    hcl = _hcl()
+    # Every alarm the runtime makes, the repeat alarm (a local) and the stopped-worker rule: main's pager (PR 43) made
+    # the three alarms this test began with into twelve, and the runbook must say what each one means.
+    alarms = re.findall(r'alarm_name\s*=\s*"warden-\$\{var\.environment\}-([a-z-]+)"', hcl)
+    alarms += re.findall(r'page_repeat_alarm\s*=\s*"warden-\$\{var\.environment\}-([a-z-]+)"', hcl)
+    alarms += re.findall(r'resource "aws_cloudwatch_event_rule" "worker_stopped" \{\s*name\s*=\s*"warden-\$\{var\.environment\}-([a-z-]+)"',
+                         hcl)
+    assert {"alarm-dlq", "heartbeat-missing", "synthetic-missing", "page-repeat", "worker-stopped"} <= set(alarms), alarms
+    missing += [a for a in alarms if f"warden-{RUNTIME_ENV}-{a}" not in text]
     assert not missing, missing
 
 
