@@ -59,12 +59,21 @@ def _last(r: Any, kind: str) -> dict[str, Any] | None:
     return rows[-1] if rows else None
 
 
+def _count(value: Any) -> int | None:
+    """A count as WARDEN writes it - a whole number, 0 or more, or nothing - else None."""
+    if value is None:
+        return 0
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
 def _evidence(r: Any) -> Signal:
     g = _last(r, "incident.gather")
     if g is None:
         return Signal(EVIDENCE, None, "no evidence read is on the record")
-    read = sum(int(g.get(k) or 0) for k in ("logs", "metrics", "deploys"))
-    failed = int(g.get("tool_errors") or 0)
+    counts = [_count(g.get(k)) for k in ("logs", "metrics", "deploys", "tool_errors")]
+    if None in counts:  # a row that is not WARDEN's shape says nothing either way (CodeRabbit, PR 100)
+        return Signal(EVIDENCE, None, "the record's read counts could not be read")
+    read, failed = sum(counts[:3]), counts[3]
     if failed:
         return Signal(EVIDENCE, False, f"{failed} read(s) failed: the picture is partial")
     if not read:

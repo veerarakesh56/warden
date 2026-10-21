@@ -664,7 +664,11 @@ def trust(r: Record) -> str:
     found, and the ones that decided the level. Never the model's own confidence."""
     from . import trust as confidence
 
-    b = confidence.block(r)
+    try:
+        b = confidence.block(r)
+    except (ValueError, TypeError, KeyError, AttributeError):  # one odd row must not take the record page down
+        return ('<h2>How far to trust this</h2><p class="pad"><span class="badge warn">Confidence: not worked out'
+                '</span> It could not be worked out from this record; every step is below.</p>')
     rows = "".join(f'<li><strong>{_e(s.name.capitalize())}</strong>: {_e(_MARK[s.passed])} - {_e(s.why)}</li>'
                    for s in b.signals)
     return (f'<h2>How far to trust this</h2><p class="pad"><span class="badge {b.colour}">Confidence: {_e(b.level)}'

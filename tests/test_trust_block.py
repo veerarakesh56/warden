@@ -162,3 +162,20 @@ def test_a_record_read_from_the_audit_carries_its_linked_proven_fix_into_the_blo
                                         approver="owner"), policy) == []
     page = records.incident_page(records.record(log, INC, policy))
     assert '<span class="badge ok">Confidence: High</span> Decided by: evidence, grounded, rules, proven fix.' in page
+
+
+@pytest.mark.parametrize("odd", ["many", -1, 2.5, True, [3]])
+def test_a_read_count_not_in_warden_s_shape_leaves_evidence_unchecked(log, odd):
+    """CodeRabbit, PR 100: int("many") raised and took the record page down."""
+    log.append(INC, "incident.gather", {"node": "gather", "logs": odd, "metrics": 0, "deploys": 0, "tool_errors": 0})
+    assert _signal(confidence.block(records.record(log, INC)), "evidence").passed is None
+
+
+def test_the_record_page_still_renders_when_the_block_cannot_be_worked_out(log, monkeypatch):
+    r = _incident(log)
+
+    def broken(_r):
+        raise KeyError("status")
+
+    monkeypatch.setattr(confidence, "block", broken)
+    assert "Confidence: not worked out" in records.incident_page(r)
