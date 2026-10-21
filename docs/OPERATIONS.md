@@ -54,6 +54,18 @@ Sign in with Slack; it opens for the approvers and for the Slack members in the 
 `/warden/<env>/env/WARDEN_RECORD_VIEWERS` (comma-separated member ids). Slack gets one message per incident; approved,
 denied and fixed are on the record, not posted.
 
+From a terminal (U3-6), with the operator's own AWS sign-in and `WARDEN_ENV` set, the same records read only:
+
+    warden records list [--env dev] [--status "Waiting for approval"] [--since YYYY-MM-DD] [--until ...] [--json]
+    warden records show <incident> [--evidence] [--json]
+
+It loads only `WARDEN_AUDIT_DSN` from the environment's store (no Slack, model or Datadog key, no signing key) and
+reads the approver list to name people (never by the list's id; with no list it shows nothing). It opens the audit
+read-only (a SQLite file with `mode=ro`, a PostgreSQL session set `READ ONLY` before its first query, SELECT
+statements only), and masks every text with WARDEN's own patterns before printing it: a masked value is never shown
+here - a person reveals one on the records page, signed in and recorded. Unlike the page it does not limit a reader
+to some environments: whoever can open the audit's DSN can read all of it, so give the DSN only to those who may.
+
 ## Talking to WARDEN about an incident in Slack (register G10-45)
 
 A second Slack channel where anyone asks WARDEN about an incident: mention `@WARDEN` with the incident's id (the one in

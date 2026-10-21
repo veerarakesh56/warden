@@ -100,7 +100,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_HEARTBEAT_NAMESPACE": frozenset({"worker"}),
     # The commands that open the audit (runtime.open_audit) and the ones that read it.
     "WARDEN_AUDIT_DSN": frozenset({"worker", "incident", "intake", "status", "approve", "killswitch", "audit",
-                                   "label", "usage", "lambda-alarm", "lambda-alertmanager", "lambda-approval",
+                                   "label", "usage", "records", "lambda-alarm", "lambda-alertmanager", "lambda-approval",
                                    "lambda-actor-use"}),
     # The Alertmanager webhook's bearer secrets: only the Lambda that checks them (register S5).
     "WARDEN_ALERTMANAGER_TOKEN": frozenset({"lambda-alertmanager"}),
@@ -120,6 +120,11 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_DATADOG_APP_KEY": frozenset({"worker", "lambda-alertmanager"}),
     "WARDEN_DATADOG_WEBHOOK_TOKEN": frozenset({"lambda-alertmanager"}),
 }
+
+
+# Commands that load ONLY these names, not every unrestricted one: `warden records` reads the audit and nothing else
+# (U3-6), so a laptop reading the records holds no Slack, model or Datadog key - not even for a moment.
+ONLY: dict[str, frozenset[str]] = {"records": frozenset({"WARDEN_AUDIT_DSN"})}
 
 
 # The loadable names that are secrets (decision D5): read from Secrets Manager only, never from SSM. One line per
@@ -261,6 +266,8 @@ def loadable_for(command: str, zone: str | None = None) -> frozenset[str]:
     """The names a command may load: every LOADABLE one, less the restricted ones it does not use - and for one trust
     zone's worker, less every secret another zone holds (S15)."""
     allowed = frozenset(n for n in LOADABLE if command in RESTRICTED.get(n, (command,)))
+    if command in ONLY:
+        allowed &= ONLY[command]
     if command.startswith("lambda-"):
         allowed -= SECRETS - LAMBDA_SECRETS.get(command.removeprefix("lambda-"), frozenset())
     return allowed - (SECRETS - ZONE_SECRETS[zone]) if zone in ZONE_SECRETS else allowed

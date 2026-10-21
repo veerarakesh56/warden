@@ -807,6 +807,22 @@ def _main(argv: list[str] | None = None) -> int:
     p_link.add_argument("--remove", action="store_true", help="take this link back")
     p_link.add_argument("--approver", required=True)
     p_link.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_records = sub.add_parser("records", help="read WARDEN's records (read only): incidents, decisions, how each "
+                                                 "ended - masked as on the records page")
+    records_sub = p_records.add_subparsers(dest="records_cmd", required=True)
+    p_rlist = records_sub.add_parser("list", help="the incidents, newest first")
+    p_rlist.add_argument("--env", help="only this environment")
+    p_rlist.add_argument("--status", help="only this status, as the records say it (e.g. \"Waiting for approval\")")
+    p_rlist.add_argument("--service", help="only this service")
+    p_rlist.add_argument("--since", metavar="YYYY-MM-DD", help="first seen on or after this day (display zone)")
+    p_rlist.add_argument("--until", metavar="YYYY-MM-DD", help="first seen on or before this day (display zone)")
+    p_rlist.add_argument("--text", help="in the incident's alarm name or id, any case")
+    p_rlist.add_argument("--limit", type=int, default=50, help="at most this many (1-500, default 50)")
+    p_rlist.add_argument("--json", action="store_true", help="JSON instead of text")
+    p_rshow = records_sub.add_parser("show", help="one incident's whole record")
+    p_rshow.add_argument("incident")
+    p_rshow.add_argument("--evidence", action="store_true", help="also the evidence its model was shown")
+    p_rshow.add_argument("--json", action="store_true", help="JSON instead of text")
     p_label = sub.add_parser("label", help="record your signed verdict on an incident's diagnosis and action")
     p_label.add_argument("incident")
     p_label.add_argument("--diagnosis", required=True, choices=("right", "wrong", "unsure"))
@@ -831,6 +847,10 @@ def _main(argv: list[str] | None = None) -> int:
         return _label_command(args)
     if args.cmd == "usage":
         return _usage_command(args)
+    if args.cmd == "records":
+        from .records_cli import command
+
+        return command(args, _out)
 
     # Evidence source is a deployment decision, like the model provider. WARDEN_BACKEND=k8s reads a
     # live cluster; the default reads the recorded fixtures so CI never needs one.
