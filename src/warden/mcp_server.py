@@ -593,6 +593,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "the stated root cause is not the cause the diagnosis ranked first and WARDEN weighed: "
                             "escalated - a person reads both"
                         ),
+                        "P37-OUTCOME-CONTRADICTS-PROPOSAL": (
+                            "the diagnosis's typed outcome contradicts its remediation (no fault with a change, or "
+                            "an undetermined cause with anything but a hand-off): escalated to a person"
+                        ),
                         "P35-HYPOTHESES-TOO-CLOSE": (
                             "WARDEN's own count of the held citations for and against does not separate the chosen "
                             "cause from its best rival: escalated with both - a person chooses"
