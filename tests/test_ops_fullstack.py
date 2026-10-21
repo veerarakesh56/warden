@@ -1010,3 +1010,20 @@ def test_fs10_revert_revokes_an_all_protocols_extra_without_ports():
     fs.FAULTS["fs-10"].revert(c, t)
     assert revoked == [{"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-z"}]},
                        {"IpProtocol": "tcp", "UserIdGroupPairs": [{"GroupId": "sg-y"}], "FromPort": 1, "ToPort": 9}]
+
+
+def test_after_a_duplicate_every_saved_rule_is_re_added_on_its_own():
+    """The first rule is already back, so the batch is a Duplicate: each rule is then tried alone, and the ones after
+    the duplicate still land."""
+    first = {"IpProtocol": "tcp", "FromPort": 6379, "ToPort": 6379, "UserIdGroupPairs": [{"GroupId": "sg-a"}]}
+    second = {"IpProtocol": "tcp", "FromPort": 6380, "ToPort": 6380, "UserIdGroupPairs": [{"GroupId": "sg-b"}]}
+    on_group = [first]
+
+    def authorize(GroupId, IpPermissions):
+        if any(rule in on_group for rule in IpPermissions):
+            raise Err("InvalidPermission.Duplicate")
+        on_group.extend(IpPermissions)
+
+    ec2 = type("Ec2", (), {"authorize_security_group_ingress": staticmethod(authorize)})()
+    fs._authorize_back(type("C", (), {"ec2": ec2})(), "sg-redis", [first, second])
+    assert on_group == [first, second]

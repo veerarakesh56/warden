@@ -712,3 +712,78 @@ def test_the_verify_command_runs_the_verify_step(tmp_path, capsys):
     argv = ["--run", str(tmp_path), "verify", "fs-05"]
     assert cli.main(argv, env=fake_env([])) == 1
     assert capsys.readouterr().err == "STOPPED: fs-05-lambda-iam-missing was never injected\n"
+
+
+# ---- main's dispatch, the alarm's settle time, verify's --timeout and the console (review of lane SH)
+
+
+@pytest.mark.parametrize(("argv", "step", "called"), [
+    (["status", "--no-check"], "step_status", {"check": False}),
+    (["fix", "fs-05"], "step_fix", {"key": "fs-05"}),
+    (["diagnose", "fs-05", "--arm", "K=V"], "step_diagnose",
+     {"key": "fs-05", "arm": {"K": "V"}, "retry_reason": None}),
+], ids=["status", "fix", "diagnose"])
+def test_each_recorded_step_is_the_one_the_command_names(tmp_path, monkeypatch, argv, step, called):
+    calls = []
+
+    def record(env, run, key=None, **kw):
+        calls.append({"key": key, **kw} if key else kw)
+
+    monkeypatch.setattr(cli, step, record)
+    assert cli.main(["--run", str(tmp_path), *argv], env=fake_env([])) == 0
+    assert calls == [called]
+
+
+def test_the_hold_command_holds_the_fault_and_exits_with_its_code(tmp_path, monkeypatch):
+    held = []
+
+    def hold(env, run, fid):
+        held.append(fid)
+        return 3
+
+    monkeypatch.setattr(cli, "cmd_hold", hold)
+    assert cli.main(["--run", str(tmp_path), "_hold", "fs-05"], env=fake_env([])) == 3
+    assert held == [cli.fs.fault_of("fs-05")]
+
+
+@pytest.mark.parametrize(("argv", "step", "healthy", "rc"), [
+    (["soak"], "step_soak", True, 0),
+    (["soak"], "step_soak", False, 1),
+    (["watch"], "step_watch", True, 0),
+    (["watch"], "step_watch", False, 1),
+], ids=["soak-healthy", "soak-not", "watch-healthy", "watch-not"])
+def test_soak_and_watch_exit_with_what_they_found(tmp_path, monkeypatch, argv, step, healthy, rc):
+    monkeypatch.setattr(cli, step, lambda *_a, **_kw: healthy)
+    assert cli.main(["--run", str(tmp_path), *argv], env=fake_env([])) == rc
+
+
+def test_the_alarm_is_polled_only_after_the_settle_time(tmp_path):
+    slept: list[float] = []
+    env = dataclasses.replace(fake_env([]), sleep=slept.append)
+    alarm = cli._wait_for_the_alarm(env, {"alarm": "a", "alarm_timeout_s": 0}, 120, True)
+    assert slept == [120]
+    assert alarm["never_fired"] is True
+
+
+def test_verify_waits_the_timeout_it_is_given(tmp_path):
+    env = fake_env([], verify_ok=False)
+    cli.step_inject(env, tmp_path, "fs-27", wait_alarm=False)
+    record = cli.step_verify(env, tmp_path, "fs-27", timeout_s=600)
+    assert record["verify"]["waited_s"] >= 600
+
+
+def test_the_console_is_switched_to_utf8_on_both_streams(monkeypatch):
+    calls = []
+
+    class Stream:
+        def __init__(self, name):
+            self.name = name
+
+        def reconfigure(self, **kw):
+            calls.append((self.name, kw))
+
+    monkeypatch.setattr(cli.sys, "stdout", Stream("out"))
+    monkeypatch.setattr(cli.sys, "stderr", Stream("err"))
+    cli._utf8_console()
+    utf8 = {"encoding": "utf-8", "errors": "replace", "line_buffering": True}
+    assert calls == [("out", utf8), ("err", utf8)]

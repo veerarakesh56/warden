@@ -1354,3 +1354,14 @@ def test_aurora_merge_stack_writes_in_the_files_own_format(tmp_path, before, aft
     stack.write_text(json.dumps(before), encoding="utf-8")
     _aurora().merge_stack(stack, {"k": "v", "n": {"a": 1}})
     assert json.loads(stack.read_text(encoding="utf-8")) == after
+
+
+def test_aurora_create_adds_the_reader_to_the_cluster_as_the_capacity_change_left_it(tmp_path):
+    """`_set_capacity` returns the cluster as last described; the reader is added against THAT, not the stale one."""
+    ax, rds, stack = _aurora(), FakeRds(), _wrapped_stack(tmp_path)
+    after = {"described": "after the capacity change", "DBClusterMembers": []}
+    seen = []
+    ax._set_capacity = lambda _rds, _cluster, _c, _log: after
+    ax._add_reader = lambda _rds, _cluster, c, _log: seen.append(c)
+    ax.create(rds, FakeSm(), stack, log=lambda *_: None)
+    assert seen == [after]

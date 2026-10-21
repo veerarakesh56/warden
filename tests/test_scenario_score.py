@@ -618,3 +618,75 @@ def test_a_hand_change_is_listed_and_followed_by_a_blank_line():
     score._render_hand_changes(out.append, {"operator_notes": [("ecs-01", {"at": "2026-01-01T00:00:00", "note": "n"})]},
                             {})
     assert out == ["- **Operator, by hand** (`ecs-01`, 2026-01-01T00:00:00): n", ""]
+
+
+# ---- what the split helpers decide, each pinned on its own (review of lane SH: these breaks went unseen)
+
+
+@pytest.mark.parametrize(("diagnosis", "action", "handed", "cell"), [
+    (score.WRONG, "scale_up", True, "stopped_a_wrong_answer"),
+    (score.WRONG, "scale_up", False, "acted_wrongly"),
+    (score.CORRECT, "scale_up", False, "acted_right"),
+    (score.CORRECT, score.ESCALATE, True, "abstained_right"),
+    (score.CORRECT, "scale_up", True, "escalated_a_right_fix"),
+], ids=["wrong-handed", "wrong-acted", "right-acted", "right-escalated", "right-fix-refused"])
+def test_each_graded_row_lands_in_its_own_act_abstain_cell(diagnosis, action, handed, cell):
+    assert score._act_abstain_cell({"diagnosis": diagnosis, "action": action}, handed) == cell
+
+
+@pytest.mark.parametrize("assertion", [
+    {"kind": "metric_gte", "left": "x", "right_value": 2},
+    {"kind": "metric_lt", "left": "x", "right": "y"},
+    {"kind": "metric_lt", "left": "y", "right": "x"},
+], ids=["gte-left-nan", "lt-left-nan", "lt-right-nan"])
+def test_a_nan_metric_fails_the_comparison(assertion):
+    """A NaN compares false every way: written as `not left < right`, it would pass."""
+    ok, _ = score.check_evidence([assertion], {"metrics": {"x": float("nan"), "y": 5.0}})
+    assert ok is False
+
+
+def test_metric_equal_with_its_right_metric_not_read_says_so():
+    failure = score._metric_equal({"left": "a", "right": "b"}, {"metrics": {"a": 1.0}})
+    assert failure == "metric_equal b: not read"
+
+
+def _timed(sid, start, end):
+    return {"scenario_id": sid, "started_at": start.isoformat(), "ended_at": end.isoformat()}
+
+
+@pytest.mark.parametrize(("ends_after_open_s", "found"), [(0, []), (1, ["other"])],
+                         ids=["ends-as-the-window-opens", "ends-a-second-later"])
+def test_a_record_ending_exactly_as_the_window_opens_is_not_in_it(tmp_path, ends_after_open_s, found):
+    import datetime as dt
+
+    opened = dt.datetime(2026, 9, 11, 12, 0, tzinfo=dt.UTC)
+    alert = opened + dt.timedelta(minutes=15)
+    other = _timed("other", opened - dt.timedelta(minutes=5), opened + dt.timedelta(seconds=ends_after_open_s))
+    records = [(tmp_path / "other.json", other), (tmp_path / "self.json", _timed("self", opened, alert))]
+    assert score._active_between(records, tmp_path / "self.json", opened, alert) == found
+
+
+RENDERED_AT = "2026-01-01T00:00:00"
+
+
+def _rendered():
+    rows = _rows((score.CORRECT, "allowed"), (score.WRONG, "refused"))
+    for row in rows:
+        row["window_overlaps"] = []
+    scored = {"rows": rows, "incomplete": [],
+              "manifest": {"wave": 7, "resumes": [{"at": RENDERED_AT, "reason": "a resume"}]},
+              "operator_notes": [("s0", {"at": RENDERED_AT, "note": "a hand change"})]}
+    return score.render_markdown(scored, score.summarise(scored))
+
+
+@pytest.mark.parametrize("section", [
+    "# Wave 7 results",
+    "## 3. Agreement across repeats",
+    "## 4. By fault class",
+    "## 5. Split by `signature_covered`",
+    "## 6. Confidence and the `reversible` flip-rate",
+    "This run was interrupted and resumed 1 time(s).",
+    f"- **Operator, by hand** (`s0`, {RENDERED_AT}): a hand change",
+], ids=["header", "repeats", "by-fault-class", "signature-split", "confidence", "resumes", "hand-changes"])
+def test_the_results_page_carries_every_section(section):
+    assert section in _rendered()
