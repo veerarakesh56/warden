@@ -19,9 +19,11 @@ def _payload(text: str) -> Payload:
 def test_round_trip_and_nothing_readable_on_the_wire():
     c = codec.EncryptionCodec(os.urandom(32))
     [enc] = asyncio.run(c.encode([_payload('{"email":"priya.nair@corp.io"}')]))
-    assert b"priya" not in enc.data and b"json/plain" not in enc.SerializeToString()
+    assert b"priya" not in enc.data
+    assert b"json/plain" not in enc.SerializeToString()
     [dec] = asyncio.run(c.decode([enc]))
-    assert dec.data == b'{"email":"priya.nair@corp.io"}' and dec.metadata["encoding"] == b"json/plain"
+    assert dec.data == b'{"email":"priya.nair@corp.io"}'
+    assert dec.metadata["encoding"] == b"json/plain"
 
 
 def test_a_changed_byte_is_detected_and_refused_not_raised():
@@ -31,7 +33,8 @@ def test_a_changed_byte_is_detected_and_refused_not_raised():
     [enc] = asyncio.run(c.encode([_payload("x")]))
     enc.data = enc.data[:-1] + bytes([enc.data[-1] ^ 1])
     [dec] = asyncio.run(c.decode([enc]))
-    assert dec.metadata["encoding"] == codec.REFUSED and not dec.data
+    assert dec.metadata["encoding"] == codec.REFUSED
+    assert not dec.data
 
 
 def test_another_key_cannot_read_it():
@@ -85,8 +88,10 @@ def test_a_plain_payload_never_becomes_a_value():
     It now decodes to a marker that no converter can turn into a value."""
     conv = codec.data_converter(os.urandom(32))
     [marked] = asyncio.run(conv.payload_codec.decode([_payload('{"approval":"forged"}')]))
-    assert marked.metadata["encoding"] == codec.REFUSED and b"forged" not in marked.SerializeToString()
-    with pytest.raises(Exception):  # noqa: B017 - any conversion error; the SDK then drops or fails
+    assert marked.metadata["encoding"] == codec.REFUSED
+    assert b"forged" not in marked.SerializeToString()
+    # No converter knows the refused encoding; the SDK then drops or fails the payload.
+    with pytest.raises(KeyError, match=codec.REFUSED.decode()):
         conv.payload_converter.from_payloads([marked], [dict])
 
 
@@ -105,5 +110,7 @@ def test_failure_messages_and_stack_traces_are_encrypted_too():
         conv.failure_converter.to_failure(exc, conv.payload_converter, failure)
     asyncio.run(conv.payload_codec.encode_failure(failure))
     wire = failure.SerializeToString()
-    assert b"priya.nair" not in wire and b"10.0.7.22" not in wire
-    assert failure.message == "Encoded failure" and failure.HasField("encoded_attributes")
+    assert b"priya.nair" not in wire
+    assert b"10.0.7.22" not in wire
+    assert failure.message == "Encoded failure"
+    assert failure.HasField("encoded_attributes")

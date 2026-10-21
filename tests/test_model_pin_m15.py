@@ -38,11 +38,13 @@ def test_the_cli_defaults_to_an_exact_id_and_reports_its_version(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
     provider = ClaudeCliProvider()
     assert pinned(provider.model) == provider.model
-    assert provider.version == "claude-cli 2.1.287" and provider.version == "claude-cli 2.1.287"
+    assert provider.version == "claude-cli 2.1.287"
+    assert provider.version == "claude-cli 2.1.287"
     assert calls == [["/usr/bin/claude", "--version"]], "read once"
 
 
 def test_the_version_is_in_the_diagnosis_provenance():
     report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(mock=True))
     row = next(step for step in report.audit if step.get("node") == "diagnose")
-    assert row["provenance"]["version"] == "mock" and row["provenance"]["model"] == "mock"
+    assert row["provenance"]["version"] == "mock"
+    assert row["provenance"]["model"] == "mock"

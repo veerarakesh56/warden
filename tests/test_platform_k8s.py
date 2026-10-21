@@ -99,9 +99,11 @@ def test_live_reads_the_named_deployment_with_one_get_and_lists_nothing():
     apps = _Apps()
     apps.list_namespaced_deployment = None  # a call would raise: the RBAC does not grant list
     live = _platform(apps).live("k8s_scale", {"deployment": "orders"})
-    assert live["namespace"] == {NS} and live["deployment"] == {"orders"}
-    assert live["current_replicas"] == 2 and live["state"] == {"deployment": "orders", "replicas": 2,
-                                                                "generation": 7, "server": ""}
+    assert live["namespace"] == {NS}
+    assert live["deployment"] == {"orders"}
+    assert live["current_replicas"] == 2
+    assert (live["state"] == {"deployment": "orders", "replicas": 2,
+                               "generation": 7, "server": ""})
 
 
 def test_nothing_read_allows_nothing():
@@ -115,7 +117,8 @@ def test_nothing_read_allows_nothing():
 def test_a_scale_is_bounded_and_conditioned_on_the_count_just_read():
     apps = _Apps(replicas=2)
     out = _platform(apps).apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 4})
-    assert "from 2 to 4" in out and apps.replicas["orders"] == 4
+    assert "from 2 to 4" in out
+    assert apps.replicas["orders"] == 4
     assert apps.patches[-1][1] == [{"op": "test", "path": "/spec/replicas", "value": 2},
                                    {"op": "replace", "path": "/spec/replicas", "value": 4},
                                    {"op": "add", "path": "/metadata/annotations", "value": {"warden.io/scaled-from": "2"}}]
@@ -125,16 +128,17 @@ def test_a_scale_is_bounded_and_conditioned_on_the_count_just_read():
 @pytest.mark.parametrize("replicas", [2, 1, 5, 0, True, "3"])
 def test_a_scale_outside_the_bound_is_refused_before_any_write(replicas):
     apps = _Apps(replicas=2)
+    platform = _platform(apps)
     with pytest.raises(KubernetesPlatformError, match="outside the bound"):
-        _platform(apps).apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": replicas})
+        platform.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": replicas})
     assert apps.patches == []
 
 
 def test_the_ceiling_holds_even_within_two_more():
     apps = _Apps(replicas=9)
+    platform = _platform(apps, max_replicas=10)
     with pytest.raises(KubernetesPlatformError, match="outside the bound"):
-        _platform(apps, max_replicas=10).apply("k8s_scale", {"namespace": NS, "deployment": "orders",
-                                                            "replicas": 11})
+        platform.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 11})
 
 
 def test_a_count_that_moved_is_refused_and_nothing_changes():
@@ -142,8 +146,9 @@ def test_a_count_that_moved_is_refused_and_nothing_changes():
     nobody approved."""
     apps = _Apps(replicas=2)
     apps.moved_to = 3
+    platform = _platform(apps)
     with pytest.raises(KubernetesPlatformError, match="something else scaled it; nothing was changed"):
-        _platform(apps).apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 4})
+        platform.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 4})
     assert apps.replicas["orders"] == 3
 
 
@@ -151,24 +156,28 @@ def test_a_restart_sets_the_rollout_annotation():
     apps = _Apps()
     out = _platform(apps).apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
     name, body = apps.patches[-1]
-    assert name == "orders" and RESTARTED_AT in body["spec"]["template"]["metadata"]["annotations"]
+    assert name == "orders"
+    assert RESTARTED_AT in body["spec"]["template"]["metadata"]["annotations"]
     assert "rollout restart of deployment/orders" in out
 
 
 @pytest.mark.parametrize("entry", ["k8s_rollout_undo", "db_terminate_idle_in_tx", "delete_deployment"])
 def test_every_other_entry_is_refused(entry):
+    platform = _platform(_Apps())
     with pytest.raises(KubernetesPlatformError, match="not something the Kubernetes platform does"):
-        _platform(_Apps()).apply(entry, {"namespace": NS, "deployment": "orders"})
+        platform.apply(entry, {"namespace": NS, "deployment": "orders"})
 
 
 def test_another_namespace_is_refused():
+    platform = _platform(_Apps())
     with pytest.raises(KubernetesPlatformError, match="not the one this platform serves"):
-        _platform(_Apps()).apply("k8s_restart", {"namespace": "kube-system", "deployment": "orders"})
+        platform.apply("k8s_restart", {"namespace": "kube-system", "deployment": "orders"})
 
 
 def test_an_api_fault_is_an_error_not_a_silent_success():
+    platform = _platform(_Apps(fail=True))
     with pytest.raises(KubernetesPlatformError, match="failed"):
-        _platform(_Apps(fail=True)).apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
+        platform.apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
 
 
 def test_rollback_returns_the_scale_to_the_planned_snapshot_and_a_restart_needs_none():
@@ -176,7 +185,8 @@ def test_rollback_returns_the_scale_to_the_planned_snapshot_and_a_restart_needs_
     apps.marks["orders"] = {"warden.io/scaled-from": "2", "team": "shop"}
     p = _platform(apps)
     out = p.rollback("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 4}, {"replicas": 2})
-    assert "from 4 to 2" in out and apps.replicas["orders"] == 2
+    assert "from 4 to 2" in out
+    assert apps.replicas["orders"] == 2
     assert apps.marks["orders"] == {"team": "shop"}  # the mark cleared, the Deployment's own annotations kept
     apps.replicas["orders"], apps.marks["orders"] = 4, {"warden.io/scaled-from": "3"}
     with pytest.raises(KubernetesPlatformError, match="not scaled up from 2 by WARDEN"):  # R7-O3: only back to the mark
@@ -190,8 +200,10 @@ def test_rollback_returns_the_scale_to_the_planned_snapshot_and_a_restart_needs_
 def test_healthy_needs_every_replica_updated_and_available():
     apps = _Apps(replicas=2)
     p = _platform(apps)
-    assert p.healthy("orders") and p.knows("orders")
-    assert not p.healthy("nope") and not p.knows("nope")
+    assert p.healthy("orders")
+    assert p.knows("orders")
+    assert not p.healthy("nope")
+    assert not p.knows("nope")
     sick = apps._dep("orders")
     sick.status.available_replicas = 1
     apps.read_namespaced_deployment = lambda *a, **k: sick
@@ -218,7 +230,8 @@ def test_an_approved_scale_runs_through_the_workflow_end_to_end(world, owner):  
     out = _run(world, _approve_with(owner), entry="k8s_scale", service="orders",
                params={"namespace": NS, "deployment": "orders", "replicas": 3})
     assert out.status == "recovered", (out.status, out.reasons)
-    assert apps.replicas["orders"] == 3 and len(apps.patches) == 1
+    assert apps.replicas["orders"] == 3
+    assert len(apps.patches) == 1
 
 
 def test_healthy_needs_the_current_spec_seen_and_a_rollout_not_stalled():
@@ -248,7 +261,8 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
     text = (pathlib.Path(__file__).resolve().parents[1] / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8")
     docs = {d["kind"]: d for d in yaml.safe_load_all(text) if d}
     vap, binding = docs["ValidatingAdmissionPolicy"], docs["ValidatingAdmissionPolicyBinding"]
-    assert vap["spec"]["failurePolicy"] == "Fail" and binding["spec"]["validationActions"] == ["Deny"]
+    assert vap["spec"]["failurePolicy"] == "Fail"
+    assert binding["spec"]["validationActions"] == ["Deny"]
     assert binding["spec"]["policyName"] == vap["metadata"]["name"]
     [who] = vap["spec"]["matchConditions"]
     assert who["expression"] == ('request.userInfo.username == "system:serviceaccount:warden:warden-remediator" || '
@@ -274,10 +288,12 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
         assert held(f"spec.{f}"), f"spec.{f} is not held"
     for f in ("spec", "metadata.labels", "metadata.finalizers"):
         assert held(f"spec.template.{f}"), f"spec.template.{f} is not held"
-    assert "restartedAt" in rules and "paused" in rules
+    assert "restartedAt" in rules
+    assert "paused" in rules
     # The ceiling is the platform's default ceiling.
     k8s_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "platforms" / "k8s.py").read_text()
-    assert '"WARDEN_REMEDIATION_MAX_REPLICAS", "10"' in k8s_src and "object.spec.replicas <= 10 " in rules
+    assert '"WARDEN_REMEDIATION_MAX_REPLICAS", "10"' in k8s_src
+    assert "object.spec.replicas <= 10 " in rules
     # The ceiling only when the count changes: a restart of a Deployment above ten was refused (eighth review).
     assert "object.spec.replicas == oldObject.spec.replicas ?" in rules
     # R7-O3: a step up records the count it replaced; a step down returns only to it and clears it.
@@ -400,8 +416,9 @@ def test_a_write_that_never_reached_the_api_server_changed_nothing():
         def patch_namespaced_deployment(self, name, ns, body, **kw):
             raise urllib3.exceptions.ProtocolError("Connection aborted.", ConnectionResetError())
 
+    platform = _platform(_Reset(replicas=2))
     with pytest.raises(KubernetesPlatformError) as unknown:  # sent, then lost: nobody knows - not "refused"
-        _platform(_Reset(replicas=2)).apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
+        platform.apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
     assert not isinstance(unknown.value, KubernetesPlatformRefused)
 
 
@@ -412,15 +429,19 @@ def test_an_undo_refused_because_the_deployment_moved_is_wardens_own_check_and_a
     params = {"namespace": NS, "deployment": "orders", "replicas": 4}
     apps = _Apps(replicas=4)
     apps.marks["orders"] = {"warden.io/scaled-from": "3"}  # not the count the fix was planned from
+    platform = _platform(apps)
     with pytest.raises(KubernetesPlatformRefused) as mark:
-        _platform(apps).rollback("k8s_scale", params, {"replicas": 2})
-    assert mark.value.own_check is True and mark.value.nothing_changed is True
+        platform.rollback("k8s_scale", params, {"replicas": 2})
+    assert mark.value.own_check is True
+    assert mark.value.nothing_changed is True
     apps = _Apps(replicas=4)
     apps.marks["orders"] = {"warden.io/scaled-from": "2"}
     apps.moved_to = 5  # someone scaled it after the fix
+    platform = _platform(apps)
     with pytest.raises(KubernetesPlatformRefused, match="something else scaled it") as moved:
-        _platform(apps).rollback("k8s_scale", params, {"replicas": 2})
+        platform.rollback("k8s_scale", params, {"replicas": 2})
     assert moved.value.own_check is True
+    unreadable = _platform(_Apps(replicas=4, fail=True))
     with pytest.raises(KubernetesPlatformRefused, match="could not read") as unread:
-        _platform(_Apps(replicas=4, fail=True)).rollback("k8s_scale", params, {"replicas": 2})
+        unreadable.rollback("k8s_scale", params, {"replicas": 2})
     assert getattr(unread.value, "own_check", False) is False
