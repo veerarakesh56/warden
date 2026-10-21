@@ -342,7 +342,13 @@ jobs:
           for svc in $services; do
             read -r name began <<< "$(aws ecs describe-services --cluster "$cluster" --services "$svc" \
               --query 'services[0].[serviceName, deployments[0].createdAt]' --output text)"
-            if [ "$(date -u -d "$began" +%s)" -lt "$APPLY_STARTED" ]; then
+            # Fail closed: a time that cannot be read (no deployment, another CLI timestamp format) stops the run - it
+            # never passes for "rolled out by this apply" (CodeRabbit, PR 103).
+            if ! began_s=$(date -u -d "$began" +%s 2>/dev/null) || ! [[ "$began_s" =~ ^[0-9]+$ ]]; then
+              echo "::error::$name: its deployment's start time '$began' cannot be read"
+              exit 1
+            fi
+            if [ "$began_s" -lt "$APPLY_STARTED" ]; then
               aws ecs update-service --cluster "$cluster" --service "$svc" --force-new-deployment \
                 --query service.serviceName --output text
               restarted="$restarted $svc"
@@ -350,11 +356,19 @@ jobs:
               echo "$name: rolled out by this apply"
             fi
           done
-          if [ -n "$restarted" ]; then
+          test -n "$restarted" || exit 0
+          # Up to 25 minutes, as the zone check above: a restart waits for Fargate capacity and the read zone's 2.5 GB
+          # image as a rollout does (a 10-minute `wait services-stable` gave up on one, 2026-10-15; CodeRabbit, PR 103).
+          for _ in $(seq 1 50); do
             # shellcheck disable=SC2086
-            aws ecs wait services-stable --cluster "$cluster" --services $restarted
-            echo "restarted and stable:$restarted"
-          fi
+            pending=$(aws ecs describe-services --cluster "$cluster" --services $restarted \
+              --query 'length(services[?length(deployments) != `1` || deployments[0].rolloutState != `COMPLETED`])' \
+              --output text)
+            [ "$pending" = 0 ] && { echo "restarted and stable:$restarted"; exit 0; }
+            sleep 30
+          done
+          echo "::error::not stable after 25 minutes:$restarted"
+          exit 1
       - name: "pause: the audit database stopped, and what stays"
         if: env.ACTION == 'pause'
         env:

@@ -235,9 +235,14 @@ def test_apply_deploys_and_restarts_in_one_run():
     assert started < apply < zones < restart
     step = deploy[restart:]
     assert "if: env.ACTION == 'apply' || env.ACTION == 'resume'" in step.split("\n")[1]
-    assert '-lt "$APPLY_STARTED"' in step  # only a zone this apply left as it was is restarted
+    assert '[ "$began_s" -lt "$APPLY_STARTED" ]' in step  # only a zone this apply left as it was is restarted
     assert "--force-new-deployment" in step
-    assert "aws ecs wait services-stable" in step
+    assert "for _ in $(seq 1 50)" in step  # 25 minutes, as the zone check: a 10-minute waiter gave up on one
+    assert 'echo "::error::not stable after 25 minutes:$restarted"' in step
+    # Fail closed on a start time that cannot be read: never "rolled out by this apply" by accident.
+    fail_closed = step.index('if ! began_s=$(date -u -d "$began" +%s 2>/dev/null) || ! [[ "$began_s" =~ ^[0-9]+$ ]]; then')
+    assert "cannot be read\"\n              exit 1" in step[fail_closed:]
+    assert fail_closed < step.index('[ "$began_s" -lt "$APPLY_STARTED" ]')
     assert "--task-definition" not in step  # the same task definition: the image the zone check verified
     assert 'test -n "$APPLY_STARTED"' in step
     # The restart action stays for a secret rotated when nothing else is deployed.
