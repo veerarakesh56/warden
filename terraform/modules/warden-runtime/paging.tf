@@ -222,7 +222,7 @@ locals {
     }
     daily_cap = {
       metric = "ModelDailyCapReached"
-      says   = "A WARDEN daily model limit is reached - the incidents' daily cap, or Eldane's daily call ceiling. Until its 24-hour window moves on: under the incidents' cap, incidents are escalated to a person on the rules alone; under Eldane's ceiling, Eldane reviews no plan and a person approves. The audit's incident.llm_spend and eldane.call rows say which."
+      says   = "A WARDEN daily model limit is reached - the shared daily spend cap, or Eldane's daily call ceiling. Until its 24-hour window moves on: under the spend cap, incidents are escalated to a person on the rules alone and Slack discussions get the limit reply instead of an answer; under Eldane's ceiling, Eldane reviews no plan and a person approves. The audit's incident.llm_spend and eldane.call rows say which."
     }
     budget = {
       metric = "ModelBudgetReached"

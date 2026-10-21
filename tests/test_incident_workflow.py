@@ -132,11 +132,13 @@ def test_every_step_is_in_the_signed_audit_log(results):
             again = max(i for i, k in enumerate(kinds[:cut]) if k == "incident.diagnose")
             kinds = kinds[:again] + kinds[again + 1:cut] + kinds[cut + 1:]
         # Plus one row of what the run spent on the model, written failed or not (seventh review: the budget is
-        # carried across an incident's runs), and the model path's own rows (item 7): one llm.call per request, one
-        # llm.fallback per fallback.
+        # carried across an incident's runs), and the model path's own rows (item 7): one llm.call per request, and
+        # one llm.fallback per fallback - not graph steps, so held apart: exactly one for each degraded diagnosis.
         assert [k for k in kinds if k not in ("incident.llm_spend", "incident.llm_reserve", "incident.alert",
                                               "incident.evidence", "llm.call", "llm.fallback")] == \
             [f"incident.{s['node']}" for s in report.audit], alert_id
+        degraded = [r for r in rows if r["kind"] == "incident.diagnose" and r["body"].get("degraded")]
+        assert [r["kind"] for r in rows].count("llm.fallback") == len(degraded), alert_id
         assert [r["kind"] for r in rows].count("incident.llm_spend") == (2 if second else 1), alert_id
         # And one row of the alarm as it came in, its text redacted, so the incident can be discussed (G10-45).
         assert [r["kind"] for r in rows].count("incident.alert") == 1, alert_id

@@ -120,7 +120,8 @@ def test_each_of_eldanes_questions_has_its_row(request):
     critic_world = _eldane(request)
     _review(critic_world)
     rows = _rows(critic_world["log"], None, llm.CALL)
-    assert len(rows) == len(critic_world["model"].prompts) == 2
+    assert len(rows) == 2
+    assert len(critic_world["model"].prompts) == 2
     prices = llm.model_prices(FakeModel.model)
     for row in rows:
         assert set(row) == CALL_FIELDS
@@ -152,7 +153,7 @@ def test_no_log_line_holds_the_prompt_or_the_answer(tmp_path, caplog, request):
     critic_world = _eldane(request)
     caplog.set_level(logging.DEBUG)  # the root, so every logger's record is captured
     for name in list(logging.root.manager.loggerDict):
-        logging.getLogger(name).setLevel(logging.DEBUG)
+        caplog.set_level(logging.DEBUG, logger=name)  # restored at teardown, as the root's is (CodeRabbit, PR 176)
     answer = f'{{"answer": "{CANARY_ANSWER}", "cites": []}}'
     # The client itself: an invalid answer twice (each retried), then a valid one.
     client = LLMClient(provider=Scripted(f"no json {CANARY_ANSWER}", _status(503), answer), mock=False)
@@ -275,7 +276,8 @@ def test_the_rows_have_the_shape_the_pilot_report_reads(tmp_path):
     """PR 175 (the pilot report) counts these by name: `llm.call` with model, prompt_tokens, completion_tokens,
     latency_ms and cost - a float in US dollars, not cents - and `llm.fallback` with a reason from the closed set.
     It is not on main yet, so this holds the shape; a test that runs the report over these rows comes with it."""
-    assert (llm.CALL, llm.FALLBACK) == ("llm.call", "llm.fallback")
+    assert llm.CALL == "llm.call"
+    assert llm.FALLBACK == "llm.fallback"
     client = LLMClient(provider=Scripted(_status(503)), mock=False)  # one failed call, then a fallback
     log, key = _diagnose(tmp_path, lambda: client)
     [call] = _rows(log, key, llm.CALL)[:1]
