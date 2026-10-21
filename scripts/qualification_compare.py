@@ -155,7 +155,12 @@ def current_row(doc: dict, provider: str | None) -> dict | None:
 def old_side(doc: dict, provider: str | None, compare_with: pathlib.Path | None) -> dict | None:
     """The old side: --compare-with (a run directory or its qualification.json), else the providers.yaml row."""
     if compare_with:
-        run_dir = compare_with if compare_with.is_dir() else compare_with.parent
+        from warden import paths
+
+        real = paths.inside(
+            compare_with
+        )  # a command-line path: only inside the tools' places (Sonar S2083)
+        run_dir = real if real.is_dir() else real.parent
         result = run_dir / "qualification.json"
         if not result.is_file():
             raise ValueError(

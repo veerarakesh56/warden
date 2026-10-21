@@ -293,3 +293,11 @@ def test_a_run_that_wrote_no_result_says_so(tmp_path, monkeypatch):
     args = qc.argparse.Namespace(env="someenv", model=SONNET, out=tmp_path, budget_usd=1.0)
     with pytest.raises(SystemExit, match="wrote no"):
         qc.measure(args)
+
+
+def test_a_command_line_path_outside_the_tools_places_is_refused():
+    outside = pathlib.Path("/etc") / "passwd"  # a system file: never a place the tools work in
+    with pytest.raises(SystemExit, match="refused"):
+        qc.checked_result(outside)
+    with pytest.raises(SystemExit, match="refused"):
+        qc.compare_with_result(outside)

@@ -237,6 +237,7 @@ def checked_result(path: pathlib.Path) -> dict:
     """A saved result, only when its run directory's own reports give the same counts (CodeRabbit, PR 173): the counts
     are tallied again from the stored reports, so a hand-written or edited file is refused. The prompt cannot be
     proven from the reports; the pull request that carries the recording is where a person checks it."""
+    path = workable(path)
     result = json.loads(path.read_text(encoding="utf-8"))
     sys.path.insert(0, str(SCRIPTS))
     import qualify_provider
@@ -278,8 +279,20 @@ def write(result: dict, when: str) -> str:
     return why
 
 
+def workable(path: pathlib.Path) -> pathlib.Path:
+    """A path from the command line, resolved, only inside the places WARDEN's tools work (warden.paths.inside: the
+    checkout, the temp folder, the tools' output folders; Sonar pythonsecurity:S2083, PR 173); else SystemExit."""
+    from warden import paths
+
+    try:
+        return paths.inside(path)
+    except ValueError as exc:
+        raise SystemExit(f"refused: {exc}") from exc
+
+
 def compare_with_result(path: pathlib.Path) -> pathlib.Path | None:
     """The qualification.json --compare-with names: the file itself, or the one in that run directory; else None."""
+    path = workable(path)
     found = path / RESULT_FILE if path.is_dir() else path
     return found if found.name == RESULT_FILE and found.is_file() else None
 
