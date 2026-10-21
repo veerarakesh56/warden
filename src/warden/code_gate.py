@@ -271,7 +271,9 @@ _SUPPRESSION = re.compile(
     r"#\s*(?:noqa|nosec|type:\s*ignore|pragma:\s*no\s*cover|pylint:\s*disable|nosemgrep)|N[O]SONAR|"
     r"pytest\.(?:mark\.)?(?:skip|skipif|xfail)|unittest\.skip|@skip|eslint-disable|@ts-(?:ignore|nocheck)|"
     r"lgtm\[|codeql\[|coderabbit:\s*ignore|sonar\.issue\.ignore", re.IGNORECASE)
-_DYNAMIC_IMPORT = re.compile(r"__import__\s*\(|\bimportlib\b|\bimport_module\s*\(|\brunpy\b|\bpkgutil\b")
+# exec and eval as calls of their own (not a method such as `cursor.execute(` or `x.eval(`): code from a string.
+_DYNAMIC_IMPORT = re.compile(r"__import__\s*\(|\bimportlib\b|\bimport_module\s*\(|\brunpy\b|\bpkgutil\b|"
+                             r"(?<![\w.])(?:exec|eval)\s*\(")
 _INSTALL = re.compile(r"\b(?:pip3?|uv|poetry|pipx|npm|yarn|pnpm|gem|cargo|go)[\s'\",]+(?:install|add|get)\b|"
                       r"\bensurepip\b|\bsite\.addsitedir\b", re.IGNORECASE)
 _IMPORT = re.compile(r"\s*(?:from\s+([A-Za-z_][\w.]*)\s+import\b|import\s+([A-Za-z_][^#]*))")
@@ -284,12 +286,31 @@ def is_test_line(line: str) -> bool:
     return bool(_TEST_DEF.match(line) or _TEST_RAISES.search(line))
 
 
+def code_part(line: str) -> str:
+    """A line up to its comment: a `#` inside a quoted string (`x = "#"; import requests`) does not start one. A quote
+    the scan reads wrongly can only keep more of the line, which can only add a refusal, never hide an import."""
+    quote = ""
+    escaped = False
+    for i, ch in enumerate(line):
+        if escaped:
+            escaped = False
+        elif quote and ch == "\\":
+            escaped = True
+        elif quote:
+            quote = "" if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "#":
+            return line[:i]
+    return line
+
+
 def imported_modules(line: str) -> set[str]:
     """The top-level modules the `import` and `from ... import` statements of one line name. Each piece after a `;` or
     a `:` is read as a statement (`try: import x`); a colon inside a string can only make a piece refused, never let
     one through. A relative import names none."""
     out: set[str] = set()
-    for statement in re.split(r"[;:]", line.split("#", 1)[0]):
+    for statement in re.split(r"[;:]", code_part(line)):
         m = _IMPORT.match(statement)
         if m and m.group(1):
             out.add(m.group(1).split(".")[0])
@@ -350,7 +371,7 @@ def _kind_of_file(f: FileChange) -> list[Refusal]:
     modes = {f.old_mode, f.new_mode} - {""}
     if modes - {_REGULAR, _EXECUTABLE}:
         out.append(Refusal("CG7", f"{f.path}: a symbolic link or submodule"))
-    elif f.status == _MODIFIED and f.old_mode != f.new_mode:
+    elif f.status in (_MODIFIED, _RENAMED) and f.old_mode != f.new_mode:
         out.append(Refusal("CG7", f"{f.path}: its file mode changes"))
     elif f.new_mode == _EXECUTABLE and f.status == _ADDED:
         out.append(Refusal("CG7", f"{f.path}: a new executable file"))
@@ -368,11 +389,21 @@ def _line(path: str, n: int, line: str, known: frozenset[str]) -> list[Refusal]:
     if _DYNAMIC_IMPORT.search(line) or _INSTALL.search(line):
         out.append(Refusal("CG6", f"{path} added line {n}: a dynamic import or an install command"))
     if path.endswith(".py"):
+        if _continued_import(line):
+            out.append(Refusal("CG6", f"{path} added line {n}: an import continued on the next line (`\\`), which "
+                                      "the gate does not read"))
         new = sorted(imported_modules(line) - known - set(sys.stdlib_module_names) - {"__future__"})
         if new:
             out.append(Refusal("CG6", f"{path} added line {n}: imports {', '.join(new)}, which the repository does "
                                       "not use yet"))
     return out
+
+
+def _continued_import(line: str) -> bool:
+    """`import os, \\` with the next module on the next line: the gate reads one line at a time, so it is refused."""
+    code = code_part(line).rstrip()
+    return code.endswith("\\") and any(re.match(r"\s*(?:from|import)\b", piece)
+                                       for piece in re.split(r"[;:]", code))
 
 
 def _weakening(f: FileChange, limits: GateLimits) -> list[Refusal]:

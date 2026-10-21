@@ -109,12 +109,18 @@ def _find_once(lines: list[str], block: list[str]) -> int:
     return starts[0]
 
 
+def _lines(text: str) -> list[str]:
+    """A text's lines split at LF only, as parse_diff reads a diff: a CR, a form feed or a Unicode line separator stays
+    in its line, so nothing outside the reverted hunks is rewritten (str.splitlines split at each of them)."""
+    return text.removesuffix("\n").split("\n") if text else []
+
+
 def take_back(current: str, change: FileChange) -> str:
     """`current` with `change` (a modified file's hunks, in order) taken back. Each hunk is found by its exact after
     lines, once; the file's last newline is kept as it was."""
     if not change.hunks:
         raise RevertError(f"{change.path}: the commit's change has no hunks to take back")
-    lines, ends_newline = current.splitlines(), current.endswith("\n")
+    lines, ends_newline = _lines(current), current.endswith("\n")
     for hunk in change.hunks:
         before, after = _sides(hunk)
         at = _find_once(lines, after)
@@ -138,7 +144,7 @@ def diff_of(path: str, old: str | None, new: str | None, mode: str = "100644") -
         header.append(f"new file mode {mode}")
     elif new is None:
         header.append(f"deleted file mode {mode}")
-    body = difflib.unified_diff((old or "").splitlines(), (new or "").splitlines(), lineterm="", n=3,
+    body = difflib.unified_diff(_lines(old or ""), _lines(new or ""), lineterm="", n=3,
                                 fromfile=f"a/{path}" if old is not None else "/dev/null",
                                 tofile=f"b/{path}" if new is not None else "/dev/null")
     return "\n".join([*header, *body]) + "\n"
@@ -154,7 +160,7 @@ class _Plan:
 
 def _delete_added(f: FileChange, current: str | None, plan: _Plan) -> None:
     """The commit added the file: the revert deletes it, if it is still exactly that."""
-    if current is None or current.splitlines() != list(f.added):
+    if current is None or _lines(current) != list(f.added):
         raise RevertError(f"{f.path}: the file the commit added has changed since, or is gone")
     plan.deletions.append(f.path)
     plan.diffs.append(diff_of(f.path, current, None, f.new_mode or "100644"))
@@ -289,9 +295,13 @@ def _open(req: RevertRequest, writer: RepoWriter, mode: CodeFixMode, base: Rever
                             additions=plan.additions, deletions=tuple(plan.deletions))
     except GitHubAppError as exc:
         raise GitHubAppError(f"{exc}; {_remove(writer, branch)}") from None
-    number, url = writer.open_pull_request(head=branch, base=base_branch, title=title,
-                                           body=_body(req.incident, req.sha, req.environment, mode,
-                                                      sorted(f.path for f in original)))
+    try:
+        number, url = writer.open_pull_request(head=branch, base=base_branch, title=title,
+                                               body=_body(req.incident, req.sha, req.environment, mode,
+                                                          sorted(f.path for f in original)))
+    except GitHubAppError as exc:  # the commit is written but no pull request holds it: the branch goes
+        return _with(base, status="failed", head=head, branch=branch, revert_commit=oid,
+                     reason=f"the pull request was not opened: {exc}; {_remove(writer, branch)}"[:500])
     return _with(base, status="opened", head=head, branch=branch, revert_commit=oid, pull_request=number, url=url,
                  base=base_branch)
 
@@ -313,8 +323,13 @@ class CodeFixActivities:
         policies = self._policies or default_environment_policies()
         policy = policies.for_env(environment)
         repo = os.environ.get("WARDEN_CHANGE_REPO") or policies.github.get("repository", "")
-        outcome = open_revert(RevertRequest(incident=incident_id, environment=policy.name, tier=policy.tier,
-                                            mode=policy.code_fix, repo=repo, sha=sha), app=self._app)
+        try:
+            outcome = open_revert(RevertRequest(incident=incident_id, environment=policy.name, tier=policy.tier,
+                                                mode=policy.code_fix, repo=repo, sha=sha), app=self._app)
+        # Every attempt is an audit row: an error open_revert did not expect too, named by its type only.
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, RuntimeError) as exc:
+            outcome = RevertOutcome(status="failed", commit=sha, mode=policy.code_fix,
+                                    reason=f"an unexpected error ({type(exc).__name__})")
         row = outcome.row()
         self.audit.append(incident_id, AUDIT_KIND, row)
         return row

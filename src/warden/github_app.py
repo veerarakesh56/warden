@@ -52,7 +52,9 @@ _APP_ID = re.compile(r"\d{1,12}|Iv[0-9A-Za-z.]{2,40}")  # the App's numeric id, 
 _BRANCH = re.compile(r"warden/[a-z0-9][a-z0-9._-]{0,60}(?:/[a-z0-9][a-z0-9._-]{0,60}){0,2}")
 _BASE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,60}")
 _SHA = re.compile(r"[0-9a-f]{40}")
-_NAMED = re.compile(r"[\w ,.:;()'/-]{1,200}")  # a headline or title: one plain line
+# A headline or title: one line of up to 200 printable characters - what a revert's subject holds (`Revert "Fix the
+# cart (#123)"`): quotes, #, brackets, !, +, @, & - and no control character, line break or other whitespace.
+_NAMED = re.compile(r"[\w ,.:;()'/\"#\[\]!+@&=*%?<>{}|~^$`-]{1,200}")
 
 
 class GitHubAppError(RuntimeError):
@@ -268,15 +270,6 @@ class RepoWriter:
         sha = ((ref or {}).get("object") or {}).get("sha") if isinstance(ref, dict) else None
         return _sha(str(sha or ""), f"the head of {branch}")
 
-    def default_branch(self) -> str:
-        """The repository's default branch: where pull requests go and CI runs."""
-        status, got = self._call("GET", "")
-        _expect(status, 200, "the repository")
-        branch = str((got or {}).get("default_branch") or "") if isinstance(got, dict) else ""
-        if not _BASE.fullmatch(branch) or branch.startswith(BRANCH_PREFIX.rstrip("/")):
-            raise GitHubAppError("the repository's default branch is not a plain branch name")
-        return branch
-
     def read_file(self, path: str, ref: str) -> bytes | None:
         """A file's bytes at commit `ref`; None when the file is not there."""
         (path,) = _paths([path])
@@ -334,10 +327,22 @@ class RepoWriter:
         oid = (((got.get("data") or {}).get("createCommitOnBranch") or {}).get("commit") or {}).get("oid")
         return _sha(str(oid or ""), "the new commit")
 
+    def default_branch(self) -> str:
+        """The repository's default branch: where pull requests go and CI runs."""
+        status, got = self._call("GET", "")
+        _expect(status, 200, "the repository")
+        branch = str((got or {}).get("default_branch") or "") if isinstance(got, dict) else ""
+        if not _BASE.fullmatch(branch) or branch.startswith(BRANCH_PREFIX.rstrip("/")):
+            raise GitHubAppError("the repository's default branch is not a plain branch name")
+        return branch
+
     def open_pull_request(self, *, head: str, base: str, title: str, body: str) -> tuple[int, str]:
-        """A pull request from WARDEN's branch into `base`; its number and address."""
+        """A pull request from WARDEN's branch into `base`, which must be the repository's default branch (read from
+        GitHub here, not trusted from the caller); its number and address."""
         if not _BASE.fullmatch(base or "") or base.startswith(BRANCH_PREFIX.rstrip("/")):
             raise GitHubAppError("a pull request's base must be one of the repository's own branches, never WARDEN's")
+        if base != self.default_branch():
+            raise GitHubAppError("a pull request's base must be the repository's default branch, where CI runs")
         status, got = self._call("POST", "/pulls", {"head": _branch(head), "base": base,
                                                      "title": _line(title, "the title"), "body": body,
                                                      "maintainer_can_modify": False})
