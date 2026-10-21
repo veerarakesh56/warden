@@ -105,4 +105,10 @@ def request(log: Any, policy: Any, *, incident: str, user: str, hours: int, now:
                                     "approver": name, "hours": hours, "from": plan["until"].isoformat(),
                                     "until": until.isoformat(), "ceiling": top.isoformat()})
     return {"workflow_id": plan["workflow_id"], "from": plan["until"].isoformat(), "until": until.isoformat(),
-            "hours": round((until - plan["until"]).total_seconds() / 3600, 2), "capped": until == top}
+            "hours": _hours(until - plan["until"]), "capped": until == top}
+
+
+def _hours(span: timedelta) -> int | float:
+    """A span in hours as a person reads it: 12, or 3.5 when the ceiling cut it."""
+    h = round(span.total_seconds() / 3600, 1)
+    return int(h) if h.is_integer() else h
