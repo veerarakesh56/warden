@@ -70,7 +70,7 @@ def test_the_webhook_needs_its_secret_and_drops_what_alertmanager_no_longer_fire
     monkeypatch.delenv("WARDEN_ALERTMANAGER_URL", raising=False)
     assert lambdas.alertmanager(_am("wrong"))["statusCode"] == 401
     assert submitted == []
-    assert lambdas.alertmanager(_am("t-old"))["statusCode"] == 202
+    assert lambdas.alertmanager(_am("t-old"))["statusCode"] == 202  # during a rotation
     assert len(submitted) == 1
     monkeypatch.setenv("WARDEN_ALERTMANAGER_URL", "https://alertmanager.example")
     monkeypatch.setattr("warden.webhooks.alertmanager_active", lambda url: (lambda: set()))

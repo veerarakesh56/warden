@@ -253,7 +253,7 @@ def test_the_undo_of_a_disabled_event_source_mapping_is_planned_as_switching_it_
     quiet.mappings = (OFF, {**OFF, "UUID": "u-10"})
     req, why = _undo(quiet)
     assert req is None
-    assert "no single known-good mapping" in why
+    assert "no single known-good mapping" in why  # WARDEN does not choose between two
     quiet.mappings = ({**OFF, "State": "Enabled"},)
     req, why = _undo(quiet)
     assert req is None

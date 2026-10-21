@@ -293,7 +293,7 @@ def test_datadog_logs_spans_and_metrics_are_read_on_its_own_site_with_its_own_ut
     mapped = datadog.DatadogReader(env=DD_ENV, call=only_for_cart_worker)
     assert mapped.metrics(_alert(deployment="catalog-api,cart-worker,orders")) == {n: 0.42 for n in datadog.QUERIES}
     assert any("catalog-api" in q for q in seen)
-    assert "cart-worker" in seen[-1]
+    assert "cart-worker" in seen[-1]  # tried in order, stopped at numbers
     for line in reader.logs(_alert()) + spans:
         assert evidence._kind(line) == "L", line  # untrusted text, whatever it says
 

@@ -46,7 +46,7 @@ def test_a_failure_told_only_in_prose_is_missed_and_the_logs_are_flagged():
     spanish = ContextBundle(logs=["la base de datos rechaza la conexión, hay demasiadas conexiones para el servidor"] * 3)
     kb = default_knowledge_base()
     assert kb.match(alert, english)
-    assert not kb.match(alert, spanish)
+    assert not kb.match(alert, spanish)  # measured: the English vocabulary misses it
     assert foreign_share(spanish.logs) == 1.0
     assert foreign_share(english.logs) == 0.0
 

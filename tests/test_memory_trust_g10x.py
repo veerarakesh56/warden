@@ -85,13 +85,13 @@ def test_no_model_writes_anything_a_later_incident_reads():
     model output is ever a row's source of truth for another incident."""
     hist = _src("history.py")
     assert "hypothesis" not in hist
-    assert "answer" not in hist
+    assert "answer" not in hist  # past diagnoses' and discussions' words stay out
     acts = _src("activities.py")
     answer = _function(acts, "discuss_answer")
     assert 'kinds=("incident.evidence"' not in answer
     assert "self.audit.append(key, \"discuss.answer\"" in answer
     assert '"cites": answer.cites[:20]' in answer
-    assert '"answer": ' not in answer
+    assert '"answer": ' not in answer  # its words are not kept as fact
 
 
 def test_past_incidents_reach_a_diagnosis_only_as_fixed_facts_and_only_when_switched_on(tmp_path, monkeypatch):

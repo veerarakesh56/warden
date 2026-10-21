@@ -150,7 +150,7 @@ def test_where_faults_may_be_injected_is_one_list_in_the_configuration(tmp_path)
     from scenarios import region as harness
 
     assert harness.fault_environment() == CFG.fault_environments[0]
-    assert harness.EXAMPLE_ACCOUNT.isdigit()
+    assert harness.EXAMPLE_ACCOUNT.isdigit()  # AWS's documentation account
     assert len(harness.EXAMPLE_ACCOUNT) == 12
 
 

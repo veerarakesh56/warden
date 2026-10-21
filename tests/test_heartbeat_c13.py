@@ -156,5 +156,5 @@ def test_the_synthetic_runs_once_a_day_and_publishes_only_on_success(monkeypatch
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(beating)
     assert len(runs) == 2
-    assert runs[1] - runs[0] == timedelta(hours=24)
+    assert runs[1] - runs[0] == timedelta(hours=24)  # beats every turn; the synthetic daily
     assert shadows == [1]  # published for the first (passed), not the second (failed)

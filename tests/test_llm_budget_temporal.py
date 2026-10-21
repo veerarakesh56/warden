@@ -336,7 +336,7 @@ def test_a_provider_timeout_and_an_unreadable_answer_count_and_carry():
     client = LLMClient(provider=Times(), max_calls=4, max_usd=0.50, mock=False, call_timeout_s=5)
     with contextlib.suppress(Exception):
         client.structured(system="s", user="u", schema=RootCause)
-    assert client.cost.calls == 3
+    assert client.cost.calls == 3  # three attempts, all carried
     assert client.unanswered == 0
 
     class Html:
@@ -348,7 +348,7 @@ def test_a_provider_timeout_and_an_unreadable_answer_count_and_carry():
     client = LLMClient(provider=Html(), max_calls=4, max_usd=0.50, mock=False, call_timeout_s=5)
     with contextlib.suppress(Exception):
         client.structured(system="s", user="u", schema=RootCause)
-    assert client.cost.calls == 3
+    assert client.cost.calls == 3  # it counted as no call at all
     assert client.unanswered == 0
 
 

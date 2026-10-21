@@ -50,7 +50,7 @@ def test_a_create_that_stopped_part_way_is_judged_by_today_for_what_exists_and_a
     assert gate.judge("lose-z1", {"aws_nat_gateway.this"}, set(), ACCEPTED, today)[0] == "refuse"  # exists, survived
     assert gate.judge("lose-z1", {"aws_nat_gateway.this"}, set(), ACCEPTED, {"aws_vpc.this"})[0] == "ok"  # not yet made
     verdict, why = gate.judge("lose-z1", {"aws_eks_node_group.this"}, set(), ACCEPTED, {"aws_vpc.this"})
-    assert verdict == "refuse"
+    assert verdict == "refuse"  # not accepted: refused, made or not
     assert "aws_eks_node_group.this" in why
 
 

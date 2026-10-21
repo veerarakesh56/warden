@@ -59,7 +59,7 @@ def test_an_approvers_passkey_resets_the_switch_after_showing_every_trip(tmp_pat
     token = w.link()
     shell = w.page.handle("GET", f"/k/{token}")
     assert shell.status == 200
-    assert "rollback_failed" not in shell.body
+    assert "rollback_failed" not in shell.body  # the reasons come with the first step
     shown, done = w.reset(token)
     assert shown["on"] is True
     assert shown["wait"] == ""

@@ -735,7 +735,7 @@ def test_aurora_create_makes_an_express_cluster_with_a_reader_and_records_it(tmp
     assert reader["DBInstanceIdentifier"] == "warden-dev-aurora-2"
     assert reader["PromotionTier"] == 1
     assert reader["DBInstanceClass"] == "db.serverless"
-    assert reader["AvailabilityZone"] == "az-b"
+    assert reader["AvailabilityZone"] == "az-b"  # not the writer's
     assert not any("Password" in k for _, kw in rds.calls for k in kw), "express has no password"
     assert found["aurora_writer_instance"] == "warden-dev-aurora-instance-1"  # whatever express named it
     # What the dev harness policy's rds-db:connect grant names the cluster by (audit A-I-18).
