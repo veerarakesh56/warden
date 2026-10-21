@@ -143,6 +143,7 @@ def test_one_model_call_per_incident_and_its_span_records_it(recorded_spans):
     spans = {s.name: dict(s.attributes or {}) for s in exporter.get_finished_spans()}
 
     assert report.cost.calls == 1
-    assert "analyse" not in spans and "propose" not in spans
+    assert "analyse" not in spans
+    assert "propose" not in spans
     assert spans["diagnose"][obs.GEN_AI_OUTPUT_TOKENS] == 120
     assert spans["diagnose"][obs.GEN_AI_INPUT_TOKENS] == report.cost.input_tokens

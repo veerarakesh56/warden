@@ -28,8 +28,11 @@ def test_an_applied_change_opens_one_record_citing_its_plan_and_audit(world, own
     assert len(rec.opened) == 1
     title, body = rec.opened[0]
     plan = world["log"].entries("inc-42", kinds=("remediation.plan",))[-1]["body"]
-    assert plan["entry"] in title and "recovered" in title
-    assert plan["plan_hash"] in body and "owner" in body and "a single approver" in body
+    assert plan["entry"] in title
+    assert "recovered" in title
+    assert plan["plan_hash"] in body
+    assert "owner" in body
+    assert "a single approver" in body
     # Where a reader checks the head: the incident's Full record page (the command it named could not be run).
     # It is the head at the end row: the page's head moves on with later rows (CodeRabbit, PR 114), so it says so.
     for said in ("Audit head at this end:** `", "the head it shows moves on"):
@@ -37,20 +40,23 @@ def test_an_applied_change_opens_one_record_citing_its_plan_and_audit(world, own
     assert "audit show" not in body
     assert re.search(r"Ended:\*\* recovered at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z", body), body
     row = world["log"].entries("inc-42", kinds=("change.recorded",))[-1]["body"]
-    assert row["url"].endswith("/issues/1") and row["detail"] == "opened"
+    assert row["url"].endswith("/issues/1")
+    assert row["detail"] == "opened"
 
 
 def test_nothing_applied_means_no_record(world):  # noqa: F811
     world["changes"] = rec = _Recorder()
     assert _run(world, _no_approval, approval_ttl_minutes=1).status == "expired"
-    assert rec.opened == [] and world["log"].entries("inc-42", kinds=("change.recorded",)) == []
+    assert rec.opened == []
+    assert world["log"].entries("inc-42", kinds=("change.recorded",)) == []
 
 
 def test_a_record_that_could_not_be_written_is_itself_recorded(world, owner):  # noqa: F811
     world["changes"] = _Recorder(fail=True)
     assert _run(world, _approve_with(owner)).status == "recovered"
     row = world["log"].entries("inc-42", kinds=("change.recorded",))[-1]["body"]
-    assert row["url"] is None and row["detail"] == "HTTP 503"
+    assert row["url"] is None
+    assert row["detail"] == "HTTP 503"
 
 
 class _Resp(io.BytesIO):
@@ -72,13 +78,18 @@ def test_the_issue_goes_to_the_one_repository_with_the_token_and_through_the_gat
     token = "github" + "_pat_" + "0" * 12
     url, detail = changes.GitHubIssues("o/r", token).open("WARDEN change: x", "body text")
     req = sent[0]
-    assert url.endswith("/issues/7") and detail == "opened"
-    assert req.full_url == "https://api.github.com/repos/o/r/issues" and req.get_method() == "POST"
+    assert url.endswith("/issues/7")
+    assert detail == "opened"
+    assert req.full_url == "https://api.github.com/repos/o/r/issues"
+    assert req.get_method() == "POST"
     assert req.get_header("Authorization") == f"Bearer {token}"
-    assert json.loads(req.data)["labels"] == ["warden-change"] and token not in req.data.decode()
+    assert json.loads(req.data)["labels"] == ["warden-change"]
+    assert token not in req.data.decode()
     leak = AWS_ACCESS_KEY_ID
     url, detail = changes.GitHubIssues("o/r", token).open("WARDEN change", f"key {leak}")
-    assert len(sent) == 1 and url is None and detail.startswith("withheld")
+    assert len(sent) == 1
+    assert url is None
+    assert detail.startswith("withheld")
 
 
 def test_records_are_on_only_with_a_repository_and_a_token(monkeypatch):
@@ -89,7 +100,8 @@ def test_records_are_on_only_with_a_repository_and_a_token(monkeypatch):
     assert changes.from_environment() is None
     monkeypatch.setenv("WARDEN_CHANGE_REPO", "o/r")
     assert changes.from_environment().repo == "o/r"
-    assert "WARDEN_GITHUB_TOKEN" in settings.SECRETS and settings.RESTRICTED["WARDEN_GITHUB_TOKEN"] == {"worker"}
+    assert "WARDEN_GITHUB_TOKEN" in settings.SECRETS
+    assert settings.RESTRICTED["WARDEN_GITHUB_TOKEN"] == {"worker"}
 
 
 # Owner B10: the change record links the incident's record page - WARDEN's own link, added after the gate.
@@ -103,7 +115,7 @@ def _sent_body(monkeypatch, links, incident="inc-42"):
         sent.append(json.loads(req.data))
         return _Resp(json.dumps({"html_url": "https://github.com/o/r/issues/8"}).encode())
 
-    monkeypatch.setattr(changes.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(changes.web, "urlopen", urlopen)
     url, detail = changes.GitHubIssues("o/r", "t").open("WARDEN change: x", "body text", links=links,
                                                          incident=incident)
     assert url.endswith("/issues/8")

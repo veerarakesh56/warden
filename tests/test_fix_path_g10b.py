@@ -77,7 +77,8 @@ def test_the_gate_escalates_a_fix_nothing_can_carry_out_rather_than_putting_it_t
     table = _gated(dynamodb_table="orders")
     assert table.status.value == "approved_for_human", table
     stream = _gated(kinesis_stream="orders")
-    assert stream.status.value == "escalated" and stream.policy_ids == ["P30-NO-FIX-PATH"], stream
+    assert stream.status.value == "escalated", stream
+    assert stream.policy_ids == ["P30-NO-FIX-PATH"], stream
 
 
 def test_a_kind_prefixed_target_is_planned_as_the_label_it_names():
@@ -101,7 +102,8 @@ def test_closing_idle_sessions_is_planned_on_the_labelled_server_the_platform_is
     req, why = resolver.request_for(_alert(aurora_cluster="warden-dev-shop-aurora"),
                                     _prop(ActionKind.terminate_connections, "warden-dev-shop-aurora"),
                                     _db_live(server))
-    assert why == "" and req["entry"] == "db_terminate_idle_in_tx"
+    assert why == ""
+    assert req["entry"] == "db_terminate_idle_in_tx"
     assert req["params"] == {"database": "shop", "min_idle_seconds": 300, "max_sessions": 20}
 
 
@@ -115,7 +117,8 @@ def test_closing_sessions_is_refused_unless_the_connection_is_that_server(server
     req, why = resolver.request_for(_alert(aurora_cluster="warden-dev-shop-aurora"),
                                     _prop(ActionKind.terminate_connections, "warden-dev-shop-aurora"),
                                     _db_live(server, names))
-    assert req is None and why
+    assert req is None
+    assert why
 
 
 def test_a_custom_bus_rule_is_planned_with_its_bus():
@@ -161,7 +164,8 @@ def test_a_persons_recent_write_to_the_alerts_resource_left_unaddressed_escalate
     restart = RemediationProposal(action=ActionKind.restart_pods, target="pricing-api", reasoning="r",
                                   expected_effect="e", blast_radius="single_service", rollback_plan="r", reversible=True)
     verdict = verifier.verify(alert, ctx, rc, restart)
-    assert "P31-UNADDRESSED-CHANGE" in verdict.policy_ids and verdict.status.value == "escalated"
+    assert "P31-UNADDRESSED-CHANGE" in verdict.policy_ids
+    assert verdict.status.value == "escalated"
     assert any("UpdateService on pricing-api by user/dev-ssingh (C1) is neither cited nor reverted" in r
                for r in verdict.reasons)
     assert not any(o.startswith("P31") for o in verdict.observed)

@@ -105,8 +105,10 @@ def test_budget_ceiling_halts_the_run():
     """A budget that cannot stop anything is a number on a dashboard, not a control. Over budget the model is not
     called, and the incident goes to a person on the rules alone (register M19)."""
     report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(mock=True, max_usd=0.0001))
-    assert report.cost.calls <= 1 and report.proposal.action.value == "escalate_to_human"  # the answer is discarded
-    assert report.verdict.status == VerdictStatus.escalated and "BudgetExceeded" in report.verdict.reasons[0]
+    assert report.cost.calls <= 1
+    assert report.proposal.action.value == "escalate_to_human"  # the answer is discarded
+    assert report.verdict.status == VerdictStatus.escalated
+    assert "BudgetExceeded" in report.verdict.reasons[0]
 
 
 TERMINAL_FOR = {

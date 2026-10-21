@@ -46,11 +46,14 @@ def test_a_flapping_alarm_and_a_moved_threshold_are_stated_as_trusted_facts():
     [line] = _read(cw)
     assert line == ("ALARM history 24h before the alert: state_changes=3 into_alarm=2 "
                     "last_config_update=2026-10-15T08:00:00Z")
-    assert _kind(line) == "C" and "ignore" not in line
-    assert cw.asked[0]["AlarmName"] == "warden-dev-orders-errors" and cw.asked[0]["ScanBy"] == "TimestampDescending"
+    assert _kind(line) == "C"
+    assert "ignore" not in line
+    assert cw.asked[0]["AlarmName"] == "warden-dev-orders-errors"
+    assert cw.asked[0]["ScanBy"] == "TimestampDescending"
 
 
 def test_a_quiet_alarm_says_so_and_a_failed_read_is_a_partial():
     assert _read(_Cw()) == ["ALARM history 24h before the alert: state_changes=0 into_alarm=0 last_config_update=none"]
     [line] = _read(_Cw(error=RuntimeError("AccessDenied")))
-    assert line.startswith("TOOL-PARTIAL") and "alarm history" in line
+    assert line.startswith("TOOL-PARTIAL")
+    assert "alarm history" in line

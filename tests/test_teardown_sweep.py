@@ -80,7 +80,8 @@ def test_a_throttled_deregister_is_waited_out_not_abandoned():
     ecs.deregister_task_definition = flaky
     ts.apply(ecs, FakeLogs(groups=()), {"deregister": [BASE + "checkout:1"], "delete": [],
                                         "log_groups": []}, sleep=waits.append)
-    assert len(calls) == 3 and ecs.deregistered == ["checkout:1"], "it must retry until it lands"
+    assert len(calls) == 3, "it must retry until it lands"
+    assert ecs.deregistered == ["checkout:1"], "it must retry until it lands"
     assert waits == [1, 2], "and back off between tries"
 
 
@@ -91,9 +92,10 @@ def test_a_permission_error_is_never_retried_into_looking_like_success():
         raise Throttled(code="AccessDeniedException")
 
     ecs.deregister_task_definition = denied
+    logs = FakeLogs(groups=())
     with pytest.raises(Throttled):
-        ts.apply(ecs, FakeLogs(groups=()), {"deregister": [BASE + "checkout:1"], "delete": [],
-                                            "log_groups": []}, sleep=lambda _s: None)
+        ts.apply(ecs, logs, {"deregister": [BASE + "checkout:1"], "delete": [], "log_groups": []},
+                 sleep=lambda _s: None)
 
 
 class FakeLogs:
@@ -157,7 +159,9 @@ def test_a_dry_run_removes_nothing():
     ecs = FakeEcs(active=["checkout:2", "checkout:9"], tags={"checkout:2": "warden-proving-ground"})
     logs = FakeLogs()
     assert _run(ecs, logs) == 0
-    assert ecs.deregistered == [] and ecs.deleted_batches == [] and logs.deleted == []
+    assert ecs.deregistered == []
+    assert ecs.deleted_batches == []
+    assert logs.deleted == []
 
 
 def test_a_revision_tagged_for_another_project_is_never_removed():
@@ -189,7 +193,8 @@ def test_apply_removes_only_tagged_revisions_and_the_recreated_log_group(capsys)
     logs = FakeLogs()
     _run(ecs, logs, FakeTagging(), "--apply")
     assert ecs.deregistered == ["checkout:2"]
-    assert ecs.active == ["checkout:9"] and ecs.inactive == []
+    assert ecs.active == ["checkout:9"]
+    assert ecs.inactive == []
     assert "checkout:9 (Stack=untagged)" in capsys.readouterr().out
     assert logs.deleted == ["/ecs/checkout"]
 
