@@ -131,7 +131,7 @@ _CONFIGURED = (
 )
 # A database WARDEN reads or writes: its address is in a DSN.
 _DSNS = ("WARDEN_DB_DSN", "WARDEN_DB_TERMINATE_DSN", "WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
-         "WARDEN_AUDIT_DSN")
+         "WARDEN_AUDIT_DSN", "WARDEN_STACK_REDIS_RO_DSN")
 
 
 class EgressBlocked(urllib.error.URLError):

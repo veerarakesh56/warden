@@ -389,6 +389,7 @@ def test_aws_service_endpoints_are_looked_up_and_the_news_feeds_are_read():
     """The reachability analysis (#92) resolves a database endpoint to an address - a lookup, nothing sent; the AWS
     updates watch (#83) reads AWS's feeds with a GET and no payload."""
     egress.check_host("orders.cluster-ro-c1x2y3z4.ap-south-2.rds.amazonaws.com")
+    egress.check_host("master.carts-cache.abc123.aps2.cache.amazonaws.com")  # the cache's own reads (#151)
     for feed in ("https://aws.amazon.com/about-aws/whats-new/recent/feed/", "https://aws.amazon.com/blogs/aws/feed/"):
         egress.check_request(feed, None, {"User-Agent": "warden"}, "GET")
     assert egress.destination_of("aws.amazon.com").name == "aws-news"
