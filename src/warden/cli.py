@@ -457,12 +457,15 @@ def _platform(choice: str | frozenset[str]):
 async def _workflow_command(args: argparse.Namespace) -> int:
     from . import discuss, runtime
 
+    zones: tuple[str, ...] = ()
     if args.cmd == "worker":
         from .settings import by_environment
 
         try:  # each environment's own channels: a malformed map refuses to start, never routes a guess
             by_environment("WARDEN_SLACK_CHANNELS")
             discuss.channels()
+            # B35: the core zone's beat vouches for every deployed zone; a zone WARDEN does not have refuses to start.
+            zones = runtime.heartbeat_zones() if args.zone == "core" else ()
         except ValueError as exc:
             _out(f"error: {exc}", err=True)
             return 1
@@ -499,7 +502,7 @@ async def _workflow_command(args: argparse.Namespace) -> int:
             else:  # register C13: a beat only while a full round trip works; the alarm on silence is outside WARDEN
                 await runtime.heartbeat(client, publish, log=lambda line: _out(line, err=True),
                                         shadow=runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC)
-                                        if args.zone == "all" else None)
+                                        if args.zone == "all" else None, zones=zones)
     if args.cmd == "intake":
         from . import intake
 

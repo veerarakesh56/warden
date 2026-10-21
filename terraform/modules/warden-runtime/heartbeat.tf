@@ -5,7 +5,7 @@
 resource "aws_cloudwatch_metric_alarm" "heartbeat" {
   alarm_name          = "warden-${var.environment}-heartbeat-missing"
   actions_enabled     = !var.paused # paused: no worker beats on purpose, so nobody is paged for it
-  alarm_description   = "WARDEN's workers have not completed a round trip through Temporal. WARDEN may be down: follow docs/RUNBOOK-WARDEN-INCIDENT.md."
+  alarm_description   = "WARDEN's workers have not completed a round trip through Temporal, or a zone (read, llm, notify, act...) has no worker polling its queue. WARDEN may be down: /warden/${var.environment}/worker says which ('heartbeat missed'); follow docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "WARDEN/${var.environment}"
   metric_name         = "Heartbeat"
   dimensions          = { TaskQueue = "warden" }

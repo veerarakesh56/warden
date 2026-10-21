@@ -17,6 +17,7 @@ CI and the eval suite use. A demo that only works with a paid key is a demo nobo
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import threading
@@ -276,6 +277,7 @@ class LLMClient:
                 if not _reached_the_model(exc):
                     self.unanswered += 1
                 if not _is_transient(exc):
+                    _say_if_key_refused(exc)
                     break
         plural = "attempt" if attempts == 1 else "attempts"
         raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {last}")
@@ -314,6 +316,21 @@ def _reached_the_model(exc: BaseException) -> bool:
                 or (isinstance(status, int) and 400 <= status < 600):
             return False
     return True
+
+
+# B35 self-alarms: a model key that stopped working (revoked, out of its workspace, the wrong one) fails every
+# diagnosis, and an activity's failure is only a WARNING - nobody was paged until the daily synthetic incident had
+# missed for a day. An ERROR line names it now, and the worker-errors alarm (paging.tf) pages at once.
+KEY_REFUSED = frozenset({401, 403})
+_LOG = logging.getLogger("warden.llm")
+
+
+def _say_if_key_refused(exc: Exception) -> None:
+    status = getattr(exc, "status_code", None)
+    status = getattr(exc, "code", None) if status is None else status
+    if isinstance(status, int) and status in KEY_REFUSED:
+        _LOG.error("the model provider refused WARDEN's API key (HTTP %d, %s): every diagnosis fails until a working "
+                   "key is in Secrets Manager", status, type(exc).__name__)
 
 
 def _is_transient(exc: Exception) -> bool:

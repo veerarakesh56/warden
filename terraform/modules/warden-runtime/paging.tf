@@ -28,7 +28,9 @@ locals {
     aws_cloudwatch_metric_alarm.audit_db_storage.alarm_name,
   ])
   # Every function a person's page or WARDEN's intake depends on: the front doors, Slack's answer, the pager itself.
-  paged_functions = merge({ for k, f in aws_lambda_function.front_door : k => f.function_name },
+  # Paused (B35), the front doors have no way out of the VPC and no audit database on purpose: a webhook or a visit
+  # to the approval page fails there and pages nobody. Slack's answer and the pager still run, and still page.
+  paged_functions = merge(var.paused ? {} : { for k, f in aws_lambda_function.front_door : k => f.function_name },
   { ack = aws_lambda_function.ack.function_name, pager = aws_lambda_function.pager.function_name })
   audit_db_dimensions = var.aws_free_plan ? { DBInstanceIdentifier = "warden-${var.environment}-audit" } : {
   DBClusterIdentifier = "warden-${var.environment}-audit" }
@@ -129,6 +131,7 @@ resource "aws_cloudwatch_event_rule" "pages" {
 # or a pause's stop (ServiceSchedulerInitiated) does not.
 resource "aws_cloudwatch_event_rule" "worker_stopped" {
   name        = "warden-${var.environment}-worker-stopped"
+  state       = var.paused ? "DISABLED" : "ENABLED" # paused: the workers are stopped on purpose (B35)
   description = "WARDEN ${var.environment}: a worker task that stopped on its own, to the pager"
   event_pattern = jsonencode({
     source        = ["aws.ecs"]
@@ -207,7 +210,10 @@ resource "aws_cloudwatch_metric_alarm" "killswitch" {
 }
 
 # A worker wrote an ERROR or CRITICAL line (observability.install_log_gate's format: "<time> <LEVEL> <logger>: ...").
-# An activity's failure is a WARNING there, and pages nobody.
+# An activity's failure is a WARNING there, and pages nobody. Every zone writes to this one log group (compute.tf),
+# so this covers core, read, llm, notify, act and any later zone. B35: the failures that break every incident are
+# ERROR lines on purpose - the model's key refused (llm.py), Temporal refusing a worker's key (runtime.py), the
+# audit database unreachable or full (audit.py).
 resource "aws_cloudwatch_log_metric_filter" "worker_errors" {
   name           = "warden-${var.environment}-worker-errors"
   log_group_name = aws_cloudwatch_log_group.worker.name
@@ -223,7 +229,7 @@ resource "aws_cloudwatch_log_metric_filter" "worker_errors" {
 resource "aws_cloudwatch_metric_alarm" "worker_errors" {
   alarm_name          = "warden-${var.environment}-worker-errors"
   actions_enabled     = !var.paused
-  alarm_description   = "A WARDEN worker logged an error. Read /warden/${var.environment}/worker around this time: docs/RUNBOOK-WARDEN-INCIDENT.md."
+  alarm_description   = "A WARDEN worker logged an error - among them the model's or Temporal's key refused, or the audit database unreachable or full. Read /warden/${var.environment}/worker around this time: docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "WARDEN/${var.environment}"
   metric_name         = "WorkerErrors"
   statistic           = "Sum"
