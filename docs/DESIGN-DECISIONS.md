@@ -348,6 +348,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - WARDEN's records pages: built - `records.py`, two server-rendered pages read from the signed audit, on the
   approval page's own domain, sign-in and Content-Security-Policy. A dashboard product (Grafana, Backstage) would be
   a second service to run and secure, reading a copy of the record; the record already holds every fact.
+- Pilot metrics: built - `pilot.py` (owner item 3, 2026-10-21), the client's weekly numbers counted from audit rows
+  whose hash chain and checkpoint signatures verify, on the command line and as a records page. A BI tool would count
+  from an unverified copy of the rows; the counting is a few hundred lines over the record itself.
 - The pages' look: built - `brand.py` (the logo, inline SVG) and the shared style and script in the approval page:
   CSS custom properties for light and dark, a small canvas background and a press ripple, no framework. A UI kit or
   an animation library would be third-party script, which the pages' Content-Security-Policy refuses.
