@@ -1,17 +1,26 @@
 # Weekly update PRs (free). Actions are pinned to commit SHAs (2026-09-27); Dependabot keeps the
 # pins current instead of letting them go stale. PRs run CI; the workflow scan (scan-workflows.yml) runs on every
 # change, including PRs that touch only the infra or apps pipelines (audit A-I-15).
+# Directories are per component (2026-10-21: warden/, infra/, demo-app/, fault-lab/, helios/).
 version: 2
 updates:
+  # The root workflows and every component's composite actions (<component>/.github/actions/*), and Helios's Action.
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - /
+      - /warden/.github/actions/*
+      - /infra/.github/actions/*
+      - /demo-app/.github/actions/*
+      - /fault-lab/.github/actions/*
+      - /helios/.github/actions/*
+      - /helios/action
     schedule:
       interval: weekly
     cooldown:
       default-days: 7  # never propose a release younger than a week: most hijacked releases are caught by then
   # The package, CI tools and pipeline helpers: one uv.lock, every hash in it (audit A-I-9).
   - package-ecosystem: uv
-    directory: /
+    directory: /warden
     schedule:
       interval: weekly
     cooldown:
@@ -20,8 +29,8 @@ updates:
   # The demo apps' hashed requirements, compiled from requirements.in.
   - package-ecosystem: pip
     directories:
-      - /scenarios/fullstack/app
-      - /scenarios/fullstack/lambdas/*
+      - /demo-app/app
+      - /demo-app/lambdas/*
     schedule:
       interval: weekly
     cooldown:
@@ -29,8 +38,8 @@ updates:
     open-pull-requests-limit: 5
   - package-ecosystem: docker
     directories:
-      - /
-      - /scenarios/fullstack/app
+      - /warden
+      - /demo-app/app
     schedule:
       interval: weekly
     cooldown:
@@ -40,3 +49,26 @@ updates:
     ignore:
       - dependency-name: python
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+  # Helios (helios/, in this repository since 2026-10-21): its Rust crates, its explanation shell's uv.lock and its
+  # web viewer's npm lock - the security updates its own repository received, now as weekly version updates too.
+  - package-ecosystem: cargo
+    directory: /helios
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+  - package-ecosystem: uv
+    directory: /helios/helios-ai
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /helios/web
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5

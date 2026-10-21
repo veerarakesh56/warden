@@ -1,0 +1,300 @@
+name: "warden · k8s-regression"
+description: >-
+  Against a real k3d cluster: the manifests (infra/k8s), Pod Security, RBAC both ways, the OOM workload
+  (fault-lab/k8s/test), the integration tests, and WARDEN from outside and inside the cluster. Run after the
+  checkout, with the job's K3S_IMAGE and K3D_IMAGE_TOOLS; called by CI · tool's k8s-regression job.
+runs:
+  using: composite
+  steps:
+    # The image builds in the background while the cluster starts and the job installs. The host's network,
+    # not Docker's bridge: here the build's downloads crawled (3m49s-4m44s for 48 packages, fifth review E).
+    - name: Start the image build
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        (docker build --network=host -t warden:local . > "$RUNNER_TEMP/build.log" 2>&1; echo $? > "$RUNNER_TEMP/build.rc") &
+
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.13"
+        activate-environment: true
+        working-directory: warden
+        cache-suffix: "ci-tool-k8s"  # one cache per job: jobs sharing a key raced to save it
+
+    # Seconds with uv; pip took 98 s here (measured 2026-10-01).
+    - name: Install with the k8s extra (locked)
+      shell: bash -e {0}
+      working-directory: warden
+      run: uv sync --locked --no-build --extra dev --extra k8s
+
+    # A pinned release, checked against a pinned SHA-256 (audit A-I-24): the old step piped the
+    # install script from k3d's main branch into bash on every push.
+    - name: Install k3d (pinned, checksum verified)
+      env:
+        K3D_VERSION: v5.9.0
+        K3D_SHA256: 06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0
+      shell: bash -e {0}
+      run: |
+        set -euo pipefail
+        curl --proto '=https' --tlsv1.2 -fsSLo k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+        echo "${K3D_SHA256}  k3d" | sha256sum -c -
+        sudo install -m 0755 k3d /usr/local/bin/k3d
+        k3d version
+
+    - name: Create cluster
+      shell: bash -e {0}
+      run: |
+        k3d cluster create warden-ci --image "$K3S_IMAGE" --no-lb --wait --timeout 300s
+        # k3d reports the cluster before its API server serves: the first kubectl call got ServiceUnavailable
+        # (CI on 71790df, 2026-10-01). And one ready answer is not a settled server: on 287fb45 /readyz and
+        # `get nodes` answered, then the node wait got ServiceUnavailable 3 s later. Five ready answers in a
+        # row, then the wait - retried on a passing outage, and still failing loudly on one that lasts.
+        ok=0
+        for _ in $(seq 1 90); do
+          if kubectl get --raw /readyz >/dev/null 2>&1; then ok=$((ok + 1)); [ "$ok" -ge 5 ] && break; else ok=0; fi
+          sleep 2
+        done
+        kubectl get --raw /readyz
+        kubectl get nodes -o wide
+        for _ in 1 2 3; do kubectl wait --for=condition=Ready node --all --timeout=120s && break; sleep 5; done
+        kubectl wait --for=condition=Ready node --all --timeout=10s
+
+    # Started now, so its crash loop builds up while the checks below run (the wait took 24 s in line).
+    - name: Start the synthetic OOM workload
+      shell: bash -e {0}
+      run: kubectl apply -f fault-lab/k8s/test/oom-workload.yaml
+
+    - name: Validate manifests against the live API server - including the documented entry point
+      shell: bash -e {0}
+      run: |
+        # Apply the durable parts FIRST: dry-running posture-probe.yaml needs the ServiceAccount
+        # to exist, and the second apply -k needs the first to have happened.
+        kubectl apply -k infra/k8s/
+        # The command the README tells users to run. A broken kustomization.yaml used to ship green.
+        kubectl kustomize infra/k8s/ | kubectl apply --dry-run=server -f -
+        # The workload and the probe (server dry-run - the Job uses generateName, which
+        # `apply` rejects; oom-workload and posture-probe are ordinary named objects).
+        kubectl apply --dry-run=server -f fault-lab/k8s/test/oom-workload.yaml -f fault-lab/k8s/test/posture-probe.yaml
+        # A Job with generateName cannot be `apply`-ed at all; `create --dry-run` is its check.
+        kubectl create --dry-run=server -f infra/k8s/job.yaml >/dev/null || { echo "::error::job.yaml failed server-side validation"; exit 1; }
+        echo "job.yaml valid"
+        # Idempotent: the second apply -k must change nothing.
+        out=$(kubectl apply -k infra/k8s/); echo "$out"
+        echo "$out" | grep -qvE 'unchanged' && { echo "::error::second apply -k was not a no-op"; exit 1; } || true
+
+    - name: Pod Security must REJECT a privileged pod in the warden namespace
+      shell: bash -e {0}
+      run: |
+        # A positive test (the Job is admitted) cannot tell 'restricted is enforced' from 'the
+        # label is mistyped'. This can. Only Pod Security's own reason counts: on 5fdcff4 the pod was refused
+        # because the namespace's default ServiceAccount did not exist yet, and any 'forbidden' passed (ninth
+        # review). So the ServiceAccount first.
+        for _ in $(seq 1 30); do kubectl get serviceaccount default -n warden >/dev/null 2>&1 && break; sleep 2; done
+        # The pod is built here (fault-lab/scripts/negative_pod.py), never kept as a manifest: nothing can apply it by mistake.
+        if python3 fault-lab/scripts/negative_pod.py | kubectl apply --dry-run=server -f - 2>err.txt; then
+          echo "::error::a privileged pod was ACCEPTED - Pod Security is not enforced"; exit 1
+        fi
+        grep -q "violates PodSecurity" err.txt || { echo "::error::rejected for the wrong reason:"; cat err.txt; exit 1; }
+        echo "rejected as expected:"; cat err.txt
+
+    # RBAC from the API server's point of view, BOTH directions, MINIMAL not just read-only.
+    - name: RBAC must allow exactly the six reads the code makes
+      shell: bash -e {0}
+      run: |
+        SA=system:serviceaccount:warden:warden
+        # An empty answer is a failed request (a settling cluster, CI on 5fdcff4): asked again,
+        # its error shown; only yes or no is ever accepted.
+        ask() { for _ in 1 2 3; do r=$(kubectl auth can-i "$@" --as=$SA 2>can-i.err || true); [ -n "$r" ] && break; cat can-i.err >&2; sleep 2; done; echo "$r"; }
+        allow() { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
+        allow list pods -n default
+        # ⛔ NOT `get pods/log`: in kubectl's grammar TYPE/NAME means "a pod NAMED log", so that
+        # form passed under the old over-broad role (which had `get pods`) for the WRONG reason
+        # and fails under the minimal one. --subresource is the real question. Found by hand.
+        allow get pods --subresource=log -n default
+        allow list events -n default
+        allow get deployments.apps -n default
+        allow list replicasets.apps -n default
+        allow list horizontalpodautoscalers.autoscaling -n default
+
+    - name: RBAC must deny writes, unused read verbs, secrets, other namespaces and cluster scope
+      shell: bash -e {0}
+      run: |
+        SA=system:serviceaccount:warden:warden
+        ask() { for _ in 1 2 3; do r=$(kubectl auth can-i "$@" --as=$SA 2>can-i.err || true); [ -n "$r" ] && break; cat can-i.err >&2; sleep 2; done; echo "$r"; }
+        deny() { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "no" ] || { echo "::error::$* must be denied"; exit 1; }; }
+        # writes
+        deny delete pods -n default
+        deny create pods -n default
+        deny deletecollection pods -n default
+        deny create pods/exec -n default
+        deny create pods/eviction -n default
+        deny patch deployments.apps -n default
+        deny update deployments.apps -n default
+        deny delete deployments.apps -n default
+        deny create secrets -n default
+        # the sixth grant is a READ: an autoscaler must not be changeable through it
+        deny patch horizontalpodautoscalers.autoscaling -n default
+        deny update horizontalpodautoscalers.autoscaling -n default
+        deny create horizontalpodautoscalers.autoscaling -n default
+        deny delete horizontalpodautoscalers.autoscaling -n default
+        # "minimal": reads the code does not make must ALSO be denied
+        deny watch pods -n default
+        deny get pods -n default
+        deny watch events -n default
+        deny list deployments.apps -n default
+        deny get replicasets.apps -n default
+        deny get horizontalpodautoscalers.autoscaling -n default
+        deny watch horizontalpodautoscalers.autoscaling -n default
+        deny list events.events.k8s.io -n default
+        # secrets, other namespaces, cluster scope
+        deny get secrets -n default
+        deny list secrets -n default
+        deny list pods -n kube-system
+        deny list horizontalpodautoscalers.autoscaling -n kube-system
+        deny list pods -n warden
+        deny get nodes
+        deny list namespaces
+
+    - name: The WRITE path (live remediation) grants exactly patch+get on deployments, nothing else
+      shell: bash -e {0}
+      run: |
+        # remediation-rbac.yaml is deliberately NOT in the default kustomization - the default deploy
+        # stays read-only. Arming live remediation means applying this separately, and this proves
+        # its boundary from the API server's own view, both directions.
+        kubectl apply -f infra/k8s/remediation-rbac.yaml
+        # CI only: the EKS actor's group, bound in this test namespace (on EKS it is bound in shop alone).
+        kubectl apply -f infra/k8s/ci/remediation-group-binding.yaml
+        SA=system:serviceaccount:warden:warden-remediator
+        # An empty answer is a failed request (a settling cluster, CI on 5fdcff4): asked again,
+        # its error shown; only yes or no is ever accepted.
+        ask() { for _ in 1 2 3; do r=$(kubectl auth can-i "$@" --as=$SA 2>can-i.err || true); [ -n "$r" ] && break; cat can-i.err >&2; sleep 2; done; echo "$r"; }
+        allow() { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
+        deny()  { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "no" ]  || { echo "::error::$* must be denied";  exit 1; }; }
+        # exactly the two the backend calls
+        allow patch deployments.apps -n default
+        allow get   deployments.apps -n default
+        # everything else is denied - including the destructive verbs, pods, secrets, other namespaces
+        deny delete deployments.apps -n default
+        deny update deployments.apps -n default
+        deny list   deployments.apps -n default
+        deny delete pods -n default
+        deny create pods -n default
+        deny patch  pods -n default
+        deny get    secrets -n default
+        deny patch  deployments.apps -n kube-system
+        deny patch  deployments.apps -n warden
+
+    - name: The OOM workload must be GENUINELY crash-looping
+      shell: bash -e {0}
+      run: |
+        # The scenario is "a pod stuck in CrashLoopBackOff from OOM", not "a pod that died once".
+        # One kill gives a fresh pod with thin evidence and the verifier correctly escalates it;
+        # the proof of the APPROVED path needs the state an on-call engineer would actually see:
+        # repeated OOMKilled, restarts >= 2, and a BackOff event on the record.
+        reason=""; restarts=0
+        for i in $(seq 1 48); do
+          reason=$(kubectl get pod -l app=checkout -o jsonpath='{.items[0].status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null || true)
+          restarts=$(kubectl get pod -l app=checkout -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null || echo 0)
+          echo "[$i] lastState.terminated.reason='$reason' restarts=$restarts"
+          [ "$reason" = "OOMKilled" ] && [ "${restarts:-0}" -ge 2 ] && break
+          sleep 5
+        done
+        [ "$reason" = "OOMKilled" ] && [ "${restarts:-0}" -ge 2 ] || { echo "::error::pod never reached OOMKilled with >=2 restarts"; kubectl describe pod -l app=checkout; exit 1; }
+        kubectl get events -n default --field-selector reason=BackOff 2>/dev/null | grep -q checkout || { echo "::error::no BackOff event recorded for the workload"; exit 1; }
+        kubectl get pods -l app=checkout
+        # The kubelet's own record above is the proof. The log is shown for the reader, not asserted -
+        # a non-interactive shell does not reliably print 'Killed'.
+        kubectl logs -l app=checkout --tail=5 --previous 2>/dev/null || kubectl logs -l app=checkout --tail=5 || true
+
+    - name: Integration tests against the live cluster - and they must have RUN, not skipped
+      env:
+        WARDEN_K8S_INTEGRATION: "1"
+        WARDEN_TRACE: "0"
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        set -o pipefail
+        # ⛔ The CLUSTER files by name, not the whole directory. `tests/integration` also holds the
+        # database suite, which needs its own service containers and belongs to the `db` job - and
+        # the zero-skips assertion below (the thing that stops a cluster test silently vanishing)
+        # cannot tell "skipped because it is not this job's lane" from "skipped because the cluster
+        # is missing". `tests/test_ci_lanes.py` asserts every integration file is claimed by a job,
+        # so adding one here can never be forgotten.
+        pytest tests/integration/test_live_cluster.py tests/integration/test_live_remediation.py -q -rs | tee it.txt
+        grep -qE '^[0-9]+ passed' it.txt || { echo "::error::no integration test actually passed"; exit 1; }
+        grep -qE ' skipped' it.txt && { echo "::error::integration tests skipped with the opt-in set"; exit 1; }
+        echo "integration tests ran for real"
+
+    - name: WARDEN from OUTSIDE the cluster - scale_up on an OOM crash loop is ESCALATED by P11
+      env:
+        WARDEN_BACKEND: k8s
+        WARDEN_MOCK: "1"
+        WARDEN_TRACE: "0"
+      shell: bash -e {0}
+      run: |
+        out=$(warden run --incident inc-002 --verbose)
+        echo "$out"
+        echo "$out" | grep -q '"backend": "kubernetes"'   || { echo "::error::evidence did not come from the cluster"; exit 1; }
+        echo "$out" | grep -q 'scale_up'                   || { echo "::error::expected scale_up"; exit 1; }
+        # The workload is a single pod OOM-killed at startup: every pod is failing, so scaling out
+        # cannot help and P11 escalates. Until 2026-09-25 this asserted APPROVED_FOR_HUMAN; the
+        # first P11 keyed on pods_ready == 0 and fired here only when the read landed between
+        # crashes (ready=1 outside the cluster, ready=0 inside, seconds apart). It now keys on
+        # "every pod failing", which a back-off record proves whatever readiness says.
+        echo "$out" | grep -q 'VERDICT            : ESCALATED'    || { echo "::error::expected ESCALATED"; exit 1; }
+        echo "$out" | grep -q 'P11-ACTION-CONTRADICTS-EVIDENCE'   || { echo "::error::expected P11 to fire"; exit 1; }
+        echo "$out" | grep -q '"tool_errors": \[\]'        || { echo "::error::a context tool failed or partially failed"; exit 1; }
+        echo "$out" | grep -q 'TOOL-PARTIAL' && { echo "::error::a partial failure leaked into the output"; exit 1; } || true
+
+    - name: Load the image into the cluster
+      shell: bash -e {0}
+      run: |
+        # The build started at the top of the job; collect it.
+        for _ in $(seq 1 600); do [ -f "$RUNNER_TEMP/build.rc" ] && break; sleep 1; done
+        cat "$RUNNER_TEMP/build.log" || true
+        test "$(cat "$RUNNER_TEMP/build.rc" 2>/dev/null)" = 0 || { echo "::error::the image build failed or did not finish"; exit 1; }
+        # ⛔ k3d's exit code is not proof. On two runs (d0bb8a4, f8fb972) `k3d image import` logged
+        # "ERRO failed to import images in node 'k3d-warden-ci-server-0'", then "Successfully
+        # imported" and exit 0 - the step went green with no image in the cluster, and the failure
+        # surfaced three steps later as ErrImagePull on the posture probe. So: look in the node's own
+        # container runtime, retry, and fail HERE, at the cause, if the image never arrives.
+        present() { docker exec k3d-warden-ci-server-0 crictl images | grep -qE 'warden[[:space:]]+local'; }
+        for attempt in 1 2 3; do
+          # Bounded: an import hung for the job's whole 25 minutes (CI on 41ba1f0, 2026-10-01); a hang is a retry.
+          timeout 180 k3d image import warden:local -c warden-ci || true
+          if present; then echo "warden:local is in the node (attempt $attempt)"; break; fi
+          echo "::warning::k3d reported the import but the image is not in the node (attempt $attempt)"
+          sleep 3
+        done
+        present || { echo "::error::warden:local never reached the cluster node"; docker exec k3d-warden-ci-server-0 crictl images; exit 1; }
+
+    - name: Runtime posture probe - what uid does the PROCESS run as, and can it write?
+      shell: bash -e {0}
+      run: |
+        kubectl apply -f fault-lab/k8s/test/posture-probe.yaml
+        kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/warden-posture-probe -n warden --timeout=120s || { kubectl describe pod warden-posture-probe -n warden; exit 1; }
+        out=$(kubectl logs pod/warden-posture-probe -n warden)
+        echo "$out"
+        echo "$out" | grep -q '^uid=10001$'      || { echo "::error::process is not uid 10001"; exit 1; }
+        echo "$out" | grep -q '^rootfs=READONLY$' || { echo "::error::root filesystem is writable"; exit 1; }
+
+    - name: WARDEN from INSIDE the cluster, under the read-only ServiceAccount
+      shell: bash -e {0}
+      run: |
+        # `create`, not `apply`: the Job uses generateName and is immutable once made.
+        job=$(kubectl create -f infra/k8s/job.yaml -o jsonpath='{.metadata.name}')
+        echo "created job/$job"
+        kubectl wait --for=condition=complete "job/$job" -n warden --timeout=180s || { kubectl describe "job/$job" -n warden; kubectl logs "job/$job" -n warden || true; exit 1; }
+        out=$(kubectl logs "job/$job" -n warden)
+        echo "$out"
+        echo "$out" | grep -q '"backend": "kubernetes"' || { echo "::error::in-cluster run did not use the cluster backend"; exit 1; }
+        echo "$out" | grep -q 'scale_up'                 || { echo "::error::in-cluster run did not propose scale_up"; exit 1; }
+        echo "$out" | grep -q 'VERDICT            : ESCALATED' || { echo "::error::in-cluster verdict wrong"; exit 1; }
+        echo "$out" | grep -q 'P11-ACTION-CONTRADICTS-EVIDENCE' || { echo "::error::in-cluster run: P11 did not fire"; exit 1; }
+        echo "$out" | grep -q '"tool_errors": \[\]'      || { echo "::error::in-cluster run had tool errors"; exit 1; }
+        # A second diagnosis must be creatable without deleting the first (the immutability finding).
+        job2=$(kubectl create -f infra/k8s/job.yaml -o jsonpath='{.metadata.name}')
+        [ "$job2" != "$job" ] || { echo "::error::generateName did not mint a new Job"; exit 1; }
+        echo "second diagnosis job/$job2 created alongside job/$job"

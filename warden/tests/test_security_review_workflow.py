@@ -8,13 +8,15 @@ import re
 
 import yaml
 
+import workflow_view  # the pipelines with their components' composite actions written out
+
 FLOWS = pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows"
 NAME = "security-review.yml"
 ACTION = "anthropics/claude-code-security-review"
 
 
 def _flow() -> tuple[str, dict]:
-    text = (FLOWS / NAME).read_text(encoding="utf-8")
+    text = workflow_view.text(FLOWS / NAME)
     return text, yaml.safe_load(text)
 
 

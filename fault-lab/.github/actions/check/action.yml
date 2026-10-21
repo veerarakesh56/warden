@@ -1,0 +1,46 @@
+name: "fault-lab · check"
+description: >-
+  The fault harness and the bench (fault-lab/): lint, bandit, and every test that exercises them - each test in
+  warden/tests that imports the harness (`scenarios`) or a fault-lab script, found when the step runs, so a new one
+  is never left out. No credentials. Run after the checkout by CI · fault-lab's check job.
+runs:
+  using: composite
+  steps:
+    # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
+    # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.13"
+        activate-environment: true
+        working-directory: warden
+        cache-suffix: "fault-lab-check"  # one cache per job: jobs sharing a key raced to save it
+
+    # The harness runs WARDEN (and its tests are WARDEN's): the same locked install as CI · tool's check job.
+    - name: Install (locked)
+      shell: bash -e {0}
+      working-directory: warden
+      run: uv sync --locked --no-build --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres --extra redis --group scan
+
+    - name: Lint
+      shell: bash -e {0}
+      run: ruff check fault-lab/scenarios fault-lab/scripts
+
+    - name: Python security lint
+      shell: bash -e {0}
+      run: bandit -q -r fault-lab/scenarios fault-lab/scripts -ll
+
+    - name: The harness's and the bench's tests - and they must have RUN, not skipped
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        set -o pipefail
+        scripts=$(cd ../fault-lab/scripts && ls -1 *.py | sed 's/\.py$//' | paste -sd'|')
+        files=$(grep -lE "^\s*(from|import) scenarios\b|^\s*import (${scripts})\b|^\s*from (${scripts}) import|\"(${scripts})\.py\"|_script\(\"(${scripts})\"\)|scripts\.(${scripts})\b" tests/test_*.py)
+        test -n "$files" || { echo "::error::no test exercises fault-lab: the pattern no longer matches the tests"; exit 1; }
+        echo "$files"
+        # shellcheck disable=SC2086
+        pytest $files -q -n auto -rs -o faulthandler_timeout=300 | tee fault-lab.txt
+        grep -qE ' skipped' fault-lab.txt && { echo "::error::a fault-lab test skipped (see the short summary above)"; exit 1; }
+        echo "every fault-lab test ran"

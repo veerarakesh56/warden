@@ -1,0 +1,48 @@
+name: "warden · db"
+description: >-
+  The integration tests against real PostgreSQL, MySQL, Redis, MongoDB and SQL Server (the job's service containers,
+  its DB_TEST_PASSWORD). Run after the checkout; called by CI · tool's db job.
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.13"
+        activate-environment: true
+        working-directory: warden
+        cache-suffix: "ci-tool-db"  # one cache per job: jobs sharing a key raced to save it
+
+    - name: Install with the database extras (locked)
+      shell: bash -e {0}
+      working-directory: warden
+      run: uv sync --locked --no-build --extra dev --extra postgres --extra mysql --extra redis --extra mongo --extra mssql
+
+    # The core package must still import with NO database driver present - the drivers are lazily
+    # imported inside each engine adapter, exactly like the provider SDKs.
+    - name: Core imports without any database driver
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=/tmp/bare-db uv sync --locked --no-build  # as /tmp/bare above
+        /tmp/bare-db/bin/python -c "from warden.database import DatabaseBackend; print('core imports clean without drivers')"
+
+    - name: Integration tests against REAL databases - and they must have RUN, not skipped
+      env:
+        WARDEN_DB_INTEGRATION: "1"
+        WARDEN_TEST_PG_DSN: postgresql://warden:${{ env.DB_TEST_PASSWORD }}@127.0.0.1:5432/warden
+        WARDEN_TEST_MYSQL_DSN: mysql://root:${{ env.DB_TEST_PASSWORD }}@127.0.0.1:3306/warden
+        WARDEN_TEST_REDIS_DSN: redis://127.0.0.1:6379/0
+        WARDEN_TEST_MONGO_DSN: mongodb://127.0.0.1:27017/warden
+        WARDEN_TEST_MSSQL_DSN: mssql://sa:${{ env.DB_TEST_PASSWORD }}@127.0.0.1:1433/master
+        WARDEN_TRACE: "0"
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        set -o pipefail
+        pytest tests/integration/test_live_database.py tests/integration/test_live_audit_pg.py -q -rs | tee db.txt
+        grep -qE '^[0-9]+ passed' db.txt || { echo "::error::no database integration test actually passed"; exit 1; }
+        # Every engine's DSN is set, so a skip here means an engine silently dropped out of the run.
+        grep -qE ' skipped' db.txt && { echo "::error::an engine skipped despite its DSN being set"; exit 1; }
+        echo "database integration tests ran for real, against all five engines"

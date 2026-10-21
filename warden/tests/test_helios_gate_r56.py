@@ -13,6 +13,8 @@ import sys
 
 import pytest
 
+import workflow_view  # the pipelines with their components' composite actions written out
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location("helios_gate", ROOT / "infra" / "scripts" / "helios_gate.py")
 gate = importlib.util.module_from_spec(_spec)
@@ -196,13 +198,24 @@ def test_each_stack_is_judged_by_its_own_scenarios_and_one_that_declares_none_is
 
 @pytest.fixture
 def deploy():
-    return (ROOT / ".github" / "workflows" / "infra-deploy.yml").read_text(encoding="utf-8")
+    return workflow_view.text("infra-deploy.yml")
 
 
 def test_the_deploy_applies_only_the_plan_helios_checked(deploy):
-    assert re.search(r"HELIOS_COMMIT: [0-9a-f]{40}\b", deploy)
-    assert "--locked" in deploy
-    assert deploy.index("Build Helios at a pinned commit") < deploy.index("configure-aws-credentials")
+    # Helios is built from this commit's helios/ (in the repository since 2026-10-21; fetched at a pinned commit before),
+    # with its Cargo.lock and its sha256-pinned Z3, before the job holds a credential - nothing is fetched by ref.
+    assert "HELIOS_COMMIT" not in deploy
+    assert "github.com/veerarakesh56/helios" not in deploy
+    build = deploy[deploy.index("Build Helios from helios/"):]
+    build = build[:build.index("\n      - ")]  # the step, up to the next one
+    assert "working-directory: helios" in build
+    assert "python3 scripts/fetch_z3.py" in build
+    assert "cargo build --release --locked --bin helios" in build
+    assert "GITHUB_ENV" not in build  # zizmor's github-env audit: each gate step names the binary itself
+    gates = [s for s in deploy.split("\n      - ") if 'helios_gate.py --helios "$HELIOS_BIN"' in s]
+    assert len(gates) == 3
+    assert all("HELIOS_BIN: ${{ github.workspace }}/helios/target/release/helios" in s for s in gates)
+    assert deploy.index("Build Helios from helios/") < deploy.index("configure-aws-credentials")
     order = ["show -json > \"$RUNNER_TEMP/before.json\"", "plan -input=false -no-color -out=\"$RUNNER_TEMP/tfplan\"",
              "helios_gate.py --helios \"$HELIOS_BIN\" --stack \"$STACK\" --plan",
              "apply -input=false -no-color \"$RUNNER_TEMP/tfplan\"",

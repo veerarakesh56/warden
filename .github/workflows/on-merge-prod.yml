@@ -4,28 +4,32 @@ name: "Deploy · prod · on merge"
 # promoted onto the branch prod (from its upstream branch, `upstream` below) reaches the environment prod with no hand
 # on a button; every job then waits for the environment's required reviewers, where it has any.
 # - The push that CREATES the branch deploys nothing: there is no earlier commit of it to compare with.
-# - Apps deploy on a push that changes them: only the Lambdas when only scenarios/fullstack/lambdas changed; otherwise
+# - Apps deploy on a push that changes them: only the Lambdas when only demo-app/lambdas changed; otherwise
 #   everything (one image serves ECS and Kubernetes, and the ECS deploy is what pushes it - a k8s-only change would
 #   otherwise name an image tag that does not exist).
 # - Infra never applies on a push: it PLANS (Helios-checked) and keeps the plan in the private state bucket. Its apply
 #   is a second, reviewed step - Deploy · prod, infra_action apply-plan, with the plan's run id and sha256 - which
 #   applies exactly that plan, at that commit, or nothing. A push that changes infra defers its apps deploy until then.
 # - Nothing is skipped quietly: a stack that is not up fails the deploy, as it would in production.
+# CI first (owner, 2026-10-21): each deploying job `needs` its pipeline's own check in this run (infra-validate before
+# the plan, demo-app-check before the apps), on this commit; a failed check deploys nothing.
 # One such file per environment (on-merge-<env>.yml), identical apart from the environment's name and its upstream
-# branch's (tests/test_ci_lanes.py). Same queue as Deploy · prod.
+# branch's (warden/tests/test_ci_lanes.py). Same queue as Deploy · prod.
 on:
   push:
     branches: [prod]
     paths:
-      - "scenarios/fullstack/app/**"
-      - "scenarios/fullstack/lambdas/**"
-      - "k8s/**"
-      - "manifests/**"
-      - "helm/**"
-      - "terraform/fullstack/**"
+      - "demo-app/app/**"
+      - "demo-app/lambdas/**"
+      - "infra/k8s/**"
+      - "demo-app/k8s/**"
+      - "fault-lab/k8s/**"
+      - "demo-app/manifests/**"
+      - "infra/helm/**"
+      - "infra/terraform/fullstack/**"
       # The deploy's own tools install from the lock: a lock change runs this, and deploys nothing unless code changed.
-      - "uv.lock"
-      - "pyproject.toml"
+      - "warden/uv.lock"
+      - "warden/pyproject.toml"
 
 permissions:
   contents: read
@@ -62,9 +66,9 @@ jobs:
           while IFS= read -r f; do
             case "$f" in
               *.md) ;;  # documentation changes nothing deployed (2026-10-16: a README held back a deploy)
-              terraform/fullstack/*) infra=1 ;;
-              scenarios/fullstack/lambdas/*) apps=1 ;;
-              scenarios/fullstack/app/*|k8s/*|manifests/*|helm/*) apps=1; others=1 ;;
+              infra/terraform/fullstack/*) infra=1 ;;
+              demo-app/lambdas/*) apps=1 ;;
+              demo-app/app/*|infra/k8s/*|demo-app/k8s/*|fault-lab/k8s/*|demo-app/manifests/*|infra/helm/*) apps=1; others=1 ;;
             esac
           done <<< "$files"
           target=""
@@ -81,11 +85,11 @@ jobs:
   infra-validate:
     needs: changes
     if: needs.changes.outputs.infra == '1'
-    uses: $/.github/workflows/_infra-validate.yml
+    uses: $/.github/workflows/infra-validate.yml
   infra-plan:
     needs: [changes, infra-validate]
     if: needs.changes.outputs.infra == '1'
-    uses: $/.github/workflows/_infra-deploy.yml
+    uses: $/.github/workflows/infra-deploy.yml
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
       EKS_ADMIN_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
@@ -101,11 +105,11 @@ jobs:
   apps-check:
     needs: changes
     if: needs.changes.outputs.infra == '0' && needs.changes.outputs.target != ''
-    uses: $/.github/workflows/_apps-check.yml
+    uses: $/.github/workflows/demo-app-check.yml
   apps:
     needs: [changes, apps-check]
     if: needs.changes.outputs.infra == '0' && needs.changes.outputs.target != ''
-    uses: $/.github/workflows/_apps-deploy.yml
+    uses: $/.github/workflows/demo-app-deploy.yml
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
     with:

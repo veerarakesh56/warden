@@ -18,17 +18,20 @@ import subprocess
 
 import pytest
 
+import workflow_view
+
 CI =pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows" / "warden-ci.yml"
 INTEGRATION = pathlib.Path(__file__).resolve().parent / "integration"
 
 
 def test_every_integration_file_is_named_by_a_ci_job():
-    workflow = CI.read_text(encoding="utf-8")
+    # Every pipeline, its components' composite actions written out (the Helios gate's live test runs in CI · infra).
+    workflow = "\n".join(workflow_view.text(f) for f in workflow_view.files())
     files = sorted(p.name for p in INTEGRATION.glob("test_*.py"))
     assert files, "no integration tests found - has the directory moved?"
     unclaimed = [name for name in files if name not in workflow]
     assert not unclaimed, (
-        f"integration test file(s) no CI job runs: {unclaimed}. Add them to a job in warden-ci.yml, or they "
+        f"integration test file(s) no CI job runs: {unclaimed}. Add them to a job in a workflow, or they "
         "will never execute and every run will still be green."
     )
 
@@ -36,13 +39,13 @@ def test_every_integration_file_is_named_by_a_ci_job():
 def test_the_database_suite_is_not_run_by_the_cluster_job():
     """The cluster job asserts ZERO skips. If it also collected the database suite, that suite would
     skip (no DSNs in that job) and fail the assertion — which is exactly what happened once."""
-    workflow = CI.read_text(encoding="utf-8")
+    workflow = workflow_view.text(CI)
     cluster_step = workflow.split("Integration tests against the live cluster", 1)[1].split("- name:", 1)[0]
     assert "test_live_database.py" not in cluster_step, (
         "the cluster job must not collect the database suite - it has no database service containers, "
         "so those tests would skip and trip the zero-skips guard"
     )
-    assert "warden/tests/integration/test_live_cluster.py" in cluster_step, "cluster job lost its own suite"
+    assert "tests/integration/test_live_cluster.py" in cluster_step, "cluster job lost its own suite"
 
 
 FLOWS = CI.parent
@@ -84,7 +87,7 @@ def test_one_deploy_workflow_per_configured_environment_and_nothing_else():
     assert files == {f"deploy-{e}.yml" for e in order}, sorted(files)
     shapes = set()
     for env, upstream in order.items():
-        text = (FLOWS / f"deploy-{env}.yml").read_text(encoding="utf-8")
+        text = workflow_view.text(FLOWS / f"deploy-{env}.yml")
         shapes.add(_shape(text, env))
         wf = yaml.safe_load(text)
         assert set(wf[True]) == {"workflow_dispatch"}, env  # PyYAML reads the key `on` as True; by hand only
@@ -106,7 +109,7 @@ def test_deploys_run_from_their_own_branch_only_after_the_promotion_check_and_na
     import yaml
 
     for name in ("infra-deploy.yml", "demo-app-deploy.yml"):
-        text = (FLOWS / name).read_text(encoding="utf-8")
+        text = workflow_view.text(FLOWS / name)
         wf = yaml.safe_load(text)
         assert set(wf[True]) == {"workflow_call"}, name
         assert wf[True]["workflow_call"]["inputs"]["upstream"] == {"type": "string", "required": True}, name
@@ -122,7 +125,7 @@ def test_deploys_run_from_their_own_branch_only_after_the_promotion_check_and_na
         assert checkout < check < at["aws-actions/configure-aws-credentials"], name
         assert all(i > check for i, s in enumerate(steps) if "secrets." in str(s)), name
         assert "aws-region: ${{ vars.AWS_REGION }}" in text, name
-    for f in FLOWS.glob("*.yml"):
+    for f in [*FLOWS.glob("*.yml"), *workflow_view.actions()]:
         assert not re.search(r"\b(?:af|ap|ca|eu|il|me|mx|sa|us)-(?:gov-)?(?:north|south|east|west|central)"
                              r"(?:east|west)?-\d\b", f.read_text(encoding="utf-8")), f"a region is written into {f.name}"
 
@@ -132,11 +135,12 @@ def test_every_action_is_pinned_to_a_full_commit_sha():
     40-character commit id cannot. zizmor checks this in CI; this test makes it a named control."""
     import re
 
-    uses = [(f.name, m.group(1)) for f in CI.parent.glob("*.yml")
+    uses = [(f.name, m.group(1)) for f in [*CI.parent.glob("*.yml"), *workflow_view.actions()]
             for m in re.finditer(r"^\s*-?\s*uses:\s*(\S+)", f.read_text(encoding="utf-8"), re.MULTILINE)]
     assert uses
     # This repository's own workflows - `$/.github/workflows/...`, GitHub's self-repository syntax (zizmor's
-    # self-repository audit requires it) - are pinned by the commit that calls them.
+    # self-repository audit requires it) - and its components' own actions (`./<component>/.github/actions/...`) are
+    # pinned by the commit that calls them.
     loose = [(f, u) for f, u in uses if not u.startswith(("./", "$/"))
              and not re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", u)]
     assert loose == [], loose
@@ -152,14 +156,20 @@ def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_tri
     root = pathlib.Path(__file__).resolve().parents[2]
     flows = root / ".github" / "workflows"
     runs = {
-        "infra/terraform/fullstack": (flows / "infra-validate.yml").read_text(encoding="utf-8"),
-        "demo-app/manifests/shop": (flows / "demo-app-check.yml").read_text(encoding="utf-8"),
-        "demo-app/": (flows / "demo-app-check.yml").read_text(encoding="utf-8"),
-        ".github/workflows": (flows / "scan-workflows.yml").read_text(encoding="utf-8"),
+        "infra/terraform/fullstack": workflow_view.text(flows / "infra-validate.yml"),
+        "demo-app/manifests/shop": workflow_view.text(flows / "demo-app-check.yml"),
+        # The app's code (scenarios/fullstack/ before the split): its folders, not demo-app/ as a whole.
+        "demo-app/app": workflow_view.text(flows / "demo-app-check.yml"),
+        "demo-app/lambdas": workflow_view.text(flows / "demo-app-check.yml"),
+        "demo-app/sql": workflow_view.text(flows / "demo-app-check.yml"),
+        ".github/workflows": workflow_view.text(flows / "scan-workflows.yml"),
     }
     # Named in a string only, not read: the register's reason for a module-level skip, and this test's
     # own table (it runs in the workflow scan).
-    exempt = {"test_register.py", "test_ci_lanes.py"}
+    exempt = {"test_register.py", "test_ci_lanes.py",
+              # Repository-wide scans that name the app's folders among every component's (scenarios/ before the
+              # split, which this table did not match): CI · tool runs them, as it did then.
+              "test_iac_leftovers_sonar.py", "test_no_hardcoding_r17.py"}
     # Joined spellings read as one path: `ROOT / "k8s" / "fullstack"` named no path the table knew, and
     # the test could leave the apps check unnoticed (fifth review, 2026-10-01).
     joined = re.compile(r'''(["'])\s*/\s*(["'])''')
@@ -196,9 +206,10 @@ def test_a_lane_runs_when_a_test_file_its_check_runs_changes():
 
     flows = pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows"
     for check, lane in (("infra-validate.yml", "infra-ci.yml"), ("demo-app-check.yml", "demo-app-ci.yml")):
-        text = (flows / check).read_text(encoding="utf-8")
-        runs = {f for line in text.splitlines() if line.strip().startswith("- run: pytest ")
-                for f in re.findall(r"warden/tests/[\w/]+\.py", line)}
+        text = workflow_view.text(flows / check)
+        # The check runs pytest in warden/ (its tests/...); the lane triggers on the same files from the root.
+        runs = {f"warden/{f}" for line in text.splitlines() if re.match(r"\s*(?:- )?run: pytest ", line)
+                for f in re.findall(r"(?<![\w/])tests/[\w/]+\.py", line)}
         on = yaml.safe_load((flows / lane).read_text(encoding="utf-8"))[True]  # YAML 1.1 reads `on` as True
         for trigger in ("push", "pull_request"):
             missing = runs - set(on[trigger]["paths"])
@@ -209,8 +220,7 @@ def test_a_lane_runs_when_a_test_file_its_check_runs_changes():
 def test_the_pod_security_check_accepts_only_pod_securitys_own_reason():
     """Ninth review (2026-10-01): it accepted any "forbidden" - on 5fdcff4 the privileged pod was refused because the
     namespace's default ServiceAccount did not exist yet, and the step went green without Pod Security deciding."""
-    text = (pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows" / "warden-ci.yml").read_text(
-        encoding="utf-8")
+    text = workflow_view.text(CI)
     step = text.split("Pod Security must REJECT a privileged pod", 1)[1].split("- name:", 1)[0]
     greps = re.findall(r"grep [^\n|]*?err\.txt", step)
     assert greps == ['grep -q "violates PodSecurity" err.txt'], greps
@@ -220,10 +230,9 @@ def test_the_pod_security_check_accepts_only_pod_securitys_own_reason():
 def test_every_workflow_is_scanned_on_every_push_and_pull_request():
     """Audit A-I-15: the security job skipped infra and apps changes. The workflow scan (zizmor) runs on every push to
     main and every pull request, with no path filter, so a change to any workflow is scanned."""
-    import yaml
 
     flows = pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows"
-    scan = yaml.safe_load((flows / "scan-workflows.yml").read_text(encoding="utf-8"))
+    scan = workflow_view.load(flows / "scan-workflows.yml")
     on = scan[True]  # YAML 1.1 reads `on` as True
     assert "push" in on, on
     assert "pull_request" in on, on
@@ -235,8 +244,7 @@ def test_every_workflow_is_scanned_on_every_push_and_pull_request():
 def test_every_ci_image_build_uses_the_hosts_network():
     """Audit R5-E3: inside Docker's bridge network the image build's package downloads crawled (48 packages in
     3m49s-4m44s) and the k8s job took 264-320 s; on the host's network it took 97 s. Every docker build in CI keeps it."""
-    text = (pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows" / "warden-ci.yml").read_text(
-        encoding="utf-8")
+    text = workflow_view.text(CI)
     builds = re.findall(r"docker build[^\n]*", text)
     assert builds, builds
     assert all("--network=host" in b for b in builds), builds
@@ -252,7 +260,7 @@ def test_each_environment_deploys_on_a_push_to_its_own_branch_and_infra_only_pla
     order = _promotion_order()
     deployers = {}
     for f in FLOWS.glob("*.yml"):
-        text = f.read_text(encoding="utf-8")
+        text = workflow_view.text(f)
         wf = yaml.safe_load(text)
         calls = [j for j in (wf.get("jobs") or {}).values() if str(j.get("uses", "")).endswith(DEPLOYS)]
         if calls and "push" in wf[True]:
@@ -283,12 +291,11 @@ def test_nothing_that_can_reach_aws_runs_on_main_or_on_a_pull_request():
     """Owner, 2026-10-16: main deploys nothing. No workflow that can reach AWS starts on a push to main, a pull
     request, a schedule or another workflow's run; the ones that start by hand refuse every branch but their own
     before they assume a role (the deploys: the test above; the runtime: warden/tests/test_runtime_pipeline_s9.py)."""
-    import yaml
 
     order = _promotion_order()
     holders = {}
     for f in sorted(FLOWS.glob("*.yml")):
-        wf = yaml.safe_load(f.read_text(encoding="utf-8"))
+        wf = workflow_view.load(f)
         if _holds_aws(wf) or "workflow_call" in wf[True]:
             holders[f.name] = wf[True]
     assert {"infra-deploy.yml", "demo-app-deploy.yml", "warden-runtime-deploy.yml"} <= set(holders), sorted(holders)
@@ -299,11 +306,11 @@ def test_nothing_that_can_reach_aws_runs_on_main_or_on_a_pull_request():
             assert on["push"]["branches"] in ([e] for e in order), name
     # And the other way round: what runs on main and on pull requests asks for no cloud identity at all.
     for f in sorted(FLOWS.glob("*.yml")):
-        wf = yaml.safe_load(f.read_text(encoding="utf-8"))
+        wf = workflow_view.load(f)
         if {"pull_request", "pull_request_target", "schedule"} & set(wf[True]) or "main" in str(
                 (wf[True].get("push") or {}).get("branches")):
             assert not _holds_aws(wf), f.name
-            assert "id-token" not in f.read_text(encoding="utf-8"), f.name
+            assert "id-token" not in workflow_view.text(f), f.name
 
 
 def test_ci_runs_on_main_and_on_pull_requests_into_main():
@@ -372,11 +379,10 @@ def _promotion_repo(tmp_path) -> dict[str, object]:
 
 
 def _promotion_scripts() -> dict[str, str]:
-    import yaml
 
     found = {}
     for name in ("infra-deploy.yml", "demo-app-deploy.yml", "warden-runtime-deploy.yml"):
-        for job_id, job in yaml.safe_load((FLOWS / name).read_text(encoding="utf-8"))["jobs"].items():
+        for job_id, job in workflow_view.load(FLOWS / name)["jobs"].items():
             for step in job["steps"]:
                 if step.get("name") == PROMOTION_CHECK:
                     found[f"{name}:{job_id}"] = step["run"]
@@ -443,9 +449,8 @@ def test_the_database_services_have_no_fixed_password():
     """Naming audit item 17 (2026-10-16): the db job's PostgreSQL, MySQL and SQL Server passwords were fixed strings in
     this file, and a fixed complex-looking one reads as a real credential. One value is made per run; the services, their
     health checks and the DSNs the tests read all use it, and it meets SQL Server's sa password policy."""
-    import yaml
 
-    job = yaml.safe_load(CI.read_text(encoding="utf-8"))["jobs"]["db"]
+    job = workflow_view.load(CI)["jobs"]["db"]
     made = job["env"]["DB_TEST_PASSWORD"]
     assert "${{ github.run_id }}" in made, made
     assert "${{ github.run_attempt }}" in made, made
@@ -484,10 +489,8 @@ def test_the_privileged_pod_stays_a_negative_test_and_no_linter_needs_a_skip():
 def test_the_k3d_job_binds_the_eks_actors_group_from_the_ci_only_file():
     """Review, PR 48: the group is bound in CI's test namespace by infra/k8s/ci/ (the shipped RBAC names the ServiceAccount
     only; warden/tests/test_platforms_live.py), after the remediation RBAC it binds to."""
-    import pathlib
 
-    flow = (pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows" / "warden-ci.yml").read_text(
-        encoding="utf-8")
+    flow = workflow_view.text(CI)
     rbac, group = flow.index("kubectl apply -f infra/k8s/remediation-rbac.yaml"), flow.index(
         "kubectl apply -f infra/k8s/ci/remediation-group-binding.yaml")
-    assert rbac < group < flow.index("warden/tests/integration/test_live_remediation.py")
+    assert rbac < group < flow.index("tests/integration/test_live_remediation.py")

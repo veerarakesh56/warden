@@ -1,9 +1,13 @@
 name: "Deploy · prod"
 
 # The prod environment, by hand, from the branch prod only (Use workflow from: prod; owner, 2026-10-16). infra: plan,
-# apply or destroy the full stack. apps: deploy the code that runs on it. The steps are shared (_infra-*.yml,
-# _apps-*.yml); this file only names the environment and the branch it is promoted from (`upstream`) -
-# tests/test_ci_lanes.py keeps the deploy files identical apart from those two names.
+# apply or destroy the full stack. apps: deploy the code that runs on it. The steps are shared (infra-validate.yml,
+# infra-deploy.yml, demo-app-check.yml, demo-app-deploy.yml, and the components' composite actions they call); this file
+# only names the environment and the branch it is promoted from (`upstream`) - warden/tests/test_ci_lanes.py keeps the
+# deploy files identical apart from those two names.
+# CI first (owner, 2026-10-21): each deploy job `needs` its pipeline's own check in the same run, on the same commit -
+# infra: infra-validate (fmt, validate, the infra tests); apps: demo-app-check (lint, scans, tests, every artifact
+# built). A failed check deploys nothing. There is no deploy path that skips it.
 on:
   workflow_dispatch:
     inputs:
@@ -18,7 +22,7 @@ on:
         options: [plan, apply, apply-plan, destroy, pause, resume]
         default: plan
       infra_stack:
-        description: "infra only: the full stack, or the small undo lab (terraform/undo-lab)"
+        description: "infra only: the full stack, or the small undo lab (infra/terraform/undo-lab)"
         type: choice
         options: [fullstack, undo-lab]
         default: fullstack
@@ -47,11 +51,11 @@ concurrency:
 jobs:
   infra-validate:
     if: inputs.part == 'infra'
-    uses: $/.github/workflows/_infra-validate.yml
+    uses: $/.github/workflows/infra-validate.yml
   infra:
     if: inputs.part == 'infra'
     needs: infra-validate
-    uses: $/.github/workflows/_infra-deploy.yml
+    uses: $/.github/workflows/infra-deploy.yml
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
       EKS_ADMIN_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
@@ -68,11 +72,11 @@ jobs:
 
   apps-check:
     if: inputs.part == 'apps' || inputs.infra_action == 'resume'
-    uses: $/.github/workflows/_apps-check.yml
+    uses: $/.github/workflows/demo-app-check.yml
   apps:
     if: inputs.part == 'apps'
     needs: apps-check
-    uses: $/.github/workflows/_apps-deploy.yml
+    uses: $/.github/workflows/demo-app-deploy.yml
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
     with:
@@ -88,7 +92,7 @@ jobs:
   apps-after-resume:
     if: inputs.part == 'infra' && inputs.infra_action == 'resume'
     needs: [infra, apps-check]
-    uses: $/.github/workflows/_apps-deploy.yml
+    uses: $/.github/workflows/demo-app-deploy.yml
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
     with:

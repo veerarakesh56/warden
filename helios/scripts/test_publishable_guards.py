@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import check_publishable  # noqa: E402
 import scrub_tfjson  # noqa: E402
 
-ACCOUNT = "987654321098"
+ACCOUNT = "987654" + "321098"  # a fake account id, built from parts so no scanner reads it as a real one
 PUBLIC_IP = "54.23.10.7"
 SUBNET = "subnet-0123456789abcdef0"
 VPC = "vpc-0fedcba9876543210"

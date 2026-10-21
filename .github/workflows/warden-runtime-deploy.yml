@@ -1,15 +1,20 @@
 name: "Runtime · ops"
 
 # WARDEN's own runtime (G6): the tool's pipeline, apart from the infra and apps pipelines (owner requirement R13).
+# CI first (owner, 2026-10-21): every action - image, plan, apply, restart, pause, resume - runs only after WARDEN's
+# own checks and scans (the `ci-check` and `ci-security` jobs, the steps CI · tool runs) pass for this same commit, in this
+# same run; nothing is built, signed or deployed otherwise. The steps are warden/'s composite actions
+# (warden/.github/actions/*); the guards, the role, the registry login and the attestation stay here (they read the
+# environment's secrets, which a composite action cannot).
 # By hand, from the branch dev only - environments.yaml `github.runtime_branch` (owner, 2026-10-16: main deploys
 # nothing; the runtime runs code that has reached dev, until prod exists) - into the GitHub Environment `ops`
 # (deployment branch: dev only; required reviewer; its secrets AWS_ROLE_ARN - the role
 # warden-ops-deploy - and RUNTIME_ECR_REPOSITORY - the image repository, immutable tags - and its variables AWS_REGION
 # and TF_STATE_BUCKET: docs/SETUP.md). Both hold the account id, so both are secrets: GitHub prints a
 # variable unmasked in a step's inputs before any masking runs, in a public repository's logs (2026-10-16).
-#   image: build Dockerfile.runtime BEFORE the job holds credentials, push it by the commit's SHA, sign its digest
+#   image: build warden/Dockerfile.runtime BEFORE the job holds credentials, push it by the commit's SHA, sign its digest
 #          with cosign (keyless: this workflow's own GitHub identity) and attest how it was built (register S9).
-#   plan / apply: verify that signature and attestation, then plan or apply terraform/runtime with that digest -
+#   plan / apply: verify that signature and attestation, then plan or apply infra/terraform/runtime with that digest -
 #          an image this workflow did not build and sign is never deployed.
 #   restart: a fresh deployment of every zone's service, no image and no plan - after a secret is set or rotated (a
 #          worker reads its secrets when it starts).
@@ -35,13 +40,50 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # WARDEN's own environment: environments.yaml `runtime` (tests/test_no_hardcoding_r17.py holds the two equal, and
+  # WARDEN's own environment: environments.yaml `runtime` (warden/tests/test_no_hardcoding_r17.py holds the two equal, and
   # every `environment:` key below with them). Named once for the steps' shell lines.
   RUNTIME_ENV: ops
 
 jobs:
+  # WARDEN's own CI, for this commit, before anything is built or deployed (the same steps as CI · tool's `check`
+  # and `security`; named apart so CI · tool's check runs keep names of their own).
+  ci-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      WARDEN_MOCK: "1"
+    steps:
+      - name: Runtime deploys run from the runtime branch only
+        if: github.ref != 'refs/heads/dev'
+        run: |
+          echo "::error::the runtime is built and deployed from the branch dev only, not $GITHUB_REF"
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/warden/.github/actions/check
+        with:
+          cache_suffix: "runtime-check"
+
+  ci-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Runtime deploys run from the runtime branch only
+        if: github.ref != 'refs/heads/dev'
+        run: |
+          echo "::error::the runtime is built and deployed from the branch dev only, not $GITHUB_REF"
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/warden/.github/actions/security
+        with:
+          cache_suffix: "runtime-security"
+
   image:
     if: inputs.action != 'restart'
+    needs: [ci-check, ci-security]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: ops
@@ -52,7 +94,7 @@ jobs:
     outputs:
       # The digest alone: the repository's address holds the account id, which the job masks, and GitHub drops an output
       # holding a masked value - the deploy job rebuilt nothing from an empty image (2026-10-09).
-      digest: ${{ steps.push.outputs.digest }}
+      digest: ${{ steps.publish.outputs.digest }}
     env:
       REPOSITORY: ${{ secrets.RUNTIME_ECR_REPOSITORY }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -70,35 +112,14 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0  # every branch: the promotion check reads the upstream one
-      # As in the deploys (_infra-deploy.yml, 2026-10-16): only a commit promoted onto dev from main is built, before
+      # As in the deploys (infra-deploy.yml, 2026-10-16): only a commit promoted onto dev from main is built, before
       # the job holds the Hugging Face token or any AWS credential. The plan and apply job builds on this one.
-      - name: The commit was promoted from its upstream branch
-        env:
-          UPSTREAM: main  # what Deploy · dev passes as `upstream` (tests/test_runtime_pipeline_s9.py holds the two equal)
-        run: |
-          up="refs/remotes/origin/$UPSTREAM"
-          git rev-parse -q --verify "$up^{commit}" > /dev/null || { echo "::error::no branch $UPSTREAM to promote from"; exit 1; }
-          if git merge-base --is-ancestor HEAD "$up"; then
-            echo "$GITHUB_SHA is on $UPSTREAM"
-          elif git rev-parse -q --verify 'HEAD^2' > /dev/null && git merge-base --is-ancestor 'HEAD^2' "$up" \
-              && git diff --quiet 'HEAD^2' HEAD; then
-            echo "$GITHUB_SHA merges $(git rev-parse 'HEAD^2') from $UPSTREAM and changes nothing else"
-          else
-            echo "::error::$GITHUB_SHA did not come from $UPSTREAM: nothing is built or deployed"
-            exit 1
-          fi
       # Built before the job holds any credential: nothing the build runs can reach AWS. The Hugging Face token (the
       # ops environment's secret HF_TOKEN: the owner's read token for the gated Prompt Guard 2) is a BuildKit secret,
       # mounted for the one step that fetches the tripwire's weights and kept in no layer (register R47).
-      - name: Build the runtime image
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          test -n "$HF_TOKEN" || { echo "::error::set the secret HF_TOKEN on the ops environment"; exit 1; }
-          docker build --network=host --secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime -t "warden-runtime:$GITHUB_SHA" .
-          # The image that is deployed carries the detector's weights (register R47).
-          docker run --rm --entrypoint /opt/warden/bin/python "warden-runtime:$GITHUB_SHA" -c \
-            "import pathlib; assert any(pathlib.Path('/opt/hf').rglob('model.safetensors')), 'no tripwire weights'"
+      - uses: $/warden/.github/actions/runtime-image-build
+        with:
+          hf_token: ${{ secrets.HF_TOKEN }}
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -109,48 +130,13 @@ jobs:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
         with:
           cosign-release: "v3.1.3"
-      - name: Push it by the commit's SHA and read its digest
-        id: push
-        # Tags are immutable: a commit an earlier run already pushed (a plan, then an apply) keeps that run's image, and
-        # its signature - the deploy job verifies it either way, so an image pushed but never signed is still refused.
-        run: |
-          if digest=$(aws ecr describe-images --repository-name "${REPOSITORY#*/}" --image-ids imageTag="$GITHUB_SHA" \
-              --query 'imageDetails[0].imageDigest' --output text 2>/dev/null); then
-            echo "existing=true" >> "$GITHUB_OUTPUT"
-          else
-            docker tag "warden-runtime:$GITHUB_SHA" "$REPOSITORY:$GITHUB_SHA"
-            docker push "$REPOSITORY:$GITHUB_SHA"
-            digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$REPOSITORY:$GITHUB_SHA" | cut -d@ -f2)
-          fi
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          echo "image=$REPOSITORY@$digest" >> "$GITHUB_OUTPUT"
-          echo "Runtime image: \`$REPOSITORY@$digest\`" >> "$GITHUB_STEP_SUMMARY"
-      - name: Did the run that pushed this image also sign and attest it
-        id: check
-        if: steps.push.outputs.existing == 'true'
-        env:
-          IMAGE: ${{ steps.push.outputs.image }}
-          # The runtime branch's identity (2026-10-16): an image signed on main before the move is signed again here.
-          SIGNER: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/runtime.yml@refs/heads/dev
-          GH_TOKEN: ${{ github.token }}
-        # A run that pushed and then died before signing (2026-10-12: the signing tool's download answered 504) left
-        # its commit undeployable: the tag is immutable, and every later run skipped the signing of an image it found.
-        # Such an image is signed and attested by this run; one already signed and attested is left as it is.
-        run: |
-          if cosign verify "$IMAGE" --certificate-identity "$SIGNER" --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null 2>&1 &&
-             gh attestation verify "oci://$IMAGE" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "signed=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Sign the digest (keyless)
-        if: steps.push.outputs.existing != 'true' || steps.check.outputs.signed != 'true'
-        env:
-          IMAGE: ${{ steps.push.outputs.image }}
-        run: cosign sign --yes "$IMAGE"
+      - uses: $/warden/.github/actions/runtime-image-publish
+        id: publish
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
-        if: steps.push.outputs.existing != 'true' || steps.check.outputs.signed != 'true'
+        if: steps.publish.outputs.existing != 'true' || steps.publish.outputs.signed != 'true'
         with:
           subject-name: ${{ secrets.RUNTIME_ECR_REPOSITORY }}
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
 
   deploy:
@@ -168,7 +154,7 @@ jobs:
       BUCKET: ${{ vars.TF_STATE_BUCKET }}
       AWS_REGION: ${{ vars.AWS_REGION }}
       # The identity that signed it: this workflow, on the runtime branch, in this repository - nothing else is deployed.
-      SIGNER: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/runtime.yml@refs/heads/dev
+      SIGNER: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/warden-runtime-deploy.yml@refs/heads/dev
       REPO: ${{ github.repository }}
       TF_IN_AUTOMATION: "1"
     steps:
@@ -180,18 +166,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      # pause / resume run scripts/pause_resume.py (stdlib + boto3): uv, pinned and checksum-verified, installs only
-      # what uv.lock lists, without a cache, before the job holds any credential - as in _infra-deploy.yml.
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      # pause / resume run infra/scripts/pause_resume.py (stdlib + boto3): uv, pinned and checksum-verified, installs only
+      # what uv.lock lists, without a cache, before the job holds any credential - as in infra-deploy.yml.
+      - uses: $/warden/.github/actions/runtime-tools
         if: env.ACTION == 'pause' || env.ACTION == 'resume'
-        with:
-          version: "0.13.1"
-          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
-          python-version: "3.13"
-          activate-environment: true
-          enable-cache: false
-      - if: env.ACTION == 'pause' || env.ACTION == 'resume'
-        run: uv sync --locked --no-build --only-group infra-deploy
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -203,131 +181,13 @@ jobs:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
         with:
           cosign-release: "v3.1.3"
-      - name: Verify the signature and the provenance before anything is deployed
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cosign verify "$IMAGE" --certificate-identity "$SIGNER" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
-          gh attestation verify "oci://$IMAGE" --repo "$REPO" > /dev/null
-          echo "signature and provenance verified: $IMAGE"
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+      - uses: $/warden/.github/actions/runtime-deploy
         with:
-          terraform_version: "1.16.4"
-          terraform_wrapper: false
-      - name: init with the S3 backend
-        run: |
-          printf 'terraform {\n  backend "s3" {}\n}\n' > terraform/runtime/backend_override.tf
-          terraform -chdir=terraform/runtime init -input=false \
-            -backend-config="bucket=$BUCKET" -backend-config="key=runtime/terraform.tfstate" \
-            -backend-config="region=$AWS_REGION" -backend-config="use_lockfile=true"
-          terraform -chdir=terraform/runtime workspace select -or-create "$RUNTIME_ENV"
-      # ⛔ Pause: the audit's snapshot is available before the switch is thrown; a failed copy stops the run here.
-      - name: "pause: the audit database's snapshot, then the pause switch"
-        if: env.ACTION == 'pause'
-        run: |
-          WARDEN_ENV="$RUNTIME_ENV" python scripts/pause_resume.py snapshot --stack runtime
-          aws ssm put-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --value true --overwrite > /dev/null
-          echo "SSM /warden/$RUNTIME_ENV/tf/paused = true"
-      - name: "resume: the audit database started, then the pause switch off"
-        if: env.ACTION == 'resume'
-        run: |
-          WARDEN_ENV="$RUNTIME_ENV" python scripts/pause_resume.py start-db
-          aws ssm put-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --value false --overwrite > /dev/null
-          echo "SSM /warden/$RUNTIME_ENV/tf/paused = false"
-      - name: plan
-        run: terraform -chdir=terraform/runtime plan -input=false -no-color -var "runtime_image=$IMAGE" -out="$RUNNER_TEMP/tfplan"
-      - name: apply the plan just made
-        if: env.ACTION != 'plan'
-        run: |
-          set -o pipefail
-          # 2>&1: Terraform writes its errors to stderr - the retry's first real run saw none of them (2026-10-11).
-          if terraform -chdir=terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan" 2>&1 \
-              | tee "$RUNNER_TEMP/apply.log"; then
-            exit 0
-          fi
-          # A pause releases the NAT gateway's address right after the gateway. For a moment EC2 still lists the
-          # address as associated, and answers the release's disassociate with UnauthorizedOperation, not "not
-          # found" (2026-10-09; twice on 2026-10-11) - everything else is already gone. Only when that is the one
-          # error: plan what is left and apply it, once.
-          if [ "$(grep -c 'Error: ' "$RUNNER_TEMP/apply.log")" != 1 ] \
-              || ! grep -q 'Error: disassociating EC2 EIP' "$RUNNER_TEMP/apply.log"; then
-            exit 1
-          fi
-          echo "::notice::the NAT gateway's address was still listed as associated; applying what is left, once"
-          terraform -chdir=terraform/runtime plan -input=false -no-color -var "runtime_image=$IMAGE" \
-            -out="$RUNNER_TEMP/tfplan-rest"
-          terraform -chdir=terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan-rest"
-      # The audit's tables, triggers and writer login, from inside the VPC (migrate.tf). Idempotent.
-      - name: the audit's schema and writer login
-        if: env.ACTION != 'plan'
-        run: |
-          # Paused (SSM tf/paused = true) there is no way out of the VPC - the Lambda cannot reach Secrets Manager -
-          # and nothing writes to the audit; the schema is checked at the next resume.
-          if [ "$(aws ssm get-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
-            echo "paused: the audit's schema is checked at the next resume"
-            exit 0
-          fi
-          fn=$(terraform -chdir=terraform/runtime output -json runtime | jq -r .migrate_function)
-          aws lambda invoke --function-name "$fn" --cli-binary-format raw-in-base64-out --payload '{}' \
-            --query FunctionError --output text "$RUNNER_TEMP/migrate.json" > "$RUNNER_TEMP/migrate.err"
-          if [ "$(cat "$RUNNER_TEMP/migrate.err")" != "None" ]; then
-            echo "::error::the migrate Lambda failed: $(cat "$RUNNER_TEMP/migrate.json")"
-            exit 1
-          fi
-      # A deploy is done when every zone runs the image just built - not when Terraform has asked for it. On
-      # 2026-10-15 the apply succeeded, ECS could not start the new tasks (the account's Fargate vCPU limit) and
-      # rolled every zone back, and this workflow said success.
-      - name: Every zone runs the image just built
-        if: env.ACTION != 'plan'
-        run: |
-          if [ "$(aws ssm get-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
-            echo "paused: no zone runs"
-            exit 0
-          fi
-          cluster="warden-$RUNTIME_ENV-runtime"
-          services=$(aws ecs list-services --cluster "$cluster" --query 'serviceArns[]' --output text)
-          test -n "$services" || { echo "::error::no services in $cluster"; exit 1; }
-          # Up to 25 minutes: ECS retries a task it could not place until the old tasks free their vCPUs, and the read
-          # zone's 2.5 GB image takes minutes to pull - one 10-minute `wait services-stable` gave up on a rollout that
-          # completed four minutes later (2026-10-15).
-          for _ in $(seq 1 50); do
-            # shellcheck disable=SC2086
-            pending=$(aws ecs describe-services --cluster "$cluster" --services $services \
-              --query 'length(services[?length(deployments) != `1` || deployments[0].rolloutState != `COMPLETED`])' \
-              --output text)
-            [ "$pending" = 0 ] && break
-            sleep 30
-          done
-          bad=0
-          for svc in $services; do
-            # shellcheck disable=SC2086
-            read -r name count state td <<< "$(aws ecs describe-services --cluster "$cluster" --services "$svc" \
-              --query 'services[0].[serviceName, length(deployments), deployments[0].rolloutState, deployments[0].taskDefinition]' \
-              --output text)"
-            image=$(aws ecs describe-task-definition --task-definition "$td" \
-              --query 'taskDefinition.containerDefinitions[0].image' --output text)
-            if [ "$count" != 1 ] || [ "$state" != COMPLETED ] || [ "$image" != "$IMAGE" ]; then
-              echo "::error::$name is not on the new image (deployments $count, rollout $state)"
-              aws ecs describe-services --cluster "$cluster" --services "$svc" \
-                --query 'services[0].events[0:3].message' --output text
-              bad=1
-            else
-              echo "$name runs the new image"
-            fi
-          done
-          exit "$bad"
-      - name: "pause: the audit database stopped, and what stays"
-        if: env.ACTION == 'pause'
-        env:
-          KEEP: ${{ vars.PAUSE_KEEP_SNAPSHOTS || '3' }}
-        run: |
-          set -o pipefail
-          WARDEN_ENV="$RUNTIME_ENV" python scripts/pause_resume.py stop-db
-          WARDEN_ENV="$RUNTIME_ENV" python scripts/pause_resume.py report --stack runtime --keep "$KEEP" | tee -a "$GITHUB_STEP_SUMMARY"
+          keep_snapshots: ${{ vars.PAUSE_KEEP_SNAPSHOTS || '3' }}
 
   restart:
     if: inputs.action == 'restart'
+    needs: [ci-check, ci-security]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: ops
@@ -340,6 +200,9 @@ jobs:
         run: |
           echo "::error::the runtime is built and deployed from the branch dev only, not $GITHUB_REF"
           exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -348,15 +211,4 @@ jobs:
           mask-aws-account-id: true
       # The same task definitions, started again: each worker reads its secrets at start. Fails unless every
       # service is stable again - a worker that cannot start is reported here, not found later.
-      - name: A fresh deployment of every zone's service
-        run: |
-          cluster="warden-$RUNTIME_ENV-runtime"
-          services=$(aws ecs list-services --cluster "$cluster" --query 'serviceArns[]' --output text)
-          test -n "$services" || { echo "::error::no services in $cluster: apply first"; exit 1; }
-          for svc in $services; do
-            aws ecs update-service --cluster "$cluster" --service "$svc" --force-new-deployment \
-              --query service.serviceName --output text
-          done
-          # shellcheck disable=SC2086
-          aws ecs wait services-stable --cluster "$cluster" --services $services
-          echo "every zone's service is stable"
+      - uses: $/warden/.github/actions/runtime-restart

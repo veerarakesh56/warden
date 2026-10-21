@@ -1,0 +1,38 @@
+name: "warden · docker"
+description: >-
+  Both of WARDEN's images, built from warden/ (their build context) and asserted on what they do, not on their exit
+  code. Run after the checkout; called by CI · tool's `docker` job.
+runs:
+  using: composite
+  steps:
+    # Same rule as above: the container must produce CORRECT output, not merely exit 0. This is
+    # the job that missed a packaging bug where the installed wheel shipped no fixtures, so every
+    # tool failed, context came back empty and all four incidents returned AUTO_SAFE.
+    - name: Build the container and assert its output
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        # The host's network, not Docker's bridge: package downloads inside the build crawled at
+        # ~20-60 KB/s on some runners (fifth review E, 2026-10-01) while the host fetched the same in seconds.
+        docker build --network=host -t warden:ci .
+        out=$(docker run --rm -e WARDEN_MOCK=1 -e WARDEN_TRACE=0 warden:ci demo)
+        echo "$out"
+        echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::container produced no APPROVED_FOR_HUMAN"; exit 1; }
+        echo "$out" | grep -q "REJECTED"           || { echo "::error::container produced no REJECTED"; exit 1; }
+        test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::container: expected exactly one AUTO_SAFE - fixtures missing from the wheel?"; exit 1; }
+    # The cloud runtime's image (G6): the worker and the three Lambdas. It must carry AWS's Lambda runtime interface
+    # client and the handlers, offer the worker command, and run as the non-root user.
+    - name: Build the runtime image and assert what it carries
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        # No Hugging Face token here: the tripwire's weights are left out (warden-runtime-deploy.yml bakes them and checks they are in).
+        docker build --network=host --build-arg WARDEN_DETECTOR=absent -f Dockerfile.runtime -t warden-runtime:ci .
+        docker run --rm --entrypoint /opt/warden/bin/python warden-runtime:ci -c \
+          "import awslambdaric, warden.lambdas as l; assert all(callable(getattr(l, n)) for n in ('alarm', 'alertmanager', 'approval')); print('handlers ok')"
+        docker run --rm warden-runtime:ci worker --help | grep -q -- "--platform" || { echo "::error::no worker command"; exit 1; }
+        test "$(docker run --rm --entrypoint id warden-runtime:ci -u)" = "10001" || { echo "::error::the runtime image runs as root"; exit 1; }
+        # As on Fargate: a read-only root, /tmp a fresh volume that takes the image's mode - the worker can write there.
+        docker run --rm --read-only --entrypoint /opt/warden/bin/python warden-runtime:ci -c \
+          "import pathlib; p = pathlib.Path('/tmp/probe'); p.write_text('x'); p.unlink(); print('/tmp writable')" \
+          || { echo "::error::the worker cannot write its /tmp"; exit 1; }

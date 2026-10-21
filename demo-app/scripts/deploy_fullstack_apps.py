@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import pathlib
 import re
 import secrets
@@ -687,9 +688,22 @@ def _deploy(args: argparse.Namespace, out: pathlib.Path, stack_path: pathlib.Pat
             deploy_k8s(stack, tag, out, aws, runner)
 
 
+def own_stack(stack: dict, wanted: str | None) -> None:
+    """A deploy for one environment touches that environment's stack only (owner, 2026-10-21). The pipeline names the
+    environment it deploys (WARDEN_ENV, from its GitHub Environment); a stack.json of any other environment - or of
+    none - is refused before any client is made. Without WARDEN_ENV (a person's own run) the stack's own field rules."""
+    if wanted is None:
+        return
+    have = stack.get("environment")
+    if have != wanted:
+        raise SystemExit(f"refused: this run deploys {wanted!r}, and this stack.json is environment {have!r}'s - "
+                         "a deploy touches its own environment's stack only")
+
+
 def _on_the_stack(args: argparse.Namespace, out: pathlib.Path, stack_path: pathlib.Path, aws, runner) -> None:
     """`bootstrap-db` and `deploy`: both read the stack, then do their one job."""
     stack = load_stack(stack_path)
+    own_stack(stack, os.environ.get("WARDEN_ENV") or None)
     aws = aws or boto_factory(stack["region"])
     if args.cmd == "bootstrap-db":
         bootstrap_db(stack, aws)

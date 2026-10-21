@@ -84,9 +84,10 @@ reviews:
         buckets, public endpoints), encryption or logging turned off, deletion protection removed,
         secrets in variables/outputs/state, hard-coded account ids, regions or environment names,
         unpinned providers or modules.
-    - path: ".github/workflows/**"
+    - path: "{.github/workflows,*/.github/actions}/**"
       instructions: |
-        SECURITY-CRITICAL CI. Every third-party action pinned by full commit SHA. `permissions:`
+        SECURITY-CRITICAL CI (the root workflows and each component's composite actions they run).
+        Every third-party action pinned by full commit SHA. `permissions:`
         least privilege per job. No `pull_request_target` or `workflow_run` that checks out or runs
         PR code. No `${{ github.event.* }}` or other untrusted input inside `run:` (use env). No
         secrets on fork PRs. No OIDC role assumption without environment protection. Flag any

@@ -1,0 +1,31 @@
+name: "warden · mirror-images"
+description: >-
+  Copy each image in the job's IMAGES, by digest, from AWS's public mirror (Docker Hub for rancher/k3s) into this
+  repository's GitHub Container Registry, and read each back by that digest. Run by Mirror · base images
+  (warden-mirror-images.yml), which holds the list; reads the job's IMAGES, OWNER, ACTOR and TOKEN.
+runs:
+  using: composite
+  steps:
+    - name: copy each image by digest, then read it back by that digest
+      shell: bash -e {0}
+      run: |
+        set -euo pipefail
+        owner=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+        printf '%s' "$TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
+        while read -r ref; do
+          [ -n "$ref" ] || continue
+          name_tag=${ref%@*}; digest=${ref#*@}; name=${name_tag%%:*}
+          case "$name" in */*) source="docker.io/${name}" ;; *) source="public.ecr.aws/docker/library/${name}" ;; esac
+          for try in 1 2 3; do
+            if skopeo copy --all --preserve-digests --retry-times 3 \
+                "docker://${source}@${digest}" \
+                "docker://ghcr.io/${owner}/warden-mirror/${name_tag}"; then
+              break
+            fi
+            [ "$try" = 3 ] && exit 1
+            sleep $((try * 60))
+          done
+          got=$(skopeo inspect --raw "docker://ghcr.io/${owner}/warden-mirror/${name}@${digest}" | sha256sum | cut -d' ' -f1)
+          [ "sha256:${got}" = "$digest" ] || { echo "digest changed for ${name_tag}: sha256:${got}"; exit 1; }
+          echo "mirrored ${name_tag} at ${digest}"
+        done <<< "$IMAGES"

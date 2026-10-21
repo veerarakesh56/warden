@@ -1,0 +1,49 @@
+name: "CI · fault-lab"
+
+# fault-lab/: the fault harness (scenarios/), the bench and the live proofs' scripts, and the manifests the k3d job
+# and the proving ground apply - checked on every change to it: lint, bandit and every test that exercises them. No
+# credentials. CI · tool runs on these paths as well (WARDEN's suite covers the harness); this pipeline is the one
+# that goes with fault-lab/ if it becomes a repository of its own. The steps are fault-lab/'s composite action
+# (fault-lab/.github/actions/check).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "fault-lab/**"
+      - ".github/workflows/fault-lab-ci.yml"
+      # Its job installs from these: a stale lock must run it.
+      - "warden/uv.lock"
+      - "warden/pyproject.toml"
+  pull_request:
+    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # marked ready for review, and on every push after that.
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths:
+      - "fault-lab/**"
+      - ".github/workflows/fault-lab-ci.yml"
+      - "warden/uv.lock"
+      - "warden/pyproject.toml"
+
+# Mock mode everywhere: CI must never need a key.
+env:
+  WARDEN_MOCK: "1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-fault-lab-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Its own name, not `check`: a check run's name is its job's, and CI · tool's `check` must stay one of a kind.
+  fault-lab:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/fault-lab/.github/actions/check

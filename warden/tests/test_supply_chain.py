@@ -11,6 +11,8 @@ import re
 import pytest
 import yaml
 
+import workflow_view
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 UV_RANGE = re.search(r'required-version = "([^"]+)"', (ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8")).group(1)
@@ -18,7 +20,7 @@ UV_RANGE = re.search(r'required-version = "([^"]+)"', (ROOT / "warden" / "pyproj
 
 def _steps():
     for wf in WORKFLOWS:
-        doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
+        doc = workflow_view.load(wf)  # its components' composite actions written out where they run
         for job_id, job in (doc.get("jobs") or {}).items():
             yield wf.name, job_id, job.get("steps") or [], job
 
@@ -46,7 +48,7 @@ def test_no_install_runs_a_packages_build_script():
     syncs = [line for _, _, steps, _ in _steps() for st in steps
              for line in _code(st.get("run", "")).splitlines() if re.search(r"\buv sync\b", line)]
     for name in ("Dockerfile", "Dockerfile.runtime"):
-        syncs += [line for line in (ROOT / name).read_text(encoding="utf-8").splitlines() if line.startswith("RUN uv sync")]
+        syncs += [line for line in (ROOT / "warden" / name).read_text(encoding="utf-8").splitlines() if line.startswith("RUN uv sync")]
     assert len(syncs) >= 13, syncs
     assert all("--no-build" in line for line in syncs), [s for s in syncs if "--no-build" not in s]
     app = (ROOT / "demo-app" / "app" / "Dockerfile").read_text(encoding="utf-8")
@@ -77,7 +79,7 @@ def test_the_images_run_the_same_uv_as_ci():
     ci = {st["with"]["version"] for _, _, steps, _ in _steps() for st in steps
           if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")}
     images = {d.name: re.findall(r"^FROM ghcr\.io/astral-sh/uv:(\S+)@(sha256:[0-9a-f]{64}) AS uv$",
-                                 d.read_text(encoding="utf-8"), re.MULTILINE) for d in sorted(ROOT.glob("Dockerfile*"))}
+                                 d.read_text(encoding="utf-8"), re.MULTILINE) for d in sorted((ROOT / "warden").glob("Dockerfile*"))}
     assert set(images) == {"Dockerfile", "Dockerfile.runtime"}, images
     assert all(len(v) == 1 for v in images.values()), images
     assert len({v[0] for v in images.values()}) == 1, images  # the same tag and digest in both
@@ -102,7 +104,7 @@ def test_every_uv_names_its_python():
     assert re.fullmatch(r"3\.\d+", local), local
     assert f"{local}.0" in requires, local
     for dockerfile in ("Dockerfile", "Dockerfile.runtime"):
-        text = (ROOT / dockerfile).read_text(encoding="utf-8")
+        text = (ROOT / "warden" / dockerfile).read_text(encoding="utf-8")
         base = re.search(r"^FROM \S+/python:(3\.\d+)-slim@\S+ AS build$", text, re.MULTILINE)
         assert base, dockerfile
         assert re.search(rf"^\s+UV_PYTHON={re.escape(base.group(1))} \\$", text, re.MULTILINE), dockerfile
@@ -139,7 +141,7 @@ def test_a_job_that_holds_credentials_restores_no_cache():
 
 
 def test_the_deployed_requirements_are_audited_where_they_change():
-    text = (ROOT / ".github" / "workflows" / "demo-app-check.yml").read_text(encoding="utf-8")
+    text = workflow_view.text("demo-app-check.yml")
     assert "pip-audit -r" in text
     assert "--require-hashes" in text
     assert "bandit" in text
@@ -155,7 +157,7 @@ def test_every_image_is_pinned_by_digest():
         images += [(manifest.name, m) for m in re.findall(r"^\s*image:\s*(\S+)", manifest.read_text(encoding="utf-8"),
                                                            re.MULTILINE) if m != "warden:local"]
     # k3d's node and tools images, and the full stack's placeholder ECS image (fifth review E: by tag).
-    tool = (ROOT / ".github" / "workflows" / "warden-ci.yml").read_text(encoding="utf-8")
+    tool = workflow_view.text("warden-ci.yml")
     images += [("warden-ci.yml", m) for m in re.findall(r"^\s*(?:K3S_IMAGE|K3D_IMAGE_TOOLS):\s*(\S+)", tool, re.MULTILINE)]
     assert '--image "$K3S_IMAGE"' in tool
     images += [("ecs.tf", m) for m in re.findall(r'^\s*image\s*=\s*"([^"$]+)"',
@@ -222,7 +224,7 @@ def test_the_unit_job_leaves_the_live_tests_to_their_own_jobs():
     The rest of the suite skips nothing in CI (10 redis tests did, for want of the extra): a new skip fails the step."""
     unit = _check_job_step("Unit tests")
     assert len(unit) == 1, unit
-    assert "--ignore=warden/tests/integration" in unit[0].split()
+    assert "--ignore=tests/integration" in unit[0].split()  # run in warden/
     assert "set -o pipefail" in unit[0]
     assert re.search(r"grep -qE ' skipped' \S+ && \{[^}]*exit 1; \}", unit[0]), unit[0]
     install = _check_job_step("Install (locked)")
@@ -257,12 +259,12 @@ def test_the_image_build_gets_every_licence_file_the_package_names():
     import tomllib
 
     names = tomllib.loads((ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8"))["project"]["license-files"]
-    dockerfiles = sorted(ROOT.glob("Dockerfile*"))
+    dockerfiles = sorted((ROOT / "warden").glob("Dockerfile*"))
     assert len(dockerfiles) >= 2, dockerfiles  # the CLI image and the runtime image
     allowed = {ln.strip()[1:] for ln in (ROOT / "warden" / ".dockerignore").read_text(encoding="utf-8").splitlines()
                if ln.strip().startswith("!")}
     assert names, names
-    assert all((ROOT / n).is_file() for n in names), names
+    assert all((ROOT / "warden" / n).is_file() for n in names), names  # the project's own copies
     for dockerfile in dockerfiles:
         copied = {f for c in re.findall(r"^COPY (?!--from)(.+?) \S+$", dockerfile.read_text(encoding="utf-8"),
                                         re.MULTILINE) for f in c.split()}
@@ -273,7 +275,8 @@ def test_the_image_build_gets_every_licence_file_the_package_names():
 def test_every_download_refuses_anything_but_https():
     """Sonar githubactions:S6506 (2026-10-16): a redirect could take curl to plain http; the checksum after it would
     catch a changed file, but the download itself is held to https and TLS 1.2+ as well."""
-    files = [*sorted((ROOT / ".github/workflows").glob("*.yml")), *sorted(ROOT.glob("Dockerfile*"))]
+    files = [*sorted((ROOT / ".github/workflows").glob("*.yml")), *workflow_view.actions(),
+             *sorted((ROOT / "warden").glob("Dockerfile*"))]
     calls = [(f.name, ln.strip()) for f in files for ln in f.read_text(encoding="utf-8").splitlines()
              if re.search(r"(^|[\s;|&(])curl\s", ln) and not ln.strip().startswith("#")]
     assert calls, "no curl call found: the pattern no longer matches the workflows"
@@ -315,7 +318,7 @@ def test_a_workflow_that_installs_from_the_lock_runs_when_the_lock_changes():
     """CI · apps and CI · infra install from uv.lock but ran only on their own paths, so a stale lock stayed
     hidden from them until an apps or infra file changed (2026-10-01)."""
     def installs(wf: pathlib.Path) -> bool:
-        text = wf.read_text(encoding="utf-8")
+        text = workflow_view.text(wf)
         called = re.findall(r"uses: \$/\.github/workflows/(\S+\.yml)|uses: \./\.github/workflows/(\S+\.yml)", text)
         return "uv sync" in text or any(installs(wf.parent / (a or b)) for a, b in called)
 
@@ -326,8 +329,14 @@ def test_a_workflow_that_installs_from_the_lock_runs_when_the_lock_changes():
             continue
         for event in ("push", "pull_request"):
             paths = (on.get(event) or {}).get("paths")
-            if paths is not None:
-                assert {"uv.lock", "pyproject.toml"} <= set(paths), (wf.name, event)
+            if paths is None:
+                continue
+            if "working-directory: helios/helios-ai" in workflow_view.text(wf):
+                assert "helios/**" in paths, (wf.name, event)  # Helios's explanation shell has its own lock
+            elif "**" in paths:  # everything but what other pipelines own: the lock must not be left out
+                assert not {"!warden/uv.lock", "!warden/pyproject.toml", "!warden/**"} & set(paths), (wf.name, event)
+            else:
+                assert {"warden/uv.lock", "warden/pyproject.toml"} <= set(paths), (wf.name, event)
 
 
 def test_the_groups_that_build_the_lambdas_carry_pip():
@@ -405,7 +414,7 @@ def test_the_deployed_requirements_are_audited_every_week():
     assert dow in tuple("0123456"), cron
     assert 0 <= int(minute) <= 59, cron
     assert 0 <= int(hour) <= 23, cron  # `99 25 * * 1` is rejected by GitHub: it never runs
-    check = (ROOT / ".github" / "workflows" / "demo-app-check.yml").read_text(encoding="utf-8")
+    check = workflow_view.text("demo-app-check.yml")
     assert "pip-audit -r" in check
 
 
@@ -418,8 +427,8 @@ def test_dependabot_never_updates_the_root_package_with_pip():
     for entry in config["updates"]:
         dirs = [entry.get("directory")] + list(entry.get("directories") or [])
         if entry["package-ecosystem"] == "pip":
-            assert all(d and d.startswith("/scenarios/") for d in dirs if d is not None), dirs
-    assert any(e["package-ecosystem"] == "uv" and e.get("directory") == "/" for e in config["updates"])
+            assert all(d and d.startswith("/demo-app/") for d in dirs if d is not None), dirs
+    assert any(e["package-ecosystem"] == "uv" and e.get("directory") == "/warden" for e in config["updates"])
 
 
 def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():

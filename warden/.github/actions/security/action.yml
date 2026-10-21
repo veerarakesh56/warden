@@ -1,0 +1,42 @@
+name: "warden · security"
+description: >-
+  Free scanners, each pinned (2026-09-27 security audit): pip-audit over every package uv.lock pins, bandit over the
+  Python the repository ships, zizmor over every workflow and composite action. Run from the repository root after
+  the checkout; called by CI · tool's `security` job and by the runtime pipeline before it builds anything.
+inputs:
+  cache_suffix:
+    description: "setup-uv's cache suffix: one cache per job (jobs sharing a key raced to save it)."
+    default: "ci-tool-security"
+runs:
+  using: composite
+  steps:
+    # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
+    # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.13"
+        activate-environment: true
+        working-directory: warden
+        cache-suffix: ${{ inputs.cache_suffix }}  # one cache per job: jobs sharing a key raced to save it
+    - name: Install the scanners (locked)
+      shell: bash -e {0}
+      working-directory: warden
+      run: uv sync --locked --no-build --group scan
+    # Every locked package - every extra and group, not only what this job installs - audited from the
+    # lock itself, hashes required.
+    - name: Dependencies with known vulnerabilities
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        uv export --locked --all-extras --all-groups --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/locked.txt"
+        pip-audit -r "$RUNNER_TEMP/locked.txt" --require-hashes --disable-pip
+    # The same Python as before the split into components: WARDEN's package and scripts, the fault harness, the demo
+    # app's code and every component's scripts.
+    - name: Python security lint
+      shell: bash -e {0}
+      run: bandit -q -r warden/src warden/scripts fault-lab/scenarios fault-lab/scripts demo-app/app demo-app/lambdas demo-app/scripts infra/scripts -ll
+    - name: Workflow audit
+      shell: bash -e {0}
+      run: zizmor --offline --format plain .github warden/.github infra/.github demo-app/.github fault-lab/.github helios/.github

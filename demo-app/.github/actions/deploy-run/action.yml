@@ -1,0 +1,26 @@
+name: "demo-app · deploy-run"
+description: >-
+  The apps of ONE environment onto that environment's own stack: stack.json from the environment's state bucket, then
+  build and deploy lambdas | ecs | k8s | all, and stack.json published back. Run by `_ apps · deploy`
+  (demo-app-deploy.yml) after it assumed the environment's role; reads the job's TARGET, WARDEN_ENV, BUCKET and
+  AWS_REGION.
+runs:
+  using: composite
+  steps:
+    - name: fetch stack.json (published by the infra deploy)
+      shell: bash -e {0}
+      run: aws s3 cp "s3://$BUCKET/fullstack/stack.json" "$RUNNER_TEMP/build/stack.json" --only-show-errors
+
+    - name: build and deploy
+      shell: bash -e {0}
+      run: |
+        OUT="$RUNNER_TEMP/build"
+        if [ "$TARGET" != "all" ]; then
+          python demo-app/scripts/deploy_fullstack_apps.py --out "$OUT" build --tag "${GITHUB_SHA::12}"
+        fi
+        python demo-app/scripts/deploy_fullstack_apps.py --out "$OUT" deploy "$TARGET" --tag "${GITHUB_SHA::12}"
+
+    - name: publish stack.json (deploy ecs adds ecs_baseline_task_definition for the harness)
+      if: env.TARGET == 'ecs' || env.TARGET == 'all'
+      shell: bash -e {0}
+      run: aws s3 cp "$RUNNER_TEMP/build/stack.json" "s3://$BUCKET/fullstack/stack.json" --only-show-errors

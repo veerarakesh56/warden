@@ -1,0 +1,22 @@
+name: "warden · runtime-restart"
+description: >-
+  A fresh deployment of every zone's service - the same task definitions, started again so each worker reads its
+  secrets. Run by the runtime pipeline's restart job after it assumed the role; reads the job's RUNTIME_ENV.
+runs:
+  using: composite
+  steps:
+    # The same task definitions, started again: each worker reads its secrets at start. Fails unless every
+    # service is stable again - a worker that cannot start is reported here, not found later.
+    - name: A fresh deployment of every zone's service
+      shell: bash -e {0}
+      run: |
+        cluster="warden-$RUNTIME_ENV-runtime"
+        services=$(aws ecs list-services --cluster "$cluster" --query 'serviceArns[]' --output text)
+        test -n "$services" || { echo "::error::no services in $cluster: apply first"; exit 1; }
+        for svc in $services; do
+          aws ecs update-service --cluster "$cluster" --service "$svc" --force-new-deployment \
+            --query service.serviceName --output text
+        done
+        # shellcheck disable=SC2086
+        aws ecs wait services-stable --cluster "$cluster" --services $services
+        echo "every zone's service is stable"

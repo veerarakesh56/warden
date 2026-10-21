@@ -11,14 +11,19 @@ import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-FILES = sorted((ROOT / ".github" / "workflows").glob("*.yml")) + [ROOT / "action" / "action.yml"]
+# Inside the WARDEN repository (since 2026-10-21) Helios's CI is the root workflow helios-ci.yml, which runs the
+# composite actions in .github/actions; split out on its own, the workflow is back in .github/workflows.
+FILES = (sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+         + sorted((ROOT / ".github" / "actions").glob("*/action.yml"))
+         + sorted(ROOT.parent.glob(".github/workflows/helios-*.yml"))
+         + [ROOT / "action" / "action.yml"])
 USES = re.compile(r"^\s*(?:-\s+)?uses:\s*(\S+)", re.M)
 
 
 def unpinned(text: str) -> list[str]:
     return [
         ref for ref in USES.findall(text)
-        if not ref.startswith("./") and not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", ref)
+        if not ref.startswith(("./", "$/")) and not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", ref)
     ]
 
 

@@ -9,6 +9,8 @@ import pytest
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
+import workflow_view  # the pipelines with their components' composite actions written out
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MODULES = [ROOT / "infra" / "terraform", ROOT / "infra" / "terraform" / "fullstack", ROOT / "infra" / "terraform" / "proving-ground",
            ROOT / "infra" / "terraform" / "modules" / "warden-runtime", ROOT / "infra" / "terraform" / "runtime"]
@@ -25,8 +27,8 @@ def _bounded(spec: SpecifierSet) -> bool:
 
 def _ci_terraform() -> set[str]:
     flows = ROOT / ".github" / "workflows"
-    return {m for f in flows.glob("*.yml")
-            for m in re.findall(r'terraform_version:\s*"([^"]+)"', f.read_text(encoding="utf-8"))}
+    return {m for f in flows.glob("*.yml")  # each with its components' composite actions written out
+            for m in re.findall(r'terraform_version:\s*"([^"]+)"', workflow_view.text(f))}
 
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda m: m.relative_to(ROOT).as_posix())

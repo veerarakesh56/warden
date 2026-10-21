@@ -1,0 +1,45 @@
+name: "warden · runtime-image-build"
+description: >-
+  The runtime image (Dockerfile.runtime, build context warden/) with the tripwire's weights, built before the job
+  holds any AWS credential, at a commit promoted onto the runtime branch. Run after the checkout (fetch-depth 0) by
+  the runtime pipeline's image job (warden-runtime-deploy.yml).
+inputs:
+  hf_token:
+    description: "The ops environment's HF_TOKEN: a BuildKit secret for the one step that fetches the weights."
+    required: true
+runs:
+  using: composite
+  steps:
+    # As in the deploys (infra-deploy.yml, 2026-10-16): only a commit promoted onto dev from main is built, before
+    # the job holds the Hugging Face token or any AWS credential. The plan and apply job builds on this one.
+    - name: The commit was promoted from its upstream branch
+      env:
+        UPSTREAM: main  # what Deploy · dev passes as `upstream` (tests/test_runtime_pipeline_s9.py holds the two equal)
+      shell: bash -e {0}
+      run: |
+        up="refs/remotes/origin/$UPSTREAM"
+        git rev-parse -q --verify "$up^{commit}" > /dev/null || { echo "::error::no branch $UPSTREAM to promote from"; exit 1; }
+        if git merge-base --is-ancestor HEAD "$up"; then
+          echo "$GITHUB_SHA is on $UPSTREAM"
+        elif git rev-parse -q --verify 'HEAD^2' > /dev/null && git merge-base --is-ancestor 'HEAD^2' "$up" \
+            && git diff --quiet 'HEAD^2' HEAD; then
+          echo "$GITHUB_SHA merges $(git rev-parse 'HEAD^2') from $UPSTREAM and changes nothing else"
+        else
+          echo "::error::$GITHUB_SHA did not come from $UPSTREAM: nothing is built or deployed"
+          exit 1
+        fi
+
+    # Built before the job holds any credential: nothing the build runs can reach AWS. The Hugging Face token (the
+    # ops environment's secret HF_TOKEN: the owner's read token for the gated Prompt Guard 2) is a BuildKit secret,
+    # mounted for the one step that fetches the tripwire's weights and kept in no layer (register R47).
+    - name: Build the runtime image
+      env:
+        HF_TOKEN: ${{ inputs.hf_token }}
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        test -n "$HF_TOKEN" || { echo "::error::set the secret HF_TOKEN on the ops environment"; exit 1; }
+        docker build --network=host --secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime -t "warden-runtime:$GITHUB_SHA" .
+        # The image that is deployed carries the detector's weights (register R47).
+        docker run --rm --entrypoint /opt/warden/bin/python "warden-runtime:$GITHUB_SHA" -c \
+          "import pathlib; assert any(pathlib.Path('/opt/hf').rglob('model.safetensors')), 'no tripwire weights'"

@@ -122,12 +122,22 @@ def pytest_collection_modifyitems(session, config, items):
         _GENUINE[item.nodeid] = genuine
 
 
+# The register cites tests from the repository root (warden/tests/...); pytest's node ids are relative to its rootdir,
+# warden/ - the project this conftest belongs to (2026-10-21: the repository's split into components).
+_PROJECT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def node_path(cited_file: str) -> str:
+    """A cited file (repository path) as pytest names it in a node id; a path outside the project is an error."""
+    return (_PROJECT.parent / cited_file).relative_to(_PROJECT).as_posix()
+
+
 @functools.cache
 def _cited() -> frozenset[tuple[str, str]]:
     from test_register import CI_ONLY, cited_tests
 
     # A CI-only test skips here; its CI job runs it and fails on any skip (test_register.CI_ONLY).
-    return frozenset((file, test) for file, test in cited_tests() if file not in CI_ONLY)
+    return frozenset((node_path(file), test) for file, test in cited_tests() if file not in CI_ONLY)
 
 
 # Captured when the suite starts: an autouse fixture deleting `sys.monitoring` turned the check off (eighth review).

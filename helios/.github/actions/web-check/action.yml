@@ -1,0 +1,30 @@
+name: "helios · web-check"
+description: >-
+  Helios's web viewer: npm ci (no lifecycle scripts), vitest and the vite build. Run after the checkout by CI ·
+  helios's web-check job.
+runs:
+  using: composite
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        # vitest 5 / vite 8 / jsdom 29 need Node ^22.12 (Node 20 is end-of-life).
+        node-version: "22"
+        cache: npm
+        cache-dependency-path: helios/web/package-lock.json
+
+    # No lifecycle scripts: the lock's only install script is fsevents (macOS-only).
+    - name: npm ci
+      shell: bash -e {0}
+      working-directory: helios/web
+      run: npm ci --ignore-scripts
+
+    - name: vitest
+      shell: bash -e {0}
+      working-directory: helios/web
+      run: npm run test
+
+    - name: vite build
+      shell: bash -e {0}
+      working-directory: helios/web
+      run: npm run build

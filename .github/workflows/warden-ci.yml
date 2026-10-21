@@ -1,30 +1,43 @@
 name: "CI · tool"
 
-# WARDEN itself: lint, tests, evals, the container, a real k3d cluster, real databases. No credentials.
+# WARDEN itself (warden/): lint, tests, evals, the container, a real k3d cluster, real databases. No credentials.
+# The steps are warden/'s own composite actions (warden/.github/actions/*), and infra/'s for the root stack's
+# terraform job; this file holds what GitHub needs at the root - triggers, jobs, permissions, services.
 # The pipelines, one job each:
-#   CI · tool (this)   CI · infra (ci-infra.yml)   CI · apps (ci-apps.yml)   Scan · workflows
+#   CI · tool (this)   CI · infra (infra-ci.yml)   CI · apps (demo-app-ci.yml)   CI · fault-lab (fault-lab-ci.yml)
+#   CI · helios (helios-ci.yml)   Scan · workflows
 #   Deploy · <env> (deploy-<env>.yml by hand, on-merge-<env>.yml on a push to the branch <env>; one file each per
-#   environment; shared steps in _*.yml)
+#   environment; shared steps in infra-validate.yml, infra-deploy.yml, demo-app-check.yml, demo-app-deploy.yml)
 # Branches (owner, 2026-10-16): CI runs on main and on pull requests into main. dev and prod receive only commits main
 # has already checked (a fast-forward, or a merge of dev that changes nothing), so a pull request into prod does not
 # run this suite again.
+# Paths: everything but what other pipelines own (the same set as before the split into components). WARDEN's tests
+# also hold infra/ and fault-lab/ to their rules, so a change there runs this suite too.
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "terraform/fullstack/**"
-      - "scenarios/fullstack/**"
-      - "manifests/**"
-      - "k8s/shop-pipeline/**"
-      - "k8s/argocd/**"
-      - "helm/**"
-      - "scripts/deploy_fullstack_apps.py"
-      - ".github/workflows/ci-infra.yml"
-      - ".github/workflows/ci-apps.yml"
-      - ".github/workflows/deploy-*.yml"
-      - ".github/workflows/on-merge-*.yml"
-      - ".github/workflows/_*.yml"
-      - ".github/workflows/scan-workflows.yml"
+    paths:
+      - "**"
+      - "!infra/terraform/fullstack/**"
+      - "!demo-app/app/**"
+      - "!demo-app/lambdas/**"
+      - "!demo-app/sql/**"
+      - "!demo-app/manifests/**"
+      - "!demo-app/k8s/**"
+      - "!demo-app/scripts/deploy_fullstack_apps.py"
+      - "!demo-app/.github/**"
+      - "!infra/helm/**"
+      - "!infra/.github/**"
+      - "infra/.github/actions/terraform-root/**"  # this pipeline's terraform job runs it
+      - "!fault-lab/.github/**"
+      - "!helios/**"
+      - "!.github/workflows/infra-*.yml"
+      - "!.github/workflows/demo-app-*.yml"
+      - "!.github/workflows/helios-*.yml"
+      - "!.github/workflows/fault-lab-*.yml"
+      - "!.github/workflows/deploy-*.yml"
+      - "!.github/workflows/on-merge-*.yml"
+      - "!.github/workflows/scan-workflows.yml"
   # Weekly, so pip-audit sees a newly published vulnerability in a dependency nothing changed.
   schedule:
     - cron: "17 3 * * 1"
@@ -33,20 +46,28 @@ on:
     # marked ready for review, and on every push after that.
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
-    paths-ignore:
-      - "terraform/fullstack/**"
-      - "scenarios/fullstack/**"
-      - "manifests/**"
-      - "k8s/shop-pipeline/**"
-      - "k8s/argocd/**"
-      - "helm/**"
-      - "scripts/deploy_fullstack_apps.py"
-      - ".github/workflows/ci-infra.yml"
-      - ".github/workflows/ci-apps.yml"
-      - ".github/workflows/deploy-*.yml"
-      - ".github/workflows/on-merge-*.yml"
-      - ".github/workflows/_*.yml"
-      - ".github/workflows/scan-workflows.yml"
+    paths:
+      - "**"
+      - "!infra/terraform/fullstack/**"
+      - "!demo-app/app/**"
+      - "!demo-app/lambdas/**"
+      - "!demo-app/sql/**"
+      - "!demo-app/manifests/**"
+      - "!demo-app/k8s/**"
+      - "!demo-app/scripts/deploy_fullstack_apps.py"
+      - "!demo-app/.github/**"
+      - "!infra/helm/**"
+      - "!infra/.github/**"
+      - "infra/.github/actions/terraform-root/**"  # this pipeline's terraform job runs it
+      - "!fault-lab/.github/**"
+      - "!helios/**"
+      - "!.github/workflows/infra-*.yml"
+      - "!.github/workflows/demo-app-*.yml"
+      - "!.github/workflows/helios-*.yml"
+      - "!.github/workflows/fault-lab-*.yml"
+      - "!.github/workflows/deploy-*.yml"
+      - "!.github/workflows/on-merge-*.yml"
+      - "!.github/workflows/scan-workflows.yml"
 
 # Mock mode everywhere: CI must never need a key, and the eval gate must be deterministic.
 env:
@@ -75,27 +96,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
-      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
-        with:
-          version: "0.13.1"
-          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
-          python-version: "3.13"
-          activate-environment: true
-          cache-suffix: "ci-tool-security"  # one cache per job: jobs sharing a key raced to save it
-      - name: Install the scanners (locked)
-        run: uv sync --locked --no-build --group scan
-      # Every locked package - every extra and group, not only what this job installs - audited from the
-      # lock itself, hashes required.
-      - name: Dependencies with known vulnerabilities
-        run: |
-          uv export --locked --all-extras --all-groups --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/locked.txt"
-          pip-audit -r "$RUNNER_TEMP/locked.txt" --require-hashes --disable-pip
-      - name: Python security lint
-        run: bandit -q -r src scenarios scripts -ll
-      - name: Workflow audit
-        run: zizmor --offline --format plain .github
+      - uses: $/warden/.github/actions/security
 
   check:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -105,69 +106,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-
-      # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
-      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
-        with:
-          version: "0.13.1"
-          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
-          python-version: "3.13"
-          activate-environment: true
-          cache-suffix: "ci-tool-check"  # one cache per job: jobs sharing a key raced to save it
-
-      - name: Install (locked)
-        run: uv sync --locked --no-build --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres --extra redis
-
-      # The core package must import with NO vendor SDK present. providers.py imports them lazily,
-      # and this proves it - otherwise a missing extra becomes an ImportError at startup for a
-      # provider the user never asked for.
-      - name: Core imports without any provider SDK
-        run: |
-          # env -u: the job's activated .venv is not this environment, and uv warned that it ignored it.
-          env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=/tmp/bare uv sync --locked --no-build
-          /tmp/bare/bin/python -c "import warden; from warden.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
-
-      - name: Lint
-        run: ruff check src tests evals scripts scenarios
-
-      # Runs against what git ACTUALLY tracks, so it answers "what is really on GitHub" rather
-      # than "what did anyone mean to put there". Fails the build on a credential, an account id,
-      # or a .env / .tfvars / .tfstate being tracked at all.
-      - name: Nothing unpublishable is committed
-        run: python scripts/check_publishable.py
-
-      # In parallel across the runner's cores (pytest-xdist): 100 s on one core. Every test must stay
-      # independent of the others - a test that needs another's state fails here first.
-      # A test still running after 5 min prints every thread's stack (pytest's faulthandler): on 4886152 the step
-      # hung for 15 min and was cancelled with nothing saying which test.
-      # tests/integration runs in the k8s-regression and db jobs, against a live cluster and live databases, where a
-      # skip fails the job; here it could only skip (44 skips per run). With every extra the suite needs installed
-      # (redis included), nothing here skips either - and a new skip fails the step, as in those jobs.
-      - name: Unit tests
-        run: |
-          set -o pipefail
-          pytest tests -q -n auto -rs -o faulthandler_timeout=300 --ignore=tests/integration | tee unit.txt
-          grep -qE ' skipped' unit.txt && { echo "::error::a unit test skipped (see the short summary above)"; exit 1; }
-          echo "every unit test ran"
-
-      - name: Eval gate
-        run: pytest evals -q
-
-      # ⛔ This used to be `run: warden demo` and nothing more. That asserts the process exited 0 -
-      # not that it produced correct answers. A packaging bug once made every incident return
-      # AUTO_SAFE inside the container and this step stayed green. Assert the OUTPUT.
-      - name: Demo must produce the expected verdicts
-        run: |
-          out=$(warden demo)
-          echo "$out"
-          echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::no APPROVED_FOR_HUMAN verdict"; exit 1; }
-          # inc-003 is REJECTED since 2026-09-12: WARDEN's action table classifies a promoted
-          # replica irreversible whatever the proposal claims, so P2 fires in prod. Stronger than
-          # the escalation this replaces - the demo now shows a hard no.
-          echo "$out" | grep -q "REJECTED"           || { echo "::error::no REJECTED verdict"; exit 1; }
-          echo "$out" | grep -q "P6-BLAST-RADIUS"    || { echo "::error::P6 did not fire on inc-003"; exit 1; }
-          test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::expected exactly one AUTO_SAFE - fixtures probably missing"; exit 1; }
+      - uses: $/warden/.github/actions/check
 
   docker:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -177,33 +116,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      # Same rule as above: the container must produce CORRECT output, not merely exit 0. This is
-      # the job that missed a packaging bug where the installed wheel shipped no fixtures, so every
-      # tool failed, context came back empty and all four incidents returned AUTO_SAFE.
-      - name: Build the container and assert its output
-        run: |
-          # The host's network, not Docker's bridge: package downloads inside the build crawled at
-          # ~20-60 KB/s on some runners (fifth review E, 2026-10-01) while the host fetched the same in seconds.
-          docker build --network=host -t warden:ci .
-          out=$(docker run --rm -e WARDEN_MOCK=1 -e WARDEN_TRACE=0 warden:ci demo)
-          echo "$out"
-          echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::container produced no APPROVED_FOR_HUMAN"; exit 1; }
-          echo "$out" | grep -q "REJECTED"           || { echo "::error::container produced no REJECTED"; exit 1; }
-          test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::container: expected exactly one AUTO_SAFE - fixtures missing from the wheel?"; exit 1; }
-      # The cloud runtime's image (G6): the worker and the three Lambdas. It must carry AWS's Lambda runtime interface
-      # client and the handlers, offer the worker command, and run as the non-root user.
-      - name: Build the runtime image and assert what it carries
-        run: |
-          # No Hugging Face token here: the tripwire's weights are left out (runtime.yml bakes them and checks they are in).
-          docker build --network=host --build-arg WARDEN_DETECTOR=absent -f Dockerfile.runtime -t warden-runtime:ci .
-          docker run --rm --entrypoint /opt/warden/bin/python warden-runtime:ci -c \
-            "import awslambdaric, warden.lambdas as l; assert all(callable(getattr(l, n)) for n in ('alarm', 'alertmanager', 'approval')); print('handlers ok')"
-          docker run --rm warden-runtime:ci worker --help | grep -q -- "--platform" || { echo "::error::no worker command"; exit 1; }
-          test "$(docker run --rm --entrypoint id warden-runtime:ci -u)" = "10001" || { echo "::error::the runtime image runs as root"; exit 1; }
-          # As on Fargate: a read-only root, /tmp a fresh volume that takes the image's mode - the worker can write there.
-          docker run --rm --read-only --entrypoint /opt/warden/bin/python warden-runtime:ci -c \
-            "import pathlib; p = pathlib.Path('/tmp/probe'); p.write_text('x'); p.unlink(); print('/tmp writable')" \
-            || { echo "::error::the worker cannot write its /tmp"; exit 1; }
+      - uses: $/warden/.github/actions/docker
 
   # Against a REAL cluster. Every step here was first done by hand and read by eye; this job
   # replays it so it cannot regress. Assertions are on OUTPUT and on the API server's own answers,
@@ -212,7 +125,7 @@ jobs:
   #
   # ⚠ WHY k3d AND NOT EKS. This is the per-commit REGRESSION check, not the measurement. The
   # measurement is on managed EKS (EC2 node group, read-only ServiceAccount): Wave 2, 30 runs,
-  # tests/fixtures/bench/wave2-2026-09-24T115746Z. EKS on every push would cost money and ~25 minutes per
+  # warden/tests/fixtures/bench/wave2-2026-09-24T115746Z. EKS on every push would cost money and ~25 minutes per
   # commit and put AWS credentials in a public repo's CI. k3d is a real API server - RBAC is really
   # enforced, the kubelet really OOM-kills - so what this job proves holds on any conformant cluster.
   k8s:
@@ -229,280 +142,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-
-      # The image builds in the background while the cluster starts and the job installs. The host's network,
-      # not Docker's bridge: here the build's downloads crawled (3m49s-4m44s for 48 packages, fifth review E).
-      - name: Start the image build
-        run: |
-          (docker build --network=host -t warden:local . > "$RUNNER_TEMP/build.log" 2>&1; echo $? > "$RUNNER_TEMP/build.rc") &
-
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
-        with:
-          version: "0.13.1"
-          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
-          python-version: "3.13"
-          activate-environment: true
-          cache-suffix: "ci-tool-k8s"  # one cache per job: jobs sharing a key raced to save it
-
-      # Seconds with uv; pip took 98 s here (measured 2026-10-01).
-      - name: Install with the k8s extra (locked)
-        run: uv sync --locked --no-build --extra dev --extra k8s
-
-      # A pinned release, checked against a pinned SHA-256 (audit A-I-24): the old step piped the
-      # install script from k3d's main branch into bash on every push.
-      - name: Install k3d (pinned, checksum verified)
-        env:
-          K3D_VERSION: v5.9.0
-          K3D_SHA256: 06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0
-        run: |
-          set -euo pipefail
-          curl --proto '=https' --tlsv1.2 -fsSLo k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
-          echo "${K3D_SHA256}  k3d" | sha256sum -c -
-          sudo install -m 0755 k3d /usr/local/bin/k3d
-          k3d version
-
-      - name: Create cluster
-        run: |
-          k3d cluster create warden-ci --image "$K3S_IMAGE" --no-lb --wait --timeout 300s
-          # k3d reports the cluster before its API server serves: the first kubectl call got ServiceUnavailable
-          # (CI on 71790df, 2026-10-01). And one ready answer is not a settled server: on 287fb45 /readyz and
-          # `get nodes` answered, then the node wait got ServiceUnavailable 3 s later. Five ready answers in a
-          # row, then the wait - retried on a passing outage, and still failing loudly on one that lasts.
-          ok=0
-          for _ in $(seq 1 90); do
-            if kubectl get --raw /readyz >/dev/null 2>&1; then ok=$((ok + 1)); [ "$ok" -ge 5 ] && break; else ok=0; fi
-            sleep 2
-          done
-          kubectl get --raw /readyz
-          kubectl get nodes -o wide
-          for _ in 1 2 3; do kubectl wait --for=condition=Ready node --all --timeout=120s && break; sleep 5; done
-          kubectl wait --for=condition=Ready node --all --timeout=10s
-
-      # Started now, so its crash loop builds up while the checks below run (the wait took 24 s in line).
-      - name: Start the synthetic OOM workload
-        run: kubectl apply -f k8s/test/oom-workload.yaml
-
-      - name: Validate manifests against the live API server - including the documented entry point
-        run: |
-          # Apply the durable parts FIRST: dry-running posture-probe.yaml needs the ServiceAccount
-          # to exist, and the second apply -k needs the first to have happened.
-          kubectl apply -k k8s/
-          # The command the README tells users to run. A broken kustomization.yaml used to ship green.
-          kubectl kustomize k8s/ | kubectl apply --dry-run=server -f -
-          # The workload and the probe (server dry-run - the Job uses generateName, which
-          # `apply` rejects; oom-workload and posture-probe are ordinary named objects).
-          kubectl apply --dry-run=server -f k8s/test/oom-workload.yaml -f k8s/test/posture-probe.yaml
-          # A Job with generateName cannot be `apply`-ed at all; `create --dry-run` is its check.
-          kubectl create --dry-run=server -f k8s/job.yaml >/dev/null || { echo "::error::job.yaml failed server-side validation"; exit 1; }
-          echo "job.yaml valid"
-          # Idempotent: the second apply -k must change nothing.
-          out=$(kubectl apply -k k8s/); echo "$out"
-          echo "$out" | grep -qvE 'unchanged' && { echo "::error::second apply -k was not a no-op"; exit 1; } || true
-
-      - name: Pod Security must REJECT a privileged pod in the warden namespace
-        run: |
-          # A positive test (the Job is admitted) cannot tell 'restricted is enforced' from 'the
-          # label is mistyped'. This can. Only Pod Security's own reason counts: on 5fdcff4 the pod was refused
-          # because the namespace's default ServiceAccount did not exist yet, and any 'forbidden' passed (ninth
-          # review). So the ServiceAccount first.
-          for _ in $(seq 1 30); do kubectl get serviceaccount default -n warden >/dev/null 2>&1 && break; sleep 2; done
-          # The pod is built here (scripts/negative_pod.py), never kept as a manifest: nothing can apply it by mistake.
-          if python3 scripts/negative_pod.py | kubectl apply --dry-run=server -f - 2>err.txt; then
-            echo "::error::a privileged pod was ACCEPTED - Pod Security is not enforced"; exit 1
-          fi
-          grep -q "violates PodSecurity" err.txt || { echo "::error::rejected for the wrong reason:"; cat err.txt; exit 1; }
-          echo "rejected as expected:"; cat err.txt
-
-      # RBAC from the API server's point of view, BOTH directions, MINIMAL not just read-only.
-      - name: RBAC must allow exactly the six reads the code makes
-        run: |
-          SA=system:serviceaccount:warden:warden
-          # An empty answer is a failed request (a settling cluster, CI on 5fdcff4): asked again,
-          # its error shown; only yes or no is ever accepted.
-          ask() { for _ in 1 2 3; do r=$(kubectl auth can-i "$@" --as=$SA 2>can-i.err || true); [ -n "$r" ] && break; cat can-i.err >&2; sleep 2; done; echo "$r"; }
-          allow() { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
-          allow list pods -n default
-          # ⛔ NOT `get pods/log`: in kubectl's grammar TYPE/NAME means "a pod NAMED log", so that
-          # form passed under the old over-broad role (which had `get pods`) for the WRONG reason
-          # and fails under the minimal one. --subresource is the real question. Found by hand.
-          allow get pods --subresource=log -n default
-          allow list events -n default
-          allow get deployments.apps -n default
-          allow list replicasets.apps -n default
-          allow list horizontalpodautoscalers.autoscaling -n default
-
-      - name: RBAC must deny writes, unused read verbs, secrets, other namespaces and cluster scope
-        run: |
-          SA=system:serviceaccount:warden:warden
-          ask() { for _ in 1 2 3; do r=$(kubectl auth can-i "$@" --as=$SA 2>can-i.err || true); [ -n "$r" ] && break; cat can-i.err >&2; sleep 2; done; echo "$r"; }
-          deny() { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "no" ] || { echo "::error::$* must be denied"; exit 1; }; }
-          # writes
-          deny delete pods -n default
-          deny create pods -n default
-          deny deletecollection pods -n default
-          deny create pods/exec -n default
-          deny create pods/eviction -n default
-          deny patch deployments.apps -n default
-          deny update deployments.apps -n default
-          deny delete deployments.apps -n default
-          deny create secrets -n default
-          # the sixth grant is a READ: an autoscaler must not be changeable through it
-          deny patch horizontalpodautoscalers.autoscaling -n default
-          deny update horizontalpodautoscalers.autoscaling -n default
-          deny create horizontalpodautoscalers.autoscaling -n default
-          deny delete horizontalpodautoscalers.autoscaling -n default
-          # "minimal": reads the code does not make must ALSO be denied
-          deny watch pods -n default
-          deny get pods -n default
-          deny watch events -n default
-          deny list deployments.apps -n default
-          deny get replicasets.apps -n default
-          deny get horizontalpodautoscalers.autoscaling -n default
-          deny watch horizontalpodautoscalers.autoscaling -n default
-          deny list events.events.k8s.io -n default
-          # secrets, other namespaces, cluster scope
-          deny get secrets -n default
-          deny list secrets -n default
-          deny list pods -n kube-system
-          deny list horizontalpodautoscalers.autoscaling -n kube-system
-          deny list pods -n warden
-          deny get nodes
-          deny list namespaces
-
-      - name: The WRITE path (live remediation) grants exactly patch+get on deployments, nothing else
-        run: |
-          # remediation-rbac.yaml is deliberately NOT in the default kustomization - the default deploy
-          # stays read-only. Arming live remediation means applying this separately, and this proves
-          # its boundary from the API server's own view, both directions.
-          kubectl apply -f k8s/remediation-rbac.yaml
-          # CI only: the EKS actor's group, bound in this test namespace (on EKS it is bound in shop alone).
-          kubectl apply -f k8s/ci/remediation-group-binding.yaml
-          SA=system:serviceaccount:warden:warden-remediator
-          # An empty answer is a failed request (a settling cluster, CI on 5fdcff4): asked again,
-          # its error shown; only yes or no is ever accepted.
-          ask() { for _ in 1 2 3; do r=$(kubectl auth can-i "$@" --as=$SA 2>can-i.err || true); [ -n "$r" ] && break; cat can-i.err >&2; sleep 2; done; echo "$r"; }
-          allow() { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
-          deny()  { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "no" ]  || { echo "::error::$* must be denied";  exit 1; }; }
-          # exactly the two the backend calls
-          allow patch deployments.apps -n default
-          allow get   deployments.apps -n default
-          # everything else is denied - including the destructive verbs, pods, secrets, other namespaces
-          deny delete deployments.apps -n default
-          deny update deployments.apps -n default
-          deny list   deployments.apps -n default
-          deny delete pods -n default
-          deny create pods -n default
-          deny patch  pods -n default
-          deny get    secrets -n default
-          deny patch  deployments.apps -n kube-system
-          deny patch  deployments.apps -n warden
-
-      - name: The OOM workload must be GENUINELY crash-looping
-        run: |
-          # The scenario is "a pod stuck in CrashLoopBackOff from OOM", not "a pod that died once".
-          # One kill gives a fresh pod with thin evidence and the verifier correctly escalates it;
-          # the proof of the APPROVED path needs the state an on-call engineer would actually see:
-          # repeated OOMKilled, restarts >= 2, and a BackOff event on the record.
-          reason=""; restarts=0
-          for i in $(seq 1 48); do
-            reason=$(kubectl get pod -l app=checkout -o jsonpath='{.items[0].status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null || true)
-            restarts=$(kubectl get pod -l app=checkout -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null || echo 0)
-            echo "[$i] lastState.terminated.reason='$reason' restarts=$restarts"
-            [ "$reason" = "OOMKilled" ] && [ "${restarts:-0}" -ge 2 ] && break
-            sleep 5
-          done
-          [ "$reason" = "OOMKilled" ] && [ "${restarts:-0}" -ge 2 ] || { echo "::error::pod never reached OOMKilled with >=2 restarts"; kubectl describe pod -l app=checkout; exit 1; }
-          kubectl get events -n default --field-selector reason=BackOff 2>/dev/null | grep -q checkout || { echo "::error::no BackOff event recorded for the workload"; exit 1; }
-          kubectl get pods -l app=checkout
-          # The kubelet's own record above is the proof. The log is shown for the reader, not asserted -
-          # a non-interactive shell does not reliably print 'Killed'.
-          kubectl logs -l app=checkout --tail=5 --previous 2>/dev/null || kubectl logs -l app=checkout --tail=5 || true
-
-      - name: Integration tests against the live cluster - and they must have RUN, not skipped
-        env:
-          WARDEN_K8S_INTEGRATION: "1"
-          WARDEN_TRACE: "0"
-        run: |
-          set -o pipefail
-          # ⛔ The CLUSTER files by name, not the whole directory. `tests/integration` also holds the
-          # database suite, which needs its own service containers and belongs to the `db` job - and
-          # the zero-skips assertion below (the thing that stops a cluster test silently vanishing)
-          # cannot tell "skipped because it is not this job's lane" from "skipped because the cluster
-          # is missing". `tests/test_ci_lanes.py` asserts every integration file is claimed by a job,
-          # so adding one here can never be forgotten.
-          pytest tests/integration/test_live_cluster.py tests/integration/test_live_remediation.py -q -rs | tee it.txt
-          grep -qE '^[0-9]+ passed' it.txt || { echo "::error::no integration test actually passed"; exit 1; }
-          grep -qE ' skipped' it.txt && { echo "::error::integration tests skipped with the opt-in set"; exit 1; }
-          echo "integration tests ran for real"
-
-      - name: WARDEN from OUTSIDE the cluster - scale_up on an OOM crash loop is ESCALATED by P11
-        env:
-          WARDEN_BACKEND: k8s
-          WARDEN_MOCK: "1"
-          WARDEN_TRACE: "0"
-        run: |
-          out=$(warden run --incident inc-002 --verbose)
-          echo "$out"
-          echo "$out" | grep -q '"backend": "kubernetes"'   || { echo "::error::evidence did not come from the cluster"; exit 1; }
-          echo "$out" | grep -q 'scale_up'                   || { echo "::error::expected scale_up"; exit 1; }
-          # The workload is a single pod OOM-killed at startup: every pod is failing, so scaling out
-          # cannot help and P11 escalates. Until 2026-09-25 this asserted APPROVED_FOR_HUMAN; the
-          # first P11 keyed on pods_ready == 0 and fired here only when the read landed between
-          # crashes (ready=1 outside the cluster, ready=0 inside, seconds apart). It now keys on
-          # "every pod failing", which a back-off record proves whatever readiness says.
-          echo "$out" | grep -q 'VERDICT            : ESCALATED'    || { echo "::error::expected ESCALATED"; exit 1; }
-          echo "$out" | grep -q 'P11-ACTION-CONTRADICTS-EVIDENCE'   || { echo "::error::expected P11 to fire"; exit 1; }
-          echo "$out" | grep -q '"tool_errors": \[\]'        || { echo "::error::a context tool failed or partially failed"; exit 1; }
-          echo "$out" | grep -q 'TOOL-PARTIAL' && { echo "::error::a partial failure leaked into the output"; exit 1; } || true
-
-      - name: Load the image into the cluster
-        run: |
-          # The build started at the top of the job; collect it.
-          for _ in $(seq 1 600); do [ -f "$RUNNER_TEMP/build.rc" ] && break; sleep 1; done
-          cat "$RUNNER_TEMP/build.log" || true
-          test "$(cat "$RUNNER_TEMP/build.rc" 2>/dev/null)" = 0 || { echo "::error::the image build failed or did not finish"; exit 1; }
-          # ⛔ k3d's exit code is not proof. On two runs (d0bb8a4, f8fb972) `k3d image import` logged
-          # "ERRO failed to import images in node 'k3d-warden-ci-server-0'", then "Successfully
-          # imported" and exit 0 - the step went green with no image in the cluster, and the failure
-          # surfaced three steps later as ErrImagePull on the posture probe. So: look in the node's own
-          # container runtime, retry, and fail HERE, at the cause, if the image never arrives.
-          present() { docker exec k3d-warden-ci-server-0 crictl images | grep -qE 'warden[[:space:]]+local'; }
-          for attempt in 1 2 3; do
-            # Bounded: an import hung for the job's whole 25 minutes (CI on 41ba1f0, 2026-10-01); a hang is a retry.
-            timeout 180 k3d image import warden:local -c warden-ci || true
-            if present; then echo "warden:local is in the node (attempt $attempt)"; break; fi
-            echo "::warning::k3d reported the import but the image is not in the node (attempt $attempt)"
-            sleep 3
-          done
-          present || { echo "::error::warden:local never reached the cluster node"; docker exec k3d-warden-ci-server-0 crictl images; exit 1; }
-
-      - name: Runtime posture probe - what uid does the PROCESS run as, and can it write?
-        run: |
-          kubectl apply -f k8s/test/posture-probe.yaml
-          kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/warden-posture-probe -n warden --timeout=120s || { kubectl describe pod warden-posture-probe -n warden; exit 1; }
-          out=$(kubectl logs pod/warden-posture-probe -n warden)
-          echo "$out"
-          echo "$out" | grep -q '^uid=10001$'      || { echo "::error::process is not uid 10001"; exit 1; }
-          echo "$out" | grep -q '^rootfs=READONLY$' || { echo "::error::root filesystem is writable"; exit 1; }
-
-      - name: WARDEN from INSIDE the cluster, under the read-only ServiceAccount
-        run: |
-          # `create`, not `apply`: the Job uses generateName and is immutable once made.
-          job=$(kubectl create -f k8s/job.yaml -o jsonpath='{.metadata.name}')
-          echo "created job/$job"
-          kubectl wait --for=condition=complete "job/$job" -n warden --timeout=180s || { kubectl describe "job/$job" -n warden; kubectl logs "job/$job" -n warden || true; exit 1; }
-          out=$(kubectl logs "job/$job" -n warden)
-          echo "$out"
-          echo "$out" | grep -q '"backend": "kubernetes"' || { echo "::error::in-cluster run did not use the cluster backend"; exit 1; }
-          echo "$out" | grep -q 'scale_up'                 || { echo "::error::in-cluster run did not propose scale_up"; exit 1; }
-          echo "$out" | grep -q 'VERDICT            : ESCALATED' || { echo "::error::in-cluster verdict wrong"; exit 1; }
-          echo "$out" | grep -q 'P11-ACTION-CONTRADICTS-EVIDENCE' || { echo "::error::in-cluster run: P11 did not fire"; exit 1; }
-          echo "$out" | grep -q '"tool_errors": \[\]'      || { echo "::error::in-cluster run had tool errors"; exit 1; }
-          # A second diagnosis must be creatable without deleting the first (the immutability finding).
-          job2=$(kubectl create -f k8s/job.yaml -o jsonpath='{.metadata.name}')
-          [ "$job2" != "$job" ] || { echo "::error::generateName did not mint a new Job"; exit 1; }
-          echo "second diagnosis job/$job2 created alongside job/$job"
-
+      - uses: $/warden/.github/actions/k8s-regression
       # No teardown: the runner and its cluster are thrown away with the job.
 
   # Real databases, not stubs. Service containers give every push a PostgreSQL, MySQL, Redis,
@@ -572,42 +212,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      - uses: $/warden/.github/actions/db
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
-        with:
-          version: "0.13.1"
-          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
-          python-version: "3.13"
-          activate-environment: true
-          cache-suffix: "ci-tool-db"  # one cache per job: jobs sharing a key raced to save it
-
-      - name: Install with the database extras (locked)
-        run: uv sync --locked --no-build --extra dev --extra postgres --extra mysql --extra redis --extra mongo --extra mssql
-
-      # The core package must still import with NO database driver present - the drivers are lazily
-      # imported inside each engine adapter, exactly like the provider SDKs.
-      - name: Core imports without any database driver
-        run: |
-          env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=/tmp/bare-db uv sync --locked --no-build  # as /tmp/bare above
-          /tmp/bare-db/bin/python -c "from warden.database import DatabaseBackend; print('core imports clean without drivers')"
-
-      - name: Integration tests against REAL databases - and they must have RUN, not skipped
-        env:
-          WARDEN_DB_INTEGRATION: "1"
-          WARDEN_TEST_PG_DSN: postgresql://warden:${{ env.DB_TEST_PASSWORD }}@127.0.0.1:5432/warden
-          WARDEN_TEST_MYSQL_DSN: mysql://root:${{ env.DB_TEST_PASSWORD }}@127.0.0.1:3306/warden
-          WARDEN_TEST_REDIS_DSN: redis://127.0.0.1:6379/0
-          WARDEN_TEST_MONGO_DSN: mongodb://127.0.0.1:27017/warden
-          WARDEN_TEST_MSSQL_DSN: mssql://sa:${{ env.DB_TEST_PASSWORD }}@127.0.0.1:1433/master
-          WARDEN_TRACE: "0"
-        run: |
-          set -o pipefail
-          pytest tests/integration/test_live_database.py tests/integration/test_live_audit_pg.py -q -rs | tee db.txt
-          grep -qE '^[0-9]+ passed' db.txt || { echo "::error::no database integration test actually passed"; exit 1; }
-          # Every engine's DSN is set, so a skip here means an engine silently dropped out of the run.
-          grep -qE ' skipped' db.txt && { echo "::error::an engine skipped despite its DSN being set"; exit 1; }
-          echo "database integration tests ran for real, against all five engines"
-
+  # The root stack (infra/terraform) and the proving ground: infra's steps, run here as before the split.
   terraform:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
@@ -616,25 +223,4 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
-        with:
-          terraform_version: "1.16.4"
-
-      - name: Format check
-        run: terraform -chdir=terraform fmt -check -recursive
-
-      # -backend=false: validate the configuration without needing AWS credentials or state.
-      - name: Validate
-        run: |
-          terraform -chdir=terraform init -backend=false
-          terraform -chdir=terraform validate
-
-      # The proving ground is a separate root module, so the validate above never touched it. It
-      # went in unvalidated once; a `count` on a resource whose outputs were read unconditionally
-      # is exactly the kind of error that only shows up at apply time, on a real account, after
-      # fifteen minutes of EKS.
-      - name: Validate the proving ground
-        run: |
-          terraform -chdir=terraform/proving-ground init -backend=false
-          terraform -chdir=terraform/proving-ground validate
+      - uses: $/infra/.github/actions/terraform-root

@@ -1,0 +1,14 @@
+# WARDEN's lint settings (warden/pyproject.toml [tool.ruff]), for this component's Python: ruff reads the nearest
+# configuration, so each component carries its own and is linted the same from any folder.
+line-length = 100
+# The same first-party modules as warden/pyproject.toml's `src`: WARDEN's package, its tests, and the fault
+# harness's modules (`scenarios.x`), so imports sort exactly as they did before the split.
+src = ["../warden/src", "../warden/tests", "../warden/evals", "../fault-lab/scenarios"]
+
+[lint]
+# C408: `dict(a=1)` over `{"a": 1}`. Kept deliberately - the demo fixtures and test helpers use the
+# `base = dict(...); base.update(kw)` override pattern, which is unreadable with brace literals.
+ignore = ["C408"]
+# ruff 0.17 (2026-10-09) took the flake8-datetimez rules out of its defaults; WARDEN keeps them: a naive datetime
+# compared with an aware one raises, and audit times must carry their zone.
+extend-select = ["DTZ"]

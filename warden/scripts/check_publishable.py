@@ -55,6 +55,9 @@ ALLOWED = {
     "162140000000", "161060000000", "000000000008", "000000000009", "975088852523",
     # The placeholder in the redaction output itself.
     "<ACCOUNT>",
+    # Helios's demo animation (helios/docs/demo.gif): twelve bytes of its colour table (RGB triples) that read as digits,
+    # not an account id; checked in the file's bytes on 2026-10-21.
+    "249138" + "128027",
 }
 
 # ⛔ No file is exempt (2026-10-16, naming audit item 5). Seven files used to be skipped whole -

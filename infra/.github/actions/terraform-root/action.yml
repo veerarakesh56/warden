@@ -1,0 +1,31 @@
+name: "infra · terraform-root"
+description: >-
+  fmt and validate (no backend, no credentials) of the root stack infra/terraform and of the proving ground. Run
+  after the checkout; called by CI · tool's terraform job.
+runs:
+  using: composite
+  steps:
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+      with:
+        terraform_version: "1.16.4"
+
+    - name: Format check
+      shell: bash -e {0}
+      run: terraform -chdir=infra/terraform fmt -check -recursive
+
+    # -backend=false: validate the configuration without needing AWS credentials or state.
+    - name: Validate
+      shell: bash -e {0}
+      run: |
+        terraform -chdir=infra/terraform init -backend=false
+        terraform -chdir=infra/terraform validate
+
+    # The proving ground is a separate root module, so the validate above never touched it. It
+    # went in unvalidated once; a `count` on a resource whose outputs were read unconditionally
+    # is exactly the kind of error that only shows up at apply time, on a real account, after
+    # fifteen minutes of EKS.
+    - name: Validate the proving ground
+      shell: bash -e {0}
+      run: |
+        terraform -chdir=infra/terraform/proving-ground init -backend=false
+        terraform -chdir=infra/terraform/proving-ground validate

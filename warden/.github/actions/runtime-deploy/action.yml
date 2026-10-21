@@ -1,0 +1,153 @@
+name: "warden · runtime-deploy"
+description: >-
+  Verify the image's signature and provenance, then plan and apply infra/terraform/runtime with that digest (or pause
+  / resume it), migrate the audit and wait until every zone runs the image. Run by the runtime pipeline's deploy job
+  after the role, the ECR login and cosign's installer; reads the job's ACTION, IMAGE, BUCKET, AWS_REGION, SIGNER,
+  REPO and RUNTIME_ENV.
+inputs:
+  keep_snapshots:
+    description: "pause only: how many pause snapshots the report keeps (the environment's PAUSE_KEEP_SNAPSHOTS)."
+    default: "3"
+runs:
+  using: composite
+  steps:
+    - name: Verify the signature and the provenance before anything is deployed
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash -e {0}
+      run: |
+        cosign verify "$IMAGE" --certificate-identity "$SIGNER" \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+        gh attestation verify "oci://$IMAGE" --repo "$REPO" > /dev/null
+        echo "signature and provenance verified: $IMAGE"
+
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+      with:
+        terraform_version: "1.16.4"
+        terraform_wrapper: false
+
+    - name: init with the S3 backend
+      shell: bash -e {0}
+      run: |
+        printf 'terraform {\n  backend "s3" {}\n}\n' > infra/terraform/runtime/backend_override.tf
+        terraform -chdir=infra/terraform/runtime init -input=false \
+          -backend-config="bucket=$BUCKET" -backend-config="key=runtime/terraform.tfstate" \
+          -backend-config="region=$AWS_REGION" -backend-config="use_lockfile=true"
+        terraform -chdir=infra/terraform/runtime workspace select -or-create "$RUNTIME_ENV"
+
+    # ⛔ Pause: the audit's snapshot is available before the switch is thrown; a failed copy stops the run here.
+    - name: "pause: the audit database's snapshot, then the pause switch"
+      if: env.ACTION == 'pause'
+      shell: bash -e {0}
+      run: |
+        WARDEN_ENV="$RUNTIME_ENV" python infra/scripts/pause_resume.py snapshot --stack runtime
+        aws ssm put-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --value true --overwrite > /dev/null
+        echo "SSM /warden/$RUNTIME_ENV/tf/paused = true"
+
+    - name: "resume: the audit database started, then the pause switch off"
+      if: env.ACTION == 'resume'
+      shell: bash -e {0}
+      run: |
+        WARDEN_ENV="$RUNTIME_ENV" python infra/scripts/pause_resume.py start-db
+        aws ssm put-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --value false --overwrite > /dev/null
+        echo "SSM /warden/$RUNTIME_ENV/tf/paused = false"
+
+    - name: plan
+      shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/runtime plan -input=false -no-color -var "runtime_image=$IMAGE" -out="$RUNNER_TEMP/tfplan"
+
+    - name: apply the plan just made
+      if: env.ACTION != 'plan'
+      shell: bash -e {0}
+      run: |
+        set -o pipefail
+        # 2>&1: Terraform writes its errors to stderr - the retry's first real run saw none of them (2026-10-11).
+        if terraform -chdir=infra/terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan" 2>&1 \
+            | tee "$RUNNER_TEMP/apply.log"; then
+          exit 0
+        fi
+        # A pause releases the NAT gateway's address right after the gateway. For a moment EC2 still lists the
+        # address as associated, and answers the release's disassociate with UnauthorizedOperation, not "not
+        # found" (2026-10-09; twice on 2026-10-11) - everything else is already gone. Only when that is the one
+        # error: plan what is left and apply it, once.
+        if [ "$(grep -c 'Error: ' "$RUNNER_TEMP/apply.log")" != 1 ] \
+            || ! grep -q 'Error: disassociating EC2 EIP' "$RUNNER_TEMP/apply.log"; then
+          exit 1
+        fi
+        echo "::notice::the NAT gateway's address was still listed as associated; applying what is left, once"
+        terraform -chdir=infra/terraform/runtime plan -input=false -no-color -var "runtime_image=$IMAGE" \
+          -out="$RUNNER_TEMP/tfplan-rest"
+        terraform -chdir=infra/terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan-rest"
+
+    # The audit's tables, triggers and writer login, from inside the VPC (migrate.tf). Idempotent.
+    - name: the audit's schema and writer login
+      if: env.ACTION != 'plan'
+      shell: bash -e {0}
+      run: |
+        # Paused (SSM tf/paused = true) there is no way out of the VPC - the Lambda cannot reach Secrets Manager -
+        # and nothing writes to the audit; the schema is checked at the next resume.
+        if [ "$(aws ssm get-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
+          echo "paused: the audit's schema is checked at the next resume"
+          exit 0
+        fi
+        fn=$(terraform -chdir=infra/terraform/runtime output -json runtime | jq -r .migrate_function)
+        aws lambda invoke --function-name "$fn" --cli-binary-format raw-in-base64-out --payload '{}' \
+          --query FunctionError --output text "$RUNNER_TEMP/migrate.json" > "$RUNNER_TEMP/migrate.err"
+        if [ "$(cat "$RUNNER_TEMP/migrate.err")" != "None" ]; then
+          echo "::error::the migrate Lambda failed: $(cat "$RUNNER_TEMP/migrate.json")"
+          exit 1
+        fi
+
+    # A deploy is done when every zone runs the image just built - not when Terraform has asked for it. On
+    # 2026-10-15 the apply succeeded, ECS could not start the new tasks (the account's Fargate vCPU limit) and
+    # rolled every zone back, and this workflow said success.
+    - name: Every zone runs the image just built
+      if: env.ACTION != 'plan'
+      shell: bash -e {0}
+      run: |
+        if [ "$(aws ssm get-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
+          echo "paused: no zone runs"
+          exit 0
+        fi
+        cluster="warden-$RUNTIME_ENV-runtime"
+        services=$(aws ecs list-services --cluster "$cluster" --query 'serviceArns[]' --output text)
+        test -n "$services" || { echo "::error::no services in $cluster"; exit 1; }
+        # Up to 25 minutes: ECS retries a task it could not place until the old tasks free their vCPUs, and the read
+        # zone's 2.5 GB image takes minutes to pull - one 10-minute `wait services-stable` gave up on a rollout that
+        # completed four minutes later (2026-10-15).
+        for _ in $(seq 1 50); do
+          # shellcheck disable=SC2086
+          pending=$(aws ecs describe-services --cluster "$cluster" --services $services \
+            --query 'length(services[?length(deployments) != `1` || deployments[0].rolloutState != `COMPLETED`])' \
+            --output text)
+          [ "$pending" = 0 ] && break
+          sleep 30
+        done
+        bad=0
+        for svc in $services; do
+          # shellcheck disable=SC2086
+          read -r name count state td <<< "$(aws ecs describe-services --cluster "$cluster" --services "$svc" \
+            --query 'services[0].[serviceName, length(deployments), deployments[0].rolloutState, deployments[0].taskDefinition]' \
+            --output text)"
+          image=$(aws ecs describe-task-definition --task-definition "$td" \
+            --query 'taskDefinition.containerDefinitions[0].image' --output text)
+          if [ "$count" != 1 ] || [ "$state" != COMPLETED ] || [ "$image" != "$IMAGE" ]; then
+            echo "::error::$name is not on the new image (deployments $count, rollout $state)"
+            aws ecs describe-services --cluster "$cluster" --services "$svc" \
+              --query 'services[0].events[0:3].message' --output text
+            bad=1
+          else
+            echo "$name runs the new image"
+          fi
+        done
+        exit "$bad"
+
+    - name: "pause: the audit database stopped, and what stays"
+      if: env.ACTION == 'pause'
+      env:
+        KEEP: ${{ inputs.keep_snapshots }}
+      shell: bash -e {0}
+      run: |
+        set -o pipefail
+        WARDEN_ENV="$RUNTIME_ENV" python infra/scripts/pause_resume.py stop-db
+        WARDEN_ENV="$RUNTIME_ENV" python infra/scripts/pause_resume.py report --stack runtime --keep "$KEEP" | tee -a "$GITHUB_STEP_SUMMARY"

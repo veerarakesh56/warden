@@ -26,10 +26,13 @@ def test_every_test_file_is_analysed_as_a_test_and_only_as_one():
     tests = _listed(props["sonar.tests"])
     excluded = _listed(props["sonar.exclusions"])
     assert props["sonar.sources"] == "."
-    # Each test path is left out of the sources, or Sonar would index the file twice and stop.
-    assert sorted(excluded) == sorted(t if t.endswith(".py") else f"{t}/**" for t in tests)
+    # Each test path is left out of the sources, or Sonar would index the file twice and stop; beyond them only test
+    # DATA is left out: Helios's fixtures (deliberately weak example infrastructure its golden tests are pinned to).
+    data = ["helios/fixtures/**"]
+    assert sorted(excluded) == sorted([*(t if t.endswith(".py") else f"{t}/**" for t in tests), *data])
+    assert all((ROOT / d.removesuffix("/**")).is_dir() for d in data)
     pytest_paths = tomllib.loads((ROOT / "warden" / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]
-    assert set(pytest_paths["testpaths"]) <= set(tests)
+    assert {f"warden/{p}" for p in pytest_paths["testpaths"]} <= set(tests)  # relative to warden/
     tracked = [p for p in ROOT.rglob("*.py") if ".venv" not in p.parts and "node_modules" not in p.parts]
     test_like = [p.relative_to(ROOT).as_posix() for p in tracked
                  if re.fullmatch(r"test_.*\.py|.*_test\.py|conftest\.py", p.name)]

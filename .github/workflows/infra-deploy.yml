@@ -1,7 +1,10 @@
 name: "_ infra · deploy"
 
-# plan | apply | destroy ONE stack in ONE environment, through GitHub OIDC: the full stack (terraform/fullstack), or
-# the undo lab (terraform/undo-lab - a table, a queue, two functions and a schedule; it refuses any environment but
+# The steps are infra/'s composite actions (infra/.github/actions/deploy-prepare, deploy-run); this file keeps what
+# must stay at the root: the inputs, the environment, the guards that run before the checkout, and the steps that
+# read the environment's secrets and variables (a composite action cannot).
+# plan | apply | destroy ONE stack in ONE environment, through GitHub OIDC: the full stack (infra/terraform/fullstack),
+# or the undo lab (infra/terraform/undo-lab - a table, a queue, two functions and a schedule; it refuses any environment but
 # the one its fault-injection role exists in). Called only by
 # Deploy · <env> and Deploy · <env> · on merge. NO AWS KEYS ARE STORED ANYWHERE. Per environment the owner creates once
 # (docs/SETUP.md): the role warden-<env>-deploy (its trust accepts only this repository's
@@ -10,10 +13,10 @@ name: "_ infra · deploy"
 # account id: a variable is printed unmasked in a step's inputs, 2026-10-16), the variables AWS_REGION and
 # TF_STATE_BUCKET (optional EKS_PUBLIC_CIDRS, EKS_ADMIN_ROLE_ARNS) and, for prod, the owner as required reviewer.
 # Branches (owner, 2026-10-16): main deploys nothing; dev is main fast-forwarded; prod is dev merged by pull request.
-# Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
+# Aurora is created and destroyed by infra/terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
 # pause / resume (owner update 5, 2026-10-17; the full stack only): pause stops every writer, then copies every data
-# store (scripts/pause_resume.py snapshot - each copy AVAILABLE before anything goes) and then destroys the stack as `destroy` does; resume restores
+# store (infra/scripts/pause_resume.py snapshot - each copy AVAILABLE before anything goes) and then destroys the stack as `destroy` does; resume restores
 # the tables from their newest pause backups and imports them, applies as `apply` does, and brings Aurora back from its
 # newest pause snapshot. With no copy (a first install) resume is an apply. No copy is ever deleted.
 on:
@@ -69,7 +72,7 @@ jobs:
       TF_IN_AUTOMATION: "1"
     steps:
       # Owner, 2026-10-16: an environment deploys only from the branch of the same name, so main deploys nothing. The
-      # GitHub Environment's deployment-branch rule and the role's trust (`ref`, iam/templates/trust.json) say the same.
+      # GitHub Environment's deployment-branch rule and the role's trust (`ref`, infra/iam/templates/trust.json) say the same.
       - name: Deploys run from their environment's own branch
         if: github.ref != format('refs/heads/{0}', inputs.environment)
         run: |
@@ -87,63 +90,16 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0  # every branch: the promotion check reads the upstream one
-      # Owner, 2026-10-16: nothing deploys unless it came through the promotion path, checked before the job holds any
-      # credential. The commit is on the upstream branch already (main fast-forwarded onto dev), or it is a merge
-      # commit whose second parent is on it and whose files are exactly that parent's (the dev -> prod pull request).
-      # A commit pushed straight onto dev or prod, reviewed on no upstream branch, stops here.
-      - name: The commit was promoted from its upstream branch
-        env:
-          UPSTREAM: ${{ inputs.upstream }}
-        run: |
-          git check-ref-format --branch "$UPSTREAM" > /dev/null && [ "$UPSTREAM" != "$WARDEN_ENV" ] \
-            || { echo "::error::upstream must name another branch, not '$UPSTREAM'"; exit 1; }
-          up="refs/remotes/origin/$UPSTREAM"
-          git rev-parse -q --verify "$up^{commit}" > /dev/null || { echo "::error::no branch $UPSTREAM to promote from"; exit 1; }
-          if git merge-base --is-ancestor HEAD "$up"; then
-            echo "$GITHUB_SHA is on $UPSTREAM"
-          elif git rev-parse -q --verify 'HEAD^2' > /dev/null && git merge-base --is-ancestor 'HEAD^2' "$up" \
-              && git diff --quiet 'HEAD^2' HEAD; then
-            echo "$GITHUB_SHA merges $(git rev-parse 'HEAD^2') from $UPSTREAM and changes nothing else"
-          else
-            echo "::error::$GITHUB_SHA did not come from $UPSTREAM: nothing is deployed"
-            exit 1
-          fi
-      # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
-      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials) - and before
-      # the job holds any.
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      # The promotion check, the locked tools and Helios built from helios/ - all before the job holds a credential.
+      - uses: $/infra/.github/actions/deploy-prepare
         with:
-          version: "0.13.1"
-          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
-          python-version: "3.13"
-          activate-environment: true
-          # No cache in a job that holds credentials: uv does not re-verify unpacked cache entries, so a
-          # poisoned cache would install unchecked (fifth review E, 2026-10-01).
-          enable-cache: false
-      - run: uv sync --locked --no-build --only-group infra-deploy   # aurora_express.py: stdlib + boto3 only
-      # Helios (register R56) checks the plan before apply. Built from a pinned commit with its
-      # Cargo.lock, before the job holds credentials; helios_gate.py runs it with an environment that
-      # carries no credentials.
-      - name: Build Helios at a pinned commit
-        if: env.ACTION != 'destroy' && env.ACTION != 'pause'
-        env:
-          HELIOS_COMMIT: bf4f3dd0c0e420146382a31c21a930e47c9deab7  # v0.2.0
-        run: |
-          git init -q "$RUNNER_TEMP/helios"
-          git -C "$RUNNER_TEMP/helios" fetch -q --depth 1 https://github.com/veerarakesh56/helios "$HELIOS_COMMIT"
-          git -C "$RUNNER_TEMP/helios" checkout -q FETCH_HEAD
-          cargo build --manifest-path "$RUNNER_TEMP/helios/Cargo.toml" --release --locked --bin helios
-          echo "HELIOS_BIN=$RUNNER_TEMP/helios/target/release/helios" >> "$GITHUB_ENV"
+          upstream: ${{ inputs.upstream }}
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: gha-${{ github.run_id }}
           aws-region: ${{ vars.AWS_REGION }}
           mask-aws-account-id: true
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
-        with:
-          terraform_version: "1.16.4"
-          terraform_wrapper: false
       - name: optional variables
         env:
           CIDRS: ${{ vars.EKS_PUBLIC_CIDRS }}
@@ -153,129 +109,9 @@ jobs:
         run: |
           if [ -n "$CIDRS" ]; then echo "TF_VAR_eks_public_access_cidrs=$CIDRS" >> "$GITHUB_ENV"; fi
           if [ -n "$ADMIN_ROLE_ARNS" ]; then echo "TF_VAR_eks_admin_principal_arns=$ADMIN_ROLE_ARNS" >> "$GITHUB_ENV"; fi
-      - name: init with the S3 backend
-        # backend_override.tf exists only on the runner: a local apply keeps local state.
-        run: |
-          printf 'terraform {\n  backend "s3" {}\n}\n' > "terraform/$STACK/backend_override.tf"
-          terraform -chdir="terraform/$STACK" init -input=false \
-            -backend-config="bucket=$BUCKET" -backend-config="key=$STACK/terraform.tfstate" \
-            -backend-config="region=$AWS_REGION" -backend-config="use_lockfile=true"
-          # The environment IS the workspace; terraform refuses any other (main.tf precondition).
-          terraform -chdir="terraform/$STACK" workspace select -or-create "$WARDEN_ENV"
-      # Before the plan: a table restored now is imported, so the plan updates it instead of creating an empty one.
-      - name: "resume: the tables from their newest pause backups, into Terraform's state"
-        if: env.ACTION == 'resume'
-        run: |
-          python scripts/pause_resume.py restore-tables > "$RUNNER_TEMP/imports.txt"
-          while read -r address name; do
-            [ -n "$address" ] || continue
-            terraform -chdir="terraform/$STACK" state show "$address" > /dev/null 2>&1 \
-              || terraform -chdir="terraform/$STACK" import -input=false -no-color "$address" "$name"
-          done < "$RUNNER_TEMP/imports.txt"
-      - name: plan, and Helios on it (R56)
-        if: env.ACTION == 'plan' || env.ACTION == 'apply' || env.ACTION == 'resume'
-        run: |
-          set -o pipefail
-          terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/before.json"
-          terraform -chdir="terraform/$STACK" plan -input=false -no-color -out="$RUNNER_TEMP/tfplan"
-          terraform -chdir="terraform/$STACK" show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.json"
-          # Refuses the change when it fails anything under a scenario today's stack survives.
-          python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --plan "$RUNNER_TEMP/plan.json" \
-            --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: keep the plan for review (private state bucket, never a public artifact)
-        if: env.ACTION == 'plan'
-        env:
-          RUN: ${{ github.run_id }}
-        run: |
-          # A run's artifacts are downloadable by anyone signed in to GitHub on a public repository, and a plan holds
-          # every ARN (the account id): the plan is kept in the private state bucket, with the commit it was made at.
-          sum=$(sha256sum "$RUNNER_TEMP/tfplan" | cut -d' ' -f1)
-          aws s3 cp "$RUNNER_TEMP/tfplan" "s3://$BUCKET/$STACK/plans/$RUN.tfplan" --only-show-errors
-          printf '{"commit":"%s","sha256":"%s","stack":"%s","environment":"%s"}\n' "$GITHUB_SHA" "$sum" "$STACK" "$WARDEN_ENV" \
-            > "$RUNNER_TEMP/plan-meta.json"
-          aws s3 cp "$RUNNER_TEMP/plan-meta.json" "s3://$BUCKET/$STACK/plans/$RUN.json" --only-show-errors
-          # In the log as well (2026-10-16): a job summary is not readable through the API, and a reviewer reads the log.
-          echo "plan kept for review: run $RUN, commit $GITHUB_SHA, plan sha256 $sum"
-          { echo "### Plan kept for review"; echo "run \`$RUN\` · commit \`$GITHUB_SHA\` · plan sha256 \`$sum\`";
-            echo "Apply exactly this plan: Deploy · <env> → infra_action apply-plan, with this run id and sha256."; } \
-            >> "$GITHUB_STEP_SUMMARY"
-      - name: fetch the reviewed plan, and Helios on it again (R56)
-        if: env.ACTION == 'apply-plan'
-        env:
-          PLAN_RUN: ${{ inputs.plan_run_id }}
-          PLAN_SHA: ${{ inputs.plan_sha256 }}
-        run: |
-          set -o pipefail
-          [[ "$PLAN_RUN" =~ ^[0-9]{1,20}$ ]] || { echo "::error::plan_run_id must be a run id"; exit 1; }
-          [[ "$PLAN_SHA" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::plan_sha256 must be the plan's 64-hex sha256"; exit 1; }
-          aws s3 cp "s3://$BUCKET/$STACK/plans/$PLAN_RUN.tfplan" "$RUNNER_TEMP/tfplan" --only-show-errors
-          aws s3 cp "s3://$BUCKET/$STACK/plans/$PLAN_RUN.json" "$RUNNER_TEMP/plan-meta.json" --only-show-errors
-          # The bytes the reviewer read, made at this very commit for this stack and environment - or nothing is applied.
-          echo "$PLAN_SHA  $RUNNER_TEMP/tfplan" | sha256sum -c - || { echo "::error::the plan is not the one reviewed"; exit 1; }
-          jq -e --arg c "$GITHUB_SHA" --arg s "$STACK" --arg e "$WARDEN_ENV" \
-            '.commit == $c and .stack == $s and .environment == $e' "$RUNNER_TEMP/plan-meta.json" > /dev/null \
-            || { echo "::error::the plan was made at another commit, stack or environment: plan again"; exit 1; }
-          terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/before.json"
-          terraform -chdir="terraform/$STACK" show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.json"
-          python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --plan "$RUNNER_TEMP/plan.json" \
-            --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: apply and publish stack.json
-        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan' || env.ACTION == 'resume'
-        env:
-          # resume: Aurora from its newest pause snapshot (none: created empty, a first install).
-          FROM_SNAPSHOT: ${{ inputs.action == 'resume' && 'latest' || 'none' }}
-        run: |
-          # The plan Helios checked, and nothing else.
-          terraform -chdir="terraform/$STACK" apply -input=false -no-color "$RUNNER_TEMP/tfplan"
-          # stack.json: every output EXCEPT the sensitive ones.
-          terraform -chdir="terraform/$STACK" output -json \
-            | jq 'with_entries(select(.value.sensitive | not))' > "$RUNNER_TEMP/stack.json"
-          # Aurora (express configuration) after the VPC exists; it merges its keys into stack.json.
-          if [ "$STACK" = fullstack ]; then
-            python terraform/fullstack/aurora_express.py create --stack "$RUNNER_TEMP/stack.json" --from-snapshot "$FROM_SNAPSHOT"
-          fi
-          # The apps deploy's own key - ecs_baseline_task_definition, the revision the harness reverts to - is kept: an
-          # infra apply never changes the service's task definition (ecs.tf ignores it), and a re-apply dropped the
-          # key, leaving the harness unable to start (2026-10-15).
-          if aws s3 cp "s3://$BUCKET/$STACK/stack.json" "$RUNNER_TEMP/previous.json" --only-show-errors 2>/dev/null; then
-            jq -s '(.[0] | with_entries(select(.key == "ecs_baseline_task_definition"))) + .[1]' \
-              "$RUNNER_TEMP/previous.json" "$RUNNER_TEMP/stack.json" > "$RUNNER_TEMP/merged.json"
-            mv "$RUNNER_TEMP/merged.json" "$RUNNER_TEMP/stack.json"
-          fi
-          aws s3 cp "$RUNNER_TEMP/stack.json" "s3://$BUCKET/$STACK/stack.json" --only-show-errors
-      - name: Helios on the applied state (R56)
-        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan' || env.ACTION == 'resume'
-        run: |
-          set -o pipefail
-          # The scenarios a plan could not decide (values unknown until apply), and every other one again.
-          terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/after.json"
-          python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --after "$RUNNER_TEMP/after.json" \
-            --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
-      # A pause stops every writer first (pause_resume.py quiesce); a re-created stack starts free, and this also frees one
-      # whose pause failed before the destroy. Idempotent.
-      - name: "resume: the writers on again"
-        if: env.ACTION == 'resume'
-        run: python scripts/pause_resume.py wake
-      # ⛔ Pause: every data store copied, and each copy available, BEFORE anything is deleted. A failed or unfinished
-      # copy fails this step, and the destroy below does not run (no step here runs after a failure).
-      - name: "pause: a copy of every data store, each available before anything goes"
-        if: env.ACTION == 'pause'
-        run: python scripts/pause_resume.py snapshot --stack "$STACK"
-      - name: destroy
-        if: env.ACTION == 'destroy' || env.ACTION == 'pause'
-        run: |
-          # Aurora first: terraform does not know it exists.
-          if [ "$STACK" = fullstack ]; then
-            python terraform/fullstack/aurora_express.py destroy
-          fi
-          terraform -chdir="terraform/$STACK" destroy -input=false -auto-approve -no-color
-          aws s3 rm "s3://$BUCKET/$STACK/stack.json" --only-show-errors || true
-          aws resourcegroupstaggingapi get-resources --region "$AWS_REGION" \
-            --tag-filters Key=Project,Values=warden "Key=Environment,Values=$WARDEN_ENV" --query 'length(ResourceTagMappingList)'
-      - name: "pause: what stays, and what it costs a day"
-        if: env.ACTION == 'pause'
-        env:
-          KEEP: ${{ vars.PAUSE_KEEP_SNAPSHOTS || '3' }}
-        run: |
-          set -o pipefail
-          python scripts/pause_resume.py report --stack "$STACK" --keep "$KEEP" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: $/infra/.github/actions/deploy-run
+        with:
+          action: ${{ inputs.action }}
+          plan_run_id: ${{ inputs.plan_run_id }}
+          plan_sha256: ${{ inputs.plan_sha256 }}
+          keep_snapshots: ${{ vars.PAUSE_KEEP_SNAPSHOTS || '3' }}

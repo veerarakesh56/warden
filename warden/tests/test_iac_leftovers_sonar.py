@@ -22,6 +22,8 @@ import re
 
 import yaml
 
+import workflow_view  # the pipelines with their components' composite actions written out
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "infra" / "terraform" / "modules" / "warden-runtime"
 FULLSTACK = ROOT / "infra" / "terraform" / "fullstack"
@@ -364,7 +366,7 @@ def test_no_image_grants_write_to_others_and_the_runtimes_tmp_stays_debians_stic
     compute = _flat(_block(RUNTIME / "compute.tf", "aws_ecs_task_definition", "zone"))
     assert 'user = "10001" readonlyRootFilesystem = true' in compute
     assert 'mountPoints = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]' in compute
-    ci = (ROOT / ".github" / "workflows" / "warden-ci.yml").read_text(encoding="utf-8")
+    ci = workflow_view.text("warden-ci.yml")
     assert "docker run --rm --read-only --entrypoint /opt/warden/bin/python warden-runtime:ci" in ci
 
 
@@ -511,17 +513,17 @@ def test_the_privileged_pod_is_built_only_to_be_refused_by_a_dry_run():
     assert manifests
     assert not [p for p in manifests if "privileged: true" in p.read_text(encoding="utf-8", errors="replace")]
     # Everything that builds it pipes it into a server-side dry run, and checks Pod Security's own reason.
-    uses = [line.strip() for p in [*ROOT.glob(".github/workflows/*.yml"), *ROOT.glob("fault-lab/scripts/*.sh")]
+    uses = [line.strip() for p in [*ROOT.glob(".github/workflows/*.yml"), *workflow_view.actions(), *ROOT.glob("fault-lab/scripts/*.sh")]
             for line in p.read_text(encoding="utf-8", errors="replace").splitlines()
             if "negative_pod.py" in line and not line.strip().startswith("#")]
     assert len(uses) == 2, uses
-    ci = (ROOT / ".github" / "workflows" / "warden-ci.yml").read_text(encoding="utf-8")
+    ci = workflow_view.text("warden-ci.yml")
     assert "python3 fault-lab/scripts/negative_pod.py | kubectl apply --dry-run=server -f - 2>err.txt" in ci
     assert 'grep -q "violates PodSecurity" err.txt' in ci
     # The proof run builds it on its own first (a generator failure stops the run, never reads as a refusal), sends
     # it to the same dry run and reports enforcement only on Pod Security's own reason (CodeRabbit, PR 62).
     proof = (ROOT / "fault-lab" / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")
-    assert '"$PY" "$HERE/scripts/negative_pod.py" > "$OUT/privileged-pod.json" || die' in proof
+    assert '"$PY" "$HERE/fault-lab/scripts/negative_pod.py" > "$OUT/privileged-pod.json" || die' in proof
     assert 'kubectl apply --dry-run=server -f "$OUT/privileged-pod.json"' in proof
     lines = [line.strip() for line in proof.splitlines()]
     at = lines.index('if kubectl apply --dry-run=server -f "$OUT/privileged-pod.json" 2>"$OUT/reports/D-privileged-rejected.txt"; then')

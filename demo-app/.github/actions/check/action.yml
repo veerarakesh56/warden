@@ -1,0 +1,56 @@
+name: "demo-app · check"
+description: >-
+  Lint, the deployed requirements' vulnerabilities, bandit, the tests that hold the apps and their manifests, every
+  artifact built and the shop rendered. No credentials. Run after the checkout by `_ apps · check`
+  (demo-app-check.yml), which CI · apps and every Deploy · <env> run before an apps deploy.
+runs:
+  using: composite
+  steps:
+    # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
+    # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.12"
+        activate-environment: true
+        working-directory: warden
+        cache-suffix: "apps-check-check"  # one cache per job: jobs sharing a key raced to save it
+
+    - shell: bash -e {0}
+      working-directory: warden
+      run: uv sync --locked --no-build --only-group apps-check --only-group scan
+
+    - shell: bash -e {0}
+      run: ruff check demo-app/app demo-app/lambdas demo-app/scripts/deploy_fullstack_apps.py warden/tests/test_deploy_fullstack_apps.py
+
+    # What is deployed to AWS, audited and scanned here: the tool CI skips apps-only changes, and its
+    # pip-audit reads uv.lock, not these files (fifth review E, 2026-10-01).
+    - name: Deployed requirements with known vulnerabilities
+      shell: bash -e {0}
+      run: |
+        for f in demo-app/app/requirements.txt demo-app/lambdas/*/requirements.txt; do
+          echo "== $f"; pip-audit -r "$f" --require-hashes --disable-pip
+        done
+
+    - name: Python security lint of the deployed code
+      shell: bash -e {0}
+      run: bandit -q -r demo-app/app demo-app/lambdas demo-app/scripts/deploy_fullstack_apps.py -ll
+
+    - shell: bash -e {0}
+      run: python -m compileall -q demo-app/app demo-app/lambdas
+
+    # test_fullstack_infra also checks the k8s manifests and the apps' SQL/handlers.
+    - shell: bash -e {0}
+      working-directory: warden
+      run: pytest tests/test_deploy_fullstack_apps.py tests/test_fullstack_infra.py tests/test_supply_chain.py tests/test_k8s_tokens.py tests/test_redis_tls_r8.py tests/test_api_auth_ai13.py tests/test_shop_app_log_s5145.py tests/test_traffic_alb_tls.py tests/test_load_rng_s2245.py tests/test_fullstack_ops_lambda.py tests/test_stack_paths_s2083.py tests/test_shop_https_s5332.py tests/test_deploy_env_isolation.py -q
+
+    - name: build artifacts (zips + image)
+      shell: bash -e {0}
+      run: python demo-app/scripts/deploy_fullstack_apps.py --out "$RUNNER_TEMP/build" build --tag "${GITHUB_SHA::12}"
+
+    - name: render the shop (what Argo CD syncs, and what the pipeline applies)
+      shell: bash -e {0}
+      run: |
+        kubectl kustomize demo-app/manifests/shop/dev > /dev/null
+        kubectl kustomize demo-app/k8s/shop-pipeline > /dev/null

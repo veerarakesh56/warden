@@ -1,0 +1,64 @@
+name: "infra · deploy-prepare"
+description: >-
+  Before the deploy job holds any credential: the promotion check (the commit came from its upstream branch), the
+  locked tools, and Helios built from helios/. Run after the checkout (fetch-depth 0) by `_ infra · deploy`
+  (infra-deploy.yml).
+inputs:
+  upstream:
+    description: "The branch this environment's commits are promoted from."
+    required: true
+runs:
+  using: composite
+  steps:
+    # Owner, 2026-10-16: nothing deploys unless it came through the promotion path, checked before the job holds any
+    # credential. The commit is on the upstream branch already (main fast-forwarded onto dev), or it is a merge
+    # commit whose second parent is on it and whose files are exactly that parent's (the dev -> prod pull request).
+    # A commit pushed straight onto dev or prod, reviewed on no upstream branch, stops here.
+    - name: The commit was promoted from its upstream branch
+      env:
+        UPSTREAM: ${{ inputs.upstream }}
+      shell: bash -e {0}
+      run: |
+        git check-ref-format --branch "$UPSTREAM" > /dev/null && [ "$UPSTREAM" != "$WARDEN_ENV" ] \
+          || { echo "::error::upstream must name another branch, not '$UPSTREAM'"; exit 1; }
+        up="refs/remotes/origin/$UPSTREAM"
+        git rev-parse -q --verify "$up^{commit}" > /dev/null || { echo "::error::no branch $UPSTREAM to promote from"; exit 1; }
+        if git merge-base --is-ancestor HEAD "$up"; then
+          echo "$GITHUB_SHA is on $UPSTREAM"
+        elif git rev-parse -q --verify 'HEAD^2' > /dev/null && git merge-base --is-ancestor 'HEAD^2' "$up" \
+            && git diff --quiet 'HEAD^2' HEAD; then
+          echo "$GITHUB_SHA merges $(git rev-parse 'HEAD^2') from $UPSTREAM and changes nothing else"
+        else
+          echo "::error::$GITHUB_SHA did not come from $UPSTREAM: nothing is deployed"
+          exit 1
+        fi
+
+    # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
+    # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials) - and before
+    # the job holds any.
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.13"
+        activate-environment: true
+        working-directory: warden
+        # No cache in a job that holds credentials: uv does not re-verify unpacked cache entries, so a
+        # poisoned cache would install unchecked (fifth review E, 2026-10-01).
+        enable-cache: false
+
+    - shell: bash -e {0}
+      working-directory: warden
+      run: uv sync --locked --no-build --only-group infra-deploy   # aurora_express.py: stdlib + boto3 only
+
+    # Helios (register R56) checks the plan before apply. Built from this commit's helios/ (Helios has lived in
+    # this repository since 2026-10-21; it was fetched at a pinned commit before) with its Cargo.lock and its
+    # sha256-pinned Z3, before the job holds credentials; helios_gate.py runs it with an environment that
+    # carries no credentials.
+    - name: Build Helios from helios/
+      if: env.ACTION != 'destroy' && env.ACTION != 'pause'
+      shell: bash -e {0}
+      working-directory: helios
+      run: |
+        python3 scripts/fetch_z3.py
+        cargo build --release --locked --bin helios

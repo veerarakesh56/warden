@@ -1,0 +1,71 @@
+name: "helios · check"
+description: >-
+  Helios's own checks (its former repository's `check` job): nothing unpublishable, the scripts' tests, cargo fmt,
+  clippy, test and doc with the sha256-pinned Z3 and the helios-ai venv the end-to-end tests need. Run after the
+  checkout by CI · helios's check job; every path is under helios/.
+runs:
+  using: composite
+  steps:
+    - name: No secrets, state or plan files in the tree
+      shell: bash -e {0}
+      working-directory: helios
+      run: python3 scripts/check_publishable.py
+
+    - name: scripts/ tests (publish guards, Action gate + comment, Z3 and action pins, README counts)
+      shell: bash -e {0}
+      working-directory: helios
+      run: python3 -m unittest discover -s scripts -v
+
+    - name: Install stable Rust
+      uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+
+    - name: Cache cargo registry + target
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        workspaces: helios
+
+    - name: Fetch the pinned Z3 (sha256-checked; z3-sys links it)
+      shell: bash -e {0}
+      working-directory: helios
+      run: python3 scripts/fetch_z3.py
+
+    # uv, pinned and checksum-verified, as in every other pipeline of this repository.
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.12"
+        working-directory: helios/helios-ai
+        cache-suffix: "helios-check"  # one cache per job: jobs sharing a key raced to save it
+
+    # Locked wheels only, no build: no dependency's setup code runs, and helios-ai is not built
+    # either (its build backend is not in uv.lock). PYTHONPATH (the job's) puts its source on the path.
+    - name: Sync helios-ai venv (needed by the Rust e2e pipe test)
+      shell: bash -e {0}
+      working-directory: helios/helios-ai
+      run: uv sync --locked --no-build --no-install-project
+
+    - name: cargo fmt --check
+      shell: bash -e {0}
+      working-directory: helios
+      run: cargo fmt --all -- --check
+
+    - name: cargo clippy
+      shell: bash -e {0}
+      working-directory: helios
+      run: cargo clippy --workspace --all-targets -- -D warnings
+
+    - name: cargo test
+      shell: bash -e {0}
+      working-directory: helios
+      run: cargo test --workspace --all-targets
+
+    - name: cargo doc
+      shell: bash -e {0}
+      working-directory: helios
+      env:
+        RUSTDOCFLAGS: "-D warnings"
+      run: cargo doc --workspace --no-deps

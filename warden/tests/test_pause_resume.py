@@ -13,6 +13,8 @@ import re
 import pytest
 import yaml
 
+import workflow_view  # the pipelines with their components' composite actions written out
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FLOWS = ROOT / ".github" / "workflows"
 UTC = datetime.UTC
@@ -683,7 +685,7 @@ def test_the_script_never_deletes_a_copy():
 
 
 def _steps(path: pathlib.Path, job: str) -> list[dict]:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"][job]["steps"]
+    return workflow_view.load(path)["jobs"][job]["steps"]
 
 
 def _index(steps, needle):
@@ -725,7 +727,7 @@ def test_the_infra_resume_wakes_the_writers_after_the_apply_and_the_pause_never_
 
 @pytest.mark.parametrize("env", ["dev", "prod"])
 def test_a_deploy_can_pause_and_resume_and_resume_brings_the_apps_back_in_the_same_run(env):
-    flow = yaml.safe_load((FLOWS / f"deploy-{env}.yml").read_text(encoding="utf-8"))
+    flow = yaml.safe_load(workflow_view.text(FLOWS / f"deploy-{env}.yml"))
     on = flow.get("on") or flow.get(True)
     assert {"pause", "resume"} <= set(on["workflow_dispatch"]["inputs"]["infra_action"]["options"])
     job = flow["jobs"]["apps-after-resume"]
@@ -745,7 +747,7 @@ def test_the_runtime_pause_copies_the_audit_before_the_switch_and_stops_it_after
     assert steps[start]["run"].index("start-db") < steps[start]["run"].index("--value false")
     assert start < apply
     assert not [s for s in steps if re.search(r"always\(\)|failure\(\)|continue-on-error", json.dumps(s))]
-    flow = yaml.safe_load((FLOWS / "warden-runtime-deploy.yml").read_text(encoding="utf-8"))
+    flow = yaml.safe_load(workflow_view.text(FLOWS / "warden-runtime-deploy.yml"))
     on = flow.get("on") or flow.get(True)
     assert {"pause", "resume"} <= set(on["workflow_dispatch"]["inputs"]["action"]["options"])
     # The runtime job names its environment RUNTIME_ENV; the script refuses without WARDEN_ENV.

@@ -313,3 +313,15 @@ def test_an_explicit_list_of_every_test_file_is_judged_and_a_partial_one_is_not(
     assert conftest._full_run(_config(every))
     assert not conftest._full_run(_config(every[1:]))  # one file short: a partial run
     assert not conftest._full_run(_config([*every[1:], every[0] + "::test_one"]))  # one test of a file, not the file
+
+
+def test_the_register_and_pytest_name_each_cited_test_the_same_way(request):
+    """2026-10-21: since the repository's split into components the register cites tests from the repository root
+    (warden/tests/...), and pytest names them from its rootdir, warden/ (tests/...). Unless the guard translates one
+    into the other, no node id matches a citation, and the guard watches nothing while the full run stays green."""
+    cited = conftest._cited()
+    assert cited
+    project = pathlib.Path(conftest.__file__).resolve().parents[1]
+    assert all(file.startswith("tests/") and (project / file).is_file() for file, _ in cited), sorted(cited)[:3]
+    own = request.node.nodeid.split("::", 1)[0]
+    assert conftest.node_path("warden/" + own) == own

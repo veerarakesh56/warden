@@ -1,0 +1,41 @@
+name: "infra · helios-gate"
+description: >-
+  WARDEN's plan gate (infra/scripts/helios_gate.py) against Helios built from this commit's helios/, exactly as the
+  deploy job builds it, on real plans. Run after the checkout by CI · infra's helios-gate job.
+runs:
+  using: composite
+  steps:
+    # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
+    # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.13"
+        activate-environment: true
+        working-directory: warden
+        cache-suffix: "infra-ci-helios-gate"  # one cache per job: jobs sharing a key raced to save it
+    - name: Install (locked)
+      shell: bash -e {0}
+      working-directory: warden
+      run: uv sync --locked --no-build --extra dev
+    # The same build as the deploy's (infra/.github/actions/deploy-prepare): Helios's Cargo.lock and its sha256-pinned Z3.
+    - name: Build Helios from helios/
+      shell: bash -e {0}
+      working-directory: helios
+      run: |
+        python3 scripts/fetch_z3.py
+        cargo build --release --locked --bin helios
+    - name: The gate on real plans, with the real binary - and it must have RUN, not skipped
+      shell: bash -e {0}
+      working-directory: warden
+      env:
+        WARDEN_HELIOS_INTEGRATION: "1"
+        # Where the build step put it (never through $GITHUB_ENV: zizmor's github-env audit).
+        HELIOS_BIN: ${{ github.workspace }}/helios/target/release/helios
+      run: |
+        set -o pipefail
+        pytest tests/integration/test_helios_gate_live.py -q -rs | tee helios.txt
+        grep -qE '^[0-9]+ passed' helios.txt || { echo "::error::no Helios gate test actually passed"; exit 1; }
+        grep -qE ' skipped' helios.txt && { echo "::error::a Helios gate test skipped with the binary built"; exit 1; }
+        echo "the gate ran on Helios built from helios/"

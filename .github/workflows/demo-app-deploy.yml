@@ -1,5 +1,10 @@
 name: "_ apps · deploy"
 
+# The steps are demo-app/'s composite actions (demo-app/.github/actions/deploy-prepare, deploy-run); this file keeps
+# what must stay at the root: the inputs, the environment, the guards that run before the checkout, and the role.
+# Each environment deploys onto its own stack only: the GitHub Environment named by `environment` holds that
+# environment's role, region and state bucket, the stack.json the deploy reads comes from that bucket, and
+# deploy_fullstack_apps.py refuses a stack.json of any other environment (WARDEN_ENV).
 # Deploy lambdas | ecs | k8s | all to ONE environment through GitHub OIDC. Called only by Deploy · <env> and
 # Deploy · <env> · on merge, from the branch of the environment's own name (owner, 2026-10-16: main deploys nothing).
 # It reads stack.json (published by the infra deploy), never terraform. The EKS API must admit the
@@ -42,7 +47,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
     steps:
       # Owner, 2026-10-16: an environment deploys only from the branch of the same name, so main deploys nothing. The
-      # GitHub Environment's deployment-branch rule and the role's trust (`ref`, iam/templates/trust.json) say the same.
+      # GitHub Environment's deployment-branch rule and the role's trust (`ref`, infra/iam/templates/trust.json) say the same.
       - name: Deploys run from their environment's own branch
         if: github.ref != format('refs/heads/{0}', inputs.environment)
         run: |
@@ -58,54 +63,14 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0  # every branch: the promotion check reads the upstream one
-      # Owner, 2026-10-16: nothing deploys unless it came through the promotion path, checked before the job holds any
-      # credential. The commit is on the upstream branch already (main fast-forwarded onto dev), or it is a merge
-      # commit whose second parent is on it and whose files are exactly that parent's (the dev -> prod pull request).
-      # A commit pushed straight onto dev or prod, reviewed on no upstream branch, stops here.
-      - name: The commit was promoted from its upstream branch
-        env:
-          UPSTREAM: ${{ inputs.upstream }}
-        run: |
-          git check-ref-format --branch "$UPSTREAM" > /dev/null && [ "$UPSTREAM" != "$WARDEN_ENV" ] \
-            || { echo "::error::upstream must name another branch, not '$UPSTREAM'"; exit 1; }
-          up="refs/remotes/origin/$UPSTREAM"
-          git rev-parse -q --verify "$up^{commit}" > /dev/null || { echo "::error::no branch $UPSTREAM to promote from"; exit 1; }
-          if git merge-base --is-ancestor HEAD "$up"; then
-            echo "$GITHUB_SHA is on $UPSTREAM"
-          elif git rev-parse -q --verify 'HEAD^2' > /dev/null && git merge-base --is-ancestor 'HEAD^2' "$up" \
-              && git diff --quiet 'HEAD^2' HEAD; then
-            echo "$GITHUB_SHA merges $(git rev-parse 'HEAD^2') from $UPSTREAM and changes nothing else"
-          else
-            echo "::error::$GITHUB_SHA did not come from $UPSTREAM: nothing is deployed"
-            exit 1
-          fi
-      # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
-      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      # The promotion check and the locked tools, before the job holds a credential.
+      - uses: $/demo-app/.github/actions/deploy-prepare
         with:
-          version: "0.13.1"
-          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
-          python-version: "3.12"
-          activate-environment: true
-          # No cache in a job that holds credentials: uv does not re-verify unpacked cache entries, so a
-          # poisoned cache would install unchecked (fifth review E, 2026-10-01).
-          enable-cache: false
-      - run: uv sync --locked --no-build --only-group apps-deploy
+          upstream: ${{ inputs.upstream }}
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: gha-${{ github.run_id }}
           aws-region: ${{ vars.AWS_REGION }}
           mask-aws-account-id: true
-      - name: fetch stack.json (published by the infra deploy)
-        run: aws s3 cp "s3://$BUCKET/fullstack/stack.json" "$RUNNER_TEMP/build/stack.json" --only-show-errors
-      - name: build and deploy
-        run: |
-          OUT="$RUNNER_TEMP/build"
-          if [ "$TARGET" != "all" ]; then
-            python scripts/deploy_fullstack_apps.py --out "$OUT" build --tag "${GITHUB_SHA::12}"
-          fi
-          python scripts/deploy_fullstack_apps.py --out "$OUT" deploy "$TARGET" --tag "${GITHUB_SHA::12}"
-      - name: publish stack.json (deploy ecs adds ecs_baseline_task_definition for the harness)
-        if: env.TARGET == 'ecs' || env.TARGET == 'all'
-        run: aws s3 cp "$RUNNER_TEMP/build/stack.json" "s3://$BUCKET/fullstack/stack.json" --only-show-errors
+      - uses: $/demo-app/.github/actions/deploy-run

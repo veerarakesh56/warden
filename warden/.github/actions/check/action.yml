@@ -1,0 +1,89 @@
+name: "warden · check"
+description: >-
+  WARDEN's own checks: lint, nothing unpublishable committed, the unit tests, the eval gate and the demo's verdicts.
+  Run after the checkout; called by CI · tool's `check` job and by the runtime pipeline before it builds anything.
+inputs:
+  cache_suffix:
+    description: "setup-uv's cache suffix: one cache per job (jobs sharing a key raced to save it)."
+    default: "ci-tool-check"
+runs:
+  using: composite
+  steps:
+    # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
+    # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.13"
+        activate-environment: true
+        working-directory: warden
+        cache-suffix: ${{ inputs.cache_suffix }}  # one cache per job: jobs sharing a key raced to save it
+
+    - name: Install (locked)
+      shell: bash -e {0}
+      working-directory: warden
+      run: uv sync --locked --no-build --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres --extra redis
+
+    # The core package must import with NO vendor SDK present. providers.py imports them lazily,
+    # and this proves it - otherwise a missing extra becomes an ImportError at startup for a
+    # provider the user never asked for.
+    - name: Core imports without any provider SDK
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        # env -u: the job's activated .venv is not this environment, and uv warned that it ignored it.
+        env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=/tmp/bare uv sync --locked --no-build
+        /tmp/bare/bin/python -c "import warden; from warden.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
+
+    # The same Python as before the split into components; fault-lab, infra and demo-app carry their own ruff.toml
+    # with WARDEN's settings.
+    - name: Lint
+      shell: bash -e {0}
+      working-directory: warden
+      run: ruff check src tests evals scripts ../fault-lab/scenarios ../fault-lab/scripts ../demo-app/app ../demo-app/lambdas ../demo-app/scripts ../infra/scripts
+
+    # Runs against what git ACTUALLY tracks, so it answers "what is really on GitHub" rather
+    # than "what did anyone mean to put there". Fails the build on a credential, an account id,
+    # or a .env / .tfvars / .tfstate being tracked at all.
+    - name: Nothing unpublishable is committed
+      shell: bash -e {0}
+      run: python warden/scripts/check_publishable.py
+
+    # In parallel across the runner's cores (pytest-xdist): 100 s on one core. Every test must stay
+    # independent of the others - a test that needs another's state fails here first.
+    # A test still running after 5 min prints every thread's stack (pytest's faulthandler): on 4886152 the step
+    # hung for 15 min and was cancelled with nothing saying which test.
+    # tests/integration runs in the k8s-regression and db jobs, against a live cluster and live databases, where a
+    # skip fails the job; here it could only skip (44 skips per run). With every extra the suite needs installed
+    # (redis included), nothing here skips either - and a new skip fails the step, as in those jobs.
+    - name: Unit tests
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        set -o pipefail
+        pytest tests -q -n auto -rs -o faulthandler_timeout=300 --ignore=tests/integration | tee unit.txt
+        grep -qE ' skipped' unit.txt && { echo "::error::a unit test skipped (see the short summary above)"; exit 1; }
+        echo "every unit test ran"
+
+    - name: Eval gate
+      shell: bash -e {0}
+      working-directory: warden
+      run: pytest evals -q
+
+    # ⛔ This used to be `run: warden demo` and nothing more. That asserts the process exited 0 -
+    # not that it produced correct answers. A packaging bug once made every incident return
+    # AUTO_SAFE inside the container and this step stayed green. Assert the OUTPUT.
+    - name: Demo must produce the expected verdicts
+      shell: bash -e {0}
+      working-directory: warden
+      run: |
+        out=$(warden demo)
+        echo "$out"
+        echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::no APPROVED_FOR_HUMAN verdict"; exit 1; }
+        # inc-003 is REJECTED since 2026-09-12: WARDEN's action table classifies a promoted
+        # replica irreversible whatever the proposal claims, so P2 fires in prod. Stronger than
+        # the escalation this replaces - the demo now shows a hard no.
+        echo "$out" | grep -q "REJECTED"           || { echo "::error::no REJECTED verdict"; exit 1; }
+        echo "$out" | grep -q "P6-BLAST-RADIUS"    || { echo "::error::P6 did not fire on inc-003"; exit 1; }
+        test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::expected exactly one AUTO_SAFE - fixtures probably missing"; exit 1; }

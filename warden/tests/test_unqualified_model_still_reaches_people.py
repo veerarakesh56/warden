@@ -36,5 +36,5 @@ def test_a_model_that_cannot_be_built_is_the_rules_only_diagnosis_said_plainly(t
 
 def test_the_runtime_deploy_refuses_a_model_that_is_not_qualified():
     tf = (ROOT / "infra" / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
-    assert re.search(r'yamldecode\(file\("\$\{path\.module\}/\.\./\.\./src/warden/data/providers\.yaml"\)\)\.qualified', tf)
+    assert re.search(r'yamldecode\(file\("\$\{path\.module\}/\.\./\.\./\.\./warden/src/warden/data/providers\.yaml"\)\)\.qualified', tf)
     assert "SSM /warden/<env>/tf/model is not a qualified model" in tf

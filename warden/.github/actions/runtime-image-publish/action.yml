@@ -1,0 +1,63 @@
+name: "warden · runtime-image-publish"
+description: >-
+  Push the image by the commit's SHA (immutable tags), and sign its digest with cosign unless the run that pushed it
+  already signed and attested it. Run by the runtime pipeline's image job after the ECR login and cosign's installer;
+  reads the job's REPOSITORY. The provenance attestation stays in the workflow (it needs the repository secret).
+outputs:
+  digest:
+    description: "The image's digest."
+    value: ${{ steps.push.outputs.digest }}
+  image:
+    description: "The image by digest."
+    value: ${{ steps.push.outputs.image }}
+  existing:
+    description: "\"true\" when an earlier run pushed this commit's image."
+    value: ${{ steps.push.outputs.existing }}
+  signed:
+    description: "\"true\" when that image is already signed and attested."
+    value: ${{ steps.check.outputs.signed }}
+runs:
+  using: composite
+  steps:
+    - name: Push it by the commit's SHA and read its digest
+      id: push
+      # Tags are immutable: a commit an earlier run already pushed (a plan, then an apply) keeps that run's image, and
+      # its signature - the deploy job verifies it either way, so an image pushed but never signed is still refused.
+      shell: bash -e {0}
+      run: |
+        if digest=$(aws ecr describe-images --repository-name "${REPOSITORY#*/}" --image-ids imageTag="$GITHUB_SHA" \
+            --query 'imageDetails[0].imageDigest' --output text 2>/dev/null); then
+          echo "existing=true" >> "$GITHUB_OUTPUT"
+        else
+          docker tag "warden-runtime:$GITHUB_SHA" "$REPOSITORY:$GITHUB_SHA"
+          docker push "$REPOSITORY:$GITHUB_SHA"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$REPOSITORY:$GITHUB_SHA" | cut -d@ -f2)
+        fi
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
+        echo "image=$REPOSITORY@$digest" >> "$GITHUB_OUTPUT"
+        echo "Runtime image: \`$REPOSITORY@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Did the run that pushed this image also sign and attest it
+      id: check
+      if: steps.push.outputs.existing == 'true'
+      env:
+        IMAGE: ${{ steps.push.outputs.image }}
+        # The runtime branch's identity (2026-10-16): an image signed on main before the move is signed again here.
+        SIGNER: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/warden-runtime-deploy.yml@refs/heads/dev
+        GH_TOKEN: ${{ github.token }}
+      # A run that pushed and then died before signing (2026-10-12: the signing tool's download answered 504) left
+      # its commit undeployable: the tag is immutable, and every later run skipped the signing of an image it found.
+      # Such an image is signed and attested by this run; one already signed and attested is left as it is.
+      shell: bash -e {0}
+      run: |
+        if cosign verify "$IMAGE" --certificate-identity "$SIGNER" --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null 2>&1 &&
+           gh attestation verify "oci://$IMAGE" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Sign the digest (keyless)
+      if: steps.push.outputs.existing != 'true' || steps.check.outputs.signed != 'true'
+      env:
+        IMAGE: ${{ steps.push.outputs.image }}
+      shell: bash -e {0}
+      run: cosign sign --yes "$IMAGE"

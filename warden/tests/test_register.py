@@ -16,6 +16,8 @@ import re
 
 import pytest
 
+import workflow_view  # the pipelines with their components' composite actions written out
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 # The audit and requirements-trace registers were internal working records and are no longer published; their
 # open rows were carried into this one.
@@ -339,7 +341,7 @@ def test_a_deferral_needs_a_real_past_agreement_first(evidence):
 
 def test_a_skip_allowed_in_ci_is_still_installed_there():
     """SKIP_OK's reason for test_providers.py holds only while CI's unit job installs the extras."""
-    ci = (ROOT / ".github/workflows/warden-ci.yml").read_text(encoding="utf-8")
+    ci = workflow_view.text("warden-ci.yml")
     assert re.search(r"uv sync --locked --no-build --extra dev --extra all-providers", ci), \
         "CI no longer installs the provider extras"
 
@@ -421,11 +423,13 @@ def test_every_ci_only_file_runs_where_a_skip_fails_the_job():
     when anything in it skips. Each listed file must be in a run step of that job holding both checks."""
     import yaml
 
-    flow = yaml.safe_load((ROOT / ".github" / "workflows" / "warden-ci.yml").read_text(encoding="utf-8"))
+    flow = yaml.safe_load(workflow_view.text("warden-ci.yml"))
     jobs = {key: job for key, job in flow["jobs"].items()}
     for file, job in CI_ONLY.items():
         steps = [s.get("run", "") for s in jobs[job]["steps"]]
-        holding = [r for r in steps if file in r and "grep -qE ' skipped'" in r and "exit 1" in r
+        # The job runs pytest in warden/: the register's repository path is tests/... there.
+        run_as = file.removeprefix("warden/")
+        holding = [r for r in steps if run_as in r and "grep -qE ' skipped'" in r and "exit 1" in r
                    and re.search(r"grep -qE '\^\[0-9\]\+ passed'", r)]
         assert holding, (file, job)
 

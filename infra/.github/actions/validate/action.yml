@@ -1,0 +1,84 @@
+name: "infra · validate"
+description: >-
+  fmt and validate of every stack the pipelines deploy (no backend, no credentials), then the tests that hold the
+  stacks, IAM and pipelines to their rules. Run after the checkout; called by `_ infra · validate`
+  (infra-validate.yml), which CI · infra and every Deploy · <env> run before a plan or an apply.
+runs:
+  using: composite
+  steps:
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+      with:
+        terraform_version: "1.16.4"
+
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/fullstack fmt -check -recursive
+
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/fullstack init -backend=false -input=false
+
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/fullstack validate
+
+    # The undo lab (2026-10-11): the small stack WARDEN's undo is proven on.
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/undo-lab fmt -check -recursive
+
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/undo-lab init -backend=false -input=false
+
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/undo-lab validate
+
+    # The runtime module (G6): built and validated here; applied in a cloud window.
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/modules/warden-runtime fmt -check -recursive
+
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/modules/warden-runtime init -backend=false -input=false
+
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/modules/warden-runtime validate
+
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/runtime fmt -check -recursive
+
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/runtime init -backend=false -input=false
+
+    - shell: bash -e {0}
+      run: terraform -chdir=infra/terraform/runtime validate
+
+    # Every name carries the prefix, every role its boundary, alarm text names no cause, the policies
+    # fit their limits.
+    # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
+    # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.13"
+        activate-environment: true
+        working-directory: warden
+        cache-suffix: "infra-validate-validate"  # one cache per job: jobs sharing a key raced to save it
+
+    # The tool CI skips infra-only changes, so every test that reads terraform/fullstack runs here
+    # (tests/test_ci_lanes.py keeps this list complete), and so does the one that holds the AWS platform's
+    # roles in iam/templates to its code.
+    # approval: the runtime-module test reads the approval page's routes, which import webauthn (CI, 2026-10-03).
+    - shell: bash -e {0}
+      working-directory: warden
+      run: uv sync --locked --no-build --extra aws --extra dev --extra approval
+
+    - shell: bash -e {0}
+      working-directory: warden
+      run: pytest tests/test_fullstack_infra.py tests/test_aws_stack.py tests/test_docs_honesty.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_env_iam.py tests/test_helios_gate_r56.py tests/test_platform_iam_g6.py tests/test_runtime_module_g6.py tests/test_runtime_pipeline_s9.py tests/test_runtime_iam_g6.py tests/test_actor_use_g6.py tests/test_redis_tls_r8.py tests/test_api_auth_ai13.py tests/test_runtime_network_g6.py tests/test_backups.py tests/test_iac_hardening_sonar.py tests/test_iac_leftovers_sonar.py tests/test_stack_paths_s2083.py -q -rs
+
+    # Every call terraform destroy makes, against the deploy role's policies and boundary, conditions included (B40).
+    - shell: bash -e {0}
+      working-directory: warden
+      run: pytest tests/test_destroy_permissions.py -q -rs
+
+    # Pause and resume (owner update 5): no data store goes before its copy is available; the newest copy comes back.
+    - shell: bash -e {0}
+      working-directory: warden
+      run: pytest tests/test_pause_resume.py -q -rs

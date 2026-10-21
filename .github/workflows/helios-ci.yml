@@ -1,0 +1,263 @@
+name: "CI · helios"
+
+# helios/: Helios, the deterministic infrastructure simulator WARDEN's plan gate runs (register R56), in this
+# repository since 2026-10-21 with its full history (git subtree). Its own pipeline, as it ran in its own repository
+# (veerarakesh56/helios, .github/workflows/ci.yml), with every path under helios/ and this repository's CI rules: a
+# pinned runner image, uv pinned with its checksum, no CI on a draft pull request. The steps are helios/'s composite
+# actions (helios/.github/actions/*); the jobs that exercise the Helios Action (helios/action) use it as a caller does.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "helios/**"
+      - ".github/workflows/helios-ci.yml"
+  pull_request:
+    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # marked ready for review, and on every push after that.
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths:
+      - "helios/**"
+      - ".github/workflows/helios-ci.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+# Read-only by default; only the two jobs that run the Action (it posts the sticky PR comment)
+# get pull-requests: write.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-helios-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: check / fmt / clippy / test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      # The Python e2e tests in crates/helios-cli/tests/cli.rs fail (not skip) without the venv.
+      HELIOS_REQUIRE_PY: "1"
+      # helios_ai itself is not installed (see the sync step): the venv python finds it here.
+      PYTHONPATH: ${{ github.workspace }}/helios/helios-ai/src
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: $/helios/.github/actions/check
+
+  msrv:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: msrv / cargo check (Rust 1.88)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # Overrides rust-toolchain.toml's `stable` channel.
+      RUSTUP_TOOLCHAIN: "1.88"
+      # No Z3 needed: `cargo check` does not link. (The GITHUB_TOKEN this job used to set for
+      # z3-sys's gh-release download was never read: z3-sys reads READ_ONLY_GITHUB_TOKEN. Helios
+      # no longer uses gh-release; scripts/fetch_z3.py fetches a sha256-pinned Z3 instead.)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: $/helios/.github/actions/msrv
+
+  python-check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: python / ruff / pytest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ${{ github.workspace }}/helios/helios-ai/src
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: $/helios/.github/actions/python-check
+
+  web-check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: web / build / vitest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: $/helios/.github/actions/web-check
+
+  action-smoke:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: action / smoke (inspect + comment body)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    needs: check
+    permissions:
+      contents: read
+      pull-requests: write # the Action posts its sticky PR comment
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: helios
+
+      - name: Run helios action against fixture scenarios
+        id: helios
+        uses: $/helios/action
+        with:
+          github-token: ${{ github.token }}
+          terraform-json: helios/fixtures/three-tier-webapp
+          scenarios-glob: helios/fixtures/scenarios/*.yaml
+
+      - name: Assert artifact dir contents
+        shell: bash
+        env:
+          DIR: ${{ steps.helios.outputs.artifact-dir }}
+        run: |
+          set -euo pipefail
+          test -d "$DIR"
+          test -s "$DIR/az-outage.json"
+          jq -e '.graph.nodes | length > 0' "$DIR/az-outage.json" > /dev/null
+          jq -e '.chain.failures | length > 0' "$DIR/az-outage.json" > /dev/null
+          test -f "$DIR/az-outage.verify.txt"
+
+      - name: Assert sticky-comment body has marker + scenario summary
+        shell: bash
+        env:
+          BODY: ${{ steps.helios.outputs.comment-body }}
+        run: |
+          set -euo pipefail
+          test -s "$BODY"
+          grep -q '<!-- helios-action -->' "$BODY"
+          grep -q 'az-outage' "$BODY"
+          grep -q 'iam-revocation' "$BODY"
+
+      - name: Run helios action with fail-on=failures (must fail)
+        id: helios-gate
+        continue-on-error: true
+        uses: $/helios/action
+        with:
+          github-token: ${{ github.token }}
+          terraform-json: helios/fixtures/three-tier-webapp
+          scenarios-glob: helios/fixtures/scenarios/*.yaml
+          fail-on: failures
+          artifact-name: helios-inspect-gate
+
+      - name: Assert fail-on=failures failed the job step
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.helios-gate.outcome }}
+        run: |
+          echo "fail-on=failures outcome: $OUTCOME"
+          test "$OUTCOME" = failure
+
+      - name: Run helios action on an inconclusive scenario (must fail, must say so)
+        id: helios-inconclusive
+        continue-on-error: true
+        uses: $/helios/action
+        with:
+          github-token: ${{ github.token }}
+          terraform-json: helios/fixtures/iam-inconclusive/plan.json
+          scenarios-glob: helios/fixtures/iam-inconclusive/*.yaml
+          fail-on: failures
+          artifact-name: helios-inspect-inconclusive
+
+      - name: Assert the inconclusive scenario is reported, not passed
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.helios-inconclusive.outcome }}
+        run: |
+          set -euo pipefail
+          test "$OUTCOME" = failure
+          grep -q 'inconclusive' "$RUNNER_TEMP/helios-comment.md"
+          grep -q 'INCONCLUSIVE' "$RUNNER_TEMP/helios-comment.md"
+
+      - name: Run helios action on WARDEN's real Wave 4 plan (zone + NAT loss must be inconclusive)
+        id: helios-wave4
+        continue-on-error: true
+        uses: $/helios/action
+        with:
+          github-token: ${{ github.token }}
+          terraform-json: helios/fixtures/wave4-fullstack/plan.json
+          scenarios-glob: helios/fixtures/wave4-fullstack/scenarios/*.yaml
+          fail-on: failures
+          artifact-name: helios-inspect-wave4
+
+      - name: Assert the real plan's unplaceable Lambdas make it inconclusive, not a pass
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.helios-wave4.outcome }}
+        run: |
+          set -euo pipefail
+          test "$OUTCOME" = failure
+          grep -q 'INCONCLUSIVE' "$RUNNER_TEMP/helios-comment.md"
+          grep -q 'order-processor' "$RUNNER_TEMP/helios-comment.md"
+
+  # The Action as another repository uses it: the workspace is the CONSUMER's (no Cargo.toml, no
+  # fixtures/), Helios is somewhere else, and only the required input is given. Before the fix
+  # it ran `cargo build` and hashFiles() in the caller's workspace and defaulted to Helios's own
+  # fixtures, so it failed anywhere but here. In this repository Helios is vendor/warden/helios.
+  action-consumer:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: action / as a consumer repository uses it
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    needs: check
+    permissions:
+      contents: read
+      pull-requests: write # the Action posts its sticky PR comment
+    steps:
+      - name: Check out Helios OUTSIDE the consumer's root
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: vendor/warden
+          persist-credentials: false
+
+      - name: Lay out a consumer repository (a plan, nothing of Helios's)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p infra
+          cp vendor/warden/helios/fixtures/wave4-synthetic/terraform-show.json infra/plan.json
+          test ! -e Cargo.toml && test ! -e fixtures
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+        with:
+          toolchain: stable
+
+      - name: Run the action with only terraform-json set
+        id: helios
+        # The path, not `$/`: the point is the Action run from a second checkout, as a consumer's workspace has it.
+        uses: ./vendor/warden/helios/action  # zizmor: ignore[self-repository]
+        with:
+          github-token: ${{ github.token }}
+          terraform-json: infra/plan.json
+          artifact-name: helios-inspect-consumer
+
+      - name: Assert it built from its own source and ran the plan's standard scenarios
+        shell: bash
+        env:
+          DIR: ${{ steps.helios.outputs.artifact-dir }}
+          BODY: ${{ steps.helios.outputs.comment-body }}
+        run: |
+          set -euo pipefail
+          test -x vendor/warden/helios/action/bin/helios
+          test ! -e target
+          ls "$DIR"
+          ls "$DIR"/az-outage-*.json "$DIR"/region-outage-*.json > /dev/null
+          grep -q 'az-outage' "$BODY"

@@ -13,8 +13,10 @@ import re
 
 import pytest
 
+import workflow_view  # the pipelines with their components' composite actions written out
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-FLOW = (ROOT / ".github" / "workflows" / "warden-runtime-deploy.yml").read_text(encoding="utf-8")
+FLOW = workflow_view.text("warden-runtime-deploy.yml")
 IMAGE_JOB = FLOW[FLOW.index("\n  image:"):FLOW.index("\n  deploy:")]
 DEPLOY_JOB = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]
 GUARD = "Runtime deploys run from the runtime branch only"
@@ -52,7 +54,7 @@ def test_the_runtime_runs_only_from_its_branch_at_a_promoted_commit_and_signs_as
     assert at["actions/checkout"] < check < at["Build the runtime image"] < at["aws-actions/configure-aws-credentials"]
     assert all(i > check for i, s in enumerate(steps) if "secrets." in str(s.get("with", "")) + str(s.get("env", "")))
     # Its upstream is the one the runtime branch's own deploys are promoted from.
-    deploy = yaml.safe_load((ROOT / ".github" / "workflows" / f"deploy-{branch}.yml").read_text(encoding="utf-8"))
+    deploy = yaml.safe_load(workflow_view.text(f"deploy-{branch}.yml"))
     assert steps[check]["env"]["UPSTREAM"] == deploy["jobs"]["infra"]["with"]["upstream"]
 
 
@@ -64,7 +66,7 @@ def test_the_image_is_built_before_any_credential_and_pushed_by_the_commit():
     assert 'echo "image=$REPOSITORY@$digest"' in IMAGE_JOB  # everything after works on the digest, never a tag
     # Only the digest crosses jobs: an output holding the repository's address (the masked account id) is dropped by
     # GitHub, and the deploy job verified an empty image (2026-10-09).
-    assert "digest: ${{ steps.push.outputs.digest }}" in IMAGE_JOB
+    assert "digest: ${{ steps.publish.outputs.digest }}" in IMAGE_JOB  # the step running warden's publish action
     assert "needs.image.outputs.image" not in FLOW
     assert "IMAGE: ${{ secrets.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}" in DEPLOY_JOB
     # Tags are immutable: a commit already pushed keeps its image and signature, and is neither re-signed nor re-attested
@@ -74,7 +76,11 @@ def test_the_image_is_built_before_any_credential_and_pushed_by_the_commit():
     # ...unless the run that pushed it died before signing (2026-10-12: the signing tool's download failed after the
     # push, and the commit could never be deployed): an image found without a valid signature and provenance is signed
     # and attested by this run, and the tool is installed before anything is pushed.
-    assert IMAGE_JOB.count("if: steps.push.outputs.existing != 'true' || steps.check.outputs.signed != 'true'") == 2
+    # Inside the publish action the signature; in the workflow (it needs the repository secret) the attestation, on the
+    # action's outputs of the same two steps.
+    assert IMAGE_JOB.count("if: steps.push.outputs.existing != 'true' || steps.check.outputs.signed != 'true'") == 1
+    assert IMAGE_JOB.count(
+        "if: steps.publish.outputs.existing != 'true' || steps.publish.outputs.signed != 'true'") == 1
     assert "if: steps.push.outputs.existing == 'true'" in IMAGE_JOB
     assert 'echo "signed=true"' in IMAGE_JOB
     assert IMAGE_JOB.index("sigstore/cosign-installer@") < IMAGE_JOB.index('docker push "$REPOSITORY:$GITHUB_SHA"')
@@ -89,7 +95,7 @@ def test_the_digest_is_signed_and_given_provenance():
     assert re.search(r'cosign sign --yes "\$IMAGE"', IMAGE_JOB)
     assert "IMAGE: ${{ steps.push.outputs.image }}" in IMAGE_JOB
     assert "actions/attest-build-provenance@" in IMAGE_JOB
-    assert "subject-digest: ${{ steps.push.outputs.digest }}" in IMAGE_JOB
+    assert "subject-digest: ${{ steps.publish.outputs.digest }}" in IMAGE_JOB
     assert "push-to-registry: true" in IMAGE_JOB
     assert "attestations: write" in IMAGE_JOB
     assert "attestations: write" not in DEPLOY_JOB
@@ -210,14 +216,16 @@ def test_the_pipeline_names_its_environment_once_as_the_configuration_does_and_n
     cfg = EnvironmentPolicies.load()
     doc = yaml.safe_load(FLOW)
     assert doc["env"]["RUNTIME_ENV"] == cfg.runtime_environment
-    assert {job["environment"] for job in doc["jobs"].values()} == {cfg.runtime_environment}
+    # The jobs that hold credentials; the CI jobs that run first hold none, and name no environment (no reviewer waits).
+    assert {job["environment"] for job in doc["jobs"].values() if "environment" in job} == {cfg.runtime_environment}
+    assert {name for name, job in doc["jobs"].items() if "environment" not in job} == {"ci-check", "ci-security"}
     shell = "\n".join(step.get("run", "") for job in doc["jobs"].values() for step in job["steps"])
     assert 'cluster="warden-$RUNTIME_ENV-runtime"' in shell
     assert '"/warden/$RUNTIME_ENV/tf/paused"' in shell
     named = re.compile("warden-(?:" + "|".join(map(re.escape, (*cfg.known_environments, cfg.runtime_environment)))
                        + ")-[a-z0-9]|/warden/(?:" + "|".join(map(re.escape, cfg.known_environments)) + "|"
                        + re.escape(cfg.runtime_environment) + ")/")
-    offenders = [f"{p.name}:{i}" for p in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+    offenders = [f"{p.name}:{i}" for p in [*sorted((ROOT / ".github" / "workflows").glob("*.yml")), *workflow_view.actions()]
                  for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
                  if named.search(line.split("#", 1)[0])]
     assert not offenders, offenders

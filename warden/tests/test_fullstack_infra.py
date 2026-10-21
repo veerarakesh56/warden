@@ -17,6 +17,8 @@ import re
 import pytest
 import yaml
 
+import workflow_view
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TF = ROOT / "infra" / "terraform" / "fullstack"
 TF_FILES = sorted(TF.glob("*.tf"))
@@ -496,7 +498,7 @@ def test_the_terminate_login_may_close_sessions_and_read_none_of_the_data():
 # --------------------------------------------------------------------------- pipelines
 
 def _workflow(name: str) -> dict:
-    doc = yaml.safe_load((ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8"))
+    doc = workflow_view.load(name)  # its components' composite actions written out where they run
     doc["on"] = doc.pop(True, doc.get("on"))  # PyYAML reads the key `on` as True
     return doc
 
@@ -509,25 +511,29 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     own |= {"warden/tests/test_pause_resume.py", "infra/scripts/pause_resume.py"}
     # The infra pipeline's own inputs count as infra: its test files (every one its check runs - ninth review CI),
     # the IAM files it validates and what they render from. Its jobs install from uv.lock, so the lock and
-    # pyproject.toml trigger it too (2026-10-01). Nothing of the tool's or the apps' own code.
+    # pyproject.toml trigger it too (2026-10-01). Nothing of the tool's or the apps' own code. Since 2026-10-21 its
+    # steps are its composite actions, and its Helios gate job builds Helios from what helios/ builds it from.
+    own |= {"warden/tests/integration/test_helios_gate_live.py", "infra/.github/actions/validate/**",
+            "infra/.github/actions/helios-gate/**", "helios/Cargo.toml", "helios/Cargo.lock", "helios/rust-toolchain.toml",
+            "helios/.cargo/**", "helios/crates/**", "helios/scripts/fetch_z3.py"}
     checks = {"warden/tests/test_fullstack_infra.py", "warden/tests/test_aws_stack.py", "warden/tests/test_docs_honesty.py",
               "warden/tests/test_supply_chain.py", "warden/tests/test_terraform_versions.py", "warden/tests/test_env_iam.py",
               "warden/tests/test_helios_gate_r56.py", "warden/tests/test_platform_iam_g6.py", "warden/tests/test_aws_platform_g6.py",
               "warden/tests/test_runtime_module_g6.py", "warden/tests/test_runtime_pipeline_s9.py", "warden/tests/test_runtime_iam_g6.py", "warden/tests/test_actor_use_g6.py", "warden/tests/test_redis_tls_r8.py", "warden/tests/test_api_auth_ai13.py", "warden/tests/test_runtime_network_g6.py",
               "warden/tests/test_backups.py", "warden/tests/test_iac_hardening_sonar.py", "warden/tests/test_iac_leftovers_sonar.py", "warden/tests/test_stack_paths_s2083.py"}
     assert all(p.startswith(("infra/terraform/fullstack/", "infra/terraform/undo-lab/", "infra/terraform/modules/", "infra/terraform/runtime/", ".github/workflows/", "infra/iam/")) or p in checks
-               or p in ("uv.lock", "pyproject.toml", "infra/scripts/render_env_iam.py", "infra/scripts/helios_gate.py", "warden/src/warden/platforms/aws.py",
+               or p in ("warden/uv.lock", "warden/pyproject.toml", "infra/scripts/render_env_iam.py", "infra/scripts/helios_gate.py", "warden/src/warden/platforms/aws.py",
                          "warden/src/warden/data/environments.yaml", "warden/src/warden/paths.py")
                for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"] if p not in own)
     assert "workflow_dispatch" not in wf["on"]
     for name in ("infra-ci.yml", "infra-validate.yml"):
-        text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        text = workflow_view.text(name)
         assert "id-token" not in text, name
         assert "configure-aws-credentials" not in text, name
     deploy = _workflow("infra-deploy.yml")
     assert deploy["on"] == {"workflow_call": deploy["on"]["workflow_call"]}  # only ever called
     assert deploy["jobs"]["run"]["permissions"]["id-token"] == "write"
-    text = (ROOT / ".github" / "workflows" / "infra-deploy.yml").read_text(encoding="utf-8")
+    text = workflow_view.text("infra-deploy.yml")
     assert "aws-access-key-id" not in text
     assert "AWS_SECRET_ACCESS_KEY" not in text
 
@@ -553,12 +559,11 @@ def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform(
     wf = _workflow("demo-app-ci.yml")
     paths = wf["on"]["push"]["paths"]
     assert not any(p.startswith("infra/terraform/") for p in paths)
-    assert "scenarios/fullstack/**" in paths
-    assert "demo-app/manifests/**" in paths
+    assert "demo-app/**" in paths  # the app, the Lambdas, the SQL, the shop's manifests and pipeline files
     assert "workflow_dispatch" not in wf["on"]
     deploy = _workflow("demo-app-deploy.yml")
     assert deploy["on"] == {"workflow_call": deploy["on"]["workflow_call"]}
-    text = (ROOT / ".github" / "workflows" / "demo-app-deploy.yml").read_text(encoding="utf-8")
+    text = workflow_view.text("demo-app-deploy.yml")
     assert not re.search(r"^\s*(- run: |run: )?terraform ", text, re.MULTILINE), "the apps deploy calls terraform"
     assert "aws-access-key-id" not in text
 
@@ -944,7 +949,7 @@ def test_aurora_status_says_whether_the_cluster_is_up():
 
 
 def test_the_infra_pipeline_creates_aurora_after_apply_and_destroys_it_first():
-    text = (ROOT / ".github" / "workflows" / "infra-deploy.yml").read_text(encoding="utf-8")
+    text = workflow_view.text("infra-deploy.yml")
     # One workflow, two stacks (2026-10-11): Aurora is the full stack's only, and the undo lab never reaches it.
     # The stack.json upload (a plan kept for review is copied to the bucket earlier, 2026-10-16).
     assert (text.index('"infra/terraform/$STACK" apply') < text.index("aurora_express.py create")

@@ -4,8 +4,8 @@ name: "Mirror · base images"
 # repository's GitHub Container Registry. Anonymous pulls from public.ecr.aws on GitHub's shared runners failed six
 # times with "429 toomanyrequests: Data limit exceeded" (2026-10-10 to 2026-10-15); a package this repository's
 # workflow pushes takes the repository's visibility (public), and the pin by digest means the same bytes from either
-# registry. Run it by hand when a digest changes; tests/test_base_image_mirror.py holds the list and the references
-# equal.
+# registry. Run it by hand when a digest changes; warden/tests/test_base_image_mirror.py holds the list and the
+# references equal. The step is warden/'s composite action (warden/.github/actions/mirror-images).
 
 on:
   workflow_dispatch:
@@ -39,25 +39,9 @@ jobs:
       ACTOR: ${{ github.actor }}
       TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: copy each image by digest, then read it back by that digest
-        run: |
-          set -euo pipefail
-          owner=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
-          printf '%s' "$TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
-          while read -r ref; do
-            [ -n "$ref" ] || continue
-            name_tag=${ref%@*}; digest=${ref#*@}; name=${name_tag%%:*}
-            case "$name" in */*) source="docker.io/${name}" ;; *) source="public.ecr.aws/docker/library/${name}" ;; esac
-            for try in 1 2 3; do
-              if skopeo copy --all --preserve-digests --retry-times 3 \
-                  "docker://${source}@${digest}" \
-                  "docker://ghcr.io/${owner}/warden-mirror/${name_tag}"; then
-                break
-              fi
-              [ "$try" = 3 ] && exit 1
-              sleep $((try * 60))
-            done
-            got=$(skopeo inspect --raw "docker://ghcr.io/${owner}/warden-mirror/${name}@${digest}" | sha256sum | cut -d' ' -f1)
-            [ "sha256:${got}" = "$digest" ] || { echo "digest changed for ${name_tag}: sha256:${got}"; exit 1; }
-            echo "mirrored ${name_tag} at ${digest}"
-          done <<< "$IMAGES"
+      # A runner's checkout is needed only for the step's own file (warden/.github/actions/mirror-images); the
+      # token is not kept in it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/warden/.github/actions/mirror-images

@@ -21,6 +21,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "warden" / "scripts"))
 import bake_tripwire  # after the sys.path line above
 
+import workflow_view  # the pipelines with their components' composite actions written out
 from warden import tripwire
 
 DOCKERFILE = re.sub(r"\\\n\s*", "", (ROOT / "warden" / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
@@ -77,13 +78,13 @@ def test_the_bake_refuses_a_copy_that_is_not_the_measured_one(tmp_path, monkeypa
 
 
 def test_the_pipeline_passes_the_token_as_a_build_secret_only_and_deploys_no_image_without_the_weights():
-    wf = (ROOT / ".github" / "workflows" / "warden-runtime-deploy.yml").read_text(encoding="utf-8")
+    wf = workflow_view.text("warden-runtime-deploy.yml")
     assert "HF_TOKEN: ${{ secrets.HF_TOKEN }}" in wf
     assert '--secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime' in wf
     assert "--build-arg" not in wf  # never WARDEN_DETECTOR=absent, never the token as an argument
     assert "rglob('model.safetensors')), 'no tripwire weights'" in wf
     # CI's check build has no token and says so; it is never deployed.
-    ci = (ROOT / ".github" / "workflows" / "warden-ci.yml").read_text(encoding="utf-8")
+    ci = workflow_view.text("warden-ci.yml")
     assert "--build-arg WARDEN_DETECTOR=absent -f Dockerfile.runtime -t warden-runtime:ci" in ci
 
 

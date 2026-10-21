@@ -1,0 +1,23 @@
+name: "warden · runtime-tools"
+description: >-
+  pause / resume only: the locked tools infra/scripts/pause_resume.py needs (stdlib + boto3), installed without a
+  cache before the job holds any credential. Run by the runtime pipeline's deploy job.
+runs:
+  using: composite
+  steps:
+    # pause / resume run infra/scripts/pause_resume.py (stdlib + boto3): uv, pinned and checksum-verified, installs only
+    # what uv.lock lists, without a cache, before the job holds any credential - as in infra-deploy.yml.
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      if: env.ACTION == 'pause' || env.ACTION == 'resume'
+      with:
+        version: "0.13.1"
+        checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+        python-version: "3.13"
+        activate-environment: true
+        working-directory: warden
+        enable-cache: false
+
+    - if: env.ACTION == 'pause' || env.ACTION == 'resume'
+      shell: bash -e {0}
+      working-directory: warden
+      run: uv sync --locked --no-build --only-group infra-deploy

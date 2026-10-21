@@ -1,50 +1,64 @@
 name: "CI · infra"
 
-# The full stack's Terraform (terraform/fullstack), checked on every change to it: fmt, validate and the
-# infra tests. No credentials, no AWS call. Changing an environment: Deploy · <env>.
+# infra/: every stack the deploys apply (fullstack, undo-lab, the runtime and its module), the IAM they run under and
+# the scripts that render or check them - fmt, validate and the infra tests on every change - and WARDEN's plan gate
+# run for real on Helios built from helios/. The root stack and the proving ground are CI · tool's terraform job. No
+# credentials, no AWS call. Changing an environment: Deploy · <env>. The steps are infra/'s composite actions
+# (infra/.github/actions/*).
 on:
   push:
     branches: [main]
     paths:
-      - "terraform/fullstack/**"
-      - "terraform/undo-lab/**"
-      - "terraform/modules/**"
-      - "terraform/runtime/**"
-      - "tests/test_runtime_pipeline_s9.py"
-      - "tests/test_destroy_permissions.py"
-      - "tests/test_pause_resume.py"
-      - "scripts/pause_resume.py"
-      - "tests/test_runtime_module_g6.py"
-      - "tests/test_fullstack_infra.py"
-      - ".github/workflows/ci-infra.yml"
-      - ".github/workflows/_infra-validate.yml"
+      - "infra/terraform/fullstack/**"
+      - "infra/terraform/undo-lab/**"
+      - "infra/terraform/modules/**"
+      - "infra/terraform/runtime/**"
+      - "infra/iam/**"
+      - "infra/scripts/render_env_iam.py"
+      - "infra/scripts/pause_resume.py"
+      - "infra/scripts/helios_gate.py"
+      - "infra/.github/actions/validate/**"
+      - "infra/.github/actions/helios-gate/**"
+      - ".github/workflows/infra-ci.yml"
+      - ".github/workflows/infra-validate.yml"
       # Its jobs install from these: a stale lock must run them (2026-10-01: it did not, so a lock
       # older than pyproject.toml stayed hidden until an apps or infra path changed).
-      - "uv.lock"
-      - "pyproject.toml"
-      - "tests/test_aws_stack.py"
-      - "tests/test_docs_honesty.py"
-      - "tests/test_supply_chain.py"
-      - "tests/test_terraform_versions.py"
-      - "tests/test_env_iam.py"
-      - "tests/test_runtime_iam_g6.py"
-      - "tests/test_actor_use_g6.py"
-      - "tests/test_redis_tls_r8.py"
-      - "tests/test_api_auth_ai13.py"
-      - "tests/test_runtime_network_g6.py"
-      - "tests/test_backups.py"
-      - "tests/test_iac_hardening_sonar.py"
-      - "tests/test_iac_leftovers_sonar.py"
-      - "tests/test_stack_paths_s2083.py"
-      - "tests/test_helios_gate_r56.py"
-      - "scripts/helios_gate.py"
-      - "src/warden/paths.py"  # helios_gate.py and aurora_express.py import it
-      - "tests/test_platform_iam_g6.py"
-      - "tests/test_aws_platform_g6.py"
-      - "src/warden/platforms/aws.py"
-      - "iam/**"
-      - "scripts/render_env_iam.py"
-      - "src/warden/data/environments.yaml"
+      - "warden/uv.lock"
+      - "warden/pyproject.toml"
+      # The tests of infra's rules live with WARDEN's (warden/tests); each one the check runs is a trigger here.
+      - "warden/tests/test_runtime_pipeline_s9.py"
+      - "warden/tests/test_destroy_permissions.py"
+      - "warden/tests/test_pause_resume.py"
+      - "warden/tests/test_runtime_module_g6.py"
+      - "warden/tests/test_fullstack_infra.py"
+      - "warden/tests/test_aws_stack.py"
+      - "warden/tests/test_docs_honesty.py"
+      - "warden/tests/test_supply_chain.py"
+      - "warden/tests/test_terraform_versions.py"
+      - "warden/tests/test_env_iam.py"
+      - "warden/tests/test_runtime_iam_g6.py"
+      - "warden/tests/test_actor_use_g6.py"
+      - "warden/tests/test_redis_tls_r8.py"
+      - "warden/tests/test_api_auth_ai13.py"
+      - "warden/tests/test_runtime_network_g6.py"
+      - "warden/tests/test_backups.py"
+      - "warden/tests/test_iac_hardening_sonar.py"
+      - "warden/tests/test_iac_leftovers_sonar.py"
+      - "warden/tests/test_stack_paths_s2083.py"
+      - "warden/tests/test_helios_gate_r56.py"
+      - "warden/tests/test_platform_iam_g6.py"
+      - "warden/tests/test_aws_platform_g6.py"
+      - "warden/tests/integration/test_helios_gate_live.py"
+      - "warden/src/warden/paths.py"  # helios_gate.py and aurora_express.py import it
+      - "warden/src/warden/platforms/aws.py"
+      - "warden/src/warden/data/environments.yaml"
+      # The plan gate runs Helios built from helios/: a change to what the binary is built from runs the gate job.
+      - "helios/Cargo.toml"
+      - "helios/Cargo.lock"
+      - "helios/rust-toolchain.toml"
+      - "helios/.cargo/**"
+      - "helios/crates/**"
+      - "helios/scripts/fetch_z3.py"
   # Pull requests into main only (2026-10-16): dev and prod receive commits main has already checked.
   pull_request:
     # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
@@ -52,45 +66,56 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:
-      - "terraform/fullstack/**"
-      - "terraform/undo-lab/**"
-      - "terraform/modules/**"
-      - "terraform/runtime/**"
-      - "tests/test_runtime_pipeline_s9.py"
-      - "tests/test_destroy_permissions.py"
-      - "tests/test_pause_resume.py"
-      - "scripts/pause_resume.py"
-      - "tests/test_runtime_module_g6.py"
-      - "tests/test_fullstack_infra.py"
-      - ".github/workflows/ci-infra.yml"
-      - ".github/workflows/_infra-validate.yml"
+      - "infra/terraform/fullstack/**"
+      - "infra/terraform/undo-lab/**"
+      - "infra/terraform/modules/**"
+      - "infra/terraform/runtime/**"
+      - "infra/iam/**"
+      - "infra/scripts/render_env_iam.py"
+      - "infra/scripts/pause_resume.py"
+      - "infra/scripts/helios_gate.py"
+      - "infra/.github/actions/validate/**"
+      - "infra/.github/actions/helios-gate/**"
+      - ".github/workflows/infra-ci.yml"
+      - ".github/workflows/infra-validate.yml"
       # Its jobs install from these: a stale lock must run them (2026-10-01: it did not, so a lock
       # older than pyproject.toml stayed hidden until an apps or infra path changed).
-      - "uv.lock"
-      - "pyproject.toml"
-      - "tests/test_aws_stack.py"
-      - "tests/test_docs_honesty.py"
-      - "tests/test_supply_chain.py"
-      - "tests/test_terraform_versions.py"
-      - "tests/test_env_iam.py"
-      - "tests/test_runtime_iam_g6.py"
-      - "tests/test_actor_use_g6.py"
-      - "tests/test_redis_tls_r8.py"
-      - "tests/test_api_auth_ai13.py"
-      - "tests/test_runtime_network_g6.py"
-      - "tests/test_backups.py"
-      - "tests/test_iac_hardening_sonar.py"
-      - "tests/test_iac_leftovers_sonar.py"
-      - "tests/test_stack_paths_s2083.py"
-      - "tests/test_helios_gate_r56.py"
-      - "scripts/helios_gate.py"
-      - "src/warden/paths.py"  # helios_gate.py and aurora_express.py import it
-      - "tests/test_platform_iam_g6.py"
-      - "tests/test_aws_platform_g6.py"
-      - "src/warden/platforms/aws.py"
-      - "iam/**"
-      - "scripts/render_env_iam.py"
-      - "src/warden/data/environments.yaml"
+      - "warden/uv.lock"
+      - "warden/pyproject.toml"
+      # The tests of infra's rules live with WARDEN's (warden/tests); each one the check runs is a trigger here.
+      - "warden/tests/test_runtime_pipeline_s9.py"
+      - "warden/tests/test_destroy_permissions.py"
+      - "warden/tests/test_pause_resume.py"
+      - "warden/tests/test_runtime_module_g6.py"
+      - "warden/tests/test_fullstack_infra.py"
+      - "warden/tests/test_aws_stack.py"
+      - "warden/tests/test_docs_honesty.py"
+      - "warden/tests/test_supply_chain.py"
+      - "warden/tests/test_terraform_versions.py"
+      - "warden/tests/test_env_iam.py"
+      - "warden/tests/test_runtime_iam_g6.py"
+      - "warden/tests/test_actor_use_g6.py"
+      - "warden/tests/test_redis_tls_r8.py"
+      - "warden/tests/test_api_auth_ai13.py"
+      - "warden/tests/test_runtime_network_g6.py"
+      - "warden/tests/test_backups.py"
+      - "warden/tests/test_iac_hardening_sonar.py"
+      - "warden/tests/test_iac_leftovers_sonar.py"
+      - "warden/tests/test_stack_paths_s2083.py"
+      - "warden/tests/test_helios_gate_r56.py"
+      - "warden/tests/test_platform_iam_g6.py"
+      - "warden/tests/test_aws_platform_g6.py"
+      - "warden/tests/integration/test_helios_gate_live.py"
+      - "warden/src/warden/paths.py"  # helios_gate.py and aurora_express.py import it
+      - "warden/src/warden/platforms/aws.py"
+      - "warden/src/warden/data/environments.yaml"
+      # The plan gate runs Helios built from helios/: a change to what the binary is built from runs the gate job.
+      - "helios/Cargo.toml"
+      - "helios/Cargo.lock"
+      - "helios/rust-toolchain.toml"
+      - "helios/.cargo/**"
+      - "helios/crates/**"
+      - "helios/scripts/fetch_z3.py"
 
 permissions:
   contents: read
@@ -102,4 +127,17 @@ concurrency:
 jobs:
   check:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    uses: $/.github/workflows/_infra-validate.yml
+    uses: $/.github/workflows/infra-validate.yml
+
+  # WARDEN's Helios gate (infra/scripts/helios_gate.py, register R56) against the Helios this repository builds -
+  # the binary every deploy builds from helios/ - on real plans: it must allow an unchanged stack and refuse a broken
+  # plan. warden/tests/integration/test_helios_gate_live.py runs here only, and must run, not skip.
+  helios-gate:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/infra/.github/actions/helios-gate
