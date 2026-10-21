@@ -34,6 +34,7 @@ from . import (
     datadog,
     environments,
     freeze,
+    landed,
     locks,
     paging,
 )
@@ -1212,6 +1213,31 @@ class RemediationActivities:
                              plan_hash=plan.plan_hash)
         return Recorded(run_id=run, ok=verified)
 
+    def _landed_since(self, plan: Plan, run: str, row: dict[str, Any]) -> str:
+        """B21: why the fix is not undone - something landed on the target after it, or a source that would say so
+        could not be read (landed.py) - or "" to go on. What was read is a row either way."""
+        applied = [e["at"] for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
+                   if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
+                   and e["body"].get("plan_hash") == plan.plan_hash]
+        reader = getattr(self.platform, "writes_reader", None)
+        try:
+            found, unread, unchecked = landed.since_fix(
+                entry=plan.entry, params=plan.params, target=plan.target, incident=plan.incident_id,
+                workflow_id=plan.workflow_id, environment=plan.environment, applied_at=applied[-1],
+                now=datetime.now(UTC), log=self.audit, writes=reader(plan.entry, plan.environment) if reader else None)
+        except Exception as exc:  # noqa: BLE001  # whatever failed in the reads leaves what landed unknown
+            # Unknown is not undone (B21), and nothing was written: the run ends "not rolled back", on the record,
+            # with the kill switch as it was - never an activity error the workflow would read as a failed undo.
+            found, unread, unchecked = [], [f"what landed since the fix ({type(exc).__name__})"], []
+        self.audit.append(plan.incident_id, "remediation.landed", {
+            **row, "since": applied[-1].isoformat(), "unread": unread, "unchecked": unchecked,
+            "landed": landed.shown(found[:10])})
+        if not found and not unread:
+            return ""
+        detail = landed.said(found, unread)
+        self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
+        return detail
+
     @activity.defn
     def rollback(self, plan: Plan) -> str:
         run = _run_id()
@@ -1232,6 +1258,8 @@ class RemediationActivities:
             detail = f"not rolled back: {locked}; undoing this fix could undo that run's change too - a person decides"
             self.audit.append(plan.incident_id, _ROLLBACK_ROW, {**row, "detail": detail})
             return detail
+        if why := self._landed_since(plan, run, row):
+            return why
         try:
             takes = inspect.signature(self.platform.rollback).parameters
             extra = {k: v for k, v in (("who", self._who(plan, run)), ("environment", plan.environment)) if k in takes}
