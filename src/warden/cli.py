@@ -591,7 +591,12 @@ def _report_command(args: argparse.Namespace) -> int:
     if target is None:
         _out("error: give --db naming an existing audit file, or set WARDEN_AUDIT_DSN", err=True)
         return 2
-    key = audit.load_public_key(_key_file(args.public_key))
+    try:
+        key = audit.load_public_key(_key_file(args.public_key))
+    except (ValueError, TypeError, OSError) as e:
+        # A key that cannot be read is the operator's input, never a failed verification (exit 1): CodeRabbit, PR 175.
+        _out(f"error: --public-key is not an Ed25519 public key that can be read: {type(e).__name__}", err=True)
+        return 2
     try:
         checked = pilot.read_only(target, key)  # read-only: never creates or writes the audit
     except pilot.Unreadable as e:

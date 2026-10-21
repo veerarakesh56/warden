@@ -203,8 +203,10 @@ class Unreadable(Exception):
 
 
 def _pg_rows(dsn: str) -> tuple[list[Any], list[Any]]:
-    import psycopg
-
+    try:
+        import psycopg
+    except ImportError:
+        raise Unreadable("psycopg is not installed here") from None
     try:
         with audit._pg_connect(dsn) as db:
             # Autocommit, so the SET is its own statement and every SELECT after it starts a READ ONLY transaction

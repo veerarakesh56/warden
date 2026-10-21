@@ -681,3 +681,13 @@ def test_a_withheld_value_keeps_its_metric_on_the_line():
     assert line.endswith("[value withheld by the outbound gate]")
     assert AWS_ACCESS_KEY_ID not in line
     assert metric_line("Incidents", "7") == f"{'Incidents':<36} 7"
+
+
+def test_a_public_key_that_cannot_be_read_is_exit_2_not_a_tamper_alarm(
+    made, tmp_path, monkeypatch, capsys
+):
+    _, key, _ = made
+    pub = _keys(tmp_path, monkeypatch, key)
+    pub.write_text("not a key")
+    assert _command(pub) == 2
+    assert "--public-key is not an Ed25519 public key" in capsys.readouterr().err
