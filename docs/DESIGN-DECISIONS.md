@@ -390,6 +390,11 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   kinds, a pydantic schema for each side's answer, at most three rounds, and each turn a row on the record. A debate
   or multi-agent framework would add a loop the code can no longer bound and an orchestrator to trust; this is two
   calls through `providers.py` per round, checked in code.
+- Eldane on dev's infrastructure plans - `plan_shape.py`, `plan_review.py` (owner, 2026-10-17, B3): policy-as-code
+  engines (OPA/conftest, Sentinel, checkov) check a plan against rules, and Helios already checks it for
+  survivability; what is new here is a short closed list of resource classes and actions read from Terraform's own
+  JSON, which a regex table holds without a second policy language, and Eldane's review, which is `eldane.ask` with
+  its own prompt.
 - Eldane in the discussion channel - `eldane_slack.py` (owner, 2026-10-17, B2): Slack's own Web API through the
   `chatops.py` sinks every message already uses (redaction, the outbound gate). A Slack bot framework (Bolt) would
   add an event loop that reads the channel; Eldane only posts, never reads, so one `chat.postMessage` per turn is all

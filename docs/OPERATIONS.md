@@ -31,6 +31,7 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_DB_DSN`, `WARDEN_DB_TERMINATE_DSN`, `WARDEN_STACK_DB_PRIMARY_RO_DSN`, `WARDEN_STACK_DB_REPLICA_RO_DSN` | the database readers and the narrow terminate role (renamed 2026-10-16 from `WARDEN_DB_ADMIN_DSN`, `WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN`, which are still read for one release with a warning; the Secrets Manager slots keep the old names `db-admin-dsn`, `stack-db-writer-dsn` and `stack-db-reader-dsn` until the runtime module renames them) | change the role's password (or let RDS rotate the managed secret), store the new DSN, restart | a database role has one password: rotate, then restart promptly |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock (`ANTHROPIC_API_KEY`: read by the llm zone and by Eldane's critic zone - one key, owner 2026-10-17) | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
 | `WARDEN_ELDANE_SLACK_TOKEN` | Eldane's own Slack bot token (eldane_slack.py; the critic zone's alone): it posts its review in the discussion channel, never reads it | in Eldane's Slack app, OAuth & Permissions: reinstall to get a new bot token (scope `chat:write` only), store it in `warden/<env>/eldane-slack-token`, restart the critic worker, revoke the old token | both work until the old one is revoked; Slack is never the record |
+| `ELDANE_ANTHROPIC_API_KEY` (GitHub Environment `dev` secret) | Eldane's review of dev's saved infrastructure plans (`eldane-apply`, B3): the same key as `ANTHROPIC_API_KEY` | after rotating `ANTHROPIC_API_KEY`, set the new key here too | an `eldane-apply` run with the old key fails closed: nothing is applied, the plan waits for a person |
 | `WARDEN_ELDANE_KEY` | Eldane's own Ed25519 signing key (eldane.py; the critic zone's alone): its approvals in dev | `warden audit keygen --private eldane.pem --public eldane.pub.pem --unencrypted` a new pair; put the public key in the approver list's AI entry (a reviewed change) and the private PEM in `warden/<env>/eldane-key`; restart the critic worker; destroy the old private key | Eldane's approvals stop until both halves match: rotate between incidents |
 
 Keys that are not environment secrets:
@@ -104,6 +105,36 @@ It goes back to L2 only when a person turns it back on, signed and recorded:
    name.
 
 Prod has nothing to re-enable: it is never autonomous.
+
+### Eldane reviews dev's infrastructure plans (B3)
+
+`Deploy · dev` with `infra_action=eldane-apply` plans the stack and keeps the saved plan in the state bucket, as
+`plan` does; then Eldane reviews exactly that plan, and the same file is applied only if it approved. In order:
+
+1. **Dev only.** `_infra-deploy.yml` refuses `eldane-apply` in any other environment, and the review refuses any
+   environment whose autonomy ceiling is not L2 (`environments.yaml`; the prod tier never is). Prod always needs a
+   person: `apply-plan` with the run id and sha256 the plan step printed.
+2. **The plan's shape** (`plan_shape.py`), before any model reads it: any access change (IAM, resource policies,
+   security groups and rules, network ACLs, cluster access), or a delete or replace of a data store, networking or the
+   platform (clusters, services, functions, alarms, the budget), a provider these stacks do not use, or more than 60
+   changes - a person reviews it.
+3. **Eldane** (`plan_review.py`), on the first model of `providers.yaml` `critic` (Claude Opus 5.5 - critic is the role
+   it holds until its paid qualification passes), shown the plan's addresses, types, actions and the NAMES of changing
+   attributes - never a value - redacted; and in the same run a planted known-bad plan. It approves only when it
+   agrees with the real plan, citing its changes, AND refuses the planted one.
+4. **Bound to the plan.** The review (`plans/<run>.eldane.json` beside the plan, in the state bucket) names the run id,
+   the plan file's sha256, the commit, stack and environment; the apply step checks all of them against the file
+   again right before `terraform apply` of that file. Anything else, or no approval, and nothing is applied - the plan
+   waits for a person.
+
+The review step holds no cloud credential (every `AWS_*` variable is unset for it) and is the only step given the
+model key. It is off until the owner turns it on:
+
+1. On the GitHub Environment `dev`: the secret `ELDANE_ANTHROPIC_API_KEY` (the runtime's Anthropic key,
+   `warden/<runtime>/anthropic-api-key`, owner 2026-10-17: one key) and the variable `ELDANE_PLAN_APPROVAL` = `on`.
+   Setting the variable to anything else is the off switch.
+2. Two model calls per `eldane-apply` run (the plan and the planted one); with neither set, `eldane-apply` stops after
+   keeping the plan, for a person.
 
 ## WARDEN's records (registers G10-46, G10-47)
 
