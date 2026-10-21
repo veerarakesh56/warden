@@ -425,6 +425,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Where a command-line path may point - `paths.py`: the standard library's `pathlib` (resolve, is_relative_to) and
   a list of the tools' own folders; a sandboxing library would confine the whole process, not one argument
   (2026-10-16, Sonar pythonsecurity:S8707).
+- Investigation cards and learned notes on the records page - `cards.py`: built (B37). The card restates the
+  incident's own signed rows (read, cited, asked for, proposed, decided, ended) and the notes how its linked and
+  found records ended; both are WARDEN's reading of its record for a person, redacted and escaped, never advice.
 
 **Evidence through the AWS MCP servers or the Agent Toolkit: not adopted.** Each lets a model choose its
 calls (free-form API calls, Python, SQL or log queries), which WARDEN's design forbids; each returns raw text the

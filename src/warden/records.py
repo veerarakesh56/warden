@@ -124,6 +124,7 @@ class Record:
     links: list[dict[str, Any]] = field(default_factory=list)
     proven: dict[str, Any] | None = None
     found: list[dict[str, Any]] = field(default_factory=list)  # links WARDEN finds in its own rows (links.found)
+    learned: list[dict[str, Any]] = field(default_factory=list)  # how those related records ended (cards.learned)
 
 
 def incident_ids(log: Any) -> list[str]:
@@ -265,6 +266,9 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
 
         r.links, r.proven = links.links_of(log, incident), links.proven_fix(log, incident)
         r.found = links.found(log, incident)
+        from . import cards
+
+        r.learned = cards.learned(log, r)
     return r
 
 
@@ -553,6 +557,13 @@ def integrity(r: Record) -> str:
     return f"Signed record: audit head {short(r.head)} - {len(r.rows)} row(s), {state}. Checked when this page opened."
 
 
+def _study(r: Record) -> str:
+    """The investigation card and the notes learned from related records (cards.py, B37)."""
+    from . import cards
+
+    return cards.section(r)
+
+
 def neighbours(ids: list[str], incident: str, asked: Query | None = None) -> str:
     """The way back to the list - to the page this incident is on - and to the newer and older incident, within the
     same filters (owner, 2026-10-16: "same arrows on a record page")."""
@@ -612,7 +623,7 @@ def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
             f'<p class="lede">{_badge(r)} Incident <span class="mono">{_e(r.id)}</span></p>{checked}{act}'
             '<p class="pad tools"><button type="button" class="link" id="all" aria-controls="sections">'
             'Open all sections</button></p>'
-            f'<h2>Summary</h2>{_facts(_summary_facts(r))}'
+            f'<h2>Summary</h2>{_facts(_summary_facts(r))}{_study(r)}'
             f'<h2>Decisions</h2>{_decisions(r)}{linked(r)}{found_links(r)}'
             f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{told_html}{report}'
             f'<details class="block"><summary>Every step on the record</summary><div class="scroll"><table>'
