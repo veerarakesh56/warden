@@ -266,3 +266,29 @@ def test_the_reasons_are_a_closed_set(tmp_path):
     assert llm.FALLBACK_REASONS == {"rules_only", "model_refused", "budget_cap", "provider_unavailable"}
     with pytest.raises(ValueError, match="not a fallback reason"):
         activities.fallback(log, "k", "something else", DIAGNOSE)
+
+
+# --------------------------------------------------------------------------- the pilot report's contract (PR 175)
+
+
+def test_the_rows_have_the_shape_the_pilot_report_reads(tmp_path):
+    """PR 175 (the pilot report) counts these by name: `llm.call` with model, prompt_tokens, completion_tokens,
+    latency_ms and cost - a float in US dollars, not cents - and `llm.fallback` with a reason from the closed set.
+    It is not on main yet, so this holds the shape; a test that runs the report over these rows comes with it."""
+    assert (llm.CALL, llm.FALLBACK) == ("llm.call", "llm.fallback")
+    client = LLMClient(provider=Scripted(_status(503)), mock=False)  # one failed call, then a fallback
+    log, key = _diagnose(tmp_path, lambda: client)
+    [call] = _rows(log, key, llm.CALL)[:1]
+    assert isinstance(call["model"], str)
+    for field in ("prompt_tokens", "completion_tokens", "latency_ms"):
+        assert isinstance(call[field], int), field
+    assert isinstance(call["cost"], float)
+    answered = LLMClient(provider=Scripted('{"x": 1}'), mock=False)
+    with pytest.raises(llm.ModelRefused):
+        answered.structured(system="s", user="u", schema=Diagnosis, retries=0)
+    # Dollars: 1,000 prompt and 200 completion tokens at the model's prices, the same as the budget charged.
+    assert answered.calls[0]["cost"] == pytest.approx(answered.cost.usd)
+    assert answered.calls[0]["cost"] == pytest.approx(llm.usd(llm.model_prices("fake-1"), 1000, 200))
+    [fallback_row] = _rows(log, key, llm.FALLBACK)
+    assert set(fallback_row) == {REASON, "where", "run_id"}
+    assert fallback_row[REASON] in {"rules_only", "model_refused", "budget_cap", "provider_unavailable"}
