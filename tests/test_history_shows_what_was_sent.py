@@ -283,9 +283,11 @@ def test_a_name_from_the_history_is_masked_and_gated_too():
 
 @pytest.fixture(scope="module")
 def retried(tmp_path_factory):
-    """A call whose first answer failed validation: the retry carried the feedback (PR 132, item 5)."""
+    """A call whose first answer failed validation: the retry carried the feedback (PR 132, item 5). The bad answer
+    echoes a canary in a wrong-typed field (review, PR 154), so feedback that quoted a value would carry it."""
     pack, diagnosed, sent = _incident(
-        tmp_path_factory.mktemp("retry"), first_answer='{"root_cause": {}}'
+        tmp_path_factory.mktemp("retry"),
+        first_answer=json.dumps({"root_cause": {"hypothesis": [EMAIL]}}),
     )
     return pack, diagnosed, sent, _history(_events(pack, diagnosed))
 

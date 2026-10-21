@@ -303,7 +303,9 @@ arrive unfiltered; read the first run's log.
 Every payload WARDEN puts in Temporal is encrypted and bound to its namespace and workflow (codec.py), so the
 Temporal Cloud web UI shows only ciphertext. To read one workflow's history:
 
-    warden history <workflow-id>        # e.g. inc-<alert id>, or a remediation's id from `warden status`
+```sh
+warden history <workflow-id>        # e.g. inc-<alert id>, or a remediation's id from `warden status`
+```
 
 It loads what `warden status` loads - the payload key (`WARDEN_TEMPORAL_KEY`, and `WARDEN_TEMPORAL_KEY_PREVIOUS`)
 and a Temporal API key - with your own identity, so only a person who may read those secrets can read a history. Each
