@@ -79,7 +79,10 @@ def paths(raw: str | None = None) -> list[Path]:
     for item in (p.strip() for p in raw.split(",")):
         src, _, rest = item.partition("=")
         dst, _, port = rest.rpartition(":")
-        if _SOURCE.match(src) and _DEST.match(dst) and port.isdigit() and 0 < int(port) < 65536:
+        dest = _DEST.match(dst)
+        if dest and dest.group(4) and not _is_ip(dst):  # four numbers, but not an address (999.1.1.1)
+            continue
+        if _SOURCE.match(src) and dest and port.isdigit() and 0 < int(port) < 65536:
             out.append(Path(src, dst, int(port)))
     return out
 

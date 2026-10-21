@@ -86,6 +86,8 @@ def test_paths_are_the_operators_and_a_malformed_one_is_dropped():
                             Path("ecs/warden-dev-c/shop", "10.0.3.7", 6379)]
     assert paths("lambda/x=aurora/y:99999,lambda/x=aurora/y,nonsense,lambda/a b=aurora/y:1,lambda/x=s3/y:443") == []
     assert paths("") == []
+    assert paths("lambda/x=999.1.1.1:443,lambda/x=10.0.0.256:443") == []  # four numbers, not an address
+    assert paths("lambda/x=10.0.0.255:443") == [Path("lambda/x", "10.0.0.255", 443)]
 
 
 def test_only_the_paths_the_alert_names_at_most_two():
@@ -353,3 +355,13 @@ def test_the_setup_guide_says_which_role_carries_it_and_that_it_is_optional():
     row = next(line for line in setup.splitlines() if "platform-reachability.json" in line)
     assert row.startswith("| `warden-<env>-platform-reader`, optional |")
     assert "WARDEN_REACHABILITY=1" in row
+
+
+def test_the_standing_reader_already_reads_the_ecs_tasks_and_databases_it_resolves():
+    """CodeRabbit, PR 92 (outside the diff): resolving an ECS task's interface needs ecs:ListTasks and DescribeTasks.
+    The platform reader role holds them already (platform-diagnose: this environment's clusters only), and the RDS
+    describes in platform-reader - so the optional policy adds only what Reachability Analyzer itself needs."""
+    import reader_iam
+
+    assert {"ecs:ListTasks", "ecs:DescribeTasks", "rds:DescribeDBClusters", "rds:DescribeDBInstances"} <= \
+        reader_iam.granted()
