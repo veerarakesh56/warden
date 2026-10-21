@@ -254,9 +254,10 @@ _SUPPRESSION = re.compile(
     r"#\s*(?:noqa|nosec|type:\s*ignore|pragma:\s*no\s*cover|pylint:\s*disable|nosemgrep)|N[O]SONAR|"
     r"pytest\.(?:mark\.)?(?:skip|skipif|xfail)|unittest\.skip|@skip|eslint-disable|@ts-(?:ignore|nocheck)|"
     r"lgtm\[|codeql\[|coderabbit:\s*ignore|sonar\.issue\.ignore", re.IGNORECASE)
-# exec and eval as calls of their own (not a method such as `cursor.execute(` or `x.eval(`): code from a string.
+# exec, eval and compile as calls of their own (not a method such as `cursor.execute(` or `re.compile(`): code from a
+# string. Any mention of the builtins module reaches them another way (`builtins.exec`, `__builtins__["eval"]`).
 _DYNAMIC_IMPORT = re.compile(r"__import__\s*\(|\bimportlib\b|\bimport_module\s*\(|\brunpy\b|\bpkgutil\b|"
-                             r"(?<![\w.])(?:exec|eval)\s*\(")
+                             r"(?<![\w.])(?:exec|eval|compile)\s*\(|\b__builtins__\b|\bbuiltins\b")
 _INSTALL = re.compile(r"\b(?:pip3?|uv|poetry|pipx|npm|yarn|pnpm|gem|cargo|go)[\s'\",]+(?:install|add|get)\b|"
                       r"\bensurepip\b|\bsite\.addsitedir\b", re.IGNORECASE)
 _IMPORT = re.compile(r"\s*(?:from\s+([A-Za-z_][\w.]*)\s+import\b|import\s+([A-Za-z_][^#]*))")
@@ -270,8 +271,18 @@ def is_test_line(line: str) -> bool:
 
 
 def code_part(line: str) -> str:
-    """A line up to its comment: a `#` inside a quoted string (`x = "#"; import leftpad`) does not start one. A quote
-    the scan reads wrongly can only keep more of the line, which can only add a refusal, never hide an import."""
+    """A line up to its comment: a `#` inside a quoted string (`x = "#"; import leftpad`) does not start one. A line
+    is kept whole when it holds a triple quote (it may close a string opened lines before) or when a quote follows
+    the `#` (a triple-quoted `a" #` then `; import leftpad`): keeping more of a line can only add a refusal, never hide
+    an import."""
+    if '"""' in line or "'''" in line:
+        return line
+    at = _comment_at(line)
+    return line if at < 0 or any(q in line[at:] for q in "'\"") else line[:at]
+
+
+def _comment_at(line: str) -> int:
+    """Where a line's `#` outside a quoted string is, or -1."""
     quote = ""
     escaped = False
     for i, ch in enumerate(line):
@@ -284,8 +295,8 @@ def code_part(line: str) -> str:
         elif ch in "'\"":
             quote = ch
         elif ch == "#":
-            return line[:i]
-    return line
+            return i
+    return -1
 
 
 def imported_modules(line: str) -> set[str]:
