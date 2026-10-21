@@ -30,7 +30,8 @@ def test_the_bench_approver_reads_its_environments_records_and_nothing_else(tmp_
     _incident(page.log, "inc-dev-1", "dev")
     _incident(page.log, "inc-prod-1", "prod")
     got = _read(page, bench, "inc-dev-1")
-    assert got.status == 200 and json.loads(got.body)["environment"] == "dev"
+    assert got.status == 200
+    assert json.loads(got.body)["environment"] == "dev"
     assert _read(page, bench, "inc-prod-1").status == 404       # not one of its environments
     listed = json.loads(_read(page, bench).body)["incidents"]
     assert [i["id"] for i in listed] == ["inc-dev-1"]

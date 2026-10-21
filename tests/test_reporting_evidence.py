@@ -102,7 +102,9 @@ def test_with_identifiers_off_no_masked_value_appears_in_any_form():
     out = _everything(rep)
     leaked = sorted({v for v in mapping.values() if v in out})
     assert not leaked, f"masked values leaked into the report: {leaked}"
-    assert TENANT not in out and EMAIL not in out and HOST not in out
+    assert TENANT not in out
+    assert EMAIL not in out
+    assert HOST not in out
 
 
 def test_a_raw_value_in_a_form_no_pattern_recognises_is_still_masked():
@@ -132,7 +134,8 @@ def test_with_identifiers_on_the_operator_sees_who_is_affected():
     """The point of the switch: a tenant id or an email is what you search the logs for."""
     rep, _ = _report(show=True)
     assert f"tenant_{TENANT}" in rep.markdown, "the model's own text should read naturally"
-    assert EMAIL in rep.markdown and HOST in rep.markdown
+    assert EMAIL in rep.markdown
+    assert HOST in rep.markdown
 
 
 def test_only_identifier_labels_are_revealable():
@@ -162,10 +165,14 @@ def test_the_redaction_map_never_serialises():
 
 def test_the_report_carries_the_evidence_not_just_the_conclusion():
     md = _report(show=False)[0].markdown
-    assert "## Metrics at the time" in md and "`idle_in_transaction` = **25**" in md
-    assert "**⚠ What WARDEN could NOT read**" in md and "(403)" in md
-    assert "**Based on:**" in md and "**Ruled out:**" in md
-    assert "## Key log lines" in md and "connection pool exhausted" in md
+    assert "## Metrics at the time" in md
+    assert "`idle_in_transaction` = **25**" in md
+    assert "**⚠ What WARDEN could NOT read**" in md
+    assert "(403)" in md
+    assert "**Based on:**" in md
+    assert "**Ruled out:**" in md
+    assert "## Key log lines" in md
+    assert "connection pool exhausted" in md
 
 
 def test_the_timeline_puts_the_deploy_before_the_first_error():

@@ -61,18 +61,8 @@ def alarm_event(event: dict[str, Any], default_environment: str) -> AlarmEvent |
     name = str(detail.get("alarmName") or "")
     state = (detail.get("state") or {})
     when = datetime.fromisoformat(str(state.get("timestamp") or event.get("time")))
-    dims: dict[str, str] = {}
-    metrics: list[tuple[str, dict[str, str]]] = []
-    for m in (detail.get("configuration") or {}).get("metrics") or []:
-        metric = (m.get("metricStat") or {}).get("metric") or {}
-        these = {str(k): str(v) for k, v in (metric.get("dimensions") or {}).items()}
-        metrics.append((str(metric.get("namespace") or ""), these))
-        dims.update(these)
-    # Only a value that is a plain name: a hostile dimension value made the Alert invalid and the Lambda crash, losing
-    # the incident (G9-A1, 2026-10-10). Its label is still dropped and reported by the Alert's own check.
-    named = re.compile(NAME_PATTERN)
-    service = next((dims[k] for k in _SERVICE_DIMENSIONS if dims.get(k) and named.match(dims[k])),
-                   name if named.match(name) else "unknown")
+    dims, metrics = _alarm_metrics(detail)
+    service = _alarm_service(dims, name)
     from .environments import env_of_name
     from .environments import region as runtime_region
 
@@ -90,6 +80,29 @@ def alarm_event(event: dict[str, Any], default_environment: str) -> AlarmEvent |
                     # `alarm` or `log_group` chose what was read (independent review 2026-10-10, L4).
                     labels={**{k: v for k, v in dims.items() if k not in RESOURCE_LABELS and k not in _OWN_LABELS},
                             **resources.labels_for(metrics), **elsewhere, "alarm": name, "via": "cloudwatch"}))
+
+
+def _alarm_metrics(detail: dict[str, Any]) -> tuple[dict[str, str], list[tuple[str, dict[str, str]]]]:
+    """(every dimension of the alarm's metrics, merged; each metric's (namespace, dimensions)), from the event's
+    configuration."""
+    dims: dict[str, str] = {}
+    metrics: list[tuple[str, dict[str, str]]] = []
+    for m in (detail.get("configuration") or {}).get("metrics") or []:
+        metric = (m.get("metricStat") or {}).get("metric") or {}
+        these = {str(k): str(v) for k, v in (metric.get("dimensions") or {}).items()}
+        metrics.append((str(metric.get("namespace") or ""), these))
+        dims.update(these)
+    return dims, metrics
+
+
+def _alarm_service(dims: dict[str, str], name: str) -> str:
+    """The service an alarm watches: the most specific dimension whose value is a plain name, else the alarm's name
+    when it is one, else "unknown"."""
+    # Only a value that is a plain name: a hostile dimension value made the Alert invalid and the Lambda crash, losing
+    # the incident (G9-A1, 2026-10-10). Its label is still dropped and reported by the Alert's own check.
+    named = re.compile(NAME_PATTERN)
+    return next((dims[k] for k in _SERVICE_DIMENSIONS if dims.get(k) and named.match(dims[k])),
+                name if named.match(name) else "unknown")
 
 
 # What a service says about itself that is an incident with no alarm on it (register G10-40). The shapes as AWS's
@@ -110,24 +123,15 @@ def service_event(event: dict[str, Any], default_environment: str) -> AlarmEvent
     The event's own text (a reason, a message) is the alert's summary: untrusted, as an alarm's description is."""
     source, kind = event.get("source"), event.get("detail-type")
     detail = event.get("detail") if isinstance(event.get("detail"), dict) else {}
-    resources_named = event.get("resources") if isinstance(event.get("resources"), list) else []
-    arn = str(resources_named[0]) if resources_named else ""
-    named = re.compile(NAME_PATTERN)
     if source == "aws.ecs" and kind in _ECS_EVENTS and detail.get("eventType") in ("WARN", "ERROR"):
-        what, text = str(detail.get("eventName") or ""), str(detail.get("reason") or "")
-        cluster, _, service = arn.partition(":service/")[2].partition("/")
-        if not (_ECS_NAME.fullmatch(what) and named.match(cluster) and named.match(service)):
-            return None
-        labels = {"ecs_cluster": cluster, "ecs_service": service}
+        found = _ecs_event(event, detail)
     elif source == "aws.rds" and kind in _RDS_EVENTS:
-        categories = detail.get("EventCategories") if isinstance(detail.get("EventCategories"), list) else []
-        what, text = str(detail.get("EventID") or ""), str(detail.get("Message") or "")
-        service = str(detail.get("SourceIdentifier") or "")
-        if not (set(RDS_CATEGORIES) & {str(c) for c in categories} and _RDS_ID.fullmatch(what) and named.match(service)):
-            return None
-        labels = {_RDS_EVENTS[str(kind)]: service}
+        found = _rds_event(str(kind), detail)
     else:
         return None
+    if found is None:
+        return None
+    what, text, service, labels = found
     from .environments import env_of_name
 
     when = datetime.fromisoformat(str(event.get("time")))
@@ -136,6 +140,31 @@ def service_event(event: dict[str, Any], default_environment: str) -> AlarmEvent
         alert=Alert(alert_id="ev", name=what, severity=Severity.high, service=service,
                     environment=env_of_name(service) or env_of_name(labels.get("ecs_cluster", "")) or default_environment,
                     summary=text[:4000], started_at=when.isoformat(), labels={**labels, "via": "aws-event"}))
+
+
+def _ecs_event(event: dict[str, Any], detail: dict[str, Any]) -> tuple[str, str, str, dict[str, str]] | None:
+    """service_event for an ECS WARN or ERROR service event: (event name, reason, service, labels); None when its name,
+    cluster or service is not a plain name."""
+    resources_named = event.get("resources") if isinstance(event.get("resources"), list) else []
+    arn = str(resources_named[0]) if resources_named else ""
+    named = re.compile(NAME_PATTERN)
+    what, text = str(detail.get("eventName") or ""), str(detail.get("reason") or "")
+    cluster, _, service = arn.partition(":service/")[2].partition("/")
+    if not (_ECS_NAME.fullmatch(what) and named.match(cluster) and named.match(service)):
+        return None
+    return what, text, service, {"ecs_cluster": cluster, "ecs_service": service}
+
+
+def _rds_event(kind: str, detail: dict[str, Any]) -> tuple[str, str, str, dict[str, str]] | None:
+    """service_event for an RDS instance or cluster event: (event id, message, source, labels); None unless it is a
+    failure, failover or low-storage event with an RDS event id and a source that is a plain name."""
+    named = re.compile(NAME_PATTERN)
+    categories = detail.get("EventCategories") if isinstance(detail.get("EventCategories"), list) else []
+    what, text = str(detail.get("EventID") or ""), str(detail.get("Message") or "")
+    service = str(detail.get("SourceIdentifier") or "")
+    if not (set(RDS_CATEGORIES) & {str(c) for c in categories} and _RDS_ID.fullmatch(what) and named.match(service)):
+        return None
+    return what, text, service, {_RDS_EVENTS[kind]: service}
 
 
 def health_event(event: dict[str, Any], default_environment: str) -> AlarmEvent | None:
@@ -380,7 +409,7 @@ def _approvers_changed(detail: dict[str, Any]) -> dict[str, Any]:
             "refused": detail.get("errorCode") or ""}
     try:
         runtime.open_audit().append("approvers", "approvers.changed", body)
-    except Exception as e:  # noqa: BLE001 - the page below still goes out, and the log line says why
+    except Exception as e:  # noqa: BLE001 - the page below still goes out; and the log line says why
         body["audit_error"] = type(e).__name__
     import boto3
 
@@ -423,7 +452,7 @@ def actor_use(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     if log is not None:
         try:
             log.append(str(params.get("sourceIdentity") or "actor-use"), "actor.unapproved", body)
-        except Exception as e:  # noqa: BLE001 - the page below still goes out, and the log line says why
+        except Exception as e:  # noqa: BLE001 - the page below still goes out; and the log line says why
             body["audit_error"] = type(e).__name__
     import boto3
 

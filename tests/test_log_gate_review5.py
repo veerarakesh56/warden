@@ -69,7 +69,8 @@ def test_a_long_record_joined_by_other_whitespace_is_cut_not_withheld(sep):
     """The cut looked for space, newline and tab only: a record joined by NBSP or U+2028 was withheld whole."""
     record = logging.LogRecord("x", logging.INFO, __file__, 1, sep.join(["word"] * 20000), None, None)
     text = GatedFormatter("%(message)s").format(record)
-    assert "withheld" not in text and text.startswith("word")
+    assert "withheld" not in text
+    assert text.startswith("word")
 
 
 def test_a_hook_another_program_installed_is_left_alone(monkeypatch):
@@ -86,7 +87,9 @@ def test_a_hook_another_program_installed_is_left_alone(monkeypatch):
     monkeypatch.setattr(threading, "excepthook", mine)
     monkeypatch.setattr(sys, "unraisablehook", mine)
     install_log_gate()
-    assert sys.excepthook is mine and threading.excepthook is mine and sys.unraisablehook is mine
+    assert sys.excepthook is mine
+    assert threading.excepthook is mine
+    assert sys.unraisablehook is mine
 
 
 @pytest.mark.parametrize("custom", ["sys.excepthook", "threading.excepthook", "sys.unraisablehook"])
@@ -112,4 +115,5 @@ def test_only_the_hooks_still_pythons_own_are_taken(monkeypatch, custom):
     assert now[custom] is mine, custom
     for name, default in defaults.items():
         if name != custom:
-            assert now[name] is not default and now[name] is not mine, name
+            assert now[name] is not default, name
+            assert now[name] is not mine, name

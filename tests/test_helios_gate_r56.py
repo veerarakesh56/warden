@@ -23,7 +23,8 @@ ACCEPTED = {"az-outage": ["aws_nat_gateway.this"], "redis-loss": ["aws_elasticac
 
 def test_a_failure_the_stack_survives_today_refuses_the_change():
     verdict, why = gate.judge("lose-z1", {"aws_nat_gateway.this", "aws_lb.app"}, {"aws_nat_gateway.this"}, {})
-    assert verdict == "refuse" and "aws_lb.app" in why
+    assert verdict == "refuse"
+    assert "aws_lb.app" in why
 
 
 def test_failures_the_stack_has_today_or_that_are_accepted_pass():
@@ -37,7 +38,8 @@ def test_the_accepted_failures_excuse_nothing_once_the_stack_exists():
     """Found by running Helios on the Wave 4 state with the endpoints moved to the second zone: the accepted
     zone failures (the first zone's endpoints) hid the second zone's new ones."""
     verdict, why = gate.judge("lose-z2", {"aws_nat_gateway.this"}, set(), ACCEPTED)
-    assert verdict == "refuse" and "aws_nat_gateway.this" in why
+    assert verdict == "refuse"
+    assert "aws_nat_gateway.this" in why
 
 
 def test_a_create_that_stopped_part_way_is_judged_by_today_for_what_exists_and_accepted_for_the_rest():
@@ -48,7 +50,8 @@ def test_a_create_that_stopped_part_way_is_judged_by_today_for_what_exists_and_a
     assert gate.judge("lose-z1", {"aws_nat_gateway.this"}, set(), ACCEPTED, today)[0] == "refuse"  # exists, survived
     assert gate.judge("lose-z1", {"aws_nat_gateway.this"}, set(), ACCEPTED, {"aws_vpc.this"})[0] == "ok"  # not yet made
     verdict, why = gate.judge("lose-z1", {"aws_eks_node_group.this"}, set(), ACCEPTED, {"aws_vpc.this"})
-    assert verdict == "refuse" and "aws_eks_node_group.this" in why  # not accepted: refused, made or not
+    assert verdict == "refuse"  # not accepted: refused, made or not
+    assert "aws_eks_node_group.this" in why
 
 
 def test_a_regression_the_owner_chose_passes_named_and_nothing_else_rides_on_it():
@@ -56,7 +59,8 @@ def test_a_regression_the_owner_chose_passes_named_and_nothing_else_rides_on_it(
     choice, in helios/regressions.json, lets exactly those through - per scenario kind, named in the summary."""
     taken = {"az-outage": ["aws_eks_node_group.this"]}
     verdict, why = gate.judge("lose-z1", {"aws_eks_node_group.this"}, set(), {}, {"aws_eks_node_group.this"}, taken)
-    assert verdict == "ok" and "taken on by the owner: aws_eks_node_group.this" in why
+    assert verdict == "ok"
+    assert "taken on by the owner: aws_eks_node_group.this" in why
     assert gate.judge("lose-z1", {"aws_eks_node_group.this", "aws_lb.app"}, set(), {}, None, taken)[0] == "refuse"
     assert gate.judge("nodegroup-loss", {"aws_eks_node_group.this"}, set(), {}, None, taken)[0] == "refuse"
     assert "taken on" not in gate.judge("lose-z1", {"aws_lb.app"}, {"aws_lb.app"}, {}, None, taken)[1]
@@ -135,7 +139,8 @@ def test_helios_gets_none_of_the_job_credentials(monkeypatch):
     for k in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"):
         monkeypatch.setenv(k, "x")
     env = gate._bare_env()
-    assert set(env) <= {"PATH", "Path", "SYSTEMROOT", "SystemRoot"} and any(k.upper() == "PATH" for k in env)
+    assert set(env) <= {"PATH", "Path", "SYSTEMROOT", "SystemRoot"}
+    assert any(k.upper() == "PATH" for k in env)
 
 
 def test_a_document_that_is_not_terraform_json_is_refused(tmp_path):
@@ -168,12 +173,14 @@ def test_each_stack_is_judged_by_its_own_scenarios_and_one_that_declares_none_is
     def run(stack):
         return gate.main(["--helios", "helios", "--plan", str(plan), "--out-dir", str(tmp_path / "s"), "--stack", stack])
 
-    assert run("undo-lab") == 0 and "declares no scenario" in capsys.readouterr().out
+    assert run("undo-lab") == 0
+    assert "declares no scenario" in capsys.readouterr().out
     assert json.loads((ROOT / "terraform" / "undo-lab" / "helios" / "accepted.json").read_text(encoding="utf-8")) == {}
     assert not list((ROOT / "terraform" / "undo-lab" / "helios").glob("scenarios/*.json"))
     assert run("fullstack") == 1  # its own three scenarios run - and here cannot
     for stack in ("runtime", "no-such-stack", "../fullstack", ""):
-        assert run(stack) == 1 and "refused" in capsys.readouterr().out, stack
+        assert run(stack) == 1, stack
+        assert "refused" in capsys.readouterr().out, stack
     # A stack's own accepted failures excuse its own scenario - never another stack's file.
     own = tmp_path / "terraform" / "other" / "helios"
     (own / "scenarios").mkdir(parents=True)
@@ -181,7 +188,8 @@ def test_each_stack_is_judged_by_its_own_scenarios_and_one_that_declares_none_is
     (own / "accepted.json").write_text(json.dumps({"table-loss": ["aws_lambda_function.reader"]}), encoding="utf-8")
     monkeypatch.setattr(gate, "ROOT", tmp_path)
     monkeypatch.setattr(gate, "simulate", lambda *a: {"aws_lambda_function.reader"})
-    assert run("other") == 0 and "| table-loss | ok |" in capsys.readouterr().out
+    assert run("other") == 0
+    assert "| table-loss | ok |" in capsys.readouterr().out
     (own / "accepted.json").write_text("{}", encoding="utf-8")
     assert run("other") == 1
 
