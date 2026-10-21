@@ -55,13 +55,36 @@
         "ec2:ModifySecurityGroupRules",
         "ec2:UpdateSecurityGroupRuleDescriptionsIngress",
         "ec2:UpdateSecurityGroupRuleDescriptionsEgress",
-        "ec2:DeleteTags",
         "ec2:CreateTags"
       ],
       "Resource": "*",
       "Condition": {
         "StringEquals": {
           "aws:ResourceTag/Environment": "prod"
+        }
+      }
+    },
+    {
+      "Sid": "Ec2UntagOwnEnvTaggedOnlyTheStacksKeys",
+      "Effect": "Allow",
+      "Action": "ec2:DeleteTags",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "prod"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "Project",
+            "Environment",
+            "ManagedBy",
+            "Lifecycle",
+            "Name",
+            "kubernetes.io/role/elb"
+          ]
+        },
+        "Null": {
+          "aws:TagKeys": "false"
         }
       }
     },
@@ -112,6 +135,17 @@
       "Condition": {
         "StringLike": {
           "aws:ResourceTag/aws:eks:cluster-name": "warden-prod-eks"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "Project",
+            "Environment",
+            "ManagedBy",
+            "Lifecycle"
+          ]
+        },
+        "Null": {
+          "aws:TagKeys": "false"
         }
       }
     },
