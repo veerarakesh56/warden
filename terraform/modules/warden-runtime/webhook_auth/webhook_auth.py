@@ -48,5 +48,6 @@ def handler(event, context):
         return {"isAuthorized": False}
     given = header[len("Bearer "):].encode()
     # Every secret is compared, whatever the first gives, so the time taken says nothing about which one matched.
-    results = [hmac.compare_digest(given, value.encode()) for value in (_secret(n) for n in names) if value]
+    values = [_secret(name) for name in names]
+    results = [hmac.compare_digest(given, value.encode()) for value in values if value]
     return {"isAuthorized": any(results)}
