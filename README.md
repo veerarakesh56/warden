@@ -139,7 +139,7 @@ when WARDEN itself misbehaves is in [docs/RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBO
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflows, trust zones, the approval page, the gate and quarantine |
-| [diagrams/](docs/diagrams/README.md) | The overview, detailed, incident-flow and delivery diagrams, and their editable sources |
+| [diagrams/](docs/diagrams/README.md) | The overview, detailed, incident-flow, delivery and AWS architecture diagrams, and their editable sources |
 | [ai-boundary.md](docs/ai-boundary.md) | Why the model never decides, and the policy table |
 | [SETUP.md](docs/SETUP.md) | Setting WARDEN up in your own AWS and GitHub accounts |
 | [AWS-SETUP.md](docs/AWS-SETUP.md) | The AWS identities the benchmark stack uses |
@@ -280,6 +280,13 @@ flowchart TB
 
 *How a change reaches an environment: `main` runs the tests and deploys nothing; the `dev` and `prod` branches each
 deploy their own environment, without stored AWS keys, and infrastructure changes only from a reviewed plan.*
+
+### What runs where in AWS
+
+[![WARDEN: what runs where in AWS](docs/diagrams/aws-architecture.png)](docs/diagrams/aws-architecture.svg)
+
+*WARDEN's own runtime (`ops`), the full stack it watches (`dev`), the account-wide pieces and the outside services,
+each by the name the code gives it. Dashed yellow: an open pull request, not built. `prod` is designed, not built.*
 
 Every component by its real name is in the detailed diagrams:
 [the runtime](docs/diagrams/architecture-detailed-1.svg) and

@@ -8,8 +8,9 @@ Each `.drawio` file is the source. The `.svg` and `.png` files next to it are ex
 | `architecture-detailed.drawio` | page 1: `architecture-detailed-1.svg`, `.png` · page 2: `architecture-detailed-2.svg`, `.png` | Every component by its real name: the runtime, then identities, environments and outside services |
 | `incident-flow.drawio` | `incident-flow.svg`, `.png` | One incident from alarm to signed record, by trust zone, with the safety checks marked S1-S14 |
 | `delivery.drawio` | `delivery.svg`, `.png` | Branches, pipelines, the Helios gate and the OIDC deploy roles |
+| `aws-architecture.drawio` | `aws-architecture.svg`, `.png` | What runs where in AWS: WARDEN's runtime (ops), the watched full stack (dev), the account-wide pieces, the outside services, open pull requests dashed and prod as planned |
 
-Every diagram says in its footer which commit it was drawn from. The README embeds the PNGs, which are lighter than the SVGs (1.6-4.3 MB, as draw.io adds
+Every diagram says in its footer which commit it was drawn from. The README embeds the PNGs, which are lighter than the SVGs (1.6-8.9 MB, as draw.io adds
 an image fallback for every label), and links each one to its SVG. Open pull requests and unmerged branches are
 drawn with a dashed yellow outline and labelled as open; nothing planned is drawn as built.
 
@@ -19,6 +20,11 @@ drawn with a dashed yellow outline and labelled as open; nothing planned is draw
 2. Change it and save it as an uncompressed `.drawio` file (File → Properties → untick Compressed), so a
    change can be reviewed as a diff.
 3. Update the footer's commit if the diagram now shows a later state of the code.
+
+`aws-architecture.drawio` also uses AWS's architecture icons from draw.io's own AWS library. Its test
+(`tests/test_aws_architecture_diagram.py`) fails when the diagram names an AWS resource the code does not make or
+read, when a deployed stack gains a resource type the diagram neither shows nor lists as left out, or when the SVG is
+not an export of the source.
 
 Colours: the five trust zones use WARDEN's brand colours (read #3DB9F5, llm #1A8FE3, core #12C483,
 notify #7DF2C4, act #FF7E6B); Lambdas are orange; the font is Helvetica.
@@ -30,7 +36,7 @@ With the draw.io desktop app (these files were exported with 31.5.2):
 ```sh
 cd docs/diagrams
 DRAWIO="C:/Program Files/draw.io/draw.io.exe"   # or wherever draw.io is installed
-for n in architecture-overview incident-flow delivery; do
+for n in architecture-overview incident-flow delivery aws-architecture; do
   "$DRAWIO" -x -f svg --theme light -b 16 -o "$n.svg" "$n.drawio"
   "$DRAWIO" -x -f png -s 2 -b 16 -o "$n.png" "$n.drawio"
 done
