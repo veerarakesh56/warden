@@ -359,7 +359,7 @@ def test_no_image_grants_write_to_others_and_the_runtimes_tmp_stays_debians_stic
         assert not chmod.search(text), dockerfile
         assert "--chmod" not in text, dockerfile
     runtime = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
-    assert 'RUN test "$(stat -c \'%a %U\' /tmp)" = "1777 root"\nVOLUME ["/tmp"]\nUSER warden' in runtime
+    assert '    && test "$(stat -c \'%a %U\' /tmp)" = "1777 root"\nVOLUME ["/tmp"]\nUSER warden' in runtime
     compute = _flat(_block(RUNTIME / "compute.tf", "aws_ecs_task_definition", "zone"))
     assert 'user = "10001" readonlyRootFilesystem = true' in compute
     assert 'mountPoints = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]' in compute
