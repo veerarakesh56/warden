@@ -1009,4 +1009,6 @@ def test_a_refusal_inside_a_model_sdk_is_not_retried():
             raise APIConnectionError("Connection error.") from inner
     except APIConnectionError as wrapped:
         assert llm._is_transient(wrapped) is False
+        assert llm._provider_down(wrapped) == ""  # not an outage: the provider is not paged as down (#176)
+        assert llm.failure_reason(wrapped) == llm.MODEL_REFUSED
     assert llm._is_transient(APIConnectionError("Connection error.")) is True
