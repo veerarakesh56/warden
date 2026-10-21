@@ -193,7 +193,7 @@ The CloudWatch log groups keep 90 days until lane N's retention change lands.
   operator's terminal. It masks every reader-facing string again before printing, never imports the vault or the
   reveal, and never puts a masked value back. The reveal stays on the records page only.
 - **Retention and deletion.** A sealed map expires after `WARDEN_VAULT_DAYS` (default and minimum 180) and is deleted
-  by the next seal. The audit's index and hash remain, so what existed stays provable.
+  by the next seal (through `warden_vault_purge()`). The audit's index and hash remain, so what existed stays provable.
   - **Erasure request:** the database owner deletes the incident's row with
     `DELETE FROM vault WHERE incident = '<id>'`. The signed audit holds no value to erase; its ids are keyed hashes.
   - **Everything at once:** schedule the vault key's deletion. Every sealed map then becomes unreadable for good.
@@ -209,9 +209,9 @@ The CloudWatch log groups keep 90 days until lane N's retention change lands.
   and the static inventory test catches a new network client.
 - An administrator of the AWS account can change the vault key's policy. CloudTrail records that change, and every
   `Decrypt`.
-- Every runtime zone connects to the audit database as one writer, so any zone can read, and could delete, a sealed
-  row. It holds ciphertext only, which no zone but the approval page can open. Deleting a row loses a reveal, not a
-  secret.
+- Every runtime zone connects to the audit database as one writer, so any zone can read a sealed row. It holds
+  ciphertext only, which no zone but the approval page can open. No zone can delete one: retention runs through
+  `warden_vault_purge()`, which removes only expired rows by the database's own clock.
 
 ## Live steps (the owner's laptop, once)
 
