@@ -79,7 +79,10 @@ def _run(capsys, *argv: str) -> tuple[int, str, str]:
 
 def _clean(text: str) -> None:
     """Nothing the pipeline masks, no approver list id, no control character."""
-    assert EMAIL not in text and ADDRESS not in text and ESC not in text and BELL not in text
+    assert EMAIL not in text
+    assert ADDRESS not in text
+    assert ESC not in text
+    assert BELL not in text
     assert "\\u00" not in text.lower()  # not even escaped in JSON
     assert "owner" not in text.replace("WARDEN", ""), text
 
@@ -89,12 +92,18 @@ def _clean(text: str) -> None:
 
 def test_list_shows_each_incident_newest_first_masked_in_text_and_json(reader, capsys):
     code, out, _ = _run(capsys, "list")
-    assert code == 0 and out.index(INC) < out.index(OTHER_INC)
-    assert "Fixed and held" in out and "dev/tick" in out and "2 shown of 2 matching" in out and "IST" in out
+    assert code == 0
+    assert out.index(INC) < out.index(OTHER_INC)
+    assert "Fixed and held" in out
+    assert "dev/tick" in out
+    assert "2 shown of 2 matching" in out
+    assert "IST" in out
     _clean(out)
     code, out, _ = _run(capsys, "list", "--json", "--status", "Fixed and held")
     data = json.loads(out)
-    assert code == 0 and [i["id"] for i in data["incidents"]] == [INC] and data["matched"] == 1
+    assert code == 0
+    assert [i["id"] for i in data["incidents"]] == [INC]
+    assert data["matched"] == 1
     assert data["total"] == 2
     _clean(out)
 
@@ -107,12 +116,16 @@ def test_show_is_the_whole_record_with_approvers_by_name_and_masked_values(reade
                  "events_enable_rule on rule/tick - risk T1", "Every step on the record:", "Complete findings:",
                  "Signed record: audit head ", "<EMAIL_"):
         assert said in out, said
-    assert "The evidence WARDEN read" not in out and "Signed record: Signed" not in out  # evidence: --evidence
+    assert "The evidence WARDEN read" not in out
+    assert "Signed record: Signed" not in out  # evidence: --evidence
     _clean(out)
     code, out, _ = _run(capsys, "show", INC, "--json", "--evidence")
     data = json.loads(out)
-    assert code == 0 and data["id"] == INC and data["decisions"][0]["who"] == "Asha Rao"
-    assert data["links"][0]["with"] == OTHER_INC and data["evidence"].startswith("log line: user <EMAIL_")
+    assert code == 0
+    assert data["id"] == INC
+    assert data["decisions"][0]["who"] == "Asha Rao"
+    assert data["links"][0]["with"] == OTHER_INC
+    assert data["evidence"].startswith("log line: user <EMAIL_")
     _clean(out)
 
 
@@ -121,13 +134,16 @@ def test_new_placeholders_continue_after_the_records_own(reader, capsys):
     so it must not read as the same one."""
     _, out, _ = _run(capsys, "show", INC, "--json")
     says = json.loads(out)["alert_says"]
-    assert "<EMAIL_1>" in says and "<EMAIL_2>" in says and "<IPV4_1>" in says
+    assert "<EMAIL_1>" in says
+    assert "<EMAIL_2>" in says
+    assert "<IPV4_1>" in says
 
 
 def test_an_unknown_or_a_discussion_id_or_a_bad_filter_shows_nothing(reader, capsys):
     for incident in ("no-such", "discuss-" + INC, "../x", "a" * 121):
         code, out, err = _run(capsys, "show", incident)
-        assert (code, out) == (1, "") and "no incident" in err, incident
+        assert (code, out) == (1, ""), incident
+        assert "no incident" in err, incident
     for argv in (("--since", "2026-13-01"), ("--status", "Nope"), ("--since", "2026-10-21", "--until", "2026-10-20"),
                  ("--limit", "0"), ("--limit", "501"), ("--env", "Bad Env")):
         code, out, _ = _run(capsys, "list", *argv)
@@ -141,7 +157,9 @@ def test_without_the_approver_list_nothing_is_shown(reader, capsys, monkeypatch)
 
     monkeypatch.setattr(runtime_base, "approver_policy", unreadable)
     code, out, err = _run(capsys, "show", INC)
-    assert code == 2 and out == "" and "approver list could not be read" in err
+    assert code == 2
+    assert out == ""
+    assert "approver list could not be read" in err
 
 
 # ------------------------------------------------------------------ read only
@@ -196,7 +214,8 @@ def test_a_postgresql_session_is_read_only_before_its_first_query(monkeypatch):
     monkeypatch.setattr(audit, "_pg_connect", lambda dsn: Connection())
     log = records_cli.open_read_only()
     log.signed_through()
-    assert said[0] == "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY" and said[1].startswith("SELECT")
+    assert said[0] == "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"
+    assert said[1].startswith("SELECT")
     monkeypatch.setenv("WARDEN_AUDIT_DSN", "sqlite:///x")
     with pytest.raises(RuntimeError):
         records_cli.open_read_only()

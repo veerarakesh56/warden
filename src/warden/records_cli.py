@@ -132,10 +132,12 @@ def detail(r: records.Record, *, evidence: bool = False) -> dict[str, Any]:
                "by": _who(r, str(k.get("approver"))), "at": str(k.get("at") or ""), "note": str(k.get("note") or "")}
               for k in r.links]
     found = [{"words": str(k.get("words")), "with": str(k.get("with"))} for k in r.found]
-    proven = ({"entry": r.proven.get("entry"), "target": r.proven.get("target"), "with": r.proven.get("incident"),
-               "at": _iso(r.proven.get("verified_at")) if isinstance(r.proven.get("verified_at"), datetime)
-               else str(r.proven.get("verified_at") or ""), "links_away": len(r.proven.get("path") or ())}
-              if r.proven else None)
+    proven = None
+    if r.proven:
+        at = r.proven.get("verified_at")
+        proven = {"entry": r.proven.get("entry"), "target": r.proven.get("target"), "with": r.proven.get("incident"),
+                  "at": _iso(at) if isinstance(at, datetime) else str(at or ""),
+                  "links_away": len(r.proven.get("path") or ())}
     out = {**summary(r), "severity": r.severity, "alert_says": r.summary, "hypothesis": r.hypothesis,
            "confidence": r.confidence, "action": r.action, "target": r.target, "verdict": r.verdict,
            "policies": r.policies, "plan": plan, "no_plan": r.no_plan, "also": r.also, "questions": r.asked,
@@ -205,48 +207,74 @@ def list_text(rows: list[dict[str, Any]], matched: int, total: int) -> list[str]
     return [*lines, f"{len(rows)} shown of {matched} matching ({total} incident(s) on the record)"]
 
 
-def show_text(d: dict[str, Any]) -> list[str]:
+def _lines(text: str, indent: str) -> list[str]:
+    return [f"{indent}{line}" for line in str(text or "").splitlines() if line.strip()]
+
+
+def _fix_plan(d: dict[str, Any]) -> str:
     plan = d["plan"]
+    if plan:
+        return f"{plan.get('entry')} on {plan.get('target')} - risk {plan.get('tier')}"
+    return f"None: {d['no_plan']}" if d["no_plan"] else ""
+
+
+def _fact_lines(d: dict[str, Any]) -> list[str]:
+    confidence = f" (confidence {d['confidence']:.2f})" if isinstance(d["confidence"], int | float) else ""
+    policies = f" ({', '.join(d['policies'])})" if d["policies"] else ""
+    asked = f"{d['questions']} question(s) in the discussion channel" if d["questions"] else ""
     facts = [("Incident", d["id"]), ("Status", d["status"]), ("Alarm", d["alarm"]),
              ("Where", " / ".join(x for x in (d["environment"], d["service"]) if x)), ("Severity", d["severity"]),
              ("Alert says", d["alert_says"]), ("First seen", _when(d["first"])), ("Last step", _when(d["last"])),
-             ("WARDEN thinks", d["hypothesis"] + (f" (confidence {d['confidence']:.2f})"
-                                                  if isinstance(d["confidence"], int | float) else "")),
-             ("Safety check", d["verdict"].replace("_", " ") + (f" ({', '.join(d['policies'])})" if d["policies"]
-                                                                else "")),
-             ("Fix plan", f"{plan.get('entry')} on {plan.get('target')} - risk {plan.get('tier')}" if plan
-              else (f"None: {d['no_plan']}" if d["no_plan"] else "")),
-             ("Also fired", "; ".join(d["also"])),
-             ("Discussion", f"{d['questions']} question(s) in the discussion channel" if d["questions"] else ""),
+             ("WARDEN thinks", d["hypothesis"] + confidence if d["hypothesis"] else ""),
+             ("Safety check", d["verdict"].replace("_", " ") + policies if d["verdict"] else ""),
+             ("Fix plan", _fix_plan(d)), ("Also fired", "; ".join(d["also"])), ("Discussion", asked),
              ("Signed record", d["integrity"].removeprefix("Signed record: "))]
-    out = [f"{k + ':':<15}{' '.join(str(v).split())}" for k, v in facts if v and v != " ()"]
-    out.append("Decisions:")
-    for x in d["decisions"] or [{"what": "", "who": "", "at": ""}]:
-        if not x["what"]:
-            out.append("  none on the record")
-            continue
-        out.append(f"  {x['what']} by {x['who']} with their {x['how']} at {_when(x['at'])}"
-                   + (" - quick decision" if x.get("hasty") else ""))
-        out += [f"    note: {line}" for line in str(x.get("note") or "").splitlines() if line.strip()]
+    return [f"{k + ':':<15}{' '.join(str(v).split())}" for k, v in facts if v]
+
+
+def _decision_lines(d: dict[str, Any]) -> list[str]:
+    out = ["Decisions:"]
+    if not d["decisions"]:
+        return [*out, "  none on the record"]
+    for x in d["decisions"]:
+        hasty = " - quick decision" if x.get("hasty") else ""
+        out.append(f"  {x['what']} by {x['who']} with their {x['how']} at {_when(x['at'])}{hasty}")
+        out += _lines(x.get("note"), "    note: ")
+    return out
+
+
+def _link_lines(d: dict[str, Any]) -> list[str]:
+    out = []
     for k in d["links"]:
         out.append(f"Linked: this incident {k['words']} {k['with']} - linked by {k['by']} at {_when(k['at'])}")
-        out += [f"    note: {line}" for line in k["note"].splitlines() if line.strip()]
+        out += _lines(k["note"], "    note: ")
     if d["proven"]:
         f = d["proven"]
         out.append(f"Proven fix on a linked record: {f['entry']} on {f['target']} was applied and verified in "
                    f"{f['with']} at {_when(f['at'])} ({f['links_away']} link(s) away) - a fact for a person to weigh; "
                    "WARDEN does not apply it on that account")
-    out += [f"Related (WARDEN found it): this incident {k['words']} {k['with']}" for k in d["found"]]
-    out.append("Anything that tried to steer WARDEN:")
+    return out + [f"Related (WARDEN found it): this incident {k['words']} {k['with']}" for k in d["found"]]
+
+
+def _told_lines(d: dict[str, Any]) -> list[str]:
+    if not d["told"]:
+        return []
+    out = ["What WARDEN told people:"]
+    for t in d["told"]:
+        out.append(f"  {t['what']} - {_when(t['at'])} - {t['where']}")
+        out += _lines(t["said"], "    ")
+    return out
+
+
+def _step_line(s: dict[str, Any]) -> str:
+    details = f" - {' '.join(s['details'].split())}" if s["details"] else ""
+    return f"  {_when(s['at'])}  {s['step']}{details}"
+
+
+def show_text(d: dict[str, Any]) -> list[str]:
+    out = [*_fact_lines(d), *_decision_lines(d), *_link_lines(d), "Anything that tried to steer WARDEN:"]
     out += [f"  {f}" for f in d["flags"]] or ["  nothing on the record"]
-    if d["told"]:
-        out.append("What WARDEN told people:")
-        for t in d["told"]:
-            out.append(f"  {t['what']} - {_when(t['at'])} - {t['where']}")
-            out += [f"    {line}" for line in t["said"].splitlines() if line.strip()]
-    out.append("Every step on the record:")
-    out += [f"  {_when(s['at'])}  {s['step']}" + (f" - {' '.join(s['details'].split())}" if s["details"] else "")
-            for s in d["steps"]]
+    out += [*_told_lines(d), "Every step on the record:", *(_step_line(s) for s in d["steps"])]
     if d["report"]:
         out += ["", "Complete findings:", *d["report"].splitlines()]
     if d.get("evidence"):
