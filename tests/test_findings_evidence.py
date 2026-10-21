@@ -380,11 +380,16 @@ def test_the_reader_is_one_of_the_evidence_tools_only_when_switched_on(monkeypat
     reader = next(r for r in evidence_tools(object()) if r.source == "findings")
     assert (reader.repo, reader.sonar_project, reader.max_prs, reader.max_per_pr) == ("owner/shop", "owner_shop", 3, 20)
     # Clamped to their ceilings, ASCII digits only: past GitHub's page of 100 the reader would drop alerts (CodeRabbit).
-    for prs, per_pr, want in (("11", "101", (10, 100)), ("9" * 5000, "0099", (10, 99)), ("\u00b2", "\u0663", (2, 20))):
+
+    def limits(prs: str, per_pr: str) -> tuple[int, int]:
         monkeypatch.setenv("WARDEN_FINDINGS_MAX_PRS", prs)
         monkeypatch.setenv("WARDEN_FINDINGS_MAX_PER_PR", per_pr)
-        reader = next(r for r in evidence_tools(object()) if r.source == "findings")
-        assert (reader.max_prs, reader.max_per_pr) == want, (prs[:8], per_pr)
+        clamped = next(r for r in evidence_tools(object()) if r.source == "findings")
+        return clamped.max_prs, clamped.max_per_pr
+
+    assert limits("11", "101") == (10, 100)
+    assert limits("9" * 5000, "0099") == (10, 99)
+    assert limits("\u00b2", "\u0663") == (2, 20)
     from warden.settings import LOADABLE, SECRETS
 
     assert LOADABLE >= {"WARDEN_FINDINGS", "WARDEN_SONAR_PROJECT"}
