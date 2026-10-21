@@ -14,6 +14,7 @@ import dataclasses
 import html
 import re
 import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -21,6 +22,13 @@ from typing import Any
 PER_PAGE = 50  # incidents on one page of the list by default; every incident stays on the record, without a time limit
 SIZES = (10, 25, 50, 100)  # the page sizes a reader may choose (owner, 2026-10-16)
 REFRESH_S = 60
+# The steps and words the record and its pages look for in more than one place.
+_INGEST, _AFTER_HOLD = "incident.ingest", "incident.after_hold"
+_REPORT, _EVIDENCE = "incident.report", "incident.evidence"
+_ANNOUNCE = "remediation.announce"
+IN_PROGRESS, NO_PLAN = "In progress", "No fix plan"
+_UL_END = "</ul>"
+_TITLE = "WARDEN records"
 
 # A fix run's end, in words, and how it reads at a glance: the kind is said in words too, never by colour alone.
 ENDED = {
@@ -40,19 +48,19 @@ STEP = {
     "remediation.did_not_hold": "The fix did not hold - WARDEN will not offer it again on its own",
     "remediation.offer_again": "An approver let WARDEN offer this fix again",
     "intake.decision": "The alarm came in", "incident.alert": "The alarm was recorded",
-    "incident.ingest": "WARDEN started reading", "incident.gather": "Evidence read",
+    _INGEST: "WARDEN started reading", "incident.gather": "Evidence read",
     "incident.redact": "Secrets removed from the evidence", "incident.tripwire": "Injection check on the evidence",
     "incident.diagnose": "Diagnosis", "incident.investigate": "Read more of what the alarm names",
     "incident.reread": "Read again: a source was empty right after the alarm",
     "incident.verify": "Safety policies checked", "incident.changes": "Recent changes looked up",
-    "incident.report": "Report written", "incident.notify": "Report sent", "incident.plan_fix": "Fix plan looked for",
-    "incident.no_plan": "No fix plan", "incident.after_hold": "Looked at again after expected down",
-    "incident.evidence": "Evidence kept for questions",
+    _REPORT: "Report written", "incident.notify": "Report sent", "incident.plan_fix": "Fix plan looked for",
+    "incident.no_plan": NO_PLAN, _AFTER_HOLD: "Looked at again after expected down",
+    _EVIDENCE: "Evidence kept for questions",
     "record.link": "Linked to another record by an approver",
     "intake.side_effect": "Another alarm started while this fix was checked",
     "remediation.side_effects": "Other alarms started after this fix - each diagnosed on its own", "remediation.rediagnose": "Diagnosed again",
     "incident.later_alarm": "Another alarm started after this fix - diagnosed beside it",
-    "remediation.plan": "Fix plan made", "remediation.gate": "Fix plan checked", "remediation.announce": "Asked for approval",
+    "remediation.plan": "Fix plan made", "remediation.gate": "Fix plan checked", _ANNOUNCE: "Asked for approval",
     "approval.link_viewed": "Approval page opened", "approval.slack_verified": "Signed in with Slack",
     "approval.accepted": "Approved", "approval.refused": "An approval was refused",
     "remediation.precheck": "Target checked before applying", "remediation.intent": "About to apply",
@@ -75,7 +83,7 @@ TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Deni
 PLAIN = {"approved_for_human": "passed its checks - waits for a person", "escalated": "sent to a person",
          "rejected": "refused", "ran": "ran", "off": "off"}
 # Every status a record can say (record(), below), in the order the list's filter offers them.
-STATUSES = tuple(dict.fromkeys(("In progress", "Diagnosed", "No fix plan", "Waiting for approval",
+STATUSES = tuple(dict.fromkeys((IN_PROGRESS, "Diagnosed", NO_PLAN, "Waiting for approval",
                                 "Approved - being applied", "Cleared while expected down",
                                 *(label for label, _ in ENDED.values()), "Failed", "Cancelled")))
 _QUIET = {"incident.llm_spend", "incident.llm_reserve", "approval.challenge", "approval.challenge_taken",
@@ -94,7 +102,7 @@ class Record:
     service: str = ""
     severity: str = ""
     summary: str = ""
-    status: str = "In progress"
+    status: str = IN_PROGRESS
     kind: str = "info"
     hypothesis: str = ""
     confidence: float | None = None
@@ -132,7 +140,7 @@ def incident_ids(log: Any) -> list[str]:
     reading of an incident (`discuss-...`) is part of that incident, not one of its own.
     ponytail: reads every start row; a SELECT DISTINCT on the audit table when there are tens of thousands."""
     seen: dict[str, datetime] = {}
-    for e in log.entries(kinds=("incident.ingest", "incident.after_hold")):
+    for e in log.entries(kinds=(_INGEST, _AFTER_HOLD)):
         cid = str(e["correlation_id"])
         if not cid.startswith("discuss-"):
             seen[cid] = max(seen.get(cid, e["at"]), e["at"])
@@ -142,24 +150,46 @@ def incident_ids(log: Any) -> list[str]:
 def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) -> Record | None:
     """One incident from its rows; None when the record holds nothing for it. `light`: for the list - every row but
     the kept evidence and the whole report, which only the incident's own page shows."""
-    from . import approvals
-
     rows = log.entries(incident)
     if light:
-        rows = [e for e in rows if e["kind"] not in ("incident.evidence", "incident.report")]
+        rows = [e for e in rows if e["kind"] not in (_EVIDENCE, _REPORT)]
     if not rows:
         return None
     r = Record(id=incident, first=rows[0]["at"], last=rows[-1]["at"], rows=rows)
     if not light and hasattr(log, "intact"):
-        try:
-            seqs = [int(e["seq"]) for e in rows]
-            through, ok = log.signed_through(), log.intact(seqs)
-            r.head = log.head(incident)
-            r.signed_ok = len(ok)
-            r.unsigned = sum(1 for s in seqs if s > through)
-            r.broken = len(seqs) - r.signed_ok - r.unsigned
-        except Exception:  # noqa: BLE001 - the page still shows the record; its check says it could not run
-            r.head, r.broken = r.head or "", -1
+        _check_signatures(r, log, rows)
+    r.shown, r.named = _namers(policy)
+    for e in rows:
+        if read := _READ.get(e["kind"]):
+            read(r, e)
+    r.asked = sum(1 for e in rows if e["kind"] == "discuss.turn")
+    if r.status == IN_PROGRESS and (settled := _open_status(r, rows)):
+        r.status, r.kind = settled
+    if not light:
+        from . import links
+
+        r.links, r.proven = links.links_of(log, incident), links.proven_fix(log, incident)
+        r.found = links.found(log, incident)
+    return r
+
+
+def _check_signatures(r: Record, log: Any, rows: list[dict[str, Any]]) -> None:
+    """The record's own integrity: its audit head, and how many of its rows are signed and intact, not signed yet, or
+    do not check out."""
+    try:
+        seqs = [int(e["seq"]) for e in rows]
+        through, ok = log.signed_through(), log.intact(seqs)
+        r.head = log.head(r.id)
+        r.signed_ok = len(ok)
+        r.unsigned = sum(1 for s in seqs if s > through)
+        r.broken = len(seqs) - r.signed_ok - r.unsigned
+    except Exception:  # noqa: BLE001 - the page still shows the record; its check says it could not run
+        r.head, r.broken = r.head or "", -1
+
+
+def _namers(policy: Any) -> tuple[Callable[[str], str], Callable[[str], str]]:
+    """How a page names an approver - by the name the list gives, never the list's id - and machine text that names
+    one by the list's id (a refusal's problems), with their name instead."""
     ids = sorted(getattr(policy, "approvers", {}) if policy is not None else {}, key=len, reverse=True)
 
     def shown(approver: str) -> str:
@@ -173,99 +203,162 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
             text = re.sub(rf"(?<![A-Za-z0-9._-]){re.escape(a)}(?![A-Za-z0-9._-])", shown(a), text)
         return text
 
-    r.shown, r.named = shown, named
+    return shown, named
 
-    for e in rows:
-        kind, b = e["kind"], e["body"]
-        if kind == "incident.alert":
-            a = b.get("alert") or {}
-            r.alarm = str((a.get("labels") or {}).get("alarm") or a.get("name") or "")
-            r.environment, r.service = str(a.get("environment") or ""), str(a.get("service") or "")
-            r.severity, r.summary = str(a.get("severity") or ""), str(a.get("summary") or "")
-        elif kind == "incident.ingest" and not r.environment:
-            r.environment = str(b.get("env") or "")
-        elif kind == "incident.diagnose":
-            r.hypothesis, r.action, r.target = str(b.get("hypothesis") or ""), str(b.get("action") or ""), str(
-                b.get("target") or "")
-            r.confidence = b.get("confidence") if isinstance(b.get("confidence"), int | float) else None
-            if b.get("degraded"):
-                r.hypothesis = r.hypothesis or f"No diagnosis: {b['degraded']}"
-        elif kind == "incident.verify":
-            r.verdict, r.policies = str(b.get("status") or ""), [str(p) for p in b.get("policies") or []]
-        elif kind == "incident.tripwire":
-            if b.get("flagged"):
-                r.flags.append("The injection check flagged evidence that tried to instruct WARDEN: "
-                               + ", ".join(str(f) for f in b["flagged"][:8]) + ". It was held away from any decision.")
-            elif str(b.get("status") or "ran") not in ("ran", "off"):
-                r.flags.append(f"The injection check did not finish ({b.get('status')}): the incident went to a person.")
-        elif kind == "incident.report":
-            r.report = str(b.get("markdown") or "")
-        elif kind == "incident.evidence":
-            r.evidence = str(b.get("prompt") or "")
-        elif kind == "intake.grouped":
-            from .reporting import ALERT_SOURCES
 
-            src = ALERT_SOURCES.get(str(b.get("via") or ""), "")
-            r.also.append(str(b.get("name") or b.get("rule") or "") + (f" ({src})" if src else ""))
-        elif kind in ("incident.no_plan",) or (kind == "incident.plan_fix" and not b.get("planned") and b.get("why")):
-            r.no_plan = str(b.get("why") or r.no_plan)
-        elif kind == "remediation.plan":
-            r.plan = {"entry": b.get("entry"), "target": b.get("target"), "tier": b.get("tier"),
-                      "plan_hash": b.get("plan_hash"), "made": e["at"], "workflow_id": b.get("workflow_id")}
-        elif kind == "approval.accepted":
-            note = str(b.get("note") or "")
-            ai = bool(b.get("ai"))  # Eldane (autonomy.py): always said to be an AI, with the level it approved at
-            how = "passkey" if b.get("method") == "passkey" else "signing key"
-            if ai:
-                how = f"own signing key - an AI approval at autonomy level {b.get('autonomy', 'L2')}"
-            r.decisions.append({"what": "Approved", "who": approvals.AI_LABEL if ai else shown(str(b.get("approver"))),
-                                "at": e["at"], "how": how, "note": note,
-                                "hasty": bool(b.get("hasty")), "latency": b.get("latency_s")})
-            r.flags += [f"A note from {shown(str(b.get('approver')))} held {t}." for t in approvals.note_tries(note)]
-        elif kind == "eldane.verdict" and b.get("agree") is not None:
-            r.decisions.append({"what": "Agreed with the plan" if b.get("agree") else "Did not agree with the plan",
-                                "who": approvals.AI_LABEL, "at": e["at"],
-                                "how": f"review - an AI, autonomy level {b.get('level', '?')}",
-                                "note": "; ".join(x.get("text", "") for p in (b.get("passes") or [])[-1:]
-                                                  for x in p.get("reasons", [])[:3]),
-                                "hasty": False, "latency": None})
-        elif kind == "approval.refused":
-            r.flags.append("An approval was refused: " + named("; ".join(str(p) for p in (b.get("problems") or [])[:3])))
-        elif kind == "discuss.turn":
-            r.asked += 1
-        elif kind == "discuss.answer" and b.get("asks_for_change") and not b.get("approver"):
-            r.flags.append("Someone who is not an approver asked WARDEN for a change in the discussion; WARDEN changes "
-                           "nothing from there.")
-        elif kind == "workflow.end":
-            status = str(b.get("status") or "")
-            for why in b.get("reasons") or []:
-                why = str(why)
-                if why.startswith("denied by "):
-                    who, _, reason = why.removeprefix("denied by ").partition(": ")
-                    r.decisions.append({"what": "Denied", "who": shown(who), "at": e["at"], "how": "passkey",
-                                        "note": reason, "hasty": False, "latency": None})
-                    r.flags += [f"A reason from {shown(who)} held {t}." for t in approvals.note_tries(reason)]
-            if status in ENDED:
-                r.status, r.kind = ENDED[status]
-            elif status:
-                r.status, r.kind = status.replace("_", " ").capitalize(), "info"
-    if r.status == "In progress":
-        if any(d["what"] == "Approved" for d in r.decisions):
-            r.status, r.kind = "Approved - being applied", "info"
-        elif r.plan:
-            r.status, r.kind = "Waiting for approval", "warn"
-        elif r.no_plan:
-            r.status, r.kind = "No fix plan", "info"
-        elif any(e["kind"] == "incident.after_hold" and e["body"].get("firing") is False for e in rows):
-            r.status, r.kind = "Cleared while expected down", "ok"
-        elif r.verdict:
-            r.status, r.kind = "Diagnosed", "info"
-    if not light:
-        from . import links
+def _open_status(r: Record, rows: list[dict[str, Any]]) -> tuple[str, str] | None:
+    """The status of a record no fix run has ended yet, from how far it got; None where it is still in progress."""
+    if any(d["what"] == "Approved" for d in r.decisions):
+        return "Approved - being applied", "info"
+    if r.plan:
+        return "Waiting for approval", "warn"
+    if r.no_plan:
+        return NO_PLAN, "info"
+    if any(e["kind"] == _AFTER_HOLD and e["body"].get("firing") is False for e in rows):
+        return "Cleared while expected down", "ok"
+    if r.verdict:
+        return "Diagnosed", "info"
+    return None
 
-        r.links, r.proven = links.links_of(log, incident), links.proven_fix(log, incident)
-        r.found = links.found(log, incident)
-    return r
+
+# What each kind of row adds to the record (record(), above). A kind not here adds nothing.
+
+def _read_alert(r: Record, e: dict[str, Any]) -> None:
+    a = e["body"].get("alert") or {}
+    r.alarm = str((a.get("labels") or {}).get("alarm") or a.get("name") or "")
+    r.environment, r.service = str(a.get("environment") or ""), str(a.get("service") or "")
+    r.severity, r.summary = str(a.get("severity") or ""), str(a.get("summary") or "")
+
+
+def _read_ingest(r: Record, e: dict[str, Any]) -> None:
+    if not r.environment:
+        r.environment = str(e["body"].get("env") or "")
+
+
+def _read_diagnosis(r: Record, e: dict[str, Any]) -> None:
+    b = e["body"]
+    r.hypothesis, r.action, r.target = str(b.get("hypothesis") or ""), str(b.get("action") or ""), str(
+        b.get("target") or "")
+    r.confidence = b.get("confidence") if isinstance(b.get("confidence"), int | float) else None
+    if b.get("degraded"):
+        r.hypothesis = r.hypothesis or f"No diagnosis: {b['degraded']}"
+
+
+def _read_verify(r: Record, e: dict[str, Any]) -> None:
+    b = e["body"]
+    r.verdict, r.policies = str(b.get("status") or ""), [str(p) for p in b.get("policies") or []]
+
+
+def _read_tripwire(r: Record, e: dict[str, Any]) -> None:
+    b = e["body"]
+    if b.get("flagged"):
+        r.flags.append("The injection check flagged evidence that tried to instruct WARDEN: "
+                       + ", ".join(str(f) for f in b["flagged"][:8]) + ". It was held away from any decision.")
+    elif str(b.get("status") or "ran") not in ("ran", "off"):
+        r.flags.append(f"The injection check did not finish ({b.get('status')}): the incident went to a person.")
+
+
+def _read_report(r: Record, e: dict[str, Any]) -> None:
+    r.report = str(e["body"].get("markdown") or "")
+
+
+def _read_evidence(r: Record, e: dict[str, Any]) -> None:
+    r.evidence = str(e["body"].get("prompt") or "")
+
+
+def _read_grouped(r: Record, e: dict[str, Any]) -> None:
+    from .reporting import ALERT_SOURCES
+
+    b = e["body"]
+    src = ALERT_SOURCES.get(str(b.get("via") or ""), "")
+    r.also.append(str(b.get("name") or b.get("rule") or "") + (f" ({src})" if src else ""))
+
+
+def _read_no_plan(r: Record, e: dict[str, Any]) -> None:
+    r.no_plan = str(e["body"].get("why") or r.no_plan)
+
+
+def _read_plan_fix(r: Record, e: dict[str, Any]) -> None:
+    if not e["body"].get("planned") and e["body"].get("why"):
+        _read_no_plan(r, e)
+
+
+def _read_plan(r: Record, e: dict[str, Any]) -> None:
+    b = e["body"]
+    r.plan = {"entry": b.get("entry"), "target": b.get("target"), "tier": b.get("tier"),
+              "plan_hash": b.get("plan_hash"), "made": e["at"], "workflow_id": b.get("workflow_id")}
+
+
+def _read_accepted(r: Record, e: dict[str, Any]) -> None:
+    from . import approvals
+
+    b = e["body"]
+    note = str(b.get("note") or "")
+    ai = bool(b.get("ai"))  # Eldane (autonomy.py): always said to be an AI, with the level it approved at
+    how = "passkey" if b.get("method") == "passkey" else "signing key"
+    if ai:
+        how = f"own signing key - an AI approval at autonomy level {b.get('autonomy', 'L2')}"
+    r.decisions.append({"what": "Approved", "who": approvals.AI_LABEL if ai else r.shown(str(b.get("approver"))),
+                        "at": e["at"], "how": how, "note": note,
+                        "hasty": bool(b.get("hasty")), "latency": b.get("latency_s")})
+    r.flags += [f"A note from {r.shown(str(b.get('approver')))} held {t}." for t in approvals.note_tries(note)]
+
+
+def _read_eldane(r: Record, e: dict[str, Any]) -> None:
+    from . import approvals
+
+    b = e["body"]
+    if b.get("agree") is None:
+        return
+    r.decisions.append({"what": "Agreed with the plan" if b.get("agree") else "Did not agree with the plan",
+                        "who": approvals.AI_LABEL, "at": e["at"],
+                        "how": f"review - an AI, autonomy level {b.get('level', '?')}",
+                        "note": "; ".join(x.get("text", "") for p in (b.get("passes") or [])[-1:]
+                                          for x in p.get("reasons", [])[:3]),
+                        "hasty": False, "latency": None})
+
+
+def _read_refused(r: Record, e: dict[str, Any]) -> None:
+    r.flags.append("An approval was refused: "
+                   + r.named("; ".join(str(p) for p in (e["body"].get("problems") or [])[:3])))
+
+
+def _read_answer(r: Record, e: dict[str, Any]) -> None:
+    if e["body"].get("asks_for_change") and not e["body"].get("approver"):
+        r.flags.append("Someone who is not an approver asked WARDEN for a change in the discussion; WARDEN changes "
+                       "nothing from there.")
+
+
+def _read_end(r: Record, e: dict[str, Any]) -> None:
+    b = e["body"]
+    status = str(b.get("status") or "")
+    for why in b.get("reasons") or []:
+        _read_denial(r, e, str(why))
+    if status in ENDED:
+        r.status, r.kind = ENDED[status]
+    elif status:
+        r.status, r.kind = status.replace("_", " ").capitalize(), "info"
+
+
+def _read_denial(r: Record, e: dict[str, Any], why: str) -> None:
+    """A fix run's reason that is a denial: who denied it, and their reason as their note."""
+    from . import approvals
+
+    if why.startswith("denied by "):
+        who, _, reason = why.removeprefix("denied by ").partition(": ")
+        r.decisions.append({"what": "Denied", "who": r.shown(who), "at": e["at"], "how": "passkey",
+                            "note": reason, "hasty": False, "latency": None})
+        r.flags += [f"A reason from {r.shown(who)} held {t}." for t in approvals.note_tries(reason)]
+
+
+_READ: dict[str, Callable[[Record, dict[str, Any]], None]] = {
+    "incident.alert": _read_alert, _INGEST: _read_ingest, "incident.diagnose": _read_diagnosis,
+    "incident.verify": _read_verify, "incident.tripwire": _read_tripwire, _REPORT: _read_report,
+    _EVIDENCE: _read_evidence, "intake.grouped": _read_grouped, "incident.no_plan": _read_no_plan,
+    "incident.plan_fix": _read_plan_fix, "remediation.plan": _read_plan, "approval.accepted": _read_accepted,
+    "eldane.verdict": _read_eldane, "approval.refused": _read_refused, "discuss.answer": _read_answer,
+    "workflow.end": _read_end,
+}
 
 
 # ------------------------------------------------------------------ the list's paging and filters (owner, 2026-10-16)
@@ -332,9 +425,27 @@ def parse_query(query: str) -> Query | None:
     page = got.get("page") or "1"
     env, status, service = got.get("env", ""), got.get("status", ""), got.get("service", "")
     text = " ".join(got.get("q", "").split())
-    if (not _PAGE_NO.fullmatch(page) or (env and not _ENV.fullmatch(env)) or (status and status not in STATUSES)
-            or (service and not _SERVICE.fullmatch(service)) or len(text) > TEXT_MAX or not text.isprintable()):
+    if not _readable(page, env, status, service, text):
         return None
+    days = _days(got)
+    if days is None:
+        return None
+    since, until = days
+    size = int(got["size"]) if got.get("size") in {str(s) for s in SIZES} else PER_PAGE
+    return Query(page=int(page), size=size, env=env, status=status, service=service, since=since, until=until,
+                 text=text)
+
+
+def _readable(page: str, env: str, status: str, service: str, text: str) -> bool:
+    """Each of these fields is one the list reads: a page number, an environment's name, a status the list says, a
+    service's name, and printable text no longer than TEXT_MAX."""
+    return not (not _PAGE_NO.fullmatch(page) or (env and not _ENV.fullmatch(env)) or (status and status not in STATUSES)
+                or (service and not _SERVICE.fullmatch(service)) or len(text) > TEXT_MAX or not text.isprintable())
+
+
+def _days(got: dict[str, str]) -> tuple[date | None, date | None] | None:
+    """`from` and `to` as days (None where not given); None when either is not a day, or the first comes after the
+    last."""
     days = []
     for key in ("from", "to"):
         raw = got.get(key, "")
@@ -347,9 +458,7 @@ def parse_query(query: str) -> Query | None:
     since, until = days
     if since and until and since > until:
         return None
-    size = int(got["size"]) if got.get("size") in {str(s) for s in SIZES} else PER_PAGE
-    return Query(page=int(page), size=size, env=env, status=status, service=service, since=since, until=until,
-                 text=text)
+    return since, until
 
 
 def matching(log: Any, asked: Query, allowed: set[str] | None, policy: Any = None
@@ -407,24 +516,24 @@ def _decisions(r: Record) -> str:
                 else '<p class="quiet">No note.</p>')
         out.append(f'<li><p><strong>{_e(d["what"])}</strong> by {_e(d["who"])} with their {_e(d["how"])} at '
                    f'<time>{_e(_when(d["at"]))}</time>{_e(lat)}{hasty}</p>{note}</li>')
-    return '<ul class="decisions">' + "".join(out) + "</ul>"
+    return '<ul class="decisions">' + "".join(out) + _UL_END
 
 
 def _flags(r: Record) -> str:
     if not r.flags:
         return '<p class="quiet">Nothing on the record tried to steer WARDEN.</p>'
-    return '<ul class="flags">' + "".join(f"<li>{_e(f)}</li>" for f in r.flags) + "</ul>"
+    return '<ul class="flags">' + "".join(f"<li>{_e(f)}</li>" for f in r.flags) + _UL_END
 
 
 def _summary_facts(r: Record) -> list[tuple[str, str]]:
     conf = f" (confidence {r.confidence:.2f})" if r.confidence is not None else ""
     plan = (f'<span class="mono">{_e(r.plan.get("entry"))}</span> on <span class="mono">{_e(r.plan.get("target"))}'
             f'</span> - risk {_e(r.plan.get("tier"))}' if r.plan else "")
+    policies = f" ({', '.join(r.policies)})" if r.policies else ""
     return [("Alarm", _e(r.alarm)), ("Where", _e(" / ".join(x for x in (r.environment, r.service) if x))),
             ("Severity", _e(r.severity)), ("Alert says", _e(r.summary)), ("First seen", _e(_when(r.first))),
             ("Last step", _e(_when(r.last))), ("WARDEN thinks", _e(r.hypothesis + conf) if r.hypothesis else ""),
-            ("Safety check", _e(r.verdict.replace("_", " ") + (f" ({', '.join(r.policies)})" if r.policies else ""))
-             if r.verdict else ""),
+            ("Safety check", _e(r.verdict.replace("_", " ") + policies) if r.verdict else ""),
             ("Fix plan", plan or (_e("None: " + r.no_plan) if r.no_plan else "")),
             ("Also fired", _e("; ".join(r.also)) if r.also else ""),
             ("Discussion", _e(f"{r.asked} question(s) in the discussion channel") if r.asked else "")]
@@ -496,43 +605,53 @@ def list_page(records: list[Record], *, page: int = 1, pages: int = 1, total: in
     folded beneath it - the filters, how many match, the page size, and the way to the newer and older pages.
     `total`: the incidents the reader may read; `matched`: how many of them the filters keep."""
     asked = asked or Query(page=page)
-    matched = (total if total is not None else len(records)) if matched is None else matched
-    if not records:
-        body = ('<p class="quiet pad empty">No incident matches these filters.</p>' if asked.filtered
-                else '<p class="quiet pad empty">No incident on the record yet.</p>')
-    else:
-        items, day = [], ""
-        for r in records:
-            title = r.alarm or r.id
-            if _day(r.first) != day:
-                day = _day(r.first)
-                items.append(f'<h2 class="day">{_e(day)}</h2>')
-            items.append(
-                f'<details class="row"><summary><span class="when"><time>{_e(_when(r.first))}</time></span>'
-                f'<span class="what"><strong>{_e(title)}</strong><span class="sub">{_e(r.environment)}'
-                f'{" / " + _e(r.service) if r.service else ""}</span></span><span class="tags">{_badge(r)}'
-                f'{"<span class=" + chr(34) + "badge bad" + chr(34) + ">Flagged</span>" if r.flags else ""}</span>'
-                f'</summary>'
-                f'<div class="more">{_facts(_summary_facts(r))}'
-                f'<h3>Decisions</h3>{_decisions(r)}<h3>Anything that tried to steer WARDEN</h3>{_flags(r)}'
-                f'<p><a class="open" href="{_e(asked.href(incident=r.id))}">Open the full record</a></p>'
-                f'</div></details>')
-        body = '<div class="rows">' + "".join(items) + "</div>"
-    count = f"{total} incident{'s' if total != 1 else ''} on the record" if total is not None else ""
+    if matched is None:
+        matched = total if total is not None else len(records)
+    body = _list_body(records, asked)
+    plural = "s" if total != 1 else ""
+    count = f"{total} incident{plural} on the record" if total is not None else ""
     first = (page - 1) * asked.size + 1 if matched else 0
     last = min(page * asked.size, matched)
     showing = (f'<p class="showing">Showing <strong>{first}–{last}</strong> of '
                f'<strong>{matched}</strong>{" matching the filters" if asked.filtered else ""}</p>')
     bar = f'<div class="toolbar">{showing}{_sizes(asked)}</div>'
     nav = _pager(asked, page, pages) if pages > 1 else ""
-    return _shell("WARDEN records", "Records", "<h1>Incidents</h1><p class=\"lede\">Every incident WARDEN has "
+    return _shell(_TITLE, "Records", "<h1>Incidents</h1><p class=\"lede\">Every incident WARDEN has "
                   "handled, newest first" + (f" - {_e(count)}" if count else "") + ". Open a row for its details, or "
                   "its full record for everything WARDEN found, read and did.</p>" + _filters(asked, envs) + bar
                   + nav + body + nav, refresh=page == 1)
 
 
+def _list_body(records: list[Record], asked: Query) -> str:
+    """The list's rows, each under its day - or, with none, why there is nothing to show."""
+    if not records:
+        return ('<p class="quiet pad empty">No incident matches these filters.</p>' if asked.filtered
+                else '<p class="quiet pad empty">No incident on the record yet.</p>')
+    items, day = [], ""
+    for r in records:
+        if _day(r.first) != day:
+            day = _day(r.first)
+            items.append(f'<h2 class="day">{_e(day)}</h2>')
+        items.append(_list_row(r, asked))
+    return '<div class="rows">' + "".join(items) + "</div>"
+
+
+def _list_row(r: Record, asked: Query) -> str:
+    """One incident's row: its summary in view, its details folded beneath it."""
+    title = r.alarm or r.id
+    return (f'<details class="row"><summary><span class="when"><time>{_e(_when(r.first))}</time></span>'
+            f'<span class="what"><strong>{_e(title)}</strong><span class="sub">{_e(r.environment)}'
+            f'{" / " + _e(r.service) if r.service else ""}</span></span><span class="tags">{_badge(r)}'
+            f'{"<span class=" + chr(34) + "badge bad" + chr(34) + ">Flagged</span>" if r.flags else ""}</span>'
+            f'</summary>'
+            f'<div class="more">{_facts(_summary_facts(r))}'
+            f'<h3>Decisions</h3>{_decisions(r)}<h3>Anything that tried to steer WARDEN</h3>{_flags(r)}'
+            f'<p><a class="open" href="{_e(asked.href(incident=r.id))}">Open the full record</a></p>'
+            f'</div></details>')
+
+
 def bad_query_page() -> str:
-    return _shell("WARDEN records", "Records", '<h1>That list cannot be shown</h1><p class="lede">The address asks '
+    return _shell(_TITLE, "Records", '<h1>That list cannot be shown</h1><p class="lede">The address asks '
                   "for a page or a filter the list does not read: a page is a whole number from 1, a day is written "
                   'YYYY-MM-DD, and the first day comes before the last. <a href="/r">See every incident</a>.</p>')
 
@@ -575,36 +694,6 @@ def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
     """One incident: its summary, decisions and flags, the report as WARDEN wrote it, and every step on the record.
     `approve`: this site's own address that opens the plan for the reader, when they may approve it now (owner,
     2026-10-15: "the approve button i dont see here"). `near`: neighbours(), the way to the list and the next ones."""
-    steps = []
-    for e in r.rows:
-        if e["kind"] in _QUIET:
-            continue
-        said = (TOLD.get(str(e["body"].get("what")), "Told people how the fix ended")
-                if e["kind"] == "remediation.announce" else _step(e))
-        brief = _brief(e, r.shown)
-        steps.append(f'<tr><td><time>{_e(_when(e["at"]))}</time></td><td>{_e(said)}</td>'
-                     f'<td class="small">{_e(r.named(brief) if r.named else brief)}</td></tr>')
-    told = [e for e in r.rows if e["kind"] == "remediation.announce"]
-    if told:
-        lines = []
-        for e in told:
-            b = e["body"]
-            where = ("kept here, not posted" if b.get("recorded_only")
-                     else "posted in the alerts channel" if b.get("delivered") else "not delivered")
-            text = f'<blockquote class="note">{_e(r.named(str(b["said"])) if r.named else b["said"])}</blockquote>' \
-                if b.get("said") else ""
-            lines.append(f'<li><p><strong>{_e(TOLD.get(str(b.get("what")), "How the fix ended"))}</strong> - '
-                         f'<time>{_e(_when(e["at"]))}</time> - {_e(where)}</p>{text}</li>')
-        told_html = '<h2>What WARDEN told people</h2><ul class="decisions">' + "".join(lines) + "</ul>"
-    else:
-        told_html = ""
-    report = ""
-    if r.report:
-        report = ('<h2>Complete findings</h2><p class="lede">Everything WARDEN found and proposed, as its report says '
-                  'it. Open a section to read it.</p>' + findings(r.report))
-    if r.evidence:
-        report += ('<details class="block"><summary>The evidence WARDEN read, exactly as its model was shown it'
-                   f'</summary><pre class="report">{_e(r.evidence)}</pre></details>')
     act = (f'<p class="pad act"><a class="primary button" href="{_e(approve)}">{_e(APPROVE_LABEL)}</a>'
            '<span class="hint">Your passkey decides; this only opens the plan.</span></p>') if approve else ""
     checked = f'<p class="small mono">{_e(integrity(r))}</p>' if integrity(r) else ""
@@ -614,11 +703,62 @@ def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
             'Open all sections</button></p>'
             f'<h2>Summary</h2>{_facts(_summary_facts(r))}'
             f'<h2>Decisions</h2>{_decisions(r)}{linked(r)}{found_links(r)}'
-            f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{told_html}{report}'
+            f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{_told(r)}{_report(r)}'
             f'<details class="block"><summary>Every step on the record</summary><div class="scroll"><table>'
             f'<thead><tr><th scope="col">When</th><th scope="col">Step</th><th scope="col">Details</th></tr></thead>'
-            f'<tbody>{"".join(steps)}</tbody></table></div></details>')
+            f'<tbody>{_steps(r)}</tbody></table></div></details>')
     return _shell(f"WARDEN - {r.alarm or r.id}", "Record", main, script=_OPEN_ALL_JS)
+
+
+def _steps(r: Record) -> str:
+    """Every step on the record but the quiet ones, one table row each: when, what, and its own facts."""
+    steps = []
+    for e in r.rows:
+        if e["kind"] in _QUIET:
+            continue
+        said = (TOLD.get(str(e["body"].get("what")), "Told people how the fix ended")
+                if e["kind"] == _ANNOUNCE else _step(e))
+        brief = _brief(e, r.shown)
+        steps.append(f'<tr><td><time>{_e(_when(e["at"]))}</time></td><td>{_e(said)}</td>'
+                     f'<td class="small">{_e(r.named(brief) if r.named else brief)}</td></tr>')
+    return "".join(steps)
+
+
+def _told(r: Record) -> str:
+    """What WARDEN told people about the fix, each message where it went - nothing when it told nobody."""
+    told = [e for e in r.rows if e["kind"] == _ANNOUNCE]
+    if not told:
+        return ""
+    return ('<h2>What WARDEN told people</h2><ul class="decisions">' + "".join(_told_item(r, e) for e in told)
+            + _UL_END)
+
+
+def _told_item(r: Record, e: dict[str, Any]) -> str:
+    b = e["body"]
+    text = ""
+    if b.get("said"):
+        said = r.named(str(b["said"])) if r.named else b["said"]
+        text = f'<blockquote class="note">{_e(said)}</blockquote>'
+    return (f'<li><p><strong>{_e(TOLD.get(str(b.get("what")), "How the fix ended"))}</strong> - '
+            f'<time>{_e(_when(e["at"]))}</time> - {_e(_where_told(b))}</p>{text}</li>')
+
+
+def _where_told(b: dict[str, Any]) -> str:
+    if b.get("recorded_only"):
+        return "kept here, not posted"
+    return "posted in the alerts channel" if b.get("delivered") else "not delivered"
+
+
+def _report(r: Record) -> str:
+    """The report as WARDEN wrote it, and the evidence its model was shown."""
+    report = ""
+    if r.report:
+        report = ('<h2>Complete findings</h2><p class="lede">Everything WARDEN found and proposed, as its report says '
+                  'it. Open a section to read it.</p>' + findings(r.report))
+    if r.evidence:
+        report += ('<details class="block"><summary>The evidence WARDEN read, exactly as its model was shown it'
+                   f'</summary><pre class="report">{_e(r.evidence)}</pre></details>')
+    return report
 
 
 def _at(value: Any) -> datetime | None:
@@ -652,7 +792,7 @@ def linked(r: Record) -> str:
         items.append(f'<li><p>This incident {_e(links.WORDS[k["side"]])} <a href="{_e(Query().href(incident=k["with"]))}">'
                      f'<span class="mono">{_e(k["with"])}</span></a> - linked by {_e(who(str(k.get("approver"))))} '
                      f'at <time>{_e(_when(_at(k.get("at"))))}</time></p>{note}</li>')
-    out = '<h2>Linked records</h2><ul class="decisions">' + "".join(items) + "</ul>" if items else ""
+    out = '<h2>Linked records</h2><ul class="decisions">' + "".join(items) + _UL_END if items else ""
     if r.proven:
         f = r.proven
         out += (f'<p class="pad"><strong>Proven fix on a linked record:</strong> <span class="mono">{_e(f["entry"])}</span>'
@@ -694,42 +834,58 @@ def _inline(text: str) -> str:
 
 def _section(lines: list[str]) -> str:
     """A report section's lines as paragraphs, lists (one level of nesting) and code blocks."""
-    html_out, in_code, code, open_list = [], False, [], False
+    s = _Section()
     for line in lines:
         if line.strip().startswith(_FENCE):
-            if in_code:
-                html_out.append(f'<pre class="code">{_e(chr(10).join(code))}</pre>')
-                code, in_code = [], False
-            else:
-                if open_list:
-                    html_out.append("</ul>")
-                    open_list = False
-                in_code = True
-            continue
-        if in_code:
-            code.append(line)
-            continue
+            s.fence()
+        elif s.in_code:
+            s.code.append(line)
+        else:
+            s.text(line)
+    if s.in_code and s.code:
+        s.out.append(f'<pre class="code">{_e(chr(10).join(s.code))}</pre>')
+    s.close_list()
+    return "".join(s.out)
+
+
+@dataclass
+class _Section:
+    """_section's reading so far: the HTML, the code block being read, and whether a list is open."""
+
+    out: list[str] = field(default_factory=list)
+    code: list[str] = field(default_factory=list)
+    in_code: bool = False
+    open_list: bool = False
+
+    def close_list(self) -> None:
+        if self.open_list:
+            self.out.append(_UL_END)
+            self.open_list = False
+
+    def fence(self) -> None:
+        """A fence line closes the code block being read, or opens one (closing any open list first)."""
+        if self.in_code:
+            self.out.append(f'<pre class="code">{_e(chr(10).join(self.code))}</pre>')
+            self.code, self.in_code = [], False
+        else:
+            self.close_list()
+            self.in_code = True
+
+    def text(self, line: str) -> None:
+        """A line outside code: a list item, a list item's own second line, or a paragraph."""
         item = line.lstrip()
         if item.startswith("- "):
-            if not open_list:
-                html_out.append("<ul>")
-                open_list = True
+            if not self.open_list:
+                self.out.append("<ul>")
+                self.open_list = True
             nested = ' class="sub"' if line.startswith("  ") else ""
-            html_out.append(f"<li{nested}>{_inline(item[2:])}</li>")
-            continue
-        if open_list and line.startswith("  ") and item:  # a list item's own second line
-            html_out.append(f'<li class="more-line">{_inline(item)}</li>')
-            continue
-        if open_list:
-            html_out.append("</ul>")
-            open_list = False
-        if item:
-            html_out.append(f"<p>{_inline(item)}</p>")
-    if in_code and code:
-        html_out.append(f'<pre class="code">{_e(chr(10).join(code))}</pre>')
-    if open_list:
-        html_out.append("</ul>")
-    return "".join(html_out)
+            self.out.append(f"<li{nested}>{_inline(item[2:])}</li>")
+        elif self.open_list and line.startswith("  ") and item:  # a list item's own second line
+            self.out.append(f'<li class="more-line">{_inline(item)}</li>')
+        else:
+            self.close_list()
+            if item:
+                self.out.append(f"<p>{_inline(item)}</p>")
 
 
 def findings(markdown: str) -> str:
@@ -768,39 +924,49 @@ def _brief(e: dict[str, Any], shown: Any = None) -> str:
     """A step's own facts, short: the fields a reader looks for. A person by their name, never the list's id, and
     never their whole note (that is in Decisions, above)."""
     b = e["body"]
-    keep = ("status", "action", "target", "entry", "tier", "planned", "why", "flagged", "delivered", "verdict",
-            "policies", "healthy", "found", "firing", "problems", "reasons", "hasty")
-    parts = []
-    for k in keep:
-        if k in b and b[k] not in (None, "", [], {}):
-            v = b[k]
-            if k == "reasons":
-                v = [f"denied by {shown(m.group(1)) if shown else 'an approver'}" if (m := _DENIED.match(str(w)))
-                     else str(w) for w in v]
-            if k in ("status", "verdict") and str(v) in PLAIN:
-                v = PLAIN[str(v)]
-            parts.append(f"{k}: {', '.join(map(str, v)) if isinstance(v, list) else v}")
+    parts = [f"{k}: {_brief_value(k, b[k], shown)}" for k in _BRIEF_KEYS if k in b and b[k] not in (None, "", [], {})]
     return "; ".join(parts)[:400]
 
 
+_BRIEF_KEYS = ("status", "action", "target", "entry", "tier", "planned", "why", "flagged", "delivered", "verdict",
+               "policies", "healthy", "found", "firing", "problems", "reasons", "hasty")
+
+
+def _brief_value(k: str, v: Any, shown: Any) -> Any:
+    """One field of a step, as _brief shows it: a denial by the approver's name, a verdict in words, a list joined."""
+    if k == "reasons":
+        v = [_reason(w, shown) for w in v]
+    if k in ("status", "verdict") and str(v) in PLAIN:
+        v = PLAIN[str(v)]
+    return ', '.join(map(str, v)) if isinstance(v, list) else v
+
+
+def _reason(w: Any, shown: Any) -> str:
+    """A fix run's reason; a denial names the approver by their name, never the list's id."""
+    m = _DENIED.match(str(w))
+    if not m:
+        return str(w)
+    return f"denied by {shown(m.group(1)) if shown else 'an approver'}"
+
+
 def signed_out_page(go: str) -> str:
-    return _shell("WARDEN records", "Records", f'<h1>Sign in to read the records</h1><p class="lede">WARDEN\'s '
+    return _shell(_TITLE, "Records", f'<h1>Sign in to read the records</h1><p class="lede">WARDEN\'s '
                   f'records are for the people on its approver and viewer lists.</p><p class="pad"><a class="primary '
                   f'slack" href="{_e(go)}">Sign in with Slack</a></p>')
 
 
 def missing_page() -> str:
-    return _shell("WARDEN records", "Records", "<h1>No such incident</h1><p class=\"lede\">WARDEN's record holds "
+    return _shell(_TITLE, "Records", "<h1>No such incident</h1><p class=\"lede\">WARDEN's record holds "
                   "nothing under that id. <a href=\"/r\">See every incident</a>.</p>")
 
 
 def unavailable_page() -> str:
-    return _shell("WARDEN records", "Records", "<h1>Sign-in is not set up</h1><p class=\"lede\">WARDEN's records open "
+    return _shell(_TITLE, "Records", "<h1>Sign-in is not set up</h1><p class=\"lede\">WARDEN's records open "
                   "only after Slack says who is reading, and this runtime has no Slack sign-in configured.</p>")
 
 
 def refused_page() -> str:
-    return _shell("WARDEN records", "Records", '<h1>Not on the list</h1><p class="lede">This Slack account is not on '
+    return _shell(_TITLE, "Records", '<h1>Not on the list</h1><p class="lede">This Slack account is not on '
                   "WARDEN's approver or viewer list, so its records are not shown. Ask an approver to add you.</p>")
 
 
