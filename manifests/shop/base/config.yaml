@@ -24,7 +24,10 @@ metadata:
     project: warden
 data:
   OTEL_SDK_DISABLED: "false"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4318"
+  # Plain HTTP on purpose, and the name in full so it is plainly in-cluster: the collector's ClusterIP Service
+  # (scripts/deploy_fullstack_apps.py deploy_otel), reachable on the cluster network only, never through a load
+  # balancer. The collector sends on to X-Ray, Grafana and Datadog over HTTPS.
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"
   OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
   OTEL_TRACES_EXPORTER: "otlp"
   OTEL_METRICS_EXPORTER: "otlp"

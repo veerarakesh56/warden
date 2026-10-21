@@ -5,9 +5,9 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 WARDEN is an AI on-call engineer for AWS. When an alarm fires, it gathers the evidence, finds the likely cause, writes
-a short report in Slack and proposes a fix. Nothing changes until that exact fix is approved, in production always
-by a person; then WARDEN applies it, checks that it worked and undoes it if it did not, and every
-step is recorded.
+a short report in Slack and proposes a fix. Nothing changes until that exact fix is approved: in production always
+by a person, with a passkey; in the `dev` environment by Eldane, a second AI that reviews the fix, unless a person
+says no first. Then WARDEN applies it, checks that it worked and undoes it if it did not, and every step is recorded.
 
 ## How it works
 
@@ -19,8 +19,11 @@ step is recorded.
 4. **Ordinary code checks the answer.** Fixed rules, not the AI, decide whether the fix may be offered, is too risky,
    or should go to a person with no fix at all.
 5. **It reports in Slack:** what broke, the likely cause, the proposed fix and who should act.
-6. **An approver approves the exact fix,** with a passkey on WARDEN's approval page (or a signing key on the
-   command line). In production that is always a person. If anything the fix depends on changes first, WARDEN makes the plan again and asks again.
+6. **The exact fix is approved.** In production that is always a person, with a passkey on WARDEN's approval page
+   (or a signing key on the command line). In `dev`, Eldane - a second Claude model that reviews the fix and is
+   always labelled an AI - approves it alone when it agrees; the channel is told, and a person can deny it with their
+   passkey for five minutes, and until the apply step starts. People can still discuss the incident in Slack and
+   ask for a new plan. If anything the fix depends on changes first, WARDEN makes the plan again and asks again.
 7. **It applies the fix once, checks that the service recovered, and undoes the fix if it did not.**
 
 [![WARDEN: how it fits together](docs/diagrams/architecture-overview.png)](docs/diagrams/architecture-overview.svg)
@@ -34,9 +37,12 @@ answer and report, and nothing changes until the exact fix is approved. Click a 
 
 ## What keeps it safe
 
-- **Nothing is applied without approval.** The AI only suggests. A change runs only after an approver on the
-  approver list approves that exact fix; WARDEN never applies one on its own. In production every approver is a
-  person.
+- **Nothing is applied without a signed approval of that exact fix.** The AI that diagnoses only suggests. In
+  production the approval is always a person's. In `dev` it may be Eldane's, the AI critic's: its own zone, its own
+  signing key, small reversible fixes only (tiers T1 and T2), never a change to WARDEN itself, never while the kill
+  switch is on - and a person's "no" overrides it. A failed fix, a rollback, a person's veto, a change of either
+  model or a missed catch trial (a planted bad plan Eldane said yes to) puts `dev` back to "a person approves" until
+  a person signs it back on (`warden autonomy enable`, [OPERATIONS.md](docs/OPERATIONS.md)).
 - **A kill switch.** `warden killswitch on` stops every fix at once. Turning it off again needs a signed approval.
 - **Reading and writing are kept apart.** The parts that gather evidence can only read. Writing uses a separate
   identity with tight limits: on AWS, a short-lived session for one approved fix; on Kubernetes, a deployment can be
@@ -60,7 +66,12 @@ the same way). It is not offered as a product to adopt as-is. Read [the benchmar
 - **No published run has applied a fix on a live AWS account.** WARDEN has read a real AWS account, and its fixes
   are tested in CI against a real Kubernetes cluster (k3d) and real database servers.
 - **It can be wrong.** The AI does not always give the same answer to the same evidence, and a confident,
-  well-supported wrong answer can still reach the approver. That is why every fix waits for an approval.
+  well-supported wrong answer can still reach the approver. That is why every production fix waits for a person.
+- **In `dev`, an AI approves another AI's fix.** Eldane is the other Claude model (Opus 5.5 or Sonnet 5.5) from the
+  one that diagnosed, on the same API key. Models of one family share blind spots and tend to prefer answers like
+  their own; what is done about it - a blind first pass, citations checked in code, catch trials, demotion at the
+  first failure, a person's veto - is in [`eldane.py`](src/warden/eldane.py). It has not yet approved a fix on a live
+  account.
 - **It fixes only what is on its list.** Anything else, including database failover, schema changes and anything
   that deletes, is handed to a person.
 - **It sees only what its access allows,** and masking works from known patterns: a secret in a format no pattern
@@ -108,11 +119,13 @@ With the [Temporal CLI](https://docs.temporal.io/cli) installed:
 temporal server start-dev                                          # a local Temporal server
 export WARDEN_TEMPORAL_KEY=$(python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
 WARDEN_MOCK=1 warden worker &                                      # --platform none: every live change is refused
-WARDEN_MOCK=1 warden incident --incident inc-002                   # diagnose as a workflow
+printf '%s' '{"rule": "PodOOMKilled", "state": "ALARM", "transitioned_at": "2026-08-21T14:11:00Z", "alert": {"alert_id": "inc-002", "name": "PodOOMKilled", "severity": "high", "service": "checkout", "environment": "prod", "summary": "Repeated OOM kills", "started_at": "2026-08-21T14:11:00Z"}}' > event.json
+WARDEN_MOCK=1 warden intake event.json                             # an alarm event: started, grouped or escalated
 ```
 
 To let a worker change something, connect a platform (`warden worker --platform k8s|db|aws|all`) and approve a plan
-with `warden status <workflow-id>` and `warden approve <workflow-id> --plan-hash <hash> --approver <id> --key <pem>`.
+with `warden status <workflow-id>` and `warden approve <workflow-id> --plan-hash <hash> --approver <id> --key ~/.warden/<id>.pem`
+(key files are read only from the key folder, `WARDEN_KEY_DIR`, default `~/.warden`).
 
 ### Deploy it
 
@@ -169,8 +182,8 @@ alert -> gather evidence -> redact -> quarantine -> diagnose (one model call) ->
    proposal to go to an approver. Each verdict lists every rule that fired. New rules run in observe mode first
    (P25-P28 today): recorded on every verdict, obeyed by none, until they are measured.
 5. **A fix is a plan, not a command.** An allowed proposal opens a plan from a fixed catalogue, made from what WARDEN
-   reads live. An approver approves the plan's hash (in production, a person). WARDEN applies it once, checks that
-   the service recovered, and rolls back if it did not.
+   reads live. An approver approves the plan's hash: in production a person; in `dev` Eldane, the AI critic, unless a
+   person denies it first. WARDEN applies it once, checks that the service recovered, and rolls back if it did not.
 
 Everything runs as [Temporal](https://temporal.io) workflows: `IncidentWorkflow` for a diagnosis and one
 `RemediationWorkflow` per target. The full design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and why the
@@ -220,10 +233,12 @@ flowchart TB
     subgraph REM[Remediation activities - <i>activities.py</i>]
         PLAN[resolve_plan: catalogue entry -> exact plan<br/>from live state, plan hash; environment<br/>and self-target checks <i>catalog, environments</i>]
         GATE[gate: bounds, cool-down, kill switch,<br/>change freeze, approval-fatigue cap<br/><i>bounds, freeze</i>]
+        CRIT["critic_review, when the run has it (patched eldane-critic):<br/>Eldane, the AI critic, in its own zone, the other Claude<br/>model than the diagnosis, blind first pass; signs in dev at L2 (a person's<br/>no still wins) - else a person decides <i>eldane, autonomy</i><br/>autonomy_state / autonomy_enable: a person's signed<br/>re-enable after a demotion (AutonomyWorkflow)"]
         APPR[check_approval / check_passkey<br/>signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
         APPLY[precheck - apply - check_success<br/>3 healthy checks, re-checks at T+15 and T+60<br/>record_result; rollback when not recovered<br/>side_effects: other alarms after the fix<br/>again_alert: diagnosed again after a relapse]
         FIN[finish: audit row, change record<br/>summary_owed: the incident's one message<br/>when a run ends before any said it<br/><i>changes.py</i>]
         PLAN --> GATE --> APPR --> APPLY --> FIN
+        GATE -.->|"if the run has the critic step"| CRIT -.->|"Eldane's signed approval, L2 dev only"| APPR
     end
     RW --> PLAN
     APPR -.->|"announce: the request with the incident's summary,<br/>expired, how it ended; approved, denied and<br/>fixed kept on the records page (records.py)"| NOTE
@@ -282,8 +297,8 @@ Each control below is enforced in code and covered by tests; the limits are stat
 | **Quarantine** | Untrusted text becomes numbered, typed facts; the model's citations must point at them. An optional local detector (Meta's Llama Prompt Guard 2, `WARDEN_TRIPWIRE`) escalates text that looks like an injection. | The detector misses some attack shapes; it is a tripwire, not the defence. |
 | **Closed action list** | The model must return one action from a fixed enum, or the call fails. | The list is coarse; a person still judges the target. |
 | **Deterministic verifier** | Rules over typed data decide the verdict; confidence can stop an action but never start one. | Rules catch what they were written for; a confident, well-evidenced wrong answer can still reach an approver. |
-| **Trust zones** | In the cloud runtime, each zone (core, read, llm, notify, act) is its own Fargate service with its own task role and secrets. The model zone holds the model's key; it cannot assume the reader or actor roles. Each front-door Lambda has its own role, reading only the secrets its handler reads. | One AWS account per deployment; the zones share it. |
-| **Signed approvals** | A fix applies only with an Ed25519 signature (`warden approve`) or a passkey on the approval page over the exact plan hash. The hash covers the environment, the catalogue, WARDEN's own code and the incident's audit record; if any changes, the plan is made again and put to the approver again. | This deployment has one person on the approver list. The code supports a two-person rule (`required: 2`); one approver's key decides alone where it is 1, and every record says so (`single_approver`). In `dev` only, the labelled bench approver (`bench`, a test key Claude holds) may also approve T1 and T2 plans; WARDEN refuses it in any environment not of the nonprod tier, whatever its entry says (`approvals.environment_refusal`). |
+| **Trust zones** | In the cloud runtime, each zone (core, read, llm, notify, act, critic) is its own Fargate service with its own task role and secrets. The model zone holds the model's key; it cannot assume the reader or actor roles. Each front-door Lambda has its own role, reading only the secrets its handler reads. | One AWS account per deployment; the zones share it. |
+| **Signed approvals** | A fix applies only with an Ed25519 signature (`warden approve`) or a passkey on the approval page over the exact plan hash. The hash covers the environment, the catalogue, WARDEN's own code and the incident's audit record; if any changes, the plan is made again and put to the approver again. | This deployment has one person on the approver list. The code supports a two-person rule (`required: 2`); one approver's key decides alone where it is 1, and every record says so (`single_approver`). In `dev` only, the labelled bench approver (`bench`, a test key Claude holds) may also approve T1 and T2 plans; WARDEN refuses it in any environment not of the nonprod tier, whatever its entry says (`approvals.environment_refusal`). Eldane, the AI critic, is an approver marked `ai`: dev only, T1 and T2, never a passkey, always shown as "Eldane · AI critic", and its approval is checked again right before apply (`autonomy.ai_problems`). |
 | **Bounded writes** | Each platform re-checks its own bounds: Kubernetes restarts or scales up by at most two; databases close only sessions idle in a transaction, for the application's own logins; AWS writes use a short-lived actor session for one plan. | See [Status and limits](#status-and-limits) for what has run where. |
 | **Kill switch and freezes** | `warden killswitch on` stops every remediation; a reset needs a signed approval. Change freezes, cool-downs and an approval-fatigue cap are checked before every apply. | |
 | **Budget** | Per-incident USD and call ceilings (`WARDEN_MAX_USD`, `WARDEN_MAX_CALLS`) and a daily cap (`WARDEN_DAILY_MAX_USD`). With no model, or over the cap, an incident is escalated on the rules alone. | Prices come from `providers.yaml`; a provider that reports no usage is made to over-estimate. |
@@ -299,8 +314,10 @@ escalate.
 | `prod` | the same, plus failover, clear a cache, redrive messages, cancel a query (rule P2 then refuses the irreversible ones) | scale down |
 | any other name | none: it can only escalate to a person | everything (**fails closed**) |
 
-No shipped environment remediates automatically: in both, every fix waits for a signed approval of its exact plan
-(in `dev` that may be the labelled bench approver's, for T1 and T2; in `prod`, always a person's).
+Every fix waits for a signed approval of its exact plan. In `prod` that is always a person's. In `dev` it may be
+Eldane's, alone (`autonomy: L2` in `environments.yaml`), or the labelled bench approver's, for T1 and T2; a person's
+"no" stops either until the apply step starts. Prod's ceiling is L1 - Eldane reviews and is scored, a person approves - and an L2
+for a prod-tier environment is refused when the file is loaded.
 
 ## Configuration
 
@@ -343,7 +360,13 @@ pip install -e ".[postgres]"; WARDEN_BACKEND=postgres warden run --incident inc-
 For Kubernetes, `kubectl apply -k k8s/` installs a read-only ServiceAccount (get and list only, bound per namespace)
 and `k8s/job.yaml` runs one diagnosis as a Job under the `restricted` Pod Security standard. The separate write
 identity is [`k8s/remediation-rbac.yaml`](k8s/remediation-rbac.yaml): get and patch deployments, held by an admission
-policy to the replica count and the restart annotation.
+policy to the replica count and the restart annotation. In the cloud runtime the read and act zones connect Kubernetes
+and the database too (`--platform aws,k8s,db`): reads in each watched environment's platform-reader role (view-only on
+EKS; the database's pg_monitor login), every write in the approved plan's own actor session (on EKS the remediator
+group, bound in `shop` only; on the database the `warden_<env>_terminate` login, an IAM token and no password, its
+server's certificate verified, on the cluster the approved plan was read from). An
+environment with no EKS cluster (`WARDEN_EKS_CLUSTERS`) or database (`WARDEN_DB_ENVIRONMENT`) configured reads and
+changes nothing there; its plans go to a person.
 
 ### MCP server
 
@@ -351,7 +374,7 @@ policy to the replica count and the restart annotation.
 more capability; this one gives it a constraint. `verify_remediation` returns a binding verdict with the policy ids
 that fired, and every response carries `may_execute: false`. `WARDEN_MCP_PROFILE` sets what a client may do: `read`
 (the default) may start a diagnosis and read its workflows; `remediate` may also request a fix, which still needs a
-person's signed approval.
+signed approval - in production a person's.
 
 ## Status and limits
 
@@ -391,7 +414,8 @@ make check     # ruff, unit tests and the eval gate - what CI runs
 ```
 
 Over 5,000 tests (`tests/`, kept a lower bound by `tests/test_docs_honesty.py`) and 26 evals (`evals/`: routing,
-safety invariants, cost, budget, audit trail), plus 41 opt-in live-infrastructure tests (28 against a live
+safety invariants, cost, budget, audit trail), the poisoned-log eval (11 planted-log attacks a model follows, each
+run in dev and prod and followed two ways: 44 runs; [results](docs/BENCHMARKS.md#poisoned-logs-2026-10-17)), plus 42 opt-in live-infrastructure tests (29 against a live
 Kubernetes cluster, 13 against five real database engines), which CI runs against k3d and service containers:
 
 ```bash

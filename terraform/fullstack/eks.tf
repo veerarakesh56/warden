@@ -37,7 +37,7 @@ resource "aws_eks_cluster" "this" {
     subnet_ids              = aws_subnet.private[*].id
     endpoint_public_access  = true
     endpoint_private_access = true # ⛔ see the header
-    public_access_cidrs     = coalesce(var.eks_public_access_cidrs, [local.my_ip_cidr])
+    public_access_cidrs     = local.eks_public_access_cidrs
   }
 
   access_config {
@@ -52,6 +52,49 @@ resource "aws_eks_cluster" "this" {
   }
 
   depends_on = [aws_iam_role_policy_attachment.eks_cluster]
+}
+
+# WARDEN's runtime (environments.yaml `runtime:`) runs in a VPC of its own whose range overlaps this one, so no peering
+# or transit gateway can carry it to the private endpoint (EKS user guide, "Cluster API server endpoint", read
+# 2026-10-17: the private endpoint answers only the cluster's VPC or a connected network). Its Fargate workers reach the
+# public endpoint through their NAT gateways, so those addresses are let in - read by the runtime's own NAT names, never
+# written here. A paused runtime has no NAT and adds nothing; an un-paused one has new addresses, so re-apply this stack
+# after resuming the runtime, or WARDEN's cluster reads and fixes are refused and go to a person until then.
+# Only the runtime stack's own addresses (review, PR 48): its name, and the tags terraform/runtime's provider sets on
+# everything it makes. The runtime lives in this account and in environments.yaml's region; a stack applied in another
+# region would find no addresses and silently leave WARDEN out, so that plan is refused instead.
+data "aws_eips" "runtime_nat" {
+  filter {
+    name   = "tag:Name"
+    values = ["warden-${local.runtime_env}-nat-*"]
+  }
+  filter {
+    name   = "tag:Environment"
+    values = [local.runtime_env]
+  }
+  filter {
+    name   = "tag:Project"
+    values = ["warden"]
+  }
+  filter {
+    name   = "tag:ManagedBy"
+    values = ["terraform"]
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.region == yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region
+      error_message = "WARDEN's runtime runs in environments.yaml's aws_region; this stack's region differs, so its NAT addresses cannot be found to let it reach the cluster endpoint."
+    }
+  }
+}
+
+locals {
+  runtime_env    = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).runtime
+  eks_cidrs_base = coalesce(var.eks_public_access_cidrs, [local.my_ip_cidr])
+  # An endpoint already open to everyone (EKS_PUBLIC_CIDRS, audit A-I-16) needs no more addresses.
+  eks_public_access_cidrs = contains(local.eks_cidrs_base, "0.0.0.0/0") ? local.eks_cidrs_base : distinct(concat(
+  local.eks_cidrs_base, [for ip in data.aws_eips.runtime_nat.public_ips : "${ip}/32"]))
 }
 
 # Whoever runs terraform (the role behind an assumed-role session, not the session) plus any extra
@@ -72,6 +115,20 @@ resource "aws_eks_access_entry" "admin" {
 resource "aws_eks_access_entry" "warden_reader" {
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-platform-reader"
+  # And one read beyond the view policy: the shop's Argo CD Application, to prove its self-heal ignores a restart
+  # (register C4; k8s/argocd/shop.yaml grants exactly that).
+  kubernetes_groups = ["warden-readers"]
+}
+
+# WARDEN's actor writes only as the remediator group (k8s/remediation-rbac.yaml: get and patch Deployments, list HPAs,
+# bound in the shop namespace by manifests/shop/base/warden-rbac.yaml; the admission policy holds each patch to a
+# restart or a bounded scale). No access policy: RBAC alone decides. The username carries the session name - the
+# incident (identity.actor_session) - into the Kubernetes audit log. The role is assumed only for one approved plan.
+resource "aws_eks_access_entry" "warden_actor" {
+  cluster_name      = aws_eks_cluster.this.name
+  principal_arn     = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-actor"
+  kubernetes_groups = ["warden-remediators"]
+  user_name         = "warden-remediator:{{SessionName}}"
 }
 
 resource "aws_eks_access_policy_association" "warden_reader" {
@@ -173,6 +230,16 @@ resource "aws_launch_template" "nodes" {
     }
   }
 
+  # Never a public address, whatever subnet a node lands in (Sonar terraform:S6329, 2026-10-16): the private subnets
+  # give none already, and this keeps it so if the node group's subnets ever change. Security groups set here replace
+  # the ones EKS would choose, so it names the one EKS applies without a template: the cluster security group (pods
+  # use it too - the cache allows it, main.tf).
+  network_interfaces {
+    associate_public_ip_address = false
+    delete_on_termination       = true
+    security_groups             = [aws_eks_cluster.this.vpc_config[0].cluster_security_group_id]
+  }
+
   # Hop limit 1: a pod in its own network namespace cannot reach IMDS, so it cannot take the NODE role's
   # credentials (audit A-I-12). What needs IMDS runs on the host network and still reaches it: vpc-cni,
   # kube-proxy, the Pod Identity agent, and the CloudWatch agent (its chart sets agent.hostNetwork: true,
@@ -224,8 +291,9 @@ resource "aws_eks_addon" "this" {
 # The observability agent writes here. Created by terraform so a destroy removes it: left to the
 # agent it would outlive the stack, untagged.
 resource "aws_cloudwatch_log_group" "container_insights" {
-  name              = "/aws/containerinsights/${aws_eks_cluster.this.name}/performance"
-  retention_in_days = 1
+  name = "/aws/containerinsights/${aws_eks_cluster.this.name}/performance"
+  # 14 days (Sonar terraform:S6413, 2026-10-16): enough to look back at an incident found days later.
+  retention_in_days = 14
 }
 
 # --------------------------------------------------------------------------- catalog-api's identity

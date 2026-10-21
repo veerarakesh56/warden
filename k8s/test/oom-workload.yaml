@@ -57,6 +57,7 @@ spec:
             requests:
               cpu: 10m
               memory: 32Mi
+              ephemeral-storage: 16Mi  # its logs only (Sonar kubernetes:S6897)
             limits:
               cpu: 200m
               memory: 48Mi
