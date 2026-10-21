@@ -106,6 +106,18 @@ def test_a_ground_truth_folder_that_links_out_of_the_run_is_refused_before_any_r
     assert not (elsewhere / "superseded").exists()
 
 
+@pytest.mark.parametrize("linked", ["reports", "ground-truth/superseded"])
+def test_supersede_refuses_a_reports_or_superseded_folder_that_links_out_of_the_run(tmp_path, linked):
+    run, elsewhere = tmp_path / "run", tmp_path / "elsewhere"
+    (run / "ground-truth").mkdir(parents=True)
+    elsewhere.mkdir()
+    (run / linked).symlink_to(elsewhere, target_is_directory=True)
+    (run / "ground-truth" / "fs-1.json").write_text(json.dumps({"runs": []}), encoding="utf-8")
+    with pytest.raises(SystemExit, match="refused - it does not lie inside"):
+        runner.supersede(run, "fs-1")
+    assert list(elsewhere.iterdir()) == []
+
+
 # --------------------------------------------------------------------------- helios_gate
 
 

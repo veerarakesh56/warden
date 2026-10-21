@@ -101,3 +101,16 @@ def test_a_sibling_whose_name_only_starts_like_a_working_place_is_refused(write,
     with pytest.raises(SystemExit, match="refused: .* is outside the places the tools work"):
         write(sibling / "stack.json")
     assert (sibling / "stack.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_apps_refuses_a_default_stack_json_that_links_out_of_the_working_places(tmp_path, monkeypatch):
+    """No --stack: <out>/stack.json is checked too, so a symlink in --out leads nowhere else (CodeRabbit, PR 63)."""
+    work, elsewhere = tmp_path / "work", tmp_path / "elsewhere"
+    work.mkdir()
+    elsewhere.mkdir()
+    (elsewhere / "stack.json").write_text(json.dumps({"region": "r"}), encoding="utf-8")
+    (work / "stack.json").symlink_to(elsewhere / "stack.json")
+    monkeypatch.setattr(apps.paths, "work_roots", lambda: [work])
+    argv = ["--out", str(work), "deploy", "ecs"]
+    with pytest.raises(SystemExit, match="refused: .* is outside the places"):
+        apps.main(argv, aws=lambda service: _NoCall(), runner=lambda *a, **k: "")

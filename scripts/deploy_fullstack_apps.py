@@ -658,7 +658,8 @@ def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
     # (warden.paths; Sonar pythonsecurity:S2083, 2026-10-17). Both are used through the checked path only.
     try:
         out = paths.inside(args.out)
-        stack_path = paths.inside(args.stack) if args.stack else out / "stack.json"
+        # The default is checked too: a stack.json in --out that links elsewhere is refused (CodeRabbit, PR 63).
+        stack_path = paths.inside(args.stack if args.stack else out / "stack.json")
     except ValueError as e:
         raise SystemExit(f"refused: {e}") from None
     if out == ROOT or ROOT in out.parents:

@@ -1553,19 +1553,22 @@ def supersede(out: pathlib.Path, scenario_id: str) -> str:
     not read - so a re-run scenario is counted once, while the evidence that it WAS re-run, and why,
     stays in the bundle for anyone to read.
     """
+    # Every folder this moves between is checked to lie inside the run first: a symlinked ground-truth/, reports/ or
+    # superseded/ would carry a record or a report out of it (CodeRabbit, PR 63).
     gt_dir = _run_part(out, "ground-truth")
     current = _in_folder(gt_dir, f"{scenario_id}.json")
-    kept = gt_dir / "superseded"
+    kept = _run_part(gt_dir, "superseded")
     kept.mkdir(parents=True, exist_ok=True)
     attempt = 1
     while (kept / f"{scenario_id}.attempt-{attempt}.json").exists():
         attempt += 1
     record = json.loads(current.read_text(encoding="utf-8"))
-    reports = out / "reports" / "superseded"
+    report_root = _run_part(out, "reports")
+    reports = _run_part(report_root, "superseded")
     reports.mkdir(parents=True, exist_ok=True)
     for run in record.get("runs") or []:
         name = f"{scenario_id}.attempt-{attempt}.{run['index']}.json"
-        src = _run_part(out, str(run["report"]), [out / "reports"])  # read back from the record: a report only
+        src = _run_part(out, str(run["report"]), [report_root])  # read back from the record: a report only
         if src.exists():
             src.replace(_in_folder(reports, name))
         run["report"] = f"reports/superseded/{name}"
