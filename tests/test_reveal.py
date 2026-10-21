@@ -14,7 +14,7 @@ import pytest
 from test_approval_page import setup as page_setup  # noqa: F401
 from test_records_g10w import INC, _page
 from test_slack_login_g10q import OTHER
-from test_vault import EMAIL, MAPPING, FakeKms, FakeSsm, _sealed_pseudonym_key
+from test_vault import EMAIL, MAPPING, FakeKms
 from warden import reveal, slack_login, vault
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -28,7 +28,7 @@ def site(page_setup, tmp_path, monkeypatch):  # noqa: F811
     monkeypatch.delenv("WARDEN_RECORD_VIEWERS", raising=False)
     page, log = _page(page_setup, tmp_path)
     sealed = vault.Vault(key="alias/warden-ops-vault", environment="ops", kms=FakeKms("read"),
-                         ssm=FakeSsm(_sealed_pseudonym_key())).seal(INC, MAPPING)
+                         mac_key="alias/warden-ops-pseudonym").seal(INC, MAPPING)
     vault.store(log, sealed)
     opener = vault.Vault(key="alias/warden-ops-vault", environment="ops", kms=FakeKms("approval"))
     monkeypatch.setattr(vault, "_BUILT", {("alias/warden-ops-vault", "ops"): opener})
