@@ -47,7 +47,10 @@ def take(log: AuditLog, correlation_id: str, key: str, *, workflow_id: str, run_
          now: datetime) -> str:
     """Take `key` for this run: "" when it holds it (taken now, or already), else why not - and the refusal is a row."""
     if not key or not workflow_id:
-        return "the target's lock needs a target and a workflow to hold it"
+        why = "the target's lock needs a target and a workflow to hold it"
+        log.append(correlation_id, REFUSED, {"key": key, "workflow_id": workflow_id, "run_id": run_id,
+                                             "plan_hash": plan_hash, "why": why})
+        return why
 
     def held_by_another() -> str:
         row = holder(log, key, now)
