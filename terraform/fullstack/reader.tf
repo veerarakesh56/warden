@@ -143,6 +143,8 @@ data "aws_iam_policy_document" "fs_reader" {
       "logs:StopQuery",
       "rds:DescribeDBInstances",
       "rds:DescribeEvents",
+      # Quotas that have a usage metric (B14, src/warden/quotas.py, on with WARDEN_QUOTAS=1): no resource is named.
+      "servicequotas:ListServiceQuotas",
       "sts:GetCallerIdentity",
       # Failed traces of the named services (G10-54, src/warden/xray.py, on with WARDEN_XRAY=1): no resource type.
       "xray:GetTraceSummaries",
