@@ -247,6 +247,6 @@ def seal_incident(log: Any, incident: str, mapping: dict[str, str], *, run_id: s
         if vault is None:
             return ""
         return store(log, vault.seal(incident, mapping), run_id)
-    except Exception as exc:  # noqa: BLE001 - whatever stops a seal, the incident goes on (the map is discarded)
+    except Exception as exc:  # noqa: BLE001  # whatever stops a seal, the incident goes on (the map is discarded)
         log.append(incident, UNAVAILABLE, {"run_id": run_id, "error": type(exc).__name__, "values": len(mapping)})
         return ""
