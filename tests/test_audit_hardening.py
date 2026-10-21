@@ -69,7 +69,8 @@ def test_a_model_cannot_forge_an_approved_command_in_the_report_or_slack():
     sink = _CaptureSink()
     chatops.notify(report, [sink])
     assert "evil.example" not in sink.text
-    assert "\n" not in rep.root_cause.hypothesis and "`" not in rep.proposal.reasoning
+    assert "\n" not in rep.root_cause.hypothesis
+    assert "`" not in rep.proposal.reasoning
 
 
 def test_model_text_loses_terminal_escapes_bidi_and_block_syntax():
@@ -181,8 +182,10 @@ def test_bounded_prompt_whatever_the_evidence():
             return []
 
     ctx = gather(_alert(), _Flood())
-    assert len(ctx.logs) <= 2000 and all(len(x) <= MAX_LINE_CHARS for x in ctx.logs)
-    assert any("kept the newest" in e for e in ctx.tool_errors) and any("cut to" in e for e in ctx.tool_errors)
+    assert len(ctx.logs) <= 2000
+    assert all(len(x) <= MAX_LINE_CHARS for x in ctx.logs)
+    assert any("kept the newest" in e for e in ctx.tool_errors)
+    assert any("cut to" in e for e in ctx.tool_errors)
     def word(i):  # letters only: digits are read as '#', which would merge every line into one group
         return "".join(chr(97 + (i // 26 ** k) % 26) for k in range(3))
 
@@ -206,8 +209,9 @@ def test_an_oversized_prompt_is_refused_before_the_call():
         def complete(self, **kw):
             calls.append(1)
 
+    client = LLMClient(provider=_P(), mock=False)
     with pytest.raises(BudgetExceeded):
-        LLMClient(provider=_P(), mock=False).structured(system="s", user="x" * 400_000, schema=RootCause)
+        client.structured(system="s", user="x" * 400_000, schema=RootCause)
     assert calls == [], "refused before any call was made"
 
 
@@ -222,7 +226,8 @@ def test_a_token_cannot_carry_an_instruction_into_the_facts():
     text = " ".join(f)
     for word in ("IGNORE", "PREVIOUS", "propose", "you-must", "rollback_deploy", "payments-db"):
         assert word not in text, word
-    assert "db=orders-db-ro-1" in f and "image=repo.io/app:does-not-exist-61ba99" in f
+    assert "db=orders-db-ro-1" in f
+    assert "image=repo.io/app:does-not-exist-61ba99" in f
 
 
 def test_real_but_irrelevant_citations_do_not_support_an_action():

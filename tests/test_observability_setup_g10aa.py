@@ -136,7 +136,8 @@ def test_one_api_key_for_both_is_refused_and_nothing_is_stored(monkeypatch):
     _piped(monkeypatch, API_KEY, ADMIN_APP, API_KEY)
     with pytest.raises(SystemExit, match="is the runtime's"):
         mod.main(ARGS, aws=aws, dd_call=dd)
-    assert aws.secrets == {"warden/ops/datadog-api-key": "", "warden/ops/datadog-app-key": ""} and not aws.params
+    assert aws.secrets == {"warden/ops/datadog-api-key": "", "warden/ops/datadog-app-key": ""}
+    assert not aws.params
     assert dd.keys == {}
 
 
@@ -158,7 +159,8 @@ def test_the_setup_keys_are_asked_for_never_read_from_disk(tmp_path, monkeypatch
     _piped(monkeypatch, API_KEY, ADMIN_APP, AGENT_KEY)
     aws = Aws()
     assert mod.main(ARGS, aws=aws, dd_call=DD()) == 0
-    assert aws.secrets["warden/ops/datadog-api-key"] == API_KEY and "WARNING" not in capsys.readouterr().err
+    assert aws.secrets["warden/ops/datadog-api-key"] == API_KEY
+    assert "WARNING" not in capsys.readouterr().err
 
     class _Tty(io.StringIO):
         def isatty(self):

@@ -31,7 +31,8 @@ def test_every_verdict_tells_the_on_call_what_is_theirs_to_do():
     assert "offers the undo of that change as a plan to approve or deny" in said["offered"]
     assert "**On-call**: decide what to do: WARDEN runs nothing here" in said["escalated"]
     assert "**On-call**: decide what to do: WARDEN runs nothing here" in said["rejected"]
-    assert "**On-call**: look at this incident" in said["handed"] and "nothing to run" not in said["handed"]
+    assert "**On-call**: look at this incident" in said["handed"]
+    assert "nothing to run" not in said["handed"]
     assert "**On-call**: nothing to run; check that the alarm clears." in said["quiet"]
 
 
@@ -54,7 +55,8 @@ def test_the_team_that_owns_the_resource_is_named_by_its_kind_and_developers_whe
     changed = _report(logs=[change]).markdown
     assert ("**Who changed it**: the newest change before the alert was `UpdateService` on `warden-dev-tick` at "
             "2026-10-15T11:57:16Z by `role/warden-dev-deploy`") in changed
-    assert "**Developers**" not in rule and "**DBA / data**" not in rule
+    assert "**Developers**" not in rule
+    assert "**DBA / data**" not in rule
     table = _report(labels={"dynamodb_table": "warden-dev-orders", "alarm": "a"}).markdown
     assert "**DBA / data**: owns warden-dev-orders" in table
     deployed = _report(labels={"lambda": "warden-dev-checkout"},
