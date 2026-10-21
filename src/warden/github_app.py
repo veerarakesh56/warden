@@ -236,14 +236,33 @@ def _line(text: str, what: str) -> str:
     return text
 
 
-def _paths(paths: Any) -> list[str]:
-    from .code_gate import path_refusal
+def _paths(paths: Any, *, write: bool = False) -> list[str]:
+    """Plain relative paths (the code gate's CG2); to `write`, also never one the gate never lets a change touch (CG4)
+    and only one data/code_fix.yaml allows (CG3) - checked here again, whatever the caller checked, so no bug in a
+    caller writes CODEOWNERS, WARDEN's own code or its tests."""
+    from .code_gate import default_limits, never_touched, path_refusal
 
     out = list(paths)
     for path in out:
         if not isinstance(path, str) or path_refusal(path):
             raise GitHubAppError("a file path is not a plain relative path")
+        if write and (never_touched(path) or not default_limits().allows(path)):
+            raise GitHubAppError(f"WARDEN never writes {path}: outside the code gate's allowed paths")
     return out
+
+
+# GitHub's closing keywords (`Fixes #12` closes issue 12 when the pull request merges) and @-mentions (which notify a
+# person or a team): a body WARDEN writes may quote a model's or a commit's text, which must not do either.
+_CLOSING = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b(\s*:?\s*)(?=[\w.-]*/?[\w.-]*#\d|https://)",
+                      re.IGNORECASE)
+_MENTION = re.compile(r"(?<![\w.`@/])@(?=[A-Za-z0-9])")
+MAX_BODY = 60_000  # under GitHub's 65,536 characters for a body
+
+
+def plain_body(text: str) -> str:
+    """A commit's or pull request's body with no closing keyword and no @-mention left in it, cut to MAX_BODY."""
+    text = _CLOSING.sub(lambda m: "see" + m.group(1), text or "")
+    return _MENTION.sub("", text)[:MAX_BODY]
 
 
 class RepoWriter:
@@ -298,11 +317,11 @@ class RepoWriter:
         if not additions and not deletions:
             raise GitHubAppError("a commit with no change")
         changes = {"additions": [{"path": p, "contents": base64.b64encode(additions[p]).decode("ascii")}
-                                 for p in _paths(sorted(additions))],
-                   "deletions": [{"path": p} for p in _paths(deletions)]}
+                                 for p in _paths(sorted(additions), write=True)],
+                   "deletions": [{"path": p} for p in _paths(deletions, write=True)]}
         commit_input = {"branch": {"repositoryNameWithOwner": self.repo, "branchName": _branch(branch)},
                         "expectedHeadOid": _sha(expected_head, "the expected head"),
-                        "message": {"headline": _line(headline, "the commit headline"), "body": body},
+                        "message": {"headline": _line(headline, "the commit headline"), "body": plain_body(body)},
                         "fileChanges": changes}
         status, got = self._api.call("POST", "/graphql", token=self._token.token,
                                      body={"query": _COMMIT, "variables": {"input": commit_input}})
@@ -322,14 +341,18 @@ class RepoWriter:
         return branch
 
     def open_pull_request(self, *, head: str, base: str, title: str, body: str) -> tuple[int, str]:
-        """A pull request from WARDEN's branch into `base`, which must be the repository's default branch (read from
-        GitHub here, not trusted from the caller); its number and address."""
+        """A pull request from a branch this writer created into `base`, which must be the repository's default branch
+        (read from GitHub here, not trusted from the caller); its number and address. Its body keeps no closing keyword
+        and no @-mention."""
         if not _BASE.fullmatch(base or "") or base.startswith(BRANCH_PREFIX.rstrip("/")):
             raise GitHubAppError("a pull request's base must be one of the repository's own branches, never WARDEN's")
+        head = _branch(head)
+        if head not in self._created:
+            raise GitHubAppError("WARDEN opens a pull request only from a branch it has just created")
         if base != self.default_branch():
             raise GitHubAppError("a pull request's base must be the repository's default branch, where CI runs")
-        status, got = self._call("POST", "/pulls", {"head": _branch(head), "base": base,
-                                                     "title": _line(title, "the title"), "body": body,
+        status, got = self._call("POST", "/pulls", {"head": head, "base": base,
+                                                     "title": _line(title, "the title"), "body": plain_body(body),
                                                      "maintainer_can_modify": False})
         _expect(status, 201, f"the pull request into {base}")
         number = got.get("number") if isinstance(got, dict) else None
