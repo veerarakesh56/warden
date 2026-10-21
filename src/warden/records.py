@@ -163,9 +163,9 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
     ids = sorted(getattr(policy, "approvers", {}) if policy is not None else {}, key=len, reverse=True)
 
     def shown(approver: str) -> str:
-        if policy is not None and approver in getattr(policy, "approvers", {}):
-            return policy.shown(approver)
-        return "an approver"  # never the list's id
+        name = policy.shown(approver) if policy is not None and approver in getattr(policy, "approvers", {}) else ""
+        # Never the list's id: an entry with no name is shown as "an approver" (CodeRabbit, PR 79).
+        return name if name and name != approver else "an approver"
 
     def named(text: str) -> str:
         """Machine text that names an approver by the list's id (a refusal's problems), with their name instead."""
@@ -614,7 +614,7 @@ def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
             'Open all sections</button></p>'
             f'<h2>Summary</h2>{_facts(_summary_facts(r))}'
             f'<h2>Decisions</h2>{_decisions(r)}{linked(r)}{found_links(r)}'
-            f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{told_html}{report}'
+            f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{told_html}{report}{postmortem_draft(r)}'
             f'<details class="block"><summary>Every step on the record</summary><div class="scroll"><table>'
             f'<thead><tr><th scope="col">When</th><th scope="col">Step</th><th scope="col">Details</th></tr></thead>'
             f'<tbody>{"".join(steps)}</tbody></table></div></details>')
@@ -673,6 +673,17 @@ def found_links(r: Record) -> str:
     return ('<h2>Related records WARDEN found</h2><p class="lede">From WARDEN\'s own signed rows. A person confirms a '
             'shared cause with <code>warden link</code>; only then can a fix there count as proven here.</p>'
             f'<ul class="flags">{items}</ul>')
+def postmortem_draft(r: Record) -> str:
+    """The incident's postmortem draft (postmortem.py), folded, marked a draft, with a copy as text."""
+    from . import postmortem
+
+    d = postmortem.draft(r)
+    body = "".join(f"<h3>{_e(heading)}</h3><ul>" + "".join(f"<li>{_e(i)}</li>" for i in items) + "</ul>"
+                   for heading, items in d.sections)
+    return ('<details class="block"><summary>Postmortem draft <span class="badge warn">Draft</span></summary>'
+            f'<p class="lede"><strong>{_e(postmortem.DRAFT)}</strong></p><p class="small">{_e(d.checked)}</p>{body}'
+            '<details class="block"><summary>The draft as text, to copy</summary>'
+            f'<pre class="report">{_e(postmortem.markdown(d))}</pre></details></details>')
 
 
 _FENCE = "```"

@@ -191,7 +191,8 @@ def test_open_all_opens_every_panel_and_every_page_leads_to_all_incidents(page_s
     page = records.incident_page(r)
     assert 'querySelectorAll("details.block")' in page
     assert 'id="all"' in page
-    assert page.count('<details class="block') == page.count("details class=\"block finding\"") + 2  # evidence, steps
+    # evidence, steps, and the postmortem draft with its copy as text (item 16b)
+    assert page.count('<details class="block') == page.count("details class=\"block finding\"") + 4
     bare = records.record(log, INC, _named(page_setup[0].policy))
     bare.report = ""
     assert 'id="all"' in records.incident_page(bare)  # the button with no report too

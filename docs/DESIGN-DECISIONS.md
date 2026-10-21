@@ -423,6 +423,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Linked incident records - `links.py`: built. Incident tools link incidents by hand (incident.io, PagerDuty's
   related incidents); WARDEN's links must be signed by an approver, read two ways and lead only to a fix its own
   record shows applied and verified, which no tool's links do.
+- Postmortem drafts - `postmortem.py`: built. Incident tools draft postmortems with a model from chat and
+  timelines; WARDEN's draft restates only its signed record, so each sentence can be checked against the steps
+  on the same page, and no model writes it.
 - The pipeline and its outputs - `graph.py`, `reporting.py`, `playbook.py`, `cli.py`, and the
   approval page `approval_page.py` (its ceremonies are py_webauthn's): WARDEN's own product surface.
 - Where a command-line path may point - `paths.py`: the standard library's `pathlib` (resolve, is_relative_to) and
