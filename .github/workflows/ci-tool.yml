@@ -29,6 +29,9 @@ on:
   schedule:
     - cron: "17 3 * * 1"
   pull_request:
+    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # marked ready for review, and on every push after that.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths-ignore:
       - "terraform/fullstack/**"
@@ -65,7 +68,8 @@ jobs:
   # bandit: Python security smells at medium severity and up (reviewed false positives carry a
   # `# nosec <id>`). zizmor: workflow injection, unpinned actions, token persistence, permissions.
   security:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -73,14 +77,15 @@ jobs:
           persist-credentials: false
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
       # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
+          cache-suffix: "ci-tool-security"  # one cache per job: jobs sharing a key raced to save it
       - name: Install the scanners (locked)
-        run: uv sync --locked --group scan
+        run: uv sync --locked --no-build --group scan
       # Every locked package - every extra and group, not only what this job installs - audited from the
       # lock itself, hashes required.
       - name: Dependencies with known vulnerabilities
@@ -93,7 +98,8 @@ jobs:
         run: zizmor --offline --format plain .github
 
   check:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -102,22 +108,24 @@ jobs:
 
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
       # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
+          cache-suffix: "ci-tool-check"  # one cache per job: jobs sharing a key raced to save it
 
       - name: Install (locked)
-        run: uv sync --locked --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres
+        run: uv sync --locked --no-build --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres --extra redis
 
       # The core package must import with NO vendor SDK present. providers.py imports them lazily,
       # and this proves it - otherwise a missing extra becomes an ImportError at startup for a
       # provider the user never asked for.
       - name: Core imports without any provider SDK
         run: |
-          UV_PROJECT_ENVIRONMENT=/tmp/bare uv sync --locked
+          # env -u: the job's activated .venv is not this environment, and uv warned that it ignored it.
+          env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=/tmp/bare uv sync --locked --no-build
           /tmp/bare/bin/python -c "import warden; from warden.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
 
       - name: Lint
@@ -133,8 +141,15 @@ jobs:
       # independent of the others - a test that needs another's state fails here first.
       # A test still running after 5 min prints every thread's stack (pytest's faulthandler): on 4886152 the step
       # hung for 15 min and was cancelled with nothing saying which test.
+      # tests/integration runs in the k8s-regression and db jobs, against a live cluster and live databases, where a
+      # skip fails the job; here it could only skip (44 skips per run). With every extra the suite needs installed
+      # (redis included), nothing here skips either - and a new skip fails the step, as in those jobs.
       - name: Unit tests
-        run: pytest tests -q -n auto -rs -o faulthandler_timeout=300
+        run: |
+          set -o pipefail
+          pytest tests -q -n auto -rs -o faulthandler_timeout=300 --ignore=tests/integration | tee unit.txt
+          grep -qE ' skipped' unit.txt && { echo "::error::a unit test skipped (see the short summary above)"; exit 1; }
+          echo "every unit test ran"
 
       - name: Eval gate
         run: pytest evals -q
@@ -155,7 +170,8 @@ jobs:
           test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::expected exactly one AUTO_SAFE - fixtures probably missing"; exit 1; }
 
   docker:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -184,6 +200,10 @@ jobs:
             "import awslambdaric, warden.lambdas as l; assert all(callable(getattr(l, n)) for n in ('alarm', 'alertmanager', 'approval')); print('handlers ok')"
           docker run --rm warden-runtime:ci worker --help | grep -q -- "--platform" || { echo "::error::no worker command"; exit 1; }
           test "$(docker run --rm --entrypoint id warden-runtime:ci -u)" = "10001" || { echo "::error::the runtime image runs as root"; exit 1; }
+          # As on Fargate: a read-only root, /tmp a fresh volume that takes the image's mode - the worker can write there.
+          docker run --rm --read-only --entrypoint /opt/warden/bin/python warden-runtime:ci -c \
+            "import pathlib; p = pathlib.Path('/tmp/probe'); p.write_text('x'); p.unlink(); print('/tmp writable')" \
+            || { echo "::error::the worker cannot write its /tmp"; exit 1; }
 
   # Against a REAL cluster. Every step here was first done by hand and read by eye; this job
   # replays it so it cannot regress. Assertions are on OUTPUT and on the API server's own answers,
@@ -196,8 +216,9 @@ jobs:
   # commit and put AWS credentials in a public repo's CI. k3d is a real API server - RBAC is really
   # enforced, the kubelet really OOM-kills - so what this job proves holds on any conformant cluster.
   k8s:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: k8s-regression (k3d, every push; measured on EKS in tests/fixtures/bench)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     # k3d's own images by digest, as every other image here (fifth review E): the node image is k3d 5.9.0's
     # default k3s, and k3d uses K3D_IMAGE_TOOLS as written for `k3d image import`.
@@ -215,16 +236,17 @@ jobs:
         run: |
           (docker build --network=host -t warden:local . > "$RUNNER_TEMP/build.log" 2>&1; echo $? > "$RUNNER_TEMP/build.rc") &
 
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
+          cache-suffix: "ci-tool-k8s"  # one cache per job: jobs sharing a key raced to save it
 
       # Seconds with uv; pip took 98 s here (measured 2026-10-01).
       - name: Install with the k8s extra (locked)
-        run: uv sync --locked --extra dev --extra k8s
+        run: uv sync --locked --no-build --extra dev --extra k8s
 
       # A pinned release, checked against a pinned SHA-256 (audit A-I-24): the old step piped the
       # install script from k3d's main branch into bash on every push.
@@ -284,7 +306,8 @@ jobs:
           # because the namespace's default ServiceAccount did not exist yet, and any 'forbidden' passed (ninth
           # review). So the ServiceAccount first.
           for _ in $(seq 1 30); do kubectl get serviceaccount default -n warden >/dev/null 2>&1 && break; sleep 2; done
-          if kubectl apply --dry-run=server -f k8s/test/privileged-must-fail.yaml 2>err.txt; then
+          # The pod is built here (scripts/negative_pod.py), never kept as a manifest: nothing can apply it by mistake.
+          if python3 scripts/negative_pod.py | kubectl apply --dry-run=server -f - 2>err.txt; then
             echo "::error::a privileged pod was ACCEPTED - Pod Security is not enforced"; exit 1
           fi
           grep -q "violates PodSecurity" err.txt || { echo "::error::rejected for the wrong reason:"; cat err.txt; exit 1; }
@@ -352,6 +375,8 @@ jobs:
           # stays read-only. Arming live remediation means applying this separately, and this proves
           # its boundary from the API server's own view, both directions.
           kubectl apply -f k8s/remediation-rbac.yaml
+          # CI only: the EKS actor's group, bound in this test namespace (on EKS it is bound in shop alone).
+          kubectl apply -f k8s/ci/remediation-group-binding.yaml
           SA=system:serviceaccount:warden:warden-remediator
           # An empty answer is a failed request (a settling cluster, CI on 5fdcff4): asked again,
           # its error shown; only yes or no is ever accepted.
@@ -486,7 +511,8 @@ jobs:
   # Service images by digest (audit A-I-24), read 2026-10-01 from the registries. A tag can be moved to
   # other content; a digest cannot.
   db:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The databases' password, made per run (2026-10-16, naming audit item 17). A fixed one in this file
     # read as a real credential to every secret scanner and reader. It is not a secret: run_id is public,
@@ -547,21 +573,22 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.13.1"
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.13"
           activate-environment: true
+          cache-suffix: "ci-tool-db"  # one cache per job: jobs sharing a key raced to save it
 
       - name: Install with the database extras (locked)
-        run: uv sync --locked --extra dev --extra postgres --extra mysql --extra redis --extra mongo --extra mssql
+        run: uv sync --locked --no-build --extra dev --extra postgres --extra mysql --extra redis --extra mongo --extra mssql
 
       # The core package must still import with NO database driver present - the drivers are lazily
       # imported inside each engine adapter, exactly like the provider SDKs.
       - name: Core imports without any database driver
         run: |
-          UV_PROJECT_ENVIRONMENT=/tmp/bare-db uv sync --locked
+          env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=/tmp/bare-db uv sync --locked --no-build  # as /tmp/bare above
           /tmp/bare-db/bin/python -c "from warden.database import DatabaseBackend; print('core imports clean without drivers')"
 
       - name: Integration tests against REAL databases - and they must have RUN, not skipped
@@ -582,7 +609,8 @@ jobs:
           echo "database integration tests ran for real, against all five engines"
 
   terraform:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
+from . import web
 from .intake import AlarmEvent
 from .models import Alert, Severity
 
@@ -160,11 +161,7 @@ def _dd_event(alert: dict, environment: str) -> AlarmEvent | None:
     monitor = str(alert.get("monitor") or "")
     if not re.fullmatch(r"\d{1,20}", monitor):
         raise ValueError("no monitor id")
-    tags = {}
-    for tag in re.split(r"[,\s]+", f"{alert.get('scope') or ''},{alert.get('tags') or ''}"):
-        key, _, value = tag.partition(":")
-        if key in _DD_LABELS and value and _DD_LABELS[key] not in tags:
-            tags[_DD_LABELS[key]] = value[:200]
+    tags = _dd_tags(alert)
     when = datetime.fromtimestamp(int(str(alert.get("date") or "0")) / 1000, UTC)
     title = re.sub(r"^\[[^\]]*\]\s*", "", str(alert.get("title") or "datadog monitor")).strip()[:200]
     labels = {**tags, "datadog_monitor": monitor, "alarm": f"datadog-{monitor}", "via": "datadog"}
@@ -174,6 +171,16 @@ def _dd_event(alert: dict, environment: str) -> AlarmEvent | None:
                                   service=tags.get("service") or "unknown",
                                   environment=tags.get("environment") or environment,
                                   summary=title, started_at=when.isoformat(), labels=labels))
+
+
+def _dd_tags(alert: dict) -> dict[str, str]:
+    """The monitor's scope and tags WARDEN reads, as labels: the first value of each wins."""
+    tags = {}
+    for tag in re.split(r"[,\s]+", f"{alert.get('scope') or ''},{alert.get('tags') or ''}"):
+        key, _, value = tag.partition(":")
+        if key in _DD_LABELS and value and _DD_LABELS[key] not in tags:
+            tags[_DD_LABELS[key]] = value[:200]
+    return tags
 
 
 def receive_datadog(headers: dict[str, str], body: bytes, *, secrets: list[str], environment: str) -> Received:
@@ -210,7 +217,7 @@ def datadog_alerting(site: str, api_key: str, app_key: str, *, timeout: float = 
 
     def fetch(url: str, hdrs: dict) -> dict:
         req = urllib.request.Request(url, headers=hdrs)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - https to a known Datadog site
+        with web.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read() or b"{}")
 
     fetch = get or fetch

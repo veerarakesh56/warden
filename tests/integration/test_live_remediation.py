@@ -180,6 +180,32 @@ def test_the_remediator_can_still_restart_through_the_policy(apps, target):
     assert RESTARTED_AT in ann
 
 
+def test_the_eks_actors_group_is_bound_and_held_by_the_same_policy(apps, target):
+    """On EKS WARDEN's actor role signs in through its access entry as user `warden-remediator:<session>` in group
+    warden-remediators (terraform/fullstack/eks.tf), not as the ServiceAccount. Impersonated here: the group may scale
+    (as an approved plan's writer) and the admission policy still refuses it a pod spec change."""
+    from kubernetes import client
+    from kubernetes.client.exceptions import ApiException
+
+    api = client.ApiClient()
+    api.set_default_header("Impersonate-User", "warden-remediator:inc-ci")
+    api.set_default_header("Impersonate-Group", "warden-remediators")
+    as_group = client.AppsV1Api(api)
+    p = KubernetesPlatform(apps=apps, namespace=NS, autoscaling=client.AutoscalingV2Api(),
+                           writer=lambda who: as_group)
+    live = p.live("k8s_scale", _params())
+    before = live["current_replicas"]
+    who = {"incident": "inc-ci", "plan_hash": "0" * 64, "approvers": ["ci"]}
+    p.apply("k8s_scale", _params(replicas=before + 1), snapshot=live["state"], who=who)
+    assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == before + 1
+    p.rollback("k8s_scale", _params(replicas=before + 1), {"replicas": before}, who=who)
+    assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == before
+    patch = {"spec": {"template": {"spec": {"containers": [{"name": "pause", "image": "busybox:1.36"}]}}}}
+    with pytest.raises(ApiException) as refused:
+        as_group.patch_namespaced_deployment(NAME, NS, patch)
+    assert refused.value.status in (403, 422), refused.value
+
+
 @pytest.mark.parametrize("patch", [
     # A dangling owner: the garbage collector would delete the Deployment and its pods.
     {"metadata": {"ownerReferences": [{"apiVersion": "v1", "kind": "ConfigMap", "name": "gone",

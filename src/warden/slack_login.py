@@ -31,6 +31,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from . import web
+
 AUTHORIZE_ENDPOINT = "https://slack.com/openid/connect/authorize"
 TOKEN_ENDPOINT = "https://slack.com/api/openid.connect.token"
 ISSUER = "https://slack.com"
@@ -51,7 +53,7 @@ class SlackLoginError(ValueError):
 def _post(url: str, form: dict[str, str]) -> dict[str, Any]:
     request = urllib.request.Request(url, data=urllib.parse.urlencode(form).encode(), method="POST",
                                      headers={"Content-Type": "application/x-www-form-urlencoded"})
-    with urllib.request.urlopen(request, timeout=_TIMEOUT_S) as answer:  # nosec B310 - a fixed https API
+    with web.urlopen(request, timeout=_TIMEOUT_S) as answer:
         return json.loads(answer.read().decode("utf-8"))
 
 

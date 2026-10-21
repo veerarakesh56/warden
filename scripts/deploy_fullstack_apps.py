@@ -6,7 +6,8 @@
 
 Three pipelines, each usable alone: INFRA (terraform/fullstack) produces stack.json; this tool reads
 it and never calls terraform; WARDEN's own CI is a third. Everything lands OUTSIDE the repo, in
---out (default ~/warden-fullstack-build): lambda/<fn>.zip, image-tag.txt, kubeconfig.
+--out (default ~/warden-fullstack-build): lambda/<fn>.zip, image-tag.txt, kubeconfig. --out and --stack must
+lie in ~/warden-fullstack-build, the temp folder (RUNNER_TEMP) or the working directory (warden.paths).
 
   build         Lambda zips (manylinux wheels via pip --platform, python zipfile) and the
                 container image (docker build).
@@ -43,6 +44,10 @@ import tempfile
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))  # warden.paths is stdlib only: the apps jobs need no WARDEN install
+
+from warden import paths  # after the sys.path line above, deliberately
+
 APPS = ROOT / "scenarios" / "fullstack"
 # The shop's workloads are in Git (manifests/shop, synced by Argo CD); the pipeline applies only what it owns.
 MANIFESTS = ROOT / "manifests" / "shop"
@@ -222,8 +227,26 @@ def push_image(stack: dict, tag: str, aws, run=run) -> str:
     run(["docker", "login", "--username", user, "--password-stdin", registry], input=password)
     remote = f"{stack['ecr_repository_url']}:{tag}"
     run(["docker", "tag", f"{IMAGE}:{tag}", remote])
-    run(["docker", "push", remote])
-    return remote
+    pushed = run(["docker", "push", remote]) or ""
+    # The digest the registry answered for THESE bytes (`<tag>: digest: sha256:... size: N`): read back by the tag
+    # only when the push printed none - the tag is mutable, so it could name other bytes by then (B26).
+    found = re.search(r"digest: (sha256:[0-9a-f]{64})", pushed)
+    return f"{stack['ecr_repository_url']}@{found.group(1)}" if found else image_by_digest(stack, tag, aws)
+
+
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def image_by_digest(stack: dict, tag: str, aws) -> str:
+    """The pushed image named by its digest, `<repository>@sha256:...` (owner B26): the repository's tags are mutable
+    (terraform/fullstack/ecs.tf), so a tag can name other bytes tomorrow; the digest is exactly what was built."""
+    repo = stack["ecr_repository_url"]
+    found = aws("ecr").describe_images(repositoryName=repo.split("/", 1)[1],
+                                       imageIds=[{"imageTag": tag}]).get("imageDetails") or []
+    digest = found[0].get("imageDigest", "") if found else ""
+    if not _DIGEST.fullmatch(digest):
+        raise SystemExit(f"no image {repo}:{tag} with a sha256 digest in the repository - push it first")
+    return f"{repo}@{digest}"
 
 
 def task_definition(stack: dict, image: str) -> dict:
@@ -269,7 +292,7 @@ def task_definition(stack: dict, image: str) -> dict:
 
 
 def deploy_ecs(stack: dict, tag: str, aws, run=run, wait: bool = True) -> str:
-    image = push_image(stack, tag, aws, run)
+    image = push_image(stack, tag, aws, run)  # <repository>@sha256:..., the bytes just pushed
     ecs = aws("ecs")
     arn = ecs.register_task_definition(**task_definition(stack, image))["taskDefinition"]["taskDefinitionArn"]
     ecs.update_service(cluster=stack["ecs_cluster"], service=stack["ecs_service"], taskDefinition=arn)
@@ -281,10 +304,17 @@ def deploy_ecs(stack: dict, tag: str, aws, run=run, wait: bool = True) -> str:
 
 def record_in_stack(path: pathlib.Path, key: str, value: str) -> None:
     """Add one apps-pipeline fact to stack.json, in the file's own (wrapped or flat) format."""
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    # Checked here too, beside the read and the write (Sonar pythonsecurity:S2083, 2026-10-20).
+    real = pathlib.Path(path).expanduser().resolve()
+    bases = [b for b in (pathlib.Path(r).expanduser().resolve() for r in paths.work_roots()) if b.parent != b]
+    if not any(real.is_relative_to(b) for b in bases):  # the form audit.key_path uses (S8707 cleared there)
+        raise SystemExit(f"refused: {path} is outside the places the tools work ({', '.join(map(str, bases))})")
+    with open(real, encoding="utf-8") as src:
+        raw = json.loads(src.read())
     wrapped = any(isinstance(v, dict) and "value" in v for v in raw.values())
     raw[key] = {"value": value, "sensitive": False, "type": "string"} if wrapped else value
-    path.write_text(json.dumps(raw, indent=1), encoding="utf-8")
+    with open(real, "w", encoding="utf-8") as out:
+        out.write(json.dumps(raw, indent=1))
 
 
 def render(manifest: str, values: dict[str, str]) -> str:
@@ -301,7 +331,12 @@ def cluster_role() -> str:
 
     docs = yaml.safe_load_all((ROOT / "k8s" / "rbac.yaml").read_text(encoding="utf-8"))
     role = next(d for d in docs if d and d.get("kind") == "ClusterRole")
-    return yaml.safe_dump(role, sort_keys=False)
+    # The remediator's cluster-scoped half: its ClusterRole and the admission policy that narrows its patches. Its
+    # binding is namespaced (manifests/shop/base/warden-rbac.yaml, synced by Argo CD); the CI ServiceAccount is not.
+    remediation = [d for d in yaml.safe_load_all((ROOT / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8"))
+                   if d and d.get("kind") in ("ClusterRole", "ValidatingAdmissionPolicy",
+                                              "ValidatingAdmissionPolicyBinding")]
+    return yaml.safe_dump_all([role, *remediation], sort_keys=False)
 
 
 # Datadog's agent on the test cluster (owner, 2026-10-14: Datadog as the observability tool WARDEN reads beside AWS):
@@ -317,9 +352,9 @@ DATADOG_SITES = frozenset({"datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.
 # Argo CD (owner, 2026-10-16: GitOps for the cluster - the shop is synced from manifests/ in this repository). The
 # chart's own package, fetched from the argo-helm release and installed only if its bytes are these: a pinned version
 # number alone would install whatever the repository serves under it. Settings: helm/argo-cd/values.yaml (why each).
-ARGOCD_CHART = "10.9.7"  # Argo CD v3.5.4 - the oldest release fixing the Critical advisories of 2026-10-07
+ARGOCD_CHART = "10.10.5"  # Argo CD v3.5.5 (owner B26, 2026-10-17); v3.5.4 fixed the Critical advisories of 2026-10-07
 ARGOCD_CHART_URL = f"https://github.com/argoproj/argo-helm/releases/download/argo-cd-{ARGOCD_CHART}/argo-cd-{ARGOCD_CHART}.tgz"
-ARGOCD_CHART_SHA256 = "c3c595b857a5a4a76e622b36cfacd4127120202bcfa6536fc65f01382a10f035"
+ARGOCD_CHART_SHA256 = "ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a"
 ARGOCD_VALUES = ROOT / "helm" / "argo-cd" / "values.yaml"
 
 
@@ -476,10 +511,10 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision:
         "CATALOG_SIGNING_KEY": secrets.token_hex(32),
     })
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)
-    # The workloads: Argo CD syncs manifests/shop/<env> at exactly this commit, with this commit's image.
+    # The workloads: Argo CD syncs manifests/shop/<env> at exactly this commit, with this commit's image, by digest.
     rev = revision or commit()
     app = render(SHOP_APP.read_text(encoding="utf-8"), {
-        "REPO_URL": repo_url(), "REVISION": rev, "IMAGE": f"{stack['ecr_repository_url']}:{tag}",
+        "REPO_URL": repo_url(), "REVISION": rev, "IMAGE": image_by_digest(stack, tag, aws),
         "ENVIRONMENT": stack["environment"]})
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=app)
     wait_synced(kubeconfig, rev, run, sleep=sleep)
@@ -538,14 +573,14 @@ def wait_synced(kubeconfig: str, revision: str, run=run, sleep=None) -> None:
     raise SystemExit(f"Argo CD did not sync {revision[:12]} to Healthy in {SYNC_TIMEOUT_S} s: {seen}")
 
 
-_DB_USER = re.compile(r"warden_[a-z0-9_]{1,40}_(?:app|catalog|ro)")
+_DB_USER = re.compile(r"warden_[a-z0-9_]{1,40}_(?:app|catalog|ro|terminate)")
 
 
 def db_users(stack: dict) -> dict[str, str]:
     """The environment's database users from stack.json (Terraform's `db_users`; audit A-I-2), each checked to
     be a plain identifier before it goes into SQL or a manifest."""
     users = stack.get("db_users")
-    if not isinstance(users, dict) or set(users) != {"app", "catalog", "ro"}:
+    if not isinstance(users, dict) or set(users) != {"app", "catalog", "ro", "terminate"}:
         raise SystemExit("stack.json has no db_users: write it from `terraform output -json` (README)")
     bad = [u for u in users.values() if not (isinstance(u, str) and _DB_USER.fullmatch(u))]
     if bad:
@@ -560,9 +595,10 @@ def db_users(stack: dict) -> dict[str, str]:
 
 
 def bootstrap_sql(users: dict[str, str]) -> str:
-    """bootstrap.sql with the environment's users in place of __APP__ / __CATALOG__ / __RO__."""
+    """bootstrap.sql with the environment's users in place of __APP__ / __CATALOG__ / __RO__ / __TERMINATE__."""
     text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
-    for key, name in (("APP", users["app"]), ("CATALOG", users["catalog"]), ("RO", users["ro"])):
+    for key, name in (("APP", users["app"]), ("CATALOG", users["catalog"]), ("RO", users["ro"]),
+                      ("TERMINATE", users["terminate"])):
         text = text.replace(f"__{key}__", name)
     if PLACEHOLDER.search(text):
         raise SystemExit(f"unfilled placeholders in bootstrap.sql: {sorted(set(PLACEHOLDER.findall(text)))}")
@@ -617,7 +653,15 @@ def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
     sub.add_parser("bootstrap-db")
     args = p.parse_args(argv)
 
-    out = args.out.expanduser().resolve()
+    # --out and --stack come from the command line, and deploy ecs writes stack.json back: each must lie where the
+    # tools work - ~/warden-fullstack-build, the temp folder (RUNNER_TEMP in CI) or the working directory
+    # (warden.paths; Sonar pythonsecurity:S2083, 2026-10-17). Both are used through the checked path only.
+    try:
+        out = paths.inside(args.out)
+        # The default is checked too: a stack.json in --out that links elsewhere is refused (CodeRabbit, PR 63).
+        stack_path = paths.inside(args.stack if args.stack else out / "stack.json")
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
     if out == ROOT or ROOT in out.parents:
         raise SystemExit(f"--out {out} is inside the repository; build output must live outside it")
     out.mkdir(parents=True, exist_ok=True)
@@ -629,7 +673,6 @@ def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
         if args.cmd == "build":
             return 0
 
-    stack_path = args.stack or out / "stack.json"
     stack = load_stack(stack_path)
     aws = aws or boto_factory(stack["region"])
     if args.cmd == "bootstrap-db":

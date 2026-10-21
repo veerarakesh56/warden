@@ -26,6 +26,53 @@
       }
     },
     {
+      "Sid": "DbTunnelForWave3",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:RunInstances",
+        "ec2:CreateVpcEndpoint",
+        "ec2:DeleteVpcEndpoints",
+        "ec2:ModifyVpcEndpoint",
+        "ssm:StartSession",
+        "ssm:TerminateSession"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "DbTunnelEndsOnlyItsOwn",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:TerminateInstances",
+        "ec2:StopInstances",
+        "ec2:ModifyInstanceAttribute"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2",
+          "aws:ResourceTag/Stack": "warden-proving-ground"
+        }
+      }
+    },
+    {
+      "Sid": "DbTunnelInstanceProfile",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateInstanceProfile",
+        "iam:DeleteInstanceProfile",
+        "iam:GetInstanceProfile",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:TagInstanceProfile"
+      ],
+      "Resource": "arn:aws:iam::*:instance-profile/warden-pg-*"
+    },
+    {
       "Sid": "EksForWave2",
       "Effect": "Allow",
       "Action": [
