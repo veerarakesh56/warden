@@ -38,6 +38,9 @@ env:
   # WARDEN's own environment: environments.yaml `runtime` (tests/test_no_hardcoding_r17.py holds the two equal, and
   # every `environment:` key below with them). Named once for the steps' shell lines.
   RUNTIME_ENV: ops
+  # The base-image mirror (mirror-images.yml fills it). Set the repository variable IMAGE_MIRROR, lower-case,
+  # when the owner's name has capitals: GHCR names are lower-case and an expression cannot lower-case one.
+  IMAGE_MIRROR: ${{ vars.IMAGE_MIRROR || format('ghcr.io/{0}/warden-mirror', github.repository_owner) }}
 
 jobs:
   image:
@@ -95,7 +98,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           test -n "$HF_TOKEN" || { echo "::error::set the secret HF_TOKEN on the ops environment"; exit 1; }
-          docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/warden-mirror" --secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime \
+          docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=${IMAGE_MIRROR,,}" --secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime \
             -t "warden-runtime:$GITHUB_SHA" .
           # The image that is deployed carries the detector's weights (register R47).
           docker run --rm --entrypoint /opt/warden/bin/python "warden-runtime:$GITHUB_SHA" -c \

@@ -203,6 +203,13 @@ the same commit.
   `tests/test_ci_lanes.py` checks it).
 - Dependabot alerts and security updates, and CodeQL default setup. All free on a public repository.
 
+### 4d. Repository variables (optional)
+
+| Variable | When to set it |
+|---|---|
+| `IMAGE_MIRROR` | The registry path of the base-image mirror that `mirror-images.yml` fills and every build and CI service pulls from. Default `ghcr.io/<repository owner>/warden-mirror`. **Lower-case only**: GHCR refuses upper-case names, and a workflow expression cannot lower-case the owner's name - so if the owner's name has a capital letter, set this to `ghcr.io/<owner, lower-case>/warden-mirror`. Run `mirror-images.yml` once after setting or changing it. |
+| `HELIOS_REPOSITORY` | `owner/name` of the Helios repository the infrastructure deploy runs; default `<repository owner>/helios`. |
+
 ## 5. WARDEN's runtime (`ops`)
 
 The runtime is `terraform/runtime` (with `terraform/modules/warden-runtime`), deployed only by

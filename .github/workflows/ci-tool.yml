@@ -51,6 +51,9 @@ on:
 # Mock mode everywhere: CI must never need a key, and the eval gate must be deterministic.
 env:
   WARDEN_MOCK: "1"
+  # The base-image mirror (mirror-images.yml fills it). Set the repository variable IMAGE_MIRROR, lower-case,
+  # when the owner's name has capitals: GHCR names are lower-case and an expression cannot lower-case one.
+  IMAGE_MIRROR: ${{ vars.IMAGE_MIRROR || format('ghcr.io/{0}/warden-mirror', github.repository_owner) }}
 
 # Least privilege for every job's GITHUB_TOKEN (zizmor).
 permissions:
@@ -184,7 +187,7 @@ jobs:
         run: |
           # The host's network, not Docker's bridge: package downloads inside the build crawled at
           # ~20-60 KB/s on some runners while the host fetched the same in seconds.
-          docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/warden-mirror" -t warden:ci .
+          docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=${IMAGE_MIRROR,,}" -t warden:ci .
           out=$(docker run --rm -e WARDEN_MOCK=1 -e WARDEN_TRACE=0 warden:ci demo)
           echo "$out"
           echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::container produced no APPROVED_FOR_HUMAN"; exit 1; }
@@ -195,7 +198,7 @@ jobs:
       - name: Build the runtime image and assert what it carries
         run: |
           # No Hugging Face token here: the tripwire's weights are left out (runtime.yml bakes them and checks they are in).
-          docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/warden-mirror" --build-arg WARDEN_DETECTOR=absent -f Dockerfile.runtime -t warden-runtime:ci .
+          docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=${IMAGE_MIRROR,,}" --build-arg WARDEN_DETECTOR=absent -f Dockerfile.runtime -t warden-runtime:ci .
           docker run --rm --entrypoint /opt/warden/bin/python warden-runtime:ci -c \
             "import awslambdaric, warden.lambdas as l; assert all(callable(getattr(l, n)) for n in ('alarm', 'alertmanager', 'approval')); print('handlers ok')"
           docker run --rm warden-runtime:ci worker --help | grep -q -- "--platform" || { echo "::error::no worker command"; exit 1; }
@@ -223,7 +226,7 @@ jobs:
     # k3d's own images by digest, as every other image here: the node image is k3d 5.9.0's
     # default k3s, and k3d uses K3D_IMAGE_TOOLS as written for `k3d image import`.
     env:
-      K3S_IMAGE: ghcr.io/${{ github.repository_owner }}/warden-mirror/rancher/k3s:v1.35.5-k3s1@sha256:2074403abe1bded11ef3dde09d457e13be8e0b64c218b1c4f8269b4565cfbc65
+      K3S_IMAGE: ${{ vars.IMAGE_MIRROR || format('ghcr.io/{0}/warden-mirror', github.repository_owner) }}/rancher/k3s:v1.35.5-k3s1@sha256:2074403abe1bded11ef3dde09d457e13be8e0b64c218b1c4f8269b4565cfbc65
       K3D_IMAGE_TOOLS: ghcr.io/k3d-io/k3d-tools:5.9.0@sha256:c57abce697e66feeb826922718738fe186b47779312d49d4e51e6fb9b8a6f34d
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -234,7 +237,7 @@ jobs:
       # not Docker's bridge: here the build's downloads crawled (3m49s-4m44s for 48 packages).
       - name: Start the image build
         run: |
-          (docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/warden-mirror" -t warden:local . > "$RUNNER_TEMP/build.log" 2>&1; echo $? > "$RUNNER_TEMP/build.rc") &
+          (docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=${IMAGE_MIRROR,,}" -t warden:local . > "$RUNNER_TEMP/build.log" 2>&1; echo $? > "$RUNNER_TEMP/build.rc") &
 
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
@@ -527,7 +530,7 @@ jobs:
     # name with capitals cannot be used here as it is, so such an installation points these at its own mirror path.
     services:
       postgres:
-        image: ghcr.io/${{ github.repository_owner }}/warden-mirror/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+        image: ${{ vars.IMAGE_MIRROR || format('ghcr.io/{0}/warden-mirror', github.repository_owner) }}/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: warden
           POSTGRES_PASSWORD: ${{ env.DB_TEST_PASSWORD }}
@@ -537,7 +540,7 @@ jobs:
           --health-cmd "pg_isready -U warden" --health-interval 5s
           --health-timeout 5s --health-retries 20
       mysql:
-        image: ghcr.io/${{ github.repository_owner }}/warden-mirror/mysql:8@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
+        image: ${{ vars.IMAGE_MIRROR || format('ghcr.io/{0}/warden-mirror', github.repository_owner) }}/mysql:8@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
         env:
           MYSQL_ROOT_PASSWORD: ${{ env.DB_TEST_PASSWORD }}
           MYSQL_DATABASE: warden
@@ -546,13 +549,13 @@ jobs:
           --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD" --health-interval 5s
           --health-timeout 5s --health-retries 30
       redis:
-        image: ghcr.io/${{ github.repository_owner }}/warden-mirror/redis:7@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f
+        image: ${{ vars.IMAGE_MIRROR || format('ghcr.io/{0}/warden-mirror', github.repository_owner) }}/redis:7@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s
           --health-timeout 5s --health-retries 20
       mongo:
-        image: ghcr.io/${{ github.repository_owner }}/warden-mirror/mongo:7@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca
+        image: ${{ vars.IMAGE_MIRROR || format('ghcr.io/{0}/warden-mirror', github.repository_owner) }}/mongo:7@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca
         ports: ["27017:27017"]
         options: >-
           --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"

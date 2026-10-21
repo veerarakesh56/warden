@@ -1,7 +1,7 @@
 """The repository ships to other organisations, so no tracked file may name a person or a personal account, or point
 at one person's resources: GitHub handles, personal e-mail addresses, a container registry under a literal account,
 or local working-notes paths and files. Configuration names these per installation (environments.yaml placeholders,
-WARDEN_GITHUB_* and WARDEN_CHANGE_REPO, `github.repository_owner` in workflows); a literal one in the tree is a leak.
+WARDEN_GITHUB_* and WARDEN_CHANGE_REPO, IMAGE_MIRROR in workflows); a literal one in the tree is a leak.
 
 The forbidden values are assembled from parts, so this file does not itself contain them."""
 

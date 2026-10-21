@@ -2,8 +2,10 @@
 filled by mirror-images.yml), same digests. Docker Hub and AWS's public mirror both refuse GitHub's shared runners with
 429 Too Many Requests often enough to fail builds; rancher/k3s comes from Docker Hub into the same mirror.
 
-The mirror is the repository owner's, never a literal account: workflows name it with `github.repository_owner`, and
-the Dockerfiles take the registry as the build argument BASE_IMAGE_REGISTRY (Docker's own `docker.io/library` by
+The mirror is never a literal account: every workflow names it with ONE expression, the repository variable
+IMAGE_MIRROR or else ghcr.io/<repository owner>/warden-mirror, and shell lines lower-case it (GHCR names are lower-case
+and an expression cannot lower-case one; an owner whose name has capitals sets IMAGE_MIRROR). The Dockerfiles take the
+registry as the build argument BASE_IMAGE_REGISTRY (Docker's own `docker.io/library` by
 default, so a build outside CI needs no mirror), with the digest pinned in the Dockerfile itself."""
 
 from __future__ import annotations
@@ -13,9 +15,11 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OFFICIAL = r"(python|postgres|mysql|redis|mongo)"
-MIRROR = "ghcr.io/${{ github.repository_owner }}/warden-mirror/"
+MIRROR_EXPR = "${{ vars.IMAGE_MIRROR || format('ghcr.io/{0}/warden-mirror', github.repository_owner) }}"
+MIRROR = MIRROR_EXPR + "/"
+WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 DOCKERFILES = ("Dockerfile", "Dockerfile.runtime")
-BUILD_ARG = '--build-arg "BASE_IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/warden-mirror"'
+BUILD_ARG = '--build-arg "BASE_IMAGE_REGISTRY=${IMAGE_MIRROR,,}"'
 
 
 def test_official_images_come_from_the_mirror_pinned_by_digest():
@@ -37,7 +41,7 @@ def test_official_images_come_from_the_mirror_pinned_by_digest():
 
 
 def test_every_build_of_the_images_passes_the_mirror():
-    """Each docker build in CI and in the runtime pipeline names the owner's mirror, lower-cased as GHCR requires."""
+    """Each docker build in CI and in the runtime pipeline names the mirror, lower-cased as GHCR requires."""
     for f in (".github/workflows/ci-tool.yml", ".github/workflows/runtime.yml"):
         text = (ROOT / f).read_text(encoding="utf-8")
         builds = re.findall(r"docker build [^\n]*", text)
@@ -75,3 +79,60 @@ def test_the_k3d_cluster_image_comes_from_the_mirror_and_is_in_its_list():
     assert "@sha256:" in ref, ref
     flow = (ROOT / ".github/workflows/mirror-images.yml").read_text(encoding="utf-8")
     assert ref.removeprefix(MIRROR) in flow
+
+
+def test_every_workflow_names_the_mirror_through_the_one_expression():
+    """A mirror path written any other way (the owner's name alone, a literal, a second variable) would bypass
+    IMAGE_MIRROR and break for an owner whose name has capitals. In YAML values the path is the expression itself; in
+    shell it is the IMAGE_MIRROR environment variable - set to that expression at the workflow's top level or the job's
+    env - lower-cased."""
+    seen = 0
+    for f in WORKFLOWS:
+        text = f.read_text(encoding="utf-8")
+        code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+        rest = code.replace(MIRROR_EXPR, "")
+        assert "warden-mirror" not in rest, f"{f.name}: a mirror path outside the IMAGE_MIRROR expression"
+        assert "vars.IMAGE_MIRROR" not in rest, f"{f.name}: vars.IMAGE_MIRROR used outside the one expression"
+        for m in re.finditer(r"^\s*IMAGE_MIRROR:\s*(.+?)\s*$", code, re.MULTILINE):
+            assert m.group(1) == MIRROR_EXPR, (f.name, m.group(1))
+        for m in re.finditer(r"\$\{?IMAGE_MIRROR[^}]*\}?", rest):
+            assert m.group(0) == "${IMAGE_MIRROR,,}", (f.name, m.group(0))
+        seen += code.count(MIRROR_EXPR)
+    assert seen >= 8  # ci-tool: env, K3S_IMAGE, four services; runtime.yml and mirror-images.yml: env
+
+
+def test_the_one_expression_guard_catches_a_mirror_named_another_way(tmp_path, monkeypatch):
+    """Plant-check of the test above, on copies of the workflows."""
+    import sys
+
+    import pytest
+
+    plants = [
+        "        image: ghcr.io/${{ github.repository_owner }}/warden-mirror/redis:7\n",
+        '        run: docker build --build-arg "BASE_IMAGE_REGISTRY=$IMAGE_MIRROR" .\n',
+        "  IMAGE_MIRROR: ghcr.io/${{ github.repository_owner }}/warden-mirror\n",
+    ]
+    for plant in plants:
+        d = tmp_path / str(plants.index(plant))
+        d.mkdir()
+        for f in WORKFLOWS:
+            (d / f.name).write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
+        with (d / "ci-tool.yml").open("a", encoding="utf-8") as out:
+            out.write(plant)
+        monkeypatch.setattr(sys.modules[__name__], "WORKFLOWS", sorted(d.glob("*.yml")))
+        with pytest.raises(AssertionError):
+            test_every_workflow_names_the_mirror_through_the_one_expression()
+
+
+def test_dependabots_reading_copy_names_exactly_the_mirrored_images():
+    """Dependabot cannot read `FROM ${BASE_IMAGE_REGISTRY}/...` or workflow YAML, so .github/base-images/Dockerfile
+    names the same images at their upstream for it. When Dependabot moves a digest or tag there, this fails until the
+    same reference is in mirror-images.yml - and through the test above, in the Dockerfiles and ci-tool.yml."""
+    ref = (ROOT / ".github/base-images/Dockerfile").read_text(encoding="utf-8")
+    named = re.findall(r"(?m)^FROM (\S+)$", ref)
+    assert all(line.startswith(("#", "FROM ")) or not line for line in ref.splitlines())
+    flow = (ROOT / ".github/workflows/mirror-images.yml").read_text(encoding="utf-8")
+    listed = re.findall(r"(?m)^\s+(\S+@sha256:[0-9a-f]{64})$", flow)
+    assert sorted(named) == sorted(listed), set(named) ^ set(listed)
+    dependabot = (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
+    assert "- /.github/base-images" in dependabot

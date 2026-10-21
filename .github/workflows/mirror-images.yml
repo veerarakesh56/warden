@@ -25,7 +25,7 @@ jobs:
       contents: read
       packages: write
     env:
-      # name:tag@digest - one per line; the target is ghcr.io/<owner>/warden-mirror/<name>:<tag>, digest kept. A name
+      # name:tag@digest - one per line; the target is $IMAGE_MIRROR/<name>:<tag>, digest kept. A name
       # with a "/" is Docker Hub's (rancher/k3s, which AWS's mirror does not carry); the others are Docker's official
       # images from public.ecr.aws.
       IMAGES: |
@@ -35,14 +35,15 @@ jobs:
         redis:7@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f
         mongo:7@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca
         rancher/k3s:v1.35.5-k3s1@sha256:2074403abe1bded11ef3dde09d457e13be8e0b64c218b1c4f8269b4565cfbc65
-      OWNER: ${{ github.repository_owner }}
+      # The same expression every workflow names the mirror with; lower-cased below, as GHCR requires.
+      IMAGE_MIRROR: ${{ vars.IMAGE_MIRROR || format('ghcr.io/{0}/warden-mirror', github.repository_owner) }}
       ACTOR: ${{ github.actor }}
       TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: copy each image by digest, then read it back by that digest
         run: |
           set -euo pipefail
-          owner=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          mirror=${IMAGE_MIRROR,,}
           printf '%s' "$TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
           while read -r ref; do
             [ -n "$ref" ] || continue
@@ -51,13 +52,13 @@ jobs:
             for try in 1 2 3; do
               if skopeo copy --all --preserve-digests --retry-times 3 \
                   "docker://${source}@${digest}" \
-                  "docker://ghcr.io/${owner}/warden-mirror/${name_tag}"; then
+                  "docker://${mirror}/${name_tag}"; then
                 break
               fi
               [ "$try" = 3 ] && exit 1
               sleep $((try * 60))
             done
-            got=$(skopeo inspect --raw "docker://ghcr.io/${owner}/warden-mirror/${name}@${digest}" | sha256sum | cut -d' ' -f1)
+            got=$(skopeo inspect --raw "docker://${mirror}/${name}@${digest}" | sha256sum | cut -d' ' -f1)
             [ "sha256:${got}" = "$digest" ] || { echo "digest changed for ${name_tag}: sha256:${got}"; exit 1; }
             echo "mirrored ${name_tag} at ${digest}"
           done <<< "$IMAGES"

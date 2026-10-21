@@ -1,5 +1,13 @@
 # Operating WARDEN
 
+## Base-image mirror
+
+CI services, the k3d node image and every image build pull Docker's official images from one mirror, filled by
+`mirror-images.yml` and named in every workflow by one expression: the repository variable `IMAGE_MIRROR`, else
+`ghcr.io/<repository owner>/warden-mirror` (tests/test_base_image_mirror.py holds this). `IMAGE_MIRROR` must be
+**lower-case**: GHCR names are lower-case, and with an owner whose name has capitals the default is not a valid name, so
+set the variable. After a change of the variable or of a pinned digest, run `mirror-images.yml` before anything builds.
+
 ## Secret and key rotation (register S4)
 
 Every secret WARDEN loads is a Secrets Manager secret named `warden/<environment>/<name>` (settings.py; decision D5),

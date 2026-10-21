@@ -31,6 +31,7 @@ updates:
     directories:
       - /
       - /scenarios/fullstack/app
+      - /.github/base-images  # the base and CI service images (see the file: not built)
     schedule:
       interval: weekly
     cooldown:
@@ -39,4 +40,15 @@ updates:
     # images' Python must match what their hashed requirements were compiled for (the app and the Lambdas: 3.12).
     ignore:
       - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # The CI services and k3s: new digests and patch releases only; a new major is a deliberate change.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+      - dependency-name: mysql
+        update-types: ["version-update:semver-major"]
+      - dependency-name: redis
+        update-types: ["version-update:semver-major"]
+      - dependency-name: mongo
+        update-types: ["version-update:semver-major"]
+      - dependency-name: rancher/k3s
         update-types: ["version-update:semver-major", "version-update:semver-minor"]

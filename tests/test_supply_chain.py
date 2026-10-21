@@ -156,7 +156,7 @@ def test_every_image_is_pinned_by_digest():
                                                            re.MULTILINE) if m != "warden:local"]
     # k3d's node and tools images, and the full stack's placeholder ECS image (by tag).
     tool = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")
-    # A value may name this repository owner's mirror with a GitHub expression (`ghcr.io/${{ github.repository_owner }}`).
+    # A value may name the base-image mirror with its GitHub expression (IMAGE_MIRROR, tests/test_base_image_mirror.py).
     images += [("ci-tool.yml", m) for m in re.findall(r"^\s*(?:K3S_IMAGE|K3D_IMAGE_TOOLS):\s*(.+?)\s*$", tool, re.MULTILINE)]
     assert '--image "$K3S_IMAGE"' in tool
     images += [("ecs.tf", m) for m in re.findall(r'^\s*image\s*=\s*"([^"$]+)"',
