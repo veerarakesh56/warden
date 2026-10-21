@@ -69,7 +69,9 @@ note "evidence -> $OUT"
 [[ -f "$TF_DIR/terraform.tfvars" ]] || die "create $TF_DIR/terraform.tfvars first (see terraform.tfvars.example)"
 
 # A per-run password. Never written to a tfvars file: a real credential must not outlive the
-# environment it belongs to.
+# environment it belongs to. ⛔ Never on a command line either (owner B28): `-var db_password=...` put it in
+# every terraform process's argv, which any user of the machine can read (ps, /proc/<pid>/cmdline). Terraform
+# reads it from TF_VAR_db_password, set for the terraform process alone - not exported to the rest of the run.
 DB_PASSWORD="$("$PY" -c 'import secrets,string; a=string.ascii_letters+string.digits; print("".join(secrets.choice(a) for _ in range(24)))')"
 
 # --------------------------------------------------------------------------- teardown trap
@@ -81,11 +83,12 @@ teardown() {
   destroyed=1
   if [[ "$KEEP" = "1" ]]; then
     printf '\n\033[31m⛔ KEEP=1 — the environment is STILL RUNNING and still billing.\033[0m\n'
-    printf '   Destroy it with:  terraform -chdir=%s destroy -var db_password=<the one it was created with>\n' "$TF_DIR"
+    # A destroy reads no password: any value of 16+ characters passes the precondition, so a fresh one is fine.
+    printf '   Destroy it with:  TF_VAR_db_password="$(openssl rand -hex 16)" terraform -chdir=%s destroy\n' "$TF_DIR"
     return $rc
   fi
   log "Teardown"
-  if terraform -chdir="$TF_DIR" destroy -auto-approve -var "db_password=$DB_PASSWORD" 2>&1 | tee -a "$OUT/run.log"; then
+  if TF_VAR_db_password="$DB_PASSWORD" terraform -chdir="$TF_DIR" destroy -auto-approve 2>&1 | tee -a "$OUT/run.log"; then
     note "destroy completed"
   else
     printf '\n\033[31m⛔ DESTROY FAILED. The environment is STILL BILLING.\033[0m\n'
@@ -112,8 +115,8 @@ trap teardown EXIT
 log "Apply"
 terraform -chdir="$TF_DIR" init -input=false >/dev/null 2>&1 || true
 terraform -chdir="$TF_DIR" init -input=false            2>&1 | tee -a "$OUT/run.log"
-terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
-  -var "db_password=$DB_PASSWORD"                       2>&1 | tee -a "$OUT/run.log"
+TF_VAR_db_password="$DB_PASSWORD" terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
+                                                        2>&1 | tee -a "$OUT/run.log"
 
 tfout() { terraform -chdir="$TF_DIR" output -raw "$1"; }
 REGION="$(tfout region)"

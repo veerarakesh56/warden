@@ -7,6 +7,7 @@ from __future__ import annotations
 import pathlib
 import re
 
+import pytest
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -57,3 +58,58 @@ def test_every_container_of_the_flagged_manifests_declares_its_resources():
                 requests = c["resources"]["requests"]
                 assert {"cpu", "memory", "ephemeral-storage"} <= set(requests), (rel, c["name"])
                 assert "memory" in c["resources"]["limits"], (rel, c["name"])
+
+
+# Owner B28: the shop's application security groups allow the least egress their code needs, not everything.
+# Derived from the code (scenarios/fullstack): orders-api and the in-VPC Lambdas call AWS's APIs over HTTPS, read
+# Aurora in express configuration (outside the VPC, through the NAT) over PostgreSQL, and the cache over Redis; the
+# traffic Lambda also calls the internal load balancer over HTTP. Nothing else - no "all protocols" rule, no range.
+SHOP_MAIN = ROOT / "terraform" / "fullstack" / "main.tf"
+SHOP_APPS = ROOT / "scenarios" / "fullstack"
+
+
+def _shop_group(name: str) -> str:
+    text = SHOP_MAIN.read_text(encoding="utf-8")
+    m = re.search(rf'^resource "aws_security_group" "{name}" \{{\n(.*?)^\}}', text, re.DOTALL | re.MULTILINE)
+    assert m, name
+    return m.group(1)
+
+
+def _shop_egress(name: str) -> list[dict[str, str]]:
+    rules = []
+    for body in re.findall(r"^  egress \{\n(.*?)\n  \}", _shop_group(name), re.DOTALL | re.MULTILINE):
+        rule = dict(re.findall(r"^\s*(\w+)\s*=\s*(.+?)\s*$", body, re.MULTILINE))
+        rules.append(rule)
+    return rules
+
+
+EVERYWHERE = '["0.0.0.0/0"]'
+REDIS = "[aws_security_group.redis.id]"
+VPC = "[aws_vpc.this.cidr_block]"
+SHOP_EGRESS = {
+    "ecs": {("443", EVERYWHERE), ("5432", EVERYWHERE), ("6379", REDIS)},
+    "lambda": {("443", EVERYWHERE), ("5432", EVERYWHERE), ("6379", REDIS), ("80", VPC)},
+}
+
+
+@pytest.mark.parametrize("name", sorted(SHOP_EGRESS))
+def test_each_app_group_allows_exactly_the_egress_its_code_needs(name):
+    rules = _shop_egress(name)
+    for r in rules:
+        assert r["protocol"] == '"tcp"', (name, r)
+        assert r["from_port"] == r["to_port"], (name, r)  # one port, never a range
+    got = {(r["from_port"], r.get("cidr_blocks") or r.get("security_groups")) for r in rules}
+    assert got == SHOP_EGRESS[name], (name, got)
+    assert len(rules) == len(got), (name, rules)
+
+
+def test_the_ports_are_the_ones_the_apps_use():
+    """The allowed ports come from the code, so a new destination in an app shows up here, not as a silent timeout."""
+    code = "\n".join(p.read_text(encoding="utf-8") for p in sorted(SHOP_APPS.rglob("*.py")))
+    assert "port=5432" in code
+    assert "port=6379" in code
+    assert 'os.environ["ALB_URL"]' in code
+    lambdas_tf = (ROOT / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
+    assert '"http://${aws_lb.orders.dns_name}"' in lambdas_tf  # the traffic Lambda's HTTP 80, inside the VPC
+    other = sorted(set(re.findall(r"port=(\d+)", code)) - {"5432", "6379"})
+    assert other == [], f"an app connects to a port its security group does not allow: {other}"

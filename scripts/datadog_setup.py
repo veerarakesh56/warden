@@ -11,12 +11,12 @@ In one run, and again idempotently - every object is found by its name and updat
   notifying `@webhook-warden`;
 - a dashboard of the same signals.
 
-Keys: asked for, never read from a file by default - the API key, then an application key that may write the webhook
+Keys: asked for, never read from a file - the API key, then an application key that may write the webhook
 integration, monitors and dashboards (used only here: revoke it after). Each is typed at a prompt that does not echo
-it, or given one per line on stdin (piped from a secret manager). WARDEN_DATADOG_API_KEY_FILE and
-WARDEN_DATADOG_SETUP_KEY_FILE still name plaintext files for one release, read with a warning (2026-10-16: the
-defaults ~/.warden/datadog-*.txt were plaintext admin keys on disk). The site and the approval domain come from the
-environment's plain settings. Nothing secret is printed.
+it, or given one per line on stdin, piped from the secret store. The plaintext key files of before 2026-10-16
+(~/.warden/datadog-*.txt, WARDEN_DATADOG_API_KEY_FILE, WARDEN_DATADOG_SETUP_KEY_FILE) are no longer read (owner
+B28): a run that still names one stops and says so. The site and the approval domain come from the environment's plain
+settings. Nothing secret is printed.
 """
 
 from __future__ import annotations
@@ -44,18 +44,20 @@ TAG = "managed-by:warden"
 APPS = ("catalog-api", "cart-worker")
 
 
-def credential(label: str, file: str | os.PathLike[str] | None = None) -> str:
+# The plaintext key files these scripts read until owner B28 (2026-10-20). Named, they stop the run: reading one would
+# keep a credential on disk that outlives "revoke after" (naming audit item 24, 2026-10-16).
+RETIRED_KEY_FILES = ("WARDEN_DATADOG_API_KEY_FILE", "WARDEN_DATADOG_SETUP_KEY_FILE")
+
+
+def credential(label: str) -> str:
     """One credential a setup script needs: typed at a prompt that does not echo it, or one line on stdin when stdin
-    is not a terminal (piped from a secret manager). A file is read only when one is named, with a warning (naming
-    audit item 24, 2026-10-16: an admin token saved in ~/.warden/*.txt outlived the "revoke after" step whenever that
-    step was forgotten)."""
-    if file:
-        path = pathlib.Path(file)
-        print(f"WARNING: {label} is read from the plaintext file {path}; delete the file once the key is revoked, and "
-              "next time paste the key at the prompt instead (a file is read only until the next release)",
-              file=sys.stderr)
-        value = path.read_text(encoding="utf-8-sig").strip()
-    elif sys.stdin.isatty():
+    is not a terminal (piped from the secret store). Never read from a file (owner B28)."""
+    named = [name for name in RETIRED_KEY_FILES if os.environ.get(name)]
+    if named:
+        raise SystemExit(f"{', '.join(named)} named a plaintext key file, which is no longer read: unset it, delete "
+                         "the file once its key is revoked, and type the key at the prompt or pipe it from the secret "
+                         "store; nothing was changed")
+    if sys.stdin.isatty():
         import getpass
 
         value = getpass.getpass(f"{label} (not shown as you type): ").strip()
@@ -186,9 +188,8 @@ def main(argv: list[str] | None = None, *, aws: Any = None, call: Any = None) ->
         if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", domain):
             raise SystemExit(f"{domain!r} is not a domain name")
     # Both keys from the person running this: the operator may store secrets, never read them back.
-    api_key = credential("the Datadog API key", os.environ.get("WARDEN_DATADOG_API_KEY_FILE"))
-    app_key = credential("the Datadog application key that may write the webhook, monitors and dashboards",
-                         os.environ.get("WARDEN_DATADOG_SETUP_KEY_FILE"))
+    api_key = credential("the Datadog API key")
+    app_key = credential("the Datadog application key that may write the webhook, monitors and dashboards")
     dd = Datadog(site, api_key, app_key, call)
     if args.monitors_only:
         for line in ensure_monitors(dd, args.stack):

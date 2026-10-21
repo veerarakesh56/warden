@@ -7,10 +7,9 @@ Asks for three keys, in this order, each typed at a prompt that does not echo it
 application keys (`user_app_keys`; used only here); and a second, different Datadog API key the test stack's agent
 sends with. Two API keys, not one (secrets audit, 2026-10-16): the agent's key sits in the test stack's cluster, and
 one leaked there must not also be the runtime's - each is revoked in Datadog without touching the other. Nothing is
-read from disk by default (naming audit item 24, 2026-10-16: these used to be plaintext files in ~/.warden, which
-outlived "revoke after" whenever that was forgotten); --keys-dir still names a folder of the old files -
-datadog-api-key.txt and datadog-app-key.txt - for one release, read with a warning (the agent's key is always asked
-for). Then, every step safe to run again - each object found by its name, a new key replacing the old, never a second
+read from disk (naming audit item 24, 2026-10-16: these used to be plaintext files in ~/.warden, which outlived
+"revoke after" whenever that was forgotten; the deprecated --keys-dir folder of them was removed, owner B28). Then,
+every step safe to run again - each object found by its name, a new key replacing the old, never a second
 one beside it:
 
 - Datadog: a new application key `warden-read` with read scopes only (SCOPES), stored, then the older ones of that
@@ -108,17 +107,9 @@ def main(argv: list[str] | None = None, *, aws: Any = None, dd_call: Any = None)
     p.add_argument("--stack", required=True, help="the watched test environment (its persistent secrets)")
     p.add_argument("--site", required=True, help="the Datadog site, e.g. the one in the account's address")
     p.add_argument("--region", help="the AWS region (default: the profile's)")
-    p.add_argument("--keys-dir", default=None,
-                   help="deprecated: a folder of the plaintext key files used before 2026-10-16, read with a warning; "
-                        "without it each key is asked for")
     args = p.parse_args(argv)
-    keys = pathlib.Path(args.keys_dir) if args.keys_dir else None
-
-    def key(label: str, name: str) -> str:
-        return credential(label, keys / f"{name}.txt" if keys else None)
-
-    dd = Datadog(args.site, key("the Datadog API key the runtime reads with", "datadog-api-key"),
-                 key("the Datadog application key that may manage application keys (user_app_keys)", "datadog-app-key"),
+    dd = Datadog(args.site, credential("the Datadog API key the runtime reads with"),
+                 credential("the Datadog application key that may manage application keys (user_app_keys)"),
                  dd_call)
     agent_key = credential("a second Datadog API key, for the test stack's agent to send with")
     if agent_key == dd.keys[0]:

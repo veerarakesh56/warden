@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fakes import HUNTER2, dsn
+from fakes import HUNTER2, dsn, secret_value
 from warden import aws_backend, aws_stack
 from warden.aws_stack import StackBackend, parse_tracebacks, source_excerpt
 from warden.models import Alert, Severity
@@ -90,7 +90,7 @@ def _events(group_messages: dict[str, list[tuple[str, str]]]):
         stop_query=lambda queryId: {"success": True})
 
 
-_SECRET_VALUE = "super-secret-value"
+_SECRET_VALUE = secret_value("super")
 
 
 def _lambda(**over):

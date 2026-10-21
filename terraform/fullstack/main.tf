@@ -222,12 +222,30 @@ resource "aws_security_group" "ecs" {
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
+  # Least egress (owner B28), from what orders-api does (scenarios/fullstack/app/app.py): HTTPS to AWS's APIs (image
+  # pulls from ECR and public.ecr.aws, Secrets Manager, CloudWatch Logs; S3 through its gateway endpoint), PostgreSQL
+  # to Aurora - in express configuration it is outside the VPC, reached through the NAT, so its address is not
+  # known here - and Redis to the cache's own group. DNS and the time service are not filtered by security groups.
   egress {
-    description = "Image pull, secrets, logs, database and cache"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "HTTPS to AWS APIs and image registries, through the NAT"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    description = "PostgreSQL to Aurora express, outside the VPC, through the NAT"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    description     = "Redis to the cache only"
+    from_port       = 6379
+    to_port         = 6379
+    protocol        = "tcp"
+    security_groups = [aws_security_group.redis.id]
   }
 }
 
@@ -235,12 +253,37 @@ resource "aws_security_group" "lambda" {
   name        = "${local.name}-lambda"
   description = "In-VPC Lambdas. Egress only."
   vpc_id      = aws_vpc.this.id
+  # Least egress (owner B28), from what the in-VPC functions do (scenarios/fullstack/lambdas): order-processor and
+  # reconciler read Aurora (express: outside the VPC, through the NAT), reconciler and ops read Redis, and traffic
+  # calls the public API (HTTPS) and the internal load balancer (HTTP 80). The ALB is named by the VPC's range, as
+  # its own egress is: a reference to its group would be a cycle (it admits this group by reference).
   egress {
-    description = "Database, cache and endpoints"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "HTTPS to AWS APIs and the public API, through the NAT"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    description = "PostgreSQL to Aurora express, outside the VPC, through the NAT"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    description     = "Redis to the cache only"
+    from_port       = 6379
+    to_port         = 6379
+    protocol        = "tcp"
+    security_groups = [aws_security_group.redis.id]
+  }
+  egress {
+    description = "HTTP to the internal load balancer, inside the VPC"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.this.cidr_block]
   }
 }
 

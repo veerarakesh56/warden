@@ -107,7 +107,9 @@ bash scripts/aws_proof.sh
 Turning on what a later wave needs:
 
 ```bash
-terraform apply -var enable_rds=true -var db_password="$(openssl rand -base64 24)"
+# The password goes in the environment, never on the command line (-var lands in shell history and in `ps`):
+export TF_VAR_db_password="$(openssl rand -base64 24)"
+terraform apply -var enable_rds=true
 terraform apply -var enable_eks=true    # ⛔ $0.10/hour from this moment, idle or not
 ```
 

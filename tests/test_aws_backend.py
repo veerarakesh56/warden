@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from fakes import secret_value
 from warden import aws_backend
 from warden.aws_backend import AwsBackend, _family_revision
 from warden.models import Alert, Severity
@@ -751,7 +752,7 @@ class _RichEcs(FakeEcs):
         return {"taskDefinition": self._defs[kwargs["taskDefinition"]]}
 
 
-_OLD_SECRET, _NEW_SECRET = "old-secret-value", "new-secret-value"
+_OLD_SECRET, _NEW_SECRET = secret_value("old"), secret_value("new")
 
 
 def _td(command, pool="10", password=_OLD_SECRET):
@@ -767,6 +768,8 @@ def test_a_configuration_only_revision_is_a_deploy_naming_what_changed_never_its
                     "checkout:6": _td(["run"])})
     [d] = _backend(ecs=ecs).deploys(_alert())
     assert d["kind"] == "config" and d["changed"] == "app.command,app.environment:DB_PASSWORD,app.environment:DB_POOL"
-    assert "secret-value" not in str(d) and "50" not in d["changed"]
+    assert _OLD_SECRET not in str(d)
+    assert _NEW_SECRET not in str(d)
+    assert "50" not in d["changed"]
     same = _RichEcs({"checkout:7": _td(["run"]), "checkout:6": _td(["run"])})
     assert _backend(ecs=same).deploys(_alert()) == []  # identical settings: a restart, not a deploy

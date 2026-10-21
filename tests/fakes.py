@@ -23,6 +23,12 @@ HUNTER2 = "hun" + "ter2"
 ANTHROPIC_KEY_PREFIX = "sk-" + "ant-"
 
 
+def secret_value(kind: str) -> str:
+    """A made-up secret's value, `<kind>-secret-value`: a secret's place in a fixture, never a credential's shape (owner
+    B28: tests/test_aws_stack.py held "super-..." as a literal)."""
+    return f"{kind}-secret" + "-value"
+
+
 def private_key_block(kind: str, body: str) -> str:
     """An armoured private key around `body`: "RSA" gives the PEM form, "PGP" the PGP `PRIVATE KEY BLOCK` form."""
     label = f"{kind} PRIVATE KEY" + (" BLOCK" if kind == "PGP" else "")
