@@ -145,7 +145,7 @@ failure each one prevents are listed in [`ai-boundary.md`](ai-boundary.md).
   and the proven fix they lead to - a fix on a linked record that was applied and verified - as a fact for a
   person; WARDEN never applies a fix on that account.
   The page also lists the related records WARDEN finds in its own rows (a re-diagnosis, an alarm after a fix, a
-  relapse, the same alarm or resource), marked as WARDEN's finding.
+  relapse, the same alarm, resource or known failure pattern), marked as WARDEN's finding.
 - **Discussion** (`discuss.py`): anyone in a second Slack channel can ask WARDEN about an incident; WARDEN
   answers from the incident's own evidence. Only an enrolled approver may ask for a new plan, and that plan
   still needs a passkey approval.

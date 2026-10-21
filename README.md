@@ -145,6 +145,7 @@ when WARDEN itself misbehaves is in [docs/RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBO
 | [AWS-SETUP.md](docs/AWS-SETUP.md) | The AWS identities the benchmark stack uses |
 | [PRODUCTION-ARCHITECTURE.md](docs/PRODUCTION-ARCHITECTURE.md), [SYSTEM-COMPONENTS.md](docs/SYSTEM-COMPONENTS.md) | The cloud runtime, its components and their cost |
 | [OPERATIONS.md](docs/OPERATIONS.md), [RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBOOK-WARDEN-INCIDENT.md) | Running it, and what to do when WARDEN itself is the incident |
+| [RUNBOOK.md](docs/RUNBOOK.md), [USE-CASE.md](docs/USE-CASE.md), [COST.md](docs/COST.md), [DEMO.md](docs/DEMO.md) | Where to start running it; who it is for and how success is measured; model cost per month; the filmed demo |
 | [BENCHMARKS.md](docs/BENCHMARKS.md), [scenarios/SCORING.md](scenarios/SCORING.md) | Every measured result, and how it is graded |
 | [FULLSTACK-LAB.md](docs/FULLSTACK-LAB.md) | The full-stack test environment and its injected faults |
 | [FAILURE-MODES.md](docs/FAILURE-MODES.md) | What can go wrong with an automated WARDEN, and what holds each |
