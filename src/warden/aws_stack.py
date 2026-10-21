@@ -211,7 +211,7 @@ def _fold(stat: str, values: list[float]) -> float:
     rate, `.../min` the lowest period (a balance where lower is worse: credits, free storage), any other the highest."""
     if stat == "Sum":
         return float(sum(values))
-    if stat == "Sum/s":
+    if stat.endswith("/s"):  # Sum/s
         return float(max(values)) / METRIC_PERIOD_S
     if stat.endswith("/min"):
         return float(min(values))

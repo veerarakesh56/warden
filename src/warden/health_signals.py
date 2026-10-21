@@ -30,7 +30,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 # Stats this table may use, and how aws_stack._cw_read folds a window of periods into one value.
-STATS = frozenset({"Sum", "Maximum", "Average", "Minimum/min", "Average/min"})
+LOWEST = "Minimum/min"        # the lowest period of the window: a balance, where lower is worse
+LOWEST_AVERAGE = "Average/min"  # the lowest per-period average: a rate AWS publishes as Average only
+STATS = frozenset({"Sum", "Maximum", "Average", LOWEST, LOWEST_AVERAGE})
 
 
 @dataclass(frozen=True)
@@ -71,21 +73,21 @@ TABLE: dict[str, Service] = {
     )),
     "efs": Service("AWS/EFS", _dim("FileSystemId"), (
         # Bursting throughput: at zero credits the file system is held to its baseline throughput.
-        Signal("efs_burst_credit_balance_bytes", "BurstCreditBalance", "Minimum/min", "Bytes"),
+        Signal("efs_burst_credit_balance_bytes", "BurstCreditBalance", LOWEST, "Bytes"),
         # General Purpose performance mode only: how close the file system is to its I/O limit.
         Signal("efs_percent_io_limit", "PercentIOLimit", "Maximum", "Percent"),
     )),
     "ebs_volume": Service("AWS/EBS", _dim("VolumeId"), (
         # gp2/st1/sc1 only, and only while attached: the percent of burst credits left.
-        Signal("ebs_burst_balance_pct", "BurstBalance", "Minimum/min", "Percent"),
+        Signal("ebs_burst_balance_pct", "BurstBalance", LOWEST, "Percent"),
     )),
     "instance_id": Service("AWS/EC2", _dim("InstanceId"), (
         Signal("ec2_status_check_failed_instance", "StatusCheckFailed_Instance", "Maximum", "Count (0 or 1)"),
         Signal("ec2_status_check_failed_system", "StatusCheckFailed_System", "Maximum", "Count (0 or 1)"),
     )),
     "rds_instance": Service("AWS/RDS", _dim("DBInstanceIdentifier"), (
-        Signal("rds_free_storage_bytes", "FreeStorageSpace", "Minimum/min", "Bytes"),
-        Signal("rds_freeable_memory_bytes", "FreeableMemory", "Minimum/min", "Bytes"),
+        Signal("rds_free_storage_bytes", "FreeStorageSpace", LOWEST, "Bytes"),
+        Signal("rds_freeable_memory_bytes", "FreeableMemory", LOWEST, "Bytes"),
     )),
     "kinesis_stream": Service("AWS/Kinesis", _dim("StreamName"), (
         Signal("kinesis_iterator_age_ms", "GetRecords.IteratorAgeMilliseconds", "Maximum", "Milliseconds"),
@@ -97,7 +99,7 @@ TABLE: dict[str, Service] = {
     )),
     "redshift": Service("AWS/Redshift", _dim("ClusterIdentifier"), (
         # 1 healthy, 0 unhealthy: the lowest of the window says whether it was ever unhealthy.
-        Signal("redshift_health_status", "HealthStatus", "Minimum/min", "1 healthy, 0 unhealthy"),
+        Signal("redshift_health_status", "HealthStatus", LOWEST, "1 healthy, 0 unhealthy"),
         Signal("redshift_disk_used_pct", "PercentageDiskSpaceUsed", "Maximum", "Percent"),
     )),
     "msk_cluster": Service("AWS/Kafka", _dim("Cluster Name"), (
@@ -106,11 +108,11 @@ TABLE: dict[str, Service] = {
         Signal("msk_offline_partitions", "OfflinePartitionsCount", "Maximum", "Count"),
     )),
     "canary": Service("CloudWatchSynthetics", _dim("CanaryName"), (
-        Signal("canary_success_pct", "SuccessPercent", "Average/min", "Percent"),
+        Signal("canary_success_pct", "SuccessPercent", LOWEST_AVERAGE, "Percent"),
     )),
     "asg": Service("AWS/AutoScaling", _dim("AutoScalingGroupName"), (
         # Published only when the group's metrics collection is enabled.
-        Signal("asg_in_service_instances", "GroupInServiceInstances", "Minimum/min", "Count"),
+        Signal("asg_in_service_instances", "GroupInServiceInstances", LOWEST, "Count"),
         Signal("asg_desired_capacity", "GroupDesiredCapacity", "Maximum", "Count"),
     )),
     "cloudfront": Service("AWS/CloudFront", _cloudfront, (

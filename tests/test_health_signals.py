@@ -63,7 +63,8 @@ def test_every_key_is_unique_and_not_another_readers():
 def test_the_first_named_signals_are_there():
     nat = {s.metric: s for s in health_signals.TABLE["nat_gateway"].signals}
     efs = {s.metric: s for s in health_signals.TABLE["efs"].signals}
-    assert nat["ErrorPortAllocation"].stat == "Sum" and nat["PacketsDropCount"].stat == "Sum"
+    assert nat["ErrorPortAllocation"].stat == "Sum"
+    assert nat["PacketsDropCount"].stat == "Sum"
     # A balance: the LOWEST of the window says the credits ran out; the highest would hide it.
     assert efs["BurstCreditBalance"].stat == "Minimum/min"
     assert efs["PercentIOLimit"].stat == "Maximum"
