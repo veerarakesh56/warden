@@ -20,6 +20,7 @@ ReplicaSets and write a pod template, which waits for a ValidatingAdmissionPolic
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -27,6 +28,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
+_LOG = logging.getLogger("warden.platforms")
 REQUEST_TIMEOUT = (float(os.environ.get("WARDEN_K8S_CONNECT_TIMEOUT", "3.0")),
                    float(os.environ.get("WARDEN_K8S_READ_TIMEOUT", "4.0")))
 MAX_REPLICAS = int(os.environ.get("WARDEN_REMEDIATION_MAX_REPLICAS", "10"))
@@ -179,7 +181,8 @@ class KubernetesPlatform:
     def knows(self, service: str) -> bool:
         try:
             self._read(service)
-        except Exception:  # noqa: BLE001 - not found or unreadable: not this platform's service
+        except Exception as exc:  # noqa: BLE001  # not found or unreadable: not this platform's service
+            _LOG.debug("deployment %s not read (%s): not this platform's", service, type(exc).__name__)
             return False
         return True
 
@@ -187,7 +190,8 @@ class KubernetesPlatform:
         """Every desired replica updated and available - a positive signal, never the absence of a bad one."""
         try:
             dep = self._read(service)
-        except Exception:  # noqa: BLE001 - unknown is not healthy
+        except Exception as exc:  # noqa: BLE001  # fail closed: whatever stopped the read; unknown is not healthy
+            _LOG.warning("deployment %s could not be read (%s): not healthy", service, type(exc).__name__)
             return False
         want, status = _replicas(dep), dep.status
         if not status:

@@ -28,6 +28,7 @@ session minted for that one approved plan - the only identity whose policy may c
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import re
 import threading
@@ -36,6 +37,8 @@ from typing import Any
 
 from .. import settings
 from ..database import IDLE_SECS, adapter_for, engine_of
+
+_LOG = logging.getLogger("warden.platforms")
 
 MAX_TERMINATE = int(os.environ.get("WARDEN_DB_TERMINATE_MAX", "20"))
 # How long others must have waited behind a session before it counts as blocking - a lock held for a moment is how
@@ -310,7 +313,8 @@ class DatabasePlatform:
         with self._lock:
             try:
                 return self._sql.database(self._connection())
-            except Exception:  # noqa: BLE001 - unreadable: nothing is allowed
+            except Exception as exc:  # noqa: BLE001  # fail closed: each engine's driver has its own errors
+                _LOG.warning("the database could not be read (%s): nothing is allowed", type(exc).__name__)
                 self._drop()
                 return None
 
@@ -331,7 +335,9 @@ class DatabasePlatform:
             with self._lock:
                 try:
                     found = self._sql.blockers(self._connection(), self._users, BLOCK_SECS, self._max)
-                except Exception:  # noqa: BLE001 - unreadable: nothing is allowed
+                except Exception as exc:  # noqa: BLE001  # fail closed: each engine's driver has its own errors
+                    _LOG.warning("the blocking sessions could not be read (%s): nothing is allowed",
+                                 type(exc).__name__)
                     self._drop()
                     return {}
             live["pid"] = {str(pid) for pid, _, _ in found}
@@ -398,7 +404,8 @@ class DatabasePlatform:
                 conn = self._connection()
                 return self._sql.candidates(conn, IDLE_SECS, 1, self._users) == [] and \
                     (self._engine != "postgres" or self._sql.blockers(conn, self._users, BLOCK_SECS, 1) == [])
-            except Exception:  # noqa: BLE001 - unknown is not healthy
+            except Exception as exc:  # noqa: BLE001  # fail closed: each engine's driver has its own errors
+                _LOG.warning("the database health check failed (%s): not healthy", type(exc).__name__)
                 self._drop()
                 return False
 

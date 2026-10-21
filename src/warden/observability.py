@@ -118,7 +118,7 @@ def _safe_error(exc: BaseException) -> str:
     try:
         # Redacted as written, then normalised (ninth review: stripping controls first glued text to a key).
         return _redact_then_cut(" ".join(normalise(redact(str(exc)).text).split()), 300)
-    except Exception:  # noqa: BLE001 - a redaction failure must not hide the original error
+    except Exception:  # noqa: BLE001  # last resort while an error is reported; the placeholder records it
         return "(error text withheld)"
 
 
@@ -127,7 +127,7 @@ def gated(text: str, limit: int = 8000) -> str:
     for a line written with print(), where no handler is (the Lambdas' own lines, inventory review 2026-10-15)."""
     try:
         return _redact_then_cut(normalise(redact(text).text), limit)
-    except Exception:  # noqa: BLE001 - a redaction failure must not print the raw text instead
+    except Exception:  # noqa: BLE001  # last resort inside the log gate; the placeholder records the failure
         return "(log text withheld)"
 
 
@@ -143,7 +143,7 @@ class GatedFormatter(logging.Formatter):
             # Redacted as written first - a control character between a letter and a key is the boundary the
             # patterns need - then normalised and redacted again, for what the normalising joined (ninth review).
             text = _redact_then_cut(normalise(redact(super().format(record)).text), self.LIMIT)
-        except Exception:  # noqa: BLE001 - a redaction failure must not print the raw text instead
+        except Exception:  # noqa: BLE001  # last resort inside the log gate; the placeholder records the failure
             return f"{record.levelname} {record.name}: (log text withheld)"
         # Every further line is indented, so text inside a record cannot pass for a record of its own
         # (third review: a message carrying "\n<date> INFO ...: approved" forged a line). Line and
@@ -218,7 +218,7 @@ def exit_message(code: object) -> str | None:
         return None
     try:
         return str(code)
-    except Exception:  # noqa: BLE001 - its text is not ours to trust or to print
+    except Exception:  # noqa: BLE001  # str() of any object may raise anything; the placeholder records it
         return "(exit text withheld)"
 
 
