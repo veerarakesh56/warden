@@ -259,3 +259,17 @@ def test_the_events_themselves_are_masked_too():
     assert EMAIL not in out
     assert AWS_ACCESS_KEY_ID not in out
     assert "<EMAIL_1>" in out
+
+
+def test_a_name_from_the_history_is_masked_and_gated_too():
+    """A signal name comes from the history itself, not from a payload: history() masks it and strips its control
+    characters (the values are masked in lines(); this is the gate over the whole event text)."""
+    from temporalio.api.history.v1 import WorkflowExecutionSignaledEventAttributes
+
+    e = HistoryEvent(event_id=4, event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED)
+    e.workflow_execution_signaled_event_attributes.CopyFrom(
+        WorkflowExecutionSignaledEventAttributes(signal_name=f"approve {EMAIL}\x07")
+    )
+    out = _history([e])
+    assert EMAIL not in out
+    assert "\x07" not in out
