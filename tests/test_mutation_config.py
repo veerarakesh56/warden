@@ -18,7 +18,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 SAFETY = {"gate.py", "verifier.py", "catalog.py", "approvals.py", "autonomy.py", "bounds.py", "audit.py",
           "redaction.py"}
-PENDING = {"autonomy.py"}  # Eldane's autonomy module: mutated from the day it merges (eldane-autonomy)
 WORKFLOW = ROOT / ".github" / "workflows" / "mutation.yml"
 
 
@@ -35,23 +34,29 @@ def test_only_the_safety_modules_are_mutated():
     assert {pathlib.PurePosixPath(m).name for m in modules} == SAFETY
     assert all(m.startswith("src/warden/") for m in modules)
     missing = {pathlib.PurePosixPath(m).name for m in modules if not (ROOT / m).is_file()}
-    assert missing <= PENDING, missing  # a renamed or deleted module must not drop out silently
+    assert not missing, missing  # a renamed or deleted module must not drop out silently
     assert _pyproject()["tool"]["mutmut"]["source_paths"] == ["src/"]
 
 
 def test_mutmut_is_one_exact_version_installed_from_the_lock():
     group = _pyproject()["dependency-groups"]["mutation"]
-    assert len(group) == 1 and group[0].startswith("mutmut==")
+    assert len(group) == 1
+    assert group[0].startswith("mutmut==")
     install = [st["run"] for st in _workflow()["jobs"]["mutmut"]["steps"] if st.get("name") == "Install (locked)"]
-    assert len(install) == 1 and "--locked" in install[0] and "--group mutation" in install[0]
+    assert len(install) == 1
+    assert "--locked" in install[0]
+    assert "--group mutation" in install[0]
 
 
 def test_the_job_reports_and_does_not_block_yet():
     job = _workflow()["jobs"]["mutmut"]
     assert job["continue-on-error"] is True
-    assert job["runs-on"] == "ubuntu-24.04" and job["timeout-minutes"] <= 360
+    assert job["runs-on"] == "ubuntu-24.04"
+    assert job["timeout-minutes"] <= 360
     score = [st for st in job["steps"] if st.get("name") == "Score"]
-    assert score and score[0]["if"] == "always()" and "GITHUB_STEP_SUMMARY" in score[0]["run"]
+    assert score
+    assert score[0]["if"] == "always()"
+    assert "GITHUB_STEP_SUMMARY" in score[0]["run"]
     assert "--min-score" not in score[0]["run"]  # the gate comes after the first full runs
 
 
@@ -72,6 +77,15 @@ def test_the_copy_mutmut_tests_in_deselects_only_repository_checks():
     stems = {d.split("::")[0].removeprefix("tests/test_").removesuffix(".py") for d in deselected}
     assert not any(m.removesuffix(".py") in s for m in SAFETY for s in stems), stems
     assert len(deselected) <= 6, deselected
+
+
+def test_every_deselected_test_exists():
+    """A renamed test would leave its --deselect pointing at nothing, and the renamed test would run in mutmut's copy,
+    where a repository check cannot hold: each deselected id names a test function in its file."""
+    selection = _pyproject()["tool"]["mutmut"]["pytest_add_cli_args_test_selection"]
+    for arg in selection[2:]:
+        path, name = arg.removeprefix("--deselect=").split("::")
+        assert f"def {name}(" in (ROOT / path).read_text(encoding="utf-8"), arg
 
 
 @pytest.mark.parametrize(("changed", "expected"), [
