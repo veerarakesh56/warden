@@ -576,7 +576,11 @@ _LOG = logging.getLogger("warden.llm")
 def _say_if_key_refused(exc: Exception) -> None:
     status = getattr(exc, "status_code", None)
     status = getattr(exc, "code", None) if status is None else status
-    if isinstance(status, int) and status in KEY_REFUSED:
+    try:  # some providers give the status as text ("401"), as _is_transient already accepts
+        status = int(status)
+    except (TypeError, ValueError):
+        return
+    if status in KEY_REFUSED:
         _LOG.error("the model provider refused WARDEN's API key (HTTP %d, %s): every diagnosis fails until a working "
                    "key is in Secrets Manager", status, type(exc).__name__)
 

@@ -259,7 +259,9 @@ class _Refusing:
 
 @pytest.mark.parametrize(("status", "attr", "paged"), [
     (401, "status_code", True), (403, "status_code", True), (401, "code", True),
-    (400, "status_code", False), (404, "status_code", False), (429, "status_code", False), (503, "code", False)])
+    (400, "status_code", False), (404, "status_code", False), (429, "status_code", False), (503, "code", False),
+    # a status given as text is the same status (_is_transient reads it so too)
+    ("401", "status_code", True), ("403", "code", True), ("400", "status_code", False)])
 def test_the_models_key_refused_is_an_error_line_and_nothing_else_is(caplog, status, attr, paged):
     caplog.set_level(logging.INFO)
     client = llm.LLMClient(provider=_Refusing(status, attr), mock=False)
