@@ -346,7 +346,11 @@ class RemediationActivities:
         self.audit.append(req.incident_id, "remediation.plan",
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
-                           "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
+                           # A refused plan's parameters are kept redacted: never applied, and a caller may have put
+                           # anything in one the reader ignores (review, PR 76). A plan that can be applied keeps them
+                           # exact - apply compares them with this row.
+                           "params": _redacted(req.params) if problems else req.params,
+                           "target": key, "basis": basis, "plan_hash": plan.plan_hash,
                            "problems": problems})
         return plan
 

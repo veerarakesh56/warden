@@ -46,6 +46,8 @@ UNDO: dict[str, dict[str, tuple[str, ...]]] = {
     "ec2_revert_sg_change": _SG,
     "ec2_restore_route": {"ec2:CreateRoute": ("ec2:DeleteRoute",), "ec2:DeleteRoute": ("ec2:CreateRoute",)},
 }
+# Sessions only the apply asks for: the undo of a redrive cancels the move on the dead-letter queue and sends nothing.
+APPLY_ONLY = {"sqs_redrive_dlq": frozenset({"sqs:SendMessage"})}
 # The undo's action read from the plan's snapshot: back to the reserved concurrency the change set (`after`) - none
 # deletes the reservation, a number puts it (aws._lambda_restore).
 UNDO_BY_SNAPSHOT: dict[str, Callable[[dict[str, Any]], tuple[str, ...]]] = {
@@ -122,9 +124,11 @@ def undo_sessions(entry: str, sessions: list[dict[str, Any]],
     if entry in UNDO_BY_SNAPSHOT:
         acts = sorted(UNDO_BY_SNAPSHOT[entry](snapshot or {}))
         return [{**s, "actions": acts} for s in sessions]
-    swap = UNDO[entry]
+    swap, apply_only = UNDO[entry], APPLY_ONLY.get(entry, frozenset())
     out = []
     for s in sessions:
+        if set(s["actions"]) <= apply_only:
+            continue  # a session only the apply asks for (a redrive's send to the source queue)
         acts = sorted({u for a in s["actions"] for u in swap.get(a, (a,))})
         out.append({**s, "actions": acts, "resources": _undo_resources(entry, acts, s["resources"])})
     return out

@@ -303,3 +303,26 @@ def test_an_answer_that_does_not_cover_every_call_is_not_checked(aws, mode):
     assert got["checked"] is False
     assert got["denied"] == []
     assert got["unconfirmed"]
+
+
+def test_a_redrives_undo_is_checked_without_the_send_only_its_apply_makes():
+    dlq = f"arn:aws:sqs:test-region-1:{ACCT}:warden-dev-orders-dlq"
+    src = f"arn:aws:sqs:test-region-1:{ACCT}:warden-dev-orders"
+    applied = [{"actions": ["sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ReceiveMessage",
+                            "sqs:StartMessageMoveTask"], "resources": [dlq], "condition": {}},
+               {"actions": ["sqs:SendMessage"], "resources": [src], "condition": {}}]
+    [back] = permits.undo_sessions("sqs_redrive_dlq", applied)
+    assert back["actions"] == ["sqs:CancelMessageMoveTask", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
+                               "sqs:ReceiveMessage"]
+    assert back["resources"] == [dlq]
+
+
+def test_a_refused_plans_parameters_are_kept_redacted():
+    acts, platform, _ = _acts()
+    platform.permitted = lambda *a, **k: {"checked": True, "denied": ["ACTOR-PERMISSION: x"], "unconfirmed": []}
+    secret = "p" + "assw0rd-value-123456"
+    req = FixRequest(**{**REQ, "params": {**REQ["params"], "note": f"token={secret}"}})
+    acts.resolve_plan(req, "rem-1")
+    [row] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.plan",))
+    assert row["body"]["problems"]
+    assert secret not in json.dumps(row["body"])
