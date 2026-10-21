@@ -289,7 +289,7 @@ def test_a_custom_bus_rule_is_read_enabled_and_checked_on_its_own_bus(aws):
     p.apply("events_enable_rule", {"rule": ref}, snapshot=live["state"], who=WHO)
     assert f.writes == [("enable_rule", {"Name": f.rule["Name"], "EventBusName": "orders-bus"})]
     f.rule["State"] = "ENABLED"
-    assert p._rule_healthy(ref, {"rule": ref})
+    assert p._rule_healthy(ref)
 
 
 def test_table_write_capacity_at_most_doubles_and_an_autoscaled_table_is_left_alone(aws):

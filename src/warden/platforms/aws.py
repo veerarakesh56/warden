@@ -46,6 +46,7 @@ import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any
 
 from .. import catalog
@@ -308,6 +309,207 @@ def _iac_refusal(e: dict[str, Any]) -> str:
     return ""
 
 
+_NOT_IN_ALARM = "the alarm is not in ALARM"
+_ECS_UPDATE = "ecs:UpdateService"
+
+
+def _change_refusal(e: dict[str, Any], onset: datetime | None) -> str:
+    """Why a recorded change is not WARDEN's to undo; with no onset, the alarm is not in ALARM and nothing is."""
+    return _who_refusal(e, onset) if onset else _NOT_IN_ALARM
+
+
+def _named_first(writes: list[dict[str, Any]], named: Any) -> list[dict[str, Any]]:
+    """Only the plan's own event when it names one of the writes; else every write."""
+    if isinstance(named, str):
+        return [w for w in writes if w["event"] == named] or writes
+    return writes
+
+
+def _how_many(writes: list[Any]) -> str:
+    """How many writes were found, as a refusal says it."""
+    return str(len(writes)) if writes else "no recorded"
+
+
+def _not_chosen(writes: list[Any]) -> str:
+    """Said after a count of several writes: WARDEN does not choose one."""
+    return " (WARDEN does not choose one)" if writes else ""
+
+
+def _count_refusal(before: Any, after: Any, asked: Any, now: Any) -> str:
+    """Why a recorded desired count is not restored: none before to go back to, or the count moved since the change
+    (`asked` what the change asked for, `now` the live count) - else ""."""
+    if not isinstance(before, int) or before < 1:
+        return f"the count before the change was {before}: nothing to restore"
+    if after != asked or now != after:
+        return "the service's count is not what the change set: it moved since"
+    return ""
+
+
+def _reserved_of(item: dict[str, Any]) -> Any:
+    """A Lambda function's reserved concurrency in its Config item."""
+    return _get(_json((item.get("supplementaryConfiguration") or {}).get("Concurrency")),
+                "reservedConcurrentExecutions")
+
+
+def _concurrency_text(reserved: Any) -> str:
+    """A reserved concurrency as a plan names it: `none` when nothing was reserved."""
+    return "none" if reserved is None else str(reserved)
+
+
+def _concurrency_refusal(before: Any, after: Any, reserved: Any, free: Any) -> str:
+    """Why a recorded reserved concurrency is not restored: it moved since the change, or the account has no room
+    for it (`free` the account's unreserved concurrency) - else ""."""
+    if reserved != after:
+        return "the function's reserved concurrency is not what the change set: it moved since"
+    if isinstance(before, int) and isinstance(free, int) and before - (reserved or 0) > free - AWS_RESERVED_UNRESERVED:
+        return "the account has no room to reserve that much again"
+    return ""
+
+
+def _settings_request_refusal(request: dict[str, Any], changed: list[str]) -> str:
+    """Why an UpdateFunctionConfiguration is not WARDEN's to undo: it also set more than timeout, memory and
+    ephemeral storage, or none of them - else ""."""
+    other = sorted(k for k in request if k.lower() not in _SETTINGS_REQUEST_KEYS)
+    if other:
+        return f"the change also set {', '.join(other)}: a person undoes it"
+    if not changed:
+        return "the change set none of timeout, memory or ephemeral storage"
+    return ""
+
+
+def _settings_refusal(before: Any, after: Any, now_values: dict[str, Any], changed: list[str]) -> str:
+    """Why recorded Lambda settings are not restored: none recorded before, moved since, or outside Lambda's bounds -
+    else ""."""
+    if not isinstance(before, dict) or any(not isinstance(v, int) for v in before.values()):
+        return "AWS Config recorded no value before the change"
+    if {k: now_values.get(k) for k in changed} != after:
+        return "the function's settings are not what the change set: they moved since"
+    if any(not _SETTINGS[k][0] <= v <= _SETTINGS[k][1] for k, v in before.items()):
+        return "the value before the change is outside what Lambda allows"
+    return ""
+
+
+def _queue_request_refusal(wrote: dict[str, Any], changed: list[str]) -> str:
+    """Why a SetQueueAttributes is not WARDEN's to undo: it also set more than the queue's timing and size settings,
+    or none of them - else ""."""
+    other = sorted(k for k in wrote if k not in _QUEUE_SETTINGS)
+    if other:
+        return f"the change also set {', '.join(other)}: a person undoes it"
+    if not changed:
+        return "the change set none of the queue's timing or size settings"
+    return ""
+
+
+def _queue_settings_refusal(before: Any, after: Any, now_values: dict[str, Any], changed: list[str]) -> str:
+    """Why recorded queue settings are not restored: none recorded before, moved since, or outside SQS's bounds -
+    else ""."""
+    if not isinstance(before, dict) or set(before) != set(changed):
+        return "AWS Config recorded no value before the change"
+    if {k: now_values.get(k) for k in changed} != after:
+        return "the queue's settings are not what the change set: they moved since"
+    if any(not _QUEUE_SETTINGS[k][0] <= v <= _QUEUE_SETTINGS[k][1] for k, v in before.items()):
+        return "the value before the change is outside what SQS allows"
+    return ""
+
+
+def _route_request_refusal(e: dict[str, Any], dest: Any) -> str:
+    """Why a route write is not WARDEN's to undo: it created the route, or names no destination WARDEN routes - else
+    ""."""
+    if e["event_name"] == "CreateRoute":
+        return "the change created a route: deleting it is a person's decision"
+    if dest is None:
+        return "the change names no destination WARDEN can route"
+    return ""
+
+
+def _route_refusal(before: Any, after: Any, now_target: Any) -> str:
+    """Why a recorded route is not restored: none WARDEN writes was recorded before, or it moved since - else ""."""
+    if before is None:
+        return "AWS Config recorded no route to that destination before the change - or one WARDEN does not write"
+    if now_target != after:
+        return "the route is not what the change left: it moved since"
+    return ""
+
+
+def _retention_refusal(before: Any, after: Any, hours: Any) -> str:
+    """Why a recorded stream retention is not restored: no longer one recorded before, moved since (`hours` the live
+    retention), or outside Kinesis's bounds - else ""."""
+    if not (isinstance(before, int) and isinstance(after, int) and before > after):
+        return "AWS Config recorded no longer retention before the change"
+    if hours != after:
+        return "the stream's retention is not what the change set: it moved since"
+    if not 24 <= before <= 8760:
+        return "the retention before the change is outside what Kinesis allows"
+    return ""
+
+
+def _capacity_refusal(before: Any, after: Any, asked: Any, now: Any) -> str:
+    """Why a recorded table capacity is not restored: no higher one recorded before, or it moved since the change
+    (`asked` what the change asked for, `now` the live capacity) - else ""."""
+    if not (before and after and before != after and all(b >= a for b, a in zip(before, after))):
+        return "AWS Config recorded no higher capacity before the change"
+    if after != asked or now != after:
+        return "the table's capacity is not what the change set: it moved since"
+    return ""
+
+
+def _bounds_refusal(request: dict[str, Any] | None) -> str:
+    """Why a capacity change is not WARDEN's to undo: it also set the group's bounds - else ""."""
+    if {"minSize", "maxSize"} & set(request or {}):
+        return "the change also set the group's bounds: a person restores them"
+    return ""
+
+
+def _group_capacity_refusal(before: Any, after: Any, asked: Any, now: Any, bounds: tuple[Any, Any]) -> str:
+    """Why a recorded group capacity is not restored: outside the group's bounds now, or it moved since the change
+    (`asked` what the change asked for, `now` the live capacity) - else ""."""
+    lo, hi = bounds
+    if not isinstance(before, int) or not isinstance(lo, int) or not isinstance(hi, int) or not lo <= before <= hi:
+        return f"the capacity before ({before}) is outside the group's bounds now ({lo}..{hi})"
+    if after != asked or now != after:
+        return "the group's capacity is not what the change set: it moved since"
+    return ""
+
+
+def _deregistered(request: dict[str, Any] | None) -> list[list[Any]]:
+    """The [id, port] of each target a DeregisterTargets named, in a stable order."""
+    return sorted(([str(_get(t, "id")), _get(t, "port")] for t in _get(request, "targets") or []
+                   if isinstance(t, dict) and _get(t, "id")), key=json.dumps)
+
+
+def _targets_refusal(elb: Any, arn: str, targets: list[list[Any]]) -> str:
+    """Why the deregistered targets are not registered again: the event names none, or one is registered again
+    already - else ""."""
+    if not targets:
+        return "the event names no target it deregistered"
+    now = elb.describe_target_health(TargetGroupArn=arn, Targets=[
+        {"Id": t, **({"Port": p} if isinstance(p, int) else {})} for t, p in targets]).get(
+        "TargetHealthDescriptions") or []
+    if any(((h.get("TargetHealth") or {}).get("State")) not in (None, "unused", "draining") for h in now):
+        return "a deregistered target is registered again already"
+    return ""
+
+
+def _suspended_by(request: dict[str, Any] | None) -> list[str]:
+    """The processes a SuspendProcesses stopped: the ones it names, or every one when it names none."""
+    asked = _get(request or {}, "scalingProcesses")
+    return sorted(str(p) for p in asked) if isinstance(asked, list) and asked else sorted(_ASG_PROCESSES)
+
+
+def _resume_refusal(processes: list[str], suspended: list[str]) -> str:
+    """Why the processes are not resumed: one WARDEN does not know, or one runs again already - else ""."""
+    if not set(processes) <= _ASG_PROCESSES:
+        return "the event names a process WARDEN does not know"
+    if not set(processes) <= set(suspended):
+        return "a process the change suspended runs again already"
+    return ""
+
+
+def _change_fields(e: dict[str, Any]) -> dict[str, Any]:
+    """The fields of a recorded change that a plan's state shows."""
+    return {k: e[k] for k in ("event", "event_name", "event_time", "actor")}
+
+
 # G10-D4: the settings a configuration revert may write, Lambda's bounds for each, and AWS Config's field for each
 # (awslabs/aws-config-resource-schema AWS::Lambda::Function, read 2026-10-10: configuration.timeout, .memorySize,
 # .ephemeralStorage.size).
@@ -449,6 +651,73 @@ def _last(value: Any) -> str:
 
 
 
+def _listed_mappings(lam: Any, **by: str) -> list[dict[str, Any]]:
+    """The event source mappings Lambda lists for a function or a source, at most five pages."""
+    mappings, marker = [], None
+    for _ in range(5):
+        page = lam.list_event_source_mappings(**by, **({"Marker": marker} if marker else {}))
+        mappings += page.get("EventSourceMappings") or []
+        marker = page.get("NextMarker")
+        if not marker:
+            break
+    return mappings
+
+
+def _same_account_sources(urls: list[str], account: str) -> list[str]:
+    """The names of the first ten source queues that are in this account."""
+    sources = []
+    for u in urls[:10]:
+        # https://sqs.<region>.amazonaws.com/<account>/<name>: a source in this account and Region only.
+        parts = u.rstrip("/").split("/")
+        acct, qname = (parts[-2], parts[-1]) if len(parts) >= 5 else ("", "")
+        if acct == account and qname:
+            sources.append(qname)
+    return sources
+
+
+def _runaway_queries(queries: list[dict[str, Any]], wg: str) -> tuple[set[str], dict[str, Any]]:
+    """(the runaway queries of the workgroup, each of its queries' state)."""
+    runaway, mine = set(), {}
+    for q in queries:
+        if q.get("WorkGroup") != wg:
+            continue
+        st = q.get("Status") or {}
+        mine[q["QueryExecutionId"]] = st.get("State")
+        ran = ((q.get("Statistics") or {}).get("EngineExecutionTimeInMillis") or 0) / 1000
+        # Only a SELECT: a cancelled INSERT INTO or CTAS can leave partial data (review M4). Its engine time, not
+        # its time queued (L8).
+        if st.get("State") == "RUNNING" and q.get("SubstatementType") == "SELECT" \
+                and ran >= RUNAWAY_QUERY.total_seconds():
+            runaway.add(q["QueryExecutionId"])
+    return runaway, mine
+
+
+def _zone_verdict(hmax: list[list[float]], hmin: list[list[float]],
+                  umin: list[list[float]]) -> tuple[float, float] | None:
+    """One zone's (healthy, unhealthy) from its series: (1, 0) serving, (0, 1) impaired, None unknown."""
+    if not hmax or any(len(v) < ZONE_POINTS for v in hmax + hmin + umin):
+        return None  # too little data: unknown, never impaired and never serving
+    healthy_never = all(x == 0 for v in hmax for x in v)
+    unhealthy_always = all(sum(col) > 0 for col in zip(*umin, strict=False))
+    serving_always = all(sum(col) > 0 for col in zip(*hmin, strict=False))
+    if serving_always:
+        return (1.0, 0.0)  # serving: (healthy, unhealthy)
+    if healthy_never and unhealthy_always:
+        return (0.0, 1.0)  # impaired
+    return None  # anything between: unknown, neither impaired nor serving
+
+
+def _started_before_alarm(alarm: dict[str, Any], fired: datetime | None, began: datetime | None) -> bool:
+    """The alarm reads ALARM and the deployment started in the APPCONFIG_BEFORE_ALARM before it went off."""
+    return (alarm.get("StateValue") == "ALARM" and fired is not None and began is not None
+            and fired - APPCONFIG_BEFORE_ALARM <= began <= fired)
+
+
+def _environment_tags(ac: Any, arns: tuple[str, ...]) -> set[Any]:
+    """The Environment tag of each AppConfig resource, as a set: one value when they all agree."""
+    return {(ac.list_tags_for_resource(ResourceArn=a).get("Tags") or {}).get(ENV_TAG) for a in arns}
+
+
 def _rule_on_bus(ref: str) -> dict[str, str]:
     """`rule` or `bus/rule` (the resolver's form for a custom bus's rule) as DescribeRule/EnableRule arguments. Rule
     names hold no `/`; bus names may (a partner bus), so the bus is everything before the last one."""
@@ -576,7 +845,7 @@ class AwsPlatform:
                 break
         return out
 
-    def knows(self, service: str) -> bool:
+    def knows(self, _service: str) -> bool:
         return False  # health is asked by entry (healthy_for), never by a bare name that two kinds could share
 
     def alarm_state(self, alarm: str) -> str | None:
@@ -586,32 +855,44 @@ class AwsPlatform:
         return str(found[0].get("StateValue")) if found else None
 
     def healthy(self, service: str, entry: str | None = None, params: dict[str, Any] | None = None) -> bool:
-        check = {"lambda_move_alias": self._lambda_healthy, "lambda_set_reserved_concurrency": self._lambda_healthy,
-                 "lambda_enable_esm": self._esm_healthy, "events_enable_rule": self._rule_healthy,
-                 "lambda_disable_esm": self._esm_paused, "events_disable_rule": self._rule_paused,
-                 "dynamodb_raise_capacity": self._table_healthy, "ecs_rollback_service": self._ecs_healthy,
-                 "ecs_restart_service": self._ecs_healthy, "ecs_scale_service": self._ecs_healthy,
-                 "sqs_redrive_dlq": self._redrive_done, "athena_stop_query": self._query_cancelled,
-                 "apigw_raise_stage_throttle": self._stage_healthy, "arc_zonal_shift": self._shift_holds,
-                 "appconfig_revert": self._appconfig_reverted, "codepipeline_freeze": self._frozen,
-                 "ec2_revert_sg_change": self._sg_alarm_ok, "ecs_restore_desired": self._ecs_restored,
-                 "lambda_restore_concurrency": self._lambda_restored,
-                 "lambda_restore_settings": self._lambda_settings_restored,
-                 "sqs_restore_attributes": self._sqs_attributes_restored,
-                 "ec2_restore_route": self._route_restored,
-                 "kinesis_restore_retention": self._kinesis_retention_restored,
-                 "asg_restore_capacity": self._asg_restored, "apigw_restore_stage": self._stage_restored,
-                 "elb_reregister_targets": self._targets_healthy, "kms_cancel_key_deletion": self._key_kept,
-                 "secrets_restore_secret": self._secret_restored,
-                 "dynamodb_restore_capacity": self._table_restored,
-                 "asg_resume_processes": self._asg_resumed,
-                 "aurora_failover": self._cluster_healthy}.get(entry or "")
+        check = self._health_check(entry or "", service, params or {})
         if check is None:
             return False
         try:
-            return bool(check(service, params or {}))
+            return bool(check())
         except Exception:  # noqa: BLE001 - unknown is not healthy
             return False
+
+    def _health_check(self, entry: str, service: str, params: dict[str, Any]) -> Callable[[], Any] | None:
+        """The entry's health check, handed what it reads: the target's name, the plan's parameters, or both."""
+        by_name = {"lambda_enable_esm": self._esm_healthy, "events_enable_rule": self._rule_healthy,
+                   "lambda_disable_esm": self._esm_paused, "events_disable_rule": self._rule_paused,
+                   "sqs_redrive_dlq": self._redrive_done, "kms_cancel_key_deletion": self._key_kept}
+        by_params = {"appconfig_revert": self._appconfig_reverted, "ec2_revert_sg_change": self._sg_alarm_ok,
+                     "elb_reregister_targets": self._targets_healthy}
+        by_both = {"lambda_move_alias": self._lambda_healthy, "lambda_set_reserved_concurrency": self._lambda_healthy,
+                   "dynamodb_raise_capacity": self._table_healthy, "ecs_rollback_service": self._ecs_healthy,
+                   "ecs_restart_service": self._ecs_healthy, "ecs_scale_service": self._ecs_healthy,
+                   "athena_stop_query": self._query_cancelled,
+                   "apigw_raise_stage_throttle": self._stage_healthy, "arc_zonal_shift": self._shift_holds,
+                   "codepipeline_freeze": self._frozen, "ecs_restore_desired": self._ecs_restored,
+                   "lambda_restore_concurrency": self._lambda_restored,
+                   "lambda_restore_settings": self._lambda_settings_restored,
+                   "sqs_restore_attributes": self._sqs_attributes_restored,
+                   "ec2_restore_route": self._route_restored,
+                   "kinesis_restore_retention": self._kinesis_retention_restored,
+                   "asg_restore_capacity": self._asg_restored, "apigw_restore_stage": self._stage_restored,
+                   "secrets_restore_secret": self._secret_restored,
+                   "dynamodb_restore_capacity": self._table_restored,
+                   "asg_resume_processes": self._asg_resumed,
+                   "aurora_failover": self._cluster_healthy}
+        if entry in by_name:
+            return partial(by_name[entry], service)
+        if entry in by_params:
+            return partial(by_params[entry], params)
+        if entry in by_both:
+            return partial(by_both[entry], service, params)
+        return None
 
     def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None,
               who: dict[str, Any] | None = None) -> str:
@@ -915,33 +1196,17 @@ class AwsPlatform:
         every such mapping of the function - the resolver takes it only when there is exactly one."""
         fn, uuid, queue, only = params.get("function"), params.get("mapping"), params.get("queue"), None
         lam = self._read("lambda")
-
-        def listed(**by: str) -> list[dict[str, Any]]:
-            mappings, marker = [], None
-            for _ in range(5):
-                page = lam.list_event_source_mappings(**by, **({"Marker": marker} if marker else {}))
-                mappings += page.get("EventSourceMappings") or []
-                marker = page.get("NextMarker")
-                if not marker:
-                    break
-            return mappings
-
         if not isinstance(fn, str) and isinstance(queue, str) and not pause:
-            # A queue's own alarm (first live run, 2026-10-12): the fix is on the queue's consumer. The mappings AWS
-            # holds for exactly this queue's ARN name it; with ONE of them switched off, that function and that
-            # mapping are the allowed set - never a function a log line or the model named.
-            sqs = self._read("sqs")
-            arn = sqs.get_queue_attributes(QueueUrl=sqs.get_queue_url(QueueName=queue)["QueueUrl"],
-                                           AttributeNames=["QueueArn"])["Attributes"]["QueueArn"]
-            off = [m for m in listed(EventSourceArn=arn) if m.get("State") == "Disabled"]
-            if len(off) != 1:
+            consumer = self._queue_consumer(lam, queue)
+            if consumer is None:
                 return {}
-            fn, only = _unqualified(str(off[0]["FunctionArn"])).rsplit(":", 1)[-1], off[0]["UUID"]
+            fn, only = consumer
         if not isinstance(fn, str):
             return {}
         conf = lam.get_function_configuration(FunctionName=fn)
         fn_arn, name = _unqualified(conf["FunctionArn"]), conf["FunctionName"]
-        mappings = [lam.get_event_source_mapping(UUID=uuid)] if isinstance(uuid, str) else listed(FunctionName=name)
+        mappings = ([lam.get_event_source_mapping(UUID=uuid)] if isinstance(uuid, str)
+                    else _listed_mappings(lam, FunctionName=name))
         mine = [m for m in mappings if _unqualified(str(m.get("FunctionArn", ""))) == fn_arn]
         want = "Enabled" if pause else "Disabled"
         # A pause only for a queue that keeps its messages a day or more: they wait there. A stream's records expire
@@ -952,13 +1217,31 @@ class AwsPlatform:
             allowed &= {only}  # the queue's own mapping, not another source's of the same function
         out = {"function": {name}, "mapping": allowed, "environment": self._tags("lambda", fn_arn).get(ENV_TAG)}
         if isinstance(uuid, str) and mine:
-            m = mine[0]
-            state = m.get("State")
-            out["rollout"] = "progressing" if state in ("Enabling", "Disabling", "Updating", "Creating") else "complete"
-            out["state"] = {"mapping": uuid, "function": fn_arn, "enabled": state == "Enabled",
-                            "source": m.get("EventSourceArn"), "where": self._where(fn_arn)}
-            if pause:  # in the plan the approver signs: how long the waiting messages are kept
-                out["state"]["retention_s"] = self._retention(str(m.get("EventSourceArn", "")))
+            out.update(self._esm_state(mine[0], uuid, fn_arn, pause))
+        return out
+
+    def _queue_consumer(self, lam: Any, queue: str) -> tuple[str, Any] | None:
+        """(the function, the mapping) consuming the queue - None when there is not exactly one switched off."""
+        # A queue's own alarm (first live run, 2026-10-12): the fix is on the queue's consumer. The mappings AWS
+        # holds for exactly this queue's ARN name it; with ONE of them switched off, that function and that
+        # mapping are the allowed set - never a function a log line or the model named.
+        sqs = self._read("sqs")
+        arn = sqs.get_queue_attributes(QueueUrl=sqs.get_queue_url(QueueName=queue)["QueueUrl"],
+                                       AttributeNames=["QueueArn"])["Attributes"]["QueueArn"]
+        off = [m for m in _listed_mappings(lam, EventSourceArn=arn) if m.get("State") == "Disabled"]
+        if len(off) != 1:
+            return None
+        return _unqualified(str(off[0]["FunctionArn"])).rsplit(":", 1)[-1], off[0]["UUID"]
+
+    def _esm_state(self, m: dict[str, Any], uuid: str, fn_arn: str, pause: bool) -> dict[str, Any]:
+        """The named mapping's rollout and the state the plan records for it."""
+        state = m.get("State")
+        out: dict[str, Any] = {
+            "rollout": "progressing" if state in ("Enabling", "Disabling", "Updating", "Creating") else "complete",
+            "state": {"mapping": uuid, "function": fn_arn, "enabled": state == "Enabled",
+                      "source": m.get("EventSourceArn"), "where": self._where(fn_arn)}}
+        if pause:  # in the plan the approver signs: how long the waiting messages are kept
+            out["state"]["retention_s"] = self._retention(str(m.get("EventSourceArn", "")))
         return out
 
     def _retention(self, queue_arn: str) -> int | None:
@@ -996,10 +1279,10 @@ class AwsPlatform:
         lam.update_event_source_mapping(UUID=p["mapping"], Enabled=not back)
         return f"{'disabled' if back else 'enabled'} event source mapping {p['mapping']}"
 
-    def _esm_healthy(self, uuid: str, params: dict[str, Any]) -> bool:
+    def _esm_healthy(self, uuid: str) -> bool:
         return self._read("lambda").get_event_source_mapping(UUID=uuid).get("State") == "Enabled"
 
-    def _esm_paused(self, uuid: str, params: dict[str, Any]) -> bool:
+    def _esm_paused(self, uuid: str) -> bool:
         return self._read("lambda").get_event_source_mapping(UUID=uuid).get("State") == "Disabled"
 
     # ------------------------------------------------------------------ eventbridge: enable a rule
@@ -1036,10 +1319,10 @@ class AwsPlatform:
         (ev.disable_rule if back else ev.enable_rule)(**_rule_on_bus(p["rule"]))
         return f"{'disabled' if back else 'enabled'} rule {p['rule']}"
 
-    def _rule_healthy(self, name: str, params: dict[str, Any]) -> bool:
+    def _rule_healthy(self, name: str) -> bool:
         return self._read("events").describe_rule(**_rule_on_bus(name)).get("State") == "ENABLED"
 
-    def _rule_paused(self, name: str, params: dict[str, Any]) -> bool:
+    def _rule_paused(self, name: str) -> bool:
         return self._read("events").describe_rule(**_rule_on_bus(name)).get("State") == "DISABLED"
 
     # ------------------------------------------------------------------ dynamodb: raise write capacity
@@ -1141,7 +1424,7 @@ class AwsPlatform:
         if now.get("task_definition") != want_now:
             raise AwsPlatformRefused(f"service {p['service']} runs {now.get('task_definition')}, not the {want_now} the "
                                      "plan expected; nothing was changed")
-        ecs = self._actor(who, ["ecs:UpdateService"], [now["arn"]], None)("ecs")
+        ecs = self._actor(who, [_ECS_UPDATE], [now["arn"]], None)("ecs")
         ecs.update_service(cluster=p["cluster"], service=p["service"], taskDefinition=to)
         return f"rolled service {p['service']} from {want_now} to {to}"
 
@@ -1178,7 +1461,7 @@ class AwsPlatform:
         if p["service"] not in self.live("ecs_restart_service", p).get("service", set()):
             raise AwsPlatformRefused(f"service {p['service']} runs an image not pinned by digest; a restart could "
                                      "roll out new code; nothing was changed")
-        ecs = self._actor(who, ["ecs:UpdateService"], [now["arn"]], None)("ecs")
+        ecs = self._actor(who, [_ECS_UPDATE], [now["arn"]], None)("ecs")
         ecs.update_service(cluster=p["cluster"], service=p["service"], forceNewDeployment=True)
         return f"restarted service {p['service']}'s tasks on {now['task_definition']}"
 
@@ -1197,7 +1480,7 @@ class AwsPlatform:
                                          "bound (above the current, at most two more); nothing was changed")
         if not isinstance(to, int):
             raise AwsPlatformError("the plan holds no task count to return to")
-        ecs = self._actor(who, ["ecs:UpdateService"], [now["arn"]], None)("ecs")
+        ecs = self._actor(who, [_ECS_UPDATE], [now["arn"]], None)("ecs")
         ecs.update_service(cluster=p["cluster"], service=p["service"], desiredCount=to)
         return f"set service {p['service']} desired tasks from {now.get('desired')} to {to}"
 
@@ -1223,33 +1506,35 @@ class AwsPlatform:
                                                                         "KmsMasterKeyId"])["Attributes"]
         arn = attrs["QueueArn"]
         head = arn.rsplit(":", 1)[0]
-        sources = []
-        for u in (sqs.list_dead_letter_source_queues(QueueUrl=url, MaxResults=10).get("queueUrls") or [])[:10]:
-            # https://sqs.<region>.amazonaws.com/<account>/<name>: a source in this account and Region only.
-            parts = u.rstrip("/").split("/")
-            acct, qname = (parts[-2], parts[-1]) if len(parts) >= 5 else ("", "")
-            if acct == head.rsplit(":", 1)[-1] and qname:
-                sources.append(qname)
+        sources = _same_account_sources(
+            sqs.list_dead_letter_source_queues(QueueUrl=url, MaxResults=10).get("queueUrls") or [],
+            head.rsplit(":", 1)[-1])
         running = [t for t in sqs.list_message_move_tasks(SourceArn=arn, MaxResults=10).get("Results") or []
                    if t.get("Status") == "RUNNING"]
         waiting = attrs.get("ApproximateNumberOfMessages")
+        count = int(waiting) if str(waiting).isdigit() else None
         env = self._tags("sqs", url).get(ENV_TAG)
         ok = not attrs.get("KmsMasterKeyId")  # SSE-KMS needs key permissions the actor does not hold
-        # The destination: the dead-letter queue's ONLY source (with several, a move would hand one queue's messages
-        # to another's consumer - review M3), of the same environment (M2) and not KMS-encrypted either (L7).
-        dest = sources[0] if len(sources) == 1 else ""
-        if dest:
-            durl = sqs.get_queue_url(QueueName=dest)["QueueUrl"]
-            dattrs = sqs.get_queue_attributes(QueueUrl=durl, AttributeNames=["KmsMasterKeyId"])["Attributes"]
-            if dattrs.get("KmsMasterKeyId") or self._tags("sqs", durl).get(ENV_TAG) != env:
-                dest = ""
+        dest = self._redrive_destination(sqs, sources, env)
         return {"queue": {name} if ok else set(), "to_queue": {dest} if ok and dest else set(),
-                "waiting": int(waiting) if str(waiting).isdigit() else None,
+                "waiting": count,
                 "environment": env,
                 "rollout": "progressing" if running else "complete",
                 # In the plan the approver signs: how many messages would move, and from where to where.
                 "state": {"queue": name, "arn": arn, "url": url, "sources": sorted(sources),
-                          "waiting": int(waiting) if str(waiting).isdigit() else None, "where": self._where(arn)}}
+                          "waiting": count, "where": self._where(arn)}}
+
+    def _redrive_destination(self, sqs: Any, sources: list[str], env: Any) -> str:
+        """The queue a redrive moves the dead-letter queue's messages to - else ""."""
+        # The destination: the dead-letter queue's ONLY source (with several, a move would hand one queue's messages
+        # to another's consumer - review M3), of the same environment (M2) and not KMS-encrypted either (L7).
+        if len(sources) != 1:
+            return ""
+        durl = sqs.get_queue_url(QueueName=sources[0])["QueueUrl"]
+        dattrs = sqs.get_queue_attributes(QueueUrl=durl, AttributeNames=["KmsMasterKeyId"])["Attributes"]
+        if dattrs.get("KmsMasterKeyId") or self._tags("sqs", durl).get(ENV_TAG) != env:
+            return ""
+        return sources[0]
 
     def _redrive(self, p, snapshot, now, who, back) -> str:
         self._expect(now, snapshot, ("queue", "arn", "sources"), f"queue {p['queue']}")
@@ -1279,7 +1564,7 @@ class AwsPlatform:
         return (f"started moving {now.get('waiting')} messages from {p['queue']} to {p['to_queue']} at "
                 f"{p['per_second']} a second")
 
-    def _redrive_done(self, name: str, params: dict[str, Any]) -> bool:
+    def _redrive_done(self, name: str) -> bool:
         """The latest move finished, and the dead-letter queue is empty - a positive signal."""
         sqs = self._read("sqs")
         url = sqs.get_queue_url(QueueName=name)["QueueUrl"]
@@ -1303,18 +1588,8 @@ class AwsPlatform:
         state = athena.get_work_group(WorkGroup=wg)["WorkGroup"].get("State")
         arn = f"arn:aws:athena:{athena.meta.region_name}:{self._account()}:workgroup/{wg}"
         ids = [qid] if isinstance(qid, str) else             (athena.list_query_executions(WorkGroup=wg, MaxResults=50).get("QueryExecutionIds") or [])
-        runaway, mine = set(), {}
-        for q in (athena.batch_get_query_execution(QueryExecutionIds=ids).get("QueryExecutions") or []) if ids else []:
-            if q.get("WorkGroup") != wg:
-                continue
-            st = q.get("Status") or {}
-            mine[q["QueryExecutionId"]] = st.get("State")
-            ran = ((q.get("Statistics") or {}).get("EngineExecutionTimeInMillis") or 0) / 1000
-            # Only a SELECT: a cancelled INSERT INTO or CTAS can leave partial data (review M4). Its engine time, not
-            # its time queued (L8).
-            if st.get("State") == "RUNNING" and q.get("SubstatementType") == "SELECT" \
-                    and ran >= RUNAWAY_QUERY.total_seconds():
-                runaway.add(q["QueryExecutionId"])
+        runaway, mine = _runaway_queries(
+            (athena.batch_get_query_execution(QueryExecutionIds=ids).get("QueryExecutions") or []) if ids else [], wg)
         out = {"workgroup": {wg} if state == "ENABLED" else set(), "query": runaway,
                "environment": self._tags("athena", arn).get(ENV_TAG)}
         if isinstance(qid, str):
@@ -1434,19 +1709,11 @@ class AwsPlatform:
                 series.setdefault(keys[r["Id"]], []).append([float(v) for v in r.get("Values") or []])
         out = {}
         for zone in zones:
-            hmax = series.get((zone, "HealthyHostCount:Maximum"), [])
-            hmin = series.get((zone, "HealthyHostCount:Minimum"), [])
-            umin = series.get((zone, "UnHealthyHostCount:Minimum"), [])
-            if not hmax or any(len(v) < ZONE_POINTS for v in hmax + hmin + umin):
-                continue  # too little data: unknown, never impaired and never serving
-            healthy_never = all(x == 0 for v in hmax for x in v)
-            unhealthy_always = all(sum(col) > 0 for col in zip(*umin, strict=False))
-            serving_always = all(sum(col) > 0 for col in zip(*hmin, strict=False))
-            if serving_always:
-                out[zone] = (1.0, 0.0)  # serving: (healthy, unhealthy)
-            elif healthy_never and unhealthy_always:
-                out[zone] = (0.0, 1.0)  # impaired
-            # anything between: unknown, neither impaired nor serving
+            verdict = _zone_verdict(series.get((zone, "HealthyHostCount:Maximum"), []),
+                                    series.get((zone, "HealthyHostCount:Minimum"), []),
+                                    series.get((zone, "UnHealthyHostCount:Minimum"), []))
+            if verdict is not None:
+                out[zone] = verdict
         return out
 
     def _live_zones(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -1536,14 +1803,10 @@ class AwsPlatform:
         app_arn = f"arn:aws:appconfig:{ac.meta.region_name}:{self._account()}:application/{app['Id']}"
         env_arn = f"{app_arn}/environment/{env['Id']}"
         dep_arn = f"{env_arn}/deployment/{n}"
-        tagged = {(ac.list_tags_for_resource(ResourceArn=a).get("Tags") or {}).get(ENV_TAG)
-                  for a in (app_arn, env_arn, dep_arn)} if n else {None}
+        tagged = _environment_tags(ac, (app_arn, env_arn, dep_arn)) if n else {None}
         done, began = _when(d.get("CompletedAt")), _when(d.get("StartedAt"))
-        related = (found[0].get("StateValue") == "ALARM" and fired is not None and began is not None
-                   and fired - APPCONFIG_BEFORE_ALARM <= began <= fired)
-        can = bool(n) and related and len(tagged) == 1 and None not in tagged and (
-            d.get("State") in ("DEPLOYING", "BAKING")
-            or (d.get("State") == "COMPLETE" and done is not None and self._now() - done < APPCONFIG_REVERT))
+        related = _started_before_alarm(found[0], fired, began)
+        can = bool(n) and related and len(tagged) == 1 and None not in tagged and self._revertible(d, done)
         return {"alarm": {alarm}, "application": {app["Name"]} if can else set(),
                 "config_env": {env["Name"]} if can else set(), "deployment": {str(n)} if can else set(),
                 "environment": next(iter(tagged)) if len(tagged) == 1 else None,
@@ -1553,6 +1816,11 @@ class AwsPlatform:
                           "profile": _plain(d.get("ConfigurationName")), "started": _iso(began),
                           "completed": _iso(done), "alarm_since": _iso(fired),
                           "app_arn": app_arn, "env_arn": env_arn, "dep_arn": dep_arn, "where": self._where(app_arn)}}
+
+    def _revertible(self, d: dict[str, Any], done: datetime | None) -> bool:
+        """The deployment is in progress, or completed within APPCONFIG_REVERT: AppConfig can still revert it."""
+        return d.get("State") in ("DEPLOYING", "BAKING") or (
+            d.get("State") == "COMPLETE" and done is not None and self._now() - done < APPCONFIG_REVERT)
 
     def _appconfig_revert(self, p, snapshot, now, who, back) -> str:
         self._expect(now, snapshot, ("application", "app_id", "config_env", "env_id", "deployment"),
@@ -1566,7 +1834,7 @@ class AwsPlatform:
                            DeploymentNumber=int(p["deployment"]), AllowRevert=True)
         return f"stopped and reverted deployment {p['deployment']} of {p['application']}/{p['config_env']}"
 
-    def _appconfig_reverted(self, config_env: str, params: dict[str, Any]) -> bool:
+    def _appconfig_reverted(self, params: dict[str, Any]) -> bool:
         """That deployment reads REVERTED or ROLLED_BACK, AND the alarm that guards it reads OK: the write landing is
         not a recovery (review-e M4)."""
         st = self._live_appconfig(params).get("state") or {}
@@ -1585,10 +1853,7 @@ class AwsPlatform:
         group, alarm = params.get("group"), params.get("alarm")
         if not isinstance(group, str) or not _SG_ID.fullmatch(group) or not isinstance(alarm, str):
             return {}
-        found = self._read("cloudwatch").describe_alarms(AlarmNames=[alarm], AlarmTypes=["MetricAlarm"]).get(
-            "MetricAlarms") or []
-        onset = _when(found[0].get("StateTransitionedTimestamp")) if found and found[0].get("StateValue") == "ALARM" \
-            else None
+        onset = self._alarm_onset(alarm)
         ec2 = self._read("ec2")
         g = (ec2.describe_security_groups(GroupIds=[group]).get("SecurityGroups") or [{}])[0]
         if g.get("GroupId") != group:
@@ -1596,30 +1861,36 @@ class AwsPlatform:
         arn = f"arn:aws:ec2:{ec2.meta.region_name}:{g.get('OwnerId', '')}:security-group/{group}"
         tags = {t["Key"]: t["Value"] for t in g.get("Tags") or []}
         state: dict[str, Any] = {"group": group, "arn": arn, "where": self._where(arn)}
-        eligible, why = None, ""
-        if onset is None:
-            why = "the alarm is not in ALARM"
-        else:
-            writes = self._sg_writes(group, onset - SG_CHANGE_BEFORE_ALARM, self._now())
-            if len(writes) != 1:
-                why = (f"{'no recorded write' if not writes else f'{len(writes)} writes (WARDEN does not choose one)'} "
-                       f"to {group} since {onset - SG_CHANGE_BEFORE_ALARM:%Y-%m-%dT%H:%MZ}")
-            else:
-                eligible = writes[0]
-                why = self._sg_refusal(eligible, onset)
+        eligible, why = self._sg_eligible(group, onset)
         named = params.get("event")
         e = self._sg_event_by_id(named, group) if isinstance(named, str) else eligible
         if e is not None:
             state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor", "kind", "egress", "rules")},
                          undo=_sg_undo_text(e), present=self._sg_present(group, e))
         if not why and eligible is not None:
-            if eligible["kind"] == "revoke" and self._sg_present(group, eligible):
-                why = "the revoked rules are back already"
-            elif eligible["kind"] == "authorize" and not self._sg_present(group, eligible):
-                why = "the rules it added are gone already"
+            why = self._sg_undone_already(group, eligible)
         allowed = {eligible["event"]} if eligible is not None and not why else set()
         return {"group": {group}, "alarm": {alarm}, "event": allowed, "environment": tags.get(ENV_TAG),
                 "refused": why, "state": state}
+
+    def _sg_eligible(self, group: str, onset: datetime | None) -> tuple[dict[str, Any] | None, str]:
+        """(the ONE write to the group in the SG_CHANGE_BEFORE_ALARM before the onset, why it is refused) - or (None,
+        why there is not exactly one)."""
+        if onset is None:
+            return None, _NOT_IN_ALARM
+        writes = self._sg_writes(group, onset - SG_CHANGE_BEFORE_ALARM, self._now())
+        if len(writes) != 1:
+            found = f"{len(writes)} writes (WARDEN does not choose one)" if writes else "no recorded write"
+            return None, f"{found} to {group} since {onset - SG_CHANGE_BEFORE_ALARM:%Y-%m-%dT%H:%MZ}"
+        return writes[0], self._sg_refusal(writes[0], onset)
+
+    def _sg_undone_already(self, group: str, e: dict[str, Any]) -> str:
+        """Why there is nothing left to undo - the revoked rules are back, or the added ones gone - else ""."""
+        if e["kind"] == "revoke" and self._sg_present(group, e):
+            return "the revoked rules are back already"
+        if e["kind"] == "authorize" and not self._sg_present(group, e):
+            return "the rules it added are gone already"
+        return ""
 
     def _sg_writes(self, group: str, since: datetime, until: datetime) -> list[dict[str, Any]]:
         """Every successful security group rule write CloudTrail recorded on `group` in the window, parsed."""
@@ -1693,7 +1964,7 @@ class AwsPlatform:
             GroupId=p["group"], IpPermissions=perms)
         return f"revoked {len(perms)} {side.lower()} rule(s) on {p['group']}"
 
-    def _sg_alarm_ok(self, group: str, params: dict[str, Any]) -> bool:
+    def _sg_alarm_ok(self, params: dict[str, Any]) -> bool:
         """The undo is in place and the alarm it was for reads OK: the write landing is not a recovery."""
         st = self._live_sg_change(params).get("state") or {}
         alarm = self._read("cloudwatch").describe_alarms(AlarmNames=[str(params.get("alarm", ""))],
@@ -1709,6 +1980,15 @@ class AwsPlatform:
             "MetricAlarms") or []
         return _when(found[0].get("StateTransitionedTimestamp")) if found and found[0].get("StateValue") == "ALARM" \
             else None
+
+    def _revert_window(self, alarm: str, named: Any,
+                       before: timedelta = REVERT_BEFORE_ALARM) -> tuple[datetime | None, datetime | None]:
+        """(when the alarm went into ALARM, the start of the window a change is looked for in). No window while the
+        alarm is not in ALARM and no plan's own event is named: there is nothing to look for."""
+        onset = self._alarm_onset(alarm)
+        if onset is None and not isinstance(named, str):
+            return None, None
+        return onset, (onset or self._now()) - before
 
     def _alarm_ok(self, alarm: str) -> bool:
         found = self._read("cloudwatch").describe_alarms(AlarmNames=[alarm], AlarmTypes=["MetricAlarm"]).get(
@@ -1765,16 +2045,8 @@ class AwsPlatform:
         """(before, after, why): the value AWS Config recorded just before the change and the one it recorded with
         it - the item whose relatedEvents names the event, else the first after it. Refused when the record is not
         continuous, when there is none before, or when the value changed again since."""
-        items, token = [], None
-        for _ in range(3):
-            page = self._read("config").get_resource_config_history(
-                resourceType=rtype, resourceId=rid, earlierTime=e["at"] - CONFIG_LOOKBACK, laterTime=self._now(),
-                chronologicalOrder="Forward", limit=100, **({"nextToken": token} if token else {}))
-            items += page.get("configurationItems") or []
-            token = page.get("nextToken")
-            if not token:
-                break
-        else:
+        items = self._config_history(rtype, rid, e["at"] - CONFIG_LOOKBACK)
+        if items is None:
             return None, None, "Config holds more records than WARDEN reads since the change"
         if any(str(i.get("recordingFrequency") or "Continuous").lower() != "continuous" for i in items):
             return None, None, "Config records this resource daily, not continuously: its value before is unknown"
@@ -1791,6 +2063,33 @@ class AwsPlatform:
             # still find the snapshot it was approved for. The reason alone keeps a new plan from being made.
             return value_of(before), value_of(after), "the value changed again after the change"
         return value_of(before), value_of(after), ""
+
+    def _config_history(self, rtype: str, rid: str, since: datetime) -> list[dict[str, Any]] | None:
+        """The resource's Config items from `since` on, oldest first, at most three pages; None when there are more."""
+        items, token = [], None
+        for _ in range(3):
+            page = self._read("config").get_resource_config_history(
+                resourceType=rtype, resourceId=rid, earlierTime=since, laterTime=self._now(),
+                chronologicalOrder="Forward", limit=100, **({"nextToken": token} if token else {}))
+            items += page.get("configurationItems") or []
+            token = page.get("nextToken")
+            if not token:
+                return items
+        return None
+
+    def _config_values(self, rtype: str, find: Callable[[], str], e: dict[str, Any],
+                       value_of: Callable[[dict[str, Any]], Any], why: str, onset: datetime | None,
+                       missing: str = "") -> tuple[Any, Any, str]:
+        """(before, after, why): AWS Config's values around the change, read while nothing refuses it yet - or, with no
+        onset, for a plan's own event (its rollback and health check read them once the alarm is OK). `find` gives the
+        resource's Config id; with `missing`, no id refuses with that."""
+        if why and onset is not None:
+            return None, None, why
+        rid = find()
+        if missing and not rid:
+            return None, None, why or missing
+        before, after, bracket = self._config_bracket(rtype, rid, e, value_of)
+        return before, after, why or bracket
 
     def _config_id(self, rtype: str, name: str, fits: Callable[[str], bool]) -> str:
         found = self._read("config").list_discovered_resources(resourceType=rtype, resourceName=name).get(
@@ -1819,39 +2118,28 @@ class AwsPlatform:
             ScalableDimension="ecs:service:DesiredCount").get("ScalableTargets")
         if scaled:
             return refused("an autoscaler owns this service's desired count")
-        onset = self._alarm_onset(alarm)
         named = params.get("event")
-        if onset is None and not isinstance(named, str):
-            return refused("the alarm is not in ALARM")
-        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        onset, since = self._revert_window(alarm, named)
+        if since is None:
+            return refused(_NOT_IN_ALARM)
 
         def sets_count(e: dict[str, Any]) -> bool:
             r = e["request"] or {}
             return (_last(r.get("service")) == name and _last(r.get("cluster") or "default") == _last(cluster)
                     and "desiredCount" in r)
 
-        writes = self._trail_writes("EventName", "UpdateService", since, self._now(), sets_count)
-        if isinstance(named, str):
-            writes = [w for w in writes if w["event"] == named] or writes
+        writes = _named_first(self._trail_writes("EventName", "UpdateService", since, self._now(), sets_count), named)
         if len(writes) != 1:
-            return refused(f"{'no recorded' if not writes else len(writes)} change(s) to {name}'s desired count since "
-                           f"{since:%Y-%m-%dT%H:%MZ}" + ("" if not writes else " (WARDEN does not choose one)"))
+            return refused(f"{_how_many(writes)} change(s) to {name}'s desired count since "
+                           f"{since:%Y-%m-%dT%H:%MZ}" + _not_chosen(writes))
         e = writes[0]
-        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
-        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        state.update(_change_fields(e))
         rid = self._config_id("AWS::ECS::Service", name, lambda rid: _last(cluster) in rid or rid.endswith(name))
-        if not why and not rid:
-            why = "AWS Config holds no single record of this service"
-        before = after = None
-        if rid and (not why or onset is None):
-            before, after, bracket = self._config_bracket("AWS::ECS::Service", rid, e,
-                                                          lambda i: _get(_json(i.get("configuration")), "DesiredCount"))
-            why = why or bracket
+        before, after, why = self._config_values(
+            "AWS::ECS::Service", lambda: rid, e, lambda i: _get(_json(i.get("configuration")), "DesiredCount"),
+            _change_refusal(e, onset), onset, "AWS Config holds no single record of this service")
         state.update(before=before, after=after)
-        if not why and (not isinstance(before, int) or before < 1):
-            why = f"the count before the change was {before}: nothing to restore"
-        if not why and (after != (e["request"] or {}).get("desiredCount") or svc.get("desiredCount") != after):
-            why = "the service's count is not what the change set: it moved since"
+        why = why or _count_refusal(before, after, (e["request"] or {}).get("desiredCount"), svc.get("desiredCount"))
         return {**live, "event": set() if why else {e["event"]}, "desired": set() if why else {str(before)},
                 "refused": why, "state": state}
 
@@ -1863,7 +2151,7 @@ class AwsPlatform:
         if now.get("desired_now") != want_now or not isinstance(to, int):
             raise AwsPlatformRefused(f"service {p['service']} wants {now.get('desired_now')} tasks, not {want_now}; "
                                      "nothing was changed")
-        ecs = self._actor(who, ["ecs:UpdateService"], [now["arn"]], None)("ecs")
+        ecs = self._actor(who, [_ECS_UPDATE], [now["arn"]], None)("ecs")
         ecs.update_service(cluster=p["cluster"], service=p["service"], desiredCount=to)
         return f"set service {p['service']} desired tasks from {now.get('desired_now')} to {to}"
 
@@ -1888,42 +2176,27 @@ class AwsPlatform:
         state: dict[str, Any] = {"function": name, "arn": arn, "reserved": reserved, "where": self._where(arn)}
         live = {"function": {name}, "alarm": {alarm}, "event": set(), "concurrency": set(),
                 "environment": self._tags("lambda", arn).get(ENV_TAG), "unreserved_account_concurrency": free}
-        onset = self._alarm_onset(alarm)
         named = params.get("event")
-        if onset is None and not isinstance(named, str):
-            return {**live, "refused": "the alarm is not in ALARM", "state": state}
-        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        onset, since = self._revert_window(alarm, named)
+        if since is None:
+            return {**live, "refused": _NOT_IN_ALARM, "state": state}
 
         def on_this(e: dict[str, Any]) -> bool:
             return e["event_name"].startswith(("PutFunctionConcurrency", "DeleteFunctionConcurrency")) and \
                 _last((e["request"] or {}).get("functionName")) == name
 
-        writes = self._trail_named(LAMBDA_CONCURRENCY_WRITES, since, self._now(), on_this)
-        if isinstance(named, str):
-            writes = [w for w in writes if w["event"] == named] or writes
+        writes = _named_first(self._trail_named(LAMBDA_CONCURRENCY_WRITES, since, self._now(), on_this), named)
         if len(writes) != 1:
-            return {**live, "state": state, "refused": f"{'no recorded' if not writes else len(writes)} concurrency "
+            return {**live, "state": state, "refused": f"{_how_many(writes)} concurrency "
                     f"change(s) to {name} since {since:%Y-%m-%dT%H:%MZ}"}
         e = writes[0]
-        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
-        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
-
-        def value_of(i: dict[str, Any]) -> Any:
-            return _get(_json((i.get("supplementaryConfiguration") or {}).get("Concurrency")),
-                        "reservedConcurrentExecutions")
-
-        before = after = None
-        if not why or onset is None:
-            before, after, bracket = self._config_bracket("AWS::Lambda::Function", name, e, value_of)
-            why = why or bracket
+        state.update(_change_fields(e))
+        before, after, why = self._config_values("AWS::Lambda::Function", lambda: name, e, _reserved_of,
+                                                 _change_refusal(e, onset), onset)
         state.update(before=before, after=after)
-        if not why and reserved != after:
-            why = "the function's reserved concurrency is not what the change set: it moved since"
-        if not why and isinstance(before, int) and isinstance(free, int) and \
-                before - (reserved or 0) > free - AWS_RESERVED_UNRESERVED:
-            why = "the account has no room to reserve that much again"
+        why = why or _concurrency_refusal(before, after, reserved, free)
         return {**live, "event": set() if why else {e["event"]},
-                "concurrency": set() if why else {"none" if before is None else str(before)}, "refused": why,
+                "concurrency": set() if why else {_concurrency_text(before)}, "refused": why,
                 "state": state}
 
     def _lambda_restore(self, p, snapshot, now, who, back) -> str:
@@ -1962,59 +2235,48 @@ class AwsPlatform:
                                  "where": self._where(arn)}
         live = {"function": {name}, "alarm": {alarm}, "event": set(), "settings": set(),
                 "environment": self._tags("lambda", arn).get(ENV_TAG)}
-        onset = self._alarm_onset(alarm)
         named = params.get("event")
-        if onset is None and not isinstance(named, str):
-            return {**live, "refused": "the alarm is not in ALARM", "state": state}
-        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        onset, since = self._revert_window(alarm, named)
+        if since is None:
+            return {**live, "refused": _NOT_IN_ALARM, "state": state}
 
         def on_this(e: dict[str, Any]) -> bool:
             return e["event_name"].startswith("UpdateFunctionConfiguration") and \
                 _last((e["request"] or {}).get("functionName")) == name
 
-        writes = self._trail_named(LAMBDA_SETTINGS_WRITES, since, self._now(), on_this)
-        if isinstance(named, str):
-            writes = [w for w in writes if w["event"] == named] or writes
+        writes = _named_first(self._trail_named(LAMBDA_SETTINGS_WRITES, since, self._now(), on_this), named)
         if len(writes) != 1:
-            return {**live, "state": state, "refused": f"{'no recorded' if not writes else len(writes)} configuration "
+            return {**live, "state": state, "refused": f"{_how_many(writes)} configuration "
                     f"change(s) to {name} since {since:%Y-%m-%dT%H:%MZ}"}
         e = writes[0]
-        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
-        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
-        other = sorted(k for k in (e["request"] or {}) if k.lower() not in _SETTINGS_REQUEST_KEYS)
-        if not why and other:
-            why = f"the change also set {', '.join(other)}: a person undoes it"
+        state.update(_change_fields(e))
         changed = sorted(k for k in _SETTINGS if _setting_in_request(e["request"] or {}, k) is not None)
-        if not why and not changed:
-            why = "the change set none of timeout, memory or ephemeral storage"
-        if not why:
-            versions, marker = [], None
-            for _ in range(10):  # 50 a page; a function with more than 500 versions reads its newest 500
-                page = self._read("lambda").list_versions_by_function(
-                    FunctionName=name, **({"Marker": marker} if marker else {}))
-                versions += page.get("Versions") or []
-                marker = page.get("NextMarker")
-                if not marker:
-                    break
-            later = [v for v in versions if v.get("Version") != "$LATEST" and
-                     (_when(v.get("LastModified")) or e["at"]) > e["at"]]
-            if later:
-                why = (f"version {later[-1].get('Version')} was published after the change and holds it: what serves "
-                       "traffic is that version - a rollback, not a configuration revert")
-        before = after = None
-        if not why or onset is None:
-            before, after, bracket = self._config_bracket(
-                "AWS::Lambda::Function", name, e, lambda i: _lambda_settings(_json(i.get("configuration")), changed))
-            why = why or bracket
+        why = (_change_refusal(e, onset) or _settings_request_refusal(e["request"] or {}, changed)
+               or self._published_since(name, e))
+        before, after, why = self._config_values(
+            "AWS::Lambda::Function", lambda: name, e,
+            lambda i: _lambda_settings(_json(i.get("configuration")), changed), why, onset)
         state.update(before=before, after=after)
-        if not why and (not isinstance(before, dict) or any(not isinstance(v, int) for v in before.values())):
-            why = "AWS Config recorded no value before the change"
-        if not why and {k: now_values.get(k) for k in changed} != after:
-            why = "the function's settings are not what the change set: they moved since"
-        if not why and any(not _SETTINGS[k][0] <= v <= _SETTINGS[k][1] for k, v in before.items()):
-            why = "the value before the change is outside what Lambda allows"
+        why = why or _settings_refusal(before, after, now_values, changed)
         return {**live, "event": set() if why else {e["event"]},
                 "settings": set() if why else {_settings_text(before)}, "refused": why, "state": state}
+
+    def _published_since(self, name: str, e: dict[str, Any]) -> str:
+        """Why a configuration revert is refused when a version published after the change holds it - else ""."""
+        versions, marker = [], None
+        for _ in range(10):  # 50 a page; a function with more than 500 versions reads its newest 500
+            page = self._read("lambda").list_versions_by_function(
+                FunctionName=name, **({"Marker": marker} if marker else {}))
+            versions += page.get("Versions") or []
+            marker = page.get("NextMarker")
+            if not marker:
+                break
+        later = [v for v in versions if v.get("Version") != "$LATEST" and
+                 (_when(v.get("LastModified")) or e["at"]) > e["at"]]
+        if later:
+            return (f"version {later[-1].get('Version')} was published after the change and holds it: what serves "
+                    "traffic is that version - a rollback, not a configuration revert")
+        return ""
 
     def _lambda_settings_restore(self, p, snapshot, now, who, back) -> str:
         """The settings back to what Config recorded before the change (back: what the change set), only while the
@@ -2064,41 +2326,25 @@ class AwsPlatform:
         state: dict[str, Any] = {"queue": name, "url": url, "arn": arn, "now": now_values, "where": self._where(arn)}
         live = {"queue": {name}, "alarm": {alarm}, "event": set(), "attributes": set(),
                 "environment": self._tags("sqs", url).get(ENV_TAG)}
-        onset = self._alarm_onset(alarm)
-        if onset is None and not isinstance(params.get("event"), str):
-            return {**live, "refused": "the alarm is not in ALARM", "state": state}
-        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        onset, since = self._revert_window(alarm, params.get("event"))
+        if since is None:
+            return {**live, "refused": _NOT_IN_ALARM, "state": state}
         e, why = self._one_change(("SetQueueAttributes",), since,
                                   lambda e: str((e["request"] or {}).get("queueUrl", "")).rstrip("/").endswith("/" + name),
                                   params.get("event"))
         if e is None:
             return {**live, "refused": why, "state": state}
-        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
-        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        state.update(_change_fields(e))
         wrote = (e["request"] or {}).get("attributes")
         wrote = wrote if isinstance(wrote, dict) else {}
-        other = sorted(k for k in wrote if k not in _QUEUE_SETTINGS)
-        if not why and other:
-            why = f"the change also set {', '.join(other)}: a person undoes it"
         changed = sorted(k for k in wrote if k in _QUEUE_SETTINGS)
-        if not why and not changed:
-            why = "the change set none of the queue's timing or size settings"
-        before = after = None
-        if not why or onset is None:
-            rid = self._config_id("AWS::SQS::Queue", name, lambda rid: rid.rstrip("/").endswith(name))
-            if not rid:
-                why = why or "AWS Config holds no single record of this queue"
-            else:
-                before, after, bracket = self._config_bracket(
-                    "AWS::SQS::Queue", rid, e, lambda i: _ints(_json(i.get("configuration")), changed))
-                why = why or bracket
+        before, after, why = self._config_values(
+            "AWS::SQS::Queue", lambda: self._config_id("AWS::SQS::Queue", name, lambda rid: rid.rstrip("/").endswith(name)),
+            e, lambda i: _ints(_json(i.get("configuration")), changed),
+            _change_refusal(e, onset) or _queue_request_refusal(wrote, changed), onset,
+            "AWS Config holds no single record of this queue")
         state.update(before=before, after=after)
-        if not why and (not isinstance(before, dict) or set(before) != set(changed)):
-            why = "AWS Config recorded no value before the change"
-        if not why and {k: now_values.get(k) for k in changed} != after:
-            why = "the queue's settings are not what the change set: they moved since"
-        if not why and any(not _QUEUE_SETTINGS[k][0] <= v <= _QUEUE_SETTINGS[k][1] for k, v in before.items()):
-            why = "the value before the change is outside what SQS allows"
+        why = why or _queue_settings_refusal(before, after, now_values, changed)
         return {**live, "event": set() if why else {e["event"]},
                 "attributes": set() if why else {_pairs_text(before)}, "refused": why, "state": state}
 
@@ -2137,43 +2383,35 @@ class AwsPlatform:
         state: dict[str, Any] = {"route_table": table, "arn": arn, "where": self._where(arn)}
         live = {"route_table": {table}, "alarm": {alarm}, "event": set(),
                 "environment": {x["Key"]: x["Value"] for x in t.get("Tags") or []}.get(ENV_TAG)}
-        onset = self._alarm_onset(alarm)
         named = params.get("event")
-        if onset is None and not isinstance(named, str):
-            return {**live, "refused": "the alarm is not in ALARM", "state": state}
-        since = (onset or self._now()) - SG_CHANGE_BEFORE_ALARM
+        onset, since = self._revert_window(alarm, named, SG_CHANGE_BEFORE_ALARM)
+        if since is None:
+            return {**live, "refused": _NOT_IN_ALARM, "state": state}
+        writes = _named_first(self._route_writes(table, since), named)
+        if len(writes) != 1:
+            return {**live, "state": state, "refused": f"{_how_many(writes)} route "
+                    f"write(s) to {table} since {since:%Y-%m-%dT%H:%MZ}"}
+        e = writes[0]
+        state.update(_change_fields(e))
+        dest = _route_dest(e["request"] or {})
+        before, after, why = self._config_values(
+            "AWS::EC2::RouteTable", lambda: table, e,
+            lambda i: _route_target_for(_get(_json(i.get("configuration")), "routes") or [], dest),
+            _change_refusal(e, onset) or _route_request_refusal(e, dest), onset)
+        now_target = _route_target_for(t.get("Routes") or [], dest) if dest else None
+        state.update(dest=list(dest) if dest else None, before=before, after=after, now=now_target,
+                     undo=_route_undo_text(dest, after, before))
+        why = why or _route_refusal(before, after, now_target)
+        return {**live, "event": set() if why else {e["event"]}, "refused": why, "state": state}
+
+    def _route_writes(self, table: str, since: datetime) -> list[dict[str, Any]]:
+        """Every route write to the table in the window."""
         writes: list[dict[str, Any]] = []
         for name in _ROUTE_EVENTS:  # every route write to the table: two are a choice WARDEN does not make
             writes += self._trail_writes("EventName", name, since, self._now(),
                                          lambda e, name=name: e["event_name"] == name
                                          and _get(e["request"] or {}, "routeTableId") == table)
-        if isinstance(named, str):
-            writes = [w for w in writes if w["event"] == named] or writes
-        if len(writes) != 1:
-            return {**live, "state": state, "refused": f"{'no recorded' if not writes else len(writes)} route "
-                    f"write(s) to {table} since {since:%Y-%m-%dT%H:%MZ}"}
-        e = writes[0]
-        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
-        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
-        if not why and e["event_name"] == "CreateRoute":
-            why = "the change created a route: deleting it is a person's decision"
-        dest = _route_dest(e["request"] or {})
-        if not why and dest is None:
-            why = "the change names no destination WARDEN can route"
-        before = after = None
-        if not why or onset is None:
-            before, after, bracket = self._config_bracket(
-                "AWS::EC2::RouteTable", table, e,
-                lambda i: _route_target_for(_get(_json(i.get("configuration")), "routes") or [], dest))
-            why = why or bracket
-        now_target = _route_target_for(t.get("Routes") or [], dest) if dest else None
-        state.update(dest=list(dest) if dest else None, before=before, after=after, now=now_target,
-                     undo=_route_undo_text(dest, after, before))
-        if not why and before is None:
-            why = "AWS Config recorded no route to that destination before the change - or one WARDEN does not write"
-        if not why and now_target != after:
-            why = "the route is not what the change left: it moved since"
-        return {**live, "event": set() if why else {e["event"]}, "refused": why, "state": state}
+        return writes
 
     def _route_restore(self, p, snapshot, now, who, back) -> str:
         """The route back to the target Config recorded before the change (back: what the change left - deleting the
@@ -2220,10 +2458,9 @@ class AwsPlatform:
         state: dict[str, Any] = {"stream": name, "arn": arn, "hours_now": hours, "where": self._where(arn)}
         live = {"stream": {name}, "alarm": {alarm}, "event": set(), "hours": set(),
                 "environment": self._tags("kinesis", arn).get(ENV_TAG)}
-        onset = self._alarm_onset(alarm)
-        if onset is None and not isinstance(params.get("event"), str):
-            return {**live, "refused": "the alarm is not in ALARM", "state": state}
-        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        onset, since = self._revert_window(alarm, params.get("event"))
+        if since is None:
+            return {**live, "refused": _NOT_IN_ALARM, "state": state}
 
         def on_this(e: dict[str, Any]) -> bool:
             r = e["request"] or {}
@@ -2233,24 +2470,13 @@ class AwsPlatform:
                                   params.get("event"))
         if e is None:
             return {**live, "refused": why, "state": state}
-        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
-        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
-        before = after = None
-        if not why or onset is None:
-            rid = self._config_id("AWS::Kinesis::Stream", name, lambda rid: rid.endswith(name))
-            if not rid:
-                why = why or "AWS Config holds no single record of this stream"
-            else:
-                before, after, bracket = self._config_bracket(
-                    "AWS::Kinesis::Stream", rid, e, lambda i: _get(_json(i.get("configuration")), "RetentionPeriodHours"))
-                why = why or bracket
+        state.update(_change_fields(e))
+        before, after, why = self._config_values(
+            "AWS::Kinesis::Stream", lambda: self._config_id("AWS::Kinesis::Stream", name, lambda rid: rid.endswith(name)),
+            e, lambda i: _get(_json(i.get("configuration")), "RetentionPeriodHours"), _change_refusal(e, onset), onset,
+            "AWS Config holds no single record of this stream")
         state.update(before=before, after=after)
-        if not why and not (isinstance(before, int) and isinstance(after, int) and before > after):
-            why = "AWS Config recorded no longer retention before the change"
-        if not why and hours != after:
-            why = "the stream's retention is not what the change set: it moved since"
-        if not why and not 24 <= before <= 8760:
-            why = "the retention before the change is outside what Kinesis allows"
+        why = why or _retention_refusal(before, after, hours)
         return {**live, "event": set() if why else {e["event"]}, "hours": set() if why else {str(before)},
                 "refused": why, "state": state}
 
@@ -2287,39 +2513,36 @@ class AwsPlatform:
         live = {"table": {name}, "alarm": {alarm}, "event": set(), "throughput": set(),
                 "environment": self._tags("dynamodb", arn).get(ENV_TAG),
                 "rollout": "complete" if t.get("TableStatus") == "ACTIVE" else "progressing"}
-        onset = self._alarm_onset(alarm)
-        if onset is None and not isinstance(params.get("event"), str):
-            return {**live, "refused": "the alarm is not in ALARM", "state": state}
-        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        onset, since = self._revert_window(alarm, params.get("event"))
+        if since is None:
+            return {**live, "refused": _NOT_IN_ALARM, "state": state}
         e, why = self._one_change(("UpdateTable",), since,
                                   lambda e: _last(_get(e["request"] or {}, "tableName")) == name, params.get("event"))
         if e is None:
             return {**live, "refused": why, "state": state}
-        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
-        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
-        other = sorted(k for k in e["request"] or {} if k.lower() not in ("tablename", "provisionedthroughput"))
-        if not why and other:
-            why = f"the change also set {', '.join(other)}: a person undoes it"
-        if not why and (t.get("BillingModeSummary") or {}).get("BillingMode", "PROVISIONED") != "PROVISIONED":
-            why = "the table is not in provisioned capacity mode"
-        if not why and self._read("application-autoscaling").describe_scalable_targets(
-                ServiceNamespace="dynamodb", ResourceIds=[f"table/{name}"]).get("ScalableTargets"):
-            why = "an autoscaler owns this table's capacity"
+        state.update(_change_fields(e))
+        why = _change_refusal(e, onset) or self._table_change_refusal(e, t, name)
         rid = self._config_id("AWS::DynamoDB::Table", name, lambda rid: _last(rid) == name)
-        before = after = None
-        if rid and (not why or onset is None):
-            before, after, bracket = self._config_bracket(
-                "AWS::DynamoDB::Table", rid, e, lambda i: _throughput(_json(i.get("configuration"))))
-            why = why or bracket
-        elif not why:
-            why = "AWS Config holds no single record of this table"
+        before, after, why = self._config_values(
+            "AWS::DynamoDB::Table", lambda: rid, e, lambda i: _throughput(_json(i.get("configuration"))), why, onset,
+            "AWS Config holds no single record of this table")
         state.update(before=before, after=after)
-        if not why and not (before and after and before != after and all(b >= a for b, a in zip(before, after))):
-            why = "AWS Config recorded no higher capacity before the change"
-        if not why and (after != _throughput(e["request"] or {}) or now != after):
-            why = "the table's capacity is not what the change set: it moved since"
+        why = why or _capacity_refusal(before, after, _throughput(e["request"] or {}), now)
         return {**live, "event": set() if why else {e["event"]},
                 "throughput": set() if why else {f"{before[0]}/{before[1]}"}, "refused": why, "state": state}
+
+    def _table_change_refusal(self, e: dict[str, Any], t: dict[str, Any], name: str) -> str:
+        """Why an UpdateTable is not WARDEN's to undo: it set more than the capacity, the table is not in provisioned
+        mode, or an autoscaler owns its capacity - else ""."""
+        other = sorted(k for k in e["request"] or {} if k.lower() not in ("tablename", "provisionedthroughput"))
+        if other:
+            return f"the change also set {', '.join(other)}: a person undoes it"
+        if (t.get("BillingModeSummary") or {}).get("BillingMode", "PROVISIONED") != "PROVISIONED":
+            return "the table is not in provisioned capacity mode"
+        if self._read("application-autoscaling").describe_scalable_targets(
+                ServiceNamespace="dynamodb", ResourceIds=[f"table/{name}"]).get("ScalableTargets"):
+            return "an autoscaler owns this table's capacity"
+        return ""
 
     def _table_restore(self, p, snapshot, now, who, back) -> str:
         """Set the table's capacity back to what AWS Config recorded before the cut (back: to what the cut set)."""
@@ -2360,42 +2583,32 @@ class AwsPlatform:
         live = {"asg": {name}, "alarm": {alarm}, "event": set(), "desired": set(),
                 "environment": {t["Key"]: t["Value"] for t in g.get("Tags") or []}.get(ENV_TAG),
                 "slow_start_s": _grace(g)}
-        onset = self._alarm_onset(alarm)
         named = params.get("event")
-        if onset is None and not isinstance(named, str):
-            return {**live, "refused": "the alarm is not in ALARM", "state": state}
-        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        onset, since = self._revert_window(alarm, named)
+        if since is None:
+            return {**live, "refused": _NOT_IN_ALARM, "state": state}
 
         def sets_capacity(e: dict[str, Any]) -> bool:
             r = e["request"] or {}
             return _last(r.get("autoScalingGroupName")) == name and "desiredCapacity" in r
 
-        writes = list({w["event"]: w for event in ("SetDesiredCapacity", "UpdateAutoScalingGroup")
-                       for w in self._trail_writes("EventName", event, since, self._now(), sets_capacity)}.values())
-        if isinstance(named, str):
-            writes = [w for w in writes if w["event"] == named] or writes
+        writes = _named_first(list({w["event"]: w for event in ("SetDesiredCapacity", "UpdateAutoScalingGroup")
+                                    for w in self._trail_writes("EventName", event, since, self._now(),
+                                                                sets_capacity)}.values()), named)
         if len(writes) != 1:
-            return {**live, "state": state, "refused": f"{'no recorded' if not writes else len(writes)} change(s) to "
+            return {**live, "state": state, "refused": f"{_how_many(writes)} change(s) to "
                     f"{name}'s desired capacity since {since:%Y-%m-%dT%H:%MZ}"}
         e = writes[0]
-        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
-        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
-        if not why and {"minSize", "maxSize"} & set(e["request"] or {}):
-            why = "the change also set the group's bounds: a person restores them"
+        state.update(_change_fields(e))
+        why = _change_refusal(e, onset) or _bounds_refusal(e["request"])
         rid = self._config_id("AWS::AutoScaling::AutoScalingGroup", name, lambda rid: name in rid)
-        before = after = None
-        if rid and (not why or onset is None):
-            before, after, bracket = self._config_bracket(
-                "AWS::AutoScaling::AutoScalingGroup", rid, e, lambda i: _get(_json(i.get("configuration")), "desiredCapacity"))
-            why = why or bracket
-        elif not why:
-            why = "AWS Config holds no single record of this group"
+        before, after, why = self._config_values(
+            "AWS::AutoScaling::AutoScalingGroup", lambda: rid, e,
+            lambda i: _get(_json(i.get("configuration")), "desiredCapacity"), why, onset,
+            "AWS Config holds no single record of this group")
         state.update(before=before, after=after)
-        if not why and (not isinstance(before, int) or not isinstance(lo, int) or not isinstance(hi, int)
-                        or not lo <= before <= hi):
-            why = f"the capacity before ({before}) is outside the group's bounds now ({lo}..{hi})"
-        if not why and (after != (e["request"] or {}).get("desiredCapacity") or desired != after):
-            why = "the group's capacity is not what the change set: it moved since"
+        why = why or _group_capacity_refusal(before, after, (e["request"] or {}).get("desiredCapacity"), desired,
+                                             (lo, hi))
         return {**live, "event": set() if why else {e["event"]}, "desired": set() if why else {str(before)},
                 "refused": why, "state": state}
 
@@ -2435,11 +2648,10 @@ class AwsPlatform:
                                  "deployment_now": st.get("deploymentId"), "where": apigw.meta.region_name}
         live = {"api": {name}, "stage": {stage}, "alarm": {alarm}, "event": set(), "deployment": set(),
                 "environment": (st.get("tags") or {}).get(ENV_TAG) or api_tags.get(ENV_TAG)}
-        onset = self._alarm_onset(alarm)
         named = params.get("event")
-        if onset is None and not isinstance(named, str):
-            return {**live, "refused": "the alarm is not in ALARM", "state": state}
-        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        onset, since = self._revert_window(alarm, named)
+        if since is None:
+            return {**live, "refused": _NOT_IN_ALARM, "state": state}
 
         def moves_deployment(e: dict[str, Any]) -> bool:
             r = e["request"] or {}
@@ -2448,33 +2660,33 @@ class AwsPlatform:
                     and isinstance(ops[0], dict) and ops[0].get("path") == "/deploymentId"
                     and ops[0].get("op") == "replace")
 
-        writes = self._trail_writes("EventName", "UpdateStage", since, self._now(), moves_deployment)
-        if isinstance(named, str):
-            writes = [w for w in writes if w["event"] == named] or writes
+        writes = _named_first(self._trail_writes("EventName", "UpdateStage", since, self._now(), moves_deployment),
+                              named)
         if len(writes) != 1:
-            return {**live, "state": state, "refused": f"{'no recorded' if not writes else len(writes)} deployment "
+            return {**live, "state": state, "refused": f"{_how_many(writes)} deployment "
                     f"change(s) to stage {stage} since {since:%Y-%m-%dT%H:%MZ}"}
         e = writes[0]
-        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
-        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        state.update(_change_fields(e))
         rid = self._config_id("AWS::ApiGateway::Stage", stage, lambda rid: api_id in rid)
-        before = after = None
-        if rid and (not why or onset is None):
-            before, after, bracket = self._config_bracket(
-                "AWS::ApiGateway::Stage", rid, e, lambda i: _get(_json(i.get("configuration")), "deploymentId"))
-            why = why or bracket
-        elif not why:
-            why = "AWS Config holds no single record of this stage"
+        before, after, why = self._config_values(
+            "AWS::ApiGateway::Stage", lambda: rid, e, lambda i: _get(_json(i.get("configuration")), "deploymentId"),
+            _change_refusal(e, onset), onset, "AWS Config holds no single record of this stage")
         state.update(before=before, after=after)
-        if not why and st.get("deploymentId") != after:
-            why = "the stage's deployment is not what the change set: it moved since"
-        if not why:
-            try:
-                apigw.get_deployment(restApiId=api_id, deploymentId=str(before))
-            except Exception:  # noqa: BLE001 - gone, or unreadable: nothing to go back to
-                why = f"the deployment before the change ({before}) no longer exists"
+        why = why or self._stage_deployment_refusal(apigw, api_id, st, before, after)
         return {**live, "event": set() if why else {e["event"]}, "deployment": set() if why else {str(before)},
                 "refused": why, "state": state}
+
+    @staticmethod
+    def _stage_deployment_refusal(apigw: Any, api_id: str, st: dict[str, Any], before: Any, after: Any) -> str:
+        """Why the stage does not go back to the recorded deployment: it moved since the change, or that deployment is
+        gone - else ""."""
+        if st.get("deploymentId") != after:
+            return "the stage's deployment is not what the change set: it moved since"
+        try:
+            apigw.get_deployment(restApiId=api_id, deploymentId=str(before))
+        except Exception:  # noqa: BLE001 - gone; or unreadable: nothing to go back to
+            return f"the deployment before the change ({before}) no longer exists"
+        return ""
 
     def _stage_restore(self, p, snapshot, now, who, back) -> str:
         self._expect(now, snapshot, ("api", "api_id", "stage", "arn", "event", "before", "after"), f"stage {p['stage']}")
@@ -2499,21 +2711,18 @@ class AwsPlatform:
         """(the ONE successful `event` write `keep` accepts in the hours before the alarm, the alarm's onset, why
         none). A plan's own event (params["event"]) is found again once the alarm reads OK - for the rollback and
         the health check - but is allowed again only while it reads ALARM."""
-        onset = self._alarm_onset(alarm)
         named = params.get("event")
-        if onset is None and not isinstance(named, str):
-            return None, None, "the alarm is not in ALARM"
-        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        onset, since = self._revert_window(alarm, named)
+        if since is None:
+            return None, None, _NOT_IN_ALARM
         # The event's own name too: the lookup filters by it, and an answer that held another write is not one.
-        writes = list({w["event"]: w for w in self._trail_writes(
-            "EventName", event, since, self._now(), lambda e: e["event_name"] == event and keep(e))}.values())
-        if isinstance(named, str):
-            writes = [w for w in writes if w["event"] == named] or writes
+        writes = _named_first(list({w["event"]: w for w in self._trail_writes(
+            "EventName", event, since, self._now(), lambda e: e["event_name"] == event and keep(e))}.values()), named)
         if len(writes) != 1:
-            return None, onset, (f"{'no recorded' if not writes else len(writes)} {event} since "
-                                 f"{since:%Y-%m-%dT%H:%MZ}" + (" (WARDEN does not choose one)" if writes else ""))
+            return None, onset, (f"{_how_many(writes)} {event} since "
+                                 f"{since:%Y-%m-%dT%H:%MZ}" + _not_chosen(writes))
         e = writes[0]
-        return e, onset, (_who_refusal(e, onset) if onset else "the alarm is not in ALARM")
+        return e, onset, _change_refusal(e, onset)
 
     def _live_targets(self, params: dict[str, Any]) -> dict[str, Any]:
         """The ONE DeregisterTargets a person made on this target group before the alarm - an ECS service or an Auto
@@ -2531,17 +2740,9 @@ class AwsPlatform:
         e, _onset, why = self._one_write(
             "DeregisterTargets", lambda e: _get(e["request"] or {}, "targetGroupArn") == arn, params, alarm)
         if e is not None:
-            targets = sorted(([str(_get(t, "id")), _get(t, "port")] for t in _get(e["request"], "targets") or []
-                              if isinstance(t, dict) and _get(t, "id")), key=json.dumps)
-            state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")}, targets=targets)
-            if not why and not targets:
-                why = "the event names no target it deregistered"
-            if not why:
-                now = elb.describe_target_health(TargetGroupArn=arn, Targets=[
-                    {"Id": t, **({"Port": p} if isinstance(p, int) else {})} for t, p in targets]).get(
-                    "TargetHealthDescriptions") or []
-                if any(((h.get("TargetHealth") or {}).get("State")) not in (None, "unused", "draining") for h in now):
-                    why = "a deregistered target is registered again already"
+            targets = _deregistered(e["request"])
+            state.update(_change_fields(e), targets=targets)
+            why = why or _targets_refusal(elb, arn, targets)
         return {**live, "event": set() if why else {e["event"]}, "refused": why, "state": state}
 
     def _targets(self, p, snapshot, now, who, back) -> str:
@@ -2553,7 +2754,7 @@ class AwsPlatform:
         (elb.deregister_targets if back else elb.register_targets)(TargetGroupArn=now["arn"], Targets=targets)
         return f"{'deregistered' if back else 'registered'} {len(targets)} target(s) in {p['target_group']}"
 
-    def _targets_healthy(self, name: str, params: dict[str, Any]) -> bool:
+    def _targets_healthy(self, params: dict[str, Any]) -> bool:
         st = self._live_targets(params).get("state") or {}
         if not st.get("targets"):
             return False
@@ -2582,13 +2783,9 @@ class AwsPlatform:
         e, _onset, why = self._one_write(
             "SuspendProcesses", lambda e: _last(_get(e["request"] or {}, "autoScalingGroupName")) == name, params, alarm)
         if e is not None:
-            asked = _get(e["request"] or {}, "scalingProcesses")
-            processes = sorted(str(p) for p in asked) if isinstance(asked, list) and asked else sorted(_ASG_PROCESSES)
-            state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")}, processes=processes)
-            if not why and not set(processes) <= _ASG_PROCESSES:
-                why = "the event names a process WARDEN does not know"
-            if not why and not set(processes) <= set(suspended):
-                why = "a process the change suspended runs again already"
+            processes = _suspended_by(e["request"])
+            state.update(_change_fields(e), processes=processes)
+            why = why or _resume_refusal(processes, suspended)
         return {**live, "event": set() if why else {e["event"]}, "refused": why, "state": state}
 
     def _asg_resume(self, p, snapshot, now, who, back) -> str:
@@ -2631,7 +2828,7 @@ class AwsPlatform:
         e, _onset, why = self._one_write(
             "ScheduleKeyDeletion", lambda e: _last(_get(e["request"] or {}, "keyId")) in (kid, _last(arn)), params, alarm)
         if e is not None:
-            state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+            state.update(_change_fields(e))
         if not why and meta.get("KeyManager") != "CUSTOMER":
             why = "an AWS managed key is AWS's to manage"
         if not why and meta.get("KeyState") != "PendingDeletion":
@@ -2647,7 +2844,7 @@ class AwsPlatform:
         kms.cancel_key_deletion(KeyId=now["arn"])
         return f"cancelled the deletion of key {p['key']} (it stays disabled until a person enables it)"
 
-    def _key_kept(self, key: str, params: dict[str, Any]) -> bool:
+    def _key_kept(self, key: str) -> bool:
         return self._read("kms").describe_key(KeyId=key)["KeyMetadata"].get("KeyState") == "Disabled"
 
     def _live_secret_deletion(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -2671,7 +2868,7 @@ class AwsPlatform:
 
         e, _onset, why = self._one_write("DeleteSecret", on_this, params, alarm)
         if e is not None:
-            state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+            state.update(_change_fields(e))
         if not why and not d.get("DeletedDate"):
             why = "the secret is not deleted (restored already)"
         return {**live, "event": set() if why or e is None else {e["event"]}, "refused": why, "state": state}
