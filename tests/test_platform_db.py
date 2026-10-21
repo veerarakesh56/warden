@@ -117,7 +117,9 @@ def test_mysql_and_mssql_are_scoped_the_same_way():
     ms = _Conn()
     _platform("mssql", ms, users=["orders_app", "orders_ro"]).apply("db_terminate_idle_in_tx", PARAMS)
     sql, params = next((s, p) for s, p in ms.sql if "dm_exec_sessions" in s)
-    assert "database_id = DB_ID()" in sql and "login_name IN %s" in sql and "@@SPID" in sql
+    assert "database_id = DB_ID()" in sql
+    assert "login_name IN %s" in sql
+    assert "@@SPID" in sql
     assert params == (5, ("orders_app", "orders_ro"), 300)
 
 
