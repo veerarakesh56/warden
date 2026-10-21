@@ -24,7 +24,7 @@ VALUES = yaml.safe_load(tool.DATADOG_VALUES.read_text(encoding="utf-8"))
 RULES = json.loads(ENV["value"])
 # Classes the agent does not mask, and why (the values file says it too): host names under `.local`/`.internal` are a
 # Kubernetes service's and AWS's own, everywhere in these logs, and RE2 cannot leave those out selectively.
-NOT_AT_THE_AGENT = {("HOSTNAME", "printer.local offline"), ("IPV4", "node ip-10-0-3-22.ec2.internal")}
+NOT_AT_THE_AGENT = {("HOSTNAME", "printer.local offline")}
 
 
 def _mask(text: str) -> str:
