@@ -404,9 +404,12 @@ def _stack_sources(alert: Alert, ctx: ContextBundle) -> list[str]:
     # What WARDEN could not read, said only for what this alert names (owner, 2026-10-14: a schedule's alarm said
     # "Not read: Redis itself ..."): plain words, nothing for a component the incident does not involve.
     unread = []
-    if alert.labels.get("elasticache"):
-        unread.append("the data inside the Redis cache itself (it is reachable only inside its private network; WARDEN "
-                      "reads the cache's settings, events and metrics instead)")
+    # U3-5: WARDEN reads the cache's own INFO, SLOWLOG and CLIENT LIST when the runtime holds its DSN and reaches it.
+    if alert.labels.get("elasticache") and not any(k.startswith("redis_info_") for k in ctx.metrics):
+        failed = [e for e in errors if e.startswith("redis-data")]
+        unread.append("the data inside the Redis cache itself (" + (
+            f"WARDEN's read of it failed: {_c(failed[0][:160])}" if failed else
+            "WARDEN is not set up to reach it; it reads the cache's settings, events and metrics instead") + ")")
     if any(alert.labels.get(k) for k in ("ecs_service", "ecs_cluster", "deployment")):
         unread.append("the program code inside the container images (WARDEN does not download images)")
     if unread:

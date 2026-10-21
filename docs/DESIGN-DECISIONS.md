@@ -297,7 +297,8 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Typed contracts: Pydantic - `models.py`. Tracing: OpenTelemetry - `observability.py`. MCP: the `mcp` SDK -
   `mcp_server.py`. CommonMark parsing for the outbound gate: `markdown-it-py` - `gate.py`.
 - AWS, Kubernetes and database reads: boto3, the Kubernetes client and the database drivers - `aws_backend.py`,
-  `aws_stack.py`, `k8s_backend.py`, `database.py`, `tools.py`. What an alarm watches: CloudWatch's own documented
+  `aws_stack.py`, `k8s_backend.py`, `database.py`, `tools.py`. The cache's own INFO, SLOWLOG GET and CLIENT LIST:
+  redis-py behind a three-command allow-list, over verified TLS - `redis_reads.py` (2026-10-21). What an alarm watches: CloudWatch's own documented
   namespaces and dimensions, one table - `resources.py` (checked against AWS's metric pages 2026-10-10). The state of
   each service's resource: one closed table of read calls and AWS's own structured fields - `aws_describe.py`. Which more
   resources an investigation may read: only names WARDEN already holds - `investigation.py`. From an approved
