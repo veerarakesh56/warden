@@ -338,38 +338,40 @@ class _Redactor:
     def find(self, text: str) -> str:
         out = strip_ansi(text)
         for label, pattern in PATTERNS:
-
-            def _sub(m: re.Match[str], label: str = label) -> str:
-                # group(1) exists for TENANT, where only the value is sensitive, not the key name.
-                # The first group that took part: a pattern may offer the value in several written forms.
-                original = next((g for g in m.groups() if g is not None), m.group(0))
-                if label == "SECRET" and (original.lower().strip(".,;:)(<>") in _NOT_A_VALUE
-                                          or _SAYS_NONE.fullmatch(original)):
-                    return m.group(0)
-                # A value holding placeholders already placed (`Cookie: a=<JWT_1>; sid=...`) is stored restored,
-                # so restore() gives the original back in one step; one that is nothing but placeholders is
-                # masked already (seventh review: excluding `<` instead left the cookies after it in clear).
-                full = _PLACEHOLDER.sub(lambda p: self.mapping.get(p.group(1), p.group(1)), original)
-                # By its shape, not the map: the gate re-scans with a fresh one, and took `Cookie: <SECRET_1>` for a
-                # new secret - every report quoting a masked cookie was withheld (eighth review, 2026-10-01).
-                if _PLACEHOLDER.search(original) and not re.search(r"[A-Za-z0-9]", _PLACEHOLDER.sub("", original)):
-                    return m.group(0)
-                if full in self.reverse:
-                    placeholder = self.reverse[full]
-                else:
-                    self.counters[label] += 1
-                    placeholder = f"<{label}_{self.counters[label]}>"
-                    self.mapping[placeholder] = full
-                    self.reverse[full] = placeholder
-                    for piece in _PIECE.findall(_PLACEHOLDER.sub(" ", original)) if label in SECRET_KINDS else ():
-                        if piece != full and piece not in self.reverse and _secret_shaped(piece):
-                            self.counters[label] += 1
-                            self.mapping[f"<{label}_{self.counters[label]}>"] = piece
-                            self.reverse[piece] = f"<{label}_{self.counters[label]}>"
-                return m.group(0).replace(original, placeholder)
-
-            out = pattern.sub(_sub, out)
+            out = pattern.sub(lambda m, label=label: self._mask(m, label), out)
         return out
+
+    def _mask(self, m: re.Match[str], label: str) -> str:
+        """One match of `label`'s pattern, its value replaced by its placeholder (a new one when it is new)."""
+        # group(1) exists for TENANT, where only the value is sensitive, not the key name.
+        # The first group that took part: a pattern may offer the value in several written forms.
+        original = next((g for g in m.groups() if g is not None), m.group(0))
+        if label == "SECRET" and (original.lower().strip(".,;:)(<>") in _NOT_A_VALUE
+                                  or _SAYS_NONE.fullmatch(original)):
+            return m.group(0)
+        # A value holding placeholders already placed (`Cookie: a=<JWT_1>; sid=...`) is stored restored,
+        # so restore() gives the original back in one step; one that is nothing but placeholders is
+        # masked already (seventh review: excluding `<` instead left the cookies after it in clear).
+        full = _PLACEHOLDER.sub(lambda p: self.mapping.get(p.group(1), p.group(1)), original)
+        # By its shape, not the map: the gate re-scans with a fresh one, and took `Cookie: <SECRET_1>` for a
+        # new secret - every report quoting a masked cookie was withheld (eighth review, 2026-10-01).
+        if _PLACEHOLDER.search(original) and not re.search(r"[A-Za-z0-9]", _PLACEHOLDER.sub("", original)):
+            return m.group(0)
+        placeholder = self.reverse[full] if full in self.reverse else self._place(label, full, original)
+        return m.group(0).replace(original, placeholder)
+
+    def _place(self, label: str, full: str, original: str) -> str:
+        """A new placeholder for `full`; for a secret kind, one too for each secret-shaped piece of it."""
+        self.counters[label] += 1
+        placeholder = f"<{label}_{self.counters[label]}>"
+        self.mapping[placeholder] = full
+        self.reverse[full] = placeholder
+        for piece in _PIECE.findall(_PLACEHOLDER.sub(" ", original)) if label in SECRET_KINDS else ():
+            if piece != full and piece not in self.reverse and _secret_shaped(piece):
+                self.counters[label] += 1
+                self.mapping[f"<{label}_{self.counters[label]}>"] = piece
+                self.reverse[piece] = f"<{label}_{self.counters[label]}>"
+        return placeholder
 
     def _build(self) -> None:
         self._ordered = sorted(self.mapping.items(), key=lambda kv: -len(kv[1]))

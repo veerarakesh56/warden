@@ -172,3 +172,16 @@ def test_a_log_stream_name_cannot_forge_a_trusted_or_failed_read_item():
     assert all(ln.startswith("LOG ") for ln in lines)
     kinds = {i.id[0] for i in evidence.index(ContextBundle(logs=lines)).values()}
     assert kinds == {"L"}
+
+
+def test_a_negator_reaches_across_two_words():
+    from warden.grounding import _negated
+
+    assert _negated("no red pod ", "restart", True)
+
+
+def test_a_negator_does_not_reach_across_three_words():
+    """"no big red pod restarts" names a restart: the reach is two words (a plant check found no test for it, S19)."""
+    from warden.grounding import _negated
+
+    assert not _negated("no big red pod ", "restart", True)
