@@ -73,7 +73,7 @@ def fake_api(*replies):
 
 
 TOKEN_REPLY = {"token": "ghs_" + "x" * 36, "expires_at": "2027-01-15T10:00:00Z",
-               "permissions": {"contents": "write", "pull_requests": "write", "checks": "read", "metadata": "read"},
+               "permissions": {"contents": "write", "pull_requests": "write", "metadata": "read"},
                "repository_selection": "selected", "repositories": [{"full_name": REPO}]}
 
 
@@ -123,7 +123,7 @@ def test_an_app_id_of_the_wrong_shape_is_refused(app_id):
 
 # ------------------------------------------------------------------------------------------ the installation token
 
-def test_the_token_is_asked_for_one_repository_and_three_permissions(creds):
+def test_the_revert_token_is_asked_for_one_repository_and_two_permissions(creds):
     api, log = fake_api((200, {"id": 42}), (201, TOKEN_REPLY))
     got = GitHubApp(creds, api=api, clock=lambda: NOW).installation_token(REPO)
     assert got.repository == REPO
@@ -131,7 +131,7 @@ def test_the_token_is_asked_for_one_repository_and_three_permissions(creds):
     assert [(c["method"], c["path"]) for c in log] == [("GET", f"/repos/{REPO}/installation"),
                                                        ("POST", "/app/installations/42/access_tokens")]
     assert log[1]["body"] == {"repositories": ["example-repo"],
-                              "permissions": {"contents": "write", "pull_requests": "write", "checks": "read"}}
+                              "permissions": {"contents": "write", "pull_requests": "write"}}
     assert {c["host"] for c in log} == {"api.github.com"}
     assert log[0]["headers"]["Authorization"].startswith("Bearer ey")
     assert TOKEN_REPLY["token"] not in repr(got)
@@ -432,7 +432,7 @@ def test_review_state_reads_one_reviewer_on_one_head():
     threads = [_thread("coderabbitai", True), _thread("coderabbitai", False), _thread("someone", False), {"comments": {}}]
     api, log = fake_api((200, _reviews_reply(reviews, threads)))
     got = RepoWriter(token(), api=api).review_state(7, SHA)
-    assert got == {"reviewed_head": True, "changes_requested": False, "open_threads": 1}
+    assert got == {"reviewed_head": True, "changes_requested": False, "open_threads": 1, "flagged": False}
     assert log[0]["body"]["variables"] == {"owner": "example-owner", "name": "example-repo", "number": 7}
 
 
@@ -466,7 +466,7 @@ def test_check_runs_refuses_a_partial_page():
     runs = [{"name": "a", "status": "completed", "conclusion": "success"}]
     api, _ = fake_api((200, {"total_count": 1, "check_runs": runs}), (200, {"total_count": 120, "check_runs": runs}))
     writer = RepoWriter(token(), api=api)
-    assert writer.check_runs(SHA) == [("a", "completed", "success")]
+    assert writer.check_runs(SHA) == [("a", "completed", "success", "")]
     with pytest.raises(GitHubAppError, match="could not all be read"):
         writer.check_runs(SHA)
 
@@ -505,3 +505,54 @@ def test_a_diff_that_is_not_utf8_says_so():
     api, _ = fake_api((200, {"parents": [{"sha": SHA}]}), (200, b"\xff\xfe"))
     with pytest.raises(GitHubAppError, match="not UTF-8 text"):
         RepoWriter(token(), api=api).commit_diff(NEW)
+
+
+
+# ------------------------------------------------------------------------------------- second review (2026-10-21)
+
+def test_only_the_merge_token_reads_check_runs(creds):
+    """checks: read is the auto-merge step's alone: the revert's token never asks for it, and a token granted it when
+    it was not asked is refused."""
+    from warden.github_app import MERGE_PERMISSIONS
+
+    merge_reply = {**TOKEN_REPLY, "permissions": {**TOKEN_REPLY["permissions"], "checks": "read"}}
+    api, log = fake_api((200, {"id": 42}), (201, merge_reply))
+    GitHubApp(creds, api=api, clock=lambda: NOW).installation_token(REPO, MERGE_PERMISSIONS)
+    assert log[1]["body"]["permissions"] == {"contents": "write", "pull_requests": "write", "checks": "read"}
+    api, _ = fake_api((200, {"id": 42}), (201, merge_reply))
+    with pytest.raises(GitHubAppError, match="not exactly the ones asked for"):
+        GitHubApp(creds, api=api, clock=lambda: NOW).installation_token(REPO)
+    with pytest.raises(GitHubAppError, match="only with the revert's or the merge's"):
+        GitHubApp(creds, api=fake_api()[0], clock=lambda: NOW).installation_token(REPO, {"contents": "write"})
+
+
+def test_check_runs_carry_the_app_that_made_them():
+    runs = [{"name": "autofix-regression", "status": "completed", "conclusion": "success",
+             "app": {"slug": "github-actions"}},
+            {"name": "SonarCloud Code Analysis", "status": "completed", "conclusion": "success"}]
+    api, _ = fake_api((200, {"total_count": 2, "check_runs": runs}))
+    assert RepoWriter(token(), api=api).check_runs(SHA) == [
+        ("autofix-regression", "completed", "success", "github-actions"),
+        ("SonarCloud Code Analysis", "completed", "success", "")]
+
+
+@pytest.mark.parametrize("body, flagged", [
+    ("**Actionable comments posted: 3**\n", True),
+    ("> [!CAUTION]\n> **⚠️ Outside diff range comments (1)**\n", True),
+    ("**Actionable comments posted: 0**\n", False),
+    ("Nothing to say.", False),
+])
+def test_review_state_flags_findings_in_the_latest_review_of_the_head(body, flagged):
+    reviews = [{"state": "COMMENTED", "commit": {"oid": NEW}, "author": {"login": "coderabbitai"},
+                "body": "**Actionable comments posted: 9**"},  # another head's review: not this one's
+               {"state": "COMMENTED", "commit": {"oid": SHA}, "author": {"login": "coderabbitai"}, "body": body}]
+    api, _ = fake_api((200, _reviews_reply(reviews, [])))
+    assert RepoWriter(token(), api=api).review_state(7, SHA)["flagged"] is flagged
+
+
+def test_a_merge_github_will_not_do_is_refused_not_retried():
+    from warden.github_app import MergeRefused
+
+    api, _ = fake_api((405, {"message": "Merge method not allowed"}))
+    with pytest.raises(MergeRefused, match="405"):
+        RepoWriter(token(), api=api).merge(7, SHA)

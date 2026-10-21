@@ -26,12 +26,16 @@ test_paths:
 
 # Auto-merge (phase 4; only where `code_fix: auto`, never the prod tier): every check run on the pull request's head
 # must have finished green, these ones must be there, CodeRabbit must have reviewed the head and left nothing open,
-# and Eldane, the AI critic, must have approved it. autofix-regression and SonarCloud are required whatever this says.
+# Eldane, the AI critic, must have approved it, and the incident's rollback plan must have a person's signed approval.
+# autofix-gate, autofix-regression and SonarCloud are required whatever this says.
 auto_merge:
+  # Each check by its name AND the app that makes it (a check run's slug): a name alone can be posted by any app or
+  # workflow allowed to write checks.
   required_checks:
-    - autofix-regression
-    - SonarCloud Code Analysis
+    - {name: autofix-gate, app: github-actions}
+    - {name: autofix-regression, app: github-actions}
+    - {name: SonarCloud Code Analysis, app: sonarqubecloud}
     # CI · apps: the only CI workflow a change under scenarios/fullstack/ starts (CI · tool ignores those paths and
     # CI · infra's `check / validate` watches terraform only - it never runs here, so naming it held every merge).
-    - check / check
-    - Analyze (python)
+    - {name: check / check, app: github-actions}
+    - {name: Analyze (python), app: github-actions}

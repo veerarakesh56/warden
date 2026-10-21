@@ -44,7 +44,14 @@ from .code_gate import (
     imports_in,
     parse_diff,
 )
-from .github_app import AppCredentials, GitHubApp, GitHubAppError, RepoWriter
+from .github_app import (
+    MERGE_PERMISSIONS,
+    AppCredentials,
+    GitHubApp,
+    GitHubAppError,
+    MergeRefused,
+    RepoWriter,
+)
 
 _SHA = re.compile(r"[0-9a-f]{40}")
 AUDIT_KIND = "code_fix"
@@ -298,6 +305,12 @@ def _app_writer(repo: str) -> RepoWriter | None:
     return RepoWriter(GitHubApp(creds).installation_token(repo)) if creds else None
 
 
+def _merge_writer(repo: str) -> RepoWriter | None:
+    """The auto-merge step's writer: its token alone also reads check runs (MERGE_PERMISSIONS)."""
+    creds = AppCredentials.from_environment()
+    return RepoWriter(GitHubApp(creds).installation_token(repo, MERGE_PERMISSIONS)) if creds else None
+
+
 def _remove(writer: RepoWriter, branch: str) -> str:
     """A branch whose commit failed holds nothing of WARDEN's: it goes. What happened is said in the outcome."""
     try:
@@ -406,7 +419,7 @@ class CodeFixActivities:
         wrote, base = str(mine[-1].get("revert_commit") or ""), str(mine[-1].get("base") or "")
         repo = os.environ.get("WARDEN_CHANGE_REPO") or policies.github.get("repository", "")
         try:
-            writer = (self._app or _app_writer)(repo)
+            writer = (self._app or _merge_writer)(repo)
             if writer is None:
                 return {"status": "waiting", "reasons": ["no GitHub App is configured"]}
             return self._decide(writer, policy, incident_id, number, wrote, base)
@@ -424,9 +437,13 @@ class CodeFixActivities:
             mode=policy.code_fix, tier=policy.tier, wrote=wrote, base=base, pull=pull,
             checks=writer.check_runs(wrote) if _SHA.fullmatch(wrote) else [], required=default_merge_checks(),
             review=ReviewState(**writer.review_state(number, wrote)),
-            critic=critic_approved(self.audit, incident_id, number, wrote)))
+            critic=critic_approved(self.audit, incident_id, number, wrote),
+            rollback=rollback_approved(self.audit, incident_id)))
         if not reasons:
-            writer.merge(number, wrote)
+            try:
+                writer.merge(number, wrote)
+            except MergeRefused as exc:  # GitHub will not merge it this way: asking again changes nothing
+                return self._merge_row(incident_id, number, "refused", [str(exc)])
             return self._merge_row(incident_id, number, "merged", [f"merged {wrote[:12]} into {base}"])
         final = (effective_mode(policy.code_fix, policy.tier) is not CodeFixMode.auto or pull.state != "open"
                  or pull.head_sha != wrote)
@@ -464,6 +481,10 @@ def ci_check(head_ref: str, base_sha: str, head_sha: str, git: Callable[..., str
     if not named or not named.group(1).startswith(m.group("short")):
         return False, ["the commit does not name the commit it reverts, or names another than its branch"]
     sha = named.group(1)
+    # Only a commit in the base's history (merge-base(sha, base) is sha itself): a commit only a fork or another branch
+    # has is never "reverted" into it - its inverse would be new code.
+    if git("merge-base", sha, base_sha).strip() != sha:
+        return False, [f"{sha[:12]} is not in the history of the pull request's base: only a commit there is reverted"]
     if len(git("rev-list", "--parents", "-n", "1", sha).split()) != 2:
         return False, ["the reverted commit is a merge or root commit"]
     from .environments import default_environment_policies
@@ -504,9 +525,11 @@ class ReviewState:
     reviewed_head: bool
     changes_requested: bool
     open_threads: int
+    flagged: bool = True  # its latest review of the head says it found something (github_app.review_flags)
 
 
 _FINE = {"success", "neutral", "skipped"}
+SONAR_APP = "sonarqubecloud"
 
 
 @dataclass(frozen=True)
@@ -519,10 +542,11 @@ class MergeFacts:
     wrote: str
     base: str
     pull: PullState
-    checks: list[tuple[str, str, str]]
-    required: tuple[str, ...]
+    checks: list[tuple[str, str, str, str]]   # (name, status, conclusion, app slug)
+    required: tuple[tuple[str, str], ...]     # (name, app slug)
     review: ReviewState
     critic: bool
+    rollback: bool                            # the incident's rollback plan was approved, a person among its approvers
 
 
 def mode_allows(f: MergeFacts) -> str:
@@ -546,15 +570,16 @@ def head_is_warden_s(f: MergeFacts) -> str:
 
 
 def checks_green(f: MergeFacts) -> str:
-    unfinished = sorted(n for n, status, conclusion in f.checks if status != "completed" or conclusion not in _FINE)
+    unfinished = sorted(n for n, status, conclusion, _app in f.checks if status != "completed" or conclusion not in _FINE)
     return f"checks not green yet on {f.wrote[:12]}: {', '.join(unfinished)}" if unfinished else ""
 
 
 def checks_present(f: MergeFacts) -> str:
-    """Each required check ran on that commit and passed: a required check that was skipped or neutral is not green
-    (checks_green lets an optional job skip; a required one never)."""
-    passed = {name for name, status, conclusion in f.checks if status == "completed" and conclusion == "success"}
-    missing = sorted(set(f.required) - passed)
+    """Each required check ran on that commit, made by its own app, and passed: a required check that was skipped or
+    neutral is not green (checks_green lets an optional job skip; a required one never), and one of the same name made
+    by another app is not it."""
+    passed = {(name, app) for name, status, conclusion, app in f.checks if status == "completed" and conclusion == "success"}
+    missing = sorted(f"{name} ({app})" for name, app in set(f.required) - passed)
     return f"required checks not run or not passed on {f.wrote[:12]}: {', '.join(missing)}" if missing else ""
 
 
@@ -563,14 +588,18 @@ SONAR_CHECK = "SonarCloud Code Analysis"
 
 def sonar_green(f: MergeFacts) -> str:
     """SonarCloud's quality gate on that commit, by name: the owner's option A names it, so it is its own condition."""
-    ok = any(name == SONAR_CHECK and status == "completed" and conclusion == "success"
-             for name, status, conclusion in f.checks)
+    ok = any(name == SONAR_CHECK and app == SONAR_APP and status == "completed" and conclusion == "success"
+             for name, status, conclusion, app in f.checks)
     return "" if ok else f"SonarCloud's quality gate has not passed on {f.wrote[:12]}"
 
 
 def review_clear(f: MergeFacts) -> str:
-    if not f.review.reviewed_head or f.review.changes_requested or f.review.open_threads:
-        return f"CodeRabbit has not reviewed {f.wrote[:12]}, asked for changes, or left a thread open"
+    """CodeRabbit reviewed that commit, did not ask for changes, left no thread open, and its latest review of it found
+    nothing (no actionable comment, nothing outside the diff). CodeRabbit's hourly review allowance can run out: then it
+    never reviews the commit, and the merge waits, then goes to a person - it never passes unreviewed."""
+    if not f.review.reviewed_head or f.review.changes_requested or f.review.open_threads or f.review.flagged:
+        return (f"CodeRabbit has not reviewed {f.wrote[:12]}, asked for changes, left a thread open, or found "
+                "something in its review")
     return ""
 
 
@@ -578,11 +607,17 @@ def critic_agrees(f: MergeFacts) -> str:
     return "" if f.critic else f"Eldane, the AI critic, has not approved {f.wrote[:12]}"
 
 
+def rollback_agreed(f: MergeFacts) -> str:
+    """The person's decision on the rollback stands: the revert merges only when the incident's rollback plan was
+    approved (a denied or unanswered rollback means the deploy was not judged the cause)."""
+    return "" if f.rollback else "the incident's rollback plan has no signed approval with a person among its approvers"
+
+
 # Every one must say nothing (register B4, phase 4; owner decision 2026-10-21, option A, final: dev merges itself only
 # after CI, CodeRabbit, SonarCloud and Eldane are all green; prod never): mode, pull request, head, CI green, required
 # checks present, SonarCloud, CodeRabbit, Eldane. Each is its own test (tests/test_autofix_check.py).
 MERGE_CONDITIONS = (mode_allows, pull_is_ready, head_is_warden_s, checks_green, checks_present, sonar_green,
-                    review_clear, critic_agrees)
+                    review_clear, critic_agrees, rollback_agreed)
 
 
 def merge_refusals(facts: MergeFacts) -> list[str]:
@@ -593,8 +628,9 @@ def merge_refusals(facts: MergeFacts) -> list[str]:
 ELDANE_CODE_REVIEW = "eldane_code_review"
 
 
-def default_merge_checks() -> tuple[str, ...]:
-    """data/code_fix.yaml `auto_merge.required_checks`: the check runs that must be on the head, each green."""
+def default_merge_checks() -> tuple[tuple[str, str], ...]:
+    """data/code_fix.yaml `auto_merge.required_checks`: the check runs (name, app) that must be on the head, each
+    green."""
     from .code_gate import default_limits
 
     return default_limits().required_checks
@@ -607,3 +643,34 @@ def critic_approved(audit: Any, incident: str, number: int, head: str) -> bool:
     rows = [e.get("body") or {} for e in audit.entries(incident, kinds=(ELDANE_CODE_REVIEW,))]
     return any(r.get("pull_request") == number and r.get("head") == head and r.get("verdict") == "approve"
                for r in rows)
+
+
+# The rows activities.py writes (activities._PLAN_ROW, activities._ACCEPTED_ROW): a plan, and an approval check_approval
+# or check_passkey accepted only after verifying its signature or passkey assertion.
+PLAN_ROW, ACCEPTED_ROW = "remediation.plan", "approval.accepted"
+
+
+def _approvers(plan: Mapping[str, Any], accepted: list[Mapping[str, Any]]) -> tuple[set[str], set[str], int]:
+    mine = [a for a in accepted if a.get("workflow_id") == plan.get("workflow_id")
+            and a.get("plan_hash") == plan.get("plan_hash") and not a.get("problems") and a.get("approver")]
+    everyone = {str(a["approver"]) for a in mine}
+    people = {str(a["approver"]) for a in mine if not a.get("ai")}
+    required = max([r for a in mine if isinstance(r := a.get("required"), int) and not isinstance(r, bool)] or [1])
+    return everyone, people, required
+
+
+def rollback_approved(audit: Any, incident: str) -> bool:
+    """Whether the incident's rollback plan (a catalog entry that carries out rollback_deploy) was approved: its tier's
+    number of different approvers, from verified `approval.accepted` rows for that very plan (workflow and plan hash),
+    at least one of them a person - Eldane's approval alone never lets WARDEN's code merge itself."""
+    from .catalog import FOR_ACTION
+    from .models import ActionKind
+
+    entries = set(FOR_ACTION[ActionKind.rollback_deploy].values())
+    plans = [e.get("body") or {} for e in audit.entries(incident, kinds=(PLAN_ROW,))]
+    accepted = [e.get("body") or {} for e in audit.entries(incident, kinds=(ACCEPTED_ROW,))]
+    for plan in (p for p in plans if p.get("entry") in entries):
+        everyone, people, required = _approvers(plan, accepted)
+        if people and len(everyone) >= required:
+            return True
+    return False

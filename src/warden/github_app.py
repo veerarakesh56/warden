@@ -8,8 +8,9 @@ calls and nothing else; whether a change may be written at all is the code gate'
 - **Identity.** The App's id (or client id) and its private key come from the environment - in the cloud runtime from
   Secrets Manager, the act zone's alone (settings.ZONE_SECRETS). A JSON Web Token signed with the key (RS256, at
   most ten minutes, its issue time a minute back for clock drift: GitHub's documented limits) asks GitHub for an
-  installation token. The token is narrowed in the request to ONE repository and three permissions - contents: write,
-  pull requests: write, checks: read (phase 4's merge reads check runs) - and refused if GitHub grants more; it lasts an hour and is held in memory only.
+  installation token. The token is narrowed in the request to ONE repository and two permissions - contents: write,
+  pull requests: write - and refused if GitHub grants more; only the auto-merge step's token (phase 4) also asks for
+  checks: read, to see the pull request's check runs. A token lasts an hour and is held in memory only.
 - **Commits** go through GraphQL `createCommitOnBranch`: GitHub makes and signs the commit itself, so it shows as
   verified and is authored by the App - no signing key of WARDEN's own. `expectedHeadOid` makes the commit fail if the
   branch moved since WARDEN read it.
@@ -40,9 +41,10 @@ TIMEOUT_S = 15.0
 MAX_REPLY = 4_000_000
 MAX_FILE = 1_000_000  # the contents API returns a file's bytes inline up to 1 MB
 BRANCH_PREFIX = "warden/"
-# What an installation token may do, asked for by name: GitHub adds metadata: read to every token. checks: read lets
-# the auto-merge step see the pull request's check runs (phase 4); it writes none.
-PERMISSIONS: Mapping[str, str] = {"contents": "write", "pull_requests": "write", "checks": "read"}
+# What an installation token may do, asked for by name: GitHub adds metadata: read to every token. The revert step's
+# token has these two alone; the auto-merge step's (phase 4) also reads check runs, and writes none.
+PERMISSIONS: Mapping[str, str] = {"contents": "write", "pull_requests": "write"}
+MERGE_PERMISSIONS: Mapping[str, str] = {**PERMISSIONS, "checks": "read"}
 _GRANTED_ANYWAY = {"metadata": "read"}
 JWT_LIFETIME_S = 540  # under GitHub's ten-minute limit, with room for the minute of back-dating
 JWT_BACKDATE_S = 60
@@ -60,6 +62,11 @@ _NAMED = re.compile(r"[\w ,.:;()'/\"#\[\]!+@&=*%?<>{}|~^$`-]{1,200}")
 
 class GitHubAppError(RuntimeError):
     """A GitHub App call failed or was refused. Its text names the call and the HTTP status, never a credential."""
+
+
+class MergeRefused(GitHubAppError):
+    """GitHub answered a merge with 405: it will not merge this pull request this way (a merge method the repository
+    does not allow, a rule it does not meet). Asking again changes nothing: a person has it."""
 
 
 @dataclass(frozen=True, repr=False)
@@ -190,8 +197,11 @@ class GitHubApp:
     def __init__(self, creds: AppCredentials, *, api: Api | None = None, clock: Callable[[], float] = time.time):
         self._creds, self._api, self._clock = creds, api or Api(), clock
 
-    def installation_token(self, repo: str) -> InstallationToken:
-        """A token for `repo` alone with PERMISSIONS alone - refused if GitHub's answer grants anything more."""
+    def installation_token(self, repo: str, permissions: Mapping[str, str] = PERMISSIONS) -> InstallationToken:
+        """A token for `repo` alone with `permissions` alone (PERMISSIONS, or MERGE_PERMISSIONS for the auto-merge
+        step) - refused if GitHub's answer grants anything more."""
+        if dict(permissions) not in (dict(PERMISSIONS), dict(MERGE_PERMISSIONS)):
+            raise GitHubAppError("a token is asked for only with the revert's or the merge's permissions")
         repo = _repo(repo)
         jwt = app_jwt(self._creds, now=self._clock())
         status, found = self._api.call("GET", f"/repos/{repo}/installation", token=jwt)
@@ -201,18 +211,18 @@ class GitHubApp:
             raise GitHubAppError("the App's installation has no id")
         name = repo.split("/", 1)[1]
         status, got = self._api.call("POST", f"/app/installations/{installation}/access_tokens", token=jwt,
-                                     body={"repositories": [name], "permissions": dict(PERMISSIONS)})
+                                     body={"repositories": [name], "permissions": dict(permissions)})
         _expect(status, 201, "an installation token")
-        return _checked_token(got, repo)
+        return _checked_token(got, repo, permissions)
 
 
-def _checked_token(got: Any, repo: str) -> InstallationToken:
+def _checked_token(got: Any, repo: str, permissions: Mapping[str, str] = PERMISSIONS) -> InstallationToken:
     if not isinstance(got, dict) or not isinstance(got.get("token"), str) or not got["token"]:
         raise GitHubAppError("the installation token reply holds no token")
     granted = got.get("permissions")
-    if not isinstance(granted, dict) or {k: v for k, v in granted.items() if _GRANTED_ANYWAY.get(k) != v} != PERMISSIONS:
-        raise GitHubAppError("the installation token's permissions are not exactly contents and pull requests: write, "
-                             "checks: read")
+    if not isinstance(granted, dict) or {k: v for k, v in granted.items() if _GRANTED_ANYWAY.get(k) != v} != dict(permissions):
+        raise GitHubAppError("the installation token's permissions are not exactly the ones asked for: "
+                             + ", ".join(f"{k}: {v}" for k, v in sorted(permissions.items())))
     repos = got.get("repositories")
     names = [r.get("full_name") for r in repos if isinstance(r, dict)] if isinstance(repos, list) else None
     if got.get("repository_selection") != "selected" or names != [repo]:
@@ -388,19 +398,23 @@ class RepoWriter:
                 "head_ref": str(head.get("ref") or ""), "head_sha": str(head.get("sha") or ""),
                 "base_ref": str(base.get("ref") or ""), "mergeable": got.get("mergeable")}
 
-    def check_runs(self, sha: str) -> list[tuple[str, str, str]]:
-        """Every check run on a commit: (name, status, conclusion). More than 100 is refused, never cut short."""
+    def check_runs(self, sha: str) -> list[tuple[str, str, str, str]]:
+        """Every check run on a commit: (name, status, conclusion, the slug of the app that made it). More than 100 is
+        refused, never cut short."""
         status, got = self._call("GET", f"/commits/{_sha(sha, 'the commit')}/check-runs?per_page=100")
         _expect(status, 200, f"the checks of {sha[:12]}")
         runs = got.get("check_runs") if isinstance(got, dict) else None
         if not isinstance(runs, list) or got.get("total_count") != len(runs):
             raise GitHubAppError("the check runs could not all be read")
-        return [(str(r.get("name") or ""), str(r.get("status") or ""), str(r.get("conclusion") or ""))
+        return [(str(r.get("name") or ""), str(r.get("status") or ""), str(r.get("conclusion") or ""),
+                 str((r.get("app") or {}).get("slug") or "") if isinstance(r.get("app"), dict) else "")
                 for r in runs if isinstance(r, dict)]
 
     def review_state(self, number: int, head: str, reviewer: str = "coderabbitai") -> dict[str, Any]:
         """One reviewer's view of a pull request (GraphQL): whether it reviewed `head`, asked for changes in its latest
-        review, and how many of its threads are still open."""
+        review, how many of its threads are still open, and whether its latest review of `head` says it found
+        something (`flagged`): CodeRabbit reviews as COMMENTED and puts findings outside the diff in the review's body
+        only, where no thread holds them."""
         owner, name = self.repo.split("/", 1)
         status, got = self._api.call("POST", "/graphql", token=self._token.token,
                                      body={"query": _REVIEWS, "variables": {"owner": owner, "name": name,
@@ -410,14 +424,18 @@ class RepoWriter:
         _all_threads_read(pr, number)
         reviews = [r for r in _nodes(pr, "reviews") if _login(r) == reviewer]
         mine = [t for t in _nodes(pr, "reviewThreads") if _login(_first_comment(t)) == reviewer]
-        return {"reviewed_head": any((r.get("commit") or {}).get("oid") == head for r in reviews),
+        on_head = [r for r in reviews if (r.get("commit") or {}).get("oid") == head]
+        return {"reviewed_head": bool(on_head),
                 "changes_requested": bool(reviews) and reviews[-1].get("state") == "CHANGES_REQUESTED",
-                "open_threads": sum(1 for t in mine if not t.get("isResolved"))}
+                "open_threads": sum(1 for t in mine if not t.get("isResolved")),
+                "flagged": bool(on_head) and review_flags(str(on_head[-1].get("body") or ""))}
 
     def merge(self, number: int, sha: str) -> None:
         """Merge (rebase) the pull request only if its head is still exactly `sha`."""
         status, _ = self._call("PUT", f"/pulls/{_number(number)}/merge",
                                {"sha": _sha(sha, "the head"), "merge_method": "rebase"})
+        if status == 405:
+            raise MergeRefused(f"merging #{number}: HTTP 405 (GitHub will not merge it this way)")
         _expect(status, 200, f"merging #{number}")
 
 
@@ -425,9 +443,20 @@ _REVIEWS = """query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     reviewThreads(first: 100) { totalCount pageInfo { hasNextPage }
       nodes { isResolved comments(first: 1) { nodes { author { login } } } } }
-    reviews(last: 50) { nodes { state commit { oid } author { login } } }
+    reviews(last: 50) { nodes { state body commit { oid } author { login } } }
   } }
 }"""
+
+
+# What CodeRabbit's review body says when it found something: comments it posted (each a thread, or none when they
+# are outside the diff), or comments outside the diff, which only the body holds.
+_ACTIONABLE = re.compile(r"Actionable comments posted:\s*\**\s*([1-9]\d*)")
+_OUTSIDE_DIFF = re.compile(r"Outside diff range comments?", re.IGNORECASE)
+
+
+def review_flags(body: str) -> bool:
+    """Whether a CodeRabbit review body says it found something: an actionable comment, or one outside the diff."""
+    return bool(_ACTIONABLE.search(body) or _OUTSIDE_DIFF.search(body))
 
 
 def _pull_request_node(got: Any, number: int) -> dict[str, Any]:

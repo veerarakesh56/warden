@@ -1,12 +1,15 @@
 name: "CI · autofix"
 
-# Register B4: the code-fix path's own regression job, on every pull request into main whatever it changes (a revert
-# WARDEN writes touches only an application's files, which CI · tool does not run on). Two steps:
-#   1. the code gate's, the GitHub App's and the revert builder's tests - the rules that decide what WARDEN may write;
-#   2. on a pull request from a `warden/` branch, the gate again over the pull request's ACTUAL diff and commits, as
-#      GitHub holds them: a branch changed after WARDEN checked it (another commit, a force-push, an edit through the
-#      web) fails here. Auto-merge requires this job by name (data/code_fix.yaml, auto_merge.required_checks).
-# No credentials, no secrets, read-only token.
+# Register B4: the code-fix path's own regression jobs, on every pull request into main whatever it changes (a revert
+# WARDEN writes touches only an application's files, which CI · tool does not run on). Two jobs:
+#   1. autofix-gate: on a pull request from a `warden/` branch, the gate again over the pull request's ACTUAL diff and
+#      commits, as GitHub holds them - run by the BASE's checker (base.sha's scripts and src). No code from the pull
+#      request runs in this job: a branch that edits the checker cannot pass itself. A branch changed after WARDEN
+#      checked it (another commit, a force-push, an edit through the web) fails here.
+#   2. autofix-regression (after the gate): the code gate's, the GitHub App's and the revert builder's tests, as the
+#      pull request has them.
+# Auto-merge requires both by name and app (data/code_fix.yaml, auto_merge.required_checks): a gate that fails skips
+# the regression job, and a skipped required check is never green. No credentials, no secrets, read-only token.
 on:
   pull_request:
     # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
@@ -22,7 +25,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  autofix-gate:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # The judge: the base's own checker and environment.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+
+      # The judged: read by git only, never run.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: pr
+          persist-credentials: false
+          fetch-depth: 0  # the pull request's base and the commit a revert names must be in the clone
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          version: "0.13.1"
+          checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+          python-version: "3.13"
+          working-directory: base
+          cache-suffix: "ci-autofix-gate"  # one cache per job: jobs sharing a key raced to save it
+
+      - name: Install the base's environment (locked)
+        working-directory: base
+        run: uv sync --locked --no-build --extra dev
+
+      # Event values reach the script through the environment, never the shell's text (zizmor: template injection).
+      - name: The gate over this pull request, by the base's checker
+        working-directory: pr
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PYTHONPATH: ../base/src
+        run: |
+          if [ ! -f ../base/scripts/autofix_check.py ]; then
+            # Only until this job's own pull request is on main: a code-fix branch is never passed without a checker.
+            case "$HEAD_REF" in
+              warden/*) echo "::error::the base has no code-fix checker: a code-fix pull request cannot be checked"; exit 1 ;;
+              *) echo "not a code-fix pull request, and the base has no checker yet: nothing to check"; exit 0 ;;
+            esac
+          fi
+          ../base/.venv/bin/python ../base/scripts/autofix_check.py
+
   autofix-regression:
+    needs: autofix-gate
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -30,7 +83,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0  # the pull request's base and the commit a revert names must be in the clone
 
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
@@ -47,11 +99,3 @@ jobs:
         env:
           WARDEN_MOCK: "1"
         run: pytest -q tests/test_code_gate.py tests/test_github_app.py tests/test_code_fix.py tests/test_autofix_check.py
-
-      # Event values reach the script through the environment, never the shell's text (zizmor: template injection).
-      - name: The gate over this pull request's own diff
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python scripts/autofix_check.py

@@ -283,8 +283,9 @@ Owner steps (once; WARDEN never creates or changes the App, a ruleset or a repos
 
 1. GitHub, Settings, Developer settings, GitHub Apps, **New GitHub App**: a name such as `warden-code-fix`; the
    repository's address as the homepage; **Webhook: Active unticked** (WARDEN asks, nothing is pushed to it).
-2. Repository permissions: **Contents: Read and write**, **Pull requests: Read and write**, **Checks: Read-only** (the
-   auto-merge step reads a pull request's check runs; it writes none); Metadata: Read is added by GitHub. Nothing
+2. Repository permissions: **Contents: Read and write**, **Pull requests: Read and write**, **Checks: Read-only** (only
+   the auto-merge step's token asks for it, to read a pull request's check runs; it writes none - the revert step's
+   token asks for contents and pull requests alone); Metadata: Read is added by GitHub. Nothing
    else - no Workflows (so the App cannot change `.github/workflows` even if asked), no Administration, Actions,
    Secrets or Environments. Account permissions: none. "Where can this GitHub App be
    installed": **Only on this account**.
@@ -319,24 +320,46 @@ approval; the pull request only keeps the next deploy from bringing the fault ba
 environment whose `code_fix` is `auto` (never the prod tier; both ship `propose`, so today a person merges every one).
 Under `auto`, `CodeFixMergeWorkflow` asks every 10 minutes for a day, and the act zone merges (rebase, naming the exact
 commit) only when every condition holds for the one commit WARDEN wrote (`code_fix.MERGE_CONDITIONS`, each its own
-check): the mode; the pull request open, not a draft, mergeable; its head that commit, from a `warden/` branch into the
-default branch; every check run on it green and `auto_merge.required_checks` (data/code_fix.yaml) among them, each
-passed (a required check that was skipped is not green); CodeRabbit reviewed that commit, asked for nothing and left no
-thread open; and Eldane approved that commit - an audit row of kind `eldane_code_review` that only Eldane's code review
-writes (Eldane is on main since PR 42; its code review is not built yet). Until it exists nothing merges itself.
-SonarCloud's quality gate is its own condition, by name. The owner chose option A (2026-10-21, final): in dev a code fix
-merges itself only after CI, CodeRabbit, SonarCloud and Eldane are all green; prod never (refused in code, whatever the
-mode). The other options were B (exact reverts without Eldane) and C (never).
+check):
 
-The `CI · autofix` workflow's `autofix-regression` job runs on every pull request into main: the code-fix rules' tests,
-and for a pull request from a `warden/` branch the gate again over the pull request as GitHub holds it - one commit on
-its base, exactly the inverse of the commit it names, in its environment's mode (`scripts/autofix_check.py`). A branch
-changed after WARDEN wrote it fails there.
+- the mode (`auto`, never the prod tier);
+- the pull request open, not a draft, mergeable; its head that commit, from a `warden/` branch into the default branch;
+- every check run on it green, and each of `auto_merge.required_checks` (data/code_fix.yaml) passed - by its name
+  **and the app that made it** (`github-actions`, `sonarqubecloud`): a required check that was skipped or neutral is
+  not green, and one of the same name posted by another app is not it;
+- SonarCloud's quality gate, its own condition;
+- CodeRabbit reviewed that commit, asked for nothing, left no thread open, and its latest review of it found nothing
+  (no "Actionable comments posted: N" above 0, no "Outside diff range comments" - those live only in the review's
+  body). CodeRabbit's included reviews run out each hour; then it never reviews the commit, the merge waits, and after
+  the day a person has it. It never merges unreviewed;
+- Eldane approved that commit - an audit row of kind `eldane_code_review` that only Eldane's code review writes
+  (Eldane is on main since PR 42; its code review is not built yet). Until it exists nothing merges itself. **Open
+  item:** the merge reads that row as it stands; when Eldane's code review is built, its row must carry Eldane's
+  signature over (pull request, commit, verdict) and the merge must verify it with Eldane's public key, as approvals
+  are verified;
+- the person's decision on the rollback stands: the incident's rollback plan has a signed approval - verified
+  `approval.accepted` rows for that very plan, as many approvers as its tier needs, at least one a person (Eldane alone
+  never counts here). A denied or unanswered rollback means the deploy was not judged the cause, and the revert waits,
+  then goes to a person.
+
+A merge GitHub answers with 405 (a merge method the repository does not allow, a rule it does not meet) is refused
+and recorded at once; asking again would change nothing. The owner chose option A (2026-10-21, final): in dev a code
+fix merges itself only after CI, CodeRabbit, SonarCloud and Eldane are all green; prod never (refused in code, whatever
+the mode). The other options were B (exact reverts without Eldane) and C (never).
+
+The `CI · autofix` workflow runs on every pull request into main, in two jobs. `autofix-gate`, for a pull request from
+a `warden/` branch, runs the gate again over the pull request as GitHub holds it - one commit on its base, exactly the
+inverse of the commit it names, that commit in the base's history, in its environment's mode
+(`scripts/autofix_check.py`) - with the **base's** checker and environment: the pull request's files are only read by
+git, never run, so a branch that edits the checker cannot pass itself. A branch changed after WARDEN wrote it fails
+there. `autofix-regression` then runs the code-fix rules' tests as the pull request has them; when the gate fails it is
+skipped, and a skipped required check is never green.
 
 Owner steps for the rulesets (later; WARDEN never changes a ruleset or a repository setting):
 
-1. Settings, Rules, Rulesets, the ruleset on `main`: add **Require status checks to pass** with `autofix-regression`,
-   `SonarCloud Code Analysis` and the CI jobs already required; keep **Require a pull request before merging**.
+1. Settings, Rules, Rulesets, the ruleset on `main`: add **Require status checks to pass** with `autofix-gate`,
+   `autofix-regression`, `SonarCloud Code Analysis` and the CI jobs already required (pin each to its app: GitHub
+   Actions, SonarQube Cloud); keep **Require a pull request before merging**.
 2. If option A or B is chosen and `main`'s ruleset requires an approving review: the App cannot approve its own pull
    request, so it cannot merge there. Do **not** put the App in the ruleset's bypass list to get round that - a
    bypass skips every rule, the required checks included. The choice is the owner's: keep the review (a person

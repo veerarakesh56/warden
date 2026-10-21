@@ -127,7 +127,7 @@ class GateLimits:
     max_files: int
     allowed_paths: tuple[str, ...]
     test_paths: tuple[str, ...]
-    required_checks: tuple[str, ...] = ()
+    required_checks: tuple[tuple[str, str], ...] = ()  # (check run name, slug of the app that must make it)
     _allowed: tuple[re.Pattern[str], ...] = field(default=(), repr=False, compare=False)
     _tests: tuple[re.Pattern[str], ...] = field(default=(), repr=False, compare=False)
 
@@ -177,18 +177,31 @@ def _bounded(doc: dict[str, Any], key: str, ceiling: int) -> int:
 
 
 _CHECK_NAME = re.compile(r"[\w ()·./:,-]{1,120}")
-# Never fewer than these (phase 4): the code-fix path's own job and SonarCloud. The rest are the file's.
-MUST_CHECK = ("autofix-regression", "SonarCloud Code Analysis")
+_APP_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,99}")
+# Never fewer than these (phase 4): the code-fix path's own two jobs and SonarCloud, each bound to the app that makes it
+# (a check run's name alone can be taken by any app or workflow that may write checks). The rest are the file's.
+MUST_CHECK = (("autofix-gate", "github-actions"), ("autofix-regression", "github-actions"),
+              ("SonarCloud Code Analysis", "sonarqubecloud"))
 
 
-def _checks(auto_merge: Any) -> tuple[str, ...]:
-    names = (auto_merge or {}).get("required_checks") if isinstance(auto_merge, dict) else None
-    if not isinstance(names, list) or not all(isinstance(n, str) and _CHECK_NAME.fullmatch(n) for n in names):
-        raise CodeGateError("code_fix.yaml: `auto_merge.required_checks` must be a list of check names")
-    missing = [n for n in MUST_CHECK if n not in names]
+def _check(entry: Any) -> tuple[str, str]:
+    if not isinstance(entry, dict) or set(entry) != {"name", "app"}:
+        raise CodeGateError("code_fix.yaml: each of `auto_merge.required_checks` is {name, app}")
+    name, app = entry["name"], entry["app"]
+    if not (isinstance(name, str) and _CHECK_NAME.fullmatch(name) and isinstance(app, str) and _APP_SLUG.fullmatch(app)):
+        raise CodeGateError("code_fix.yaml: a required check's name or app is not a plain name")
+    return name, app
+
+
+def _checks(auto_merge: Any) -> tuple[tuple[str, str], ...]:
+    entries = (auto_merge or {}).get("required_checks") if isinstance(auto_merge, dict) else None
+    if not isinstance(entries, list):
+        raise CodeGateError("code_fix.yaml: `auto_merge.required_checks` must be a list of {name, app}")
+    checks = tuple(_check(e) for e in entries)
+    missing = [f"{n} ({a})" for n, a in MUST_CHECK if (n, a) not in checks]
     if missing:
         raise CodeGateError(f"code_fix.yaml: `auto_merge.required_checks` must name {', '.join(missing)}")
-    return tuple(names)
+    return checks
 
 
 def load_limits(text: str | None = None) -> GateLimits:
@@ -206,7 +219,8 @@ def load_limits(text: str | None = None) -> GateLimits:
                       max_revert_lines=_bounded(doc, "max_revert_lines", _CEILING_LINES),
                       max_files=_bounded(doc, "max_files", _CEILING_FILES), allowed_paths=allowed, test_paths=tests,
                       _allowed=tuple(map(glob_regex, allowed)), _tests=tuple(map(glob_regex, tests)),
-                      required_checks=_checks(doc.get("auto_merge", {"required_checks": list(MUST_CHECK)})))
+                      required_checks=_checks(doc.get("auto_merge", {"required_checks": [
+                          {"name": n, "app": a} for n, a in MUST_CHECK]})))
 
 
 @cache

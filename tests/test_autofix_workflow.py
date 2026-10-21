@@ -14,12 +14,14 @@ def test_the_ci_job_is_read_only_and_takes_event_values_from_its_environment():
     flow = (ROOT / ".github" / "workflows" / "autofix-regression.yml").read_text(encoding="utf-8")
     doc = yaml.safe_load(flow)
     assert doc["permissions"] == {"contents": "read"}
-    (job,) = doc["jobs"].values()
-    assert list(doc["jobs"]) == ["autofix-regression"]
-    runs = [s.get("run", "") for s in job["steps"]]
+    assert list(doc["jobs"]) == ["autofix-gate", "autofix-regression"]
+    steps = [s for job in doc["jobs"].values() for s in job["steps"]]
+    runs = [s.get("run", "") for s in steps]
     assert not any("${{" in r for r in runs)  # template values only through env
     assert any("scripts/autofix_check.py" in r for r in runs)
-    assert job["steps"][0]["with"]["persist-credentials"] is False
+    checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")]
+    assert len(checkouts) == 3
+    assert all(s["with"]["persist-credentials"] is False for s in checkouts)
 
 
 
@@ -60,4 +62,4 @@ def test_every_required_check_runs_on_a_code_fix_pull_request():
         triggers = doc.get(True) or {}
         if "pull_request" in triggers and _runs_on_an_app_change(triggers["pull_request"]):
             made |= _check_names(doc)
-    assert set(default_merge_checks()) - _APPS <= made
+    assert {name for name, _app in default_merge_checks()} - _APPS <= made
