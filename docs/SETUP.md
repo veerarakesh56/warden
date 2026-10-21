@@ -242,9 +242,15 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
    - `/warden/ops/env/WARDEN_TEMPORAL_KEY_EXPIRES`: each Temporal API key's end, ISO times, comma-separated; a key
      ending within 7 days pages. Update it whenever a key is rotated.
    - `/warden/ops/tf/page_repeat_minutes`: how often a page repeats (default 15).
+   - `/warden/ops/tf/otlp_exporter` = `true` and `/warden/ops/tf/otlp_endpoint` = the collector's `https://` base URL
+     (port 443): WARDEN's OpenTelemetry spans go there over OTLP/HTTP from every zone. Off when unset. A collector
+     that needs an API key is not supported yet: the key would need a secret slot of its own.
    - `/warden/ops/tf/monthly_budget_usd`: a monthly cost budget before credits, emailing the topic at 80% spent and
      100% forecast. It needs `budgets:ViewBudget` and `budgets:ModifyBudget` in `WardenEnvBoundary-ops` and
      `WardenEnvDeploy-ops`, and a statement in the topic's access policy letting `budgets.amazonaws.com` publish.
+   The model pages too, at most once a day for each of three conditions: its provider unavailable, the daily cap
+   reached (the incidents' daily cap or Eldane's daily call ceiling), or an incident's budget spent (`model` alarms in
+   `paging.tf`, counted by `paging.model_condition`). Nothing to set: they use the same topic and pager.
    A fix that was verified and did not hold is not offered again on WARDEN's own until an approver signs
    `warden offer-again <incident> --approver <name> --key <private key file>` where the audit is reached.
 
