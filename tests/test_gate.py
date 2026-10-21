@@ -189,3 +189,10 @@ def test_structured_data_is_gated_per_value_without_json_false_positives():
     assert "evil.example" not in clean["h"]
     verdict, clean = outbound_data({"note": ["key " + AWS_ACCESS_KEY_ID]})
     assert verdict == "BLOCK" and "AKIA" not in str(clean)
+
+
+def test_a_decimal_reference_is_ascii_digits_only():
+    """CommonMark decodes `&#123;` (ASCII digits), never `&#` + Arabic-Indic digits: only the first is escaped, as
+    before `[0-9]` became `\\d` (an unflagged `\\d` also matches every Unicode digit)."""
+    assert sanitise_text("a &#123; b") == "a &amp;#123; b"
+    assert sanitise_text("a &#\u0661\u0662\u0663; b") == "a &#\u0661\u0662\u0663; b"
