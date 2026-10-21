@@ -467,8 +467,9 @@ def test_a_redirect_carries_the_token_only_to_https_on_the_same_host():
                                  headers={"Authorization": "Bearer gh-" + "read"})
     for elsewhere in ("https://evil.example/steal", "http://api.github.com/repos/owner/shop/pulls/37/comments",
                       "https://api.github.com.evil.example/x"):
+        fp = io.BytesIO(b"")
         with pytest.raises(urllib.error.HTTPError):
-            handler.redirect_request(req, io.BytesIO(b""), 302, "Found", {}, elsewhere)
+            handler.redirect_request(req, fp, 302, "Found", {}, elsewhere)
     moved = handler.redirect_request(req, io.BytesIO(b""), 301, "Moved", {}, "https://api.github.com/repositories/9/x")
     assert moved.full_url == "https://api.github.com/repositories/9/x"
     redirects = [h for h in _OPENER.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)]
