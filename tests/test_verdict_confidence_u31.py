@@ -165,3 +165,12 @@ def test_the_schema_offers_exactly_the_three_outcomes():
     schema = RootCause.model_json_schema()
     assert schema["$defs"]["Outcome"]["enum"] == ["decided", "undetermined", "no_fault"]
     assert RemediationProposal  # (the proposal's actions are unchanged)
+
+
+def test_the_prompt_names_code_review_findings_as_suspects():
+    """main's R items (findings.py, merged 2026-10-21) are rendered to the model and citable: the prompt names them,
+    and as never on their own a reason for a fix (grounding.action_support_problem)."""
+    evidence_section = SYSTEM_DIAGNOSE.split("<evidence>")[1].split("</evidence>")[0]
+    assert "R: a code review finding" in evidence_section
+    assert "never on its own a reason for a fix" in evidence_section
+    assert "an F, M, D, C, T or R id" in SYSTEM_DIAGNOSE

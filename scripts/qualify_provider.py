@@ -74,7 +74,7 @@ def prompt_fingerprint() -> str:
 
     from warden.cli import DEMO_ALERTS
     from warden.graph import run
-    from warden.llm import LLMClient
+    from warden.llm import RETRY_FEEDBACK, LLMClient
     from warden.models import Alert
     from warden.providers import Completion
 
@@ -95,6 +95,9 @@ def prompt_fingerprint() -> str:
 
     for incident in sorted(DEMO_ALERTS):
         run(Alert(**DEMO_ALERTS[incident]), llm=LLMClient(provider=_Capture(), mock=False))
+    # What a retry adds after an answer that failed validation (item 5): the capture answers validly, so no retry is
+    # rendered above, yet a model sees this text whenever one happens.
+    seen.append(["retry after a failed validation", RETRY_FEEDBACK])
     return hashlib.sha256(json.dumps(seen, sort_keys=True).encode()).hexdigest()
 
 

@@ -32,8 +32,12 @@ bump may carry a breaking change.
   signatures agreeing, the outcome consistent - never the model's number. The report shows it first ("WARDEN's
   confidence medium, from its checks; the model said 0.82") with why it is not higher; the verify audit row carries
   it for the records page; `grounding.separation` gives model routing the same two numbers.
-- **The diagnosis prompt** in XML-tagged sections with three worked examples (one per outcome). **Not qualified on
-  any model yet** (providers.yaml).
+- **The diagnosis prompt** in XML-tagged sections with three worked examples (one per outcome), naming code review's
+  R items as suspects, never proof. **Not qualified on any model yet** (providers.yaml).
+- **A retry says what failed** (owner item 5, 2026-10-21). After an answer that fails validation, the next attempt
+  sends the same prompt plus one line naming each failed field's path and pydantic error type (`llm.RETRY_FEEDBACK`),
+  never a value from the answer. Same number of attempts, same call ceiling; the retry's input is priced with the
+  line. The line is part of the qualified prompt's hash.
 
 ### Added (diagnosis and poisoned logs, items 7 and 10, 2026-10-17)
 - **Ranked hypotheses.** The one diagnose call returns 2 to 4 candidate causes, each with citations for and against
