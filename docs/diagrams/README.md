@@ -52,6 +52,8 @@ done
 
 `--theme light` keeps the colours as drawn. Without it, draw.io makes the SVG change its colours in a dark theme.
 Pages are numbered from 1. The exports here also used `-b 16`, a 16-pixel margin.
+`aws-architecture.png` and `system-modules.png` were exported at `-s 1` (2026-10-21): at `-s 2` draw.io's page capture
+failed on the machine that exported them. The SVGs are the full-resolution versions.
 
 Then run `python scripts/check_publishable.py`. A PNG's compressed bytes can hold a run of digits that the scan
 reads as an account id; if it flags a PNG, save the same image again at another compression level (for example
