@@ -1108,6 +1108,9 @@ class RemediationActivities:
             bounds.trip(self.audit, incident_id, f"{workflow_id} ended {outcome.status}: {'; '.join(outcome.reasons)}",
                         workflow_id=workflow_id, run_id=run)
         self.audit.append(incident_id, "workflow.end", body)
+        # The head at the end row itself, before a score or page.resolved row moves it on: the change record names
+        # this one (CodeRabbit, PR 114).
+        end_head = self.audit.head(incident_id)
         self._score(incident_id, workflow_id, run, outcome)
         self.audit.checkpoint()
         # How every plan ended, in the worker's log beside how it opened: a denied or expired plan left no line, and
@@ -1128,7 +1131,7 @@ class RemediationActivities:
             from .changes import issue_text
 
             title, text = issue_text(incident_id=incident_id, end=body, plan=plans[-1],
-                                     head=self.audit.head(incident_id), at=datetime.now(UTC))
+                                     head=end_head, at=datetime.now(UTC))
             url, detail = self.changes.open(title, text, links=IncidentActivities._record_link(incident_id),
                                             incident=incident_id)
             self.audit.append(incident_id, "change.recorded", {"workflow_id": workflow_id, "run_id": run,

@@ -145,3 +145,25 @@ def test_an_applied_change_passes_its_record_link(world, owner, monkeypatch):  #
     links, incident = rec.links[0]
     assert ("Full record", f"https://{RP}/r/inc-42") in links
     assert incident == "inc-42"
+
+
+
+def test_the_record_names_the_head_of_the_end_row_not_a_later_page_resolve(world, monkeypatch):  # noqa: F811 - pytest fixtures
+    """CodeRabbit, PR 114: a resolved page appends page.resolved after the signed end row; the head named is the end's.
+
+    The activity is called directly (no worker, so its run id is ""), with this run's plan and applied rows."""
+    from types import SimpleNamespace
+
+    from warden import audit, bounds, chatops
+    from warden.activities import FixOutcome, RemediationActivities
+
+    monkeypatch.setattr(chatops, "page_resolve", lambda incident: SimpleNamespace(delivered=True, detail="resolved"))
+    log, rec = world["log"], _Recorder()
+    acts = RemediationActivities(audit=log, policy=world["policy"], platform=world["platform"], changes=rec)
+    log.append("inc-7", "remediation.plan", {"workflow_id": "rem-7", "run_id": "", "tier": "T1", "plan_hash": "h",
+                                             "entry": "k8s_rollout_undo", "target": "orders"})
+    log.append("inc-7", bounds.APPLIED, {"workflow_id": "rem-7", "run_id": "", "plan_hash": "h"})
+    acts.finish("inc-7", "rem-7", FixOutcome(status="recovered", checklist={}, plan_hash="h"))
+    end = log.entries("inc-7", kinds=("workflow.end",))[-1]
+    assert log.entries("inc-7", kinds=("page.resolved",))[-1]["seq"] > end["seq"]
+    assert f"Audit head at this end:** `{audit.short(end['hash'])}`" in rec.opened[0][1]
