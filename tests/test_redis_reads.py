@@ -27,8 +27,12 @@ class FakeRedis:
         self._answers = {"INFO": info if info is not None else INFO, "SLOWLOG GET": slowlog if slowlog is not None
                          else SLOWLOG, "CLIENT LIST": clients if clients is not None else CLIENTS}
 
-    def execute_command(self, *args):
+    def execute_command(self, *args, **options):
         self.sent.append(args)
+        if args[0] == "SLOWLOG GET" and not options.get("decode_responses"):
+            # redis-py's SLOWLOG GET callback joins each command with b" " unless told the answer is decoded, and
+            # this client decodes: a str command then fails (redis/_parsers/helpers.py parse_slowlog_get, 8.1.0).
+            raise TypeError("sequence item 0: expected a bytes-like object, str found")
         return self._answers[args[0]]
 
     def close(self):
@@ -290,10 +294,10 @@ def test_what_was_read_before_a_later_command_failed_is_kept(monkeypatch):
     monkeypatch.setenv(aws_stack.REDIS_DSN, dsn("rediss", "warden_ro", HUNTER2, ENDPOINT))
 
     class SlowlogFails(FakeRedis):
-        def execute_command(self, *args):
+        def execute_command(self, *args, **options):
             if args[0] == "SLOWLOG GET":
                 raise ConnectionError("Error 104 reading: connection reset")
-            return super().execute_command(*args)
+            return super().execute_command(*args, **options)
 
     fake = SlowlogFails()
     backend = _backend(_cache_clients(), redis_factory=lambda d: ReadOnlyRedis(fake))
@@ -313,10 +317,10 @@ def test_a_failed_cache_read_keeps_only_the_error_kind_never_its_text(monkeypatc
     said = f"Error 111 connecting to {ENDPOINT}:6379. Connection refused."
 
     class Fails(FakeRedis):
-        def execute_command(self, *args):
+        def execute_command(self, *args, **options):
             if args[0] == "SLOWLOG GET":
                 raise ConnectionError(said)
-            return super().execute_command(*args)
+            return super().execute_command(*args, **options)
 
     def factory(_dsn):
         if where == "connect":

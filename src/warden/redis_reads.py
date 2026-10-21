@@ -69,11 +69,16 @@ class ReadOnlyRedis:
         self.__client = client
 
     def run(self, command: str, *args: Any) -> Any:
-        if not allowed(command, *args):
-            raise RefusedCommand(f"refused: {' '.join(str(command).split()).upper()[:40]} is not a read WARDEN makes")
+        name = " ".join(str(command).split()).upper()
+        if not allowed(name, *args):
+            raise RefusedCommand(f"refused: {name[:40]} is not a read WARDEN makes")
         # redis-py splits a multi-word first argument ("SLOWLOG GET") into the command and its subcommand, and
         # parses the answer with that command's own callback (INFO: a dict; SLOWLOG GET and CLIENT LIST: lists).
-        return self.__client.execute_command(" ".join(str(command).split()).upper(), *args)
+        # SLOWLOG GET's callback is told the answer is decoded, as redis-py's own slowlog_get() tells it: it joins
+        # each command's words with b" " otherwise, and this client decodes (CodeRabbit, PR 151).
+        if name == SLOWLOG_GET:
+            return self.__client.execute_command(name, *args, decode_responses=True)
+        return self.__client.execute_command(name, *args)
 
     def close(self) -> None:
         self.__client.close()
