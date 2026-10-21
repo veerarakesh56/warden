@@ -46,7 +46,7 @@ spec:
         - name: app
           image: shop-app  # the commit's image, set by the shop Application
           ports:
-            - name: http
+            - name: https
               containerPort: 8080
           env:
             - name: APP_ROLE
@@ -64,6 +64,7 @@ spec:
             httpGet:
               path: /health
               port: 8080
+              scheme: HTTPS  # the app's own certificate; the kubelet does not verify a probe's certificate
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:

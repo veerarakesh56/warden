@@ -29,6 +29,9 @@ on:
   schedule:
     - cron: "17 3 * * 1"
   pull_request:
+    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # marked ready for review, and on every push after that.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths-ignore:
       - "terraform/fullstack/**"
@@ -65,6 +68,7 @@ jobs:
   # bandit: Python security smells at medium severity and up (reviewed false positives carry a
   # `# nosec <id>`). zizmor: workflow injection, unpinned actions, token persistence, permissions.
   security:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -94,6 +98,7 @@ jobs:
         run: zizmor --offline --format plain .github
 
   check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -165,6 +170,7 @@ jobs:
           test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::expected exactly one AUTO_SAFE - fixtures probably missing"; exit 1; }
 
   docker:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -194,6 +200,10 @@ jobs:
             "import awslambdaric, warden.lambdas as l; assert all(callable(getattr(l, n)) for n in ('alarm', 'alertmanager', 'approval')); print('handlers ok')"
           docker run --rm warden-runtime:ci worker --help | grep -q -- "--platform" || { echo "::error::no worker command"; exit 1; }
           test "$(docker run --rm --entrypoint id warden-runtime:ci -u)" = "10001" || { echo "::error::the runtime image runs as root"; exit 1; }
+          # As on Fargate: a read-only root, /tmp a fresh volume that takes the image's mode - the worker can write there.
+          docker run --rm --read-only --entrypoint /opt/warden/bin/python warden-runtime:ci -c \
+            "import pathlib; p = pathlib.Path('/tmp/probe'); p.write_text('x'); p.unlink(); print('/tmp writable')" \
+            || { echo "::error::the worker cannot write its /tmp"; exit 1; }
 
   # Against a REAL cluster. Every step here was first done by hand and read by eye; this job
   # replays it so it cannot regress. Assertions are on OUTPUT and on the API server's own answers,
@@ -206,6 +216,7 @@ jobs:
   # commit and put AWS credentials in a public repo's CI. k3d is a real API server - RBAC is really
   # enforced, the kubelet really OOM-kills - so what this job proves holds on any conformant cluster.
   k8s:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: k8s-regression (k3d, every push; measured on EKS in tests/fixtures/bench)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -295,7 +306,8 @@ jobs:
           # because the namespace's default ServiceAccount did not exist yet, and any 'forbidden' passed (ninth
           # review). So the ServiceAccount first.
           for _ in $(seq 1 30); do kubectl get serviceaccount default -n warden >/dev/null 2>&1 && break; sleep 2; done
-          if kubectl apply --dry-run=server -f k8s/test/privileged-must-fail.yaml 2>err.txt; then
+          # The pod is built here (scripts/negative_pod.py), never kept as a manifest: nothing can apply it by mistake.
+          if python3 scripts/negative_pod.py | kubectl apply --dry-run=server -f - 2>err.txt; then
             echo "::error::a privileged pod was ACCEPTED - Pod Security is not enforced"; exit 1
           fi
           grep -q "violates PodSecurity" err.txt || { echo "::error::rejected for the wrong reason:"; cat err.txt; exit 1; }
@@ -363,6 +375,8 @@ jobs:
           # stays read-only. Arming live remediation means applying this separately, and this proves
           # its boundary from the API server's own view, both directions.
           kubectl apply -f k8s/remediation-rbac.yaml
+          # CI only: the EKS actor's group, bound in this test namespace (on EKS it is bound in shop alone).
+          kubectl apply -f k8s/ci/remediation-group-binding.yaml
           SA=system:serviceaccount:warden:warden-remediator
           # An empty answer is a failed request (a settling cluster, CI on 5fdcff4): asked again,
           # its error shown; only yes or no is ever accepted.
@@ -497,6 +511,7 @@ jobs:
   # Service images by digest (audit A-I-24), read 2026-10-01 from the registries. A tag can be moved to
   # other content; a digest cannot.
   db:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The databases' password, made per run (2026-10-16, naming audit item 17). A fixed one in this file
@@ -594,6 +609,7 @@ jobs:
           echo "database integration tests ran for real, against all five engines"
 
   terraform:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

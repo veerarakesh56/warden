@@ -25,6 +25,7 @@ from warden.models import (
     ActionKind,
     Alert,
     Citation,
+    Hypothesis,
     RemediationProposal,
     RootCause,
     Severity,
@@ -404,7 +405,8 @@ def test_replicasets_owned_by_another_deployment_are_ignored():
 
 def test_naive_timestamps_do_not_raise():
     """Review finding: a stubbed client returning a naive datetime made aware-minus-naive raise."""
-    rs = [_rs(1, ["a:1"], created=datetime.now())]  # noqa: DTZ005 - naive on purpose, that IS the test
+    naive = datetime.now(UTC).replace(tzinfo=None)  # no zone on purpose: that IS the test
+    rs = [_rs(1, ["a:1"], created=naive)]
     assert isinstance(_backend(apps=FakeApps(replicasets=rs)).deploys(_alert()), list)
 
 
@@ -458,7 +460,8 @@ def _scale_up_verdict_on_oom(*, ready: bool, backoff: bool = True):
     oom = [Citation(id=i.id, quote=i.text) for i in evidence.index(ctx).values()
            if i.text.startswith("oom_killed_containers=")]
     return verify(
-        _alert(), ctx, RootCause(hypothesis="OOM", confidence=0.74, citations=oom),
+        _alert(), ctx, RootCause(hypothesis="OOM", confidence=0.74, citations=oom,
+                                 hypotheses=[Hypothesis(cause="OOM"), Hypothesis(cause="another cause", why_rejected="nothing in the evidence shows it")]),
         RemediationProposal(action=ActionKind.scale_up, target="checkout", reasoning="r",
                             expected_effect="e", blast_radius="single_service", reversible=True),
     )

@@ -25,12 +25,14 @@ def test_it_runs_only_when_switched_on_and_only_on_this_repositorys_own_pull_req
     to be this repository's."""
     _, wf = _flow()
     assert set(wf[True]) == {"pull_request"}  # YAML 1.1 reads `on` as True
-    assert wf[True]["pull_request"] == {"branches": ["main"]}
+    assert wf[True]["pull_request"] == {"types": ["opened", "synchronize", "reopened", "ready_for_review"],
+                                        "branches": ["main"]}
     (job,) = wf["jobs"].values()
     condition = " ".join(job["if"].split())
     assert "vars.WARDEN_SECURITY_REVIEW == 'on'" in condition
     assert "github.event.pull_request.head.repo.full_name == github.repository" in condition
-    assert condition.count("&&") == 2  # every clause must hold; none is an alternative
+    assert "github.event.pull_request.draft == false" in condition  # a draft runs no CI (owner, 2026-10-21)
+    assert condition.count("&&") == 3  # every clause must hold; none is an alternative
 
 
 def test_it_holds_only_what_it_needs():

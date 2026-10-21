@@ -2,7 +2,10 @@
 credential any process there - or anyone who gets in - can use against the cluster."""
 from __future__ import annotations
 
+import json
 import pathlib
+import subprocess
+import sys
 
 import yaml
 
@@ -17,6 +20,10 @@ def _docs():
         for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")):
             if doc:
                 yield path, doc
+    # And the negative Pod Security test's pod, built when the test runs (2026-10-20; was a manifest under k8s/test).
+    script = ROOT / "scripts" / "negative_pod.py"
+    built = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, check=True).stdout
+    yield script, json.loads(built)
 
 
 def test_no_service_account_mounts_its_token_by_default():
