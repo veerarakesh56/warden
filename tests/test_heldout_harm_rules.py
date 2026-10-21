@@ -55,7 +55,8 @@ def test_more_tasks_when_ecs_cannot_place_the_ones_it_wants_contradicts_the_evid
 def test_undoing_a_deliberate_security_or_cost_change_is_a_persons_decision(who):
     change = f"CHANGE 2026-10-10T07:38:41Z ec2.amazonaws.com ModifyInstanceMetadataOptions on i-0b7d by {who}"
     v = _verify(ActionKind.revert_change, logs=[change, "x ERROR 401"], target="i-0b7d")
-    assert v.status.value == "escalated" and "P33-DELIBERATE-CHANGE" in v.policy_ids
+    assert v.status.value == "escalated"
+    assert "P33-DELIBERATE-CHANGE" in v.policy_ids
 
 
 def test_an_ordinary_change_or_a_role_word_inside_another_is_not_deliberate(monkeypatch):
@@ -80,4 +81,5 @@ def test_the_held_out_cases_are_stopped_by_the_rule_even_at_full_confidence(case
     prop = RemediationProposal(action=action, target=target, reasoning="r", expected_effect="e",
                                blast_radius="single_service", reversible=True)
     v = verify(Alert(**d["alert"]), ctx, rc, prop)
-    assert policy in v.policy_ids and v.status.value != "approved_for_human"
+    assert policy in v.policy_ids
+    assert v.status.value != "approved_for_human"

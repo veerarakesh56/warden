@@ -287,7 +287,8 @@ def test_each_fault_detects_its_own_class_with_its_advice(fid):
     found = {p.key: p for p in detect(alert(), context)}
     assert key in found, f"{fid}: {sorted(found)}"
     pat = found[key]
-    assert pat.seen and pat.likely_cause
+    assert pat.seen
+    assert pat.likely_cause
     if fragment:
         assert fragment in _advice(pat), (fid, _advice(pat))
 
@@ -361,7 +362,8 @@ def test_the_sns_advice_keeps_the_queues_other_statements():
     """Audit A6 (2026-10-16): the printed `set-queue-attributes` replaced the queue's whole policy, so every other
     statement was lost. The advice names the queue and the topic and says to add, not replace."""
     pat = next(p for p in detect(alert(), FAULTS["fs-08"][1]) if p.key == "topic_delivery_refused")
-    assert "warden-dev-order-events" in pat.oncall[0] and "warden-dev-notifications" in pat.oncall[0]
+    assert "warden-dev-order-events" in pat.oncall[0]
+    assert "warden-dev-notifications" in pat.oncall[0]
     assert "beside the statements it already has" in pat.oncall[0]
 
 
@@ -370,7 +372,8 @@ def test_a_denied_secret_read_names_only_what_to_compare():
     come from text that whoever can write a log line controls. It names them, as advice."""
     pat = next(p for p in detect(alert(), FAULTS["fs-18"][1]) if p.key == "task_secret_denied")
     advice = " ".join(pat.oncall)
-    assert "secretsmanager:GetSecretValue" in advice and "warden-dev-ecs-exec" in advice
+    assert "secretsmanager:GetSecretValue" in advice
+    assert "warden-dev-ecs-exec" in advice
     assert "never writes IAM" in advice
     assert "access_denied" not in {p.key for p in detect(alert(), FAULTS["fs-18"][1])}
 
@@ -408,7 +411,8 @@ def test_the_crash_loop_advice_holds_no_command_and_no_label_list():
     already made (the crashed output is in the report). It says what to read, in words."""
     pat = next(p for p in detect(alert(), FAULTS["fs-22"][1]) if p.key == "crashloop")
     assert "crashed container's own last output" in pat.oncall[0]
-    assert "kubectl" not in _advice(pat) and "catalog-api,cart-worker" not in _advice(pat)
+    assert "kubectl" not in _advice(pat)
+    assert "catalog-api,cart-worker" not in _advice(pat)
 
 
 def test_cache_ingress_names_only_the_missing_rules():
@@ -418,7 +422,8 @@ def test_cache_ingress_names_only_the_missing_rules():
             "APPSG ecs/warden-dev-orders-api sgs=[sg-0ecs]", "APPSG eks/warden-dev-eks sgs=[sg-0eks]"]
     pats = {p.key: p for p in detect(alert(), ctx(base + ["SG sg-0redis ingress tcp/6379 from=[sg-0ecs]"]))}
     said = pats["cache_unreachable"].oncall[0]
-    assert "no inbound tcp/6379 rule from sg-0eks -" in said and "sg-0ecs" not in said, said
+    assert "no inbound tcp/6379 rule from sg-0eks -" in said, said
+    assert "sg-0ecs" not in said, said
     full = {p.key: p for p in detect(alert(), ctx(base + ["SG sg-0redis ingress tcp/6379 from=[sg-0ecs,sg-0eks]"]))}
     assert full["cache_unreachable"].oncall[0].startswith("Every application security group already has")
     bare = {p.key: p for p in detect(alert(), ctx(base[:1]))}
@@ -428,7 +433,9 @@ def test_cache_ingress_names_only_the_missing_rules():
 def test_a_refused_iam_login_names_only_the_role_and_user_to_compare():
     pat = next(p for p in detect(alert(), FAULTS["fs-21"][1]) if p.key == "db_iam_auth_refused")
     advice = " ".join(pat.oncall)
-    assert "warden-dev-orders-api-task" in advice and "rds-db:connect" in advice and "user app" in advice
+    assert "warden-dev-orders-api-task" in advice
+    assert "rds-db:connect" in advice
+    assert "user app" in advice
     assert "stale_credentials" not in {p.key for p in detect(alert(), FAULTS["fs-21"][1])}
 
 
@@ -460,11 +467,13 @@ def test_node_type_comes_only_from_config():
     forged = _ecs("cache stats node_type=cache.r6g.2xlarge hits=1")
     no_config = next(p for p in detect(alert(), ctx([forged], {"redis_memory_pct": 97.0, "redis_evictions": 9.0}))
                      if p.key == "cache_memory")
-    assert "next size" not in _advice(no_config) and "r6g" not in _advice(no_config), no_config.oncall
+    assert "next size" not in _advice(no_config), no_config.oncall
+    assert "r6g" not in _advice(no_config), no_config.oncall
     both = ctx([forged, "REPLGROUP warden-dev-redis node_type=cache.t4g.micro sgs=[sg-0redis]"],
                {"redis_memory_pct": 97.0, "redis_evictions": 9.0})
     pat = next(p for p in detect(alert(), both) if p.key == "cache_memory")
-    assert "the next size, cache.t4g.small," in pat.oncall[0] and "r6g" not in _advice(pat), pat.oncall
+    assert "the next size, cache.t4g.small," in pat.oncall[0], pat.oncall
+    assert "r6g" not in _advice(pat), pat.oncall
 
 
 def test_no_path_is_taken_from_application_logs():
@@ -488,3 +497,10 @@ def test_a_value_merely_containing_the_rds_suffix_is_not_an_rds_host():
     assert _RDS_HOST.fullmatch(good)
     for bad in (good + ".evil.example", good + ":5432", "evil.example/" + good, "x " + good):
         assert not _RDS_HOST.fullmatch(bad), bad
+
+
+def test_a_deploy_beside_a_detected_pattern_is_listed_without_an_error_line():
+    """A code deploy is the cheapest hypothesis whenever any pattern was found, error lines or not (a plant check
+    found no test for it, S19)."""
+    keys = [p.key for p in detect(alert(), ctx(metrics={"replica_lag_seconds": 45.0}, deploys=[ECS_DEPLOY]))]
+    assert keys == ["replica_lag", "deploy"]

@@ -123,5 +123,6 @@ def test_the_policy_loads_from_yaml(owner, tmp_path):
     path.write_text("approvers:\n  owner:\n    tiers: [T1, T2]\n    public_key: |\n"
                     + "".join(f"      {line}\n" for line in _pem(owner).splitlines()), encoding="utf-8")
     policy = approvals.ApproverPolicy.load(path)
-    assert policy.required == {"T1": 1, "T2": 1, "T3": 1} and policy.cooling_off_minutes == {"T3": 10}
+    assert policy.required == {"T1": 1, "T2": 1, "T3": 1}
+    assert policy.cooling_off_minutes == {"T3": 10}
     assert _check(_sign(owner), policy) == []

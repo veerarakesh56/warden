@@ -24,11 +24,18 @@ SRC = ROOT / "src" / "warden"
 _AUTONOMY, _ELDANE, _ACTIVITIES = "autonomy.py", "eldane.py", "activities.py"
 _NEVER = "    if False:"
 
+# The files more than one mutation changes (relative to src/warden).
+VERIFIER = "verifier.py"
+K8S_BACKEND = "k8s_backend.py"
+K8S_RBAC = "../../k8s/rbac.yaml"
+K8S_PLATFORM = "platforms/k8s.py"
+DB_PLATFORM = "platforms/db.py"
+
 # (label, file, find, replace, why this mutation matters)
 MUTATIONS = [
     (
         "P11 action-contradicts-evidence removed",
-        "verifier.py",
+        VERIFIER,
         "    contradiction = _contradiction(proposal, context)",
         "    contradiction = None",
         ("scale_up against OOM-killed pods that never became ready - the exact shape of the EKS runs the "
@@ -36,22 +43,22 @@ MUTATIONS = [
     ),
     (
         "P12 no-action-with-symptoms removed",
-        "verifier.py",
-        "        found = symptoms(context)",
-        "        found = []",
+        VERIFIER,
+        "    found = symptoms(context)",
+        "    found = []",
         ("a confident 'nothing to do' over evidence showing OOM kills or unready pods would go out "
         "auto_safe - Wave 1's worst failure, caught since then only when confidence happened to be low"),
     ),
     (
         "P5 rollback guard removed",
-        "verifier.py",
+        VERIFIER,
         "if proposal.action is ActionKind.rollback_deploy and not _deploy_of_target(alert, context, proposal.target):",
         "if False and proposal.action is ActionKind.rollback_deploy:",
         "the classic confident hallucination - rolling back a deploy that is not in the evidence",
     ),
     (
         "P2 irreversible-in-prod removed",
-        "verifier.py",
+        VERIFIER,
         'if env.tier == "prod" and not proposal.table_reversible:',
         "if False:",
         "an irreversible action would become executable in production",
@@ -118,49 +125,49 @@ MUTATIONS = [
     ),
     (
         "k8s backend gains a write call",
-        "k8s_backend.py",
+        K8S_BACKEND,
         "        items = self._core.list_namespaced_pod(",
         "        self._core.delete_namespaced_pod('x', 'y', _request_timeout=1)\n        items = self._core.list_namespaced_pod(",
         "the read-only-by-construction invariant - a backend that can delete is no longer evidence-only",
     ),
     (
         "k8s backend stops detecting OOMKilled",
-        "k8s_backend.py",
-        'if (last is not None and last.reason == "OOMKilled") or (',
-        'if (last is not None and last.reason == "NEVER") or (',
+        K8S_BACKEND,
+        'return (last is not None and last.reason == "OOMKilled") or (',
+        'return (last is not None and last.reason == "NEVER") or (',
         "a real OOM-killed pod would report zero OOM kills and the OOM branch would never fire",
     ),
     (
         "RBAC gains a delete verb",
-        "../../k8s/rbac.yaml",
+        K8S_RBAC,
         '    resources: ["pods"]\n    verbs: ["list"]',
         '    resources: ["pods"]\n    verbs: ["list", "delete"]',
         "the ServiceAccount could delete pods - RBAC would no longer be the boundary",
     ),
     (
         "RBAC binding points at cluster-admin",
-        "../../k8s/rbac.yaml",
+        K8S_RBAC,
         "  name: warden-readonly\n  apiGroup: rbac.authorization.k8s.io",
         "  name: cluster-admin\n  apiGroup: rbac.authorization.k8s.io",
         "review finding: the old grep-based test passed this - zero write verbs in the file, full admin granted",
     ),
     (
         "RBAC gains an unused watch verb",
-        "../../k8s/rbac.yaml",
+        K8S_RBAC,
         '    resources: ["pods"]\n    verbs: ["list"]',
         '    resources: ["pods"]\n    verbs: ["list", "watch"]',
         "'minimal' means exactly what the code calls; a granted-but-unused verb must fail",
     ),
     (
         "k8s backend reports a rollout restart as a deploy",
-        "k8s_backend.py",
+        K8S_BACKEND,
         "        if not changed:\n            return []",
         "        if False:\n            return []",
         "policy P5 would accept a rollback that re-applies the identical template",
     ),
     (
         "k8s backend treats zero pods as healthy",
-        "k8s_backend.py",
+        K8S_BACKEND,
         "        if not live:\n            # Zero matches",
         "        if False:\n            # Zero matches",
         "a mistyped namespace would read as an inspected, healthy cluster",
@@ -197,56 +204,56 @@ MUTATIONS = [
     ),
     (
         "the k8s platform stops refusing entries it does not do",
-        "platforms/k8s.py",
+        K8S_PLATFORM,
         "        if entry not in _ENTRIES:\n            raise KubernetesPlatformRefused(",
         "        if False:\n            raise KubernetesPlatformRefused(",
         "the write path would attempt a rollout undo or anything else it has no safe way to perform",
     ),
     (
         "a k8s scale loses its bound",
-        "platforms/k8s.py",
+        K8S_PLATFORM,
         "                or not (current < replicas <= min(current + 2, self._max)) or replicas < 1:",
         "                or False:",
         "an approved '+1' could become any count, zero included - an outage dressed as a remediation",
     ),
     (
         "a k8s scale writes without checking the count it read",
-        "platforms/k8s.py",
+        K8S_PLATFORM,
         '        patch = [{"op": "test", "path": "/spec/replicas", "value": expect},',
         "        patch = [",
         "a count something else changed since the approval would be overwritten",
     ),
     (
         "the k8s platform acts in another namespace",
-        "platforms/k8s.py",
+        K8S_PLATFORM,
         '        if params.get("namespace") != self._ns:',
         "        if False:",
         "a plan could name kube-system; the platform serves one namespace",
     ),
     (
         "the database platform loses its python-side ceiling",
-        "platforms/db.py",
+        DB_PLATFORM,
         "            ids = self._sql.candidates(conn, idle, limit, self._users)[:limit]",
         "            ids = list(self._sql.candidates(conn, idle, limit, self._users))",
         "one broken LIMIT away from closing every session on the server at once",
     ),
     (
         "the database platform stops sparing its OWN session",
-        "platforms/db.py",
+        DB_PLATFORM,
         '"AND pid <> pg_backend_pid() ORDER BY state_change LIMIT %s",',
         '"AND 1 = 1 ORDER BY state_change LIMIT %s",',
         "it would close the very session it is issuing the close from - the classic self-kill",
     ),
     (
         "the database platform crosses databases",
-        "platforms/db.py",
+        DB_PLATFORM,
         """"WHERE state = 'idle in transaction' AND datname = current_database() \"""",
         """"WHERE state = 'idle in transaction' \"""",
         "audit A-B-H1: the old selection closed sessions of every database on the server",
     ),
     (
         "the database platform closes sessions with no application login named",
-        "platforms/db.py",
+        DB_PLATFORM,
         "        if entry not in _ENTRIES or not self._users or (entry == _BLOCKER and self._engine != \"postgres\"):",
         "        if entry not in _ENTRIES or (entry == _BLOCKER and self._engine != \"postgres\"):",
         "with no allowlist every login's sessions - an admin's included - would be candidates",
@@ -351,8 +358,8 @@ MUTATIONS = [
     (
         "an Eldane-approved plan is applied without a person's chance to say no",
         'workflows.py',
-        '                await workflow.wait_condition(lambda: self._vetoed(wid, plan) is not None, timeout=VETO)',
-        '                pass',
+        '            await workflow.wait_condition(lambda: self._vetoed(wid, plan) is not None, timeout=VETO)',
+        '            pass',
         "a person's decision always overrides Eldane's (owner, 2026-10-17)",
     ),
     (
@@ -549,6 +556,37 @@ def _terminate_like_ctrl_c(*_):
     raise KeyboardInterrupt("SIGTERM")
 
 
+def _status(result: bool | str) -> str:
+    """How one mutated run is reported: caught (perhaps by running past its limit), or survived."""
+    if result is True:
+        return "*** SURVIVED ***"
+    return "CAUGHT (the suite ran past its limit)" if result == TIMED_OUT else "CAUGHT"
+
+
+def _try_mutation(label: str, filename: str, find: str, replace: str, why: str) -> str | None:
+    """Apply one mutation, run the tests, restore the file byte for byte. Returns what to list as a hole in the
+    suite - the mutation survived, or its anchor is missing - or None when the suite caught it."""
+    path = SRC / filename
+    original = path.read_bytes()  # bytes: the restore must be exact, line endings included
+    mutated = mutate(original, find, replace)
+    if mutated is None:
+        print(f"[SKIP] {label}: anchor not found in {filename} (code moved - update this script)")
+        return f"{label} (anchor missing)"
+    JOURNAL.write_text(json.dumps({"path": path.relative_to(ROOT).as_posix(),
+                                   "original": base64.b64encode(original).decode()}), encoding="utf-8")
+    try:
+        path.write_bytes(mutated)
+        # The files that name it first (seconds to minutes); the whole suite only if they all pass.
+        result = run_suite(related_tests(filename), limit=600)
+        if result is True:
+            result = run_suite()
+        print(f"[{_status(result)}] {label}\n          why it matters: {why}")
+        return label if result is True else None
+    finally:
+        path.write_bytes(original)  # always restore, byte for byte
+        JOURNAL.unlink(missing_ok=True)
+
+
 def main() -> int:
     if os.name != "nt":
         # SIGTERM (a CI cancel, `kill`) ends the run like Ctrl-C: the workers stopped, the file restored.
@@ -563,30 +601,8 @@ def main() -> int:
 
     survived: list[str] = []
     for label, filename, find, replace, why in MUTATIONS:
-        path = SRC / filename
-        original = path.read_bytes()  # bytes: the restore must be exact, line endings included
-        mutated = mutate(original, find, replace)
-        if mutated is None:
-            print(f"[SKIP] {label}: anchor not found in {filename} (code moved - update this script)")
-            survived.append(f"{label} (anchor missing)")
-            continue
-        JOURNAL.write_text(json.dumps({"path": path.relative_to(ROOT).as_posix(),
-                                       "original": base64.b64encode(original).decode()}), encoding="utf-8")
-        try:
-            path.write_bytes(mutated)
-            # The files that name it first (seconds to minutes); the whole suite only if they all pass.
-            result = run_suite(related_tests(filename), limit=600)
-            if result is True:
-                result = run_suite()
-            caught = result is not True
-            status = ("CAUGHT (the suite ran past its limit)" if result == TIMED_OUT else "CAUGHT") if caught \
-                else "*** SURVIVED ***"
-            print(f"[{status}] {label}\n          why it matters: {why}")
-            if not caught:
-                survived.append(label)
-        finally:
-            path.write_bytes(original)  # always restore, byte for byte
-            JOURNAL.unlink(missing_ok=True)
+        if (hole := _try_mutation(label, filename, find, replace, why)) is not None:
+            survived.append(hole)
 
     print("\n" + "=" * 70)
     if survived:

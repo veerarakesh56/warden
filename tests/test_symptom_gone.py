@@ -45,7 +45,8 @@ def _check(tmp_path, state, *, via="cloudwatch", healthy=True):
                                            (RuntimeError("throttled"), True)])
 def test_the_opening_alarm_still_in_alarm_is_not_a_recovery_and_unknown_never_blocks(tmp_path, state, ok):
     got, row, asked = _check(tmp_path, state)
-    assert got is ok and row["healthy"] is ok
+    assert got is ok
+    assert row["healthy"] is ok
     assert asked == [("warden-dev-orders-errors", "dev")]
     assert row["alarm"] == "warden-dev-orders-errors"
     assert row["alarm_state"] == (state if isinstance(state, str) else None)
@@ -53,6 +54,9 @@ def test_the_opening_alarm_still_in_alarm_is_not_a_recovery_and_unknown_never_bl
 
 def test_the_alarm_is_read_only_after_the_fixs_own_check_passed_and_only_for_cloudwatch(tmp_path):
     got, row, asked = _check(tmp_path / "a", "OK", healthy=False)
-    assert got is False and asked == []
+    assert got is False
+    assert asked == []
     got, row, asked = _check(tmp_path / "b", "ALARM", via="datadog")
-    assert got is True and asked == [] and "alarm" not in row
+    assert got is True
+    assert asked == []
+    assert "alarm" not in row

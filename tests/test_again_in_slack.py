@@ -27,8 +27,10 @@ def test_the_channels_message_says_a_resource_fixed_before_is_failing_again(tmp_
     diagnosed = acts.diagnose(pack)
     acts.notify(pack, diagnosed, acts.verify(pack, diagnosed), mode="none")
     title, blank, again = sent[-1].split("\n")[:3]
-    assert title.startswith("# ") and blank == ""
-    assert again.startswith("**Again:** WARDEN fixed this resource before - ") and "`k8s_restart`" in again
+    assert title.startswith("# ")
+    assert blank == ""
+    assert again.startswith("**Again:** WARDEN fixed this resource before - ")
+    assert "`k8s_restart`" in again
     # An incident on a resource never fixed before says nothing of the kind.
     fresh = audit.AuditLog(tmp_path / "b.db", key=None)
     acts2 = IncidentActivities(audit=fresh, llm_factory=lambda: LLMClient(mock=True))

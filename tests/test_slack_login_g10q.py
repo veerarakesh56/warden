@@ -64,28 +64,35 @@ def test_the_member_is_whoever_slack_says_and_every_other_answer_is_refused():
     assert login.member("the-code", redirect_uri="https://x.test/s/callback", nonce="n") == {
         "user": MEMBER, "team": TEAM}
     (url, form), = slack.asked
-    assert url == slack_login.TOKEN_ENDPOINT and form["code"] == "the-code" and form["client_id"] == CLIENT
-    assert form["redirect_uri"] == "https://x.test/s/callback" and form["grant_type"] == "authorization_code"
+    assert url == slack_login.TOKEN_ENDPOINT
+    assert form["code"] == "the-code"
+    assert form["client_id"] == CLIENT
+    assert form["redirect_uri"] == "https://x.test/s/callback"
+    assert form["grant_type"] == "authorization_code"
     for wrong, needle in (({"iss": "https://evil.test"}, "not issued by Slack"), ({"aud": "another-app"}, "not issued"),
                           ({"exp": 1}, "expired"), ({slack_login.USER_CLAIM: "", "sub": ""}, "named no member")):
+        wrong_token = _login(Slack(**wrong))
         with pytest.raises(slack_login.SlackLoginError, match=needle):
-            _login(Slack(**wrong)).member("c", redirect_uri="r", nonce="n")
+            wrong_token.member("c", redirect_uri="r", nonce="n")
     with pytest.raises(slack_login.SlackLoginError, match="does not belong to this page"):
         login.member("c", redirect_uri="r", nonce="another-pages-nonce")
     for answer in ({"ok": False, "error": "invalid_code"}, {"ok": True}, "not json", {"ok": True, "id_token": "x"}):
+        bad_answer = _login(lambda url, form, a=answer: a)
         with pytest.raises(slack_login.SlackLoginError):
-            _login(lambda url, form, a=answer: a).member("c", redirect_uri="r", nonce="n")
+            bad_answer.member("c", redirect_uri="r", nonce="n")
 
     def down(url, form):
         raise TimeoutError("no route to Slack")
+    unreachable = _login(down)
     with pytest.raises(slack_login.SlackLoginError, match="could not be reached"):
-        _login(down).member("c", redirect_uri="r", nonce="n")
+        unreachable.member("c", redirect_uri="r", nonce="n")
 
 
 def test_the_authorize_address_is_slacks_with_state_and_nonce_and_the_feature_is_off_without_both_settings(monkeypatch):
     url = urllib.parse.urlparse(_login().authorize_url(redirect_uri="https://x.test/s/callback", state="st", nonce="no"))
     asked = urllib.parse.parse_qs(url.query)
-    assert f"{url.scheme}://{url.netloc}{url.path}" == slack_login.AUTHORIZE_ENDPOINT
+    sent_to = f"{url.scheme}://{url.netloc}{url.path}"
+    assert sent_to == slack_login.AUTHORIZE_ENDPOINT
     assert asked == {"response_type": ["code"], "scope": ["openid profile"], "client_id": [CLIENT], "state": ["st"],
                      "nonce": ["no"], "redirect_uri": ["https://x.test/s/callback"]}
     for name in ("WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET"):
@@ -110,7 +117,8 @@ def _with_slack(page, member=MEMBER, **claims):
 def _sign_in(page, slack, kind, token):
     """Follow the two redirects a browser would: to Slack, and back with its code."""
     out = page.handle("GET", f"/s/{kind}/{token}")
-    assert out.status == 302 and out.headers["Location"].startswith(slack_login.AUTHORIZE_ENDPOINT), out.body
+    assert out.status == 302, out.body
+    assert out.headers["Location"].startswith(slack_login.AUTHORIZE_ENDPOINT), out.body
     cookie = out.headers["Set-Cookie"].split(";")[0]
     asked = urllib.parse.parse_qs(urllib.parse.urlparse(out.headers["Location"]).query)
     assert token not in out.headers["Location"]  # the link never goes to Slack
@@ -124,12 +132,15 @@ def test_a_link_opens_only_after_slack_says_it_is_the_approver_it_was_made_for(p
     page, slack = _with_slack(page)
     token = page.new_link("rem-dev-1", "owner")
     shell = page.handle("GET", f"/a/{token}")
-    assert shell.status == 200 and 'data-slack="1"' in shell.body
+    assert shell.status == 200
+    assert 'data-slack="1"' in shell.body
     for step in ("login-options", "approve-options", "deny-options"):
         blocked = page.handle("POST", f"/a/{token}/{step}")
-        assert blocked.status == 403 and json.loads(blocked.body) == {"error": "sign in with Slack first"}
+        assert blocked.status == 403
+        assert json.loads(blocked.body) == {"error": "sign in with Slack first"}
     back = _sign_in(page, slack, "a", token)
-    assert back.status == 302 and back.headers["Location"] == f"/a/{token}"
+    assert back.status == 302
+    assert back.headers["Location"] == f"/a/{token}"
     assert 'data-slack="0"' in page.handle("GET", f"/a/{token}").body
     assert _show(page, device, token).status == 200  # and now the passkey shows the plan
     # Without a Slack app the page is as it was: the passkey alone.
@@ -142,8 +153,10 @@ def test_another_slack_member_or_a_sign_in_begun_elsewhere_opens_nothing(page_se
     page, slack = _with_slack(page_setup[0], member=OTHER)  # the approver is another member than Slack will name
     token = page.new_link("rem-dev-1", "owner")
     refused = _sign_in(page, slack, "a", token)
-    assert refused.status == 403 and "not the approver this link was made for" in refused.body
-    assert "owner" not in refused.body and page.handle("POST", f"/a/{token}/login-options").status == 403
+    assert refused.status == 403
+    assert "not the approver this link was made for" in refused.body
+    assert "owner" not in refused.body
+    assert page.handle("POST", f"/a/{token}/login-options").status == 403
     page, slack = _with_slack(page_setup[0])
     token = page.new_link("rem-dev-1", "owner")
     start = page.handle("GET", f"/s/a/{token}")
@@ -152,7 +165,8 @@ def test_another_slack_member_or_a_sign_in_begun_elsewhere_opens_nothing(page_se
     for query, cookies in ((f"code=c&state={state}", []), ("code=c&state=forged", [cookie]),
                            (f"state={state}", [cookie]), (f"code=c&state={state}", ["warden_s=a/other.n"])):
         assert page.handle("GET", "/s/callback", query=query, cookies=cookies).status == 400
-    assert page.handle("GET", "/s/a/not-a-link").status == 404 and page.handle("POST", f"/s/a/{token}").status == 404
+    assert page.handle("GET", "/s/a/not-a-link").status == 404
+    assert page.handle("POST", f"/s/a/{token}").status == 404
     # An approver with no Slack member in the list cannot approve where sign-in is on: enrolment links one.
     page, slack = _with_slack(page_setup[0], member="")
     token = page.new_link("rem-dev-1", "owner")
@@ -174,9 +188,12 @@ def test_an_enrolment_links_the_member_slack_named_and_never_another_than_the_li
     done = page.handle("POST", f"/e/{token}/finish", json.dumps({"response": SoftAuthenticator().register(
         json.dumps(json.loads(options.body)["options"]))}))
     listed = approvals.ApproverPolicy.loads(json.loads(done.body)["approvers"])
-    assert listed.approvers["owner"].slack == MEMBER and len(listed.approvers["owner"].passkeys) == 1
+    assert listed.approvers["owner"].slack == MEMBER
+    assert len(listed.approvers["owner"].passkeys) == 1
     [row] = [e["body"] for e in log.entries(kinds=("approval.slack_verified",))]
-    assert row["approver"] == "owner" and row["slack_user"] == MEMBER and token not in json.dumps(row)
+    assert row["approver"] == "owner"
+    assert row["slack_user"] == MEMBER
+    assert token not in json.dumps(row)
     # Once the list names a member, an enrolment by any other Slack account is refused.
     named = listed.model_copy(deep=True)
     named.approvers["owner"].slack = OTHER
@@ -187,7 +204,7 @@ def test_an_enrolment_links_the_member_slack_named_and_never_another_than_the_li
 def test_the_runtime_gives_the_secret_to_the_approval_lambda_alone_and_routes_the_two_steps():
     assert "WARDEN_SLACK_CLIENT_SECRET" in settings.SECRETS
     assert {n for n, names in settings.LAMBDA_SECRETS.items() if "WARDEN_SLACK_CLIENT_SECRET" in names} == {"approval"}
-    assert settings.RESTRICTED["WARDEN_SLACK_CLIENT_SECRET"] == frozenset({"lambda-approval"})
+    assert settings.RESTRICTED["WARDEN_SLACK_CLIENT_SECRET"] == {"lambda-approval"}  # a frozenset equals the same set
     assert "WARDEN_SLACK_CLIENT_ID" not in settings.SECRETS  # an id, not a secret: plain configuration
     for zone in settings.ZONE_SECRETS:
         assert "WARDEN_SLACK_CLIENT_SECRET" not in settings.loadable_for("worker", zone)
@@ -195,7 +212,8 @@ def test_the_runtime_gives_the_secret_to_the_approval_lambda_alone_and_routes_th
     assert settings.secret_id("ops", "WARDEN_SLACK_CLIENT_SECRET") == "warden/ops/slack-client-secret"
     iam = (ROOT / "terraform" / "modules" / "warden-runtime" / "iam.tf").read_text(encoding="utf-8")
     approval = next(line for line in iam.splitlines() if line.strip().startswith("approval "))
-    assert '"slack-client-secret"' in approval and iam.count('"slack-client-secret"') == 1
+    assert '"slack-client-secret"' in approval
+    assert iam.count('"slack-client-secret"') == 1
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert '"GET /s/callback", "GET /s/{kind}/{token}"' in tf
     lambdas = (ROOT / "src" / "warden" / "lambdas.py").read_text(encoding="utf-8")
@@ -212,7 +230,8 @@ def test_the_kill_switch_reset_asks_slack_who_is_there_first_too(tmp_path):
     world = World(tmp_path)
     stranger, slack = _with_slack(world.page, member=OTHER)
     refused = _sign_in(stranger, slack, "k", world.link())
-    assert refused.status == 403 and "not the approver this link was made for" in refused.body
+    assert refused.status == 403
+    assert "not the approver this link was made for" in refused.body
     world.page, slack = _with_slack(world.page)
     token = world.link()
     assert 'data-slack="1"' in world.page.handle("GET", f"/k/{token}").body
@@ -222,7 +241,8 @@ def test_the_kill_switch_reset_asks_slack_who_is_there_first_too(tmp_path):
     assert world.page.handle("GET", f"/s/x/{token}").status == 404
     assert _sign_in(world.page, slack, "k", token).headers["Location"] == f"/k/{token}"
     _, done = world.reset(token)
-    assert done.status == 200 and bounds.killswitch(world.log) is None
+    assert done.status == 200
+    assert bounds.killswitch(world.log) is None
 
 
 def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_is_still_asked(page_setup, tmp_path):  # noqa: F811
@@ -237,13 +257,15 @@ def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_
     page = dataclasses.replace(page, slack=_login(slack, clock=lambda: now[0]))
     first = page.new_link("rem-dev-1", "owner")
     kept = _sign_in(page, slack, "a", first).headers["Set-Cookie"]
-    assert kept.startswith("warden_who=" + MEMBER + ".") and kept.endswith(
-        "; Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Lax")
+    assert kept.startswith("warden_who=" + MEMBER + ".")
+    assert (kept.endswith(
+        "; Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Lax"))
     who = kept.split(";")[0]
     second = page.new_link("rem-dev-1", "owner")
     assert 'data-slack="1"' in page.handle("GET", f"/a/{second}").body               # another browser: Slack first
     assert 'data-slack="0"' in page.handle("GET", f"/a/{second}", cookies=[who]).body  # this one: straight to the passkey
-    assert len(slack.asked) == 1 and _show(page, device, second).status == 200
+    assert len(slack.asked) == 1
+    assert _show(page, device, second).status == 200
     rows = [e["body"] for e in log.entries(kinds=("approval.slack_verified",))]
     assert [(r["slack_user"], r["via"]) for r in rows] == [(MEMBER, "sign-in"), (MEMBER, "remembered")]
     # Forged, cut, another member's, or past its thirty days: Slack is asked again.
@@ -255,7 +277,8 @@ def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_
         assert 'data-slack="1"' in page.handle("GET", f"/a/{third}", cookies=[bad]).body, bad
     now[0] += slack_login.REMEMBER_S + 1
     assert 'data-slack="1"' in page.handle("GET", f"/a/{third}", cookies=[who]).body
-    assert slack_login.remembered(page.slack, who.split("=", 1)[1]) == "" and slack_login.REMEMBER_S == 30 * 24 * 3600
+    assert slack_login.remembered(page.slack, who.split("=", 1)[1]) == ""
+    assert divmod(slack_login.REMEMBER_S, 24 * 3600) == (30, 0)  # exactly 30 days
     # Sealed with the app's own secret: a value another secret made is nobody.
     stranger = slack_login.SlackLogin(CLIENT, "another-secret", clock=lambda: 1_900_000_000.0)
     assert slack_login.remembered(stranger, slack_login.remember(_login(), MEMBER)) == ""
