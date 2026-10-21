@@ -388,7 +388,7 @@ class KubernetesBackend:
             hpas = self._autoscaling.list_namespaced_horizontal_pod_autoscaler(
                 self._namespace(alert), _request_timeout=REQUEST_TIMEOUT
             ).items
-        except Exception as exc:  # noqa: BLE001  # supplementary: omitted, never a failed read (docstring above)
+        except Exception as exc:  # noqa: BLE001  # supplementary: omitted; never a failed read (docstring above)
             _LOG.warning("autoscalers not read (%s): omitted", type(exc).__name__)
             return {}
         name = self._deployment(alert)

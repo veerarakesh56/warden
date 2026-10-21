@@ -106,7 +106,7 @@ def lookup(phrase: str, search: Callable[[str], list[dict[str, Any]]] | None = N
     """The first result on an allowed AWS host, as one line: `<title> (<url>): <text>`. "" when there is none."""
     try:
         results = (search or _search)(phrase)
-    except Exception as exc:  # noqa: BLE001  # reference only: network, HTTP or an answer of another shape
+    except Exception as exc:  # noqa: BLE001  # reference only: network or HTTP or an answer of another shape
         _LOG.warning("the AWS documentation was not read (%s): no reference added", type(exc).__name__)
         return ""
     for r in results:

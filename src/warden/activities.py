@@ -1325,7 +1325,7 @@ class IncidentActivities:
 
         try:
             llm, refused = (self.llm_factory or LLMClient)(), ""
-        except Exception as exc:  # noqa: BLE001  # any unbuildable model: rules-only diagnosis, noted below
+        except Exception as exc:  # noqa: BLE001  # any unbuildable model: rules-only diagnosis; noted below
             # Live, 2026-10-15: the runtime named a model that was no longer qualified (register M20 refused it, as it
             # must) - and the incident failed here, before any path that tells a person, so it reached nobody. Now it
             # is the degraded, rules-only diagnosis with the reason said (register M19); no model is asked.
