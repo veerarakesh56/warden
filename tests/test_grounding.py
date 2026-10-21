@@ -57,18 +57,23 @@ GOOD = [Citation(id="D1", quote="sha=9f2c1ab"), Citation(id="L2", quote="NullPoi
 def test_ids_are_stable_and_typed():
     items = evidence.index(CTX)
     assert list(items) == ["L1", "E1", "L2", "M1", "M2", "D1"]
-    assert items["M1"].text == "error_rate=0.042" and items["D1"].text == "sha=9f2c1ab, service=checkout"
-    assert not items["L1"].trusted and not items["E1"].trusted and items["M1"].trusted
+    assert items["M1"].text == "error_rate=0.042"
+    assert items["D1"].text == "sha=9f2c1ab, service=checkout"
+    assert not items["L1"].trusted
+    assert not items["E1"].trusted
+    assert items["M1"].trusted
 
 
 def test_a_grounded_diagnosis_passes():
     v = _verdict(GOOD)
-    assert v.status is VerdictStatus.approved_for_human and not v.policy_ids
+    assert v.status is VerdictStatus.approved_for_human
+    assert not v.policy_ids
 
 
 def test_an_invented_id_escalates():
     v = _verdict([*GOOD, Citation(id="L9", quote="checkout ERROR 500")])
-    assert v.status is VerdictStatus.escalated and "P13-UNGROUNDED" in v.policy_ids
+    assert v.status is VerdictStatus.escalated
+    assert "P13-UNGROUNDED" in v.policy_ids
     assert any("L9 is not an evidence id" in r for r in v.reasons)
 
 
@@ -90,14 +95,16 @@ def test_whitespace_is_forgiven_case_is_not():
 
 def test_handing_to_a_human_needs_no_citation():
     v = _verdict([], action=ActionKind.escalate_to_human, target="oncall")
-    assert "P13-UNGROUNDED" not in v.policy_ids and "P14-TARGET-NOT-IN-EVIDENCE" not in v.policy_ids
+    assert "P13-UNGROUNDED" not in v.policy_ids
+    assert "P14-TARGET-NOT-IN-EVIDENCE" not in v.policy_ids
 
 
 def test_the_fs03_hallucinated_function_is_rejected():
     """Live, 2026-09-26: `scale_up lambda:shop-prod-checkout` - no such function; it is
     warden-dev-checkout. The same proposal against the real name passes P14."""
     v = _verdict(GOOD, target="lambda:shop-prod-checkout (reserved concurrency)", action=ActionKind.scale_up)
-    assert v.status is VerdictStatus.rejected and "P14-TARGET-NOT-IN-EVIDENCE" in v.policy_ids
+    assert v.status is VerdictStatus.rejected
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in v.policy_ids
     ok = _verdict(GOOD, target="lambda:warden-dev-checkout (version 7 -> 6)")
     assert "P14-TARGET-NOT-IN-EVIDENCE" not in ok.policy_ids
 
@@ -125,8 +132,10 @@ def test_untrusted_lines_are_fenced_with_a_nonce_a_log_line_cannot_forge():
     a, b = evidence.render(evidence.view(forged)), evidence.render(evidence.view(forged))
     assert a.splitlines()[0] == "[M1] error_rate=0.1", "trusted items come first, outside the block"
     start, *_, end = a.splitlines()[1:]
-    assert start.startswith("<<DATA ") and end.startswith("<<END DATA ")
-    assert end != "<<END DATA 00000000>>" and a != b, "a fresh nonce per render"
+    assert start.startswith("<<DATA ")
+    assert end.startswith("<<END DATA ")
+    assert end != "<<END DATA 00000000>>", "a fresh nonce per render"
+    assert a != b, "a fresh nonce per render"
 
 
 def test_a_v1_report_is_replayed_without_grounding_a_new_one_with(tmp_path):

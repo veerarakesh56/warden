@@ -89,14 +89,17 @@ def results(tmp_path_factory):
 
 def test_every_bundled_incident_gets_the_same_verdict_as_the_graph(results, by_graph):
     by_workflow, _ = results
-    assert set(by_workflow) == set(by_graph) and len(by_graph) == len(DEMO_ALERTS)
+    assert set(by_workflow) == set(by_graph)
+    assert len(by_graph) == len(DEMO_ALERTS)
     for alert_id, (report, _) in by_workflow.items():
         old = by_graph[alert_id]
         assert report.verdict == old.verdict, alert_id
-        assert report.root_cause == old.root_cause and report.proposal == old.proposal, alert_id
+        assert report.root_cause == old.root_cause, alert_id
+        assert report.proposal == old.proposal, alert_id
         assert report.halted_reason == old.halted_reason, alert_id
         assert report.redaction_map_size == old.redaction_map_size, alert_id
-        assert report.context == old.context and report.alert == old.alert, alert_id
+        assert report.context == old.context, alert_id
+        assert report.alert == old.alert, alert_id
         assert [s["node"] for s in report.audit] == [s["node"] for s in old.audit], alert_id
 
 

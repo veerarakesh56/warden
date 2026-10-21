@@ -184,7 +184,9 @@ def test_restarts_sum_across_pods():
 def test_crashloop_and_readiness_are_counted():
     pods = [_pod("a", waiting="CrashLoopBackOff", ready=False), _pod("b", ready=True)]
     m = _backend(FakeCore(pods=pods)).metrics(_alert())
-    assert m["crashloop_containers"] == 1 and m["pods_ready"] == 1 and m["pods_total"] == 2
+    assert m["crashloop_containers"] == 1
+    assert m["pods_ready"] == 1
+    assert m["pods_total"] == 2
 
 
 def test_init_container_oom_is_visible():
@@ -298,7 +300,8 @@ def test_log_reads_are_capped_and_newest_first(monkeypatch):
     _backend(core).logs(_alert())
     reads = [c for c in core.calls if c.startswith("read_namespaced_pod_log")]
     assert len(reads) == 2
-    assert reads[0].endswith("/p0/checkout") and reads[1].endswith("/p1/checkout")
+    assert reads[0].endswith("/p0/checkout")
+    assert reads[1].endswith("/p1/checkout")
 
 
 # --------------------------------------------------------------------------- deploys
@@ -309,7 +312,9 @@ def test_image_change_is_a_deploy():
           _rs(2, ["acme/checkout:new"], created=ALERT_AT - timedelta(minutes=5))]
     d = _backend(apps=FakeApps(replicasets=rs)).deploys(_alert())
     assert len(d) == 1
-    assert d[0]["revision"] == "2" and "new" in d[0]["image"] and "old" in d[0]["previous_image"]
+    assert d[0]["revision"] == "2"
+    assert "new" in d[0]["image"]
+    assert "old" in d[0]["previous_image"]
 
 
 def test_rollout_restart_is_not_a_deploy():
@@ -340,10 +345,14 @@ def test_a_template_change_with_no_image_change_is_a_deploy():
     runs). The record names WHICH part changed and never a value."""
     limits = lambda mib: NS(limits={"memory": f"{mib}Mi"})
     [d] = _two({"resources": limits(256)}, {"resources": limits(48)})
-    assert d["changed"] == "resources" and d["image"] == d["previous_image"] and d["revision"] == "2"
+    assert d["changed"] == "resources"
+    assert d["image"] == d["previous_image"]
+    assert d["revision"] == "2"
     before, after = "old-secret", HUNTER2
     [d] = _two({"env": [NS(name="DB_PASSWORD", value=before)]}, {"env": [NS(name="DB_PASSWORD", value=after)]})
-    assert d["changed"] == "env" and HUNTER2 not in str(d) and "DB_PASSWORD" not in str(d)
+    assert d["changed"] == "env"
+    assert HUNTER2 not in str(d)
+    assert "DB_PASSWORD" not in str(d)
     [d] = _two({"image": "a:1", "command": ["run"]}, {"image": "a:2", "command": ["run", "--fast"]})
     assert d["changed"] == "image,command"
     [d] = _two({}, {"readiness_probe": NS(http_get=NS(path="/ready"))})
@@ -362,7 +371,8 @@ def test_the_parts_of_a_template_are_not_resources_a_target_may_name():
 
     context = ContextBundle(recent_deploys=[{"deployment": "checkout", "revision": "2", "changed": "image,env"}])
     inventory = evidence.inventory(_alert(), context)
-    assert "checkout" in inventory and not {"image", "env", "image,env"} & inventory
+    assert "checkout" in inventory
+    assert not {"image", "env", "image,env"} & inventory
 
 
 def test_init_container_only_image_change_is_a_deploy():
@@ -456,7 +466,8 @@ def _scale_up_verdict_on_oom(*, ready: bool, backoff: bool = True):
     events = [_event("BackOff", "Back-off restarting failed container")] if backoff else []
     b = _backend(FakeCore(pods=pods, events=events, log_text="starting\nKilled"))
     ctx = gather(_alert(), b, timeout=2.0)
-    assert ctx.metrics["oom_killed_containers"] == 1 and not ctx.is_empty()
+    assert ctx.metrics["oom_killed_containers"] == 1
+    assert not ctx.is_empty()
     oom = [Citation(id=i.id, quote=i.text) for i in evidence.index(ctx).values()
            if i.text.startswith("oom_killed_containers=")]
     return verify(
@@ -562,12 +573,14 @@ def test_rbac_manifest_is_structurally_read_only():
     assert bindings, "no RoleBinding"
     for b in bindings:
         ref = b["roleRef"]
-        assert ref["kind"] == "ClusterRole" and ref["name"] in roles, (
-            f"RoleBinding points at {ref} - must reference the ClusterRole defined in this file, "
-            "never a built-in like cluster-admin/admin/edit"
-        )
+        assert ref["kind"] == "ClusterRole", (f"RoleBinding points at {ref} - must reference the ClusterRole defined in this file, "
+            "never a built-in like cluster-admin/admin/edit")
+        assert ref["name"] in roles, (f"RoleBinding points at {ref} - must reference the ClusterRole defined in this file, "
+            "never a built-in like cluster-admin/admin/edit")
         for s in b["subjects"]:
-            assert s["kind"] == "ServiceAccount" and s["name"] == "warden" and s["namespace"] == "warden"
+            assert s["kind"] == "ServiceAccount"
+            assert s["name"] == "warden"
+            assert s["namespace"] == "warden"
 
     sa = next(d for d in docs if d["kind"] == "ServiceAccount")
     assert sa.get("automountServiceAccountToken") is False
@@ -604,12 +617,15 @@ def test_job_manifest_cannot_hang_or_lose_evidence():
     spec = job["spec"]
     assert 0 < spec["activeDeadlineSeconds"] <= 900
     assert spec["ttlSecondsAfterFinished"] >= 7 * 24 * 3600
-    assert "generateName" in job["metadata"] and "name" not in job["metadata"], "Jobs are immutable"
+    assert "generateName" in job["metadata"], "Jobs are immutable"
+    assert "name" not in job["metadata"], "Jobs are immutable"
     pod = spec["template"]["spec"]
     assert pod["serviceAccountName"] == "warden"
-    assert pod["securityContext"]["runAsNonRoot"] is True and pod["securityContext"]["runAsUser"] == 10001
+    assert pod["securityContext"]["runAsNonRoot"] is True
+    assert pod["securityContext"]["runAsUser"] == 10001
     c = pod["containers"][0]["securityContext"]
-    assert c["readOnlyRootFilesystem"] is True and c["allowPrivilegeEscalation"] is False
+    assert c["readOnlyRootFilesystem"] is True
+    assert c["allowPrivilegeEscalation"] is False
     assert c["capabilities"]["drop"] == ["ALL"]
 
 
@@ -677,14 +693,17 @@ def test_a_deployment_scaled_to_zero_is_evidence_not_a_failed_read():
                                                   kind="Deployment", name="checkout")]),
                  FakeApps(replicas=0))
     m = b.metrics(_alert())
-    assert m["pods_total"] == 0 and m["pods_ready"] == 0 and m["replicas_desired"] == 0
+    assert m["pods_total"] == 0
+    assert m["pods_ready"] == 0
+    assert m["replicas_desired"] == 0
     lines = b.logs(_alert())
     assert any("ScalingReplicaSet" in ln and "to 0" in ln for ln in lines), lines
 
 
 def test_desired_replicas_sit_next_to_the_pods_that_exist():
     m = _backend(FakeCore(pods=[_pod()]), FakeApps(replicas=3)).metrics(_alert())
-    assert m["pods_total"] == 1 and m["replicas_desired"] == 3
+    assert m["pods_total"] == 1
+    assert m["replicas_desired"] == 3
 
 
 def test_an_api_failure_keeps_the_servers_reason():
@@ -701,13 +720,15 @@ def test_an_api_failure_keeps_the_servers_reason():
             return "(400)\nReason: Bad Request\nHTTP response headers: ..."
 
     out = _api_error(ApiException())
-    assert out.startswith("[rejected as a bad request] (400) ") and "trying and failing to pull image" in out
+    assert out.startswith("[rejected as a bad request] (400) ")
+    assert "trying and failing to pull image" in out
 
 
 def test_a_failed_log_read_is_not_labelled_logs_twice():
     core = FakeCore(pods=[_pod()], log_raises=True)
     ctx = gather(_alert(), _backend(core), timeout=2.0)
-    assert ctx.tool_errors and not any("logs: logs:" in e for e in ctx.tool_errors), ctx.tool_errors
+    assert ctx.tool_errors, ctx.tool_errors
+    assert not any("logs: logs:" in e for e in ctx.tool_errors), ctx.tool_errors
 
 
 # --------------------------------------------------------------------------- checks WARDEN runs itself
@@ -832,9 +853,11 @@ def test_an_earlier_incidents_events_and_logs_are_not_this_ones_evidence():
               _event("Unhealthy", "just now", ts=now - timedelta(minutes=2))]
     core = FakeCore(pods=[_pod()], events=events)
     joined = " | ".join(_backend(core).logs(_alert()))
-    assert "just now" in joined and "an hour ago" not in joined
+    assert "just now" in joined
+    assert "an hour ago" not in joined
     live = [kw for kw in core.log_kwargs if not kw.get("previous")]
-    assert live and all(kw.get("since_seconds") == 15 * 60 for kw in live)
+    assert live
+    assert all(kw.get("since_seconds") == 15 * 60 for kw in live)
 
 
 def test_every_page_of_the_namespaces_events_is_read():
@@ -859,5 +882,7 @@ def test_another_deployment_sharing_the_name_prefix_lends_no_events():
               _event("FailedCreate", "our rs", kind="ReplicaSet", name="checkout-7d9f8b6c4"),
               _event("FailedCreate", "their rs", kind="ReplicaSet", name="checkout-api-5c6d7")]
     lines = " ".join(_backend(FakeCore(pods=[_pod()], events=events)).logs(_alert()))
-    assert "ours" in lines and "our rs" in lines
-    assert "theirs" not in lines and "their rs" not in lines
+    assert "ours" in lines
+    assert "our rs" in lines
+    assert "theirs" not in lines
+    assert "their rs" not in lines

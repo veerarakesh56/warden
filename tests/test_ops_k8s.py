@@ -291,7 +291,8 @@ def test_restoring_log_access_puts_back_exactly_the_original_rules():
 def test_scaling_to_zero_is_recorded_exactly():
     apps = FakeApps()
     result = OPS["k8s_scale"](_clients(apps=apps), _target(), replicas=0)
-    assert apps.scales == [0] and result["replicas"] == 0
+    assert apps.scales == [0]
+    assert result["replicas"] == 0
 
 
 def test_deleting_a_pod_picks_one_and_reports_which():
@@ -312,7 +313,8 @@ def test_revoking_log_access_removes_only_the_log_rule():
     result = OPS["k8s_revoke_log_access"](_clients(rbac=rbac), _target())
     kept = {tuple(r["resources"]) for r in rbac.patched[0]}
     assert ("pods/log",) not in kept, "the log rule must be gone"
-    assert ("pods",) in kept and ("events",) in kept, "WARDEN must still see that something is wrong"
+    assert ("pods",) in kept, "WARDEN must still see that something is wrong"
+    assert ("events",) in kept, "WARDEN must still see that something is wrong"
     assert result["rules_after"] == result["rules_before"] - 1
 
 

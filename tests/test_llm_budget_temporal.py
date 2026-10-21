@@ -61,7 +61,8 @@ def test_a_failing_model_is_paid_for_once_per_incident():
     asyncio.run(main())
     assert len(clients) == 1, f"{len(clients)} budgets for one incident"
     # One budget: at most one call past the cap (a response's cost is known only after it arrives, A-C-17).
-    assert provider.calls <= 2 and sum(c.cost.usd for c in clients) < 0.50 + 0.31
+    assert provider.calls <= 2
+    assert sum(c.cost.usd for c in clients) < 0.50 + 0.31
 
 
 def test_one_alert_is_one_incident_with_one_budget():
@@ -79,7 +80,8 @@ def test_one_alert_is_one_incident_with_one_budget():
                 kw = {k.arg: ast.unparse(k.value) for k in node.keywords}
                 target = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "workflow"),
                                                              None)
-                assert isinstance(target, ast.Attribute) and target.attr == "run", (path.name, ast.unparse(node))
+                assert isinstance(target, ast.Attribute), (path.name, ast.unparse(node))
+                assert target.attr == "run", (path.name, ast.unparse(node))
                 starts.append((path.name, ast.unparse(target), kw))
     incident = [(f, kw) for f, target, kw in starts if target == "IncidentWorkflow.run"]
     assert len(incident) >= 2, starts
@@ -177,7 +179,8 @@ def test_an_incident_restarted_after_failing_keeps_one_budget():
     ended, rows = asyncio.run(main())
     assert ended == ["FAILED"] * 5, ended  # every restart was admitted ...
     assert provider.calls <= 2, f"the model was called {provider.calls} times for one incident"  # ... none paid again
-    assert len(rows) == 5 and sum(r["body"]["calls"] for r in rows) == provider.calls, rows
+    assert len(rows) == 5, rows
+    assert sum(r["body"]["calls"] for r in rows) == provider.calls, rows
     assert sum(r["body"]["usd"] for r in rows) < 0.50 + 0.31
 
 
@@ -223,7 +226,8 @@ def test_a_provider_outage_does_not_use_up_the_incidents_ceiling():
 
     ended, rows = asyncio.run(main())
     assert ended == ["FAILED", "FAILED", "FAILED", "COMPLETED"], ended
-    assert sum(r["body"]["unanswered"] for r in rows[:3]) >= 3 and all(r["body"]["calls"] == 0 for r in rows[:3]), rows
+    assert sum(r["body"]["unanswered"] for r in rows[:3]) >= 3, rows
+    assert all(r["body"]["calls"] == 0 for r in rows[:3]), rows
 
 
 def test_a_timed_out_call_counts_as_a_call():
@@ -246,7 +250,8 @@ def test_a_timed_out_call_counts_as_a_call():
     client = LLMClient(provider=Hangs(), max_calls=4, max_usd=0.50, mock=False, call_timeout_s=0.1)
     with _pytest.raises(ModelCallTimeout):
         client.structured(system="s", user="u", schema=RootCause)
-    assert client.cost.calls == 1 and client.unanswered == 0
+    assert client.cost.calls == 1
+    assert client.unanswered == 0
 
 
 def test_the_next_run_starts_from_both_the_usd_and_the_calls_spent():
@@ -281,7 +286,8 @@ def test_the_next_run_starts_from_both_the_usd_and_the_calls_spent():
                 await h.result()
 
     asyncio.run(main())
-    assert seen and seen[0] == (3, 0.25), seen  # the first call of the new run sees both, carried
+    assert seen, seen
+    assert seen[0] == (3, 0.25), seen  # the first call of the new run sees both, carried
 
 
 def test_only_a_request_never_sent_or_refused_by_status_is_unanswered():
@@ -331,7 +337,8 @@ def test_a_provider_timeout_and_an_unreadable_answer_count_and_carry():
     client = LLMClient(provider=Times(), max_calls=4, max_usd=0.50, mock=False, call_timeout_s=5)
     with contextlib.suppress(Exception):
         client.structured(system="s", user="u", schema=RootCause)
-    assert client.cost.calls == 3 and client.unanswered == 0  # three attempts, all carried
+    assert client.cost.calls == 3
+    assert client.unanswered == 0
 
     class Html:
         name, model = "fake", "fake"
@@ -342,7 +349,8 @@ def test_a_provider_timeout_and_an_unreadable_answer_count_and_carry():
     client = LLMClient(provider=Html(), max_calls=4, max_usd=0.50, mock=False, call_timeout_s=5)
     with contextlib.suppress(Exception):
         client.structured(system="s", user="u", schema=RootCause)
-    assert client.cost.calls == 3 and client.unanswered == 0  # it counted as no call at all
+    assert client.cost.calls == 3
+    assert client.unanswered == 0
 
 
 def _first_call_sees(rows):

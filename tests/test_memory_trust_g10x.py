@@ -57,7 +57,9 @@ def test_an_incidents_kept_evidence_answers_only_that_incidents_questions():
     acts = _src("activities.py")
     uses = [m.start() for m in re.finditer(r'"incident\.evidence"', acts)]
     prepare, discuss = _function(acts, "prepare"), _function(acts, "discuss_evidence")
-    assert len(uses) == 2 and '"incident.evidence"' in prepare and '"incident.evidence"' in discuss
+    assert len(uses) == 2
+    assert '"incident.evidence"' in prepare
+    assert '"incident.evidence"' in discuss
     for other in SRC.rglob("*.py"):
         if other.name not in ("activities.py", "records.py", "eldane.py"):
             assert '"incident.evidence"' not in other.read_text(encoding="utf-8"), other.name
@@ -74,18 +76,22 @@ def test_no_diagnosis_reads_a_record_a_discussion_or_a_past_answer():
         assert never not in graph, never
         assert never not in diagnose, never
     # Approvers' notes are never in a prompt either (G10-43) - and what WARDEN keeps instead of posting is not.
-    assert "said" not in diagnose.split() and "note" not in diagnose.split()
+    assert "said" not in diagnose.split()
+    assert "note" not in diagnose.split()
 
 
 def test_no_model_writes_anything_a_later_incident_reads():
     """The rows a later run reads (history.py, the records page) are written by WARDEN's own steps from facts - no
     model output is ever a row's source of truth for another incident."""
     hist = _src("history.py")
-    assert "hypothesis" not in hist and "answer" not in hist  # past diagnoses' and discussions' words stay out
+    assert "hypothesis" not in hist
+    assert "answer" not in hist
     acts = _src("activities.py")
     answer = _function(acts, "discuss_answer")
-    assert 'kinds=("incident.evidence"' not in answer and "self.audit.append(key, \"discuss.answer\"" in answer
-    assert '"cites": answer.cites[:20]' in answer and '"answer": ' not in answer  # its words are not kept as fact
+    assert 'kinds=("incident.evidence"' not in answer
+    assert "self.audit.append(key, \"discuss.answer\"" in answer
+    assert '"cites": answer.cites[:20]' in answer
+    assert '"answer": ' not in answer
 
 
 def test_past_incidents_reach_a_diagnosis_only_as_fixed_facts_and_only_when_switched_on(tmp_path, monkeypatch):
@@ -149,4 +155,5 @@ def test_a_diagnosis_is_shown_only_past_runs_the_signed_record_vouches_for(tmp_p
                "AND kind = 'workflow.end'")
     shown = history.for_prompt(history.plans(log), log)
     assert [r["incident"] for r in shown] == ["i1"], [r["incident"] for r in shown]
-    assert log.intact([]) == set() and log.intact(["x", 0, -1]) == set()
+    assert log.intact([]) == set()
+    assert log.intact(["x", 0, -1]) == set()

@@ -90,10 +90,12 @@ def test_a_good_response_is_parsed_and_charged():
     c = _client(p)
     out = c.structured(system="s", user="u", schema=Toy)
 
-    assert out.answer == "ok" and out.score == 7
+    assert out.answer == "ok"
+    assert out.score == 7
     assert p.calls == 1
     assert c.cost.calls == 1
-    assert c.cost.input_tokens == 100 and c.cost.output_tokens == 50
+    assert c.cost.input_tokens == 100
+    assert c.cost.output_tokens == 50
     assert c.cost.usd > 0
 
 
@@ -235,8 +237,10 @@ def test_is_transient_classification():
         e503 = RuntimeError("unavailable"); setattr(e503, code_attr, 503)
         e401 = RuntimeError("bad key"); setattr(e401, code_attr, 401)
         e400 = RuntimeError("bad request"); setattr(e400, code_attr, 400)
-        assert _is_transient(e429) is True and _is_transient(e503) is True
-        assert _is_transient(e401) is False and _is_transient(e400) is False
+        assert _is_transient(e429) is True
+        assert _is_transient(e503) is True
+        assert _is_transient(e401) is False
+        assert _is_transient(e400) is False
 
 
 def test_call_ceiling_is_enforced_across_separate_calls():

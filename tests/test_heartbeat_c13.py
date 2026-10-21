@@ -24,9 +24,11 @@ class _Client:
 
 def test_a_beat_is_published_only_when_the_round_trip_works():
     beats = []
-    assert asyncio.run(runtime.beat(_Client(), lambda: beats.append(1))) == "" and beats == [1]
+    assert asyncio.run(runtime.beat(_Client(), lambda: beats.append(1))) == ""
+    assert beats == [1]
     skewed = _Client(server_time=datetime.now(UTC) + timedelta(hours=1))
-    assert "clock" in asyncio.run(runtime.beat(skewed, lambda: beats.append(1))) and beats == [1]
+    assert "clock" in asyncio.run(runtime.beat(skewed, lambda: beats.append(1)))
+    assert beats == [1]
 
 
 def test_a_beat_that_cannot_run_is_missed_never_a_crashed_worker(monkeypatch):
@@ -42,7 +44,9 @@ def test_a_beat_that_cannot_run_is_missed_never_a_crashed_worker(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(runtime.heartbeat(_Client(error=RuntimeError("temporal down")), lambda: beats.append(1),
                                       every=timedelta(seconds=1), log=lines.append))
-    assert beats == [] and len(lines) == 2 and all("heartbeat missed" in line for line in lines)
+    assert beats == []
+    assert len(lines) == 2
+    assert all("heartbeat missed" in line for line in lines)
 
 
 def test_the_publisher_is_off_without_a_namespace_and_names_the_metric_with_one(monkeypatch):
@@ -98,7 +102,8 @@ def test_the_synthetic_incident_reads_its_recording_and_fails_when_it_reads_noth
         return report
     monkeypatch.setattr(graph, "run", watch)
     assert runtime.synthetic() == ""
-    assert seen[0].logs and not seen[0].tool_errors
+    assert seen[0].logs
+    assert not seen[0].tool_errors
 
     def blind(alert, **kw):
         report = real(alert, **kw)
@@ -148,5 +153,6 @@ def test_the_synthetic_runs_once_a_day_and_publishes_only_on_success(monkeypatch
     monkeypatch.setattr(runtime, "beat", beat)
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(runtime.heartbeat(_Client(), lambda: None, shadow=lambda: shadows.append(1)))
-    assert len(runs) == 2 and runs[1] - runs[0] == timedelta(hours=24)  # beats every turn; the synthetic daily
+    assert len(runs) == 2
+    assert runs[1] - runs[0] == timedelta(hours=24)
     assert shadows == [1]  # published for the first (passed), not the second (failed)

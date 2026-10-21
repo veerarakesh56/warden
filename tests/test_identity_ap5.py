@@ -35,10 +35,12 @@ def test_the_actor_session_names_the_approvers_the_incident_and_the_plan():
     sts = _Sts()
     creds = _mint(sts, approvers=["second", "owner"])
     [call] = sts.calls
-    assert call["SourceIdentity"] == "inc-42" and call["RoleSessionName"] == "inc-42"
+    assert call["SourceIdentity"] == "inc-42"
+    assert call["RoleSessionName"] == "inc-42"
     assert {t["Key"]: t["Value"] for t in call["Tags"]} == {"approver": "owner+second", "incident": "inc-42",
                                                            "plan": "ab" * 8}
-    assert call["DurationSeconds"] == 900 and call["RoleArn"] == ROLE
+    assert call["DurationSeconds"] == 900
+    assert call["RoleArn"] == ROLE
     assert creds == {"aws_access_key_id": "a", "aws_secret_access_key": "s", "aws_session_token": "t"}
 
 
@@ -64,7 +66,8 @@ def test_an_incident_the_audit_names_without_the_prefix_still_gets_the_name_the_
             patterns = [patterns] if isinstance(patterns, str) else patterns
             assert any(fnmatch.fnmatchcase(identity.correlation(live), p) for p in patterns), (name, patterns)
             assert not any(fnmatch.fnmatchcase(live, p) for p in patterns)  # the bare id is what STS refused
-    assert identity.correlation("inc-42") == "inc-42" and len(identity.correlation("x" * 80)) == 64
+    assert identity.correlation("inc-42") == "inc-42"
+    assert len(identity.correlation("x" * 80)) == 64
 
 
 def test_the_session_allows_only_the_plans_actions_on_its_exact_resources():
@@ -90,7 +93,9 @@ def test_the_reader_session_carries_the_incident_and_no_approval():
     sts = _Sts()
     identity.reader_session(sts, role_arn=ROLE.replace("actor", "reader"), incident="inc-42")
     [call] = sts.calls
-    assert call["SourceIdentity"] == "inc-42" and "Tags" not in call and "Policy" not in call
+    assert call["SourceIdentity"] == "inc-42"
+    assert "Tags" not in call
+    assert "Policy" not in call
 
 
 def test_a_wildcard_resource_only_with_an_exact_condition():

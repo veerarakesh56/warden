@@ -169,13 +169,15 @@ def test_saturation_stops_below_the_ceiling_so_warden_can_still_connect():
     saturated pool - a different fault, with its own scenario."""
     factory = FakeFactory(max_connections=100, existing_sessions=10)
     result = OPS["db_saturate_connections"](_clients(factory), _target(), target_pct=80)
-    assert result["opened"] == 70 and result["max_connections"] == 100
+    assert result["opened"] == 70
+    assert result["max_connections"] == 100
 
 
 def test_a_server_refusing_mid_saturation_is_reported_not_hidden():
     factory = FakeFactory(max_connections=100, existing_sessions=10, refuse_after=20)
     result = OPS["db_saturate_connections"](_clients(factory), _target(), target_pct=80)
-    assert "stopped_early" in result and "too many clients" in result["stopped_early"]
+    assert "stopped_early" in result
+    assert "too many clients" in result["stopped_early"]
 
 
 def test_only_one_long_query_may_run_at_a_time():
@@ -208,7 +210,9 @@ def test_the_revert_cancels_the_long_query_rather_than_waiting_for_it():
     OPS["db_run_long_query"](clients, target, seconds=900)
     conn = _LONG_QUERY["conn"]
     result = OPS["db_release_everything"](clients, target)
-    assert conn.cancelled and conn.closed and result["cancelled_long_queries"] == 1
+    assert conn.cancelled
+    assert conn.closed
+    assert result["cancelled_long_queries"] == 1
 
 
 # --------------------------------------------------------------------------- the evidence outage

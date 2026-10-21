@@ -33,7 +33,8 @@ def test_every_mutation_applies_to_the_file_as_it_is_on_disk(label, filename, fi
     Windows checkout (CRLF) reported every multi-line anchor missing while the check above passed."""
     original = (mutation_check.SRC / filename).read_bytes()
     mutated = mutation_check.mutate(original, find, replace)
-    assert mutated is not None and mutated != original, label
+    assert mutated is not None, label
+    assert mutated != original, label
     assert (b"\r\n" in original) == (b"\r\n" in mutated), "line endings changed"
 
 
@@ -75,7 +76,8 @@ def test_a_file_a_killed_run_left_mutated_is_restored_by_the_next(tmp_path, monk
     mutation_check.JOURNAL.write_text(json.dumps({"path": "src/x.py", "original": base64.b64encode(original).decode()}),
                                       encoding="utf-8")
     assert mutation_check.recover() == "src/x.py"
-    assert target.read_bytes() == original and not mutation_check.JOURNAL.exists()
+    assert target.read_bytes() == original
+    assert not mutation_check.JOURNAL.exists()
     assert mutation_check.recover() is None
 
 
