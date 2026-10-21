@@ -43,7 +43,7 @@ jobs:
           an = get("https://sonarcloud.io/api/project_analyses/search?project=veerarakesh56_warden&branch=main&ps=3")
           for x in an.get("analyses", []):
               print(f"=== ANALYSIS {x.get('date')} revision={x.get('revision')}")
-          # export run: main's open maintainability issues, one per line, after PR 170 (2026-10-21 ~17:00 UTC)
+          # export run: main's open maintainability issues, one per line, after PR 187 (2026-10-21 ~19:40 UTC)
           page, seen = 1, 0
           while True:
               d = get(f"https://sonarcloud.io/api/issues/search?componentKeys=veerarakesh56_warden&branch=main&issueStatuses=OPEN,CONFIRMED&impactSoftwareQualities=MAINTAINABILITY&ps=500&p={page}")
