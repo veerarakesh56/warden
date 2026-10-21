@@ -13,14 +13,25 @@ Anything found, or a source that is configured and cannot be read, and the fix i
 Every read is whole or it is unknown: CloudTrail is looked up by the target's own names page by page, GitHub's lists page
 by page back to the fix, and a read that runs past its pages is "could not be read". What landed is kept redacted.
 
-Honest limits: CloudTrail can take minutes to show an event, so a write in the last minutes may not be seen yet. A
-platform with no change reader (Kubernetes, a database) reads no CloudTrail - the record says so ("unchecked") - and its
-undo still refuses on its own when the field it restores moved (the platforms' own checks). The branch a change merges into is taken to be the
-environment's name, as WARDEN's own repository is laid out (dev, prod).
+GitHub is read through warden.web.urlopen, as every credentialed call is: a redirect to another host is refused and
+read as "could not be read", never followed with the token.
+
+Honest limits:
+- CloudTrail can take minutes to show an event, so a write in the last minutes may not be seen yet.
+- CloudTrail is looked up by resource name (LookupEvents, ResourceName), and that index holds only the resources an
+  event lists. A write whose event lists no resource, or names the target some other way, is not found.
+- A short name is matched as it is: a write on another resource with the same name (a queue and a function both
+  called `orders`), or by an AWS service acting on the target (Auto Scaling, a service-linked role), counts as
+  landed. That errs toward not undoing: a person decides.
+- A platform with no change reader (Kubernetes, a database) reads no CloudTrail - the record says so ("unchecked") -
+  and its undo still refuses on its own when the field it restores moved (the platforms' own checks).
+- The branch a change merges into is taken to be the environment's name, as WARDEN's own repository is laid out
+  (dev, prod).
 """
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import urllib.error
@@ -28,11 +39,13 @@ import urllib.request
 from datetime import datetime, timedelta
 from typing import Any
 
-from . import bounds, catalog, identity
+from . import bounds, catalog, identity, web
 from .redaction import redact
 from .timeline import _API, _TIMEOUT_S, _when
 
-GITHUB_ERRORS = (urllib.error.URLError, TimeoutError, OSError, ValueError, TypeError)
+# A failed or garbled GitHub read: no answer, a cut-off answer, or one not shaped as GitHub's lists are.
+GITHUB_ERRORS = (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError, ValueError, TypeError,
+                 AttributeError, KeyError)
 
 
 def _aws_errors() -> tuple[type[Exception], ...]:
@@ -58,10 +71,10 @@ def _github_rows(url: str, token: str, since: datetime, newest: str, opener: Any
     for page in range(1, GITHUB_PAGES + 1):
         req = urllib.request.Request(f"{url}&per_page={GITHUB_PAGE}&page={page}",
                                      headers={"Authorization": f"Bearer {token}", **_HEADERS})
-        with opener(req, timeout=_TIMEOUT_S) as resp:  # nosec B310 - a fixed https host (_API)
+        with opener(req, timeout=_TIMEOUT_S) as resp:  # web.urlopen: https, no redirect to another host
             got = json.loads(resp.read())
-        if not isinstance(got, list):
-            raise TypeError("GitHub's answer was not a list")
+        if not isinstance(got, list) or not all(isinstance(row, dict) for row in got):
+            raise TypeError("GitHub's answer was not a list of objects")
         rows += got
         oldest = _when(got[-1].get(newest)) if got else None
         if len(got) < GITHUB_PAGE or (oldest is not None and oldest < since):
@@ -70,7 +83,7 @@ def _github_rows(url: str, token: str, since: datetime, newest: str, opener: Any
 
 
 def deployments(repo: str, token: str, environment: str, since: datetime, until: datetime,
-                opener: Any = urllib.request.urlopen) -> list[dict[str, Any]]:
+                opener: Any = web.urlopen) -> list[dict[str, Any]]:
     """Deployments of `repo` to `environment` in the window (newest first, as GitHub lists them): when, the commit,
     who. Raises on a failed or partial read."""
     rows = _github_rows(f"{_API}/repos/{repo}/deployments?environment={environment}", token, since, "created_at",
@@ -81,7 +94,7 @@ def deployments(repo: str, token: str, environment: str, since: datetime, until:
 
 
 def merged_pulls(repo: str, token: str, base: str, since: datetime, until: datetime,
-                 opener: Any = urllib.request.urlopen) -> list[dict[str, Any]]:
+                 opener: Any = web.urlopen) -> list[dict[str, Any]]:
     """Pull requests of `repo` merged into `base` in the window: when, the number, who merged. Read by last update,
     newest first - a merge updates its pull request, so every merge since `since` is on the pages read. Raises on a
     failed or partial read. Titles are not shown: they are text anyone with push access writes."""
@@ -132,7 +145,7 @@ def _github(environment: str, since: datetime, now: datetime, opener: Any) -> tu
 
 def since_fix(*, entry: str, params: dict[str, Any], target: str, incident: str, workflow_id: str, environment: str,
               applied_at: datetime, now: datetime, log: Any, writes: Any = None,
-              opener: Any = urllib.request.urlopen) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+              opener: Any = web.urlopen) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     """(what landed on the target after the fix, the configured sources that could not be read, the sources this
     target has none of). `writes(names, since, until)`: CloudTrail's write events naming the target
     (AwsPlatform.writes_on), or None where its platform has no such reader - then nothing is said to be read."""

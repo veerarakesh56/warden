@@ -1144,10 +1144,15 @@ class RemediationActivities:
                    if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                    and e["body"].get("plan_hash") == plan.plan_hash]
         reader = getattr(self.platform, "writes_reader", None)
-        found, unread, unchecked = landed.since_fix(
-            entry=plan.entry, params=plan.params, target=plan.target, incident=plan.incident_id,
-            workflow_id=plan.workflow_id, environment=plan.environment, applied_at=applied[-1], now=datetime.now(UTC),
-            log=self.audit, writes=reader(plan.entry, plan.environment) if reader else None)
+        try:
+            found, unread, unchecked = landed.since_fix(
+                entry=plan.entry, params=plan.params, target=plan.target, incident=plan.incident_id,
+                workflow_id=plan.workflow_id, environment=plan.environment, applied_at=applied[-1],
+                now=datetime.now(UTC), log=self.audit, writes=reader(plan.entry, plan.environment) if reader else None)
+        except Exception as exc:  # noqa: BLE001  # whatever failed in the reads leaves what landed unknown
+            # Unknown is not undone (B21), and nothing was written: the run ends "not rolled back", on the record,
+            # with the kill switch as it was - never an activity error the workflow would read as a failed undo.
+            found, unread, unchecked = [], [f"what landed since the fix ({type(exc).__name__})"], []
         self.audit.append(plan.incident_id, "remediation.landed", {
             **row, "since": applied[-1].isoformat(), "unread": unread, "unchecked": unchecked,
             "landed": landed.shown(found[:10])})

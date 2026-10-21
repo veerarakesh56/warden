@@ -287,3 +287,48 @@ def test_a_lock_refused_for_want_of_a_target_is_on_the_record_too():
     assert why.startswith("the target's lock needs a target")
     [row] = log.entries(kinds=(locks.REFUSED,))
     assert row["body"]["why"] == why
+
+
+def test_the_target_is_looked_up_by_its_whole_name_and_its_last_part():
+    """CloudTrail names a resource by its ARN or by its plain name: both are asked (`_names`)."""
+    account = "0" * 12
+    arn = f"arn:aws:lambda:test-region-1:{account}:function:warden-dev-orders"
+    assert landed._names("lambda_move_alias", {"function": arn}) == {arn, "warden-dev-orders"}
+    assert landed._names("k8s_restart", {"namespace": "shop", "deployment": "apps/orders"}) == {
+        "shop", "apps/orders", "orders"}
+
+
+@pytest.mark.parametrize("answer", ["cut-off", "not-objects"])
+def test_a_cut_off_or_garbled_github_answer_is_unread(monkeypatch, answer):
+    import http.client
+
+    monkeypatch.setenv("WARDEN_CHANGE_REPO", "owner/repo")
+    monkeypatch.setenv("WARDEN_GITHUB_TOKEN", "t" * 8)
+
+    def opener(req, timeout):
+        if answer == "cut-off":
+            raise http.client.IncompleteRead(b"[")
+        return _Resp(b'["x"]')
+
+    assert _since(opener=opener) == ([], ["GitHub deployments", "GitHub merges"])
+
+
+def test_any_failure_of_the_reads_leaves_the_fix_in_place_on_the_record():
+    """An error the reads did not foresee is unknown, and unknown is not undone: a "not rolled back" on the record, no
+    write, no kill switch, no rollback_failed - never an activity error the workflow reads as a failed undo."""
+    acts, platform, owner = _acts()
+    plan = _applied(acts, owner)
+
+    def broken(entry, environment):
+        raise AttributeError("no trail reader")
+
+    platform.writes_reader = broken
+    detail = acts.rollback(plan)
+    assert detail.startswith("not rolled back: what landed since the fix (AttributeError) could not be read")
+    assert platform.rolled_back == []
+    assert bounds.killswitch(acts.audit) is None
+    assert acts.audit.entries(REQ["incident_id"], kinds=("remediation.rollback_failed",)) == []
+    [read] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.landed",))
+    assert read["body"]["unread"] == ["what landed since the fix (AttributeError)"]
+    [row] = acts.audit.entries(REQ["incident_id"], kinds=("remediation.rollback",))
+    assert row["body"]["detail"] == detail
