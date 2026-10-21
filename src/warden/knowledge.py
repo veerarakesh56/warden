@@ -244,38 +244,49 @@ class KnowledgeBase:
             if "severity_in" in d and alert.severity.value not in d["severity_in"]:
                 continue
 
-            signals: list[str] = []
-
-            terms = [t.lower() for t in d.get("event_reason", [])] + [
-                t.lower() for t in d.get("log_contains", [])
-            ]
-            hits = [t for t in terms if _affirmed(t, corpus)]
-            if hits:
-                signals.append(f"log/event:{hits[0]}")
-
-            nm = d.get("name_matches")
-            if nm is not None and nm.search(alert.name):
-                signals.append("name")
-
-            for metric, thr in d.get("metric_gte", {}).items():
-                v = context.metrics.get(metric)
-                if v is not None and v >= thr:
-                    signals.append(f"{metric}>={thr}")
-            for metric, thr in d.get("metric_lte", {}).items():
-                v = context.metrics.get(metric)
-                if v is not None and v <= thr:
-                    signals.append(f"{metric}<={thr}")
-
-            # Only a positive signal when a deploy is actually required AND present. Requiring
-            # "no deploy" is too weak to be a signal on its own, so deploy_recent:false never scores.
-            if d.get("deploy_recent") and context.recent_deploys:
-                signals.append("deploy_recent")
-
+            signals = _signals(d, alert, context, corpus)
             if signals:
                 matches.append(SignatureMatch(sig, len(signals), tuple(signals)))
 
         matches.sort(key=lambda m: (-m.score, m.signature.id))
         return matches[:limit]
+
+
+def _signals(d: dict[str, Any], alert: Alert, context: ContextBundle, corpus: str) -> list[str]:
+    """The positive signals one signature's `detect` block finds, in a fixed order."""
+    signals: list[str] = []
+
+    terms = [t.lower() for t in d.get("event_reason", [])] + [
+        t.lower() for t in d.get("log_contains", [])
+    ]
+    hits = [t for t in terms if _affirmed(t, corpus)]
+    if hits:
+        signals.append(f"log/event:{hits[0]}")
+
+    nm = d.get("name_matches")
+    if nm is not None and nm.search(alert.name):
+        signals.append("name")
+
+    signals += _metric_signals(d, context.metrics)
+
+    # Only a positive signal when a deploy is actually required AND present. Requiring
+    # "no deploy" is too weak to be a signal on its own, so deploy_recent:false never scores.
+    if d.get("deploy_recent") and context.recent_deploys:
+        signals.append("deploy_recent")
+    return signals
+
+
+def _metric_signals(d: dict[str, Any], metrics: dict[str, float]) -> list[str]:
+    signals: list[str] = []
+    for metric, thr in d.get("metric_gte", {}).items():
+        v = metrics.get(metric)
+        if v is not None and v >= thr:
+            signals.append(f"{metric}>={thr}")
+    for metric, thr in d.get("metric_lte", {}).items():
+        v = metrics.get(metric)
+        if v is not None and v <= thr:
+            signals.append(f"{metric}<={thr}")
+    return signals
 
 
 # A process-wide cached instance so the YAML is parsed once. Tests that need a custom catalog
