@@ -434,10 +434,27 @@ def _reached_the_model(exc: BaseException) -> bool:
     return True
 
 
+def _refused_here(exc: BaseException) -> bool:
+    """Was this error, or one in its chain, the egress check's refusal? An SDK wraps it in its own connection error,
+    which reads as transient (review: a refused model call was retried twice, refused each time)."""
+    from .egress import EgressBlocked
+
+    seen: list[BaseException] = []
+    e: BaseException | None = exc
+    while e is not None and e not in seen and len(seen) < 8:
+        if isinstance(e, EgressBlocked):
+            return True
+        seen.append(e)
+        e = e.__cause__ or e.__context__
+    return False
+
+
 def _is_transient(exc: Exception) -> bool:
     """Is this provider error worth retrying? A connection/socket error (no HTTP status) or a
     429/5xx is transient; a 4xx (401/403/400) is permanent. Duck-typed across SDKs, which expose the
     status as `.status_code` (openai, anthropic) or `.code` (google-genai)."""
+    if _refused_here(exc):
+        return False  # the egress check refused it (egress.EgressBlocked, wrapped by the SDK): it would be refused again
     status = getattr(exc, "status_code", None)
     if status is None:
         status = getattr(exc, "code", None)
