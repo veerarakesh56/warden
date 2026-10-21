@@ -11,6 +11,7 @@ from warden.code_gate import (
     CodeGateError,
     FileChange,
     check,
+    code_part,
     default_limits,
     effective_mode,
     glob_regex,
@@ -218,7 +219,8 @@ def test_cg5_ordinary_code_is_not_a_manifest():
 @pytest.mark.parametrize("line", ["import requests", "from requests import get", "import os, requests",
                                   "x = 1; import requests", "import os; from leftpad import pad",
                                   "try: import requests", "if x: import requests", "import json as j, requests",
-                                  "    import numpy as np", "from leftpad.core import pad", "import json, yaml as y"])
+                                  "    import numpy as np", "from leftpad.core import pad", "import json, yaml as y",
+                                  "x = '#'; import requests", 'y = "a#b"; import requests'])
 def test_cg6_an_import_the_repository_does_not_use(line):
     assert "CG6" in rules([app_change(added=(line,)), added_test()])
 
@@ -233,7 +235,8 @@ def test_cg6_the_standard_library_known_and_relative_imports_pass(line):
 
 @pytest.mark.parametrize("line", ["mod = __import__('requests')", "import importlib", "x = import_module(name)",
                                   "import runpy", "os.system('pip install requests')", "# run: uv add httpx",
-                                  "subprocess.run(['npm', 'install', 'x'])", "import ensurepip"])
+                                  "subprocess.run(['npm', 'install', 'x'])", "import ensurepip",
+                                  "exec(source)", "x = eval (text)", "import os, \\", "from os import (path, \\"])
 def test_cg6_dynamic_imports_and_install_commands(line):
     assert "CG6" in rules([app_change(added=(line,)), added_test()])
 
@@ -249,6 +252,17 @@ def test_imported_modules_reads_each_shape():
     assert imported_modules("x = 1  # import nothing") == set()
     assert imported_modules("import os; import requests") == {"os", "requests"}
     assert imported_modules("import os  # requests") == {"os"}
+
+
+@pytest.mark.parametrize("line", ["cursor.execute(sql)", "model.eval()", "x = 1 + \\", "s = 'a\\\\'  # import x"])
+def test_cg6_a_method_named_exec_or_eval_and_other_continued_lines_pass(line):
+    assert "CG6" not in rules([app_change(added=(line,)), added_test()])
+
+
+def test_code_part_keeps_a_hash_inside_a_string():
+    assert code_part('x = "#"; import y  # z') == 'x = "#"; import y  '
+    assert code_part("s = 'it\\'s #'  # c") == "s = 'it\\'s #'  "
+    assert code_part("x = 1") == "x = 1"
 
 
 def test_imports_in_collects_a_files_top_level_modules():
@@ -269,6 +283,12 @@ def test_cg7_a_symlink_or_submodule(mode):
 
 def test_cg7_a_mode_change():
     assert "CG7" in rules([app_change(old_mode="100644", new_mode="100755"), added_test()])
+
+
+def test_cg7_a_mode_change_in_a_rename():
+    moved = app_change(status="renamed", old_path="scenarios/fullstack/app/old.py", old_mode="100644",
+                       new_mode="100755")
+    assert "CG7" in rules([moved, added_test()])
 
 
 def test_cg7_a_new_executable_file():
