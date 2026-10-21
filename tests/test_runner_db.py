@@ -90,7 +90,8 @@ def test_redaction_masks_a_connection_string_password():
     assert PASSWORD not in result.text
     # The shape has to survive, or the model cannot tell what kind of thing failed.
     assert "postgresql://warden:" in result.text
-    assert "@db.internal:5432/warden" in result.text
+    # The host is an internal host name, masked as one since 2026-10-21 (owner): its shape stays.
+    assert "@<HOSTNAME_1>:5432/warden" in result.text
 
 
 # --------------------------------------------------------------------------- the environment

@@ -123,13 +123,39 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"(?:\b(?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b"
         r"|\b[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\b)"
     )),
+    # An internal host name (owner, 2026-10-21): a name under a private suffix - a company's own `.corp`, `.lan`,
+    # `.intranet`, `.internal` (outside AWS's own `compute.internal`/`ec2.internal`, whose address part is masked above),
+    # `.local`, `home.arpa`. A Kubernetes service's `.cluster.local` name is a resource WARDEN reads and acts on, kept
+    # (_find skips it), as are AWS's generic suffixes.
+    ("HOSTNAME", re.compile(r"(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){1,8}"
+                            r"(?:internal|corp|lan|intranet|intra|local|localdomain|home\.arpa)\b")),
     # tenant_id=..., org_id: ..., "customer_id": "..."  — the identifiers that make logs re-identifiable
-    ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b\s*[:=]\s*[\"']?([a-z0-9_\-]{3,})[\"']?")),
+    ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b[\"']?\s*[:=]\s*[\"']?([a-z0-9_\-]{3,})[\"']?")),
     # A token following `Bearer ` in an Authorization header (when it is not already a JWT/API key).
     # `<>` too: a value whose start an earlier pattern masked (`Bearer <UUID_1>.rest`) is masked whole (ninth review).
     ("BEARER", re.compile(r"(?i)\bbearer\s+([a-z0-9._~+/\-<>]{12,}=*)")),
     # HTTP Basic auth: `Authorization: Basic <base64 of user:pass>` - the base64 IS the credential.
     ("BASIC", re.compile(r"(?i)\bbasic\s+([a-z0-9+/<>_]{8,}={0,2})")),
+    # National ids (owner, 2026-10-21), before CREDITCARD and PHONE, which would take their digits in part: a US Social
+    # Security number (never 000, 666 or 9xx first, never 00 or 0000 in the other groups) and an Indian Aadhaar number
+    # written in its 4-4-4 groups (it never starts 0 or 1; a contiguous one is ACCOUNTID's 12 digits already).
+    ("SSN", re.compile(r"\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b")),
+    ("AADHAAR", re.compile(r"\b[2-9]\d{3}[ \-]\d{4}[ \-]\d{4}\b(?![ \-]\d)")),
+    # An Indian PAN: five letters - the fourth names the holder's kind (P a person, C a company, ...) - four digits, a
+    # letter. Upper case only, as it is issued.
+    ("PAN", re.compile(r"\b[A-Z]{3}[ABCFGHJLPT][A-Z]\d{4}[A-Z]\b")),
+    # A street address: a house number, one to four capitalised words and a street word (English and Indian forms).
+    ("ADDRESS", re.compile(r"\b\d{1,5}[a-zA-Z]?,?(?: [A-Z][A-Za-z]+){1,4} (?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|"
+                           r"Lane|Ln|Drive|Dr|Court|Ct|Way|Place|Pl|Terrace|Highway|Hwy|Marg|Nagar|Colony)\b\.?")),
+    # A person's name where a pattern can see one (owner, 2026-10-21) - after a name field's key, a title or a
+    # greeting. Honest limit: a name in free prose with no such marker is NOT found; no pattern can tell it from a
+    # word (docs/DATA-EGRESS.md).
+    ("NAME", re.compile(r"(?i)\b(?:full|first|last|given|family|middle|sur|display|customer|holder|cardholder|contact|"
+                        r"recipient|patient|employee|person)[_\- ]?name\b[\"']?\s*[:=]\s*[\"']?"
+                        r"([a-z][a-z.'\-]*(?: [a-z][a-z.'\-]*){0,3})")),
+    ("NAME", re.compile(r"(?i)\b(?:user[_\-]?name|login[_\-]?name)\b[\"']?\s*[:=]\s*[\"']?([\w.\-]{2,64})")),
+    ("NAME", re.compile(r"\b(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof|Shri|Smt|Sri)\.? ([A-Z][a-z]+(?: [A-Z][a-z]+){0,2})")),
+    ("NAME", re.compile(r"\bDear ([A-Z][a-z]+(?: [A-Z][a-z]+)?)")),
     # A grouped payment-card number (4-4-4-4 with space or dash separators). Masked WHOLE and BEFORE
     # PHONE, which otherwise catches only the first 12-14 digits and leaks the final group. A
     # contiguous 16-digit card is already caught by PHONE; this closes the spaced/dashed form.
@@ -269,6 +295,9 @@ def _secret_shaped(piece: str) -> bool:
     return all(has) or (len(piece) >= 20 and has[2] and (has[0] or has[1]))
 
 
+# Names under these suffixes are WARDEN's to read and act on, or AWS's generic ones: not an internal host to mask.
+_KEPT_HOST = re.compile(r"(?i)(?:\.cluster\.local|^(?:[a-z]{2}(?:-[a-z]+)+-\d\.)?(?:compute|ec2)\.internal)$")
+
 _PIECE = re.compile(r"[^\s;,&=.:\"'\[\]{}<>]{8,}")
 
 # A placeholder token, captured so `re.split` keeps it as its own segment: `<LABEL_123>`.
@@ -345,6 +374,8 @@ class _Redactor:
                 original = next((g for g in m.groups() if g is not None), m.group(0))
                 if label == "SECRET" and (original.lower().strip(".,;:)(<>") in _NOT_A_VALUE
                                           or _SAYS_NONE.fullmatch(original)):
+                    return m.group(0)
+                if label == "HOSTNAME" and _KEPT_HOST.search(original):
                     return m.group(0)
                 # A value holding placeholders already placed (`Cookie: a=<JWT_1>; sid=...`) is stored restored,
                 # so restore() gives the original back in one step; one that is nothing but placeholders is
