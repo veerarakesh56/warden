@@ -280,7 +280,7 @@ def approval_page() -> Any:
                 PLAN_QUERY, result_type=Plan | None)
         try:
             return asyncio.run(go())
-        except Exception as exc:  # noqa: BLE001  # fail closed: Temporal, network or decode errors alike
+        except Exception as exc:  # noqa: BLE001  # fail closed: Temporal or network or decode errors alike
             _LOG.warning("a plan could not be read (%s): not waiting for an approval", type(exc).__name__)
             return None
 
@@ -395,7 +395,7 @@ def actor_use(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     try:
         log = runtime.open_audit()
         problems = au.check(detail, log)
-    except Exception as e:  # noqa: BLE001  # fail closed: unchecked is unapproved, and the problem names the error
+    except Exception as e:  # noqa: BLE001  # fail closed: unchecked is unapproved; the problem names the error
         problems = [f"the audit could not be read to check this session ({type(e).__name__})"]
     if not problems:
         return {"approved": True}

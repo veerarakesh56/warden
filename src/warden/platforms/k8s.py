@@ -190,7 +190,7 @@ class KubernetesPlatform:
         """Every desired replica updated and available - a positive signal, never the absence of a bad one."""
         try:
             dep = self._read(service)
-        except Exception as exc:  # noqa: BLE001  # fail closed: whatever stopped the read, unknown is not healthy
+        except Exception as exc:  # noqa: BLE001  # fail closed: whatever stopped the read; unknown is not healthy
             _LOG.warning("deployment %s could not be read (%s): not healthy", service, type(exc).__name__)
             return False
         want, status = _replicas(dep), dep.status

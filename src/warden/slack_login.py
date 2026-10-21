@@ -58,6 +58,18 @@ def _post(url: str, form: dict[str, str]) -> dict[str, Any]:
         return json.loads(answer.read().decode("utf-8"))
 
 
+def _claims(id_token: str) -> dict[str, Any]:
+    """The id_token's payload part as an object - or SlackLoginError when it cannot be read as one."""
+    try:
+        body = id_token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    except (IndexError, ValueError):  # no payload part, not base64, not UTF-8 or not JSON
+        raise SlackLoginError("Slack's answer could not be read") from None
+    if not isinstance(claims, dict):  # JSON, but not the claims object: as unreadable, never a crash
+        raise SlackLoginError("Slack's answer could not be read")
+    return claims
+
+
 @dataclass(frozen=True)
 class SlackLogin:
     client_id: str
@@ -79,13 +91,7 @@ class SlackLogin:
             raise SlackLoginError(f"Slack could not be reached ({type(exc).__name__})") from None
         if not isinstance(answer, dict) or answer.get("ok") is not True or not isinstance(answer.get("id_token"), str):
             raise SlackLoginError("Slack did not confirm the sign-in")
-        try:
-            body = answer["id_token"].split(".")[1]
-            claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
-        except (IndexError, ValueError):  # no payload part, not base64, not UTF-8 or not JSON
-            raise SlackLoginError("Slack's answer could not be read") from None
-        if not isinstance(claims, dict):  # JSON, but not the claims object: as unreadable, never a crash
-            raise SlackLoginError("Slack's answer could not be read")
+        claims = _claims(answer["id_token"])
         audience = claims.get("aud")
         if claims.get("iss") != ISSUER or self.client_id not in (audience if isinstance(audience, list) else [audience]):
             raise SlackLoginError("the sign-in was not issued by Slack for this app")

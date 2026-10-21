@@ -25,7 +25,8 @@ def test_a_signed_approval_of_the_wrong_shape_is_refused_whole(tmp_path):
     page, _, _, sent = _page(tmp_path, _plan())
     for body in ({"approver": "bench"}, {"approver": "bench", "workflow_id": ["not", "a", "string"]}):
         got = page.handle("POST", "/a/signed/approve", json.dumps(body))
-        assert got.status == 400 and json.loads(got.body) == {"error": "not a signed approval"}
+        assert got.status == 400
+        assert json.loads(got.body) == {"error": "not a signed approval"}
     assert not sent
 
 
@@ -81,8 +82,9 @@ def test_slack_unreachable_or_unreadable_is_a_sign_in_that_did_not_happen(error)
     def post(url, form):
         raise error
 
+    login = slack_login.SlackLogin("client", "s3cret-not-real", post=post)
     with pytest.raises(slack_login.SlackLoginError, match=f"could not be reached \\({type(error).__name__}\\)"):
-        slack_login.SlackLogin("client", "s3cret-not-real", post=post).member("c", redirect_uri="r", nonce="n")
+        login.member("c", redirect_uri="r", nonce="n")
 
 
 def test_a_failed_aws_health_check_is_not_healthy_and_says_why(caplog):

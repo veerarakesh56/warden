@@ -541,7 +541,7 @@ class AwsPlatform:
             return {}
         try:
             out = read(params)
-        except Exception as exc:  # noqa: BLE001  # any failed read (AWS, or an answer of another shape) allows nothing
+        except Exception as exc:  # noqa: BLE001  # any failed read (AWS or an answer of another shape) allows nothing
             _LOG.warning("the live read for %s failed (%s): nothing is allowed", entry, type(exc).__name__)
             return {}
         alarm = params.get("alarm")
@@ -550,7 +550,7 @@ class AwsPlatform:
         if out and isinstance(alarm, str):
             try:
                 minutes = self._alarm_clear_minutes(alarm)
-            except Exception as exc:  # noqa: BLE001  # optional: unread, the request's own default window stands
+            except Exception as exc:  # noqa: BLE001  # optional: unread means the request's own default window stands
                 _LOG.warning("the alarm's clear time could not be read (%s): the default window stands",
                              type(exc).__name__)
                 minutes = None
@@ -615,7 +615,7 @@ class AwsPlatform:
             return False
         try:
             return bool(check(service, params or {}))
-        except Exception as exc:  # noqa: BLE001  # fail closed: whatever stopped the check, unknown is not healthy
+        except Exception as exc:  # noqa: BLE001  # fail closed: whatever stopped the check; unknown is not healthy
             _LOG.warning("the health check for %s failed (%s): not healthy", entry, type(exc).__name__)
             return False
 
