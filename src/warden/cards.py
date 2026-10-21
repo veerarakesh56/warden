@@ -128,13 +128,27 @@ def learned(log: Any, r: Any) -> list[dict[str, Any]]:
     for other, how in [(o, w) for o, w in seen.items() if o != r.id][:MOST_NOTES]:
         try:
             o = record(log, other, light=True)
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError, AttributeError):  # a row of an unexpected shape: left out
             continue
         if o is None or o.environment != r.environment:  # links.py holds both kinds to one; held here again
+            continue
+        if not _rows_check_out(log, o):  # an outcome is shown only from rows that are what was signed
             continue
         notes.append({"with": other, "how": how, "first": o.first, "status": o.status, "kind": o.kind,
                       "fix": str(o.plan.get("entry") or "") if o.plan else "", "action": o.action})
     return notes
+
+
+def _rows_check_out(log: Any, o: Any) -> bool:
+    """The related record's rows, checked as its own page checks them (records._check_signatures): a row a signed
+    checkpoint covers that does not hold its signed content - or a check that could not run - leaves it out. Rows
+    not signed yet are not "broken" (the page says the same)."""
+    from .records import _check_signatures
+
+    if not hasattr(log, "intact"):
+        return True
+    _check_signatures(o, log, o.rows)
+    return o.broken == 0
 
 
 def lesson(notes: list[dict[str, Any]]) -> str:
