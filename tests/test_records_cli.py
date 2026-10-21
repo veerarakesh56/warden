@@ -140,7 +140,7 @@ def test_new_placeholders_continue_after_the_records_own(reader, capsys):
 
 
 def test_an_unknown_or_a_discussion_id_or_a_bad_filter_shows_nothing(reader, capsys):
-    for incident in ("no-such", "discuss-" + INC, "../x", "a" * 121):
+    for incident in ("no-such", "discuss-" + INC, "../x", "a" * 129):
         code, out, err = _run(capsys, "show", incident)
         assert (code, out) == (1, ""), incident
         assert "no incident" in err, incident
@@ -264,3 +264,11 @@ def test_a_new_placeholder_never_reuses_a_number_the_record_already_holds():
 
     said = records_cli.masked({"summary": "<EMAIL_2> and ops@example.com"})["summary"]
     assert said == "<EMAIL_2> and <EMAIL_3>"
+
+
+def test_an_incident_id_as_long_as_an_alert_id_may_be_is_asked_for():
+    """An alert id may be 128 characters (models.Alert); `records show` takes every id an incident can have."""
+    from warden import records_cli
+
+    assert records_cli._INCIDENT.fullmatch("a" * 128)
+    assert not records_cli._INCIDENT.fullmatch("a" * 129)

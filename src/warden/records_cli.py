@@ -37,7 +37,7 @@ from . import audit, gate, links, records, redaction
 # fields too (its environment and severity are what the sender wrote; CodeRabbit, PR 147).
 _KEEP = frozenset({"id", "at", "first", "last", "made", "status", "kind", "workflow_id", "plan_hash",
                    "audit_head", "tier", "entry", "step", "how", "what", "where", "with", "words", "links_away"})
-_INCIDENT = re.compile(r"[A-Za-z0-9._-]{1,120}")  # approval_page._INCIDENT_ID's shape
+_INCIDENT = re.compile(r"[A-Za-z0-9._-]{1,128}")  # an alert id's length (models.Alert) as the record page takes it
 LIMIT_MAX = 500
 _SELECT = re.compile(r"\s*SELECT\s", re.IGNORECASE)
 
