@@ -33,8 +33,14 @@ bar:
 # used (19 correct), hashes to this same value. A prompt change fails tests/test_prompt_pin_e6.py until the model is
 # qualified again with it and this pin is updated in the same commit.
 prompt:
-  sha: d435b59f7f1545c23af17b23125de453170a2180c8ab0f7ce7050e3891ba0084
-  pinned: "2026-10-14"  # G10-57: each ruled-out cause with its reason and citations (1d4f62e9 before; 9c2e187d before that)
+  # ⚠ NOT YET QUALIFIED (2026-10-17, item 7: 2-4 ranked hypotheses with citations for and against). No model has
+  # answered this prompt: the qualified rows below were measured on d435b59f. Neither Claude Sonnet 5.5 nor Claude Opus
+  # 5.5 is qualified on it: both must be measured again with scripts/qualify_provider.py in the cloud runtime. A row
+  # qualifies a model only on the prompt it was measured with (providers.qualified), so until a row on this prompt is
+  # recorded here every model is refused and each incident gets the rules-only diagnosis (escalated to a person,
+  # register M19).
+  sha: 1225fb365a1ba49a5fde33403dd75c7129cfd544245c297990d98a15ffb16283
+  pinned: "2026-10-17"  # item 7 (d435b59f before: G10-57, each ruled-out cause with its reason and citations)
 # Register N6: escalating everything is safe and useless, so it is measured. "Escalated" = the gate refused, or the
 # model itself proposed escalate_to_human. Measured 2026-10-03 (scenarios/score.py act_abstain, stored answers):
 #   model                escalated  acted right  escalated a right fix  escalated rightly  stopped wrong  acted wrongly
@@ -65,6 +71,12 @@ defaults:
   claude_cli: claude-sonnet-5-5
   gemini: gemini-3.6-flash
   openai: gpt-4o-mini
+# Eldane, the AI critic (eldane.py; owner, 2026-10-17): the models it may use, per provider - for each incident the
+# first that is not the one that diagnosed it (WARDEN_ELDANE_MODELS overrides). The same family as the diagnosis, on the
+# same API key: the self-preference risk and its mitigations are in eldane.py. Not qualified on the diagnosis replay
+# set (that bar is the diagnosis's): its catch trials watch it (autonomy.py).
+critic:
+  anthropic: [claude-opus-5-5, claude-sonnet-5-5]
 qualified:
   # The production model from 2026-10-15 (only Claude Sonnet 5.5 and Opus 5.5 are qualified). Both at
   # effort high on the same 30 incidents, today's code: Sonnet 5.5 17/30, 0 wrong-and-allowed - meets the bar; Opus 5.5

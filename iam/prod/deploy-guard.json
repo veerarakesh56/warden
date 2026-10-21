@@ -49,6 +49,12 @@
         "secretsmanager:GetResourcePolicy"
       ],
       "Resource": "arn:aws:secretsmanager:*:*:secret:warden-prod-datadog-api-key*"
+    },
+    {
+      "Sid": "NeverDeleteABackup",
+      "Effect": "Deny",
+      "Action": "dynamodb:DeleteBackup",
+      "Resource": "*"
     }
   ]
 }

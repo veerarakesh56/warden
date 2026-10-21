@@ -691,6 +691,19 @@ def _xray_calls() -> set[str]:
     return found
 
 
+def _quota_calls() -> set[str]:
+    """The quota reader (src/warden/quotas.py, B14) calls the clients it is handed: `client.list_service_quotas(...)`
+    and `cloudwatch.get_metric_data(...)` - collected here, so its grant is held to the code like the rest."""
+    from warden import quotas
+
+    prefix = {"client": "servicequotas", "cloudwatch": "cloudwatch"}
+    found = {f"{prefix[_dotted(node.func.value)]}:{''.join(p.title() for p in node.func.attr.split('_'))}"
+             for node in ast.walk(_tree(quotas)) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and _dotted(node.func.value) in prefix}
+    assert found == {"servicequotas:ListServiceQuotas", "cloudwatch:GetMetricData"}, found
+    return found
+
+
 def _iam_action(attr: str, method: str) -> str:
     if attr == "_apigw":
         # API Gateway v2 authorises every read as apigateway:GET on the resource path.
@@ -719,7 +732,7 @@ NOT_A_CALL = {"rds-db:connect"}
 
 
 def test_iam_policy_grants_exactly_what_the_code_calls():
-    called = {_iam_action(a, m) for a, m in _api_calls()} | _xray_calls()
+    called = {_iam_action(a, m) for a, m in _api_calls()} | _xray_calls() | _quota_calls()
     granted = _granted() - NOT_A_CALL
     assert NOT_A_CALL <= _granted(), "the harness signs WARDEN's database token with the reader role"
     assert len(called) > 20, "the AST walk found too few calls - the test itself has rotted"
@@ -870,7 +883,9 @@ def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
         # A workload's subnets, their route tables and network ACLs (G10-C4): EC2 describes take no resource.
         "ec2:DescribeSubnets", "ec2:DescribeRouteTables", "ec2:DescribeNetworkAcls",
         # Failed traces (G10-54): X-Ray's GetTraceSummaries has no resource type.
-        "xray:GetTraceSummaries"}
+        "xray:GetTraceSummaries",
+        # A service's quotas (B14): ListServiceQuotas names a service code, not a resource.
+        "servicequotas:ListServiceQuotas"}
 
 
 # The resource part of each ARN format the reader names, from AWS's Service Reference (read 2026-10-01).
