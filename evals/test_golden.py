@@ -13,6 +13,14 @@ from warden.models import Alert
 from warden.providers import Completion
 
 
+@pytest.fixture(autouse=True)
+def _listed_prices_only(monkeypatch):
+    """Review, PR 178: WARDEN_PRICE_IN/OUT in the shell would make every paid-run test here refuse (the price check)
+    or a client fail its price match. Each test starts without them; the override test sets them itself."""
+    for name in ("WARDEN_PRICE_IN", "WARDEN_PRICE_OUT"):
+        monkeypatch.delenv(name, raising=False)
+
+
 def _mock() -> LLMClient:
     return LLMClient(mock=True)
 
