@@ -648,7 +648,7 @@ def test_the_alert_names_the_runs_own_environments_stack(tmp_path, monkeypatch, 
     """Seventh review (2026-10-01): the template named dev's stack and nothing rewrote it, while the reader is scoped
     to its own environment's stack - outside dev every scoped read of the alert's labels was AccessDenied."""
     monkeypatch.setattr(cli.fs, "PREFIX", prefix)
-    path = cli._alert_file(None, tmp_path, {"id": "fs-01", "alarm": "a", "severity": "high"}, {})
+    path = cli._alert_file(tmp_path, {"id": "fs-01", "alarm": "a", "severity": "high"}, {})
     labels = yaml.safe_load(path.read_text(encoding="utf-8"))["labels"]
     names = [v for v in labels.values() if isinstance(v, str) and "warden-" in v]
     assert len(names) == 13, labels
@@ -680,3 +680,35 @@ def test_a_fault_needs_a_full_soak_and_a_destroy_a_full_watch_after_the_last_act
     cli._set_state(run, active="fs-01")
     assert any("still injected" in p for p in cli.destroy_problems(run))
     assert cli.main(["--run", str(run), "--dry-run", "destroy-check"]) == 1
+
+
+# ---- step_inject, the alarm wait and main, split into steps (Sonar S3776)
+
+
+def test_an_alarm_not_waited_for_is_recorded_as_such(tmp_path):
+    rec = cli.step_inject(fake_env([]), tmp_path, "fs-10", wait_alarm=False)
+    assert rec["alarm"]["waited"] is False
+    assert "fired" not in rec["alarm"]
+
+
+def test_an_alarm_that_fires_at_once_counts_the_settle_time_as_waited(tmp_path):
+    rec = cli.step_inject(fake_env([]), tmp_path, "fs-10")
+    settle = cli.scenario_for("fs-10")["settle_seconds"]
+    assert settle > 0
+    assert rec["alarm"]["fired"] is True
+    assert rec["alarm"]["waited_s"] == settle
+
+
+def test_the_revert_command_exits_1_when_the_stack_is_not_back_at_baseline(tmp_path):
+    dirty: list[str] = []
+    env = fake_env([], baseline=dirty)
+    cli.step_inject(env, tmp_path, "fs-05", wait_alarm=False)
+    dirty.append("checkout reserved concurrency is 0")
+    argv = ["--run", str(tmp_path), "revert", "fs-05", "--settle-minutes", "0"]
+    assert cli.main(argv, env=env) == 1
+
+
+def test_the_verify_command_runs_the_verify_step(tmp_path, capsys):
+    argv = ["--run", str(tmp_path), "verify", "fs-05"]
+    assert cli.main(argv, env=fake_env([])) == 1
+    assert capsys.readouterr().err == "STOPPED: fs-05-lambda-iam-missing was never injected\n"
