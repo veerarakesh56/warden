@@ -1739,6 +1739,11 @@ class IncidentActivities:
         if said_again:
             title, _, rest = markdown.partition("\n")
             markdown = f"{title}\n\n{said_again}\n{rest}"
+        # Post-deploy watch (owner item U3-4): the deploy this alarm fired after, under the title - a suspect, never
+        # the cause; only this message and the record read it.
+        from . import deploy_watch
+
+        markdown = deploy_watch.mark(self.audit, alert_id, pack.alert, pack.context, markdown, run_id=_run_id())
         people = self.policy.people() if self.policy is not None else ()
         if mode:
             self._keep_report(alert_id, markdown)

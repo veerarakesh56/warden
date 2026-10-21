@@ -215,6 +215,14 @@ INSIGHTS_QUERY = ("filter @message like /(?i)(error|exception|fatal|panic|timed?
 INSIGHTS_WAIT_S = float(os.environ.get("WARDEN_LOGS_INSIGHTS_WAIT_S", "10"))
 
 
+def _appconfig_started(done: Any, began: Any) -> str:
+    """` started=<UTC>` for an AppConfig deployment still going when it was read (the post-deploy watch places it); ""
+    for a finished one or none given."""
+    if hasattr(done, "strftime") or not hasattr(began, "strftime"):
+        return ""
+    return f" started={began.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+
+
 def _error_code(exc) -> str:
     return (getattr(exc, "response", None) or {}).get("Error", {}).get("Code", "")
 
@@ -1203,7 +1211,8 @@ class StackBackend:
                         f"CONFIG appconfig {_plain(app.get('Name'))}/{_plain(env.get('Name'))} monitors this alarm: "
                         f"deployment={d.get('DeploymentNumber')} state={_safe(d.get('State'))} "
                         f"version={_safe(d.get('VersionLabel') or d.get('ConfigurationVersion'))} completed="
-                        f"{done.strftime('%Y-%m-%dT%H:%M:%SZ') if hasattr(done, 'strftime') else 'not yet'}")
+                        f"{done.strftime('%Y-%m-%dT%H:%M:%SZ') if hasattr(done, 'strftime') else 'not yet'}"
+                        + _appconfig_started(done, d.get("StartedAt")))
         except Exception as exc:  # noqa: BLE001 - the alarm's own evidence stands without it
             out.lines.append(_partial("appconfig", exc))
 
