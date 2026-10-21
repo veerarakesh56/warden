@@ -27,6 +27,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from . import web
 from .models import Alert
 
 TIMEOUT_S = 8.0
@@ -94,7 +95,7 @@ class GrafanaReader:
     def _http(self, url: str, user: str) -> dict:
         auth = base64.b64encode(f"{user}:{self.token}".encode()).decode()
         req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}", "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:  # nosec B310 - an https URL from settings
+        with web.urlopen(req, timeout=TIMEOUT_S) as resp:
             return json.loads(resp.read() or b"{}")
 
     def _ask(self, source: str, path: str, params: dict[str, Any]) -> tuple[dict | None, str]:
@@ -144,44 +145,42 @@ class GrafanaReader:
         start, end = at - LOG_LOOKBACK, at + LOG_LOOKBACK
         out: list[str] = []
         for svc in services(alert):
-            got, problem = self._ask("TRACES", "/api/search", {
-                # Traces through the service that failed anywhere - its own spans or downstream - with the names
-                # each failed span carries, so the walk can say where (Tempo returns only what `select` asks for).
-                "q": (f'{{ resource.service.name = "{svc}" }} && {{ status = error }} | select(resource.service.name, '
-                      "span.peer.service, span.db.system, span.server.address)"),
-                "start": int(start.timestamp()), "end": int(end.timestamp()), "limit": MAX_TRACES, "spss": 5})
-            if problem:
-                out.append(problem)
-                continue
-            if got is None:
-                continue
-            found = got.get("traces") or []
-            if not found:
-                out.append(f"{PARTIAL}grafana traces: no failed traces for {svc} between {_iso(start)} and "
-                           f"{_iso(end)} (late, not instrumented, or none) - not a sign of health")
-                continue
-            downstream: dict[str, int] = {}
-            for t in found[:MAX_TRACES]:
-                when = datetime.fromtimestamp(int(t.get("startTimeUnixNano") or 0) / 1e9, UTC)
-                root = " ".join(str(t.get("rootTraceName") or "?").split())[:120]
-                failed = []
-                for ss in t.get("spanSets") or ([t["spanSet"]] if t.get("spanSet") else []):
-                    for sp in ss.get("spans") or []:
-                        attrs = {a.get("key"): (a.get("value") or {}) for a in sp.get("attributes") or []}
-                        peer = next((str(v.get("stringValue")) for k, v in attrs.items()
-                                     if k in ("service.name", "peer.service", "db.system", "server.address")
-                                     and v.get("stringValue")), "")
-                        if peer and peer != svc:
-                            failed.append(peer[:80])
-                for peer in set(failed):
-                    downstream[peer] = downstream.get(peer, 0) + 1
-                out.append(f"GRAFANA trace {svc} {_iso(when)} {root} duration_ms={t.get('durationMs', '?')} "
-                           f"failed_in={','.join(sorted(set(failed))) or svc}")
-            # The dependency walk: which service the failed traces fail in, other than the alert's own - where to
-            # look next. A count over what Tempo returned (not a rate: its search is the first N, not all).
-            for peer, n in sorted(downstream.items(), key=lambda kv: -kv[1])[:3]:
-                out.append(f"GRAFANA dependency {svc} -> {peer}: failing in {n} of {len(found[:MAX_TRACES])} "
-                           "failed traces read")
+            out += self._traces_of(svc, start, end)
+        return out
+
+    def _traces_of(self, svc: str, start: datetime, end: datetime) -> list[str]:
+        """One service's failed traces, then the services they fail in."""
+        got, problem = self._ask("TRACES", "/api/search", {
+            # Traces through the service that failed anywhere - its own spans or downstream - with the names
+            # each failed span carries, so the walk can say where (Tempo returns only what `select` asks for).
+            "q": (f'{{ resource.service.name = "{svc}" }} && {{ status = error }} | select(resource.service.name, '
+                  "span.peer.service, span.db.system, span.server.address)"),
+            "start": int(start.timestamp()), "end": int(end.timestamp()), "limit": MAX_TRACES, "spss": 5})
+        if problem:
+            return [problem]
+        if got is None:
+            return []
+        found = got.get("traces") or []
+        if not found:
+            return [(f"{PARTIAL}grafana traces: no failed traces for {svc} between {_iso(start)} and "
+                     f"{_iso(end)} (late, not instrumented, or none) - not a sign of health")]
+        out: list[str] = []
+        downstream: dict[str, int] = {}
+        for t in found[:MAX_TRACES]:
+            when = datetime.fromtimestamp(int(t.get("startTimeUnixNano") or 0) / 1e9, UTC)
+            root = " ".join(str(t.get("rootTraceName") or "?").split())[:120]
+            failed = _failed_in(t, svc)
+            # Once per trace, in span order: a set's order changes with each process's hash seed, and among peers
+            # failing equally often the cut to three then kept a different one for the same answer (PR 94 review).
+            for peer in dict.fromkeys(failed):
+                downstream[peer] = downstream.get(peer, 0) + 1
+            out.append(f"GRAFANA trace {svc} {_iso(when)} {root} duration_ms={t.get('durationMs', '?')} "
+                       f"failed_in={','.join(sorted(set(failed))) or svc}")
+        # The dependency walk: which service the failed traces fail in, other than the alert's own - where to
+        # look next. A count over what Tempo returned (not a rate: its search is the first N, not all).
+        for peer, n in sorted(downstream.items(), key=lambda kv: -kv[1])[:3]:
+            out.append(f"GRAFANA dependency {svc} -> {peer}: failing in {n} of {len(found[:MAX_TRACES])} "
+                       "failed traces read")
         return out
 
     # ------------------------------------------------------------------ metrics
@@ -201,6 +200,25 @@ class GrafanaReader:
                 if values:
                     out[name] = round(max(values), 4)
         return out
+
+
+def _failed_in(trace: dict, svc: str) -> list[str]:
+    """The services other than `svc` that a trace's failed spans name, in span order (a name once per span)."""
+    failed = []
+    for ss in trace.get("spanSets") or ([trace["spanSet"]] if trace.get("spanSet") else []):
+        for sp in ss.get("spans") or []:
+            peer = _span_peer(sp)
+            if peer and peer != svc:
+                failed.append(peer[:80])
+    return failed
+
+
+def _span_peer(span: dict) -> str:
+    """The first service name a span carries, of the ones Tempo is asked to `select`, or ""."""
+    attrs = {a.get("key"): (a.get("value") or {}) for a in span.get("attributes") or []}
+    return next((str(v.get("stringValue")) for k, v in attrs.items()
+                 if k in ("service.name", "peer.service", "db.system", "server.address")
+                 and v.get("stringValue")), "")
 
 
 class WithSources:

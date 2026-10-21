@@ -78,16 +78,20 @@ def _entry(raw: Any) -> dict[str, Any]:
     for edge in ("from", "until"):
         if edge in raw:
             entry[edge] = datetime.fromisoformat(str(raw[edge])).replace(tzinfo=zone)
-    # Never "down forever" for a production environment (owner, 2026-10-14: complete the proposed guard): a
-    # declaration with no hours, days, dates or end may name only environments of the nonprod tier - an unknown
-    # environment counts as production. A named service or resource "not in use" may still be declared so.
+    _refuse_endless_production(raw, scope)
+    return entry
+
+
+def _refuse_endless_production(raw: dict, scope: dict[str, set[str]]) -> None:
+    """Never "down forever" for a production environment (owner, 2026-10-14: complete the proposed guard): a
+    declaration with no hours, days, dates or end may name only environments of the nonprod tier - an unknown
+    environment counts as production. A named service or resource "not in use" may still be declared so."""
     if not any(k in raw for k in ("hours", "days", "dates", "until")) and "environments" in scope:
         from .environments import default_environment_policies
 
         policies = default_environment_policies()
         if any(policies.for_env(e).tier != "nonprod" for e in scope["environments"]):
             raise ValueError("an endless declaration may not cover a production environment")
-    return entry
 
 
 def declarations(text: str | None = None) -> list[dict[str, Any]]:
