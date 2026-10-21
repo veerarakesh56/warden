@@ -67,8 +67,6 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SET_DIR = ROOT / "docs" / "bench" / "heldout-g10-2026-10-10"
-BENCHMARKS_MD = ROOT / "docs" / "BENCHMARKS.md"
-README_MD = ROOT / "README.md"
 PASSIVE = frozenset({"no_action", "escalate_to_human"})
 LABELS = ("right", "harmful", "wrong")
 # Rendered characters per token, counted low on purpose (providers._estimate_tokens) so the estimate errs high.
@@ -95,8 +93,9 @@ MAX_CAP_USD = 40.0  # a typo's ceiling: no --cap-usd above it is accepted
 RESULT_NAME = re.compile(r"eldane-bench-\d{4}-\d{2}-\d{2}T\d{4}Z\.json")
 
 
-class Refused(SystemExit):
-    """The run does not start (or stops) for a reason it prints; never a paid call after it."""
+class Refused(Exception):
+    """The run does not start (or stops) for a reason it prints; never a paid call after it. main() prints it and
+    exits 2."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -171,7 +170,7 @@ def plan_for(alert: Any, action: str, target: str) -> tuple[dict[str, Any] | Non
     proposal = RemediationProposal.model_construct(action=ActionKind(action), target=target)
     try:
         return request_for(alert, proposal, stand_in_live(target))
-    except Exception as exc:  # noqa: BLE001 - any planner failure is listed as unplannable, never hidden
+    except Exception as exc:  # noqa: BLE001  # any planner failure is listed as unplannable, never hidden
         return None, f"the planner failed ({type(exc).__name__})"
 
 
@@ -465,7 +464,7 @@ def runtime_key(environ: Any = os.environ, secrets_client: Any = None) -> None:
 
             secrets_client = boto3.client("secretsmanager", region_name=region())
         value = str(secrets_client.get_secret_value(SecretId=slot)["SecretString"]).strip()
-    except Exception as exc:  # noqa: BLE001 - no key from the runtime means no paid run, whatever the reason
+    except Exception as exc:  # noqa: BLE001  # no key from the runtime means no paid run, whatever the reason
         raise Refused(
             f"REFUSED: the cloud runtime's key could not be read from {slot} ({type(exc).__name__}). "
             "This runs only with the runtime's key, never a local one."
@@ -747,29 +746,25 @@ def _inside(path: pathlib.Path, bases: Iterable[pathlib.Path], what: str) -> pat
     return real
 
 
-def record(
-    path: pathlib.Path, bench: pathlib.Path = BENCHMARKS_MD, readme: pathlib.Path = README_MD
-) -> int:
-    """The result's row into BENCHMARKS.md and its line into README.md: only those two files of this checkout are
-    written, and the result is read only from the working directory, the home directory or the temporary one."""
+def record(path: pathlib.Path) -> int:
+    """The result's row into this checkout's docs/BENCHMARKS.md and its line into README.md - the only two files it
+    writes; the result is read only from the working directory, the home directory or the temporary one."""
     if not RESULT_NAME.fullmatch(path.name):
         raise Refused(
             "REFUSED: --record takes a result this script wrote (eldane-bench-<date>.json)"
         )
     here = (pathlib.Path.cwd(), pathlib.Path.home(), pathlib.Path(tempfile.gettempdir()))
     source = _inside(path, here, "the result")
-    bench, readme = _inside(bench, [ROOT], "BENCHMARKS.md"), _inside(readme, [ROOT], "README.md")
     doc = json.loads(source.read_text(encoding="utf-8"))
     row, line = bench_row(doc), readme_line(doc)
-    bench_text = _between(
-        bench.read_text(encoding="utf-8"), BENCH_BEGIN, BENCH_END, row, keep_rows=True
-    )
-    readme_text = _between(
-        readme.read_text(encoding="utf-8"), README_BEGIN, README_END, line, keep_rows=False
-    )
-    bench.write_text(bench_text, encoding="utf-8", newline="\n")
-    readme.write_text(readme_text, encoding="utf-8", newline="\n")
-    print(f"recorded {source.name} in {bench.name} and {readme.name}")
+    for name, begin, end, body, rows in (
+        (("docs", "BENCHMARKS.md"), BENCH_BEGIN, BENCH_END, row, True),
+        (("README.md",), README_BEGIN, README_END, line, False),
+    ):
+        target = _inside(ROOT.joinpath(*name), [ROOT], name[-1])
+        text = _between(target.read_text(encoding="utf-8"), begin, end, body, keep_rows=rows)
+        target.write_text(text, encoding="utf-8", newline="\n")
+    print(f"recorded {source.name} in BENCHMARKS.md and README.md")
     return 0
 
 
@@ -796,6 +791,14 @@ def main(argv: list[str] | None = None) -> int:
         "--record", type=pathlib.Path, help="add a result's row to docs/BENCHMARKS.md and README.md"
     )
     a = p.parse_args(argv)
+    try:
+        return _main(p, a)
+    except Refused as exc:
+        print(exc, file=sys.stderr)
+        return 2
+
+
+def _main(p: argparse.ArgumentParser, a: argparse.Namespace) -> int:
     if a.record:
         return record(a.record)
     if a.model not in critic_models():

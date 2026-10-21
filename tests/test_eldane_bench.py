@@ -179,8 +179,9 @@ def test_a_key_in_another_environment_s_task_is_refused(bench):
         "ECS_CONTAINER_METADATA_URI_V4": "http://169.254.170.2/v4/x",
         "WARDEN_ENV": "not-the-runtime",
     }
+    secrets = FakeSecrets()
     with pytest.raises(bench.Refused):
-        bench.runtime_key(env, FakeSecrets())
+        bench.runtime_key(env, secrets)
 
 
 def test_the_runtime_task_s_own_key_is_used(bench):
@@ -229,10 +230,12 @@ def test_the_paid_run_refuses_outside_the_runtime_before_any_model_is_built(
     monkeypatch.setattr(bench, "load_set", _small_set(bench, 5))
     monkeypatch.setenv("ANTHROPIC_API_KEY", FAKE_KEY)
     monkeypatch.delenv("ECS_CONTAINER_METADATA_URI_V4", raising=False)
-    with pytest.raises(bench.Refused, match="REFUSED"):
-        bench.main(["--model", MODEL, "--cap-usd", "5", "--out", str(tmp_path / "out")])
+    code = bench.main(["--model", MODEL, "--cap-usd", "5", "--out", str(tmp_path / "out")])
+    said = capsys.readouterr()
+    assert code == 2
     assert built == []
-    assert FAKE_KEY not in capsys.readouterr().out
+    assert "not a cloud runtime task" in said.err
+    assert FAKE_KEY not in said.out + said.err
 
 
 def test_a_dry_run_calls_nothing_and_reads_no_key(bench, monkeypatch, capsys):
@@ -363,26 +366,31 @@ def _result(bench, **over):
     return {**doc, **over}
 
 
-def test_record_replaces_the_not_yet_measured_row_and_the_readme_line(bench, tmp_path, monkeypatch):
-    monkeypatch.setattr(bench, "ROOT", tmp_path)  # the checkout whose two files it may write
-    md, readme = tmp_path / "B.md", tmp_path / "R.md"
-    md.write_text(
+def _checkout(bench, root):
+    (root / "docs").mkdir()
+    (root / "docs" / "BENCHMARKS.md").write_text(
         f"x\n{bench.BENCH_BEGIN}\n| not yet measured - run it | |\n{bench.BENCH_END}\ny\n",
         encoding="utf-8",
     )
-    readme.write_text(
+    (root / "README.md").write_text(
         f"a\n{bench.README_BEGIN}\n- not yet measured\n{bench.README_END}\nb\n", encoding="utf-8"
     )
+
+
+def test_record_replaces_the_not_yet_measured_row_and_the_readme_line(bench, tmp_path, monkeypatch):
+    root = tmp_path / "checkout"
+    root.mkdir()
+    _checkout(bench, root)
+    monkeypatch.setattr(bench, "ROOT", root)  # the checkout whose two files it may write
     path = tmp_path / "eldane-bench-2026-10-22T0930Z.json"
     path.write_text(json.dumps(_result(bench)), encoding="utf-8")
-    bench.record(path, md, readme)
-    text = md.read_text(encoding="utf-8")
+    assert bench.record(path) == 0
+    text = (root / "docs" / "BENCHMARKS.md").read_text(encoding="utf-8")
     assert "not yet measured" not in text
-    assert (
-        "| 2026-10-22T09:30Z | claude-opus-5-5 (medium) | `0123456789ab` | 1 of 1 (100%) | 1 of 1 (100%) |"
-        in text
-    )
-    assert "1 of 1 (100%) right fixes, caught 1 of 1 (100%)" in readme.read_text(encoding="utf-8")
+    row = "| 2026-10-22T09:30Z | claude-opus-5-5 (medium) | `0123456789ab` | 1 of 1 (100%) | 1 of 1 (100%) |"
+    assert row in text
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert "1 of 1 (100%) right fixes, caught 1 of 1 (100%)" in readme
 
 
 @pytest.mark.parametrize(
@@ -394,8 +402,9 @@ def test_record_replaces_the_not_yet_measured_row_and_the_readme_line(bench, tmp
     ],
 )
 def test_record_writes_only_numbers_a_date_a_hash_and_a_listed_model(bench, tmp_path, over):
+    doc = _result(bench, **over)
     with pytest.raises(bench.Refused):
-        bench.bench_row(_result(bench, **over))
+        bench.bench_row(doc)
 
 
 def test_the_published_entry_is_the_placeholder_or_a_recorded_row():
@@ -410,23 +419,43 @@ def test_the_published_entry_is_the_placeholder_or_a_recorded_row():
     assert ("not yet measured" in block) != measured
 
 
-def test_record_refuses_files_outside_where_it_may_read_and_write(bench, tmp_path):
+def test_record_refuses_a_linked_result_or_docs_that_are_links(bench, tmp_path, monkeypatch):
+    root = tmp_path / "checkout"
+    root.mkdir()
+    _checkout(bench, root)
+    monkeypatch.setattr(bench, "ROOT", root)
     result = tmp_path / "eldane-bench-2026-10-22T0930Z.json"
     result.write_text(json.dumps(_result(bench)), encoding="utf-8")
-    elsewhere = tmp_path / "B.md"
-    elsewhere.write_text(f"{bench.BENCH_BEGIN}\n{bench.BENCH_END}\n", encoding="utf-8")
-    with pytest.raises(bench.Refused, match="BENCHMARKS.md is not a file inside"):
-        bench.record(result, elsewhere, elsewhere)
     link = tmp_path / "eldane-bench-2026-10-23T0930Z.json"
     link.symlink_to(result)
     with pytest.raises(bench.Refused, match="is a link"):
         bench.record(link)
+    readme = root / "README.md"
+    outside = tmp_path / "README-elsewhere.md"
+    readme.rename(outside)
+    readme.symlink_to(outside)
+    with pytest.raises(bench.Refused, match="README.md is a link"):
+        bench.record(result)
+
+
+def test_a_file_outside_the_allowed_folders_is_refused(bench, tmp_path):
+    inside = tmp_path / "a.md"
+    inside.write_text("x", encoding="utf-8")
+    with pytest.raises(bench.Refused, match="not a file inside"):
+        bench._inside(inside, [tmp_path / "elsewhere"], "a.md")
+
+
+def test_a_refusal_exits_2_with_its_reason(bench, tmp_path, capsys):
+    bad = tmp_path / "not-a-result.json"
+    assert bench.main(["--record", str(bad)]) == 2
+    assert "REFUSED" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("effort", ["high | x", "medium\n| injected |"])
 def test_record_refuses_an_effort_that_is_not_a_known_level(bench, effort):
+    doc = _result(bench, effort=effort)
     with pytest.raises(bench.Refused, match="effort"):
-        bench.bench_row(_result(bench, effort=effort))
+        bench.bench_row(doc)
 
 
 def test_a_paid_run_saves_each_answer_as_it_is_paid_for_and_refuses_an_unwritable_out(
@@ -445,5 +474,6 @@ def test_a_paid_run_saves_each_answer_as_it_is_paid_for_and_refuses_an_unwritabl
     blocker = tmp_path / "file"
     blocker.write_text("x", encoding="utf-8")
     a = SimpleNamespace(out=blocker / "out", cap_usd=5.0, model=MODEL)
+    prepared = _prepared(bench, ["r1"])
     with pytest.raises(bench.Refused, match="cannot be written"):
-        bench.paid(a, _prepared(bench, ["r1"]), PRICES, {}, {})
+        bench.paid(a, prepared, PRICES, {}, {})
