@@ -166,7 +166,7 @@ def test_any_environments_prefix_is_stripped_longest_first(tmp_path, monkeypatch
     assert environments.env_of_name("warden-qa-staging-x") == "qa-staging"
 
 
-def test_a_command_loads_only_the_secrets_it_uses(monkeypatch):
+def test_a_command_loads_only_the_secrets_it_uses():
     """Audit A-B-L17: every process loaded every allowed secret - the MCP server and a diagnosis run held the
     terminate role's DSN and the audit key's passphrase they never use."""
     params = {secret_id("dev", n): "x" for n in ("WARDEN_DB_TERMINATE_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
@@ -177,7 +177,9 @@ def test_a_command_loads_only_the_secrets_it_uses(monkeypatch):
                               ("approve", ["WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEMPORAL_KEY"]),
                               ("worker", sorted(by_id[i] for i in params))):
         for i in params:
-            monkeypatch.delenv(by_id[i], raising=False)
+            # Not monkeypatch.delenv: the previous command's load wrote these into os.environ, so monkeypatch would
+            # put them back after _clean_env had restored the environment - a passphrase left for later tests.
+            os.environ.pop(by_id[i], None)
         loaded = load("dev", ssm=_FakeSSM({}), secrets=_FakeSecrets(params), only=settings.loadable_for(command))
         assert loaded == expected, (command, loaded)
 
