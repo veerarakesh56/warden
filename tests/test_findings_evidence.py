@@ -438,7 +438,8 @@ def test_every_finding_value_is_shown_in_inline_code_only_warden_s_own_labels_ar
     assert "Code review's findings on the deployed change" in md
     section = md.split("## Code review's findings on the deployed change", 1)[1].split("\n## ", 1)[0]
     outside_code = re.sub(r"`[^`]*`", "", section)
-    assert "<!channel>" not in md and "[click]" not in outside_code
+    assert "<!channel>" not in md
+    assert "[click]" not in outside_code
     assert section.count(untrusted_inline(hostile)) == 9  # severity, category, pr twice, read, shown, found, held, review
     assert "SonarCloud, rule `python:S1`" in md
 
