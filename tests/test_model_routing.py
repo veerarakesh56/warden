@@ -625,3 +625,22 @@ def test_neither_eldane_nor_the_bench_satisfies_a_needs_person_case_even_at_appl
     log.append("inc-1", "remediation.precheck", {**ids, "problems": []})
     refused = acts._not_approved(plan, "r")
     assert any("a person approves its fix" in p for p in refused), refused
+
+
+def test_a_row_on_an_earlier_prompt_never_lets_opus_diagnose_or_take_over(world, monkeypatch):
+    """Owner, 2026-10-21: an unqualified model never takes over. Qualified means a passing row on the PINNED prompt
+    hash (providers.qualified): Opus with the diagnose role and a passing row measured on another prompt is refused,
+    the hard case falls back to the default model, no takeover is asked, and a client for it cannot be built."""
+    doc = _opus_qualified(monkeypatch, True)
+    stale = "0" * 64
+    assert stale != doc["prompt"]["sha"]
+    doc["qualified"] = [{**e, "prompt": stale} if e.get("model") == OPUS else e for e in doc["qualified"]]
+    assert not routing.is_qualified(OPUS)
+    route = _route(world, world["diagnosed"])  # the rollback: T2, hard
+    assert route.choice == routing.HARD
+    assert route.model == SONNET
+    assert route.take_over is False
+    assert route.record()["needs_person"] is True
+    monkeypatch.delenv("WARDEN_MOCK")
+    with pytest.raises(providers.ProviderError):
+        routing.client(OPUS, role=routing.DIAGNOSE)
