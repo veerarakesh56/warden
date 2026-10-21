@@ -60,6 +60,7 @@ STEP = {
     "eldane.verdict": "Reviewed by Eldane, the AI critic", "eldane.call": "Eldane asked its model",
     "eldane.trial": "A catch trial for Eldane: a planted bad plan, a test, never applied",
     "autonomy.outcome": "Scored for autonomy",
+    "approval.extended": "The approval wait was extended by an approver (from the discussion)",
 }
 # What each message about a fix plan was, by its `what` (activities.announce).
 TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Denied", "expired": "Expired",
