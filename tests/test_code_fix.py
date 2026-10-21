@@ -158,7 +158,7 @@ def test_a_revert_pull_request_is_opened_from_a_real_git_diff(tmp_path):
     out = open_revert(request(), writer=writer)
     assert out.status == "opened", out.reason
     assert (out.pull_request, out.revert_commit, out.head) == (12, NEW, HEAD)
-    assert out.branch == f"warden/revert/dev/inc-42-{SHA[:12]}"
+    assert out.branch == f"warden/revert/dev/{code_fix.public_ref('inc-42')}-{SHA[:12]}"
     created = [c for c in writer.calls if c[0] == "create_branch"]
     assert created == [("create_branch", out.branch, HEAD)]
     (_, branch, kw), = [c for c in writer.calls if c[0] == "commit"]
@@ -262,7 +262,7 @@ def test_a_failed_commit_removes_its_branch(tmp_path):
     out = open_revert(request(), writer=writer)
     assert out.status == "failed"
     assert "was removed" in out.reason
-    assert ("delete_branch", f"warden/revert/dev/inc-42-{SHA[:12]}") in writer.calls
+    assert ("delete_branch", f"warden/revert/dev/{code_fix.public_ref('inc-42')}-{SHA[:12]}") in writer.calls
     assert not any(c[0] == "pull" for c in writer.calls)
 
 
@@ -278,7 +278,7 @@ def test_a_failed_pull_request_removes_its_branch_and_says_what_was_written(tmp_
     assert out.status == "failed"
     assert out.revert_commit == NEW
     assert "was not opened" in out.reason
-    assert ("delete_branch", f"warden/revert/dev/inc-42-{SHA[:12]}") in writer.calls
+    assert ("delete_branch", f"warden/revert/dev/{code_fix.public_ref('inc-42')}-{SHA[:12]}") in writer.calls
 
 
 def test_an_unexpected_error_is_still_an_audit_row(tmp_path):
@@ -308,6 +308,16 @@ def test_an_import_the_revert_restores_is_not_its_own_baseline(tmp_path):
     assert out.status == "refused"
     assert "CG6" in out.rules
     assert not writer.wrote()
+
+
+def test_github_sees_a_hashed_incident_reference_never_the_id(tmp_path):
+    secret_id = "datadog-" + "4" * 9  # a monitor number: not for a public repository
+    writer = FakeWriter(git_diff(tmp_path, {APP: BEFORE}, {APP: AFTER}), {APP: AFTER})
+    out = open_revert(request(incident=secret_id), writer=writer)
+    assert out.status == "opened"
+    sent = repr([c for c in writer.calls if c[0] in ("create_branch", "commit", "pull")])
+    assert secret_id not in sent
+    assert code_fix.public_ref(secret_id) in out.branch
 
 
 def test_a_github_failure_is_an_outcome_not_an_exception():
