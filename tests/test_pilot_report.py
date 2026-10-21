@@ -402,6 +402,32 @@ def test_a_row_rewritten_with_its_hash_recomputed_breaks_the_link_and_nothing_be
     assert min(e["seq"] for e in checked.rows) == seq + 2
 
 
+def test_a_forged_history_spliced_in_under_an_edited_row_is_not_counted(made):
+    """CodeRabbit PR 175 (CWE-345): rows 1..k-1 rewritten with recomputed hashes and consistent links, and row k edited
+    to point at the forged k-1 while keeping its old hash, so row k+1 still links. Row k fails its own hash; nothing
+    before it may be counted, however consistent it looks."""
+    log, key, path = made
+    k = _seq(log, "b", pilot.END)
+    db = _raw(path)
+    prev = audit.GENESIS
+    for s, at, cid, kind, body in db.execute(
+        "SELECT seq, at, correlation_id, kind, body FROM entries WHERE seq < ? ORDER BY seq", (k,)
+    ).fetchall():
+        forged = body.replace('"denied"', '"recovered"')
+        digest = audit._hash(prev, s, at, cid, kind, forged)
+        db.execute(
+            "UPDATE entries SET body = ?, prev = ?, hash = ? WHERE seq = ?",
+            (forged, prev, digest, s),
+        )
+        prev = digest
+    db.execute("UPDATE entries SET body = ?, prev = ? WHERE seq = ?", (FORGED, prev, k))
+    checked = pilot.read(log, key.public_key())
+    reasons = dict(checked.failed)
+    assert reasons.pop(k) == CHANGED
+    assert reasons == dict.fromkeys(range(1, k), "no valid signature covers it")
+    assert min(e["seq"] for e in checked.rows) == k + 1
+
+
 def test_a_wrong_key_or_a_forged_signature_counts_nothing(made):
     log, key, path = made
     other = Ed25519PrivateKey.generate().public_key()
