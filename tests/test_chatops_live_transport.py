@@ -113,8 +113,8 @@ def test_the_bytes_on_the_wire_carry_no_identifier(server):
     assert any(m in everything for m in masked), "nothing was masked at all - is this the right payload?"
 
 
-def test_a_non_2xx_is_reported_undelivered_not_raised(server):
-    _Handler.status = 500
+def test_a_non_2xx_is_reported_undelivered_not_raised(server, monkeypatch):
+    monkeypatch.setattr(_Handler, "status", 500)
     note = GenericWebhookSink(server, live=True).send("x", {"a": 1})
     assert note.delivered is False
     assert "500" in note.detail

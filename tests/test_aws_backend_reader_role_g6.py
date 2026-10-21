@@ -66,8 +66,9 @@ def test_a_refused_reader_role_is_a_failed_read_not_a_crash():
         raise RuntimeError("AccessDenied")
 
     session.sts.assume_role = refuse
+    clients_for = aws_backend._reader_clients(session, None, TEMPLATE)
     with pytest.raises(ToolError, match="reader role was refused"):
-        aws_backend._reader_clients(session, None, TEMPLATE)("dev", "inc-abc-1")
+        clients_for("dev", "inc-abc-1")
 
 
 def test_a_bound_incidents_clients_are_its_threads_own():
@@ -111,8 +112,9 @@ def test_every_read_binds_the_incident_first(monkeypatch):
 
     monkeypatch.setattr(b, "_bind", bind)
     for name in ("logs", "metrics", "deploys"):
+        read = getattr(b, name)
         with pytest.raises(_Bound):
-            getattr(b, name)("the-alert")
+            read("the-alert")
 
 
 def test_the_report_names_the_source_the_read_side_used_not_the_rendering_zones():

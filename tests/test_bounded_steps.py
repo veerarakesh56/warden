@@ -44,8 +44,9 @@ def test_a_step_that_keeps_failing_after_apply_trips_the_kill_switch(world, owne
     def broken(service):
         raise RuntimeError("health cannot be read")
     world["platform"].healthy = broken
+    approve = _approve_with(owner)
     with pytest.raises(WorkflowFailureError):
-        _run(world, _approve_with(owner))
+        _run(world, approve)
     [end] = _ends(world)
     assert end["status"] == "failed_after_apply"
     assert end["checklist"]["applied"]

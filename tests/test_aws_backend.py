@@ -157,8 +157,9 @@ def test_missing_cluster_is_an_error_not_a_guessed_default():
         alert_id="a", name="n", severity=Severity.high, service="checkout", environment="prod",
         summary="s", started_at=NOW.isoformat(), labels={},
     )
+    backend = _backend()
     with pytest.raises(ToolError, match="WARDEN_AWS_CLUSTER"):
-        _backend().metrics(alert)
+        backend.metrics(alert)
 
 
 def test_cluster_comes_from_the_environment_when_the_label_is_absent(monkeypatch):
@@ -260,14 +261,16 @@ def test_a_missing_service_raises_rather_than_returning_zeroes():
     """The k8s backend learned this the hard way: a typo used to yield zeroed metrics that the
     verifier read as 'inspected, fine'. ECS answers a missing service with HTTP 200 + `failures`."""
     ecs = FakeEcs(services=[], failures=[{"arn": "checkout", "reason": "MISSING"}])
+    backend, alert = _backend(ecs=ecs), _alert()
     with pytest.raises(ToolError, match="MISSING"):
-        _backend(ecs=ecs).metrics(_alert())
+        backend.metrics(alert)
 
 
 def test_an_inactive_service_counts_as_missing():
     ecs = FakeEcs(services=[_service(status="INACTIVE")])
+    backend, alert = _backend(ecs=ecs), _alert()
     with pytest.raises(ToolError):
-        _backend(ecs=ecs).metrics(_alert())
+        backend.metrics(alert)
 
 
 def test_a_failed_rollout_is_counted():

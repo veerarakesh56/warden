@@ -122,8 +122,9 @@ def test_deploy_ecs_records_the_baseline_revision_in_stack_json(tmp_path):
 
 
 def test_out_inside_the_repo_is_refused():
+    args = ["--out", str(ROOT / "build-here"), "build", "--skip-image"]
     with pytest.raises(SystemExit):
-        tool.main(["--out", str(ROOT / "build-here"), "build", "--skip-image"])
+        tool.main(args)
 
 
 def test_ecs_task_definition_logs_in_with_the_task_role_and_still_resolves_a_secret():
@@ -479,11 +480,12 @@ def test_argocd_settings_name_no_login_no_load_balancer_and_deny_by_default():
 
 def test_a_sync_that_failed_or_never_reached_the_commit_fails_the_deploy(monkeypatch):
     """Dev is run as production (owner, 2026-10-16): the deploy says why Argo CD did not deploy the commit, and fails."""
+    failed = Runner({"get application shop": _synced(phase="Failed", health="Degraded")})
     with pytest.raises(SystemExit, match="sync of 0123456789ab failed"):
-        tool.wait_synced("kc", REV, Runner({"get application shop": _synced(phase="Failed", health="Degraded")}),
-                         sleep=lambda s: None)
+        tool.wait_synced("kc", REV, failed, sleep=lambda s: None)
+    elsewhere = Runner({"get application shop": _synced(revision="f" * 40)})
     with pytest.raises(SystemExit, match="did not sync 0123456789ab to Healthy"):
-        tool.wait_synced("kc", REV, Runner({"get application shop": _synced(revision="f" * 40)}), sleep=lambda s: None)
+        tool.wait_synced("kc", REV, elsewhere, sleep=lambda s: None)
     tool.wait_synced("kc", REV, Runner({"get application shop": _synced()}), sleep=lambda s: None)  # synced: returns
 
 

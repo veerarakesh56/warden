@@ -68,8 +68,9 @@ def test_the_dsn_comes_from_the_environment_never_an_alert_label(monkeypatch):
 
 def test_no_dsn_anywhere_is_a_tool_error_not_a_silent_empty_read(monkeypatch):
     monkeypatch.delenv("WARDEN_DB_DSN", raising=False)
+    alert = _alert()
     with pytest.raises(ToolError, match="no database DSN"):
-        dsn_of(_alert())
+        dsn_of(alert)
 
 
 @pytest.mark.parametrize("name,engine", [
@@ -334,13 +335,15 @@ def test_a_failed_metrics_read_is_a_hard_ToolError():
         def cursor(self):
             raise RuntimeError("connection refused")
 
+    backend, alert = DatabaseBackend(engine="postgres", conn=Boom()), _alert()
     with pytest.raises(ToolError, match="database metrics read failed"):
-        DatabaseBackend(engine="postgres", conn=Boom()).metrics(_alert())
+        backend.metrics(alert)
 
 
 def test_injecting_a_connection_without_an_engine_is_refused():
+    conn = object()
     with pytest.raises(ToolError, match="also needs engine"):
-        DatabaseBackend(conn=object())
+        DatabaseBackend(conn=conn)
 
 
 def test_every_engine_has_an_adapter():
@@ -699,8 +702,9 @@ def test_every_connection_a_read_opens_is_closed(monkeypatch):
 
     monkeypatch.setattr(database, "adapter_for", lambda engine: Adapter)
     backend = DatabaseBackend(dsn="postgresql://db.example/orders", engine="postgres")
-    with pytest.raises(Exception):  # noqa: B017 - the failed read still closes
-        backend.metrics(_alert())
+    alert = _alert()
+    with pytest.raises(ToolError, match="database metrics read failed: permission denied"):  # it still closes
+        backend.metrics(alert)
     backend.logs(_alert())
     assert len(opened) == 2
     assert closed == opened

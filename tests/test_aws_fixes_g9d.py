@@ -525,7 +525,7 @@ def test_no_freeze_without_the_tag_of_another_environments_pipeline_or_when_alre
     assert f.asked == []  # a tag outside CodePipeline's own name pattern never reaches its API
 
 
-def test_an_application_that_could_not_be_read_for_another_reason_makes_no_plan(config):
+def test_an_application_that_could_not_be_read_for_another_reason_makes_no_plan(config, monkeypatch):
     """Review-e M3: an unread application may be a second guard - "the one" is then not known."""
     _, p = config
     real = Config.list_environments
@@ -535,8 +535,5 @@ def test_an_application_that_could_not_be_read_for_another_reason_makes_no_plan(
             raise _Err("ThrottlingException")
         return real(self, ApplicationId, MaxResults)
 
-    Config.list_environments = flaky
-    try:
-        assert p.live("appconfig_revert", {"alarm": ALARM})["application"] == set()
-    finally:
-        Config.list_environments = real
+    monkeypatch.setattr(Config, "list_environments", flaky)
+    assert p.live("appconfig_revert", {"alarm": ALARM})["application"] == set()

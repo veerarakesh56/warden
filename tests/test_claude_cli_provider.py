@@ -342,7 +342,8 @@ def test_a_cli_failure_says_what_the_api_did(provider, monkeypatch, out, status,
     a connection that never opened sent nothing - so it is not carried to the incident's next run."""
     from warden.providers import ProviderError
 
+    failing = _Recorder(stdout=out, returncode=1)
     with pytest.raises(ProviderError) as caught:
-        _run(provider, _Recorder(stdout=out, returncode=1), monkeypatch)
+        _run(provider, failing, monkeypatch)
     assert caught.value.status_code == status
     assert caught.value.sent is sent

@@ -67,22 +67,23 @@ def test_a_whole_incident_runs_through_bedrock_and_its_answer_is_typed():
 
 
 def test_throttling_waits_and_other_errors_are_failures():
+    throttled = BedrockProvider(model=PROFILE, client=_Converse(error=_ClientError("ThrottlingException")))
     with pytest.raises(ProviderExhausted):
-        BedrockProvider(model=PROFILE, client=_Converse(error=_ClientError("ThrottlingException"))).complete(
-            system="s", user="u", schema=Diagnosis)
+        throttled.complete(system="s", user="u", schema=Diagnosis)
+    refused = BedrockProvider(model=PROFILE, client=_Converse(error=_ClientError("AccessDeniedException")))
     with pytest.raises(ProviderError) as denied:
-        BedrockProvider(model=PROFILE, client=_Converse(error=_ClientError("AccessDeniedException"))).complete(
-            system="s", user="u", schema=Diagnosis)
+        refused.complete(system="s", user="u", schema=Diagnosis)
     assert not isinstance(denied.value, ProviderExhausted)
     assert "AccessDeniedException" in str(denied.value)
 
 
 def test_a_model_must_be_named_exactly_and_pass_qualification(monkeypatch):
     monkeypatch.delenv("WARDEN_BEDROCK_MODEL", raising=False)
+    client = _Converse()
     with pytest.raises(ProviderError, match="WARDEN_BEDROCK_MODEL"):
-        BedrockProvider(client=_Converse())
+        BedrockProvider(client=client)
     with pytest.raises(ProviderError, match="alias"):
-        BedrockProvider(model="sonnet", client=_Converse())
+        BedrockProvider(model="sonnet", client=client)
     monkeypatch.setenv("WARDEN_BEDROCK_MODEL", PROFILE)
     monkeypatch.setattr(providers, "BedrockProvider", lambda: BedrockProvider(client=_Converse()))
     monkeypatch.setitem(providers._REGISTRY, "bedrock", providers.BedrockProvider)

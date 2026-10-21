@@ -209,8 +209,9 @@ def test_an_oversized_prompt_is_refused_before_the_call():
         def complete(self, **kw):
             calls.append(1)
 
+    client = LLMClient(provider=_P(), mock=False)
     with pytest.raises(BudgetExceeded):
-        LLMClient(provider=_P(), mock=False).structured(system="s", user="x" * 400_000, schema=RootCause)
+        client.structured(system="s", user="x" * 400_000, schema=RootCause)
     assert calls == [], "refused before any call was made"
 
 

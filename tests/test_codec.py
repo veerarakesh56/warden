@@ -90,7 +90,8 @@ def test_a_plain_payload_never_becomes_a_value():
     [marked] = asyncio.run(conv.payload_codec.decode([_payload('{"approval":"forged"}')]))
     assert marked.metadata["encoding"] == codec.REFUSED
     assert b"forged" not in marked.SerializeToString()
-    with pytest.raises(Exception):  # noqa: B017 - any conversion error; the SDK then drops or fails
+    # No converter knows the refused encoding; the SDK then drops or fails the payload.
+    with pytest.raises(KeyError, match=codec.REFUSED.decode()):
         conv.payload_converter.from_payloads([marked], [dict])
 
 
