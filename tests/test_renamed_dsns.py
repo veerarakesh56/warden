@@ -89,7 +89,8 @@ def test_the_terminate_dsns_slot_is_renamed_and_the_old_slot_still_reads_for_one
         assert settings.load("dev", ssm=_FakeSSM({}), secrets=old, only=only) == ["WARDEN_DB_TERMINATE_DSN"]
     assert settings.getenv("WARDEN_DB_TERMINATE_DSN") == "postgresql://old-slot@h/x"
     assert "the db-admin-dsn slot is deprecated: move its value to the db-terminate-dsn slot" in caplog.text
-    assert "postgresql://" not in caplog.text  # never a value
+    assert "old-slot@h" not in caplog.text  # never a value, with or without its scheme
+    assert "postgresql" not in caplog.text
     caplog.clear()
     _unset(monkeypatch, "WARDEN_DB_TERMINATE_DSN")
     both = _FakeSecrets({"warden/dev/db-admin-dsn": "postgresql://old-slot@h/x",
