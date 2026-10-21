@@ -137,3 +137,28 @@ def test_what_a_signal_quotes_from_the_record_is_text_never_markup(log):
     r = _incident(log)
     r.proven = _proven(entry="<img src=x onerror=alert(1)>")
     assert "<img src=x" not in records.incident_page(r)
+
+
+def test_a_record_read_from_the_audit_carries_its_linked_proven_fix_into_the_block(tmp_path):
+    """CodeRabbit, PR 100: the page path (records.record -> incident_page) must see the linked record's proven fix,
+    not only a test that sets it by hand."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from warden import approvals, links
+
+    key = Ed25519PrivateKey.generate()
+    pem = key.public_key().public_bytes(serialization.Encoding.PEM,
+                                        serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    policy = approvals.ApproverPolicy(approvers={"owner": approvals.Approver(name="Asha Rao", public_key=pem,
+                                                                             tiers=["T1"])})
+    log = audit.AuditLog(tmp_path / "linked.db")
+    _incident(log)  # this incident: evidence, grounded, rules - nothing backs it yet
+    log.append("inc-old", "incident.ingest", {"env": "dev"})
+    log.append("inc-old", "remediation.plan", {"workflow_id": "rem-old", "run_id": "r1", "entry": "restart_service",
+                                               "target": "checkout"})
+    log.append("inc-old", "workflow.end", {"workflow_id": "rem-old", "run_id": "r1", "status": "recovered"})
+    assert links.record(log, links.sign(key, incident=INC, other="inc-old", type="same-root-cause",
+                                        approver="owner"), policy) == []
+    page = records.incident_page(records.record(log, INC, policy))
+    assert '<span class="badge ok">Confidence: High</span> Decided by: evidence, grounded, rules, proven fix.' in page
