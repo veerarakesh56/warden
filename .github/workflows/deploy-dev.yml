@@ -13,9 +13,9 @@ on:
         options: [infra, apps]
         default: infra
       infra_action:
-        description: "infra only: plan, apply, apply-plan (a plan already reviewed) or destroy"
+        description: "infra only: plan, apply, apply-plan (a plan already reviewed), destroy, or pause / resume (keeps the data)"
         type: choice
-        options: [plan, apply, apply-plan, destroy]
+        options: [plan, apply, apply-plan, destroy, pause, resume]
         default: plan
       infra_stack:
         description: "infra only: the full stack, or the small undo lab (terraform/undo-lab)"
@@ -67,7 +67,7 @@ jobs:
       id-token: write
 
   apps-check:
-    if: inputs.part == 'apps'
+    if: inputs.part == 'apps' || inputs.infra_action == 'resume'
     uses: $/.github/workflows/_apps-check.yml
   apps:
     if: inputs.part == 'apps'
@@ -79,6 +79,22 @@ jobs:
       environment: dev
       upstream: main
       target: ${{ inputs.apps_target }}
+    permissions:
+      contents: read
+      id-token: write
+
+  # resume, in the same run: the infrastructure is back, so everything that runs on it goes back too - the Lambdas, ECS
+  # and the cluster's add-ons (Argo CD, the Datadog agent, the shop), each waited for until healthy.
+  apps-after-resume:
+    if: inputs.part == 'infra' && inputs.infra_action == 'resume'
+    needs: [infra, apps-check]
+    uses: $/.github/workflows/_apps-deploy.yml
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+    with:
+      environment: dev
+      upstream: main
+      target: all
     permissions:
       contents: read
       id-token: write

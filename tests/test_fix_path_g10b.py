@@ -14,6 +14,7 @@ from warden.models import (
     Alert,
     Citation,
     ContextBundle,
+    Hypothesis,
     RemediationProposal,
     RootCause,
     Severity,
@@ -65,7 +66,9 @@ def _gated(**labels):
                             metrics={"write_throttle_events": 412.0, "write_capacity_used_pct": 99.0,
                                      "error_rate": 0.2, "p99_latency_ms": 900.0})
     rc = RootCause(hypothesis="writes throttled at provisioned capacity", confidence=0.9, evidence=["throttle"],
-                   citations=[Citation(id="M1", quote="write_throttle_events=412")])
+                   citations=[Citation(id="M1", quote="write_throttle_events=412")],
+                   # a rival weighed and set aside (P35), so only the fix path decides
+                   hypotheses=[Hypothesis(cause="writes throttled at provisioned capacity"), Hypothesis(cause="another cause", why_rejected="nothing in the evidence shows it")])
     return verify(_alert(**labels), context, rc, _prop(ActionKind.scale_up, "orders"))
 
 

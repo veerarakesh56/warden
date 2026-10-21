@@ -17,6 +17,7 @@ from warden.models import (
     Alert,
     Citation,
     ContextBundle,
+    Hypothesis,
     RemediationProposal,
     RootCause,
     Severity,
@@ -82,7 +83,8 @@ def _context(*trusted):
 
 def _cause(*citations):
     return RootCause(hypothesis="h", confidence=0.9, evidence=["e"],
-                     citations=[Citation(id=i, quote=q) for i, q in citations])
+                     citations=[Citation(id=i, quote=q) for i, q in citations],
+                     hypotheses=[Hypothesis(cause="h"), Hypothesis(cause="another cause", why_rejected="nothing in the evidence shows it")])  # a rival set aside (P35)
 
 
 def test_a_kind_before_the_name_is_looked_past_only_when_the_alerts_label_of_that_kind_holds_the_name():

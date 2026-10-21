@@ -58,7 +58,12 @@ ENV HF_HUB_CACHE=/opt/hf \
 RUN useradd --create-home --uid 10001 warden
 # The task's only writable place (its root filesystem is read-only): on Fargate a volume mounted at a path the image
 # declares as a VOLUME takes that path's permissions, else it is root's 0755 (AWS's bind-mount guide, read 2026-10-14).
-RUN chmod 1777 /tmp
+# /tmp stays root's 1777, as Debian ships it - every user may create files, only a file's owner may delete or rename
+# it (the sticky bit). The same image runs the front-door Lambdas, under a user id Lambda picks, so /tmp cannot be one
+# user's. Nothing here grants write to others (Sonar docker:S2612, 2026-10-20: the chmod that was here repeated the base
+# image's own mode); the build checks the mode instead, so a base image that changed it fails here.
+# tests/test_iac_leftovers_sonar.py holds it: read-only root, one process user, a volume gone with the task.
+RUN test "$(stat -c '%a %U' /tmp)" = "1777 root"
 VOLUME ["/tmp"]
 USER warden
 

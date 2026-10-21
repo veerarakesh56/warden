@@ -99,6 +99,8 @@
         "arn:aws:cloudwatch:ap-south-2:*:alarm:warden-ops-*",
         "arn:aws:rds:ap-south-2:*:cluster:warden-ops-*",
         "arn:aws:rds:ap-south-2:*:db:warden-ops-*",
+        "arn:aws:rds:ap-south-2:*:snapshot:warden-ops-*",
+        "arn:aws:rds:ap-south-2:*:cluster-snapshot:warden-ops-*",
         "arn:aws:rds:ap-south-2:*:subgrp:warden-ops-*",
         "arn:aws:rds:ap-south-2:*:cluster-pg:default.*",
         "arn:aws:rds:ap-south-2:*:pg:default.*",
@@ -255,6 +257,12 @@
         "arn:aws:ssm:ap-south-2:*:parameter/warden/ops/tf",
         "arn:aws:ssm:ap-south-2:*:parameter/warden/ops/tf/*"
       ]
+    },
+    {
+      "Sid": "ThePauseSwitch",
+      "Effect": "Allow",
+      "Action": "ssm:PutParameter",
+      "Resource": "arn:aws:ssm:ap-south-2:*:parameter/warden/ops/tf/paused"
     },
     {
       "Sid": "OwnStateBucket",
