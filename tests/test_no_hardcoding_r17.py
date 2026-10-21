@@ -156,12 +156,13 @@ def test_where_faults_may_be_injected_is_one_list_in_the_configuration(tmp_path)
 
 def test_the_repository_is_named_in_the_configuration_and_nowhere_in_code(tmp_path):
     repo, subject = CFG.github["repository"], CFG.github["subject"]
-    owner = repo.split("/")[0]
-    assert subject.split("@")[0] == owner
-    assert subject.split("/")[1].split("@")[0] == repo.split("/")[1]
+    # The shipped configuration names no installation's repository: each installation supplies its own
+    # (WARDEN_GITHUB_REPOSITORY / WARDEN_GITHUB_SUBJECT, or its own environments.yaml).
+    assert repo == environments.GITHUB_PLACEHOLDERS["repository"]
+    assert subject == environments.GITHUB_PLACEHOLDERS["subject"]
+    real_subject = re.compile(r"[A-Za-z0-9][\w.-]*@\d{3,}/[\w.-]+@\d{3,}")  # GitHub's immutable subject shape
     for p in [*(ROOT / "iam" / "templates").glob("*.json"), *_python_files()]:
-        assert repo not in p.read_text(encoding="utf-8"), p.name
-        assert subject not in p.read_text(encoding="utf-8"), p.name
+        assert not real_subject.search(p.read_text(encoding="utf-8")), p.name
     trust = (ROOT / "iam" / "templates" / "trust.json").read_text(encoding="utf-8")
     assert "repo:${github_subject}:environment:${env}" in trust
     assert "${github_repository}/.github/workflows/" in trust
@@ -183,7 +184,7 @@ def test_the_repository_is_named_in_the_configuration_and_nowhere_in_code(tmp_pa
     assert f"repo:{subject}:environment:" in rendered
     assert f"{repo}/.github/workflows/" in rendered
     text = (ROOT / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")
-    for bad in ("  repository: not a repository", "  repository: 42"):
+    for bad in ("  repository: not a repository", "  repository: 42", "  repository: <GITHUB_SUBJECT>"):
         doc = tmp_path / "e.yaml"
         doc.write_text(re.sub(r"(?m)^  repository: .*$", bad, text), encoding="utf-8")
         with pytest.raises(environments.EnvironmentPolicyError):

@@ -1,9 +1,12 @@
 # Base images by digest (audit A-I-24): a tag can be moved to other content; a digest cannot.
 # Read 2026-10-01 from the registries; Dependabot (docker) proposes new digests.
+# Docker's official python image by default; CI and runtime.yml pass the repository's own mirror of the same
+# digest (mirror-images.yml: ghcr.io/<owner>/warden-mirror), as shared runners are rate-limited by Docker Hub.
+ARG BASE_IMAGE_REGISTRY=docker.io/library
 FROM ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 AS uv
 # Two stages: the source is copied and installed in `build`; the image is the installed package only - a COPY
 # layer keeps every file it copied even if a later RUN deletes it (seventh review, 2026-10-01).
-FROM ghcr.io/veerarakesh56/warden-mirror/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS build
+FROM ${BASE_IMAGE_REGISTRY}/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS build
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/warden \
     UV_PYTHON=3.13 \
@@ -34,7 +37,7 @@ COPY scripts/check_package.py ./
 RUN /opt/warden/bin/python check_package.py \
     "$(/opt/warden/bin/python -c 'import os, warden; print(os.path.dirname(warden.__file__))')"
 
-FROM ghcr.io/veerarakesh56/warden-mirror/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
+FROM ${BASE_IMAGE_REGISTRY}/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

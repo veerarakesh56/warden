@@ -1,6 +1,5 @@
 # WARDEN
 
-[![CI](https://github.com/veerarakesh56/warden/actions/workflows/ci-tool.yml/badge.svg)](https://github.com/veerarakesh56/warden/actions/workflows/ci-tool.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
@@ -435,7 +434,7 @@ CI asserts the demo's actual verdicts, not just its exit code, and an integratio
 
 ## Related
 
-[Helios](https://github.com/veerarakesh56/helios) is a Rust and Z3 infrastructure failure simulator built on the same
+Helios is a Rust and Z3 infrastructure failure simulator built on the same
 principle: a rigorous core around an AI shell. WARDEN's infrastructure deploy runs Helios on every Terraform plan and
 refuses a plan that fails under a zone outage or resource loss the stack survives today (`scripts/helios_gate.py`).
 

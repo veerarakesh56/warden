@@ -142,11 +142,12 @@ def test_only_the_same_named_github_environment_may_assume(env):
     assert list(cond) == ["StringEquals"], "exact match only - no StringLike, no wildcards"
     # aud and sub here; ref and job_workflow_ref in test_only_main_and_the_two_deploy_workflows_may_assume.
     # The repository issues GitHub's immutable subject (owner and repository names each followed by their numeric id,
-    # gh api repos/<repo>/actions/oidc/customization/sub): the plain-name subject matched no token at all (2026-10-09).
+    # gh api repos/<repo>/actions/oidc/customization/sub): a plain-name subject matches no token at all. The committed
+    # file keeps the placeholder; the local render fills it (test_the_local_trust_names_the_configured_repository).
     assert {k: v for k, v in cond["StringEquals"].items() if k.endswith((":aud", ":sub"))} == {
                                     "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                                     "token.actions.githubusercontent.com:sub":
-                                        f"repo:veerarakesh56@171412850/warden@1341685493:environment:{env}"}
+                                        f"repo:<GITHUB_SUBJECT>:environment:{env}"}
     assert gh["Principal"]["Federated"].endswith(":oidc-provider/token.actions.githubusercontent.com")
     assert "*" not in json.dumps(doc), "no wildcard anywhere in a trust policy"
 
@@ -654,6 +655,7 @@ def test_the_actor_connects_only_as_this_accounts_terminate_login_and_its_render
     monkeypatch.setattr(r, "environments", lambda: ("dev",))
     fake = types.ModuleType("boto3")
     fake.client = lambda name: types.SimpleNamespace(get_caller_identity=lambda: {"Account": "1" * 12})
+    _identity(monkeypatch)
     monkeypatch.setitem(sys.modules, "boto3", fake)
     assert r.main(["--account"]) == 0
     local = json.loads((tmp_path / "iam" / "dev" / "actor.local.json").read_text(encoding="utf-8"))
@@ -669,6 +671,7 @@ def test_main_writes_every_file_each_option_asks_for_and_nothing_else(monkeypatc
     import types
 
     account = "0" * 12
+    _identity(monkeypatch)
     monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(
         client=lambda name: types.SimpleNamespace(get_caller_identity=lambda: {"Account": account})))
     monkeypatch.setattr(r, "ROOT", tmp_path)
@@ -691,6 +694,62 @@ def test_main_writes_every_file_each_option_asks_for_and_nothing_else(monkeypatc
     assert sorted(written) == sorted(want)
     for name, text in want.items():
         assert written[name] == text.encode("utf-8"), name
+
+
+# A repository identity of the right shapes for the local renders, built from parts like every fixture (tests/fakes.py).
+FAKE_REPOSITORY = "example-org" + "/" + "warden"
+FAKE_SUBJECT = "example-org@" + "1" * 6 + "/warden@" + "2" * 6
+
+
+def _identity(monkeypatch):
+    monkeypatch.setenv("WARDEN_GITHUB_REPOSITORY", FAKE_REPOSITORY)
+    monkeypatch.setenv("WARDEN_GITHUB_SUBJECT", FAKE_SUBJECT)
+
+
+def test_the_local_trust_names_the_configured_repository_and_the_committed_one_never_does(monkeypatch, tmp_path):
+    """The committed trust policies keep <GITHUB_REPOSITORY> / <GITHUB_SUBJECT> even when the identity is set in the
+    environment; only the gitignored *.local.json, the file pasted into IAM, carries it."""
+    import sys
+    import types
+
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import render_env_iam as r
+
+    _identity(monkeypatch)
+    monkeypatch.setattr(r, "ROOT", tmp_path)
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(
+        client=lambda name: types.SimpleNamespace(get_caller_identity=lambda: {"Account": "1" * 12})))
+    assert r.main(["--account"]) == 0
+    for env in r.environments():
+        committed = (tmp_path / "iam" / env / "trust.json").read_text(encoding="utf-8")
+        assert "repo:<GITHUB_SUBJECT>:environment:" in committed and FAKE_SUBJECT not in committed
+        local = json.loads((tmp_path / "iam" / env / "trust.local.json").read_text(encoding="utf-8"))
+        cond = local["Statement"][0]["Condition"]["StringEquals"]
+        assert cond["token.actions.githubusercontent.com:sub"] == f"repo:{FAKE_SUBJECT}:environment:{env}"
+        refs = cond["token.actions.githubusercontent.com:job_workflow_ref"]
+        assert all(ref.startswith(FAKE_REPOSITORY + "/") for ref in refs)
+    runtime_local = (tmp_path / "iam" / r.runtime_environment() / "trust.local.json").read_text(encoding="utf-8")
+    assert FAKE_SUBJECT in runtime_local and "<GITHUB_" not in runtime_local
+
+
+@pytest.mark.parametrize("unset", ["WARDEN_GITHUB_REPOSITORY", "WARDEN_GITHUB_SUBJECT"])
+def test_the_local_trust_is_refused_while_the_repository_is_a_placeholder(monkeypatch, tmp_path, capsys, unset):
+    """A trust policy naming `<GITHUB_SUBJECT>` would be accepted by IAM and match no token: the render refuses,
+    naming the setting, rather than writing a file that silently trusts nobody."""
+    import sys
+    import types
+
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import render_env_iam as r
+
+    _identity(monkeypatch)
+    monkeypatch.delenv(unset)
+    monkeypatch.setattr(r, "ROOT", tmp_path)
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(
+        client=lambda name: types.SimpleNamespace(get_caller_identity=lambda: {"Account": "1" * 12})))
+    with pytest.raises(SystemExit, match=unset):
+        r.main(["--account"])
+    assert not list((tmp_path / "iam").rglob("trust.local.json"))
 
 
 def test_main_without_options_writes_no_local_file(monkeypatch, tmp_path):

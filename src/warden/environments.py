@@ -219,6 +219,12 @@ class EnvironmentPolicies:
 _ENV_NAME = re.compile(r"[a-z][a-z0-9-]{0,30}")
 _GITHUB = {"repository": re.compile(r"[A-Za-z0-9][\w.-]*/[\w.-]+"),
            "subject": re.compile(r"[A-Za-z0-9][\w.-]*@\d+/[\w.-]+@\d+")}
+_GITHUB_SHAPE = {"repository": "owner/name", "subject": "owner@owner-id/name@repository-id"}
+# What the shipped environments.yaml holds until an installation names its own repository - the same convention as
+# <ACCOUNT_ID> in the committed IAM files. The installation sets the real values in its environments.yaml, or in
+# the environment variables below, which take precedence (github_identity).
+GITHUB_PLACEHOLDERS = {"repository": "<GITHUB_REPOSITORY>", "subject": "<GITHUB_SUBJECT>"}
+GITHUB_ENV = {"repository": "WARDEN_GITHUB_REPOSITORY", "subject": "WARDEN_GITHUB_SUBJECT"}
 
 
 def _region(doc: dict[str, Any], key: str) -> str | None:
@@ -234,7 +240,8 @@ def _github(doc: dict[str, Any], envs: dict[str, EnvPolicy]) -> dict[str, str]:
     github = doc.get("github") or {}
     if not isinstance(github, dict) or any(not isinstance(github.get(k, ""), str) for k in _GITHUB):
         raise EnvironmentPolicyError("`github` must be a mapping of strings")
-    if github and not all(rx.fullmatch(github.get(k, "")) for k, rx in _GITHUB.items()):
+    if github and not all(rx.fullmatch(github.get(k, "")) or github.get(k) == GITHUB_PLACEHOLDERS[k]
+                          for k, rx in _GITHUB.items()):
         raise EnvironmentPolicyError("`github` needs `repository` (owner/name) and `subject` "
                                      "(owner@owner-id/name@repository-id)")
     # The runtime pipeline runs from an application environment's own branch (owner, 2026-10-16): the branch the
@@ -286,6 +293,19 @@ def _flag(name: str, raw: dict[str, Any], key: str, default: bool) -> bool:
 
 
 _DEFAULT: EnvironmentPolicies | None = None
+
+
+def github_identity(policies: EnvironmentPolicies, key: str) -> str:
+    """This repository's `repository` or `subject` as GitHub's OIDC token names it: WARDEN_GITHUB_REPOSITORY /
+    WARDEN_GITHUB_SUBJECT when set, else environments.yaml's `github` value; "" while neither names one (the file
+    still holds its placeholder). A malformed environment value raises rather than being used."""
+    raw = os.environ.get(GITHUB_ENV[key], "").strip()
+    if raw:
+        if not _GITHUB[key].fullmatch(raw):
+            raise EnvironmentPolicyError(f"{GITHUB_ENV[key]} must be a GitHub {key} ({_GITHUB_SHAPE[key]}), not {raw!r}")
+        return raw
+    value = policies.github.get(key, "")
+    return "" if value == GITHUB_PLACEHOLDERS[key] else value
 
 
 def default_environment_policies() -> EnvironmentPolicies:

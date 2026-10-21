@@ -95,7 +95,8 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           test -n "$HF_TOKEN" || { echo "::error::set the secret HF_TOKEN on the ops environment"; exit 1; }
-          docker build --network=host --secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime -t "warden-runtime:$GITHUB_SHA" .
+          docker build --network=host --build-arg "BASE_IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/warden-mirror" --secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime \
+            -t "warden-runtime:$GITHUB_SHA" .
           # The image that is deployed carries the detector's weights (register R47).
           docker run --rm --entrypoint /opt/warden/bin/python "warden-runtime:$GITHUB_SHA" -c \
             "import pathlib; assert any(pathlib.Path('/opt/hf').rglob('model.safetensors')), 'no tripwire weights'"

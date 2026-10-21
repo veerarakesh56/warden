@@ -64,7 +64,7 @@ class FakeModel:
 def world(tmp_path):
     owner, critic_key = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
     policy = approvals.ApproverPolicy(approvers={
-        "owner": approvals.Approver(name="Rakesh", public_key=_pem(owner), tiers=["T1", "T2", "T3"]),
+        "owner": approvals.Approver(name="Avery", public_key=_pem(owner), tiers=["T1", "T2", "T3"]),
         "eldane": approvals.Approver(name="anything", public_key=_pem(critic_key), tiers=["T1", "T2"],
                                      environments=["dev"], ai=True)})
     log = audit.AuditLog(tmp_path / "audit.db", key=Ed25519PrivateKey.generate())

@@ -128,9 +128,10 @@ jobs:
         if: env.ACTION != 'destroy' && env.ACTION != 'pause'
         env:
           HELIOS_COMMIT: bf4f3dd0c0e420146382a31c21a930e47c9deab7  # v0.2.0
+          HELIOS_REPOSITORY: ${{ vars.HELIOS_REPOSITORY || format('{0}/helios', github.repository_owner) }}
         run: |
           git init -q "$RUNNER_TEMP/helios"
-          git -C "$RUNNER_TEMP/helios" fetch -q --depth 1 https://github.com/veerarakesh56/helios "$HELIOS_COMMIT"
+          git -C "$RUNNER_TEMP/helios" fetch -q --depth 1 "$GITHUB_SERVER_URL/$HELIOS_REPOSITORY" "$HELIOS_COMMIT"
           git -C "$RUNNER_TEMP/helios" checkout -q FETCH_HEAD
           cargo build --manifest-path "$RUNNER_TEMP/helios/Cargo.toml" --release --locked --bin helios
           echo "HELIOS_BIN=$RUNNER_TEMP/helios/target/release/helios" >> "$GITHUB_ENV"

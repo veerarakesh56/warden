@@ -4,8 +4,11 @@
 #   Lambda: entry point ["/opt/warden/bin/python", "-m", "awslambdaric"], command ["warden.lambdas.alarm"] (or
 #           .alertmanager, .approval) - AWS's runtime interface client in a non-AWS base image, as AWS documents.
 # Base images by digest (audit A-I-24), the same two as ./Dockerfile; Dependabot (docker) proposes new digests.
+# Docker's official python image by default; CI and runtime.yml pass the repository's own mirror of the same
+# digest (mirror-images.yml: ghcr.io/<owner>/warden-mirror), as shared runners are rate-limited by Docker Hub.
+ARG BASE_IMAGE_REGISTRY=docker.io/library
 FROM ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 AS uv
-FROM ghcr.io/veerarakesh56/warden-mirror/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS build
+FROM ${BASE_IMAGE_REGISTRY}/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS build
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/warden \
     UV_PYTHON=3.13 \
@@ -43,7 +46,7 @@ ARG WARDEN_DETECTOR=baked
 # (the script takes no path outside it, nor the temp folder) and copied to /opt/hf below.
 RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py hf "$WARDEN_DETECTOR" && chmod -R a+rX hf
 
-FROM ghcr.io/veerarakesh56/warden-mirror/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
+FROM ${BASE_IMAGE_REGISTRY}/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

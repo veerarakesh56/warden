@@ -4,7 +4,7 @@ An ECS Fargate task definition, its roles, an egress-only security group and a l
 
 ```hcl
 module "warden" {
-  source = "github.com/veerarakesh56/warden//terraform"
+  source = "github.com/<org>/warden//terraform"   # your copy of this repository
 
   image                = "<acct>.dkr.ecr.<region>.amazonaws.com/warden:<version>"
   cluster_arn          = aws_ecs_cluster.platform.arn
