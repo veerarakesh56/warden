@@ -8,7 +8,12 @@
       "Resource": [
         "arn:aws:s3:::warden-${env}-tfstate-*/fullstack/plans/*.json",
         "arn:aws:s3:::warden-${env}-tfstate-*/undo-lab/plans/*.json"
-      ]
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceAccount": "$${aws:PrincipalAccount}"
+        }
+      }
     },
     {
       "Sid": "StoppedTasksOfThisEnvironmentsClusters",

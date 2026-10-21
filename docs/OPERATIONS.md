@@ -104,7 +104,9 @@ finding's text reaches the model, the report or Slack: only typed fields.
 
 WARDEN runs no Terraform. An approved plan dispatches `deploy-<env>.yml` with `infra_action=apply-plan` for one kept
 plan: the newest successful plan run of that stack, made at the environment branch's head and passed by Helios. T3: a
-person's passkey; never undone automatically. It is off until all three are set:
+person's passkey; never undone automatically. A plan run is recognised by the deploy workflow's run-name
+(`Deploy · <env> · infra plan <stack>`), so a plan kept before that run-name existed is not found: plan again. It is
+off until all three are set:
 
 | Setting | What it does |
 |---|---|

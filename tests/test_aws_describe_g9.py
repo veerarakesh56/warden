@@ -76,6 +76,8 @@ def test_every_entry_is_one_read_and_the_reader_role_grants_it():
     assert objects[0]["Action"] == "s3:GetObject"
     assert objects[0]["Resource"] == [f"arn:aws:s3:::warden-${{env}}-tfstate-*/{stack}/plans/*.json"
                                       for stack in ("fullstack", "undo-lab")]
+    # ... and only in the reader's own account (the state bucket is the environment's, in the same account).
+    assert objects[0]["Condition"] == {"StringEquals": {"aws:ResourceAccount": "$${aws:PrincipalAccount}"}}
 
 
 # Actions AWS lets a policy scope to a resource, by its name (warden-<env>-*) or, for ID-named resources, by its

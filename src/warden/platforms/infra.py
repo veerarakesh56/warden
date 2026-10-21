@@ -39,6 +39,7 @@ BUCKETS_ENV = "WARDEN_TF_STATE_BUCKETS"
 API = "https://api.github.com"
 TIMEOUT_S = 8.0
 RUNS_READ = 20
+_CLIENT_ERROR_MIN, _CLIENT_ERROR_MAX = 400, 500
 # An apply is recorded after GitHub answered the dispatch, and a run's created_at has whole seconds: our run may be
 # created up to this long before the record says the fix was applied (healthy).
 APPLY_SLACK = timedelta(seconds=30)
@@ -113,8 +114,8 @@ class InfraPlatform:
             return {}
         try:
             return self._live(str(stack))
-        except (InfraPlatformError, OSError, ValueError, KeyError, TypeError):  # URLError and timeouts are OSErrors
-            return {}  # unread allows nothing: the catalogue refuses
+        except (InfraPlatformError, OSError, ValueError, KeyError, TypeError, AttributeError):  # URLError: an OSError
+            return {}  # unread (or an empty or non-object body) allows nothing: the catalogue refuses
 
     def _live(self, stack: str) -> dict[str, Any]:
         env, read = self.environment, self._read_token()
@@ -126,7 +127,9 @@ class InfraPlatform:
                                 "state": state}
         found = None
         for run in runs:  # newest first, as GitHub lists them
-            meta = self._meta(stack, str(run.get("id", "")))
+            if not self._is_plan_of(run, stack):
+                continue  # an apps run, another stack's plan, an apply: it kept no plan of this stack - never read S3
+            meta = self._meta(stack, str(run.get("id", "")))  # a title-matched run's unreadable plan is an error
             if meta and meta.get("stack") == stack and meta.get("environment") == env:
                 found = (run, meta)
                 break
@@ -148,6 +151,13 @@ class InfraPlatform:
             why = "the plan's run did not succeed: Helios did not pass it"
         return {**live, "plan_run": set() if why else {run_id}, "plan_sha256": set() if why else {sha},
                 "refused": why}
+
+    def _is_plan_of(self, run: dict[str, Any], stack: str) -> bool:
+        """A plan run of this stack, by the deploy workflow's run-name (`Deploy · <env> · infra plan <stack> <plan run
+        id>`; a plan's id input is empty, which may leave a trailing space GitHub may or may not keep): word by word,
+        any spacing, and at most an ignored id after the stack."""
+        words, want = str(run.get("display_title") or "").split(), f"{self.title} · infra plan {stack}".split()
+        return words[:len(want)] == want and len(words) <= len(want) + 1
 
     def knows(self, *_service: str) -> bool:
         return False  # health is asked by entry (healthy_for), never by a bare name
@@ -177,7 +187,7 @@ class InfraPlatform:
         runs = self._gh.get(f"/actions/workflows/{self.workflow}/runs?branch={self.environment}"
                             f"&event=workflow_dispatch&per_page={RUNS_READ}", self._read_token()).get("workflow_runs") or []
         ours = [(created, r) for r in runs
-                if r.get("display_title") == title and r.get("head_sha") == commit
+                if str(r.get("display_title") or "").split() == title.split() and r.get("head_sha") == commit
                 and (created := _when(r.get("created_at"))) is not None and created >= applied - APPLY_SLACK]
         return min(ours, key=lambda pair: pair[0])[1] if ours else None  # the first one after the dispatch: ours
 
@@ -205,8 +215,12 @@ class InfraPlatform:
         try:
             status = self._gh.dispatch(self.workflow, self.environment, inputs, token)
         except urllib.error.HTTPError as exc:
-            # GitHub answered, and did not start the run: nothing was sent to the stack.
-            raise InfraPlatformRefused(f"GitHub refused the dispatch ({exc.code}); nothing was sent") from exc
+            if _CLIENT_ERROR_MIN <= exc.code < _CLIENT_ERROR_MAX:
+                # GitHub refused the request itself (4xx): it did not start the run, nothing was sent to the stack.
+                raise InfraPlatformRefused(f"GitHub refused the dispatch ({exc.code}); nothing was sent") from exc
+            # A 5xx (or anything else) may come after the run was queued (CodeRabbit, PR 113): unknown, a person checks.
+            raise InfraPlatformError(f"GitHub answered {exc.code} to the dispatch: whether the apply started is "
+                                     "unknown") from exc
         if status != 204:
             raise InfraPlatformError(f"GitHub answered {status} to the dispatch: whether the apply started is unknown")
         return (f"dispatched {self.workflow} apply-plan of {params['stack']} in {self.environment}: run "

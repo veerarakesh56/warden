@@ -27,14 +27,17 @@ OLD = "b" * 40
 SHA = "c" * 64
 WHO = {"incident": "inc-7", "plan_hash": "d" * 64, "approvers": ["owner"]}
 APPLIED = "2026-10-20T19:00:00+00:00"
+# The deploy workflow's run-name for a plan of the full stack: its plan id input is empty (a trailing space).
+PLAN_TITLE = "Deploy · dev · infra plan fullstack "
 
 
 class FakeGitHub:
     def __init__(self):
         self.head = HEAD
         self.runs = [{"id": 902, "head_sha": HEAD, "conclusion": "success", "created_at": "2026-10-20T18:00:00Z",
-                      "html_url": "https://github.example/run/902"},
-                     {"id": 901, "head_sha": OLD, "conclusion": "success", "created_at": "2026-10-19T18:00:00Z"}]
+                      "html_url": "https://github.example/run/902", "display_title": PLAN_TITLE},
+                     {"id": 901, "head_sha": OLD, "conclusion": "success", "created_at": "2026-10-19T18:00:00Z",
+                      "display_title": PLAN_TITLE}]
         self.dispatched, self.status, self.fail = [], 204, None
 
     def get(self, path, token=""):
@@ -107,6 +110,53 @@ def test_an_unreadable_github_allows_nothing(world):
     assert p.live(ENTRY, {"stack": "anything-else"}) == {}
 
 
+@pytest.mark.parametrize("body", [None, [], "text"], ids=["empty", "a-list", "a-string"])
+def test_a_body_that_is_not_an_object_allows_nothing(world, body):
+    gh, _, _, p = world
+    gh.get = lambda path, token="": body
+    assert p.live(ENTRY, {"stack": "fullstack"}) == {}
+
+
+def test_only_plan_runs_of_this_stack_are_read_from_the_state_bucket(world):
+    """An apps run, the other stack's plan or an apply-plan kept no plan of this stack: without s3:ListBucket, S3
+    answers 403 for a key that is not there, so reading one would block every restore (CodeRabbit, PR 113)."""
+    gh, plans, _, _ = world
+    asked = []
+
+    def meta(stack, run):
+        asked.append(run)
+        return plans.get((stack, run))
+
+    p = InfraPlatform(environment="dev", github=gh, plan_meta=meta, token=lambda: "t" * 8, read_token=lambda: "")
+    gh.runs = [{"id": 910, "head_sha": HEAD, "conclusion": "success", "display_title": "Deploy · dev · apps all"},
+               {"id": 909, "head_sha": HEAD, "conclusion": "success", "display_title": "Deploy · dev · infra plan undo-lab"},
+               {"id": 908, "head_sha": HEAD, "conclusion": "success",
+                "display_title": "Deploy · dev · infra apply-plan fullstack 902"},
+               {"id": 907, "head_sha": HEAD, "conclusion": "success", "display_title": "Deploy · dev"},  # before run-name
+               *gh.runs]
+    live = p.live(ENTRY, {"stack": "fullstack"})
+    assert asked == ["902"]  # the first plan run of this stack, and nothing before it
+    assert live["plan_run"] == {"902"}
+
+
+@pytest.mark.parametrize("title", ["Deploy · dev · infra plan fullstack ", "Deploy · dev · infra plan fullstack",
+                                   "Deploy  ·  dev · infra plan fullstack 123"])
+def test_a_plan_runs_title_matches_with_or_without_the_trailing_space(world, title):
+    _, _, _, p = world
+    assert p._is_plan_of({"display_title": title}, "fullstack")
+    assert not p._is_plan_of({"display_title": title}, "undo-lab")
+    assert not p._is_plan_of({"display_title": title.replace("dev", "prod")}, "fullstack")
+    assert not p._is_plan_of({"display_title": title + " extra words"}, "fullstack")
+
+
+def test_a_matching_plan_run_whose_metadata_is_denied_is_refused_not_skipped(world):
+    """A title-matched run's 403 is an error - never "no plan here, try the next" (CodeRabbit, PR 113)."""
+    gh, _, _, _ = world
+    denied = s3_plan_meta(lambda: _S3(_S3Error("AccessDenied")), "tf-state")
+    p = InfraPlatform(environment="dev", github=gh, plan_meta=denied, token=lambda: "t" * 8, read_token=lambda: "")
+    assert p.live(ENTRY, {"stack": "fullstack"}) == {}  # nothing allowed: the catalogue refuses
+
+
 def test_apply_dispatches_exactly_the_approved_plan(world):
     gh, _, _, p = world
     live, params = _plan(p)
@@ -143,13 +193,22 @@ def test_github_refusing_the_dispatch_changed_nothing_and_an_odd_answer_is_unkno
     gh, _, _, p = world
     live, params = _plan(p)
 
-    def refuse(*a):
-        raise urllib.error.HTTPError("u", 403, "forbidden", {}, None)
+    def answer(code):
+        def refuse(*a):
+            raise urllib.error.HTTPError("u", code, "no", {}, None)
+        return refuse
 
-    gh.dispatch = refuse
-    with pytest.raises(InfraPlatformRefused, match="403") as err:
-        p.apply(ENTRY, params, snapshot=live["state"], who=WHO)
-    assert err.value.nothing_changed is True
+    for code in (403, 422):  # GitHub refused the request itself: no run was started
+        gh.dispatch = answer(code)
+        with pytest.raises(InfraPlatformRefused, match=str(code)) as err:
+            p.apply(ENTRY, params, snapshot=live["state"], who=WHO)
+        assert err.value.nothing_changed is True
+    for code in (500, 502):  # a server error may come after the run was queued: unknown (CodeRabbit, PR 113)
+        gh.dispatch = answer(code)
+        with pytest.raises(InfraPlatformError, match="unknown") as err:
+            p.apply(ENTRY, params, snapshot=live["state"], who=WHO)
+        assert not isinstance(err.value, InfraPlatformRefused)
+        assert not getattr(err.value, "nothing_changed", False)
     gh.dispatch = lambda *a: 500
     with pytest.raises(InfraPlatformError, match="unknown") as err:
         p.apply(ENTRY, params, snapshot=live["state"], who=WHO)
@@ -335,6 +394,10 @@ def test_the_platform_reader_may_read_only_the_kept_plans_metadata(env):
 
     allowed = [r for name in ("platform-reader", "platform-diagnose")  # the reader role's two policies
                for r in get_objects(json.loads((ROOT / "iam" / env / f"{name}.json").read_text(encoding="utf-8")))]
+    [kept] = [st for name in ("platform-reader", "platform-diagnose")
+              for st in json.loads((ROOT / "iam" / env / f"{name}.json").read_text(encoding="utf-8"))["Statement"]
+              if st.get("Sid") == "KeptInfraPlanMetadataOnly"]
+    assert kept["Condition"] == {"StringEquals": {"aws:ResourceAccount": "${aws:PrincipalAccount}"}}
     assert allowed == [f"arn:aws:s3:::warden-{env}-tfstate-*/{stack}/plans/*.json" for stack in ("fullstack", "undo-lab")]
     bucket = f"arn:aws:s3:::warden-{env}-tfstate-x1"
 
