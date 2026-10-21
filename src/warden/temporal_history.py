@@ -82,12 +82,17 @@ def _name(attributes: Any) -> str:
 
 
 def _value(p: Payload) -> str:
+    """The whole value as compact JSON - not cut: it is redacted whole first (_cut after), so a secret is never cut into
+    a fragment no pattern recognises (review, PR 154)."""
     if p.metadata.get("encoding") == REFUSED:
         return UNREADABLE
     try:
-        text = json.dumps(json.loads(p.data), sort_keys=True, separators=(",", ":"))
+        return json.dumps(json.loads(p.data), sort_keys=True, separators=(",", ":"))
     except ValueError:
-        text = f"[{len(p.data)} bytes, encoding {p.metadata.get('encoding', b'').decode('ascii', 'replace')}]"
+        return f"[{len(p.data)} bytes, encoding {p.metadata.get('encoding', b'').decode('ascii', 'replace')}]"
+
+
+def _cut(text: str) -> str:
     return text if len(text) <= MAX_VALUE_CHARS else text[:MAX_VALUE_CHARS] + " [cut]"
 
 
@@ -115,8 +120,14 @@ async def decode(events: Iterable[HistoryEvent], codec: EncryptionCodec) -> list
 
 
 def lines(decoded: list[Decoded]) -> list[str]:
+    """The events as lines. Every value is redacted whole, all of them with one placeholder map (a value found in one is
+    masked in all, under the same placeholder), and only then cut at MAX_VALUE_CHARS."""
     from .environments import both_times
+    from .redaction import redact_many
 
+    shown_events = decoded[:MAX_EVENTS]
+    masked, _ = redact_many([_value(v) for d in shown_events for v in d.values])
+    values = iter(masked)
     out: list[str] = []
     for n, d in enumerate(decoded):
         if n >= MAX_EVENTS:
@@ -130,7 +141,7 @@ def lines(decoded: list[Decoded]) -> list[str]:
         )
         name = _name(d.attributes)
         out.append(f"#{d.event.event_id} {when} {kind}" + (f" {name}" if name else ""))
-        out.extend(f"    {_value(value)}" for value in d.values)
+        out.extend(f"    {_cut(next(values))}" for _ in d.values)
     return out
 
 

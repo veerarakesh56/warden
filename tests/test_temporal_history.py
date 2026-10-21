@@ -163,14 +163,67 @@ def test_history_reads_one_workflow_and_decrypts_in_its_context():
     assert UNREADABLE in out
 
 
-def test_the_cli_loads_what_status_loads_and_no_more():
-    import inspect
-
+def test_the_cli_loads_what_status_loads_and_dispatches_history(monkeypatch):
+    """Through cli.main (review, PR 154): `history` loads exactly what `status` loads, with no zone, and runs as a
+    workflow command for the workflow named."""
     from warden import cli
 
-    src = inspect.getsource(cli)
-    assert '{"link": "label", "history": "status"}' in src
-    assert '"history")' in src
+    loaded, dispatched = [], []
+    monkeypatch.setattr(cli, "_load_environment", lambda kind, zone: loaded.append((kind, zone)))
+
+    async def workflow(args):
+        dispatched.append((args.cmd, args.workflow_id))
+        return 0
+
+    monkeypatch.setattr(cli, "_workflow_command", workflow)
+    assert cli.main(["history", "wf"]) == 0
+    assert loaded == [("status", None)]
+    assert dispatched == [("history", "wf")]
+
+
+def test_the_workflow_command_reads_that_workflow_s_history(monkeypatch):
+    from warden import cli, runtime
+
+    client, asked = object(), []
+
+    async def connect():
+        return client
+
+    async def read(c, wid):
+        asked.append((c, wid))
+        return 0
+
+    monkeypatch.setattr(runtime, "connect", connect)
+    monkeypatch.setattr(cli, "_history", read)
+    args = cli.argparse.Namespace(cmd="history", workflow_id="wf")
+    assert asyncio.run(cli._workflow_command(args)) == 0
+    assert asked == [(client, "wf")]
+
+
+def test_a_secret_is_masked_whole_before_its_value_is_cut(monkeypatch):
+    """Review, PR 154: cut first, the key's first characters were a fragment no pattern knows."""
+    monkeypatch.setattr(
+        temporal_history, "MAX_VALUE_CHARS", 14
+    )  # '{"k":"' + the key's first 8 characters
+    out = asyncio.run(render([completed(1, encrypted({"k": AWS_ACCESS_KEY_ID}))], bound()))
+    assert "[cut]" in out
+    assert AWS_ACCESS_KEY_ID[:8] not in out
+
+
+def test_one_placeholder_map_across_every_value():
+    """The same address is the same placeholder in every value - not renumbered per value."""
+    first, second = "person" + "@example.com", "other" + "@example.com"
+    out = asyncio.run(
+        render(
+            [
+                completed(1, encrypted({"who": first})),
+                completed(2, encrypted({"a": second, "b": first})),
+            ],
+            bound(),
+        )
+    )
+    assert '{"who":"<EMAIL_1>"}' in out
+    assert '{"a":"<EMAIL_2>","b":"<EMAIL_1>"}' in out
 
 
 def test_identifiers_are_masked_and_the_rest_stays_readable():
