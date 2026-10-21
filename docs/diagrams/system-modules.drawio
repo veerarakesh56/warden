@@ -230,7 +230,7 @@
           <mxGeometry x="2442" y="320" width="376" height="60" as="geometry" />
         </mxCell>
         <mxCell id="ops" value="Running it" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=13;startSize=28;fillColor=#E4E9EE;swimlaneFillColor=#FFFFFF;strokeColor=#E4E9EE;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="2430" y="424" width="400" height="300" as="geometry" />
+          <mxGeometry x="2430" y="424" width="400" height="372" as="geometry" />
         </mxCell>
         <mxCell id="e-kill" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;kill switch&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;tripped by repeated failed success checks; reset&lt;br&gt;only by a signed approval &lt;i&gt;bounds.py&lt;/i&gt; · and AWS&#x27;s own:&lt;br&gt;WardenKillSwitch-&amp;lt;env&amp;gt; on the actor role&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="2442" y="460" width="376" height="76" as="geometry" />
@@ -238,11 +238,14 @@
         <mxCell id="e-settings" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;settings and secrets &lt;i&gt;settings.py&lt;/i&gt;&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;SSM /warden/&amp;lt;env&amp;gt;/env/*, Secrets Manager warden/&amp;lt;env&amp;gt;/*:&lt;br&gt;each zone reads only its own&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
           <mxGeometry x="2442" y="546" width="376" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="pr-ops" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #88, #43 (not built)&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;pause / resume with snapshots &lt;i&gt;scripts/pause_resume.py&lt;/i&gt; (#88)&lt;br&gt;pages repeated until acknowledged: the pager (#43)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
-          <mxGeometry x="2442" y="616" width="376" height="62" as="geometry" />
+        <mxCell id="e-pause" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;pause / resume &lt;i&gt;scripts/pause_resume.py&lt;/i&gt;&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;a copy of every data store first, then compute, the NAT&lt;br&gt;and alarm intake off; resume restores the newest copy&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFFFF;strokeColor=#B8C4CE;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="2442" y="616" width="376" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="pr-ops" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #43 (not built): paging&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;pages repeated until a person acknowledges them: the&lt;br&gt;pager function, &lt;i&gt;paging&lt;/i&gt; on the approval page&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
+          <mxGeometry x="2442" y="686" width="376" height="62" as="geometry" />
         </mxCell>
         <mxCell id="pr-egress" value="&lt;b style=&#x27;font-size:12px&#x27;&gt;open PR #104, #110 (not built): egress&lt;/b&gt;&lt;br&gt;&lt;span style=&#x27;font-size:11px;color:#52606D&#x27;&gt;every request, name lookup and model prompt checked against one inventory; a value that would leave is refused &lt;i&gt;egress&lt;/i&gt;&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;verticalAlign=middle;spacing=6;fillColor=#FFFBEA;strokeColor=#C9A227;align=left;spacingLeft=10;dashed=1;fontColor=#5C4A00;" vertex="1" parent="1">
-          <mxGeometry x="2430" y="744" width="400" height="80" as="geometry" />
+          <mxGeometry x="2430" y="816" width="400" height="80" as="geometry" />
         </mxCell>
         <mxCell id="legend" value="Legend" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#33424F;fontSize=12;rounded=1;arcSize=3;fillColor=#FFFFFF;strokeColor=#B8C4CE;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="30" y="1074" width="690" height="200" as="geometry" />
@@ -328,7 +331,7 @@
         <mxCell id="e-zones-audit-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;every step: a signed row&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="2100" y="124" width="160" height="14" as="geometry" />
         </mxCell>
-        <mxCell id="footer" value="Drawn from origin/main 63269c4 (2026-10-21) and the open pull requests named on it. The AWS resources each part runs on: aws-architecture.drawio; one incident in detail: incident-flow.drawio. tests/test_readme_architecture_r30.py checks that every module and activity named here exists." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+        <mxCell id="footer" value="Drawn from origin/main 9ac9e42 (2026-10-21) and the open pull requests named on it. The AWS resources each part runs on: aws-architecture.drawio; one incident in detail: incident-flow.drawio. tests/test_readme_architecture_r30.py checks that every module and activity named here exists." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="30" y="1348" width="2800" height="20" as="geometry" />
         </mxCell>
         <mxCell id="lg-a" value="" style="html=1;fontFamily=Helvetica;fontSize=11;edgeStyle=none;rounded=1;arcSize=8;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=7;exitX=0.5;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="lg-a-s" target="lg-a-e">
