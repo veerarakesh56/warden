@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import subprocess  # nosec B404 - runs the pinned Helios binary with fixed arguments
 import sys
 
@@ -70,13 +71,24 @@ def _bare_env() -> dict[str, str]:
 
 
 HELIOS_NAMES = ("helios", "helios.exe")  # the binary the infra job builds (target/release/helios), by name
+# The characters a path handed to Helios may hold: letters, digits and _ . - + / (a drive's : and \\ on Windows).
+# A quote, $, ;, a newline or any other character refuses the path: nothing else reaches the command line.
+SAFE_PATH = re.compile(r"[A-Za-z0-9_.+/:\\-]+")
+
+
+def _safe(path: pathlib.Path, what: str) -> str:
+    text = str(path)
+    if not path.is_absolute() or text.startswith("-") or not SAFE_PATH.fullmatch(text):
+        raise ValueError(f"{what} {text!r}: not an absolute path of safe characters")
+    return text
 
 
 def _helios_argv(helios: list[str], document: pathlib.Path, scenario: pathlib.Path) -> list[str]:
-    """Helios's command line, built only from checked values (Sonar pythonsecurity:S8705, 2026-10-20): the program is
-    an executable file named helios where the tools work (RUNNER_TEMP in the job), and the document and the scenario
-    are existing files passed as resolved absolute paths - each starts with a root or a drive, so none can be read as
-    one of Helios's options. Anything else is a ValueError, before anything runs."""
+    """Helios's command line, every part checked (Sonar pythonsecurity:S8705, 2026-10-20/21): the program is one
+    executable file named helios where the tools work (RUNNER_TEMP in the job); the document and the scenario are
+    existing files, resolved, absolute and made of safe characters only. The scenario goes as `--scenario=<path>` and
+    the document after `--`, so neither can be read as an option (Helios's clap CLI: `simulate <INPUT> --scenario
+    <PATH> --json`). Anything else is a ValueError, before anything runs."""
     if len(helios) != 1:
         raise ValueError("--helios names one program, with no arguments")
     exe = pathlib.Path(helios[0]).expanduser().resolve()
@@ -85,12 +97,12 @@ def _helios_argv(helios: list[str], document: pathlib.Path, scenario: pathlib.Pa
             or not any(exe.is_relative_to(b) for b in roots):
         raise ValueError(f"{helios[0]} is not the Helios binary (an executable named helios where the tools work)")
     files = []
-    for given in (document, scenario):
+    for what, given in (("document", document), ("scenario", scenario)):
         real = pathlib.Path(given).resolve()
-        if not real.is_file() or not real.is_absolute() or str(real).startswith("-"):
-            raise ValueError(f"{given} is not a file Helios may read")
-        files.append(str(real))
-    return [str(exe), "simulate", files[0], "--scenario", files[1], "--json"]
+        if not real.is_file():
+            raise ValueError(f"{what} {given} is not a file Helios may read")
+        files.append(_safe(real, what))
+    return [_safe(exe, "program"), "simulate", f"--scenario={files[1]}", "--json", "--", files[0]]
 
 
 def simulate(helios: list[str], document: pathlib.Path, scenario: pathlib.Path):

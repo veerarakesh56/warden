@@ -55,6 +55,12 @@ def test_a_scenario_file_name_read_back_from_a_file_stays_in_its_folder(tmp_path
         runner._in_folder(folder, name)
 
 
+def test_a_root_that_is_a_whole_filesystem_holds_nothing(tmp_path):
+    """A working directory of `/` (a container's default) is no working place: it would hold every file."""
+    with pytest.raises(ValueError, match="lies outside"):
+        runner._contained(tmp_path / "x.json", [pathlib.Path(tmp_path.anchor)])
+
+
 def test_a_plain_scenario_id_names_its_record(tmp_path):
     folder = tmp_path / "ground-truth"
     assert runner._in_folder(folder, "fs-27.json") == (folder / "fs-27.json").resolve()
@@ -124,8 +130,25 @@ def test_helios_gets_its_binary_and_absolute_file_paths_only(tmp_path, monkeypat
     doc, scenario = _files(tmp_path)
     monkeypatch.chdir(tmp_path)
     argv = gate._helios_argv([str(exe)], pathlib.Path(doc.name), pathlib.Path(scenario.name))
-    assert argv == [str(exe.resolve()), "simulate", str(doc.resolve()), "--scenario", str(scenario.resolve()), "--json"]
-    assert all(pathlib.Path(a).is_absolute() for a in (argv[0], argv[2], argv[4]))
+    assert argv == [str(exe.resolve()), "simulate", f"--scenario={scenario.resolve()}", "--json", "--",
+                    str(doc.resolve())]
+    assert argv.index("--") == len(argv) - 2  # the document comes after `--`: never read as an option
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a POSIX shell script stands in for the Helios binary")
+@pytest.mark.parametrize("name", ["plan;rm.json", "plan$(x).json", "pl an.json", "plan'.json", "plan\nx.json",
+                                  "pl\u00e1n.json"])
+def test_a_path_with_any_unsafe_character_never_reaches_helios(tmp_path, monkeypatch, name):
+    gate = _gate()
+    exe = _helios(tmp_path)
+    _, scenario = _files(tmp_path)
+    odd = tmp_path / name
+    odd.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(gate.subprocess, "run", lambda *a, **k: pytest.fail("Helios ran"))
+    for document, scen in ((odd, scenario), (scenario, odd)):
+        verdict = gate.simulate([str(exe)], document, scen)
+        assert verdict[0] == "error", (name, verdict)
+        assert "safe characters" in verdict[1], verdict
 
 
 @pytest.mark.skipif(os.name == "nt", reason="a POSIX shell script stands in for the Helios binary")

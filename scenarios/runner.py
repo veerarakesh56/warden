@@ -319,12 +319,12 @@ def _contained(path: pathlib.Path, roots: list[pathlib.Path] | None = None) -> p
     else ValueError. Checked here, beside each write, and not only where a path enters: a scenario id read back from
     manifest.json or a record, or named by --rerun / --only, also builds a path (Sonar pythonsecurity:S2083/S8707,
     2026-10-20). A root that is a whole filesystem counts as none, as in warden.paths."""
-    real = os.path.realpath(os.path.expanduser(path))
-    bases = [os.path.realpath(os.path.expanduser(root)) for root in (roots or paths.work_roots())]
+    real = pathlib.Path(path).expanduser().resolve()
+    bases = [pathlib.Path(root).expanduser().resolve() for root in (roots or paths.work_roots())]
     for base in bases:
-        if os.path.dirname(base) != base and os.path.commonpath([base, real]) == base:
-            return pathlib.Path(real)
-    raise ValueError(f"{path} lies outside {', '.join(bases)}")
+        if base.parent != base and real.is_relative_to(base):  # the form audit.key_path uses (S8707 cleared there)
+            return real
+    raise ValueError(f"{path} lies outside {', '.join(map(str, bases))}")
 
 
 def _write_json(path: pathlib.Path, payload: dict) -> None:

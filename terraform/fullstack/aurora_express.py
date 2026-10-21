@@ -140,11 +140,11 @@ def _read_stack(path: pathlib.Path) -> dict:
 def merge_stack(path: pathlib.Path, values: dict) -> None:
     """Add keys to stack.json in the file's own format (`terraform output -json` wraps each value)."""
     # Checked here too, beside the read and the write (Sonar pythonsecurity:S2083, 2026-10-20).
-    real = os.path.realpath(os.path.expanduser(path))
-    bases = [b for b in (os.path.realpath(os.path.expanduser(r)) for r in paths.work_roots()) if os.path.dirname(b) != b]
-    if not any(os.path.commonpath([b, real]) == b for b in bases):
-        raise SystemExit(f"refused: {path} is outside the places the tools work ({', '.join(bases)})")
-    if not os.path.exists(real):
+    real = pathlib.Path(path).expanduser().resolve()
+    bases = [b for b in (pathlib.Path(r).expanduser().resolve() for r in paths.work_roots()) if b.parent != b]
+    if not any(real.is_relative_to(b) for b in bases):  # the form audit.key_path uses (S8707 cleared there)
+        raise SystemExit(f"refused: {path} is outside the places the tools work ({', '.join(map(str, bases))})")
+    if not real.exists():
         raise SystemExit(f"no {path}: write it first with `terraform output -json` (README)")
     with open(real, encoding="utf-8") as src:
         raw = json.loads(src.read())
