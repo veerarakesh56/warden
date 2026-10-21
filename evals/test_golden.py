@@ -224,7 +224,13 @@ def test_the_budget_is_a_hard_ceiling_even_when_every_answer_is_as_long_as_it_ca
     budget = 3.0  # over the estimate (it starts), far under what 99 maximal answers cost (it must stop)
     assert golden.main(["--live", "--model", "claude-sonnet-5-5", "--budget-usd", str(budget),
                         "--suite", "no_fault"]) == 3
-    assert "stopped" in capsys.readouterr().err
+    printed = capsys.readouterr()
+    assert "stopped" in printed.err
+    # Review, PR 178: what was paid for is still reported, marked stopped; the suite the stop cut short has no score.
+    report = json.loads(printed.out.split("\n}\n", 1)[1])
+    assert report["stopped"]
+    assert "pass_hat_k" not in report
+    assert 0 < report["spent_usd"] <= report["budget_usd"] == budget
     spend = golden.Spend(budget, 10.0, 0.01)
     with pytest.raises(golden.BudgetStop):
         _run_until_stopped(spend, 1000)
@@ -254,3 +260,30 @@ def test_a_run_that_retries_cannot_spend_past_the_budget(monkeypatch):
     with pytest.raises(golden.BudgetStop):
         _run_until_stopped(spend, 100)
     assert 0 < spend.spent() <= budget
+
+
+def test_a_price_override_refuses_a_paid_run_before_any_call(monkeypatch, capsys):
+    """Review, PR 178: WARDEN_PRICE_IN/OUT would make the clients charge another price than the one the estimate and
+    the ceiling are held at - the run is refused before its budget (and so any paid client) exists."""
+    monkeypatch.setenv("WARDEN_PRICE_IN", "0.01")
+    monkeypatch.setenv("WARDEN_PRICE_OUT", "0.01")
+
+    def no_budget(*_a, **_kw):
+        raise AssertionError("no paid run may start")
+    monkeypatch.setattr(golden, "Spend", no_budget)
+    assert golden.main(["--live", "--model", "claude-sonnet-5-5", "--budget-usd", "3", "--suite", "no_fault"]) == 2
+    assert "WARDEN_PRICE_IN" in capsys.readouterr().err
+
+
+def test_a_client_on_another_model_or_price_is_never_used(monkeypatch):
+    _paid_stand_in(monkeypatch, 500)  # the stand-in answers as claude-sonnet-5-5 at its listed price
+    listed = golden.listed_price("claude-sonnet-5-5")
+    other_model = golden.Spend(3.0, 10.0, 0.01, model="claude-opus-5-5", prices=listed)
+    with pytest.raises(golden.BudgetStop, match="not 'claude-opus-5-5'"):
+        other_model.client()
+    other_price = golden.Spend(3.0, 10.0, 0.01, model="claude-sonnet-5-5", prices=(0.5, 1.0))
+    with pytest.raises(golden.BudgetStop, match="the budget cannot be held"):
+        other_price.client()
+    assert other_model.clients == other_price.clients == []
+    ok = golden.Spend(3.0, 10.0, 0.01, model="claude-sonnet-5-5", prices=listed)
+    assert ok.client() is ok.clients[0]

@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from warden.graph import run
-from warden.llm import LLMClient
+from warden.llm import LLMClient, model_prices
 from warden.models import ActionKind, Alert, RunReport, VerdictStatus
 from warden.tools import FixtureBackend
 
@@ -291,7 +291,8 @@ class Spend:
     possible output (the one cost known only after a call: llm.py checks a call's input before it, its output after),
     so the total can never pass the budget; a run is not started when what is left cannot pay for it."""
 
-    def __init__(self, budget_usd: float, price_out: float, per_run_usd: float) -> None:
+    def __init__(self, budget_usd: float, price_out: float, per_run_usd: float, *, model: str | None = None,
+                 prices: tuple[float, float] | None = None) -> None:
         from warden.providers import MAX_OUTPUT_TOKENS
 
         if not budget_usd > 0:
@@ -299,6 +300,7 @@ class Spend:
         self.budget = budget_usd
         self.reserve = MAX_OUTPUT_TOKENS * price_out / 1e6
         self.per_run = per_run_usd
+        self.model, self.prices = model, prices
         self.clients: list[LLMClient] = []
 
     def spent(self) -> float:
@@ -309,6 +311,11 @@ class Spend:
         if left < self.per_run:
             raise BudgetStop(f"${self.spent():.2f} of ${self.budget:.2f} spent: what is left cannot pay for another run")
         made = LLMClient(mock=False, max_usd=left)
+        if self.model is not None and made.model != self.model:
+            raise BudgetStop(f"the provider answers as {made.model!r}, not {self.model!r}: the budget cannot be held")
+        if self.prices is not None and (made.price_in, made.price_out) != self.prices:
+            raise BudgetStop(f"the client charges {[made.price_in, made.price_out]} per 1M tokens, not "
+                             f"{list(self.prices)}: the budget cannot be held")
         self.clients.append(made)
         return made
 
@@ -343,10 +350,18 @@ def _live_spend(args: argparse.Namespace) -> Spend | int:
         print(f"refused: the estimate ${est['expected_usd']:.2f} is over --budget-usd ${args.budget_usd:.2f}",
               file=sys.stderr)
         return 2
+    charged = model_prices(args.model)
+    if charged != tuple(est["price_per_mtok"]):
+        # WARDEN_PRICE_IN/OUT set: the clients would charge another price than the estimate and the ceiling use.
+        print(f"refused: the model calls would be charged at {list(charged)} per 1M tokens, not the listed "
+              f"{est['price_per_mtok']} the budget is held at - unset WARDEN_PRICE_IN and WARDEN_PRICE_OUT",
+              file=sys.stderr)
+        return 2
     if args.dry_run:
         return 0
     os.environ["WARDEN_MODEL"] = args.model
-    return Spend(args.budget_usd, est["price_per_mtok"][1], est["expected_usd"] / est["runs"])
+    return Spend(args.budget_usd, est["price_per_mtok"][1], est["expected_usd"] / est["runs"],
+                 model=args.model, prices=charged)
 
 
 def _run_suites(args: argparse.Namespace, factory: Callable[[], LLMClient], spend: Spend | None) -> int:
@@ -357,13 +372,17 @@ def _run_suites(args: argparse.Namespace, factory: Callable[[], LLMClient], spen
         if args.suite in ("all", "perturbation"):
             out["perturbation_drift"] = perturbation_drift(demo_cases() + no_fault_cases(), factory)
     except BudgetStop as exc:
+        # What was paid for is still reported: every suite that finished, never the one the stop cut short.
         print(f"stopped: {exc}", file=sys.stderr)
+        out["stopped"] = str(exc)
+        print(json.dumps(_with_spend(out, spend), indent=1))
         return 3
-    finally:
-        if spend:
-            out.update(spent_usd=round(spend.spent(), 4), budget_usd=spend.budget)
-    print(json.dumps(out, indent=1))
+    print(json.dumps(_with_spend(out, spend), indent=1))
     return 0 if out.get("pass_hat_k", 1.0) == 1.0 and not out.get("perturbation_drift") else 1
+
+
+def _with_spend(out: dict[str, Any], spend: Spend | None) -> dict[str, Any]:
+    return out | {"spent_usd": round(spend.spent(), 4), "budget_usd": spend.budget} if spend else out
 
 
 def _offline() -> LLMClient:
