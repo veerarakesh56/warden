@@ -231,7 +231,7 @@ def test_same_origin(first, second, same):
 
 class _FakeHTTPS(urllib.request.BaseHandler):
     """Stands in for the network inside web's opener (before its HTTPSHandler): every request to `home` is answered
-    302 to another host; a request anywhere else is recorded and answered 200."""
+    302 to another host, with an HTML body as servers send; a request anywhere else is recorded and answered 200."""
 
     handler_order = 400
 
@@ -244,7 +244,8 @@ class _FakeHTTPS(urllib.request.BaseHandler):
         headers = email.message.Message()
         if host == self.home:
             headers["Location"] = f"https://{ELSEWHERE}/steal"
-        resp = urllib.response.addinfourl(io.BytesIO(b"{}"), headers, req.full_url, 302 if host == self.home else 200)
+        body = b"<html>Moved</html>" if host == self.home else b"{}"
+        resp = urllib.response.addinfourl(io.BytesIO(body), headers, req.full_url, 302 if host == self.home else 200)
         resp.msg = "Found" if host == self.home else "OK"
         return resp
 
