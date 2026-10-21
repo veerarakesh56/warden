@@ -529,3 +529,25 @@ def test_an_application_that_could_not_be_read_for_another_reason_makes_no_plan(
         assert p.live("appconfig_revert", {"alarm": ALARM})["application"] == set()
     finally:
         Config.list_environments = real
+
+
+def test_a_change_is_dated_only_by_one_alarm():
+    """G10-D3: an entry that takes the alarm needs exactly one; two named alarms date nothing (a plant check found
+    no test for the comma, S19)."""
+    from warden import resolver
+    from warden.models import Alert
+
+    alert = Alert(alert_id="a1", name="n", severity="high", service="orders", environment="dev", summary="s",
+                  labels={"alarm": "cpu-high,mem-high"})
+    assert resolver._label_params(alert, catalog.CATALOG["ec2_revert_sg_change"], {}) == resolver._NO_SINGLE_ALARM
+
+
+def test_one_alarm_is_taken_into_the_plan():
+    from warden import resolver
+    from warden.models import Alert
+
+    alert = Alert(alert_id="a1", name="n", severity="high", service="orders", environment="dev", summary="s",
+                  labels={"alarm": "cpu-high"})
+    params: dict = {}
+    resolver._label_params(alert, catalog.CATALOG["ec2_revert_sg_change"], params)
+    assert params == {"alarm": "cpu-high"}
