@@ -63,8 +63,10 @@ def _run(tmp_path, second_action=None, second_target=None, second_fails=False):
 
 def test_two_answers_that_agree_keep_the_fix_for_a_person(tmp_path):
     seen = _run(tmp_path)
-    assert seen["diagnose"] == 2 and seen["rows"][0]["agree"] is True
-    assert seen["verdict"].status == VerdictStatus.approved_for_human and SECOND_OPINION not in seen["verdict"].policy_ids
+    assert seen["diagnose"] == 2
+    assert seen["rows"][0]["agree"] is True
+    assert seen["verdict"].status == VerdictStatus.approved_for_human
+    assert SECOND_OPINION not in seen["verdict"].policy_ids
 
 
 def test_another_action_another_target_or_no_second_answer_escalates(tmp_path):
@@ -72,5 +74,6 @@ def test_another_action_another_target_or_no_second_answer_escalates(tmp_path):
                             {"second_fails": True})):
         seen = _run(tmp_path / str(n), **kw) if (tmp_path / str(n)).mkdir() is None else None
         assert seen["verdict"].status == VerdictStatus.escalated, kw
-        assert SECOND_OPINION in seen["verdict"].policy_ids and seen["rows"][0]["agree"] is False
+        assert SECOND_OPINION in seen["verdict"].policy_ids
+        assert seen["rows"][0]["agree"] is False
         assert any("a person decides, and no fix is offered" in r for r in seen["verdict"].reasons)

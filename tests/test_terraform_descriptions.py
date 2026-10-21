@@ -44,7 +44,8 @@ def _descriptions() -> list[tuple[str, int, str, str]]:
 def test_there_are_descriptions_to_check():
     """⛔ The positive control. A parser that found nothing would pass every assertion below."""
     blocks = {block for _, _, block, _ in _descriptions()}
-    assert "aws_security_group" in blocks and "ingress" in blocks
+    assert "aws_security_group" in blocks
+    assert "ingress" in blocks
 
 
 @pytest.mark.parametrize("where,block,text", [

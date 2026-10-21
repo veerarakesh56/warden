@@ -19,7 +19,7 @@ import re
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
@@ -46,6 +46,20 @@ def _note(text: str) -> None:
     name, its own refusal - on one line, cut short, through the logging gate like every other line."""
     _LOG.info("%s", " ".join(text.split())[:300])
 
+
+# The audit row kinds this module writes and reads more than once.
+_PLAN_ROW = "remediation.plan"
+_END_ROW = "workflow.end"
+_ACCEPTED_ROW = "approval.accepted"
+_REPORT_ROW = "incident.report"
+_ANNOUNCE_ROW = "remediation.announce"
+_ALERT_ROW = "incident.alert"
+_REDIAGNOSE_ROW = "remediation.rediagnose"
+_PRECHECK_ROW = "remediation.precheck"
+_ROLLBACK_ROW = "remediation.rollback"
+_LLM_RESERVE_ROW = "incident.llm_reserve"
+_LLM_SPEND_ROW = "incident.llm_spend"
+_PLAN_FIX_ROW = "incident.plan_fix"
 
 OFFERED_UNDO = "WARDEN's own offer: the undo of the change the proposal left unaddressed"
 # How an approved plan went, said to the people who approved it (owner's first live approvals, 2026-10-12: one fix
@@ -177,6 +191,35 @@ def _tried(text: str) -> str:
     return f" WARDEN noticed in it: {'; '.join(tries)}." if tries else ""
 
 
+class _End(NamedTuple):
+    """A run's own signed end row, as announce says it: its status, its first reasons whole, and when."""
+
+    status: str
+    whole: list[str]
+    at: Any
+
+
+def _said_after(what: str, did: list[str]) -> str:
+    """Who approved a plan whose run ended, and, when a person takes over, the command that resets the kill switch."""
+    said = f" Approved by {' and '.join(did)}." if did and what in OUTCOME else ""
+    if what in PERSON_TAKES_OVER:
+        # The command in full (2026-10-16 audit: without --approver and --key it failed as written).
+        said += (" Every automatic fix is stopped until an approver resets the kill switch: `warden killswitch "
+                 "link --approver YOU --key YOUR.pem` opens the page that shows why it is on and resets it.")
+    return said
+
+
+def _hold_back(said: str, words: str) -> str:
+    """`said` as the outbound gate lets it go: should the gate hold the person's own `words` back, the rest is said
+    and their words are not."""
+    from .gate import enforce
+
+    if enforce(said).verdict == "BLOCK":
+        return said.replace(words, " Their note is not shown here: the outbound gate held it back. It is on "
+                                   "WARDEN's record.")
+    return said
+
+
 def _words(text: str) -> str:
     """An approver's own words in a message: data, never markup. One line inside a code span, nothing Slack or HTML
     would act on (reporting.untrusted_inline), no mark that could become someone's mention; the outbound gate and
@@ -259,6 +302,32 @@ def _environment_problems(env: str, entry: catalog.Entry, params: dict[str, Any]
         if named and named != env:
             problems.append(f"P18 ENV-MISMATCH: {p} {params.get(p)!r} is named for {named!r}, not {env!r}")
     return problems
+
+
+def _approver_problems(plan: Plan, name: str, approver: approvals.Approver | None) -> list[str]:
+    """Why `name` may not approve `plan` as an approver: not on the list, not of this tier, or not of this
+    environment. Empty: they may."""
+    if approver is None:
+        return [f"{name!r} is not an approver"]
+    if plan.tier not in approver.tiers:
+        return [f"{name} may not approve {plan.tier}"]
+    if refusal := approvals.environment_refusal(name, approver, plan.environment):
+        return [refusal]
+    return []
+
+
+def _cite_own_fixes(context: ContextBundle, own_step: dict[str, Any]) -> None:
+    """Each of WARDEN's own fixes matched to the evidence item it is shown as."""
+    # The ids the model is shown them by, so a citation of one can be told from a citation of anything else - each
+    # fix's own trusted (C) item only: an application's log line that copies the words is not WARDEN's (review L2).
+    from . import evidence
+
+    items = [i for i in evidence.index(context).values() if i.id.startswith("C") and _OWN_FIX in i.text]
+    for fix in own_step["fixes"]:
+        # A fix and its undo share the workflow id: each is matched to its own line.
+        fix["item"] = next((i.id for i in items if f"{_OWN_FIX}{fix['workflow_id']} " in i.text
+                            and (" warden undo of " in i.text) == bool(fix.get("undo"))), "")
+    own_step["items"] = [f["item"] for f in own_step["fixes"] if f["item"]]
 
 
 def _deadline(plan: Plan) -> datetime:
@@ -379,7 +448,7 @@ class RemediationActivities:
                     plan_hash=plan_hash(req.entry, req.params, snapshot, basis), created_at=datetime.now(UTC),
                     problems=problems, target=key, environment=req.environment, basis=basis,
                     approval_ttl_minutes=req.approval_ttl_minutes)
-        self.audit.append(req.incident_id, "remediation.plan",
+        self.audit.append(req.incident_id, _PLAN_ROW,
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
                            # A refused plan's parameters are kept redacted: never applied, and a caller may have put
@@ -415,7 +484,7 @@ class RemediationActivities:
         reasons = self._blocked(plan)
         # Register H1: approval fatigue. Past this many requests for approval in an hour, a person approving is
         # stamping, not reading - the next plan waits.
-        asked = {e["body"].get("workflow_id") for e in self.audit.entries(kinds=("remediation.plan",),
+        asked = {e["body"].get("workflow_id") for e in self.audit.entries(kinds=(_PLAN_ROW,),
                                                                           since=datetime.now(UTC) - timedelta(hours=1))}
         asked.discard(plan.workflow_id)
         if len(asked) >= MAX_PLANS_PER_HOUR:
@@ -431,49 +500,91 @@ class RemediationActivities:
         changed, `verified` once the fix passed its checks, or `ended` - how the run ended, read from this run's own
         signed end row, never from the caller. Through the outbound gate, with the incident and its audit head
         (register S17)."""
-        from .reporting import Report
-
         actions = self._approval_links(plan) if what in ("opening", "waiting", "autonomous") else ()
-        opening = what == "opening"
-        if opening:
+        if what == "opening":
             # With no approval domain the request still goes, without its buttons: the incident's one message is
             # never nothing (independent check, 2026-10-14).
             what = "waiting"
-        why: list[str] = []
-        whole: list[str] = []
-        ended_at = None
+        end = None
         if what == "ended":
-            ends = [e for e in self.audit.entries(plan.incident_id, kinds=("workflow.end",))
-                    if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id") == _run_id()]
-            if not ends:
+            end = self._end_row(plan)
+            if end is None:
                 return []
-            body, ended_at = ends[-1]["body"], ends[-1]["at"]
-            whole = [str(r) for r in (body.get("reasons") or [])[:3]]  # a denial's reason is said whole, below
-            what, why = str(body.get("status")), [r[:300] for r in whole]
+            what = end.status
         self.audit.checkpoint()
         head = self.audit.head(plan.incident_id)
-        tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
+        composed = self._compose(plan, what, end)
+        if composed is None:
+            return []  # nothing on the record says who: nothing is claimed
+        said, why = composed
+        return self._say(plan, what, head, said, why=why, actions=actions)
+
+    def _end_row(self, plan: Plan) -> _End | None:
+        """How this run ended, from its own signed end row. None: no end row for this run."""
+        ends = [e for e in self.audit.entries(plan.incident_id, kinds=(_END_ROW,))
+                if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id") == _run_id()]
+        if not ends:
+            return None
+        body = ends[-1]["body"]
+        whole = [str(r) for r in (body.get("reasons") or [])[:3]]  # a denial's reason is said whole, below
+        return _End(status=str(body.get("status")), whole=whole, at=ends[-1]["at"])
+
+    def _compose(self, plan: Plan, what: str, end: _End | None) -> tuple[str, list[str]] | None:
+        """The words of `announce`, and the reasons said with them. None: an approval nobody on the record gave."""
+        why = [r[:300] for r in end.whole] if end else []
         shown = (catalog.shown_target(plan.environment, plan.entry, plan.params) if plan.entry in catalog.CATALOG
                  else plan.target)
-        # Who may approve this tier, and who did (owner, 2026-10-12: "anyone in the channel can click it, and nobody
-        # can see who approved"). Both from WARDEN's own record: the approver list, and this run's accepted approvals.
-        need = self.policy.required.get(plan.tier, 1)
-        gave = [b for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",)))
+        gave = self._approvals_given(plan)
+        did = self._approvers_said(gave)
+        noted = self._notes_said(gave)
+        words = noted if what == "approved" else ""  # the person's own words in this message, if any
+        said = self._plan_said(plan, what, shown, did=did, noted=noted)
+        if what == "approved" and not did:
+            return None
+        denial = self._denial_said(plan, shown, why, end) if what == "denied" else None
+        if denial is not None:
+            said, words = denial
+            why = []
+        said += self._said_beside(plan, what) + _said_after(what, did)
+        # The person's own words go only where the gate lets the whole message go: should it hold them back, the
+        # decision is still said - who, how, when - and only their words are not (live, 2026-10-14: a whole denial
+        # message was withheld for the note in it).
+        if words:
+            said = _hold_back(said, words)
+        if why:
+            said += " Why: " + "; ".join(self._reasons_said(why))
+        return said, why
+
+    def _approvals_given(self, plan: Plan) -> list[dict[str, Any]]:
+        """This run's accepted approvals of this plan, from WARDEN's own record."""
+        return [b for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=(_ACCEPTED_ROW,)))
                 if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()
                 and b.get("plan_hash") == plan.plan_hash]
-        did = sorted({f"{approvals.AI_LABEL} (an AI, with its own signing key, at autonomy level "
-                      f"{b.get('autonomy', autonomy.L2)}: {autonomy.MEANS[autonomy.L2]})"
-                      if b.get("ai") is True or self.policy.is_ai(str(b.get("approver"))) else
-                      f"{self.policy.said(str(b.get('approver')))} (with their "
-                      f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})" for b in gave})
+
+    def _approvers_said(self, gave: list[dict[str, Any]]) -> list[str]:
+        """Who approved, each as a reader knows them, and how: an AI with its own key, or a person with theirs."""
+        return sorted({f"{approvals.AI_LABEL} (an AI, with its own signing key, at autonomy level "
+                       f"{b.get('autonomy', autonomy.L2)}: {autonomy.MEANS[autonomy.L2]})"
+                       if b.get("ai") is True or self.policy.is_ai(str(b.get("approver"))) else
+                       f"{self.policy.said(str(b.get('approver')))} (with their "
+                       f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})" for b in gave})
+
+    def _notes_said(self, gave: list[dict[str, Any]]) -> str:
+        """The approvers' notes, said in the message."""
         # What each wrote with their approval, in their own words - inert, one line each (_words).
         notes = [(str(b.get("approver")), str(b["note"])) for b in gave if b.get("note")]
-        noted = "".join((f" Their note: {_words(n)}" if len(gave) == 1 else f" Note from {self.policy.said(a)}: {_words(n)}")
-                        + _tried(n) for a, n in notes)
-        words = noted if what == "approved" else ""  # the person's own words in this message, if any
+        return "".join((f" Their note: {_words(n)}" if len(gave) == 1 else f" Note from {self.policy.said(a)}: {_words(n)}")
+                       + _tried(n) for a, n in notes)
+
+    def _plan_said(self, plan: Plan, what: str, shown: str, *, did: list[str], noted: str) -> str:
+        """The sentence that says where the plan stands."""
+        # Who may approve this tier, and who did (owner, 2026-10-12: "anyone in the channel can click it, and nobody
+        # can see who approved"). Both from WARDEN's own record: the approver list, and this run's accepted approvals.
+        tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
+        need = self.policy.required.get(plan.tier, 1)
         # The plan's id, for whoever looks it up - not a command to type, in a message most readers act on by its
         # button (owner's bar, 2026-10-12: no unexplained jargon).
-        said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{shown}` ({tier}) is waiting for an approval "
+        return {"waiting": (f"WARDEN's plan `{plan.entry}` on `{shown}` ({tier}) is waiting for an approval "
                             f"(plan `{plan.workflow_id}`). It waits until "
                             f"{environments.both_times(_deadline(plan), seconds=False)}; unapproved by then, it expires "
                             "and nothing is changed. "
@@ -495,66 +606,63 @@ class RemediationActivities:
                                "like; a person's decision always overrides Eldane's.")}.get(what) or OUTCOME.get(
             what, "WARDEN's plan `{entry}` on `{target}` ended `" + what + "`.").format(entry=plan.entry,
                                                                                       target=shown)
-        if what == "approved" and not did:
-            return []  # nothing on the record says who: nothing is claimed
-        if what == "denied":
-            # Who said no, how and when - said as an approval is (2026-10-14: a denial did not show
-            # who denied it; the message read "was denied ... Why: denied by owner"). A denial reaches the
-            # workflow only from the approval page, after the approver's passkey over this exact plan
-            # (approval_page._deny); who it was is this run's own signed end row.
-            who = next((n for n in self.policy.approvers
-                        if any(w == f"denied by {n}" or w.startswith(f"denied by {n}: ") for w in why)), "")
-            if who and ended_at is not None:
-                reason = next((w[len(f"denied by {who}: "):] for w in whole if w.startswith(f"denied by {who}: ")), "")
-                words = f" Their reason: {_words(reason)}{_tried(reason)}" if reason else ""
-                said = (f"WARDEN's plan `{plan.entry}` on `{shown}` was denied by {self.policy.said(who)} (with "
-                        f"their passkey) at {environments.both_times(ended_at)}: nothing was changed." + words)
-                why = []
+
+    def _denial_said(self, plan: Plan, shown: str, why: list[str], end: _End | None) -> tuple[str, str] | None:
+        """A denial, said with who and when and their reason. None: the end row names no approver."""
+        # Who said no, how and when - said as an approval is (2026-10-14: a denial did not show
+        # who denied it; the message read "was denied ... Why: denied by owner"). A denial reaches the
+        # workflow only from the approval page, after the approver's passkey over this exact plan
+        # (approval_page._deny); who it was is this run's own signed end row.
+        who = next((n for n in self.policy.approvers
+                    if any(w == f"denied by {n}" or w.startswith(f"denied by {n}: ") for w in why)), "")
+        if not who or end is None or end.at is None:
+            return None
+        reason = next((w[len(f"denied by {who}: "):] for w in end.whole if w.startswith(f"denied by {who}: ")), "")
+        words = f" Their reason: {_words(reason)}{_tried(reason)}" if reason else ""
+        said = (f"WARDEN's plan `{plan.entry}` on `{shown}` was denied by {self.policy.said(who)} (with "
+                f"their passkey) at {environments.both_times(end.at)}: nothing was changed." + words)
+        return said, words
+
+    def _said_beside(self, plan: Plan, what: str) -> str:
+        """What is said beside an autonomous approval or a request for one: Eldane's review, and for a request
+        WARDEN's own earlier fix and the same fix's recent history."""
         if what == "autonomous":
             from . import eldane
 
-            said += eldane.said(self.audit, plan, _run_id())
-        if what == "waiting":
-            import contextlib
+            return eldane.said(self.audit, plan, _run_id())
+        if what != "waiting":
+            return ""
+        import contextlib
 
-            from . import history
+        from . import eldane, history
 
-            # WARDEN's own earlier fix beside this incident's evidence: said, with whether this diagnosis named it the
-            # cause - the approver decides knowing both (owner, 2026-10-15).
-            said += self._own_fix_said(plan.incident_id)
-            # Eldane's review and the plan's autonomy level, beside the request: said to be an AI (Art. 50).
-            from . import eldane
+        # WARDEN's own earlier fix beside this incident's evidence: said, with whether this diagnosis named it the
+        # cause - the approver decides knowing both (owner, 2026-10-15).
+        said = self._own_fix_said(plan.incident_id)
+        # Eldane's review and the plan's autonomy level, beside the request: said to be an AI (Art. 50).
+        said += eldane.said(self.audit, plan, _run_id())
+        # The same fix, on the same target, that ended badly in the last day: said before the decision. A record
+        # that cannot be read does not hold an approval request back.
+        with contextlib.suppress(Exception):
+            said += history.warning(history.plans(self.audit), entry=plan.entry, target=plan.target,
+                                    plan_hash=plan.plan_hash)
+        return said
 
-            said += eldane.said(self.audit, plan, _run_id())
+    def _reasons_said(self, why: list[str]) -> list[str]:
+        """A run's reasons as a reader gets them."""
+        # A reason's own timestamp, in UTC and the display zone like every other time in a message.
+        why = [_ISO_TIME.sub(lambda m: environments.both_times(datetime.fromisoformat(m.group(0)), seconds=False), w)
+               for w in why]
+        # The record's reason names the approver by the list's id; a reader gets the person (their mark).
+        for name in self.policy.approvers:
+            why = [w.replace(f"denied by {name}", f"denied by {self.policy.said(name)}") for w in why]
+        return why
 
-            # The same fix, on the same target, that ended badly in the last day: said before the decision. A record
-            # that cannot be read does not hold an approval request back.
-            with contextlib.suppress(Exception):
-                said += history.warning(history.plans(self.audit), entry=plan.entry, target=plan.target,
-                                        plan_hash=plan.plan_hash)
-        if did and what in OUTCOME:
-            said += f" Approved by {' and '.join(did)}."
-        if what in PERSON_TAKES_OVER:
-            # The command in full (2026-10-16 audit: without --approver and --key it failed as written).
-            said += (" Every automatic fix is stopped until an approver resets the kill switch: `warden killswitch "
-                     "link --approver YOU --key YOUR.pem` opens the page that shows why it is on and resets it.")
-        # The person's own words go only where the gate lets the whole message go: should it hold them back, the
-        # decision is still said - who, how, when - and only their words are not (live, 2026-10-14: a whole denial
-        # message was withheld for the note in it).
-        if words:
-            from .gate import enforce
+    def _say(self, plan: Plan, what: str, head: str, said: str, *, why: list[str],
+             actions: tuple[tuple[str, str], ...]) -> list[str]:
+        """Send what `announce` composed, or keep it on the record only; recorded either way."""
+        from .reporting import Report
 
-            if enforce(said).verdict == "BLOCK":
-                said = said.replace(words, " Their note is not shown here: the outbound gate held it back. It is on "
-                                           "WARDEN's record.")
-        if why:
-            # A reason's own timestamp, in UTC and the display zone like every other time in a message.
-            why = [_ISO_TIME.sub(lambda m: environments.both_times(datetime.fromisoformat(m.group(0)), seconds=False), w)
-                   for w in why]
-            # The record's reason names the approver by the list's id; a reader gets the person (their mark).
-            for name in self.policy.approvers:
-                why = [w.replace(f"denied by {name}", f"denied by {self.policy.said(name)}") for w in why]
-            said += " Why: " + "; ".join(why)
         footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{audit.short(head)}` · check it on "
                   "its Full record page, which shows the same head with its signatures checked. Approvals are signed out "
                   "of band, never given in chat.")
@@ -563,7 +671,7 @@ class RemediationActivities:
         # The incident's summary leads the first message about it that reaches the channel - the request for approval,
         # or how the run ended if it ended first (independent check, 2026-10-14: a refused or blocked run sent one
         # line, and the incident's summary never reached anyone).
-        reports = [e["body"].get("markdown", "") for e in self.audit.entries(plan.incident_id, kinds=("incident.report",))]
+        reports = [e["body"].get("markdown", "") for e in self.audit.entries(plan.incident_id, kinds=(_REPORT_ROW,))]
         owed = bool(what not in RECORDED_ONLY and reports and reports[-1] and not self._summary_said(plan.incident_id))
         if owed:
             said = slack_summary(str(reports[-1])) + "\n\n**Fix plan:** " + said
@@ -572,29 +680,32 @@ class RemediationActivities:
         message = Report(markdown=said + footer, data={"alert": {"id": plan.incident_id, "environment": plan.environment}},
                          promotion=(), actions=actions, people=self.policy.people())
         if what in RECORDED_ONLY:
-            # Approved, denied, fixed: written as ever, through the same gate, and kept for WARDEN's records page -
-            # who, how, when and their note - not sent as another message in the channel (owner, 2026-10-14: "i
-            # dont want that records coming here in slack everytime").
-            from .chatops import name_people
-            from .gate import enforce
-
-            kept = enforce(said, alert_id=plan.incident_id)
-            self.audit.append(plan.incident_id, "remediation.announce", {
-                "workflow_id": plan.workflow_id, "run_id": _run_id(), "what": what, "head": head, "delivered": [],
-                "recorded_only": True, "said": name_people(kept.text, self.policy.people(), slack=False)
-                if kept.verdict != "BLOCK" else HELD_BACK})
-            self.audit.checkpoint()
+            self._record_only(plan, what, head, said)
             return []
         sent = _send(self.audit, plan.incident_id, message)
         delivered = [n.sink for n in sent if n.delivered]
-        self.audit.append(plan.incident_id, "remediation.announce", {"workflow_id": plan.workflow_id,
-                                                                     "run_id": _run_id(), "what": what,
-                                                                     "head": head, "delivered": delivered,
-                                                                     "summary": owed})
+        self.audit.append(plan.incident_id, _ANNOUNCE_ROW, {"workflow_id": plan.workflow_id,
+                                                            "run_id": _run_id(), "what": what,
+                                                            "head": head, "delivered": delivered,
+                                                            "summary": owed})
         if what in OUTCOME or why:
             self.audit.checkpoint()  # said after the end row: a run's record still ends signed
         return delivered
 
+    def _record_only(self, plan: Plan, what: str, head: str, said: str) -> None:
+        """A decision kept on the record only, not sent."""
+        # Approved, denied, fixed: written as ever, through the same gate, and kept for WARDEN's records page -
+        # who, how, when and their note - not sent as another message in the channel (owner, 2026-10-14: "i
+        # dont want that records coming here in slack everytime").
+        from .chatops import name_people
+        from .gate import enforce
+
+        kept = enforce(said, alert_id=plan.incident_id)
+        self.audit.append(plan.incident_id, _ANNOUNCE_ROW, {
+            "workflow_id": plan.workflow_id, "run_id": _run_id(), "what": what, "head": head, "delivered": [],
+            "recorded_only": True, "said": name_people(kept.text, self.policy.people(), slack=False)
+            if kept.verdict != "BLOCK" else HELD_BACK})
+        self.audit.checkpoint()
     def _own_fix_said(self, incident: str) -> str:
         """One sentence per earlier fix of WARDEN's put beside this incident's evidence (IncidentActivities._own_fixes),
         and whether the diagnosis cited it. Empty: none, or a record that cannot be read."""
@@ -617,7 +728,7 @@ class RemediationActivities:
     def _summary_said(self, incident: str) -> bool:
         """The incident's summary already reached someone: in its report's own message, or at the top of one about
         its plan."""
-        rows = self.audit.entries(incident, kinds=("incident.notify", "remediation.announce"))
+        rows = self.audit.entries(incident, kinds=("incident.notify", _ANNOUNCE_ROW))
         return any(e["body"].get("summary") and e["body"].get("delivered") for e in rows)
 
     @activity.defn
@@ -652,18 +763,18 @@ class RemediationActivities:
         """The incident's alarm as on the record, as a new incident from now - as an approver's "new plan" makes one
         (discuss_replan) - after WARDEN's fix of it failed a re-check with no alarm to start one. Empty: no alarm on the
         record. Recorded."""
-        rows = self.audit.entries(incident_id, kinds=("incident.alert",))
+        rows = self.audit.entries(incident_id, kinds=(_ALERT_ROW,))
         if not rows:
             return {}
         # One generation only (security review M3, 2026-10-16): a fix made from a re-diagnosis that fails again goes to
         # a person, never into another automatic diagnosis - no chain of fixes on fixes.
-        if any(e["body"].get("new") == incident_id for e in self.audit.entries(kinds=("remediation.rediagnose",))):
-            self.audit.append(incident_id, "remediation.rediagnose", {"run_id": _run_id(), "new": "",
-                                                                      "why": why[:300], "refused": "already a re-diagnosis"})
+        if any(e["body"].get("new") == incident_id for e in self.audit.entries(kinds=(_REDIAGNOSE_ROW,))):
+            self.audit.append(incident_id, _REDIAGNOSE_ROW, {"run_id": _run_id(), "new": "",
+                                                             "why": why[:300], "refused": "already a re-diagnosis"})
             return {}
         now = datetime.now(UTC)
         new = f"{incident_id.split('-')[0]}-{now:%Y%m%dT%H%M%SZ}"
-        self.audit.append(incident_id, "remediation.rediagnose", {"run_id": _run_id(), "new": new, "why": why[:300]})
+        self.audit.append(incident_id, _REDIAGNOSE_ROW, {"run_id": _run_id(), "new": new, "why": why[:300]})
         alert = Alert.model_validate(rows[0]["body"]["alert"]).model_copy(
             update={"alert_id": new, "started_at": now.isoformat()})
         return {"alert": alert.model_dump(mode="json"), "new": new}
@@ -675,7 +786,7 @@ class RemediationActivities:
         left with nothing at all)."""
         from .reporting import Report
 
-        reports = [e["body"].get("markdown", "") for e in self.audit.entries(incident_id, kinds=("incident.report",))]
+        reports = [e["body"].get("markdown", "") for e in self.audit.entries(incident_id, kinds=(_REPORT_ROW,))]
         if not reports or not reports[-1] or self._summary_said(incident_id):
             return []
         self.audit.checkpoint()
@@ -689,8 +800,8 @@ class RemediationActivities:
             markdown=said, data={"alert": {"id": incident_id, "environment": _environment_of(self.audit, incident_id)}},
             promotion=(), actions=IncidentActivities._record_link(incident_id)))
         delivered = [n.sink for n in sent if n.delivered]
-        self.audit.append(incident_id, "remediation.announce", {"run_id": _run_id(), "what": status, "head": head,
-                                                                "delivered": delivered, "summary": True})
+        self.audit.append(incident_id, _ANNOUNCE_ROW, {"run_id": _run_id(), "what": status, "head": head,
+                                                       "delivered": delivered, "summary": True})
         return delivered
 
     def _approval_links(self, plan: Plan) -> tuple[tuple[str, str], ...]:
@@ -721,7 +832,7 @@ class RemediationActivities:
     @activity.defn
     def check_approval(self, plan: Plan, approval: approvals.SignedApproval,
                        accepted: list[approvals.SignedApproval]) -> ApprovalResult:
-        used = {e["body"]["nonce"] for e in self.audit.entries(kinds=("approval.accepted",))}
+        used = {e["body"]["nonce"] for e in self.audit.entries(kinds=(_ACCEPTED_ROW,))}
         problems = approvals.check(approval, policy=self.policy, workflow_id=plan.workflow_id,
                                    plan_hash=plan.plan_hash, tier=plan.tier, plan_created_at=plan.created_at,
                                    used_nonces=used, environment=plan.environment)
@@ -732,7 +843,7 @@ class RemediationActivities:
             # Eldane's approval counts only at L2 (dev, not demoted), below prod, off WARDEN's own guardrails, with
             # the kill switch off - and its own agreement with exactly this plan on the record (autonomy.py).
             problems += autonomy.ai_problems(self.audit, plan, _run_id())
-        kind = "approval.refused" if problems else "approval.accepted"
+        kind = "approval.refused" if problems else _ACCEPTED_ROW
         # Register H1: how long the approver had the plan before signing. Under HASTY_S is recorded as hasty - read
         # by the person who audits approvals, and by the catch trials (G7).
         latency = (approval.issued_at - plan.created_at).total_seconds()
@@ -761,12 +872,7 @@ class RemediationActivities:
         now = datetime.now(UTC)
         problems: list[str] = []
         approver = self.policy.approvers.get(assertion.approver)
-        if approver is None:
-            problems.append(f"{assertion.approver!r} is not an approver")
-        elif plan.tier not in approver.tiers:
-            problems.append(f"{assertion.approver} may not approve {plan.tier}")
-        elif refusal := approvals.environment_refusal(assertion.approver, approver, plan.environment):
-            problems.append(refusal)
+        problems += _approver_problems(plan, assertion.approver, approver)
         if (assertion.workflow_id, assertion.plan_hash, assertion.tier) != (plan.workflow_id, plan.plan_hash, plan.tier):
             problems.append("the passkey approval is for a different plan")
         cooling = timedelta(minutes=self.policy.cooling_off_minutes.get(plan.tier, 0))
@@ -781,7 +887,7 @@ class RemediationActivities:
         rp_id = os.environ.get("WARDEN_APPROVAL_RP_ID", "")
         if not rp_id:
             problems.append("no approval domain is configured (WARDEN_APPROVAL_RP_ID)")
-        seen = self.audit.entries(kinds=("approval.accepted",))
+        seen = self.audit.entries(kinds=(_ACCEPTED_ROW,))
         verified = None
         if enrolled is not None and rp_id:  # every reason is reported, not only the first
             counts = [e["body"].get("sign_count", 0) for e in seen if e["body"].get("credential_id") == enrolled.credential_id]
@@ -794,7 +900,7 @@ class RemediationActivities:
                 rp_id=rp_id, origin=f"https://{rp_id}", now=now, used_nonces={e["body"]["nonce"] for e in seen})
             problems += found
         latency = (now - plan.created_at).total_seconds()
-        self.audit.append(plan.incident_id, "approval.refused" if problems else "approval.accepted", {
+        self.audit.append(plan.incident_id, "approval.refused" if problems else _ACCEPTED_ROW, {
             "workflow_id": plan.workflow_id, "run_id": _run_id(), "method": "passkey", "latency_s": round(latency, 1),
             "hasty": latency < HASTY_S, "approver": assertion.approver, "nonce": assertion.nonce,
             "approver_list": self.policy.fingerprint(),
@@ -824,12 +930,12 @@ class RemediationActivities:
             problems.append("the target changed after the plan was made; it needs a new plan")
         if entry := catalog.CATALOG.get(plan.entry):
             problems += _environment_problems(plan.environment, entry, plan.params, live)
-        self.audit.append(plan.incident_id, "remediation.precheck",
+        self.audit.append(plan.incident_id, _PRECHECK_ROW,
                           {"workflow_id": plan.workflow_id, "run_id": _run_id(), "plan_hash": plan.plan_hash,
                            "problems": problems})
         return problems
 
-    def _not_approved(self, plan: Plan, service: str) -> list[str]:
+    def _not_approved(self, plan: Plan) -> list[str]:
         """Why `plan` may not be applied, from WARDEN's OWN audit log - never from what the workflow
         says, and only rows of THIS run (a replayed or forged activity result can carry a workflow past
         any of its steps: second and third reviews, 2026-09-30):
@@ -844,14 +950,14 @@ class RemediationActivities:
                     if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                     and e["body"].get("plan_hash") == plan.plan_hash]
 
-        made = [e["body"] for e in rows("remediation.plan")]
+        made = [e["body"] for e in rows(_PLAN_ROW)]
         if (not made or made[-1].get("problems") or made[-1].get("entry") != plan.entry
                 or made[-1].get("params") != plan.params or made[-1].get("target") != plan.target
                 or made[-1].get("basis") != plan.basis):
             return ["no such plan was made for this workflow run"]
         if _basis_now(plan) != plan.basis:  # a worker deployed after the precheck (register O5)
             return ["WARDEN's code or catalogue changed after the plan was made"]
-        approved = rows("approval.accepted")
+        approved = rows(_ACCEPTED_ROW)
         need = self.policy.required.get(made[-1].get("tier", ""), 1)
         if len({e["body"].get("approver") for e in approved}) < need:
             return [f"{len({e['body'].get('approver') for e in approved})} of {need} approval(s) recorded for this plan"]
@@ -861,7 +967,7 @@ class RemediationActivities:
                 again := autonomy.ai_problems(self.audit, plan, run)):
             return again
         last_approval = max(e["seq"] for e in approved)
-        checks = [e for e in rows("remediation.precheck") if e["seq"] > last_approval]
+        checks = [e for e in rows(_PRECHECK_ROW) if e["seq"] > last_approval]
         if not checks or checks[-1]["body"].get("problems"):
             return ["no clean precheck of this plan after its approval"]
         return self._blocked(plan)
@@ -869,7 +975,7 @@ class RemediationActivities:
     def _who(self, plan: Plan, run: str) -> dict[str, Any]:
         """Who approved this plan in this run, from the audit's own rows - never from a caller (audit A-P-5): the
         actor session that makes the change names them."""
-        approvers = {e["body"].get("approver") for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",))
+        approvers = {e["body"].get("approver") for e in self.audit.entries(plan.incident_id, kinds=(_ACCEPTED_ROW,))
                      if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                      and e["body"].get("plan_hash") == plan.plan_hash}
         return {"incident": plan.incident_id, "plan_hash": plan.plan_hash, "approvers": sorted(a for a in approvers if a)}
@@ -891,7 +997,7 @@ class RemediationActivities:
     @activity.defn
     def apply(self, plan: Plan, service: str) -> str:
         run = _run_id()
-        refused = self._not_approved(plan, service)
+        refused = self._not_approved(plan)
         if refused:
             self._refuse(plan, run, refused)
         done = [e for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
@@ -1000,13 +1106,13 @@ class RemediationActivities:
 
     def _incident_alert(self, incident_id: str) -> dict[str, Any]:
         """The alert that opened the incident, as its record holds it; {} for none."""
-        rows = self.audit.entries(incident_id, kinds=("incident.alert",))
+        rows = self.audit.entries(incident_id, kinds=(_ALERT_ROW,))
         return (rows[-1]["body"].get("alert") or {}) if rows else {}
 
     def _incident_alarm(self, incident_id: str) -> str:
         """The CloudWatch alarm that opened the incident, from the incident's own record (intake sets `via` last, so
         a sender's label never says it); "" for any other source."""
-        rows = self.audit.entries(incident_id, kinds=("incident.alert",))
+        rows = self.audit.entries(incident_id, kinds=(_ALERT_ROW,))
         labels = ((rows[-1]["body"].get("alert") or {}).get("labels") or {}) if rows else {}
         return str(labels.get("alarm", "")) if labels.get("via") == "cloudwatch" else ""
 
@@ -1042,7 +1148,7 @@ class RemediationActivities:
                    and e["body"].get("plan_hash") == plan.plan_hash
                    for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))):
             detail = "nothing to roll back: this run applied nothing"
-            self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
+            self.audit.append(plan.incident_id, _ROLLBACK_ROW, {**row, "detail": detail})
             return detail
         # B20: the target's lock taken again, in one step with the check (locks.take): this run's own hold goes on, a
         # lapsed one is taken anew, and while another run holds the target the undo would write over its change.
@@ -1050,7 +1156,7 @@ class RemediationActivities:
                             plan_hash=plan.plan_hash, now=datetime.now(UTC))
         if locked:
             detail = f"not rolled back: {locked}; undoing this fix could undo that run's change too - a person decides"
-            self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
+            self.audit.append(plan.incident_id, _ROLLBACK_ROW, {**row, "detail": detail})
             return detail
         try:
             takes = inspect.signature(self.platform.rollback).parameters
@@ -1063,7 +1169,7 @@ class RemediationActivities:
                 # not a failed rollback and the kill switch stays off: a person takes over (first live rollback,
                 # 2026-10-12: a rule already switched off again was reported "undoing it FAILED, state unknown").
                 detail = f"not rolled back: {_safe_error(exc)}"
-                self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
+                self.audit.append(plan.incident_id, _ROLLBACK_ROW, {**row, "detail": detail})
                 return detail
             reason = f"rollback failed: {_safe_error(exc)}"
             self.audit.append(plan.incident_id, "remediation.rollback_failed", {**row, "why": reason})
@@ -1073,8 +1179,35 @@ class RemediationActivities:
         # Whether the target was really changed back: WARDEN's own undo is a change beside a later alarm's evidence, as
         # its fix is (live, 2026-10-16: the undo broke checkout again, and the next diagnosis never saw it).
         undone = not str(detail).startswith(("nothing to roll back", "not rolled back"))
-        self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail, "undone": undone})
+        self.audit.append(plan.incident_id, _ROLLBACK_ROW, {**row, "detail": detail, "undone": undone})
         return detail
+
+    def _run_rows(self, incident_id: str, workflow_id: str, run: str, outcome: FixOutcome,
+                  kind: str) -> list[dict[str, Any]]:
+        """The bodies of this run's `kind` rows, of the outcome's plan when it names one."""
+        return [e["body"] for e in self.audit.entries(incident_id, kinds=(kind,))
+                if e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id", "") == run
+                and (not outcome.plan_hash or e["body"].get("plan_hash") == outcome.plan_hash)]
+
+    def _recorded(self, incident_id: str, workflow_id: str, run: str,
+                  outcome: FixOutcome) -> tuple[dict[str, Any], set[Any], str, list[dict[str, Any]]]:
+        """The checklist as THIS run's audit rows show it, whatever the workflow claims; with who approved, the
+        plan's tier and the run's plan rows."""
+        def ours(kind: str) -> list[dict[str, Any]]:
+            return self._run_rows(incident_id, workflow_id, run, outcome, kind)
+
+        recorded = dict(outcome.checklist)
+        # Approved means the tier's quorum of different approvers, as the workflow requires - one signature
+        # of two was recorded as approved (fifth review, 2026-10-01).
+        plans = ours(_PLAN_ROW)
+        tier = plans[-1].get("tier", "") if plans else ""
+        approvers = {b.get("approver") for b in ours(_ACCEPTED_ROW)}
+        recorded["approved"] = bool(plans) and len(approvers) >= self.policy.required.get(tier, 1)
+        recorded["prechecked"] = any(not b.get("problems") for b in ours(_PRECHECK_ROW))
+        recorded["applied"] = bool(ours(bounds.APPLIED))
+        results = ours(bounds.RESULT)
+        recorded["verified"] = bool(results) and results[-1].get("ok") is True
+        return recorded, approvers, tier, plans
 
     def _score(self, incident_id: str, workflow_id: str, run: str, outcome: FixOutcome) -> None:
         """Autonomy (autonomy.py): this run's end, scored against Eldane's review of its plan, once per run, from
@@ -1082,14 +1215,12 @@ class RemediationActivities:
         from types import SimpleNamespace
 
         def ours(kind: str) -> list[dict[str, Any]]:
-            return [e["body"] for e in self.audit.entries(incident_id, kinds=(kind,))
-                    if e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id", "") == run
-                    and (not outcome.plan_hash or e["body"].get("plan_hash") == outcome.plan_hash)]
+            return self._run_rows(incident_id, workflow_id, run, outcome, kind)
 
-        plans = ours("remediation.plan")
+        plans = ours(_PLAN_ROW)
         if not plans:
             return
-        accepted = ours("approval.accepted")
+        accepted = ours(_ACCEPTED_ROW)
         verdict = autonomy.verdict_of(self.audit, SimpleNamespace(
             incident_id=incident_id, workflow_id=workflow_id, plan_hash=plans[-1].get("plan_hash")), run)
         autonomy.record_outcome(self.audit, incident_id, plan=plans[-1], status=outcome.status,
@@ -1105,30 +1236,14 @@ class RemediationActivities:
         # Once per run: Temporal retries this activity when a step after the end row fails, and a second end row
         # was written (eighth review, 2026-10-01).
         if run and any(e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id") == run
-                       for e in self.audit.entries(incident_id, kinds=("workflow.end",))):
+                       for e in self.audit.entries(incident_id, kinds=(_END_ROW,))):
             # Signed even when this try only finds the row: the try that wrote it may have failed before its
             # checkpoint (register R9-O4), and the end of a run must not stay unsigned. Scored too, if the try that
             # wrote it failed before it could be (PR 42 review): a failed fix that is never scored never demotes.
             self._score(incident_id, workflow_id, run, outcome)
             self.audit.checkpoint()
             return
-
-        def ours(kind: str) -> list[dict[str, Any]]:
-            return [e["body"] for e in self.audit.entries(incident_id, kinds=(kind,))
-                    if e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id", "") == run
-                    and (not outcome.plan_hash or e["body"].get("plan_hash") == outcome.plan_hash)]
-
-        recorded = dict(outcome.checklist)
-        # Approved means the tier's quorum of different approvers, as the workflow requires - one signature
-        # of two was recorded as approved (fifth review, 2026-10-01).
-        plans = ours("remediation.plan")
-        tier = plans[-1].get("tier", "") if plans else ""
-        approvers = {b.get("approver") for b in ours("approval.accepted")}
-        recorded["approved"] = bool(plans) and len(approvers) >= self.policy.required.get(tier, 1)
-        recorded["prechecked"] = any(not b.get("problems") for b in ours("remediation.precheck"))
-        recorded["applied"] = bool(ours(bounds.APPLIED))
-        results = ours(bounds.RESULT)
-        recorded["verified"] = bool(results) and results[-1].get("ok") is True
+        recorded, approvers, tier, plans = self._recorded(incident_id, workflow_id, run, outcome)
         body = {"workflow_id": workflow_id, "run_id": run, **outcome.model_dump(), "checklist": recorded,
                 # Requirement R50: who approved, how many the tier required, and - said, not implied - whether one
                 # person alone decided this change.
@@ -1145,32 +1260,41 @@ class RemediationActivities:
                 for t in bounds.trips(self.audit)):
             bounds.trip(self.audit, incident_id, f"{workflow_id} ended {outcome.status}: {'; '.join(outcome.reasons)}",
                         workflow_id=workflow_id, run_id=run)
-        self.audit.append(incident_id, "workflow.end", body)
+        self.audit.append(incident_id, _END_ROW, body)
         self._score(incident_id, workflow_id, run, outcome)
         self.audit.checkpoint()
         # How every plan ended, in the worker's log beside how it opened: a denied or expired plan left no line, and
         # only the audit could say (live, 2026-10-12). The status and who approved - never a typed reason.
         _note(f"{incident_id} fix plan {workflow_id} ended {outcome.status} approvers={','.join(body['approvers']) or '-'}")
         if outcome.status == "recovered":
-            # Decision D13: the fix is verified, so the incident's page is resolved - and the resolve is on the record.
-            from .chatops import page_resolve
-
-            resolved = page_resolve(incident_id)
-            if resolved is not None:
-                self.audit.append(incident_id, "page.resolved", {"workflow_id": workflow_id, "run_id": run,
-                                                                 "delivered": resolved.delivered,
-                                                                 "detail": resolved.detail})
+            self._resolve_page(incident_id, workflow_id, run)
         if recorded["applied"] and self.changes is not None and plans:
-            # Register O9: a change to a live system is recorded where the team looks for changes - once per run,
-            # after the signed end row it cites. A record that could not be written is itself recorded.
-            from .changes import issue_text
+            self._record_change(incident_id, workflow_id, run, end=body, plan=plans[-1])
 
-            title, text = issue_text(incident_id=incident_id, end=body, plan=plans[-1],
-                                     head=self.audit.head(incident_id), at=datetime.now(UTC))
-            url, detail = self.changes.open(title, text)
-            self.audit.append(incident_id, "change.recorded", {"workflow_id": workflow_id, "run_id": run,
-                                                               "url": url, "detail": detail})
-            self.audit.checkpoint()
+    def _resolve_page(self, incident_id: str, workflow_id: str, run: str) -> None:
+        """The incident's page resolved, on the record."""
+        # Decision D13: the fix is verified, so the incident's page is resolved - and the resolve is on the record.
+        from .chatops import page_resolve
+
+        resolved = page_resolve(incident_id)
+        if resolved is not None:
+            self.audit.append(incident_id, "page.resolved", {"workflow_id": workflow_id, "run_id": run,
+                                                             "delivered": resolved.delivered,
+                                                             "detail": resolved.detail})
+
+    def _record_change(self, incident_id: str, workflow_id: str, run: str, *, end: dict[str, Any],
+                       plan: dict[str, Any]) -> None:
+        """The applied change recorded where the team looks for changes."""
+        # Register O9: a change to a live system is recorded where the team looks for changes - once per run,
+        # after the signed end row it cites. A record that could not be written is itself recorded.
+        from .changes import issue_text
+
+        title, text = issue_text(incident_id=incident_id, end=end, plan=plan,
+                                 head=self.audit.head(incident_id), at=datetime.now(UTC))
+        url, detail = self.changes.open(title, text)
+        self.audit.append(incident_id, "change.recorded", {"workflow_id": workflow_id, "run_id": run,
+                                                           "url": url, "detail": detail})
+        self.audit.checkpoint()
 
 
 # --------------------------------------------------------------------------- incident
@@ -1240,45 +1364,19 @@ class IncidentActivities:
             steps += graph.apply_node(state, node(state))
             if node is graph.node_gather:
                 # Before redaction, so the line is masked with the rest of the evidence, one map.
-                own = self._own_fixes(alert)
-                if own:
-                    state["context"] = state["context"].model_copy(
-                        update={"logs": [*state["context"].logs, *(line for line, _ in own)]})
-                    steps.append({"node": "own_fixes", "fixes": [link for _, link in own]})
+                self._add_own_fixes(alert, state, steps)
         prompt = graph._evidence_blob(state)  # built HERE, with the map, which then goes out of scope
         own_step = next((s for s in steps if s.get("node") == "own_fixes"), None)
         if own_step is not None:
-            from . import evidence
-
-            # The ids the model is shown them by, so a citation of one can be told from a citation of anything else - each
-            # fix's own trusted (C) item only: an application's log line that copies the words is not WARDEN's (review L2).
-            items = [i for i in evidence.index(state["context"]).values() if i.id.startswith("C") and _OWN_FIX in i.text]
-            for fix in own_step["fixes"]:
-                # A fix and its undo share the workflow id: each is matched to its own line.
-                fix["item"] = next((i.id for i in items if f"{_OWN_FIX}{fix['workflow_id']} " in i.text
-                                    and (" warden undo of " in i.text) == bool(fix.get("undo"))), "")
-            own_step["items"] = [f["item"] for f in own_step["fixes"] if f["item"]]
+            _cite_own_fixes(state["context"], own_step)
         if os.environ.get("WARDEN_HISTORY_IN_PROMPT", "").strip() == "1":
-            # Past fix plans on the alert's resources, as fixed-vocabulary facts from the signed record (history.
-            # prompt_facts) - off unless measured to help; a record that cannot be read adds nothing.
-            from . import history
-
-            try:
-                shown = history.for_prompt(history.past(alert, self.audit), self.audit)
-                past = history.prompt_facts(shown)
-            except Exception:  # noqa: BLE001 - the diagnosis goes on without it
-                shown, past = [], ""
-            if past:
-                prompt = f"{prompt}\n\n{past}"
-                # Which past runs the model was shown, on the record beside its diagnosis (research 2026-10-15): a
-                # wrong diagnosis that followed history can be traced to the rows that led it.
-                steps.append({"node": "history_shown", "seqs": [s for r in shown for s in r["seqs"]]})
+            prompt = self._with_history(alert, prompt, steps)
         self._record(alert.alert_id, steps)
         # The alarm as it came in, so the incident can be discussed later from its own evidence (discuss.py). Its
         # free text redacted, as everything on the record is.
         from .redaction import redact
 
-        self.audit.append(alert.alert_id, "incident.alert", {"run_id": _run_id(), "alert": alert.model_copy(
+        self.audit.append(alert.alert_id, _ALERT_ROW, {"run_id": _run_id(), "alert": alert.model_copy(
             update={"summary": redact(alert.summary).text, "name": redact(alert.name).text}).model_dump(mode="json")})
         # The evidence exactly as the model is shown it - redacted, its untrusted text quarantined, scanned by the
         # tripwire - kept with the incident, so a question about it later is answered from these same items (the
@@ -1293,6 +1391,32 @@ class IncidentActivities:
                             redacted_deploys=state.get("redacted_deploys", []),
                             masked=len(state.get("redaction_map", {})), steps=steps)
 
+    def _add_own_fixes(self, alert: Alert, state: dict[str, Any], steps: list[dict[str, Any]]) -> None:
+        """WARDEN's own earlier fixes (_own_fixes) into the gathered evidence, and their links as a step."""
+        own = self._own_fixes(alert)
+        if own:
+            state["context"] = state["context"].model_copy(
+                update={"logs": [*state["context"].logs, *(line for line, _ in own)]})
+            steps.append({"node": "own_fixes", "fixes": [link for _, link in own]})
+
+    def _with_history(self, alert: Alert, prompt: str, steps: list[dict[str, Any]]) -> str:
+        """The prompt, with past fix plans on the alert's resources when there are any."""
+        # Past fix plans on the alert's resources, as fixed-vocabulary facts from the signed record (history.
+        # prompt_facts) - off unless measured to help; a record that cannot be read adds nothing.
+        from . import history
+
+        try:
+            shown = history.for_prompt(history.past(alert, self.audit), self.audit)
+            past = history.prompt_facts(shown)
+        except Exception:  # noqa: BLE001 - the diagnosis goes on without it
+            shown, past = [], ""
+        if not past:
+            return prompt
+        # Which past runs the model was shown, on the record beside its diagnosis (research 2026-10-15): a
+        # wrong diagnosis that followed history can be traced to the rows that led it.
+        steps.append({"node": "history_shown", "seqs": [s for r in shown for s in r["seqs"]]})
+        return f"{prompt}\n\n{past}"
+
     def _own_fixes(self, alert: Alert) -> list[tuple[str, dict[str, str]]]:
         """WARDEN's fixes applied in this alarm's environment in the OWN_FIX_WINDOW before it started: one CHANGE line
         each, as aws_stack writes a person's write (verifier._CHANGE_LINE reads it the same way), and the link both
@@ -1303,54 +1427,75 @@ class IncidentActivities:
         started = _when_iso(alert.started_at) or datetime.now(UTC)
         out = []
         try:
-            applied = self.audit.entries(kinds=(bounds.APPLIED,), since=started - OWN_FIX_WINDOW)
-            reopened_by = {r["body"].get("workflow_id")
-                           for r in self.audit.entries(alert.alert_id, kinds=("remediation.did_not_hold",))}
-            # The fix that did not hold and reopened this incident, from its own record however long its soak was
-            # (CodeRabbit, PR 43: a soak longer than OWN_FIX_WINDOW left it out of the reopened diagnosis).
-            seen = {e["seq"] for e in applied}
-            applied += [e for e in self.audit.entries(alert.alert_id, kinds=(bounds.APPLIED,))
-                        if reopened_by and e["body"].get("workflow_id") in reopened_by and e["seq"] not in seen]
-            # WARDEN's own undos too (live, 2026-10-16): each is told with the fix it undid, at the time of the undo.
-            undos = []
-            for r in self.audit.entries(kinds=("remediation.rollback",), since=started - OWN_FIX_WINDOW):
-                if r["body"].get("undone") is not True:
-                    continue
-                fix = next((e for e in self.audit.entries(r["correlation_id"], kinds=(bounds.APPLIED,))
-                            if e["body"].get("workflow_id") == r["body"].get("workflow_id")
-                            and e["body"].get("run_id", "") == r["body"].get("run_id", "")), None)
-                if fix is not None:
-                    undos.append({**fix, "at": r["at"], "undo": True})
-            for e in [*applied, *undos]:
-                b, at, undo = e["body"], e["at"], bool(e.get("undo"))
-                if str(b.get("service", "")).partition("/")[0] != alert.environment or at > started:
-                    continue
-                if e["correlation_id"] == alert.alert_id and b.get("workflow_id") not in reopened_by:
-                    continue  # this incident's own fix - unless it did not hold and reopened the incident (item 11)
-                plan = next((p["body"] for p in self.audit.entries(e["correlation_id"], kinds=("remediation.plan",))
-                             if p["body"].get("workflow_id") == b.get("workflow_id")), {})
-                on = _safe(str(plan.get("service") or "").strip() or "?")
-                wid, inc = _safe(b.get("workflow_id")), _safe(e["correlation_id"])
-                minutes = int((started - at).total_seconds() // 60)
-                where = ("the same resource as this alarm" if on in named_resources(alert)
-                         else "a different resource from this alarm's")
-                did = "undo of " if undo else ""
-                line = (f"CHANGE {at.astimezone(UTC):%Y-%m-%dT%H:%M:%S}Z warden {did}{_safe(b.get('action_class'))} on "
-                        f"{on} {_OWN_FIX}{wid} for incident {inc}, "
-                        f"{'undone' if undo else 'applied'} {minutes} min before this alarm started, on {where})")
-                link = {"incident": str(e["correlation_id"]), "workflow_id": str(b.get("workflow_id") or ""),
-                        "entry": str(b.get("action_class") or ""), "on": on, "minutes_before": str(minutes),
-                        **({"undo": "1"} if undo else {})}
-                out.append((line, link))
-                # The earlier fix's own record says a later alarm was looked at beside it, and which - once.
-                if not any(r["body"].get("incident") == alert.alert_id and r["body"].get("workflow_id") == link["workflow_id"]
-                           for r in self.audit.entries(str(e["correlation_id"]), kinds=("incident.later_alarm",))):
-                    self.audit.append(str(e["correlation_id"]), "incident.later_alarm", {
-                        "run_id": _run_id(), "workflow_id": link["workflow_id"], "incident": alert.alert_id,
-                        "minutes_after": link["minutes_before"]})
+            changes, reopened_by = self._own_changes(alert, started)
+            for e in changes:
+                told = self._own_fix_told(alert, e, started, reopened_by, safe=_safe, named=named_resources(alert))
+                if told is not None:
+                    out.append(told)
+                    self._note_later_alarm(alert, str(e["correlation_id"]), told[1])
         except Exception:  # noqa: BLE001 - the diagnosis goes on without it
             return out
         return out
+
+    def _own_changes(self, alert: Alert, started: datetime) -> tuple[list[dict[str, Any]], set[Any]]:
+        """WARDEN's applied fixes and undos that may be told beside this alarm, and the fixes that reopened it."""
+        applied = self.audit.entries(kinds=(bounds.APPLIED,), since=started - OWN_FIX_WINDOW)
+        reopened_by = {r["body"].get("workflow_id")
+                       for r in self.audit.entries(alert.alert_id, kinds=("remediation.did_not_hold",))}
+        # The fix that did not hold and reopened this incident, from its own record however long its soak was
+        # (CodeRabbit, PR 43: a soak longer than OWN_FIX_WINDOW left it out of the reopened diagnosis).
+        seen = {e["seq"] for e in applied}
+        applied += [e for e in self.audit.entries(alert.alert_id, kinds=(bounds.APPLIED,))
+                    if reopened_by and e["body"].get("workflow_id") in reopened_by and e["seq"] not in seen]
+        return [*applied, *self._own_undos(started)], reopened_by
+
+    def _own_undos(self, started: datetime) -> list[dict[str, Any]]:
+        """WARDEN's undos in the window, each as the fix it undid."""
+        # WARDEN's own undos too (live, 2026-10-16): each is told with the fix it undid, at the time of the undo.
+        undos = []
+        for r in self.audit.entries(kinds=(_ROLLBACK_ROW,), since=started - OWN_FIX_WINDOW):
+            if r["body"].get("undone") is not True:
+                continue
+            fix = next((e for e in self.audit.entries(r["correlation_id"], kinds=(bounds.APPLIED,))
+                        if e["body"].get("workflow_id") == r["body"].get("workflow_id")
+                        and e["body"].get("run_id", "") == r["body"].get("run_id", "")), None)
+            if fix is not None:
+                undos.append({**fix, "at": r["at"], "undo": True})
+        return undos
+
+    def _own_fix_told(self, alert: Alert, e: dict[str, Any], started: datetime, reopened_by: set[Any], *,
+                      safe: Callable[[Any], str], named: Any) -> tuple[str, dict[str, str]] | None:
+        """One earlier change of WARDEN's as its CHANGE line and link. None: not in this alarm's environment, after it
+        started, or this incident's own fix."""
+        b, at, undo = e["body"], e["at"], bool(e.get("undo"))
+        if str(b.get("service", "")).partition("/")[0] != alert.environment or at > started:
+            return None
+        if e["correlation_id"] == alert.alert_id and b.get("workflow_id") not in reopened_by:
+            return None  # this incident's own fix - unless it did not hold and reopened the incident (item 11)
+        plan = next((p["body"] for p in self.audit.entries(e["correlation_id"], kinds=(_PLAN_ROW,))
+                     if p["body"].get("workflow_id") == b.get("workflow_id")), {})
+        on = safe(str(plan.get("service") or "").strip() or "?")
+        wid, inc = safe(b.get("workflow_id")), safe(e["correlation_id"])
+        minutes = int((started - at).total_seconds() // 60)
+        where = ("the same resource as this alarm" if on in named
+                 else "a different resource from this alarm's")
+        did = "undo of " if undo else ""
+        line = (f"CHANGE {at.astimezone(UTC):%Y-%m-%dT%H:%M:%S}Z warden {did}{safe(b.get('action_class'))} on "
+                f"{on} {_OWN_FIX}{wid} for incident {inc}, "
+                f"{'undone' if undo else 'applied'} {minutes} min before this alarm started, on {where})")
+        link = {"incident": str(e["correlation_id"]), "workflow_id": str(b.get("workflow_id") or ""),
+                "entry": str(b.get("action_class") or ""), "on": on, "minutes_before": str(minutes),
+                **({"undo": "1"} if undo else {})}
+        return line, link
+
+    def _note_later_alarm(self, alert: Alert, incident: str, link: dict[str, str]) -> None:
+        """The later alarm, on the earlier fix's own record."""
+        # The earlier fix's own record says a later alarm was looked at beside it, and which - once.
+        if not any(r["body"].get("incident") == alert.alert_id and r["body"].get("workflow_id") == link["workflow_id"]
+                   for r in self.audit.entries(incident, kinds=("incident.later_alarm",))):
+            self.audit.append(incident, "incident.later_alarm", {
+                "run_id": _run_id(), "workflow_id": link["workflow_id"], "incident": alert.alert_id,
+                "minutes_after": link["minutes_before"]})
 
     @activity.defn
     def diagnose(self, pack: EvidencePack, escalate_only: str = "") -> Diagnosed:
@@ -1389,7 +1534,7 @@ class IncidentActivities:
         # the next run started as if nothing had been spent. Now an unsettled reservation counts as spent: the next
         # run of a killed one has no budget left, and the incident goes to a person - not to a second paid call.
         attempt = secrets.token_hex(8)
-        self.audit.append(pack.alert.alert_id, "incident.llm_reserve", {
+        self.audit.append(pack.alert.alert_id, _LLM_RESERVE_ROW, {
             "run_id": _run_id(), "attempt": attempt, "usd": max(llm.max_usd - before.usd, 0.0),
             "calls": max(llm.max_calls - before.calls, 0)})
         try:
@@ -1398,7 +1543,7 @@ class IncidentActivities:
             steps = graph.apply_node(state, graph.node_diagnose(state))
         finally:
             now, unanswered = llm.cost, int(getattr(llm, "unanswered", 0) or 0)
-            self.audit.append(pack.alert.alert_id, "incident.llm_spend", {
+            self.audit.append(pack.alert.alert_id, _LLM_SPEND_ROW, {
                 "run_id": _run_id(), "attempt": attempt, "usd": now.usd - before.usd, "calls": now.calls - before.calls - unanswered,
                 "unanswered": unanswered, "input_tokens": now.input_tokens - before.input_tokens,
                 "output_tokens": now.output_tokens - before.output_tokens})
@@ -1440,7 +1585,7 @@ class IncidentActivities:
         req = None if not_again else req
         if req:
             req["workflow_id"] = resolver.workflow_id(req)
-        self.audit.append(alert_id, "incident.plan_fix", {
+        self.audit.append(alert_id, _PLAN_FIX_ROW, {
             "run_id": _run_id(), "planned": bool(req), "why": why, **({"offered": OFFERED_UNDO} if offer else {}),
             **({"not_again": not_again} if not_again else {}),
             **({"entry": req["entry"], "params": req["params"], "workflow_id": req["workflow_id"]} if req else {})})
@@ -1480,7 +1625,7 @@ class IncidentActivities:
         from .reporting import Report
 
         if not why:
-            rows = [e["body"] for e in self.audit.entries(alert_id, kinds=("incident.plan_fix",))
+            rows = [e["body"] for e in self.audit.entries(alert_id, kinds=(_PLAN_FIX_ROW,))
                     if e["body"].get("run_id") == _run_id()]
             why = str(rows[-1].get("why") or "") if rows and not rows[-1].get("planned") else ""
         if not why:
@@ -1552,14 +1697,14 @@ class IncidentActivities:
     def _spent_since(self, since: datetime) -> CostRecord:
         """What every incident spent on the model since `since`, reservations of unfinished calls included."""
         total = CostRecord()
-        spent = self.audit.entries(kinds=("incident.llm_spend",), since=since)
+        spent = self.audit.entries(kinds=(_LLM_SPEND_ROW,), since=since)
         for e in spent:
             b = e["body"]
             total.input_tokens += int(b.get("input_tokens", 0))
             total.output_tokens += int(b.get("output_tokens", 0))
             total.usd += float(b.get("usd", 0.0))
-        settled = {e["body"].get("attempt") for e in self.audit.entries(kinds=("incident.llm_spend",))}
-        for e in self.audit.entries(kinds=("incident.llm_reserve",), since=since):
+        settled = {e["body"].get("attempt") for e in self.audit.entries(kinds=(_LLM_SPEND_ROW,))}
+        for e in self.audit.entries(kinds=(_LLM_RESERVE_ROW,), since=since):
             if e["body"].get("attempt") not in settled:
                 total.usd += float(e["body"].get("usd", 0.0))
         return total
@@ -1568,7 +1713,7 @@ class IncidentActivities:
         """What every earlier run of this incident spent on the model, from the audit - and, for a run whose spend
         was never written (killed mid-call), everything it had reserved."""
         total = CostRecord()
-        spent = self.audit.entries(alert_id, kinds=("incident.llm_spend",))
+        spent = self.audit.entries(alert_id, kinds=(_LLM_SPEND_ROW,))
         for e in spent:
             b = e["body"]
             total.input_tokens += int(b.get("input_tokens", 0))
@@ -1576,7 +1721,7 @@ class IncidentActivities:
             total.usd += float(b.get("usd", 0.0))
             total.calls += int(b.get("calls", 0))
         settled = {e["body"].get("attempt") for e in spent}
-        for e in self.audit.entries(alert_id, kinds=("incident.llm_reserve",)):
+        for e in self.audit.entries(alert_id, kinds=(_LLM_RESERVE_ROW,)):
             if e["body"].get("attempt") not in settled:
                 total.usd += float(e["body"].get("usd", 0.0))
                 total.calls += int(e["body"].get("calls", 0))
@@ -1626,19 +1771,7 @@ class IncidentActivities:
         body, closed = report.markdown.removesuffix(CLOSING), report.markdown.endswith(CLOSING)
         markdown = (body.rstrip("\n") + "\n" + timeline.section(changes, unread) + history.section(before)
                     + ("\n\n" + CLOSING if closed else "") + footer)
-        # An alarm held while its resource was expected down, and still firing when that ended, says so under the
-        # title: when it first fired, what held it, and that it is an incident from now (register G10-39's limit).
-        held = [e["body"] for e in self.audit.entries(alert_id, kinds=("incident.after_hold",))
-                if e["body"].get("firing") is not False]
-        if held:
-            first = _when_iso(str(held[-1].get("first_fired", "")))
-            why = str(held[-1].get("held", "")).split(": looked at again")[0]
-            title, _, rest = markdown.partition("\n")
-            markdown = (f"{title}\n\n**Held first:** this alarm fired"
-                        + (f" at {environments.both_times(first, seconds=False)}" if first else "")
-                        + f" while it was {why}; it was still firing when that ended, so it is an incident from "
-                        f"{environments.both_times(_when_iso(pack.alert.started_at) or datetime.now(UTC), seconds=False)}."
-                        f"\n{rest}")
+        markdown = self._held_first(pack, markdown)
         # Fixed before and failing again (owner, 2026-10-15): said under the title, so the channel's message carries it.
         said_again = history.again(before)
         if said_again:
@@ -1646,34 +1779,10 @@ class IncidentActivities:
             markdown = f"{title}\n\n{said_again}\n{rest}"
         people = self.policy.people() if self.policy is not None else ()
         if mode:
-            from .gate import enforce
-
-            kept = enforce(markdown, alert_id=alert_id)
-            withheld = []
-            if kept.verdict == "BLOCK":
-                from .gate import where_withheld
-
-                # Where and what kind, never the value: a withheld report is diagnosable from its own record.
-                withheld = where_withheld(markdown)
-                _note(f"{alert_id}: the report was withheld by the outbound gate ({'; '.join(kept.reasons)}) - at "
-                      f"{withheld or 'no single line (a value spans lines)'}")
-            self.audit.append(alert_id, "incident.report", {"run_id": _run_id(), "markdown": (
-                kept.text if kept.verdict != "BLOCK" else "The report was held back by the outbound gate.")[:60000],
-                **({"withheld": withheld, "gate_reasons": kept.reasons} if kept.verdict == "BLOCK" else {})})
+            self._keep_report(alert_id, markdown)
             if mode == "plan":
                 return []
-            rows = [e["body"] for e in self.audit.entries(alert_id, kinds=("incident.plan_fix",))
-                    if e["body"].get("run_id") == _run_id()]
-            why = str(rows[-1].get("why") or "") if rows and not rows[-1].get("planned") else ""
-            no = (f"\n\n**No fix plan:** {why[:300]}. There is nothing to approve; nothing changes unless a person acts."
-                  if why else "")
-            if why:
-                # The on-call line was written for a plan to approve; with none, it must not say there is a button
-                # (fs-07, live, 2026-10-15: "approve or deny ... with the button in this message" above "No fix plan").
-                markdown = markdown.replace(
-                    "approve or deny the fix plan with the button in this message - or, where there is none, read why "
-                    "here", "no fix plan could be opened (why below): decide what to do; WARDEN runs nothing here")
-            markdown = slack_summary(markdown) + no + footer
+            markdown = self._no_plan_summary(alert_id, markdown) + footer
             report = dataclasses.replace(report, actions=self._record_link(alert_id))
         sent = _send(self.audit, alert_id, dataclasses.replace(report, markdown=markdown, people=people))
         self.audit.append(alert_id, "incident.notify", {"run_id": _run_id(), "head": head,
@@ -1681,6 +1790,56 @@ class IncidentActivities:
                                                         "delivered": [n.sink for n in sent if n.delivered],
                                                         "summary": mode == "none"})
         return [n.sink for n in sent if n.delivered]
+
+    def _held_first(self, pack: EvidencePack, markdown: str) -> str:
+        """The report, with the alarm's hold said under its title."""
+        # An alarm held while its resource was expected down, and still firing when that ended, says so under the
+        # title: when it first fired, what held it, and that it is an incident from now (register G10-39's limit).
+        held = [e["body"] for e in self.audit.entries(pack.alert.alert_id, kinds=("incident.after_hold",))
+                if e["body"].get("firing") is not False]
+        if not held:
+            return markdown
+        first = _when_iso(str(held[-1].get("first_fired", "")))
+        why = str(held[-1].get("held", "")).split(": looked at again")[0]
+        title, _, rest = markdown.partition("\n")
+        return (f"{title}\n\n**Held first:** this alarm fired"
+                + (f" at {environments.both_times(first, seconds=False)}" if first else "")
+                + f" while it was {why}; it was still firing when that ended, so it is an incident from "
+                f"{environments.both_times(_when_iso(pack.alert.started_at) or datetime.now(UTC), seconds=False)}."
+                f"\n{rest}")
+
+    def _keep_report(self, alert_id: str, markdown: str) -> None:
+        """The whole report, recorded for WARDEN's records page through the outbound gate - or, held back, where and
+        what kind of value held it."""
+        from .gate import enforce
+
+        kept = enforce(markdown, alert_id=alert_id)
+        withheld = []
+        if kept.verdict == "BLOCK":
+            from .gate import where_withheld
+
+            # Where and what kind, never the value: a withheld report is diagnosable from its own record.
+            withheld = where_withheld(markdown)
+            _note(f"{alert_id}: the report was withheld by the outbound gate ({'; '.join(kept.reasons)}) - at "
+                  f"{withheld or 'no single line (a value spans lines)'}")
+        self.audit.append(alert_id, _REPORT_ROW, {"run_id": _run_id(), "markdown": (
+            kept.text if kept.verdict != "BLOCK" else "The report was held back by the outbound gate.")[:60000],
+            **({"withheld": withheld, "gate_reasons": kept.reasons} if kept.verdict == "BLOCK" else {})})
+
+    def _no_plan_summary(self, alert_id: str, markdown: str) -> str:
+        """The report's summary for Slack, with why no fix plan was opened when none was."""
+        rows = [e["body"] for e in self.audit.entries(alert_id, kinds=(_PLAN_FIX_ROW,))
+                if e["body"].get("run_id") == _run_id()]
+        why = str(rows[-1].get("why") or "") if rows and not rows[-1].get("planned") else ""
+        if not why:
+            return slack_summary(markdown)
+        # The on-call line was written for a plan to approve; with none, it must not say there is a button
+        # (fs-07, live, 2026-10-15: "approve or deny ... with the button in this message" above "No fix plan").
+        markdown = markdown.replace(
+            "approve or deny the fix plan with the button in this message - or, where there is none, read why "
+            "here", "no fix plan could be opened (why below): decide what to do; WARDEN runs nothing here")
+        return (slack_summary(markdown) + f"\n\n**No fix plan:** {why[:300]}. There is nothing to approve; nothing "
+                "changes unless a person acts.")
 
     @staticmethod
     def _record_link(incident: str) -> tuple[tuple[str, str], ...]:
@@ -1700,7 +1859,7 @@ class IncidentActivities:
         for fix in (steps[-1].get("fixes") or []) if steps else []:
             if not fix.get("item") or fix["item"] not in cited or fix.get("undo"):
                 continue  # an undo cited as the cause is not its fix failing: the fix had held until it was undone
-            plan = next((p["body"] for p in self.audit.entries(fix["incident"], kinds=("remediation.plan",))
+            plan = next((p["body"] for p in self.audit.entries(fix["incident"], kinds=(_PLAN_ROW,))
                          if p["body"].get("workflow_id") == fix["workflow_id"]), None)
             if plan is None or any(r["body"].get("connected_by") == alert_id
                                    for r in self.audit.entries(fix["incident"], kinds=(bounds.RESULT,))):
@@ -1763,6 +1922,46 @@ def _same_target(a: str, b: str) -> bool:
     return " ".join(str(a).lower().split()) == " ".join(str(b).lower().split())
 
 
+def _thread_messages(turn: Any) -> tuple[list[dict[str, Any]], Any]:
+    """The thread the mention is in, as Slack gives it, with the mention always among it; and WARDEN's own bot id
+    (None: no bot token, or Slack did not say)."""
+    from . import chatops
+
+    token = os.environ.get("WARDEN_SLACK_BOT_TOKEN", "").strip()
+    got = me = None
+    if token:
+        got, _ = chatops._slack_call("conversations.replies", {"channel": turn.channel, "ts": turn.thread_ts,
+                                                               "limit": 200}, token, form=True)
+        me, _ = chatops._slack_call("auth.test", {}, token, form=True)
+    messages = [m for m in (got or {}).get("messages") or [] if isinstance(m, dict)]
+    # A thread comes back oldest first, and some installs get only its first 15: the mention is always kept.
+    if turn.ts not in {str(m.get("ts")) for m in messages}:
+        messages.append({"user": turn.user, "text": turn.text, "ts": turn.ts})
+    bot = (me or {}).get("user_id")  # WARDEN's own replies by its id - another app's words never pass as WARDEN's
+    return messages, bot
+
+
+def _author(m: dict[str, Any], bot: Any) -> str:
+    """Who wrote a thread's message: WARDEN's own replies by its bot id - another app's words never pass as
+    WARDEN's."""
+    if bot and m.get("user") == bot:
+        return "WARDEN"
+    if m.get("bot_id"):
+        return "an app"
+    return "a person"
+
+
+def _replan_refusal(*, approver: bool, rows: list[dict[str, Any]], recent: list[dict[str, Any]]) -> str:
+    """Why an approver's "new plan" is not started. Empty: it is."""
+    if not approver:
+        return "not an approver"
+    if not rows:
+        return "no alarm on the record"
+    if any(e["body"].get("started") for e in recent):
+        return "asked again within the hour"
+    return ""
+
+
 class DiscussActivities:
     """The steps of a discussion of an incident in Slack (discuss.py), each in the zone that holds what it needs: the
     thread is read and the reply posted in notify (the bot's token), the evidence is read in read (the reader roles),
@@ -1771,32 +1970,21 @@ class DiscussActivities:
     def __init__(self, *, audit: AuditLog, incident: IncidentActivities, policy: Any = None) -> None:
         self.audit, self.incident, self.policy = audit, incident, policy
 
+    def _is_approver(self, user: str) -> bool:
+        """Whether this Slack user is an approver on the list."""
+        return bool(self.policy) and any(a.slack == user for a in self.policy.approvers.values())
+
     @activity.defn
     def discuss_thread(self, turn: Any) -> Any:
         """The thread the mention is in, as people wrote it - its first message and the latest ones, the mention itself
         always among them - and the incident it is about. Past today's limit for that incident, `over` says so before
         anything is read for it."""
-        from . import chatops
         from .discuss import DAILY_CALLS, MAX_MESSAGES, Thread, Turn, incident_in
 
         turn = Turn.model_validate(turn)
-        token = os.environ.get("WARDEN_SLACK_BOT_TOKEN", "").strip()
-        got = me = None
-        if token:
-            got, _ = chatops._slack_call("conversations.replies", {"channel": turn.channel, "ts": turn.thread_ts,
-                                                                   "limit": 200}, token, form=True)
-            me, _ = chatops._slack_call("auth.test", {}, token, form=True)
-        messages = [m for m in (got or {}).get("messages") or [] if isinstance(m, dict)]
-        # A thread comes back oldest first, and some installs get only its first 15: the mention is always kept.
-        if turn.ts not in {str(m.get("ts")) for m in messages}:
-            messages.append({"user": turn.user, "text": turn.text, "ts": turn.ts})
+        messages, bot = _thread_messages(turn)
         kept = messages[:1] + messages[1:][-(MAX_MESSAGES - 1):]
-        bot = (me or {}).get("user_id")  # WARDEN's own replies by its id - another app's words never pass as WARDEN's
-
-        def who(m: dict[str, Any]) -> str:
-            return "WARDEN" if bot and m.get("user") == bot else "an app" if m.get("bot_id") else "a person"
-
-        lines = [f"{who(m)}: {' '.join(str(m.get('text', '')).split())[:800]}" for m in kept]
+        lines = [f"{_author(m, bot)}: {' '.join(str(m.get('text', '')).split())[:800]}" for m in kept]
         incident = incident_in(turn.text, *(str(m.get("text", "")) for m in kept))
         key = f"discuss-{incident or 'unknown'}"
         # An environment's channel discusses only its own incidents (WARDEN_DISCUSS_CHANNELS): another's, or one with no
@@ -1810,7 +1998,7 @@ class DiscussActivities:
         if elsewhere:
             return Thread(incident="", elsewhere=True)
         turns = len(self.audit.entries(key, kinds=("discuss.turn",), since=datetime.now(UTC) - timedelta(hours=24)))
-        approver = bool(self.policy) and any(a.slack == turn.user for a in self.policy.approvers.values())
+        approver = self._is_approver(turn.user)
         return Thread(incident=incident, lines=lines, over=bool(incident) and turns > DAILY_CALLS, approver=approver)
 
     @activity.defn
@@ -1821,12 +2009,11 @@ class DiscussActivities:
 
         turn = Turn.model_validate(turn)
         key = f"discuss-{incident}"
-        rows = self.audit.entries(incident, kinds=("incident.alert",))
-        approver = bool(self.policy) and any(a.slack == turn.user for a in self.policy.approvers.values())
+        rows = self.audit.entries(incident, kinds=(_ALERT_ROW,))
+        approver = self._is_approver(turn.user)
         recent = self.audit.entries(key, kinds=("discuss.replan",),
                                     since=datetime.now(UTC) - timedelta(seconds=REPLAN_EVERY))
-        why = ("not an approver" if not approver else "no alarm on the record" if not rows
-               else "asked again within the hour" if any(e["body"].get("started") for e in recent) else "")
+        why = _replan_refusal(approver=approver, rows=rows, recent=recent)
         now = datetime.now(UTC)
         new = f"{incident.split('-')[0]}-{now:%Y%m%dT%H%M%SZ}"
         self.audit.append(key, "discuss.replan", {"run_id": _run_id(), "user": turn.user, "ts": turn.ts,
@@ -1841,7 +2028,7 @@ class DiscussActivities:
     def discuss_evidence(self, incident: str, fresh: bool) -> Any:
         """The incident's evidence read again, as the diagnosis read it - or around now, when the question is about now
         - with WARDEN's record of what it decided. None: no alarm on the record by that id."""
-        rows = self.audit.entries(incident, kinds=("incident.alert",))
+        rows = self.audit.entries(incident, kinds=(_ALERT_ROW,))
         if not rows:
             return None
         kept = [e["body"] for e in self.audit.entries(incident, kinds=("incident.evidence",))]
@@ -1889,7 +2076,7 @@ class DiscussActivities:
         key = f"discuss-{thread.incident}"
         approver = thread.approver
         since = datetime.now(UTC) - timedelta(hours=24)
-        calls = sum(int(e["body"].get("calls", 0)) for e in self.audit.entries(key, kinds=("incident.llm_spend",),
+        calls = sum(int(e["body"].get("calls", 0)) for e in self.audit.entries(key, kinds=(_LLM_SPEND_ROW,),
                                                                                 since=since))
         today = self.incident._spent_since(since)
         if calls >= discuss.DAILY_CALLS or today.usd >= DAILY_MAX_USD:
@@ -1901,8 +2088,8 @@ class DiscussActivities:
             _note(f"discuss: no model could be used ({type(exc).__name__})")
             return discuss.NO_ANSWER
         attempt = secrets.token_hex(8)
-        self.audit.append(key, "incident.llm_reserve", {"run_id": _run_id(), "attempt": attempt, "usd": llm.max_usd,
-                                                        "calls": 1})
+        self.audit.append(key, _LLM_RESERVE_ROW, {"run_id": _run_id(), "attempt": attempt, "usd": llm.max_usd,
+                                                  "calls": 1})
         before = llm.cost.model_copy()
         answer = None
         try:
@@ -1910,11 +2097,11 @@ class DiscussActivities:
                                     user=discuss.prompt(turn.text, thread, evidence.get("evidence", ""),
                                                         evidence.get("diagnosis", ""), approver=approver),
                                     mock_factory=lambda: discuss.Answer(answer="(a test answer)", cites=[]))
-        except Exception as exc:  # noqa: BLE001 - whatever stopped the model, the person is told, never left waiting
+        except Exception as exc:  # noqa: BLE001 - whatever stopped the model; the person is told; never left waiting
             _note(f"discuss {thread.incident}: no answer from the model ({type(exc).__name__})")
         finally:
             now, unanswered = llm.cost, int(getattr(llm, "unanswered", 0) or 0)
-            self.audit.append(key, "incident.llm_spend", {
+            self.audit.append(key, _LLM_SPEND_ROW, {
                 "run_id": _run_id(), "attempt": attempt, "usd": now.usd - before.usd,
                 "calls": now.calls - before.calls - unanswered, "unanswered": unanswered,
                 "input_tokens": now.input_tokens - before.input_tokens,

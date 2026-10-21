@@ -25,4 +25,5 @@ def test_appends_and_reads_from_many_threads_keep_one_whole_chain(tmp_path):
     assert len(log.entries()) == 400
     log.checkpoint()
     v = audit.verify(tmp_path / "a.db", key.public_key())
-    assert v.ok and v.rows == 400, v.problems
+    assert v.ok, v.problems
+    assert v.rows == 400, v.problems

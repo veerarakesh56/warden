@@ -57,7 +57,8 @@ def test_a_deleted_default_route_is_created_again_to_the_nat_gateway_config_reco
     p = _p(f)
     live = p.live("ec2_restore_route", RP)
     assert live["event"] == {"r-1"}, live.get("refused")
-    assert live["state"]["before"] == ["natGatewayId", NAT] and live["state"]["after"] is None
+    assert live["state"]["before"] == ["natGatewayId", NAT]
+    assert live["state"]["after"] is None
     params = {**RP, "event": "r-1"}
     p.apply("ec2_restore_route", params, snapshot=live["state"], who=WHO)
     assert f.sessions[-1] == {"actions": ["ec2:CreateRoute"], "resources": [RTB_ARN]}
@@ -94,7 +95,8 @@ def test_a_replaced_route_is_replaced_back():
 ])
 def test_a_route_change_wardens_restore_may_not_undo_is_refused(fake, why):
     live = _p(fake).live("ec2_restore_route", RP)
-    assert live["event"] == set() and why in live["refused"], live.get("refused")
+    assert live["event"] == set(), live.get("refused")
+    assert why in live["refused"], live.get("refused")
 
 
 def test_two_route_writes_to_the_table_are_a_choice_warden_does_not_make():
@@ -121,4 +123,6 @@ def test_the_resolver_plans_a_route_restore_from_the_route_table_the_model_names
     proposal = RemediationProposal(action=ActionKind.revert_change, target=RTB, reasoning="r", expected_effect="e",
                                    blast_radius="single_service", reversible=True)
     req, why = resolver.request_for(alert, proposal, lambda e, params: _p(f).live(e, params))
-    assert why == "" and req["entry"] == "ec2_restore_route" and req["params"] == {**RP, "event": "r-1"}
+    assert why == ""
+    assert req["entry"] == "ec2_restore_route"
+    assert req["params"] == {**RP, "event": "r-1"}

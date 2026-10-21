@@ -37,7 +37,8 @@ def test_deployments_in_the_window_are_read_and_their_messages_are_not():
         return _Resp(json.dumps(rows).encode())
 
     got = timeline.github_deployments("o/r", "tok", "dev", NOW - timedelta(hours=6), NOW, opener=opener)
-    assert [g["what"] for g in got] == ["aaaaaaaaaaaa (main)"] and got[0]["who"] == "dev1"
+    assert [g["what"] for g in got] == ["aaaaaaaaaaaa (main)"]
+    assert got[0]["who"] == "dev1"
     assert "IGNORE" not in json.dumps(got, default=str)
     assert seen == [("https://api.github.com/repos/o/r/deployments?environment=dev&per_page=30", "Bearer tok")]
 
@@ -62,9 +63,12 @@ def test_the_timeline_merges_its_sources_newest_first_and_names_what_it_could_no
                      "who": "someone"}]
 
     changes, unread = timeline.recent(ALERT, log=log, platform=Platform(), now=NOW)
-    assert [c["source"] for c in changes] == ["warden", "cloudtrail"] and unread == ["GitHub deployments"]
+    assert [c["source"] for c in changes] == ["warden", "cloudtrail"]
+    assert unread == ["GitHub deployments"]
     text = timeline.section(changes, unread)
-    assert "suspects, not causes" in text and "not read: GitHub deployments" in text and "UTC" not in text.split("\n")[0]
+    assert "suspects, not causes" in text
+    assert "not read: GitHub deployments" in text
+    assert "UTC" not in text.split("\n")[0]
 
 
 def test_an_empty_window_says_so():
@@ -110,17 +114,21 @@ def test_the_incident_message_carries_the_changes_and_the_model_never_sees_them(
     diagnosed = acts.diagnose(pack)
     verified = acts.verify(pack, diagnosed)
     acts.notify(pack, diagnosed, verified)
-    assert "Changes near the alert - suspects, not causes" in sent[0] and "cafebabe0000" in sent[0]
+    assert "Changes near the alert - suspects, not causes" in sent[0]
+    assert "cafebabe0000" in sent[0]
     # In the report, not under its closing line (owner, 2026-10-12, reading a live message: "things are not right in
     # place"): the closing line stays last, once, before WARDEN's own footer.
     from warden.reporting import CLOSING
 
-    assert sent[0].count(CLOSING) == 1 and sent[0].index("Changes near the alert") < sent[0].index(CLOSING)
+    assert sent[0].count(CLOSING) == 1
+    assert sent[0].index("Changes near the alert") < sent[0].index(CLOSING)
     assert sent[0].index(CLOSING) < sent[0].index("WARDEN · incident")
     assert sent[0].split(CLOSING)[1].lstrip().startswith("---")  # then only WARDEN's own footer
-    assert prompts and not any("cafebabe" in p for p in prompts)
+    assert prompts
+    assert not any("cafebabe" in p for p in prompts)
     [row] = [e["body"] for e in log.entries(kinds=("incident.changes",))]
-    assert row["found"] == 1 and row["sources"] == ["deploy"]
+    assert row["found"] == 1
+    assert row["sources"] == ["deploy"]
 
 
 @pytest.mark.parametrize("bad", ["not-a-date", ""])
