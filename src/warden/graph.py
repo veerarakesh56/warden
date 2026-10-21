@@ -769,7 +769,7 @@ def node_verify(state: WardenState) -> WardenState:
         "audit": [
             {"node": "verify", "status": verdict.status.value, "policies": verdict.policy_ids,
              # WARDEN's own confidence (confidence.py: checks, never the model's number) - the records page shows it.
-             "confidence": _confidence(state)}
+             "warden_confidence": _confidence(state)}
         ],
     }
 

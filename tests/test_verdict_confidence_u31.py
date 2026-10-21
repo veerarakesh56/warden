@@ -144,8 +144,8 @@ def test_the_report_and_the_record_carry_wardens_confidence_first():
     assert "(WARDEN's confidence medium, from its checks; the model said 0.90; outcome decided)" in md
     assert "Why not higher:" in md
     [row] = [a for a in report.audit if a.get("node") == "verify"]
-    assert row["confidence"]["level"] == "medium"
-    assert row["confidence"]["separation"] == [2, 0]
+    assert row["warden_confidence"]["level"] == "medium"
+    assert row["warden_confidence"]["separation"] == [2, 0]
 
 
 # ------------------------------------------------------------------ the prompt
