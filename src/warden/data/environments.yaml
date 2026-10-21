@@ -13,6 +13,8 @@
 #   - prod : never auto. Authorised responders only.
 #
 # What the code enforces with each key (read 2026-10-16):
+#   - tier: prod, nonprod or unknown (the default's) - any other spelling (`Prod`, `production`) is refused at load,
+#     so no rule the prod tier holds is escaped by a typing mistake.
 #   - allow_actions / deny_actions: the verifier's policy P1 (verifier.py), on every path.
 #   - authorized_principals and auto_remediate: read by no path since the CLI's dry-run gate (`warden run
 #     --principal`, remediation.py) was removed (owner B27); kept so a policy file stays loadable. The one path

@@ -207,7 +207,7 @@ class EnvironmentPolicies:
             raise EnvironmentPolicyError(f"{name}: authorized_principals must be a list")
         return EnvPolicy(
             name=name,
-            tier=str(raw.get("tier", "unknown")),
+            tier=_tier(name, raw),
             auto_remediate=_flag(name, raw, "auto_remediate", False),
             require_human_approval=_flag(name, raw, "require_human_approval", True),
             allow_actions=allow,
@@ -290,18 +290,29 @@ def _flag(name: str, raw: dict[str, Any], key: str, default: bool) -> bool:
     return value
 
 
+def _tier(name: str, raw: dict[str, Any]) -> str:
+    """`tier`, one of code_gate.TIERS (default `unknown`): a misspelled prod (`Prod`, `production`) would otherwise
+    escape every rule the prod tier holds."""
+    from .code_gate import TIERS
+
+    value = raw.get("tier", "unknown")
+    if value not in TIERS:
+        raise EnvironmentPolicyError(f"{name}: tier must be one of {', '.join(sorted(TIERS))}, not {value!r}")
+    return str(value)
+
+
 def _code_fix(name: str, raw: dict[str, Any]) -> str:
     """`code_fix: off | propose | auto` (register B4). Prod (owner: "prod always a person") is never auto, and an
     environment no one listed - the default - never writes code at all."""
-    from .code_gate import PROD_TIER, CodeFixMode
+    from .code_gate import AUTO_TIERS, CodeFixMode
 
     value = raw.get("code_fix", CodeFixMode.off.value)
     if value not in tuple(CodeFixMode):
         hint = " (quote it: YAML reads a bare off as false)" if isinstance(value, bool) else ""
         raise EnvironmentPolicyError(f"{name}: code_fix must be off, propose or auto, not {value!r}{hint}")
-    if value == CodeFixMode.auto and raw.get("tier") == PROD_TIER:
-        raise EnvironmentPolicyError(f"{name}: a prod-tier environment never merges code on its own (code_fix at most "
-                                     "propose): a person merges every code fix there")
+    if value == CodeFixMode.auto and raw.get("tier", "unknown") not in AUTO_TIERS:
+        raise EnvironmentPolicyError(f"{name}: only a nonprod-tier environment merges code on its own (code_fix at "
+                                     "most propose): a person merges every code fix in prod")
     if name == "default" and value != CodeFixMode.off:
         raise EnvironmentPolicyError("default: an environment no one listed never gets code fixes (code_fix: \"off\")")
     return str(value)

@@ -491,3 +491,20 @@ def test_the_k3d_job_binds_the_eks_actors_group_from_the_ci_only_file():
     rbac, group = flow.index("kubectl apply -f k8s/remediation-rbac.yaml"), flow.index(
         "kubectl apply -f k8s/ci/remediation-group-binding.yaml")
     assert rbac < group < flow.index("tests/integration/test_live_remediation.py")
+
+
+def test_the_tests_a_code_fix_adds_run_in_the_apps_check():
+    """Review of PR 101 (2026-10-21): the code gate asks a fix to add a test under data/code_fix.yaml's `test_paths`,
+    but no job ran that folder, so the test a fix added never ran. Each test path's folder is run by the apps check
+    (which CI · apps runs on every change under scenarios/fullstack/), and holds a test of its own."""
+    import yaml
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    check = (root / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
+    runs = [line.strip() for line in check.splitlines() if line.strip().startswith("- run: pytest ")]
+    limits = yaml.safe_load((root / "src" / "warden" / "data" / "code_fix.yaml").read_text(encoding="utf-8"))
+    for glob in limits["test_paths"]:
+        folder = glob.rsplit("/", 1)[0]
+        assert folder.startswith("scenarios/fullstack/"), glob
+        assert any(f" {folder} " in f"{run} " or f" {folder}/ " in f"{run} " for run in runs), (glob, runs)
+        assert sorted((root / folder).glob("test_*.py")), folder

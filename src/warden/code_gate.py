@@ -6,26 +6,37 @@ change goes anywhere. This module does, and it is pure: a change in, a verdict o
 
 What a change is: the files of a unified diff (`git diff` output, parsed by `parse_diff`), as `FileChange`s. What the
 gate needs besides: the environment's `code_fix` mode (environments.yaml) and tier, the limits in
-data/code_fix.yaml, and for a new import, the top-level modules the repository already imports.
+data/code_fix.yaml, for a new import the top-level modules the file and its application already import, and the
+new text of every changed Python file (`sources`), which the gate parses: a Python file whose text it was not given,
+or that does not parse, is refused.
 
 The rules, each with an id a verdict lists (every one that fires, not just the first):
 
-- CG0 the environment's mode: `off` refuses everything; the prod tier is never `auto` (refused at load, capped here).
+- CG0 the environment's mode: `off` refuses everything; only the nonprod tier is ever `auto` (the prod tier is refused
+  at load and capped here, and so is a tier no one listed).
 - CG1 size: an empty change, more lines than the limit (a revert has its own), more files than the limit.
-- CG2 path shape: every path plain - no `..`, no absolute path, no quoting, no `.git` folder.
+- CG2 path shape: every path plain - no `..`, no absolute path, no quoting, no `.git` folder in any case.
 - CG3 allowed paths: every path, a renamed file's old path too, matches data/code_fix.yaml's `allowed_paths`.
 - CG4 never touched, whatever that list says: CODEOWNERS, workflows and every file CI or a test run executes on its
   own (`.github/`, `conftest.py`, `Makefile` ...), IAM and infrastructure (`iam/`, `terraform/`, `k8s/`, policies),
   secrets (key files, `.env`), WARDEN's own code and policy data, and a secret-shaped value in any added line.
 - CG5 dependency manifests and lock files (pyproject.toml, requirements*.txt, uv.lock, package.json, Dockerfile ...).
-- CG6 no new dependency: an import the repository does not already use and the standard library does not hold, a
-  dynamic import, or an install command in an added line.
+- CG6 no new dependency and no code that runs other code or reaches the network. Read twice: each added line by
+  pattern, and each changed Python file as Python reads it (`ast`), where an added line may not import a module the
+  file or its application does not already import (unless `SAFE_IMPORTS` holds it), import or use a module that runs
+  code or reaches the network (`DENIED_MODULES`, `os.system` and the like), name `exec`, `eval`, `compile`,
+  `__import__`, `globals` or `vars`, reach an attribute by a computed name, or name an interpreter internal
+  (`__globals__`, `__subclasses__` ...). An added Python line is ASCII only and declares no source encoding but utf-8:
+  Python reads a fullwidth `exec` (U+FF45 for its e) as `exec`, and a `coding: utf-7` file as other text than the
+  gate does.
 - CG7 file kind: a binary file, a symbolic link, a submodule or a changed file mode.
 - CG8 a fix must add a test: an added test function or assertion in a test file.
-- CG9 no weakening: no new suppression (`noqa`, `nosec`, `type: ignore`, a skip or xfail, a scanner's line marker ...) anywhere; a fix
-  removes no assertion, test function or test file.
+- CG9 no weakening: no new suppression (`noqa`, `nosec`, `type: ignore`, `pyre-ignore`, a skip or xfail, a warnings
+  filter that ignores, a scanner's line marker ...) anywhere; in a test file, nothing that stops tests from running or
+  failing (`__test__`, `pytestmark`, a `return` in a test, `sys.exit`, `os._exit`, `pytest.exit`, `getattr` on
+  `pytest`); a fix removes no assertion, test function or test file.
 - CG10 a revert is exactly the inverse of the commit it names: the same files, every added line the original's removed
-  line and the other way round, in order.
+  line and the other way round, in order, at the same lines.
 
 A change every rule passes is `allowed`. In an environment whose mode is `propose`, a person merges it; under `auto`
 (never the prod tier) it is only *eligible* to merge itself - the later checks (CI, Eldane, code review) decide that.
@@ -33,8 +44,10 @@ A change every rule passes is `allowed`. In an environment whose mode is `propos
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
@@ -62,6 +75,10 @@ class CodeGateError(RuntimeError):
 
 
 PROD_TIER = "prod"
+# Every tier an environment may name (environments.yaml; a misspelled `Prod` or `production` is refused at load). Only
+# the nonprod tier is ever `auto`: anything else - prod, unknown, a tier no one listed - is capped at `propose`.
+TIERS = frozenset({PROD_TIER, "nonprod", "unknown"})
+AUTO_TIERS = frozenset({"nonprod"})
 _ADDED, _MODIFIED, _DELETED, _RENAMED = "added", "modified", "deleted", "renamed"
 _REGULAR = "100644"
 _EXECUTABLE = "100755"
@@ -70,7 +87,8 @@ _EXECUTABLE = "100755"
 @dataclass(frozen=True)
 class FileChange:
     """One file of a change. `added` and `removed` are the lines, in diff order, without their `+`/`-`; `hunks` (from
-    `parse_diff`) each hunk's lines with their sign, context included, so a revert is checked where it applies too."""
+    `parse_diff`) each hunk's lines with their sign, context included, and `starts` each hunk's first line on the old
+    and the new side (`@@ -old +new @@`), so a revert is checked where it applies too."""
 
     path: str
     status: str = _MODIFIED
@@ -81,6 +99,7 @@ class FileChange:
     new_mode: str = _REGULAR
     binary: bool = False
     hunks: tuple[tuple[str, ...], ...] = ()
+    starts: tuple[tuple[int, int], ...] = ()
 
     @property
     def paths(self) -> tuple[str, ...]:
@@ -233,7 +252,8 @@ def path_refusal(path: str) -> str | None:
     parts = path.split("/")
     if not _PLAIN_PATH.fullmatch(path) or any(p in ("", ".", "..") for p in parts):
         return f"{path!r} is not a plain relative path"
-    if ".git" in parts:
+    # Any case, and with Windows' trailing dots: `.GIT` and `.git.` are the same folder on a case-insensitive disk.
+    if any(p.lower().rstrip(".") == ".git" for p in parts):
         return f"{path!r} is inside a .git folder"
     return None
 
@@ -252,17 +272,26 @@ def is_manifest(path: str) -> bool:
 
 # New suppressions and skipped tests (owner, 2026-10-17: no new suppression without a reason; here, none at all).
 _SUPPRESSION = re.compile(
-    r"#\s*(?:noqa|nosec|type:\s*ignore|pragma:\s*no\s*cover|pylint:\s*disable|nosemgrep|ruff:\s*noqa|"
-    r"pyright:\s*ignore|mypy:\s*ignore)|N[O]SONAR|"
+    r"#\s*(?:noqa|nosec|type:\s*ignore|pragma:\s*no\s*(?:cover|branch)|pylint:\s*disable|nosemgrep|ruff:\s*noqa|"
+    r"pyright:\s*ignore|mypy:\s*ignore|pyre-(?:ignore|fixme))|N[O]SONAR|"
     r"pytest\.(?:mark\.)?(?:skip|skipif|xfail)|pytest\.importorskip|\bSkipTest\b|unittest\.skip|@skip|"
+    r"\bpytest\.exit\b|\bos\._exit\b|\b__test__\s*=|\bpytestmark\s*=|"
+    r"(?:filterwarnings|simplefilter)\s*\(\s*(?:action\s*=\s*)?[rbuf]*[\"']ignore|"
     r"eslint-disable|@ts-(?:ignore|nocheck)|"
     r"lgtm\[|codeql\[|coderabbit:\s*ignore|sonar\.issue\.ignore", re.IGNORECASE)
+# In a test file only: the application may stop itself (`sys.exit(2)` on a bad configuration); a test that exits
+# stops the run before its assertions.
+_TEST_EXIT = re.compile(r"\bsys\.exit\b|\bSystemExit\b")
 # exec, eval and compile as calls of their own (not a method such as `cursor.execute(` or `re.compile(`): code from a
 # string. Any mention of the builtins module reaches them another way (`builtins.exec`, `__builtins__["eval"]`).
 _DYNAMIC_IMPORT = re.compile(r"__import__\s*\(|\bimportlib\b|\bimport_module\s*\(|\brunpy\b|\bpkgutil\b|"
                              r"(?<![\w.])(?:exec|eval|compile)\s*\(|\b__builtins__\b|\bbuiltins\b")
-_INSTALL = re.compile(r"\b(?:pip3?|uv|poetry|pipx|npm|yarn|pnpm|gem|cargo|go)[\s'\",]+(?:install|add|get)\b|"
-                      r"\bensurepip\b|\bsite\.addsitedir\b", re.IGNORECASE)
+# Options may come between the tool and its verb (`pip -q install`, `"pip", "--quiet", "install"`).
+_INSTALL = re.compile(r"\b(?:pip3?|uv|poetry|pipx|npm|yarn|pnpm|gem|cargo|go)(?:[\s'\",]+-[\w=.-]*)*[\s'\",]+"
+                      r"(?:install|add|get)\b|\bensurepip\b|\bsite\.addsitedir\b", re.IGNORECASE)
+# PEP 263's declaration, on any added line (only the first two count, so none other may hold one).
+_CODING = re.compile(r"^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)")
+_UTF8 = frozenset({"utf-8", "utf8", "utf_8"})
 _IMPORT = re.compile(r"\s*(?:from\s+([A-Za-z_][\w.]*)\s+import\b|import\s+([A-Za-z_][^#]*))")
 # A test function, an assertion or an expected exception: what CG8 asks a fix to add, and CG9 forbids it to remove.
 _TEST_DEF = re.compile(r"\s*(?:async\s+)?def\s+test_\w*\s*\(|\s*assert\b")
@@ -375,17 +404,19 @@ def _kind_of_file(f: FileChange) -> list[Refusal]:
     return out
 
 
-def _line(path: str, n: int, line: str, known: frozenset[str]) -> list[Refusal]:
-    """CG4 secrets, CG6 new dependencies, CG9 suppressions, in one added line (`n` counts from 1)."""
+def _line(path: str, n: int, line: str, known: frozenset[str], *, test: bool = False) -> list[Refusal]:
+    """CG4 secrets, CG6 new dependencies, CG9 suppressions, in one added line (`n` counts from 1); `test`: the line
+    is in a test file."""
     out: list[Refusal] = []
     kinds = secret_kinds(line)
     if kinds:
         out.append(Refusal("CG4", f"{path} added line {n}: a secret-shaped value ({', '.join(kinds)})"))
-    if _SUPPRESSION.search(line):
-        out.append(Refusal("CG9", f"{path} added line {n}: a suppression or a skipped test"))
+    if _SUPPRESSION.search(line) or (test and _TEST_EXIT.search(line)):
+        out.append(Refusal("CG9", f"{path} added line {n}: a suppression, a skipped test or a stopped test run"))
     if _DYNAMIC_IMPORT.search(line) or _INSTALL.search(line):
         out.append(Refusal("CG6", f"{path} added line {n}: a dynamic import or an install command"))
     if path.endswith(".py"):
+        out += _python_text(path, n, line)
         if _continued_import(line):
             out.append(Refusal("CG6", f"{path} added line {n}: an import continued on the next line (`\\`), which "
                                       "the gate does not read"))
@@ -401,6 +432,277 @@ def _continued_import(line: str) -> bool:
     code = code_part(line).rstrip()
     return code.endswith("\\") and any(re.match(r"\s*(?:from|import)\b", piece)
                                        for piece in re.split(r"[;:]", code))
+
+
+def _python_text(path: str, n: int, line: str) -> list[Refusal]:
+    """CG6: an added Python line is ASCII (Python folds a fullwidth `exec` to `exec`, the gate's patterns do not) and
+    declares no source encoding but utf-8 (under `coding: utf-7`, `+AAo-import x` is a second line Python runs)."""
+    out: list[Refusal] = []
+    if not line.isascii():
+        out.append(Refusal("CG6", f"{path} added line {n}: a character outside ASCII in Python source"))
+    coding = _CODING.match(line)
+    if coding and coding.group(1).lower() not in _UTF8:
+        out.append(Refusal("CG6", f"{path} added line {n}: a source encoding other than utf-8"))
+    return out
+
+
+# ---------------------------------------------------------------------------------------- what a Python file does
+
+# Modules that run code from data or reach the network: never newly imported, and never used on an added line, even
+# where the file already imports them (the traffic Lambda's urllib: a person changes that code).
+DENIED_MODULES = frozenset({
+    "asyncio", "builtins", "code", "codeop", "ctypes", "dill", "ftplib", "http", "imaplib", "imp", "importlib",
+    "marshal", "multiprocessing", "pickle", "pkgutil", "poplib", "pty", "pydoc", "runpy", "shelve", "smtplib",
+    "socket", "socketserver", "subprocess", "telnetlib", "timeit", "types", "urllib", "webbrowser", "xmlrpc",
+    "zipimport",
+})
+# What an added import may name besides what the file and its application already import: the standard library's
+# plain parts, and pytest in a test file.
+SAFE_IMPORTS = frozenset({
+    "__future__", "abc", "base64", "bisect", "collections", "contextlib", "copy", "dataclasses", "datetime", "decimal",
+    "enum", "fractions", "functools", "hashlib", "heapq", "hmac", "itertools", "json", "logging", "math", "numbers",
+    "random", "re", "secrets", "statistics", "string", "textwrap", "time", "typing", "uuid", "zoneinfo",
+})
+_TEST_IMPORTS = frozenset({"pytest"})
+# Attributes of an allowed module that run a program, end the process or reach the import machinery.
+_DENIED_ATTRS: Mapping[str, frozenset[str]] = {
+    "os": frozenset({"system", "popen", "_exit", "startfile", "fork", "forkpty"}),
+    "sys": frozenset({"modules", "meta_path", "path", "path_hooks", "path_importer_cache", "_getframe", "settrace",
+                      "setprofile", "addaudithook"}),
+    "operator": frozenset({"attrgetter", "methodcaller"}),
+    "pytest": frozenset({"exit"}),
+}
+_DENIED_PREFIXES: Mapping[str, tuple[str, ...]] = {"os": ("exec", "spawn", "posix_spawn")}
+# Names that run code from a string or reach every global: refused as names, so `(exec)(s)` and `f = eval` count too.
+_CODE_NAMES = frozenset({"exec", "eval", "compile", "__import__", "globals", "locals", "vars", "breakpoint"})
+_BY_NAME = frozenset({"getattr", "setattr", "delattr"})
+# The interpreter's internals: the way out of every list above (`().__class__.__mro__[1].__subclasses__()`).
+_INTERNALS = frozenset({
+    "__builtins__", "__globals__", "__code__", "__subclasses__", "__mro__", "__bases__", "__base__", "__class__",
+    "__dict__", "__loader__", "__spec__", "__import__", "__getattribute__", "__reduce__", "__reduce_ex__",
+    "__closure__", "__func__", "__self__",
+})
+_INTERNAL_TEXT = re.compile("|".join(sorted(map(re.escape, _INTERNALS))))
+# What stops a test from running or failing (CG9), as calls in a test file.
+_TEST_STOPS = {"sys": frozenset({"exit"}), "os": frozenset({"_exit"}), "pytest": frozenset({"exit", "skip", "xfail",
+                                                                                              "importorskip"})}
+_IGNORE_WARNINGS = frozenset({"filterwarnings", "simplefilter"})
+
+
+def added_line_numbers(f: FileChange) -> frozenset[int] | None:
+    """The new-side line numbers of a file's added lines, from its hunks; None when its hunks' starts are unknown
+    (a FileChange built by hand): then every line of the file counts as added."""
+    if not f.hunks or len(f.starts) != len(f.hunks):
+        return None
+    out: set[int] = set()
+    for (_old, new), hunk in zip(f.starts, f.hunks, strict=True):
+        line = new
+        for text in hunk:
+            if text[:1] == "+":
+                out.add(line)
+            if text[:1] in ("+", " "):
+                line += 1
+    return frozenset(out)
+
+
+@dataclass(frozen=True)
+class _Seen:
+    """One file's scan: the aliases its imports bind (`sp` -> `subprocess`, `run` -> `subprocess.run`), the modules it
+    imports on lines the change keeps, and whether it is a test file."""
+
+    path: str
+    aliases: Mapping[str, str]
+    kept: frozenset[str]
+    test: bool
+
+
+def _bound(node: ast.Import | ast.ImportFrom) -> dict[str, str]:
+    """The names one import statement binds, each with the dotted name it stands for."""
+    if isinstance(node, ast.Import):
+        return {a.asname or a.name.split(".")[0]: a.name if a.asname else a.name.split(".")[0] for a in node.names}
+    if node.module and not node.level:
+        return {a.asname or a.name: f"{node.module}.{a.name}" for a in node.names}
+    return {}
+
+
+def _aliases(tree: ast.AST) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            out.update(_bound(node))
+    return out
+
+
+def _touched(node: ast.AST, added: frozenset[int] | None) -> bool:
+    if added is None:
+        return True
+    start = getattr(node, "lineno", None)
+    if start is None:
+        return False
+    end = getattr(node, "end_lineno", None) or start
+    return any(n in added for n in range(start, end + 1))
+
+
+def _dotted(node: ast.AST, aliases: Mapping[str, str]) -> str:
+    """`a.b.c` as the dotted name it reaches through the file's imports (`sp.run` -> `subprocess.run`), or ""."""
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return ""
+    parts.append(aliases.get(node.id, node.id))
+    return ".".join(reversed(parts))
+
+
+def _denied_name(dotted: str) -> str | None:
+    """Why a dotted name an added line reaches is refused (CG6), or None."""
+    top, _, rest = dotted.partition(".")
+    attr = rest.split(".")[0]
+    if top in DENIED_MODULES:
+        return f"uses {top}, which runs code or reaches the network"
+    if attr and (attr in _DENIED_ATTRS.get(top, ()) or (top in _DENIED_PREFIXES
+                                                         and attr.startswith(_DENIED_PREFIXES[top]))):
+        return f"uses {top}.{attr}"
+    return None
+
+
+def _imported(node: ast.Import | ast.ImportFrom) -> list[str]:
+    """The modules an import statement names (none for a relative one: the application's own files)."""
+    if isinstance(node, ast.ImportFrom):
+        return [] if node.level else [node.module or ""]
+    return [a.name for a in node.names]
+
+
+def _import_refusals(node: ast.Import | ast.ImportFrom, seen: _Seen, known: frozenset[str]) -> list[str]:
+    out: list[str] = []
+    allowed = known | seen.kept | SAFE_IMPORTS | (_TEST_IMPORTS if seen.test else frozenset())
+    for top in (name.split(".")[0] for name in _imported(node)):
+        if top in DENIED_MODULES:
+            out.append(f"imports {top}, which runs code or reaches the network")
+        elif top not in allowed:
+            out.append(f"imports {top}, which the file and its application do not import yet")
+    if isinstance(node, ast.ImportFrom) and not node.level and (node.module or "") not in DENIED_MODULES:
+        # `from os import system`: the name it binds is the attribute.
+        out += [why for a in node.names if (why := _denied_name(f"{node.module}.{a.name}"))]
+    return out
+
+
+def _root(node: ast.AST) -> str:
+    while isinstance(node, ast.Attribute | ast.Subscript | ast.Call):
+        node = node.func if isinstance(node, ast.Call) else node.value
+    return node.id if isinstance(node, ast.Name) else ""
+
+
+def _by_name(name: str, node: ast.Call, seen: _Seen) -> list[tuple[str, str]]:
+    """`getattr(x, name)`: refused with a computed name, or on a module (`getattr(os, "system")`,
+    `getattr(pytest.mark, "skip")`: CG9)."""
+    out: list[tuple[str, str]] = []
+    attr = node.args[1] if len(node.args) > 1 else None
+    if not (isinstance(attr, ast.Constant) and isinstance(attr.value, str)):
+        out.append(("CG6", f"{name} with a computed name"))
+    root = _root(node.args[0]) if node.args else ""
+    if root in seen.aliases:
+        module = seen.aliases[root]
+        out.append(("CG9" if module.split(".")[0] == "pytest" else "CG6", f"{name} on the module {module}"))
+    return out
+
+
+def _call_refusals(node: ast.Call, seen: _Seen) -> list[tuple[str, str]]:
+    """(rule, why) for one added call: a computed attribute, a warnings filter that ignores, a test stopped."""
+    out: list[tuple[str, str]] = []
+    func = node.func
+    name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+    if name in _BY_NAME and isinstance(func, ast.Name):
+        out += _by_name(name, node, seen)
+    first = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "action"), None)
+    if (name in _IGNORE_WARNINGS and isinstance(first, ast.Constant) and isinstance(first.value, str)
+            and first.value.startswith("ignore")):
+        out.append(("CG9", f"a warnings filter that ignores ({name})"))
+    dotted = _dotted(func, seen.aliases)
+    top, _, attr = dotted.partition(".")
+    if seen.test and attr in _TEST_STOPS.get(top, ()):
+        out.append(("CG9", f"{dotted} in a test"))
+    return out
+
+
+def _node_refusals(node: ast.AST, seen: _Seen, known: frozenset[str]) -> list[tuple[str, str]]:
+    """(rule, why) for one node an added line holds."""
+    if isinstance(node, ast.Import | ast.ImportFrom):
+        return [("CG6", why) for why in _import_refusals(node, seen, known)]
+    if isinstance(node, ast.Call):
+        return _call_refusals(node, seen)
+    return [("CG6", why) for why in [_reference(node, seen)] if why]
+
+
+def _reference(node: ast.AST, seen: _Seen) -> str | None:
+    """Why a name, an attribute or a string an added line holds is refused (CG6), or None."""
+    if isinstance(node, ast.Name):
+        if node.id in _CODE_NAMES or node.id in _INTERNALS:
+            return f"names {node.id}"
+        return _denied_name(seen.aliases[node.id]) if node.id in seen.aliases else None
+    if isinstance(node, ast.Attribute):
+        return f"reaches {node.attr}" if node.attr in _INTERNALS else _denied_name(_dotted(node, seen.aliases))
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and _INTERNAL_TEXT.search(node.value):
+        return "a string naming an interpreter internal"
+    return None
+
+
+def _test_body_refusals(tree: ast.AST, seen: _Seen, added: frozenset[int] | None) -> list[tuple[str, str]]:
+    """CG9 in a test file: `__test__` or `pytestmark` set, or a `return` added inside a test function."""
+    out: list[tuple[str, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign | ast.AnnAssign | ast.AugAssign) and _touched(node, added):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names = {t.id for t in targets if isinstance(t, ast.Name)}
+            out += [("CG9", f"sets {n}") for n in sorted(names & {"__test__", "pytestmark"})]
+        elif (seen.test and isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+              and node.name.startswith("test")):
+            out += [("CG9", f"a return in the test {node.name}") for inner in _own_returns(node)
+                    if _touched(inner, added)]
+    return out
+
+
+def _own_returns(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.Return]:
+    """A function's own `return`s: not those of a helper defined inside it."""
+    out: list[ast.Return] = []
+    todo: list[ast.AST] = list(func.body)
+    while todo:
+        node = todo.pop()
+        if isinstance(node, ast.Return):
+            out.append(node)
+        elif not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef):
+            todo.extend(ast.iter_child_nodes(node))
+    return out
+
+
+def _source_matches(f: FileChange, lines: list[str], added: frozenset[int] | None) -> bool:
+    """The text given for a file holds the diff's added lines, where the diff puts them (or anywhere, without
+    starts): the gate parses what is committed, not a cleaner copy."""
+    if added is None:
+        return set(f.added) <= set(lines)
+    ordered = sorted(added)
+    return len(ordered) == len(f.added) and all(
+        0 < n <= len(lines) and lines[n - 1] == text for n, text in zip(ordered, f.added, strict=True))
+
+
+def python_refusals(f: FileChange, source: str | None, known: frozenset[str], *, test: bool) -> list[Refusal]:
+    """CG6 and CG9 over a changed Python file as Python reads it: every node an added line holds."""
+    if source is None:
+        return [Refusal("CG6", f"{f.path}: its new text was not given, so the gate could not parse it")]
+    added = added_line_numbers(f)
+    if not _source_matches(f, source.splitlines(), added):
+        return [Refusal("CG6", f"{f.path}: the text given is not the text the diff makes")]
+    try:
+        tree = ast.parse(source, filename=f.path)
+    except (SyntaxError, ValueError):
+        return [Refusal("CG6", f"{f.path}: its new text is not Python the gate can parse")]
+    kept = frozenset(name.split(".")[0] for n in ast.walk(tree)
+                     if isinstance(n, ast.Import | ast.ImportFrom) and not _touched(n, added) for name in _imported(n))
+    seen = _Seen(path=f.path, aliases=_aliases(tree), kept=kept - {""}, test=test)
+    found = [r for node in ast.walk(tree) if _touched(node, added) for r in _node_refusals(node, seen, known)]
+    found += _test_body_refusals(tree, seen, added)
+    return [Refusal(rule, f"{f.path}: {why}") for rule, why in dict.fromkeys(found)]
 
 
 def _weakening(f: FileChange, limits: GateLimits) -> list[Refusal]:
@@ -447,18 +749,19 @@ def _inverse(f: FileChange) -> FileChange:
     renamed = f.status == _RENAMED
     return FileChange(path=f.old_path if renamed and f.old_path else f.path, status=_INVERSE_STATUS[f.status],
                       added=f.removed, removed=f.added, old_path=f.path if renamed else None, old_mode=f.new_mode,
-                      new_mode=f.old_mode, binary=f.binary, hunks=f.hunks)
+                      new_mode=f.old_mode, binary=f.binary, hunks=f.hunks, starts=f.starts)
 
 
 def _key(f: FileChange, *, flip: bool = False) -> tuple[Any, ...]:
-    """What makes two file changes the same change: its paths, status, lines, modes and each hunk's context and runs
-    (`flip`: of an inverse, whose hunks are still the original's). A mode on the side where the file does not exist is
-    ignored."""
+    """What makes two file changes the same change: its paths, status, lines, modes, each hunk's context and runs, and
+    where each hunk starts (`flip`: of an inverse, whose hunks and starts are still the original's - the inverse of
+    `@@ -10 +12 @@` is `@@ -12 +10 @@`). A mode on the side where the file does not exist is ignored."""
     old = "" if f.status == _ADDED else f.old_mode
     new = "" if f.status == _DELETED else f.new_mode
     hunks = tuple(_segments(h, flip=flip) for h in f.hunks)
+    starts = tuple((n, o) for o, n in f.starts) if flip else f.starts
     return (f.path, f.status, f.added, f.removed, f.old_path if f.status == _RENAMED else None, old, new, f.binary,
-            hunks)
+            hunks, starts)
 
 
 def _exact_revert(files: tuple[FileChange, ...], reverts: str | None,
@@ -476,28 +779,34 @@ def _exact_revert(files: tuple[FileChange, ...], reverts: str | None,
 
 
 def effective_mode(mode: CodeFixMode | str, tier: str) -> CodeFixMode:
-    """The environment's mode as the gate obeys it: the prod tier is never `auto`, whatever was passed."""
+    """The environment's mode as the gate obeys it: only the nonprod tier is ever `auto`, whatever was passed - the
+    prod tier, an unknown one or a misspelled one (`Prod`, `production`) gets `propose`."""
     chosen = CodeFixMode(mode)
-    return CodeFixMode.propose if chosen is CodeFixMode.auto and tier == PROD_TIER else chosen
+    return CodeFixMode.propose if chosen is CodeFixMode.auto and tier not in AUTO_TIERS else chosen
 
 
 def check(files: tuple[FileChange, ...] | list[FileChange], *, kind: ChangeKind | str, mode: CodeFixMode | str,
           tier: str, known_imports: frozenset[str] = frozenset(), reverts: str | None = None,
-          original: tuple[FileChange, ...] | None = None, limits: GateLimits | None = None) -> CodeVerdict:
-    """Every rule over one change. `known_imports`: the top-level modules the repository already imports
-    (`imports_in` over its files); `reverts` and `original`: for a revert, the commit and its own change."""
-    files, kind, limits = tuple(files), ChangeKind(kind), limits or default_limits()
+          original: tuple[FileChange, ...] | None = None, limits: GateLimits | None = None,
+          sources: Mapping[str, str] | None = None) -> CodeVerdict:
+    """Every rule over one change. `known_imports`: the top-level modules the file's application already imports
+    (`imports_in` over its files); `reverts` and `original`: for a revert, the commit and its own change; `sources`:
+    the new text of every changed Python file the change keeps, by path - one missing is refused (CG6)."""
+    files, kind, limits, sources = tuple(files), ChangeKind(kind), limits or default_limits(), sources or {}
     obeyed = effective_mode(mode, tier)
     out: list[Refusal] = []
     if obeyed is CodeFixMode.off:
         out.append(Refusal("CG0", "code fixes are off in this environment"))
     out += _size(kind, files, limits)
     for f in files:
+        test = limits.is_test(f.path)
         for path in f.paths:
             out += _path(path, limits)
         out += _kind_of_file(f)
         for n, line in enumerate(f.added, 1):
-            out += _line(f.path, n, line, known_imports)
+            out += _line(f.path, n, line, known_imports, test=test)
+        if f.path.endswith(".py") and f.status != _DELETED:
+            out += python_refusals(f, sources.get(f.path), known_imports, test=test)
         if kind is ChangeKind.fix:
             out += _weakening(f, limits)
     out += _adds_a_test(files, limits) if kind is ChangeKind.fix else _exact_revert(files, reverts, original)
@@ -507,7 +816,7 @@ def check(files: tuple[FileChange, ...] | list[FileChange], *, kind: ChangeKind 
 # ------------------------------------------------------------------------------------------------ parsing a diff
 
 _DIFF = re.compile(r"diff --git a/(\S+) b/(\S+)")
-_HUNK = re.compile(r"@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
+_HUNK = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 _MODE = re.compile(r"(old mode|new mode|new file mode|deleted file mode) (\d{6})")
 # An unchanged mode is written only here: `index 1a..2b 120000` is a symbolic link's edit (CG7 needs it).
 _INDEX = re.compile(r"index [0-9a-f]+\.\.[0-9a-f]+(?: (\d{6}))?")
@@ -528,6 +837,7 @@ class _File:
         self.added: list[str] = []
         self.removed: list[str] = []
         self.bodies: list[list[str]] = []
+        self.starts: list[tuple[int, int]] = []
         self.hunks = 0
         self.left = self.right = 0  # lines still owed by the open hunk
 
@@ -595,8 +905,9 @@ class _File:
             raise CodeGateError(f"an unexpected diff line: {line[:80]!r}")
         self.hunks += 1
         self.bodies.append([])
-        self.left = int(m.group(1) if m.group(1) is not None else 1)
-        self.right = int(m.group(2) if m.group(2) is not None else 1)
+        self.starts.append((int(m.group(1)), int(m.group(3))))
+        self.left = int(m.group(2) if m.group(2) is not None else 1)
+        self.right = int(m.group(4) if m.group(4) is not None else 1)
 
     def _body(self, line: str) -> None:
         sign, text = line[:1], line[1:]
@@ -621,7 +932,7 @@ class _File:
         return FileChange(path=self.new, status=status, added=tuple(self.added), removed=tuple(self.removed),
                           old_path=self.old if renamed else None, old_mode=self.modes["old"],
                           new_mode=self.modes["new"], binary=self.binary,
-                          hunks=tuple(tuple(body) for body in self.bodies))
+                          hunks=tuple(tuple(body) for body in self.bodies), starts=tuple(self.starts))
 
 
 def _start(line: str) -> _File:
