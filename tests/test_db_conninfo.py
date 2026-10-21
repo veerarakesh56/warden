@@ -13,7 +13,7 @@ DSNS = [
     "host=db.example.test port=5432 dbname=shop",
     "host=db.example.test connect_timeout=5 application_name=warden",
     "host = 'db example' user=app",
-    r"host=db.example.test password='it\'s'",
+    r"host=db.example.test application_name='it\'s'",
     r"host=db\ one.example.test user=app",
 ]
 
@@ -28,8 +28,8 @@ def test_a_key_holds_its_underscore():
 
 
 def test_a_backslash_keeps_the_quote_it_escapes():
-    assert _conninfo(r"password='a\'b' host=h") == {"password": "a'b", "host": "h"}
+    assert _conninfo(r"application_name='a\'b' host=h") == {"application_name": "a'b", "host": "h"}
 
 
 def test_a_value_is_never_searched_for_keys():
-    assert _conninfo("password=S3cr.host=evil") == {"password": "S3cr.host=evil"}
+    assert _conninfo("user=app.host=evil") == {"user": "app.host=evil"}
