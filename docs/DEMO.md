@@ -36,11 +36,26 @@ score for fs-07 would count this fix as not the rubric's. The demo shows the fix
    `qualified()`). A model must be qualified again on today's prompt first
    ([USE-CASE.md](USE-CASE.md#success-criteria)). Check:
 
+   This runs WARDEN's own gate, `providers.qualified()`: the exact provider and model, the pinned prompt and the bar.
+   Set `WARDEN_PROVIDER` and `WARDEN_MODEL` to what the runtime uses, or leave them unset for the defaults in
+   `providers.yaml`:
+
    ```bash
-   python -c "from warden.providers import load_qualified as q; d=q(); print(any(isinstance(r, dict) and r.get('prompt') == d['prompt']['sha'] for r in d['qualified']))"
+   env -u WARDEN_QUALIFYING python - <<'EOF'
+   import os, types
+   from warden import providers as p
+   name = os.environ.get("WARDEN_PROVIDER", "anthropic").lower()
+   model = p.pinned(os.environ.get("WARDEN_MODEL") or p.default_model(name))
+   try:
+       p.qualified(types.SimpleNamespace(name=name, model=model))
+       print("qualified:", name, model)
+   except p.ProviderError as exc:
+       print("NOT qualified:", exc)
+   EOF
    ```
 
-   `False` means: film the [sample variant](#sample-variant-aws-off), or film the rules-only escalation and say so.
+   "NOT qualified" means: film the [sample variant](#sample-variant-aws-off), or film the rules-only escalation and say
+   so.
 2. The dev stack and WARDEN's runtime are up (resumed, not paused: [OPERATIONS.md](OPERATIONS.md), "Pause and
    resume"), the kill switch is off, and dev's autonomy is at L2:
 
@@ -75,9 +90,9 @@ score for fs-07 would count this fix as not the rubric's. The demo shows the fix
 |---|---|---|---|
 | 0:00-0:15 | - | Slack, the terminal, the records page | "One real fault, in dev, end to end. Nothing is mocked." |
 | 0:15-0:30 | about 7-10 min (cut) | Terminal: the inject command below | Run it. It saves the mapping's state, turns it off, and waits for the alarm `warden-dev-orders-age` (oldest order over 300 s for 3 one-minute periods). Say "cut: about N minutes". |
-| 0:30-1:00 | about 1-3 min after the alarm | Slack, dev's alerts channel | The one incident message: what is broken, the cause with its evidence, and the plan `lambda_enable_esm` on "event source mapping of warden-dev-order-processor" (T1). Beneath it: "Eldane · AI critic (an AI) approved WARDEN's plan ... WARDEN applies it after <time> unless a person denies it first". Point at the footer: incident id and `audit head`. |
+| 0:30-1:00 | about 1-3 min after the alarm | Slack, dev's alerts channel | The one incident message: what is broken, the cause with its evidence, and the plan `lambda_enable_esm` on "event source mapping of warden-dev-order-processor" (T1). **At L2 only**, beneath it: "Eldane · AI critic (an AI) approved WARDEN's plan ... WARDEN applies it after <time> unless a person denies it first". **At L1** (after a demotion) there is no Eldane approval: the message asks a person to approve or deny on the approval page. Point at the footer: incident id and `audit head`. |
 | 1:00-1:30 | - | Click **Full record** | The record page: status, the evidence the model was shown, the findings section by section, the plan, Eldane's review, every step in UTC and IST. |
-| 1:30-1:45 | 5 min (cut) | The approval page's buttons | "For five minutes - and until the apply starts - a person can say no with their passkey; a person always overrides Eldane." Do not click. Say "cut: 5 minutes". |
+| 1:30-1:45 | 5 min (cut) | The approval page's buttons | **L2:** "For five minutes - and until the apply starts - a person can say no with their passkey; a person always overrides Eldane." Do not click. Say "cut: 5 minutes". **L1:** a person approves with their passkey; there is no five-minute window. |
 | 1:45-2:15 | about 2 min | Record page (refresh), then the terminal | The record shows the plan applied, then "Fixed - its health checks passed" after 3 healthy checks 30 s apart. Run the verify command below: `ESM Enabled, orders visible=<n>`. |
 | 2:15-2:35 | up to 20 min (cut) | Terminal: the revert command below | "Undo": the harness puts back the exact state it saved (enabled), which is where WARDEN's fix already left it, and waits for the baseline. Had the fix not held, WARDEN would have undone it itself and said so. |
 | 2:35-3:00 | - | Record page, top line; Slack footers | The page's "Signed record: audit head `<hash>` - N row(s), N signed and intact", then each Slack message's footer head. Say that they are checkpoints at different moments: each footer is the head when that message was sent, and the page shows the head when it opened, after the later steps were recorded. |

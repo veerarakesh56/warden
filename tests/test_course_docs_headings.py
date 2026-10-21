@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import pathlib
 import re
+from urllib.parse import unquote
 
 import pytest
+from markdown_it import MarkdownIt
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
@@ -35,16 +37,48 @@ def test_the_runbook_says_production_is_rules_only_until_requalified():
     assert "providers.yaml" in limits
 
 
+def _link_targets(text: str) -> list[str]:
+    """Every link and image target, parsed as CommonMark with tables (markdown-it-py, a declared dependency): inline
+    links, reference-style links resolved through their definitions, and every definition, used or not."""
+    md = MarkdownIt("commonmark").enable("table")
+    env: dict = {}
+    stack = md.parse(text, env)
+    found = [str(ref["href"]) for ref in env.get("references", {}).values()]
+    while stack:
+        token = stack.pop()
+        stack.extend(token.children or [])
+        if token.type in ("link_open", "image"):
+            found.append(str(token.attrGet("href") or token.attrGet("src") or ""))
+    return found
+
+
+def _missing_local(text: str) -> tuple[list[str], list[str]]:
+    """The local targets (outside links and in-page anchors dropped), and those with no file under docs/."""
+    local = [
+        unquote(t.split("#", 1)[0])
+        for t in _link_targets(text)
+        if not t.startswith(("http://", "https://", "mailto:", "#"))
+    ]
+    return local, [t for t in local if t and not (DOCS / t).resolve().exists()]
+
+
+def test_the_link_check_sees_inline_reference_and_table_links():
+    text = (
+        "[a](RUNBOOK.md) and [b][ref]\n\n| x |\n|---|\n| [d](gone-from-a-table.md) |\n\n"
+        "[ref]: gone-by-reference.md\n[unused]: gone-unused.md\n"
+    )
+    _, missing = _missing_local(text)
+    assert sorted(set(missing)) == [
+        "gone-by-reference.md",
+        "gone-from-a-table.md",
+        "gone-unused.md",
+    ]
+
+
 @pytest.mark.parametrize("name", ["USE-CASE.md", "RUNBOOK.md", "COST.md", "DEMO.md"])
 def test_every_relative_link_resolves(name):
-    text = (DOCS / name).read_text(encoding="utf-8")
-    targets = [
-        t.split("#", 1)[0]
-        for t in re.findall(r"\]\(([^)\s]+)\)", text)
-        if not t.startswith(("http://", "https://", "#"))
-    ]
-    missing = [t for t in targets if t and not (DOCS / t).resolve().exists()]
-    assert targets
+    local, missing = _missing_local((DOCS / name).read_text(encoding="utf-8"))
+    assert local
     assert missing == []
 
 
