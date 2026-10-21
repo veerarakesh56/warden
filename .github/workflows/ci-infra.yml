@@ -42,6 +42,9 @@ on:
       - "src/warden/data/environments.yaml"
   # Pull requests into main only (2026-10-16): dev and prod receive commits main has already checked.
   pull_request:
+    # A draft pull request runs no CI (owner, 2026-10-21: the Actions queue was the bottleneck); it runs when it is
+    # marked ready for review, and on every push after that.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:
       - "terraform/fullstack/**"
@@ -88,4 +91,5 @@ concurrency:
 
 jobs:
   check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     uses: $/.github/workflows/_infra-validate.yml

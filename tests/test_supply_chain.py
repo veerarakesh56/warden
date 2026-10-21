@@ -443,3 +443,22 @@ def test_an_install_outside_the_lock_cannot_take_a_known_vulnerable_aiohttp():
     (aiohttp,) = [Requirement(r) for r in slack if Requirement(r).name == "aiohttp"]
     assert "3.14.3" not in aiohttp.specifier
     assert "3.14.4" in aiohttp.specifier
+
+
+DRAFT_SKIP = "github.event_name != 'pull_request' || github.event.pull_request.draft == false"
+
+
+def test_a_draft_pull_request_runs_no_ci_and_a_ready_one_does():
+    """Owner, 2026-10-21: the Actions queue was the bottleneck. Every workflow a pull request starts lists the event
+    types it runs on - ready_for_review among them, so marking a draft ready runs its CI - and every job in it is
+    skipped while the pull request is a draft (push and schedule runs are untouched)."""
+    flows = {wf.name: yaml.safe_load(wf.read_text(encoding="utf-8")) for wf in WORKFLOWS}
+    on_pr = {name: doc for name, doc in flows.items() if "pull_request" in (doc.get(True) or {})}
+    assert on_pr
+    for name, doc in on_pr.items():
+        trigger = doc[True]["pull_request"] or {}
+        assert trigger.get("types") == ["opened", "synchronize", "reopened", "ready_for_review"], name
+        for job_id, job in doc["jobs"].items():
+            condition = " ".join(str(job.get("if", "")).split())
+            assert DRAFT_SKIP in condition or condition.startswith("github.event.pull_request.draft == false &&"), \
+                (name, job_id, condition)
