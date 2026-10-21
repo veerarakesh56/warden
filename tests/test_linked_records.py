@@ -419,7 +419,8 @@ def test_the_evidence_step_records_which_known_failure_patterns_it_matched(tmp_p
     for inc in ("inc-002", "inc-004"):
         acts.prepare(Alert(**DEMO_ALERTS[inc]))
     [row] = [e["body"] for e in log.entries("inc-002", kinds=(links.SIGNATURE_ROW,))]
-    assert (row["ids"][0], set(row)) == ("K8S-OOM-001", {"node", "ids", "scores"})
+    assert row["ids"][0] == "K8S-OOM-001"
+    assert set(row) == {"node", "ids", "scores"}
 
 
 def test_no_known_failure_pattern_matched_writes_no_row(tmp_path):
@@ -486,6 +487,22 @@ def test_at_most_the_newest_few_incidents_of_the_same_pattern_are_found(world):
         _incident(log, other, service=f"warden-dev-s{i}")
         _signatures(log, other, "K8S-OOM-001")
     assert len([k for k in links.found(log, here) if k["side"] == "same-signature"]) == links.FOUND_MOST
+
+
+def test_the_same_pattern_links_are_the_newest_first_by_when_the_alarm_was_recorded(world):
+    """Newest first by the alarm row's own time, not by the order the rows were written: the oldest are left out."""
+    _, _, _, log = world
+    here = f"{FP}-20261009T100000Z"
+    _incident(log, here, service="warden-dev-x")
+    _signatures(log, here, "K8S-OOM-001")
+    start = datetime.now(UTC) - timedelta(days=1)
+    others = {i: f"{FP2[:-1]}{i}-20261001T10{i:02d}00Z" for i in range(links.FOUND_MOST + 2)}
+    for i in (3, 0, 6, 1, 5, 2, 4):  # written out of time order
+        log.clock = lambda i=i: start + timedelta(minutes=i)
+        _incident(log, others[i], service=f"warden-dev-s{i}")
+        _signatures(log, others[i], "K8S-OOM-001")
+    found = [k["with"] for k in links.found(log, here) if k["side"] == "same-signature"]
+    assert found == [others[i] for i in (6, 5, 4, 3, 2)]
 
 
 def test_the_record_page_says_the_same_known_pattern_in_plain_words(world):

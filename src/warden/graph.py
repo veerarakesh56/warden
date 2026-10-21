@@ -433,8 +433,10 @@ def node_gather(state: WardenState) -> WardenState:
 
 def signature_row(alert: Alert, context: ContextBundle) -> list[dict[str, Any]]:
     """The known failure patterns (knowledge.py) this evidence matches, as the record's own row - ids and scores only,
-    no text - so a later incident that matches the same pattern can be found (links.found, owner B8). Matched on the
-    evidence as read, the same deterministic match the verifier and the report use; nothing when none matches."""
+    no text - so a later incident that matches the same pattern can be found (links.found, owner B8). The same
+    deterministic matcher the decider and the report use, but on the evidence as gathered: before redaction and before
+    WARDEN's own earlier fixes are added, so its result can differ from theirs on the same incident. Only ids and scores
+    are kept, never the evidence's text. Nothing when none matches."""
     matches = default_knowledge_base().match(alert, context)
     if not matches:
         return []
