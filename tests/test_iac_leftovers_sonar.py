@@ -373,8 +373,8 @@ def test_no_image_grants_write_to_others_and_the_runtimes_tmp_stays_debians_stic
 
 def test_the_webhook_routes_pass_the_gateway_only_with_their_bearer_secret():
     """S6333 (owner, 2026-10-20: fixed, not kept): /alertmanager and /datadog carry a Lambda REQUEST authorizer that
-    checks the route's bearer secret at the gateway; the function keeps its own check. The approval page's routes keep
-    their own gate - Slack sign-in and the approver's passkey - which an authorizer could not express."""
+    checks the route's bearer secret at the gateway; the function keeps its own check. The approval page's routes have
+    their own authorizer where one can check something (tests/test_approval_edge_auth.py)."""
     front = (RUNTIME / "frontdoor.tf").read_text(encoding="utf-8")
     routes = re.findall(r'^resource "aws_apigatewayv2_route" "(\w+)"', front, re.MULTILINE)
     assert sorted(routes) == ["alertmanager", "approval", "datadog"]

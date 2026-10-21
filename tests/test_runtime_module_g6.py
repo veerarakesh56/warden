@@ -208,7 +208,8 @@ def test_each_lambda_has_its_own_role_that_reads_only_what_its_handler_reads():
     iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
     access = _front_door_access(iam)
     doors = re.findall(r"^    ([\w-]+)\s+= \{ handler = ", _frontdoor(), re.MULTILINE)
-    assert set(access) == set(doors) == set(READS) == set(settings.LAMBDA_SECRETS)
+    # edge-auth, the gateway's authorizer, has a role of its own outside the VPC (edgeauth.tf; test_approval_edge_auth.py)
+    assert set(access) == set(doors) == set(READS) == set(settings.LAMBDA_SECRETS) - {"edge-auth"}
     src = ROOT / "src" / "warden"
     for name, reads in READS.items():
         assert settings.LAMBDA_SECRETS[name] == set(reads), name

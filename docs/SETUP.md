@@ -233,7 +233,8 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
    Parameter Store value `/warden/ops/approvers` and restart the workers. [OPERATIONS.md](OPERATIONS.md) covers
    rotating keys and passkeys.
 7. WARDEN's own pages repeat, in Slack and by email, every 15 minutes until an approver acknowledges them with a
-   passkey at `https://<approval domain>/p` (`terraform/modules/warden-runtime/paging.tf`). `/p` needs Sign in with
+   passkey at `https://<approval domain>/s/p`, which signs in with Slack and goes on to `/p`
+   (`terraform/modules/warden-runtime/paging.tf`; the gateway lets `/p` through only with that sign-in's cookie). `/p` needs Sign in with
    Slack (below) and an approver entry with no `environments` whose `slack` is that person's member id: without the
    Slack app nobody reads or acknowledges the pages there, and they repeat until it is set up. Confirm the topic's
    email subscription, and make `warden/ops/slack-webhook` a webhook of the channel to page. Optional:

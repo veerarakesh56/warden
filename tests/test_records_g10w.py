@@ -255,13 +255,15 @@ def test_the_runtime_routes_the_records_and_reads_the_viewer_list_in_the_approva
 
 def test_only_wardens_own_record_link_leaves_beside_the_approval_and_it_never_looks_like_a_decision(monkeypatch):
     monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", "approve.example.test")
-    good = (chatops.RECORD_LABEL, f"https://approve.example.test/r/{INC}")
+    good = (chatops.RECORD_LABEL, f"https://approve.example.test/s/r/{INC}")  # lands on the sign-in (edge_auth.py)
     token = "a" * 43
-    bad = [(chatops.RECORD_LABEL, "https://evil.example/r/x"), (chatops.RECORD_LABEL, "https://approve.example.test/r/a/b"),
-           ("Full record!", good[1]), (chatops.RECORD_LABEL, "https://approve.example.test/r/" + "x" * 121)]
+    bad = [(chatops.RECORD_LABEL, "https://evil.example/s/r/x"), (chatops.RECORD_LABEL, "https://approve.example.test/s/r/a/b"),
+           ("Full record!", good[1]), (chatops.RECORD_LABEL, "https://approve.example.test/s/r/" + "x" * 121),
+           (chatops.RECORD_LABEL, f"https://approve.example.test/r/{INC}")]  # straight to /r: the gateway refuses it
     approve = (chatops.LINK_LABEL, f"https://approve.example.test/a/{token}")
-    every = (chatops.ALL_LABEL, "https://approve.example.test/r")
-    bad += [(chatops.ALL_LABEL, "https://approve.example.test/r/x"), (chatops.ALL_LABEL, "https://evil.example/r")]
+    every = (chatops.ALL_LABEL, "https://approve.example.test/s/r")
+    bad += [(chatops.ALL_LABEL, "https://approve.example.test/s/r/x"), (chatops.ALL_LABEL, "https://evil.example/s/r"),
+            (chatops.ALL_LABEL, "https://approve.example.test/r")]
     assert chatops.approval_links((approve, good, every, *bad)) == [approve, good, every]
     [msg] = chatops.slack_messages(["text\n---\nfoot"], {"links": [list(approve), list(good), list(every)]})
     styles = {e["text"]["text"]: e.get("style") for e in msg["blocks"][1]["elements"]}
