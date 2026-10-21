@@ -7,6 +7,8 @@ approver's passkey signed exactly the pages shown (approval_page `/p`); the ackn
 first (`page.acknowledged`), then in the bucket. tests/test_paging.py holds this layout to the pager's.
 
 The kill switch going on is one of the alarms that page: `KILLSWITCH_METRIC`, counted on every trip (bounds.trip).
+So are the model's three conditions (item 7c, `model_condition`): the provider unavailable, the daily cap reached, an
+incident's budget spent - each counted once per UTC day, whatever the number of calls it stops.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 KILLSWITCH_METRIC = "KillSwitchTripped"
@@ -30,6 +32,44 @@ def killswitch_tripped() -> None:
     pager repeats it until acknowledged. Best effort: a trip is on the record whether or not the count gets out -
     a WARDEN that cannot reach CloudWatch at all is the heartbeat alarm's to page. No namespace: nothing (a laptop,
     a test)."""
+    _count(KILLSWITCH_METRIC)
+
+
+# The model's paging conditions (item 7c) and the metric each is counted on; paging.tf has one alarm per metric, whose
+# fixed description is all the page says - never the error's text, a value or the evidence.
+PROVIDER_UNAVAILABLE, DAILY_CAP, BUDGET = "provider_unavailable", "daily_cap", "budget"
+MODEL_METRICS = {PROVIDER_UNAVAILABLE: "ModelProviderUnavailable", DAILY_CAP: "ModelDailyCapReached",
+                 BUDGET: "ModelBudgetReached"}
+MODEL_PAGED = "page.model_condition"
+
+
+def model_condition(log: Any, condition: str, *, now: datetime | None = None) -> bool:
+    """Count `condition` for its page - once per UTC day: True when this call counted it, False when it had already
+    been counted today (or is not a condition, or the count could not be made). On WARDEN's record first, under
+    "pages", then the metric, so every worker sees the day's count; two workers racing on the first can each count
+    it, and still page once - the alarm acts only on its change into ALARM, and the pager opens no second page for an
+    alarm whose page is open. The row holds the condition and the day only."""
+    metric = MODEL_METRICS.get(condition)
+    if metric is None:
+        return False
+    now = now or datetime.now(UTC)
+    day = now.astimezone(UTC).date().isoformat()
+    midnight = datetime.fromisoformat(day).replace(tzinfo=UTC)
+    try:
+        if any(e["body"].get("condition") == condition and e["body"].get("day") == day
+               for e in log.entries("pages", kinds=(MODEL_PAGED,), since=midnight)):
+            return False
+        log.append("pages", MODEL_PAGED, {"condition": condition, "day": day})
+    except Exception:  # noqa: BLE001 - a page never stops the incident; it still goes to a person
+        logging.getLogger("warden.paging").warning("the model's %s page could not be recorded", condition)
+        return False
+    _count(metric)
+    return True
+
+
+def _count(metric: str) -> None:
+    """One count of `metric` under the runtime's own namespace (WARDEN_HEARTBEAT_NAMESPACE); none on a laptop or in a
+    test. Best effort, as the kill switch's: the record holds it either way."""
     namespace = os.environ.get("WARDEN_HEARTBEAT_NAMESPACE", "").strip()
     if not namespace:
         return
@@ -39,9 +79,9 @@ def killswitch_tripped() -> None:
         from .environments import region
 
         boto3.client("cloudwatch", region_name=region()).put_metric_data(
-            Namespace=namespace, MetricData=[{"MetricName": KILLSWITCH_METRIC, "Value": 1, "Unit": "Count"}])
-    except Exception:  # noqa: BLE001 - the trip itself stands; the record holds it
-        logging.getLogger("warden.paging").warning("the kill switch's page count could not be sent")
+            Namespace=namespace, MetricData=[{"MetricName": metric, "Value": 1, "Unit": "Count"}])
+    except Exception:  # noqa: BLE001 - the condition stands on the record
+        logging.getLogger("warden.paging").warning("the page count %s could not be sent", metric)
 
 
 def signed_for(pages: list[dict[str, Any]]) -> str:

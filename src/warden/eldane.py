@@ -34,13 +34,15 @@ import json
 import os
 import re
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 
-from . import approvals, autonomy, catalog
+from . import approvals, autonomy, catalog, paging
+from .llm import elapsed_ms
 
 # The only audit rows Eldane reads (register R12): the evidence as the diagnosis saw it, and the diagnosis.
 READS = ("incident.evidence", "incident.diagnose")
@@ -206,12 +208,15 @@ def _calls_today(log: Any) -> int:
 def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], **row: Any) -> CriticVerdict:
     """One question to Eldane. Fail-closed: an error, an unreadable answer or a citation of anything not in the
     evidence is a "no", with why."""
+    # How long the call took (item 7a): the monotonic clock, in this activity - never workflow time.
+    started = time.monotonic()
     try:
         got = provider.complete(system=SYSTEM, user=user, schema=CriticVerdict)
     except Exception as exc:  # noqa: BLE001 - any provider error means Eldane said nothing and so agrees to nothing
-        log.append(incident, CALL, {**row, "ok": False, "error": type(exc).__name__})
+        log.append(incident, CALL, {**row, "ok": False, "error": type(exc).__name__, "latency_ms": elapsed_ms(started)})
         return CriticVerdict(agree=False, reasons=[Reason(text=f"Eldane could not be asked ({type(exc).__name__})")])
-    log.append(incident, CALL, {**row, "ok": True, "input_tokens": got.input_tokens, "output_tokens": got.output_tokens})
+    log.append(incident, CALL, {**row, "ok": True, "input_tokens": got.input_tokens, "output_tokens": got.output_tokens,
+                                "latency_ms": elapsed_ms(started)})
     text = got.text or ""
     try:
         verdict = CriticVerdict.model_validate(json.loads(text[text.find("{"):text.rfind("}") + 1]))
@@ -339,6 +344,7 @@ def _skip(log: Any, diagnosis: dict[str, Any], prov: dict[str, Any], model: str,
     if not evidence_rows:
         return "the incident's evidence is not on the record"
     if _calls_today(log) + 3 > DAILY_CALLS:
+        paging.model_condition(log, paging.DAILY_CAP)  # the daily call cap pages once a day (item 7c)
         return f"Eldane's daily ceiling of {DAILY_CALLS} calls is reached (WARDEN_ELDANE_DAILY_CALLS)"
     return ""
 

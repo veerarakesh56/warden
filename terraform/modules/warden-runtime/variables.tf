@@ -237,3 +237,30 @@ variable "model" {
     error_message = "model is a plain model id."
   }
 }
+
+# Item 7b: WARDEN's spans (observability.py) over OTLP/HTTP to a collector of the owner's choosing. Off by default:
+# nothing leaves the workers but what they send today. On, every zone gets OTEL_EXPORTER_OTLP_ENDPOINT and nothing
+# else - the app reads it only when it is set, and the image carries the official exporter (pyproject's `otlp` extra,
+# already in uv.lock). HTTPS on 443 only, through the egress the workers already have: no new port or rule. A
+# collector that needs a key is not wired here (a key belongs in a secret slot, not an environment variable).
+variable "otlp_exporter" {
+  description = "Send WARDEN's OpenTelemetry spans over OTLP/HTTP to otlp_endpoint. Off by default."
+  type        = bool
+  default     = false
+  nullable    = false
+  validation {
+    condition     = !var.otlp_exporter || var.otlp_endpoint != ""
+    error_message = "otlp_exporter needs otlp_endpoint."
+  }
+}
+
+variable "otlp_endpoint" {
+  description = "The OTLP/HTTP collector's base URL (the exporter adds /v1/traces): https, port 443, no credentials or query in it. Read only when otlp_exporter is true."
+  type        = string
+  default     = ""
+  nullable    = false
+  validation {
+    condition     = var.otlp_endpoint == "" || can(regex("^https://[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:443)?(/[A-Za-z0-9._~-]+)*/?$", var.otlp_endpoint))
+    error_message = "otlp_endpoint is an https URL on port 443 with a lower-case host, and no credentials, query or fragment."
+  }
+}
