@@ -347,7 +347,7 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
 
 def _with_reads(prompt: str, tools: critique.EvidenceTools, wanted: list[str], ids: set[str]) -> str:
     """The prompt with the items Eldane asked to read again; each one shown may be cited from then on."""
-    ids |= {i for i in wanted[:critique.MAX_READ_AGAIN] if tools.item(i)}
+    ids.update(i for i in wanted[:critique.MAX_READ_AGAIN] if tools.item(i))  # the caller's set, in place
     return prompt + ("\n\n" + tools.read_again(wanted) if wanted else "")
 
 

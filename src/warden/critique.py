@@ -22,7 +22,7 @@ import json
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
 OBJECTION, REBUTTAL = "eldane.objection", "eldane.rebuttal"
 MAX_ROUNDS = 3
@@ -124,7 +124,7 @@ def answer(log: Any, incident: str, provider: Any, user: str, objections: list[O
         got = provider.complete(system=REBUT, user=asked, schema=Rebuttals)
         text = got.text or ""
         parsed = Rebuttals.model_validate(json.loads(text[text.find("{"):text.rfind("}") + 1])).rebuttals
-    except (ValueError, ValidationError, RuntimeError, OSError, TimeoutError) as exc:
+    except (ValueError, RuntimeError, OSError) as exc:  # pydantic's ValidationError is a ValueError, TimeoutError an OSError
         log.append(incident, "eldane.call", {**row, "ok": False, "purpose": "rebuttal", "error": type(exc).__name__})
         return conceded
     log.append(incident, "eldane.call", {**row, "ok": True, "purpose": "rebuttal",
