@@ -607,8 +607,8 @@
         <mxCell id="e-notify-gh-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;notify: an issue per applied change&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="860" y="197" width="200" height="14" as="geometry" />
         </mxCell>
-        <mxCell id="e-read-github-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;read-only token: commits, code review findings&lt;/span&gt; &lt;span style=&#x27;color:#5C4A00&#x27;&gt;· open PR #50: Dependabot&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
-          <mxGeometry x="820" y="219" width="420" height="14" as="geometry" />
+        <mxCell id="e-read-github-w" value="&lt;span style=&#x27;color:#1F2933&#x27;&gt;read-only token: commits, findings&lt;/span&gt; &lt;span style=&#x27;color:#5C4A00&#x27;&gt;· open PR #50&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="825" y="219" width="270" height="14" as="geometry" />
         </mxCell>
         <mxCell id="w-gut" value="&lt;span style=&#x27;font-size:10px&#x27;&gt;agent: logs, metrics, APM ↑&lt;br&gt;&lt;br&gt;read zone: logs, APM,&lt;br&gt;metrics (scoped key) ↑&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="1134" y="340" width="140" height="80" as="geometry" />
