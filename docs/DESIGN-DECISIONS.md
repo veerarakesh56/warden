@@ -343,6 +343,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - WARDEN's records pages: built - `records.py`, two server-rendered pages read from the signed audit, on the
   approval page's own domain, sign-in and Content-Security-Policy. A dashboard product (Grafana, Backstage) would be
   a second service to run and secure, reading a copy of the record; the record already holds every fact.
+- Post-deploy watch (U3-4, 2026-10-21): built - `deploy_watch.py`, a pure function over the deploys WARDEN's readers
+  already put in the evidence (ECS, Lambda, EKS, AppConfig): an alarm inside WARDEN_DEPLOY_WATCH_MIN after a deploy
+  names it under the report's title as a suspect, never the cause. Passive by decision (main, option A): no event
+  rule, no watch state, no new read; an active watch (deploy events and a polling workflow) is a later option.
 - The pages' look: built - `brand.py` (the logo, inline SVG) and the shared style and script in the approval page:
   CSS custom properties for light and dark, a small canvas background and a press ripple, no framework. A UI kit or
   an animation library would be third-party script, which the pages' Content-Security-Policy refuses.
