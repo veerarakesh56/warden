@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import io
 import json
+import pathlib
 import urllib.error
 
 import pytest
 
-from warden import catalog
+from warden import catalog, cli, settings
+from warden.platforms import NotConfigured
 from warden.platforms.infra import (
     ENTRY,
     GitHub,
@@ -236,6 +238,86 @@ def test_each_environment_reads_its_own_state_bucket_and_one_without_reads_nothi
     assert asked == ["dev"]
     lonely = per.for_environment("stage")
     assert lonely.live(ENTRY, {"stack": "fullstack"}) == {}
-    with pytest.raises(InfraPlatformRefused):
+    with pytest.raises(NotConfigured, match="no Terraform state bucket"):
         lonely.apply(ENTRY, {})
     assert PerEnvironment(reader, repo="", buckets="dev=tf-dev").for_environment("dev").live(ENTRY, {}) == {}
+    assert per.live(ENTRY, {"stack": "fullstack"}) == {}  # no environment named: nothing read
+    with pytest.raises(NotConfigured):
+        per.apply(ENTRY, {})
+
+
+# --------------------------------------------------------------------------- the wiring (owner, 2026-10-21): each grant
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+MODULE = ROOT / "terraform" / "modules" / "warden-runtime"
+
+
+def test_the_infra_platform_runs_only_behind_the_state_buckets(monkeypatch):
+    """`--platform infra` with WARDEN_TF_STATE_BUCKETS unset: platforms.Unconfigured - nothing read, every plan refused."""
+    monkeypatch.delenv("WARDEN_TF_STATE_BUCKETS", raising=False)
+    routed = cli._platform("infra")
+    assert routed.live(ENTRY, {"stack": "fullstack"}, environment="dev") == {}
+    with pytest.raises(NotConfigured, match="WARDEN_TF_STATE_BUCKETS is not set"):
+        routed.apply(ENTRY, {"stack": "fullstack"}, who=WHO, environment="dev")
+    assert "infra" in cli.PLATFORM_KINDS
+    assert catalog.CATALOG[ENTRY].platform == "terraform"  # the kind RoutedPlatform sends the entry to
+
+
+def test_the_dispatch_token_is_the_act_zones_alone():
+    name = "WARDEN_GITHUB_ACTIONS_TOKEN"
+    assert name in settings.SECRETS
+    assert name in settings.LOADABLE
+    assert settings.RESTRICTED[name] == frozenset({"worker"})
+    assert [z for z, names in settings.ZONE_SECRETS.items() if name in names] == ["act"]
+    assert settings.secret_id("dev", name, "act") == "warden/dev/github-actions-token"
+    iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
+    holders = [line.split("=")[0].strip() for line in iam.splitlines() if '"github-actions-token"' in line]
+    assert holders == ["act"]
+    assert '"github-actions-token", # B17' in (MODULE / "secrets.tf").read_text(encoding="utf-8")
+
+
+def test_only_the_read_and_act_zones_run_the_infra_platform():
+    iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
+    with_infra = sorted(line.split("=")[0].strip() for line in iam.splitlines()
+                        if "platforms = [" in line and '"infra"' in line.split("platforms = [")[1])
+    assert with_infra == ["act", "read"]
+
+
+@pytest.mark.parametrize("env", ["dev", "prod"])
+def test_the_platform_reader_may_read_only_the_kept_plans_metadata(env):
+    """s3:GetObject in the reader role only, only on `<state bucket>/<stack>/plans/*.json` - never the state itself
+    (terraform.tfstate holds secrets), never the plan bytes (*.tfplan)."""
+    import fnmatch
+
+    def get_objects(policy):
+        return [r for st in policy["Statement"] if st["Effect"] == "Allow"
+                for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"]) if a == "s3:GetObject"
+                for r in ([st["Resource"]] if isinstance(st["Resource"], str) else st["Resource"])]
+
+    reader = json.loads((ROOT / "iam" / env / "platform-reader.json").read_text(encoding="utf-8"))
+    allowed = get_objects(reader)
+    assert allowed == [f"arn:aws:s3:::warden-{env}-tfstate-*/{stack}/plans/*.json" for stack in ("fullstack", "undo-lab")]
+    bucket = f"arn:aws:s3:::warden-{env}-tfstate-x1"
+
+    def readable(key):
+        return any(fnmatch.fnmatchcase(f"{bucket}/{key}", pat) for pat in allowed)
+
+    assert readable("fullstack/plans/902.json")
+    for key in ("fullstack/terraform.tfstate", "fullstack/plans/902.tfplan", "fullstack/stack.json",
+                "other/plans/1.json"):
+        assert not readable(key), key
+    other = "prod" if env == "dev" else "dev"
+    assert not any(fnmatch.fnmatchcase(f"arn:aws:s3:::warden-{other}-tfstate-x1/fullstack/plans/1.json", pat)
+                   for pat in allowed)
+    for kind in ("actor", "platform-diagnose"):  # the reader role only
+        assert not get_objects(json.loads((ROOT / "iam" / env / f"{kind}.json").read_text(encoding="utf-8"))), kind
+
+
+def test_the_act_zone_reads_github_with_its_own_token_and_the_read_zone_with_the_read_token(monkeypatch):
+    from warden.platforms import infra
+
+    monkeypatch.setenv("WARDEN_GITHUB_ACTIONS_TOKEN", "act-" + "x")
+    monkeypatch.delenv("WARDEN_GITHUB_READ_TOKEN", raising=False)
+    assert infra._read_token() == "act-x"
+    monkeypatch.setenv("WARDEN_GITHUB_READ_TOKEN", "read-" + "y")
+    monkeypatch.delenv("WARDEN_GITHUB_ACTIONS_TOKEN", raising=False)
+    assert infra._read_token() == "read-y"

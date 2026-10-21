@@ -212,6 +212,15 @@
       "Resource": "arn:aws:apigateway:ap-south-2::/account"
     },
     {
+      "Sid": "KeptInfraPlanMetadataOnly",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "arn:aws:s3:::warden-dev-tfstate-*/fullstack/plans/*.json",
+        "arn:aws:s3:::warden-dev-tfstate-*/undo-lab/plans/*.json"
+      ]
+    },
+    {
       "Sid": "NeverApiKeys",
       "Effect": "Deny",
       "Action": "apigateway:GET",

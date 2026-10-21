@@ -27,17 +27,26 @@ from typing import Any
 
 from .. import web
 from ..catalog import APPLIED_AT
+from . import NotConfigured, Unconfigured
+from . import PerEnvironment as _PerEnvironment
 
 ENTRY = "infra_restore_baseline"
 STACKS = ("fullstack", "undo-lab")  # the stacks _infra-deploy.yml accepts
 TOKEN_ENV = "WARDEN_GITHUB_ACTIONS_TOKEN"
 READ_TOKEN_ENV = "WARDEN_GITHUB_READ_TOKEN"
+BUCKETS_ENV = "WARDEN_TF_STATE_BUCKETS"
 API = "https://api.github.com"
 TIMEOUT_S = 8.0
 RUNS_READ = 20
 _RUN_ID = re.compile(r"\d{1,20}", re.ASCII)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
+
+
+def _read_token() -> str:
+    """The token a zone reads GitHub with: the read zone's read-only token, or - in the act zone, whose apply re-reads
+    the branch and the kept plan just before dispatching - its own Actions token. Neither zone holds the other's."""
+    return os.environ.get(READ_TOKEN_ENV, "").strip() or os.environ.get(TOKEN_ENV, "").strip()
 
 
 class InfraPlatformError(RuntimeError):
@@ -86,7 +95,7 @@ class InfraPlatform:
 
     def __init__(self, *, environment: str, github: GitHub, plan_meta: Callable[[str, str], dict[str, Any] | None],
                  token: Callable[[], str] = lambda: os.environ.get(TOKEN_ENV, "").strip(),
-                 read_token: Callable[[], str] = lambda: os.environ.get(READ_TOKEN_ENV, "").strip()) -> None:
+                 read_token: Callable[[], str] = lambda: _read_token()) -> None:
         self.environment, self._gh, self._meta = environment, github, plan_meta
         self._token, self._read_token = token, read_token
         self.workflow = f"deploy-{environment}.yml"
@@ -215,54 +224,45 @@ def s3_plan_meta(s3: Callable[[], Any], bucket: str) -> Callable[[str, str], dic
 def _pairs(text: str) -> dict[str, str]:
     """`env=value[,env=value]`, as WARDEN_EKS_CLUSTERS writes its pairs."""
     pairs = (x.strip().split("=") for x in text.split(","))
-    return {kv[0]: kv[1] for kv in pairs if len(kv) == 2}
+    return {kv[0].strip(): kv[1].strip() for kv in pairs if len(kv) == 2 and kv[0].strip() and kv[1].strip()}
 
 
-class PerEnvironment:
+class PerEnvironment(_PerEnvironment):
     """One InfraPlatform per watched environment, made when a plan first names it: that environment's state bucket
     (WARDEN_TF_STATE_BUCKETS, `env=bucket`), read with that environment's platform reader (`reader(env)`, a clients
-    callable). An environment with no bucket configured reads nothing, so every plan of it is refused."""
+    callable). An environment with no bucket, or no plain owner/repository (WARDEN_CHANGE_REPO), reads and sends
+    nothing (platforms.Unconfigured): every plan of it is refused."""
 
     def __init__(self, reader: Callable[[str], Callable[[str], Any]], repo: str | None = None,
                  buckets: str | None = None, opener: Any = web.urlopen) -> None:
-        self._reader = reader
-        self._repo = (repo if repo is not None else os.environ.get("WARDEN_CHANGE_REPO", "")).strip()
-        self._buckets = _pairs(buckets if buckets is not None else os.environ.get("WARDEN_TF_STATE_BUCKETS", ""))
-        self._open, self._made = opener, {}
+        repo = (repo if repo is not None else os.environ.get("WARDEN_CHANGE_REPO", "")).strip()
+        bucket_of = _pairs(buckets if buckets is not None else os.environ.get(BUCKETS_ENV, ""))
 
-    def for_environment(self, environment: str) -> Any:
-        if environment not in self._made:
-            bucket = self._buckets.get(environment, "")
-            if not bucket or not _REPO.fullmatch(self._repo):
-                self._made[environment] = _Unconfigured()
-            else:
-                clients = self._reader(environment)
-                self._made[environment] = InfraPlatform(environment=environment, github=GitHub(self._repo, self._open),
-                                                        plan_meta=s3_plan_meta(lambda: clients("s3"), bucket))
-        return self._made[environment]
+        def build(environment: str) -> InfraPlatform:
+            bucket = bucket_of.get(environment, "")
+            if not bucket:
+                raise NotConfigured(f"{environment} has no Terraform state bucket configured ({BUCKETS_ENV})")
+            if not _REPO.fullmatch(repo):
+                raise NotConfigured("WARDEN_CHANGE_REPO does not name one owner/repository")
+            clients = reader(environment)
+            return InfraPlatform(environment=environment, github=GitHub(repo, opener),
+                                 plan_meta=s3_plan_meta(lambda: clients("s3"), bucket))
 
-    def live(self, *_plan: Any) -> dict[str, Any]:
-        return {}  # no environment named: nothing is read
-
-    def knows(self, *_service: str) -> bool:
-        return False
+        super().__init__(build, "terraform")
 
 
-class _Unconfigured:
-    """An environment without a state bucket or repository configured: reads nothing, sends nothing."""
+def infra_from_environment() -> Any:
+    """The infra platform a worker runs (`--platform infra`): only behind WARDEN_TF_STATE_BUCKETS. Unset, it is
+    platforms.Unconfigured - it reads nothing and every infra_restore_baseline plan is refused. Each environment's
+    kept plans are read in its own platform-reader role (`warden-<env>-platform-reader`, which may read only
+    `<state bucket>/<stack>/plans/*.json`)."""
+    if not _pairs(os.environ.get(BUCKETS_ENV, "")):
+        return Unconfigured(f"{BUCKETS_ENV} is not set: no Terraform stack is read or changed")
+    import boto3
 
-    def live(self, *_plan: Any) -> dict[str, Any]:
-        return {}
+    from ..environments import region
+    from . import reader_clients, role_arn
 
-    def knows(self, *_service: str) -> bool:
-        return False
-
-    def healthy(self, *_service: Any) -> bool:
-        return False
-
-    def apply(self, *_plan: Any) -> str:
-        raise InfraPlatformRefused("this environment has no Terraform state bucket configured (WARDEN_TF_STATE_BUCKETS);"
-                                   " nothing was sent")
-
-    def rollback(self, *_plan: Any) -> str:
-        return "nothing to roll back: nothing was applied"
+    where = region()
+    sts = boto3.client("sts", region_name=where)
+    return PerEnvironment(lambda env: reader_clients(sts, where, role_arn(env, "platform-reader")))
