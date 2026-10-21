@@ -47,7 +47,8 @@ def handler(event, context):
     if not names or not header.startswith("Bearer "):
         return {"isAuthorized": False}
     given = header[len("Bearer "):].encode()
-    # Every secret is compared, whatever the first gives, so the time taken says nothing about which one matched.
+    # Every secret is compared, whatever the first gives, so the time taken says nothing about which one matched: the
+    # whole list of answers is built before it is read (any() over a generator would stop at the first match).
     values = [_secret(name) for name in names]
     results = [hmac.compare_digest(given, value.encode()) for value in values if value]
-    return {"isAuthorized": any(results)}
+    return {"isAuthorized": True in results}
