@@ -488,10 +488,32 @@ def test_the_shops_workloads_render_for_dev_with_no_placeholder_and_the_hpa_owns
         assert dep["metadata"]["labels"]["environment"] == "dev"  # WARDEN reads it before any change (P18)
         assert dep["spec"]["template"]["metadata"]["labels"]["tags.datadoghq.com/env"] == "dev"
         c = dep["spec"]["template"]["spec"]["containers"][0]
-        assert c["image"] == "shop-app" and {"catalog-config", "shop-infra", "otel-config"} == {
+        assert c["image"] == "shop-app:set-by-argocd" and {"catalog-config", "shop-infra", "otel-config"} == {
             e["configMapRef"]["name"] for e in c["envFrom"]}
     assert docs[("ConfigMap", "otel-config")]["data"]["OTEL_RESOURCE_ATTRIBUTES"] == "deployment.environment=dev"
     assert not any(k == "Secret" or k == "Namespace" for k, _ in docs)  # the pipeline's, never Git's
+
+
+def test_the_applications_image_override_leaves_only_the_digest_and_never_the_bases_tag(tmp_path):
+    """The base names `shop-app:set-by-argocd` (a tag, Sonar kubernetes:S6596); Argo CD's kustomize override
+    `shop-app=<repository>@<digest>` (B26) must replace name AND tag, so the pod runs exactly the bytes built."""
+    import shutil
+    import subprocess
+
+    import yaml
+
+    if not shutil.which("kubectl"):
+        pytest.skip("kubectl renders kustomize")
+    shutil.copytree(ROOT / "manifests" / "shop", tmp_path / "shop")
+    dev = tmp_path / "shop" / "dev" / "kustomization.yaml"
+    repo = STACK["ecr_repository_url"]
+    dev.write_text(dev.read_text(encoding="utf-8") + yaml.safe_dump(
+        {"images": [{"name": "shop-app", "newName": repo, "digest": DIGEST}]}), encoding="utf-8")
+    out = subprocess.run(["kubectl", "kustomize", str(dev.parent)], capture_output=True, text=True,
+                         check=True).stdout
+    images = sorted(c["image"] for d in yaml.safe_load_all(out) if d and d["kind"] == "Deployment"
+                    for c in d["spec"]["template"]["spec"]["containers"])
+    assert images == [f"{repo}@{DIGEST}", f"{repo}@{DIGEST}"]
 
 
 @pytest.mark.parametrize("found", [{}, {"imageDetails": []}, {"imageDetails": [{"imageDigest": "latest"}]}])

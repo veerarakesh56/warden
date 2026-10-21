@@ -367,7 +367,7 @@ def test_deployments_pass_restricted_pod_security(name, replicas):
         assert sc["capabilities"]["drop"] == ["ALL"] and not sc.get("privileged")
         assert c["resources"]["requests"] and c["resources"]["limits"]
         assert "livenessProbe" in c
-        assert c["image"] == "shop-app"  # the commit's image, set by the shop Application
+        assert c["image"] == "shop-app:set-by-argocd"  # the commit's image, set by the shop Application
 
 
 def test_secret_is_a_template_with_no_real_value():
@@ -1257,3 +1257,100 @@ def test_the_runtimes_nat_addresses_reach_the_cluster_endpoint_by_name_not_by_li
     runtime = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert 'tags = { Project = "warden", Environment = local.env, ManagedBy = "terraform" }' in runtime
     assert not re.search(r"\d+\.\d+\.\d+\.\d+/\d+", eks.replace("0.0.0.0/0", ""))
+
+
+# ---- aurora_express.create and main, split into steps (Sonar S3776): the paths no test above reaches
+
+
+class _NeverSettles(FakeRds):
+    """A capacity change that leaves the cluster `modifying` for good."""
+
+    def modify_db_cluster(self, **kw):
+        self._log("modify_db_cluster", **kw)
+        self.cluster["Status"] = "modifying"
+
+
+def test_aurora_create_gives_up_on_a_capacity_change_after_30_minutes_and_adds_no_reader(tmp_path, monkeypatch):
+    ax, rds, sm = _aurora(), _NeverSettles(), FakeSm()
+    slept = []
+    monkeypatch.setattr(ax.time, "sleep", slept.append)
+    stack = _wrapped_stack(tmp_path)
+    with pytest.raises(SystemExit, match=r"capacity change to .* did not complete in 30 minutes"):
+        ax.create(rds, sm, stack, log=lambda *_: None)
+    assert slept == [15] * 120
+    assert "create_db_instance" not in [n for n, _ in rds.calls]
+    assert sm.puts == []
+
+
+def test_aurora_create_names_no_zone_for_the_reader_when_the_writer_holds_the_only_one(tmp_path):
+    class OneZone(FakeRds):
+        def create_db_cluster(self, **kw):
+            super().create_db_cluster(**kw)
+            self.cluster["AvailabilityZones"] = ["az-a"]
+
+    ax, rds, said = _aurora(), OneZone(), []
+    ax.create(rds, FakeSm(), _wrapped_stack(tmp_path), log=said.append)
+    assert "adding reader warden-dev-aurora-2" in said
+    reader = next(kw for n, kw in rds.calls if n == "create_db_instance")
+    assert "AvailabilityZone" not in reader
+
+
+def test_aurora_create_logs_each_step_in_order(tmp_path):
+    ax, rds, said = _aurora(), FakeRds(), []
+    stack = _wrapped_stack(tmp_path)
+    ax.create(rds, FakeSm(), stack, log=said.append)
+    assert said == [
+        "creating warden-dev-aurora (express configuration; bootstrap-db creates database shop)",
+        "serverless v2 capacity default -> {'MinCapacity': 0.5, 'MaxCapacity': 2.0}",
+        "adding reader warden-dev-aurora-2 in az-b",
+        ("writer warden-dev-aurora-instance-1, reader endpoint warden-dev-aurora.cluster-ro-x.rds.example; "
+         f"warden-dev-db-app and {stack} updated")]
+
+
+def _fake_boto3(monkeypatch) -> list:
+    import sys
+    import types
+
+    made = []
+
+    def session(region_name):
+        made.append(region_name)
+        return types.SimpleNamespace(client=lambda name: {"rds": FakeRds(), "secretsmanager": FakeSm()}[name])
+
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(Session=session))
+    return made
+
+
+def test_aurora_main_refuses_with_no_region_before_making_any_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("WARDEN_ENV", "dev")
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    made = _fake_boto3(monkeypatch)
+    ax = _aurora()
+    argv = ["status", "--stack", str(tmp_path / "none.json")]
+    with pytest.raises(SystemExit, match="refusing: no region - set AWS_REGION or pass --region"):
+        ax.main(argv)
+    assert made == []
+
+
+def test_aurora_main_makes_its_clients_in_the_region_asked_for_else_the_stacks(tmp_path, monkeypatch):
+    monkeypatch.setenv("WARDEN_ENV", "dev")
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    made = _fake_boto3(monkeypatch)
+    ax, stack = _aurora(), _wrapped_stack(tmp_path)
+    assert ax.main(["status", "--stack", str(stack)]) == 1  # no cluster yet
+    assert ax.main(["status", "--stack", str(stack), "--region", "eu-x-1"]) == 1
+    assert made == ["ap-south-2", "eu-x-1"]
+
+
+@pytest.mark.parametrize(("before", "after"), [
+    ({"region": "r"}, {"region": "r", "k": "v", "n": {"a": 1}}),
+    ({"region": {"value": "r", "sensitive": False, "type": "string"}},
+     {"region": {"value": "r", "sensitive": False, "type": "string"},
+      "k": {"value": "v", "sensitive": False, "type": "string"},
+      "n": {"value": {"a": 1}, "sensitive": False, "type": "object"}}),
+], ids=["plain", "terraform-output-wrapped"])
+def test_aurora_merge_stack_writes_in_the_files_own_format(tmp_path, before, after):
+    stack = tmp_path / "stack.json"
+    stack.write_text(json.dumps(before), encoding="utf-8")
+    _aurora().merge_stack(stack, {"k": "v", "n": {"a": 1}})
+    assert json.loads(stack.read_text(encoding="utf-8")) == after
