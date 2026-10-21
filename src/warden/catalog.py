@@ -533,8 +533,12 @@ def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[st
         elif replicas > 1 and at_once * 2 > replicas:
             problems.append(f"C10: the target's strategy would take {at_once} of {replicas} pods down at once; a "
                             "restart is refused until it keeps most of them serving")
-    if not problems and live.get("gitops"):
-        # Register C4: Argo CD or Flux would revert the change at its next sync - the fix belongs in Git.
+    if not problems and live.get("gitops") and not (name == "k8s_restart" and live["gitops"] == "Argo CD"
+                                                    and live.get("gitops_ignores_restart") is True):
+        # Register C4: Argo CD or Flux would revert the change at its next sync - the fix belongs in Git. The one
+        # exception (owner decision 2026-10-17): a restart of a Deployment whose Argo CD Application was read live
+        # and ignores the restart annotation - self-heal leaves it, and a restart changes nothing Git holds. A scale,
+        # an undo or anything else on a Git-managed workload would fight Git, and stays refused.
         problems.append(f"C4: {live['gitops']} manages this target and reverts a direct change; make the change in Git")
     if not problems and name in SCALES and "autoscaled" in live and live["autoscaled"] is not False:
         problems.append("C4: an autoscaler (a HorizontalPodAutoscaler, Application Auto Scaling) owns this target's "
