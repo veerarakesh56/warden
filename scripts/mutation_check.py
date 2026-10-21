@@ -133,8 +133,8 @@ MUTATIONS = [
     (
         "k8s backend stops detecting OOMKilled",
         K8S_BACKEND,
-        'if (last is not None and last.reason == "OOMKilled") or (',
-        'if (last is not None and last.reason == "NEVER") or (',
+        'return (last is not None and last.reason == "OOMKilled") or (',
+        'return (last is not None and last.reason == "NEVER") or (',
         "a real OOM-killed pod would report zero OOM kills and the OOM branch would never fire",
     ),
     (

@@ -138,6 +138,16 @@ def test_a_complete_read_with_no_write_says_so_and_a_failed_one_says_it_failed()
     assert any(ln.startswith("TOOL-PARTIAL changes: ") for ln in lines)
 
 
+def test_more_pages_of_writes_than_are_read_is_said_never_read_as_no_change():
+    """CloudTrail still has pages after CHANGE_PAGES: the list of writes is cut short and says so (plant check for
+    aws_stack._lookup_writes)."""
+    b, _, ct = _backend(_alarm(), [])
+    ct.lookup_events = lambda **kw: {"Events": [], "NextToken": "more"}
+    lines = b._read_all(_alert()).lines
+    assert not any(ln.startswith("CHANGE none") for ln in lines)
+    assert any(ln.startswith("TOOL-PARTIAL changes: [output truncated on LookupEvents]") for ln in lines), lines
+
+
 def test_a_custom_namespaces_metric_names_never_become_metric_keys():
     alarm = _alarm(Namespace="Checkout/App", MetricName="RollbackCheckoutToPreviousRevisionNow",
                    Dimensions=[{"Name": "Service", "Value": "checkout"}])

@@ -135,3 +135,16 @@ def test_a_hostile_dimension_value_is_dropped_and_reported_not_read():
     ev = lambdas.alarm_event(_event([("AWS/Lambda", {"FunctionName": "--profile=admin"})]), "dev")
     assert "lambda" not in ev.alert.labels
     assert "lambda" in ev.alert.rejected_labels
+
+
+def test_an_alarm_with_no_named_dimension_is_the_service_its_own_name_says():
+    """No service dimension that is a plain name: the alarm's own name is the service (plant check for
+    lambdas._alarm_service)."""
+    ev = lambdas.alarm_event(_event([("AWS/Lambda", {"FunctionName": "--profile=admin"})]), "dev")
+    assert ev.alert.service == "warden-dev-orders-errors"
+
+
+def test_an_alarm_whose_name_is_not_a_plain_name_is_an_unknown_service():
+    event = _event([])
+    event["detail"]["alarmName"] = "orders errors > 5"
+    assert lambdas.alarm_event(event, "dev").alert.service == "unknown"
