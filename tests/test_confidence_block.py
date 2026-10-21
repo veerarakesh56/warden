@@ -5,6 +5,7 @@ Never the model's own confidence: the tests change it, and the P4 rule that read
 from __future__ import annotations
 
 import types
+from datetime import UTC, datetime
 
 import pytest
 
@@ -31,6 +32,12 @@ def _incident(log, *, tool_errors=0, read=5, status="approved_for_human", polici
     if end:
         log.append(INC, "workflow.end", {"workflow_id": "rem-1", "status": end})
     return records.record(log, INC)
+
+
+def _proven(**kw):
+    """A proven fix as links.proven_fix returns it (PR 56)."""
+    return {"incident": "inc-old", "entry": "restart_service", "target": "checkout", "environment": "dev",
+            "workflow_id": "rem-old", "verified_at": datetime(2026, 10, 1, tzinfo=UTC), "path": [{}], **kw}
 
 
 def _signal(b, name):
@@ -90,7 +97,7 @@ def test_no_diagnosis_is_medium_at_most(log):
 
 def test_a_proven_fix_on_a_linked_record_backs_the_answer(log):
     r = _incident(log)
-    r.proven = {"entry": "restart_service", "incident": "inc-old"}  # what links.py puts on a record
+    r.proven = _proven()  # what links.py puts on a record
     assert confidence.block(r).level == "High"
 
 
@@ -127,5 +134,5 @@ def test_backing_without_the_base_checks_is_medium_never_high(log):
 
 def test_what_a_signal_quotes_from_the_record_is_text_never_markup(log):
     r = _incident(log)
-    r.proven = {"entry": "<img src=x onerror=alert(1)>", "incident": "inc-old"}
+    r.proven = _proven(entry="<img src=x onerror=alert(1)>")
     assert "<img src=x" not in records.incident_page(r)
