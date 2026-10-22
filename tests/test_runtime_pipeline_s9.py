@@ -241,3 +241,45 @@ def test_a_deploy_never_starts_an_extra_task():
     assert "deployment_maximum_percent         = var.worker_instances > 1 ? 150 : 100" in tf
     # ECS refuses a maximum of 100% while Availability Zone rebalancing is on (2026-10-15).
     assert 'availability_zone_rebalancing      = var.worker_instances > 1 ? "ENABLED" : "DISABLED"' in tf
+
+
+def test_apply_deploys_and_restarts_in_one_run():
+    """Owner B34: apply -> deploy -> restart in one run, no restart dispatch after it. Every safety step stays: the zone
+    check on the new image comes first, and a restart is waited for until stable."""
+    deploy = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]
+    started, apply = deploy.index("APPLY_STARTED=$(date -u +%s)"), deploy.index("name: apply the plan just made")
+    zones = deploy.index("name: Every zone runs the image just built")
+    restart = deploy.index("name: Every zone started after this apply")
+    assert started < apply < zones < restart
+    step = deploy[restart:]
+    assert "if: env.ACTION == 'apply' || env.ACTION == 'resume'" in step.split("\n")[1]
+    assert '[ "$began_s" -lt "$APPLY_STARTED" ]' in step  # only a zone this apply left as it was is restarted
+    assert "--force-new-deployment" in step
+    assert "for _ in $(seq 1 50)" in step  # 25 minutes, as the zone check: a 10-minute waiter gave up on one
+    assert 'echo "::error::not stable after 25 minutes:$restarted"' in step
+    # Fail closed on a start time that cannot be read: never "rolled out by this apply" by accident.
+    fail_closed = step.index('if ! began_s=$(date -u -d "$began" +%s 2>/dev/null) || ! [[ "$began_s" =~ ^[0-9]+$ ]]; then')
+    assert "cannot be read\"\n              exit 1" in step[fail_closed:]
+    assert fail_closed < step.index('[ "$began_s" -lt "$APPLY_STARTED" ]')
+    assert "--task-definition" not in step  # the same task definition: the image the zone check verified
+    assert 'test -n "$APPLY_STARTED"' in step
+    # The restart action stays for a secret rotated when nothing else is deployed.
+    assert "if: inputs.action == 'restart'" in FLOW
+
+
+def test_the_one_run_restart_is_done_only_when_its_own_deployment_completed():
+    """A circuit-breaker rollback starts a NEW deployment of the old tasks: "one COMPLETED deployment" would pass it.
+    The step keeps the id each restart started and accepts only those, completed and alone (CodeRabbit, PR 103)."""
+    deploy = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]
+    step = deploy[deploy.index("name: Every zone started after this apply"):]
+    assert "--query 'service.deployments[?status==`PRIMARY`].id | [0]' --output text)" in step
+    assert 'wanted="$wanted $dep"' in step
+    assert "ecs-svc/*) ;;" in step  # an unreadable id stops the run
+    check = step[step.index("for _ in $(seq 1 50)"):]
+    assert 'case " $wanted " in' in check
+    assert "rolled back?" in check
+    assert '[ "$state" = FAILED ]' in check
+    assert 'if [ "$state" = COMPLETED ] && [ "$count" = 1 ]; then stable=$((stable + 1)); fi' in check
+    assert '[ "$stable" -eq "$(wc -w <<< "$restarted")" ]' in check
+    assert "rolloutState != `COMPLETED`" not in check  # the old any-deployment test is gone
+

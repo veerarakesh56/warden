@@ -11,8 +11,11 @@ name: "Runtime · ops"
 #          with cosign (keyless: this workflow's own GitHub identity) and attest how it was built (register S9).
 #   plan / apply: verify that signature and attestation, then plan or apply terraform/runtime with that digest -
 #          an image this workflow did not build and sign is never deployed.
+#          apply is apply -> deploy -> restart in ONE run (owner B34): a zone the apply did not roll out (same image,
+#          same task definition) is started again after it, so a secret set or rotated since is read - no restart
+#          dispatch is needed after an apply.
 #   restart: a fresh deployment of every zone's service, no image and no plan - after a secret is set or rotated (a
-#          worker reads its secrets when it starts).
+#          worker reads its secrets when it starts), when nothing else needs deploying.
 #   pause / resume (owner update 5, 2026-10-17): pause snapshots the audit database (available before anything else
 #          happens), sets SSM tf/paused=true and applies (no compute, no NAT, no alarm intake, no self-pages), then
 #          STOPS the database and reports what stays and its cost. resume starts the database (refusing to recreate a
@@ -237,6 +240,10 @@ jobs:
           echo "SSM /warden/$RUNTIME_ENV/tf/paused = false"
       - name: plan
         run: terraform -chdir=terraform/runtime plan -input=false -no-color -var "runtime_image=$IMAGE" -out="$RUNNER_TEMP/tfplan"
+      # B34: what this run rolled out is told apart from what it left as it was by when its deployment began.
+      - name: the time the apply starts
+        if: env.ACTION != 'plan'
+        run: echo "APPLY_STARTED=$(date -u +%s)" >> "$GITHUB_ENV"
       - name: apply the plan just made
         if: env.ACTION != 'plan'
         run: |
@@ -317,6 +324,71 @@ jobs:
             fi
           done
           exit "$bad"
+      # B34: apply -> deploy -> restart in one run. A zone whose current deployment began before this apply was left as it
+      # was by Terraform: it is started again - the same task definition, so the same image just checked - and waited for
+      # until stable, as the restart action does. A zone the apply rolled out already started with today's secrets.
+      - name: Every zone started after this apply (the restart, in the same run)
+        if: env.ACTION == 'apply' || env.ACTION == 'resume'
+        run: |
+          if [ "$(aws ssm get-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
+            echo "paused: no zone runs"
+            exit 0
+          fi
+          test -n "$APPLY_STARTED" || { echo "::error::no apply start time"; exit 1; }
+          cluster="warden-$RUNTIME_ENV-runtime"
+          services=$(aws ecs list-services --cluster "$cluster" --query 'serviceArns[]' --output text)
+          test -n "$services" || { echo "::error::no services in $cluster"; exit 1; }
+          restarted=""
+          wanted=""
+          for svc in $services; do
+            read -r name began <<< "$(aws ecs describe-services --cluster "$cluster" --services "$svc" \
+              --query 'services[0].[serviceName, deployments[0].createdAt]' --output text)"
+            # Fail closed: a time that cannot be read (no deployment, another CLI timestamp format) stops the run - it
+            # never passes for "rolled out by this apply" (CodeRabbit, PR 103).
+            if ! began_s=$(date -u -d "$began" +%s 2>/dev/null) || ! [[ "$began_s" =~ ^[0-9]+$ ]]; then
+              echo "::error::$name: its deployment's start time '$began' cannot be read"
+              exit 1
+            fi
+            if [ "$began_s" -lt "$APPLY_STARTED" ]; then
+              # The restart's own deployment: only it finishing counts (a circuit-breaker rollback is a NEW deployment of
+              # the old tasks, which would otherwise read as "stable" - CodeRabbit, PR 103).
+              dep=$(aws ecs update-service --cluster "$cluster" --service "$svc" --force-new-deployment \
+                --query 'service.deployments[?status==`PRIMARY`].id | [0]' --output text)
+              case "$dep" in
+                ecs-svc/*) ;;
+                *) echo "::error::$name: the restart's deployment id '$dep' cannot be read"; exit 1 ;;
+              esac
+              echo "$name: restarting ($dep)"
+              restarted="$restarted $svc"
+              wanted="$wanted $dep"
+            else
+              echo "$name: rolled out by this apply"
+            fi
+          done
+          test -n "$restarted" || exit 0
+          # Up to 25 minutes, as the zone check above: a restart waits for Fargate capacity and the read zone's 2.5 GB
+          # image as a rollout does (a 10-minute `wait services-stable` gave up on one, 2026-10-15; CodeRabbit, PR 103).
+          # Stable means: each service's PRIMARY deployment is the one its restart started, COMPLETED, and alone. Another
+          # PRIMARY (a rollback) or a FAILED one stops the run - the workers may still hold the old secrets.
+          for _ in $(seq 1 50); do
+            # shellcheck disable=SC2086
+            primaries=$(aws ecs describe-services --cluster "$cluster" --services $restarted \
+              --query 'services[].[deployments[?status==`PRIMARY`].id | [0], deployments[?status==`PRIMARY`].rolloutState | [0], length(deployments)]' \
+              --output text)
+            stable=0
+            while read -r id state count; do
+              case " $wanted " in
+                *" $id "*) ;;
+                *) echo "::error::a restart was replaced by deployment '$id' (rolled back?):$restarted"; exit 1 ;;
+              esac
+              [ "$state" = FAILED ] && { echo "::error::restart $id failed:$restarted"; exit 1; }
+              if [ "$state" = COMPLETED ] && [ "$count" = 1 ]; then stable=$((stable + 1)); fi
+            done <<< "$primaries"
+            [ "$stable" -eq "$(wc -w <<< "$restarted")" ] && { echo "restarted and stable:$restarted"; exit 0; }
+            sleep 30
+          done
+          echo "::error::not stable after 25 minutes:$restarted"
+          exit 1
       - name: "pause: the audit database stopped, and what stays"
         if: env.ACTION == 'pause'
         env:
