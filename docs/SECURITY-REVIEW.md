@@ -1,8 +1,9 @@
 # Security review pack
 
 The page a client's security team asks for: where each answer is. Every line points to the document or code that
-holds it; this page adds no claim of its own. Checked against `main` at `13a3324` on 2026-10-21. Where a part is still an open
-pull request, it says **pending PR #n**: under review, not merged, not running.
+holds it; this page adds no claim of its own. Checked against `main` at `6184f07` with PRs #115 and #119 merged in,
+on 2026-10-22 (this page merges after them). Where a part is still an open pull request, it says **pending PR #n**:
+under review, not merged, not running.
 
 ## What WARDEN is
 
@@ -15,17 +16,16 @@ verification, undo, and a signed record of each step.
 
 ## Threat model
 
-- `docs/THREAT-MODEL.md` (STRIDE over the trust boundaries): **pending PR
-  [#82](https://github.com/veerarakesh56/warden/pull/82)**, not on `main`.
-- On `main` today: the trust zones ([ARCHITECTURE.md, trust zones](ARCHITECTURE.md#trust-zones)), the safety layers
+- STRIDE over the trust boundaries: [THREAT-MODEL.md](THREAT-MODEL.md).
+- The trust zones ([ARCHITECTURE.md, trust zones](ARCHITECTURE.md#trust-zones)), the safety layers
   ([ARCHITECTURE.md, the safety layers](ARCHITECTURE.md#the-safety-layers)), and the register of failure modes with
   the test that holds each ([FAILURE-MODES.md](FAILURE-MODES.md)).
 
 ## Data: what leaves, what is kept
 
 - What leaves the network, to where, how it is masked and checked, and what the model provider does with a prompt
-  (training, retention, region, each linked to Anthropic's page): [DATA-EGRESS.md](DATA-EGRESS.md). The egress
-  ledger, the sealed vault and the reveal are **pending PRs #104, #110, #115, #119**; that page marks each.
+  (training, retention, region, each linked to Anthropic's page), the egress ledger, the sealed vault and the
+  approvers' reveal: [DATA-EGRESS.md](DATA-EGRESS.md).
 - What WARDEN stores, where, and for how long; how to delete it: [DATA-RETENTION.md](DATA-RETENTION.md).
 
 ## Permissions

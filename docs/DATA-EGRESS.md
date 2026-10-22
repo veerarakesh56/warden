@@ -4,56 +4,55 @@ The owner's goal (2026-10-20): sensitive data never leaves the network; every eg
 network and operations engineers can check that it is safe; AI agents never see or reach the masked values; people
 with access can reveal them through an audited path.
 
-How far `main` meets it today, in short (details below):
+How far `main` meets it, in short (details below):
 - detected values are masked before anything is built for a model, a chat message, a ticket or a log. One opt-in
   exception: with `WARDEN_REPORT_SHOW_IDENTIFIERS=true`, chat messages show emails, tenant ids and IP addresses again
   (never secrets, never to a model);
-- recording **every** egress (the ledger) is **pending PR #104**;
-- no masked value is stored on `main`, so there is nothing to reveal yet: the sealed vault and the audited reveal are
-  **pending PRs #115 and #119**.
+- every model call and every urllib request to a destination outside the network is checked and recorded on the
+  egress ledger (`egress.py`); other clients (boto3, the tracing exporter, Slack's async client) are held to the
+  listed hosts by name and connection, not by content (limits below);
+- the personal values behind the placeholders are sealed with a key no AI zone can use (`vault.py`), and only an
+  approver can reveal one, on the records page, recorded on the signed audit first (`reveal.py`).
 
-This page is for those engineers. It covers every destination, what goes there and what is masked; what the model
-provider does with what it receives; and, as the open privacy PRs land, the egress ledger, the sealed vault and the
-reveal.
+This page is for those engineers. It covers every destination, what goes there and what is masked; the guards and
+the ledger; the sealed vault and the reveal; and what the model provider does with what it receives.
 
-> **Status, checked against `main` at `13a3324` on 2026-10-21 (14:00 UTC / 19:30 IST).** Each statement below is
-> either what `main` does today, or is marked **pending PR #n**: code under review, not merged, not running anywhere.
-> The open PRs this page relies on:
+> **Status, checked against `main` at `6184f07` with PRs #115 (`vault.py`) and #119 (`reveal.py`) merged in, on
+> 2026-10-22 (01:07 UTC / 06:37 IST).** This page merges after those two PRs, so it describes `main` as they leave
+> it. Each statement is what that code does, or is marked **pending PR #n**: code under review, not merged, not
+> running anywhere. The open PRs this page still relies on:
 >
 > | PR | Adds |
 > |---|---|
-> | [#104](https://github.com/veerarakesh56/warden/pull/104) | `egress.py`: the destination inventory, the strict model guard, the urllib and name-lookup hooks, the ledger; six more redaction classes |
-> | [#110](https://github.com/veerarakesh56/warden/pull/110) | the log gate in every Lambda; the lab's Datadog agent masking; log canary tests |
-> | [#115](https://github.com/veerarakesh56/warden/pull/115) | `vault.py`: masked values sealed with KMS, stable ids, retention |
-> | [#119](https://github.com/veerarakesh56/warden/pull/119) | `reveal.py`: people reveal a masked value on the records page, audited first |
 > | [#147](https://github.com/veerarakesh56/warden/pull/147) | `warden records list` and `warden records show`, a read-only CLI over the audit |
 > | [#83](https://github.com/veerarakesh56/warden/pull/83) | the AWS updates watch (AWS's news feeds) |
 > | [#130](https://github.com/veerarakesh56/warden/pull/130) | end-to-end privacy tests over the bundled incidents |
+> | [#91](https://github.com/veerarakesh56/warden/pull/91) | the audit, its anchors and backups kept at least 180 days |
 >
 > When one merges, its "pending" marks here are removed in the same or the next PR.
 
 ## What is never sent out
 
-On `main`, everything the redactor's patterns find (`src/warden/redaction.py`) is replaced by a placeholder
-(`<EMAIL_1>`) before any text is built for a model, a chat message, a ticket or a log line:
+Everything the redactor's patterns find (`src/warden/redaction.py`) is replaced by a placeholder (`<EMAIL_1>`) before
+any text is built for a model, a chat message, a ticket or a log line:
 
 - personal data: email addresses, phone numbers, IPv4/IPv6/MAC addresses, tenant, organisation, customer, account and
-  user ids (`tenant_id=...`), IBANs, payment card numbers;
+  user ids (`tenant_id=...`), internal host names (names under `.corp`, `.lan`, `.intranet`, `.internal`, `.local`,
+  `home.arpa`, keeping a Kubernetes `.cluster.local` name and AWS's `compute.internal`/`ec2.internal`), street
+  addresses, and personal names where a pattern can see one (after a name field's key, a title or a greeting);
+- national ids: US SSNs, Indian Aadhaar and PAN numbers;
+- financial numbers: IBANs, payment card numbers;
 - credentials: private keys, JWTs, API keys and tokens, cloud tokens (GCP, Azure SAS), webhook URLs, passwords in
   URLs and connection strings, `Bearer` and `Basic` credentials, cookies, credential flags and fields, and long
   high-entropy strings;
 - cloud account ids, ARNs and UUIDs.
 
-**Pending PR #104** adds: internal host names (names under `.corp`, `.lan`, `.intranet`, `.internal`, `.local`,
-`home.arpa`, keeping a Kubernetes `.cluster.local` name and AWS's `compute.internal`/`ec2.internal`), US SSNs, Indian
-Aadhaar and PAN numbers, street addresses, and personal names where a pattern can see one (after a name field's key,
-a title or a greeting). Its `tests/test_redaction_classes.py` holds a corpus for every class. Until it merges, none
-of these six is masked by `main`.
+`tests/test_redaction_classes.py` holds a corpus for every class.
 
 Honest limits:
 - A value that **no pattern recognises** is not masked. Detection is pattern-based, never a model judging what is
   personal ([ARCHITECTURE.md, the safety layers](ARCHITECTURE.md#the-safety-layers)).
-- Even after #104, a personal name in free prose with no marker (`priya nair restarted the pod`) is **not** found.
+- A personal name in free prose with no marker (`priya nair restarted the pod`) is **not** found.
 - **Chat can show identifiers on purpose.** With `WARDEN_REPORT_SHOW_IDENTIFIERS=true`, the chat message (Slack,
   Teams, a webhook) puts emails, tenant ids and IP addresses back in for the people reading it
   (`reporting.REVEALABLE`, `chatops.notify`); secrets are never put back. It is off by default and the cloud runtime
@@ -71,7 +70,7 @@ built from it (`graph.node_redact`, run inside the read zone's `activities.prepa
 - Alertmanager and Datadog webhooks;
 - AWS Health and service events;
 - code review findings on a recent deploy's pull requests (GitHub, SonarCloud, CodeRabbit - `findings.py`);
-- **GuardDuty and Security Hub findings** (`security_findings.py`, merged in #52).
+- GuardDuty and Security Hub findings (`security_findings.py`).
 
 A security finding's own words and its resource's details (addresses, keys, instance and account ids, ARNs) are
 redacted in the alert's summary before it is recorded or told, and every finding is escalate-only: no plan is opened.
@@ -79,63 +78,62 @@ redacted in the alert's summary before it is recorded or told, and every finding
 
 ## Every destination
 
-"Gated" below means `main`'s outbound gate (`src/warden/gate.py`) and a second redaction of the exact payload in
+"Gated" below means the outbound gate (`src/warden/gate.py`) and a second redaction of the exact payload in
 `chatops.notify`: links, images and markup removed (G3), write commands withheld (G4), and a message that still holds
-a secret blocked (G5).
+a secret blocked (G5). "Checked" means the egress check below (`egress.check_request` or `egress.guard_model`): the
+request is refused if anything the redactor finds is still in it, and it is recorded either way.
 
-| Destination | Hosts | What goes there | Checked how on `main` | Outside the network? |
+The table is the code's inventory: `egress.STATIC` plus `egress._CONFIGURED` (hosts named by a setting), and
+`tests/test_egress.py` fails when a module in `src/warden` opens a network client that is not on it.
+
+| Destination | Hosts | What goes there | Checked how | Outside the network? |
 |---|---|---|---|---|
-| Anthropic (the diagnosis model, Eldane, the discussion chat) | `api.anthropic.com` | a prompt built from redacted evidence: each value a pattern recognises is a placeholder; a value no pattern recognises can remain (limits above) | redaction before the prompt is built (`node_redact`; `discuss.py` redacts a thread and question). **Pending PR #104:** every prompt re-scanned strictly before it is sent (`egress.guard_model`), refused if any value is found | yes |
+| Anthropic (the diagnosis model, Eldane, the discussion chat) | `api.anthropic.com` | a prompt built from redacted evidence: placeholders only | redaction before the prompt is built (`node_redact`; `discuss.py` redacts a thread and question); then every prompt re-scanned strictly before it is sent (`egress.guard_model`) and refused if any value is found | yes |
 | The Claude CLI (laptop only, for replay qualification) | Anthropic, through the `claude` CLI | the same redacted prompts of recorded incidents | the same | yes |
 | Other model APIs (adopters only; the cloud runtime creates no key slot for them) | OpenAI, Groq, OpenRouter, Gemini, Bedrock, `WARDEN_BASE_URL` | the same | the same | yes |
-| Slack | `slack.com`, `*.slack.com`, `hooks.slack.com` | the incident report, thread replies; Sign in with Slack (OAuth code exchange) | the report and replies are gated; the OAuth exchange sends Slack's code and the app's own client id and secret (`slack_login.py`) | yes |
-| Microsoft Teams, a generic webhook | `WARDEN_TEAMS_WEBHOOK`, `WARDEN_WEBHOOK_URL` | the report | gated | yes |
-| PagerDuty | `events.pagerduty.com` | a page about the report | gated | yes |
-| GitHub | `api.github.com` | a change record (an issue, `changes.py`); reads of recent deploys and pull requests | the record is gated (`changes.py`); reads send a repository, a commit and a pull request number | yes |
-| SonarCloud (opt-in) | `sonarcloud.io` | reads: the issues of a pull request (`WARDEN_SONAR_PROJECT`) | GET only; sends a project key and a pull request number | yes |
-| Datadog | `api.<site>` | reads: a service name, a time window, fixed metric queries, a monitor id | reads only | yes |
-| AWS's documentation | `knowledge-mcp.global.api.aws` | an AWS error code from the typed facts and a service word from WARDEN's own table (`aws_docs.py`; the cloud read zone sets `WARDEN_AWS_DOCS=on`) | closed vocabulary: no log text, name or account | yes |
-| Temporal Cloud | `*.tmprl.cloud` | workflow payloads, **encrypted** with AES-256-GCM (`codec.py`); workflow ids and activity names in clear | the codec | yes |
-| Tracing (opt-in) | `OTEL_EXPORTER_OTLP_ENDPOINT` | spans: node names, timings, scrubbed error text (`observability.py`) | scrubbed where written | yes |
-| WARDEN's own AWS account | `*.amazonaws.com` | reads, the approved fix, the audit, secrets, KMS (boto3) | IAM (below) | no |
-| The private network | non-routable addresses, `*.svc`, `localhost` | a cluster's services, instance and task metadata | - | no |
-| *Pending PR #110:* Datadog, from the lab's own agent | Datadog's intake | the lab shop's container and OpenTelemetry logs and spans (not WARDEN's) | masked at the agent (`helm/datadog/values.yaml`) | yes |
-| *Pending PR #83:* AWS's news feeds | `aws.amazon.com` | a GET of the What's New and blog feeds | nothing of WARDEN's is sent | yes |
-
-**Pending PR #104** turns this table into code: `egress.STATIC` plus `egress._CONFIGURED`, and a test that fails when
-a module opens a network client that is not on it. Found while checking this page on 2026-10-21: #104's inventory
-does not list `sonarcloud.io`, which `main`'s findings reader calls. Once #104 merges, its hook would refuse that
-read unless the host is added (reported to the PR's lane).
+| Slack | `slack.com`, `*.slack.com`, `hooks.slack.com` | the incident report, thread replies; Sign in with Slack (OAuth code exchange) | gated and checked; the OAuth exchange's own client id, secret and code are the only fields the check leaves out (`slack_login.py`) | yes |
+| Microsoft Teams, a generic webhook | `*.webhook.office.com`, `WARDEN_WEBHOOK_URL` | the report | gated and checked (a webhook's secret path is left out of the scan) | yes |
+| PagerDuty | `events.pagerduty.com` | a page about the report | gated and checked (its routing key left out) | yes |
+| GitHub | `api.github.com` | a change record (an issue, `changes.py`); reads of recent deploys and pull requests; the infra workflow's runs and its apply-plan dispatch | the record is gated; every request checked | yes |
+| SonarCloud (opt-in) | `sonarcloud.io` | reads: the issues of a pull request (`WARDEN_SONAR_PROJECT`) | GET only; checked | yes |
+| Datadog | `api.<site>` | reads: a service name, a time window, fixed metric queries, a monitor id | reads only; checked | yes |
+| AWS's documentation | `knowledge-mcp.global.api.aws` | an AWS error code from the typed facts and a service word from WARDEN's own table (`aws_docs.py`; the cloud read zone sets `WARDEN_AWS_DOCS=on`) | closed vocabulary; checked | yes |
+| Temporal Cloud | `*.tmprl.cloud` | workflow payloads, **encrypted** with AES-256-GCM (`codec.py`); workflow ids and activity names in clear | the codec; the client is Rust, outside the Python hooks (limits) | yes |
+| Tracing (opt-in) | `OTEL_EXPORTER_OTLP_ENDPOINT` | spans: node names, timings, scrubbed error text (`observability.py`) | scrubbed where written; its host held by the name check | yes |
+| WARDEN's own AWS account | the AWS API names WARDEN uses (`egress.AWS_ENDPOINTS`) | reads, the approved fix, the audit, secrets, KMS - the vault's sealing and the reveal's opening included (boto3) | IAM and key policies (below); boto3's content is not scanned | no |
+| The private network | non-routable addresses, `*.svc`, `*.cluster.local`, `*.internal`, `localhost` | a cluster's services, instance and task metadata, WARDEN's database | - | no |
+| Datadog, from the lab's own agent | Datadog's intake | the lab shop's container and OpenTelemetry logs and spans (not WARDEN's) | masked at the agent (`helm/datadog/values.yaml`) | yes |
+| AWS's news feeds | `aws.amazon.com` | a GET of the What's New and blog feeds | on the inventory; the watch that reads them is **pending PR #83** | yes |
 
 ## The guards
-
-On `main` today:
 
 1. **Redaction before every prompt.** The evidence, the alert, labels, deploys and tool errors are redacted as one
    text in the read zone; the llm zone gets the built prompt, never the placeholder map (`activities.prepare`).
    Untrusted text is also turned into typed facts first (`quarantine.py`). Eldane reads only the recorded evidence
    and diagnosis rows and the plan (`eldane.READS`).
-2. **The outbound gate** on each of these paths: chat, terminal, MCP results, generic webhooks, the change record
-   (`gate.py`; `tests/test_gate.py`, `tests/test_egress.py`).
-3. **The log gate** in the CLI, the MCP server and the workers: every log record is redacted, normalised, redacted
-   again and bounded (`observability.GatedFormatter`); warnings and uncaught errors go through it too.
+2. **The strict model guard.** Every provider class in `providers._REGISTRY` (Eldane's included) has its `complete`
+   wrapped: the system and user prompts are scanned with every pattern, and a prompt holding any value is refused
+   before it is sent (`egress.guard_model`). It holds in every process.
+3. **The urllib hook** (a PEP 578 audit hook on `urllib.Request`): an unlisted host is refused; the body, query, path,
+   user name and fragment of a request outside the network (or to an AWS name) are scanned and the request refused
+   if a value is found; a compressed body, which cannot be read, is refused.
+4. **The name-lookup and connection hooks** (`socket.getaddrinfo`, `gethostbyname*`, `socket.connect`): an unlisted
+   host is refused before it is resolved; a connection to an IP address must be the private network's or one a
+   checked lookup returned.
+5. **The outbound gate** on each of these paths: chat, terminal, MCP results, generic webhooks, the change record
+   (`gate.py`; `tests/test_gate.py`).
+6. **The log gate** in the CLI, the MCP server, the workers and every Lambda: every log record is redacted,
+   normalised, redacted again and bounded (`observability.GatedFormatter`); the Lambda runtime's own handler writes
+   through the gate too (`observability.gate_handlers`), and an uncaught error reaches the runtime as its type only.
+   `tests/test_log_canaries.py` sends canaries through every path.
 
-Pending:
+The hooks (3, 4) are installed by every Lambda and by every `warden` command run against a real environment
+(`WARDEN_ENV` set). `tests/test_egress.py` holds all of it.
 
-4. **Pending PR #104 - the strict model guard.** Every provider class in `providers._REGISTRY` has its `complete`
-   wrapped: system and user prompts are scanned with every pattern, and a prompt holding any value is refused.
-5. **Pending PR #104 - the urllib hook** (PEP 578 audit hook on `urllib.Request`): an unlisted host is refused; a
-   body or query to a destination outside the network is scanned; a body that cannot be read without consuming it
-   is refused.
-6. **Pending PR #104 - the name-lookup hook** (`socket.getaddrinfo`): an unlisted host is refused before it is
-   resolved.
-7. **Pending PR #110 - the Lambda log gate.** The Lambda runtime's own handler is wrapped, and an uncaught error
-   reaches the runtime as its type only. `tests/test_log_canaries.py` sends canaries through every path.
+## The ledger
 
-## The ledger (pending PR #104)
-
-None of this section runs on `main`. With #104, every model call and every request to a destination outside the
-network writes one row that **never holds a value**:
+Every model call and every urllib request to a destination outside the network or to an AWS name writes one row that
+**never holds a value**:
 
 ```json
 {"destination":"slack","outside":true,"purpose":"POST /api/chat.postMessage","bytes":2817,
@@ -144,10 +142,12 @@ network writes one row that **never holds a value**:
 
 - **CloudWatch Logs:** a line `egress {...}` from logger `warden.egress` in `/warden/<env>/worker` and
   `/aws/lambda/warden-<env>-<function>`. A refusal is a WARNING with `"verdict":"BLOCK"` and the kinds found.
-- **The signed audit:** the same row as `egress.sent` or `egress.blocked`, under the incident's workflow id. If the
-  row cannot be written, the egress is not made.
+- **The signed audit:** the same row as `egress.sent` or `egress.blocked`, under the incident's workflow id, where the
+  process has opened the audit. If the row cannot be written, the egress is not made.
+- A client other than urllib (boto3, the tracing exporter, Slack's async client) is on the ledger by its first lookup
+  of each host only, not per request.
 
-Logs Insights, on those log groups, once #104 is deployed. Everything that left, by destination:
+Logs Insights, on those log groups. Everything that left, by destination:
 
 ```
 fields @timestamp, @message
@@ -167,30 +167,43 @@ fields @timestamp, @logStream, @message
 
 Live Tail: the same log groups with the filter pattern `"egress"`.
 
-Retention on `main` today: the worker and Lambda log groups keep **90 days**
-(`terraform/modules/warden-runtime/compute.tf`, `frontdoor.tf`). Keeping the audit at least 180 days is **planned**,
-not built ([DATA-RETENTION.md](DATA-RETENTION.md)). `warden audit verify` checks the audit's hash chain and
-signatures today.
+Retention: the worker and Lambda log groups keep **90 days** (`terraform/modules/warden-runtime/compute.tf`,
+`frontdoor.tf`). Keeping the audit at least 180 days is **pending PR #91**
+([DATA-RETENTION.md](DATA-RETENTION.md)). `warden audit verify` checks the audit's hash chain and signatures.
 
-## The masked values: sealed for people (pending PRs #115, #119)
+## The masked values: sealed for people
 
-On `main` the placeholder map lives only in memory inside the read zone and is dropped once the prompt is built; it
-is not stored, so no one can look a masked value up afterwards. The two PRs below change that, and none of it runs
-yet.
-
-- **Pending PR #115 - sealed where found.** In `prepare`, the map is encrypted with AES-256-GCM under a fresh KMS data
-  key (encryption context `purpose=vault`, environment, incident) and stored in a `vault` table; the signed audit gets
-  only an index and the sealed bytes' SHA-256. Each value also gets a **stable id** (`email:3f9a0c7d21b4`), an
-  HMAC-SHA256 computed by KMS with `alias/warden-<env>-pseudonym`. No model is shown an id.
-- **Who can open them (#115's `vault.tf`).** The read zone may seal (`kms:GenerateDataKey`) and compute ids
-  (`kms:GenerateMac`) and holds no `kms:Decrypt`; only the approval page's Lambda may `kms:Decrypt` with
-  `purpose=vault`. No AI zone (llm, Eldane's critic) is named in the key policy.
-- **Retention (#115).** A sealed map expires after `WARDEN_VAULT_DAYS` (default and minimum 180). An erasure request
-  deletes the incident's vault row; scheduling the vault key's deletion makes every sealed map unreadable.
-- **Pending PR #119 - the reveal** (`/r/<incident>/masked`): an approver or listed viewer for that environment picks
-  values and gives a reason; the `incident.reveal` row is written to the signed audit **before** anything is opened;
-  the values are shown once (no-store), never in an address or in Slack. The form's token is bound to the reader's
-  sign-in cookie; at most 20 reveals per reader per hour.
+- **Sealed where found** (`vault.py`). In the read zone's `prepare`, the placeholder map's personal values are
+  encrypted with AES-256-GCM under a fresh KMS data key (encryption context `purpose=vault`, the environment, the
+  incident) and stored in a `vault` table; the signed audit gets only an index (placeholder, kind, stable id) and the
+  sealed bytes' SHA-256. The map never enters a workflow's history or a log.
+- **Personal data only.** Sealed: emails, phone numbers, tenant and account ids, ARNs, UUIDs, IP and MAC addresses,
+  internal host names, personal names and street addresses. Never kept, thrown away after masking as before: every
+  credential and token, IBANs, card numbers and national ids (SSN, Aadhaar, PAN). Every redaction class is in exactly
+  one of the two lists (`tests/test_vault.py`).
+- **Stable ids.** Each sealed value gets an id (`email:3f9a0c7d21b4`), an HMAC-SHA256 computed by KMS with
+  `alias/warden-<env>-pseudonym`, a key that never leaves KMS: the same value has the same id in every incident of
+  the environment. No model is shown an id.
+- **Who can open them** (`terraform/modules/warden-runtime/vault.tf`). The read zone may seal
+  (`kms:GenerateDataKey`, `purpose=vault`) and compute ids (`kms:GenerateMac`) and holds no `kms:Decrypt`. Only the
+  approval page's Lambda may `kms:Decrypt`, with `purpose=vault`. No other role - the llm zone, Eldane's critic, the
+  core, notify and act zones - holds `kms:Decrypt` on any key in the module (`tests/test_vault.py`).
+- **Retention.** A sealed map expires `WARDEN_VAULT_DAYS` after it is sealed (default and minimum 180, at most
+  3650). Expired rows are deleted by the next seal through `warden_vault_purge()`, a database function that judges
+  expiry by the database's own clock; no runtime role may delete a row itself, and a row past its expiry is never
+  read. An erasure request is the database owner's: delete the incident's `vault` row; scheduling the vault key's
+  deletion makes every sealed map unreadable. The audit's index and hash stay.
+- **The reveal** (`reveal.py`, `/r/<incident>/masked` on the records site). Only an **approver** for the incident's
+  environment may see the masked values and reveal one; a record viewer (`WARDEN_RECORD_VIEWERS`) reads the record
+  and never reveals. GET shows each placeholder, its kind and its id; a reveal is a POST of the page's own form, so
+  the reason and the chosen values travel in the body, never in an address. The reader picks the values and gives a
+  reason (at least 10 characters, redacted before it is kept); the `incident.reveal` row is written to the signed
+  audit **before** the vault is opened, and the values are shown once (no-store), never in an address or in Slack.
+  The form's token is bound to the reader's sign-in cookie; a refused attempt (a forged or stale form, no value, no
+  reason, not an approver) is recorded as `incident.reveal_attempt_refused`; at most 20 reveals and refused attempts
+  per reader per hour. Whether each reveal also needs a passkey step-up is an open owner decision.
+- **No AI path.** No Temporal activity, MCP tool or model-facing module imports the vault or the reveal
+  (`tests/test_vault.py`, `tests/test_reveal.py`).
 - **Pending PR #147 - the records CLI** masks every string again and never imports the vault or the reveal.
 
 ## The model provider: what Anthropic does with a prompt
@@ -216,31 +229,36 @@ Claude CLI on a Claude Max subscription, on recorded incidents only.
 | The Claude CLI on a consumer plan | Free, Pro and Max: "We will train new models using data from Free, Pro, and Max accounts when this setting is on"; retention 5 years with that setting on, 30 days with it off. Commercial users (Team, Enterprise, API): "Standard: 30-day retention period" (for Claude Code). | [Claude Code: data usage](https://code.claude.com/docs/en/data-usage) |
 
 What WARDEN adds on its side: only redacted prompts are sent, with a placeholder for each value a pattern recognises
-(a value no pattern recognises can remain, above);
-**pending PR #104** refuses any prompt that still holds a value. An install that needs US-only inference or no retention must set
-it in its Anthropic workspace (`default_inference_geo`, `allowed_inference_geos`) or agree ZDR with Anthropic; WARDEN
-has no setting for either.
+(a value no pattern recognises can remain, above), and the model guard refuses any prompt that still holds a value it
+finds. An install that needs US-only inference or no retention must set it in its Anthropic workspace
+(`default_inference_geo`, `allowed_inference_geos`) or agree ZDR with Anthropic; WARDEN has no setting for either.
 
 ## Honest limits
 
 - A value no pattern recognises is not masked (above).
-- Until #104 merges, nothing checks a prompt or an HTTP body against a destination list at the moment it is sent; the
-  checks are the redaction before the prompt is built and the outbound gate on messages.
-- Until #110 merges, a Lambda's log lines and uncaught errors reach CloudWatch through the Lambda runtime's own
-  handler, not the log gate.
-- Temporal's client is Rust and opens its own connections; its payloads are encrypted by the codec.
-- The database client (libpq) resolves names in C; database hosts come only from configured DSNs.
-- With #104: behind a proxy (`HTTPS_PROXY`) a client other than urllib looks up the proxy's name, not its target's;
-  a raw socket to an IP address with no name lookup would bypass the name check. The cloud runtime sets no proxy.
+- A client other than urllib (boto3, the tracing exporter, Slack's async client) is held by the name and connection
+  checks only: its content is not scanned.
+- Temporal's client is Rust and libpq is C: their connections raise no Python audit event. Temporal's payloads are
+  encrypted by the codec; database hosts come only from configured DSNs; the runtime's network rules limit both.
+- AWS names: an RDS, ElastiCache or EKS endpoint, and S3 addressed path-style by boto3, look the same in any account;
+  IAM and the network rules decide whose they are.
+- The pager Lambda (`terraform/modules/warden-runtime/pager`) is its own package: the hooks are not installed there.
+  It posts the page's text to the Slack webhook its secret names.
+- Behind a proxy (`HTTPS_PROXY`) a client other than urllib looks up the proxy's name, not its target's. The cloud
+  runtime sets no proxy.
+- A structured body's value that is only digits is not read as a phone number (an id, a count); every other kind in
+  it still blocks.
 - An administrator of the AWS account can change any key policy; CloudTrail records that change.
 
-## Live steps (the owner's laptop, after #104, #110, #115 and #119 merge)
+## Live steps (the owner's laptop, after #115 and #119 merge)
 
 1. Apply the runtime module (creates `alias/warden-<env>-vault`, `alias/warden-<env>-pseudonym`, their policies and
-   the route `GET /r/{incident}/masked`), then run the migrate Lambda (the `vault` table).
+   the routes `GET` and `POST /r/{incident}/masked`), then run the migrate Lambda (the `vault` table and
+   `warden_vault_purge()`).
 2. After the next incident check: Logs Insights shows `egress` rows and no unexpected `BLOCK`; the record shows
-   "Masked values (n)"; a reveal writes `incident.reveal`; CloudTrail shows `GenerateDataKey` and `GenerateMac` only
-   from `warden-<env>-read` and `Decrypt` on the vault key only from `warden-<env>-approval-lambda`.
-3. Datadog (the lab, after #110): emit a test line with a made-up email and card number from a shop pod; Datadog Logs
-   must show it masked.
+   "Masked values (n)" to an approver; a reveal writes `incident.reveal`; CloudTrail shows `GenerateDataKey` and
+   `GenerateMac` only from `warden-<env>-read` and `Decrypt` on the vault key only from
+   `warden-<env>-approval-lambda`.
+3. Datadog (the lab): emit a test line with a made-up email and card number from a shop pod; Datadog Logs must show
+   it masked.
 4. Anthropic workspace: read its data residency and retention settings in the Claude Console and record them here.

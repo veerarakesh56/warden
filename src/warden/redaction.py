@@ -149,7 +149,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
                            r"Lane|Ln|Drive|Dr|Court|Ct|Way|Place|Pl|Terrace|Highway|Hwy|Marg|Nagar|Colony)\b\.?")),
     # A person's name where a pattern can see one (owner, 2026-10-21) - after a name field's key, a title or a
     # greeting. Honest limit: a name in free prose with no such marker is NOT found; no pattern can tell it from a
-    # word (the data-egress page, added by #121).
+    # word (docs/DATA-EGRESS.md).
     ("NAME", re.compile(r"(?i)\b(?:full|first|last|given|family|middle|sur|display|customer|holder|cardholder|contact|"
                         r"recipient|patient|employee|person)[_\- ]?name\b[\"']?\s*[:=]\s*[\"']?"
                         r"([a-z][a-z.'\-]*(?: [a-z][a-z.'\-]*){0,3})")),
