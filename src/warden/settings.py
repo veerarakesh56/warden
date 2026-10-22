@@ -43,7 +43,13 @@ _OLD_NAME = {new: old for old, new in RENAMED.items()}
 # Their Secrets Manager slots keep the old names until terraform/modules/warden-runtime renames them (secrets.tf and
 # iam.tf, owned separately): until then each new name is read from its old slot, so a deployed runtime reads the same
 # secret it read before and its task roles need no change.
-_SLOT = {new: old.lower().removeprefix("warden_").replace("_", "-") for old, new in RENAMED.items()}
+_SLOT = {new: old.lower().removeprefix("warden_").replace("_", "-") for old, new in RENAMED.items()
+         if new != "WARDEN_DB_TERMINATE_DSN"}
+# B24 (2026-10-20, "admin" out of every name): the terminate DSN's slot is db-terminate-dsn. Terraform holds both slots
+# for one release (terraform/modules/warden-runtime secrets.tf, the act zone's grant in iam.tf); a person sets the
+# value. The old slot is still read, with a WARNING, while the new one has no value.
+_OLD_SLOT = {"WARDEN_DB_TERMINATE_DSN": "db-admin-dsn"}
+_NEW_SLOT = {"WARDEN_DB_TERMINATE_DSN": "db-terminate-dsn"}  # what secret_id names it; the warning says these two only
 
 LOADABLE = frozenset({
     "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_CHANNEL", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL",
@@ -211,6 +217,19 @@ def secret_id(env: str, name: str, zone: str | None = None) -> str:
     return f"warden/{names(env).env}/{slug}" + (f"-{zone}" if name in PER_ZONE and zone in ZONE_SECRETS else "")
 
 
+def _from_old_slot(get: Any, env: str | None, name: str) -> Any:
+    """B24: a renamed slot's value from its old slot, for one release, with a WARNING; None when it has no old slot or
+    that slot does not exist either."""
+    if name not in _OLD_SLOT:
+        return None
+    value = get(f"warden/{names(env).env}/{_OLD_SLOT[name]}")
+    if value is not None:  # names the two slots - constants - and nothing the store returned
+        logging.getLogger("warden.settings").warning(
+            "the %s slot is deprecated: move its value to the %s slot (renamed 2026-10-20; the old slot "
+            "stops being read in the next release)", _OLD_SLOT[name], _NEW_SLOT[name])
+    return value
+
+
 def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any = None,
          secrets: Any = None, zone: str | None = None) -> list[str]:
     """Plain values from SSM and secrets from Secrets Manager, for the names `only` allows; the NAMES loaded. `zone`:
@@ -233,13 +252,17 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
 
 def _load_secrets(env: str, wanted: list[str], secrets: Any, zone: str | None) -> list[str]:
     """Each of `wanted` this environment has in Secrets Manager, set in os.environ; the names set."""
-    def fetch(name: str) -> Any:
+    def get(secret: str) -> Any:
         try:
-            return secrets.get_secret_value(SecretId=secret_id(env, name, zone))
+            return secrets.get_secret_value(SecretId=secret)
         except Exception as exc:  # a secret this environment does not have is simply not loaded; others raise
             if _code(exc) == "ResourceNotFoundException":
                 return None
             raise
+
+    def fetch(name: str) -> Any:
+        value = get(secret_id(env, name, zone))
+        return value if value is not None else _from_old_slot(get, env, name)
 
     from concurrent.futures import ThreadPoolExecutor
 

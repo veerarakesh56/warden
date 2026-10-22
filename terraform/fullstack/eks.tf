@@ -104,7 +104,7 @@ data "aws_iam_session_context" "current" {
 }
 
 resource "aws_eks_access_entry" "admin" {
-  for_each      = toset(concat([data.aws_iam_session_context.current.issuer_arn], var.eks_admin_principal_arns))
+  for_each      = toset(concat([data.aws_iam_session_context.current.issuer_arn], var.eks_operator_principal_arns, var.eks_admin_principal_arns))
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = each.value
 }
