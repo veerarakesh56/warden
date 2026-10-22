@@ -290,7 +290,8 @@ def test_eldane_reaches_no_live_system_by_construction(module):
 def test_the_critic_zone_holds_no_reader_or_actor_credentials():
     from warden import settings
 
-    held = settings.ZONE_SECRETS["critic"]
+    # Its own Slack token (B2, eldane_slack.py) is the one Slack credential it holds: it posts with it, never WARDEN's.
+    held = settings.ZONE_SECRETS["critic"] - {"WARDEN_ELDANE_SLACK_TOKEN"}
     assert not {s for s in held if any(w in s for w in ("ROLE", "DSN", "K8S", "AWS", "GITHUB", "SLACK"))}
 
 

@@ -375,7 +375,7 @@ def _run(world, drive, **req):
                                      critic=world["critic"])
         methods = [acts.resolve_plan, acts.gate, acts.announce, acts.approval_wait, acts.check_approval, acts.check_passkey, acts.precheck,
                    acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert,
-                   acts.side_effects, acts.critic_review, acts.autonomy_state]
+                   acts.side_effects, acts.critic_review, acts.autonomy_state, acts.critic_say, acts.debate_reply]
         async with env, Worker(env.client, task_queue="eldane-test", workflows=[RemediationWorkflow],
                                activities=methods, activity_executor=ThreadPoolExecutor(4)):
             handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**{**REQ, **req}),

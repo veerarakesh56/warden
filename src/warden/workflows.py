@@ -42,6 +42,7 @@ with workflow.unsafe.imports_passed_through():
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .autonomy import L2, VETO
     from .catalog import MITIGATES
+    from .critique import MAX_ROUNDS
     from .discuss import (
         ELSEWHERE,
         LIMIT,
@@ -58,6 +59,7 @@ with workflow.unsafe.imports_passed_through():
         asks_to_extend,
         extended_said,
     )
+    from .eldane_slack import CLOSING, OPENING
     from .extend import ceiling
     from .models import Alert, ContextBundle, RunReport, ingestion_wait, reread_wait
 
@@ -77,6 +79,12 @@ PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": Retr
 # (CodeRabbit, PR 42): unstarted within 30 seconds, or not done in four minutes, the plan goes to a person as before.
 CRITIC = {"schedule_to_start_timeout": timedelta(seconds=30), "start_to_close_timeout": timedelta(minutes=4),
           "retry_policy": RetryPolicy(maximum_attempts=1)}
+# Eldane's review said in the discussion channel (eldane_slack.py): one Slack message each, a critic zone that is not
+# running holds nobody up, and a message already delivered is never posted again (eldane_slack.POSTED). The whole
+# conversation runs beside the plan, never in its way (review of #171), and ends by SAY_TOTAL whatever Slack does.
+SAY = {"schedule_to_start_timeout": timedelta(seconds=30), "start_to_close_timeout": timedelta(seconds=60),
+       "retry_policy": RetryPolicy(maximum_attempts=2)}
+SAY_TOTAL = timedelta(minutes=5)
 # Whether Eldane may approve here at all (the environment's autonomy ceiling), asked once: no answer is "no", and the
 # person is asked first, as everywhere Eldane cannot approve.
 CEILING = {"start_to_close_timeout": timedelta(seconds=30), "retry_policy": RetryPolicy(maximum_attempts=1)}
@@ -89,10 +97,12 @@ MAIN_QUEUE = "warden"
 ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold",
                   "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
-         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
+         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed",
+                    "debate_reply"),
          "act": ("apply", "rollback"),
-         # Eldane, the AI critic (eldane.py): its own model, its own signing key, no other zone's credentials.
-         "critic": ("critic_review",)}
+         # Eldane, the AI critic (eldane.py): its own model, its own signing key and its own Slack token
+         # (eldane_slack.py), no other zone's credentials.
+         "critic": ("critic_review", "critic_say")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
 
@@ -225,6 +235,7 @@ class RemediationWorkflow:
         self._applying = False  # set the moment apply is sent: from then on the target's state is not known
         self._alarm_at = ""  # the target's alarm fired during the verify window (register C1)
         self._side_effects: list[str] = []  # other alarms in the environment that started after the fix (intake)
+        self._eldane_said: asyncio.Task | None = None  # Eldane's conversation in Slack, beside the plan (eldane_slack)
 
     @workflow.signal
     def approve(self, approval: SignedApproval) -> None:
@@ -342,6 +353,30 @@ class RemediationWorkflow:
         return [(f"WARDEN diagnoses the incident again from what it reads now, as `{got['new']}`, with this fix "
                  "beside its evidence: any fix it finds is a new plan for an approver")]
 
+    async def _eldane_in_slack(self, acts, plan: Plan) -> None:
+        """Eldane's review as a conversation in the discussion channel (eldane_slack.py, B2): it opens a thread, then for
+        each round on the record - never more than MAX_ROUNDS - its objections (critic zone, its own token) and WARDEN's
+        answers (notify zone, WARDEN's token), then how it ended. Slack is never the record: a step that fails, or the
+        conversation's SAY_TOTAL running out, ends it and changes nothing else. It runs as a task beside the plan
+        (_critic): nothing in the decision path waits for it."""
+        until = workflow.now() + SAY_TOTAL
+
+        async def say(method, *args):
+            left = until - workflow.now()
+            if left <= timedelta(0):
+                raise TimeoutError  # SAY_TOTAL is up: the rest is not said
+            return await workflow.execute_activity_method(method, **_zoned(method), args=[plan, *args],
+                                                          schedule_to_close_timeout=left, **SAY)
+
+        with contextlib.suppress(ActivityError, TimeoutError):
+            said = await say(acts.critic_say, OPENING)
+            if not isinstance(said, int) or said < 0:
+                return  # no review of this plan on the record: nothing to say
+            for n in range(1, min(said, MAX_ROUNDS) + 1):
+                await say(acts.critic_say, n)
+                await say(acts.debate_reply, n)
+            await say(acts.critic_say, CLOSING)
+
     @staticmethod
     async def _extended(acts, plan: Plan, deadline: datetime) -> datetime | None:
         """The later time an approver extended this plan's wait to (extend.py), when it is later than `deadline` and
@@ -417,6 +452,10 @@ class RemediationWorkflow:
         with contextlib.suppress(ActivityError):
             offered = await workflow.execute_activity_method(acts.critic_review, **_zoned(acts.critic_review),
                                                              args=[plan], **CRITIC)
+        if workflow.patched("eldane-slack-beside"):
+            # Beside the plan, never awaited (review of #171): a slow or hung Slack never holds back Eldane's approval
+            # check or the person's request. Kept on the workflow so the task is not collected while it runs.
+            self._eldane_said = asyncio.create_task(self._eldane_in_slack(acts, plan))
         if may_approve and isinstance(offered, SignedApproval):
             result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
                                                             args=[plan, offered, []], **QUICK)

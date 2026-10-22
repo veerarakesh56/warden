@@ -183,7 +183,9 @@ for prod, the runtime branch for `ops`), and give `prod` and `ops` a required re
 
 An infra change is never applied on a push. A push plans and keeps the saved plan and its SHA-256 in the state
 bucket; the apply is a manual `deploy-<env>.yml` run with `infra_action=apply-plan`, that run id and that hash, at
-the same commit.
+the same commit. In dev only, `infra_action=eldane-apply` lets Eldane, the AI critic, review the saved plan and apply
+exactly it when it approves (docs/OPERATIONS.md, "Eldane reviews dev's infrastructure plans"); prod always needs a
+person.
 <!-- /branch-model -->
 
 ### 4c. Repository settings worth turning on

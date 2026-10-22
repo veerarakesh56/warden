@@ -12,6 +12,10 @@ name: "_ infra · deploy"
 # Branches (owner, 2026-10-16): main deploys nothing; dev is main fast-forwarded; prod is dev merged by pull request.
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
+# eldane-apply (B3, owner 2026-10-17; dev only, refused for every other environment): plan and keep the plan as `plan`
+# does, then Eldane, the AI critic, reviews exactly that saved plan (scripts/eldane_plan_review.py) and, if it
+# approves, the same file is applied. No approval and the job stops after keeping the plan: a person applies it with
+# apply-plan. Off until the environment's variable ELDANE_PLAN_APPROVAL is `on`. Prod always needs a person.
 # pause / resume (owner update 5, 2026-10-17; the full stack only): pause stops every writer, then copies every data
 # store (scripts/pause_resume.py snapshot - each copy AVAILABLE before anything goes) and then destroys the stack as `destroy` does; resume restores
 # the tables from their newest pause backups and imports them, applies as `apply` does, and brings Aurora back from its
@@ -24,6 +28,9 @@ on:
       AWS_ROLE_ARN:
         required: true
       EKS_ADMIN_ROLE_ARNS:
+        required: false
+      # eldane-apply only (dev): the model key Eldane's review step alone is given - the runtime's Anthropic key.
+      ELDANE_ANTHROPIC_API_KEY:
         required: false
     inputs:
       environment:
@@ -77,7 +84,10 @@ jobs:
           exit 1
       - name: A known action
         run: |
-          case "$ACTION" in plan|apply|apply-plan|destroy|pause|resume) ;; *) echo "::error::unknown action: $ACTION"; exit 1 ;; esac
+          case "$ACTION" in eldane-apply|plan|apply|apply-plan|destroy|pause|resume) ;; *) echo "::error::unknown action: $ACTION"; exit 1 ;; esac
+          # An AI approves an infra plan in dev only (owner, 2026-10-17): every other environment needs a person.
+          case "$ACTION/$WARDEN_ENV" in eldane-apply/dev) ;; eldane-apply/*)
+            echo "::error::eldane-apply is for dev only: in $WARDEN_ENV a person reviews every plan (apply-plan)"; exit 1 ;; esac
           case "$ACTION/$STACK" in pause/undo-lab|resume/undo-lab) echo "::error::pause and resume are for the full stack"; exit 1 ;; esac
           case "$STACK" in fullstack|undo-lab) ;; *) echo "::error::unknown stack: $STACK"; exit 1 ;; esac
       - name: The environment names its region
@@ -120,7 +130,14 @@ jobs:
           # No cache in a job that holds credentials: uv does not re-verify unpacked cache entries, so a
           # poisoned cache would install unchecked (fifth review E, 2026-10-01).
           enable-cache: false
-      - run: uv sync --locked --no-build --only-group infra-deploy   # aurora_express.py: stdlib + boto3 only
+      - name: install what the job runs, locked
+        run: |
+          if [ "$ACTION" = eldane-apply ]; then
+            # Eldane's review (scripts/eldane_plan_review.py): WARDEN's own code from the checkout, and Anthropic's SDK.
+            uv sync --locked --no-build --no-install-project --extra anthropic --group infra-deploy
+          else
+            uv sync --locked --no-build --only-group infra-deploy   # aurora_express.py: stdlib + boto3 only
+          fi
       # Helios (register R56) checks the plan before apply. Built from a pinned commit with its
       # Cargo.lock, before the job holds credentials; helios_gate.py runs it with an environment that
       # carries no credentials.
@@ -173,7 +190,7 @@ jobs:
               || terraform -chdir="terraform/$STACK" import -input=false -no-color "$address" "$name"
           done < "$RUNNER_TEMP/imports.txt"
       - name: plan, and Helios on it (R56)
-        if: env.ACTION == 'plan' || env.ACTION == 'apply' || env.ACTION == 'resume'
+        if: env.ACTION == 'plan' || env.ACTION == 'apply' || env.ACTION == 'resume' || env.ACTION == 'eldane-apply'
         run: |
           set -o pipefail
           terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/before.json"
@@ -183,7 +200,7 @@ jobs:
           python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --plan "$RUNNER_TEMP/plan.json" \
             --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: keep the plan for review (private state bucket, never a public artifact)
-        if: env.ACTION == 'plan'
+        if: env.ACTION == 'plan' || env.ACTION == 'eldane-apply'
         env:
           RUN: ${{ github.run_id }}
         run: |
@@ -199,6 +216,32 @@ jobs:
           { echo "### Plan kept for review"; echo "run \`$RUN\` · commit \`$GITHUB_SHA\` · plan sha256 \`$sum\`";
             echo "Apply exactly this plan: Deploy · <env> → infra_action apply-plan, with this run id and sha256."; } \
             >> "$GITHUB_STEP_SUMMARY"
+      # B3 (owner, 2026-10-17), dev only: Eldane reviews exactly the plan kept above - its shape first
+      # (src/warden/plan_shape.py: no access change, no delete or replace of data, network or platform), then the plan's
+      # redacted summary beside a planted bad one (src/warden/plan_review.py). Its review is kept beside the plan. No
+      # yes and the job stops here, the plan kept for a person. The step runs with the cloud credentials removed from
+      # its environment, and is the only one given the model key.
+      - name: Eldane reviews the saved plan (dev only)
+        if: env.ACTION == 'eldane-apply'
+        env:
+          RUN: ${{ github.run_id }}
+          SWITCH: ${{ vars.ELDANE_PLAN_APPROVAL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ELDANE_ANTHROPIC_API_KEY }}
+          WARDEN_ELDANE_PROVIDER: anthropic
+        run: |
+          set -o pipefail
+          [ "$SWITCH" = on ] || { echo "::error::Eldane's plan approval is off in $WARDEN_ENV (variable ELDANE_PLAN_APPROVAL): a person reviews run $RUN's plan and applies it with apply-plan"; exit 1; }
+          status=0
+          # In a subshell with every AWS_* variable and the OIDC request pair (ACTIONS_ID_TOKEN_*) unset: the review holds
+          # no cloud credential and cannot mint one, though the job may (id-token: write).
+          ( for v in $(compgen -e | grep -E '^(AWS_|ACTIONS_ID_TOKEN_)'); do unset "$v"; done
+            python scripts/eldane_plan_review.py review --plan "$RUNNER_TEMP/plan.json" --tfplan "$RUNNER_TEMP/tfplan" \
+              --environment "$WARDEN_ENV" --stack "$STACK" --run-id "$RUN" --commit "$GITHUB_SHA" \
+              --out "$RUNNER_TEMP/eldane.json" ) | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+          if [ -f "$RUNNER_TEMP/eldane.json" ]; then
+            aws s3 cp "$RUNNER_TEMP/eldane.json" "s3://$BUCKET/$STACK/plans/$RUN.eldane.json" --only-show-errors
+          fi
+          exit "$status"
       - name: fetch the reviewed plan, and Helios on it again (R56)
         if: env.ACTION == 'apply-plan'
         env:
@@ -220,11 +263,17 @@ jobs:
           python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --plan "$RUNNER_TEMP/plan.json" \
             --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: apply and publish stack.json
-        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan' || env.ACTION == 'resume'
+        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan' || env.ACTION == 'resume' || env.ACTION == 'eldane-apply'
         env:
           # resume: Aurora from its newest pause snapshot (none: created empty, a first install).
           FROM_SNAPSHOT: ${{ inputs.action == 'resume' && 'latest' || 'none' }}
+          RUN: ${{ github.run_id }}
         run: |
+          if [ "$ACTION" = eldane-apply ]; then
+            # Exactly the plan Eldane approved, checked again now: this run, this file's sha256, commit, stack, environment.
+            python scripts/eldane_plan_review.py check --review "$RUNNER_TEMP/eldane.json" --tfplan "$RUNNER_TEMP/tfplan" \
+              --environment "$WARDEN_ENV" --stack "$STACK" --run-id "$RUN" --commit "$GITHUB_SHA"
+          fi
           # The plan Helios checked, and nothing else.
           terraform -chdir="terraform/$STACK" apply -input=false -no-color "$RUNNER_TEMP/tfplan"
           # stack.json: every output EXCEPT the sensitive ones.
@@ -244,7 +293,7 @@ jobs:
           fi
           aws s3 cp "$RUNNER_TEMP/stack.json" "s3://$BUCKET/$STACK/stack.json" --only-show-errors
       - name: Helios on the applied state (R56)
-        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan' || env.ACTION == 'resume'
+        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan' || env.ACTION == 'resume' || env.ACTION == 'eldane-apply'
         run: |
           set -o pipefail
           # The scenarios a plan could not decide (values unknown until apply), and every other one again.

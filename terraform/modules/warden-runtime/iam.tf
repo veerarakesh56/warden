@@ -78,9 +78,9 @@ locals {
     # terminate login's DSN - no password in it: each close signs in with a token the plan's actor signs - and (B17) the
     # token that dispatches the infra workflow's apply-plan (platforms/infra.py).
     act = { secrets = ["db-admin-dsn", "github-actions-token"], assumes = ["platform-reader", "actor"], platforms = ["aws", "k8s", "db", "infra"] }
-    # Eldane, the AI critic (eldane.py): the diagnosis's Claude key (owner, 2026-10-17) and its own signing key; it
-    # reads the audit and assumes nothing.
-    critic = { secrets = ["anthropic-api-key", "eldane-key"], assumes = [], platforms = [] }
+    # Eldane, the AI critic (eldane.py): the diagnosis's Claude key (owner, 2026-10-17), its own signing key and its
+    # own Slack bot token (B2: it posts in the discussion channel, never reads it); it reads the audit, assumes nothing.
+    critic = { secrets = ["anthropic-api-key", "eldane-key", "eldane-slack-token"], assumes = [], platforms = [] }
   }
   # The Lambdas (frontdoor.tf), as settings.LAMBDA_SECRETS names what each handler reads (tests/test_runtime_module_g6.py
   # runs each one's load and holds the two together). Only the approval page reads who may approve; only actor-use

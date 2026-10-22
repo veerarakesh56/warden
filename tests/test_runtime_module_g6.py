@@ -317,6 +317,8 @@ ZONE_READS = {
     "WARDEN_GITHUB_ACTIONS_TOKEN": ("platforms/infra.py", {"act"}),
     # Eldane, the AI critic: its own signing key (its model key is the diagnosis's, above; owner 2026-10-17).
     "WARDEN_ELDANE_KEY": ("eldane.py", {"critic"}),
+    # ...and its own Slack bot token (B2), with which it posts its review in the discussion channel.
+    "WARDEN_ELDANE_SLACK_TOKEN": ("eldane_slack.py", {"critic"}),
 }
 
 
