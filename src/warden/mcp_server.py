@@ -32,6 +32,7 @@ from mcp.server.stdio import stdio_server
 
 from . import catalog, gate, read_scope
 from .environments import default_environment_policies
+from .mcp_schemas import OUTPUT_SCHEMAS
 from .models import (
     BLAST_RADIUS_ORDER,
     ActionKind,
@@ -79,7 +80,9 @@ ANNOTATIONS = {
 
 
 def _annotated(tools: list[types.Tool]) -> list[types.Tool]:
-    return [t.model_copy(update={"annotations": ANNOTATIONS[t.name]}) for t in tools]
+    # B37: each tool also declares the shape of its result (mcp_schemas.py); a client validates against it.
+    return [t.model_copy(update={"annotations": ANNOTATIONS[t.name], "output_schema": OUTPUT_SCHEMAS[t.name]})
+            for t in tools]
 
 
 def _tools() -> list[types.Tool]:
