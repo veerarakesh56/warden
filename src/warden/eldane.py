@@ -273,6 +273,11 @@ def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], **row:
     elif verdict.agree and not cited:
         verdict.agree = False
         verdict.reasons.append(Reason(text="it agreed without citing any evidence"))
+    if verdict.agree and verdict.objections:
+        # CodeRabbit, PR 166: a "yes" with an objection would sign with the objection never answered (the debate runs
+        # only on a no). It is a no, and the debate takes up its objections.
+        verdict.agree = False
+        verdict.reasons.append(Reason(text="it agreed and objected at once, so it counts as a no"))
     return verdict
 
 
@@ -475,9 +480,7 @@ def said(log: Any, plan: Any, run_id: str) -> str:
         return ""
     if v.get("skipped"):
         return f" {approvals.AI_LABEL} (an AI reviewer) did not review this plan: {v['skipped']}."
-    won = bool(v.get("debate_agree")) and not v.get("agree")
-    passes = (v.get("passes") or [])[:-1] if won else v.get("passes") or []  # a debate-won yes: why it said no first
-    why = "; ".join(r.get("text", "") for p in passes[-1:] for r in p.get("reasons", [])[:3])
+    won, why = autonomy.debate_won(v), autonomy.reasons_said(v)
     word = "agrees with" if v.get("agree") else "does not agree with"
     debate = (f" After {v.get('rounds')} round(s) of answers from WARDEN's own diagnosing model it said it agrees; an "
               "agreement won in that debate never approves a plan." if won else "")

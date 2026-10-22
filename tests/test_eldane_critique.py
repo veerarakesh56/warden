@@ -92,6 +92,53 @@ def test_a_blind_no_argued_into_a_yes_by_wardens_own_model_never_signs(world):
     assert "0. (wrong_target)" in warden_side.asked[0]
 
 
+def test_a_yes_with_an_objection_is_a_no_and_never_signs(world):
+    """CodeRabbit, PR 166: "agree" with an objection, grounded, on both passes signed - the debate runs only on a no,
+    so the objection was never answered. It counts as a no, and the debate takes the objection up."""
+    torn = {"agree": True, "reasons": [{"text": "the evidence shows it", "evidence": ["M1"]}],
+            "objections": [{"kind": "not_reversible", "text": "it cannot be undone", "evidence": ["M1"]}]}
+    _sides(world, Scripted(torn, torn), Scripted(_answer(concede=True)))
+    assert _review(world) is None
+    verdict = _rows(world, autonomy.VERDICT)[-1]
+    assert verdict["agree"] is False
+    assert "it agreed and objected at once, so it counts as a no" in [r["text"] for r in verdict["passes"][0]["reasons"]]
+    [objection] = _rows(world, critique.OBJECTION)  # the debate answered it
+    assert objection["kind"] == "not_reversible"
+
+
+def _debate_won(world):
+    """A review Eldane said no to blind, then yes to after WARDEN's answer: the debate was won, nothing signed."""
+    blind_no = _no()
+    blind_no["reasons"] = [{"text": "the blind no: the target differs", "evidence": ["M1"]}]
+    _sides(world, Scripted(blind_no, {"agree": True, "reasons": [{"text": "the debate yes", "evidence": ["C1"]}]}),
+           Scripted(_answer()))
+    assert _review(world) is None
+
+
+def test_the_record_shows_why_eldane_said_no_not_its_debate_yes(world):
+    """CodeRabbit, PR 166: the record showed the debate's "yes" reasons under "Did not agree with the plan"."""
+    from warden import records
+
+    _debate_won(world)
+    [said] = [d for d in records.record(world["log"], base.INC).decisions if d["who"] == approvals.AI_LABEL]
+    assert said["what"].startswith("Did not agree with the plan")
+    assert said["note"] == "the blind no: the target differs"
+
+
+def test_the_approval_page_shows_why_eldane_said_no_not_its_debate_yes(world):
+    """CodeRabbit, PR 166: the approver's page showed the debate's "yes" reasons under "does not agree"."""
+    from warden.approval_page import ApprovalPage
+
+    _debate_won(world)
+    page = ApprovalPage(rp_id="approve.example.test", policy=world["policy"], plan_of=lambda wf: None,
+                        signal=lambda *a: None, log=world["log"])
+    shown = page._ai_review(base._plan())["ai_critic"]
+    assert "does not agree" in shown
+    assert "never approves" in shown
+    assert shown.endswith(": the blind no: the target differs")
+    assert "the debate yes" not in shown
+
+
 def test_warden_conceding_an_objection_ends_the_debate_and_a_person_decides(world):
     eldane_side, warden_side = Scripted(_no("cause_not_addressed"), _yes()), Scripted(_answer(concede=True))
     _sides(world, eldane_side, warden_side)

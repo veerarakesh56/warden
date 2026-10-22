@@ -491,6 +491,13 @@ MUTATIONS = [
         '    except (ValueError, RuntimeError, OSError) as exc:',
         "an SDK error would crash the review activity instead of ending the debate with a no",
     ),
+    (
+        "Eldane's yes with an objection counts as a yes",
+        _ELDANE,
+        '    if verdict.agree and verdict.objections:',
+        '    if False:',
+        "CodeRabbit, PR 166: a grounded yes carrying an objection would sign with the objection never answered",
+    ),
 ]
 
 

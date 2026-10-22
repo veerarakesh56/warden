@@ -1030,8 +1030,9 @@ class ApprovalPage:
         v = rows[-1]
         if v.get("skipped"):
             return {"ai_critic": f"{approvals.AI_LABEL} (an AI) did not review it: {v['skipped']}"}
-        why = "; ".join(r.get("text", "") for p in (v.get("passes") or [])[-1:] for r in p.get("reasons", [])[:3])
-        return {"ai_critic": f"{approvals.AI_LABEL} (an AI) {'agrees' if v.get('agree') else 'does not agree'}"
+        why = autonomy.reasons_said(v)  # a debate-won "yes" (never approving) shows why it said no, not why it agreed
+        won = " (it agreed only after WARDEN's answers, which never approves)" if autonomy.debate_won(v) else ""
+        return {"ai_critic": f"{approvals.AI_LABEL} (an AI) {'agrees' if v.get('agree') else 'does not agree'}{won}"
                              + (f": {why}" if why else ""), "autonomy": str(v.get("level_said", ""))}
 
     def _approve_options(self, token: str, link: Link, data: dict) -> Response:
