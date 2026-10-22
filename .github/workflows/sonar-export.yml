@@ -54,7 +54,7 @@ jobs:
                       print(f"W|{msg}")
           except SystemExit as e:
               print("=== WARNINGS unreadable:", e)
-          # export run: main's open maintainability issues with their secondary locations, after PR 113 (2026-10-22 ~01:00 UTC)
+          # export run: confirm S3415 closed on main after PR 190 and PR 115 (2026-10-22 ~01:16 UTC)
           page, seen = 1, 0
           while True:
               d = get(f"https://sonarcloud.io/api/issues/search?componentKeys=veerarakesh56_warden&branch=main&issueStatuses=OPEN,CONFIRMED&impactSoftwareQualities=MAINTAINABILITY&ps=500&p={page}")
