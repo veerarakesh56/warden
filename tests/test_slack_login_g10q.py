@@ -204,7 +204,7 @@ def test_an_enrolment_links_the_member_slack_named_and_never_another_than_the_li
 def test_the_runtime_gives_the_secret_to_the_approval_lambda_alone_and_routes_the_two_steps():
     assert "WARDEN_SLACK_CLIENT_SECRET" in settings.SECRETS
     assert {n for n, names in settings.LAMBDA_SECRETS.items() if "WARDEN_SLACK_CLIENT_SECRET" in names} == {"approval"}
-    assert settings.RESTRICTED["WARDEN_SLACK_CLIENT_SECRET"] == frozenset({"lambda-approval"})
+    assert settings.RESTRICTED["WARDEN_SLACK_CLIENT_SECRET"] == {"lambda-approval"}  # a frozenset equals the same set
     assert "WARDEN_SLACK_CLIENT_ID" not in settings.SECRETS  # an id, not a secret: plain configuration
     for zone in settings.ZONE_SECRETS:
         assert "WARDEN_SLACK_CLIENT_SECRET" not in settings.loadable_for("worker", zone)
@@ -278,7 +278,7 @@ def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_
     now[0] += slack_login.REMEMBER_S + 1
     assert 'data-slack="1"' in page.handle("GET", f"/a/{third}", cookies=[who]).body
     assert slack_login.remembered(page.slack, who.split("=", 1)[1]) == ""
-    assert slack_login.REMEMBER_S == 30 * 24 * 3600
+    assert divmod(slack_login.REMEMBER_S, 24 * 3600) == (30, 0)  # exactly 30 days
     # Sealed with the app's own secret: a value another secret made is nobody.
     stranger = slack_login.SlackLogin(CLIENT, "another-secret", clock=lambda: 1_900_000_000.0)
     assert slack_login.remembered(stranger, slack_login.remember(_login(), MEMBER)) == ""

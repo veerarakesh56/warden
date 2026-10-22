@@ -33,7 +33,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from warden import changes, chatops, datadog, grafana, slack_login, timeline, web, webhooks
+from warden import changes, chatops, datadog, grafana, landed, slack_login, timeline, web, webhooks
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HOME, ELSEWHERE = "api.warden.test", "elsewhere.test"  # .test is reserved (RFC 2606): both resolve to 127.0.0.1 here
@@ -286,6 +286,10 @@ CALLERS = {
         lambda: timeline.github_deployments("o/r", CREDENTIAL, "dev", _NOW, _NOW)), REDIRECTED),
     "timeline.CommitReader": (GITHUB, AUTH, lambda: _raises(
         lambda: timeline.CommitReader(None, repo="o/r", token=CREDENTIAL)._get("/repos/o/r/commits/abc")), REDIRECTED),
+    "landed.deployments": (GITHUB, AUTH, lambda: _raises(
+        lambda: landed.deployments("o/r", CREDENTIAL, "dev", _NOW, _NOW)), REDIRECTED),
+    "landed.merged_pulls": (GITHUB, AUTH, lambda: _raises(
+        lambda: landed.merged_pulls("o/r", CREDENTIAL, "dev", _NOW, _NOW)), REDIRECTED),
     "chatops._slack_call": ("slack.com", AUTH, lambda: chatops._slack_call(
         "chat.postMessage", {}, CREDENTIAL), (None, "HTTP 302")),
     "datadog.DatadogReader": (DD_API, "dd-api-key", lambda: datadog.DatadogReader(env=_DD)._ask(
@@ -374,7 +378,7 @@ def test_the_source_check_sees_the_credentialed_units_and_catches_a_bare_call():
             for n in ast.walk(u))}
     assert {"changes.py:GitHubIssues", "timeline.py:github_deployments", "timeline.py:CommitReader",
             "chatops.py:_slack_call", "datadog.py:DatadogReader", "grafana.py:GrafanaReader",
-            "webhooks.py:datadog_alerting", "datadog_setup.py:Datadog"} <= named
+            "webhooks.py:datadog_alerting", "datadog_setup.py:Datadog", "landed.py:_github_rows"} <= named
     old = ('import urllib.request\n'
            'def get(url, token, opener=urllib.request.urlopen):\n'
            '    return opener(urllib.request.Request(url, headers={"Authorization": token}), timeout=1)\n'

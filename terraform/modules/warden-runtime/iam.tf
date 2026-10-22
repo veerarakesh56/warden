@@ -175,6 +175,8 @@ resource "aws_iam_role_policy" "front_door" {
     each.value.approvers ? [local.who_may_approve] : [], each.value.metrics ? [local.its_own_metrics] : [],
     # WARDEN's own pages (paging.tf): the approval page shows them and writes an approver's acknowledgement.
     [for s in local.acknowledge_pages : s if each.key == "approval"],
+    # B35: an event the function failed on every time goes to the dead-letter queue (frontdoor.tf), never nowhere.
+    contains(local.async_front_doors, each.key) ? [{ Sid = "KeepWhatFailed", Effect = "Allow", Action = ["sqs:SendMessage"], Resource = aws_sqs_queue.alarm_dlq.arn }] : [],
     length(each.value.secrets) == 0 ? [] : [{
       Sid      = "ItsOwnSecrets"
       Effect   = "Allow"

@@ -240,9 +240,15 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
    - `/warden/ops/env/WARDEN_TEMPORAL_KEY_EXPIRES`: each Temporal API key's end, ISO times, comma-separated; a key
      ending within 7 days pages. Update it whenever a key is rotated.
    - `/warden/ops/tf/page_repeat_minutes`: how often a page repeats (default 15).
+   - `/warden/ops/tf/otlp_exporter` = `true` and `/warden/ops/tf/otlp_endpoint` = the collector's `https://` base URL
+     (port 443): WARDEN's OpenTelemetry spans go there over OTLP/HTTP from every zone. Off when unset. A collector
+     that needs an API key is not supported yet: the key would need a secret slot of its own.
    - `/warden/ops/tf/monthly_budget_usd`: a monthly cost budget before credits, emailing the topic at 80% spent and
      100% forecast. It needs `budgets:ViewBudget` and `budgets:ModifyBudget` in `WardenEnvBoundary-ops` and
      `WardenEnvDeploy-ops`, and a statement in the topic's access policy letting `budgets.amazonaws.com` publish.
+   The model pages too, at most once a day for each of three conditions: its provider unavailable, the daily cap
+   reached (the incidents' daily cap or Eldane's daily call ceiling), or an incident's budget spent (`model` alarms in
+   `paging.tf`, counted by `paging.model_condition`). Nothing to set: they use the same topic and pager.
    A fix that was verified and did not hold is not offered again on WARDEN's own until an approver signs
    `warden offer-again <incident> --approver <name> --key <private key file>` where the audit is reached.
 
@@ -301,10 +307,12 @@ Socket Mode means WARDEN connects out to Slack, so Slack needs no public address
 The runtime calls Claude through the Anthropic API. Create an API key for the runtime alone (a service account in
 the Claude Console, with an expiry) and store it in `warden/ops/anthropic-api-key`. Only the llm zone can read it.
 
-The model must be on `qualified` in `src/warden/data/providers.yaml`: today that is `claude-sonnet-5-5` with
-provider `anthropic`. A model that is not qualified is refused at deploy time and at run time, and every incident
-is then escalated to a person on the rules alone. To qualify another model, run `scripts/qualify_provider.py`
-against the recorded incidents (it spends API credit; see [BENCHMARKS.md](BENCHMARKS.md)).
+The model must be on `qualified` in `src/warden/data/providers.yaml`, measured on the pinned prompt (`prompt.sha`
+there). The deploy checks only that the model is on the list; at run time a model with no row on the pinned prompt is
+refused, and every incident is then escalated to a person on the rules alone. As of 2026-10-21 no model is qualified
+on the pinned prompt: `claude-sonnet-5-5` passed on an earlier prompt only, so the runtime runs on the rules alone
+until it is measured again. To qualify a model, run `scripts/qualify_cloud.py` (one command, with the runtime's own
+key; it spends API credit and writes the result into the repository: see [BENCHMARKS.md](BENCHMARKS.md)).
 
 ## 9. Check the setup
 
