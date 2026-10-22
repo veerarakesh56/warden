@@ -126,9 +126,42 @@ def _send_everything(incident, alert, caplog) -> tuple[list[str], str]:
     return raw, prompt
 
 
-def test_an_identifier_shown_for_the_operator_is_refused_at_slacks_door(wire):
+@pytest.fixture
+def raw_wire(monkeypatch):
+    """urllib's real path with only the network replaced: OpenerDirector.open raises the `urllib.Request` audit event,
+    and egress's own hook (installed here, as every Lambda installs it) decides; the HTTPS handler records what would
+    have been sent. The double checks nothing itself (review, PR 130: `wire` calls check_request, so it could refuse a
+    request the real path would have let through)."""
+    import email.message
+    import io
+    import urllib.response
+
+    sent: list[tuple[str, str]] = []
+
+    def https_open(self, req):
+        sent.append((req.full_url, req.data.decode() if isinstance(req.data, bytes) else str(req.data or "")))
+        answer = urllib.response.addinfourl(io.BytesIO(b'{"ok": true}'), email.message.Message(), req.full_url,
+                                            code=200)
+        answer.msg = "OK"  # read by urllib's HTTPErrorProcessor
+        return answer
+
+    monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", https_open)
+    monkeypatch.setenv("WARDEN_CHATOPS_LIVE", "1")
+    egress.install()  # the conftest fixture puts the hook's state back after the test
+    return sent
+
+
+def test_the_raw_wire_sends_what_egress_lets_through(raw_wire):
+    """The double is a real path: a fully masked message is sent and recorded through it."""
+    note = chatops.SlackWebhookSink(SLACK_HOOK, live=True).send("checkout 5xx, cause <EMAIL_1> config", {})
+    assert note.delivered, note
+    assert [url for url, _ in raw_wire] == [SLACK_HOOK]
+
+
+def test_an_identifier_shown_for_the_operator_is_refused_at_slacks_door(raw_wire):
     """WARDEN_REPORT_SHOW_IDENTIFIERS puts tenants, emails and addresses back into the report (for a terminal); G5
-    lets them through as showable. The egress check does not: nothing is sent to Slack with one in it."""
+    lets them through as showable. The egress hook does not: nothing is sent to Slack with one in it."""
+    wire = raw_wire
     alert = Alert(**DEMO_ALERTS["inc-001"])
     report = graph.run(alert, llm=LLMClient(mock=True))
     built = build_report(alert, root_cause=report.root_cause, proposal=report.proposal, verdict=report.verdict,

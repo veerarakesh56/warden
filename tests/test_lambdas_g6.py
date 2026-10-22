@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import sqlite3
 
 import pytest
 
@@ -227,3 +228,32 @@ def test_each_invocation_closes_the_audit_log_it_opened(monkeypatch):
     assert lambdas.actor_use({"detail": {"eventName": "AssumeRole"}}) == {"approved": True}
     assert closed[-1] is log
     assert len(closed) == 3
+
+
+def test_a_page_that_cannot_be_built_closes_its_log_and_leaves_the_ledger(monkeypatch, tmp_path):
+    """Review (PR 130): approval_page() opened the audit (runtime.open_audit puts it on the egress ledger), and a
+    failure building ApprovalPage left it open and registered. Now it is closed and off the ledger."""
+    from warden import approval_page as page_module
+    from warden import audit, egress, runtime_base
+
+    log = audit.AuditLog(tmp_path / "a.db")
+
+    def opened():
+        egress.ledger_to(log)  # as runtime_base.open_audit does
+        return log
+
+    def broken(**_kwargs):
+        raise RuntimeError("the page could not be built")
+
+    monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", "approve.example.org")
+    monkeypatch.setattr(runtime_base, "open_audit", opened)
+    monkeypatch.setattr(runtime_base, "approver_policy", lambda: None)
+    monkeypatch.setattr("warden.slack_login.from_environment", lambda: None)
+    monkeypatch.setattr("warden.paging.from_environment", lambda: None)
+    monkeypatch.setattr(page_module, "ApprovalPage", broken)
+    with pytest.raises(RuntimeError, match="could not be built"):
+        lambdas.approval_page()
+    assert log not in egress._OPEN
+    assert egress._SINK.get("audit") is not log
+    with pytest.raises(sqlite3.ProgrammingError):  # a closed connection refuses whatever it is asked
+        log.store.run("SELECT 1")
