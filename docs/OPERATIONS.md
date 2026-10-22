@@ -61,9 +61,12 @@ When Eldane does not agree it says why as typed objections (`wrong_target`, `cau
 `not_reversible`, `touches_warden`, `evidence_thin`, `evidence_contradicts`, `other`), each citing evidence ids.
 WARDEN's diagnosing model answers each one - it concedes, or rebuts with evidence - and Eldane is asked again, at
 most three rounds. WARDEN conceding any objection, or answering with no evidence on the record, ends it with nothing
-approved: a person decides. Each objection and answer is on the incident's record (`eldane.objection`,
-`eldane.rebuttal`). Eldane can read recorded evidence items again in full and the target's state as read when the
-plan was made; it can read nothing live and change nothing. Every request, on the page and in the channel, says the
+approved. The debate never approves either: Eldane signs only when its blind pass - which never sees WARDEN's
+reasoning or the debate - agrees and the pass with WARDEN's reasoning agrees too. A "yes" Eldane gives only after
+WARDEN's answers is recorded (`debate_agree` on `eldane.verdict`) and said beside the request, and a person decides.
+Each objection and answer is on the incident's record (`eldane.objection`, `eldane.rebuttal`). Eldane can read
+recorded (already redacted) evidence items again in full - still blind when its blind pass asked for them; the
+target's raw state is never sent to it. It can read nothing live and change nothing. Every request, on the page and in the channel, says the
 fix's **risks if approved** (`catalog.RISKS`).
 
 Dev drops to **L1** - Eldane reviews, a person approves - the moment any of these is on the record:

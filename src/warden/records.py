@@ -333,7 +333,10 @@ def _read_eldane(r: Record, e: dict[str, Any]) -> None:
     b = e["body"]
     if b.get("agree") is None:
         return
-    r.decisions.append({"what": "Agreed with the plan" if b.get("agree") else "Did not agree with the plan",
+    # U3-2: a "yes" Eldane gave only after WARDEN's answers in the debate never approves; said as such.
+    won = bool(b.get("debate_agree")) and not b.get("agree")
+    what = "Agreed with the plan" if b.get("agree") else "Did not agree with the plan"
+    r.decisions.append({"what": what + (" (it agreed only after WARDEN's answers, which never approves)" if won else ""),
                         "who": approvals.AI_LABEL, "at": e["at"],
                         "how": f"review - an AI, autonomy level {b.get('level', '?')}",
                         "note": "; ".join(x.get("text", "") for p in (b.get("passes") or [])[-1:]

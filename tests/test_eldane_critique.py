@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 import pytest
 
 import test_eldane_autonomy as base
-from warden import autonomy, catalog, critique, eldane
+from warden import approvals, autonomy, catalog, critique, egress, eldane, llm
 from warden.activities import RemediationActivities
 from warden.providers import Completion
 
@@ -65,18 +65,25 @@ def _rows(world, kind):
 
 # ----------------------------------------------------------------------------- objections and WARDEN's answers
 
-def test_an_objection_answered_with_evidence_can_end_in_agreement(world):
+def test_a_blind_no_argued_into_a_yes_by_wardens_own_model_never_signs(world):
+    """Finding 1a (review of #166): the debate is WARDEN's own diagnosing model arguing for its plan - the
+    self-preference the blind pass exists to stop. Its "yes" is recorded and said, and never signs."""
     eldane_side, warden_side = Scripted(_no(), _yes("M1", "C1")), Scripted(_answer())
     _sides(world, eldane_side, warden_side)
-    signed = _review(world)
-    assert signed is not None  # dev, L2: Eldane agreed after WARDEN's answer, from a pass that saw its reasoning
+    assert _review(world) is None  # dev, L2, a signing key: still no signature
     [objection] = _rows(world, critique.OBJECTION)
     assert (objection["round"], objection["kind"], objection["by"]) == (1, "wrong_target", "eldane")
     [rebuttal] = _rows(world, critique.REBUTTAL)
     assert (rebuttal["round"], rebuttal["concede"], rebuttal["by"]) == (1, False, "warden")
     verdict = _rows(world, autonomy.VERDICT)[-1]
+    assert verdict["agree"] is False
+    assert verdict["debate_agree"] is True
     assert verdict["rounds"] == 1
-    assert verdict["second_pass"] is True
+    assert verdict["second_pass"] is False
+    assert autonomy.ai_problems(world["log"], base._plan(), "")  # nothing on the record lets it approve later
+    said = eldane.said(world["log"], base._plan(), "")
+    assert "does not agree with this plan" in said
+    assert "agreement won in that debate never approves" in said
     # Eldane was shown WARDEN's answer, as data, in its second question.
     assert "<<DEBATE>>" in eldane_side.asked[-1]
     assert "revision 7 broke it" in eldane_side.asked[-1]
@@ -142,25 +149,77 @@ def test_an_objection_citing_what_is_not_on_the_record_makes_the_answer_a_no(wor
 
 # ----------------------------------------------------------------------------- read-only tools
 
-def test_eldane_may_read_evidence_again_in_full_and_is_told_what_is_not_there(world):
-    eldane_side = Scripted(_no(read_again=["F1", "Z9"]), _yes())
-    eldane_side.answers[0]["objections"] = []  # only wants to read more
+def _read_only(answer):
+    answer["objections"] = []  # it only wants to read more
+    return answer
+
+
+def test_eldane_may_read_evidence_again_in_full_still_blind_and_is_told_what_is_not_there(world):
+    eldane_side = Scripted(_read_only(_no(read_again=["F1", "Z9"])), _yes(), _yes())
     _sides(world, eldane_side, Scripted())
-    assert _review(world) is not None
-    second = eldane_side.asked[1]
-    assert "<<READ AGAIN>>" in second
-    assert "[F1] orders: ImportError in revision 7" in second
-    assert "[Z9] is not on the record" in second
+    assert _review(world) is not None  # a blind yes after reading, then a yes with WARDEN's reasoning
+    blind_again, informed = eldane_side.asked[1], eldane_side.asked[2]
+    assert "<<READ AGAIN>>" in blind_again
+    assert "[F1] orders: ImportError in revision 7" in blind_again
+    assert "[Z9] is not on the record" in blind_again
+    assert "<<WARDEN'S REASONING>>" not in blind_again  # the re-read is a blind pass
+    assert "<<WARDEN'S REASONING>>" in informed
+    assert "[F1] orders: ImportError in revision 7" in informed  # still shown: it stays citable
+
+
+class Reasoned(Scripted):
+    """Eldane as a self-preferring judge: "no" until it is shown WARDEN's reasoning, then "yes"."""
+
+    def __init__(self, blind):
+        super().__init__()
+        self.blind = blind
+
+    def complete(self, *, system, user, schema=None):
+        self.asked.append(user)
+        return Completion(json.dumps(_yes("M1") if "<<WARDEN'S REASONING>>" in user else self.blind), 10, 10)
+
+
+def test_a_blind_no_that_only_asked_to_read_more_never_signs_on_a_yes_with_reasoning(world):
+    """Finding 1b (review of #166): a blind "no" that asked to read items again was asked again WITH WARDEN's
+    reasoning, and that pass's "yes" alone approved. The re-read is blind; only a blind yes lets pass two count."""
+    eldane_side = Reasoned(_read_only(_no(read_again=["F1"])))
+    _sides(world, eldane_side, Scripted())
+    assert _review(world) is None
+    verdict = _rows(world, autonomy.VERDICT)[-1]
+    assert verdict["agree"] is False
+    assert [p["agree"] for p in verdict["passes"]] == [False, False]  # blind, blind again: never shown the reasoning
+    assert not any("<<WARDEN'S REASONING>>" in q for q in eldane_side.asked)
+
+
+def test_a_blind_yes_then_a_no_with_reasoning_argued_back_to_yes_never_signs(world):
+    """Pass two said no with an objection; WARDEN's answer turned it. Both passes did not agree: no signature."""
+    eldane_side, warden_side = Scripted(_yes(), _no("cause_not_addressed"), _yes("M1", "C1")), Scripted(_answer())
+    _sides(world, eldane_side, warden_side)
+    assert _review(world) is None
+    verdict = _rows(world, autonomy.VERDICT)[-1]
+    assert (verdict["agree"], verdict["debate_agree"], verdict["rounds"]) == (False, True, 1)
 
 
 def test_the_tools_read_only_what_is_recorded():
-    tools = critique.EvidenceTools(base.EVIDENCE, {"revision": "7"})
+    tools = critique.EvidenceTools(base.EVIDENCE)
     assert tools.ids() == {"M1", "C1", "F1"}
     assert tools.item("C1").startswith("[C1] DEPLOY orders revision 7")
     assert tools.item("Z9") == ""
-    assert json.loads(tools.live_state()) == {"revision": "7"}
     public = {n for n in dir(tools) if not n.startswith("_")}
-    assert public == {"ids", "item", "live_state", "read_again"}  # reads, and nothing else
+    assert public == {"ids", "item", "read_again"}  # reads of the recorded evidence, and nothing else
+
+
+def test_items_read_in_an_earlier_round_stay_in_front_of_eldane(world, monkeypatch):
+    """Finding 5 (review of #166): an item read again in round one stays citable, so every later question shows it."""
+    monkeypatch.setattr(eldane, "MAX_EVIDENCE", len(base.EVIDENCE))  # L37 is past the cut: shown only when read
+    world["log"].append(base.INC, "incident.evidence", {"prompt": base.EVIDENCE + "\n[L37] orders 5xx from rev 7"})
+    eldane_side = Scripted(_no(read_again=["L37"]), _no("evidence_thin"), _no("evidence_thin"))
+    _sides(world, eldane_side, Scripted(_answer(), _answer()))
+    assert _review(world) is None
+    assert "<<END EVIDENCE>>\n" in eldane_side.asked[0]
+    assert "[L37] orders 5xx from rev 7" not in eldane_side.asked[0]
+    for later in eldane_side.asked[1:]:  # after rounds one and two: L37 was asked for in the blind pass only
+        assert "[L37] orders 5xx from rev 7" in later
 
 
 # Modules that read a live system, or change one: never reachable from Eldane's code.
@@ -257,13 +316,144 @@ def test_a_review_counts_its_debate_against_the_daily_ceiling(world, monkeypatch
     assert "daily ceiling" in _rows(world, autonomy.VERDICT)[-1]["skipped"]
 
 
+def test_the_cost_doc_says_how_many_calls_a_review_makes_and_who_answers():
+    """Finding 4 (review of #166): docs/COST.md said "two passes per plan"."""
+    cost = (ROOT / "docs" / "COST.md").read_text(encoding="utf-8")
+    assert f"`CALLS_PER_REVIEW` = {eldane.CALLS_PER_REVIEW} model calls per plan" in cost
+    assert "a rebuttal from **the diagnosing model**" in cost
+    assert "two passes per plan" not in cost
+
+
 def test_an_item_read_again_past_the_cut_may_be_cited_and_only_then(world, monkeypatch):
     """With the ids limited to the evidence Eldane is shown (PR 42), an item it read again in full is shown too."""
     monkeypatch.setattr(eldane, "MAX_EVIDENCE", len(base.EVIDENCE))
     world["log"].append(base.INC, "incident.evidence", {"prompt": base.EVIDENCE + "\n[L37] orders 5xx from rev 7"})
     cites_l37 = {"agree": True, "reasons": [{"text": "it", "evidence": ["L37"]}]}
-    eldane_side = Scripted(_no(read_again=["L37"]), cites_l37)
-    eldane_side.answers[0]["objections"] = []
+    eldane_side = Scripted(_read_only(_no(read_again=["L37"])), cites_l37, cites_l37)
     _sides(world, eldane_side, Scripted())
     assert _review(world) is not None
     assert "[L37] orders 5xx from rev 7" in eldane_side.asked[1]
+
+
+# ----------------------------------------------------------------------------- WARDEN's answers: fail closed, costed
+
+class APIStatusError(Exception):
+    """A provider SDK's own error class: not a ValueError, a RuntimeError nor an OSError."""
+
+
+class Failing:
+    model = "test-model"
+
+    def complete(self, **kw):
+        raise APIStatusError("overloaded")
+
+
+def _answer_with(world, provider):
+    log = world["log"]
+    return critique.answer(log, base.INC, provider, "evidence", [critique.Objection(kind="other", text="x")], {"M1"},
+                           model_call=eldane._model_call, fallback=eldane._fallback, run_id="run-7")
+
+
+def test_any_provider_error_in_wardens_answer_concedes_and_is_costed(world):
+    """Finding 2 (review of #166): eldane.ask treats any provider error as a "no"; WARDEN's answer did not, so an SDK
+    error crashed the review activity. And a rebuttal's spend was on no cost row."""
+    [r] = _answer_with(world, Failing())
+    assert r.concede is True
+    [call] = _rows(world, llm.CALL)
+    assert (call["where"], call["ok"], call["run_id"]) == ("eldane", False, "run-7")
+    [fell] = _rows(world, llm.FALLBACK)
+    assert fell["where"] == "eldane"
+    assert fell["reason"] in llm.FALLBACK_REASONS
+    [asked] = _rows(world, eldane.CALL)
+    assert (asked["ok"], asked["purpose"], asked["error"]) == (False, "rebuttal", "APIStatusError")
+
+
+def test_a_read_answer_from_warden_writes_its_cost_row(world):
+    warden_side = Scripted(_answer(ids=("M1",)))
+    warden_side.model = "test-model"
+    [r] = _answer_with(world, warden_side)
+    assert r.concede is False
+    [call] = _rows(world, llm.CALL)
+    assert (call["where"], call["ok"], call["prompt_tokens"], call["completion_tokens"]) == ("eldane", True, 10, 10)
+    assert not _rows(world, llm.FALLBACK)
+
+
+def test_an_unreadable_answer_from_warden_is_a_fallback(world):
+    warden_side = Scripted("not an answer")
+    [r] = _answer_with(world, warden_side)
+    assert r.concede is True
+    assert [f["reason"] for f in _rows(world, llm.FALLBACK)] == [llm.MODEL_REFUSED]
+    assert len(_rows(world, llm.CALL)) == 1
+
+
+def test_a_review_whose_rebuttal_call_fails_ends_with_no_signature_and_no_crash(world):
+    _sides(world, Scripted(_no(), _yes()), Failing())
+    assert _review(world) is None
+    assert _rows(world, autonomy.VERDICT)[-1]["agree"] is False
+    assert [c["where"] for c in _rows(world, llm.CALL)] == ["eldane", "eldane"]  # Eldane's blind pass, the rebuttal
+
+
+# ----------------------------------------------------------------------------- egress: the real model guard
+
+ACCOUNT = "4321" + "0987" + "6543"  # an account id's shape, built from parts (tests/fakes.py)
+REGION = "eu" + "-west-1"
+
+
+def _snapshots():
+    ecs_arn = f"arn:aws:ecs:{REGION}:{ACCOUNT}:service/shop/orders"
+    fn_arn = f"arn:aws:lambda:{REGION}:{ACCOUNT}:function:orders"
+    # The shapes platforms/aws.py records as the plan's `state`: an ARN and "<account>/<Region>" each.
+    return {
+        "ecs_rollback_service": ({"cluster": "shop", "service": "orders", "to_task_definition": "orders:6"},
+                                 {"cluster": "shop", "service": "orders", "arn": ecs_arn, "task_definition": "orders:7",
+                                  "where": f"{ACCOUNT}/{REGION}", "strategy": "ROLLING"}),
+        "lambda_move_alias": ({"function": "orders", "alias": "live", "to_version": "6"},
+                              {"function": "orders", "alias": "live", "version": "7", "revision": "r-7",
+                               "where": f"{ACCOUNT}/{REGION}", "arn": fn_arn}),
+    }
+
+
+def _guarded(cls):
+    """`cls` behind the real egress guard, as every registered provider is (providers._REGISTRY)."""
+    return egress.guard_provider(type(f"Guarded{cls.__name__}", (cls,), {"name": "test", "model": "test-model"}))
+
+
+@pytest.mark.parametrize("entry", sorted(_snapshots()))
+def test_reading_again_sends_no_raw_snapshot_through_the_real_guard(world, entry):
+    """Finding 3 (review of #166): read_again sent the plan's snapshot raw - ARNs and the account id. The real guard
+    refused that prompt; the snapshot is no longer sent at all (the plan already says its change from it)."""
+    params, snapshot = _snapshots()[entry]
+    assert egress.kinds_in(json.dumps(snapshot))  # the guard does refuse this snapshot
+    plan = approvals.Plan(workflow_id="rem-1", incident_id=base.INC, entry=entry, tier="T2", params=params,
+                          plan_hash="h1", created_at=datetime.now(UTC), target="", environment="dev",
+                          snapshot=snapshot)
+    eldane_side = _guarded(Scripted)(_read_only(_no(read_again=["F1"])), _yes(), _yes())
+    _sides(world, eldane_side, _guarded(Scripted)())
+    assert _review(world, plan) is not None
+    assert len(eldane_side.asked) == 3  # blind, blind again with F1, with reasoning: every one passed the guard
+    assert not any(ACCOUNT in q for q in eldane_side.asked)
+    assert all(p["agree"] for p in _rows(world, autonomy.VERDICT)[-1]["passes"][1:])
+
+
+def test_a_question_to_eldane_the_guard_refuses_is_a_no_and_never_a_crash(world):
+    world["log"].append(base.INC, "incident.evidence", {"prompt": base.EVIDENCE + f"\n[L9] owner account {ACCOUNT}"})
+    eldane_side = _guarded(Scripted)(_yes(), _yes())
+    _sides(world, eldane_side, _guarded(Scripted)())
+    assert _review(world) is None
+    verdict = _rows(world, autonomy.VERDICT)[-1]
+    assert verdict["agree"] is False
+    assert "EgressBlocked" in verdict["passes"][-1]["reasons"][0]["text"]
+    assert eldane_side.asked == []  # the refused prompt never reached the model
+
+
+def test_an_answer_from_warden_the_guard_refuses_concedes_and_never_crashes(world):
+    objection = _no()
+    objection["objections"][0]["text"] = f"the target is in account {ACCOUNT}, not this one"  # Eldane echoed a value
+    warden_side = _guarded(Scripted)(_answer())
+    _sides(world, Scripted(objection, _yes()), warden_side)
+    assert _review(world) is None
+    assert warden_side.asked == []
+    [rebuttal] = _rows(world, critique.REBUTTAL)
+    assert rebuttal["concede"] is True
+    assert [c.get("error") for c in _rows(world, eldane.CALL) if c.get("purpose") == "rebuttal"] == ["EgressBlocked"]
+    assert [f["reason"] for f in _rows(world, llm.FALLBACK)] == [llm.EGRESS_BLOCKED]
