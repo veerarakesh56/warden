@@ -224,7 +224,7 @@ def test_every_catalogue_entry_says_what_it_changes():
     missing = sorted(set(catalog.CATALOG) - set(catalog._CHANGES) - {
         # Kubernetes, database and Terraform entries show their values: their snapshots are the platforms' own.
         "k8s_rollout_undo", "k8s_restart", "k8s_scale", "db_terminate_idle_in_tx", "db_terminate_blocker",
-        "infra_restore_baseline", "lambda_restore_config"})
+        "lambda_restore_config"})
     assert missing == []
     assert catalog.change_of("sqs_redrive_dlq", {"queue": "d", "to_queue": "s", "per_second": 10}, {"waiting": 42}) == [
         ("the messages waiting in d (42 when planned; the count moves) move to s at 10 a second; moved messages are "
