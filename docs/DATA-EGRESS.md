@@ -17,8 +17,8 @@ How far `main` meets it, in short (details below):
 This page is for those engineers. It covers every destination, what goes there and what is masked; the guards and
 the ledger; the sealed vault and the reveal; and what the model provider does with what it receives.
 
-> **Status, checked against `main` at `4142d62` (#115, `vault.py`, merged) with PR #119 (`reveal.py`) merged in, on
-> 2026-10-22 (01:16 UTC / 06:46 IST).** This page merges after #119, so it describes `main` as #119 leaves it.
+> **Status, checked against `main` at `4f01b40` (#115, `vault.py`, merged) with PR #119 (`reveal.py`) merged in, on
+> 2026-10-22 (01:48 UTC / 07:18 IST).** This page merges after #119, so it describes `main` as #119 leaves it.
 > Each statement is what that code does, or is marked **pending PR #n**: code under review, not merged, not
 > running anywhere. The open PRs this page still relies on:
 >
