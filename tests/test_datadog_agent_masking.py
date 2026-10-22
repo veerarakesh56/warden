@@ -1,6 +1,12 @@
 """The lab's Datadog agent masks what it sends (owner, 2026-10-21: "the shop's logs leave unmasked"): logs stay on -
 they are WARDEN's Datadog evidence - and every line, a container's or an OpenTelemetry one, passes the agent's global
-mask_sequences first. The rules are held to the same corpus as WARDEN's own patterns (test_redaction_classes)."""
+mask_sequences first. The rules are held to the same corpus as WARDEN's own patterns (test_redaction_classes).
+
+The agent runs them as RE2, and they are applied here with Python's `re` under re.ASCII, so the digit, word,
+space and word-boundary classes are ASCII-only in both (review, PR 130). What still differs, and why it does not
+matter here: Python's end-of-text anchor also matches before a trailing newline, and the private-key rule ends
+with one - a log line here carries no trailing newline; and RE2 has no lookaround or backreferences, which
+test_the_rules_are_well_formed_mask_sequences_in_re2 refuses in every rule."""
 
 from __future__ import annotations
 
@@ -29,7 +35,7 @@ NOT_AT_THE_AGENT = {("HOSTNAME", "printer.local offline")}
 
 def _mask(text: str) -> str:
     for rule in RULES:
-        text = re.sub(rule["pattern"], rule["replace_placeholder"], text)
+        text = re.sub(rule["pattern"], rule["replace_placeholder"], text, flags=re.ASCII)
     return text
 
 
@@ -41,7 +47,7 @@ def test_the_rules_are_well_formed_mask_sequences_in_re2():
         assert rule["replace_placeholder"].startswith(("[masked:", "://[masked]"))
         # RE2: no lookaround, no backreference, no possessive or atomic group; flags only scoped or leading.
         assert not re.search(r"\(\?[=!<>]|\(\?<[=!]|\\[1-9]|[*+?}]\+|\(\?>", rule["pattern"]), rule["name"]
-        re.compile(rule["pattern"])
+        re.compile(rule["pattern"], re.ASCII)
 
 
 @pytest.mark.parametrize(("kind", "text"), [(k, t) for k, texts in MASKED.items() for t in texts
@@ -79,16 +85,26 @@ def test_span_tags_are_masked_by_the_same_rules():
     assert {t["name"] for t in tags} == {"*"}  # every tag
 
 
+def test_no_address_attribute_is_ever_only_hashed():
+    """Review (PR 130): an address attribute added to the hashed list would be as good as clear - every IPv4
+    address can be hashed and matched. Any key naming an address or an IP is dropped, never hashed."""
+    hashed = set(tool.OTEL_HASHED)
+    assert not {k for k in hashed if any(w in k for w in ("address", "addr", "ip", "peer"))}, hashed
+
+
 def test_the_collector_hashes_who_and_drops_url_queries_before_any_exporter():
     for datadog in (True, False):
         config = tool.otel_config("ap-south-2", datadog=datadog)
         actions = {a["key"]: a["action"] for a in config["processors"]["attributes/privacy"]["actions"]}
         assert actions["user.email"] == "hash"
-        assert actions["client.address"] == "hash"
         assert actions["url.query"] == "delete"
+        for client in ("client.address", "http.client_ip", "net.peer.ip", "net.sock.peer.addr", "source.address",
+                       "network.peer.address"):
+            assert actions[client] == "delete", client  # an unsalted hash of an IPv4 address is reversible
         resource = {a["key"]: a["action"] for a in config["processors"]["resource/privacy"]["attributes"]}
         assert resource["k8s.pod.ip"] == "hash"
         assert resource["host.ip"] == "hash"
+        assert resource["client.address"] == "delete"
         for name, pipeline in config["service"]["pipelines"].items():  # traces, metrics and logs alike
             assert "attributes/privacy" in pipeline["processors"], name
             assert "resource/privacy" in pipeline["processors"], name

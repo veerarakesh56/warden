@@ -337,9 +337,13 @@ def approval_page() -> Any:
     from . import paging, slack_login
 
     log = runtime.open_audit()
-    return ApprovalPage(rp_id=rp_id, policy=policy, plan_of=plan_of, signal=signal, deny=deny,
-                        store=AuditLinkStore(log), log=log, slack=slack_login.from_environment(), signed=signed,
-                        pages=paging.from_environment())
+    try:
+        return ApprovalPage(rp_id=rp_id, policy=policy, plan_of=plan_of, signal=signal, deny=deny,
+                            store=AuditLinkStore(log), log=log, slack=slack_login.from_environment(), signed=signed,
+                            pages=paging.from_environment())
+    except BaseException:
+        _close(log)  # a page that could not be built leaves no open log behind (review, PR 130)
+        raise
 
 
 def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
@@ -354,8 +358,13 @@ def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     t1 = time.perf_counter()
     page = approval_page()
     t2 = time.perf_counter()
-    r = page.handle(method, path, body.decode("utf-8", errors="replace"),
-                    query=str(event.get("rawQueryString") or ""), cookies=event.get("cookies") or [])
+    try:
+        r = page.handle(method, path, body.decode("utf-8", errors="replace"),
+                        query=str(event.get("rawQueryString") or ""), cookies=event.get("cookies") or [])
+    finally:
+        # Each invocation opens its own audit log: closed here, so a warm container keeps no connection and the
+        # egress ledger no reference per request served (egress.forget; review, PR 130).
+        _close(getattr(page, "log", None))
     if cold:
         # Where a cold start's seconds go, measured where it happens: the first page after a quiet period took 5.6 s
         # to 9.5 s (live, 2026-10-12), and the cause is decided from these numbers, not guessed. Durations only.
@@ -431,8 +440,22 @@ def actor_use(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         problems = au.check(detail, log)
     except Exception as e:  # noqa: BLE001 - a session that cannot be checked is treated as unapproved
         problems = [f"the audit could not be read to check this session ({type(e).__name__})"]
-    if not problems:
-        return {"approved": True}
+    try:
+        return _unapproved_actor_use(detail, log, problems) if problems else {"approved": True}
+    finally:
+        _close(log)  # every invocation's own log, closed: a warm container keeps none (review, PR 130)
+
+
+def _close(log: Any) -> None:
+    """Close an invocation's audit log (AuditLog.close, which also takes it off the egress ledger); None or a log
+    with nothing to close is left as it is."""
+    close = getattr(log, "close", None)
+    if callable(close):
+        close()
+
+
+def _unapproved_actor_use(detail: dict[str, Any], log: Any, problems: list[str]) -> dict[str, Any]:
+    """An actor session the audit does not show approved: on the audit when it can be, counted, and logged gated."""
     params = detail.get("requestParameters") or {}
     body = {"role": params.get("roleArn"), "source_identity": params.get("sourceIdentity"),
             "caller": (detail.get("userIdentity") or {}).get("arn"), "event_id": detail.get("eventID"),

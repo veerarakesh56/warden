@@ -127,8 +127,10 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # `.intranet`, `.internal` (outside AWS's own `compute.internal`/`ec2.internal`, whose address part is masked above),
     # `.local`, `home.arpa`. A Kubernetes service's `.cluster.local` name is a resource WARDEN reads and acts on, kept
     # (_find skips it), as are AWS's generic suffixes.
+    # Not a name that goes on into another dotted label or a call: `jdk.internal.reflect`, `kotlin.internal.X` and
+    # `threading.local()` are code in a stack trace, the evidence itself (review, PR 130).
     ("HOSTNAME", re.compile(r"(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){1,8}"
-                            r"(?:internal|corp|lan|intranet|intra|local|localdomain|home\.arpa)\b")),
+                            r"(?:internal|corp|lan|intranet|intra|local|localdomain|home\.arpa)\b(?!\.\w|\()")),
     # tenant_id=..., org_id: ..., "customer_id": "..."  — the identifiers that make logs re-identifiable
     ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b[\"']?\s*[:=]\s*[\"']?([a-z0-9_\-]{3,})[\"']?")),
     # A token following `Bearer ` in an Authorization header (when it is not already a JWT/API key).
@@ -140,7 +142,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Security number (never 000, 666 or 9xx first, never 00 or 0000 in the other groups) and an Indian Aadhaar number
     # written in its 4-4-4 groups (it never starts 0 or 1; a contiguous one is ACCOUNTID's 12 digits already).
     ("SSN", re.compile(r"\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b")),
-    ("AADHAAR", re.compile(r"\b[2-9]\d{3}[ \-]\d{4}[ \-]\d{4}\b(?![ \-]\d)")),
+    # Not the last twelve digits of a longer grouped number: `4242 4242 4242 4242` is a card, masked whole below
+    # (review, PR 130: AADHAAR took its last three groups and left the first in clear).
+    ("AADHAAR", re.compile(r"(?<!\d[ \-])\b[2-9]\d{3}[ \-]\d{4}[ \-]\d{4}\b(?![ \-]\d)")),
     # An Indian PAN: five letters - the fourth names the holder's kind (P a person, C a company, ...) - four digits, a
     # letter. Upper case only, as it is issued.
     ("PAN", re.compile(r"\b[A-Z]{3}[ABCFGHJLPT][A-Z]\d{4}[A-Z]\b")),

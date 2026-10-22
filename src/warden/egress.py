@@ -291,13 +291,14 @@ def kinds_in(text: str) -> list[str]:
 
 def _query_kinds(query: str, *, skip_amz: bool = False) -> list[str]:
     """As kinds_in, for a URL's query values: a value that is only digits is a number (an epoch time, a page size),
-    not a phone number. `skip_amz`: AWS's own presigned parameters (`X-Amz-Credential`, `X-Amz-Signature`, ...)."""
+    not a phone number - excused from PHONE only, as a structured body's is: an account id in it still blocks
+    (review, PR 130). `skip_amz`: AWS's own presigned parameters (`X-Amz-Credential`, `X-Amz-Signature`, ...)."""
     found: set[str] = set()
     for key, value in urllib.parse.parse_qsl(query, keep_blank_values=True):
         if skip_amz and key.lower().startswith("x-amz-"):
             continue
-        if not _ASCII_DIGITS.fullmatch(value):
-            found.update(kinds_in(value))
+        digits = bool(_ASCII_DIGITS.fullmatch(value))
+        found.update(k for k in kinds_in(value) if not (digits and k == "PHONE"))
     return sorted(found)
 
 
@@ -318,6 +319,8 @@ def _strings(value: Any, skip: frozenset[str] = frozenset()) -> Iterable[str]:
     (review: Slack's `code` nested in a message's blocks was left out too)."""
     if isinstance(value, str):
         yield value
+    elif isinstance(value, int) and not isinstance(value, bool):
+        yield str(value)  # a JSON number is a value too: an account id written as one still blocks (review, PR 130)
     elif isinstance(value, dict):
         for k, v in value.items():
             if isinstance(k, str):

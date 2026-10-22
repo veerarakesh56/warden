@@ -186,3 +186,44 @@ def test_a_cold_start_says_where_its_time_went_once_and_the_one_a_person_waits_f
     assert re.search(r'approval\s+= \{ handler = "warden\.lambdas\.approval", timeout = 30, memory = 1769 \}', tf)
     assert "memory_size   = each.value.memory" in tf
     assert tf.count("memory = 512 }") == 3
+
+
+def test_each_invocation_closes_the_audit_log_it_opened(monkeypatch):
+    """Review (PR 130): the approval and actor-use Lambdas opened a log per invocation and never closed it; a warm
+    container kept every connection, and the egress ledger a reference to each (egress._OPEN). Now each is closed -
+    after the page is served, after a failed one, and after the actor check."""
+    from warden.approval_page import Response
+
+    closed = []
+
+    class Log:
+        def close(self):
+            closed.append(self)
+
+    class Page:
+        def __init__(self, fails=False):
+            self.log, self.fails = Log(), fails
+
+        def handle(self, *_a, **_k):
+            if self.fails:
+                raise RuntimeError("the page broke")
+            return Response(200, {}, "")
+
+    monkeypatch.setattr(lambdas, "_configure", lambda name: None)
+    event = {"rawPath": "/r", "body": "", "requestContext": {"http": {"method": "GET"}}}
+    for fails in (False, True):
+        page = Page(fails)
+        monkeypatch.setattr(lambdas, "approval_page", lambda page=page: page)
+        if fails:
+            with pytest.raises(lambdas.HandlerFailed):
+                lambdas.approval(event)
+        else:
+            lambdas.approval(event)
+        assert closed[-1] is page.log
+    log = Log()
+    monkeypatch.setattr("warden.runtime.open_audit", lambda: log)
+    monkeypatch.setattr("warden.actor_use.check", lambda detail, audit: [])
+    monkeypatch.setattr("warden.actor_use.is_actor_session", lambda detail: True)
+    assert lambdas.actor_use({"detail": {"eventName": "AssumeRole"}}) == {"approved": True}
+    assert closed[-1] is log
+    assert len(closed) == 3

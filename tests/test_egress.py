@@ -1092,6 +1092,27 @@ def test_a_digit_only_account_id_in_a_structured_body_is_still_refused():
         egress.check_request(SLACK_API, body, JSON, "POST")
 
 
+_ACCOUNT_DIGITS = "".join(str(d) for d in (1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2))
+
+
+@pytest.mark.parametrize(("url", "body"), [
+    (f"https://api.github.com/repos/owner/repo/issues?account={_ACCOUNT_DIGITS}", None),
+    (GITHUB_DISPATCH, '{"ref": "dev", "inputs": {"account": ' + _ACCOUNT_DIGITS + "}}"),
+], ids=["query-value", "json-number"])
+def test_a_digit_only_account_id_in_a_query_or_as_a_json_number_is_refused(url, body):
+    """Review (PR 130): a query's digit-only value was skipped whole, and a JSON number was not read at all - a
+    12-digit account id left both ways. The digit-only exemption drops only PHONE, everywhere."""
+    with pytest.raises(EgressBlocked, match="ACCOUNTID"):
+        egress.check_request(url, body, JSON, "POST" if body else "GET")
+
+
+def test_numbers_that_are_not_an_account_id_still_pass_in_a_query_and_as_json_numbers():
+    egress.check_request("https://api.github.com/repos/owner/repo/issues?since=1700000000&per_page=100", None, {},
+                         "GET")
+    egress.check_request(GITHUB_DISPATCH, json.dumps({"ref": "dev", "run": 18234567890, "n": 5, "ok": True}), JSON,
+                         "POST")
+
+
 @pytest.mark.parametrize(("body", "headers"), [
     ("call 4155550100", {"Content-Type": "text/plain"}),
     ("4155550100", {"Content-Type": "text/plain"}),  # declared text: never parsed as a JSON number

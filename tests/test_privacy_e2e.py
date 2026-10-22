@@ -179,12 +179,15 @@ def test_the_lab_agent_sends_the_incidents_logs_to_datadog_masked():
         state = {"alert": alert}
         graph.apply_node(state, graph.node_gather(state))
         # A UUID (a trace or request id) is masked for the model but not at the agent: Datadog joins a log to its trace
-        # by it, and it names no person - not one of the owner's classes.
+        # by it, and it names no person - not one of the owner's classes. A host under `.local`/`.internal` is left to
+        # Kubernetes and AWS by the agent too; every other internal host (`.corp`, `.lan`, ...) is still counted
+        # (review, PR 130: leaving out every HOSTNAME hid a regression of the agent's internal_hosts rule).
         raw = [v for p, v in report.redaction_map.items()
-               if len(v) >= 6 and not p.startswith(("<HOSTNAME_", "<UUID_"))]
+               if len(v) >= 6 and not p.startswith("<UUID_")
+               and not (p.startswith("<HOSTNAME_") and v.lower().endswith((".local", ".internal")))]
         for line in state["context"].logs:
-            for rule in rules:
-                line = re.sub(rule["pattern"], rule["replace_placeholder"], line)
+            for rule in rules:  # ASCII classes, as RE2's are (review, PR 130)
+                line = re.sub(rule["pattern"], rule["replace_placeholder"], line, flags=re.ASCII)
             leaked = [v for v in raw if v in line]
             assert not leaked, (incident, leaked, line)
 

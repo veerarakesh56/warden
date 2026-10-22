@@ -34,9 +34,14 @@ def _egress_hook_as_it_was():
     that talks to a local fake host does not depend on which test ran before it in the same worker."""
     from warden import egress
 
-    was = egress._STATE["on"]
+    was, sink, opened = egress._STATE["on"], dict(egress._SINK), list(egress._OPEN)
     yield
     egress._STATE["on"] = was
+    # The ledger's audit logs too: a test that opened one and never closed it (a Lambda handler through
+    # runtime.open_audit) must not have later tests' egress rows written into its database (review, PR 130).
+    egress._SINK.clear()
+    egress._SINK.update(sink)
+    egress._OPEN[:] = opened
 
 
 @pytest.fixture(autouse=True)

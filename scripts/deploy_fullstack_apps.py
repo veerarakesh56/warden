@@ -448,14 +448,19 @@ DATADOG_EXPORTER = "otlp/datadog"  # the collector exporter that hands traces, m
 # action takes no key), so whoever holds a list of candidate emails or addresses can hash them and match. The record's own text is masked further on,
 # by the Datadog agent's processing rules (helm/datadog/values.yaml); this collector build (ADOT v0.50.0) has no
 # processor that edits a log body. tests/test_datadog_agent_masking.py.
-OTEL_HASHED = ("enduser.id", "user.id", "user.email", "user.name", "client.address", "http.client_ip", "net.peer.ip",
-               "net.sock.peer.addr", "source.address", "network.peer.address")
-OTEL_DROPPED = ("url.query", "url.full", "http.url", "http.target")
+# A client's address is DROPPED, not hashed (review, PR 130): every IPv4 address can be hashed and matched in minutes,
+# so its unsalted hash protects nothing. Who the user is stays linkable by its hash, as the owner chose.
+OTEL_HASHED = ("enduser.id", "user.id", "user.email", "user.name")
+OTEL_CLIENT_ADDRESSES = ("client.address", "http.client_ip", "net.peer.ip", "net.sock.peer.addr", "source.address",
+                         "network.peer.address")
+OTEL_DROPPED = ("url.query", "url.full", "http.url", "http.target", *OTEL_CLIENT_ADDRESSES)
 OTEL_PRIVACY = {"actions": [*({"key": k, "action": "hash"} for k in OTEL_HASHED),
                             *({"key": k, "action": "delete"} for k in OTEL_DROPPED)]}
-# The resource attributes that hold an address (the k8sattributes and resourcedetection processors set them).
-OTEL_RESOURCE_HASHED = ("k8s.pod.ip", "host.ip", "net.host.ip", "client.address")
-OTEL_RESOURCE_PRIVACY = {"attributes": [{"key": k, "action": "hash"} for k in OTEL_RESOURCE_HASHED]}
+# The resource attributes that hold the lab's own pod and node addresses (the k8sattributes and resourcedetection
+# processors set them): infrastructure, not a person's - hashed. A client's address on a resource is dropped, as above.
+OTEL_RESOURCE_HASHED = ("k8s.pod.ip", "host.ip", "net.host.ip")
+OTEL_RESOURCE_PRIVACY = {"attributes": [*({"key": k, "action": "hash"} for k in OTEL_RESOURCE_HASHED),
+                                        {"key": "client.address", "action": "delete"}]}
 
 
 def otel_config(region: str, *, datadog: bool = False) -> dict:
