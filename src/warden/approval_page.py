@@ -596,6 +596,8 @@ class ApprovalPage:
         if self.log is None:
             return _json(503, {"error": "the record cannot be read here"})
         allowed = self._environments_for(member)
+        if parts and parts[0] == records.PILOT:
+            return self._pilot(query, allowed)
         if not parts or not parts[0]:
             return self._record_list(query, allowed)
         one = self._readable(parts[0], allowed)
@@ -690,6 +692,20 @@ class ApprovalPage:
         nonce = secrets.token_urlsafe(16)
         action = f"{self.origin}/r/{urllib.parse.quote(one.id, safe='')}/masked"
         return Response(status, _headers(nonce, _HTML, action), page.replace(_NONCE, nonce))
+
+    def _pilot(self, query: str, allowed: set[str] | None) -> Response:
+        """`/r/pilot`: the pilot metrics (pilot.py) of the incidents this reader may read, from rows whose signatures
+        check out against the audit's own signing key - none shown when this runtime cannot check them."""
+        from . import pilot, records
+
+        since = records.pilot_since(query)
+        if since is None:
+            return self._served_html(400, records.bad_query_page())
+        try:
+            checked = pilot.read(self.log, self.log.key.public_key())
+        except Exception:  # noqa: BLE001 - no signing key or an unreadable record so no number is shown unchecked
+            return self._served_html(503, records.pilot_unchecked_page())
+        return self._served_html(200, records.pilot_page(pilot.report(checked, since, allowed=allowed)))
 
     @staticmethod
     def _viewers() -> set[str]:

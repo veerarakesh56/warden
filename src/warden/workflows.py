@@ -55,7 +55,10 @@ with workflow.unsafe.imports_passed_through():
         REPLANNED,
         Thread,
         Turn,
+        asks_to_extend,
+        extended_said,
     )
+    from .extend import ceiling
     from .models import Alert, ContextBundle, RunReport, ingestion_wait, reread_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
@@ -165,6 +168,18 @@ async def _remind_or_expire(acts, plan: Plan, end, refused: list[str], *, remind
     if ladder:
         await _announce(acts, plan, "expired")
     return await end("expired", refused or ["no valid approval arrived in time"])
+
+
+async def _record_wait(acts, plan: Plan, deadline: datetime, *, auto: bool) -> None:
+    """U3-8: until when this run really waits for a person, on the record (activities.approval_wait, patch u38-wait),
+    so an approver's extension counts from it and always moves it. Not when Eldane's approval was enough (`auto`):
+    nobody waits. A failed record changes nothing here: the extension then counts from the plan's own approval_until,
+    and the run still waits at least until its own deadline."""
+    if auto or not workflow.patched("u38-wait"):
+        return
+    with contextlib.suppress(ActivityError):
+        await workflow.execute_activity_method(acts.approval_wait, **_zoned(acts.approval_wait),
+                                               args=[plan, deadline.isoformat()], **NOTIFY)
 
 
 def _denied(denial: Denial) -> str:
@@ -327,6 +342,18 @@ class RemediationWorkflow:
         return [(f"WARDEN diagnoses the incident again from what it reads now, as `{got['new']}`, with this fix "
                  "beside its evidence: any fix it finds is a new plan for an approver")]
 
+    @staticmethod
+    async def _extended(acts, plan: Plan, deadline: datetime) -> datetime | None:
+        """The later time an approver extended this plan's wait to (extend.py), when it is later than `deadline` and
+        now, and never past the plan's ceiling; None otherwise - an unreadable answer extends nothing."""
+        try:
+            got = await workflow.execute_activity_method(acts.approval_extension, **_zoned(acts.approval_extension),
+                                                         args=[plan], **NOTIFY)  # unread: the wait ends
+            later = min(datetime.fromisoformat(str(got)), ceiling(plan.created_at))
+        except (ActivityError, ValueError, TypeError):
+            return None
+        return later if later > deadline and later > workflow.now() else None
+
     async def _steps(self, req: FixRequest, acts, wid: str, done: dict, end) -> FixOutcome:
         plan = self._plan = await workflow.execute_activity_method(acts.resolve_plan, **_zoned(acts.resolve_plan), args=[req, wid], **QUICK)
         if plan.problems:
@@ -350,6 +377,7 @@ class RemediationWorkflow:
         if not auto and not opened and workflow.patched("h6-links"):
             await _announce(acts, plan, "opening")
         unapproved = await self._approvals(req, acts, wid, plan, end, accepted, auto=auto)
+        plan = self._plan or plan  # an extended wait (U3-8) gave the plan its new time
         if unapproved is not None:
             return unapproved
         done["approved"] = True
@@ -414,8 +442,11 @@ class RemediationWorkflow:
                          auto: bool) -> FixOutcome | None:
         """The wait for a person's approvals, until the tier's quorum is in `accepted` (None) or the run ends: denied,
         or expired with nothing changed. None at once when Eldane's approval was enough (`auto`)."""
-        self._stage = "awaiting_approval"
         deadline = workflow.now() + timedelta(minutes=req.approval_ttl_minutes)
+        await _record_wait(acts, plan, deadline, auto=auto)
+        # Said once the run's own deadline is on the record (U3-8): whoever sees the plan waiting - an approver, a
+        # test - sees a wait an extension counts from, and the next activity is the approval's own check.
+        self._stage = "awaiting_approval"
         refused: list[str] = []
         seen = 0
         # Register H10: halfway through the wait a person is reminded, and at the end told that nothing was done -
@@ -425,10 +456,11 @@ class RemediationWorkflow:
         while not auto:
             until = halfway if ladder and not reminded and not accepted else deadline
             if not await self._arrived(seen, until):
-                expired = await _remind_or_expire(acts, plan, end, refused, reminder=until == halfway,
-                                                  deadline=deadline, ladder=ladder)
-                if expired is not None:
-                    return expired
+                step = await self._ran_out(acts, plan, end, refused, reminder=until == halfway, deadline=deadline,
+                                           ladder=ladder)
+                if isinstance(step, FixOutcome):
+                    return step
+                plan, deadline = step
                 reminded = True
                 continue
             approval, seen = self._inbox[seen], seen + 1
@@ -438,6 +470,27 @@ class RemediationWorkflow:
             if taken:
                 break
         return None
+
+    async def _ran_out(self, acts, plan: Plan, end, refused: list[str], *, reminder: bool, deadline: datetime,
+                       ladder: bool) -> FixOutcome | tuple[Plan, datetime]:
+        """The approval wait reached its next time with nothing new: halfway, a reminder; at its end, an approver's
+        extension when there is one (U3-8), else it expires (_remind_or_expire). The wait goes on as (the plan, its
+        deadline) - new ones when extended; it ends as the run's outcome."""
+        if not (reminder and workflow.now() < deadline) and (moved := await self._extend_wait(acts, plan, deadline)):
+            return moved
+        expired = await _remind_or_expire(acts, plan, end, refused, reminder=reminder, deadline=deadline, ladder=ladder)
+        return expired if expired is not None else (plan, deadline)
+
+    async def _extend_wait(self, acts, plan: Plan, deadline: datetime) -> tuple[Plan, datetime] | None:
+        """U3-8: an approver extended the wait from the discussion thread - read from the record, never from a
+        message, bounded by the plan's ceiling (patch u38-extend). The plan then says its new time, and its new links
+        last it: (the plan with its new time, the new deadline). None: no extension, and the wait ends."""
+        if not workflow.patched("u38-extend") or not (later := await self._extended(acts, plan, deadline)):
+            return None
+        minutes = -(-(later - plan.created_at) // timedelta(minutes=1))
+        plan = self._plan = plan.model_copy(update={"approval_ttl_minutes": minutes})
+        await _announce(acts, plan, "waiting")
+        return plan, later
 
     async def _arrived(self, seen: int, until: datetime) -> bool:
         """Whether something new reached the inbox (past its first `seen` items) before `until`."""
@@ -694,7 +747,20 @@ class DiscussWorkflow:
         """The reply to a mention about a known incident: an approver's "new plan", or the model's answer."""
         if NEW_PLAN.search(turn.text) and workflow.patched("g10-discuss-replan"):
             return await self._replan(acts, turn, thread)
+        if asks_to_extend(turn.text) and workflow.patched("u38-discuss-extend"):
+            return await self._extend(acts, turn, thread)
         return await self._evidence_answer(acts, turn, thread)
+
+    @staticmethod
+    async def _extend(acts, turn: Turn, thread: Thread) -> str:
+        """U3-8: an approver extends a waiting plan's wait. Recorded in the audit; the fix's own run reads it there
+        when its time runs out. Nothing here signals or starts a fix."""
+        try:
+            got = await workflow.execute_activity_method(
+                acts.discuss_extend, **_zoned(acts.discuss_extend), args=[turn, thread.incident], **QUICK)
+        except ActivityError:
+            return NOT_READ
+        return extended_said(got, thread.incident)
 
     @staticmethod
     async def _replan(acts, turn: Turn, thread: Thread) -> str:

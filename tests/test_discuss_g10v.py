@@ -118,8 +118,8 @@ def world(tmp_path, monkeypatch):
     return {"log": log, "posted": posted, "inc": inc, "acts": DiscussActivities(audit=log, incident=inc, policy=policy)}
 
 
-def _turn(text, user=PERSON):
-    return discuss.Turn(channel=CHANNEL, thread_ts="1760000000.000100", ts="1760000000.000200", user=user, text=text)
+def _turn(text, user=PERSON, ts="1760000000.000200"):
+    return discuss.Turn(channel=CHANNEL, thread_ts="1760000000.000100", ts=ts, user=user, text=text)
 
 
 def test_the_thread_is_read_its_incident_found_and_who_wrote_what_said_without_their_ids(world):
@@ -322,7 +322,7 @@ def test_an_approvers_new_plan_is_a_fresh_diagnosis_once_an_hour_and_anyone_else
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="discuss-test", workflows=[DiscussWorkflow],
                                activities=[acts.discuss_thread, acts.discuss_evidence, acts.discuss_answer,
-                                           acts.discuss_reply, acts.discuss_replan],
+                                           acts.discuss_reply, acts.discuss_replan, acts.discuss_extend],
                                activity_executor=ThreadPoolExecutor(2)):
             said = await env.client.execute_workflow(DiscussWorkflow.run, _turn(text, user=user), id=wid,
                                                      task_queue="discuss-test")
@@ -372,5 +372,42 @@ def test_the_runtime_gives_the_listener_its_token_in_the_notify_zone_alone():
     # A listener that cannot connect is logged; the notify worker - every alert WARDEN sends - keeps running.
     guard = cli[cli.index('if args.zone == "notify" and discuss.configured():'):]
     assert guard.index("try:") < guard.index("await discuss.listen(") < guard.index("except Exception")
-    # Slack's async web client; 3.14.4 is the first release without CVE-2026-111063/-111064 (PR 98).
-    assert '"aiohttp>=3.14.4"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    # Slack's async web client; 3.14.4 is the first release without CVE-2026-111063/-111064 (PR 98); 3.14.5 (PR 160).
+    assert '"aiohttp>=3.14.5"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+
+def test_an_approver_extends_a_waiting_plan_from_the_thread_and_anyone_else_is_refused(world):
+    """U3-8: "the discussion thread can extend it" - recorded in the audit, where the plan's own run reads it; the
+    DiscussWorkflow signals and starts nothing for it."""
+    from datetime import UTC, datetime, timedelta
+
+    acts, log = world["acts"], world["log"]
+    log.append(INCIDENT, "remediation.plan", {"workflow_id": "rem-dev-1", "tier": "T1", "environment": "dev",
+                                              "plan_hash": "h", "approval_until":
+                                                  (datetime.now(UTC) + timedelta(hours=1)).isoformat()})
+
+    async def main(text, user, wid, ts):
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        async with env, Worker(env.client, task_queue="discuss-test", workflows=[DiscussWorkflow],
+                               activities=[acts.discuss_thread, acts.discuss_evidence, acts.discuss_answer,
+                                           acts.discuss_reply, acts.discuss_replan, acts.discuss_extend],
+                               activity_executor=ThreadPoolExecutor(2)):
+            return await env.client.execute_workflow(DiscussWorkflow.run, _turn(text, user=user, ts=ts), id=wid,
+                                                     task_queue="discuss-test")
+
+    said = asyncio.run(main("<@UWARDEN> extend the wait", PERSON, "e1", "1760000000.000301"))
+    assert said == discuss.NOT_EXTENDED["not an approver"]
+    said = asyncio.run(main("<@UWARDEN> extend by 12h", APPROVER, "e2", "1760000000.000302"))
+    assert said.startswith("The wait for WARDEN's plan `rem-dev-1` is extended by 12")
+    assert "passkey" in said
+    [row] = log.entries(INCIDENT, kinds=("approval.extended",))
+    assert row["body"]["approver"] == "owner"
+    assert row["body"]["hours"] == 12
+    again = asyncio.run(main("<@UWARDEN> extend by 12h", APPROVER, "e2-again", "1760000000.000302"))
+    assert again == said  # the same message once more: its first answer, no more hours (CodeRabbit, PR 150)
+    assert len(log.entries(INCIDENT, kinds=("approval.extended",))) == 1
+    said = asyncio.run(main("<@UWARDEN> extend by 30h", APPROVER, "e3", "1760000000.000303"))
+    assert said.startswith("A plan's wait is extended by 1 to 24 hours")
+    said = asyncio.run(main("<@UWARDEN> extend by 6 more hours", APPROVER, "e4", "1760000000.000304"))
+    assert said == discuss.NOT_EXTENDED["hours unclear"].format(most=24)
+    assert len(log.entries(INCIDENT, kinds=("approval.extended",))) == 1

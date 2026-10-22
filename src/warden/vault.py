@@ -19,9 +19,10 @@ The read zone masks every value it finds (redaction.py) and, until now, threw th
 - **Retention, then gone.** A vault row expires WARDEN_VAULT_DAYS after it is sealed (default and minimum 180, the
   audit's own retention, register B19) and is deleted by the next seal. The signed audit keeps the index (placeholder,
   kind, pseudonym) and the sealed bytes' SHA-256 - what existed stays provable after the values are gone. An erasure
-  is the database owner's; its procedure is planned in docs/DATA-EGRESS.md (PR #121).
+  is the database owner's; its procedure is planned on the data-egress page (added by #121).
 - **Personal data only.** Only the kinds in SEALED_KINDS (an email, a phone number, a tenant, an account id, an ARN,
-  a UUID, an IP or MAC address) are sealed. A credential, token, key, webhook, bank or card number (NEVER_SEALED) is
+  a UUID, an IP or MAC address, an internal host name, a person's name, a street address) are sealed. A credential,
+  token, key, webhook, bank or card number, or a national id (a US SSN, an Aadhaar or PAN number) - NEVER_SEALED - is
   never kept: it is thrown away after masking, as before the vault (owner-safe default, review 2026-10-21). Every
   redaction kind is in exactly one of the two sets (tests/test_vault.py), so a new kind must be classified.
 
@@ -48,11 +49,13 @@ MIN_DAYS = 180
 MAX_DAYS = 3650  # ten years: longer than any retention WARDEN documents, and within a date's range
 PURGE_FAILED = "incident.vault_purge_failed"  # a seal that worked, whose expired-row purge did not (its type only)
 # The redaction kinds a person may later reveal: personal data that identifies who or what was hit.
-SEALED_KINDS = frozenset({"EMAIL", "PHONE", "TENANT", "ACCOUNTID", "ARN", "UUID", "IPV4", "IPV6", "MAC"})
+SEALED_KINDS = frozenset({"EMAIL", "PHONE", "TENANT", "ACCOUNTID", "ARN", "UUID", "IPV4", "IPV6", "MAC", "HOSTNAME",
+                          "NAME", "ADDRESS"})
 # Never sealed, never revealable: secrets and financial numbers (redaction.SECRET_KINDS, which holds IBAN and
-# CREDITCARD) - thrown away after masking.
+# CREDITCARD), and national ids (SSN, AADHAAR, PAN: no fix needs one, and a leak cannot be undone) - thrown away after
+# masking.
 NEVER_SEALED = frozenset({"PRIVKEY", "JWT", "APIKEY", "GCPTOKEN", "AZURESAS", "WEBHOOK", "URLCRED", "BEARER", "BASIC",
-                          "SECRET", "HIGHENTROPY", "IBAN", "CREDITCARD"})
+                          "SECRET", "HIGHENTROPY", "IBAN", "CREDITCARD", "SSN", "AADHAAR", "PAN"})
 _MAC_MAX = 4096  # KMS GenerateMac's largest message, in bytes
 
 _TABLE = ("CREATE TABLE IF NOT EXISTS vault (incident TEXT NOT NULL, sha256 TEXT NOT NULL, sealed_at TEXT NOT "
@@ -65,8 +68,8 @@ def migrate(dsn: str, writer_role: str | None = None) -> None:
     append-only: its rows expire. The runtime's writer - every zone's login - may read and add rows (ciphertext no zone
     but the approval page can open) and may NOT delete one: an AI zone must not be able to make a reveal impossible
     (review, 2026-10-20). Retention runs through PURGE, a function owned by the migration role that deletes only rows
-    past their expiry by the database's own clock; an erasure is the database owner's (procedure planned in
-    docs/DATA-EGRESS.md, PR #121)."""
+    past their expiry by the database's own clock; an erasure is the database owner's (procedure planned on
+    the data-egress page, added by #121)."""
     import re
 
     from .audit import _pg_connect
