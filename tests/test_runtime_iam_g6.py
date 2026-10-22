@@ -106,7 +106,25 @@ def test_the_deploy_role_never_reads_or_writes_a_secret_value_or_signs():
     deploy = [a for kind in ("deploy", "deploy-ec2") for st in _load(kind)["Statement"] for a in _list(st["Action"])]
     for action in ("secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue", "kms:Sign", "sts:AssumeRole"):
         assert not _matches(action, deploy), action
-    assert {"secretsmanager:PutSecretValue", "ecr:SetRepositoryPolicy"} <= set(_sid(_load("boundary"), "DenyAlways")["Action"])
+    always = _sid(_load("boundary"), "DenyAlways")["Action"]
+    for action in ("secretsmanager:PutSecretValue", "secretsmanager:PutResourcePolicy", "ecr:SetRepositoryPolicy"):
+        assert _matches(action, always), action
+
+
+def test_the_boundarys_shortened_denies_still_name_every_action_they_did():
+    """IAM's 6,144-character limit (PR 112 made room for AWS Config): two deny lists were written as wildcards that match
+    exactly the actions they listed (botocore 1.43's models: secretsmanager Put* = PutResourcePolicy, PutSecretValue;
+    iam *tachRolePolicy = AttachRolePolicy, DetachRolePolicy). Each of those actions must still be denied."""
+    boundary = _load("boundary")
+    always, self_edit = _sid(boundary, "DenyAlways")["Action"], _sid(boundary, "DenySelfEdit")["Action"]
+    for action in ("secretsmanager:PutResourcePolicy", "secretsmanager:PutSecretValue"):
+        assert _matches(action, always), action
+    for action in ("iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy",
+                   "iam:UpdateRole", "iam:UpdateAssumeRolePolicy", "iam:DeleteRole", "iam:TagRole", "iam:UntagRole",
+                   "iam:PutRolePermissionsBoundary"):
+        assert _matches(action, self_edit), action
+    # ... and nothing a deploy needs on its OTHER roles: the self-edit deny is on the deploy role alone.
+    assert _sid(boundary, "DenySelfEdit")["Resource"].endswith("-deploy")
 
 
 def test_the_ecs_cluster_is_one_the_boundary_lets_its_services_into():
