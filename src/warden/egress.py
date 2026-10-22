@@ -275,9 +275,9 @@ def destination_of(host: str | bytes | None, env: dict[str, str] | None = None) 
 # --------------------------------------------------------------------------- the content check
 
 _PLACEHOLDER = re.compile(r"<([A-Z][A-Z0-9]*)_\d+>")
-# A number written in ASCII digits only: `\d` would take full-width digits (U+FF10..) too, and a phone written in them
-# would skip the PHONE check (CodeRabbit, PR 113).
-_ASCII_DIGITS = re.compile(r"[0-9]+", re.ASCII)
+# A number written in ASCII digits only: without re.ASCII, `\d` would take full-width digits (U+FF10..) too, and a
+# phone written in them would skip the PHONE check (CodeRabbit, PR 113).
+_ASCII_DIGITS = re.compile(r"\d+", re.ASCII)
 
 
 def kinds_in(text: str) -> list[str]:
