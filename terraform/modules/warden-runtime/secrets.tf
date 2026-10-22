@@ -17,6 +17,9 @@ locals {
     #                    timeseries_query, events_read, monitors_read
     "datadog-webhook-token", # the bearer secret Datadog's webhook sends (webhooks.receive_datadog); set by the setup
     #                          script together with the webhook itself
+    "github-actions-token", # B17: dispatches the infra workflow's apply-plan (platforms/infra.py); the act zone's alone.
+    #                         A fine-grained token on the one repository: Actions: Read and write, and Contents:
+    #                         Read (the branch head re-read before dispatching), nothing else
     "github-read-token", # the read-only GitHub token (tools.github_read_token): the deploy's commits and code review's
     #                      findings on its pull request; the read zone's alone
     # Register S15: each zone's own Temporal Cloud service account key (settings.PER_ZONE).

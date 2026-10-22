@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:979dcc50-fffb-5310-9359-06041fef9377",
+  "serialNumber": "urn:uuid:496b2906-cce1-536a-b6d0-71345e43af8c",
   "version": 1,
   "metadata": {
     "component": {
@@ -27,14 +27,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/aiohttp@3.14.4",
+      "bom-ref": "pkg:pypi/aiohttp@3.14.5",
       "name": "aiohttp",
-      "version": "3.14.4",
-      "purl": "pkg:pypi/aiohttp@3.14.4",
+      "version": "3.14.5",
+      "purl": "pkg:pypi/aiohttp@3.14.5",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "831fc5bd39ec2517851e348f613ddb5447a47cf4b71cb09845af7ad7ed45d8f9"
+          "content": "5558a7f5a05af9ecf744af91e5baefc436f93c9333e656c27ec253f9a6bbe178"
         }
       ]
     },
@@ -443,14 +443,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/google-genai@2.26.0",
+      "bom-ref": "pkg:pypi/google-genai@2.30.1",
       "name": "google-genai",
-      "version": "2.26.0",
-      "purl": "pkg:pypi/google-genai@2.26.0",
+      "version": "2.30.1",
+      "purl": "pkg:pypi/google-genai@2.30.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "77bb207d535fc84934b42f95db35267df40fea7244b824e91daf2e7940358db3"
+          "content": "a348b28b86a98fbc8e0bea759e14ae3ac807954355df8638079715d027cd14d5"
         }
       ]
     },
@@ -573,14 +573,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/hypothesis@6.168.3",
+      "bom-ref": "pkg:pypi/hypothesis@6.169.1",
       "name": "hypothesis",
-      "version": "6.168.3",
-      "purl": "pkg:pypi/hypothesis@6.168.3",
+      "version": "6.169.1",
+      "purl": "pkg:pypi/hypothesis@6.169.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "a43388f9067678fef6e13bdff325b6cfa6961a590498bb37f7ff31589c83bc75"
+          "content": "a08600adfa30afad70cbbcd6ce074f215b25ac207315d32afde41830ca3f2439"
         }
       ]
     },
@@ -2282,7 +2282,7 @@
       "supplier": {
         "name": "Anthropic"
       },
-      "description": "qualified on WARDEN's replay set: 17 of 30 correct, 0 wrong and allowed (measured 2026-10-15T14:56Z)",
+      "description": "measured on an earlier prompt (d435b59f), NOT qualified on the pinned one: 17 of 30 correct, 0 wrong and allowed (measured 2026-10-15T14:56Z)",
       "properties": [
         {
           "name": "warden:provider",

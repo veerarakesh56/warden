@@ -80,9 +80,10 @@ defaults:
 critic:
   anthropic: [claude-opus-5-5, claude-sonnet-5-5]
 qualified:
-  # The production model from 2026-10-15 (only Claude Sonnet 5.5 and Opus 5.5 are qualified). Both at
-  # effort high on the same 30 incidents, today's code: Sonnet 5.5 17/30, 0 wrong-and-allowed - meets the bar; Opus 5.5
-  # 15/30 - below it (NOT qualified). On the 172 held-out G10 cases, re-scored under today's gate (no model call):
+  # Measured 2026-10-15 on prompt d435b59f, which was the pinned prompt then; it qualifies nothing once the pin moves
+  # (2026-10-17). Both at
+  # effort high on the same 30 incidents, that day's code: Sonnet 5.5 17/30, 0 wrong-and-allowed - met the bar; Opus 5.5
+  # 15/30 - below it (NOT qualified). On the 172 held-out G10 cases, re-scored under that day's gate (no model call):
   # Sonnet 5.5 correct 160, harmful proposals 6 (every one stopped), right fix to a person 77, right outcome 137, harm
   # allowed 0, $3.15; Opus 5.5 correct 162, harmful 1, right fix 72, right outcome 136, harm allowed 0, $9.00.
   - {"provider": "anthropic", "model": "claude-sonnet-5-5", "version": "anthropic 1.4.0", "measured": "2026-10-15T14:56Z", "prompt": "d435b59f7f1545c23af17b23125de453170a2180c8ab0f7ce7050e3891ba0084", "budget_usd": 8.0, "spent_usd": 0.4212, "correct": 17, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0, "unanswered": 0, "escalated": 24, "acted_right": 5, "escalated_a_right_fix": 8, "abstained_right": 4, "stopped_a_wrong_answer": 11, "acted_wrongly": 0, "ungraded": 2}
