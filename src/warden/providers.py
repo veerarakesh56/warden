@@ -346,6 +346,7 @@ class OpenAICompatProvider:
                                 f"{urlparse(base_url).hostname}. Unset it for any host but OpenAI.")
         kw = {"api_key": api_key, "timeout": _sdk_timeout_s(), "max_retries": 0}
         kw["base_url"] = base_url
+        self.base_url = base_url  # the host its prompts go to: egress names the destination by it
         self._client = OpenAI(**kw)
         if base_url.rstrip("/") != OPENAI_DEFAULT_BASE_URL:
             # The SDK reads OPENAI_ORG_ID / OPENAI_PROJECT_ID itself and sends them as headers; they
@@ -712,6 +713,17 @@ _REGISTRY = {
     "openrouter": OpenAICompatProvider,
     "ollama": OpenAICompatProvider,
 }
+# Every prompt to every model passes the egress check first (egress.guard_model): fail closed on any value the
+# redactor still finds. Here, on the classes, so a provider built from the registry by any path - resolve(), or
+# Eldane building its own - is guarded; tests/test_egress.py holds every registered class to it.
+def _guard_every_provider() -> None:
+    from . import egress
+
+    for cls in set(_REGISTRY.values()):
+        egress.guard_provider(cls)
+
+
+_guard_every_provider()
 
 # ⛔ Audit A-C-18: OPENAI_API_KEY used to go to whichever host the client pointed at - Groq,
 # OpenRouter, or any custom WARDEN_BASE_URL. A key is a credential for ONE vendor; each host reads
