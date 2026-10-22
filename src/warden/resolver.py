@@ -76,7 +76,8 @@ _QUALIFIERS = frozenset({"alarm", "namespace", "ecs_cluster", "eks_cluster", "ap
                          # Where an alert came from and which monitor said so: never a resource (2026-10-15).
                          "via", "datadog_monitor", "alarm_region"})
 # The resource kinds each special path is reached from (_configuration: the AppConfig application, never a label).
-_SPECIAL_KINDS = {ActionKind.revert_config: frozenset(), ActionKind.freeze_changes: frozenset({"lambda", "ecs"})}
+# A Lambda function's own settings: revert_config on the labelled function (B17, lambda_restore_config).
+_SPECIAL_KINDS = {ActionKind.revert_config: frozenset({"lambda"}), ActionKind.freeze_changes: frozenset({"lambda", "ecs"})}
 
 
 def named_resources(alert: Alert) -> set[str]:
@@ -366,7 +367,10 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
 def _request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
     if proposal.action in (ActionKind.no_action, ActionKind.escalate_to_human):
         return None, "the proposal is to hand the incident to a person"
-    if proposal.action is ActionKind.revert_config:
+    if proposal.action is ActionKind.revert_config and (
+            proposal.target.startswith(("appconfig:", "appconfig ")) or _bare(alert, proposal.target) != alert.labels.get("lambda")):
+        # Only the labelled function's own settings take the catalogue's path; an AppConfig target, named as one or
+        # not a labelled function, stays AppConfig's (review, PR 107).
         return _configuration(alert, proposal, live)
     if proposal.action is ActionKind.freeze_changes:
         return _freeze(alert, proposal, live)
