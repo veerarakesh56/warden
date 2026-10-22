@@ -371,10 +371,11 @@ DATADOG_SITES = frozenset({"datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.
 ARGOCD_CHART = "10.10.5"  # Argo CD v3.5.5 (owner B26, 2026-10-17); v3.5.4 fixed the Critical advisories of 2026-10-07
 ARGOCD_CHART_URL = f"https://github.com/argoproj/argo-helm/releases/download/argo-cd-{ARGOCD_CHART}/argo-cd-{ARGOCD_CHART}.tgz"
 ARGOCD_CHART_SHA256 = "ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a"
-ARGOCD_VALUES = ROOT / "helm" / "argo-cd" / "values.yaml"
+HELM_VALUES = "values.yaml"  # each chart's settings: helm/<chart>/values.yaml
+ARGOCD_VALUES = ROOT / "helm" / "argo-cd" / HELM_VALUES
 # The agent's own masking of everything it sends (owner, 2026-10-21): every log line, container or OTLP, passes these
 # global processing rules first. tests/test_datadog_agent_masking.py.
-DATADOG_VALUES = ROOT / "helm" / "datadog" / "values.yaml"
+DATADOG_VALUES = ROOT / "helm" / "datadog" / HELM_VALUES
 
 
 def _fetch_chart(url: str) -> bytes:
@@ -398,7 +399,6 @@ ESO_CHART = "2.13.0"  # ESO v2.13.0, released 2026-10-16
 ESO_CHART_URL = ("https://github.com/external-secrets/external-secrets/releases/download/"
                  f"helm-chart-{ESO_CHART}/external-secrets-{ESO_CHART}.tgz")
 ESO_CHART_SHA256 = "f693a96f0d929a07e000dd39e68b92a1a1343c5bc440ebab091b03da30bcac3a"
-HELM_VALUES = "values.yaml"  # each chart's settings: helm/<chart>/values.yaml
 ESO_VALUES = ROOT / "helm" / "external-secrets" / HELM_VALUES
 RELOADER_CHART = "2.2.18"  # Reloader v1.4.22, published 2026-09-30 (stakater's chart repository, its index's digest)
 RELOADER_CHART_URL = f"https://stakater.github.io/stakater-charts/reloader-{RELOADER_CHART}.tgz"
