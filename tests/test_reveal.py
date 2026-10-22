@@ -12,6 +12,7 @@ import urllib.parse
 
 import pytest
 
+from fakes import race_reveals
 from test_approval_page import setup as page_setup  # noqa: F401
 from test_records_g10w import INC, _page
 from test_slack_login_g10q import OTHER
@@ -109,6 +110,7 @@ def test_no_row_no_value(site, monkeypatch):
     form = _form(page, cookie)
     monkeypatch.setattr(vault, "_BUILT", {("alias/warden-ops-vault", "ops"): Spy()})
     monkeypatch.setattr(log, "append", broken)
+    monkeypatch.setattr(log, "append_unless", broken)  # the reveal's row goes through it (the hourly limit)
     with pytest.raises(OSError):
         _post(page, cookie, form)  # the page fails
     assert not opened  # and the vault was never opened
@@ -246,6 +248,27 @@ def _form_for(cookie):
                                    ("p", "<EMAIL_1>")])
 
 
+def test_a_form_with_more_fields_than_the_page_offers_is_a_recorded_refusal(site, monkeypatch):
+    """Review (PR 119): parse_qs's field limit raised ValueError - a 500 with no row. Now the limit is the page's own
+    form (its values plus the fixed fields), and a bigger body is refused (400), recorded, counted against the hourly
+    limit, and opens nothing."""
+    page, log, cookie, _ = site
+    kms = FakeKms("approval")
+    monkeypatch.setattr(vault, "_BUILT", {("alias/warden-ops-vault", "ops"): vault.Vault(
+        key="alias/warden-ops-vault", environment="ops", kms=kms)})
+    every = _form(page, cookie) + "".join("&p=%3CIPV4_1%3E" for _ in range(2))  # 3 values offered, 3 picked
+    assert _post(page, cookie, every).status == 200
+    oversize = every + "&p=%3CEMAIL_1%3E"
+    out = _post(page, cookie, oversize)
+    assert out.status == 400
+    assert EMAIL not in out.body
+    [row] = log.entries(INC, kinds=(reveal.ATTEMPT_REFUSED,))
+    assert "more fields" in row["body"]["problem"]
+    assert [a for a, _ in kms.calls] == ["Decrypt"]  # the first, whole form's reveal only
+    monkeypatch.setattr(reveal, "MAX_PER_HOUR", 2)  # that reveal and this refusal: the limit is reached
+    assert _post(page, cookie, oversize).status == 429
+
+
 def test_a_reader_limited_to_another_environment_learns_nothing(site):
     page, log, cookie, _ = site
     page.policy.approvers["owner"].environments = ["prod"]  # the incident is dev's
@@ -352,3 +375,15 @@ def test_what_a_reveal_writes_and_asks_kms_holds_no_value(site, monkeypatch):
         assert egress.kinds_in(json.dumps(r["body"])) == [], r["kind"]
     assert [action for action, _ in kms.calls] == ["Decrypt"]
     assert egress.kinds_in(json.dumps(kms.calls)) == []
+
+
+def test_parallel_reveals_admit_exactly_the_slots_left(tmp_path, monkeypatch):
+    """Review (PR 119): the hourly limit was read, then written - parallel POSTs could all pass the count before any
+    appended. The count is now read inside the reveal row's own append (AuditLog.append_unless, under the writer's
+    lock): with 2 slots left, 6 at once admit exactly 2; the rest get 429 and nothing is decrypted for them."""
+    from warden.audit import AuditLog
+
+    statuses, rows, decrypts = race_reveals(lambda: AuditLog(tmp_path / "a.db"), monkeypatch)
+    assert statuses == [200, 200, 429, 429, 429, 429]
+    assert rows == 4
+    assert decrypts == 2

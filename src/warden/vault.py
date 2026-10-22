@@ -57,7 +57,9 @@ SEALED_KINDS = frozenset({"EMAIL", "PHONE", "TENANT", "ACCOUNTID", "ARN", "UUID"
 NEVER_SEALED = frozenset({"PRIVKEY", "JWT", "APIKEY", "GCPTOKEN", "AZURESAS", "WEBHOOK", "URLCRED", "BEARER", "BASIC",
                           "SECRET", "HIGHENTROPY", "IBAN", "CREDITCARD", "SSN", "AADHAAR", "PAN"})
 _MAC_MAX = 4096  # KMS GenerateMac's largest message, in bytes
-KMS_CONNECT_S, KMS_READ_S, KMS_ATTEMPTS = 5, 10, 2  # the vault's KMS client: seconds, seconds, attempts in all
+# The vault's KMS client: seconds, seconds, requests in all (botocore's total_max_attempts counts the first request;
+# its max_attempts would count retries only - review, PR 119).
+KMS_CONNECT_S, KMS_READ_S, KMS_ATTEMPTS = 5, 10, 2
 
 _TABLE = ("CREATE TABLE IF NOT EXISTS vault (incident TEXT NOT NULL, sha256 TEXT NOT NULL, sealed_at TEXT NOT "
                  "NULL, expires_at TEXT NOT NULL, wrapped_key TEXT NOT NULL, sealed TEXT NOT NULL, "
@@ -167,7 +169,7 @@ class Vault:
             # A bounded socket and retry budget (review, PR 119): a degraded KMS fails a seal in seconds - recorded,
             # the incident goes on - instead of holding `prepare` until its activity times out.
             bounded = Config(connect_timeout=KMS_CONNECT_S, read_timeout=KMS_READ_S,
-                             retries={"max_attempts": KMS_ATTEMPTS, "mode": "standard"})
+                             retries={"total_max_attempts": KMS_ATTEMPTS, "mode": "standard"})
             cached = _BUILT[(key, environment)] = cls(key=key, environment=environment,
                                                       kms=boto3.client("kms", region_name=where, config=bounded),
                                                       mac_key=key_id(kind="pseudonym"))

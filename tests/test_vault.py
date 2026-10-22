@@ -352,7 +352,7 @@ def test_the_vaults_kms_client_has_a_bounded_timeout_and_retry_budget(monkeypatc
     [config] = configs
     assert config is not None
     assert (config.connect_timeout, config.read_timeout) == (vault.KMS_CONNECT_S, vault.KMS_READ_S)
-    assert config.retries == {"max_attempts": vault.KMS_ATTEMPTS, "mode": "standard"}
+    assert config.retries == {"total_max_attempts": vault.KMS_ATTEMPTS, "mode": "standard"}
     assert vault.KMS_CONNECT_S + vault.KMS_READ_S <= 30
     assert vault.KMS_ATTEMPTS <= 3
 

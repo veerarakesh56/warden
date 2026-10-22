@@ -32,3 +32,93 @@ def private_key_block(kind: str, body: str) -> str:
 def dsn(scheme: str, user: str, password: str, rest: str) -> str:
     """A connection string with its password inline: `scheme://user:<password>@rest`."""
     return f"{scheme}://{user}:" + f"{password}@{rest}"
+
+
+class PlainKms:
+    """KMS for the vault with no key policy and no botocore (the db job installs no AWS extra): a data key wrapped
+    with its encryption context, an HMAC for ids, Decrypt bound to the same context. Every call is counted."""
+
+    def __init__(self):
+        import os
+
+        self._mac_key = os.urandom(32)
+        self.calls: list[str] = []
+
+    def generate_data_key(self, *, KeyId, KeySpec, EncryptionContext):
+        import base64
+        import json
+        import os
+
+        self.calls.append("GenerateDataKey")
+        key = os.urandom(32)
+        return {"Plaintext": key,
+                "CiphertextBlob": json.dumps({"k": base64.b64encode(key).decode(), "c": EncryptionContext}).encode()}
+
+    def generate_mac(self, *, KeyId, MacAlgorithm, Message):
+        import hashlib
+        import hmac
+
+        self.calls.append("GenerateMac")
+        return {"Mac": hmac.new(self._mac_key, Message, hashlib.sha256).digest()}
+
+    def decrypt(self, *, CiphertextBlob, KeyId, EncryptionContext):
+        import base64
+        import json
+
+        self.calls.append("Decrypt")
+        blob = json.loads(CiphertextBlob)
+        if blob["c"] != EncryptionContext:
+            raise ValueError("another encryption context")
+        return {"Plaintext": base64.b64decode(blob["k"])}
+
+
+def race_reveals(open_log, monkeypatch, *, parallel: int = 6, slots: int = 2, limit: int = 4):
+    """Many approvers' tabs at once (concurrent Lambda invocations), each with its own audit connection from
+    `open_log()`: `limit - slots` reveals already this hour, then `parallel` valid reveals together. Every count of
+    the hourly limit waits for the others (a barrier with a timeout), so a check made apart from its write would let
+    them all through. Returns the sorted statuses, the reveal rows and the Decrypt calls (review, PR 119)."""
+    import threading
+    import urllib.parse
+
+    from warden import reveal, vault
+
+    incident, member, cookie = "inc-race", "U" + "0RACE", "c" * 43
+    email = "race.person" + "@" + "example.org"
+    kms = PlainKms()
+    sealer = vault.Vault(key="alias/warden-ops-vault", environment="ops", kms=kms,
+                         mac_key="alias/warden-ops-pseudonym")
+    log = open_log()
+    vault.store(log, sealer.seal(incident, {"<EMAIL_1>": email}))
+    for _ in range(limit - slots):
+        log.append(incident, reveal.REVEAL, {"member": member, "placeholders": ["<EMAIL_1>"], "why": "earlier"})
+    monkeypatch.setattr(reveal, "MAX_PER_HOUR", limit)
+    opener = vault.Vault(key="alias/warden-ops-vault", environment="ops", kms=kms)
+    barrier, counted = threading.Barrier(parallel), reveal._recent
+
+    def waiting(*args, **kwargs):
+        got = counted(*args, **kwargs)
+        try:
+            barrier.wait(timeout=1)
+        except threading.BrokenBarrierError:
+            pass  # a count made inside the writer's lock waits alone: it times out once, then never waits again
+        return got
+
+    monkeypatch.setattr(reveal, "_recent", waiting)
+    form = urllib.parse.urlencode([("reveal", "1"), ("t", reveal.token(cookie, incident)),
+                                   ("why", "which customer the outage hit"), ("p", "<EMAIL_1>")])
+    statuses: list[int] = []
+
+    def one():
+        mine = open_log()
+        statuses.append(reveal.reveal(mine, incident, member=member, cookie=cookie, form=form, approver=True,
+                                      opener=opener)[0])
+        mine.close()
+
+    threads = [threading.Thread(target=one) for _ in range(parallel)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    rows = log.entries(incident, kinds=(reveal.REVEAL,))
+    log.close()
+    return sorted(statuses), len(rows), kms.calls.count("Decrypt")
