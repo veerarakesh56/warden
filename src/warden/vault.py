@@ -19,7 +19,7 @@ The read zone masks every value it finds (redaction.py) and, until now, threw th
 - **Retention, then gone.** A vault row expires WARDEN_VAULT_DAYS after it is sealed (default and minimum 180, the
   audit's own retention, register B19) and is deleted by the next seal. The signed audit keeps the index (placeholder,
   kind, pseudonym) and the sealed bytes' SHA-256 - what existed stays provable after the values are gone. An erasure
-  is the database owner's; its procedure is planned on the data-egress page (added by #121).
+  is the database owner's; its procedure is in docs/DATA-EGRESS.md.
 - **Personal data only.** Only the kinds in SEALED_KINDS (an email, a phone number, a tenant, an account id, an ARN,
   a UUID, an IP or MAC address, an internal host name, a person's name, a street address) are sealed. A credential,
   token, key, webhook, bank or card number, or a national id (a US SSN, an Aadhaar or PAN number) - NEVER_SEALED - is
@@ -71,8 +71,8 @@ def migrate(dsn: str, writer_role: str | None = None) -> None:
     append-only: its rows expire. The runtime's writer - every zone's login - may read and add rows (ciphertext no zone
     but the approval page can open) and may NOT delete one: an AI zone must not be able to make a reveal impossible
     (review, 2026-10-20). Retention runs through PURGE, a function owned by the migration role that deletes only rows
-    past their expiry by the database's own clock; an erasure is the database owner's (procedure planned on
-    the data-egress page, added by #121)."""
+    past their expiry by the database's own clock; an erasure is the database owner's (procedure in
+    docs/DATA-EGRESS.md)."""
     import re
 
     from .audit import _pg_connect
