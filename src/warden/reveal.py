@@ -154,9 +154,19 @@ def _recent(log: Any, member: str, now: datetime) -> int:
     return sum(1 for e in rows if e["body"].get("member") == member)
 
 
-def _refuse(log: Any, incident: str, member: str, problem: str, chosen: list[str]) -> None:
-    """A refused attempt on the record: who, which values, why refused - never the token, never the reason."""
-    log.append(incident, ATTEMPT_REFUSED, {"member": member, "problem": problem, "placeholders": chosen})
+def _admitted(log: Any, incident: str, kind: str, body: dict[str, Any], member: str, now: datetime) -> bool:
+    """Append `body` as `kind` unless this reader has reached MAX_PER_HOUR; False when refused. The count is read
+    inside the append's own transaction, under the audit's writer lock (AuditLog.append_unless): parallel requests -
+    concurrent Lambda invocations - cannot all pass it before any of their rows lands (review, PR 119)."""
+    _, why = log.append_unless(incident, kind, body, lambda: "limit" if _limited(log, member, now) else "")
+    return not why
+
+
+def _refuse(log: Any, incident: str, member: str, problem: str, chosen: list[str], now: datetime) -> bool:
+    """A refused attempt on the record: who, which values, why refused - never the token, never the reason. False
+    when the reader has reached the hourly limit: nothing is written then."""
+    return _admitted(log, incident, ATTEMPT_REFUSED, {"member": member, "problem": problem, "placeholders": chosen},
+                     member, now)
 
 
 _TOO_MANY = f"At most {MAX_PER_HOUR} reveals an hour; try again later."
@@ -170,10 +180,8 @@ def _limited(log: Any, member: str, now: datetime) -> bool:
 def _not_an_approver(log: Any, incident: str, member: str, form: str | None, now: datetime) -> tuple[int, str]:
     """A reader who may not reveal: a POST is recorded as a refused attempt - until the hourly limit, after which
     nothing more is written (review, PR 119)."""
-    if form is not None:
-        if _limited(log, member, now):
-            return 429, message_page(incident, _TOO_MANY)
-        _refuse(log, incident, member, "not an approver", [])
+    if form is not None and not _refuse(log, incident, member, "not an approver", [], now):
+        return 429, message_page(incident, _TOO_MANY)
     return 403, message_page(incident, "Only an approver for this environment may see or reveal masked values.")
 
 
@@ -181,10 +189,9 @@ def _oversize(log: Any, incident: str, index: dict[str, Any], cookie: str, membe
               now: datetime) -> tuple[int, str]:
     """A POST with more fields than the page's form can send: refused and recorded, counted against the hourly limit
     as every refused attempt is; nothing is opened."""
-    if _limited(log, member, now):
-        return 429, message_page(incident, _TOO_MANY)
     problem = "this form holds more fields than the page offers; open the masked values again"
-    _refuse(log, incident, member, problem, [])
+    if not _refuse(log, incident, member, problem, [], now):
+        return 429, message_page(incident, _TOO_MANY)
     return 400, form_page(incident, index, cookie, problem)
 
 
@@ -201,9 +208,10 @@ def _open_for(log: Any, incident: str, index: dict[str, Any], opener: Any, now: 
     opener = opener or vault.Vault.from_environment()
     if opener is None:
         return 503, message_page(incident, "The vault is not configured here.")
-    log.append(incident, REVEAL, {"member": member, "placeholders": chosen, "why": asked_for["why"],
-                                  "sha256": row["sha256"], "environment": asked_for["environment"],
-                                  "at": now.isoformat(timespec="seconds")})
+    if not _admitted(log, incident, REVEAL, {"member": member, "placeholders": chosen, "why": asked_for["why"],
+                                             "sha256": row["sha256"], "environment": asked_for["environment"],
+                                             "at": now.isoformat(timespec="seconds")}, member, now):
+        return 429, message_page(incident, _TOO_MANY)  # the limit, checked with the write: nothing opened
     try:
         opened = opener.open(row)
     except vault._SEAL_ERRORS as exc:  # KMS refusing, the database, a tag that does not verify (InvalidTag)
@@ -233,14 +241,15 @@ def reveal(log: Any, incident: str, *, member: str, cookie: str, form: str | Non
         return _oversize(log, incident, index, cookie, member, now)
     if not a["reveal"]:
         return 200, form_page(incident, index, cookie)
-    if _limited(log, member, now):
+    if _limited(log, member, now):  # early, for a reader already past it; the binding check is with each write
         return 429, message_page(incident, _TOO_MANY)
     known = {str(e.get("placeholder")) for e in index["entries"]}
     chosen = sorted({p for p in a["p"] if p in known})
     why = " ".join(redact(a["why"]).text.split())[:MAX_REASON]  # redacted whole, then cut: no secret's tail is kept
     problem = _problem(a["t"], token(cookie, incident), chosen, why)
     if problem:
-        _refuse(log, incident, member, problem, chosen)
+        if not _refuse(log, incident, member, problem, chosen, now):
+            return 429, message_page(incident, _TOO_MANY)
         return 400, form_page(incident, index, cookie, problem)
     return _open_for(log, incident, index, opener, now,
                      {"member": member, "chosen": chosen, "why": why, "environment": environment})

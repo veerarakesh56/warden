@@ -12,6 +12,7 @@ import urllib.parse
 
 import pytest
 
+from fakes import race_reveals
 from test_approval_page import setup as page_setup  # noqa: F401
 from test_records_g10w import INC, _page
 from test_slack_login_g10q import OTHER
@@ -109,6 +110,7 @@ def test_no_row_no_value(site, monkeypatch):
     form = _form(page, cookie)
     monkeypatch.setattr(vault, "_BUILT", {("alias/warden-ops-vault", "ops"): Spy()})
     monkeypatch.setattr(log, "append", broken)
+    monkeypatch.setattr(log, "append_unless", broken)  # the reveal's row goes through it (the hourly limit)
     with pytest.raises(OSError):
         _post(page, cookie, form)  # the page fails
     assert not opened  # and the vault was never opened
@@ -373,3 +375,15 @@ def test_what_a_reveal_writes_and_asks_kms_holds_no_value(site, monkeypatch):
         assert egress.kinds_in(json.dumps(r["body"])) == [], r["kind"]
     assert [action for action, _ in kms.calls] == ["Decrypt"]
     assert egress.kinds_in(json.dumps(kms.calls)) == []
+
+
+def test_parallel_reveals_admit_exactly_the_slots_left(tmp_path, monkeypatch):
+    """Review (PR 119): the hourly limit was read, then written - parallel POSTs could all pass the count before any
+    appended. The count is now read inside the reveal row's own append (AuditLog.append_unless, under the writer's
+    lock): with 2 slots left, 6 at once admit exactly 2; the rest get 429 and nothing is decrypted for them."""
+    from warden.audit import AuditLog
+
+    statuses, rows, decrypts = race_reveals(lambda: AuditLog(tmp_path / "a.db"), monkeypatch)
+    assert statuses == [200, 200, 429, 429, 429, 429]
+    assert rows == 4
+    assert decrypts == 2
