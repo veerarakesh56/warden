@@ -2,6 +2,20 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "KeptInfraPlanMetadataOnly",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "arn:aws:s3:::warden-prod-tfstate-*/fullstack/plans/*.json",
+        "arn:aws:s3:::warden-prod-tfstate-*/undo-lab/plans/*.json"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceAccount": "${aws:PrincipalAccount}"
+        }
+      }
+    },
+    {
       "Sid": "StoppedTasksOfThisEnvironmentsClusters",
       "Effect": "Allow",
       "Action": [
