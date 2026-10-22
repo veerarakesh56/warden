@@ -13,7 +13,9 @@ DDL = re.compile(r"\b(?:CREATE|ALTER|DROP)\s+(?:UNIQUE\s+)?(?:INDEX|TABLE|SCHEMA
                  re.IGNORECASE)
 # WARDEN's own audit store (SQLite, or PostgreSQL through `audit migrate`) creates its own tables and indexes. (The
 # runbook's printed ALTER DATABASE went with the runbook, 2026-10-16.)
-OWN = {("audit.py", "CREATE TABLE"), ("audit.py", "CREATE INDEX")}
+# The sealed vault's table sits beside the audit's, in the same store (vault.py, 2026-10-20).
+OWN = {("audit.py", "CREATE TABLE"), ("audit.py", "CREATE INDEX"), ("vault.py", "CREATE TABLE"),
+       ("vault.py", "CREATE INDEX")}
 
 
 def test_no_code_issues_schema_changes_to_a_watched_database():

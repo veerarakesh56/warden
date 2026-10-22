@@ -65,6 +65,9 @@ INVENTORY = {
     "settings.py": {"aws"},
     "slack_login.py": {"slack"},
     "timeline.py": {"github"},
+    # #115: the vault key and the pseudonym HMAC key in KMS (WARDEN's own account; no urllib request, no prompt),
+    # its sealed rows in WARDEN's database through the audit's connection
+    "vault.py": {"aws", "database"},
     "webhooks.py": {"datadog", "alertmanager"},
     # The one https opener (redirects stay on the server asked): it reaches what its callers above name.
     "web.py": {"github", "slack", "slack-webhook", "teams-webhook", "generic-webhook", "pagerduty", "datadog",
