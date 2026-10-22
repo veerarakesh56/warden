@@ -267,7 +267,7 @@ class ApprovalPage:
         if parts[0] == "s":
             return self._slack(verb, parts[1:], query, cookies)
         if parts[0] == "r":
-            return self._records(verb, parts[1:], cookies, query)
+            return self._records(verb, parts[1:], cookies, query, body)
         if parts[0] == "p":
             return self._pages(verb, parts[1:], body, cookies)
         if self.slack is not None and len(parts) >= 2:
@@ -575,13 +575,14 @@ class ApprovalPage:
         return bool(member) and (member in self._viewers()
                                  or any(a.slack == member for a in self.policy.approvers.values()))
 
-    def _records(self, method: str, parts: list[str], cookies: Any, query: str = "") -> Response:
-        """`/r`: every incident of the last 30 days; `/r/<incident>`: one, whole (records.py). For a reader Slack
-        named in this browser who may read them; anyone else is asked to sign in, and is not shown that an incident
-        exists."""
+    def _records(self, method: str, parts: list[str], cookies: Any, query: str = "", body: str = "") -> Response:
+        """`/r`: every incident of the last 30 days; `/r/<incident>`: one, whole (records.py); `/r/<incident>/masked`:
+        its masked values and their reveal (reveal.py). For a reader Slack named in this browser who may read them;
+        anyone else is asked to sign in, and is not shown that an incident exists."""
         from . import records
 
-        if method != "GET" or len(parts) > 1:
+        masked = parts[1:] == ["masked"]
+        if not _records_route(method, parts, masked):
             return _json(404, {"error": _NOT_FOUND})
         if self.slack is None:
             # The records have no passkey behind them: with no Slack sign-in to say who is reading, nobody reads them
@@ -599,13 +600,19 @@ class ApprovalPage:
             return self._pilot(query, allowed)
         if not parts or not parts[0]:
             return self._record_list(query, allowed)
-        return self._record_page(parts[0], member, allowed, query)
+        one = self._readable(parts[0], allowed)
+        if one is None:
+            # One answer for "none" and "not yours": a reader limited to some environments is not told of the others.
+            return self._served_html(404, records.missing_page())
+        if masked:
+            return self._masked(one, member, _who_cookie(cookies), method, body)
+        return self._record_page(one, member, allowed, query)
 
     def _reader(self, cookies: Any) -> str:
         """The member Slack named in this browser in the last hours (slack_login.remember) - or ''."""
         from .slack_login import remembered
 
-        value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
+        value = _who_cookie(cookies)
         return remembered(self.slack, value) if value else ""
 
     def _signed_out(self, parts: list[str]) -> Response:
@@ -633,14 +640,18 @@ class ApprovalPage:
             [r for r in found if r is not None], page=page, pages=pages, total=seen, matched=len(ids),
             asked=asked, envs=self._environment_choices(allowed)), form=True)
 
-    def _record_page(self, incident: str, member: str, allowed: set[str] | None, query: str) -> Response:
-        """`/r/<incident>`: one incident, whole - and, with `?approve=1`, a fresh link to its plan for this reader."""
+    def _readable(self, incident: str, allowed: set[str] | None) -> Any:
+        """The incident's record when this reader may read it (its environment in `allowed`; None: every one), else
+        None. A discussion's own reading of an incident is not one of its own."""
         from . import records
 
         one = records.record(self.log, incident, self.policy) if not incident.startswith("discuss-") else None
-        if one is None or (allowed is not None and one.environment not in allowed):
-            # One answer for "none" and "not yours": a reader limited to some environments is not told of the others.
-            return self._served_html(404, records.missing_page())
+        return None if one is None or (allowed is not None and one.environment not in allowed) else one
+
+    def _record_page(self, one: Any, member: str, allowed: set[str] | None, query: str) -> Response:
+        """`/r/<incident>`: one incident, whole - and, with `?approve=1`, a fresh link to its plan for this reader."""
+        from . import records, reveal
+
         approver = self._approver_for(member, one)
         if "approve=1" in query.split("&"):
             # The record's own button: a fresh link for this reader and this plan, the same the Slack message gives -
@@ -655,8 +666,33 @@ class ApprovalPage:
         if asked is None:
             return self._served_html(400, records.bad_query_page())
         ids, _, _ = records.matching(self.log, asked, allowed, self.policy)
+        # The masked values' link for those who may reveal them only (approvers; review, 2026-10-21).
+        link = reveal.link(self.log, one.id) if self._may_reveal(member, one) else ""
         return self._served_html(200, records.incident_page(one, approve=f"/r/{one.id}?approve=1" if approver else "",
-                                                            near=records.neighbours(ids, one.id, asked)))
+                                                            near=records.neighbours(ids, one.id, asked) + link))
+
+    def _may_reveal(self, member: str, one: Any) -> bool:
+        """An approver who may approve in the incident's environment - approvals.environment_refusal, the one rule
+        every approval path uses: the approver's own environment list and the bench approver's nonprod-only limit
+        (review, PR 119). A viewer (WARDEN_RECORD_VIEWERS) may read the record and never reveal a masked value
+        (owner-safe default, review 2026-10-21; a passkey step-up is an open owner decision)."""
+        env = str(one.environment or "")
+        return any(a.slack == member and approvals.environment_refusal(name, a, env) is None
+                   for name, a in self.policy.approvers.items() if a.slack)
+
+    def _masked(self, one: Any, member: str, cookie: str, method: str, body: str) -> Response:
+        """An incident's masked values, and their reveal for this reader (reveal.py): its own form, POSTed to itself
+        - the reason and the choice travel in the body, never in an address."""
+        import urllib.parse
+
+        from . import reveal
+
+        status, page = reveal.reveal(self.log, one.id, member=member, cookie=cookie,
+                                     form=body if method == "POST" else None, environment=str(one.environment or ""),
+                                     approver=self._may_reveal(member, one))
+        nonce = secrets.token_urlsafe(16)
+        action = f"{self.origin}/r/{urllib.parse.quote(one.id, safe='')}/masked"
+        return Response(status, _headers(nonce, _HTML, action), page.replace(_NONCE, nonce))
 
     def _pilot(self, query: str, allowed: set[str] | None) -> Response:
         """`/r/pilot`: the pilot metrics (pilot.py) of the incidents this reader may read, from rows whose signatures
@@ -1108,6 +1144,19 @@ _NOT_ACCEPTED = "the passkey was not accepted"
 _PLAN_FIRST = "show the plan first"
 _HTML = "text/html; charset=utf-8"
 _NONCE = "{{NONCE}}"
+
+
+def _who_cookie(cookies: Any) -> str:
+    """The sealed member cookie this browser sent (slack_login.remember), or ''."""
+    return next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
+
+
+def _records_route(method: str, parts: list[str], masked: bool) -> bool:
+    """A records address this page serves: GET of `/r` or `/r/<incident>`, and GET or POST (the reveal's form) of
+    `/r/<incident>/masked`."""
+    if masked:
+        return method in ("GET", "POST") and bool(parts[0])
+    return method == "GET" and len(parts) <= 1
 _COOKIE = "warden_s"  # holds the link while the browser is at Slack: this site's only, ten minutes, /s alone
 # A limited approver's signed read (/a/signed/record): the latest this many incidents in its environments, found among
 # the newest RECORD_SCAN on the record.
