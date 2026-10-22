@@ -2282,7 +2282,7 @@
       "supplier": {
         "name": "Anthropic"
       },
-      "description": "qualified on WARDEN's replay set: 17 of 30 correct, 0 wrong and allowed (measured 2026-10-15T14:56Z)",
+      "description": "measured on an earlier prompt (d435b59f), NOT qualified on the pinned one: 17 of 30 correct, 0 wrong and allowed (measured 2026-10-15T14:56Z)",
       "properties": [
         {
           "name": "warden:provider",
