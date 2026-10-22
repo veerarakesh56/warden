@@ -220,6 +220,7 @@ def _decisions(approvers: list[str], *, ai: frozenset[str], policy: Any, status:
 # names WARDEN's own control plane goes by in a watched account - its roles, its parameters and its secrets.
 PROTECTED_PATHS = (".github/", "CODEOWNERS", "src/warden/data/", "src/warden/gate.py", "src/warden/verifier.py",
                    "src/warden/catalog.py", "src/warden/approvals.py", "src/warden/autonomy.py", "src/warden/eldane.py",
+                   "src/warden/critique.py",
                    "src/warden/bounds.py", "src/warden/audit.py", "src/warden/activities.py", "src/warden/workflows.py",
                    "src/warden/passkeys.py", "src/warden/approval_page.py", "docs/safety-pins.sha256", "iam/",
                    "terraform/")
@@ -252,6 +253,19 @@ def self_guard(plan: Any) -> list[str]:
         problems.append(f"R6 SELF-GUARD: the plan touches {', '.join(hits)} - WARDEN's own guardrails, which only a "
                         "person approves, with a passkey")
     return problems
+
+
+def debate_won(v: dict[str, Any]) -> bool:
+    """Whether a verdict row's only "yes" came after WARDEN's answers in the debate - which never approves."""
+    return bool(v.get("debate_agree")) and not v.get("agree")
+
+
+def reasons_said(v: dict[str, Any]) -> str:
+    """The reasons a verdict row is shown with: its last pass's, or - when the debate was won - the pass before the
+    debate's "yes", so reasons for agreeing are never shown under "does not agree"."""
+    passes = v.get("passes") or []
+    passes = passes[:-1] if debate_won(v) else passes
+    return "; ".join(r.get("text", "") for p in passes[-1:] for r in p.get("reasons", [])[:3])
 
 
 def verdict_of(log: Any, plan: Any, run_id: str) -> dict[str, Any] | None:
