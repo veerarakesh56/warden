@@ -214,8 +214,9 @@ def test_a_lambdas_log_lines_and_uncaught_error_hold_no_value_of_the_incident(in
             logging.getLogger("warden.lambda").warning("read %s", line)
         raise ValueError(f"cannot parse {event['lines'][-1] if event['lines'] else alert.summary}")
 
+    gated = lambdas._gated(handler)
     with pytest.raises(lambdas.HandlerFailed) as caught:
-        lambdas._gated(handler)({"lines": lines})
+        gated({"lines": lines})
     for text in (stream.getvalue(), str(caught.value)):
         leaked = [v for v in raw if v in text]
         assert not leaked, leaked
