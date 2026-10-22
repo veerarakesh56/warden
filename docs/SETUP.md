@@ -203,7 +203,9 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
 
 1. Create `WardenEnvBoundary-ops`, `WardenEnvDeploy-ops` and `WardenEnvDeployEc2-ops` from `iam/ops/`, and the
    role `warden-ops-deploy` with `iam/ops/trust.local.json` (maximum session 2 hours: creating the audit database
-   can take most of one).
+   can take most of one). Also create `WardenEnvDeployConfig-ops` from `iam/ops/deploy-config.json` and attach it
+   to `warden-ops-deploy` before setting `tf/config_recorder_name` (the runtime adopts the account's AWS Config
+   recorder, `terraform/runtime/config.tf`).
 2. Create the state bucket `warden-ops-tfstate-<suffix>` and an ECR repository `warden-ops-runtime` with
    immutable tags and scan on push. Allow Lambda to pull from it with a repository policy limited to your
    account's `warden-ops-*` functions.
