@@ -699,8 +699,9 @@ class _NoSuchSecret(Exception):
 def test_a_stack_json_from_before_b25_or_a_deleted_secret_says_apply_first():
     """CodeRabbit (PR 118): the guidance, not a KeyError or a raw ResourceNotFoundException."""
     old_stack = {k: v for k, v in STACK.items() if k != "catalog_signing_key_secret_name"}
+    no_clients = aws_factory({})
     with pytest.raises(SystemExit, match="names no catalog_signing_key_secret_name: apply the stack first"):
-        tool.signing_key_version(old_stack, aws_factory({}))
+        tool.signing_key_version(old_stack, no_clients)
 
     class Gone(Fake):
         exceptions = type("E", (), {"ResourceNotFoundException": _NoSuchSecret})
@@ -713,7 +714,14 @@ def test_a_stack_json_from_before_b25_or_a_deleted_secret_says_apply_first():
         tool.signing_key_version(STACK, aws)
 
 
-def test_a_failed_command_still_ends_the_run():
-    """run() raises CommandFailed, a SystemExit: unhandled, it still stops the deploy as before."""
-    assert issubclass(tool.CommandFailed, SystemExit)
+def test_a_failed_command_still_ends_the_run(monkeypatch):
+    """run() raises CommandFailed, an Exception (Sonar): unhandled, main() still ends the run with its message."""
+    assert not issubclass(tool.CommandFailed, SystemExit)
+
+    def failing(argv, *, aws=None, runner=None):
+        raise tool.CommandFailed("kubectl exited 1: denied")
+
+    monkeypatch.setattr(tool, "_main", failing)
+    with pytest.raises(SystemExit, match="kubectl exited 1: denied"):
+        tool.main(["build"])
 

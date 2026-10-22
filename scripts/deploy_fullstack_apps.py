@@ -60,8 +60,9 @@ PLACEHOLDER = re.compile(r"__[A-Z_]+__")
 ZIP_DATE = (2026, 1, 1, 0, 0, 0)  # fixed, so an unchanged function builds a byte-identical zip
 
 
-class CommandFailed(SystemExit):
-    """A command exited non-zero: still the end of the run unless a caller handles it (a SystemExit)."""
+class CommandFailed(Exception):
+    """A command exited non-zero. A caller may handle it (catalog_secret_synced reads the ExternalSecret's status);
+    unhandled, main() ends the run with it, as a SystemExit with its message (Sonar: not a SystemExit subclass)."""
 
 
 def run(cmd: list[str], *, input: str | None = None) -> str:
@@ -796,6 +797,13 @@ def _on_the_stack(args: argparse.Namespace, out: pathlib.Path, stack_path: pathl
 
 
 def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
+    try:
+        return _main(argv, aws=aws, runner=runner)
+    except CommandFailed as failed:  # a command the run needed exited non-zero: the run ends, saying which
+        raise SystemExit(str(failed)) from None
+
+
+def _main(argv: list[str] | None, *, aws=None, runner=run) -> int:
     # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and this output carries ⛔/⚠.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
