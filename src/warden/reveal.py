@@ -154,37 +154,30 @@ def _refuse(log: Any, incident: str, member: str, problem: str, chosen: list[str
     log.append(incident, ATTEMPT_REFUSED, {"member": member, "problem": problem, "placeholders": chosen})
 
 
-def reveal(log: Any, incident: str, *, member: str, cookie: str, form: str | None, environment: str = "",
-           approver: bool = False, opener: Any = None, now: datetime | None = None) -> tuple[int, str]:
-    """The masked-values page for `member`, who may read this incident's records: (status, html). `form`: the
-    reveal's POSTed body (None for a GET, which only shows the form). `approver`: whether this reader may reveal.
-    `opener`: the vault (vault.Vault.from_environment by default)."""
-    from .redaction import redact
+_TOO_MANY = f"At most {MAX_PER_HOUR} reveals an hour; try again later."
 
-    if not approver:
-        if form is not None:
-            # The hourly limit first: refused attempts stop being written once a reader reaches it (review, PR 119).
-            now = (now or datetime.now(UTC)).astimezone(UTC)
-            if _recent(log, member, now) >= MAX_PER_HOUR:
-                return 429, message_page(incident, f"At most {MAX_PER_HOUR} reveals an hour; try again later.")
-            _refuse(log, incident, member, "not an approver", [])
-        return 403, message_page(incident, "Only an approver for this environment may see or reveal masked values.")
-    index = latest_index(log, incident)
-    if not index or not index.get("entries"):
-        return 404, message_page(incident, "WARDEN masked nothing it kept in this incident.")
-    a = asked(form or "")
-    if form is None or not a["reveal"]:
-        return 200, form_page(incident, index, cookie)
-    now = (now or datetime.now(UTC)).astimezone(UTC)
-    if _recent(log, member, now) >= MAX_PER_HOUR:
-        return 429, message_page(incident, f"At most {MAX_PER_HOUR} reveals an hour; try again later.")
-    known = {str(e.get("placeholder")) for e in index["entries"]}
-    chosen = sorted({p for p in a["p"] if p in known})
-    why = " ".join(redact(a["why"]).text.split())[:MAX_REASON]  # redacted whole, then cut: no secret's tail is kept
-    problem = _problem(a["t"], token(cookie, incident), chosen, why)
-    if problem:
-        _refuse(log, incident, member, problem, chosen)
-        return 400, form_page(incident, index, cookie, problem)
+
+def _limited(log: Any, member: str, now: datetime) -> bool:
+    """This reader has reached MAX_PER_HOUR reveals and refused attempts in the hour before `now`."""
+    return _recent(log, member, now) >= MAX_PER_HOUR
+
+
+def _not_an_approver(log: Any, incident: str, member: str, form: str | None, now: datetime) -> tuple[int, str]:
+    """A reader who may not reveal: a POST is recorded as a refused attempt - until the hourly limit, after which
+    nothing more is written (review, PR 119)."""
+    if form is not None:
+        if _limited(log, member, now):
+            return 429, message_page(incident, _TOO_MANY)
+        _refuse(log, incident, member, "not an approver", [])
+    return 403, message_page(incident, "Only an approver for this environment may see or reveal masked values.")
+
+
+def _open_for(log: Any, incident: str, index: dict[str, Any], opener: Any, now: datetime,
+              asked_for: dict[str, Any]) -> tuple[int, str]:
+    """A checked reveal: the sealed row, still within its retention by `now`; its `incident.reveal` row on the record
+    FIRST (no row, no value); then the vault opened and only the chosen values shown. `asked_for`: member, chosen,
+    why, environment."""
+    member, chosen = asked_for["member"], asked_for["chosen"]
     row = vault.sealed_row(log, incident, str(index.get("sha256", "")), now=now)  # expiry judged at the same now
     if row is None:
         return 410, message_page(incident, "These values are no longer kept (their retention ended, or they were "
@@ -192,12 +185,41 @@ def reveal(log: Any, incident: str, *, member: str, cookie: str, form: str | Non
     opener = opener or vault.Vault.from_environment()
     if opener is None:
         return 503, message_page(incident, "The vault is not configured here.")
-    # On the record FIRST: no row, no value.
-    log.append(incident, REVEAL, {"member": member, "placeholders": chosen, "why": why, "sha256": row["sha256"],
-                                  "environment": environment, "at": now.isoformat(timespec="seconds")})
+    log.append(incident, REVEAL, {"member": member, "placeholders": chosen, "why": asked_for["why"],
+                                  "sha256": row["sha256"], "environment": asked_for["environment"],
+                                  "at": now.isoformat(timespec="seconds")})
     try:
         opened = opener.open(row)
     except vault._SEAL_ERRORS as exc:  # KMS refusing, the database, a tag that does not verify (InvalidTag)
         log.append(incident, REFUSED, {"member": member, "error": type(exc).__name__})
         return 503, message_page(incident, "The vault could not be opened; nothing was shown.")
     return 200, revealed_page(incident, index, {p: opened[p] for p in chosen if p in opened})
+
+
+def reveal(log: Any, incident: str, *, member: str, cookie: str, form: str | None, environment: str = "",
+           approver: bool = False, opener: Any = None, now: datetime | None = None) -> tuple[int, str]:
+    """The masked-values page for `member`, who may read this incident's records: (status, html). `form`: the
+    reveal's POSTed body (None for a GET, which only shows the form). `approver`: whether this reader may reveal.
+    `opener`: the vault (vault.Vault.from_environment by default)."""
+    from .redaction import redact
+
+    now = (now or datetime.now(UTC)).astimezone(UTC)
+    if not approver:
+        return _not_an_approver(log, incident, member, form, now)
+    index = latest_index(log, incident)
+    if not index or not index.get("entries"):
+        return 404, message_page(incident, "WARDEN masked nothing it kept in this incident.")
+    a = asked(form or "")
+    if form is None or not a["reveal"]:
+        return 200, form_page(incident, index, cookie)
+    if _limited(log, member, now):
+        return 429, message_page(incident, _TOO_MANY)
+    known = {str(e.get("placeholder")) for e in index["entries"]}
+    chosen = sorted({p for p in a["p"] if p in known})
+    why = " ".join(redact(a["why"]).text.split())[:MAX_REASON]  # redacted whole, then cut: no secret's tail is kept
+    problem = _problem(a["t"], token(cookie, incident), chosen, why)
+    if problem:
+        _refuse(log, incident, member, problem, chosen)
+        return 400, form_page(incident, index, cookie, problem)
+    return _open_for(log, incident, index, opener, now,
+                     {"member": member, "chosen": chosen, "why": why, "environment": environment})
