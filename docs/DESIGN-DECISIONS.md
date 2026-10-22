@@ -289,6 +289,11 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Orchestration: Temporal Cloud and the `temporalio` SDK - `workflows.py`, `runtime.py`, `activities.py` (the
   steps, run as Temporal activities), `runtime_base.py` (runtime's client half, for the approval Lambda).
 - Payload encryption: Temporal's payload-codec interface with `cryptography`'s AES-256-GCM - `codec.py`.
+- What leaves the network (2026-10-20): Python's own audit hooks (`sys.addaudithook`, PEP 578) see every urllib
+  request and every name lookup before a connection is made; the redaction patterns check what is sent; the
+  ledger is a log line and an audit row - `egress.py`. An egress proxy or firewall (Squid, AWS Network Firewall)
+  sees hosts, not which incident's text is in a TLS body, and costs money; the runtime's network rules stay the outer
+  layer (register B23).
 - Passkey approvals: py_webauthn (duo-labs, BSD-3-Clause) verifies every WebAuthn ceremony - `passkeys.py`.
 - Signatures: `cryptography`'s Ed25519 for approvals and audit checkpoints (`approvals.py`); AWS KMS for the
   non-exportable signer and S3 Object Lock for the anchors (`audit.py`, register S12).
@@ -307,6 +312,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - AWS knowledge for an error code the model may not know: the AWS Knowledge MCP server (AWS's documentation and
   Knowledge Center, free, no sign-in), called with a closed code and a service word only; its answer is reference,
   never evidence - `aws_docs.py` (2026-10-10).
+- The masked values, for people only (2026-10-20): AWS KMS envelope encryption (`cryptography`'s AES-256-GCM under a
+  data key a key policy lets only the read zone make and only the approval page open) and a KMS HMAC key for stable ids -
+  `vault.py`. A secrets vault product (HashiCorp Vault, a tokenization service) would be another server to run and
+  pay for; KMS's key policy is the access control this needs, and CloudTrail its witness.
 - The global services' state (2026-10-10): a CloudFront distribution and a Route 53 health check are read in
   AWS's global-services Region, where their alarms live. A distribution is granted by its Environment tag. A
   health check has an ID for a name and no condition key (AWS service reference, read 2026-10-10), so the reader may
@@ -381,6 +390,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   `identity.py`, and boto3 for the AWS writes in `platforms/aws.py`. IAM Roles Anywhere and Teleport's Machine ID
   issue the same STS sessions on AWS (decision D11), so WARDEN calls STS directly.
 - Approver labels: signed with the approvers' own Ed25519 keys (`cryptography`), recorded in the audit - `labels.py`.
+- Whether the actor role allows a fix's calls before anyone is asked to approve it (B12): AWS's own IAM policy
+  simulator (SimulatePrincipalPolicy, in the environment's reader role) - `permits.py`, which only traces the calls
+  from the fix's own write code and asks the simulator about them.
 - Pages of WARDEN's own that repeat until acknowledged - `paging.py` with the runtime module's pager: CloudWatch
   alarms, EventBridge rules and a schedule, S3 for the page state, CloudWatch's own email action. CloudWatch sends an
   alarm action once; Systems Manager Incident Manager, AWS's paging with acknowledgement, takes no new customers since
@@ -434,6 +446,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - One writer per target - `locks.py` (B20): a check-and-set inside the audit's own write lock, so the lock is as
   durable and as recorded as the rest of the record. A lock service (the DynamoDB lock client, etcd) would be a
   second store beside the audit, and its locks would not be on the record.
+- What landed on a target since WARDEN's fix, read before WARDEN undoes it - `landed.py` (B21): CloudTrail's
+  LookupEvents through the platform reader, GitHub's Deployments and Pulls REST APIs, and WARDEN's own audit -
+  the same three reads `timeline.py` makes, over the window from the fix to the undo.
 - The signature catalogue - `knowledge.py`: k8sgpt, Robusta and the kube-prometheus rules cover Kubernetes only and
   need a live cluster; HolmesGPT and the AWS DevOps Agent are agent loops, not libraries. They serve as checklists
   for the Kubernetes signatures.

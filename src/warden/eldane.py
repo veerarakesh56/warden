@@ -13,9 +13,14 @@ to prefer answers like their own (self-preference; register R10 asked for a diff
 2608.00243). What is done about it, in place of a second vendor:
 - a different model, chosen per incident;
 - blind first: pass one sees the evidence exactly as the diagnosis did and the exact plan, never WARDEN's reasoning;
-  only if it agrees does pass two add WARDEN's reasoning. When it does not agree it says why as typed objections,
-  which WARDEN's diagnosing model answers, at most three rounds (critique.py); it approves only from a pass that saw
-  WARDEN's reasoning, and WARDEN conceding any objection ends it with no approval;
+  only if it agrees does pass two add WARDEN's reasoning. It approves only when both passes agree. A blind pass that
+  only asks to read evidence items again is asked again, still blind, with those items; pass two follows only if
+  that blind pass agrees;
+- the debate (owner, 2026-10-17, U3-2; critique.py): when it does not agree it says why as typed objections, which
+  WARDEN's diagnosing model answers, at most three rounds. The debate is recorded and shown to the person, but it
+  never approves: an agreement reached after WARDEN's answers - its own diagnosing model arguing for its own plan,
+  the self-preference the blind pass exists to stop - is said as such and a person decides. WARDEN conceding any
+  objection ends the debate with a "no";
 - a strict verdict, checked in code: agree or not, each reason citing evidence ids that are on the record. An answer
   that cannot be read, or cites what is not there, is a "no";
 - catch trials (register R11): with some of its reviews Eldane is also shown a planted known-bad plan for the same
@@ -56,8 +61,9 @@ TRIAL = "trial"  # the purpose of a catch trial's question: a planted test plan,
 RATE = float(os.environ.get("WARDEN_ELDANE_TRIAL_RATE", "0.1"))  # register R11: about 5-10% of volume
 WARM_RATE, WARM_TRIALS = 0.5, 20  # more trials while its current model has answered fewer than WARM_TRIALS
 MAX_EVIDENCE = 60_000
-# The most model calls one review makes: two passes, an answer and a question per debate round, one catch trial.
-CALLS_PER_REVIEW = 2 + 2 * critique.MAX_ROUNDS + 1
+# The most model calls one review makes: three passes (blind, blind again with the items it asked to read, with
+# WARDEN's reasoning), an answer from WARDEN's diagnosing model and a question to Eldane per debate round, one trial.
+CALLS_PER_REVIEW = 3 + 2 * critique.MAX_ROUNDS + 1
 
 
 class Reason(BaseModel):
@@ -269,6 +275,11 @@ def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], *, sys
     elif verdict.agree and not cited:
         verdict.agree = False
         verdict.reasons.append(Reason(text="it agreed without citing any evidence"))
+    if verdict.agree and verdict.objections:
+        # CodeRabbit, PR 166: a "yes" with an objection would sign with the objection never answered (the debate runs
+        # only on a no). It is a no, and the debate takes up its objections.
+        verdict.agree = False
+        verdict.reasons.append(Reason(text="it agreed and objected at once, so it counts as a no"))
     return verdict
 
 
@@ -348,22 +359,30 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
     blind = evidence + "\n\n" + describe(plan.entry, plan.params, environment=plan.environment, tier=plan.tier,
                                          snapshot=plan.snapshot, target=shown)
     asked = critic.provider(model)
-    tools = critique.EvidenceTools(str(evidence_rows[-1].get("prompt", "")), plan.snapshot)
-    first = ask(log, plan.incident_id, asked, blind, ids, **row, purpose="blind")
+    tools, reads = critique.EvidenceTools(str(evidence_rows[-1].get("prompt", ""))), _Reads()
+    blind_pass = ask(log, plan.incident_id, asked, blind, ids, **row, purpose="blind")
+    passes = [blind_pass]
+    if not blind_pass.agree and blind_pass.read_again and not blind_pass.objections:
+        # It only wants to read more: asked again with those items, still blind - never with WARDEN's reasoning.
+        blind_pass = ask(log, plan.incident_id, asked, reads.add(blind, tools, blind_pass.read_again, ids), ids,
+                         **row, purpose="blind_read_again")
+        passes.append(blind_pass)
     informed = blind + "\n\n" + _reasoning(diagnosis)
-    # The second pass - WARDEN's reasoning, and any item the blind pass asked to read again - only after a blind yes,
-    # or a blind no that only wanted to read more. A blind no with objections goes to WARDEN to answer first.
-    second = ask(log, plan.incident_id, asked, _with_reads(informed, tools, first.read_again, ids), ids, **row,
-                 purpose="with_reasoning") if first.agree or (first.read_again and not first.objections) else None
-    final, rounds = _debate(log, plan, (asked, critic, str(prov.get("model", ""))), second or first, informed, tools,
-                            ids, row)
-    passes = [v for v in (first, second, *([final] if rounds else [])) if v is not None]
-    # Agreement counts only from a pass that saw WARDEN's reasoning (the second, or one after WARDEN's answers).
-    agree = final.agree and (second is not None or rounds > 0)
+    # Pass two - WARDEN's reasoning, and any item read again - only after a blind yes.
+    second = ask(log, plan.incident_id, asked, reads.add(informed, tools, blind_pass.read_again, ids), ids, **row,
+                 purpose="with_reasoning") if blind_pass.agree else None
+    passes += [second] if second is not None else []
+    final, rounds = _debate(log, plan, (asked, critic, str(prov.get("model", ""))), second or blind_pass, informed,
+                            (tools, reads), ids, row)
+    passes += [final] if rounds else []
+    # It signs only when a pass that saw neither WARDEN's reasoning nor the debate agreed, and pass two agreed too.
+    # A "yes" won in the debate is recorded and said (debate_agree), and never signs.
+    agree = blind_pass.agree and second is not None and second.agree
     _trial(log, plan, critic, model, evidence, ids, chance, **row)
     now = autonomy.level(log, plan.environment, plan.entry, models)
     log.append(plan.incident_id, autonomy.VERDICT, {
-        **base, "agree": agree, "second_pass": second is not None or rounds > 0, "rounds": rounds,
+        **base, "agree": agree, "second_pass": second is not None, "rounds": rounds,
+        "debate_agree": final.agree if rounds else None,
         "models": models, "model": model, "model_reason": chosen, "level": now.level,
         "level_said": now.said(plan.entry, plan.environment),
         "objections": [o.model_dump() for o in final.objections],
@@ -387,29 +406,39 @@ def _skipped(log: Any, plan: Any, run_id: str, code: str, verdict: dict[str, Any
     return True
 
 
-def _with_reads(prompt: str, tools: critique.EvidenceTools, wanted: list[str], ids: set[str]) -> str:
-    """The prompt with the items Eldane asked to read again; each one shown may be cited from then on."""
-    ids.update(i for i in wanted[:critique.MAX_READ_AGAIN] if tools.item(i))  # the caller's set, in place
-    return prompt + ("\n\n" + tools.read_again(wanted) if wanted else "")
+class _Reads:
+    """Every item Eldane has read again in this review: each later question shows them all, so an id that became
+    citable stays in front of it (a later question showing only that round's items left earlier ones citable unseen)."""
+
+    def __init__(self) -> None:
+        self.ids: list[str] = []
+
+    def add(self, prompt: str, tools: critique.EvidenceTools, wanted: list[str], ids: set[str]) -> str:
+        """The prompt with every item read so far and the ones `wanted` now; each one shown may be cited from then on."""
+        self.ids = critique.shown([*self.ids, *wanted])
+        ids.update(i for i in self.ids if tools.item(i))  # the caller's set, in place
+        return prompt + ("\n\n" + tools.read_again(self.ids) if self.ids else "")
 
 
 def _debate(log: Any, plan: Any, sides: tuple[Any, Critic, str], current: CriticVerdict, informed: str,
-            tools: critique.EvidenceTools, ids: set[str], row: dict[str, Any]) -> tuple[CriticVerdict, int]:
+            reading: tuple[critique.EvidenceTools, _Reads], ids: set[str],
+            row: dict[str, Any]) -> tuple[CriticVerdict, int]:
     """Eldane's objections, answered by WARDEN's diagnosing model and asked again, at most critique.MAX_ROUNDS times
-    (owner, 2026-10-17): it ends when Eldane agrees, has no objection left, or WARDEN concedes one - then a person
-    decides. `sides`: Eldane's provider, the critic, and the diagnosing model that answers for WARDEN. The last
-    answer, and how many rounds there were."""
+    (owner, 2026-10-17): it ends when Eldane agrees, has no objection left, or WARDEN concedes one. Its outcome is
+    recorded and shown; it never approves - a person decides. `sides`: Eldane's provider, the critic, and the
+    diagnosing model that answers for WARDEN. The last answer, and how many rounds there were."""
     eldane_side, critic, diagnoser = sides
+    tools, reads = reading
     rounds: list[tuple[list[critique.Objection], list[critique.Rebuttal]]] = []
     while not current.agree and current.objections and len(rounds) < critique.MAX_ROUNDS:
         answers = critique.answer(log, plan.incident_id, critic.provider(diagnoser), informed, current.objections,
-                                  ids, **row)
+                                  ids, model_call=_model_call, fallback=_fallback, **row)
         critique.record_round(log, plan.incident_id, len(rounds) + 1, current.objections, answers, **row)
         rounds.append((current.objections, answers))
         if any(a.concede for a in answers):
-            break  # WARDEN agrees an objection holds: no approval, a person decides
+            break  # WARDEN agrees an objection holds: a "no", and a person decides
         current = ask(log, plan.incident_id, eldane_side,
-                      _with_reads(informed + "\n\n" + critique.transcript(rounds), tools, current.read_again, ids), ids,
+                      reads.add(informed + "\n\n" + critique.transcript(rounds), tools, current.read_again, ids), ids,
                       **row, purpose=f"after_round_{len(rounds)}")
     if rounds and any(a.concede for a in rounds[-1][1]):
         current = current.model_copy(update={"agree": False})
@@ -453,8 +482,9 @@ def said(log: Any, plan: Any, run_id: str) -> str:
         return ""
     if v.get("skipped"):
         return f" {approvals.AI_LABEL} (an AI reviewer) did not review this plan: {v['skipped']}."
-    passes = v.get("passes") or []
-    why = "; ".join(r.get("text", "") for p in passes[-1:] for r in p.get("reasons", [])[:3])
+    won, why = autonomy.debate_won(v), autonomy.reasons_said(v)
     word = "agrees with" if v.get("agree") else "does not agree with"
+    debate = (f" After {v.get('rounds')} round(s) of answers from WARDEN's own diagnosing model it said it agrees; an "
+              "agreement won in that debate never approves a plan." if won else "")
     return (f" {approvals.AI_LABEL} (an AI reviewer, on a different Claude model from the one that diagnosed it) {word} this plan"
-            + (f": {why}" if why else "") + f". {v.get('level_said', '')}")
+            + (f": {why}" if why else "") + f".{debate} {v.get('level_said', '')}")

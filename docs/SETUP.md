@@ -309,10 +309,12 @@ Socket Mode means WARDEN connects out to Slack, so Slack needs no public address
 The runtime calls Claude through the Anthropic API. Create an API key for the runtime alone (a service account in
 the Claude Console, with an expiry) and store it in `warden/ops/anthropic-api-key`. Only the llm zone can read it.
 
-The model must be on `qualified` in `src/warden/data/providers.yaml`: today that is `claude-sonnet-5-5` with
-provider `anthropic`. A model that is not qualified is refused at deploy time and at run time, and every incident
-is then escalated to a person on the rules alone. To qualify another model, run `scripts/qualify_provider.py`
-against the recorded incidents (it spends API credit; see [BENCHMARKS.md](BENCHMARKS.md)).
+The model must be on `qualified` in `src/warden/data/providers.yaml`, measured on the pinned prompt (`prompt.sha`
+there). The deploy checks only that the model is on the list; at run time a model with no row on the pinned prompt is
+refused, and every incident is then escalated to a person on the rules alone. As of 2026-10-21 no model is qualified
+on the pinned prompt: `claude-sonnet-5-5` passed on an earlier prompt only, so the runtime runs on the rules alone
+until it is measured again. To qualify a model, run `scripts/qualify_cloud.py` (one command, with the runtime's own
+key; it spends API credit and writes the result into the repository: see [BENCHMARKS.md](BENCHMARKS.md)).
 
 ## 9. Check the setup
 

@@ -255,6 +255,19 @@ def self_guard(plan: Any) -> list[str]:
     return problems
 
 
+def debate_won(v: dict[str, Any]) -> bool:
+    """Whether a verdict row's only "yes" came after WARDEN's answers in the debate - which never approves."""
+    return bool(v.get("debate_agree")) and not v.get("agree")
+
+
+def reasons_said(v: dict[str, Any]) -> str:
+    """The reasons a verdict row is shown with: its last pass's, or - when the debate was won - the pass before the
+    debate's "yes", so reasons for agreeing are never shown under "does not agree"."""
+    passes = v.get("passes") or []
+    passes = passes[:-1] if debate_won(v) else passes
+    return "; ".join(r.get("text", "") for p in passes[-1:] for r in p.get("reasons", [])[:3])
+
+
 def verdict_of(log: Any, plan: Any, run_id: str) -> dict[str, Any] | None:
     """Eldane's review of exactly this plan in this run, from the record; None when it made none."""
     rows = [e["body"] for e in log.entries(plan.incident_id, kinds=(VERDICT,))

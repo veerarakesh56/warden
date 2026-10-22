@@ -491,3 +491,15 @@ def test_the_k3d_job_binds_the_eks_actors_group_from_the_ci_only_file():
     rbac, group = flow.index("kubectl apply -f k8s/remediation-rbac.yaml"), flow.index(
         "kubectl apply -f k8s/ci/remediation-group-binding.yaml")
     assert rbac < group < flow.index("tests/integration/test_live_remediation.py")
+
+
+def test_each_deploy_run_is_titled_as_the_infra_platform_finds_its_own_apply():
+    """platforms/infra.py (B17) finds the run its dispatch started by its title, `Deploy · <env> · infra apply-plan
+    <stack> <plan run>` - never "the newest run after the fix" (review, PR 113)."""
+    import pathlib
+
+    flows = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
+    for env in ("dev", "prod"):
+        flow = (flows / f"deploy-{env}.yml").read_text(encoding="utf-8")
+        assert (f'run-name: "Deploy · {env} · ${{{{ inputs.part == \'infra\' && format(\'infra {{0}} {{1}} {{2}} {{3}}\', '
+                "inputs.infra_action, inputs.infra_stack, inputs.plan_run_id, inputs.dispatch_id) || format('apps {0}', inputs.apps_target) }}\"") in flow

@@ -10,19 +10,26 @@ Both sides are asked through the same Anthropic key, each its own model (eldane.
 answers are data: they never become instructions, and an id neither side may cite (one not on the record) makes an
 objection or an answer count for nothing.
 
-What Eldane may read (EvidenceTools) is read-only by construction: the incident's recorded evidence, item by item and
-in full, and the target's state as the read zone read it when the plan was made (the plan's snapshot). It holds text
-and nothing else - no platform, no reader or actor role, no client of any kind - so nothing Eldane asks for can read a
-live system again, let alone change one (tests/test_eldane_critique.py walks this module's imports).
+What Eldane may read again (EvidenceTools) is read-only by construction: the incident's recorded evidence - already
+redacted for the diagnosis - item by item and in full. It holds text and nothing else - no platform, no reader or
+actor role, no client of any kind - so nothing Eldane asks for can read a live system again, let alone change one
+(tests/test_eldane_critique.py walks this module's imports). The target's state as the read zone read it (the plan's
+snapshot) is never sent raw: it holds ARNs and account ids, which the egress guard refuses in any prompt, and
+redacting it apart from the evidence would give its placeholders numbers that clash with the evidence's. The plan
+Eldane is shown (eldane.describe) already says the change it makes, from that snapshot.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import time
+from collections.abc import Callable
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from . import llm
 
 OBJECTION, REBUTTAL = "eldane.objection", "eldane.rebuttal"
 MAX_ROUNDS = 3
@@ -75,15 +82,14 @@ in EVIDENCE."""
 
 
 class EvidenceTools:
-    """What Eldane may read again: the incident's recorded evidence, item by item and in full, and the target's state
-    as the read zone read it when the plan was made. Text only - read-only by construction."""
+    """What Eldane may read again: the incident's recorded evidence, item by item and in full. Text only - read-only
+    by construction."""
 
-    def __init__(self, evidence: str, snapshot: dict[str, Any] | None = None) -> None:
+    def __init__(self, evidence: str) -> None:
         self._items: dict[str, str] = {}
         starts = list(_ITEM.finditer(evidence))
         for here, nxt in zip(starts, [*starts[1:], None], strict=True):
             self._items[here.group(1)] = evidence[here.start():nxt.start() if nxt else len(evidence)].strip()
-        self._snapshot = dict(snapshot or {})
 
     def ids(self) -> set[str]:
         return set(self._items)
@@ -91,18 +97,20 @@ class EvidenceTools:
     def item(self, item_id: str) -> str:
         return self._items.get(item_id, "")
 
-    def live_state(self) -> str:
-        return json.dumps(self._snapshot, sort_keys=True, default=str)[:4000]
-
     def read_again(self, wanted: list[str]) -> str:
         """The items Eldane asked to read again, in full - and which of them are not on the record."""
         if not wanted:
             return ""
         lines = ["<<READ AGAIN>> Items you asked to read again, in full, as recorded:"]
-        for item_id in list(dict.fromkeys(wanted))[:MAX_READ_AGAIN]:
+        for item_id in shown(wanted):
             lines.append(self.item(item_id) or f"[{item_id[:12]}] is not on the record")
-        lines += [f"The target's state when the plan was made: {self.live_state()}", "<<END READ AGAIN>>"]
+        lines.append("<<END READ AGAIN>>")
         return "\n".join(lines)
+
+
+def shown(wanted: list[str]) -> list[str]:
+    """The ids read_again shows of `wanted`: each once, at most MAX_READ_AGAIN - the only ones that become citable."""
+    return list(dict.fromkeys(wanted))[:MAX_READ_AGAIN]
 
 
 def grounded(cited: list[str], ids: set[str]) -> bool:
@@ -110,25 +118,42 @@ def grounded(cited: list[str], ids: set[str]) -> bool:
     return not set(cited) - ids
 
 
-def answer(log: Any, incident: str, provider: Any, user: str, objections: list[Objection], ids: set[str],
-           **row: Any) -> list[Rebuttal]:
-    """WARDEN's answers to Eldane's objections, from its diagnosing model. Fail-closed: no readable answer is a
-    concession of every objection - the debate ends and a person decides. An answer citing an id that is not on the
-    record concedes that objection."""
+# eldane._model_call and eldane._fallback, passed in by eldane (which imports this module): the cost row and the
+# fallback row every Eldane call writes, so a rebuttal's spend is in the cost and budget accounting like any other.
+ModelCall = Callable[[Any, str, Any, str, float, Any, dict[str, Any]], None]
+Fallback = Callable[[Any, str, str, dict[str, Any]], None]
+
+
+def answer(log: Any, incident: str, provider: Any, user: str, objections: list[Objection], ids: set[str], *,
+           model_call: ModelCall, fallback: Fallback, **row: Any) -> list[Rebuttal]:
+    """WARDEN's answers to Eldane's objections, from its diagnosing model. Fail-closed, as eldane.ask is: any error
+    (the egress guard's refusal included) or an answer that cannot be read is a concession of every objection - the
+    debate ends and a person decides. An answer citing an id that is not on the record concedes that objection. Every
+    call writes Eldane's `eldane.call` row and its `llm.call` cost row; a failed one its `llm.fallback` row too."""
     asked = user + "\n\n<<OBJECTIONS>>\n" + "\n".join(
         f"{i}. ({o.kind}) {o.text} [cites: {', '.join(o.evidence) or 'nothing'}]" for i, o in enumerate(objections)
     ) + "\n<<END OBJECTIONS>>"
     conceded = [Rebuttal(objection=i, concede=True, text="WARDEN gave no answer that could be read")
                 for i in range(len(objections))]
+    row = {**row, "purpose": "rebuttal"}
+    ts, started = llm.now_iso(), time.monotonic()
     try:
         got = provider.complete(system=REBUT, user=asked, schema=Rebuttals)
-        text = got.text or ""
-        parsed = Rebuttals.model_validate(json.loads(text[text.find("{"):text.rfind("}") + 1])).rebuttals
-    except (ValueError, RuntimeError, OSError) as exc:  # pydantic's ValidationError is a ValueError, TimeoutError an OSError
-        log.append(incident, "eldane.call", {**row, "ok": False, "purpose": "rebuttal", "error": type(exc).__name__})
+    except Exception as exc:  # noqa: BLE001  # any provider error: WARDEN answered nothing, so it concedes all
+        log.append(incident, "eldane.call", {**row, "ok": False, "error": type(exc).__name__,
+                                             "latency_ms": llm.elapsed_ms(started)})
+        model_call(log, incident, provider, ts, started, None, row)
+        fallback(log, incident, llm.failure_reason(exc), row)
         return conceded
-    log.append(incident, "eldane.call", {**row, "ok": True, "purpose": "rebuttal",
-                                         "input_tokens": got.input_tokens, "output_tokens": got.output_tokens})
+    log.append(incident, "eldane.call", {**row, "ok": True, "input_tokens": got.input_tokens,
+                                         "output_tokens": got.output_tokens, "latency_ms": llm.elapsed_ms(started)})
+    model_call(log, incident, provider, ts, started, got, row)
+    text = got.text or ""
+    try:
+        parsed = Rebuttals.model_validate(json.loads(text[text.find("{"):text.rfind("}") + 1])).rebuttals
+    except ValueError:  # pydantic's ValidationError and json's JSONDecodeError are both ValueErrors
+        fallback(log, incident, llm.MODEL_REFUSED, row)
+        return conceded
     by = {r.objection: r for r in parsed if r.objection < len(objections)}
     out = []
     for i in range(len(objections)):

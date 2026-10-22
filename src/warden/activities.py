@@ -34,6 +34,7 @@ from . import (
     datadog,
     environments,
     freeze,
+    landed,
     locks,
     paging,
 )
@@ -428,6 +429,20 @@ def _send(log: AuditLog, incident: str, report: Any) -> list[Any]:
     return sent
 
 
+def _redacted(value: Any, mapping: dict[str, str] | None = None) -> Any:
+    """Every string in `value` redacted, its shape kept; one mapping, so one value gets one placeholder throughout."""
+    from .redaction import redact
+
+    mapping = {} if mapping is None else mapping
+    if isinstance(value, str):
+        return redact(value, mapping=mapping).text
+    if isinstance(value, list):
+        return [_redacted(v, mapping) for v in value]
+    if isinstance(value, dict):
+        return {k: _redacted(v, mapping) for k, v in value.items()}
+    return value
+
+
 class RemediationActivities:
     def __init__(self, *, audit: AuditLog, policy: approvals.ApproverPolicy, platform: Platform,
                  limits: bounds.Limits = bounds.DEFAULT_LIMITS, changes: Any = None, critic: Any = None) -> None:
@@ -493,6 +508,8 @@ class RemediationActivities:
         if entry:
             problems += _environment_problems(req.environment, entry, req.params, live)
         snapshot = live.get("state", {})
+        if entry and not problems:
+            problems += self._permissions(req, snapshot, workflow_id)
         basis = {"environment": req.environment, "catalog": catalog.fingerprint(), "code": code_version(),
                  "evidence": self.audit.head(req.incident_id)}
         key = f"{req.environment}/{catalog.target_key(req.entry, req.params)}" if entry else ""
@@ -504,11 +521,36 @@ class RemediationActivities:
         self.audit.append(req.incident_id, _PLAN_ROW,
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
-                           "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
+                           # A refused plan's parameters are kept redacted: never applied, and a caller may have put
+                           # anything in one the reader ignores (review, PR 76). A plan that can be applied keeps them
+                           # exact - apply compares them with this row.
+                           "params": _redacted(req.params) if problems else req.params,
+                           "target": key, "basis": basis, "plan_hash": plan.plan_hash,
                            "problems": problems, "soak_minutes": req.soak_minutes,
                            # Until when it waits, and from when its ceiling counts (U3-8, extend.py).
                            "approval_until": _deadline(plan).isoformat(), "made": plan.created_at.isoformat()})
         return plan
+
+    def _permissions(self, req: FixRequest, snapshot: dict[str, Any], workflow_id: str) -> list[str]:
+        """B12: the actor role's own permissions for this plan's calls, read before anyone is asked to approve it
+        (permits.py). On the record always; only a call the role's policies deny refuses the plan - one the check
+        cannot decide, or a check that fails or runs past its budget, is said in the row and changes nothing. A
+        platform without the check (Kubernetes, a database) writes no row."""
+        from . import permits
+
+        check = getattr(self.platform, "permitted", None)
+        try:
+            # Within its own budget (permits.BUDGET_S): a hung read leaves the plan unconfirmed, never late.
+            got = permits.within(lambda: check(req.entry, req.params, snapshot, incident=req.incident_id,
+                                               environment=req.environment)) if check else None
+        except (*permits.aws_errors(), LookupError, ValueError) as exc:  # the check failed: the plan goes on
+            got = {"checked": False, "denied": [], "unconfirmed": [f"the check failed: {_safe_error(exc)}"]}
+        if got is None:  # a platform with no such check (Kubernetes, a database, a test's): nothing to record
+            return []
+        got = _redacted(got)  # an error's text may name an account or a resource the record must not keep
+        self.audit.append(req.incident_id, "remediation.permissions", {"workflow_id": workflow_id, "run_id": _run_id(),
+                                                                       "entry": req.entry, **got})
+        return [str(d) for d in got.get("denied") or []]
 
     @activity.defn
     def approval_wait(self, plan: Plan, until: str) -> None:
@@ -1034,7 +1076,9 @@ class RemediationActivities:
         approvers = {e["body"].get("approver") for e in self.audit.entries(plan.incident_id, kinds=(_ACCEPTED_ROW,))
                      if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                      and e["body"].get("plan_hash") == plan.plan_hash}
-        return {"incident": plan.incident_id, "plan_hash": plan.plan_hash, "approvers": sorted(a for a in approvers if a)}
+        # run_id: this apply's Temporal run - a platform that cannot tag a session names its write by it (infra.py).
+        return {"incident": plan.incident_id, "plan_hash": plan.plan_hash, "approvers": sorted(a for a in approvers if a),
+                "run_id": run}
 
     def _blocked(self, plan: Plan) -> list[str]:
         """The kill switch, the bounds and the change freezes (register C6, P19), at the gate and again right
@@ -1093,7 +1137,8 @@ class RemediationActivities:
         applied = [e["at"] for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
                    if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                    and e["body"].get("plan_hash") == plan.plan_hash]
-        params = {**plan.params, **({catalog.APPLIED_AT: applied[-1].isoformat()} if applied else {})}
+        params = {**plan.params, **({catalog.APPLIED_AT: applied[-1].isoformat(), catalog.APPLIED_RUN: run}
+                                    if applied else {})}
         if routed and "params" in inspect.signature(routed).parameters:
             healthy = bool(routed(plan.entry, service, params=params, **_env(routed, plan.environment)))
         else:
@@ -1194,6 +1239,31 @@ class RemediationActivities:
                              plan_hash=plan.plan_hash)
         return Recorded(run_id=run, ok=verified)
 
+    def _landed_since(self, plan: Plan, run: str, row: dict[str, Any]) -> str:
+        """B21: why the fix is not undone - something landed on the target after it, or a source that would say so
+        could not be read (landed.py) - or "" to go on. What was read is a row either way."""
+        applied = [e["at"] for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
+                   if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
+                   and e["body"].get("plan_hash") == plan.plan_hash]
+        reader = getattr(self.platform, "writes_reader", None)
+        try:
+            found, unread, unchecked = landed.since_fix(
+                entry=plan.entry, params=plan.params, target=plan.target, incident=plan.incident_id,
+                workflow_id=plan.workflow_id, environment=plan.environment, applied_at=applied[-1],
+                now=datetime.now(UTC), log=self.audit, writes=reader(plan.entry, plan.environment) if reader else None)
+        except Exception as exc:  # noqa: BLE001  # whatever failed in the reads leaves what landed unknown
+            # Unknown is not undone (B21), and nothing was written: the run ends "not rolled back", on the record,
+            # with the kill switch as it was - never an activity error the workflow would read as a failed undo.
+            found, unread, unchecked = [], [f"what landed since the fix ({type(exc).__name__})"], []
+        self.audit.append(plan.incident_id, "remediation.landed", {
+            **row, "since": applied[-1].isoformat(), "unread": unread, "unchecked": unchecked,
+            "landed": landed.shown(found[:10])})
+        if not found and not unread:
+            return ""
+        detail = landed.said(found, unread)
+        self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
+        return detail
+
     @activity.defn
     def rollback(self, plan: Plan) -> str:
         run = _run_id()
@@ -1214,6 +1284,8 @@ class RemediationActivities:
             detail = f"not rolled back: {locked}; undoing this fix could undo that run's change too - a person decides"
             self.audit.append(plan.incident_id, _ROLLBACK_ROW, {**row, "detail": detail})
             return detail
+        if why := self._landed_since(plan, run, row):
+            return why
         try:
             takes = inspect.signature(self.platform.rollback).parameters
             extra = {k: v for k, v in (("who", self._who(plan, run)), ("environment", plan.environment)) if k in takes}
@@ -1428,6 +1500,13 @@ class IncidentActivities:
         if os.environ.get("WARDEN_HISTORY_IN_PROMPT", "").strip() == "1":
             prompt = self._with_history(alert, prompt, steps)
         self._record(alert.alert_id, steps)
+        # The real values behind this run's placeholders, sealed for people only (vault.py) - here, with the map, which
+        # is never returned: it never enters Temporal's history, and no AI zone can open what is sealed. Not for a
+        # discussion's re-read (`discuss-<incident>`): its incident's own run sealed them, and no reveal reads it.
+        if not alert.alert_id.startswith("discuss-"):
+            from . import vault
+
+            vault.seal_incident(self.audit, alert.alert_id, state.get("redaction_map", {}), run_id=_run_id())
         # The alarm as it came in, so the incident can be discussed later from its own evidence (discuss.py). Its
         # free text redacted, as everything on the record is.
         from .redaction import redact

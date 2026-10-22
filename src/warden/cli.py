@@ -459,7 +459,7 @@ AWS_PLATFORMS = ("lambda", "events", "dynamodb", "ecs", "rds", "sqs", "athena", 
                  "ec2", "asg", "kms", "secretsmanager", "kinesis")
 
 
-PLATFORM_KINDS = ("k8s", "db", "aws")
+PLATFORM_KINDS = ("k8s", "db", "aws", "infra")
 
 
 def _platform_choice(value: str) -> frozenset[str]:
@@ -498,6 +498,10 @@ def _platform(choice: str | frozenset[str]):
 
         aws = from_environment()
         platforms.update(dict.fromkeys(AWS_PLATFORMS, aws))
+    if "infra" in kinds:  # B17: only behind WARDEN_TF_STATE_BUCKETS; unset, every infra plan is refused
+        from .platforms.infra import infra_from_environment
+
+        platforms["terraform"] = infra_from_environment()
     return RoutedPlatform(**platforms)
 
 
@@ -907,6 +911,9 @@ def _main(argv: list[str] | None = None) -> int:
     from .observability import install_log_gate
 
     install_log_gate()  # before anything can log: no raw last-resort handler for any command
+    from . import egress
+
+    egress.install_for_environment()  # a command against a real environment: every egress named, checked, recorded
     args = _parser().parse_args(argv)
     # `history` reads what `status` reads (the payload key and the Temporal API key), nothing more.
     _load_environment({"link": "label", "history": "status"}.get(args.cmd, args.cmd), getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)

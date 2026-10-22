@@ -192,7 +192,11 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
           {**_ref("database"), "min_idle_seconds": Param("int", 300, 86400), "max_sessions": Param("int", 1, 20)}),
     Entry("db_terminate_blocker", "T2", "db", "n/a (the blocking session is closed)", _ref("database", "pid")),
     Entry("aurora_failover", "T3", "rds", "n/a (irreversible)", _ref("cluster", "target_instance")),
-    Entry("infra_restore_baseline", "T3", "terraform", "the Terraform-declared baseline", _ref("stack")),
+    # B17: the stack back to what its environment's branch declares, by applying exactly ONE kept plan made at that branch's
+    # head and passed by Helios, through WARDEN's own infra workflow (platforms/infra.py). The plan's run and sha256 are
+    # parameters: the approval binds the exact plan bytes. T3: a person's passkey; not undone automatically.
+    Entry("infra_restore_baseline", "T3", "terraform", "the Terraform-declared baseline",
+          _ref("stack", "plan_run", "plan_sha256")),
     # G10-D: undo the ONE security group write CloudTrail recorded in the hours before the alarm went into ALARM -
     # re-authorize exactly the rules a revoke removed (AWS's own response lists them), or revoke only the rule ids an
     # authorize created. T3: network and security-adjacent. Refusals (platforms/aws.py): ingress from the whole
@@ -436,6 +440,11 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                                 f"stage {p['stage']}", "flowing",
                                                 "frozen until a person enables them (a deploy already inside the "
                                                 "stage finishes)")],
+    "infra_restore_baseline": lambda p, s: [(f"Terraform stack {p['stack']} in {s.get('environment')}: apply exactly the "
+                                             f"plan kept by run {p['plan_run']} (sha256 {p['plan_sha256']}), made at "
+                                             f"{s.get('environment')}'s head {str(s.get('commit') or '')[:12]} and "
+                                             "passed by Helios, through Deploy apply-plan, which checks the bytes and "
+                                             "Helios again; not undone automatically")],
     "aurora_failover": lambda p, s: [_arrow(f"writer of cluster {p['cluster']}", s.get("writer"),
                                             p["target_instance"]) + " (not undone automatically)"],
 }
@@ -492,6 +501,9 @@ _ONE_OFF = ("one_off", "a one-off action that nothing changes back; the cause st
 # The time a fix was applied in this run, handed by check_success to the platform's health check in a copy of the
 # plan's parameters (never planned, never hashed): a fix is judged on what came after it (live, 2026-10-16).
 APPLIED_AT = "_applied_at"
+# ... and the Temporal run that applied it, beside it (B17: the infra platform names its dispatch by that run and finds
+# exactly that run again - never an earlier dispatch of the same plan).
+APPLIED_RUN = "_applied_run"
 
 LASTS: dict[str, tuple[str, str]] = {
     "lambda_move_alias": _UNTIL_DEPLOY, "lambda_restore_config": _UNTIL_DEPLOY,
