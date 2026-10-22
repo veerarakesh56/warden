@@ -18,6 +18,9 @@ locals {
   self_alarms = concat(var.paused ? [] : [aws_cloudwatch_metric_alarm.heartbeat.alarm_name,
     aws_cloudwatch_metric_alarm.synthetic.alarm_name, aws_cloudwatch_metric_alarm.worker_errors.alarm_name], [
     aws_cloudwatch_metric_alarm.killswitch.alarm_name,
+    aws_cloudwatch_metric_alarm.model["provider_unavailable"].alarm_name,
+    aws_cloudwatch_metric_alarm.model["daily_cap"].alarm_name,
+    aws_cloudwatch_metric_alarm.model["budget"].alarm_name,
     aws_cloudwatch_metric_alarm.alarm_dlq.alarm_name,
     aws_cloudwatch_metric_alarm.unapproved_actor.alarm_name,
     aws_cloudwatch_metric_alarm.approvers_changed.alarm_name,
@@ -28,7 +31,12 @@ locals {
     aws_cloudwatch_metric_alarm.audit_db_storage.alarm_name,
   ])
   # Every function a person's page or WARDEN's intake depends on: the front doors, Slack's answer, the pager itself.
-  paged_functions = merge({ for k, f in aws_lambda_function.front_door : k => f.function_name },
+  # Paused (B35), the front doors have no way out of the VPC and no audit database on purpose: a webhook or a visit
+  # to the approval page fails there and pages nobody. Slack's answer and the pager still run, and still page.
+  # On purpose, an actor-role session during a pause still pages: the actor-use rule stays on (witness.tf), the
+  # check fails without its database, and after Lambda's retries the event lands in the dead-letter queue, whose
+  # alarm (alarm_dlq) is never paused - nothing of WARDEN's should use an actor role while it is paused.
+  paged_functions = merge(var.paused ? {} : { for k, f in aws_lambda_function.front_door : k => f.function_name },
   { ack = aws_lambda_function.ack.function_name, pager = aws_lambda_function.pager.function_name })
   audit_db_dimensions = var.aws_free_plan ? { DBInstanceIdentifier = "warden-${var.environment}-audit" } : {
   DBClusterIdentifier = "warden-${var.environment}-audit" }
@@ -129,6 +137,7 @@ resource "aws_cloudwatch_event_rule" "pages" {
 # or a pause's stop (ServiceSchedulerInitiated) does not.
 resource "aws_cloudwatch_event_rule" "worker_stopped" {
   name        = "warden-${var.environment}-worker-stopped"
+  state       = var.paused ? "DISABLED" : "ENABLED" # paused: the workers are stopped on purpose (B35)
   description = "WARDEN ${var.environment}: a worker task that stopped on its own, to the pager"
   event_pattern = jsonencode({
     source        = ["aws.ecs"]
@@ -206,8 +215,49 @@ resource "aws_cloudwatch_metric_alarm" "killswitch" {
   tags                = { Project = "warden", Environment = var.environment }
 }
 
+# The model could not be used (item 7c, paging.model_condition): its provider unavailable, the daily cap reached (the
+# incidents' daily cap or Eldane's daily call ceiling), or an incident's budget spent. The worker counts each condition
+# once per UTC day, whatever the number of calls it stops, so each pages at most once a day; the page says only the
+# fixed words below - never an error's text, a number from the evidence or a secret. Paged to the page topic, as
+# every alarm here: no address of its own.
+locals {
+  model_pages = {
+    provider_unavailable = {
+      metric = "ModelProviderUnavailable"
+      says   = "WARDEN's model provider is unavailable (down, out of capacity or not answering in time): incidents are escalated to a person on the rules alone. Check the provider's status page and the llm zone's log."
+    }
+    daily_cap = {
+      metric = "ModelDailyCapReached"
+      says   = "A WARDEN daily model limit is reached - the shared daily spend cap, or Eldane's daily call ceiling. Until its 24-hour window moves on: under the spend cap, incidents are escalated to a person on the rules alone and Slack discussions get the limit reply instead of an answer; under Eldane's ceiling, Eldane reviews no plan and a person approves. The audit's incident.llm_spend and eldane.call rows say which."
+    }
+    budget = {
+      metric = "ModelBudgetReached"
+      says   = "An incident spent its model budget (WARDEN_MAX_USD or WARDEN_MAX_CALLS): that incident is escalated to a person on the rules alone. Its incident.llm_spend rows say what was spent."
+    }
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "model" {
+  for_each            = local.model_pages
+  alarm_name          = "warden-${var.environment}-model-${replace(each.key, "_", "-")}"
+  alarm_description   = each.value.says
+  namespace           = "WARDEN/${var.environment}"
+  metric_name         = each.value.metric
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [var.page_topic_arn]
+  tags                = { Project = "warden", Environment = var.environment }
+}
+
 # A worker wrote an ERROR or CRITICAL line (observability.install_log_gate's format: "<time> <LEVEL> <logger>: ...").
-# An activity's failure is a WARNING there, and pages nobody.
+# An activity's failure is a WARNING there, and pages nobody. Every zone writes to this one log group (compute.tf),
+# so this covers core, read, llm, notify, act and any later zone. B35: the failures that break every incident are
+# ERROR lines on purpose - the model's key refused (llm.py), Temporal refusing a worker's key (runtime.py), the
+# audit database unreachable or full (audit.py).
 resource "aws_cloudwatch_log_metric_filter" "worker_errors" {
   name           = "warden-${var.environment}-worker-errors"
   log_group_name = aws_cloudwatch_log_group.worker.name
@@ -223,7 +273,7 @@ resource "aws_cloudwatch_log_metric_filter" "worker_errors" {
 resource "aws_cloudwatch_metric_alarm" "worker_errors" {
   alarm_name          = "warden-${var.environment}-worker-errors"
   actions_enabled     = !var.paused
-  alarm_description   = "A WARDEN worker logged an error. Read /warden/${var.environment}/worker around this time: docs/RUNBOOK-WARDEN-INCIDENT.md."
+  alarm_description   = "A WARDEN worker logged an error - among them the model's or Temporal's key refused, or the audit database unreachable or full. Read /warden/${var.environment}/worker around this time: docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "WARDEN/${var.environment}"
   metric_name         = "WorkerErrors"
   statistic           = "Sum"

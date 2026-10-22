@@ -489,6 +489,10 @@ class _CallLog:
     def append(self, incident: str, kind: str, body: dict[str, Any]) -> None:
         self.rows.append({"incident": incident, "kind": kind, **body})
 
+    def last(self, kind: str) -> dict[str, Any]:
+        """The latest row of `kind`: ask also writes its llm.call (and any llm.fallback) row after its own."""
+        return next((r for r in reversed(self.rows) if r["kind"] == kind), {})
+
 
 @dataclasses.dataclass
 class Prepared:
@@ -568,7 +572,7 @@ def run(
             )
             continue
         verdict = eldane.ask(calls, x.plan.case, provider, x.user, set(x.ids), purpose="bench")
-        spent += _cost(calls.rows[-1], prices, worst)
+        spent += _cost(calls.last(eldane.CALL), prices, worst)
         rows.append(
             {
                 **base,
