@@ -96,12 +96,10 @@ def _piped(monkeypatch, *lines):
     monkeypatch.setattr(sys, "stdin", io.StringIO("".join(f"{v}\n" for v in lines)))
 
 
-def _keys(tmp_path, monkeypatch):
-    """The deprecated folder of key files for the runtime's two; the agent's key is always asked for."""
-    for name, value in (("datadog-api-key", API_KEY), ("datadog-app-key", ADMIN_APP)):
-        (tmp_path / f"{name}.txt").write_text(value + "\n", encoding="utf-8-sig")  # as Notepad saves it
-    _piped(monkeypatch, AGENT_KEY)
-    return [*ARGS, "--keys-dir", str(tmp_path)]
+def _keys(monkeypatch):
+    """The three keys, piped one per line from the secret store, as a run reads them."""
+    _piped(monkeypatch, API_KEY, ADMIN_APP, AGENT_KEY)
+    return list(ARGS)
 
 
 def test_makes_and_stores_every_credential_once_and_prints_none(monkeypatch, capsys):
@@ -143,19 +141,19 @@ def test_one_api_key_for_both_is_refused_and_nothing_is_stored(monkeypatch):
     assert dd.keys == {}
 
 
-def test_refuses_a_site_that_is_not_datadogs(tmp_path, monkeypatch):
+def test_refuses_a_site_that_is_not_datadogs(monkeypatch):
     mod = _setup()
-    args = _keys(tmp_path, monkeypatch)
-    aws, dd = Aws(), DD()
+    args = _keys(monkeypatch)
+    aws, dd, argv = Aws(), DD(), [*args[:4], "--site", "evil.example", *args[6:]]
     with pytest.raises(SystemExit):
-        mod.main([*args[:4], "--site", "evil.example", *args[6:]], aws=aws, dd_call=dd)
+        mod.main(argv, aws=aws, dd_call=dd)
 
 
-def test_the_setup_keys_are_asked_for_not_read_from_disk_and_an_old_key_file_warns(tmp_path, monkeypatch, capsys):
+def test_the_setup_keys_are_asked_for_never_read_from_disk(tmp_path, monkeypatch, capsys):
     """Naming audit item 24 (2026-10-16): the admin keys were plaintext files in ~/.warden, which outlived the
-    "revoke after" step whenever it was forgotten. Without --keys-dir nothing is read from disk: each key is typed at
-    a prompt that does not echo it, or piped one per line on stdin; a named folder of the old files still reads, with
-    a warning."""
+    "revoke after" step whenever it was forgotten. Nothing is read from disk: each key is typed at a prompt that does
+    not echo it, or piped one per line on stdin from the secret store. The deprecated --keys-dir folder is gone (owner
+    B28): naming it is a usage error, and no file in it is read."""
     mod = _setup()
     monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path / "home")  # a stray ~/.warden must not be read
     _piped(monkeypatch, API_KEY, ADMIN_APP, AGENT_KEY)
@@ -177,11 +175,12 @@ def test_the_setup_keys_are_asked_for_not_read_from_disk_and_an_old_key_file_war
     with pytest.raises(SystemExit, match="the Datadog API key the runtime reads with was not given"):
         mod.main(ARGS, aws=aws, dd_call=dd)
 
-    aws = Aws()
-    assert mod.main(_keys(tmp_path, monkeypatch), aws=aws, dd_call=DD()) == 0
-    err = capsys.readouterr().err
-    assert "is read from the plaintext file" in err
-    assert "datadog-app-key.txt" in err
-    assert ADMIN_APP not in err
-    assert AGENT_KEY not in err
-    assert aws.secrets["warden-dev-datadog-api-key"] == AGENT_KEY
+    for name, value in (("datadog-api-key", API_KEY), ("datadog-app-key", ADMIN_APP)):
+        (tmp_path / f"{name}.txt").write_text(value + "\n", encoding="utf-8")
+    aws, dd, argv = Aws(), DD(), [*ARGS, "--keys-dir", str(tmp_path)]
+    with pytest.raises(SystemExit) as stopped:
+        mod.main(argv, aws=aws, dd_call=dd)
+    assert stopped.value.code == 2
+    assert "unrecognized arguments: --keys-dir" in capsys.readouterr().err
+    assert aws.secrets == Aws().secrets  # nothing stored
+    assert not aws.params

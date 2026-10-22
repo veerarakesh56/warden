@@ -596,9 +596,12 @@ def test_the_stack_carries_its_own_budget_alarm():
     assert re.search(r"cost_types\s*\{\s*include_credit\s*=\s*false\s*\}", budget_block)
 
 
-def test_no_interface_endpoint_is_paid_for_by_the_hour():
-    """Cost plan 2026-10-16: two interface endpoints were ~USD 19 a month for calls the NAT carries for cents."""
-    assert '"Interface"' not in _tf_text()
+def test_the_only_interface_endpoints_paid_for_by_the_hour_are_the_listed_ones():
+    """Cost plan 2026-10-16 removed them; the owner's decision of 2026-10-21 brought back exactly the ones the code
+    needs (tests/test_iac_hardening_sonar.py derives that list from the code). One endpoint resource, one list."""
+    text = _tf_text()
+    assert text.count('"Interface"') == 1
+    assert text.count('resource "aws_vpc_endpoint"') == 2  # the gateway pair and the interface list
 
 
 # --------------------------------------------------------------------------- aurora_express.py

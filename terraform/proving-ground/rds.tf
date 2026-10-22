@@ -87,7 +87,7 @@ resource "aws_db_instance" "this" {
       # ⛔ Fails at plan time rather than creating a database with an empty master password. The
       # password has no default worth having, so the failure must be loud and early.
       condition     = length(var.db_password) >= 16
-      error_message = "enable_rds = true requires db_password (>= 16 chars). Generate it into TF_VAR_db_password: export TF_VAR_db_password=\"$(python -c 'import secrets; print(secrets.token_urlsafe(24))')\". Never -var (shell history) and never a tfvars file."
+      error_message = "enable_rds = true requires db_password (>= 16 chars). Hand it to terraform alone: TF_VAR_db_password=\"$DB_PASSWORD\" terraform apply (see README). Never -var (shell history), never exported, never a tfvars file."
     }
   }
 }

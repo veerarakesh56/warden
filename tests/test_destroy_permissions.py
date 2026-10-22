@@ -344,6 +344,8 @@ DESTROY_CALLS = {
                          call("ec2:DescribeNetworkInterfaces", "*"), call("ec2:DeleteVpcEndpoints", "vpce")],
     "aws_vpc_security_group_ingress_rule": [call("ec2:DescribeSecurityGroupRules", "*"),
                                             call("ec2:RevokeSecurityGroupIngress", "sg")],
+    "aws_vpc_security_group_egress_rule": [call("ec2:DescribeSecurityGroupRules", "*"),
+                                           call("ec2:RevokeSecurityGroupEgress", "sg")],
 }
 # Read during the destroy plan; aws_iam_policy_document makes no call.
 DATA_CALLS = {

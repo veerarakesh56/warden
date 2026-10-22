@@ -34,6 +34,8 @@ SHAPES = {
     "the stock fake password string": "[Hh]" + fakes.HUNTER2[1:],
     "a literal password value": r"""(?i)password['"]?\s*[:=]\s*['"][^'"\s<>${}]{3,}['"]""",
     "a literal password in a Kubernetes env entry": r"""(?i)name=['"]\w*password['"],\s*value=['"]""",
+    # Owner B28: a made-up secret's value written out (tests/fakes.secret_value builds it).
+    "a literal fake secret value": r"""['"][\w-]*secret""" + r"""-value['"]""",
 }
 PATTERNS = {shape: re.compile(pattern) for shape, pattern in SHAPES.items()}
 
@@ -74,6 +76,7 @@ def test_no_file_holds_a_credential_shaped_literal():
     ("the stock fake password string", fakes.HUNTER2.capitalize() + "Secret"),
     ("a literal password value", 'DB_PASSWORD = "' + "s3cr3t" + '"'),
     ("a literal password in a Kubernetes env entry", 'NS(name="DB_' + 'PASSWORD", value="' + "x" + '")'),
+    ("a literal fake secret value", repr(fakes.secret_value("super"))),
 ])
 def test_each_shape_catches_what_it_names_and_the_helper_builds_the_real_shape(shape, sample):
     """A pattern that stopped matching would pass every file; a helper that built the wrong string would make every

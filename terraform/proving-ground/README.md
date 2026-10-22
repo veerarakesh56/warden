@@ -111,14 +111,17 @@ bash scripts/aws_proof.sh
 Turning on what a later wave needs:
 
 ```bash
-terraform apply -var enable_rds=true -var db_password="$(openssl rand -base64 24)"
-terraform apply -var enable_eks=true    # ⛔ $0.10/hour from this moment, idle or not
+# The password goes in Terraform's environment only, never on the command line (-var lands in shell history and in
+# `ps`) and never exported (every later program started from this shell would inherit it):
+DB_PASSWORD="$(openssl rand -base64 24)"
+TF_VAR_db_password="$DB_PASSWORD" terraform apply -var enable_rds=true
+TF_VAR_db_password="$DB_PASSWORD" terraform apply -var enable_eks=true    # ⛔ $0.10/hour from this moment, idle or not
 ```
 
 ## Tear it down
 
 ```bash
-terraform destroy
+TF_VAR_db_password="$DB_PASSWORD" terraform destroy   # in the same shell as the applies
 ```
 
 Then **check it actually went**, because a destroy can partially fail — the query is in

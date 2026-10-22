@@ -1,6 +1,14 @@
 import pytest
 
-from fakes import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, HUNTER2, JWT, dsn, private_key_block
+from fakes import (
+    AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY,
+    HUNTER2,
+    JWT,
+    dsn,
+    private_key_block,
+    secret_value,
+)
 from warden.redaction import redact, redact_many
 
 
@@ -150,7 +158,7 @@ def test_high_value_credentials_in_logs_are_masked():
         (private_key_block("RSA", "MIIEpAIBAAKCAQEA7f8v2n"), "MIIEpAIBAAKCAQEA7f8v2n"),
         ("aws_secret_access_key=" + AWS_SECRET_ACCESS_KEY, AWS_SECRET_ACCESS_KEY),
         ("db_password=SuperSecret123", "SuperSecret123"),
-        ("client_secret: my-oauth-secret-value", "my-oauth-secret-value"),
+        ("client_secret: " + secret_value("my-oauth"), secret_value("my-oauth")),
         (("token xoxb-" "123456789-abcdefABCDEF"), ("xoxb-" "123456789-abcdefABCDEF")),
         (("deploy key glpat-" "abcDEF1234567890"), ("glpat-" "abcDEF1234567890")),
     ]

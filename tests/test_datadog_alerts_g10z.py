@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import base64
 import importlib.util
+import io
 import json
 import pathlib
 import re
+import sys
 import urllib.error
 from datetime import UTC, datetime
 
@@ -186,14 +188,15 @@ class DD:
         raise AssertionError((method, path))
 
 
-def test_setup_makes_the_webhook_monitors_and_dashboard_once_and_never_prints_the_token(tmp_path, monkeypatch, capsys):
+def _piped_keys(monkeypatch, runs=1):
+    """The API key and the setup application key, one per line on stdin, as the secret store pipes them."""
+    keys = "dd-api-" + "k" * 10 + "\n" + "dd-app-" + "s" * 10 + "\n"
+    monkeypatch.setattr(sys, "stdin", io.StringIO(keys * runs))
+
+
+def test_setup_makes_the_webhook_monitors_and_dashboard_once_and_never_prints_the_token(monkeypatch, capsys):
     mod = _setup()
-    key = tmp_path / "setup-key.txt"
-    key.write_text("dd-app-" + "s" * 10 + "\n", encoding="utf-8")
-    monkeypatch.setenv("WARDEN_DATADOG_SETUP_KEY_FILE", str(key))
-    api = tmp_path / "api-key.txt"
-    api.write_text("dd-api-" + "k" * 10, encoding="utf-8")
-    monkeypatch.setenv("WARDEN_DATADOG_API_KEY_FILE", str(api))
+    _piped_keys(monkeypatch, runs=2)
     aws = Aws()
     dd = DD(aws.stored)
     assert mod.main(["--env", "ops", "--stack", "dev"], aws=aws, call=dd) == 0
@@ -223,15 +226,11 @@ def test_setup_makes_the_webhook_monitors_and_dashboard_once_and_never_prints_th
         mod.Datadog("evil.example", "k", "a")
 
 
-def test_monitors_only_updates_the_monitors_and_leaves_the_webhook_and_its_token(tmp_path, monkeypatch):
+def test_monitors_only_updates_the_monitors_and_leaves_the_webhook_and_its_token(monkeypatch):
     """2026-10-15: a full run rotates the webhook token, which a warm webhook Lambda refuses until it restarts; the
     monitors' new grouping (kube_cluster_name, kube_namespace) needs no new token."""
     mod = _setup()
-    for name, value in (("WARDEN_DATADOG_SETUP_KEY_FILE", "dd-app-" + "s" * 10), ("WARDEN_DATADOG_API_KEY_FILE",
-                                                                               "dd-api-" + "k" * 10)):
-        f = tmp_path / name
-        f.write_text(value, encoding="utf-8")
-        monkeypatch.setenv(name, str(f))
+    _piped_keys(monkeypatch)
     aws, dd = Aws(), DD()
     assert mod.main(["--env", "ops", "--stack", "dev", "--monitors-only"], aws=aws, call=dd) == 0
     assert aws.stored == {}
@@ -239,6 +238,25 @@ def test_monitors_only_updates_the_monitors_and_leaves_the_webhook_and_its_token
     assert not dd.boards
     assert len(dd.monitors) == 4
     assert all("kube_cluster_name" in m["query"] for m in dd.monitors.values() if m["type"] == "query alert")
+
+
+def test_setup_reads_no_key_file_and_a_retired_key_file_setting_stops_it(tmp_path, monkeypatch):
+    """Owner B28: setup read the API and setup keys from the plaintext files WARDEN_DATADOG_API_KEY_FILE and
+    WARDEN_DATADOG_SETUP_KEY_FILE named. Neither is read now: a run that still names one stops before anything is
+    asked for or changed, and the file's key is never used."""
+    mod = _setup()
+    for name in mod.RETIRED_KEY_FILES:
+        f = tmp_path / f"{name}.txt"
+        f.write_text("dd-old-" + "f" * 10, encoding="utf-8")
+        monkeypatch.setenv(name, str(f))
+        _piped_keys(monkeypatch)
+        aws, dd = Aws(), DD()
+        with pytest.raises(SystemExit, match=f"{name} named a plaintext key file, which is no longer read"):
+            mod.main(["--env", "ops", "--stack", "dev", "--monitors-only"], aws=aws, call=dd)
+        assert dd.monitors == {}
+        assert aws.stored == {}
+        monkeypatch.delenv(name)
+    assert set(mod.RETIRED_KEY_FILES) == {"WARDEN_DATADOG_API_KEY_FILE", "WARDEN_DATADOG_SETUP_KEY_FILE"}
 
 
 def test_a_report_says_where_its_alert_came_from_in_wardens_own_words():
