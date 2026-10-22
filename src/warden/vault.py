@@ -275,15 +275,22 @@ def purge(log: Any, now: datetime | None = None) -> int:
     return log.store.run("DELETE FROM vault WHERE expires_at < ?", (when,)).rowcount
 
 
+# One complete statement per dialect: on PostgreSQL the expiry compares in byte order (COLLATE "C"), as the audit
+# compares times; SQLite's text comparison is byte order already.
+_SEALED_ROW_SQLITE = ("SELECT incident, sha256, sealed_at, expires_at, wrapped_key, sealed FROM vault "
+                      "WHERE incident = ? AND sha256 = ? AND expires_at >= ?")
+_SEALED_ROW_PG = ("SELECT incident, sha256, sealed_at, expires_at, wrapped_key, sealed FROM vault "
+                  'WHERE incident = ? AND sha256 = ? AND expires_at COLLATE "C" >= ?')
+
+
 def sealed_row(log: Any, incident: str, sha256: str, now: datetime | None = None) -> dict[str, Any] | None:
     """The sealed row the audit's index row names; None when it has expired or was erased. Expired is judged here
     too, as purge judges it: a row past its expiry that no purge has reached yet is not read (review)."""
     if not log.store.pg:
         log.store.run(_TABLE)
     when = (now or datetime.now(UTC)).astimezone(UTC).isoformat(timespec="seconds")
-    expiry = 'expires_at COLLATE "C"' if log.store.pg else "expires_at"  # byte order, as the audit compares times
-    got = log.store.run("SELECT incident, sha256, sealed_at, expires_at, wrapped_key, sealed FROM vault "
-                        f"WHERE incident = ? AND sha256 = ? AND {expiry} >= ?", (incident, sha256, when)).fetchone()
+    query = _SEALED_ROW_PG if log.store.pg else _SEALED_ROW_SQLITE
+    got = log.store.run(query, (incident, sha256, when)).fetchone()
     return dict(zip(_COLUMNS, got, strict=True)) if got else None
 
 

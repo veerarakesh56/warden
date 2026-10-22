@@ -118,7 +118,9 @@ def test_the_vault_reaches_kms_in_warden_own_account_only_and_its_ledger_rows_ho
     from warden import egress
 
     dest = egress.destination_of("kms.ap-south-2.amazonaws.com")
-    assert dest is not None and dest.name == "aws" and not dest.outside
+    assert dest is not None
+    assert dest.name == "aws"
+    assert not dest.outside
     kms, log = FakeKms("read"), AuditLog(tmp_path / "a.db")
     row = _vault("read", kms=kms).seal("inc-1", MAPPING)
     vault.store(log, row)
