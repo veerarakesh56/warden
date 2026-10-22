@@ -13,8 +13,11 @@ import textwrap
 import pytest
 
 from fakes import AWS_ACCESS_KEY_ID, JWT
-from warden import lambdas
-from warden.observability import GatedFormatter, GatedWrap, gate_handlers
+from warden import lambdas, observability
+
+# Looked up on the module at each use, never imported by name: tests/test_observability.py and
+# tests/test_egress.py reload warden.observability, and a class imported before a reload is not the class
+# gate_handlers checks after it (CI on PR 113, order-dependent under xdist).
 
 EMAIL = "canary.person" + "@" + "example.org"
 IP = "203.0.113." + "77"
@@ -37,7 +40,7 @@ def _lambda_like_logger(name: str) -> tuple[logging.Logger, io.StringIO]:
 @pytest.mark.parametrize("canary", CANARIES)
 def test_a_handler_warden_did_not_install_writes_through_the_gate(canary):
     log, stream = _lambda_like_logger(f"canary.wrap.{CANARIES.index(canary)}")
-    assert gate_handlers(log) == 1
+    assert observability.gate_handlers(log) == 1
     log.error("user %s failed", canary)
     try:
         try:
@@ -56,12 +59,12 @@ def test_a_handler_warden_did_not_install_writes_through_the_gate(canary):
 def test_gating_handlers_is_idempotent_and_keeps_wardens_own_formatter():
     log, _ = _lambda_like_logger("canary.idem")
     own = logging.StreamHandler(io.StringIO())
-    own.setFormatter(GatedFormatter())
+    own.setFormatter(observability.GatedFormatter())
     log.addHandler(own)
-    assert gate_handlers(log) == 1
-    assert gate_handlers(log) == 0
-    assert isinstance(log.handlers[0].formatter, GatedWrap)
-    assert own.formatter.__class__ is GatedFormatter
+    assert observability.gate_handlers(log) == 1
+    assert observability.gate_handlers(log) == 0
+    assert isinstance(log.handlers[0].formatter, observability.GatedWrap)
+    assert own.formatter.__class__ is observability.GatedFormatter
 
 
 @pytest.mark.parametrize("error", [ValueError, RuntimeError, OSError])
@@ -71,7 +74,7 @@ def test_a_formatter_that_fails_is_withheld_not_printed_raw(error):
             raise error(EMAIL)
 
     record = logging.LogRecord("x", logging.ERROR, __file__, 1, "user %s", (EMAIL,), None)
-    assert GatedWrap(Broken()).format(record) == "ERROR x: (log text withheld)"
+    assert observability.GatedWrap(Broken()).format(record) == "ERROR x: (log text withheld)"
 
 
 @pytest.mark.parametrize("canary", CANARIES)
