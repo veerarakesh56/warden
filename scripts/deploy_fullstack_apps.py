@@ -36,7 +36,6 @@ import base64
 import json
 import pathlib
 import re
-import secrets
 import shutil
 import subprocess
 import sys
@@ -61,6 +60,11 @@ PLACEHOLDER = re.compile(r"__[A-Z_]+__")
 ZIP_DATE = (2026, 1, 1, 0, 0, 0)  # fixed, so an unchanged function builds a byte-identical zip
 
 
+class CommandFailed(Exception):
+    """A command exited non-zero. A caller may handle it (catalog_secret_synced reads the ExternalSecret's status);
+    unhandled, main() ends the run with it, as a SystemExit with its message (Sonar: not a SystemExit subclass)."""
+
+
 def run(cmd: list[str], *, input: str | None = None) -> str:
     """Run a command; stdin carries anything secret. Only the command is echoed."""
     print("+", " ".join(cmd), flush=True)
@@ -69,7 +73,7 @@ def run(cmd: list[str], *, input: str | None = None) -> str:
     done = subprocess.run(cmd, input=input, capture_output=True, check=False,
                           encoding="utf-8", errors="replace")
     if done.returncode:
-        raise SystemExit(f"{cmd[0]} exited {done.returncode}:\n{done.stderr[-2000:]}")
+        raise CommandFailed(f"{cmd[0]} exited {done.returncode}:\n{done.stderr[-2000:]}")
     return done.stdout
 
 
@@ -384,16 +388,81 @@ def _fetch_chart(url: str) -> bytes:
 
 def deploy_argocd(kubeconfig: str, out: pathlib.Path, run=run) -> None:
     """Install or upgrade Argo CD in namespace argocd, from the checked chart package, and wait for it."""
+    _install_checked_chart("argocd", ARGOCD_CHART_URL, ARGOCD_CHART_SHA256, ARGOCD_VALUES, "argocd", kubeconfig, out, run)
+
+
+# B25 (owner, 2026-10-17): the External Secrets Operator copies catalog-api's signing key from Secrets Manager into
+# shop/catalog-secret, and Stakater Reloader restarts catalog-api when that Secret changes. Each chart is its release's
+# own package, installed only if its bytes are these; each image is pinned by digest in its values file.
+ESO_CHART = "2.13.0"  # ESO v2.13.0, released 2026-10-16
+ESO_CHART_URL = ("https://github.com/external-secrets/external-secrets/releases/download/"
+                 f"helm-chart-{ESO_CHART}/external-secrets-{ESO_CHART}.tgz")
+ESO_CHART_SHA256 = "f693a96f0d929a07e000dd39e68b92a1a1343c5bc440ebab091b03da30bcac3a"
+HELM_VALUES = "values.yaml"  # each chart's settings: helm/<chart>/values.yaml
+ESO_VALUES = ROOT / "helm" / "external-secrets" / HELM_VALUES
+RELOADER_CHART = "2.2.18"  # Reloader v1.4.22, published 2026-09-30 (stakater's chart repository, its index's digest)
+RELOADER_CHART_URL = f"https://stakater.github.io/stakater-charts/reloader-{RELOADER_CHART}.tgz"
+RELOADER_CHART_SHA256 = "5eb4576ba75a0e165897e8a98a6ffef15d68939430da6eb8fe80796bba75cb17"
+RELOADER_VALUES = ROOT / "helm" / "reloader" / HELM_VALUES
+
+
+def _install_checked_chart(release: str, url: str, sha256: str, values: pathlib.Path, namespace: str,
+                           kubeconfig: str, out: pathlib.Path, run=run) -> None:
+    """helm upgrade --install a chart from its release package, only if the package's sha256 is the pinned one."""
     import hashlib
 
-    package = _fetch_chart(ARGOCD_CHART_URL)
+    package = _fetch_chart(url)
     got = hashlib.sha256(package).hexdigest()
-    if got != ARGOCD_CHART_SHA256:
-        raise SystemExit(f"the Argo CD chart package is not the pinned one (sha256 {got}): nothing installed")
-    chart = out / f"argo-cd-{ARGOCD_CHART}.tgz"
+    if got != sha256:
+        raise SystemExit(f"the {release} chart package is not the pinned one (sha256 {got}): nothing installed")
+    chart = out / url.rsplit("/", 1)[1]
     chart.write_bytes(package)
-    run(["helm", "upgrade", "--install", "argocd", str(chart), "--namespace", "argocd", "--create-namespace",
-         "--kubeconfig", kubeconfig, "--values", str(ARGOCD_VALUES), "--wait", "--timeout", "10m"])
+    run(["helm", "upgrade", "--install", release, str(chart), "--namespace", namespace, "--create-namespace",
+         "--kubeconfig", kubeconfig, "--values", str(values), "--wait", "--timeout", "10m"])
+
+
+def deploy_secret_sync(kubeconfig: str, out: pathlib.Path, run=run) -> None:
+    """ESO (its CRDs first: the pipeline's ExternalSecret needs them) and Reloader, each in its own namespace and each
+    allowed into the shop namespace only (helm/external-secrets, helm/reloader)."""
+    _install_checked_chart("external-secrets", ESO_CHART_URL, ESO_CHART_SHA256, ESO_VALUES, "external-secrets",
+                           kubeconfig, out, run)
+    _install_checked_chart("reloader", RELOADER_CHART_URL, RELOADER_CHART_SHA256, RELOADER_VALUES, "reloader",
+                           kubeconfig, out, run)
+
+
+def catalog_secret_synced(kubeconfig: str, run=run) -> None:
+    """The ExternalSecret has copied the key - said here, by name, not found later as catalog-api waiting for its
+    Secret behind Argo CD's health (a missing ESO role or Pod Identity association; CodeRabbit, PR 118)."""
+    try:
+        run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "wait", "--for=condition=Ready",
+             "externalsecret/catalog-secret", "--timeout=180s"])
+    except CommandFailed as waited:
+        # Its status, if it can be read - a second failure never hides the first (CodeRabbit, PR 118).
+        try:
+            status = run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "get", "externalsecret", "catalog-secret",
+                          "-o", "jsonpath={.status.conditions}"])
+        except CommandFailed as unreadable:
+            status = f"(its status could not be read either: {unreadable})"
+        raise SystemExit(f"catalog-secret was not synced by ESO (its role, its Pod Identity association, the secret?): "
+                         f"{status}; the wait said: {waited}") from waited
+    print("catalog-secret: synced by ESO", flush=True)
+
+
+def signing_key_version(stack: dict, aws) -> str:
+    """The Secrets Manager version catalog-api's key is at (AWSCURRENT). It goes into the ExternalSecret's spec, so a
+    rotation - and only a rotation - makes ESO copy the key (refreshPolicy OnChange, k8s/shop-pipeline)."""
+    name = stack.get("catalog_signing_key_secret_name")
+    if not name:  # a stack.json published before B25 (CodeRabbit, PR 118)
+        raise SystemExit("stack.json names no catalog_signing_key_secret_name: apply the stack first")
+    sm = aws("secretsmanager")
+    try:
+        stages = sm.describe_secret(SecretId=name).get("VersionIdsToStages") or {}
+    except sm.exceptions.ResourceNotFoundException:
+        raise SystemExit(f"{name} does not exist: apply the stack first") from None
+    current = [v for v, s in stages.items() if "AWSCURRENT" in s]
+    if len(current) != 1:
+        raise SystemExit(f"{name} has no current version: apply the stack first")
+    return current[0]
 
 
 def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
@@ -534,18 +603,26 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision:
     datadog = deploy_datadog(stack, kubeconfig, aws, run)
     deploy_otel(stack, kubeconfig, datadog, run)
     deploy_argocd(kubeconfig, out, run=run)
-    # What the pipeline owns. catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); the one Secret
-    # value is its signing key, generated here and sent over stdin. fs-23 removes it.
-    manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S_PIPELINE)]), {
+    # What the pipeline owns. catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); its signing key is
+    # copied by ESO from Secrets Manager (B25) - this run handles no key, only the version ESO is to hold.
+    values = {
         "REDIS_HOST": stack["redis_primary_endpoint"],
         "DB_READER_HOST": stack["aurora_reader_endpoint"],
         "DB_NAME": stack["db_name"],
         "REGION": stack["region"],
         "ENVIRONMENT": stack["environment"],
         "DB_USER_CATALOG": db_users(stack)["catalog"],
-        "CATALOG_SIGNING_KEY": secrets.token_hex(32),
-    })
+        "KEY_SECRET": stack["catalog_signing_key_secret_name"],
+        "KEY_VERSION": signing_key_version(stack, aws),
+    }
+    # The shop namespace before ESO and Reloader: their Roles go into it (CodeRabbit, PR 118 - on a new cluster it
+    # did not exist yet). The whole manifest, the namespace again included, follows them.
+    run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"],
+        input=render((K8S_PIPELINE / "namespace.yaml").read_text(encoding="utf-8"), values))
+    deploy_secret_sync(kubeconfig, out, run=run)
+    manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S_PIPELINE)]), values)
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)
+    catalog_secret_synced(kubeconfig, run)
     # The workloads: Argo CD syncs manifests/shop/<env> at exactly this commit, with this commit's image, by digest.
     rev = revision or commit()
     app = render(SHOP_APP.read_text(encoding="utf-8"), {
@@ -720,6 +797,13 @@ def _on_the_stack(args: argparse.Namespace, out: pathlib.Path, stack_path: pathl
 
 
 def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
+    try:
+        return _main(argv, aws=aws, runner=runner)
+    except CommandFailed as failed:  # a command the run needed exited non-zero: the run ends, saying which
+        raise SystemExit(str(failed)) from None
+
+
+def _main(argv: list[str] | None, *, aws=None, runner=run) -> int:
     # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and this output carries ⛔/⚠.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):

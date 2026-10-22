@@ -73,6 +73,8 @@ spec:
       kind: Deployment
       jsonPointers:
         - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt
+        # Reloader's restart when catalog-secret changes (B25, helm/reloader: reloadStrategy annotations).
+        - /spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from
     - group: apps
       kind: Deployment
       name: catalog-api

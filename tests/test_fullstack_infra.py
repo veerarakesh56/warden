@@ -388,13 +388,15 @@ def test_deployments_pass_restricted_pod_security(name, replicas):
         assert c["image"] == "shop-app:set-by-argocd"  # the commit's image, set by the shop Application
 
 
-def test_secret_is_a_template_with_no_real_value():
-    secret = next(d for d in _k8s_docs() if d["kind"] == "Secret")
-    assert secret["metadata"]["name"] == "catalog-secret"
-    assert all(re.fullmatch(r"__[A-Z_]+__", v) for v in secret["stringData"].values())
-    assert "data" not in secret
+def test_the_catalog_secret_comes_from_secrets_manager_and_no_value_is_in_git():
+    """B25: no Secret in Git or in the pipeline - ESO copies the key from Secrets Manager into catalog-secret."""
+    docs = _k8s_docs()
+    assert not [d for d in docs if d["kind"] == "Secret"]
+    external = next(d for d in docs if d["kind"] == "ExternalSecret")
+    assert external["spec"]["target"]["name"] == "catalog-secret"
     # No password (IAM login); the one key is what catalog-api refuses to start without (fs-23).
-    assert list(secret["stringData"]) == ["CATALOG_SIGNING_KEY"]
+    assert [e["secretKey"] for e in external["spec"]["data"]] == ["CATALOG_SIGNING_KEY"]
+    assert external["spec"]["data"][0]["remoteRef"]["key"] == "__KEY_SECRET__"
     assert '"CATALOG_SIGNING_KEY"' in (APPS / "app" / "app.py").read_text(encoding="utf-8")
     manifests = "".join(f.read_text(encoding="utf-8") for f in [*K8S.glob("*.yaml"), *K8S_PIPELINE.glob("*.yaml")])
     assert not re.search(r"(?i)password", re.sub(r"#[^\n]*", "", manifests))
@@ -1258,6 +1260,37 @@ def test_the_cloud_read_role_may_only_view_the_cluster():
     assert "Admin" not in block
     assert '${local.name}-platform-reader"' in tf
 
+
+def test_an_eso_refresh_never_heals_fs23():
+    """Owner decision 2026-10-20 (option B): fs-23 removes a key from catalog-secret and must stay broken until it is
+    reverted. ESO v2.13.0 re-syncs a Secret whose data changed unless creationPolicy is Orphan (isSecretValid), and
+    re-reads the provider on a timer unless refreshPolicy is OnChange (shouldRefresh) - both are required."""
+    external = next(d for d in _k8s_docs() if d["kind"] == "ExternalSecret")
+    assert external["spec"]["refreshPolicy"] == "OnChange"
+    assert external["spec"]["target"]["creationPolicy"] == "Orphan"
+    assert "refreshInterval" not in external["spec"]
+    # Rotation is the one change: the key's version in the spec (filled by the apps pipeline).
+    assert external["spec"]["target"]["template"]["metadata"]["annotations"] == {"warden.dev/key-version": "__KEY_VERSION__"}
+
+
+def test_reloader_restarts_catalog_api_on_its_secret_and_argo_cd_lets_it():
+    catalog = next(d for d in _k8s_docs() if d["kind"] == "Deployment" and d["metadata"]["name"] == "catalog-api")
+    assert catalog["metadata"]["annotations"]["secret.reloader.stakater.com/reload"] == "catalog-secret"
+    app = next(d for d in yaml.safe_load_all((ROOT / "k8s" / "argocd" / "shop.yaml").read_text(encoding="utf-8"))
+               if d and d["kind"] == "Application")
+    pointers = [p for e in app["spec"]["ignoreDifferences"] if "name" not in e for p in e["jsonPointers"]]
+    assert "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from" in pointers
+
+
+def test_eso_reads_the_one_signing_key_through_pod_identity():
+    tf = (TF / "secrets_sync.tf").read_text(encoding="utf-8")
+    assert 'Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]' in tf
+    assert "Resource = [aws_secretsmanager_secret.catalog_signing_key.arn]" in tf
+    assert 'namespace       = "external-secrets"' in tf
+    assert 'service_account = "external-secrets"' in tf
+    # The key is made at apply and written through the write-only argument: never in a plan or the state.
+    assert "secret_string_wo         = ephemeral.random_password.catalog_signing_key.result" in tf
+    assert not re.search(r"\bsecret_string\s*=", tf)  # no readable value argument, however it is spaced
 
 # --------------------------------------------------------------------------- item 4: Kubernetes and the database live
 # (the platforms themselves: tests/test_platforms_live.py)

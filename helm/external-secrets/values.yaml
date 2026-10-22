@@ -1,0 +1,49 @@
+# External Secrets Operator for the dev cluster (owner item B25): chart external-secrets 2.13.0 = ESO v2.13.0 (chart
+# released 2026-10-16, tag helm-chart-2.13.0 at 5151bd9b763d22a1f4bd6993d2c385fbc6470164; package sha256
+# f693a96f0d929a07e000dd39e68b92a1a1343c5bc440ebab091b03da30bcac3a, checked before install). Every key below is read
+# from that chart's own values.yaml (2026-10-20). Installed by the apps pipeline (scripts/deploy_fullstack_apps.py).
+# Its one job: copy the catalog signing key from Secrets Manager into shop/catalog-secret
+# (k8s/shop-pipeline/catalog-secret.yaml). Least privilege, so everything else is off.
+
+# The image by digest: ghcr.io/external-secrets/external-secrets:v2.13.0's index, read from ghcr.io on 2026-10-20.
+image:
+  tag: "v2.13.0@sha256:f799d87a6a959e597a4ba7a8d2379886292c3fcfbee678f7dc2d3566051bcb96"
+
+# The shop namespace only: a Role there, no ClusterRole that could read every Secret in the cluster.
+scopedNamespace: shop
+scopedRBAC: true
+
+# A namespaced SecretStore and ExternalSecrets only: no cluster-wide stores, no pushing secrets out, no generators.
+processClusterExternalSecret: false
+processClusterPushSecret: false
+processClusterStore: false
+processClusterGenerator: false
+processPushSecret: false
+crds:
+  createClusterExternalSecret: false
+  createClusterSecretStore: false
+  createClusterGenerator: false
+  createClusterPushSecret: false
+  createPushSecret: false
+
+rbac:
+  # The AWS provider signs in through EKS Pod Identity (terraform/fullstack/secrets_sync.tf), never a ServiceAccount
+  # token it would mint.
+  serviceAccountTokenCreate: false
+  servicebindings:
+    create: false
+  aggregateToView: false
+  aggregateToEdit: false
+  aggregateToAdmin: false
+openshiftFinalizers: false
+
+# No admission webhook and no certificate controller: they need cluster-wide rights (webhook configurations, CRDs) and
+# only validate what the pipeline itself writes.
+webhook:
+  create: false
+certController:
+  create: false
+
+# The ServiceAccount Pod Identity binds to (terraform/fullstack/secrets_sync.tf: namespace external-secrets).
+serviceAccount:
+  name: external-secrets

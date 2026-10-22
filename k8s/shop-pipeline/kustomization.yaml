@@ -1,9 +1,10 @@
 # What the apps pipeline applies itself - never Argo CD: the namespace (cluster-wide; its environment label is
-# read by WARDEN, P18), the Secret, and the infrastructure's endpoints. Rendered with `kubectl kustomize`, the
-# __PLACEHOLDERS__ filled from stack.json and a generated signing key (over stdin, never argv).
+# read by WARDEN, P18), the catalog signing key's SecretStore and ExternalSecret (B25: ESO copies the key from Secrets
+# Manager), and the infrastructure's endpoints. Rendered with `kubectl kustomize`, the __PLACEHOLDERS__ filled from
+# stack.json and the key's Secrets Manager version.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - namespace.yaml
-  - secret.yaml
+  - catalog-secret.yaml
   - infra.yaml
