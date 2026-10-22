@@ -3,7 +3,7 @@ name: "_ apps · deploy"
 # Deploy lambdas | ecs | k8s | all to ONE environment through GitHub OIDC. Called only by Deploy · <env> and
 # Deploy · <env> · on merge, from the branch of the environment's own name (owner, 2026-10-16: main deploys nothing).
 # It reads stack.json (published by the infra deploy), never terraform. The EKS API must admit the
-# runner: EKS_PUBLIC_CIDRS and EKS_ADMIN_ROLE_ARNS on that GitHub Environment. bootstrap-db is NOT here: it logs
+# runner: EKS_PUBLIC_CIDRS and EKS_OPERATOR_ROLE_ARNS on that GitHub Environment. bootstrap-db is NOT here: it logs
 # in as the master user with an IAM token signed by the OPERATOR's own identity, a grant this role lacks.
 on:
   workflow_call:

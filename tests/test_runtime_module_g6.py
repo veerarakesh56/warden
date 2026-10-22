@@ -69,7 +69,8 @@ def test_every_secret_the_runtime_reads_has_a_slot_and_no_slot_is_unused():
     read = {(n, z) for z, names in settings.ZONE_SECRETS.items() for n in names}
     read |= {(n, None) for names in settings.LAMBDA_SECRETS.values() for n in names}
     assert {n for n, _ in read} <= settings.SECRETS
-    assert slots == {_slug(n, z) for n, z in read}
+    # B24: a renamed slot's old name stays for one release (settings._OLD_SLOT), read only while the new one is empty.
+    assert slots == {_slug(n, z) for n, z in read} | set(settings._OLD_SLOT.values())
     for gone in ("grafana-read-token", "audit-dsn", "audit-key-passphrase", "temporal-key-previous", "db-dsn",
                  "alertmanager-token", "pagerduty-routing-key", "gemini-api-key", "openai-api-key", "teams-webhook"):
         assert gone not in slots, gone
@@ -287,6 +288,7 @@ def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
     for zone, v in _zones(iam).items():
         granted = set(every) | set(v["secrets"]) | {f"temporal-api-key-{zone}"}
         wanted = {settings.secret_id("dev", n, zone).removeprefix("warden/dev/") for n in settings.ZONE_SECRETS[zone]}
+        wanted |= {settings._OLD_SLOT[n] for n in settings.ZONE_SECRETS[zone] if n in settings._OLD_SLOT}  # B24
         assert granted == wanted, zone
     for policy in ("zone", "front_door"):  # each name exactly, not a prefix of another
         block = _block(iam, "aws_iam_role_policy", policy)
@@ -333,7 +335,8 @@ def test_each_zone_reads_exactly_the_secrets_its_code_reads():
             assert name in (src / module).read_text(encoding="utf-8"), (name, module)
     iam = _zones((MODULE / "iam.tf").read_text(encoding="utf-8"))
     for zone, v in iam.items():
-        assert {_slug(n, zone) for n, (_, zones) in ZONE_READS.items() if zone in zones} == (
+        old = {settings._OLD_SLOT[n] for n, (_, zones) in ZONE_READS.items() if zone in zones and n in settings._OLD_SLOT}
+        assert {_slug(n, zone) for n, (_, zones) in ZONE_READS.items() if zone in zones} | old == (
             {"temporal-key", f"temporal-api-key-{zone}"} | set(v["secrets"])), zone
 
 
