@@ -1,7 +1,9 @@
 """End to end (owner, 2026-10-20): the bundled incidents' evidence - which carries real-looking emails, addresses,
 tenant and account ids on purpose - through the diagnosis prompt, the report, every chat sink, a page and the change
 record: no raw value reaches any outbound payload or any log line, and an identifier shown "for the operator" is
-refused at Slack's door.
+refused at Slack's door. Every egress is on the ledger (#104), and no ledger row holds a value; a Lambda's log lines
+and its uncaught error pass the log gate (#110); the values are sealed where found and only an approver's reveal,
+on the signed audit first, opens them (#115, #119).
 
 Every request a sink makes goes through a stand-in for urllib's opener that runs egress.check_request on exactly the
 bytes the sink built, then answers 200 - nothing leaves the test."""
@@ -11,11 +13,15 @@ from __future__ import annotations
 import json
 import logging
 import pathlib
+import urllib.parse
 import urllib.request
 
 import pytest
+from botocore.exceptions import ClientError
 
-from warden import changes, chatops, egress, graph, web
+from test_vault import FakeKms
+from warden import changes, chatops, egress, graph, lambdas, reveal, vault, web
+from warden.audit import AuditLog
 from warden.cli import DEMO_ALERTS
 from warden.egress import EgressBlocked
 from warden.llm import LLMClient
@@ -67,8 +73,35 @@ def _raw_values(report) -> list[str]:
 
 
 @pytest.mark.parametrize("incident", sorted(DEMO_ALERTS))
-def test_no_raw_value_of_an_incident_reaches_a_prompt_a_payload_or_a_log(incident, wire, caplog):
+def test_no_raw_value_of_an_incident_reaches_a_prompt_a_payload_or_a_log(incident, wire, caplog, tmp_path):
     alert = Alert(**DEMO_ALERTS[incident])
+    ledger = AuditLog(tmp_path / "ledger.db")
+    egress.ledger_to(ledger)  # every egress below on the signed audit too, as every runtime process records it
+    try:
+        raw, prompt = _send_everything(incident, alert, caplog)
+    finally:
+        egress.forget(ledger)
+    assert {url.split("/")[2] for url, _ in wire} == {"hooks.slack.com", "slack.com", "example.webhook.office.com",
+                                                     "events.pagerduty.com", "api.github.com"}
+    for text in [prompt, *(body for _, body in wire), caplog.text]:
+        leaked = [v for v in raw if v in text]
+        assert not leaked, leaked
+    # The ledger: one row per request and one for the model call, every one passed, none holding a value.
+    rows = ledger.entries(kinds=(egress.SENT, egress.BLOCKED))
+    assert {r["kind"] for r in rows} == {egress.SENT}
+    assert {r["body"]["destination"] for r in rows} == {"anthropic", "slack-webhook", "slack", "teams-webhook",
+                                                        "pagerduty", "github"}
+    assert len([r for r in rows if r["body"]["destination"] != "anthropic"]) == len(wire)
+    lines = [r.getMessage() for r in caplog.records if r.name == "warden.egress"]
+    assert len(lines) == len(rows)
+    for text in [json.dumps([r["body"] for r in rows]), *lines]:
+        leaked = [v for v in raw if v in text]
+        assert not leaked, leaked
+
+
+def _send_everything(incident, alert, caplog) -> tuple[list[str], str]:
+    """The incident through the pipeline, the model's guard and every sink, with every request on the wire: the
+    values it masked, and the prompt the model was shown."""
     with caplog.at_level(logging.DEBUG):
         report = graph.run(alert, llm=LLMClient(mock=True))
         raw = _raw_values(report)
@@ -90,11 +123,7 @@ def test_no_raw_value_of_an_incident_reaches_a_prompt_a_payload_or_a_log(inciden
         issue = changes.GitHubIssues("o/r", "ghs_" + "canarytoken").open(f"Change on {incident}", built.markdown)
     assert all(n.delivered for n in notes), notes
     assert issue[0]
-    assert {url.split("/")[2] for url, _ in wire} == {"hooks.slack.com", "slack.com", "example.webhook.office.com",
-                                                     "events.pagerduty.com", "api.github.com"}
-    for text in [prompt, *(body for _, body in wire), caplog.text]:
-        leaked = [v for v in raw if v in text]
-        assert not leaked, leaked
+    return raw, prompt
 
 
 def test_an_identifier_shown_for_the_operator_is_refused_at_slacks_door(wire):
@@ -158,3 +187,80 @@ def test_the_lab_agent_sends_the_incidents_logs_to_datadog_masked():
                 line = re.sub(rule["pattern"], rule["replace_placeholder"], line)
             leaked = [v for v in raw if v in line]
             assert not leaked, (incident, leaked, line)
+
+
+@pytest.mark.parametrize("incident", sorted(DEMO_ALERTS))
+def test_a_lambdas_log_lines_and_uncaught_error_hold_no_value_of_the_incident(incident, monkeypatch):
+    """The log gate (#110), on each incident's own evidence: a Lambda that logs the lines it read and then fails with
+    one of them in its error writes neither raw - not to the runtime's own handler, not in what the runtime is
+    given."""
+    import io
+
+    alert = Alert(**DEMO_ALERTS[incident])
+    report = graph.run(alert, llm=LLMClient(mock=True))
+    state = {"alert": alert}
+    graph.apply_node(state, graph.node_gather(state))
+    lines, raw = list(state["context"].logs), _raw_values(report)
+    stream = io.StringIO()
+    runtime = logging.StreamHandler(stream)  # the Lambda runtime's own root handler and layout
+    runtime.setFormatter(logging.Formatter("[%(levelname)s]\treq-1\t%(message)s"))
+    monkeypatch.setattr(logging.getLogger(), "handlers", [runtime])
+
+    def handler(event, context=None):
+        for line in event["lines"]:
+            logging.getLogger("warden.lambda").warning("read %s", line)
+        raise ValueError(f"cannot parse {event['lines'][-1] if event['lines'] else alert.summary}")
+
+    with pytest.raises(lambdas.HandlerFailed) as caught:
+        lambdas._gated(handler)({"lines": lines})
+    for text in (stream.getvalue(), str(caught.value)):
+        leaked = [v for v in raw if v in text]
+        assert not leaked, leaked
+    assert "ValueError" in stream.getvalue()
+
+
+_SEALED_INCIDENTS = [i for i in sorted(DEMO_ALERTS) if i != "inc-004"]  # inc-004's evidence holds no value to mask
+
+
+@pytest.mark.parametrize("incident", _SEALED_INCIDENTS)
+def test_the_values_are_sealed_where_found_and_only_an_approvers_reveal_opens_them(incident, tmp_path):
+    """The vault and the reveal (#115, #119) on each incident's real map: the signed audit and the vault table hold
+    no value; the model's prompt holds no stable id; the read zone cannot open what it sealed; a person who is not
+    an approver is refused; an approver's reveal is on the audit (without the value) before the value is shown."""
+    alert = Alert(**DEMO_ALERTS[incident])
+    report = graph.run(alert, llm=LLMClient(mock=True))
+    raw = _raw_values(report)
+    log = AuditLog(tmp_path / "a.db")
+    reader = vault.Vault(key="alias/warden-ops-vault", environment="ops", kms=FakeKms("read"),
+                         mac_key="alias/warden-ops-pseudonym")
+    digest = vault.seal_incident(log, incident, report.redaction_map, vault=reader)  # prepare's own call
+    assert digest
+    stored = vault.sealed_row(log, incident, digest)
+    on_record = json.dumps([r["body"] for r in log.entries(incident)]) + json.dumps(stored)
+    assert not [v for v in raw if v in on_record]
+    state = {"alert": alert}
+    for node in (graph.node_ingest, graph.node_gather, graph.node_redact):
+        graph.apply_node(state, node(state))
+    prompt = graph._evidence_blob(state)
+    [index] = log.entries(incident, kinds=(vault.INDEX,))
+    ids = [e["pseudonym"] for e in index["body"]["entries"]]
+    assert ids
+    assert not [i for i in ids if i in prompt]
+    with pytest.raises(ClientError):
+        reader.open(stored)
+    opener = vault.Vault(key="alias/warden-ops-vault", environment="ops", kms=FakeKms("approval"))
+    cookie, member = "c" * 43, "U" + "0APPROVER"
+    first = index["body"]["entries"][0]["placeholder"]
+    form = urllib.parse.urlencode([("reveal", "1"), ("t", reveal.token(cookie, incident)),
+                                   ("why", "which customer the incident hit"), ("p", first)])
+    status, page = reveal.reveal(log, incident, member="U" + "0VIEWER", cookie=cookie, form=form, approver=False,
+                                 opener=opener)
+    assert status == 403
+    assert not [v for v in raw if v in page]
+    status, page = reveal.reveal(log, incident, member=member, cookie=cookie, form=form, approver=True,
+                                 opener=opener)
+    assert status == 200
+    assert report.redaction_map[first] in page
+    rows = log.entries(incident, kinds=(reveal.REVEAL, reveal.ATTEMPT_REFUSED))
+    assert [r["kind"] for r in rows] == [reveal.ATTEMPT_REFUSED, reveal.REVEAL]
+    assert not [v for v in raw if v in json.dumps([r["body"] for r in rows])]
