@@ -10,11 +10,13 @@ import json
 import pathlib
 
 import pytest
+from temporalio import workflow
 
 import fakes
 import test_eldane_autonomy as base
 import test_eldane_critique as debate
 from warden import approvals, critique, eldane_slack, settings
+from warden.workflows import RemediationWorkflow
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "warden"
@@ -370,6 +372,22 @@ def test_every_slack_request_eldane_and_warden_send_passes_the_real_egress_check
     assert "thread_ts" in sent[1].data.decode()
 
 
+@workflow.defn(name="RemediationWorkflowSlackInline")
+class _SlackInline(RemediationWorkflow):
+    """The order before the review of #171, for the plant check below: the Slack conversation awaited inside the
+    critic step, before the person is asked. A test-only workflow (Temporal needs it defined at module level)."""
+
+    @workflow.run
+    async def run(self, req):
+        return await super().run(req)
+
+    async def _critic(self, req, acts, plan, accepted):
+        got = await super()._critic(req, acts, plan, accepted)
+        if self._eldane_said is not None:
+            await self._eldane_said  # every Slack step finishes before the person is asked
+        return got
+
+
 def _with_slack_hung(world, workflow_cls, *, sandboxed=True):
     """A dev plan Eldane does not approve, run under `workflow_cls`, with Eldane's first Slack step hung. The stage the
     plan reached within 5 s, and the outcome once the owner says no."""
@@ -438,28 +456,12 @@ def test_a_hung_slack_never_delays_the_persons_request(world, slack):
     assert out.status == "denied"
     assert world["platform"].applied == []
     said = [e["body"].get("what") for e in world["log"].entries(base.INC, kinds=("remediation.announce",))]
-    assert "opening" in said
+    assert said[0] == "waiting"  # the person's request went out first, while Slack still hung
 
 
 def test_the_check_above_catches_a_conversation_awaited_in_the_decision_path(world, slack):
     """The plant check of the test above, run where Temporal runs (CI): the order before the review of #171 - the
     conversation awaited before the person is asked - never reaches the approval wait while Slack hangs."""
-    from temporalio import workflow
-
-    from warden.workflows import RemediationWorkflow
-
-    @workflow.defn(name="RemediationWorkflowSlackInline")
-    class Inline(RemediationWorkflow):
-        @workflow.run
-        async def run(self, req):
-            return await super().run(req)
-
-        async def _critic(self, req, acts, plan, accepted):
-            got = await super()._critic(req, acts, plan, accepted)
-            if self._eldane_said is not None:
-                await self._eldane_said  # the old order: every Slack step finishes before the person is asked
-            return got
-
-    stage, out = _with_slack_hung(world, Inline, sandboxed=False)
+    stage, out = _with_slack_hung(world, _SlackInline, sandboxed=False)
     assert stage != "awaiting_approval"
     assert out.status == "denied"
