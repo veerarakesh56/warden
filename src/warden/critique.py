@@ -139,7 +139,7 @@ def answer(log: Any, incident: str, provider: Any, user: str, objections: list[O
     ts, started = llm.now_iso(), time.monotonic()
     try:
         got = provider.complete(system=REBUT, user=asked, schema=Rebuttals)
-    except Exception as exc:  # noqa: BLE001 - any provider error means WARDEN answered nothing, so it concedes all
+    except Exception as exc:  # noqa: BLE001  # any provider error: WARDEN answered nothing, so it concedes all
         log.append(incident, "eldane.call", {**row, "ok": False, "error": type(exc).__name__,
                                              "latency_ms": llm.elapsed_ms(started)})
         model_call(log, incident, provider, ts, started, None, row)

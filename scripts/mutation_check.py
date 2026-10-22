@@ -487,7 +487,7 @@ MUTATIONS = [
     (
         "a provider error in WARDEN's answer to Eldane crashes the review",
         _CRITIQUE,
-        '    except Exception as exc:  # noqa: BLE001 - any provider error means WARDEN answered nothing, so it concedes all',
+        '    except Exception as exc:  # noqa: BLE001  # any provider error: WARDEN answered nothing, so it concedes all',
         '    except (ValueError, RuntimeError, OSError) as exc:',
         "an SDK error would crash the review activity instead of ending the debate with a no",
     ),
