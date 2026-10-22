@@ -253,6 +253,14 @@ def test_a_query_is_checked_and_a_number_in_it_is_a_number():
         egress.check_request(f"https://api.github.com/search?q={EMAIL}", None, {}, "GET")
 
 
+def test_a_digit_only_query_value_is_excused_from_phone_only():
+    """A number in a query (an epoch time, a page size) is not a phone; an AWS account id in one still blocks."""
+    egress.check_request("https://api.github.com/repos/owner/repo/actions/runs?per_page=4155550100", None, {}, "GET")
+    url = f"https://api.github.com/search?q={ACCOUNT}"
+    with pytest.raises(EgressBlocked, match="ACCOUNTID"):
+        egress.check_request(url, None, {}, "GET")
+
+
 def test_the_private_network_is_not_content_checked():
     """The private network is inside: recorded on connect, not scanned. (A urllib body to an AWS name is: below.)"""
     egress.check_request("http://10.0.3.22:8080/x", f"user {EMAIL}".encode(), {}, "POST")

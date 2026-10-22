@@ -285,14 +285,15 @@ def kinds_in(text: str) -> list[str]:
 
 
 def _query_kinds(query: str, *, skip_amz: bool = False) -> list[str]:
-    """As kinds_in, for a URL's query values: a value that is only digits is a number (an epoch time, a page size),
-    not a phone number. `skip_amz`: AWS's own presigned parameters (`X-Amz-Credential`, `X-Amz-Signature`, ...)."""
+    """As kinds_in, for a URL's query values: a value that is only (ASCII) digits is a number (an epoch time, a page
+    size), so it is not read as a PHONE - every other kind it carries still blocks, an AWS account id first of all.
+    `skip_amz`: AWS's own presigned parameters (`X-Amz-Credential`, `X-Amz-Signature`, ...)."""
     found: set[str] = set()
     for key, value in urllib.parse.parse_qsl(query, keep_blank_values=True):
         if skip_amz and key.lower().startswith("x-amz-"):
             continue
-        if not _DIGITS.fullmatch(value):
-            found.update(kinds_in(value))
+        number = bool(_DIGITS.fullmatch(value))
+        found.update(k for k in kinds_in(value) if not (number and k == "PHONE"))
     return sorted(found)
 
 
