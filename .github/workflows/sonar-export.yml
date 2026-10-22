@@ -54,7 +54,7 @@ jobs:
                       print(f"W|{msg}")
           except SystemExit as e:
               print("=== WARNINGS unreadable:", e)
-          # export run: main's open maintainability issues and the latest analysis warnings, after PR 113 (2026-10-22 ~00:55 UTC)
+          # export run: main's open maintainability issues with their secondary locations, after PR 113 (2026-10-22 ~01:00 UTC)
           page, seen = 1, 0
           while True:
               d = get(f"https://sonarcloud.io/api/issues/search?componentKeys=veerarakesh56_warden&branch=main&issueStatuses=OPEN,CONFIRMED&impactSoftwareQualities=MAINTAINABILITY&ps=500&p={page}")
@@ -63,6 +63,10 @@ jobs:
               for i in d["issues"]:
                   comp = i["component"].split(":", 1)[-1]
                   print(f"M|{i['rule']}|{comp}|{i.get('line', '')}|{i['key']}|{i['message'][:120]}")
+                  for flow in i.get("flows", []):
+                      for loc in flow.get("locations", []):
+                          r = loc.get("textRange", {})
+                          print(f"  FLOW|{loc.get('component', '').split(':', 1)[-1]}|{r.get('startLine')}-{r.get('endLine')}|{loc.get('msg', '')}")
               seen += len(d["issues"])
               if seen >= d["total"] or not d["issues"]:
                   break
