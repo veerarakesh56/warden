@@ -210,6 +210,18 @@ def test_the_gemini_key_goes_only_to_google(monkeypatch):
     assert client._api_client._http_options.base_url == "https://generativelanguage.googleapis.com/"
 
 
+@pytest.mark.parametrize("switch", ["GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE"])
+def test_the_environment_cannot_turn_the_gemini_client_into_vertex(monkeypatch, switch):
+    """The SDK reads these itself: either one made the AI Studio key a Vertex client, sent elsewhere - and from
+    google-genai 2.30 rewritten to the mTLS endpoint when a client certificate is configured."""
+    pytest.importorskip("google.genai", reason="pip install -e '.[gemini]'")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-construction-only")
+    monkeypatch.setenv(switch, "true")
+    api = resolve("gemini")._client._api_client
+    assert api.vertexai is False
+    assert api._http_options.base_url == "https://generativelanguage.googleapis.com/"
+
+
 @pytest.mark.parametrize("alias", ["groq", "openrouter"])
 def test_openai_org_and_project_ids_stay_with_openai(monkeypatch, alias):
     """Second review: the OpenAI SDK reads OPENAI_ORG_ID / OPENAI_PROJECT_ID itself and sent them to
