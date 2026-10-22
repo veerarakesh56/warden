@@ -183,6 +183,7 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     Entry("ecs_restart_service", "T1", "ecs", "n/a (same task definition, new tasks)", _ref("cluster", "service")),
     Entry("ecs_scale_service", "T1", "ecs", BOUNDED_INCREASE,
           {**_ref("cluster", "service"), "replicas": Param("int", 1, 100)}, _scale_up_by_two),
+    # Advice only (B17, option B): no platform carries it out (ADVICE_ONLY) - a rollback happens in Git or Argo CD.
     Entry("k8s_rollout_undo", "T2", "k8s", "the last revision that was Ready",
           _ref("namespace", "deployment", "to_revision")),
     Entry("k8s_restart", "T1", "k8s", "n/a (same spec, new pods)", _ref("namespace", "deployment")),
@@ -310,8 +311,9 @@ def risks_of(entry: str) -> tuple[str, ...]:
 # Which entries can carry out what the model proposed, per platform. An action with no entry is
 # advice only: it escalates to a person.
 FOR_ACTION: dict[ActionKind, dict[str, str]] = {
-    ActionKind.rollback_deploy: {"lambda": "lambda_move_alias", "ecs": "ecs_rollback_service",
-                                 "k8s": "k8s_rollout_undo"},
+    # B17 (owner decision 2026-10-20, option B): no Kubernetes rollback is planned - an undo writes the pod template,
+    # which the remediator's admission policy refuses on purpose (k8s/remediation-rbac.yaml). ADVICE says what to do.
+    ActionKind.rollback_deploy: {"lambda": "lambda_move_alias", "ecs": "ecs_rollback_service"},
     ActionKind.restart_pods: {"k8s": "k8s_restart", "ecs": "ecs_restart_service"},
     ActionKind.scale_up: {"k8s": "k8s_scale", "lambda": "lambda_set_reserved_concurrency",
                           "dynamodb": "dynamodb_raise_capacity", "ecs": "ecs_scale_service"},
@@ -557,6 +559,14 @@ REVERT_ALSO = {"lambda": ("lambda_restore_settings",), "asg": ("asg_resume_proce
 REVERT_ELSE = {"lambda": ("lambda_enable_esm", "mapping")}
 
 
+# What a person does where WARDEN deliberately plans nothing (B17): said with the refusal, beside the diagnosis.
+ROLLBACK_IN_GIT = ("roll back in Git, or in Argo CD (its History and Rollback), so the change and its undo are both "
+                   "reviewed; WARDEN never writes a Deployment's pod template - its admission policy refuses it")
+ADVICE: dict[tuple[ActionKind, str], str] = {(ActionKind.rollback_deploy, "k8s"): ROLLBACK_IN_GIT}
+# Entries kept for the record and the request tool, which no platform carries out: refused with the advice.
+ADVICE_ONLY = {"k8s_rollout_undo": ROLLBACK_IN_GIT}
+
+
 def for_action(action: ActionKind, platform: str) -> Entry | None:
     name = FOR_ACTION.get(action, {}).get(platform)
     return CATALOG[name] if name else None
@@ -583,8 +593,9 @@ SCALES = frozenset({"k8s_scale", "dynamodb_raise_capacity", "ecs_scale_service"}
 def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[str]:
     """Every reason these parameters must not be applied. `live` holds what WARDEN read: for a `ref`
     parameter a set of allowed values, plus the current values `relative` limits need."""
-    if name in EXCLUDED or name not in CATALOG:
-        return [f"{name!r} is not in the catalogue"]
+    refused = _refused_outright(name, live)
+    if refused:
+        return refused
     entry = CATALOG[name]
     problems = [f"unexpected parameter {p!r}" for p in params if p not in entry.params]
     for pname, spec in entry.params.items():
@@ -604,6 +615,22 @@ def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[st
         problems.append("P21-ROLLOUT-IN-PROGRESS: a rollout of this target is under way; act after it completes "
                         "or misses its deadline")
     return problems
+
+
+def _refused_outright(name: str, live: dict[str, Any]) -> list[str]:
+    """An entry no parameters can make valid: not in the catalogue, or advice only (B17) with nothing read for it."""
+    if name in EXCLUDED or name not in CATALOG:
+        return [f"{name!r} is not in the catalogue"]
+    if name in ADVICE_ONLY and not live:
+        return [f"{name} is advice only: {ADVICE_ONLY[name]}"]
+    return []
+
+
+def no_entry(action: ActionKind, platform: str | None) -> str:
+    """Why no catalogue entry carries out `action` on `platform`, with the advice for it when there is one (B17)."""
+    advice = ADVICE.get((action, platform))
+    said = f"no catalogue entry carries out {action.value} on {platform}"
+    return f"{said} - {advice}" if advice else said
 
 
 def _param_problem(pname: str, spec: Param, params: dict[str, Any], live: dict[str, Any]) -> str | None:
