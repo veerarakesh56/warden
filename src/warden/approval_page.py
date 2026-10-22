@@ -672,12 +672,13 @@ class ApprovalPage:
                                                             near=records.neighbours(ids, one.id, asked) + link))
 
     def _may_reveal(self, member: str, one: Any) -> bool:
-        """An approver for the incident's environment (an entry with no environment list: every one). A viewer
-        (WARDEN_RECORD_VIEWERS) may read the record and never reveal a masked value (owner-safe default, review
-        2026-10-21; a passkey step-up is an open owner decision)."""
+        """An approver who may approve in the incident's environment - approvals.environment_refusal, the one rule
+        every approval path uses: the approver's own environment list and the bench approver's nonprod-only limit
+        (review, PR 119). A viewer (WARDEN_RECORD_VIEWERS) may read the record and never reveal a masked value
+        (owner-safe default, review 2026-10-21; a passkey step-up is an open owner decision)."""
         env = str(one.environment or "")
-        return any(a.slack == member and (not a.environments or env in a.environments)
-                   for a in self.policy.approvers.values() if a.slack)
+        return any(a.slack == member and approvals.environment_refusal(name, a, env) is None
+                   for name, a in self.policy.approvers.items() if a.slack)
 
     def _masked(self, one: Any, member: str, cookie: str, method: str, body: str) -> Response:
         """An incident's masked values, and their reveal for this reader (reveal.py): its own form, POSTed to itself

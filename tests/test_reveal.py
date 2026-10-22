@@ -211,6 +211,41 @@ def test_a_viewer_reads_the_record_but_never_reveals(site, monkeypatch):
     assert row["body"]["problem"] == "not an approver"
 
 
+def test_a_non_approvers_refused_attempts_stop_being_written_at_the_limit(site, monkeypatch):
+    """Review (PR 119): a signed-in viewer POSTing again and again does not grow the signed audit without bound."""
+    page, log, _, _ = site
+    monkeypatch.setenv("WARDEN_RECORD_VIEWERS", OTHER)
+    monkeypatch.setattr(reveal, "MAX_PER_HOUR", 2)
+    viewer = slack_login.remember(page.slack, OTHER)
+    form = urllib.parse.urlencode([("reveal", "1"), ("t", reveal.token(viewer, INC)), ("why", "x" * 20),
+                                   ("p", "<EMAIL_1>")])
+    assert [_post(page, viewer, form).status for _ in range(4)] == [403, 403, 429, 429]
+    assert len(log.entries(INC, kinds=(reveal.ATTEMPT_REFUSED,))) == 2
+
+
+def test_the_bench_approver_never_reveals_outside_a_nonprod_environment(site, monkeypatch):
+    """Review (PR 119): the reveal applies approvals.environment_refusal whole - the bench approver, a test
+    identity, approves (and so reveals) only in a nonprod environment. Here the incident's environment is made a
+    prod-tier one."""
+    import types
+
+    from warden import approvals
+
+    page, log, cookie, _ = site
+    prod = types.SimpleNamespace(known_environments={"dev"}, for_env=lambda _env: types.SimpleNamespace(tier="prod"))
+    monkeypatch.setattr(approvals.environments, "default_environment_policies", lambda: prod)
+    assert _get(page, cookie).status == 200  # the owner is no bench approver
+    page.policy.approvers["owner"].name = "Bench approver"
+    assert _get(page, cookie).status == 403
+    assert _post(page, cookie, _form_for(cookie)).status == 403
+    assert not log.entries(INC, kinds=(reveal.REVEAL,))
+
+
+def _form_for(cookie):
+    return urllib.parse.urlencode([("reveal", "1"), ("t", reveal.token(cookie, INC)), ("why", "x" * 20),
+                                   ("p", "<EMAIL_1>")])
+
+
 def test_a_reader_limited_to_another_environment_learns_nothing(site):
     page, log, cookie, _ = site
     page.policy.approvers["owner"].environments = ["prod"]  # the incident is dev's

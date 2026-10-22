@@ -163,6 +163,10 @@ def reveal(log: Any, incident: str, *, member: str, cookie: str, form: str | Non
 
     if not approver:
         if form is not None:
+            # The hourly limit first: refused attempts stop being written once a reader reaches it (review, PR 119).
+            now = (now or datetime.now(UTC)).astimezone(UTC)
+            if _recent(log, member, now) >= MAX_PER_HOUR:
+                return 429, message_page(incident, f"At most {MAX_PER_HOUR} reveals an hour; try again later.")
             _refuse(log, incident, member, "not an approver", [])
         return 403, message_page(incident, "Only an approver for this environment may see or reveal masked values.")
     index = latest_index(log, incident)
