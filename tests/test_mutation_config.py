@@ -114,6 +114,13 @@ def test_targets(changed, expected):
     assert mutation_ci.targets(changed, mutation_ci.safety_modules()) == expected
 
 
+def test_a_hanging_mutant_is_stopped_in_minutes_not_half_an_hour():
+    """PR 179: with mutmut's default multiplier (15) a mutant that hangs held a worker ~27 minutes; 3 keeps 6x the
+    clean time as headroom (mutmut's limit is (clean time + 1 s) x multiplier x 2)."""
+    multiplier = _pyproject()["tool"]["mutmut"]["timeout_multiplier"]
+    assert 2.0 <= multiplier <= 5.0
+
+
 def test_one_matrix_job_per_safety_module():
     """PR 179: all modules in one job (~5,200 mutants) ran past the job's timeout; one job per module, each
     its own cache, and the matrix is exactly pyproject's list."""
