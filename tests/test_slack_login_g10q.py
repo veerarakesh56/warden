@@ -91,8 +91,9 @@ def test_the_member_is_whoever_slack_says_and_every_other_answer_is_refused():
 def test_the_authorize_address_is_slacks_with_state_and_nonce_and_the_feature_is_off_without_both_settings(monkeypatch):
     url = urllib.parse.urlparse(_login().authorize_url(redirect_uri="https://x.test/s/callback", state="st", nonce="no"))
     asked = urllib.parse.parse_qs(url.query)
-    sent_to = f"{url.scheme}://{url.netloc}{url.path}"
-    assert sent_to == slack_login.AUTHORIZE_ENDPOINT
+    # The address without its query, compared actual first like every other assertion in this file (Sonar S3415
+    # read a local built from an f-string as the expected value).
+    assert url._replace(query="").geturl() == slack_login.AUTHORIZE_ENDPOINT
     assert asked == {"response_type": ["code"], "scope": ["openid profile"], "client_id": [CLIENT], "state": ["st"],
                      "nonce": ["no"], "redirect_uri": ["https://x.test/s/callback"]}
     for name in ("WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET"):
