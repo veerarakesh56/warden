@@ -19,7 +19,11 @@ PINNED = ("activities.py", "approval_page.py", "approvals.py", "autonomy.py", "b
 
 def files() -> list[str]:
     data = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / PACKAGE / "data").rglob("*") if p.is_file())
-    return [f"{PACKAGE}/{name}" for name in PINNED] + data
+    return [f"{PACKAGE}/{name}" for name in (*PINNED, *GUARDS)] + data
+
+
+# Guards that live outside PINNED's modules: the Temporal endpoint guard (B23, runtime_base.only_the_namespace_endpoint).
+GUARDS = ("runtime_base.py",)
 
 
 def render() -> str:
