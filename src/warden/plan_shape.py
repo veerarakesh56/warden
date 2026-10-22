@@ -138,12 +138,15 @@ def check(plan: dict[str, Any]) -> Shape:
             problems.append(problem)
     if len(changes) > MAX_CHANGES:
         problems.append(f"{len(changes)} changes: more than {MAX_CHANGES} in one plan go to a person")
-    # CodeRabbit, #171: what a plan does besides its resource changes - provider actions it invokes, changes Terraform
-    # deferred - is not in resource_changes, so it is never read as an empty or approvable plan.
-    for key, said in (("action_invocations", "invokes provider actions"), ("deferred_changes", "defers changes")):
-        if plan.get(key):
-            problems.append(f"the plan {said} ({key}), which this policy does not read: a person reviews it")
-    return Shape(changes, problems)
+    return Shape(changes, problems + _outside(plan))
+
+
+def _outside(plan: dict[str, Any]) -> list[str]:
+    """CodeRabbit, #171: what a plan does besides its resource changes - provider actions it invokes, changes Terraform
+    deferred - is not in resource_changes, so a plan holding any is never read as empty or approvable."""
+    return [f"the plan {said} ({key}), which this policy does not read: a person reviews it"
+            for key, said in (("action_invocations", "invokes provider actions"), ("deferred_changes", "defers changes"))
+            if plan.get(key)]
 
 
 def summary(changes: list[Change]) -> tuple[str, set[str]]:

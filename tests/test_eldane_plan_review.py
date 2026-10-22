@@ -373,7 +373,8 @@ def test_a_yes_with_an_objection_on_a_saved_plan_is_a_no():
 def test_an_endpoint_policy_is_access():
     shape = plan_shape.check(_plan(_rc("aws_vpc_endpoint_policy.s3", ["update"], before={"policy": "a"},
                                        after={"policy": "b"})))
-    assert shape.problems and "changes access" in shape.problems[0]
+    assert len(shape.problems) == 1
+    assert "changes access" in shape.problems[0]
 
 
 def _many(**extra):
@@ -387,7 +388,8 @@ def test_a_function_whose_role_changes_is_access_even_past_the_capped_attribute_
     before = {**before, "role": "arn:aws:iam::" + "1" * 12 + ":role/old"}
     shape = plan_shape.check(_plan(_rc("aws_lambda_function.orders", ["update"], before=before, after=after)))
     assert "role" not in shape.changes[0].attributes  # past the cap of what a model is shown
-    assert shape.problems and "changes the role it runs as (role, update)" in shape.problems[0]
+    assert len(shape.problems) == 1
+    assert "changes the role it runs as (role, update)" in shape.problems[0]
 
 
 def test_a_task_definition_replaced_with_a_role_not_known_until_apply_is_access():
@@ -396,7 +398,8 @@ def test_a_task_definition_replaced_with_a_role_not_known_until_apply_is_access(
              before={"execution_role_arn": "e1", "cpu": "256"},
              after={"execution_role_arn": "e1", "cpu": "512"}, unknown={"task_role_arn": True})
     shape = plan_shape.check(_plan(rc))
-    assert shape.problems and "task_role_arn" in shape.problems[0]
+    assert len(shape.problems) == 1
+    assert "task_role_arn" in shape.problems[0]
 
 
 def test_a_function_update_that_keeps_its_role_is_not_access():
@@ -410,7 +413,8 @@ def test_a_plan_with_actions_or_deferred_changes_is_never_empty_or_approved(key)
     plan = {"format_version": "1.2", key: [{"address": "action.aws_lambda_invoke.x"}]}
     shape = plan_shape.check(plan)
     assert shape.changes == []
-    assert shape.problems and key in shape.problems[0]
+    assert len(shape.problems) == 1
+    assert key in shape.problems[0]
     got = _review(plan)
     assert got.approved is False
 
