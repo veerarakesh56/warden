@@ -197,7 +197,7 @@ resource "aws_lambda_permission" "alarms" {
 # An alarm that never reached intake pages a person: the dead-letter queue is never silently full.
 resource "aws_cloudwatch_metric_alarm" "alarm_dlq" {
   alarm_name          = "warden-${var.environment}-alarm-dlq"
-  alarm_description   = "An alarm change or an actor session did not reach WARDEN after every retry. Read the queue and handle it by hand: docs/RUNBOOK-WARDEN-INCIDENT.md."
+  alarm_description   = "An alarm change or an actor session did not reach WARDEN after every retry, or WARDEN's function failed on it every time. Read the queue and handle it by hand: docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "AWS/SQS"
   metric_name         = "ApproximateNumberOfMessagesVisible"
   dimensions          = { QueueName = aws_sqs_queue.alarm_dlq.name }
@@ -209,6 +209,29 @@ resource "aws_cloudwatch_metric_alarm" "alarm_dlq" {
   treat_missing_data  = "notBreaching"
   alarm_actions       = [var.page_topic_arn]
   tags                = { Project = "warden", Environment = var.environment }
+}
+
+# B35 self-alarms: EventBridge hands an event to a Lambda asynchronously, and the targets' dead-letter queue above keeps
+# only an event it could not hand over (no function, no permission). An error INSIDE the function - Temporal or the
+# audit unreachable, a bug - was retried twice by Lambda and then dropped: the errors alarm paged, but the alarm
+# itself was gone. Lambda's own on-failure destination keeps it, in the same queue, which pages (alarm_dlq) and holds
+# it 14 days for a person to replay. The functions EventBridge invokes: the alarm intake and the actor-use check.
+locals {
+  async_front_doors = ["alarm", "actor-use"]
+}
+
+resource "aws_lambda_function_event_invoke_config" "front_door" {
+  for_each                     = toset(local.async_front_doors)
+  function_name                = aws_lambda_function.front_door[each.key].function_name
+  maximum_retry_attempts       = 2
+  maximum_event_age_in_seconds = 21600
+  destination_config {
+    on_failure {
+      destination = aws_sqs_queue.alarm_dlq.arn
+    }
+  }
+  # Lambda checks, when this is set, that the function's role may send to the queue (iam.tf, KeepWhatFailed).
+  depends_on = [aws_iam_role_policy.front_door]
 }
 
 # --------------------------------------------------------------------------- the HTTP API

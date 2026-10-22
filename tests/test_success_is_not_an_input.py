@@ -41,7 +41,7 @@ def test_a_replayed_healthy_result_does_not_verify_a_fix():
         acts = RemediationActivities(audit=log, policy=policy, platform=platform,
                                      limits=bounds.Limits(cooldown=timedelta(0)))
         every = [acts.resolve_plan, acts.gate, acts.check_approval, acts.precheck, acts.apply, acts.check_success,
-                 acts.record_result, acts.rollback, acts.finish]
+                 acts.record_result, acts.rollback, acts.finish, acts.approval_wait, acts.approval_extension]
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env:
             ns, svc = env.client.namespace, env.client.workflow_service
