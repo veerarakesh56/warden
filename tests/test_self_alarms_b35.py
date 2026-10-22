@@ -294,9 +294,13 @@ class _Class44(psycopg.OperationalError):
     sqlstate = "44000"
 
 
-@pytest.mark.parametrize("error", [psycopg.OperationalError("gone"), psycopg.errors.DiskFull("full"),
-                                   psycopg.errors.AdminShutdown("stopped"), _Class44("gone")])
-def test_the_audit_database_gone_or_full_is_one_error_line(caplog, error):
+# Built in the test, not at collection: the error line marks the exception it said, and a collected instance is
+# shared by every run in the process - mutmut's clean run after its stats run found it already said (CI, 2026-10-22).
+@pytest.mark.parametrize("kind", [(psycopg.OperationalError, "gone"), (psycopg.errors.DiskFull, "full"),
+                                  (psycopg.errors.AdminShutdown, "stopped"), (_Class44, "gone")])
+def test_the_audit_database_gone_or_full_is_one_error_line(caplog, kind):
+    error_type, text = kind
+    error = error_type(text)
     caplog.set_level(logging.INFO)
     store = _store(error)
     with pytest.raises(type(error)):
