@@ -123,3 +123,20 @@ def test_the_vault_writer_cannot_delete_and_the_purge_takes_only_expired_rows(fr
         assert db.execute("SELECT warden_vault_purge()").fetchone()[0] == 1
         assert [r[0] for r in db.execute("SELECT incident FROM vault").fetchall()] == ["inc-new"]
         db.execute("RESET ROLE")
+
+
+def test_parallel_reveals_admit_exactly_the_slots_left_on_postgresql(fresh, monkeypatch):
+    """The reveal's hourly limit on a real PostgreSQL (review, PR 119): the count is read inside the reveal row's own
+    append, under the chain's advisory lock, so 6 parallel reveals with 2 slots left admit exactly 2."""
+    import psycopg
+    from tests.fakes import race_reveals
+
+    from warden import vault
+
+    with psycopg.connect(fresh, autocommit=True) as db:
+        db.execute("DROP TABLE IF EXISTS vault CASCADE")
+    vault.migrate(fresh)
+    statuses, rows, decrypts = race_reveals(lambda: audit.AuditLog(fresh), monkeypatch)
+    assert statuses == [200, 200, 429, 429, 429, 429]
+    assert rows == 4
+    assert decrypts == 2
