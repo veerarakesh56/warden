@@ -1060,7 +1060,9 @@ class RemediationActivities:
         approvers = {e["body"].get("approver") for e in self.audit.entries(plan.incident_id, kinds=(_ACCEPTED_ROW,))
                      if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                      and e["body"].get("plan_hash") == plan.plan_hash}
-        return {"incident": plan.incident_id, "plan_hash": plan.plan_hash, "approvers": sorted(a for a in approvers if a)}
+        # run_id: this apply's Temporal run - a platform that cannot tag a session names its write by it (infra.py).
+        return {"incident": plan.incident_id, "plan_hash": plan.plan_hash, "approvers": sorted(a for a in approvers if a),
+                "run_id": run}
 
     def _blocked(self, plan: Plan) -> list[str]:
         """The kill switch, the bounds and the change freezes (register C6, P19), at the gate and again right
@@ -1119,7 +1121,8 @@ class RemediationActivities:
         applied = [e["at"] for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
                    if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                    and e["body"].get("plan_hash") == plan.plan_hash]
-        params = {**plan.params, **({catalog.APPLIED_AT: applied[-1].isoformat()} if applied else {})}
+        params = {**plan.params, **({catalog.APPLIED_AT: applied[-1].isoformat(), catalog.APPLIED_RUN: run}
+                                    if applied else {})}
         if routed and "params" in inspect.signature(routed).parameters:
             healthy = bool(routed(plan.entry, service, params=params, **_env(routed, plan.environment)))
         else:

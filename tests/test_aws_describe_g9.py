@@ -65,9 +65,19 @@ def test_every_entry_is_one_read_and_the_reader_role_grants_it():
         verb = d.action.split(":", 1)[1]
         assert verb == "GET" or verb.startswith(("Describe", "Get", "List")), (key, d.action)
         assert d.action in granted, (key, d.action)
-    for never in ("s3:GetObject", "dynamodb:GetItem", "dynamodb:Scan", "kinesis:GetRecords", "sqs:ReceiveMessage",
+    for never in ("dynamodb:GetItem", "dynamodb:Scan", "kinesis:GetRecords", "sqs:ReceiveMessage",
                   "secretsmanager:GetSecretValue", "ssm:GetParameter", "kms:Decrypt"):
         assert never not in granted, never
+    # No object of any bucket - with ONE exception (B17, platforms/infra.py): the kept infra plans' metadata, in its own
+    # statement, on `<state bucket>/<stack>/plans/*.json` only - never the state, which holds secrets.
+    objects = [s for s in reader_iam.statements() if "s3:GetObject" in ([s["Action"]] if isinstance(s["Action"], str)
+                                                                       else s["Action"])]
+    assert [s["Sid"] for s in objects] == ["KeptInfraPlanMetadataOnly"]
+    assert objects[0]["Action"] == "s3:GetObject"
+    assert objects[0]["Resource"] == [f"arn:aws:s3:::warden-${{env}}-tfstate-*/{stack}/plans/*.json"
+                                      for stack in ("fullstack", "undo-lab")]
+    # ... and only in the reader's own account (the state bucket is the environment's, in the same account).
+    assert objects[0]["Condition"] == {"StringEquals": {"aws:ResourceAccount": "$${aws:PrincipalAccount}"}}
 
 
 # Actions AWS lets a policy scope to a resource, by its name (warden-<env>-*) or, for ID-named resources, by its

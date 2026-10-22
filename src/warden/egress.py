@@ -38,6 +38,9 @@ Honest limits:
 - Behind a proxy (HTTPS_PROXY), a client other than urllib looks up the proxy's name, not its target's: the name
   check cannot see where such a client goes through the proxy (urllib's requests are still checked by their real
   address). The runtime sets no proxy; a laptop that does keeps that limit.
+- A structured body's value that is only digits is not read as a phone (an id, a count): every other kind in it
+  still blocks. A GitHub run id is 11 digits today; one of 12 would read as an AWS account id, and the guard would
+  refuse that infra dispatch rather than let it out - a person sees egress_blocked (PR 113).
 - tests/test_egress.py holds the static inventory of every module that opens a network client.
 - The hook is installed by the processes that talk to a real environment (`warden ...` with WARDEN_ENV set, every
   Lambda). The model guard holds in every process, installed or not.
@@ -272,7 +275,9 @@ def destination_of(host: str | bytes | None, env: dict[str, str] | None = None) 
 # --------------------------------------------------------------------------- the content check
 
 _PLACEHOLDER = re.compile(r"<([A-Z][A-Z0-9]*)_\d+>")
-_DIGITS = re.compile(r"\d+")
+# A number written in ASCII digits only: without re.ASCII, `\d` would take full-width digits (U+FF10..) too, and a
+# phone written in them would skip the PHONE check (CodeRabbit, PR 113).
+_ASCII_DIGITS = re.compile(r"\d+", re.ASCII)
 
 
 def kinds_in(text: str) -> list[str]:
@@ -291,7 +296,7 @@ def _query_kinds(query: str, *, skip_amz: bool = False) -> list[str]:
     for key, value in urllib.parse.parse_qsl(query, keep_blank_values=True):
         if skip_amz and key.lower().startswith("x-amz-"):
             continue
-        if not _DIGITS.fullmatch(value):
+        if not _ASCII_DIGITS.fullmatch(value):
             found.update(kinds_in(value))
     return sorted(found)
 
@@ -337,10 +342,48 @@ def body_strings(data: Any, content_type: str = "", skip: frozenset[str] = froze
     if "x-www-form-urlencoded" in content_type.lower():
         pairs = urllib.parse.parse_qsl(text, keep_blank_values=True)
         return [s for k, v in pairs for s in (k, *(() if k in skip else (v,)))]
+    parsed = _json_container(text, content_type)
+    # Plain text (a declared type that is neither JSON nor a form), text that is not JSON, and a bare JSON scalar (a
+    # number like 4155550100) are scanned whole, as one string: nothing yields no strings (CodeRabbit, PR 113).
+    return [text] if parsed is None else list(_strings(parsed, skip))
+
+
+def _json_container(text: str, content_type: str) -> dict | list | None:
+    """The body as a JSON object or array; None for a body declared as something else (text/plain), one that is not
+    JSON, or a bare JSON scalar."""
+    declared = content_type.split(";")[0].strip().lower()
+    if declared and "json" not in declared:
+        return None
     try:
-        return list(_strings(json.loads(text), skip))
+        parsed = json.loads(text)
     except ValueError:
-        return [text]
+        return None
+    return parsed if isinstance(parsed, (dict, list)) else None
+
+
+def _body_kinds(strings: list[str], data: Any, content_type: str) -> list[str]:
+    """The kinds content_kinds finds in a body, with one exception for a structured body's (JSON's, a form's) value
+    that is only digits: it is a number - an id, a count - and is not read as a PHONE, as _query_kinds treats a
+    query's (a GitHub run id read as a phone refused every infra dispatch, PR 113). Every other kind it carries still
+    blocks: an ACCOUNTID first of all. A phone written with `+`, spaces or dashes is not only digits and is still a
+    PHONE; a plain-text body is scanned whole, digits or not."""
+    if not _structured(data, content_type):
+        return content_kinds(strings)
+    found: set[str] = set()
+    for value in strings:
+        kinds = content_kinds([value])
+        found.update(k for k in kinds if not (k == "PHONE" and _ASCII_DIGITS.fullmatch(value)))
+    return sorted(found)
+
+
+def _structured(data: Any, content_type: str) -> bool:
+    """A form, or a JSON object or array: a body whose values are each their own string (body_strings)."""
+    if data is None or "x-www-form-urlencoded" in content_type.lower():
+        return data is not None
+    if not isinstance(data, (bytes, bytearray, memoryview, str)):
+        return False
+    text = bytes(data).decode("utf-8", "replace") if not isinstance(data, str) else data
+    return _json_container(text, content_type) is not None
 
 
 def content_kinds(strings: Iterable[str]) -> list[str]:
@@ -561,7 +604,8 @@ def check_request(url: str, data: bytes | str | None, headers: dict[str, str] | 
     strings = body_strings(data, _header(headers, "content-type"), dest.credentials)
     # A presigned AWS address carries its signature in the query: AWS's own `X-Amz-*` parameters are left out there.
     query = _query_kinds(parts.query, skip_amz=not dest.outside)
-    kinds = sorted(set(content_kinds(strings)) | set(query) | set(content_kinds(_url_strings(dest, parts))))
+    kinds = sorted(set(_body_kinds(strings, data, _header(headers, "content-type"))) | set(query)
+                   | set(content_kinds(_url_strings(dest, parts))))
     payload = "\n".join(strings)
     record(dest, _purpose(dest, method, url), payload, "BLOCK" if kinds else "PASS", kinds)
     if kinds:

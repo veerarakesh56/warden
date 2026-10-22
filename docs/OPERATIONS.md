@@ -29,6 +29,7 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_SLACK_WEBHOOK`, `WARDEN_TEAMS_WEBHOOK`, `WARDEN_WEBHOOK_URL` | posting through an incoming webhook | create a new webhook, store it, restart, delete the old one | both work until the old one is deleted |
 | `WARDEN_GITHUB_TOKEN` | opening change-record issues in one repository | create a new fine-grained token limited to issues on that repository, with an expiry; store it, restart, revoke the old one | both work until the old one is revoked |
 | `WARDEN_GITHUB_READ_TOKEN` | reading one repository's pull requests, their review comments and reviews, code scanning alerts and the deploy's commits (tools.py; the read zone's alone, `warden/<env>/github-read-token`) | create a new fine-grained token on that repository alone, read-only (Pull requests, Code scanning alerts, Contents, Metadata), with an expiry; store it in `warden/<env>/github-read-token`, restart the read workers, then revoke the old one | both work until the old one is revoked |
+| `WARDEN_GITHUB_ACTIONS_TOKEN` | dispatching the deploy workflow's `apply-plan` of a kept, Helios-passed infra plan an approver signed (`infra_restore_baseline`, platforms/infra.py; the act zone's alone, `warden/<env>/github-actions-token`) | create a new fine-grained token on that repository alone with **Actions: Read and write** and **Contents: Read** and nothing else (GitHub adds Metadata: Read; Contents: Read is for the branch head the act zone re-reads before dispatching), with an expiry; store it in `warden/<env>/github-actions-token`, restart the act workers, then revoke the old one | both work until the old one is revoked; without one, every such plan is refused before anything is sent |
 | `WARDEN_DB_DSN`, `WARDEN_DB_TERMINATE_DSN`, `WARDEN_STACK_DB_PRIMARY_RO_DSN`, `WARDEN_STACK_DB_REPLICA_RO_DSN` | the database readers and the narrow terminate role (renamed 2026-10-16 from `WARDEN_DB_ADMIN_DSN`, `WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN`, which are still read for one release with a warning; the Secrets Manager slots keep the old names `db-admin-dsn`, `stack-db-writer-dsn` and `stack-db-reader-dsn` until the runtime module renames them) | change the role's password (or let RDS rotate the managed secret), store the new DSN, restart | a database role has one password: rotate, then restart promptly |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock (`ANTHROPIC_API_KEY`: read by the llm zone and by Eldane's critic zone - one key, owner 2026-10-17) | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
 | `WARDEN_ELDANE_KEY` | Eldane's own Ed25519 signing key (eldane.py; the critic zone's alone): its approvals in dev | `warden audit keygen --private eldane.pem --public eldane.pub.pem --unencrypted` a new pair; put the public key in the approver list's AI entry (a reviewed change) and the private PEM in `warden/<env>/eldane-key`; restart the critic worker; destroy the old private key | Eldane's approvals stop until both halves match: rotate between incidents |
@@ -110,6 +111,23 @@ finding's text reaches the model, the report or Slack: only typed fields.
 | `WARDEN_FINDINGS_MAX_PRS`, `WARDEN_FINDINGS_MAX_PER_PR` | at most this many pull requests (2) and findings a pull request (20); never more than 10 and 100 (GitHub's largest page: the reader does not page on) |
 | `WARDEN_GITHUB_READ_TOKEN` | optional for a public repository's pull requests and comments; needed for code scanning. A fine-grained token on that one repository, read-only: **Pull requests: Read**, **Code scanning alerts: Read**, and **Contents: Read** for the deploy's commits (`WARDEN_COMMITS`, the same token), plus Metadata: Read, which GitHub adds; with an expiry. In the cloud runtime it is the Secrets Manager secret `warden/<env>/github-read-token`, read by the read zone's worker only (set its value in the console, then restart the workers); a GitHub App's installation token replaces it when the App exists (B4) |
 | `WARDEN_SONAR_TOKEN` | only for a private SonarCloud project: a token of a user who can browse it |
+
+### Putting a Terraform stack back to its baseline (B17, `infra_restore_baseline`)
+
+WARDEN runs no Terraform. An approved plan dispatches `deploy-<env>.yml` with `infra_action=apply-plan` for one kept
+plan: the newest successful plan run of that stack, made at the environment branch's head and passed by Helios. T3: a
+person's passkey; never undone automatically. A plan run is recognised by the deploy workflow's run-name
+(`Deploy · <env> · infra plan <stack>`), so a plan kept before that run-name existed is not found: plan again. It is
+off until all three are set:
+
+| Setting | What it does |
+|---|---|
+| `WARDEN_TF_STATE_BUCKETS` | each environment's state bucket, `env=bucket[,env=bucket]` (plain, Parameter Store). Unset, the infra platform reads nothing and every such plan is refused |
+| `WARDEN_CHANGE_REPO` | the repository whose deploy workflow is dispatched, `owner/name` |
+| `WARDEN_GITHUB_ACTIONS_TOKEN` | a fine-grained token on that repository alone, **Actions: Read and write** and **Contents: Read** only (the act zone re-reads the branch head with it), with an expiry; Secrets Manager `warden/<env>/github-actions-token`, read by the act zone's worker only |
+
+Each environment's platform-reader role may read only the kept plans' metadata, `<state bucket>/<stack>/plans/*.json`
+(`iam/<env>/platform-diagnose.json`, the role's second policy, statement `KeptInfraPlanMetadataOnly`) - never the state or the plan bytes.
 
 `WARDEN_SONAR_TOKEN` has no Secrets Manager slot yet (terraform/modules/warden-runtime would need one, granted to the
 read zone alone): today it is set in the read worker's own environment, or left unset for a public project.

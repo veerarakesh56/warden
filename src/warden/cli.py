@@ -459,7 +459,7 @@ AWS_PLATFORMS = ("lambda", "events", "dynamodb", "ecs", "rds", "sqs", "athena", 
                  "ec2", "asg", "kms", "secretsmanager", "kinesis")
 
 
-PLATFORM_KINDS = ("k8s", "db", "aws")
+PLATFORM_KINDS = ("k8s", "db", "aws", "infra")
 
 
 def _platform_choice(value: str) -> frozenset[str]:
@@ -498,6 +498,10 @@ def _platform(choice: str | frozenset[str]):
 
         aws = from_environment()
         platforms.update(dict.fromkeys(AWS_PLATFORMS, aws))
+    if "infra" in kinds:  # B17: only behind WARDEN_TF_STATE_BUCKETS; unset, every infra plan is refused
+        from .platforms.infra import infra_from_environment
+
+        platforms["terraform"] = infra_from_environment()
     return RoutedPlatform(**platforms)
 
 
