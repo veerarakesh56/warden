@@ -523,10 +523,9 @@ SCALES = frozenset({"k8s_scale", "dynamodb_raise_capacity", "ecs_scale_service"}
 def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[str]:
     """Every reason these parameters must not be applied. `live` holds what WARDEN read: for a `ref`
     parameter a set of allowed values, plus the current values `relative` limits need."""
-    if name in EXCLUDED or name not in CATALOG:
-        return [f"{name!r} is not in the catalogue"]
-    if name in ADVICE_ONLY and not live:
-        return [f"{name} is advice only: {ADVICE_ONLY[name]}"]
+    refused = _refused_outright(name, live)
+    if refused:
+        return refused
     entry = CATALOG[name]
     problems = [f"unexpected parameter {p!r}" for p in params if p not in entry.params]
     for pname, spec in entry.params.items():
@@ -546,6 +545,22 @@ def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[st
         problems.append("P21-ROLLOUT-IN-PROGRESS: a rollout of this target is under way; act after it completes "
                         "or misses its deadline")
     return problems
+
+
+def _refused_outright(name: str, live: dict[str, Any]) -> list[str]:
+    """An entry no parameters can make valid: not in the catalogue, or advice only (B17) with nothing read for it."""
+    if name in EXCLUDED or name not in CATALOG:
+        return [f"{name!r} is not in the catalogue"]
+    if name in ADVICE_ONLY and not live:
+        return [f"{name} is advice only: {ADVICE_ONLY[name]}"]
+    return []
+
+
+def no_entry(action: ActionKind, platform: str | None) -> str:
+    """Why no catalogue entry carries out `action` on `platform`, with the advice for it when there is one (B17)."""
+    advice = ADVICE.get((action, platform))
+    said = f"no catalogue entry carries out {action.value} on {platform}"
+    return f"{said} - {advice}" if advice else said
 
 
 def _param_problem(pname: str, spec: Param, params: dict[str, Any], live: dict[str, Any]) -> str | None:

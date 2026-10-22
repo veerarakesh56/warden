@@ -438,9 +438,7 @@ def _catalogue_request(alert: Alert, proposal: RemediationProposal,
     platform, params = found
     entry = catalog.for_action(proposal.action, platform)
     if entry is None:
-        advice = catalog.ADVICE.get((proposal.action, platform))
-        return None, f"no catalogue entry carries out {proposal.action.value} on {platform}" + (
-            f" - {advice}" if advice else "")
+        return None, catalog.no_entry(proposal.action, platform)
     why = _label_params(alert, entry, params)
     if why:
         return None, why
