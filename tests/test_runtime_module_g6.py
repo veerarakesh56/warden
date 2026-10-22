@@ -316,6 +316,7 @@ ZONE_READS = {
     "WARDEN_SLACK_WEBHOOK": ("chatops.py", {"notify"}),
     "WARDEN_GITHUB_TOKEN": ("changes.py", {"notify"}),
     "WARDEN_DB_TERMINATE_DSN": ("platforms/db.py", {"act"}),
+    "WARDEN_GITHUB_ACTIONS_TOKEN": ("platforms/infra.py", {"act"}),
     # Eldane, the AI critic: its own signing key (its model key is the diagnosis's, above; owner 2026-10-17).
     "WARDEN_ELDANE_KEY": ("eldane.py", {"critic"}),
 }

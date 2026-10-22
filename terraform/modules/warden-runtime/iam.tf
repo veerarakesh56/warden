@@ -71,12 +71,14 @@ locals {
   # and changes nothing there, and its plans go to a person.
   zones = {
     core   = { secrets = [], assumes = [], platforms = [] }
-    read   = { secrets = ["stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key", "github-read-token"], assumes = ["platform-reader"], platforms = ["aws", "k8s", "db"] }
+    read   = { secrets = ["stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key", "github-read-token"], assumes = ["platform-reader"], platforms = ["aws", "k8s", "db", "infra"] }
     llm    = { secrets = ["anthropic-api-key"], assumes = [], platforms = [] }
     notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "github-token"], assumes = ["platform-reader"], platforms = ["aws"] }
-    # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts. Its one secret is
-    # (B24: under its new slot, and its old one for one release) the terminate login's DSN - no password in it: each close signs in with a token the plan's actor signs.
-    act = { secrets = ["db-terminate-dsn", "db-admin-dsn"], assumes = ["platform-reader", "actor"], platforms = ["aws", "k8s", "db"] }
+    # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts. Its secrets: the
+    # terminate login's DSN (B24: under its new slot, and its old one for one release) - no password in it: each close
+    # signs in with a token the plan's actor signs - and (B17) the token that dispatches the infra workflow's apply-plan
+    # (platforms/infra.py).
+    act = { secrets = ["db-terminate-dsn", "db-admin-dsn", "github-actions-token"], assumes = ["platform-reader", "actor"], platforms = ["aws", "k8s", "db", "infra"] }
     # Eldane, the AI critic (eldane.py): the diagnosis's Claude key (owner, 2026-10-17) and its own signing key; it
     # reads the audit and assumes nothing.
     critic = { secrets = ["anthropic-api-key", "eldane-key"], assumes = [], platforms = [] }

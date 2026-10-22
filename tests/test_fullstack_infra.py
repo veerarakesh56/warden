@@ -1278,8 +1278,9 @@ def test_the_act_and_read_zones_start_with_kubernetes_and_the_database():
              if "platforms" in body}
     got = {z: set(re.findall(r'"(\w+)"', v)) for z, v in zones.items()}
     # The critic zone (Eldane, PR 42) reaches no platform at all: it reads the audit and calls its model, nothing else.
-    assert got == {"core": set(), "read": {"aws", "k8s", "db"}, "llm": set(), "notify": {"aws"},
-                   "act": {"aws", "k8s", "db"}, "critic": set()}
+    # B17: the infra platform (platforms/infra.py) reads and dispatches in the read and act zones only.
+    assert got == {"core": set(), "read": {"aws", "k8s", "db", "infra"}, "llm": set(), "notify": {"aws"},
+                   "act": {"aws", "k8s", "db", "infra"}, "critic": set()}
 
 
 def test_the_actor_maps_to_the_remediator_group_only_and_connects_only_as_the_terminate_login():

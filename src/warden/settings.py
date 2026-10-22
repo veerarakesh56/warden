@@ -98,6 +98,11 @@ LOADABLE = frozenset({
     # Eldane's own Ed25519 signing key (eldane.py, PEM): a secret, read only by the critic zone. Its provider and model
     # are not loadable, as the diagnoser's are not: the task definition sets them (compute.tf).
     "WARDEN_ELDANE_KEY",
+    # B17, infra_restore_baseline (platforms/infra.py): each environment's Terraform state bucket, `env=bucket`, plain -
+    # unset, the infra platform reads nothing and every such plan is refused. The token that may dispatch the deploy
+    # workflow (fine-grained, Actions: Read and write and Contents: Read on the one repository) is a secret, the act
+    # zone's alone.
+    "WARDEN_TF_STATE_BUCKETS", "WARDEN_GITHUB_ACTIONS_TOKEN",
 })
 
 
@@ -112,6 +117,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_TEMPORAL_KEY_PREVIOUS": frozenset({"worker", "incident", "intake", "status", "approve", "autonomy", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
     "WARDEN_GITHUB_TOKEN": frozenset({"worker"}),
     "WARDEN_GITHUB_READ_TOKEN": frozenset({"worker"}),
+    "WARDEN_GITHUB_ACTIONS_TOKEN": frozenset({"worker"}),
     # Only the worker writes to AWS or beats; no other command needs to know the roles (audit A-P-5, register C13).
     "WARDEN_AWS_READER_ROLE_ARN": frozenset({"worker"}),
     "WARDEN_AWS_ACTOR_ROLE_ARN": frozenset({"worker"}),
@@ -157,7 +163,7 @@ SECRETS = frozenset({
     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_TEMPORAL_API_KEY",
-    "WARDEN_GITHUB_TOKEN", "WARDEN_GITHUB_READ_TOKEN",
+    "WARDEN_GITHUB_TOKEN", "WARDEN_GITHUB_READ_TOKEN", "WARDEN_GITHUB_ACTIONS_TOKEN",
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
     "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
     "WARDEN_ELDANE_KEY",
@@ -182,7 +188,8 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
     "notify": _EVERY_ZONE | {"WARDEN_SLACK_WEBHOOK", "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN",
                              "WARDEN_GITHUB_TOKEN"},
     # The terminate login's DSN (no password: each close signs in with a token an approved plan's actor signs).
-    "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN"},
+    # B17: the token that dispatches the infra workflow's apply-plan (platforms/infra.py) - only apply sends it.
+    "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN", "WARDEN_GITHUB_ACTIONS_TOKEN"},
     # Eldane, the AI critic (eldane.py): the same Claude API key as the diagnosis (owner, 2026-10-17), and its own
     # signing key, which nobody else holds.
     "critic": _EVERY_ZONE | {"ANTHROPIC_API_KEY", "WARDEN_ELDANE_KEY"},
