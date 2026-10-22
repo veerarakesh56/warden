@@ -250,6 +250,64 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
           _ref("alarm", "secret", "event")),
 ]}
 
+# What can go wrong if a fix is approved (owner, 2026-10-17, U3-2): said to the person - and to Eldane - as "risks if
+# approved", beside the plan, on the approval page and in the channel. Plain words, each from the entry's own limits
+# above; tests/test_eldane_critique.py holds that every entry has them.
+RISKS: dict[str, tuple[str, ...]] = {
+    "lambda_move_alias": ("the version it moves back to lacks every fix made since it was published",
+                          "requests already running finish on the version they started on"),
+    "lambda_restore_config": ("settings changed on purpose since that version go back too",),
+    "lambda_set_reserved_concurrency": ("more concurrent runs put more load on what the function calls",
+                                        "the raise takes concurrency the account's other functions could use"),
+    "lambda_enable_esm": ("the messages that waited are processed at once, a burst on the function and what it calls",),
+    "lambda_disable_esm": ("messages wait in the queue and age until it is enabled again",
+                           "work that depends on them is delayed"),
+    "events_enable_rule": ("the rule's targets run again from the next match or tick",),
+    "events_disable_rule": ("the scheduled runs it misses while disabled are not run later",),
+    "sqs_redrive_dlq": ("messages that failed before may fail again and load the consumer",
+                        "moved messages are not moved back"),
+    "athena_stop_query": ("the query's work is lost and must be run again",),
+    "apigw_raise_stage_throttle": ("more requests reach the backend behind the API",),
+    "arc_zonal_shift": ("the remaining zones carry all the traffic until the shift ends",),
+    "appconfig_revert": ("configuration changes made on purpose in that deployment are undone",),
+    "codepipeline_freeze": ("no deploy reaches the service, an urgent fix included, until a person enables it again",),
+    "dynamodb_raise_capacity": ("higher provisioned capacity costs more until it is lowered",),
+    "ecs_rollback_service": ("the previous task definition lacks every change made since it",
+                             "tasks are replaced, and requests on stopping tasks can fail"),
+    "ecs_restart_service": ("tasks are replaced, and requests on stopping tasks can fail",
+                            "a fault that is not in the running tasks comes back"),
+    "ecs_scale_service": ("more tasks cost more and put more load on what they call",),
+    "k8s_rollout_undo": ("the earlier revision lacks every change made since it",
+                         "pods are replaced, and requests on terminating pods can fail"),
+    "k8s_restart": ("pods are replaced, and requests on terminating pods can fail",
+                    "a fault that is not in the running pods comes back"),
+    "k8s_scale": ("more pods use more of the cluster and load what they call",),
+    "db_terminate_idle_in_tx": ("the closed sessions' open transactions roll back; the application sees an error on them",),
+    "db_terminate_blocker": ("the blocking session's transaction rolls back; its work is lost",),
+    "aurora_failover": ("connections drop while the writer moves; it cannot be undone",),
+    "infra_restore_baseline": ("infrastructure changed outside Terraform since the baseline is changed back",),
+    "ec2_revert_sg_change": ("traffic the change allowed or blocked on purpose is blocked or allowed again",),
+    "ec2_restore_route": ("traffic that took the new route on purpose goes the old way again",),
+    "ecs_restore_desired": ("the service runs the earlier number of tasks, as cost and load were then",),
+    "lambda_restore_concurrency": ("the earlier concurrency can throttle the function, or other functions, again",),
+    "lambda_restore_settings": ("the earlier timeout, memory or storage may be what the change fixed",),
+    "sqs_restore_attributes": ("the earlier timing or size settings may be what the change fixed",),
+    "kinesis_restore_retention": ("records older than the earlier retention are dropped sooner",),
+    "dynamodb_restore_capacity": ("the earlier capacity costs more than the cut it reverses",),
+    "asg_restore_capacity": ("the group runs the earlier number of instances, as cost and load were then",),
+    "asg_resume_processes": ("the group acts again: it may replace or launch instances at once",),
+    "apigw_restore_stage": ("the earlier deployment lacks every change made since it",),
+    "elb_reregister_targets": ("traffic goes to the targets again, healthy or not until checks fail them",),
+    "kms_cancel_key_deletion": ("the key is kept, disabled - deleting it later needs a new decision",),
+    "secrets_restore_secret": ("a secret someone deleted on purpose is back and readable again",),
+}
+
+
+def risks_of(entry: str) -> tuple[str, ...]:
+    """What can go wrong if the fix `entry` is approved, in plain words; () for an entry not in the catalogue."""
+    return RISKS.get(entry, ())
+
+
 # Which entries can carry out what the model proposed, per platform. An action with no entry is
 # advice only: it escalates to a person.
 FOR_ACTION: dict[ActionKind, dict[str, str]] = {
