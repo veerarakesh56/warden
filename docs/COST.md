@@ -89,10 +89,17 @@ python -c "import json,glob; r=[json.load(open(f))['cost'] for d in ('wave1-2026
 
 ## What this does not count
 
-- **Eldane** (dev only): two passes per plan on the other model (Opus 5.5 when Sonnet 5.5 diagnosed), plus catch
-  trials. The repository records no Eldane token counts. Its calls are capped by `WARDEN_ELDANE_DAILY_CALLS` (60 a
-  day, `src/warden/eldane.py`). The planned Eldane benchmark's cost estimate is in
-  [BENCHMARKS.md](BENCHMARKS.md#the-ai-critic-eldane-on-the-g10-held-out-set).
+- **Eldane** (dev only): up to `CALLS_PER_REVIEW` = 10 model calls per plan (`src/warden/eldane.py`), not two:
+  - up to three passes on Eldane's model, always the other model from the one that diagnosed: blind, blind again
+    with the evidence items it asked to read, and with WARDEN's reasoning;
+  - up to three debate rounds (`critique.MAX_ROUNDS`), each two calls: a rebuttal from **the diagnosing model** -
+    WARDEN's own, billed at that model's prices - and Eldane asked again on its own model;
+  - one catch trial, on some reviews.
+
+  Every one of these calls, the rebuttals included, writes an `llm.call` cost row (`where: eldane`) and counts
+  against `WARDEN_ELDANE_DAILY_CALLS` (60 a day): a review is skipped when fewer than `CALLS_PER_REVIEW` calls are
+  left that day. The repository records no measured Eldane token counts. The planned Eldane benchmark's cost
+  estimate is in [BENCHMARKS.md](BENCHMARKS.md#the-ai-critic-eldane-on-the-g10-held-out-set).
 - **Extra diagnosis calls**:
   - up to 2 read-and-decide investigation rounds (`INVESTIGATE_ROUNDS`, `src/warden/workflows.py`);
   - one repair round when an answer fails only checks a better answer could pass (`src/warden/workflows.py`);

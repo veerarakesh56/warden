@@ -411,6 +411,12 @@ def _environment_of(log: AuditLog, incident: str) -> str:
     return r.environment if r else ""
 
 
+def _risks_said(entry: str, what: str) -> str:
+    """U3-2: what can go wrong if the fix is approved, said before anyone decides (catalog.RISKS); else ""."""
+    risks = catalog.risks_of(entry) if what in ("waiting", "autonomous") else []
+    return " Risks if approved: " + "; ".join(risks) + "." if risks else ""
+
+
 def _send(log: AuditLog, incident: str, report: Any) -> list[Any]:
     """chatops.notify, threaded through the audit; a message withheld for want of its environment's Slack channel
     (WARDEN_SLACK_CHANNELS) is a row of its own, so the record says it was never posted and why."""
@@ -614,6 +620,7 @@ class RemediationActivities:
         noted = self._notes_said(gave)
         words = noted if what == "approved" else ""  # the person's own words in this message, if any
         said = self._plan_said(plan, what, shown, did=did, noted=noted)
+        said += _risks_said(plan.entry, what)
         if what == "approved" and not did:
             return None
         denial = self._denial_said(plan, shown, why, end) if what == "denied" else None
