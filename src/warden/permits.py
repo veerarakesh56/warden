@@ -70,6 +70,7 @@ UNDO_BY_SNAPSHOT: dict[str, Callable[[dict[str, Any]], tuple[str, ...]]] = {
 SAME_UNDO = frozenset({"lambda_move_alias", "lambda_set_reserved_concurrency", "lambda_enable_esm",
                        "lambda_disable_esm", "dynamodb_raise_capacity", "ecs_rollback_service", "ecs_scale_service",
                        "apigw_raise_stage_throttle", "ecs_restore_desired", "lambda_restore_settings",
+                       "lambda_restore_config",  # B17: the undo is UpdateFunctionConfiguration on the same function
                        "sqs_restore_attributes", "dynamodb_restore_capacity", "asg_restore_capacity",
                        "apigw_restore_stage"})
 # Nothing is undone (AwsPlatform.rollback says "nothing to roll back"): only the apply's calls are checked.
