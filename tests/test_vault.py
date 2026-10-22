@@ -341,6 +341,22 @@ def test_the_vaults_clients_are_in_the_runtimes_region(monkeypatch, env):
     assert asked == [("kms", "test-region-1")]
 
 
+def test_the_vaults_kms_client_has_a_bounded_timeout_and_retry_budget(monkeypatch, env):
+    """Review (PR 119): a degraded KMS fails a seal in seconds instead of holding `prepare` for its whole timeout."""
+    import boto3
+
+    configs = []
+    monkeypatch.setattr(boto3, "client", lambda name, **kw: configs.append(kw.get("config")) or object())
+    monkeypatch.setattr(vault, "_BUILT", {})
+    vault.Vault.from_environment()
+    [config] = configs
+    assert config is not None
+    assert (config.connect_timeout, config.read_timeout) == (vault.KMS_CONNECT_S, vault.KMS_READ_S)
+    assert config.retries == {"max_attempts": vault.KMS_ATTEMPTS, "mode": "standard"}
+    assert vault.KMS_CONNECT_S + vault.KMS_READ_S <= 30
+    assert vault.KMS_ATTEMPTS <= 3
+
+
 def test_on_postgresql_the_writer_purges_through_the_function_by_the_databases_clock():
     """The runtime's writer may not delete a vault row (review): retention calls warden_vault_purge(), which takes no
     time from its caller."""
