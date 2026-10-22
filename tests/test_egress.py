@@ -1084,14 +1084,34 @@ def test_a_digit_only_id_in_a_json_or_form_body_is_a_number_not_a_phone():
 
 def test_a_digit_only_account_id_in_a_structured_body_is_still_refused():
     """The digit-only exemption drops only PHONE: a 12-digit account id to Slack (or anywhere) is still ACCOUNTID."""
+    body = json.dumps({"x": "".join(str(d) for d in (1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2))})
     with pytest.raises(EgressBlocked, match="ACCOUNTID"):
-        egress.check_request(SLACK_API, json.dumps({"x": "".join(str(d) for d in (1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2))}),
-                             JSON, "POST")
+        egress.check_request(SLACK_API, body, JSON, "POST")
 
 
-def test_a_plain_text_body_is_still_scanned_whole_digits_included():
+@pytest.mark.parametrize(("body", "headers"), [
+    ("call 4155550100", {"Content-Type": "text/plain"}),
+    ("4155550100", {"Content-Type": "text/plain"}),  # declared text: never parsed as a JSON number
+    ("4155550100", {"Content-Type": "application/json"}),  # a bare JSON number: scanned as its text
+    ("4155550100", {}),  # undeclared, and JSON only as a bare number: scanned as its text
+    ('{"note": "4155550100"}', {"Content-Type": "text/plain"}),  # declared text is text, even when it reads as JSON
+], ids=["text-sentence", "text-digits", "json-bare-number", "undeclared-bare-number", "text-that-reads-as-json"])
+def test_a_body_that_is_not_a_json_object_or_a_form_is_scanned_whole(body, headers):
     with pytest.raises(EgressBlocked, match="PHONE"):
-        egress.check_request(GITHUB_DISPATCH, "call 4155550100", {"Content-Type": "text/plain"}, "POST")
+        egress.check_request(GITHUB_DISPATCH, body, headers, "POST")
+
+
+FULL_WIDTH_PHONE = "".join(chr(0xFF10 + int(d)) for d in "4155550100")  # \d matches these; [0-9] does not
+
+
+@pytest.mark.parametrize(("url", "body"), [
+    (GITHUB_DISPATCH, json.dumps({"note": FULL_WIDTH_PHONE})),
+    (f"https://api.github.com/repos/owner/repo/issues?q={FULL_WIDTH_PHONE}", None),
+], ids=["json-body", "query"])
+def test_a_phone_in_full_width_digits_is_refused_in_a_body_and_in_a_query(url, body):
+    headers, method = (JSON, "POST") if body else ({}, "GET")
+    with pytest.raises(EgressBlocked, match="PHONE"):
+        egress.check_request(url, body, headers, method)
 
 
 def test_the_infra_platforms_own_dispatch_passes_the_egress_check():

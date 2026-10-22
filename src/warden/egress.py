@@ -275,7 +275,9 @@ def destination_of(host: str | bytes | None, env: dict[str, str] | None = None) 
 # --------------------------------------------------------------------------- the content check
 
 _PLACEHOLDER = re.compile(r"<([A-Z][A-Z0-9]*)_\d+>")
-_DIGITS = re.compile(r"\d+")
+# A number written in ASCII digits only: `\d` would take full-width digits (U+FF10..) too, and a phone written in them
+# would skip the PHONE check (CodeRabbit, PR 113).
+_ASCII_DIGITS = re.compile(r"[0-9]+", re.ASCII)
 
 
 def kinds_in(text: str) -> list[str]:
@@ -294,7 +296,7 @@ def _query_kinds(query: str, *, skip_amz: bool = False) -> list[str]:
     for key, value in urllib.parse.parse_qsl(query, keep_blank_values=True):
         if skip_amz and key.lower().startswith("x-amz-"):
             continue
-        if not _DIGITS.fullmatch(value):
+        if not _ASCII_DIGITS.fullmatch(value):
             found.update(kinds_in(value))
     return sorted(found)
 
@@ -340,10 +342,23 @@ def body_strings(data: Any, content_type: str = "", skip: frozenset[str] = froze
     if "x-www-form-urlencoded" in content_type.lower():
         pairs = urllib.parse.parse_qsl(text, keep_blank_values=True)
         return [s for k, v in pairs for s in (k, *(() if k in skip else (v,)))]
+    parsed = _json_container(text, content_type)
+    # Plain text (a declared type that is neither JSON nor a form), text that is not JSON, and a bare JSON scalar (a
+    # number like 4155550100) are scanned whole, as one string: nothing yields no strings (CodeRabbit, PR 113).
+    return [text] if parsed is None else list(_strings(parsed, skip))
+
+
+def _json_container(text: str, content_type: str) -> dict | list | None:
+    """The body as a JSON object or array; None for a body declared as something else (text/plain), one that is not
+    JSON, or a bare JSON scalar."""
+    declared = content_type.split(";")[0].strip().lower()
+    if declared and "json" not in declared:
+        return None
     try:
-        return list(_strings(json.loads(text), skip))
+        parsed = json.loads(text)
     except ValueError:
-        return [text]
+        return None
+    return parsed if isinstance(parsed, (dict, list)) else None
 
 
 def _body_kinds(strings: list[str], data: Any, content_type: str) -> list[str]:
@@ -357,18 +372,18 @@ def _body_kinds(strings: list[str], data: Any, content_type: str) -> list[str]:
     found: set[str] = set()
     for value in strings:
         kinds = content_kinds([value])
-        found.update(k for k in kinds if not (k == "PHONE" and _DIGITS.fullmatch(value)))
+        found.update(k for k in kinds if not (k == "PHONE" and _ASCII_DIGITS.fullmatch(value)))
     return sorted(found)
 
 
 def _structured(data: Any, content_type: str) -> bool:
+    """A form, or a JSON object or array: a body whose values are each their own string (body_strings)."""
     if data is None or "x-www-form-urlencoded" in content_type.lower():
         return data is not None
-    try:
-        json.loads(bytes(data).decode("utf-8", "replace") if isinstance(data, (bytes, bytearray, memoryview)) else data)
-    except (ValueError, TypeError):
+    if not isinstance(data, (bytes, bytearray, memoryview, str)):
         return False
-    return True
+    text = bytes(data).decode("utf-8", "replace") if not isinstance(data, str) else data
+    return _json_container(text, content_type) is not None
 
 
 def content_kinds(strings: Iterable[str]) -> list[str]:
