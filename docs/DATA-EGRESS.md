@@ -17,10 +17,9 @@ How far `main` meets it, in short (details below):
 This page is for those engineers. It covers every destination, what goes there and what is masked; the guards and
 the ledger; the sealed vault and the reveal; and what the model provider does with what it receives.
 
-> **Status, checked against `main` at `4f01b40` (#115, `vault.py`, merged) with PR #119 (`reveal.py`) merged in, on
-> 2026-10-22 (01:48 UTC / 07:18 IST).** This page merges after #119, so it describes `main` as #119 leaves it.
-> Each statement is what that code does, or is marked **pending PR #n**: code under review, not merged, not
-> running anywhere. The open PRs this page still relies on:
+> **Status, checked against `main` at `3cb7e43` (#115 `vault.py` and #119 `reveal.py` merged) on 2026-10-22
+> (02:20 UTC / 07:50 IST).** Each statement is what that code does, or is marked **pending PR #n**: code under
+> review, not merged, not running anywhere. The open PRs this page still relies on:
 >
 > | PR | Adds |
 > |---|---|
@@ -195,16 +194,18 @@ Retention: the worker and Lambda log groups keep **90 days** (`terraform/modules
   expiry by the database's own clock; no runtime role may delete a row itself, and a row past its expiry is never
   read. An erasure request is the database owner's: delete the incident's `vault` row; scheduling the vault key's
   deletion makes every sealed map unreadable. The audit's index and hash stay.
-- **The reveal** (`reveal.py`, `/r/<incident>/masked` on the records site). Only an **approver** for the incident's
-  environment may see the masked values and reveal one; a record viewer (`WARDEN_RECORD_VIEWERS`) reads the record
-  and never reveals. GET shows each placeholder, its kind and its id; a reveal is a POST of the page's own form, so
-  the reason and the chosen values travel in the body, never in an address. The reader picks the values and gives a
-  reason (at least 10 characters, redacted before it is kept); the `incident.reveal` row is written to the signed
-  audit **before** the vault is opened, and the values are shown once (no-store), never in an address or in Slack.
-  The form's token is bound to the reader's sign-in cookie; a refused attempt (a forged or stale form, no value, no
-  reason, more fields than the page offers, not an approver) is recorded as `incident.reveal_attempt_refused`; at
-  most 20 reveals and refused attempts per reader per hour, counted inside each row's own write (parallel requests
-  cannot pass it together). Whether each reveal also needs a passkey step-up is an open owner decision.
+- **The reveal** (`reveal.py`, `/r/<incident>/masked` on the records site). Only an **approver** who may approve in the
+  incident's environment may see the masked values and reveal one - the rule every approval path uses
+  (`approvals.environment_refusal`): the approver's own environment list, and the bench approver, a test identity, in a
+  nonprod environment only. A record viewer (`WARDEN_RECORD_VIEWERS`) reads the record and never reveals. GET shows each
+  placeholder, its kind and its id; a reveal is a POST of the page's own form, so the reason and the chosen values
+  travel in the body, never in an address. The reader picks the values and gives a reason (at least 10 characters,
+  redacted before it is kept); the `incident.reveal` row is written to the signed audit **before** the vault is opened,
+  and the values are shown once (no-store), never in an address or in Slack. The form's token is bound to the reader's
+  sign-in cookie; a refused attempt (a forged or stale form, no value, no reason, more fields than the page offers, not
+  an approver) is recorded as `incident.reveal_attempt_refused`; at most 20 reveals and refused attempts per reader per
+  hour, counted inside each row's own write (parallel requests cannot pass it together). Whether each reveal also needs
+  a passkey step-up is an open owner decision.
 - **No AI path.** No Temporal activity, MCP tool or model-facing module imports the vault or the reveal
   (`tests/test_vault.py`, `tests/test_reveal.py`).
 - **Pending PR #147 - the records CLI** masks every string again and never imports the vault or the reveal.
@@ -253,7 +254,7 @@ finds. An install that needs US-only inference or no retention must set it in it
   it still blocks.
 - An administrator of the AWS account can change any key policy; CloudTrail records that change.
 
-## Live steps (the owner's laptop, after #115 and #119 merge)
+## Live steps (the owner's laptop; #115 and #119 are merged)
 
 1. Apply the runtime module (creates `alias/warden-<env>-vault`, `alias/warden-<env>-pseudonym`, their policies and
    the routes `GET` and `POST /r/{incident}/masked`), then run the migrate Lambda (the `vault` table and
