@@ -91,8 +91,9 @@ def test_the_member_is_whoever_slack_says_and_every_other_answer_is_refused():
 def test_the_authorize_address_is_slacks_with_state_and_nonce_and_the_feature_is_off_without_both_settings(monkeypatch):
     url = urllib.parse.urlparse(_login().authorize_url(redirect_uri="https://x.test/s/callback", state="st", nonce="no"))
     asked = urllib.parse.parse_qs(url.query)
-    sent_to = f"{url.scheme}://{url.netloc}{url.path}"
-    assert sent_to == slack_login.AUTHORIZE_ENDPOINT
+    # The address without its query, compared actual first like every other assertion in this file (Sonar S3415
+    # read a local built from an f-string as the expected value).
+    assert url._replace(query="").geturl() == slack_login.AUTHORIZE_ENDPOINT
     assert asked == {"response_type": ["code"], "scope": ["openid profile"], "client_id": [CLIENT], "state": ["st"],
                      "nonce": ["no"], "redirect_uri": ["https://x.test/s/callback"]}
     for name in ("WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET"):
@@ -204,7 +205,7 @@ def test_an_enrolment_links_the_member_slack_named_and_never_another_than_the_li
 def test_the_runtime_gives_the_secret_to_the_approval_lambda_alone_and_routes_the_two_steps():
     assert "WARDEN_SLACK_CLIENT_SECRET" in settings.SECRETS
     assert {n for n, names in settings.LAMBDA_SECRETS.items() if "WARDEN_SLACK_CLIENT_SECRET" in names} == {"approval"}
-    assert settings.RESTRICTED["WARDEN_SLACK_CLIENT_SECRET"] == frozenset({"lambda-approval"})
+    assert settings.RESTRICTED["WARDEN_SLACK_CLIENT_SECRET"] == {"lambda-approval"}  # a frozenset equals the same set
     assert "WARDEN_SLACK_CLIENT_ID" not in settings.SECRETS  # an id, not a secret: plain configuration
     for zone in settings.ZONE_SECRETS:
         assert "WARDEN_SLACK_CLIENT_SECRET" not in settings.loadable_for("worker", zone)
@@ -278,7 +279,7 @@ def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_
     now[0] += slack_login.REMEMBER_S + 1
     assert 'data-slack="1"' in page.handle("GET", f"/a/{third}", cookies=[who]).body
     assert slack_login.remembered(page.slack, who.split("=", 1)[1]) == ""
-    assert slack_login.REMEMBER_S == 30 * 24 * 3600
+    assert divmod(slack_login.REMEMBER_S, 24 * 3600) == (30, 0)  # exactly 30 days
     # Sealed with the app's own secret: a value another secret made is nobody.
     stranger = slack_login.SlackLogin(CLIENT, "another-secret", clock=lambda: 1_900_000_000.0)
     assert slack_login.remembered(stranger, slack_login.remember(_login(), MEMBER)) == ""

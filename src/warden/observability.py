@@ -164,7 +164,7 @@ class GatedWrap(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         try:
             text = _redact_then_cut(normalise(redact(self.inner.format(record)).text), GatedFormatter.LIMIT)
-        except Exception:  # noqa: BLE001  # any failure of another handler's formatter is withheld, never printed raw
+        except Exception:  # noqa: BLE001 - any failure of another handler's formatter is withheld and never printed raw
             return f"{record.levelname} {record.name}: (log text withheld)"
         return text.replace("\u2028", "\n").replace("\u2029", "\n").replace("\n", "\n    ")
 
@@ -189,6 +189,8 @@ class _StderrHandler(logging.StreamHandler):
 
     @stream.setter
     def stream(self, _value) -> None:
+        # Ignored on purpose: the handler always writes to the current sys.stderr (read by the getter above), so
+        # nothing - logging.StreamHandler.setStream included - can pin it to a stream that is later replaced.
         pass
 
 

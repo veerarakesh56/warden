@@ -50,6 +50,7 @@ INVENTORY = {
     "findings.py": {"github", "sonarcloud"},  # code review's findings on the deployed pull requests (GET)
     "grafana.py": {"grafana"},
     "k8s_backend.py": {"aws", "in-network"},
+    "landed.py": {"github"},  # B21: deployments and merged pull requests since a fix, before its undo (GET)
     "lambdas.py": {"aws", "database"},
     "observability.py": {"tracing"},
     "paging.py": {"aws"},  # CloudWatch's metric of a page sent, the page's S3 record
@@ -57,6 +58,7 @@ INVENTORY = {
     "platforms/aws.py": {"aws"},
     "platforms/db.py": {"aws", "database"},
     "platforms/k8s.py": {"aws", "in-network"},
+    "platforms/infra.py": {"github"},  # B17: the infra workflow's runs, branch head and its apply-plan dispatch
     "providers.py": {"anthropic", "openai", "groq", "openrouter", "gemini", "model-api", "aws"},
     "runtime.py": {"aws"},
     "runtime_base.py": {"aws", "temporal"},
@@ -340,13 +342,18 @@ def test_a_proxy_is_looked_up_and_what_goes_through_it_is_still_checked(monkeypa
         egress.check_request(SLACK_API, body, JSON, "POST")
 
 
-def test_a_body_to_any_aws_name_is_checked_and_a_presigned_query_is_not():
-    """Another account's bucket or API is under amazonaws.com too: a urllib body sent there is checked (review)."""
+def test_a_body_to_an_aws_name_is_checked_and_a_presigned_query_is_not(monkeypatch):
+    """A urllib request to an AWS name is checked like one outside (review); AWS's own presigned parameters are not."""
+    monkeypatch.setenv("WARDEN_AUDIT_ANCHOR_BUCKET", "warden-dev-anchors")
     body = f"user {EMAIL}".encode()
     with pytest.raises(EgressBlocked):
-        egress.check_request("https://some-bucket.s3.amazonaws.com/x", body, {}, "PUT")
-    egress.check_request("https://awslambda-x-tasks.s3.amazonaws.com/code?X-Amz-Credential=" + "ASIA" + "Q" * 16,
-                         None, {}, "GET")
+        egress.check_request("https://warden-dev-anchors.s3.ap-south-2.amazonaws.com/x", body, {}, "PUT")
+    # GetFunction's code location: AWS's own bucket, the account's id in the path, a presigned query.
+    egress.check_request("https://awslambda-ap-south-2-tasks.s3.ap-south-2.amazonaws.com/snapshots/" + ACCOUNT +
+                         "/orders-api-0d1f2e3a?versionId=3sL4kqtJlcpXroDTDmJ.rmSpXd3dIbrH&X-Amz-Credential=" + "ASIA" +
+                         "Q" * 16 + "&X-Amz-Security-Token=" + "IQoJ" + "b3" * 40, None, {}, "GET")
+    with pytest.raises(EgressBlocked):
+        egress.check_request(f"https://sts.ap-south-2.amazonaws.com/?note={EMAIL}", None, {}, "GET")
 
 
 def test_a_body_that_cannot_be_read_without_consuming_it_is_refused():
@@ -817,3 +824,332 @@ def test_cutting_a_huge_single_token_is_fast_and_withholds_it():
     assert "withheld" in out
     assert "xxxx" not in out
     assert _redact_then_cut("keep " + "y" * 70_000, 8000).startswith("keep")
+
+
+# --------------------------------------------------------------------------- review round four (2026-10-21)
+
+_SLACK_HOOK = "https://hooks.slack.com/"  # the path is added apart: a whole made-up webhook still reads as one
+
+def test_aws_names_are_held_to_the_shapes_warden_uses(monkeypatch):
+    """Review: `*.amazonaws.com` let any account's bucket, API Gateway, load balancer or instance in."""
+    monkeypatch.setenv("WARDEN_AUDIT_ANCHOR_BUCKET", "warden-dev-anchors")
+    monkeypatch.setenv("WARDEN_PAGES_BUCKET", "warden-dev-pages")
+    for host in ("sts.amazonaws.com", "sts.ap-south-2.amazonaws.com", "kms.us-east-1.amazonaws.com",
+                 "bedrock-runtime.us-east-1.amazonaws.com", "s3.ap-south-2.amazonaws.com",
+                 "monitoring.cn-north-1.amazonaws.com.cn", "portal.sso.eu-west-1.amazonaws.com",
+                 "warden-dev-anchors.s3.ap-south-2.amazonaws.com", "warden-dev-pages.s3.amazonaws.com",
+                 "awslambda-ap-south-2-tasks.s3.ap-south-2.amazonaws.com",
+                 "orders.cluster-ro-c1x2y3z4.ap-south-2.rds.amazonaws.com",
+                 "master.carts-cache.abc123.aps2.cache.amazonaws.com",
+                 "0123456789abcdef0123456789abcdef.gr7.ap-south-2.eks.amazonaws.com"):
+        dest = egress.destination_of(host)
+        assert dest is not None, host
+        assert dest.name == "aws", host
+    for host in ("attacker.s3.amazonaws.com", "attacker.s3.us-east-1.amazonaws.com", "a.b.s3-us-west-2.amazonaws.com",
+                 "abc123.execute-api.us-east-1.amazonaws.com", "x-1.elb.amazonaws.com",
+                 "ec2-3-4-5-6.compute-1.amazonaws.com", "search-x.us-east-1.es.amazonaws.com",
+                 "site.s3-website-us-east-1.amazonaws.com", "awslambda-evil-tasks.s3.amazonaws.com"):
+        assert egress.destination_of(host) is None, host
+        with pytest.raises(EgressBlocked):
+            egress.check_host(host)
+
+
+def test_s3_addressed_path_style_reaches_only_wardens_own_buckets(monkeypatch):
+    monkeypatch.setenv("WARDEN_AUDIT_ANCHOR_BUCKET", "warden-dev-anchors")
+    with pytest.raises(EgressBlocked):
+        egress.check_request("https://s3.ap-south-2.amazonaws.com/attacker-bucket/k", None, {}, "GET")
+    egress.check_request("https://s3.ap-south-2.amazonaws.com/warden-dev-anchors/anchors/1.json", None, {}, "GET")
+
+
+@pytest.mark.parametrize("url", [
+    f"https://api.github.com/repos/{EMAIL}/issues",                          # the path
+    "https://api.github.com/repos/o/r/issues/" + IP,                          # a path segment
+    "https://" + EMAIL.replace("@", "%40") + ":x@api.github.com/user",        # the user name
+    f"https://api.github.com/x#{EMAIL}",                                      # the fragment
+])
+def test_a_value_anywhere_in_the_url_is_refused(url):
+    with pytest.raises(EgressBlocked):
+        egress.check_request(url, None, {}, "GET")
+
+
+def test_a_secret_paths_secret_part_is_not_scanned_but_its_first_segment_is():
+    egress.check_request(_SLACK_HOOK + "services/T0AAAA/B0BBBB/" + "x" * 24,
+                         json.dumps({"text": "fine"}).encode(), {"Content-Type": "application/json"}, "POST")
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "deflate", "br", "x-custom"])
+def test_a_compressed_body_is_refused(encoding):
+    """Review: a gzip body with an address in it was decoded as noise and passed."""
+    import gzip
+
+    body = gzip.compress(json.dumps({"text": f"user {EMAIL}"}).encode())
+    with pytest.raises(EgressBlocked, match="cannot be checked"):
+        egress.check_request(_SLACK_HOOK + "services/x", body,
+                             {"Content-Type": "application/json", "Content-Encoding": encoding}, "POST")
+
+
+def test_an_identity_encoded_body_is_checked_as_any():
+    egress.check_request(_SLACK_HOOK + "services/x", json.dumps({"text": "fine"}).encode(),
+                         {"Content-Type": "application/json", "Content-Encoding": "identity"}, "POST")
+
+
+def test_a_credential_field_is_exempt_only_at_the_top_level():
+    """Review: Slack's `code` anywhere in a message (a block's field) was left out of the scan."""
+    nested = json.dumps({"blocks": [{"code": {"text": EMAIL}}]}).encode()
+    with pytest.raises(EgressBlocked):
+        egress.check_request("https://slack.com/api/chat.postMessage", nested, {"Content-Type": "application/json"}, "POST")
+    egress.check_request("https://slack.com/api/oauth.v2.access", b"client_id=1.2&client_secret=" + b"s" * 32 +
+                         b"&code=" + b"c" * 40, {"Content-Type": "application/x-www-form-urlencoded"}, "POST")
+
+
+@pytest.mark.parametrize("address", ["2002:808:808::1", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "100.64.0.1",
+                                     "100.127.255.254"])
+def test_relayed_and_shared_addresses_are_not_the_private_networks(address):
+    """Review: 6to4 and Teredo reach the internet through public relays; 100.64.0.0/10 is a carrier's as often."""
+    assert egress.destination_of(address) is None
+    with pytest.raises(EgressBlocked):
+        egress.check_connect((address, 443))
+
+
+def test_a_shared_address_a_setting_names_exactly_is_reached(monkeypatch):
+    monkeypatch.setenv("WARDEN_DB_DSN", "postgresql://warden@100.64.1.9:5432/warden")
+    dest = egress.destination_of("100.64.1.9")
+    assert dest is not None
+    assert dest.name == "database"
+    assert egress.destination_of("100.64.1.10") is None
+
+
+def test_a_connection_to_an_address_needs_a_checked_lookup_first(monkeypatch):
+    """Review: asyncio connects to an IP address with no lookup, so no lookup event was ever raised."""
+    monkeypatch.setattr(egress, "_RESOLVED", set())
+    with pytest.raises(EgressBlocked):
+        egress.check_connect(("93.184.216.34", 443))
+    egress.check_connect(("10.0.4.21", 5432))  # the private network's
+    egress.check_connect("/tmp/s.sock")  # a Unix socket: not an internet address at all
+    lookup = egress._resolving(lambda *_a: [(2, 1, 6, "", ("93.184.216.34", 443))], lambda r: (a[4][0] for a in r))
+    lookup("api.github.com", 443)
+    egress.check_connect(("93.184.216.34", 443))
+    with pytest.raises(EgressBlocked):
+        egress.check_connect(("exfil.example.net", 443))  # a name resolved inside connect(): checked as a lookup
+
+
+_CONNECT = textwrap.dedent("""
+    import asyncio, json, socket
+    from warden import egress
+    egress.install()
+    out = {}
+    def attempt(name, fn):
+        try:
+            fn()
+            out[name] = "sent"
+        except egress.EgressBlocked:
+            out[name] = "blocked"
+        except OSError as exc:
+            out[name] = "network:" + type(exc).__name__
+    async def opened(host, port):
+        _r, w = await asyncio.wait_for(asyncio.open_connection(host, port), 2)
+        w.close()
+    def raw(host, port):
+        with socket.socket() as s:
+            s.settimeout(2)
+            s.connect((host, port))
+    attempt("asyncio_ip_literal", lambda: asyncio.run(opened("93.184.216.34", 9)))
+    attempt("raw_ip_literal", lambda: raw("93.184.216.34", 9))
+    attempt("asyncio_unlisted_name", lambda: asyncio.run(opened("exfil.example.net", 9)))
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    port = srv.getsockname()[1]
+    attempt("asyncio_loopback", lambda: asyncio.run(opened("127.0.0.1", port)))
+    attempt("raw_localhost", lambda: raw("localhost", port))
+    srv.close()
+    print(json.dumps(out))
+""")
+
+
+def test_the_hook_refuses_a_connection_to_an_unlisted_address_in_a_real_interpreter():
+    """asyncio.open_connection to an IP address, and a raw socket's connect: refused before any packet."""
+    got = subprocess.run([sys.executable, "-c", _CONNECT], capture_output=True, text=True, timeout=60, check=True)
+    out = json.loads(got.stdout.strip().splitlines()[-1])
+    assert out["asyncio_ip_literal"] == "blocked"
+    assert out["raw_ip_literal"] == "blocked"
+    assert out["asyncio_unlisted_name"] == "blocked"
+    assert out["asyncio_loopback"] == "sent"
+    assert out["raw_localhost"] == "sent"
+
+
+def test_nothing_in_src_turns_the_hook_off():
+    """The hook's switch: only install() sets it, and only to True; nothing else in src/warden touches it, its
+    re-entry guard or the audit hook itself (the test suite's conftest alone turns it back off between tests)."""
+    switch = re.compile(r"_STATE\s*\[\s*[\"']on[\"']\s*\]\s*=|setitem\(\s*\w*_STATE|_STATE\.(?:update|clear|pop)"
+                        r"|\.hooked\s*=|addaudithook")
+    found = {}
+    for path in SRC.rglob("*.py"):
+        for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if switch.search(line):
+                found[f"{path.relative_to(SRC)}:{no}"] = line.strip()
+    assert sorted(v for v in found.values()) == sorted([
+        'sys.addaudithook(_hook)', '_STATE["on"] = True',
+        '_GUARD.hooked = True  # the ledger\'s own writes (the audit, KMS) pass the hook too, unchecked twice',
+        '_GUARD.hooked = False']), found
+    assert all(k.startswith("egress.py:") for k in found), found
+    others = "".join(p.read_text(encoding="utf-8") for p in SRC.rglob("*.py") if p.name != "egress.py")
+    assert not re.search(r"egress\._(?:STATE|GUARD|hook)\b", others)
+
+
+def test_a_refusal_inside_a_model_sdk_is_not_retried():
+    """Review: the SDK wraps the hook's refusal in its own connection error, which read as transient."""
+    from warden import llm
+
+    class APIConnectionError(Exception):
+        pass
+
+    try:
+        try:
+            raise EgressBlocked("an unlisted host", "it is on no destination")
+        except EgressBlocked as inner:
+            raise APIConnectionError("Connection error.") from inner
+    except APIConnectionError as wrapped:
+        assert llm._is_transient(wrapped) is False
+        assert llm._provider_down(wrapped) == ""  # not an outage: the provider is not paged as down (#176)
+        assert llm.failure_reason(wrapped) == llm.EGRESS_BLOCKED  # told apart from the model's own refusal
+    assert llm._is_transient(APIConnectionError("Connection error.")) is True
+
+
+def test_a_model_call_the_egress_check_refuses_is_recorded_as_egress_blocked_and_pages_nobody(caplog):
+    """A blocked outbound call is a configuration or security event, not a model answer (owner, 2026-10-21): its
+    fallback reason is egress_blocked, never model_refused, and it is no paging condition."""
+    from pydantic import BaseModel
+
+    from warden import llm, paging
+
+    class _Answer(BaseModel):
+        ok: bool
+
+    class _Prompted:
+        name, model, base_url = "anthropic", "claude-test", ""
+
+        def complete(self, *, system, user, schema=None):  # never reached: the guard refuses first
+            raise AssertionError("sent")
+
+    egress.guard_provider(_Prompted)
+    client = llm.LLMClient(provider=_Prompted(), max_usd=1.0, mock=False)
+    caplog.set_level(logging.ERROR, logger="warden.llm")
+    with pytest.raises(llm.ModelRefused):
+        client.structured(system="s", user=f"user {EMAIL}", schema=_Answer)
+    # Not a refused key (#185's B35 ERROR line pages at once): WARDEN's own check refused the call.
+    assert not [r for r in caplog.records if r.name == "warden.llm" and r.levelno >= logging.ERROR]
+    assert client.stopped_by == llm.EGRESS_BLOCKED
+    assert llm.fallback_reason(client.stopped_by) == llm.EGRESS_BLOCKED
+    assert llm.EGRESS_BLOCKED in llm.FALLBACK_REASONS
+    assert llm.EGRESS_BLOCKED not in paging.MODEL_METRICS  # nobody is paged for it
+    assert llm.failure_reason(EgressBlocked("anthropic", "the prompt is not fully masked")) == llm.EGRESS_BLOCKED
+
+
+def test_an_egress_refusal_never_says_the_key_was_refused(caplog):
+    """#185 says a 401/403 as an ERROR line that pages at once. An egress refusal - even inside an SDK error that
+    carries a 403 - is egress_blocked, never that line."""
+    from warden import llm
+
+    class _Forbidden(Exception):
+        status_code = 403
+
+    caplog.set_level(logging.ERROR, logger="warden.llm")
+    for refused in (EgressBlocked("anthropic", "the prompt is not fully masked"), _Forbidden("Forbidden")):
+        refused.__cause__ = None if isinstance(refused, EgressBlocked) else EgressBlocked("anthropic", "refused")
+        llm._say_if_key_refused(refused)
+        assert llm.failure_reason(refused) == llm.EGRESS_BLOCKED
+    assert not [r for r in caplog.records if r.name == "warden.llm"]
+    llm._say_if_key_refused(_Forbidden("Forbidden"))  # a real refused key is still said
+    assert [r.levelno for r in caplog.records if r.name == "warden.llm"] == [logging.ERROR]
+
+
+# --------------------------------------------------------------------------- a structured body's digit-only values
+GITHUB_DISPATCH = "https://api.github.com/repos/owner/repo/actions/workflows/deploy-dev.yml/dispatches"
+
+
+@pytest.mark.parametrize("phone", ["+1 415 555 0100", "415-555-0100", "+14155550100"])
+def test_a_phone_in_a_json_body_is_still_refused(phone):
+    body = json.dumps({"ref": "dev", "inputs": {"note": phone}})
+    with pytest.raises(EgressBlocked, match="PHONE"):
+        egress.check_request(GITHUB_DISPATCH, body, JSON, "POST")
+
+
+def test_a_digit_only_id_in_a_json_or_form_body_is_a_number_not_a_phone():
+    egress.check_request(GITHUB_DISPATCH, json.dumps({"ref": "dev", "inputs": {"plan_run_id": "18234567890"}}), JSON,
+                         "POST")
+    egress.check_request(GITHUB_DISPATCH, "run=18234567890",
+                         {"Content-Type": "application/x-www-form-urlencoded"}, "POST")
+
+
+def test_a_digit_only_account_id_in_a_structured_body_is_still_refused():
+    """The digit-only exemption drops only PHONE: a 12-digit account id to Slack (or anywhere) is still ACCOUNTID."""
+    body = json.dumps({"x": "".join(str(d) for d in (1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2))})
+    with pytest.raises(EgressBlocked, match="ACCOUNTID"):
+        egress.check_request(SLACK_API, body, JSON, "POST")
+
+
+@pytest.mark.parametrize(("body", "headers"), [
+    ("call 4155550100", {"Content-Type": "text/plain"}),
+    ("4155550100", {"Content-Type": "text/plain"}),  # declared text: never parsed as a JSON number
+    ("4155550100", {"Content-Type": "application/json"}),  # a bare JSON number: scanned as its text
+    ("4155550100", {}),  # undeclared, and JSON only as a bare number: scanned as its text
+    ('{"note": "4155550100"}', {"Content-Type": "text/plain"}),  # declared text is text, even when it reads as JSON
+], ids=["text-sentence", "text-digits", "json-bare-number", "undeclared-bare-number", "text-that-reads-as-json"])
+def test_a_body_that_is_not_a_json_object_or_a_form_is_scanned_whole(body, headers):
+    with pytest.raises(EgressBlocked, match="PHONE"):
+        egress.check_request(GITHUB_DISPATCH, body, headers, "POST")
+
+
+FULL_WIDTH_PHONE = "".join(chr(0xFF10 + int(d)) for d in "4155550100")  # \d matches these; [0-9] does not
+
+
+@pytest.mark.parametrize(("url", "body"), [
+    (GITHUB_DISPATCH, json.dumps({"note": FULL_WIDTH_PHONE})),
+    (f"https://api.github.com/repos/owner/repo/issues?q={FULL_WIDTH_PHONE}", None),
+], ids=["json-body", "query"])
+def test_a_phone_in_full_width_digits_is_refused_in_a_body_and_in_a_query(url, body):
+    headers, method = (JSON, "POST") if body else ({}, "GET")
+    with pytest.raises(EgressBlocked, match="PHONE"):
+        egress.check_request(url, body, headers, method)
+
+
+def test_the_infra_platforms_own_dispatch_passes_the_egress_check():
+    """The exact request platforms/infra.py builds for an approved apply-plan (B17): its run id is digits only."""
+    import io
+
+    from warden.platforms.infra import ENTRY, GitHub, InfraPlatform
+
+    head, sha, run_id = "a" * 40, "c" * 64, "18234567890"
+    sent = []
+
+    class _Answer(io.BytesIO):
+        status = 204
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def opener(req, timeout):
+        sent.append(req)
+        if req.get_method() == "POST":
+            return _Answer(b"")
+        if "/branches/" in req.full_url:
+            return _Answer(json.dumps({"commit": {"sha": head}}).encode())
+        return _Answer(json.dumps({"workflow_runs": [
+            {"id": int(run_id), "head_sha": head, "conclusion": "success",
+             "display_title": "Deploy · dev · infra plan fullstack "}]}).encode())
+
+    meta = {"commit": head, "sha256": sha, "stack": "fullstack", "environment": "dev"}
+    p = InfraPlatform(environment="dev", github=GitHub("owner/repo", opener), plan_meta=lambda stack, run: meta,
+                      token=lambda: "t" * 8, read_token=lambda: "")
+    live = p.live(ENTRY, {"stack": "fullstack"})
+    p.apply(ENTRY, {"stack": "fullstack", "plan_run": run_id, "plan_sha256": sha}, snapshot=live["state"],
+            who={"approvers": ["owner"], "incident": "inc-1", "plan_hash": "d" * 64,
+                 "run_id": "0b9e1c2a-1111-4222-8333-aaaabbbbcccc"})
+    [dispatch] = [r for r in sent if r.get_method() == "POST"]
+    assert run_id in dispatch.data.decode()
+    for req in sent:  # the reads and the dispatch, each as urllib hands it to the egress hook
+        egress.check_request(req.full_url, req.data, dict(req.header_items()), req.get_method())

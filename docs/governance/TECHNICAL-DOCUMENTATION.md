@@ -26,9 +26,11 @@ proposed remediation from a closed catalogue, applied only after a person approv
 **Not intended for.** Changing systems without a person; acting on its own components; environments it is not
 configured for; any use where a wrong remediation could endanger health or safety without a separate safety system.
 
-**Accuracy to expect.** On WARDEN's 30-incident replay set the production model (Claude Sonnet 5.5) chose the
-correct action in 17, let no wrong fix through, and handed 24 of 30 to a person (2026-10-15, `providers.yaml`). On
-172 held-out cases it was correct in 160 and let no harmful proposal through (`docs/BENCHMARKS.md`). Expect it to
+**Accuracy to expect.** As of 2026-10-21 no model is qualified on the pinned prompt (`providers.yaml` `prompt.sha`),
+so every incident gets the rules-only diagnosis and goes to a person. On an earlier prompt, Claude Sonnet 5.5 chose the
+correct action in 17 of WARDEN's 30-incident replay set, let no wrong fix through, and handed 24 of 30 to a person
+(2026-10-15, `providers.yaml`); on 172 held-out cases it was correct in 160 and let no harmful proposal through
+(`docs/BENCHMARKS.md`). These must be measured again on the pinned prompt. Expect it to
 escalate often; that is the safe failure.
 
 **Human oversight.** Approvers sign the exact plan; T2 and T3 need the target typed; the kill switch stops every

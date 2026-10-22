@@ -86,6 +86,11 @@ def test_the_collector_hashes_who_and_drops_url_queries_before_any_exporter():
         assert actions["user.email"] == "hash"
         assert actions["client.address"] == "hash"
         assert actions["url.query"] == "delete"
-        for name in ("traces", "logs"):
-            if name in config["service"]["pipelines"]:
-                assert "attributes/privacy" in config["service"]["pipelines"][name]["processors"]
+        resource = {a["key"]: a["action"] for a in config["processors"]["resource/privacy"]["attributes"]}
+        assert resource["k8s.pod.ip"] == "hash"
+        assert resource["host.ip"] == "hash"
+        for name, pipeline in config["service"]["pipelines"].items():  # traces, metrics and logs alike
+            assert "attributes/privacy" in pipeline["processors"], name
+            assert "resource/privacy" in pipeline["processors"], name
+            assert pipeline["processors"][-1] == "batch", name  # before the exporters, after the privacy processors
+    assert "metrics" in tool.otel_config("ap-south-2", datadog=True)["service"]["pipelines"]

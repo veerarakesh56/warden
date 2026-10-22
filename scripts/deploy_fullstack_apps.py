@@ -441,9 +441,11 @@ OTEL_IMAGE = "public.ecr.aws/aws-observability/aws-otel-collector:v0.50.0"
 DATADOG_EXPORTER = "otlp/datadog"  # the collector exporter that hands traces, metrics and logs to the Datadog agent
 
 
-# What the collector does to every span and log record before any exporter sees it (owner, 2026-10-21): the attributes
-# that name a person or a client are replaced by their hash - stable, so the same user is still the same id - and the
-# ones that carry a URL's query (a token, an email in a link) are dropped. The record's own text is masked further on,
+# What the collector does to every span, metric point and log record before any exporter sees it (owner, 2026-10-21):
+# the attributes that name a person or a client are replaced by their hash - stable, so the same user is still the same
+# id - and the ones that carry a URL's query (a token, an email in a link) are dropped. The resource's own addresses (a
+# pod's or a node's IP) are hashed too. A hash is PSEUDONYMOUS, not anonymous: it is unsalted (the collector's `hash`
+# action takes no key), so whoever holds a list of candidate emails or addresses can hash them and match. The record's own text is masked further on,
 # by the Datadog agent's processing rules (helm/datadog/values.yaml); this collector build (ADOT v0.50.0) has no
 # processor that edits a log body. tests/test_datadog_agent_masking.py.
 OTEL_HASHED = ("enduser.id", "user.id", "user.email", "user.name", "client.address", "http.client_ip", "net.peer.ip",
@@ -451,6 +453,9 @@ OTEL_HASHED = ("enduser.id", "user.id", "user.email", "user.name", "client.addre
 OTEL_DROPPED = ("url.query", "url.full", "http.url", "http.target")
 OTEL_PRIVACY = {"actions": [*({"key": k, "action": "hash"} for k in OTEL_HASHED),
                             *({"key": k, "action": "delete"} for k in OTEL_DROPPED)]}
+# The resource attributes that hold an address (the k8sattributes and resourcedetection processors set them).
+OTEL_RESOURCE_HASHED = ("k8s.pod.ip", "host.ip", "net.host.ip", "client.address")
+OTEL_RESOURCE_PRIVACY = {"attributes": [{"key": k, "action": "hash"} for k in OTEL_RESOURCE_HASHED]}
 
 
 def otel_config(region: str, *, datadog: bool = False) -> dict:
@@ -474,17 +479,17 @@ def otel_config(region: str, *, datadog: bool = False) -> dict:
         traces.append(DATADOG_EXPORTER)
         metrics.append(DATADOG_EXPORTER)
         logs.append(DATADOG_EXPORTER)
-    private = ["memory_limiter", "attributes/privacy", "batch"]
+    private = ["memory_limiter", "resource/privacy", "attributes/privacy", "batch"]
     pipelines = {"traces": {"receivers": ["otlp"], "processors": private, "exporters": traces}}
     if metrics:
-        pipelines["metrics"] = {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"], "exporters": metrics}
+        pipelines["metrics"] = {"receivers": ["otlp"], "processors": private, "exporters": metrics}
     if logs:
         pipelines["logs"] = {"receivers": ["otlp"], "processors": private, "exporters": logs}
     return {"receivers": {"otlp": {"protocols": {"grpc": {"endpoint": "0.0.0.0:4317"},
                                                  "http": {"endpoint": "0.0.0.0:4318"}}}},
             "processors": {"memory_limiter": {"check_interval": "1s", "limit_percentage": 80,
                                               "spike_limit_percentage": 20}, "batch": {},
-                           "attributes/privacy": OTEL_PRIVACY},
+                           "attributes/privacy": OTEL_PRIVACY, "resource/privacy": OTEL_RESOURCE_PRIVACY},
             "exporters": exporters, "service": {"pipelines": pipelines}}
 
 

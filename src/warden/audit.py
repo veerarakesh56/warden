@@ -27,6 +27,7 @@ import contextlib
 import functools
 import hashlib
 import json
+import logging
 import os
 import pathlib
 import sqlite3
@@ -124,19 +125,55 @@ def migrate(dsn: str, writer_role: str | None = None, *, iam_login: bool = False
                 db.execute(f"GRANT SELECT, INSERT ON {t} TO {writer_role}")
 
 
+_LOG = logging.getLogger("warden.audit")
+_NOT_GONE = frozenset({"57014", "55P03"})  # query_canceled, lock_not_available
+
+
+@contextlib.contextmanager
+def _said_when_unreachable(pg: bool):
+    """B35 self-alarms: the audit database gone (stopped, unreachable, a dropped connection, its disk full) fails
+    every activity that records, and an activity's failure is only a WARNING - nobody was paged. Said once as an
+    ERROR line, by its kind only: the worker-errors alarm (paging.tf) pages it; a Lambda's error pages by its own.
+    A deadlock or a serialization failure is not the database gone - Temporal retries those - and is not said."""
+    if not pg:
+        yield
+        return
+    import psycopg
+
+    try:
+        yield
+    except psycopg.OperationalError as exc:
+        _say_unreachable(exc)
+        raise
+
+
+def _say_unreachable(exc: Exception) -> None:
+    """The ERROR line, once per error, by the error's kind only. No traceback on purpose: the driver's text can name
+    the database's host and user, and the error is raised on, so the activity's own WARNING keeps the traceback.
+    SQLSTATE class 40, "transaction rollback" (a deadlock or a serialization failure), is retried by Temporal and
+    not said; nor a statement cancelled (57014) or a lock not taken (55P03) - one statement, not the database gone.
+    A failover or a restart (AdminShutdown, a dropped connection) is said: it pages, though Temporal may retry it."""
+    state = str(getattr(exc, "sqlstate", None) or "")
+    if state.startswith("40") or state in _NOT_GONE or getattr(exc, "warden_said", False):
+        return
+    exc.warden_said = True
+    _LOG.error("the audit database could not be reached or could not write (%s): every record, approval and fix "
+               "waits on it", type(exc).__name__)
+
+
 class _Rows:
     """A statement's result, read whole while the store's lock is held: a cursor left to be read later shared the
     one connection with another thread's statements."""
 
     def __init__(self, cursor: Any) -> None:
-        self._rows = cursor.fetchall() if getattr(cursor, "description", True) else []
+        self._fetched = cursor.fetchall() if getattr(cursor, "description", True) else []
         self.rowcount = getattr(cursor, "rowcount", -1)
 
     def fetchone(self) -> Any:
-        return self._rows[0] if self._rows else None
+        return self._fetched[0] if self._fetched else None
 
     def fetchall(self) -> list:
-        return list(self._rows)
+        return list(self._fetched)
 
 
 class _Store:
@@ -149,20 +186,21 @@ class _Store:
         self._lock = threading.RLock()
         self.pg = _is_postgres(target)
         if self.pg:
-            self.db = _pg_connect(str(target))
+            with _said_when_unreachable(True):
+                self.db = _pg_connect(str(target))
         else:
             self.db = sqlite3.connect(str(target), isolation_level=None, check_same_thread=False)
             self.db.executescript(_SCHEMA)
 
     def run(self, sql: str, params: tuple | list = ()) -> _Rows:
-        with self._lock:
+        with self._lock, _said_when_unreachable(self.pg):
             return _Rows(self.db.execute(sql.replace("?", "%s") if self.pg else sql, params))
 
     @contextlib.contextmanager
     def transaction(self):
         with self._lock:
             if self.pg:
-                with self.db.transaction():
+                with _said_when_unreachable(True), self.db.transaction():
                     self.db.execute("SELECT pg_advisory_xact_lock(%s)", (_PG_LOCK,))
                     yield
                 return
@@ -342,21 +380,19 @@ class AuditLog:
             return set()
         top = self.store.run("SELECT MAX(seq) FROM checkpoints").fetchone()
         signed = int(top[0]) if top and top[0] is not None else 0
-        ok: set[int] = set()
-        for s in want:
-            if s > signed:
-                continue
-            rows = self.store.run("SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries "
-                                  "WHERE seq IN (?, ?) ORDER BY seq", (s - 1, s)).fetchall()
-            by = {r[0]: r for r in rows}
-            row, before = by.get(s), by.get(s - 1)
-            if row is None or (s > 1 and before is None):
-                continue
-            prev = before[6] if before else GENESIS
-            if row[5] == prev and _hash(row[5], *row[:5]) == row[6] and (
-                    before is None or _hash(before[5], *before[:5]) == before[6]):
-                ok.add(s)
-        return ok
+        return {s for s in want if s <= signed and self._row_intact(s)}
+
+    def _row_intact(self, s: int) -> bool:
+        """Row `s` holds its own content's hash and links to the row before it, which holds its own."""
+        rows = self.store.run("SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries "
+                              "WHERE seq IN (?, ?) ORDER BY seq", (s - 1, s)).fetchall()
+        by = {r[0]: r for r in rows}
+        row, before = by.get(s), by.get(s - 1)
+        if row is None or (s > 1 and before is None):
+            return False
+        prev = before[6] if before else GENESIS
+        return row[5] == prev and _hash(row[5], *row[:5]) == row[6] and (
+            before is None or _hash(before[5], *before[:5]) == before[6])
 
     def signed_through(self) -> int:
         """The last row a signed checkpoint covers (0 when none does): rows after it are not signed yet."""
@@ -425,34 +461,53 @@ def verify(path: str | pathlib.Path, public_key: Ed25519PublicKey,
     (register S12)."""
     result = Verification()
     try:
-        if _is_postgres(path):
-            with _pg_connect(str(path)) as db:
-                rows = db.execute("SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries ORDER BY seq").fetchall()
-                checkpoints = db.execute("SELECT seq, hash, signature FROM checkpoints ORDER BY seq").fetchall()
-        else:
-            db = sqlite3.connect(f"file:{pathlib.Path(path).as_posix()}?mode=ro", uri=True)
-            try:
-                rows = db.execute("SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries ORDER BY seq").fetchall()
-                checkpoints = db.execute("SELECT seq, hash, signature FROM checkpoints ORDER BY seq").fetchall()
-            finally:
-                db.close()
-    except Exception as exc:  # noqa: BLE001 - damage or an unreachable store is a finding, never a crash
+        rows, checkpoints = _read_whole(path)
+    except Exception as exc:  # noqa: BLE001 - damage or an unreachable store is a finding; never a crash
         result.problems.append(f"the audit database cannot be read: {exc}")
         return result
 
     result.rows = len(rows)
+    hashes = _check_chain(rows, result.problems)
+    _check_checkpoints(checkpoints, hashes, public_key, result)
+    if anchors is not None:
+        _check_anchors(checkpoints, anchors, result.problems)
+    return result
+
+
+def _read_whole(path: str | pathlib.Path) -> tuple[list, list]:
+    """Every row and every checkpoint, in order, read-only."""
+    entries_sql = "SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries ORDER BY seq"
+    checkpoints_sql = "SELECT seq, hash, signature FROM checkpoints ORDER BY seq"
+    if _is_postgres(path):
+        with _pg_connect(str(path)) as db:
+            return db.execute(entries_sql).fetchall(), db.execute(checkpoints_sql).fetchall()
+    db = sqlite3.connect(f"file:{pathlib.Path(path).as_posix()}?mode=ro", uri=True)
+    try:
+        return db.execute(entries_sql).fetchall(), db.execute(checkpoints_sql).fetchall()
+    finally:
+        db.close()
+
+
+def _check_chain(rows: list, problems: list[str]) -> dict[int, str]:
+    """Every row is numbered in turn, links to the row before it and holds its own content's hash; returns each
+    row's stored hash by seq."""
     hashes: dict[int, str] = {}
     prev = GENESIS
     for expected_seq, (seq, at, cid, kind, body, stored_prev, stored_hash) in enumerate(rows, start=1):
         if seq != expected_seq:
-            result.problems.append(f"row {expected_seq} is missing (next row is {seq})")
+            problems.append(f"row {expected_seq} is missing (next row is {seq})")
         if stored_prev != prev:
-            result.problems.append(f"row {seq} does not link to the row before it")
+            problems.append(f"row {seq} does not link to the row before it")
         if _hash(stored_prev, seq, at, cid, kind, body) != stored_hash:
-            result.problems.append(f"row {seq} was changed after it was written")
+            problems.append(f"row {seq} was changed after it was written")
         hashes[seq] = stored_hash
         prev = stored_hash
+    return hashes
 
+
+def _check_checkpoints(checkpoints: list, hashes: dict[int, str], public_key: Ed25519PublicKey,
+                       result: Verification) -> None:
+    """Each checkpoint's signature is valid and covers the history as stored; the last good one is `signed_through`."""
     for seq, head, signature in checkpoints:
         try:
             public_key.verify(bytes.fromhex(signature), _signed_message(seq, head))
@@ -463,16 +518,18 @@ def verify(path: str | pathlib.Path, public_key: Ed25519PublicKey,
             result.problems.append(f"checkpoint {seq} was signed over a different history")
             continue
         result.signed_through = max(result.signed_through, seq)
-    if anchors is not None:
-        stored = {seq: (head, signature) for seq, head, signature in checkpoints}
-        for seq, (head, signature) in sorted(stored.items()):
-            if seq not in anchors:
-                result.problems.append(f"checkpoint {seq} was never anchored")
-            elif anchors[seq] != (head, signature):
-                result.problems.append(f"checkpoint {seq} differs from its anchor: the history was rewritten")
-        for seq in sorted(set(anchors) - set(stored)):
-            result.problems.append(f"anchor {seq} has no checkpoint here: the database lost history")
-    return result
+
+
+def _check_anchors(checkpoints: list, anchors: dict[int, tuple[str, str]], problems: list[str]) -> None:
+    """Every checkpoint matches its anchor, and every anchor still has its checkpoint."""
+    stored = {seq: (head, signature) for seq, head, signature in checkpoints}
+    for seq, (head, signature) in sorted(stored.items()):
+        if seq not in anchors:
+            problems.append(f"checkpoint {seq} was never anchored")
+        elif anchors[seq] != (head, signature):
+            problems.append(f"checkpoint {seq} differs from its anchor: the history was rewritten")
+    for seq in sorted(set(anchors) - set(stored)):
+        problems.append(f"anchor {seq} has no checkpoint here: the database lost history")
 
 
 # --------------------------------------------------------------------------- keys

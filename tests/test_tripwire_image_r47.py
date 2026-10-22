@@ -23,7 +23,7 @@ import bake_tripwire  # after the sys.path line above
 
 from warden import tripwire
 
-DOCKERFILE = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+DOCKERFILE = re.sub(r"\\\n\s*", "", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
 
 
 def test_the_image_installs_the_detector_with_cpu_only_torch():

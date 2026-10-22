@@ -18,17 +18,23 @@ from __future__ import annotations
 
 import contextvars
 import json
+import logging
 import math
 import os
 import threading
-from typing import Any, TypeVar
+import time
+import typing
+from datetime import UTC, datetime
+from types import TracebackType
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
+from pydantic_core.core_schema import ErrorType
 
 from .models import CostRecord
+from .paging import BUDGET as BUDGET_REACHED
+from .paging import PROVIDER_UNAVAILABLE
 from .providers import Provider, ProviderExhausted, resolve
-
-T = TypeVar("T", bound=BaseModel)
 
 # USD per 1M tokens. ⚠ Configuration, not fact — vendors change pricing and the free tiers cost
 # nothing at all. Verify before quoting these figures anywhere.
@@ -58,6 +64,86 @@ def model_prices(model: str) -> tuple[float, float]:
 # own default, else 45 s.
 
 
+# Owner item 5 (2026-10-21): a retry after an answer that failed validation says what failed, instead of sending the
+# same prompt again. Only field paths and error types are fed back, never an input value: the answer echoes redacted
+# evidence, and a validation error can quote it. Part of the prompt a model is qualified on (qualify_provider.py
+# prompt_fingerprint), so changing it changes the pin in data/providers.yaml.
+RETRY_FEEDBACK = ("Your last answer failed validation: {errors}. Return ONLY valid JSON for this schema: nothing "
+                  "else.")
+_MAX_FED_BACK = 8  # errors named; the rest are counted
+# pydantic's own error types (`missing`, `enum`, `int_parsing` ...): a validator can name a custom one after a value
+# from the answer (PydanticCustomError), so only these are told (review, PR 132); any other is "invalid".
+_ERROR_TYPES = frozenset(typing.get_args(ErrorType))
+
+
+def _schema_names(schema: Any) -> frozenset[str]:
+    """Every property name the schema declares, nested models included: the only words of a path fed back."""
+    names: set[str] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            names.update(k for k in node.get("properties") or {} if isinstance(k, str))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(schema.model_json_schema())
+    return frozenset(names)
+
+
+def _path(loc: tuple[Any, ...], names: frozenset[str]) -> str:
+    """A field path from the schema's own names and list positions; any other step (a key the answer made up, which is
+    answer text) is shown as `*`."""
+    steps = [str(x) if isinstance(x, int) or x in names else "*" for x in loc]
+    return ".".join(steps) or "(the whole answer)"
+
+
+def _error_type(error: Any) -> str:
+    """pydantic's error type (`missing`, `enum`, `too_long`): a fixed word, never the answer's text."""
+    kind = str(error.get("type", ""))
+    return kind if kind in _ERROR_TYPES else "invalid"
+
+
+def _paths_and_types(exc: ValidationError, schema: Any) -> str:
+    """Each error's field path and pydantic error type, the first _MAX_FED_BACK of them: never an input value."""
+    names = _schema_names(schema)
+    errors = exc.errors(include_url=False, include_context=False, include_input=False)
+    shown = [f"{_path(tuple(e.get('loc') or ()), names)} ({_error_type(e)})" for e in errors[:_MAX_FED_BACK]]
+    more = len(errors) - len(shown)
+    return "; ".join(shown) + (f"; and {more} more" if more > 0 else "")
+
+
+def refusal_reason(exc: BaseException | None, schema: Any) -> str:
+    """Why no answer came, as ModelRefused says it. Its text reaches the diagnose audit row, the rules-only root cause
+    in the report and the workflow's failure (graph.node_diagnose): a validation error is told by its paths and types,
+    never by pydantic's own text, which quotes the answer (`input_value=...`), and the answer echoes evidence."""
+    if not isinstance(exc, ValidationError):
+        return str(exc)
+    n = exc.error_count()
+    return f"{n} validation error{'' if n == 1 else 's'} for {schema.__name__}: {_paths_and_types(exc, schema)}"
+
+
+def validation_feedback(exc: Exception, schema: Any) -> str:
+    """What a retry tells the model about its last answer: each error's field path and pydantic error type, or the
+    JSON parser's own fixed message and position. Never an input value, a quote of the answer or a validator's own
+    message (which may carry one)."""
+    if isinstance(exc, ValidationError):
+        text = _paths_and_types(exc, schema)
+    elif isinstance(exc, json.JSONDecodeError):
+        text = f"not valid JSON ({exc.msg}, line {exc.lineno} column {exc.colno})"
+    else:
+        text = "no JSON object was found in it"
+    return RETRY_FEEDBACK.format(errors=text)
+
+
+def _retry_prompt(system: str, prompt: str, feedback: str) -> str:
+    """The prompt again with the feedback after it - within the prompt ceiling, else the prompt as it was."""
+    retry = f"{prompt}\n\n{feedback}"
+    return retry if (len(system) + len(retry)) // 4 <= MAX_PROMPT_TOKENS else prompt
+
+
 class BudgetExceeded(RuntimeError):
     """The run cost more than it was allowed to. Fatal by design."""
 
@@ -78,10 +164,8 @@ def _complete_within(provider: Provider, *, system: str, user: str, seconds: flo
     box: dict[str, Any] = {}
 
     def _worker() -> None:
-        try:
+        with _CarriedToCaller(box):
             box["ok"] = provider.complete(system=system, user=user, schema=schema)
-        except BaseException as exc:  # noqa: BLE001 - carried across the thread boundary, re-raised below
-            box["err"] = exc
 
     # In the caller's context: the egress ledger names the incident from the Temporal activity running the call.
     th = threading.Thread(target=contextvars.copy_context().run, args=(_worker,), name="warden-llm-call", daemon=True)
@@ -92,6 +176,24 @@ def _complete_within(provider: Provider, *, system: str, user: str, seconds: flo
     if "err" in box:
         raise box["err"]
     return box["ok"]
+
+
+class _CarriedToCaller:
+    """Ends the model call's thread quietly and keeps what the call raised in `box["err"]`, for the calling thread
+    to raise as it was (_complete_within). Every exception, SystemExit and KeyboardInterrupt too: none is silenced,
+    each reaches the caller; the thread itself ends without one, so no thread hook logs or prints it."""
+
+    def __init__(self, box: dict[str, Any]) -> None:
+        self._box = box
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, kind: type[BaseException] | None, err: BaseException | None,
+                 tb: TracebackType | None) -> bool:
+        if err is not None:
+            self._box["err"] = err
+        return True
 
 
 class ModelRefused(RuntimeError):
@@ -105,6 +207,54 @@ class ModelCutOff(ModelRefused):
 class ModelDeclined(ModelCutOff):
     """The model refused to answer (stop_reason "refusal"). Handled exactly as a cut-off (B11): charged, never asked
     again - the same prompt would be declined again - and the incident goes to a person on the evidence alone."""
+
+
+# Why the model could not be used, when it is a condition that pages a person (paging.model_condition, item 7c):
+# the provider down, out of capacity or hung, or this incident's budget spent - PROVIDER_UNAVAILABLE and
+# BUDGET_REACHED, paging's own names (one source). An answer that was not valid JSON, a refusal, a cut-off, a prompt
+# over the size ceiling or one transient error a retry got past is a normal error and pages nobody.
+
+# The audit rows of the model path (owner item 7, leftovers 2 and 3). `llm.call`: one per request sent, metadata only -
+# ts, model, prompt_tokens, completion_tokens, latency_ms, cost (USD, from the usage and model_prices) and ok; never
+# the prompt or the answer. `llm.fallback`: one each time WARDEN went on without the model's answer, with one reason.
+CALL = "llm.call"
+FALLBACK = "llm.fallback"
+RULES_ONLY, MODEL_REFUSED, BUDGET_CAP = "rules_only", "model_refused", "budget_cap"
+# The egress check refused the call (egress.EgressBlocked, an SDK's wrapping included): a configuration or security
+# event, not the model's answer and not an outage - told apart from model_refused, and it pages nobody.
+EGRESS_BLOCKED = "egress_blocked"
+FALLBACK_REASONS = frozenset({RULES_ONLY, MODEL_REFUSED, BUDGET_CAP, PROVIDER_UNAVAILABLE, EGRESS_BLOCKED})
+
+
+def fallback_reason(stopped_by: str) -> str:
+    """The fallback reason of a failed model call, from its client's `stopped_by`: a spent budget, the provider down -
+    else the model's own failure (no valid answer, a refusal, a cut-off, a permanent 4xx, a prompt too large)."""
+    return {BUDGET_REACHED: BUDGET_CAP, PROVIDER_UNAVAILABLE: PROVIDER_UNAVAILABLE,
+            EGRESS_BLOCKED: EGRESS_BLOCKED}.get(stopped_by, MODEL_REFUSED)
+
+
+def call_record(*, model: str, ts: str, started: float, prompt_tokens: int, completion_tokens: int, cost: float,
+                ok: bool) -> dict[str, Any]:
+    """One `llm.call` row's body: metadata only."""
+    return {"ts": ts, "model": model, "prompt_tokens": int(prompt_tokens), "completion_tokens": int(completion_tokens),
+            "latency_ms": elapsed_ms(started), "cost": round(float(cost), 8), "ok": bool(ok)}
+
+
+def usd(prices: tuple[float, float], prompt_tokens: int, completion_tokens: int) -> float:
+    """What tokens cost at (input, output) USD per 1M tokens - model_prices(model): the one formula every cost uses."""
+    return (prompt_tokens / 1e6) * prices[0] + (completion_tokens / 1e6) * prices[1]
+
+
+def failure_reason(exc: Exception) -> str:
+    """The fallback reason of a provider error: the egress check's refusal, the provider unavailable (a connection
+    error, a 429, a 5xx), else the model refused (a permanent 4xx)."""
+    if _refused_here(exc):
+        return EGRESS_BLOCKED
+    return PROVIDER_UNAVAILABLE if _is_transient(exc) else MODEL_REFUSED
+
+
+def now_iso() -> str:
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 class LLMClient:
@@ -129,8 +279,19 @@ class LLMClient:
         # Requests that failed without an answer (a refused connection, a 5xx): counted against this run's call
         # ceiling, but not carried to the incident's next run - they reached no model (eighth review, 2026-10-01).
         self.unanswered = 0
+        # How long each request took, in whole milliseconds, in the order they were sent - an answer, a failure and
+        # every retry alike (item 7a). Measured with the monotonic clock in the process that makes the call (the
+        # activity's, never workflow code), so a clock step cannot make one negative or replay differently.
+        self.calls: list[dict[str, Any]] = []  # each request's call_record, in order
+        # The last call's paging condition (PROVIDER_UNAVAILABLE or BUDGET_REACHED), "" when none: read by the activity.
+        self.stopped_by = ""
+        # The (system, user) text last handed to the provider; None until a real call is sent (never in mock mode).
+        self.last_request: tuple[str, str] | None = None
+        self.last_appended = ""  # what that call appended to the prompt it was built from: the retry feedback, or nothing
         self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
-        self._provider = provider if provider is not None else (None if self.mock else resolve())
+        if provider is None and not self.mock:
+            provider = resolve()
+        self._provider = provider
         # The model's own prices (model_prices). A price that is not a finite, non-negative number switched the USD
         # ceiling off: nan made every cost nan, a negative price made it shrink (fourth review, 2026-09-30). Zero is a
         # free tier.
@@ -164,27 +325,42 @@ class LLMClient:
         """The CLI or SDK version that made the call (register M15)."""
         return "mock" if self.mock else str(getattr(self._provider, "version", "unknown"))
 
+    @property
+    def latencies_ms(self) -> list[int]:
+        return [c["latency_ms"] for c in self.calls]
+
+    def _note_call(self, ts: str, started: float, in_tok: int, out_tok: int, *, ok: bool) -> None:
+        self.calls.append(call_record(model=self.model, ts=ts, started=started, prompt_tokens=in_tok,
+                                      completion_tokens=out_tok, cost=self._usd(in_tok, out_tok), ok=ok))
+
     # ------------------------------------------------------------------ budget
 
+    def _usd(self, in_tok: int, out_tok: int) -> float:
+        """What tokens cost at this model's prices (model_prices: data/providers.yaml `prices`): the one formula."""
+        return usd((self.price_in, self.price_out), in_tok, out_tok)
+
     def _charge(self, in_tok: int, out_tok: int) -> None:
-        usd = (in_tok / 1e6) * self.price_in + (out_tok / 1e6) * self.price_out
-        self.cost.add(in_tok, out_tok, usd)
+        self.cost.add(in_tok, out_tok, self._usd(in_tok, out_tok))
         if self.cost.usd > self.max_usd:
+            self.stopped_by = BUDGET_REACHED
             raise BudgetExceeded(
                 f"run cost ${self.cost.usd:.4f} exceeded the ${self.max_usd:.2f} ceiling"
             )
         if self.cost.calls > self.max_calls:
+            self.stopped_by = BUDGET_REACHED
             raise BudgetExceeded(f"run made {self.cost.calls} calls, ceiling is {self.max_calls}")
 
     def _before_a_call(self, est_usd: float) -> None:
         if self.cost.calls + 1 > self.max_calls:
+            self.stopped_by = BUDGET_REACHED
             raise BudgetExceeded(f"a call would be number {self.cost.calls + 1}; the ceiling is {self.max_calls}")
         if self.cost.usd + est_usd > self.max_usd:
+            self.stopped_by = BUDGET_REACHED
             raise BudgetExceeded(f"this call (~${est_usd:.4f} of input) would take the run past ${self.max_usd:.2f}")
 
     # ------------------------------------------------------------------ public
 
-    def structured(
+    def structured[T: BaseModel](
         self,
         *,
         system: str,
@@ -193,94 +369,176 @@ class LLMClient:
         mock_factory: Any = None,
         retries: int = 2,
     ) -> T:
-        """Ask for one typed object. Raises rather than returning something unvalidated."""
+        """Ask for one typed object. Raises rather than returning something unvalidated. A failure that is a paging
+        condition is named in `stopped_by`; the error itself is raised unchanged."""
+        self.stopped_by = ""
         if self.mock:
-            if mock_factory is None:
-                raise ModelRefused(f"mock mode needs a mock_factory for {schema.__name__}")
-            self._before_a_call(0.0)
-            self._charge(len(system) // 4 + len(user) // 4, 120)
-            # Called with NO arguments on purpose. An earlier version passed the prompt text and
-            # the mock branched on substrings in it - which matched the field LABELS ("RECENT
-            # DEPLOYS:", "error_rate") rather than the values, so every incident produced the same
-            # hypothesis. Mocks read typed state through a closure now; text matching is banned.
-            return mock_factory()
+            return self._mock_answer(system=system, user=user, schema=schema, mock_factory=mock_factory)
 
-        prompt = (
-            f"{user}\n\nReturn ONLY a JSON object matching this schema:\n"
-            f"{json.dumps(schema.model_json_schema())}"
-        )
+        prompt = ask_for(user, schema)
         # Refused BEFORE the call (2026-09-27 audit): charging after it meant one oversized prompt
         # could spend past max_usd before the budget ever looked. ~4 characters per token.
         est_in = (len(system) + len(prompt)) // 4
         if est_in > MAX_PROMPT_TOKENS:
+            # Not a spent budget: this prompt is too large for any budget. No page, and its fallback is model_refused
+            # (stopped_by stays "", item 7 review).
             raise BudgetExceeded(f"prompt of ~{est_in} tokens exceeds the {MAX_PROMPT_TOKENS} ceiling")
-        est_usd = (est_in / 1e6) * self.price_in
 
         last: Exception | None = None
         attempts = 0
+        sent: str | None = prompt
         for _ in range(retries + 1):
             attempts += 1
-            # Before EVERY attempt, retries included (audit A-C-15, A-C-17): the call over the ceiling
-            # is never made, and a retry that would pass the budget on its input alone is not sent.
-            # Honest limit: a response's OUTPUT cost is known only after it arrives, so one call can
-            # still end above the ceiling; the next is then refused.
-            self._before_a_call(est_usd)
-            completion = None
-            try:
-                # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s,
-                # same env var) is the one that actually ends the worker thread and lets the process
-                # exit. This wall-clock is a BACKSTOP set just after it, for the rare case the SDK
-                # timeout does not fire (e.g. an OAuth-style key whose validation hangs below the
-                # request layer).
-                completion = _complete_within(
-                    self._provider, system=system, user=prompt,
-                    seconds=self.call_timeout_s + 2.0, schema=schema,
-                )
-                # Charged BEFORE validation: a malformed response still costs money, and a budget
-                # that only counts successful calls can be exhausted by a model that keeps failing.
-                self._charge(completion.input_tokens, completion.output_tokens)
-                if getattr(completion, "refused", False):
-                    category = getattr(completion, "refusal_category", "") or "not named"
-                    raise ModelDeclined(f"the model declined to answer (refusal, category {category}); asking again "
-                                        "would be declined again")
-                if getattr(completion, "cut_off", False):
-                    raise ModelCutOff("the answer was cut off at the output cap; asking again would cut it off again")
-                return schema.model_validate_json(extract_json(completion.text))
-            except ModelCallTimeout:
-                # Fatal by design: a hung call must stop the run, not be retried into three hangs. It was sent
-                # and may still be billed: it counts as a call, its cost unknown (eighth review: it counted
-                # nowhere, so restarts of a hanging model were never bounded).
-                self.cost.add(0, 0, 0.0)
-                raise
-            except ModelCutOff as exc:
-                last = exc  # charged above; the same prompt would be cut off (or declined) the same way
+            answer, last, sent = self._attempt(system=system, prompt=prompt, sent=sent, schema=schema)
+            if answer is not None:
+                return answer
+            if sent is None:
                 break
-            except (BudgetExceeded, ProviderExhausted):
-                # Fatal by design: a blown budget must stop the run immediately, not be retried into an
-                # overspend. An exhausted provider likewise: it has no error code, so _is_transient() would
-                # call it transient and retry it twice more against a pool that has nothing left.
-                raise
-            except (ValidationError, ValueError) as exc:
-                last = exc  # the model answered, it just was not valid JSON — retry
-                if completion is None:
-                    # Raised inside the provider - it could not read what came back (an HTML 200): the request was
-                    # answered and may be billed, and it counted as no call at all (ninth review).
-                    self.cost.add(0, 0, 0.0)
-            except Exception as exc:  # noqa: BLE001
-                # A provider/network error. The SDKs' internal retries are DISABLED (providers.py) so
-                # this loop re-handles them — but only the TRANSIENT ones (429/5xx/connection reset).
-                # A permanent 4xx (401 bad key, 400 malformed) will fail identically every attempt, so
-                # retrying it just delays a failure the operator must fix — fail fast instead.
-                last = exc
-                # The request was made: it counts toward the call ceiling like any other (fourth review:
-                # 15 failed requests were made under a ceiling of 2, none counted). Its cost is unknown.
-                self.cost.add(0, 0, 0.0)
-                if not _reached_the_model(exc):
-                    self.unanswered += 1
-                if not _is_transient(exc):
-                    break
+        # The egress check's refusal is named apart (its fallback reason, egress_blocked); it is no paging condition -
+        # paging.model_condition counts only the provider down and a spent budget, and _provider_down stays "".
+        self.stopped_by = EGRESS_BLOCKED if last is not None and _refused_here(last) else _provider_down(last)
         plural = "attempt" if attempts == 1 else "attempts"
-        raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {last}")
+        raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {refusal_reason(last, schema)}")
+
+    def _mock_answer[T: BaseModel](self, *, system: str, user: str, schema: type[T], mock_factory: Any) -> T:
+        if mock_factory is None:
+            raise ModelRefused(f"mock mode needs a mock_factory for {schema.__name__}")
+        self._before_a_call(0.0)
+        ts, started, mock_in = now_iso(), time.monotonic(), len(system) // 4 + len(user) // 4
+        self._charge(mock_in, 120)
+        # Called with NO arguments on purpose. An earlier version passed the prompt text and
+        # the mock branched on substrings in it - which matched the field LABELS ("RECENT
+        # DEPLOYS:", "error_rate") rather than the values, so every incident produced the same
+        # hypothesis. Mocks read typed state through a closure now; text matching is banned.
+        answered = False
+        try:
+            answer = mock_factory()
+            answered = True
+            return answer
+        finally:
+            self._note_call(ts, started, mock_in, 120, ok=answered)  # a factory that raised answered nothing
+
+    def _attempt[T: BaseModel](self, *, system: str, prompt: str, sent: str,
+                 schema: type[T]) -> tuple[T | None, Exception | None, str | None]:
+        """One request of `sent`, the first prompt or `prompt` with feedback: (the validated answer, None, sent), or
+        (None, why it failed, what to send next - None to stop asking)."""
+        # Before EVERY attempt, retries included (audit A-C-15, A-C-17): the call over the ceiling
+        # is never made, and a retry that would pass the budget on its input alone is not sent.
+        # Honest limit: a response's OUTPUT cost is known only after it arrives, so one call can
+        # still end above the ceiling; the next is then refused. Estimated on what is sent: a retry
+        # carries the validation feedback (item 5), and its input is priced with it.
+        self._before_a_call(((len(system) + len(sent)) // 4 / 1e6) * self.price_in)
+        completion = None
+        # Exactly what is handed to the provider, kept so the diagnosis records its hash (B36: `warden history`
+        # shows what the model was sent and proves it byte for byte, never a re-render that could differ).
+        # On a retry, `sent` is the prompt with the validation feedback after it (item 5): what was appended is kept
+        # too, so `warden history` rebuilds the text exactly - field paths and error types only, never a value.
+        self.last_request, self.last_appended = (system, sent), sent[len(prompt):]
+        try:
+            # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s,
+            # same env var) is the one that actually ends the worker thread and lets the process
+            # exit. This wall-clock is a BACKSTOP set just after it, for the rare case the SDK
+            # timeout does not fire (e.g. an OAuth-style key whose validation hangs below the
+            # request layer).
+            completion = self._timed(system=system, sent=sent, schema=schema)
+            return self._validated(completion, schema), None, sent
+        except ModelCallTimeout:
+            # Fatal by design: a hung call must stop the run, not be retried into three hangs. It was sent
+            # and may still be billed: it counts as a call, its cost unknown (eighth review: it counted
+            # nowhere, so restarts of a hanging model were never bounded).
+            self.cost.add(0, 0, 0.0)
+            self.stopped_by = PROVIDER_UNAVAILABLE
+            raise
+        except ModelCutOff as exc:
+            return None, exc, None  # charged above; the same prompt would be cut off (or declined) the same way
+        except (BudgetExceeded, ProviderExhausted) as exc:
+            # Fatal by design: a blown budget must stop the run immediately, not be retried into an
+            # overspend. An exhausted provider likewise: it has no error code, so _is_transient() would
+            # call it transient and retry it twice more against a pool that has nothing left.
+            self.stopped_by = _stop_of(exc)
+            raise
+        except (ValidationError, ValueError) as exc:
+            # the model answered, it just was not valid JSON — retry
+            if completion is None:
+                # Raised inside the provider - it could not read what came back (an HTML 200): the request was
+                # answered and may be billed, and it counted as no call at all (ninth review).
+                self.cost.add(0, 0, 0.0)
+                return None, exc, sent
+            # The model's own answer failed: the next attempt says why (item 5). No call is added.
+            return None, exc, _retry_prompt(system, prompt, validation_feedback(exc, schema))
+        except Exception as exc:  # noqa: BLE001
+            # A provider/network error. The SDKs' internal retries are DISABLED (providers.py) so
+            # this loop re-handles them — but only the TRANSIENT ones (429/5xx/connection reset).
+            # A permanent 4xx (401 bad key, 400 malformed) will fail identically every attempt, so
+            # retrying it just delays a failure the operator must fix — fail fast instead.
+            # The request was made: it counts toward the call ceiling like any other (fourth review:
+            # 15 failed requests were made under a ceiling of 2, none counted). Its cost is unknown.
+            self.cost.add(0, 0, 0.0)
+            if not _reached_the_model(exc):
+                self.unanswered += 1
+            if _is_transient(exc):
+                return None, exc, sent
+            _say_if_key_refused(exc)  # B35: a permanent error; a refused key is said as an ERROR line
+            return None, exc, None
+
+    def _timed(self, *, system: str, sent: str, schema: Any) -> Any:
+        """One provider request, its `llm.call` row noted whatever happens (item 7a): the monotonic clock around the
+        provider call alone; its usage when it answered, (0, 0) when it did not - unknown, never estimated."""
+        ts, started = now_iso(), time.monotonic()
+        completion = None
+        try:
+            completion = _complete_within(
+                self._provider, system=system, user=sent,
+                seconds=self.call_timeout_s + 2.0, schema=schema,
+            )
+            return completion
+        finally:
+            self._note_call(ts, started, *usage(completion), ok=completion is not None)
+
+    def _validated[T: BaseModel](self, completion: Any, schema: type[T]) -> T:
+        # Charged BEFORE validation: a malformed response still costs money, and a budget
+        # that only counts successful calls can be exhausted by a model that keeps failing.
+        self._charge(completion.input_tokens, completion.output_tokens)
+        if getattr(completion, "refused", False):
+            category = getattr(completion, "refusal_category", "") or "not named"
+            raise ModelDeclined(f"the model declined to answer (refusal, category {category}); asking again "
+                                "would be declined again")
+        if getattr(completion, "cut_off", False):
+            raise ModelCutOff("the answer was cut off at the output cap; asking again would cut it off again")
+        return schema.model_validate_json(extract_json(completion.text))
+
+
+def usage(completion: Any) -> tuple[int, int]:
+    """(prompt, completion) tokens of an answer; (0, 0) for a request that failed - its usage is unknown."""
+    if completion is None:
+        return 0, 0
+    return int(completion.input_tokens or 0), int(completion.output_tokens or 0)
+
+
+def elapsed_ms(started: float) -> int:
+    """Whole milliseconds since `started`, a `time.monotonic()` reading: never negative."""
+    return max(0, round((time.monotonic() - started) * 1000))
+
+
+def _stop_of(exc: Exception) -> str:
+    """The paging condition of a fatal error: a spent budget, or the provider out of capacity."""
+    return BUDGET_REACHED if isinstance(exc, BudgetExceeded) else PROVIDER_UNAVAILABLE
+
+
+def _provider_down(last: Exception | None) -> str:
+    """PROVIDER_UNAVAILABLE when the provider itself failed - the last attempt ended by a connection error, a 429 or a
+    5xx - rather than the model answering badly; "" otherwise. An answer that was not valid JSON, a cut-off and a
+    refusal are the model's; a permanent 4xx is a configuration error, not an outage."""
+    if last is None or isinstance(last, (ValidationError, ValueError, ModelCutOff)) or not _is_transient(last):
+        return ""
+    return PROVIDER_UNAVAILABLE
+
+
+def ask_for(user: str, schema: Any) -> str:
+    """The user text a structured call hands the provider: the prompt, then the schema it must answer in. The one place
+    it is built - `warden history` (the temporal_history module) rebuilds it with this and checks it against the
+    recorded hash."""
+    return f"{user}\n\nReturn ONLY a JSON object matching this schema:\n{json.dumps(schema.model_json_schema())}"
 
 
 def _max_calls(max_calls: int | None) -> int:
@@ -318,10 +576,48 @@ def _reached_the_model(exc: BaseException) -> bool:
     return True
 
 
+def _refused_here(exc: BaseException) -> bool:
+    """Was this error, or one in its chain, the egress check's refusal? An SDK wraps it in its own connection error,
+    which reads as transient (review: a refused model call was retried twice, refused each time)."""
+    from .egress import EgressBlocked
+
+    seen: list[BaseException] = []
+    e: BaseException | None = exc
+    while e is not None and e not in seen and len(seen) < 8:
+        if isinstance(e, EgressBlocked):
+            return True
+        seen.append(e)
+        e = e.__cause__ or e.__context__
+    return False
+
+
+# B35 self-alarms: a model key that stopped working (revoked, out of its workspace, the wrong one) fails every
+# diagnosis, and an activity's failure is only a WARNING - nobody was paged until the daily synthetic incident had
+# missed for a day. An ERROR line names it now, and the worker-errors alarm (paging.tf) pages at once.
+KEY_REFUSED = frozenset({401, 403})
+_LOG = logging.getLogger("warden.llm")
+
+
+def _say_if_key_refused(exc: Exception) -> None:
+    if _refused_here(exc):
+        return  # WARDEN's own egress check refused the call: no key was refused (egress_blocked, not this alarm)
+    status = getattr(exc, "status_code", None)
+    status = getattr(exc, "code", None) if status is None else status
+    try:  # some providers give the status as text ("401"), as _is_transient already accepts
+        status = int(status)
+    except (TypeError, ValueError):
+        return
+    if status in KEY_REFUSED:
+        _LOG.error("the model provider refused WARDEN's API key (HTTP %d, %s): every diagnosis fails until a working "
+                   "key is in Secrets Manager", status, type(exc).__name__)
+
+
 def _is_transient(exc: Exception) -> bool:
     """Is this provider error worth retrying? A connection/socket error (no HTTP status) or a
     429/5xx is transient; a 4xx (401/403/400) is permanent. Duck-typed across SDKs, which expose the
     status as `.status_code` (openai, anthropic) or `.code` (google-genai)."""
+    if _refused_here(exc):
+        return False  # the egress check refused it (egress.EgressBlocked, wrapped by the SDK): it would be refused again
     status = getattr(exc, "status_code", None)
     if status is None:
         status = getattr(exc, "code", None)

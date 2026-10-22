@@ -222,6 +222,7 @@ class AnthropicProvider:
         self._client = Anthropic(base_url=ANTHROPIC_BASE_URL, timeout=_sdk_timeout_s(), max_retries=0)
 
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
+        # The Provider signature: the schema is not sent to Anthropic's API, the prompt describes it (see Provider).
         resp = self._client.messages.create(
             model=self.model,
             max_tokens=MAX_OUTPUT_TOKENS,
@@ -266,6 +267,10 @@ class GeminiProvider:
 
         self._client = genai.Client(
             api_key=api_key,
+            # ALWAYS explicit: the SDK otherwise reads GOOGLE_GENAI_USE_VERTEXAI / GOOGLE_GENAI_USE_ENTERPRISE, which
+            # turn the AI Studio key into a Vertex client - another host, and (google-genai 2.30) a rewrite to the
+            # mTLS endpoint when a client certificate is configured.
+            vertexai=False,
             # ALWAYS explicit: the SDK otherwise reads GOOGLE_GENAI_CLIENT_MODE, where `replay` answers
             # from files on disk and `record` writes every prompt to disk (third review, 2026-09-30).
             debug_config=DebugConfig(client_mode=None, replays_directory=None, replay_id=None),

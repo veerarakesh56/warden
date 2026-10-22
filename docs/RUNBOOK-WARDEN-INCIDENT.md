@@ -32,7 +32,14 @@ rather than read this machine's own file (2026-10-16: `on` used to print ON here
 If the approval page cannot be reached, stop the worker that applies changes, which does not depend on WARDEN: AWS
 console → ECS → cluster `warden-ops-runtime` → service `warden-ops-act` → Update service → Desired tasks `0` (or
 `aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --desired-count 0`). Approved plans
-wait; nothing is applied until it is set back to `1`. (An AWS deny policy as a second switch is not built yet.)
+wait; nothing is applied until it is set back to the stack's count (SSM `/warden/ops/tf/worker_instances`, 2 when it
+is not set; [RUNBOOK-WARDEN-DOWN.md](RUNBOOK-WARDEN-DOWN.md), section 6).
+
+A second switch AWS enforces, outside WARDEN's code and database (B18): an IAM deny on each watched environment's
+actor role `warden-<env>-actor` that refuses every AWS call unless the role's tag `warden-kill-switch` says `off`. A
+person with `iam:TagRole` turns it on with `python scripts/iam_kill_switch.py on --env <env>` and reads it with
+`... status --env <env>`. It covers AWS fixes only, protects nothing unless its policy is attached to the role (`status`
+says so), and has not yet been proven in a live window.
 
 ## 1. Preparation (before any incident)
 
@@ -40,7 +47,7 @@ wait; nothing is applied until it is set back to `1`. (An AWS deny policy as a s
 - The audit's public key is kept apart from the worker, and the S3 anchor bucket (register S12) is configured.
 - This runbook and `docs/SETUP.md` are where the on-call engineer can open them without WARDEN.
 - What to keep for an investigation: the audit database, the Temporal workflow histories (encrypted; the codec key
-  is in Secrets Manager), and the model's recorded prompts and answers (by hash in `llm.call` rows).
+  is in Secrets Manager), and the model's recorded prompts and answers (by hash in the `provenance` of `incident.diagnose` rows).
 
 ## 2. Detection and analysis
 
@@ -50,10 +57,13 @@ Signs that WARDEN is the incident:
 |---|---|
 | A fix made things worse | the run ended `relapsed`, `rolled_back` or `rollback_failed`; the breaker tripped the kill switch; a GitHub change record (O9) |
 | WARDEN may be acting on injected text | policy `P16-SUSPECTED-INJECTION` on a verdict; quoted text steering toward an action in a report |
-| The model behaves strangely | many escalations at once (the escalation SLO, N6), the same wrong action repeated, a model change in the `llm.call` rows |
+| The model behaves strangely | many escalations at once (the escalation SLO, N6), the same wrong action repeated, a model change in the `incident.diagnose` rows' `provenance`, slow calls in the `latency_ms` of `incident.llm_spend` rows |
 | The record may be tampered with | `warden audit verify` reports a broken chain, a bad signature or a checkpoint that differs from its anchor |
 | An actor role was used without an approval | the `warden-<env>-unapproved-actor` alarm pages; `actor.unapproved` rows in the audit name the role, the caller and the CloudTrail event id |
-| WARDEN is down | no Slack thread for a firing alarm; the `warden-<env>-heartbeat-missing` alarm pages (no worker completed a round trip through Temporal); Temporal shows no worker polling |
+| WARDEN is down | no Slack thread for a firing alarm; the `warden-<env>-heartbeat-missing` alarm pages (no worker completed a round trip through Temporal, or one zone - read, llm, notify, act, critic - has no worker polling its queue: the `heartbeat missed` line in `/warden/<env>/worker` names it); Temporal shows no worker polling |
+| A key or the audit database broke | the `warden-<env>-worker-errors` alarm pages; `/warden/<env>/worker` has an ERROR line naming the model's key refused, Temporal refusing the core worker's key, or the audit database unreachable or full. An Aurora failover or restart also says the database is unreachable and pages, even when Temporal's retry then works: check the database's events before anything else. Another zone's refused key shows as `heartbeat-missing` naming that zone |
+| WARDEN failed on an alarm | the `warden-<env>-lambda-errors` alarm pages: read the function's own log first - Lambda retries an event twice (for up to 6 hours), and a retry that works leaves nothing to do. An event that failed every retry is kept in the `warden-<env>-alarm-dlq` queue, whose own alarm pages, for 14 days: read it and handle the alarm by hand |
+| An actor-role session while WARDEN is paused | the `warden-<env>-alarm-dlq` alarm pages, on purpose: the actor-use check still runs while paused, fails without its database, and the event is kept in the queue. Nothing of WARDEN's should use an actor role while it is paused - read the event (role, caller, CloudTrail event id) and treat it as suspicious |
 
 Check the record first: it is what every other answer rests on.
 
@@ -89,8 +99,10 @@ matched to the record or exposed as forged.
   sessions (IAM, the role, **Revoke active sessions**), and keep the trail's files as they are - Object Lock keeps
   them for the retention period. If the alarm says the audit could not be read, check the audit database first: the
   session may have been approved, and the check could not see it.
-- **WARDEN down.** Incidents go to people directly: the alarms page as they did before WARDEN. Start the worker
-  again (`warden worker`), and check the clock (`warden worker` refuses to run with a skewed clock, O6).
+- **WARDEN down.** In this install the watched environments' own alarms page nobody directly (their CloudWatch
+  alarms have no alarm actions): with WARDEN down, people look at the alarms by hand. Follow
+  [RUNBOOK-WARDEN-DOWN.md](RUNBOOK-WARDEN-DOWN.md): the lost-alarm queue, which part is down, and how to bring it
+  back. Check the clock (`warden worker` refuses to run with a skewed clock, O6).
 
 ## 4. After the incident
 
