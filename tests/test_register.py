@@ -11,8 +11,10 @@ register (docs/FAILURE-MODES.md) and fails when:
 
 from __future__ import annotations
 
+import ast
 import pathlib
 import re
+import sys
 
 import pytest
 
@@ -21,7 +23,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # open rows were carried into this one.
 REGISTERS = ("docs/FAILURE-MODES.md",)
 ORDER = ("G0", "W0-now", "G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
-CURRENT_GROUP = "G0"  # advance only when every row of the group is closed
+CURRENT_GROUP = "G5"  # the last group before the one in progress (G6); advance only when every row of the next is closed
 STATUSES = {"OPEN", "DONE-local", "DONE-live", "DEFERRED", "WITHHELD"}
 CLOSED = {"DONE-local", "DONE-live", "DEFERRED"}
 # A real window of the plan, and the date it ran. `\bW[\w-]+` let "Worked on my machine" and an invented
@@ -147,6 +149,69 @@ def _skipped(file: str, src: str, m: re.Match) -> bool:
     return bool(re.search(r"^\S.*(?:importorskip\(|\bskip\(|\bxfail\()", src, re.MULTILINE))
 
 
+def _decorated_off(src: str, func: str) -> bool:
+    """A decorator that may skip, read by the parser: the line pattern above saw none over several lines, or with a
+    comment or blank line before `def` (review of PR 82, 2026-10-20). A file the parser cannot read is no evidence."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return True
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == func:
+            names = [ast.unparse(d.func if isinstance(d, ast.Call) else d) for d in node.decorator_list]
+            return any(name not in _SAFE_DECORATORS for name in names) or _a_case_is_marked_off(node, tree)
+    return False
+
+
+def _resolved(name: str, assigned: dict[str, ast.expr]) -> ast.expr | None:
+    """What a module-level name finally stands for, through `a = b` aliases; None when the chain ends in a name this
+    file does not assign (an import, a loop)."""
+    seen: set[str] = set()
+    while name in assigned and name not in seen:
+        seen.add(name)
+        value = assigned[name]
+        if not isinstance(value, ast.Name):
+            return value
+        name = value.id
+    return None
+
+
+def _case_parts(decorator: ast.Call, assigned: dict[str, ast.expr]) -> list[ast.AST] | None:
+    """The decorator and every case list it names by a variable, read where the module assigns it; None when a named
+    list is not spelled out in this file."""
+    parts: list[ast.AST] = [decorator]
+    given = [*decorator.args, *(k.value for k in decorator.keywords if k.arg == "argvalues")]
+    for name in (arg.id for arg in given if isinstance(arg, ast.Name)):
+        value = _resolved(name, assigned)
+        if value is None:
+            return None
+        parts.append(value)
+    return parts
+
+
+def _param_marked_off(node: ast.AST) -> bool:
+    """`pytest.param(..., marks=...)` whose marks skip or xfail."""
+    if not (isinstance(node, ast.Call) and ast.unparse(node.func) in ("pytest.param", "param")):
+        return False
+    marks = " ".join(ast.unparse(k.value) for k in node.keywords if k.arg == "marks")
+    return "skip" in marks or "xfail" in marks
+
+
+def _a_case_is_marked_off(node: ast.FunctionDef, tree: ast.Module) -> bool:
+    """A `pytest.param(..., marks=...)` case marked skip or xfail inside a parametrize (PR 86 review): with only such
+    cases pytest runs nothing. Any marked case refuses the citation - evidence is a test that runs whole. A case list
+    named by a variable is read where the module assigns it; one that cannot be read there is refused too."""
+    assigned = {target.id: stmt.value for stmt in tree.body if isinstance(stmt, ast.Assign)
+                for target in stmt.targets if isinstance(target, ast.Name)}
+    for decorator in (d for d in node.decorator_list if isinstance(d, ast.Call)):
+        parts = _case_parts(decorator, assigned)
+        if parts is None:
+            return True  # a case list this file does not spell out: its marks cannot be checked
+        if any(_param_marked_off(c) for part in parts for c in ast.walk(part)):
+            return True
+    return False
+
+
 def cited_tests() -> set[tuple[str, str]]:
     """(file, test) for every test a DONE-local row cites as evidence (negated citations excluded)."""
     cited: set[tuple[str, str]] = set()
@@ -216,7 +281,7 @@ def problems(rel: str, row: dict[str, str], current: str = CURRENT_GROUP) -> lis
             m = re.search(rf"^((?:@.*\n)*)def {func}\(", src, re.MULTILINE)
             if not m:
                 found.append(f"{where}: cited test {file}::{func} does not exist")
-            elif _skipped(file, src, m):
+            elif _skipped(file, src, m) or _decorated_off(src, func):
                 found.append(f"{where}: cited test {file}::{func} is skipped (or may be, in CI)")
     if status == "DONE-live" and not _real_window(evidence):
         found.append(f"{where}: DONE-live must name the window")
@@ -312,6 +377,48 @@ def test_a_module_level_multi_line_aliased_or_xfail_skip_is_not_evidence(src):
     """Fourth review (2026-09-30, D #3): each of these passed the third review's guard."""
     m = re.search(r"^((?:@.*\n)*)def test_a\(", src, re.MULTILINE)
     assert _skipped("tests/x.py", src, m)
+
+
+@pytest.mark.parametrize("src", [
+    "import pytest\n\n@pytest.mark.skipif(\n    True,\n    reason='x',\n)\ndef test_a():\n    pass\n",
+    "import pytest\n\n@pytest.mark.skip\n# a comment\n\ndef test_a():\n    pass\n",
+])
+def test_a_skip_over_several_lines_or_behind_a_comment_is_not_evidence(src):
+    """2026-10-20: the line pattern read no decorator here, and the skipped test counted as evidence."""
+    assert _decorated_off(src, "test_a")
+    multi = "import pytest\n\n@pytest.mark.parametrize(\n    'x', [1],\n)\ndef test_a(x):\n    pass\n"
+    assert not _decorated_off(multi, "test_a")
+
+
+@pytest.mark.parametrize("marks", ["pytest.mark.skip", "[pytest.mark.skipif(True, reason='x')]", "pytest.mark.xfail"])
+def test_a_parametrized_case_marked_off_is_not_evidence(marks):
+    src = f"import pytest\n\n@pytest.mark.parametrize('x', [pytest.param(1, marks={marks})])\ndef test_a(x):\n    pass\n"
+    assert _decorated_off(src, "test_a")
+    plain = "import pytest\n\n@pytest.mark.parametrize('x', [pytest.param(1, id='one')])\ndef test_a(x):\n    pass\n"
+    assert not _decorated_off(plain, "test_a")
+
+
+def test_a_named_case_list_is_read_where_it_is_assigned():
+    """PR 86 review: `cases = [pytest.param(1, marks=pytest.mark.skip)]` passed when the decorator named `cases`."""
+    head = "import pytest\n\n"
+    test = "\n@pytest.mark.parametrize('x', cases)\ndef test_a(x):\n    pass\n"
+    assert _decorated_off(head + "cases = [pytest.param(1, marks=pytest.mark.skip)]\n" + test, "test_a")
+    assert _decorated_off(head + "from elsewhere import cases\n" + test, "test_a")  # cannot be read here
+    assert not _decorated_off(head + "cases = [1, pytest.param(2, id='two')]\n" + test, "test_a")
+    keyword = "\n@pytest.mark.parametrize(argnames='x', argvalues=cases)\ndef test_a(x):\n    pass\n"
+    assert _decorated_off(head + "cases = [pytest.param(1, marks=pytest.mark.skip)]\n" + keyword, "test_a")
+    alias = "from elsewhere import imported\ncases = imported\n"
+    assert _decorated_off(head + alias + test, "test_a")  # an alias of something this file does not spell out
+    assert _decorated_off(head + "base = [pytest.param(1, marks=pytest.mark.xfail)]\ncases = base\n" + test, "test_a")
+
+
+def test_a_row_citing_a_test_skipped_over_several_lines_is_refused(tmp_path, monkeypatch):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text(
+        "import pytest\n\n@pytest.mark.skipif(\n    True,\n    reason='x',\n)\ndef test_a():\n    pass\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    row = {"#": "X", "Group": "G1", "Status": "DONE-local", "Evidence": "tests/test_x.py::test_a"}
+    assert any("is skipped" in p for p in problems("r", row, current="G0"))
 
 
 def test_a_parametrized_test_is_still_evidence():
