@@ -104,21 +104,32 @@ def race_reveals(open_log, monkeypatch, *, parallel: int = 6, slots: int = 2, li
         return got
 
     monkeypatch.setattr(reveal, "_recent", waiting)
+    # The admission is under test, not the HTML: the pages are rendered with records' shell, which imports the
+    # approval page (webauthn) - not installed in the db job, where this runs against PostgreSQL.
+    for page in ("form_page", "message_page", "revealed_page"):
+        monkeypatch.setattr(reveal, page, lambda *_a, **_k: "")
     form = urllib.parse.urlencode([("reveal", "1"), ("t", reveal.token(cookie, incident)),
                                    ("why", "which customer the outage hit"), ("p", "<EMAIL_1>")])
     statuses: list[int] = []
+    errors: list[BaseException] = []
 
     def one():
         mine = open_log()
-        statuses.append(reveal.reveal(mine, incident, member=member, cookie=cookie, form=form, approver=True,
-                                      opener=opener)[0])
-        mine.close()
+        try:
+            statuses.append(reveal.reveal(mine, incident, member=member, cookie=cookie, form=form, approver=True,
+                                          opener=opener)[0])
+        except Exception as exc:  # noqa: BLE001 - re-raised below, in the test's own thread
+            errors.append(exc)
+        finally:
+            mine.close()
 
     threads = [threading.Thread(target=one) for _ in range(parallel)]
     for th in threads:
         th.start()
     for th in threads:
         th.join()
+    if errors:
+        raise errors[0]
     rows = log.entries(incident, kinds=(reveal.REVEAL,))
     log.close()
     return sorted(statuses), len(rows), kms.calls.count("Decrypt")
