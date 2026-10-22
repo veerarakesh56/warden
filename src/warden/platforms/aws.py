@@ -18,8 +18,9 @@ dynamodb_raise_capacity (the table's provisioned WRITE capacity; read capacity i
 ecs_rollback_service (to the task definition of the service's last successful deployment before the current
 one, from ECS's own deployment history), and aurora_failover (T3: promote one available reader the approver named,
 only while the writer is still the one they saw; irreversible - a person decides what comes after). lambda_restore_config
-is not carried out here: restoring a
-configuration copies environment values, which WARDEN does not read (audit A-B-M9).
+(B17): $LATEST's timeout, memory, storage, handler, runtime, layers and tracing back to its newest published version's,
+only when the code is the same and the environment (compared by digest - no value is copied or kept, audit A-B-M9),
+role and network are too.
 
 G9-D (2026-10-10; AWS's own documentation read that day, verify-fix-apis.md): lambda_disable_esm (pause a mapping that
 reads an SQS queue - never a stream, whose records age out while paused), events_disable_rule (pause a SCHEDULED rule -
@@ -40,6 +41,7 @@ rollback). A pause, a shift and a freeze end "mitigated": the page stays open (c
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -63,7 +65,7 @@ SETTLE = timedelta(seconds=30)
 # consecutive checks the verify loop needs (workflows.CONSECUTIVE_HEALTHY).
 METRIC_SETTLE_MINUTES = 8
 METRIC_JUDGED = frozenset({"lambda_move_alias", "lambda_set_reserved_concurrency", "dynamodb_raise_capacity",
-                           "apigw_raise_stage_throttle"})
+                           "apigw_raise_stage_throttle", "lambda_restore_config"})
 # Register C8's KNOWN_GOOD - a revision WARDEN restores must have been healthy this long when it last served - is
 # aws_stack's: the evidence (the report's "previous") and the plan read one rule (last_known_good).
 # G9-D: the tag on a Lambda function or an ECS service naming the pipeline stage that deploys it: `<pipeline>/<stage>`.
@@ -83,6 +85,9 @@ RUNAWAY_QUERY = timedelta(minutes=15)
 # strategy, CANARY or LINEAR, which the plan shows; WARDEN does not change a service's strategy.)
 CANARY_WEIGHT = 0.1
 CANARY_FOR = timedelta(minutes=2)
+# B17: an undo of lambda_restore_config is done when Lambda says its update finished - read every UNDO_POLL_S, up to
+# UNDO_POLLS times (2 minutes: inside the rollback activity's 5), never on the request being accepted (PR 107).
+UNDO_POLLS, UNDO_POLL_S = 24, 5
 _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lambda", "lambda_enable_esm": "lambda",
           "lambda_disable_esm": "lambda", "events_enable_rule": "events", "events_disable_rule": "events",
           "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs", "ecs_restart_service": "ecs",
@@ -90,6 +95,7 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "appconfig_revert": "appconfig",
           "codepipeline_freeze": "codepipeline", "ec2_revert_sg_change": "ec2",
           "ecs_restore_desired": "ecs", "lambda_restore_concurrency": "lambda", "lambda_restore_settings": "lambda", "asg_restore_capacity": "asg",
+          "lambda_restore_config": "lambda",
           "sqs_restore_attributes": "sqs", "kinesis_restore_retention": "kinesis", "ec2_restore_route": "ec2",
           "apigw_restore_stage": "apigw", "elb_reregister_targets": "elb", "kms_cancel_key_deletion": "kms",
           "secrets_restore_secret": "secretsmanager", "dynamodb_restore_capacity": "dynamodb",
@@ -725,6 +731,61 @@ def _rule_on_bus(ref: str) -> dict[str, str]:
     bus, _, name = ref.rpartition("/")
     return {"Name": name, **({"EventBusName": bus} if bus else {})}
 
+# B17, lambda_restore_config: the settings restored from a published version, and those that must be the same already
+# (each a person's to undo). The environment is compared by a digest of its values; no value enters the plan.
+CONFIG_FIELDS = ("Timeout", "MemorySize", "EphemeralStorage", "Handler", "Runtime", "Layers", "TracingConfig")
+_CONFIG_KEPT = ("environment", "role", "network", "image")
+
+
+def _config_of(conf: dict[str, Any]) -> dict[str, Any]:
+    """The restored settings of one configuration, comparable and JSON-safe."""
+    return {"Timeout": conf.get("Timeout"), "MemorySize": conf.get("MemorySize"),
+            "EphemeralStorage": (conf.get("EphemeralStorage") or {}).get("Size"), "Handler": conf.get("Handler"),
+            "Runtime": conf.get("Runtime"), "Layers": [str(x.get("Arn")) for x in conf.get("Layers") or []],  # order matters
+            "TracingConfig": (conf.get("TracingConfig") or {}).get("Mode")}
+
+
+def _kept_of(conf: dict[str, Any], what: str) -> Any:
+    if what == "environment":
+        env = conf.get("Environment") or {}
+        if env.get("Error"):
+            return object()  # unreadable equals nothing, not even another unreadable one (refused before, too)
+        retained = {"KMSKeyArn": conf.get("KMSKeyArn"), "Variables": env.get("Variables") or {}}  # its key too
+        return hashlib.sha256(json.dumps(retained, sort_keys=True).encode()).hexdigest()
+    if what == "role":
+        return conf.get("Role")
+    if what == "network":
+        vpc = conf.get("VpcConfig") or {}
+        return sorted(vpc.get("SubnetIds") or []), sorted(vpc.get("SecurityGroupIds") or [])
+    return conf.get("PackageType"), (conf.get("ImageConfigResponse") or {}).get("ImageConfig")
+
+
+def _kept_digest(conf: dict[str, Any]) -> str:
+    """One digest of everything WARDEN does not restore, to hold a write to the state the plan saw. The environment
+    enters only as its own digest of all its variables together (no value is kept)."""
+    return hashlib.sha256(json.dumps({w: _kept_of(conf, w) for w in _CONFIG_KEPT}, sort_keys=True, default=str,
+                                     separators=(",", ":")).encode()).hexdigest()
+
+
+def _config_call(to: dict[str, Any], now: dict[str, Any]) -> dict[str, Any]:
+    """UpdateFunctionConfiguration's arguments (botocore's Lambda model) for the settings that differ - nothing else is
+    sent, so an image function is never handed a runtime or layers."""
+    shape = {"EphemeralStorage": lambda v: {"Size": v}, "TracingConfig": lambda v: {"Mode": v},
+             "Layers": lambda v: list(v or [])}
+    return {k: shape.get(k, lambda v: v)(v) for k, v in to.items() if v != now.get(k) and (v is not None or k == "Layers")}
+
+
+def _config_text(values: Any) -> str:
+    if not isinstance(values, dict):
+        return "unknown"
+    return ", ".join(f"{k}={_layers_text(v) if k == 'Layers' else v}" for k, v in values.items())
+
+
+def _layers_text(arns: Any) -> str:
+    """Layers by `name:version`, the part of each ARN after `:layer:`."""
+    return "/".join(str(a).split(":layer:")[-1] for a in arns or []) or "none"
+
+
 class AwsPlatformError(RuntimeError):
     pass
 
@@ -796,6 +857,7 @@ class AwsPlatform:
                 "ec2_revert_sg_change": self._live_sg_change, "ecs_restore_desired": self._live_ecs_desired,
                 "lambda_restore_concurrency": self._live_lambda_restore,
                 "lambda_restore_settings": self._live_lambda_settings,
+                "lambda_restore_config": self._live_lambda_config,
                 "sqs_restore_attributes": self._live_sqs_attributes,
                 "ec2_restore_route": self._live_route_change,
                 "kinesis_restore_retention": self._live_kinesis_retention,
@@ -905,6 +967,7 @@ class AwsPlatform:
                    "codepipeline_freeze": self._frozen, "ecs_restore_desired": self._ecs_restored,
                    "lambda_restore_concurrency": self._lambda_restored,
                    "lambda_restore_settings": self._lambda_settings_restored,
+                   "lambda_restore_config": self._lambda_config_restored,
                    "sqs_restore_attributes": self._sqs_attributes_restored,
                    "ec2_restore_route": self._route_restored,
                    "kinesis_restore_retention": self._kinesis_retention_restored,
@@ -990,6 +1053,7 @@ class AwsPlatform:
                  "ec2_revert_sg_change": self._sg_revert, "ecs_restore_desired": self._ecs_restore,
                  "lambda_restore_concurrency": self._lambda_restore,
                  "lambda_restore_settings": self._lambda_settings_restore,
+                 "lambda_restore_config": self._lambda_config_restore,
                  "sqs_restore_attributes": self._sqs_attributes_restore,
                  "ec2_restore_route": self._route_restore,
                  "kinesis_restore_retention": self._kinesis_retention_restore,
@@ -2345,6 +2409,93 @@ class AwsPlatform:
         return (bool(want) and conf.get("LastUpdateStatus") in (None, "Successful")
                 and {k: _lambda_settings(conf).get(k) for k in want} == want
                 and self._alarm_ok(str(params.get("alarm", ""))))
+
+    # ------------------------------------------------------------------ B17: $LATEST's configuration, as last published
+
+    def _live_lambda_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The function's unpublished configuration ($LATEST) changed after its newest published version, with the
+        same code: the version's values of the settings WARDEN restores (CONFIG_FIELDS) are the ones to go back to.
+        Refused - nothing to restore - when the code differs (the settings belong with other code), when anything WARDEN
+        does not restore differs too (the environment, compared by digest and never read into the plan; the role; the
+        network; a person undoes those), or when none of the restored settings differ."""
+        fn = params.get("function")
+        if not isinstance(fn, str):
+            return {}
+        lam = self._read("lambda")
+        conf = lam.get_function_configuration(FunctionName=fn)
+        arn, name = conf["FunctionArn"], conf["FunctionName"]
+        published = [v for v in self._versions(name) if str(v.get("Version", "")).isdigit()]
+        state: dict[str, Any] = {"function": name, "arn": arn, "revision": conf.get("RevisionId"),
+                                 "code": conf.get("CodeSha256"), "now": _config_of(conf), "where": self._where(arn)}
+        live: dict[str, Any] = {"function": {name}, "from_version": set(),
+                                "environment": self._tags("lambda", arn).get(ENV_TAG),
+                                "rollout": "progressing" if conf.get("LastUpdateStatus") == "InProgress" else "complete",
+                                "state": state}
+        if not published:
+            return {**live, "refused": f"{name} has no published version to restore from"}
+        version = max(published, key=lambda v: int(v["Version"]))
+        prior = lam.get_function_configuration(FunctionName=name, Qualifier=str(version["Version"]))
+        state.update(from_version=str(version["Version"]), to=_config_of(prior))
+        why = ""
+        unread = [w for w, c in (("$LATEST", conf), (f"version {version['Version']}", prior))
+                  if (c.get("Environment") or {}).get("Error")]
+        if unread:
+            why = f"the environment of {' and '.join(unread)} could not be read, so it cannot be compared"
+        elif prior.get("CodeSha256") != conf.get("CodeSha256"):
+            why = f"version {version['Version']} runs other code than $LATEST: its settings belong with that code"
+        elif kept := [k for k in _CONFIG_KEPT if _kept_of(prior, k) != _kept_of(conf, k)]:
+            why = f"{', '.join(kept)} also changed since version {version['Version']}: a person undoes that"
+        elif state["to"] == state["now"]:
+            why = f"$LATEST's settings are version {version['Version']}'s already"
+        state["eligible"] = not why
+        if not unread:
+            state["kept"] = _kept_digest(conf)
+        return {**live, "from_version": set() if why else {str(version["Version"])}, "refused": why}
+
+    def _lambda_config_restore(self, p, snapshot, now, who, back) -> str:
+        """$LATEST's settings to the published version's (back: to what they were), only while the function's settings
+        are the ones the plan saw, and conditioned on its revision (Lambda refuses a write after another)."""
+        # `kept`: what WARDEN does not restore (environment, role, network, image), as planned - on apply AND undo.
+        self._expect(now, snapshot, ("function", "arn", "from_version", "to", "code", "kept"), f"lambda {p['function']}")
+        if not back and now.get("eligible") is not True:
+            # Read again just now: the code, environment, role or network moved since the approval (review, PR 107).
+            raise AwsPlatformRefused(f"lambda {p['function']} no longer qualifies for version {p['from_version']}'s "
+                                     "settings; nothing was changed")
+        want_now, to = (snapshot.get("now"), snapshot.get("to")) if not back else (snapshot.get("to"), snapshot.get("now"))
+        if p["from_version"] != snapshot.get("from_version") or now.get("now") != want_now or not to:
+            raise AwsPlatformRefused(f"lambda {p['function']}'s settings are not the ones the plan saw; nothing was "
+                                     "changed")
+        lam = self._actor(who, ["lambda:UpdateFunctionConfiguration"], [now["arn"]], None)("lambda")
+        lam.update_function_configuration(FunctionName=p["function"], RevisionId=now.get("revision"),
+                                          **_config_call(to, want_now))
+        if back:  # an undo reported done must be done: a failed or unfinished update is a failed undo (CodeRabbit)
+            self._lambda_update_finished(p["function"])
+        return (f"set lambda {p['function']} $LATEST {_config_text(want_now)} -> {_config_text(to)}"
+                + ("" if back else f" (version {p['from_version']}'s)"))
+
+    def _lambda_update_finished(self, fn: str) -> None:
+        """Lambda's own word that the update finished (LastUpdateStatus Successful), read with the reader - the actor
+        session may only write. Failed, or not finished in time, raises: the undo is not reported as done."""
+        lam = self._read("lambda")
+        for _ in range(UNDO_POLLS):
+            status = lam.get_function_configuration(FunctionName=fn).get("LastUpdateStatus")
+            if status == "Successful":
+                return
+            if status == "Failed":
+                raise AwsPlatformError(f"lambda {fn}: Lambda reports the undo's update Failed; the fix's settings may "
+                                       "still be in place")
+            self._sleep(UNDO_POLL_S)
+        raise AwsPlatformError(f"lambda {fn}: the undo's update did not finish in {UNDO_POLLS * UNDO_POLL_S} s; whether "
+                               "it took effect is unknown")
+
+    def _lambda_config_restored(self, function: str, params: dict[str, Any]) -> bool:
+        """The settings are the version's, the update finished, and the function serves without errors (a metric
+        signal: a write that landed is not a recovery)."""
+        lam = self._read("lambda")
+        conf = lam.get_function_configuration(FunctionName=function)
+        prior = lam.get_function_configuration(FunctionName=function, Qualifier=str(params.get("from_version", "")))
+        return (conf.get("LastUpdateStatus") == "Successful" and _config_of(conf) == _config_of(prior)
+                and self._lambda_healthy(function, params))
 
     # ------------------------------------------------------------------ G10 v2: a queue's settings, a stream's retention
 
