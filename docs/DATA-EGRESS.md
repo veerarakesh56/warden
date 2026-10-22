@@ -17,9 +17,9 @@ How far `main` meets it, in short (details below):
 This page is for those engineers. It covers every destination, what goes there and what is masked; the guards and
 the ledger; the sealed vault and the reveal; and what the model provider does with what it receives.
 
-> **Status, checked against `main` at `6184f07` with PRs #115 (`vault.py`) and #119 (`reveal.py`) merged in, on
-> 2026-10-22 (01:07 UTC / 06:37 IST).** This page merges after those two PRs, so it describes `main` as they leave
-> it. Each statement is what that code does, or is marked **pending PR #n**: code under review, not merged, not
+> **Status, checked against `main` at `4142d62` (#115, `vault.py`, merged) with PR #119 (`reveal.py`) merged in, on
+> 2026-10-22 (01:16 UTC / 06:46 IST).** This page merges after #119, so it describes `main` as #119 leaves it.
+> Each statement is what that code does, or is marked **pending PR #n**: code under review, not merged, not
 > running anywhere. The open PRs this page still relies on:
 >
 > | PR | Adds |
@@ -176,7 +176,9 @@ Retention: the worker and Lambda log groups keep **90 days** (`terraform/modules
 - **Sealed where found** (`vault.py`). In the read zone's `prepare`, the placeholder map's personal values are
   encrypted with AES-256-GCM under a fresh KMS data key (encryption context `purpose=vault`, the environment, the
   incident) and stored in a `vault` table; the signed audit gets only an index (placeholder, kind, stable id) and the
-  sealed bytes' SHA-256. The map never enters a workflow's history or a log.
+  sealed bytes' SHA-256. The map never enters a workflow's history or a log. A seal that fails - KMS refusing, or
+  not answering within its bounded timeout - is recorded (`incident.vault_unavailable`, its type only) and the
+  incident goes on: the values stay masked, only their reveal is lost.
 - **Personal data only.** Sealed: emails, phone numbers, tenant and account ids, ARNs, UUIDs, IP and MAC addresses,
   internal host names, personal names and street addresses. Never kept, thrown away after masking as before: every
   credential and token, IBANs, card numbers and national ids (SSN, Aadhaar, PAN). Every redaction class is in exactly
