@@ -153,7 +153,7 @@ runtime:
 
 | Environment | Secrets | Variables | Protection |
 |---|---|---|---|
-| each application environment (`dev`, `prod`, ...) | `AWS_ROLE_ARN` (the `warden-<env>-deploy` role); optional `EKS_ADMIN_ROLE_ARNS` (roles given EKS admin access, comma-separated) | `AWS_REGION`, `TF_STATE_BUCKET`; optional `EKS_PUBLIC_CIDRS` (who may reach the EKS API during a deploy) | `prod`: a required reviewer, so a person approves every prod deploy |
+| each application environment (`dev`, `prod`, ...) | `AWS_ROLE_ARN` (the `warden-<env>-deploy` role); optional `EKS_OPERATOR_ROLE_ARNS` (roles given EKS cluster access, comma-separated; its old name `EKS_ADMIN_ROLE_ARNS` is still read for one release) | `AWS_REGION`, `TF_STATE_BUCKET`; optional `EKS_PUBLIC_CIDRS` (who may reach the EKS API during a deploy) | `prod`: a required reviewer, so a person approves every prod deploy |
 | `ops` (the runtime) | `AWS_ROLE_ARN` (`warden-ops-deploy`), `RUNTIME_ECR_REPOSITORY` (the image repository URI), `HF_TOKEN` (a Hugging Face read token for the gated Prompt Guard 2 weights the image bakes in) | `AWS_REGION`, `TF_STATE_BUCKET` | a required reviewer: the runtime spends model credit and runs paid infrastructure |
 
 Role ARNs and the repository URI are secrets, not variables, because they contain the account id and GitHub
@@ -203,7 +203,9 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
 
 1. Create `WardenEnvBoundary-ops`, `WardenEnvDeploy-ops` and `WardenEnvDeployEc2-ops` from `iam/ops/`, and the
    role `warden-ops-deploy` with `iam/ops/trust.local.json` (maximum session 2 hours: creating the audit database
-   can take most of one).
+   can take most of one). Also create `WardenEnvDeployConfig-ops` from `iam/ops/deploy-config.json` and attach it
+   to `warden-ops-deploy` before setting `tf/config_recorder_name` (the runtime adopts the account's AWS Config
+   recorder, `terraform/runtime/config.tf`).
 2. Create the state bucket `warden-ops-tfstate-<suffix>` and an ECR repository `warden-ops-runtime` with
    immutable tags and scan on push. Allow Lambda to pull from it with a repository policy limited to your
    account's `warden-ops-*` functions.

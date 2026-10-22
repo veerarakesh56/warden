@@ -16,8 +16,14 @@ variable "eks_public_access_cidrs" {
   default     = null
 }
 
-variable "eks_admin_principal_arns" {
+variable "eks_operator_principal_arns" {
   description = "Extra IAM principals (e.g. the CI deploy role) given cluster-admin access entries, besides whoever runs terraform."
+  type        = list(string)
+  default     = []
+}
+
+variable "eks_admin_principal_arns" {
+  description = "Deprecated (B24, 2026-10-20): eks_operator_principal_arns. Still read for one release, merged with it."
   type        = list(string)
   default     = []
 }

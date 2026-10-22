@@ -61,6 +61,7 @@ jobs:
     uses: $/.github/workflows/_infra-deploy.yml
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      EKS_OPERATOR_ROLE_ARNS: ${{ secrets.EKS_OPERATOR_ROLE_ARNS }}
       EKS_ADMIN_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
     with:
       environment: dev

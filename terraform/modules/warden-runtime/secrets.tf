@@ -7,7 +7,8 @@ locals {
   secrets = toset([
     "slack-bot-token", "slack-webhook", "stack-db-writer-dsn", "stack-db-reader-dsn", "anthropic-api-key",
     "temporal-key", "temporal-api-key", "github-token",
-    "db-admin-dsn",        # the terminate login's DSN, no password (WARDEN_DB_TERMINATE_DSN, platforms/db.py): the act zone's alone
+    "db-terminate-dsn",    # the terminate login's DSN, no password (WARDEN_DB_TERMINATE_DSN, platforms/db.py): the act zone's alone
+    "db-admin-dsn",        # B24: its old slot, still read for one release when db-terminate-dsn has no value; goes next release
     "slack-client-secret", # Sign in with Slack on the approval page (slack_login.py): the approval Lambda's alone
     "slack-app-token",     # the discussion channel's Socket Mode connection (discuss.py): the notify zone's alone
     "datadog-api-key",     # Datadog's API key (datadog.py), with the scoped application key below: the read zone's

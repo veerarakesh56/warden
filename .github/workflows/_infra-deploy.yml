@@ -8,7 +8,7 @@ name: "_ infra · deploy"
 # GitHub Environment of the same name, on the branch of the same name), the SSM parameters /warden/<env>/tf/*, a state
 # bucket, and a GitHub Environment <env> (deployment branch: <env> only) with the secret AWS_ROLE_ARN (it holds the
 # account id: a variable is printed unmasked in a step's inputs, 2026-10-16), the variables AWS_REGION and
-# TF_STATE_BUCKET (optional EKS_PUBLIC_CIDRS, EKS_ADMIN_ROLE_ARNS) and, for prod, the owner as required reviewer.
+# TF_STATE_BUCKET (optional EKS_PUBLIC_CIDRS, EKS_OPERATOR_ROLE_ARNS) and, for prod, the owner as required reviewer.
 # Branches (owner, 2026-10-16): main deploys nothing; dev is main fast-forwarded; prod is dev merged by pull request.
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
@@ -23,6 +23,9 @@ on:
     secrets:
       AWS_ROLE_ARN:
         required: true
+      EKS_OPERATOR_ROLE_ARNS:
+        required: false
+      # Its name until 2026-10-20 (B24: "admin" out of every name), still read for one release when the new one is unset.
       EKS_ADMIN_ROLE_ARNS:
         required: false
     inputs:
@@ -147,12 +150,17 @@ jobs:
       - name: optional variables
         env:
           CIDRS: ${{ vars.EKS_PUBLIC_CIDRS }}
-          # The ARNs of the IAM roles given admin access to the cluster - names, not credentials. A secret only
+          # The ARNs of the IAM roles given operator access to the cluster - names, not credentials. A secret only
           # because an ARN holds the account id (2026-10-16).
-          ADMIN_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
+          OPERATOR_ROLE_ARNS: ${{ secrets.EKS_OPERATOR_ROLE_ARNS }}
+          OLD_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
         run: |
           if [ -n "$CIDRS" ]; then echo "TF_VAR_eks_public_access_cidrs=$CIDRS" >> "$GITHUB_ENV"; fi
-          if [ -n "$ADMIN_ROLE_ARNS" ]; then echo "TF_VAR_eks_admin_principal_arns=$ADMIN_ROLE_ARNS" >> "$GITHUB_ENV"; fi
+          if [ -z "$OPERATOR_ROLE_ARNS" ] && [ -n "$OLD_ROLE_ARNS" ]; then
+            echo "::warning::EKS_ADMIN_ROLE_ARNS is deprecated: set EKS_OPERATOR_ROLE_ARNS on this GitHub Environment (B24; the old name stops being read in the next release)"
+            OPERATOR_ROLE_ARNS=$OLD_ROLE_ARNS
+          fi
+          if [ -n "$OPERATOR_ROLE_ARNS" ]; then echo "TF_VAR_eks_operator_principal_arns=$OPERATOR_ROLE_ARNS" >> "$GITHUB_ENV"; fi
       - name: init with the S3 backend
         # backend_override.tf exists only on the runner: a local apply keeps local state.
         run: |
