@@ -330,7 +330,8 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     ActionKind.raise_limit: {"apigw": "apigw_raise_stage_throttle", "lambda": "lambda_set_reserved_concurrency"},
     ActionKind.cancel_query: {"athena": "athena_stop_query"},
     ActionKind.shift_traffic: {"elb": "arc_zonal_shift"},
-    ActionKind.revert_config: {"appconfig": "appconfig_revert"},
+    # B17: a function's own settings changed after its newest published version, with the same code (platforms/aws.py).
+    ActionKind.revert_config: {"appconfig": "appconfig_revert", "lambda": "lambda_restore_config"},
     ActionKind.freeze_changes: {"codepipeline": "codepipeline_freeze"},
     ActionKind.redrive_messages: {"sqs": "sqs_redrive_dlq"},
     # G10-D: a recorded change undone - a security group's rules, or a rule or consumer a change disabled (the same
@@ -343,6 +344,14 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
                                "dynamodb": "dynamodb_restore_capacity",
                                "secretsmanager": "secrets_restore_secret"},
 }
+
+
+def _pairs(values: Any) -> str | None:
+    """A dict of settings as `k=v, ...`; None when there is none. Layers by `name:version` - an ARN names the account."""
+    if not isinstance(values, dict):
+        return None
+    return ", ".join(f"{k}={'/'.join(str(a).split(':layer:')[-1] for a in v) or 'none' if k == 'Layers' else v}"
+                     for k, v in values.items())
 
 
 def _arrow(what: str, before: Any, after: Any) -> str:
@@ -399,6 +408,9 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                                     f"{p['settings']} (what AWS Config recorded before "
                                                     f"{s.get('event_name')} at {s.get('event_time')} by "
                                                     f"{s.get('actor')})")],
+    "lambda_restore_config": lambda p, s: [_arrow(f"$LATEST settings of {p['function']}", _pairs(s.get("now")),
+                                                  f"{_pairs(s.get('to'))} (version {p['from_version']}'s; same code; the "
+                                                  "environment, role and network are unchanged)")],
     "lambda_restore_concurrency": lambda p, s: [_arrow(f"reserved concurrency of {p['function']}", s.get("reserved"),
                                                        f"{p['concurrency']} (what AWS Config recorded before "
                                                        f"{s.get('event_name')} at {s.get('event_time')} by "
