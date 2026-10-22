@@ -307,3 +307,50 @@ def test_only_the_deploy_dispatch_offers_it_and_no_push_runs_it():
         assert "eldane-apply" in wf[True]["workflow_dispatch"]["inputs"]["infra_action"]["options"]
     for env in ("dev", "prod"):
         assert "eldane-apply" not in (FLOWS / f"on-merge-{env}.yml").read_text(encoding="utf-8")
+
+
+# ----------------------------------------------------------------------------- after #166 (review of #171)
+
+ACCOUNT = "4321" + "0987" + "6543"  # an account id's shape, built from parts (tests/fakes.py)
+
+
+def test_the_plan_text_eldane_is_shown_passes_the_real_egress_guard():
+    """The question Eldane is asked about a saved plan goes through the same model guard as every prompt
+    (egress.guard_model, on every registered provider): a resource key holding an ARN and an account id is redacted
+    before it is sent, so the guard passes it and the review is made - nothing raw reaches the model."""
+    from warden import egress
+
+    fn = f"arn:aws:lambda:eu-west-1:{ACCOUNT}:function:orders"
+    plan = _plan(_rc(f'aws_lambda_function.fn["{fn}"]', ["update"], before={"memory_size": 128},
+                     after={"memory_size": 256}),
+                 _rc(f'aws_cloudwatch_log_group.logs["{ACCOUNT}"]', ["create"], after={"retention_in_days": 7}))
+    guarded = egress.guard_provider(type("GuardedModel", (Model,), {"name": "test", "model": "test-model"}))
+    model = guarded()
+    got = _review(plan, model=model)
+    assert len(model.asked) == 2  # the real plan and the planted one: both passed the guard
+    assert not any(ACCOUNT in user or fn in user for _, user in model.asked)
+    assert all(egress.kinds_in(user) == [] for _, user in model.asked)
+    assert got.approved is True
+
+
+def test_a_refused_prompt_approves_nothing(monkeypatch):
+    """A prompt the guard refuses is an error to eldane.ask: a "no", never a crash, and nothing approved."""
+    from warden import egress
+
+    class Leaky(Model):
+        name, model = "test", "test-model"
+
+    egress.guard_provider(Leaky)
+    monkeypatch.setattr(plan_shape, "summary", lambda changes: (f"[R1] update a key of account {ACCOUNT}", {"R1"}))
+    got = _review(model=Leaky())
+    assert got.approved is False
+    assert [c.get("error") for c in got.calls if c.get("kind") == "eldane.call"] == ["EgressBlocked"] * 2
+
+
+def test_a_yes_with_an_objection_on_a_saved_plan_is_a_no():
+    """#166's rule holds here too (eldane.ask): agreeing and objecting at once is a no, so nothing is approved."""
+    torn = {"agree": True, "reasons": [{"text": "a routine update", "evidence": ["R1"]}],
+            "objections": [{"kind": "not_reversible", "text": "it cannot be undone", "evidence": ["R1"]}]}
+    got = _review(model=Model(real=torn))
+    assert got.approved is False
+    assert "it agreed and objected at once, so it counts as a no" in got.why

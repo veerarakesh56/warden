@@ -6,6 +6,7 @@ the PR)."""
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 
 import pytest
@@ -86,7 +87,8 @@ def test_a_debate_is_posted_in_order_each_side_with_its_own_token(world, slack):
     assert "[evidence: M1]" in objs
     assert ans.startswith(eldane_slack.WARDEN)
     assert "revision 7 broke it" in ans
-    assert "agrees with this plan" in end
+    # #166: Eldane's "yes" came only after WARDEN's answers, so it signs nothing and the thread says why.
+    assert "does not agree with this plan" in end
     thread = eldane_slack.thread_of(world["log"], plan, "")
     assert thread == {"channel": CHANNEL, "ts": "1700000000.000001"}
 
@@ -304,8 +306,65 @@ def test_no_eldane_code_path_imports_the_vault_or_its_reveal():
 def test_the_workflow_posts_the_debate_in_the_discussion_channel(world, slack):
     debate._sides(world, debate.Scripted(debate._no(), debate._yes("M1", "C1")), debate.Scripted(debate._answer()))
     world["platform"] = base.Platform()
-    out = base._run(world, base._nobody)
-    assert out.status == "recovered"
+    out = base._run(world, base._nobody, approval_ttl_minutes=1)
+    # #166: a "yes" won in the debate never signs - nobody approved, so nothing is applied and the plan expires.
+    assert out.status == "expired"
+    assert world["platform"].applied == []
     tokens = [token for _, _, token in slack.calls]
     assert tokens == [ELDANE_TOKEN, ELDANE_TOKEN, WARDEN_TOKEN, ELDANE_TOKEN]
     assert all(t.startswith(f"*{approvals.AI_LABEL}*") for t, tok, _ in _texts(slack) if tok == ELDANE_TOKEN)
+
+
+# ----------------------------------------------------------------------------- after #166 (review of #171)
+
+def test_a_debate_won_yes_is_said_as_never_approving(world, slack):
+    """#166: Eldane argued into a "yes" by WARDEN's own model does not sign; the thread says so, not "agrees"."""
+    plan = _debate(world, debate._no(), debate._yes("M1", "C1"), warden_answers=(debate._answer(),))
+    _say_all(world, plan)
+    end = _texts(slack)[-1][0]
+    assert "does not agree with this plan" in end
+    assert "an agreement won in a debate never approves a plan" in end
+
+
+class _Answer:
+    """Slack's answer as urllib returns it."""
+
+    def __init__(self, ts):
+        self._body = json.dumps({"ok": True, "ts": ts}).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return self._body
+
+
+def test_every_slack_request_eldane_and_warden_send_passes_the_real_egress_check(world, monkeypatch):
+    """Each request the thread makes, built by the real chatops code, through egress.check_request: Slack's API host,
+    the bot token in its header (never the body), the thread's ts (digits, never read as a phone number), the
+    channel id and the model's redacted words - no value the guard refuses."""
+    from warden import chatops, egress
+
+    sent = []
+
+    def urlopen(req, timeout=None):
+        egress.check_request(req.full_url, req.data, dict(req.header_items()), req.get_method())
+        sent.append(req)
+        return _Answer(f"1700000000.{len(sent):06d}")
+
+    monkeypatch.setattr(chatops.web, "urlopen", urlopen)
+    monkeypatch.setenv("WARDEN_DISCUSS_CHANNELS", f"dev={CHANNEL}")
+    monkeypatch.delenv("WARDEN_DISCUSS_CHANNEL", raising=False)
+    monkeypatch.setenv(eldane_slack.ELDANE_BOT_ENV, ELDANE_TOKEN)
+    monkeypatch.setenv("WARDEN_SLACK_BOT_TOKEN", WARDEN_TOKEN)
+    objection = debate._no("wrong_target")
+    objection["objections"][0]["text"] = "the 5xx are on <HOST_1>, not on orders - see [M1]"
+    plan = _debate(world, objection, debate._yes("M1", "C1"), warden_answers=(debate._answer(),))
+    assert _say_all(world, plan) == 1
+    assert len(sent) == 4  # open, objections, answers, close: every one passed the check
+    assert all(r.full_url.startswith("https://slack.com/api/chat.postMessage") for r in sent)
+    assert all(ELDANE_TOKEN not in r.data.decode() and WARDEN_TOKEN not in r.data.decode() for r in sent)
+    assert "thread_ts" in sent[1].data.decode()

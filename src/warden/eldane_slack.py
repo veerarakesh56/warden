@@ -116,6 +116,10 @@ def closing(log: Any, plan: Any, run_id: str) -> str:
     if v.get("agree"):
         return (f"{head} agrees with this plan. {_said(v.get('level_said'))} A person's \"no\" still stops it "
                 "before it is applied.")
+    if autonomy.debate_won(v):
+        # #166: a "yes" reached only after WARDEN's own diagnosing model argued for its plan never approves.
+        return (f"{head} does not agree with this plan: it said it agrees only after WARDEN's answers in this debate, "
+                "and an agreement won in a debate never approves a plan. A person decides.")
     return f"{head} does not agree with this plan, so it approves nothing: a person decides."
 
 
