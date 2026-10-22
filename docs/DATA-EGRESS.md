@@ -17,8 +17,8 @@ How far `main` meets it, in short (details below):
 This page is for those engineers. It covers every destination, what goes there and what is masked; the guards and
 the ledger; the sealed vault and the reveal; and what the model provider does with what it receives.
 
-> **Status, checked against `main` at `3cb7e43` (#115 `vault.py` and #119 `reveal.py` merged) on 2026-10-22
-> (02:20 UTC / 07:50 IST).** Each statement is what that code does, or is marked **pending PR #n**: code under
+> **Status, checked against `main` at `28eabc5` (#115 `vault.py`, #119 `reveal.py` and #102 merged) on 2026-10-22
+> (02:39 UTC / 08:09 IST).** Each statement is what that code does, or is marked **pending PR #n**: code under
 > review, not merged, not running anywhere. The open PRs this page still relies on:
 >
 > | PR | Adds |
@@ -97,7 +97,7 @@ The table is the code's inventory: `egress.STATIC` plus `egress._CONFIGURED` (ho
 | SonarCloud (opt-in) | `sonarcloud.io` | reads: the issues of a pull request (`WARDEN_SONAR_PROJECT`) | GET only; checked | yes |
 | Datadog | `api.<site>` | reads: a service name, a time window, fixed metric queries, a monitor id | reads only; checked | yes |
 | AWS's documentation | `knowledge-mcp.global.api.aws` | an AWS error code from the typed facts and a service word from WARDEN's own table (`aws_docs.py`; the cloud read zone sets `WARDEN_AWS_DOCS=on`) | closed vocabulary; checked | yes |
-| Temporal Cloud | `*.tmprl.cloud` | workflow payloads, **encrypted** with AES-256-GCM (`codec.py`); workflow ids and activity names in clear | the codec; the client is Rust, outside the Python hooks (limits) | yes |
+| Temporal Cloud | `*.tmprl.cloud` | workflow payloads, **encrypted** with AES-256-GCM (`codec.py`); workflow ids and activity names in clear | the codec; the API key goes only to the namespace's own endpoint, `<name>.<account>.tmprl.cloud:7233`, refused before any connection otherwise (`runtime_base.only_the_namespace_endpoint`); the client is Rust, outside the Python hooks (limits) | yes |
 | Tracing (opt-in) | `OTEL_EXPORTER_OTLP_ENDPOINT` | spans: node names, timings, scrubbed error text (`observability.py`) | scrubbed where written; its host held by the name check | yes |
 | WARDEN's own AWS account | the AWS API names WARDEN uses (`egress.AWS_ENDPOINTS`) | reads, the approved fix, the audit, secrets, KMS - the vault's sealing and the reveal's opening included (boto3) | IAM and key policies (below); boto3's content is not scanned | no |
 | The private network | non-routable addresses, `*.svc`, `*.cluster.local`, `*.internal`, `localhost` | a cluster's services, instance and task metadata, WARDEN's database | - | no |
@@ -243,7 +243,9 @@ finds. An install that needs US-only inference or no retention must set it in it
 - A client other than urllib (boto3, the tracing exporter, Slack's async client) is held by the name and connection
   checks only: its content is not scanned.
 - Temporal's client is Rust and libpq is C: their connections raise no Python audit event. Temporal's payloads are
-  encrypted by the codec; database hosts come only from configured DSNs; the runtime's network rules limit both.
+  encrypted by the codec, and its address is checked to be the namespace's own Temporal Cloud endpoint before any
+  connection - the code's check, not the network's: the runtime's security group allows port 7233 to any address.
+  Database hosts come only from configured DSNs.
 - AWS names: an RDS, ElastiCache or EKS endpoint, and S3 addressed path-style by boto3, look the same in any account;
   IAM and the network rules decide whose they are.
 - The pager Lambda (`terraform/modules/warden-runtime/pager`) is its own package: the hooks are not installed there.
