@@ -11,7 +11,7 @@ configure it) · **OPTIONAL** (an extra you can turn on).
 
 | Component | Used for | Status | Notes |
 |---|---|---|---|
-| Anthropic API, Claude Sonnet 5.5 (`claude-sonnet-5-5`) | the diagnosis | IN USE | the default provider and model (`src/warden/data/providers.yaml`); key from Secrets Manager |
+| Anthropic API, Claude Sonnet 5.5 (`claude-sonnet-5-5`) | the diagnosis | CONFIGURED, REFUSED | the default provider and model (`src/warden/data/providers.yaml`); key from Secrets Manager. Not qualified on the pinned prompt (2026-10-21: it passed on an earlier one), so the runtime diagnoses on the rules alone until it is measured again |
 | Anthropic API, Claude Opus 5.5 | the diagnosis | SUPPORTED | measured below WARDEN's qualification bar on 2026-10-15, so refused until it passes |
 | Amazon Bedrock | the diagnosis, inside AWS | SUPPORTED | `WARDEN_PROVIDER=bedrock` with an inference-profile id; must pass the qualification first |
 | Google Gemini, OpenAI-compatible endpoints (Groq, OpenRouter, local Ollama) | the diagnosis | SUPPORTED | must pass the qualification first |
@@ -95,7 +95,7 @@ not state plainly. Most rows were read on 2026-09-28; check each before you rely
 
 | Component | Price | Notes |
 |---|---|---|
-| Anthropic API, Claude Sonnet 5.5 | $2 input / $10 output per 1M tokens (read 2026-10-15) | the default model; an incident in the cloud may spend at most US$0.25 |
+| Anthropic API, Claude Sonnet 5.5 | $2 input / $10 output per 1M tokens (read 2026-10-15) | the default model (not qualified on the pinned prompt, 2026-10-21); an incident in the cloud may spend at most US$0.25 |
 | Anthropic API, Claude Opus 5.5 | $4 input / $20 output per 1M tokens (read 2026-10-15) | supported, not qualified |
 | Temporal Cloud, Actions | $50 per 1M; volume tiers down to $25 per 1M | temporal.io/pricing, docs.temporal.io/cloud/pricing |
 | Temporal Cloud, storage | active $0.042/GBh; retained $0.00105/GBh | |

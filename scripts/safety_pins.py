@@ -14,7 +14,7 @@ PINS = ROOT / "docs" / "safety-pins.sha256"
 PACKAGE = "src/warden"
 PINNED = ("activities.py", "approval_page.py", "approvals.py", "autonomy.py", "bounds.py", "catalog.py", "critique.py", "decide.py", "eldane.py", "evidence.py", "freeze.py", "gate.py",
           "graph.py", "grounding.py", "mcp_server.py", "passkeys.py", "quarantine.py", "redaction.py", "reporting.py", "runtime.py",
-          "tripwire.py", "verifier.py", "workflows.py", "audit.py", "locks.py")
+          "tripwire.py", "verifier.py", "workflows.py", "audit.py", "locks.py", "landed.py")
 
 
 def files() -> list[str]:
