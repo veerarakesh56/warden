@@ -21,7 +21,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "warden"
 
 # The files and the one replacement the Eldane and autonomy mutations below name, each once.
-_AUTONOMY, _ELDANE, _ACTIVITIES = "autonomy.py", "eldane.py", "activities.py"
+_AUTONOMY, _ELDANE, _ACTIVITIES, _CRITIQUE = "autonomy.py", "eldane.py", "activities.py", "critique.py"
 _NEVER = "    if False:"
 
 # The files more than one mutation changes (relative to src/warden).
@@ -393,8 +393,8 @@ MUTATIONS = [
     (
         "Eldane's first pass sees WARDEN's reasoning",
         _ELDANE,
-        '    first = ask(log, plan.incident_id, asked, blind, ids, **row, purpose="blind")',
-        '    first = ask(log, plan.incident_id, asked, blind + "\\n\\n" + _reasoning(diagnosis), ids, **row, purpose="blind")',
+        '    blind_pass = ask(log, plan.incident_id, asked, blind, ids, **row, purpose="blind")',
+        '    blind_pass = ask(log, plan.incident_id, asked, blind + "\\n\\n" + _reasoning(diagnosis), ids, **row, purpose="blind")',
         "register R10: an anchored critic re-reads WARDEN's conclusion instead of the evidence",
     ),
     (
@@ -467,6 +467,36 @@ MUTATIONS = [
         '            self._score(incident_id, workflow_id, run, outcome)\n            self.audit.checkpoint()\n            return',
         '            self.audit.checkpoint()\n            return',
         'PR 42 review: a failed fix whose scoring failed once would never demote its class',
+    ),
+    # Review of PR 166 (U3-2), planted (tests/test_eldane_critique.py).
+    (
+        "a yes Eldane gives only after WARDEN's answers in the debate signs",
+        _ELDANE,
+        '    agree = blind_pass.agree and second is not None and second.agree',
+        '    agree = final.agree and (second is not None or rounds > 0)',
+        "register R10: WARDEN's own diagnosing model would argue Eldane past its blind no - self-preference",
+    ),
+    (
+        "Eldane's blind re-read sees WARDEN's reasoning",
+        _ELDANE,
+        '        blind_pass = ask(log, plan.incident_id, asked, reads.add(blind, tools, blind_pass.read_again, ids), ids,',
+        ('        blind_pass = ask(log, plan.incident_id, asked, reads.add(blind + _reasoning(diagnosis), tools,'
+         ' blind_pass.read_again, ids), ids,'),
+        "register R10: a blind no that asked to read more would be decided by a pass anchored on WARDEN's conclusion",
+    ),
+    (
+        "a provider error in WARDEN's answer to Eldane crashes the review",
+        _CRITIQUE,
+        '    except Exception as exc:  # noqa: BLE001  # any provider error: WARDEN answered nothing, so it concedes all',
+        '    except (ValueError, RuntimeError, OSError) as exc:',
+        "an SDK error would crash the review activity instead of ending the debate with a no",
+    ),
+    (
+        "Eldane's yes with an objection counts as a yes",
+        _ELDANE,
+        '    if verdict.agree and verdict.objections:',
+        '    if False:',
+        "CodeRabbit, PR 166: a grounded yes carrying an objection would sign with the objection never answered",
     ),
 ]
 
