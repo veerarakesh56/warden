@@ -110,6 +110,27 @@ def test_only_the_approval_page_opens_a_sealed_map(tmp_path):
             zone.open(stored)
 
 
+def test_the_vault_reaches_kms_in_warden_own_account_only_and_its_ledger_rows_hold_no_value(tmp_path):
+    """Egress (#104): the vault's only network client is KMS in WARDEN's own account (the "aws" destination, by
+    name). Each KMS request is checked on its REAL parameters: the data key's encryption context (CloudTrail
+    keeps it in clear) holds no value the redactor finds; only GenerateMac's message carries a value, to the HMAC
+    key that never leaves KMS. The audit's index row - what the records page shows - holds none either."""
+    from warden import egress
+
+    dest = egress.destination_of("kms.ap-south-2.amazonaws.com")
+    assert dest is not None and dest.name == "aws" and not dest.outside
+    kms, log = FakeKms("read"), AuditLog(tmp_path / "a.db")
+    row = _vault("read", kms=kms).seal("inc-1", MAPPING)
+    vault.store(log, row)
+    assert {action for action, _ in kms.calls} == {"GenerateDataKey", "GenerateMac"}
+    for action, params in kms.calls:
+        assert egress.kinds_in(json.dumps(params)) == [], action
+    assert len(kms.messages) == len(MAPPING)  # one HMAC per value: the only request that carries one
+    entries = json.dumps(row["index"])
+    assert egress.kinds_in(entries) == []
+    assert not any(value in entries for value in MAPPING.values())
+
+
 def test_a_sealed_map_opens_only_as_its_own_incidents():
     row, opener = _vault("read").seal("inc-1", MAPPING), _vault("approval")
     moved, changed = {**row, "incident": "inc-2"}, {**row, "sha256": "0" * 64}
@@ -438,10 +459,11 @@ def test_every_redaction_kind_is_classified_sealed_or_never():
     assert redaction.SECRET_KINDS <= vault.NEVER_SEALED
     status = {k: k in vault.SEALED_KINDS for k in sorted(kinds)}
     assert status == {
-        "ACCOUNTID": True, "APIKEY": False, "ARN": True, "AZURESAS": False, "BASIC": False, "BEARER": False,
-        "CREDITCARD": False, "EMAIL": True, "GCPTOKEN": False, "HIGHENTROPY": False, "IBAN": False, "IPV4": True,
-        "IPV6": True, "JWT": False, "MAC": True, "PHONE": True, "PRIVKEY": False, "SECRET": False, "TENANT": True,
-        "URLCRED": False, "UUID": True, "WEBHOOK": False}
+        "AADHAAR": False, "ACCOUNTID": True, "ADDRESS": True, "APIKEY": False, "ARN": True, "AZURESAS": False,
+        "BASIC": False, "BEARER": False, "CREDITCARD": False, "EMAIL": True, "GCPTOKEN": False, "HIGHENTROPY": False,
+        "HOSTNAME": True, "IBAN": False, "IPV4": True, "IPV6": True, "JWT": False, "MAC": True, "NAME": True,
+        "PAN": False, "PHONE": True, "PRIVKEY": False, "SECRET": False, "SSN": False, "TENANT": True, "URLCRED": False,
+        "UUID": True, "WEBHOOK": False}
 
 
 SECRET_VALUE = "AKIA" + "IOSFODNN7EXAMPLE"
@@ -455,6 +477,18 @@ def test_a_secret_or_a_card_number_is_never_sealed(tmp_path):
     [index] = log.entries("inc-1", kinds=(vault.INDEX,))
     assert [e["placeholder"] for e in index["body"]["entries"]] == ["<EMAIL_1>"]
     assert _vault("approval").open(vault.sealed_row(log, "inc-1", digest)) == {"<EMAIL_1>": EMAIL}
+
+
+def test_a_national_id_is_never_sealed_and_a_name_is(tmp_path):
+    """Main's redactor (#110) added national ids and a person's name, address and internal host: the ids are
+    thrown away after masking as a card number is; the rest is personal data a person may reveal."""
+    log = AuditLog(tmp_path / "a.db")
+    ssn, aadhaar, pan = "123-" + "45-" + "6789", "2345 " + "6789 " + "0123", "ABCPE" + "1234F"
+    mixed = {"<NAME_1>": "Asha" + " Rao", "<SSN_1>": ssn, "<AADHAAR_1>": aadhaar, "<PAN_1>": pan}
+    digest = vault.seal_incident(log, "inc-1", mixed, vault=_vault("read"))
+    [index] = log.entries("inc-1", kinds=(vault.INDEX,))
+    assert [e["placeholder"] for e in index["body"]["entries"]] == ["<NAME_1>"]
+    assert _vault("approval").open(vault.sealed_row(log, "inc-1", digest)) == {"<NAME_1>": "Asha" + " Rao"}
 
 
 def test_a_map_of_secrets_alone_seals_and_records_nothing(tmp_path):
