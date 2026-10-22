@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -104,6 +105,8 @@ async def connect(address: str | None = None, key: bytes | None = None) -> Clien
     if host not in _LOOPBACK and not api_key:
         raise RuntimeError(f"refusing an unauthenticated connection to {host}: set WARDEN_TEMPORAL_API_KEY "
                            "(register S15)")
+    if host not in _LOOPBACK:
+        only_the_namespace_endpoint(target)
     # Imported here, not at the top: a records page (/r) never reaches Temporal, and the client is 0.4 s of imports.
     from temporalio.client import Client
 
@@ -114,3 +117,24 @@ async def connect(address: str | None = None, key: bytes | None = None) -> Clien
     if api_key:
         options.update(api_key=api_key, tls=True)
     return await Client.connect(target, **options)
+
+
+# A Temporal Cloud namespace is `name.account`; its own endpoint is `<name>.<account>.tmprl.cloud:7233`.
+_NAMESPACE = re.compile(r"[a-z0-9][a-z0-9-]{0,61}\.[a-z0-9]{1,32}")
+
+
+def only_the_namespace_endpoint(target: str) -> None:
+    """B23 (owner, 2026-10-20): the API key goes to the configured namespace's own Temporal Cloud endpoint and nowhere
+    else. A changed WARDEN_TEMPORAL_ADDRESS - a typo, a copied value, a poisoned parameter - would otherwise hand the
+    key, and every task, to whatever answers there. Refused before any connection.
+
+    Honest limit: this is the code's check, not the network's. The runtime's security group allows port 7233 to any
+    address (a security group cannot name a host; PrivateLink or a DNS firewall would, and cost money - owner,
+    2026-10-20), so code that skipped this function could still reach another host on that port."""
+    namespace = os.environ.get("WARDEN_TEMPORAL_NAMESPACE", "")
+    if not _NAMESPACE.fullmatch(namespace):
+        raise RuntimeError("refusing to reach Temporal: WARDEN_TEMPORAL_NAMESPACE is not a Temporal Cloud namespace "
+                           "(name.account) (B23)")
+    if target.lower() != f"{namespace}.tmprl.cloud:7233":
+        raise RuntimeError(f"refusing to reach Temporal at {target.rsplit(':', 1)[0]}: only the namespace's own "
+                           "Temporal Cloud endpoint, <name>.<account>.tmprl.cloud:7233, receives the API key (B23)")
