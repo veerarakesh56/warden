@@ -411,6 +411,12 @@ def _environment_of(log: AuditLog, incident: str) -> str:
     return r.environment if r else ""
 
 
+def _risks_said(entry: str, what: str) -> str:
+    """U3-2: what can go wrong if the fix is approved, said before anyone decides (catalog.RISKS); else ""."""
+    risks = catalog.risks_of(entry) if what in ("waiting", "autonomous") else []
+    return " Risks if approved: " + "; ".join(risks) + "." if risks else ""
+
+
 def _send(log: AuditLog, incident: str, report: Any) -> list[Any]:
     """chatops.notify, threaded through the audit; a message withheld for want of its environment's Slack channel
     (WARDEN_SLACK_CHANNELS) is a row of its own, so the record says it was never posted and why."""
@@ -614,6 +620,7 @@ class RemediationActivities:
         noted = self._notes_said(gave)
         words = noted if what == "approved" else ""  # the person's own words in this message, if any
         said = self._plan_said(plan, what, shown, did=did, noted=noted)
+        said += _risks_said(plan.entry, what)
         if what == "approved" and not did:
             return None
         denial = self._denial_said(plan, shown, why, end) if what == "denied" else None
@@ -1477,6 +1484,13 @@ class IncidentActivities:
         if os.environ.get("WARDEN_HISTORY_IN_PROMPT", "").strip() == "1":
             prompt = self._with_history(alert, prompt, steps)
         self._record(alert.alert_id, steps)
+        # The real values behind this run's placeholders, sealed for people only (vault.py) - here, with the map, which
+        # is never returned: it never enters Temporal's history, and no AI zone can open what is sealed. Not for a
+        # discussion's re-read (`discuss-<incident>`): its incident's own run sealed them, and no reveal reads it.
+        if not alert.alert_id.startswith("discuss-"):
+            from . import vault
+
+            vault.seal_incident(self.audit, alert.alert_id, state.get("redaction_map", {}), run_id=_run_id())
         # The alarm as it came in, so the incident can be discussed later from its own evidence (discuss.py). Its
         # free text redacted, as everything on the record is.
         from .redaction import redact
