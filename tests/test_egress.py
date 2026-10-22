@@ -372,7 +372,11 @@ def test_wardens_own_link_inside_a_line_of_text_is_its_own(monkeypatch):
                          JSON, "POST")
 
 
-def test_closing_the_newer_log_gives_the_rows_back_to_the_older_one_still_open(tmp_path):
+def test_closing_the_newer_log_gives_the_rows_back_to_the_older_one_still_open(tmp_path, monkeypatch):
+    # Only this test's logs: a log an earlier test left open (runtime_base.open_audit, never closed) would take the
+    # rows back instead - mutmut's test order showed it (PR 179).
+    monkeypatch.setattr(egress, "_OPEN", [])
+    monkeypatch.setattr(egress, "_SINK", {})
     first, second = AuditLog(tmp_path / "a.db"), AuditLog(tmp_path / "b.db")
     egress.ledger_to(first)
     egress.ledger_to(second)
