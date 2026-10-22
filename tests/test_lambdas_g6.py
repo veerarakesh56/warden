@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import sqlite3
 
 import pytest
 
@@ -186,3 +187,73 @@ def test_a_cold_start_says_where_its_time_went_once_and_the_one_a_person_waits_f
     assert re.search(r'approval\s+= \{ handler = "warden\.lambdas\.approval", timeout = 30, memory = 1769 \}', tf)
     assert "memory_size   = each.value.memory" in tf
     assert tf.count("memory = 512 }") == 3
+
+
+def test_each_invocation_closes_the_audit_log_it_opened(monkeypatch):
+    """Review (PR 130): the approval and actor-use Lambdas opened a log per invocation and never closed it; a warm
+    container kept every connection, and the egress ledger a reference to each (egress._OPEN). Now each is closed -
+    after the page is served, after a failed one, and after the actor check."""
+    from warden.approval_page import Response
+
+    closed = []
+
+    class Log:
+        def close(self):
+            closed.append(self)
+
+    class Page:
+        def __init__(self, fails=False):
+            self.log, self.fails = Log(), fails
+
+        def handle(self, *_a, **_k):
+            if self.fails:
+                raise RuntimeError("the page broke")
+            return Response(200, {}, "")
+
+    monkeypatch.setattr(lambdas, "_configure", lambda name: None)
+    event = {"rawPath": "/r", "body": "", "requestContext": {"http": {"method": "GET"}}}
+    for fails in (False, True):
+        page = Page(fails)
+        monkeypatch.setattr(lambdas, "approval_page", lambda page=page: page)
+        if fails:
+            with pytest.raises(lambdas.HandlerFailed):
+                lambdas.approval(event)
+        else:
+            lambdas.approval(event)
+        assert closed[-1] is page.log
+    log = Log()
+    monkeypatch.setattr("warden.runtime.open_audit", lambda: log)
+    monkeypatch.setattr("warden.actor_use.check", lambda detail, audit: [])
+    monkeypatch.setattr("warden.actor_use.is_actor_session", lambda detail: True)
+    assert lambdas.actor_use({"detail": {"eventName": "AssumeRole"}}) == {"approved": True}
+    assert closed[-1] is log
+    assert len(closed) == 3
+
+
+def test_a_page_that_cannot_be_built_closes_its_log_and_leaves_the_ledger(monkeypatch, tmp_path):
+    """Review (PR 130): approval_page() opened the audit (runtime.open_audit puts it on the egress ledger), and a
+    failure building ApprovalPage left it open and registered. Now it is closed and off the ledger."""
+    from warden import approval_page as page_module
+    from warden import audit, egress, runtime_base
+
+    log = audit.AuditLog(tmp_path / "a.db")
+
+    def opened():
+        egress.ledger_to(log)  # as runtime_base.open_audit does
+        return log
+
+    def broken(**_kwargs):
+        raise RuntimeError("the page could not be built")
+
+    monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", "approve.example.org")
+    monkeypatch.setattr(runtime_base, "open_audit", opened)
+    monkeypatch.setattr(runtime_base, "approver_policy", lambda: None)
+    monkeypatch.setattr("warden.slack_login.from_environment", lambda: None)
+    monkeypatch.setattr("warden.paging.from_environment", lambda: None)
+    monkeypatch.setattr(page_module, "ApprovalPage", broken)
+    with pytest.raises(RuntimeError, match="could not be built"):
+        lambdas.approval_page()
+    assert log not in egress._OPEN
+    assert egress._SINK.get("audit") is not log
+    with pytest.raises(sqlite3.ProgrammingError):  # a closed connection refuses whatever it is asked
+        log.store.run("SELECT 1")

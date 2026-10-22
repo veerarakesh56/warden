@@ -319,6 +319,8 @@ def _strings(value: Any, skip: frozenset[str] = frozenset()) -> Iterable[str]:
     (review: Slack's `code` nested in a message's blocks was left out too)."""
     if isinstance(value, str):
         yield value
+    elif isinstance(value, int) and not isinstance(value, bool):
+        yield str(value)  # a JSON number is a value too: an account id written as one still blocks (review, PR 130)
     elif isinstance(value, dict):
         for k, v in value.items():
             if isinstance(k, str):

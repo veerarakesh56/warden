@@ -21,7 +21,7 @@ MASKED = {
                  "printer.local offline", "nas.home.arpa"],
     "APIKEY": ["key " + "sk-ant-" + "api03-abcdefghijklmnop", "AKIA" + "IOSFODNN7EXAMPLE"],
     "SECRET": ["password=" + HUNTER2 + "x", "client_secret: s3cr3tvalue"],
-    "CREDITCARD": ["card 4111 1111 1111 1111"],
+    "CREDITCARD": ["card 4111 1111 1111 1111", "card 4242 4242 4242 4242", "card 5555-5555-5555-4444"],
     "SSN": ["ssn 123-45-6789 on file"],
     "AADHAAR": ["aadhaar 2345 6789 0123"],
     "PAN": ["pan " + "ABCPD" + "1234E"],
@@ -39,4 +39,7 @@ KEPT = [
     "HTTP 503 from payments in 1200 ms",
     "rule warden-dev-lab-tick-silent",
     "Main St",
+    "at jdk.internal.reflect.Method.invoke(Method.java:566)",
+    "kotlin.internal.PlatformImplementationsKt.getIMPLEMENTATIONS",
+    "File threading.py, in threading.local()",
 ]
