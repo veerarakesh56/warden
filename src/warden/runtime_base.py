@@ -84,7 +84,11 @@ def audit_anchor() -> Any:
 
 
 def open_audit() -> audit.AuditLog:
-    return audit.AuditLog(audit_target(), key=audit_signer(), anchor=audit_anchor())
+    from . import egress
+
+    log = audit.AuditLog(audit_target(), key=audit_signer(), anchor=audit_anchor())
+    egress.ledger_to(log)  # the egress ledger's rows go on the signed audit too (egress.record)
+    return log
 
 
 _LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})

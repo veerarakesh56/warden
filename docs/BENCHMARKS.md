@@ -14,32 +14,54 @@ Three kinds of measurement exist:
 How each answer is graded is in [`scenarios/SCORING.md`](../scenarios/SCORING.md). Only typed fields are graded (the
 proposed action, the gate's verdict, the cited evidence), never the model's prose.
 
-## Which model runs in production, and why
+## Which model may diagnose, and why
+
+A model diagnoses only when `src/warden/data/providers.yaml` holds a row for it, measured on the pinned prompt
+(`prompt.sha` there), that meets the bar: 0 wrong-and-allowed and at least 17 of 30 correct. Any other pair is
+refused (`providers.qualified`); with no usable model, an incident gets the rules-only diagnosis and goes to a person.
+
+**Qualified on the pinned prompt** (as of 2026-10-21, from `src/warden/data/providers.yaml`): **none**. Every model is refused, and each incident gets the rules-only diagnosis and goes to a person.
+
+When the prompt changes (its date is `prompt.pinned` there), every model is refused until one passes on it, and
+production runs on the rules alone.
+
+A pass on an earlier prompt (it does not count on the pinned one):
 
 | | |
 |---|---|
 | Model | Claude Sonnet 5.5 (`claude-sonnet-5-5`), effort `high`, on the Anthropic API |
-| Qualified | 2026-10-15, 14:56 UTC (20:26 IST), anthropic SDK 1.4.0, prompt `d435b59f...` |
+| Measured | 2026-10-15, 14:56 UTC (20:26 IST), anthropic SDK 1.4.0, prompt `d435b59f...` (replaced 2026-10-17) |
 | Replay of the 30 recorded live incidents | **17 of 30 correct, 0 wrong answers allowed by the gate**, 24 escalated, 0 acted wrongly; $0.42 |
 | The bar | 0 wrong-and-allowed and at least 17 correct (`src/warden/data/providers.yaml`) |
-| Not qualified on the same day | Claude Opus 5.5: 15 of 30 |
+| Below the bar on the same day | Claude Opus 5.5: 15 of 30 |
 
-The same file records Sonnet 5.5's answers to the G10 held-out set, re-scored under the current gate: 160 of 172
+The same file records Sonnet 5.5's answers to the G10 held-out set, re-scored under the gate of 2026-10-15: 160 of 172
 correct actions, 6 harmful proposals (every one stopped by the gate), 137 right outcomes, 0 harmful answers allowed,
 $3.15. Opus 5.5 on the same set: 162 correct, 1 harmful, 136 right outcomes, 0 harmful allowed, $9.00. These two
-per-case runs are not published; the totals are as recorded in `providers.yaml`.
+per-case runs are not published; the totals are as recorded in `providers.yaml`. Both were answered on the earlier
+prompt and must be measured again on the pinned one.
 
-WARDEN refuses any provider and model pair that is not listed there as qualified (`providers.qualified`); with no
-usable model, an incident is escalated on the rules alone.
-
-Reproduce (calls the model; costs about $0.50 on the API):
+Qualify a model on the pinned prompt with one command, from a checkout of the code the runtime runs (it calls the
+model with the cloud runtime's own key, `warden/<runtime environment>/anthropic-api-key` in Secrets Manager, read
+with your AWS identity; costs about $0.50 per model on the API, never more than `--budget-usd`):
 
 ```bash
-WARDEN_PROVIDER=anthropic WARDEN_MODEL=claude-sonnet-5-5 ANTHROPIC_API_KEY=... \
-    python scripts/qualify_provider.py --out <a new directory outside the repository>
+uv run --extra anthropic python scripts/qualify_cloud.py --model claude-sonnet-5-5 --budget-usd 2
 ```
 
-`--score-only` re-scores a finished run with no model call.
+It first prints old against new on the same 30 incidents (the row qualified now, or the newest row, beside the
+candidate; per incident with `--compare-with <old run directory>`) and the verdict against the bar
+([OPERATIONS.md](OPERATIONS.md), "Upgrading the model"). Then it writes the result into this repository: a row in the table below, pass or fail; on a pass on the pinned prompt,
+the row under `qualified:` in `providers.yaml` (else a NOT QUALIFIED comment there with its numbers), the status line
+above and the one in the README, and `docs/safety-pins.sha256`. Review the diff and open a pull request.
+
+| Measured (UTC) | Provider and model | Prompt | Correct of 30 | Wrong and allowed | Unanswered | Escalated | Spent (USD) | Result |
+|---|---|---|---|---|---|---|---|---|
+| 2026-10-15 14:56 | anthropic `claude-sonnet-5-5` | `d435b59f` | 17 | 0 | 0 | 24 | 0.42 | met the bar on that prompt (replaced 2026-10-17) |
+<!-- qualification-runs: scripts/qualify_cloud.py adds one row above this line per run -->
+
+`python scripts/qualify_provider.py --score-only --out <that run's directory>` re-scores a finished run with no
+model call.
 
 ## Live runs on a real AWS account (September 2026)
 
@@ -122,6 +144,12 @@ AWS documentation lookups on, three times on three code versions the same day.
 **The floor:** an answer that always escalates scores 103 of 172 "correct" from the keys alone, and fixes nothing.
 Read WARDEN's 132-138 against that 103. Two runs of the same code differ by a few cases, so the differences between
 these three columns are within run-to-run variation.
+
+**Today's baseline, to beat after re-qualification (2026-10-21):** always escalating gets 103 of 172 right (computed
+from the answer key: `scripts/heldout_bench.py` `always_escalate`); WARDEN got 132-138 of 172 right actions in the
+three runs above, with 1 harmful or wrong answer reaching a person in each; Claude Sonnet 5.5's answers, re-scored
+under the gate of 2026-10-15, let 0 harmful answers through (`providers.yaml`). All of these were answered on earlier
+prompts, not the pinned one: they must be measured again once a model is qualified on it.
 
 The same saved answers were re-scored on 2026-10-11 under later versions of the gate, with no model call
 (`--reverify`). With the newest of those gates, the right outcome for the person (a right fix plan reached the

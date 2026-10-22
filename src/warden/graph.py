@@ -425,9 +425,23 @@ def node_gather(state: WardenState) -> WardenState:
                 # A count: the text is raw until node_redact, which audits it scrubbed (A-C-5).
                 "tool_errors": len(context.tool_errors),
                 "references": len(context.references),
-            }
+            },
+            *signature_row(state["alert"], context),
         ],
     }
+
+
+def signature_row(alert: Alert, context: ContextBundle) -> list[dict[str, Any]]:
+    """The known failure patterns (knowledge.py) this evidence matches, as the record's own row - ids and scores only,
+    no text - so a later incident that matches the same pattern can be found (links.found, owner B8). The same
+    deterministic matcher the decider and the report use, but on the evidence as gathered: before redaction and before
+    WARDEN's own earlier fixes are added, so its result can differ from theirs on the same incident. Only ids and scores
+    are kept, never the evidence's text. Nothing when none matches."""
+    matches = default_knowledge_base().match(alert, context)
+    if not matches:
+        return []
+    return [{"node": "signatures", "ids": [m.signature.id for m in matches],
+             "scores": {m.signature.id: m.score for m in matches}}]
 
 
 # An IAM Identity Center role's opaque 16-hex suffix, in a change line from any source: the live reader drops it at the
@@ -729,6 +743,14 @@ def _diagnose(state: WardenState, llm: LLMClient) -> WardenState:
                   "processed_in": llm.processed_in,  # register S11: residency recorded with every diagnosis
                   "system_sha256": _sha256(SYSTEM_DIAGNOSE), "prompt_sha256": _sha256(user),
                   "response_sha256": _sha256(d.model_dump_json()), "code": code_version()}
+    # The text the provider was handed, as llm.py handed it (B36): `warden history` shows the prompt only when it hashes
+    # to these - what the model was sent, byte for byte, never a re-render. None in mock mode: nothing was sent.
+    sent = getattr(llm, "last_request", None)
+    if sent:
+        provenance.update(sent_system_sha256=_sha256(sent[0]), sent_user_sha256=_sha256(sent[1]))
+        appended = getattr(llm, "last_appended", "")
+        if appended:  # a retry: the feedback it carried (llm.validation_feedback - paths and error types, no value)
+            provenance["sent_appended"] = appended
     return {
         "root_cause": rc,
         "proposal": proposal,
