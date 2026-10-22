@@ -13,7 +13,14 @@ to prefer answers like their own (self-preference; register R10 asked for a diff
 2608.00243). What is done about it, in place of a second vendor:
 - a different model, chosen per incident;
 - blind first: pass one sees the evidence exactly as the diagnosis did and the exact plan, never WARDEN's reasoning;
-  only if it agrees does pass two add WARDEN's reasoning. It approves only when both passes agree;
+  only if it agrees does pass two add WARDEN's reasoning. It approves only when both passes agree. A blind pass that
+  only asks to read evidence items again is asked again, still blind, with those items; pass two follows only if
+  that blind pass agrees;
+- the debate (owner, 2026-10-17, U3-2; critique.py): when it does not agree it says why as typed objections, which
+  WARDEN's diagnosing model answers, at most three rounds. The debate is recorded and shown to the person, but it
+  never approves: an agreement reached after WARDEN's answers - its own diagnosing model arguing for its own plan,
+  the self-preference the blind pass exists to stop - is said as such and a person decides. WARDEN conceding any
+  objection ends the debate with a "no";
 - a strict verdict, checked in code: agree or not, each reason citing evidence ids that are on the record. An answer
   that cannot be read, or cites what is not there, is a "no";
 - catch trials (register R11): with some of its reviews Eldane is also shown a planted known-bad plan for the same
@@ -41,7 +48,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 
-from . import approvals, autonomy, catalog, llm, paging
+from . import approvals, autonomy, catalog, critique, llm, paging
 
 # The only audit rows Eldane reads (register R12): the evidence as the diagnosis saw it, and the diagnosis.
 READS = ("incident.evidence", "incident.diagnose")
@@ -54,6 +61,9 @@ TRIAL = "trial"  # the purpose of a catch trial's question: a planted test plan,
 RATE = float(os.environ.get("WARDEN_ELDANE_TRIAL_RATE", "0.1"))  # register R11: about 5-10% of volume
 WARM_RATE, WARM_TRIALS = 0.5, 20  # more trials while its current model has answered fewer than WARM_TRIALS
 MAX_EVIDENCE = 60_000
+# The most model calls one review makes: three passes (blind, blind again with the items it asked to read, with
+# WARDEN's reasoning), an answer from WARDEN's diagnosing model and a question to Eldane per debate round, one trial.
+CALLS_PER_REVIEW = 3 + 2 * critique.MAX_ROUNDS + 1
 
 
 class Reason(BaseModel):
@@ -68,6 +78,10 @@ class CriticVerdict(BaseModel):
     model_config = ConfigDict(extra="forbid")
     agree: bool
     reasons: list[Reason] = Field(max_length=10)
+    # Owner, 2026-10-17 (U3-2): why it does not agree, as typed objections WARDEN answers (critique.py), and evidence
+    # items it wants to read again in full before it decides.
+    objections: list[critique.Objection] = Field(default_factory=list, max_length=6)
+    read_again: list[str] = Field(default_factory=list, max_length=critique.MAX_READ_AGAIN)
     # What the model itself answered - never sent to it, never recorded as its verdict (PR 42 review): its own
     # "agree", None when there was no readable answer, and whether every id it cited is on the record. A catch trial
     # is scored from these: no answer is not a catch.
@@ -89,8 +103,12 @@ Agree only if every one of these holds:
 If any one fails, or the evidence is too thin to tell, do not agree. Never agree to be agreeable, and never invent a \
 fact the evidence does not hold.
 
-Answer with JSON only: {"agree": true or false, "reasons": [{"text": "...", "evidence": ["M1"]}]}. Each reason cites \
-the evidence ids it rests on; an agreement cites at least one. Cite only ids that appear in EVIDENCE."""
+Answer with JSON only: {"agree": true or false, "reasons": [{"text": "...", "evidence": ["M1"]}], "objections": \
+[{"kind": "wrong_target", "text": "...", "evidence": ["M1"]}], "read_again": ["L3"]}. Each reason cites the evidence \
+ids it rests on; an agreement cites at least one. When you do not agree, give each objection one kind: wrong_target, \
+cause_not_addressed, not_reversible, touches_warden, evidence_thin, evidence_contradicts or other - WARDEN will \
+answer each, and you will be asked again. To read evidence items again in full before you decide, list their ids \
+in read_again. Cite only ids that appear in EVIDENCE."""
 PROMPT_SHA = hashlib.sha256(SYSTEM.encode()).hexdigest()[:12]
 
 _EVIDENCE_ID = re.compile(r"^\[([A-Z]\d{1,4})\]", re.MULTILINE)
@@ -190,6 +208,7 @@ def describe(entry: str, params: dict[str, Any], *, environment: str, tier: str,
         f"target: {target or catalog.target_key(entry, params) if known else target}",
         f"values: {json.dumps(params, sort_keys=True, default=str)}",
         "change: " + "; ".join(catalog.change_of(entry, params, snapshot or {})),
+        "risks if approved: " + ("; ".join(catalog.risks_of(entry)) or "none named"),
         "<<END PLAN>>"])
 
 
@@ -246,7 +265,7 @@ def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], **row:
     except (ValueError, ValidationError):
         _fallback(log, incident, llm.MODEL_REFUSED, row)
         return CriticVerdict(agree=False, reasons=[Reason(text="Eldane's answer could not be read as its verdict")])
-    cited = {i for r in verdict.reasons for i in r.evidence}
+    cited = {i for r in verdict.reasons for i in r.evidence} | {i for o in verdict.objections for i in o.evidence}
     verdict._said_yes, verdict._grounded = verdict.agree, not cited - ids
     if cited - ids:
         verdict.agree = False
@@ -254,6 +273,11 @@ def ask(log: Any, incident: str, provider: Any, user: str, ids: set[str], **row:
     elif verdict.agree and not cited:
         verdict.agree = False
         verdict.reasons.append(Reason(text="it agreed without citing any evidence"))
+    if verdict.agree and verdict.objections:
+        # CodeRabbit, PR 166: a "yes" with an objection would sign with the objection never answered (the debate runs
+        # only on a no). It is a no, and the debate takes up its objections.
+        verdict.agree = False
+        verdict.reasons.append(Reason(text="it agreed and objected at once, so it counts as a no"))
     return verdict
 
 
@@ -322,13 +346,8 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
     model, chosen = critic.choose(str(prov.get("model", "")))
     models = {"critic": critic.identity(model), "diagnoser": diagnoser}
     code, skip = _skip(log, diagnosis, prov, model, chosen, evidence_rows)
-    if code == AT_CEILING:
-        # The daily call cap: one fallback row for this plan, and the day's page once (item 7, leftovers 3 and 7c).
-        log.append(plan.incident_id, llm.FALLBACK, {"reason": llm.BUDGET_CAP, "where": "eldane", "run_id": run_id})
-        paging.model_condition(log, paging.DAILY_CAP)
-    if skip:
-        log.append(plan.incident_id, autonomy.VERDICT, {**base, "agree": None, "skipped": skip, "models": models,
-                                                        "model": model, "model_reason": chosen})
+    if _skipped(log, plan, run_id, code, {**base, "agree": None, "skipped": skip, "models": models, "model": model,
+                                          "model_reason": chosen}):
         return None
     evidence = "<<EVIDENCE>>\n" + str(evidence_rows[-1].get("prompt", ""))[:MAX_EVIDENCE] + "\n<<END EVIDENCE>>"
     # Only ids in the evidence Eldane is shown (CodeRabbit, PR 42): one past the cut is not on its record.
@@ -338,22 +357,90 @@ def review(log: Any, policy: approvals.ApproverPolicy, plan: Any, critic: Critic
     blind = evidence + "\n\n" + describe(plan.entry, plan.params, environment=plan.environment, tier=plan.tier,
                                          snapshot=plan.snapshot, target=shown)
     asked = critic.provider(model)
-    first = ask(log, plan.incident_id, asked, blind, ids, **row, purpose="blind")
-    second = ask(log, plan.incident_id, asked, blind + "\n\n" + _reasoning(diagnosis), ids, **row,
-                 purpose="with_reasoning") if first.agree else None
-    agree = first.agree and second is not None and second.agree
+    tools, reads = critique.EvidenceTools(str(evidence_rows[-1].get("prompt", ""))), _Reads()
+    blind_pass = ask(log, plan.incident_id, asked, blind, ids, **row, purpose="blind")
+    passes = [blind_pass]
+    if not blind_pass.agree and blind_pass.read_again and not blind_pass.objections:
+        # It only wants to read more: asked again with those items, still blind - never with WARDEN's reasoning.
+        blind_pass = ask(log, plan.incident_id, asked, reads.add(blind, tools, blind_pass.read_again, ids), ids,
+                         **row, purpose="blind_read_again")
+        passes.append(blind_pass)
+    informed = blind + "\n\n" + _reasoning(diagnosis)
+    # Pass two - WARDEN's reasoning, and any item read again - only after a blind yes.
+    second = ask(log, plan.incident_id, asked, reads.add(informed, tools, blind_pass.read_again, ids), ids, **row,
+                 purpose="with_reasoning") if blind_pass.agree else None
+    passes += [second] if second is not None else []
+    final, rounds = _debate(log, plan, (asked, critic, str(prov.get("model", ""))), second or blind_pass, informed,
+                            (tools, reads), ids, row)
+    passes += [final] if rounds else []
+    # It signs only when a pass that saw neither WARDEN's reasoning nor the debate agreed, and pass two agreed too.
+    # A "yes" won in the debate is recorded and said (debate_agree), and never signs.
+    agree = blind_pass.agree and second is not None and second.agree
     _trial(log, plan, critic, model, evidence, ids, chance, **row)
     now = autonomy.level(log, plan.environment, plan.entry, models)
     log.append(plan.incident_id, autonomy.VERDICT, {
-        **base, "agree": agree, "second_pass": second is not None, "models": models, "model": model,
-        "model_reason": chosen, "level": now.level,
+        **base, "agree": agree, "second_pass": second is not None, "rounds": rounds,
+        "debate_agree": final.agree if rounds else None,
+        "models": models, "model": model, "model_reason": chosen, "level": now.level,
         "level_said": now.said(plan.entry, plan.environment),
-        "passes": [v.model_dump() for v in (first, second) if v is not None]})
+        "objections": [o.model_dump() for o in final.objections],
+        "passes": [v.model_dump() for v in passes]})
     me = _signer(policy, critic)
     if not agree or now.level != autonomy.L2 or me is None or autonomy.ai_problems(log, plan, run_id):
         return None
     return approvals.sign(critic.key, approver=me, workflow_id=plan.workflow_id, plan_hash=plan.plan_hash,
                           tier=plan.tier)
+
+
+def _skipped(log: Any, plan: Any, run_id: str, code: str, verdict: dict[str, Any]) -> bool:
+    """Puts a skipped review on the record (autonomy.VERDICT, `verdict`) and says True; False when Eldane reviews."""
+    if code == AT_CEILING:
+        # The daily call cap: one fallback row for this plan, and the day's page once (item 7, leftovers 3 and 7c).
+        log.append(plan.incident_id, llm.FALLBACK, {"reason": llm.BUDGET_CAP, "where": "eldane", "run_id": run_id})
+        paging.model_condition(log, paging.DAILY_CAP)
+    if not verdict["skipped"]:
+        return False
+    log.append(plan.incident_id, autonomy.VERDICT, verdict)
+    return True
+
+
+class _Reads:
+    """Every item Eldane has read again in this review: each later question shows them all, so an id that became
+    citable stays in front of it (a later question showing only that round's items left earlier ones citable unseen)."""
+
+    def __init__(self) -> None:
+        self.ids: list[str] = []
+
+    def add(self, prompt: str, tools: critique.EvidenceTools, wanted: list[str], ids: set[str]) -> str:
+        """The prompt with every item read so far and the ones `wanted` now; each one shown may be cited from then on."""
+        self.ids = critique.shown([*self.ids, *wanted])
+        ids.update(i for i in self.ids if tools.item(i))  # the caller's set, in place
+        return prompt + ("\n\n" + tools.read_again(self.ids) if self.ids else "")
+
+
+def _debate(log: Any, plan: Any, sides: tuple[Any, Critic, str], current: CriticVerdict, informed: str,
+            reading: tuple[critique.EvidenceTools, _Reads], ids: set[str],
+            row: dict[str, Any]) -> tuple[CriticVerdict, int]:
+    """Eldane's objections, answered by WARDEN's diagnosing model and asked again, at most critique.MAX_ROUNDS times
+    (owner, 2026-10-17): it ends when Eldane agrees, has no objection left, or WARDEN concedes one. Its outcome is
+    recorded and shown; it never approves - a person decides. `sides`: Eldane's provider, the critic, and the
+    diagnosing model that answers for WARDEN. The last answer, and how many rounds there were."""
+    eldane_side, critic, diagnoser = sides
+    tools, reads = reading
+    rounds: list[tuple[list[critique.Objection], list[critique.Rebuttal]]] = []
+    while not current.agree and current.objections and len(rounds) < critique.MAX_ROUNDS:
+        answers = critique.answer(log, plan.incident_id, critic.provider(diagnoser), informed, current.objections,
+                                  ids, model_call=_model_call, fallback=_fallback, **row)
+        critique.record_round(log, plan.incident_id, len(rounds) + 1, current.objections, answers, **row)
+        rounds.append((current.objections, answers))
+        if any(a.concede for a in answers):
+            break  # WARDEN agrees an objection holds: a "no", and a person decides
+        current = ask(log, plan.incident_id, eldane_side,
+                      reads.add(informed + "\n\n" + critique.transcript(rounds), tools, current.read_again, ids), ids,
+                      **row, purpose=f"after_round_{len(rounds)}")
+    if rounds and any(a.concede for a in rounds[-1][1]):
+        current = current.model_copy(update={"agree": False})
+    return current, len(rounds)
 
 
 def _skip(log: Any, diagnosis: dict[str, Any], prov: dict[str, Any], model: str, chosen: str,
@@ -371,7 +458,7 @@ def _skip(log: Any, diagnosis: dict[str, Any], prov: dict[str, Any], model: str,
         return "same_model", f"Eldane's model is the diagnosis's own ({model}): its review would not be independent"
     if not evidence_rows:
         return "no_evidence", "the incident's evidence is not on the record"
-    if _calls_today(log) + 3 > DAILY_CALLS:
+    if _calls_today(log) + CALLS_PER_REVIEW > DAILY_CALLS:
         return AT_CEILING, f"Eldane's daily ceiling of {DAILY_CALLS} calls is reached (WARDEN_ELDANE_DAILY_CALLS)"
     return "", ""
 
@@ -393,8 +480,9 @@ def said(log: Any, plan: Any, run_id: str) -> str:
         return ""
     if v.get("skipped"):
         return f" {approvals.AI_LABEL} (an AI reviewer) did not review this plan: {v['skipped']}."
-    passes = v.get("passes") or []
-    why = "; ".join(r.get("text", "") for p in passes[-1:] for r in p.get("reasons", [])[:3])
+    won, why = autonomy.debate_won(v), autonomy.reasons_said(v)
     word = "agrees with" if v.get("agree") else "does not agree with"
+    debate = (f" After {v.get('rounds')} round(s) of answers from WARDEN's own diagnosing model it said it agrees; an "
+              "agreement won in that debate never approves a plan." if won else "")
     return (f" {approvals.AI_LABEL} (an AI reviewer, on a different Claude model from the one that diagnosed it) {word} this plan"
-            + (f": {why}" if why else "") + f". {v.get('level_said', '')}")
+            + (f": {why}" if why else "") + f".{debate} {v.get('level_said', '')}")
