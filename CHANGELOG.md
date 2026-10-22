@@ -23,6 +23,23 @@ bump may carry a breaking change.
   up by its tags and region too; the actor's `rds-db:connect` names the account (`actor.local.json` from
   `scripts/render_env_iam.py --account`).
 
+### Added (a typed outcome and WARDEN's own confidence, owner U3-1, 2026-10-20)
+- **Typed outcome.** The diagnosis states `decided`, `undetermined` or `no_fault` (`RootCause.outcome`). New gate
+  policy `P37-OUTCOME-CONTRADICTS-PROPOSAL` (escalates): "no fault" with a change, or "undetermined" with anything but
+  a hand-off. A model's answer that states none is `undetermined`; answers recorded before keep theirs unchecked.
+- **WARDEN's confidence** (`src/warden/confidence.py`): low, medium or high from checks WARDEN can show - grounded,
+  decided by its own reads, separated from the best rival (twice the margin for high), every read returned, its
+  signatures agreeing, the outcome consistent - never the model's number. The report shows it first ("WARDEN's
+  confidence medium, from its checks; the model said 0.82") with why it is not higher; the verify audit row carries
+  its level, each check's name and result, and the counts for the records page (never a check's detail, which can
+  quote the model's citations); `grounding.separation` gives model routing the same two numbers.
+- **The diagnosis prompt** in XML-tagged sections with three worked examples (one per outcome), naming code review's
+  R items as suspects, never proof. **Not qualified on any model yet** (providers.yaml).
+- **A retry says what failed** (owner item 5, 2026-10-21). After an answer that fails validation, the next attempt
+  sends the same prompt plus one line naming each failed field's path and pydantic error type (`llm.RETRY_FEEDBACK`),
+  never a value from the answer. Same number of attempts, same call ceiling; the retry's input is priced with the
+  line. The line is part of the qualified prompt's hash.
+
 ### Added (diagnosis and poisoned logs, items 7 and 10, 2026-10-17)
 - **Ranked hypotheses.** The one diagnose call returns 2 to 4 candidate causes, each with citations for and against
   (`RootCause.hypotheses`). The report shows the chosen cause and each rejected one with why and WARDEN's own count.

@@ -289,6 +289,11 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Orchestration: Temporal Cloud and the `temporalio` SDK - `workflows.py`, `runtime.py`, `activities.py` (the
   steps, run as Temporal activities), `runtime_base.py` (runtime's client half, for the approval Lambda).
 - Payload encryption: Temporal's payload-codec interface with `cryptography`'s AES-256-GCM - `codec.py`.
+- What leaves the network (2026-10-20): Python's own audit hooks (`sys.addaudithook`, PEP 578) see every urllib
+  request and every name lookup before a connection is made; the redaction patterns check what is sent; the
+  ledger is a log line and an audit row - `egress.py`. An egress proxy or firewall (Squid, AWS Network Firewall)
+  sees hosts, not which incident's text is in a TLS body, and costs money; the runtime's network rules stay the outer
+  layer (register B23).
 - Passkey approvals: py_webauthn (duo-labs, BSD-3-Clause) verifies every WebAuthn ceremony - `passkeys.py`.
 - Signatures: `cryptography`'s Ed25519 for approvals and audit checkpoints (`approvals.py`); AWS KMS for the
   non-exportable signer and S3 Object Lock for the anchors (`audit.py`, register S12).
@@ -317,6 +322,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
+- Reading one workflow's encrypted Temporal history: built - `temporal_history.py` (register B36, 2026-10-21). A
+  Temporal codec server for the web UI cannot decrypt WARDEN's payloads (each is bound to its workflow, which the UI
+  does not send) and would be one more holder of the key; the SDK's own history read and WARDEN's own codec, in the
+  workflow's context, need neither.
 - Credentialed outbound HTTPS: Python's own urllib, behind one opener that speaks https only and follows a
   redirect only to the same https host and port, so no token or key is ever sent to another host - `web.py`.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
@@ -348,12 +357,18 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - WARDEN's records pages: built - `records.py`, two server-rendered pages read from the signed audit, on the
   approval page's own domain, sign-in and Content-Security-Policy. A dashboard product (Grafana, Backstage) would be
   a second service to run and secure, reading a copy of the record; the record already holds every fact.
+- Pilot metrics: built - `pilot.py` (owner item 3, 2026-10-21), the client's weekly numbers counted from audit rows
+  whose hash chain and checkpoint signatures verify, on the command line and as a records page. A BI tool would count
+  from an unverified copy of the rows; the counting is a few hundred lines over the record itself.
 - The pages' look: built - `brand.py` (the logo, inline SVG) and the shared style and script in the approval page:
   CSS custom properties for light and dark, a small canvas background and a press ripple, no framework. A UI kit or
   an animation library would be third-party script, which the pages' Content-Security-Policy refuses.
 - Talking to WARDEN about an incident: adopted - Slack's own Python SDK (slack-sdk, MIT) for the Socket Mode
   connection, so WARDEN needs no public address for it; built - `discuss.py`, which hears only mentions in one channel
   and hands each to a workflow. Slack's Bolt framework adds routing and middleware for many handlers; WARDEN has one.
+- An approver extends a plan's wait from the discussion: built - `extend.py`, rows in the signed audit that the
+  plan's own workflow reads when its timer ends. Temporal's workflow update would let the thread change the timer
+  directly, but then a message would steer a fix's run; here only the record does, and the record is checked.
 - What is expected to be down: built - `expected.py`, a person's declarations (an environment's nights, weekends
   and holidays; a service or a resource not in use) read at intake, and Temporal's own start delay to look at the
   alarm again when the cover ends. AWS Instance Scheduler and a tag convention say when something is stopped, not
@@ -371,6 +386,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   `identity.py`, and boto3 for the AWS writes in `platforms/aws.py`. IAM Roles Anywhere and Teleport's Machine ID
   issue the same STS sessions on AWS (decision D11), so WARDEN calls STS directly.
 - Approver labels: signed with the approvers' own Ed25519 keys (`cryptography`), recorded in the audit - `labels.py`.
+- Whether the actor role allows a fix's calls before anyone is asked to approve it (B12): AWS's own IAM policy
+  simulator (SimulatePrincipalPolicy, in the environment's reader role) - `permits.py`, which only traces the calls
+  from the fix's own write code and asks the simulator about them.
 - Pages of WARDEN's own that repeat until acknowledged - `paging.py` with the runtime module's pager: CloudWatch
   alarms, EventBridge rules and a schedule, S3 for the page state, CloudWatch's own email action. CloudWatch sends an
   alarm action once; Systems Manager Incident Manager, AWS's paging with acknowledgement, takes no new customers since
@@ -381,6 +399,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - The decision rules - `verifier.py`, `grounding.py`, `catalog.py`, `bounds.py`, `freeze.py`, `intake.py`,
   `read_scope.py`, `gate.py`'s rules: most policies need evidence that Python computes first
   (section 16 records why not OPA or Cedar).
+- The confidence a person reads - `confidence.py`: a level from checks WARDEN can show (grounded, decisive,
+  separated, complete reads, a consistent outcome), each a rule over results the verifier already computed; a
+  calibration library would score the model's own number, which is what it must not use (owner U3-1).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
 - Autonomy and the AI critic - `autonomy.py`, `eldane.py` (owner, 2026-10-16/17): dev's level is read from
@@ -408,6 +429,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - One writer per target - `locks.py` (B20): a check-and-set inside the audit's own write lock, so the lock is as
   durable and as recorded as the rest of the record. A lock service (the DynamoDB lock client, etcd) would be a
   second store beside the audit, and its locks would not be on the record.
+- What landed on a target since WARDEN's fix, read before WARDEN undoes it - `landed.py` (B21): CloudTrail's
+  LookupEvents through the platform reader, GitHub's Deployments and Pulls REST APIs, and WARDEN's own audit -
+  the same three reads `timeline.py` makes, over the window from the fix to the undo.
 - The signature catalogue - `knowledge.py`: k8sgpt, Robusta and the kube-prometheus rules cover Kubernetes only and
   need a live cluster; HolmesGPT and the AWS DevOps Agent are agent loops, not libraries. They serve as checklists
   for the Kubernetes signatures.

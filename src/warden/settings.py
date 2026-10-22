@@ -113,7 +113,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_HEARTBEAT_NAMESPACE": frozenset({"worker"}),
     # The commands that open the audit (runtime.open_audit) and the ones that read it.
     "WARDEN_AUDIT_DSN": frozenset({"worker", "incident", "intake", "status", "approve", "killswitch", "audit",
-                                   "label", "offer-again", "usage", "lambda-alarm", "lambda-alertmanager", "lambda-approval",
+                                   "label", "offer-again", "usage", "report", "lambda-alarm", "lambda-alertmanager", "lambda-approval",
                                    "lambda-actor-use"}),
     # The Alertmanager webhook's bearer secrets: only the Lambda that checks them (register S5).
     "WARDEN_ALERTMANAGER_TOKEN": frozenset({"lambda-alertmanager"}),
@@ -134,6 +134,11 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_DATADOG_WEBHOOK_TOKEN": frozenset({"lambda-alertmanager"}),
     "WARDEN_ELDANE_KEY": frozenset({"worker"}),
 }
+
+
+# Commands that load ONLY these names, not every unrestricted one: `warden report` reads the audit and nothing else, so
+# a laptop running it holds no Slack, model or Datadog key - not even for a moment (the same rule as `records`, PR 147).
+ONLY: dict[str, frozenset[str]] = {"report": frozenset({"WARDEN_AUDIT_DSN"})}
 
 
 # The loadable names that are secrets (decision D5): read from Secrets Manager only, never from SSM. One line per
@@ -210,10 +215,17 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
     loaded = load_from_ssm(env, client=ssm, only=allowed)
     # A renamed secret set under its old name is a real environment variable too, and wins over the store.
     wanted = sorted(n for n in SECRETS & allowed if n not in os.environ and _OLD_NAME.get(n, n) not in os.environ)
-    if wanted and secrets is None:
-        import boto3  # only when an environment is actually named
+    if wanted:
+        if secrets is None:
+            import boto3  # only when an environment is actually named
 
-        secrets = boto3.client("secretsmanager")
+            secrets = boto3.client("secretsmanager")
+        loaded += _load_secrets(env, wanted, secrets, zone)
+    return sorted(loaded)
+
+
+def _load_secrets(env: str, wanted: list[str], secrets: Any, zone: str | None) -> list[str]:
+    """Each of `wanted` this environment has in Secrets Manager, set in os.environ; the names set."""
     def fetch(name: str) -> Any:
         try:
             return secrets.get_secret_value(SecretId=secret_id(env, name, zone))
@@ -222,19 +234,19 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
                 return None
             raise
 
-    if wanted:
-        from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor
 
-        # Fetched at the same time, not one after another: five in a row were 1.3 s of the approval page's cold
-        # start (measured 2026-10-14). Each is still its own call under the caller's own permission, and a failure
-        # of any still raises - `map` hands the results back in order and re-raises the first error it meets.
-        with ThreadPoolExecutor(max_workers=min(8, len(wanted))) as pool:
-            values = list(pool.map(fetch, wanted))
-        for name, value in zip(wanted, values, strict=True):
-            if value is not None and isinstance(value.get("SecretString"), str):
-                os.environ[name] = value["SecretString"]
-                loaded.append(name)
-    return sorted(loaded)
+    # Fetched at the same time, not one after another: five in a row were 1.3 s of the approval page's cold
+    # start (measured 2026-10-14). Each is still its own call under the caller's own permission, and a failure
+    # of any still raises - `map` hands the results back in order and re-raises the first error it meets.
+    with ThreadPoolExecutor(max_workers=min(8, len(wanted))) as pool:
+        values = list(pool.map(fetch, wanted))
+    loaded: list[str] = []
+    for name, value in zip(wanted, values, strict=True):
+        if value is not None and isinstance(value.get("SecretString"), str):
+            os.environ[name] = value["SecretString"]
+            loaded.append(name)
+    return loaded
 
 
 def getenv(name: str) -> str:
@@ -281,6 +293,8 @@ def loadable_for(command: str, zone: str | None = None) -> frozenset[str]:
     """The names a command may load: every LOADABLE one, less the restricted ones it does not use - and for one trust
     zone's worker, less every secret another zone holds (S15)."""
     allowed = frozenset(n for n in LOADABLE if command in RESTRICTED.get(n, (command,)))
+    if command in ONLY:
+        allowed &= ONLY[command]
     if command.startswith("lambda-"):
         allowed -= SECRETS - LAMBDA_SECRETS.get(command.removeprefix("lambda-"), frozenset())
     return allowed - (SECRETS - ZONE_SECRETS[zone]) if zone in ZONE_SECRETS else allowed

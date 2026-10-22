@@ -152,6 +152,34 @@ class GatedFormatter(logging.Formatter):
         return text.replace("\u2028", "\n").replace("\u2029", "\n").replace("\n", "\n    ")
 
 
+class GatedWrap(logging.Formatter):
+    """A handler's own formatter, its output gated as GatedFormatter gates it: for a handler WARDEN did not install -
+    the Lambda runtime's, which prints every record as written (2026-10-20: a Lambda's log lines, an exception's text
+    and traceback included, reached CloudWatch raw). The handler's own layout - its request id, its JSON - is kept."""
+
+    def __init__(self, inner: logging.Formatter | None) -> None:
+        super().__init__()
+        self.inner = inner or logging.Formatter()
+
+    def format(self, record: logging.LogRecord) -> str:
+        try:
+            text = _redact_then_cut(normalise(redact(self.inner.format(record)).text), GatedFormatter.LIMIT)
+        except Exception:  # noqa: BLE001 - any failure of another handler's formatter is withheld and never printed raw
+            return f"{record.levelname} {record.name}: (log text withheld)"
+        return text.replace("\u2028", "\n").replace("\u2029", "\n").replace("\n", "\n    ")
+
+
+def gate_handlers(logger: logging.Logger | None = None) -> int:
+    """Every handler of `logger` (the root's by default) writes through the gate: a GatedFormatter stays, any other
+    formatter is wrapped in GatedWrap. Idempotent. The number of handlers it wrapped."""
+    wrapped = 0
+    for handler in (logger or logging.getLogger()).handlers:
+        if not isinstance(handler.formatter, GatedFormatter | GatedWrap):
+            handler.setFormatter(GatedWrap(handler.formatter))
+            wrapped += 1
+    return wrapped
+
+
 class _StderrHandler(logging.StreamHandler):
     """Writes to whatever sys.stderr is when a record is written, not when the handler was made."""
 
@@ -161,6 +189,8 @@ class _StderrHandler(logging.StreamHandler):
 
     @stream.setter
     def stream(self, _value) -> None:
+        # Ignored on purpose: the handler always writes to the current sys.stderr (read by the getter above), so
+        # nothing - logging.StreamHandler.setStream included - can pin it to a stream that is later replaced.
         pass
 
 
