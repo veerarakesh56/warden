@@ -109,7 +109,10 @@ def no_fix_path(alert: Alert, proposal: RemediationProposal) -> str:
     if platforms & able:
         return ""
     named = ", ".join(sorted(kinds))
-    return f"no catalogue entry carries out {proposal.action.value} on {target} (labelled {named})"
+    advice = next((catalog.ADVICE[(proposal.action, p)] for p in sorted(platforms - {None})
+                   if (proposal.action, p) in catalog.ADVICE), "")
+    return (f"no catalogue entry carries out {proposal.action.value} on {target} (labelled {named})"
+            + (f" - {advice}" if advice else ""))
 
 
 # Why a change the alarm must date cannot be planned.
@@ -439,7 +442,7 @@ def _catalogue_request(alert: Alert, proposal: RemediationProposal,
     platform, params = found
     entry = catalog.for_action(proposal.action, platform)
     if entry is None:
-        return None, f"no catalogue entry carries out {proposal.action.value} on {platform}"
+        return None, catalog.no_entry(proposal.action, platform)
     why = _label_params(alert, entry, params)
     if why:
         return None, why
