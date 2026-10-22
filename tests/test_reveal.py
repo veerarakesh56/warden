@@ -5,6 +5,7 @@ Built on the records page's own tests (test_records_g10w) and the vault's fake K
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 import urllib.parse
@@ -293,3 +294,26 @@ def test_the_row_is_on_the_record_before_the_vault_is_opened(site, monkeypatch):
     monkeypatch.setattr(vault, "_BUILT", {("alias/warden-ops-vault", "ops"): Spy()})
     assert _post(page, cookie, _form(page, cookie)).status == 200
     assert seen == [1]
+
+
+def test_what_a_reveal_writes_and_asks_kms_holds_no_value(site, monkeypatch):
+    """Egress (#104): the reveal adds no outbound request of its own - its one network call is KMS Decrypt in WARDEN's
+    own account (vault.py, on tests/test_egress.py's inventory). That request's real parameters and every audit row
+    the reveal writes (the reveal and a refused attempt), with a reason that pastes personal data, hold nothing the
+    redactor finds."""
+    from warden import egress
+
+    page, log, cookie, _ = site
+    kms = FakeKms("approval")
+    monkeypatch.setattr(vault, "_BUILT", {("alias/warden-ops-vault", "ops"): vault.Vault(
+        key="alias/warden-ops-vault", environment="ops", kms=kms)})
+    pasted = urllib.parse.quote(EMAIL + " +1 415 555 " + "0142")
+    form = _form(page, cookie).replace("why=checking", "why=" + pasted + "+checking")
+    assert _post(page, cookie, form).status == 200
+    _post(page, cookie, form.replace("p=%3CEMAIL_1%3E", "p=%3CNONE_1%3E"))  # no known value: refused, recorded
+    rows = log.entries(INC, kinds=(reveal.REVEAL, reveal.ATTEMPT_REFUSED))
+    assert {r["kind"] for r in rows} == {reveal.REVEAL, reveal.ATTEMPT_REFUSED}
+    for r in rows:
+        assert egress.kinds_in(json.dumps(r["body"])) == [], r["kind"]
+    assert [action for action, _ in kms.calls] == ["Decrypt"]
+    assert egress.kinds_in(json.dumps(kms.calls)) == []
