@@ -267,6 +267,10 @@ class GeminiProvider:
 
         self._client = genai.Client(
             api_key=api_key,
+            # ALWAYS explicit: the SDK otherwise reads GOOGLE_GENAI_USE_VERTEXAI / GOOGLE_GENAI_USE_ENTERPRISE, which
+            # turn the AI Studio key into a Vertex client - another host, and (google-genai 2.30) a rewrite to the
+            # mTLS endpoint when a client certificate is configured.
+            vertexai=False,
             # ALWAYS explicit: the SDK otherwise reads GOOGLE_GENAI_CLIENT_MODE, where `replay` answers
             # from files on disk and `record` writes every prompt to disk (third review, 2026-09-30).
             debug_config=DebugConfig(client_mode=None, replays_directory=None, replay_id=None),
