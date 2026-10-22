@@ -50,3 +50,24 @@ def test_the_detector_loads_its_pinned_revision_from_safetensors_only(monkeypatc
     assert seen["model"] == tripwire.MODEL
     assert seen["revision"] == tripwire.REVISION
     assert seen["model_kwargs"] == {"use_safetensors": True}
+
+
+def test_a_model_row_on_an_earlier_prompt_is_never_called_qualified():
+    """A row qualifies its model only on the prompt it was measured with (providers.qualified): the bill says so."""
+    import yaml
+
+    doc = yaml.safe_load((ROOT / "src" / "warden" / "data" / "providers.yaml").read_text(encoding="utf-8"))
+    pinned = doc["prompt"]["sha"]
+    models = {c["name"]: c for c in sbom.render()["components"] if c["type"] == "machine-learning-model"}
+    for row in doc["qualified"]:
+        said = models[row["model"]]["description"]
+        assert ("NOT qualified" in said) is (row.get("prompt") != pinned), said
+
+
+def test_the_bill_never_calls_a_row_qualified_that_the_runtime_refuses():
+    bar = {"wrong_and_allowed": 0, "min_correct": 17}
+    row = {"prompt": "a" * 64, "correct": 17, "wrong_and_allowed": 0}
+    assert "NOT qualified" not in sbom._model_status(row, "a" * 64, bar)
+    assert "NOT qualified" in sbom._model_status({**row, "prompt": None}, None, bar), "no pin: nothing is qualified"
+    assert "NOT qualified" in sbom._model_status({**row, "correct": 16}, "a" * 64, bar), "below the bar"
+    assert "NOT qualified" in sbom._model_status({**row, "wrong_and_allowed": 1}, "a" * 64, bar)

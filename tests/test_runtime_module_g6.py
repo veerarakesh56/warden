@@ -314,6 +314,7 @@ ZONE_READS = {
     "WARDEN_SLACK_WEBHOOK": ("chatops.py", {"notify"}),
     "WARDEN_GITHUB_TOKEN": ("changes.py", {"notify"}),
     "WARDEN_DB_TERMINATE_DSN": ("platforms/db.py", {"act"}),
+    "WARDEN_GITHUB_ACTIONS_TOKEN": ("platforms/infra.py", {"act"}),
     # Eldane, the AI critic: its own signing key (its model key is the diagnosis's, above; owner 2026-10-17).
     "WARDEN_ELDANE_KEY": ("eldane.py", {"critic"}),
 }
@@ -404,9 +405,10 @@ def test_the_api_throttles_logs_and_routes_exactly_what_the_page_and_the_webhook
     assert re.findall(r'"(GET /a/\{token\})", "(POST /a/\{token\}/\{step\})"', tf)
     assert re.search(r'route_key\s*=\s*"POST /alertmanager"', tf)
     # Every page step the page serves is a POST on /a/{token}/{step}; the shell is the GET.
+    # The route table is in _approval, where handle sends every /a/ path.
     import inspect
 
-    src = inspect.getsource(approval_page.ApprovalPage.handle)
+    src = inspect.getsource(approval_page.ApprovalPage._approval)
     steps = set(re.findall(r'\("POST", "([a-z-]+)"\)', src))
     assert steps >= {"login-options", "login", "approve-options", "approve", "deny-options", "deny"}
     assert '("GET", "")' in src
@@ -429,7 +431,7 @@ def test_the_lambdas_get_the_names_the_runtime_reads():
 
 
 def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_extra():
-    text = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+    text = re.sub(r"\\\n\s*", "", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))  # continuations joined
     plain = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     froms = re.findall(r"^FROM (\S+)", text, re.MULTILINE)
     assert froms

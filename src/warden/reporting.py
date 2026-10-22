@@ -46,6 +46,7 @@ from .knowledge import SignatureMatch
 from .models import ActionKind, Alert, ContextBundle, RemediationProposal, RootCause, Verdict
 from .playbook import detect as detect_patterns
 from .redaction import redact
+from .tools import PARTIAL_PREFIX
 from .verifier import symptoms
 
 # Tier ordering for "what is higher than here". Unknown is off the ladder (never a promotion target).
@@ -227,10 +228,18 @@ def untrusted_inline(text: str, limit: int = 300) -> str:
 
 
 def _timeline(alert: Alert, ctx: ContextBundle) -> list[tuple[str, str]]:
-    events: list[tuple[dt.datetime, str]] = []
     started = _parse_ts(alert.started_at or "")
-    if started:
-        events.append((started, f"alert {untrusted_inline(alert.name)} fired"))
+    events: list[tuple[dt.datetime, str]] = [(started, f"alert {untrusted_inline(alert.name)} fired")] if started else []
+    events += _deploy_events(alert, ctx)
+    events += _change_events(ctx, started)
+    events += _error_events(ctx)
+    events.sort(key=lambda e: e[0])
+    return [(both_times(t), what) for t, what in events]
+
+
+def _deploy_events(alert: Alert, ctx: ContextBundle) -> list[tuple[dt.datetime, str]]:
+    """Each recent deploy with a time: what was deployed, what it replaced, and by whom."""
+    events: list[tuple[dt.datetime, str]] = []
     for d in ctx.recent_deploys:
         at = _parse_ts(d.get("at", ""))
         what = d.get("sha") or d.get("image") or d.get("task_definition") or d.get("revision") or "?"
@@ -243,21 +252,31 @@ def _timeline(alert: Alert, ctx: ContextBundle) -> list[tuple[str, str]]:
             label += f" by {who}"
         if at:
             events.append((at, label))
+    return events
+
+
+def _change_events(ctx: ContextBundle, started: dt.datetime | None) -> list[tuple[dt.datetime, str]]:
     # What WARDEN's own readers recorded as changed in the hour before the alert: the timeline held only "alert
     # fired" beside a diagnosis that cited a change made nine minutes earlier (live, 2026-10-12).
+    events: list[tuple[dt.datetime, str]] = []
     for line in ctx.logs:
         m = _CHANGE.match(line)
         at = _parse_ts(m.group(1)) if m else None
         if at and started and 0 <= (started - at).total_seconds() <= _TIMELINE_CHANGES_S:
             events.append((at, f"change recorded: {untrusted_inline(m.group(2))}"))
+    return events
+
+
+def _error_events(ctx: ContextBundle) -> list[tuple[dt.datetime, str]]:
+    """The first error line in the evidence, and the latest where there are several."""
     errors = [(t, ln) for ln in ctx.logs if _IMPORTANT.search(ln) and (t := _parse_ts(ln))]
-    if errors:
-        errors.sort(key=lambda e: e[0])
-        events.append((errors[0][0], "first error in the evidence"))
-        if len(errors) > 1:
-            events.append((errors[-1][0], f"latest error ({len(errors)} error lines in total)"))
-    events.sort(key=lambda e: e[0])
-    return [(both_times(t), what) for t, what in events]
+    if not errors:
+        return []
+    errors.sort(key=lambda e: e[0])
+    events = [(errors[0][0], "first error in the evidence")]
+    if len(errors) > 1:
+        events.append((errors[-1][0], f"latest error ({len(errors)} error lines in total)"))
+    return events
 
 
 # --------------------------------------------------------------------------- scrubbing
@@ -297,7 +316,7 @@ def reveal_identifiers(obj, mapping: dict[str, str]):
     reveal = {p: v for p, v in mapping.items() if p[1:].rsplit("_", 1)[0] in REVEALABLE}
     # The model sometimes drops the angle brackets and writes `EMAIL_1`. Those bare forms are
     # revealed too - whole words only, identifier labels only, so `<SECRET_1>` stays masked.
-    reveal.update({p[1:-1]: v for p, v in list(reveal.items())})
+    reveal.update({p[1:-1]: v for p, v in reveal.items()})
     return _reveal(obj, reveal) if reveal else obj
 
 
@@ -428,6 +447,24 @@ def _weighed(root_cause: Any, context: ContextBundle | None) -> dict[str, Any] |
             "count": hypothesis_score(h, items, root_cause.citations), "of": len(root_cause.hypotheses)}
 
 
+def _assessed(alert: Alert, context: ContextBundle | None, root_cause: Any,
+              proposal: RemediationProposal | None) -> dict[str, Any] | None:
+    from .confidence import assess
+
+    if context is None or proposal is None:
+        return None
+    return assess(alert, context, root_cause, proposal)
+
+
+def _confidence_said(rc: dict[str, Any]) -> str:
+    """How sure the diagnosis is, as a person reads it: WARDEN's level from its checks first, the model's number after."""
+    level = (rc.get("warden_confidence") or {}).get("level")
+    outcome = f"; outcome {rc['outcome'].replace('_', ' ')}" if rc.get("outcome") else ""
+    model = f"the model said {rc['confidence']:.2f}"
+    return (f"WARDEN's confidence {level}, from its checks; {model}{outcome}" if level
+            else f"model, confidence {rc['confidence']:.2f}{outcome}")
+
+
 def _narrowed(d: dict[str, Any]) -> list[str]:
     """How WARDEN narrowed it down (owner's report bar, 2026-10-12: "narrow to the real root cause"): what the fixed
     checks found, each other cause and why it was set aside - checked against the evidence or said to be unchecked -
@@ -441,6 +478,14 @@ def _narrowed(d: dict[str, Any]) -> list[str]:
         out.append("- **Fixed checks found:** " + "; ".join(p["title"] for p in patterns) + ".")
     else:
         out.append("- **Fixed checks found:** none of WARDEN's known patterns in this evidence.")
+    out.extend(_ruled_out_lines(rc))
+    out.extend([_left_line(rc), ""])
+    return out
+
+
+def _ruled_out_lines(rc: dict[str, Any]) -> list[str]:
+    """Each other cause the diagnosis set aside, and why - checked against the evidence or said to be unchecked."""
+    out = []
     for r in rc.get("ruled_out") or []:
         why = f" - {r['why']}" if r.get("why") else ""
         if r.get("checked"):
@@ -451,6 +496,11 @@ def _narrowed(d: dict[str, Any]) -> list[str]:
         out.append(f"- **Ruled out:** {r['cause']}{why}{how}{count}")
     if not rc.get("ruled_out"):
         out.append("- **Ruled out:** the diagnosis named no other cause it considered.")
+    return out
+
+
+def _left_line(rc: dict[str, Any]) -> str:
+    """The cause that is left: its citations, WARDEN's evidence count, and whether it is grounded."""
     cited = ", ".join(c["id"] for c in rc.get("citations") or [])
     weighed = rc.get("weighed")
     count = (f" _(WARDEN's evidence count {weighed['count']}: for {', '.join(weighed['for']) or 'nothing'}, "
@@ -459,18 +509,16 @@ def _narrowed(d: dict[str, Any]) -> list[str]:
         # The count is the first ranked hypothesis's: when the model worded it differently, both are shown (review,
         # PR 47), so a count is never read as belonging to words it was not computed for.
         count += f" - the count is for the cause it ranked first: {weighed['cause']}"
-    out.append(f"- **Left:** {rc.get('hypothesis', '')}" + (f" _(cited: {cited})_" if cited else "") + count
-               + ("" if rc.get("grounded", True) else " - **not grounded**: its citations did not hold."))
-    out.append("")
-    return out
+    return (f"- **Left:** {rc.get('hypothesis', '')}" + (f" _(cited: {cited})_" if cited else "") + count
+            + ("" if rc.get("grounded", True) else " - **not grounded**: its citations did not hold."))
 
 
 def _stack_sources(alert: Alert, ctx: ContextBundle) -> list[str]:
     """Each component read, and each reader that failed (a failed reader is never silence - P8)."""
     from .aws_backend import LOG_LOOKBACK, METRIC_WINDOW, RECENT_DEPLOY_WINDOW
 
-    errors = [e.removeprefix("TOOL-PARTIAL ") for e in ctx.tool_errors]
-    errors += [ln.removeprefix("TOOL-PARTIAL ") for ln in ctx.logs if ln.startswith("TOOL-PARTIAL ")]
+    errors = [e.removeprefix(PARTIAL_PREFIX) for e in ctx.tool_errors]
+    errors += [ln.removeprefix(PARTIAL_PREFIX) for ln in ctx.logs if ln.startswith(PARTIAL_PREFIX)]
     out = [(f"Full-stack backend: one isolated reader per component the alert names. Logs: alert time ± "
             f"{int(LOG_LOOKBACK.total_seconds() // 60)} min; CloudWatch metrics: alert time ± "
             f"{int(METRIC_WINDOW.total_seconds() // 60)} min; deploys and secret changes: the last "
@@ -645,32 +693,9 @@ def _who_acts(alert: Alert, data: dict) -> list[list[str]]:
     """Who has something to do about this incident now, and what - on every report (owner, 2026-10-12: "I see only
     Platform / DevOps here", and only when a fixed pattern had fired). From what the report already holds: the gate's
     verdict, the kind of resource the alarm names, and whether the evidence points at code or a deploy."""
-    from .resolver import _QUALIFIERS
-    from .resources import LABEL_KEYS
-
-    verdict = data.get("verdict") or {}
-    status, held_by = verdict.get("status"), set(verdict.get("policy_ids") or [])
-    if (data.get("proposal") or {}).get("action") == "escalate_to_human" and status == "auto_safe":
-        oncall = "look at this incident: WARDEN proposes no change and could not name a cause"
-    elif status == "approved_for_human":
-        oncall = ("approve or deny the fix plan with the button in this message - or, where there is none, read why "
-                  "here")
-    elif status == "escalated" and held_by == _OFFERED_UNDO:
-        oncall = ("decide: WARDEN held the proposed fix because a recent change was left unaddressed, and offers the "
-                  "undo of that change as a plan to approve or deny")
-    elif status in ("escalated", "rejected"):
-        oncall = "decide what to do: WARDEN runs nothing here (the gate verdict below says why)"
-    else:
-        oncall = "nothing to run; check that the alarm clears"
-    out = [["On-call", oncall]]
-    # The labels that name a resource - not the ones that only qualify one (a namespace, a cluster, a stage).
-    kinds = {k for k in alert.labels if k in LABEL_KEYS and k not in _QUALIFIERS}
-    named = sorted({v.strip() for k in kinds for v in str(alert.labels[k]).split(",") if v.strip()})
-    if named:
-        team = "DBA / data" if kinds & _DATA_KINDS else "Platform / DevOps"
-        prevent = _PREVENT.get(str((data.get("proposal") or {}).get("action") or ""))
-        out.append([team, f"owns {', '.join(named[:3])}: confirm the cause, then stop it happening again"
-                    + (f" - {prevent}" if prevent else "")])
+    out = [["On-call", _oncall_task(data)]]
+    if owner := _owner_row(alert, data):
+        out.append(owner)
     changed = data.get("changed_by") or ""
     if changed:
         out.append(["Who changed it", (f"the newest change before the alert was {changed}: that person or "
@@ -680,6 +705,39 @@ def _who_acts(alert: Alert, data: dict) -> list[list[str]]:
     elif (data.get("review") or {}).get("findings"):
         out.append(["Developers", "code review flagged the deployed change: check those findings first"])
     return out
+
+
+def _oncall_task(data: dict) -> str:
+    """What the on-call person has to do now, from the gate's verdict and the proposed action."""
+    verdict = data.get("verdict") or {}
+    status, held_by = verdict.get("status"), set(verdict.get("policy_ids") or [])
+    if (data.get("proposal") or {}).get("action") == "escalate_to_human" and status == "auto_safe":
+        return "look at this incident: WARDEN proposes no change and could not name a cause"
+    if status == "approved_for_human":
+        return ("approve or deny the fix plan with the button in this message - or, where there is none, read why "
+                "here")
+    if status == "escalated" and held_by == _OFFERED_UNDO:
+        return ("decide: WARDEN held the proposed fix because a recent change was left unaddressed, and offers the "
+                "undo of that change as a plan to approve or deny")
+    if status in ("escalated", "rejected"):
+        return "decide what to do: WARDEN runs nothing here (the gate verdict below says why)"
+    return "nothing to run; check that the alarm clears"
+
+
+def _owner_row(alert: Alert, data: dict) -> list[str] | None:
+    """The team that owns the resources the alarm names, and what it should do - None where it names none."""
+    from .resolver import _QUALIFIERS
+    from .resources import LABEL_KEYS
+
+    # The labels that name a resource - not the ones that only qualify one (a namespace, a cluster, a stage).
+    kinds = {k for k in alert.labels if k in LABEL_KEYS and k not in _QUALIFIERS}
+    named = sorted({v.strip() for k in kinds for v in str(alert.labels[k]).split(",") if v.strip()})
+    if not named:
+        return None
+    team = "DBA / data" if kinds & _DATA_KINDS else "Platform / DevOps"
+    prevent = _PREVENT.get(str((data.get("proposal") or {}).get("action") or ""))
+    return [team, f"owns {', '.join(named[:3])}: confirm the cause, then stop it happening again"
+            + (f" - {prevent}" if prevent else "")]
 
 
 _NEXT_STEP = {
@@ -791,6 +849,9 @@ def build_report(
             "evidence": [hedge(e) for e in root_cause.evidence],
             "ruled_out": _ruled_out(root_cause, context),
             "weighed": _weighed(root_cause, context),
+            "outcome": root_cause.outcome.value if root_cause.outcome else None,
+            # WARDEN's own confidence from checks it can show (confidence.py), ahead of the model's number.
+            "warden_confidence": _assessed(alert, context, root_cause, proposal),
             "citations": [{"id": c.id, "quote": c.quote} for c in root_cause.citations],
             "grounded": not (verdict and "P13-UNGROUNDED" in verdict.policy_ids),
         }
@@ -865,14 +926,43 @@ ALERT_SOURCES = {"cloudwatch": "CloudWatch alarm", "datadog": "Datadog monitor",
 
 
 def _render_markdown(d: dict) -> str:
-    a = d["alert"]
-    ev = d["evidence"]
-    v = d.get("verdict")
-    p = d.get("proposal")
-    lines: list[str] = []
+    lines = [
+        *_head_lines(d),
+        # ---- summary
+        *_summary_lines(d),
+        # ---- who acts: on every report, before anything a person has to read to find it
+        *_who_acts_lines(d),
+        # ---- what was read
+        *_read_lines(d),
+        # ---- the gate, before the model's text (register N4): read what the rules found first
+        *_verdict_lines(d.get("verdict")),
+        # ---- diagnosis
+        *_diagnosis_lines(d), *_pattern_lines(d), *_code_finding_lines(d), *_review_lines(d), *_signature_lines(d),
+        # ---- the read-only checks WARDEN ran itself
+        *_checked_lines(d["evidence"]),
+        # ---- the evidence itself
+        *_evidence_lines(d),
+        # ---- proposal and gate
+        *_proposal_lines(d.get("proposal")),
+        # ---- the gate's own finding, before the follow-ups: an action the gate says cannot work must not read as a
+        # recommendation. (The runbook and its risks that stood here printed commands; gone 2026-10-16.)
+        *_contradiction_lines(d.get("verdict"), d.get("proposal")),
+        # ---- follow-ups by team
+        *_follow_up_lines(d),
+        *_remediation_lines(d),
+    ]
+    # A10 (2026-10-16): a "Promotion - apply this fix to the higher environments" section stood here, pointing a
+    # person at a manual replay with each environment's deploy role. WARDEN watches and fixes only the environments it
+    # is installed in, through approved plans; the targets stay in the data for whoever plans a release.
+    lines.append(CLOSING)
+    return "\n".join(lines)
 
-    lines.append(f"# WARDEN incident report - {a['service']} ({a['environment']})")
-    lines.append(f"Alert name {untrusted_inline(a['name'])}")
+
+def _head_lines(d: dict) -> list[str]:
+    """The title, the alert, where it came from, when it started, and the next step."""
+    a, v = d["alert"], d.get("verdict")
+    lines = [f"# WARDEN incident report - {a['service']} ({a['environment']})",
+             f"Alert name {untrusted_inline(a['name'])}"]
     # Where the alert came from (owner, 2026-10-15: "i dont know whats their sources are i mean datadog or grafana or
     # xray"): only WARDEN's own intake words, never a value a sender chose.
     if a.get("via") in ALERT_SOURCES:
@@ -881,246 +971,308 @@ def _render_markdown(d: dict) -> str:
     lines.append(f"Severity **{a['severity']}** | alert {_c(a['id'])} | started "
                  f"{both_times(started) if started else a.get('started_at') or 'unknown'}")
     if v:
-        # A hand-off the gate lets stand is not "nothing to run": a person was asked to look (the runtime's first
-        # report on today's code read "No change proposed - recorded, nothing to run" over an escalation, 2026-10-11).
-        handed = bool(p) and p.get("action") == "escalate_to_human" and v["status"] == "auto_safe"
-        offered = v["status"] == "escalated" and set(v.get("policy_ids") or []) == _OFFERED_UNDO
-        lines.append("**Next step: " + (
-            _HANDED_OVER if handed else
-            "Held - a recent change was left unaddressed. WARDEN offers the undo of that change as a plan for a "
-            "person to approve; nothing runs until then." if offered else
-            _NEXT_STEP.get(v['status'], v['status'])) + "**")
+        lines.append("**Next step: " + _next_step(d.get("proposal"), v) + "**")
     lines.append("")
+    return lines
 
-    # ---- summary
-    lines.append("## Summary")
-    lines.append(f"- **Alert** (as written in the alert rule): {untrusted_inline(a['summary'])}")
-    if d["impact"]:
-        lines.append("- **Impact seen in the evidence**: " + "; ".join(d["impact"]) + ".")
-    elif ev["tool_errors"] and not ev["metrics"]:
-        lines.append("- **Impact**: unknown - WARDEN could not read the system (see below).")
-    elif d.get("error_lines"):
-        # ⚠ inc-001 said "no failing component" above four HTTP 500 lines until 2026-09-25. Errors are
-        # impact; they are just not a COUNTED broken object (crashed, unready, saturated).
-        lines.append(f"- **Impact seen in the evidence**: {d['error_lines']} error line(s); no crashed, "
-                     "unready or saturated component counted.")
-    else:
-        lines.append("- **Impact seen in the evidence**: no errors and no failing component in what "
-                     "WARDEN read.")
+
+def _next_step(p: dict | None, v: dict) -> str:
+    """The next step the verdict leaves."""
+    # A hand-off the gate lets stand is not "nothing to run": a person was asked to look (the runtime's first
+    # report on today's code read "No change proposed - recorded, nothing to run" over an escalation, 2026-10-11).
+    if p and p.get("action") == "escalate_to_human" and v["status"] == "auto_safe":
+        return _HANDED_OVER
+    if v["status"] == "escalated" and set(v.get("policy_ids") or []) == _OFFERED_UNDO:
+        return ("Held - a recent change was left unaddressed. WARDEN offers the undo of that change as a plan for a "
+                "person to approve; nothing runs until then.")
+    return _NEXT_STEP.get(v['status'], v['status'])
+
+
+def _summary_lines(d: dict) -> list[str]:
+    """The summary: the alert, the impact, the proposal and its gate, and the diagnosis."""
+    a, v, p = d["alert"], d.get("verdict"), d.get("proposal")
+    lines = ["## Summary", f"- **Alert** (as written in the alert rule): {untrusted_inline(a['summary'])}",
+             _impact_line(d)]
     # The gate before the model's prose (register N4).
     if p:
         lines.append(f"- **Proposed**: {_c(p['action'])} on {_c(p['target'])}"
                      + (f" - gate: {_c(v['status'])}" if v else ""))
     if d["root_cause"]:
-        lines.append(f"- **Diagnosis** (model, confidence {d['root_cause']['confidence']:.2f}): "
-                     f"{d['root_cause']['hypothesis']}")
+        # The model's text, said so first (N4); WARDEN's own level follows (U3-1).
+        said = _confidence_said(d["root_cause"]).removeprefix("model, ")
+        lines.append(f"- **Diagnosis** (model; {said}): {d['root_cause']['hypothesis']}")
     lines.append("")
+    return lines
 
-    # ---- who acts: on every report, before anything a person has to read to find it
-    if d.get("who_acts"):
-        lines.append("## Who acts now")
-        lines.extend(f"- **{team}**: {what}." for team, what in d["who_acts"])
-        lines.append("")
 
-    # ---- what was read
-    lines.append("## What WARDEN read")
-    lines.extend(f"- {s}" for s in d["sources"])
+def _impact_line(d: dict) -> str:
+    ev = d["evidence"]
+    if d["impact"]:
+        return "- **Impact seen in the evidence**: " + "; ".join(d["impact"]) + "."
+    if ev["tool_errors"] and not ev["metrics"]:
+        return "- **Impact**: unknown - WARDEN could not read the system (see below)."
+    if d.get("error_lines"):
+        # ⚠ inc-001 said "no failing component" above four HTTP 500 lines until 2026-09-25. Errors are
+        # impact; they are just not a COUNTED broken object (crashed, unready, saturated).
+        return (f"- **Impact seen in the evidence**: {d['error_lines']} error line(s); no crashed, "
+                "unready or saturated component counted.")
+    return ("- **Impact seen in the evidence**: no errors and no failing component in what "
+            "WARDEN read.")
+
+
+def _who_acts_lines(d: dict) -> list[str]:
+    if not d.get("who_acts"):
+        return []
+    return ["## Who acts now", *(f"- **{team}**: {what}." for team, what in d["who_acts"]), ""]
+
+
+def _read_lines(d: dict) -> list[str]:
+    """What was read, what it returned, and what could not be read."""
+    ev = d["evidence"]
+    lines = ["## What WARDEN read", *(f"- {s}" for s in d["sources"])]
     if ev.get("returned"):
         lines.append("- **Returned**: " + "; ".join(ev["returned"]) + ".")
     if ev["tool_errors"]:
-        lines.append("")
-        lines.append("**⚠ What WARDEN could NOT read** - the diagnosis was made without this:")
+        lines.extend(["", "**⚠ What WARDEN could NOT read** - the diagnosis was made without this:"])
         lines.extend(f"- {_c(e)}" for e in ev["tool_errors"])
     lines.append("")
+    return lines
 
-    # ---- the gate, before the model's text (register N4): read what the rules found first
-    if v:
-        lines.append("## Gate verdict  (deterministic)")
-        lines.append(f"- **Status**: {_c(v['status'])}" + (f" - policies: {', '.join(v['policy_ids'])}"
-                                                           if v["policy_ids"] else ""))
-        lines.extend(f"  - {r}" for r in v["reasons"])
-        if v.get("observed"):
-            lines.append("- **Observed only, not enforced** (policies being measured before they decide anything):")
-            lines.extend(f"  - {_c(o)}" for o in v["observed"])
-        lines.append("")
 
-    # ---- diagnosis
-    if d["root_cause"]:
-        rc = d["root_cause"]
-        lines.append(f"## What WARDEN thinks happened  (model, confidence {rc['confidence']:.2f})")
-        lines.append(rc["hypothesis"])
-        if not rc["grounded"]:
-            lines.append("")
-            lines.append("**⚠ Not grounded** - the gate could not match this diagnosis to the evidence "
-                         "(P13, reasons under the verdict). Read it as a guess.")
-        if rc["citations"]:
-            lines.append("")
-            lines.append("**Cited evidence** (evidence id: quoted span):")
-            _code(lines, [f"{c['id']}: {c['quote']}" for c in rc["citations"]])
-        # A bare evidence id the citations above already show with its quote says nothing a second time: a report's
-        # "Based on" was the four ids "C2, C18, M9, C1" and no word of reasoning (live, 2026-10-12).
-        shown = {c["id"] for c in rc["citations"]}
-        based_on = [e for e in rc["evidence"] if not (re.fullmatch(r"[A-Z]\d{1,4}", e.strip()) and e.strip() in shown)]
-        if based_on:
-            lines.append("")
-            lines.append("**Based on:**")
-            lines.extend(f"- {e}" for e in based_on)
-        lines.append("")
-        lines.extend(_narrowed(d))
+def _verdict_lines(v: dict | None) -> list[str]:
+    if not v:
+        return []
+    lines = ["## Gate verdict  (deterministic)",
+             f"- **Status**: {_c(v['status'])}" + (f" - policies: {', '.join(v['policy_ids'])}"
+                                                   if v["policy_ids"] else ""),
+             *(f"  - {r}" for r in v["reasons"])]
+    if v.get("observed"):
+        lines.append("- **Observed only, not enforced** (policies being measured before they decide anything):")
+        lines.extend(f"  - {_c(o)}" for o in v["observed"])
+    lines.append("")
+    return lines
 
-    if d["patterns"]:
-        lines.append("## Patterns detected in the evidence  (fixed checks, not the model)")
-        for pat in d["patterns"]:
-            lines.append(f"- **{pat['title']}** - seen: {_c(pat['seen'])}")
-            lines.append(f"  {pat['likely_cause']}")
-        lines.append("")
 
+def _diagnosis_lines(d: dict) -> list[str]:
+    """The model's diagnosis, its cited evidence, what it is based on, and how WARDEN narrowed it down."""
+    rc = d["root_cause"]
+    if not rc:
+        return []
+    lines = [f"## What WARDEN thinks happened  ({_confidence_said(rc)})", rc["hypothesis"]]
+    unmet = [c for c in (rc.get("warden_confidence") or {}).get("checks", []) if not c["met"]]
+    if unmet:
+        lines.extend(["", "Why not higher: " + "; ".join(f"{c['name']} - {c['detail']}" for c in unmet) + "."])
+    if not rc["grounded"]:
+        lines.extend(["", ("**⚠ Not grounded** - the gate could not match this diagnosis to the evidence "
+                           "(P13, reasons under the verdict). Read it as a guess.")])
+    if rc["citations"]:
+        lines.extend(["", "**Cited evidence** (evidence id: quoted span):"])
+        _code(lines, [f"{c['id']}: {c['quote']}" for c in rc["citations"]])
+    # A bare evidence id the citations above already show with its quote says nothing a second time: a report's
+    # "Based on" was the four ids "C2, C18, M9, C1" and no word of reasoning (live, 2026-10-12).
+    shown = {c["id"] for c in rc["citations"]}
+    based_on = [e for e in rc["evidence"] if not (re.fullmatch(r"[A-Z]\d{1,4}", e.strip()) and e.strip() in shown)]
+    if based_on:
+        lines.extend(["", "**Based on:**", *(f"- {e}" for e in based_on)])
+    lines.append("")
+    lines.extend(_narrowed(d))
+    return lines
+
+
+def _pattern_lines(d: dict) -> list[str]:
+    if not d["patterns"]:
+        return []
+    lines = ["## Patterns detected in the evidence  (fixed checks, not the model)"]
+    for pat in d["patterns"]:
+        lines.extend([f"- **{pat['title']}** - seen: {_c(pat['seen'])}", f"  {pat['likely_cause']}"])
+    lines.append("")
+    return lines
+
+
+def _code_finding_lines(d: dict) -> list[str]:
+    lines: list[str] = []
     for c in d.get("code") or []:
-        lines.append(f"## Code-level finding  ({c['function']}, from its deployed package)")
-        lines.append(f"- **{_c(str(c['file']) + ':' + str(c['line']))}** in {_c(c['in'])}: {_c(c['exception'])}")
+        where = _c(str(c['file']) + ':' + str(c['line']))
+        lines.extend([f"## Code-level finding  ({c['function']}, from its deployed package)",
+                      f"- **{where}** in {_c(c['in'])}: {_c(c['exception'])}"])
         if c["source"]:
-            lines.append("```python")
             # A source line is text from the deployed package; one holding ``` would end the block
             # and put what follows outside it (audit A-C-9).
-            lines.extend(_unfenced(ln) for ln in c["source"])
-            lines.append("```")
-        lines.append(f"- **Developers**: start at {_c(str(c['file']) + ':' + str(c['line']))} in {_c(c['in'])} ({c['function']})"
-                     + (" - the line marked `>|` is the one that raised." if c["source"] else "."))
-        lines.append("")
+            lines.extend(["```python", *(_unfenced(ln) for ln in c["source"]), "```"])
+        lines.extend([f"- **Developers**: start at {where} in {_c(c['in'])} ({c['function']})"
+                      + (" - the line marked `>|` is the one that raised." if c["source"] else "."), ""])
+    return lines
 
+
+def _finding_line(f: dict) -> str:
+    """One code-review finding as a report line."""
+    where = f"{f.get('file', '?')}" + (f":{f['line']}" if f.get("line") else "")
+    tool = f.get("tool", "")
+    what = ", ".join(x for x in (_TOOL_NAMES.get(tool) or _c(tool),
+                                 f"rule {_c(f['rule'])}" if f.get("rule") else "",
+                                 _c(f["severity"]) if f.get("severity") else "",
+                                 _c(f["category"]) if f.get("category") else "") if x)
+    return (f"- **{_FINDING_STATUS.get(f.get('status', ''), 'Finding')}**: PR #{_c(f.get('pr', '?'))} "
+            f"(commit {_c(f.get('commit', '?'))}), {what} - {_c(where)}"
+            + (f" - the path matches service {_c(f['maybe_service'])} (a guess from the file name)"
+               if f.get("maybe_service") else ""))
+
+
+def _review_pr_line(pr: dict) -> str:
+    """What WARDEN read of one pull request's review."""
+    said = [f"read {_c(pr.get('read', 'none').replace(',', ', '))}",
+            f"{_c(pr.get('shown', '0'))} shown of {_c(pr.get('found', '0'))} found"]
+    if pr.get("held", "0") != "0":
+        said.append(f"{_c(pr['held'])} held back - its text read like an instruction or failed a check, so "
+                    "WARDEN did not use it")
+    if pr.get("coderabbit_review"):
+        said.append(f"CodeRabbit's last review: {_c(pr['coderabbit_review'])}")
+    return f"- PR #{_c(pr.get('pr', '?'))}: " + "; ".join(said) + "."
+
+
+def _review_lines(d: dict) -> list[str]:
+    """Code review's findings on the deployed change: suspects for the developers, never proof."""
     review = d.get("review") or {}
-    if review.get("findings") or review.get("pull_requests"):
-        # Every value is from a typed line, but a log line of the same shape can carry any printable character: each is
-        # shown in inline code; only WARDEN's own fixed labels (_TOOL_NAMES, _FINDING_STATUS) are not (CodeRabbit).
-        lines.append("## Code review's findings on the deployed change  (suspects, not proof)")
-        for f in review.get("findings") or []:
-            where = f"{f.get('file', '?')}" + (f":{f['line']}" if f.get("line") else "")
-            tool = f.get("tool", "")
-            what = ", ".join(x for x in (_TOOL_NAMES.get(tool) or _c(tool),
-                                         f"rule {_c(f['rule'])}" if f.get("rule") else "",
-                                         _c(f["severity"]) if f.get("severity") else "",
-                                         _c(f["category"]) if f.get("category") else "") if x)
-            lines.append(f"- **{_FINDING_STATUS.get(f.get('status', ''), 'Finding')}**: PR #{_c(f.get('pr', '?'))} "
-                         f"(commit {_c(f.get('commit', '?'))}), {what} - {_c(where)}"
-                         + (f" - the path matches service {_c(f['maybe_service'])} (a guess from the file name)"
-                            if f.get("maybe_service") else ""))
-        for pr in review.get("pull_requests") or []:
-            said = [f"read {_c(pr.get('read', 'none').replace(',', ', '))}",
-                    f"{_c(pr.get('shown', '0'))} shown of {_c(pr.get('found', '0'))} found"]
-            if pr.get("held", "0") != "0":
-                said.append(f"{_c(pr['held'])} held back - its text read like an instruction or failed a check, so "
-                            "WARDEN did not use it")
-            if pr.get("coderabbit_review"):
-                said.append(f"CodeRabbit's last review: {_c(pr['coderabbit_review'])}")
-            lines.append(f"- PR #{_c(pr.get('pr', '?'))}: " + "; ".join(said) + ".")
-        lines.append("- A finding is a lead for the developers, never proof of the cause: WARDEN's gate does not let "
-                     "one justify a fix. What could not be read is listed under \"could NOT read\".")
-        lines.append("")
+    if not (review.get("findings") or review.get("pull_requests")):
+        return []
+    # Every value is from a typed line, but a log line of the same shape can carry any printable character: each is
+    # shown in inline code; only WARDEN's own fixed labels (_TOOL_NAMES, _FINDING_STATUS) are not (CodeRabbit).
+    return ["## Code review's findings on the deployed change  (suspects, not proof)",
+            *(_finding_line(f) for f in review.get("findings") or []),
+            *(_review_pr_line(pr) for pr in review.get("pull_requests") or []),
+            ("- A finding is a lead for the developers, never proof of the cause: WARDEN's gate does not let "
+             "one justify a fix. What could not be read is listed under \"could NOT read\"."),
+            ""]
 
-    if d["matched_signatures"]:
-        lines.append("## Known incident signatures that fit")
-        for s in d["matched_signatures"]:
-            lines.append(f"- {_c(s['id'])} **{s['title']}** ({s['category']}, score {s['score']}): {s['root_cause']}")
-        lines.append("")
 
-    # ---- the read-only checks WARDEN ran itself
+
+def _signature_lines(d: dict) -> list[str]:
+    if not d["matched_signatures"]:
+        return []
+    return ["## Known incident signatures that fit",
+            *(f"- {_c(s['id'])} **{s['title']}** ({s['category']}, score {s['score']}): {s['root_cause']}"
+              for s in d["matched_signatures"]), ""]
+
+
+def _checked_lines(ev: dict) -> list[str]:
     chk = ev.get("checked") or {}
-    if any(chk.values()):
-        lines.append("## Checked by WARDEN  (read-only, at alert time)")
-        if chk["status"]:
-            lines.append("**Container status** - how each failing container last died, and what it waits on now")
-            lines.extend(f"- {_c(c)}" for c in chk["status"])
-        if chk["previous"]:
-            lines.append("**The crashed containers' own last output** (`logs --previous`)")
-            _code(lines, chk["previous"][-12:])
-        if chk["rollout"]:
-            lines.append("**Rollout history** - newest first")
-            lines.extend(f"- {_c(r)}" for r in chk["rollout"])
-        lines.append("")
+    if not any(chk.values()):
+        return []
+    lines = ["## Checked by WARDEN  (read-only, at alert time)"]
+    if chk["status"]:
+        lines.append("**Container status** - how each failing container last died, and what it waits on now")
+        lines.extend(f"- {_c(c)}" for c in chk["status"])
+    if chk["previous"]:
+        lines.append("**The crashed containers' own last output** (`logs --previous`)")
+        _code(lines, chk["previous"][-12:])
+    if chk["rollout"]:
+        lines.append("**Rollout history** - newest first")
+        lines.extend(f"- {_c(r)}" for r in chk["rollout"])
+    lines.append("")
+    return lines
 
-    # ---- the evidence itself
+
+def _evidence_lines(d: dict) -> list[str]:
+    """Metrics, timeline, what the evidence names, and the key log lines."""
+    ev = d["evidence"]
+    lines: list[str] = []
     if ev["metrics"]:
-        lines.append("## Metrics at the time")
-        lines.append(" | ".join(f"{_c(k)} = **{_num(val)}**" for k, val in sorted(ev["metrics"].items())))
-        lines.append("")
+        lines.extend(["## Metrics at the time",
+                      " | ".join(f"{_c(k)} = **{_num(val)}**" for k, val in sorted(ev["metrics"].items())), ""])
     if ev["timeline"]:
-        lines.append("## Timeline (UTC, local time in brackets)")
-        lines.extend(f"- {_c(t)} {what}" for t, what in ev["timeline"])
-        lines.append("")
-    if ev["affected"]:
-        lines.append("## Affected - as named in the evidence")
-        for key, values in ev["affected"].items():
-            shown = ", ".join(f"{_c(val)} ({n} line{'s' if n != 1 else ''})" for val, n in values[:5])
-            if len(values) > 5:
-                shown += f" and {len(values) - 5} more"
-            lines.append(f"- **{key}**: {shown}")
-        if not d.get("identifiers_shown"):
-            # A9 (2026-10-16): it told every reader to set the variable, and the cloud runtime ignores it
-            # (activities.notify passes show_identifiers=False).
-            lines.append("_Identifiers are masked; secrets stay masked either way. A local `warden run` can show "
-                         "tenant ids, emails and IPs with `WARDEN_REPORT_SHOW_IDENTIFIERS=true`._")
-        lines.append("")
+        lines.extend(["## Timeline (UTC, local time in brackets)", *(f"- {_c(t)} {what}" for t, what in ev["timeline"]),
+                      ""])
+    lines.extend(_affected_lines(d))
     if ev["key_log_lines"]:
         lines.append(f"## Key log lines  ({len(ev['key_log_lines'])} of {ev['log_lines_read']} read)")
         _code(lines, ev["key_log_lines"])
         lines.append("")
+    return lines
 
-    # ---- proposal and gate
-    if p:
-        lines.append("## Proposed action")
-        lines.append(f"- **Action**: {_c(p['action'])} -> {_c(p['target'])}")
-        lines.append(f"- **Expected effect** (model): {p['expected_effect']}")
-        lines.append(
-            f"- **Blast radius**: {p['blast_radius_effective']} (enforced; the model claimed "
-            f"{p['blast_radius']}) - reversible: {p['reversible_by_table']} per WARDEN's action "
-            f"table (the model claimed {p['reversible']})"
-        )
-        lines.append("")
 
-    # ---- the gate's own finding, before the follow-ups: an action the gate says cannot work must not read as a
-    # recommendation. (The runbook and its risks that stood here printed commands; gone 2026-10-16.)
+def _affected_lines(d: dict) -> list[str]:
+    affected = d["evidence"]["affected"]
+    if not affected:
+        return []
+    lines = ["## Affected - as named in the evidence"]
+    for key, values in affected.items():
+        shown = ", ".join(f"{_c(val)} ({n} line{'s' if n != 1 else ''})" for val, n in values[:5])
+        if len(values) > 5:
+            shown += f" and {len(values) - 5} more"
+        lines.append(f"- **{key}**: {shown}")
+    if not d.get("identifiers_shown"):
+        # A9 (2026-10-16): it told every reader to set the variable, and the cloud runtime ignores it
+        # (activities.notify passes show_identifiers=False).
+        lines.append("_Identifiers are masked; secrets stay masked either way. A local `warden run` can show "
+                     "tenant ids, emails and IPs with `WARDEN_REPORT_SHOW_IDENTIFIERS=true`._")
+    lines.append("")
+    return lines
+
+
+def _proposal_lines(p: dict | None) -> list[str]:
+    if not p:
+        return []
+    return [
+        "## Proposed action",
+        f"- **Action**: {_c(p['action'])} -> {_c(p['target'])}",
+        f"- **Expected effect** (model): {p['expected_effect']}",
+        (f"- **Blast radius**: {p['blast_radius_effective']} (enforced; the model claimed "
+         f"{p['blast_radius']}) - reversible: {p['reversible_by_table']} per WARDEN's action "
+         f"table (the model claimed {p['reversible']})"),
+        "",
+    ]
+
+
+def _contradiction_lines(v: dict | None, p: dict | None) -> list[str]:
     contradiction = [r for r, pid in zip(v["reasons"], v["policy_ids"], strict=False)
                      if pid == "P11-ACTION-CONTRADICTS-EVIDENCE"] if v and p else []
-    if contradiction:
-        lines.append("## ⚠ Before you act")
-        for reason in contradiction:
-            lines.append(f"- ⛔ **The gate found this action cannot fix what the evidence shows.** {reason} "
-                         "The follow-ups below say what would.")
-        lines.append("")
+    if not contradiction:
+        return []
+    return ["## ⚠ Before you act",
+            *(f"- ⛔ **The gate found this action cannot fix what the evidence shows.** {reason} "
+              "The follow-ups below say what would." for reason in contradiction), ""]
 
-    # ---- follow-ups by team
-    teams = (("On-call - now", "oncall"), ("Developers", "developers"),
-             ("Platform / DevOps", "platform"), ("DBA", "dba"), ("Prevention", "prevention"))
+
+_TEAMS = (("On-call - now", "oncall"), ("Developers", "developers"),
+          ("Platform / DevOps", "platform"), ("DBA", "dba"), ("Prevention", "prevention"))
+
+
+def _follow_up_lines(d: dict) -> list[str]:
     # Only where a pattern has a follow-up for some team: a heading with nothing under it was printed once the one
     # follow-up a report had was left out (live, 2026-10-12).
-    if any(pat[key] for pat in d["patterns"] for _, key in teams):
-        lines.append("## Follow-ups by team")
-        many = len(d["patterns"]) > 1
-        for title, key in teams:
-            items = [(pat["title"], item) for pat in d["patterns"] for item in pat[key]]
-            if items:
-                lines.append(f"**{title}**")
-                seen: set[str] = set()
-                for source, item in items:
-                    if item not in seen:
-                        seen.add(item)
-                        lines.append(f"- {item}" + (f"  _({source})_" if many else ""))
-        lines.append("")
+    if not any(pat[key] for pat in d["patterns"] for _, key in _TEAMS):
+        return []
+    lines = ["## Follow-ups by team"]
+    many = len(d["patterns"]) > 1
+    for title, key in _TEAMS:
+        items = [(pat["title"], item) for pat in d["patterns"] for item in pat[key]]
+        if items:
+            lines.append(f"**{title}**")
+            lines.extend(_team_follow_ups(items, many=many))
+    lines.append("")
+    return lines
 
-    if d["remediation"]:
-        r = d["remediation"]
-        lines.append("## Remediation")
-        lines.append(f"- **Outcome**: {_c(r['outcome'])}")
-        lines.append(f"- {r['detail']}")
-        if r["applied_change"]:
-            lines.append(f"- {r['applied_change']}")
-        lines.append("")
 
-    # A10 (2026-10-16): a "Promotion - apply this fix to the higher environments" section stood here, pointing a
-    # person at a manual replay with each environment's deploy role. WARDEN watches and fixes only the environments it
-    # is installed in, through approved plans; the targets stay in the data for whoever plans a release.
-    lines.append(CLOSING)
-    return "\n".join(lines)
+def _team_follow_ups(items: list[tuple[str, str]], *, many: bool) -> list[str]:
+    """Each follow-up once, as the first pattern names it - with that pattern's title where several fired."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for source, item in items:
+        if item not in seen:
+            seen.add(item)
+            out.append(f"- {item}" + (f"  _({source})_" if many else ""))
+    return out
+
+
+def _remediation_lines(d: dict) -> list[str]:
+    r = d["remediation"]
+    if not r:
+        return []
+    lines = ["## Remediation", f"- **Outcome**: {_c(r['outcome'])}", f"- {r['detail']}"]
+    if r["applied_change"]:
+        lines.append(f"- {r['applied_change']}")
+    lines.append("")
+    return lines
 
 
 def _num(v: float) -> str:
