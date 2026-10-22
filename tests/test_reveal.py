@@ -246,6 +246,27 @@ def _form_for(cookie):
                                    ("p", "<EMAIL_1>")])
 
 
+def test_a_form_with_more_fields_than_the_page_offers_is_a_recorded_refusal(site, monkeypatch):
+    """Review (PR 119): parse_qs's field limit raised ValueError - a 500 with no row. Now the limit is the page's own
+    form (its values plus the fixed fields), and a bigger body is refused (400), recorded, counted against the hourly
+    limit, and opens nothing."""
+    page, log, cookie, _ = site
+    kms = FakeKms("approval")
+    monkeypatch.setattr(vault, "_BUILT", {("alias/warden-ops-vault", "ops"): vault.Vault(
+        key="alias/warden-ops-vault", environment="ops", kms=kms)})
+    every = _form(page, cookie) + "".join("&p=%3CIPV4_1%3E" for _ in range(2))  # 3 values offered, 3 picked
+    assert _post(page, cookie, every).status == 200
+    oversize = every + "&p=%3CEMAIL_1%3E"
+    out = _post(page, cookie, oversize)
+    assert out.status == 400
+    assert EMAIL not in out.body
+    [row] = log.entries(INC, kinds=(reveal.ATTEMPT_REFUSED,))
+    assert "more fields" in row["body"]["problem"]
+    assert [a for a, _ in kms.calls] == ["Decrypt"]  # the first, whole form's reveal only
+    monkeypatch.setattr(reveal, "MAX_PER_HOUR", 2)  # that reveal and this refusal: the limit is reached
+    assert _post(page, cookie, oversize).status == 429
+
+
 def test_a_reader_limited_to_another_environment_learns_nothing(site):
     page, log, cookie, _ = site
     page.policy.approvers["owner"].environments = ["prod"]  # the incident is dev's

@@ -124,9 +124,14 @@ def message_page(incident: str, text: str) -> str:
     return _page(incident, f'<h1>Masked values</h1><p class="note" role="alert">{_e(text)}</p>')
 
 
-def asked(form: str) -> dict[str, Any]:
-    """The reveal's form, as POSTed (application/x-www-form-urlencoded)."""
-    q = urllib.parse.parse_qs(form, keep_blank_values=True, max_num_fields=200)
+# The form's fixed fields (reveal, t, why); each value it offers adds one `p`.
+FIXED_FIELDS = 3
+
+
+def asked(form: str, offered: int) -> dict[str, Any]:
+    """The reveal's form, as POSTed (application/x-www-form-urlencoded). `offered`: how many values the page offers
+    to pick - a body with more fields than the page's own form can send raises ValueError."""
+    q = urllib.parse.parse_qs(form, keep_blank_values=True, max_num_fields=offered + FIXED_FIELDS)
     return {"reveal": q.get("reveal", [""])[0] == "1", "t": q.get("t", [""])[0], "why": q.get("why", [""])[0],
             "p": q.get("p", [])}
 
@@ -172,6 +177,17 @@ def _not_an_approver(log: Any, incident: str, member: str, form: str | None, now
     return 403, message_page(incident, "Only an approver for this environment may see or reveal masked values.")
 
 
+def _oversize(log: Any, incident: str, index: dict[str, Any], cookie: str, member: str,
+              now: datetime) -> tuple[int, str]:
+    """A POST with more fields than the page's form can send: refused and recorded, counted against the hourly limit
+    as every refused attempt is; nothing is opened."""
+    if _limited(log, member, now):
+        return 429, message_page(incident, _TOO_MANY)
+    problem = "this form holds more fields than the page offers; open the masked values again"
+    _refuse(log, incident, member, problem, [])
+    return 400, form_page(incident, index, cookie, problem)
+
+
 def _open_for(log: Any, incident: str, index: dict[str, Any], opener: Any, now: datetime,
               asked_for: dict[str, Any]) -> tuple[int, str]:
     """A checked reveal: the sealed row, still within its retention by `now`; its `incident.reveal` row on the record
@@ -209,8 +225,13 @@ def reveal(log: Any, incident: str, *, member: str, cookie: str, form: str | Non
     index = latest_index(log, incident)
     if not index or not index.get("entries"):
         return 404, message_page(incident, "WARDEN masked nothing it kept in this incident.")
-    a = asked(form or "")
-    if form is None or not a["reveal"]:
+    if form is None:
+        return 200, form_page(incident, index, cookie)
+    try:
+        a = asked(form, len(index["entries"]))
+    except ValueError:  # more fields than this page's form holds: a refusal on the record, never an error (review)
+        return _oversize(log, incident, index, cookie, member, now)
+    if not a["reveal"]:
         return 200, form_page(incident, index, cookie)
     if _limited(log, member, now):
         return 429, message_page(incident, _TOO_MANY)
