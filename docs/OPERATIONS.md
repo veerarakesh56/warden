@@ -29,6 +29,7 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_SLACK_WEBHOOK`, `WARDEN_TEAMS_WEBHOOK`, `WARDEN_WEBHOOK_URL` | posting through an incoming webhook | create a new webhook, store it, restart, delete the old one | both work until the old one is deleted |
 | `WARDEN_GITHUB_TOKEN` | opening change-record issues in one repository | create a new fine-grained token limited to issues on that repository, with an expiry; store it, restart, revoke the old one | both work until the old one is revoked |
 | `WARDEN_GITHUB_READ_TOKEN` | reading one repository's pull requests, their review comments and reviews, code scanning alerts and the deploy's commits (tools.py; the read zone's alone, `warden/<env>/github-read-token`) | create a new fine-grained token on that repository alone, read-only (Pull requests, Code scanning alerts, Contents, Metadata), with an expiry; store it in `warden/<env>/github-read-token`, restart the read workers, then revoke the old one | both work until the old one is revoked |
+| `WARDEN_GITHUB_ACTIONS_TOKEN` | dispatching the deploy workflow's `apply-plan` of a kept, Helios-passed infra plan an approver signed (`infra_restore_baseline`, platforms/infra.py; the act zone's alone, `warden/<env>/github-actions-token`) | create a new fine-grained token on that repository alone with **Actions: Read and write** and **Contents: Read** and nothing else (GitHub adds Metadata: Read; Contents: Read is for the branch head the act zone re-reads before dispatching), with an expiry; store it in `warden/<env>/github-actions-token`, restart the act workers, then revoke the old one | both work until the old one is revoked; without one, every such plan is refused before anything is sent |
 | `WARDEN_DB_DSN`, `WARDEN_DB_TERMINATE_DSN`, `WARDEN_STACK_DB_PRIMARY_RO_DSN`, `WARDEN_STACK_DB_REPLICA_RO_DSN` | the database readers and the narrow terminate role (renamed 2026-10-16 from `WARDEN_DB_ADMIN_DSN`, `WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN`, which are still read for one release with a warning; the Secrets Manager slots keep the old names `db-admin-dsn`, `stack-db-writer-dsn` and `stack-db-reader-dsn` until the runtime module renames them) | change the role's password (or let RDS rotate the managed secret), store the new DSN, restart | a database role has one password: rotate, then restart promptly |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock (`ANTHROPIC_API_KEY`: read by the llm zone and by Eldane's critic zone - one key, owner 2026-10-17) | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
 | `WARDEN_ELDANE_KEY` | Eldane's own Ed25519 signing key (eldane.py; the critic zone's alone): its approvals in dev | `warden audit keygen --private eldane.pem --public eldane.pub.pem --unencrypted` a new pair; put the public key in the approver list's AI entry (a reviewed change) and the private PEM in `warden/<env>/eldane-key`; restart the critic worker; destroy the old private key | Eldane's approvals stop until both halves match: rotate between incidents |
@@ -99,6 +100,23 @@ finding's text reaches the model, the report or Slack: only typed fields.
 | `WARDEN_GITHUB_READ_TOKEN` | optional for a public repository's pull requests and comments; needed for code scanning. A fine-grained token on that one repository, read-only: **Pull requests: Read**, **Code scanning alerts: Read**, and **Contents: Read** for the deploy's commits (`WARDEN_COMMITS`, the same token), plus Metadata: Read, which GitHub adds; with an expiry. In the cloud runtime it is the Secrets Manager secret `warden/<env>/github-read-token`, read by the read zone's worker only (set its value in the console, then restart the workers); a GitHub App's installation token replaces it when the App exists (B4) |
 | `WARDEN_SONAR_TOKEN` | only for a private SonarCloud project: a token of a user who can browse it |
 
+### Putting a Terraform stack back to its baseline (B17, `infra_restore_baseline`)
+
+WARDEN runs no Terraform. An approved plan dispatches `deploy-<env>.yml` with `infra_action=apply-plan` for one kept
+plan: the newest successful plan run of that stack, made at the environment branch's head and passed by Helios. T3: a
+person's passkey; never undone automatically. A plan run is recognised by the deploy workflow's run-name
+(`Deploy · <env> · infra plan <stack>`), so a plan kept before that run-name existed is not found: plan again. It is
+off until all three are set:
+
+| Setting | What it does |
+|---|---|
+| `WARDEN_TF_STATE_BUCKETS` | each environment's state bucket, `env=bucket[,env=bucket]` (plain, Parameter Store). Unset, the infra platform reads nothing and every such plan is refused |
+| `WARDEN_CHANGE_REPO` | the repository whose deploy workflow is dispatched, `owner/name` |
+| `WARDEN_GITHUB_ACTIONS_TOKEN` | a fine-grained token on that repository alone, **Actions: Read and write** and **Contents: Read** only (the act zone re-reads the branch head with it), with an expiry; Secrets Manager `warden/<env>/github-actions-token`, read by the act zone's worker only |
+
+Each environment's platform-reader role may read only the kept plans' metadata, `<state bucket>/<stack>/plans/*.json`
+(`iam/<env>/platform-diagnose.json`, the role's second policy, statement `KeptInfraPlanMetadataOnly`) - never the state or the plan bytes.
+
 `WARDEN_SONAR_TOKEN` has no Secrets Manager slot yet (terraform/modules/warden-runtime would need one, granted to the
 read zone alone): today it is set in the read worker's own environment, or left unset for a public project.
 
@@ -114,6 +132,60 @@ A reader whose approver entries are all limited to some environments sees only t
 Sign in with Slack; it opens for the approvers and for the Slack members in the plain setting
 `/warden/<env>/env/WARDEN_RECORD_VIEWERS` (comma-separated member ids). Slack gets one message per incident; approved,
 denied and fixed are on the record, not posted.
+
+### Pilot metrics (`warden report pilot`, `/r/pilot`)
+
+The weekly numbers for a client, read only from the signed audit (src/warden/pilot.py), on the command line:
+
+    warden report pilot --since 2026-10-14 --db audit.db --public-key audit.pub   # or WARDEN_AUDIT_DSN
+
+and on the records site at `/r/pilot` (the last 7 days; `?since=YYYY-MM-DD`; links for 7, 30 and 90 days), for the
+same readers as the records and only for the environments they may read, by the records' own environment rule
+(`records.environment_of`).
+
+The command's audit is the `--db` SQLite file, or the PostgreSQL DSN in the `WARDEN_AUDIT_DSN` environment variable
+(never on the command line) - the same source as `warden audit verify`. It is opened read-only (SQLite `mode=ro`; a
+PostgreSQL session set READ ONLY before the first query; SELECT only), a missing or empty file is refused and never
+created, and the command loads no setting but `WARDEN_AUDIT_DSN` (settings.ONLY). The page reads through the approval
+Lambda's own audit connection, with SELECT only; when it cannot read the record or check it, it answers 503 and shows
+no number. A reader limited to some environments is shown no audit-wide count (rows read, failed, not signed yet,
+checkpoints that failed): those are for readers of every environment.
+
+Every row is checked first, as `warden audit verify` checks the log: its own hash, its link to the row before it, and
+a checkpoint signature that verifies (the command with `--public-key`; the page with the runtime's own audit signing
+key - no key, no numbers). A row that fails is not counted: the command names it and exits 1, the page says how many.
+A checkpoint whose signature does not verify, or that was signed over a different history, covers no row; the
+command names it and exits 1, the page says how many. Rows after the last checkpoint are not signed yet and are not
+counted either. All times are UTC.
+
+| Number | Read from |
+|---|---|
+| Incidents | ids (not `discuss-...`) whose first `incident.ingest` or `incident.after_hold` row is at or after `--since` |
+| Plans | each fix run: a `remediation.plan` row's `workflow_id` and `run_id`; *open* until its `workflow.end` row |
+| Approved | the end row's `checklist.approved` is true (the tier's quorum) |
+| Denied | end status `denied` |
+| Re-planned | end status `drifted` or `refused_at_apply` and the same workflow planned again, or an approver's new plan (`discuss.replan` with `started`) after it |
+| Escalated (plan) | end status `rollback_failed`, `apply_failed`, `cancelled_after_apply` or `failed_after_apply`: a person takes over |
+| Escalation rate | incidents whose last `incident.verify` says `escalated`, or whose `incident.second_opinion` says the two diagnoses disagree, over incidents |
+| Alarm to plan | the first `incident.alert` row's `alert.started_at` to the first `remediation.plan` row |
+| Alarm to fixed | the same alarm time to the first `remediation.result` with `ok` true of a run that ended `recovered` or `verified`; open and unfixed incidents are not in it |
+| Model calls | `calls` of `incident.llm_spend` rows (the incident's and its discussion's) plus one per `eldane.call` row |
+| Model requests | `llm.call` rows: one per request sent - retries, unanswered requests and Eldane's trials included, so NOT the same count as model calls |
+| Spend ledger | `usd` of the same `incident.llm_spend` rows (the budget ledger) |
+| Cost per incident | `cost` (US dollars) of `llm.call` rows (the incident's and its discussion's), over incidents; a row with no `cost` is "not recorded" for that call, never estimated |
+| Fallbacks | `llm.fallback` rows by `reason` (rules_only, model_refused, budget_cap, provider_unavailable, egress_blocked; any other reason counted as "other", its text never printed); per incident = fallbacks / incidents, per model request = fallbacks / `llm.call` rows (requests, retries included) |
+| Undo count | runs with a `remediation.rollback` row whose `undone` is true; `remediation.rollback_failed` runs beside it |
+
+The four plan outcomes are rates over ENDED plans, and one plan can be two of them (approved, then drifted and planned
+again). Median is the middle value (the mean of the two middle ones for an even count); p90 is the nearest rank,
+sorted[ceil(0.9 x n) - 1]. A rate with nothing to divide by is "n/a". A time whose alarm is later than its plan or fix
+(the alarm source's clock ahead) is left out and counted.
+
+`llm.call` and `llm.fallback` rows are new (lane FDE-F, 2026-10-21): an audit with neither row anywhere says cost and
+fallbacks are "not recorded", never 0. Once either row exists, no fallback in the window is a measured 0.
+
+Not in the audit, so not in the report: a cost for a call row without one, the cost of Eldane's `eldane.call` rows in
+the spend ledger (they record tokens, not US dollars), and any time a person spent outside WARDEN.
 
 ## Pause and resume to save money (owner update 5, 2026-10-17)
 
@@ -206,7 +278,27 @@ the footer of its messages) and a question; WARDEN answers in that thread from t
 as the diagnosis read it, or around now when the question asks about now ("still", "again", "now") - and from what its
 record says it decided. Follow-ups mention `@WARDEN` in the same thread. Anyone may ask; WARDEN changes nothing from
 this channel, and says who may ask for a new plan (an enrolled approver; the plan still needs their passkey in the alerts
-channel). Its answers are capped at 20 per incident a day and count toward the daily model cap every incident shares.
+channel). The one exception: an approver of a waiting plan may extend how long it waits (below) - its wait only; the
+plan still needs their passkey, and nothing is applied from here. Its answers are capped at 20 per incident a day and count toward the daily model cap every incident shares.
+
+A fix plan waits for its approval as long as its environment says (`approval_wait_hours` in environments.yaml: 72 hours
+unless set, at most 168). When a discussion needs longer (U3-8), an approver who may approve that plan - its risk level
+and its environment - mentions `@WARDEN` in the incident's thread with "extend the wait" or "extend by 12h" (24
+hours unless said, at most 24 at a time). How long is read strictly: one whole number of hours, said once ("12h",
+"12 hours"); a message that says anything else about time - "6 more hours", "six hours", "1.5h", "2 days", "30m",
+"until tomorrow", two durations - extends nothing, and WARDEN asks again for a whole number of hours. A question ("will
+the restart extend it?", "can you extend the wait by 6h?") is answered, never taken as a request. A "no" beside
+"extend" - anywhere after it ("extend the wait - no, don't"), or before it in the same sentence ("don't extend the
+wait") - extends nothing, and WARDEN asks again; only a "no" in an earlier sentence ("no rush. extend the wait") leaves
+the request standing. Who asks is checked first: anyone else learns nothing about the plan. A
+plan whose approvals are already in (a person's, or Eldane's on its own) is not waiting, and is not extended. An
+extension counts from the run's own deadline (`approval.wait`, recorded when its wait began), so it always moves it.
+WARDEN records it in the
+signed audit (`approval.extended`, who, from when to when, and which Slack message asked); the plan's own run reads it
+there when its time runs out, says its new time in the alerts channel with fresh links, and keeps waiting - never past
+168 hours from when it was made. One message extends once: if WARDEN's step that records it is retried, it finds that
+message's row and answers the same, adding no more hours. Anyone else is refused. Nothing else changes: the plan still
+needs a passkey, and its target is read again before anything is applied.
 
 Setup, once, in the Slack app WARDEN signs people in with (api.slack.com/apps):
 
@@ -297,6 +389,69 @@ it off, set `WARDEN_SECURITY_REVIEW` to anything but `on`, or delete it.
 Known limit, not verified here: the action's false-positive filter checks its API access with a fixed older model
 (`claude-3-5-haiku-20241022` in its code). If that model is retired, the filter step may fail and its findings may
 arrive unfiltered; read the first run's log.
+
+## Upgrading the model: pin, rehearse, then switch (owner, 2026-10-21)
+
+The rule: the model is pinned by its exact version, and every change of model, model version or diagnosis prompt is
+rehearsed on real recorded incidents before production uses it. WARDEN enforces the pin. Production refuses any
+model that has no passing row on the pinned prompt (`providers.qualified`, register M20) and then diagnoses on the
+rules alone.
+
+- **The pin.** Model ids are exact, never an alias (register M15): `defaults` in `src/warden/data/providers.yaml`, and
+  SSM `/warden/<env>/tf/model` for the runtime. The deploy refuses a model that is not on the `qualified` list. The
+  prompt is pinned by hash (`prompt.sha`, register E6). A row counts only on the prompt it was measured with.
+- **The rehearsal set.** 30 real incidents: the evidence WARDEN recorded in the three published live runs on a real
+  AWS account (ECS, EKS and RDS for PostgreSQL, September 2026). One answer per scenario, each scored against its
+  run's rubric, which was committed before the run. They live in `tests/fixtures/bench/<run>/`, and
+  `scripts/qualify_provider.py` `RUNS` names them. See [BENCHMARKS.md](BENCHMARKS.md).
+- **The bar.** From `providers.yaml` `bar`: no wrong answer the gate allowed (`wrong_and_allowed: 0`), at least
+  `min_correct` (17) of 30 correct, and every incident answered. The escalation SLO (`slo`) is reported beside the
+  bar, not in it.
+- **The side-by-side.** One command measures the candidate with the cloud runtime's own key (paid, under a hard
+  ceiling):
+
+  ```bash
+  uv run --extra anthropic python scripts/qualify_cloud.py --model <candidate> --budget-usd 2 [--compare-with <old run dir>]
+  ```
+
+  Before it writes anything, it prints old against new on the same 30 incidents
+  (`scripts/qualification_compare.py`):
+  - totals: correct, wrong and allowed, unanswered, escalated, acted wrongly, cost and latency (latency is printed
+    only where a report records it);
+  - each incident: right, wrong or not graded, whether it went to a person, and whether it was fixed or broke;
+  - the candidate's verdict against the bar.
+
+  The old side is the row qualified now, or else the newest recorded row: totals only, with no model call. With
+  `--compare-with`, the old side is an earlier run directory, compared per incident. `--from-result
+  <run dir>/qualification.json` repeats the comparison and the recording for a finished run, with no model call.
+  It is accepted only when the run's reports sit beside the file and tally to the same counts.
+- **What the run writes, pass or fail.**
+  - A dated row in [BENCHMARKS.md](BENCHMARKS.md).
+  - The status line in README and BENCHMARKS.
+  - `docs/safety-pins.sha256` and the SBOM.
+  - In `providers.yaml`:
+    - on a pass on the pinned prompt, the candidate's row under `qualified:`, with an earlier-prompt row of the same
+      model kept as a comment;
+    - on a failure, a `# NOT QUALIFIED` comment with the numbers, and that model's row on the pinned prompt, if any,
+      retired.
+- **The switch.** One pull request into `main` holds:
+  - the rows the run wrote;
+  - `defaults.<provider>` in `providers.yaml` set to the candidate, if it is to be the default;
+  - the NOT YET QUALIFIED note above `prompt.sha` retired.
+
+  `providers.yaml` and `docs/safety-pins.sha256` are owned by the repository owner (CODEOWNERS), so the owner
+  approves it, and CI must be green.
+
+  After the merge:
+  - the owner promotes the commit to `dev`;
+  - the owner sets SSM `/warden/<env>/tf/model` to the candidate (the deploy refuses a model that is not on the
+    list);
+  - the owner runs "Runtime · ops" `apply`, which needs the `ops` environment's required reviewer.
+
+  Nothing switches production before that apply.
+- **Rolling back** is the same switch with the previous model. A model whose row was retired or never measured on
+  the pinned prompt is refused, so roll back only to a model with a passing row on the pinned prompt. Otherwise the
+  runtime diagnoses on the rules alone, which is safe and goes to a person.
 
 ## Reading a workflow's Temporal history (register B36)
 
