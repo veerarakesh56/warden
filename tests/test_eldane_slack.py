@@ -16,6 +16,7 @@ import fakes
 import test_eldane_autonomy as base
 import test_eldane_critique as debate
 from warden import approvals, critique, eldane_slack, settings
+from warden.activities import FixOutcome, FixRequest
 from warden.workflows import RemediationWorkflow
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -378,7 +379,7 @@ class _SlackInline(RemediationWorkflow):
     critic step, before the person is asked. A test-only workflow (Temporal needs it defined at module level)."""
 
     @workflow.run
-    async def run(self, req):
+    async def run(self, req: FixRequest) -> FixOutcome:  # typed: Temporal decodes the request by this annotation
         return await super().run(req)
 
     async def _critic(self, req, acts, plan, accepted):
