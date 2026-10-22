@@ -202,8 +202,9 @@ Retention: the worker and Lambda log groups keep **90 days** (`terraform/modules
   reason (at least 10 characters, redacted before it is kept); the `incident.reveal` row is written to the signed
   audit **before** the vault is opened, and the values are shown once (no-store), never in an address or in Slack.
   The form's token is bound to the reader's sign-in cookie; a refused attempt (a forged or stale form, no value, no
-  reason, not an approver) is recorded as `incident.reveal_attempt_refused`; at most 20 reveals and refused attempts
-  per reader per hour. Whether each reveal also needs a passkey step-up is an open owner decision.
+  reason, more fields than the page offers, not an approver) is recorded as `incident.reveal_attempt_refused`; at
+  most 20 reveals and refused attempts per reader per hour, counted inside each row's own write (parallel requests
+  cannot pass it together). Whether each reveal also needs a passkey step-up is an open owner decision.
 - **No AI path.** No Temporal activity, MCP tool or model-facing module imports the vault or the reveal
   (`tests/test_vault.py`, `tests/test_reveal.py`).
 - **Pending PR #147 - the records CLI** masks every string again and never imports the vault or the reveal.
