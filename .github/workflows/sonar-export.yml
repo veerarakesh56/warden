@@ -43,7 +43,18 @@ jobs:
           an = get("https://sonarcloud.io/api/project_analyses/search?project=veerarakesh56_warden&branch=main&ps=3")
           for x in an.get("analyses", []):
               print(f"=== ANALYSIS {x.get('date')} revision={x.get('revision')}")
-          # export run: main's open maintainability issues, one per line, after PR 187 (2026-10-21 ~19:40 UTC)
+          try:
+              ce = get("https://sonarcloud.io/api/ce/activity?component=veerarakesh56_warden&ps=5")
+              for t in ce.get("tasks", []):
+                  print(f"=== TASK {t.get('id')} branch={t.get('branch')} {t.get('branchType')} {t.get('status')} {t.get('executedAt')} warnings={t.get('warningCount')}")
+              main = [t for t in ce.get("tasks", []) if t.get("branchType") == "BRANCH"][:1]
+              for t in main:
+                  w = get(f"https://sonarcloud.io/api/ce/task?id={t['id']}&additionalFields=warnings")
+                  for msg in w.get("task", {}).get("warnings", []):
+                      print(f"W|{msg}")
+          except SystemExit as e:
+              print("=== WARNINGS unreadable:", e)
+          # export run: main's open maintainability issues and the latest analysis warnings, after PR 113 (2026-10-22 ~00:55 UTC)
           page, seen = 1, 0
           while True:
               d = get(f"https://sonarcloud.io/api/issues/search?componentKeys=veerarakesh56_warden&branch=main&issueStatuses=OPEN,CONFIRMED&impactSoftwareQualities=MAINTAINABILITY&ps=500&p={page}")
