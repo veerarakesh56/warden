@@ -24,7 +24,7 @@ detailed record of each change is in [`CHANGELOG.md`](../CHANGELOG.md); what is 
 | What | Why |
 |---|---|
 | Calibration and shadow mode | Prod: no fix is applied without a person's passkey, and Eldane, the AI critic, runs there in shadow - it reviews and is scored, never approves. Dev (owner, 2026-10-17): autonomous through Eldane from the first plan, with no shadow period; demoted at the first failure until a person re-enables it (autonomy.py). The calibrated decider exists but does not yet beat the base rate, so nothing decides on it. |
-| Lower escalation | The production model hands most incidents to a person. Fewer escalations of right fixes, with no more wrong ones, is the main quality goal. |
+| Lower escalation | No model is qualified on the pinned prompt (2026-10-21), so every incident goes to a person; the last qualified model handed most of them to a person. Fewer escalations of right fixes, with no more wrong ones, is the main quality goal. |
 | A production environment | Today it has run against a development environment only. A separate production environment, deployed only from its own branch with a required reviewer, is next. |
 | Game days | A quarterly exercise without WARDEN, so people keep the skill to diagnose ([`governance/GAME-DAY.md`](governance/GAME-DAY.md)). |
 | Backup and restore drill | A measured restore of WARDEN's own record. |

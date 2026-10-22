@@ -20,7 +20,7 @@ tamper-evident record of what was proposed, approved and done.
 | Harm | Likelihood | Severity | What holds it | Left over |
 |---|---|---|---|---|
 | A wrong fix makes an outage worse | medium | high | signed approval of the exact plan (H6); the gate (P0 to P33); bounds and the breaker (B12); rollback and its own success check | a hasty approver (H1 records hasty approvals) |
-| A correct fix is escalated, so the outage lasts longer | high (the production model, Claude Sonnet 5.5, escalated 24 of 30 in its qualification, N6) | medium | escalation is measured against an SLO (N6) | escalation stays high until calibration earns a role |
+| A correct fix is escalated, so the outage lasts longer | high (Claude Sonnet 5.5 escalated 24 of 30 in its 2026-10-15 qualification on an earlier prompt, N6; with no model qualified on the pinned prompt, 2026-10-21, every incident goes to a person) | medium | escalation is measured against an SLO (N6) | escalation stays high until calibration earns a role |
 | Personal data or secrets leave in a prompt or a message | low | high | redaction before the model, the outbound gate (B6), payload encryption (S2) | the patterns are open-ended: a secret no pattern matches is not masked |
 | An attacker steers WARDEN through log text | medium | high | quarantine to typed facts (B4), the tripwire (P16), the closed catalogue, approval | adaptive attacks beat detectors; only the architecture holds |
 | Engineers lose the skill to diagnose without WARDEN | medium | medium | the quarterly game day (H4) | - |
