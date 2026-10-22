@@ -296,15 +296,27 @@ def test_the_review_holds_no_cloud_credential_and_alone_holds_the_model_key():
     run = step["run"]
     assert '[ "$SWITCH" = on ] ||' in run  # off until the owner turns it on
     review = run.index("scripts/eldane_plan_review.py review")
-    assert "for v in $(compgen -e | grep '^AWS_'); do unset \"$v\"; done" in run[:review]
+    # CodeRabbit, #171: and the OIDC request pair, so it cannot mint a token for the role the job may assume.
+    assert "for v in $(compgen -e | grep -E '^(AWS_|ACTIONS_ID_TOKEN_)'); do unset \"$v\"; done" in run[:review]
     others = [s for s in _deploy()["jobs"]["run"]["steps"] if s.get("name") != step["name"]]
     assert not any("ELDANE_ANTHROPIC_API_KEY" in json.dumps(s) for s in others)
 
 
-def test_only_the_deploy_dispatch_offers_it_and_no_push_runs_it():
-    for env in ("dev", "prod"):
-        wf = yaml.safe_load((FLOWS / f"deploy-{env}.yml").read_text(encoding="utf-8"))
-        assert "eldane-apply" in wf[True]["workflow_dispatch"]["inputs"]["infra_action"]["options"]
+def test_only_devs_deploy_dispatch_offers_it_and_no_push_runs_it():
+    dev = yaml.safe_load((FLOWS / "deploy-dev.yml").read_text(encoding="utf-8"))
+    assert "eldane-apply" in dev[True]["workflow_dispatch"]["inputs"]["infra_action"]["options"]
+    assert dev["jobs"]["infra"]["secrets"]["ELDANE_ANTHROPIC_API_KEY"] == "${{ secrets.ELDANE_ANTHROPIC_API_KEY }}"
+
+
+def test_prod_neither_offers_it_nor_carries_the_model_key():
+    """Review of #171: prod always needs a person, so its deploy workflow neither lists eldane-apply nor passes the
+    model key at all (least privilege); the job's dev-only refusal stays as defence in depth."""
+    text = (FLOWS / "deploy-prod.yml").read_text(encoding="utf-8")
+    prod = yaml.safe_load(text)
+    assert "eldane-apply" not in prod[True]["workflow_dispatch"]["inputs"]["infra_action"]["options"]
+    assert "eldane-apply" not in text
+    assert "ELDANE_ANTHROPIC_API_KEY" not in text
+    assert "ANTHROPIC" not in text
     for env in ("dev", "prod"):
         assert "eldane-apply" not in (FLOWS / f"on-merge-{env}.yml").read_text(encoding="utf-8")
 
@@ -354,3 +366,55 @@ def test_a_yes_with_an_objection_on_a_saved_plan_is_a_no():
     got = _review(model=Model(real=torn))
     assert got.approved is False
     assert "it agreed and objected at once, so it counts as a no" in got.why
+
+
+# ----------------------------------------------------------------------------- CodeRabbit on #171: access and the plan's other parts
+
+def test_an_endpoint_policy_is_access():
+    shape = plan_shape.check(_plan(_rc("aws_vpc_endpoint_policy.s3", ["update"], before={"policy": "a"},
+                                       after={"policy": "b"})))
+    assert shape.problems and "changes access" in shape.problems[0]
+
+
+def _many(**extra):
+    """Over twenty attributes changing before `role` sorts: the list a model is shown stops at twenty."""
+    before = {f"a{n:02d}": 1 for n in range(25)}
+    return before, {**{k: 2 for k in before}, **extra}
+
+
+def test_a_function_whose_role_changes_is_access_even_past_the_capped_attribute_list():
+    before, after = _many(role="arn:aws:iam::" + "1" * 12 + ":role/new")
+    before = {**before, "role": "arn:aws:iam::" + "1" * 12 + ":role/old"}
+    shape = plan_shape.check(_plan(_rc("aws_lambda_function.orders", ["update"], before=before, after=after)))
+    assert "role" not in shape.changes[0].attributes  # past the cap of what a model is shown
+    assert shape.problems and "changes the role it runs as (role, update)" in shape.problems[0]
+
+
+def test_a_task_definition_replaced_with_a_role_not_known_until_apply_is_access():
+    # No task role before, and after it only "known after apply": the values alone show no change.
+    rc = _rc("aws_ecs_task_definition.orders", ["delete", "create"],
+             before={"execution_role_arn": "e1", "cpu": "256"},
+             after={"execution_role_arn": "e1", "cpu": "512"}, unknown={"task_role_arn": True})
+    shape = plan_shape.check(_plan(rc))
+    assert shape.problems and "task_role_arn" in shape.problems[0]
+
+
+def test_a_function_update_that_keeps_its_role_is_not_access():
+    shape = plan_shape.check(_plan(_rc("aws_lambda_function.orders", ["update"],
+                                       before={"memory_size": 128, "role": "r"}, after={"memory_size": 256, "role": "r"})))
+    assert shape.problems == []
+
+
+@pytest.mark.parametrize("key", ["action_invocations", "deferred_changes"])
+def test_a_plan_with_actions_or_deferred_changes_is_never_empty_or_approved(key):
+    plan = {"format_version": "1.2", key: [{"address": "action.aws_lambda_invoke.x"}]}
+    shape = plan_shape.check(plan)
+    assert shape.changes == []
+    assert shape.problems and key in shape.problems[0]
+    got = _review(plan)
+    assert got.approved is False
+
+
+def test_a_plan_with_no_resource_changes_key_is_still_empty():
+    shape = plan_shape.check({"format_version": "1.2"})
+    assert (shape.changes, shape.problems) == ([], [])

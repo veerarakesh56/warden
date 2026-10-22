@@ -232,8 +232,9 @@ jobs:
           set -o pipefail
           [ "$SWITCH" = on ] || { echo "::error::Eldane's plan approval is off in $WARDEN_ENV (variable ELDANE_PLAN_APPROVAL): a person reviews run $RUN's plan and applies it with apply-plan"; exit 1; }
           status=0
-          # In a subshell with every AWS_* variable unset: the review holds no cloud credential.
-          ( for v in $(compgen -e | grep '^AWS_'); do unset "$v"; done
+          # In a subshell with every AWS_* variable and the OIDC request pair (ACTIONS_ID_TOKEN_*) unset: the review holds
+          # no cloud credential and cannot mint one, though the job may (id-token: write).
+          ( for v in $(compgen -e | grep -E '^(AWS_|ACTIONS_ID_TOKEN_)'); do unset "$v"; done
             python scripts/eldane_plan_review.py review --plan "$RUNNER_TEMP/plan.json" --tfplan "$RUNNER_TEMP/tfplan" \
               --environment "$WARDEN_ENV" --stack "$STACK" --run-id "$RUN" --commit "$GITHUB_SHA" \
               --out "$RUNNER_TEMP/eldane.json" ) | tee -a "$GITHUB_STEP_SUMMARY" || status=$?

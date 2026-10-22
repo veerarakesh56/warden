@@ -4,8 +4,10 @@ Eldane may approve a dev infrastructure plan (plan_review.py) only when the plan
 touches and how - is one this policy allows. The policy is deterministic and runs first; Eldane can only add a "no"
 to what it lets through. Read from `terraform show -json <saved plan>` (its `resource_changes`):
 
-- access - IAM, resource policies, security groups and their rules, network ACLs, cluster access entries: ANY change
-  goes to a person (Eldane never changes access, eldane.SYSTEM rule 4);
+- access - IAM, resource policies, security groups and their rules, network ACLs, cluster access entries, and the
+  role a function or a task runs as (changed, or unknown until apply): ANY change goes to a person (Eldane never
+  changes access, eldane.SYSTEM rule 4);
+- what a plan does outside its resource changes (`action_invocations`, `deferred_changes`): a person;
 - data stores, networking, and the platform - what runs the services (clusters, services, functions) and what
   watches them (alarms, the budget): created or updated, yes; deleted, replaced or dropped from state, a person;
 - a provider this repository's stacks do not use, an action Terraform added after this was written, or more than
@@ -28,7 +30,7 @@ PROVIDERS = frozenset({"registry.terraform.io/hashicorp/aws", "registry.terrafor
 ACCESS = re.compile(r"^aws_(iam_.+|lambda_permission|lambda_function_url|kms_grant|ram_.+|organizations_.+"
                     r"|(sqs_queue|sns_topic|s3_bucket|ecr_repository|ecr_registry|secretsmanager_secret|kms_key"
                     r"|cloudwatch_log_resource|cloudwatch_event_bus|api_gateway_rest_api|efs_file_system"
-                    r"|opensearch_domain|elasticsearch_domain|glacier_vault|backup_vault)_policy"
+                    r"|opensearch_domain|elasticsearch_domain|glacier_vault|backup_vault|vpc_endpoint)_policy"
                     r"|s3_bucket_public_access_block|s3_account_public_access_block|s3_bucket_acl"
                     r"|security_group(_rule)?|vpc_security_group_.+|default_security_group|network_acl(_.+)?"
                     r"|default_network_acl|eks_access_.+|eks_pod_identity_association)$")
@@ -43,6 +45,10 @@ PLATFORM = re.compile(r"^aws_(eks_cluster|eks_node_group|eks_addon|ecs_cluster|e
                       r"|ecs_service|lambda_function|apigatewayv2_api|autoscaling_group|cloudwatch_metric_alarm"
                       r"|cloudwatch_composite_alarm|budgets_budget)$")
 REMOVES = {"delete", "forget"}
+# Fields that name the role a resource runs as (CodeRabbit, #171): a function's or a task's role changing, or not known
+# until apply, is an access change - whatever else of the resource changes, and however many attributes do.
+ROLE_FIELDS = {"aws_lambda_function": ("role",),
+               "aws_ecs_task_definition": ("task_role_arn", "execution_role_arn")}
 KNOWN = frozenset({"no-op", "read", "create", "update", "delete", "forget"})
 
 
@@ -86,6 +92,20 @@ def kind_of(rtype: str) -> str:
     return ""
 
 
+def _role_changes(rtype: str, change: dict[str, Any], action: str) -> list[str]:
+    """The role-bearing fields an update or replace of `rtype` changes, or leaves unknown until apply - read from the
+    whole before/after, never the capped attribute list a model is shown."""
+    fields = ROLE_FIELDS.get(rtype, ())
+    if not fields or action not in ("update", "replace"):
+        return []
+    before, after = change.get("before") or {}, change.get("after") or {}
+    unknown = change.get("after_unknown") or {}
+    before = before if isinstance(before, dict) else {}
+    after = after if isinstance(after, dict) else {}
+    unknown = unknown if isinstance(unknown, dict) else {}
+    return [f for f in fields if before.get(f) != after.get(f) or unknown.get(f)]
+
+
 def _problem(rc: dict[str, Any], change: Change, actions: list[str]) -> str:
     """Why this one change needs a person, or "" when its shape allows Eldane's review."""
     address, action, kind = change.address, change.action, kind_of(change.type)
@@ -95,6 +115,9 @@ def _problem(rc: dict[str, Any], change: Change, actions: list[str]) -> str:
         return f"{address}: a provider these stacks do not use"
     if kind == "access":
         return f"{address}: changes access ({action}) - a person reviews every access change"
+    if roles := _role_changes(change.type, rc.get("change") or {}, action):
+        return (f"{address}: changes the role it runs as ({', '.join(roles)}, {action}) - a person reviews every "
+                "access change")
     if kind and set(actions) & REMOVES:
         return f"{address}: {action} of {kind} - a person reviews every delete or replace of {kind}"
     return ""
@@ -115,6 +138,11 @@ def check(plan: dict[str, Any]) -> Shape:
             problems.append(problem)
     if len(changes) > MAX_CHANGES:
         problems.append(f"{len(changes)} changes: more than {MAX_CHANGES} in one plan go to a person")
+    # CodeRabbit, #171: what a plan does besides its resource changes - provider actions it invokes, changes Terraform
+    # deferred - is not in resource_changes, so it is never read as an empty or approvable plan.
+    for key, said in (("action_invocations", "invokes provider actions"), ("deferred_changes", "defers changes")):
+        if plan.get(key):
+            problems.append(f"the plan {said} ({key}), which this policy does not read: a person reviews it")
     return Shape(changes, problems)
 
 

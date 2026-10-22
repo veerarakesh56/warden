@@ -65,6 +65,23 @@ def _shape(text: str, env: str) -> str:
     return re.sub(rf"\b{re.escape(env)}\b", "<ENV>", text.replace("/dev/null", "<NULL>"))  # not "production"
 
 
+# B3 (review of #171): the one thing a deploy workflow may hold that another does not - Eldane's review of a saved plan
+# (`eldane-apply`) and the model key it needs, only where an AI may approve (autonomy ceiling L2: dev). Prod never.
+_ELDANE_ONLY = (
+    ((", or eldane-apply (Eldane, the AI critic, reviews the saved plan and applies exactly it if it approves; refused "
+      "wherever a person must approve)"), ""),
+    ("destroy, pause / resume (keeps the data)\"", "destroy, or pause / resume (keeps the data)\""),
+    (", eldane-apply]", "]"),
+    ("      ELDANE_ANTHROPIC_API_KEY: ${{ secrets.ELDANE_ANTHROPIC_API_KEY }}\n", ""),
+)
+
+
+def _without_eldane(text: str) -> str:
+    for old, new in _ELDANE_ONLY:
+        text = text.replace(old, new)
+    return text
+
+
 def _holds_aws(wf: dict) -> bool:
     """A workflow that can reach AWS: it calls a deploy, assumes a role itself, or asks for an OIDC token."""
     return any(str(job.get("uses", "")).endswith(DEPLOYS) or (job.get("permissions") or {}).get("id-token") == "write"
@@ -82,10 +99,14 @@ def test_one_deploy_workflow_per_configured_environment_and_nothing_else():
     order = _promotion_order()
     files = {p.name for p in FLOWS.glob("deploy-*.yml")}
     assert files == {f"deploy-{e}.yml" for e in order}, sorted(files)
+    from warden import autonomy
+
     shapes = set()
     for env, upstream in order.items():
         text = (FLOWS / f"deploy-{env}.yml").read_text(encoding="utf-8")
-        shapes.add(_shape(text, env))
+        eldane_here = "eldane-apply" in text or "ELDANE_" in text
+        assert not eldane_here or autonomy.ceiling(env) == autonomy.L2, f"{env}: only where an AI may approve"
+        shapes.add(_shape(_without_eldane(text), env))
         wf = yaml.safe_load(text)
         assert set(wf[True]) == {"workflow_dispatch"}, env  # PyYAML reads the key `on` as True; by hand only
         assert wf["concurrency"] == {"group": f"deploy-{env}", "cancel-in-progress": False}, env

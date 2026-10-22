@@ -368,3 +368,98 @@ def test_every_slack_request_eldane_and_warden_send_passes_the_real_egress_check
     assert all(r.full_url.startswith("https://slack.com/api/chat.postMessage") for r in sent)
     assert all(ELDANE_TOKEN not in r.data.decode() and WARDEN_TOKEN not in r.data.decode() for r in sent)
     assert "thread_ts" in sent[1].data.decode()
+
+
+def _with_slack_hung(world, workflow_cls, *, sandboxed=True):
+    """A dev plan Eldane does not approve, run under `workflow_cls`, with Eldane's first Slack step hung. The stage the
+    plan reached within 5 s, and the outcome once the owner says no."""
+    import asyncio
+    import threading
+    import uuid
+    from concurrent.futures import ThreadPoolExecutor
+
+    from temporalio import activity
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+    from warden.activities import FixRequest, RemediationActivities
+    from warden.workflows import RemediationWorkflow
+
+    release = threading.Event()
+    # A workflow class made inside a test cannot be loaded by the sandbox: the plant check's runs unsandboxed.
+    runner = {} if sandboxed else {"workflow_runner": UnsandboxedWorkflowRunner()}
+
+    class HungSlack(RemediationActivities):
+        @activity.defn(name="critic_say")
+        def critic_say(self, plan, step):
+            release.wait(20)  # Slack that does not answer
+            return -1
+
+    debate._sides(world, debate.Scripted(debate._no(), debate._yes("M1", "C1")), debate.Scripted(debate._answer()))
+    world["platform"] = base.Platform()
+
+    async def main():
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=base.CONVERTER)
+        acts = HungSlack(audit=world["log"], policy=world["policy"], platform=world["platform"], critic=world["critic"])
+        methods = [acts.resolve_plan, acts.gate, acts.announce, acts.approval_wait, acts.check_approval,
+                   acts.check_passkey, acts.precheck, acts.apply, acts.check_success, acts.record_result, acts.rollback,
+                   acts.finish, acts.again_alert, acts.side_effects, acts.critic_review, acts.autonomy_state,
+                   acts.critic_say, acts.debate_reply]
+        async with env, Worker(env.client, task_queue="eldane-test", workflows=[workflow_cls], activities=methods,
+                               activity_executor=ThreadPoolExecutor(6), **runner):
+            handle = await env.client.start_workflow(workflow_cls.run, FixRequest(**base.REQ),
+                                                     id=f"rem-{uuid.uuid4().hex[:12]}", task_queue="eldane-test")
+            stage = ""
+            for _ in range(100):  # 5 s: far less than one Slack step may take (SAY)
+                stage = await handle.query(RemediationWorkflow.stage)
+                if stage == "awaiting_approval":
+                    break
+                await asyncio.sleep(0.05)
+            release.set()
+            for _ in range(600):
+                if await handle.query(RemediationWorkflow.stage) == "awaiting_approval":
+                    break
+                await asyncio.sleep(0.05)
+            plan = await handle.query(RemediationWorkflow.plan)
+            await handle.signal(RemediationWorkflow.deny, approvals.Denial(
+                approver="owner", workflow_id=handle.id, plan_hash=plan.plan_hash, reason="not now"))
+            return stage, await handle.result()
+
+    return asyncio.run(main())
+
+
+def test_a_hung_slack_never_delays_the_persons_request(world, slack):
+    """Review of #171: Eldane's conversation in Slack runs beside the plan. With its first step hung, the person is
+    still asked at once and the plan waits for them - nothing in the decision path waits for Slack."""
+    from warden.workflows import RemediationWorkflow
+
+    stage, out = _with_slack_hung(world, RemediationWorkflow)
+    assert stage == "awaiting_approval"  # asked while Slack still hung
+    assert out.status == "denied"
+    assert world["platform"].applied == []
+    said = [e["body"].get("what") for e in world["log"].entries(base.INC, kinds=("remediation.announce",))]
+    assert "opening" in said
+
+
+def test_the_check_above_catches_a_conversation_awaited_in_the_decision_path(world, slack):
+    """The plant check of the test above, run where Temporal runs (CI): the order before the review of #171 - the
+    conversation awaited before the person is asked - never reaches the approval wait while Slack hangs."""
+    from temporalio import workflow
+
+    from warden.workflows import RemediationWorkflow
+
+    @workflow.defn(name="RemediationWorkflowSlackInline")
+    class Inline(RemediationWorkflow):
+        @workflow.run
+        async def run(self, req):
+            return await super().run(req)
+
+        async def _critic(self, req, acts, plan, accepted):
+            got = await super()._critic(req, acts, plan, accepted)
+            if self._eldane_said is not None:
+                await self._eldane_said  # the old order: every Slack step finishes before the person is asked
+            return got
+
+    stage, out = _with_slack_hung(world, Inline, sandboxed=False)
+    assert stage != "awaiting_approval"
+    assert out.status == "denied"

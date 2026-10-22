@@ -116,9 +116,10 @@ Prod has nothing to re-enable: it is never autonomous.
 `Deploy · dev` with `infra_action=eldane-apply` plans the stack and keeps the saved plan in the state bucket, as
 `plan` does; then Eldane reviews exactly that plan, and the same file is applied only if it approved. In order:
 
-1. **Dev only.** `_infra-deploy.yml` refuses `eldane-apply` in any other environment, and the review refuses any
-   environment whose autonomy ceiling is not L2 (`environments.yaml`; the prod tier never is). Prod always needs a
-   person: `apply-plan` with the run id and sha256 the plan step printed.
+1. **Dev only.** `Deploy · prod` neither offers `eldane-apply` nor passes the model key. `_infra-deploy.yml` also
+   refuses `eldane-apply` in any other environment, and the review refuses any environment whose autonomy ceiling is
+   not L2 (`environments.yaml`; the prod tier never is). Prod always needs a person: `apply-plan` with the run id and
+   sha256 the plan step printed.
 2. **The plan's shape** (`plan_shape.py`), before any model reads it: any access change (IAM, resource policies,
    security groups and rules, network ACLs, cluster access), or a delete or replace of a data store, networking or the
    platform (clusters, services, functions, alarms, the budget), a provider these stacks do not use, or more than 60
