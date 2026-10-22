@@ -128,9 +128,14 @@ def test_the_vault_reaches_kms_in_warden_own_account_only_and_its_ledger_rows_ho
     for action, params in kms.calls:
         assert egress.kinds_in(json.dumps(params)) == [], action
     assert len(kms.messages) == len(MAPPING)  # one HMAC per value: the only request that carries one
-    entries = json.dumps(row["index"])
+    # The pseudonyms are 12 hex characters of an HMAC under a random test key: all twelve can come out as digits and
+    # read as an account id, so they are checked by their own shape here, and the rest of the row by the redactor.
+    pseudonyms = [e.pop("pseudonym") for e in (dict(x) for x in row["index"]) if "pseudonym" in e]
+    assert pseudonyms
+    assert all(re.fullmatch(r"[a-z0-9]+:[0-9a-f]{12}", p) for p in pseudonyms)
+    entries = json.dumps([{k: v for k, v in e.items() if k != "pseudonym"} for e in row["index"]])
     assert egress.kinds_in(entries) == []
-    assert not any(value in entries for value in MAPPING.values())
+    assert not any(value in json.dumps(row["index"]) for value in MAPPING.values())
 
 
 def test_a_sealed_map_opens_only_as_its_own_incidents():
