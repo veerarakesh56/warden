@@ -58,6 +58,7 @@ INVENTORY = {
     "platforms/aws.py": {"aws"},
     "platforms/db.py": {"aws", "database"},
     "platforms/k8s.py": {"aws", "in-network"},
+    "platforms/infra.py": {"github"},  # B17: the infra workflow's runs, branch head and its apply-plan dispatch
     "providers.py": {"anthropic", "openai", "groq", "openrouter", "gemini", "model-api", "aws"},
     "runtime.py": {"aws"},
     "runtime_base.py": {"aws", "temporal"},
@@ -1069,3 +1070,94 @@ def test_an_egress_refusal_never_says_the_key_was_refused(caplog):
     assert not [r for r in caplog.records if r.name == "warden.llm"]
     llm._say_if_key_refused(_Forbidden("Forbidden"))  # a real refused key is still said
     assert [r.levelno for r in caplog.records if r.name == "warden.llm"] == [logging.ERROR]
+
+
+# --------------------------------------------------------------------------- a structured body's digit-only values
+GITHUB_DISPATCH = "https://api.github.com/repos/owner/repo/actions/workflows/deploy-dev.yml/dispatches"
+
+
+@pytest.mark.parametrize("phone", ["+1 415 555 0100", "415-555-0100", "+14155550100"])
+def test_a_phone_in_a_json_body_is_still_refused(phone):
+    body = json.dumps({"ref": "dev", "inputs": {"note": phone}})
+    with pytest.raises(EgressBlocked, match="PHONE"):
+        egress.check_request(GITHUB_DISPATCH, body, JSON, "POST")
+
+
+def test_a_digit_only_id_in_a_json_or_form_body_is_a_number_not_a_phone():
+    egress.check_request(GITHUB_DISPATCH, json.dumps({"ref": "dev", "inputs": {"plan_run_id": "18234567890"}}), JSON,
+                         "POST")
+    egress.check_request(GITHUB_DISPATCH, "run=18234567890",
+                         {"Content-Type": "application/x-www-form-urlencoded"}, "POST")
+
+
+def test_a_digit_only_account_id_in_a_structured_body_is_still_refused():
+    """The digit-only exemption drops only PHONE: a 12-digit account id to Slack (or anywhere) is still ACCOUNTID."""
+    body = json.dumps({"x": "".join(str(d) for d in (1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2))})
+    with pytest.raises(EgressBlocked, match="ACCOUNTID"):
+        egress.check_request(SLACK_API, body, JSON, "POST")
+
+
+@pytest.mark.parametrize(("body", "headers"), [
+    ("call 4155550100", {"Content-Type": "text/plain"}),
+    ("4155550100", {"Content-Type": "text/plain"}),  # declared text: never parsed as a JSON number
+    ("4155550100", {"Content-Type": "application/json"}),  # a bare JSON number: scanned as its text
+    ("4155550100", {}),  # undeclared, and JSON only as a bare number: scanned as its text
+    ('{"note": "4155550100"}', {"Content-Type": "text/plain"}),  # declared text is text, even when it reads as JSON
+], ids=["text-sentence", "text-digits", "json-bare-number", "undeclared-bare-number", "text-that-reads-as-json"])
+def test_a_body_that_is_not_a_json_object_or_a_form_is_scanned_whole(body, headers):
+    with pytest.raises(EgressBlocked, match="PHONE"):
+        egress.check_request(GITHUB_DISPATCH, body, headers, "POST")
+
+
+FULL_WIDTH_PHONE = "".join(chr(0xFF10 + int(d)) for d in "4155550100")  # \d matches these; [0-9] does not
+
+
+@pytest.mark.parametrize(("url", "body"), [
+    (GITHUB_DISPATCH, json.dumps({"note": FULL_WIDTH_PHONE})),
+    (f"https://api.github.com/repos/owner/repo/issues?q={FULL_WIDTH_PHONE}", None),
+], ids=["json-body", "query"])
+def test_a_phone_in_full_width_digits_is_refused_in_a_body_and_in_a_query(url, body):
+    headers, method = (JSON, "POST") if body else ({}, "GET")
+    with pytest.raises(EgressBlocked, match="PHONE"):
+        egress.check_request(url, body, headers, method)
+
+
+def test_the_infra_platforms_own_dispatch_passes_the_egress_check():
+    """The exact request platforms/infra.py builds for an approved apply-plan (B17): its run id is digits only."""
+    import io
+
+    from warden.platforms.infra import ENTRY, GitHub, InfraPlatform
+
+    head, sha, run_id = "a" * 40, "c" * 64, "18234567890"
+    sent = []
+
+    class _Answer(io.BytesIO):
+        status = 204
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def opener(req, timeout):
+        sent.append(req)
+        if req.get_method() == "POST":
+            return _Answer(b"")
+        if "/branches/" in req.full_url:
+            return _Answer(json.dumps({"commit": {"sha": head}}).encode())
+        return _Answer(json.dumps({"workflow_runs": [
+            {"id": int(run_id), "head_sha": head, "conclusion": "success",
+             "display_title": "Deploy · dev · infra plan fullstack "}]}).encode())
+
+    meta = {"commit": head, "sha256": sha, "stack": "fullstack", "environment": "dev"}
+    p = InfraPlatform(environment="dev", github=GitHub("owner/repo", opener), plan_meta=lambda stack, run: meta,
+                      token=lambda: "t" * 8, read_token=lambda: "")
+    live = p.live(ENTRY, {"stack": "fullstack"})
+    p.apply(ENTRY, {"stack": "fullstack", "plan_run": run_id, "plan_sha256": sha}, snapshot=live["state"],
+            who={"approvers": ["owner"], "incident": "inc-1", "plan_hash": "d" * 64,
+                 "run_id": "0b9e1c2a-1111-4222-8333-aaaabbbbcccc"})
+    [dispatch] = [r for r in sent if r.get_method() == "POST"]
+    assert run_id in dispatch.data.decode()
+    for req in sent:  # the reads and the dispatch, each as urllib hands it to the egress hook
+        egress.check_request(req.full_url, req.data, dict(req.header_items()), req.get_method())
