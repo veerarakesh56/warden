@@ -474,6 +474,9 @@ def migrate(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     dsn = make_conninfo(host=os.environ["WARDEN_AUDIT_HOST"], port=5432, dbname=os.environ["WARDEN_AUDIT_DB"],
                         user=master["username"], password=master["password"], sslmode="require")
     audit.migrate(dsn, AUDIT_WRITER, iam_login=True)
+    from . import vault
+
+    vault.migrate(dsn, AUDIT_WRITER)  # the sealed values' table: not append-only, its rows expire (vault.py)
     return {"migrated": True, "writer": AUDIT_WRITER}
 
 

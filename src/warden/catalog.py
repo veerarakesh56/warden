@@ -183,6 +183,7 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     Entry("ecs_restart_service", "T1", "ecs", "n/a (same task definition, new tasks)", _ref("cluster", "service")),
     Entry("ecs_scale_service", "T1", "ecs", BOUNDED_INCREASE,
           {**_ref("cluster", "service"), "replicas": Param("int", 1, 100)}, _scale_up_by_two),
+    # Advice only (B17, option B): no platform carries it out (ADVICE_ONLY) - a rollback happens in Git or Argo CD.
     Entry("k8s_rollout_undo", "T2", "k8s", "the last revision that was Ready",
           _ref("namespace", "deployment", "to_revision")),
     Entry("k8s_restart", "T1", "k8s", "n/a (same spec, new pods)", _ref("namespace", "deployment")),
@@ -249,11 +250,70 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
           _ref("alarm", "secret", "event")),
 ]}
 
+# What can go wrong if a fix is approved (owner, 2026-10-17, U3-2): said to the person - and to Eldane - as "risks if
+# approved", beside the plan, on the approval page and in the channel. Plain words, each from the entry's own limits
+# above; tests/test_eldane_critique.py holds that every entry has them.
+RISKS: dict[str, tuple[str, ...]] = {
+    "lambda_move_alias": ("the version it moves back to lacks every fix made since it was published",
+                          "requests already running finish on the version they started on"),
+    "lambda_restore_config": ("settings changed on purpose since that version go back too",),
+    "lambda_set_reserved_concurrency": ("more concurrent runs put more load on what the function calls",
+                                        "the raise takes concurrency the account's other functions could use"),
+    "lambda_enable_esm": ("the messages that waited are processed at once, a burst on the function and what it calls",),
+    "lambda_disable_esm": ("messages wait in the queue and age until it is enabled again",
+                           "work that depends on them is delayed"),
+    "events_enable_rule": ("the rule's targets run again from the next match or tick",),
+    "events_disable_rule": ("the scheduled runs it misses while disabled are not run later",),
+    "sqs_redrive_dlq": ("messages that failed before may fail again and load the consumer",
+                        "moved messages are not moved back"),
+    "athena_stop_query": ("the query's work is lost and must be run again",),
+    "apigw_raise_stage_throttle": ("more requests reach the backend behind the API",),
+    "arc_zonal_shift": ("the remaining zones carry all the traffic until the shift ends",),
+    "appconfig_revert": ("configuration changes made on purpose in that deployment are undone",),
+    "codepipeline_freeze": ("no deploy reaches the service, an urgent fix included, until a person enables it again",),
+    "dynamodb_raise_capacity": ("higher provisioned capacity costs more until it is lowered",),
+    "ecs_rollback_service": ("the previous task definition lacks every change made since it",
+                             "tasks are replaced, and requests on stopping tasks can fail"),
+    "ecs_restart_service": ("tasks are replaced, and requests on stopping tasks can fail",
+                            "a fault that is not in the running tasks comes back"),
+    "ecs_scale_service": ("more tasks cost more and put more load on what they call",),
+    "k8s_rollout_undo": ("the earlier revision lacks every change made since it",
+                         "pods are replaced, and requests on terminating pods can fail"),
+    "k8s_restart": ("pods are replaced, and requests on terminating pods can fail",
+                    "a fault that is not in the running pods comes back"),
+    "k8s_scale": ("more pods use more of the cluster and load what they call",),
+    "db_terminate_idle_in_tx": ("the closed sessions' open transactions roll back; the application sees an error on them",),
+    "db_terminate_blocker": ("the blocking session's transaction rolls back; its work is lost",),
+    "aurora_failover": ("connections drop while the writer moves; it cannot be undone",),
+    "infra_restore_baseline": ("infrastructure changed outside Terraform since the baseline is changed back",),
+    "ec2_revert_sg_change": ("traffic the change allowed or blocked on purpose is blocked or allowed again",),
+    "ec2_restore_route": ("traffic that took the new route on purpose goes the old way again",),
+    "ecs_restore_desired": ("the service runs the earlier number of tasks, as cost and load were then",),
+    "lambda_restore_concurrency": ("the earlier concurrency can throttle the function, or other functions, again",),
+    "lambda_restore_settings": ("the earlier timeout, memory or storage may be what the change fixed",),
+    "sqs_restore_attributes": ("the earlier timing or size settings may be what the change fixed",),
+    "kinesis_restore_retention": ("records older than the earlier retention are dropped sooner",),
+    "dynamodb_restore_capacity": ("the earlier capacity costs more than the cut it reverses",),
+    "asg_restore_capacity": ("the group runs the earlier number of instances, as cost and load were then",),
+    "asg_resume_processes": ("the group acts again: it may replace or launch instances at once",),
+    "apigw_restore_stage": ("the earlier deployment lacks every change made since it",),
+    "elb_reregister_targets": ("traffic goes to the targets again, healthy or not until checks fail them",),
+    "kms_cancel_key_deletion": ("the key is kept, disabled - deleting it later needs a new decision",),
+    "secrets_restore_secret": ("a secret someone deleted on purpose is back and readable again",),
+}
+
+
+def risks_of(entry: str) -> tuple[str, ...]:
+    """What can go wrong if the fix `entry` is approved, in plain words; () for an entry not in the catalogue."""
+    return RISKS.get(entry, ())
+
+
 # Which entries can carry out what the model proposed, per platform. An action with no entry is
 # advice only: it escalates to a person.
 FOR_ACTION: dict[ActionKind, dict[str, str]] = {
-    ActionKind.rollback_deploy: {"lambda": "lambda_move_alias", "ecs": "ecs_rollback_service",
-                                 "k8s": "k8s_rollout_undo"},
+    # B17 (owner decision 2026-10-20, option B): no Kubernetes rollback is planned - an undo writes the pod template,
+    # which the remediator's admission policy refuses on purpose (k8s/remediation-rbac.yaml). ADVICE says what to do.
+    ActionKind.rollback_deploy: {"lambda": "lambda_move_alias", "ecs": "ecs_rollback_service"},
     ActionKind.restart_pods: {"k8s": "k8s_restart", "ecs": "ecs_restart_service"},
     ActionKind.scale_up: {"k8s": "k8s_scale", "lambda": "lambda_set_reserved_concurrency",
                           "dynamodb": "dynamodb_raise_capacity", "ecs": "ecs_scale_service"},
@@ -272,7 +332,8 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     ActionKind.raise_limit: {"apigw": "apigw_raise_stage_throttle", "lambda": "lambda_set_reserved_concurrency"},
     ActionKind.cancel_query: {"athena": "athena_stop_query"},
     ActionKind.shift_traffic: {"elb": "arc_zonal_shift"},
-    ActionKind.revert_config: {"appconfig": "appconfig_revert"},
+    # B17: a function's own settings changed after its newest published version, with the same code (platforms/aws.py).
+    ActionKind.revert_config: {"appconfig": "appconfig_revert", "lambda": "lambda_restore_config"},
     ActionKind.freeze_changes: {"codepipeline": "codepipeline_freeze"},
     ActionKind.redrive_messages: {"sqs": "sqs_redrive_dlq"},
     # G10-D: a recorded change undone - a security group's rules, or a rule or consumer a change disabled (the same
@@ -285,6 +346,14 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
                                "dynamodb": "dynamodb_restore_capacity",
                                "secretsmanager": "secrets_restore_secret"},
 }
+
+
+def _pairs(values: Any) -> str | None:
+    """A dict of settings as `k=v, ...`; None when there is none. Layers by `name:version` - an ARN names the account."""
+    if not isinstance(values, dict):
+        return None
+    return ", ".join(f"{k}={'/'.join(str(a).split(':layer:')[-1] for a in v) or 'none' if k == 'Layers' else v}"
+                     for k, v in values.items())
 
 
 def _arrow(what: str, before: Any, after: Any) -> str:
@@ -341,6 +410,9 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                                     f"{p['settings']} (what AWS Config recorded before "
                                                     f"{s.get('event_name')} at {s.get('event_time')} by "
                                                     f"{s.get('actor')})")],
+    "lambda_restore_config": lambda p, s: [_arrow(f"$LATEST settings of {p['function']}", _pairs(s.get("now")),
+                                                  f"{_pairs(s.get('to'))} (version {p['from_version']}'s; same code; the "
+                                                  "environment, role and network are unchanged)")],
     "lambda_restore_concurrency": lambda p, s: [_arrow(f"reserved concurrency of {p['function']}", s.get("reserved"),
                                                        f"{p['concurrency']} (what AWS Config recorded before "
                                                        f"{s.get('event_name')} at {s.get('event_time')} by "
@@ -487,6 +559,14 @@ REVERT_ALSO = {"lambda": ("lambda_restore_settings",), "asg": ("asg_resume_proce
 REVERT_ELSE = {"lambda": ("lambda_enable_esm", "mapping")}
 
 
+# What a person does where WARDEN deliberately plans nothing (B17): said with the refusal, beside the diagnosis.
+ROLLBACK_IN_GIT = ("roll back in Git, or in Argo CD (its History and Rollback), so the change and its undo are both "
+                   "reviewed; WARDEN never writes a Deployment's pod template - its admission policy refuses it")
+ADVICE: dict[tuple[ActionKind, str], str] = {(ActionKind.rollback_deploy, "k8s"): ROLLBACK_IN_GIT}
+# Entries kept for the record and the request tool, which no platform carries out: refused with the advice.
+ADVICE_ONLY = {"k8s_rollout_undo": ROLLBACK_IN_GIT}
+
+
 def for_action(action: ActionKind, platform: str) -> Entry | None:
     name = FOR_ACTION.get(action, {}).get(platform)
     return CATALOG[name] if name else None
@@ -513,8 +593,9 @@ SCALES = frozenset({"k8s_scale", "dynamodb_raise_capacity", "ecs_scale_service"}
 def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[str]:
     """Every reason these parameters must not be applied. `live` holds what WARDEN read: for a `ref`
     parameter a set of allowed values, plus the current values `relative` limits need."""
-    if name in EXCLUDED or name not in CATALOG:
-        return [f"{name!r} is not in the catalogue"]
+    refused = _refused_outright(name, live)
+    if refused:
+        return refused
     entry = CATALOG[name]
     problems = [f"unexpected parameter {p!r}" for p in params if p not in entry.params]
     for pname, spec in entry.params.items():
@@ -534,6 +615,22 @@ def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[st
         problems.append("P21-ROLLOUT-IN-PROGRESS: a rollout of this target is under way; act after it completes "
                         "or misses its deadline")
     return problems
+
+
+def _refused_outright(name: str, live: dict[str, Any]) -> list[str]:
+    """An entry no parameters can make valid: not in the catalogue, or advice only (B17) with nothing read for it."""
+    if name in EXCLUDED or name not in CATALOG:
+        return [f"{name!r} is not in the catalogue"]
+    if name in ADVICE_ONLY and not live:
+        return [f"{name} is advice only: {ADVICE_ONLY[name]}"]
+    return []
+
+
+def no_entry(action: ActionKind, platform: str | None) -> str:
+    """Why no catalogue entry carries out `action` on `platform`, with the advice for it when there is one (B17)."""
+    advice = ADVICE.get((action, platform))
+    said = f"no catalogue entry carries out {action.value} on {platform}"
+    return f"{said} - {advice}" if advice else said
 
 
 def _param_problem(pname: str, spec: Param, params: dict[str, Any], live: dict[str, Any]) -> str | None:
