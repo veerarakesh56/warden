@@ -128,9 +128,14 @@ def test_the_vault_reaches_kms_in_warden_own_account_only_and_its_ledger_rows_ho
     for action, params in kms.calls:
         assert egress.kinds_in(json.dumps(params)) == [], action
     assert len(kms.messages) == len(MAPPING)  # one HMAC per value: the only request that carries one
-    entries = json.dumps(row["index"])
+    # The pseudonyms are 12 hex characters of an HMAC under a random test key: all twelve can come out as digits and
+    # read as an account id, so they are checked by their own shape here, and the rest of the row by the redactor.
+    pseudonyms = [e.pop("pseudonym") for e in (dict(x) for x in row["index"]) if "pseudonym" in e]
+    assert pseudonyms
+    assert all(re.fullmatch(r"[a-z0-9]+:[0-9a-f]{12}", p) for p in pseudonyms)
+    entries = json.dumps([{k: v for k, v in e.items() if k != "pseudonym"} for e in row["index"]])
     assert egress.kinds_in(entries) == []
-    assert not any(value in entries for value in MAPPING.values())
+    assert not any(value in json.dumps(row["index"]) for value in MAPPING.values())
 
 
 def test_a_sealed_map_opens_only_as_its_own_incidents():
@@ -316,7 +321,7 @@ def test_only_people_paths_open_the_vault():
     src = ROOT / "src" / "warden"
     callers = {p.name for p in src.rglob("*.py")
                if re.search(r"vault\.(?:Vault|sealed_row)\b|import[^\n]*\bVault\b|\bVault\(", p.read_text(encoding="utf-8"))}
-    assert callers <= {"vault.py", "records.py", "approval_page.py"}
+    assert callers <= {"vault.py", "reveal.py"}
 
 
 def test_any_failure_of_a_seal_is_recorded_and_returns(tmp_path):
@@ -339,6 +344,22 @@ def test_the_vaults_clients_are_in_the_runtimes_region(monkeypatch, env):
     monkeypatch.setattr(vault, "_BUILT", {})
     vault.Vault.from_environment()
     assert asked == [("kms", "test-region-1")]
+
+
+def test_the_vaults_kms_client_has_a_bounded_timeout_and_retry_budget(monkeypatch, env):
+    """Review (PR 119): a degraded KMS fails a seal in seconds instead of holding `prepare` for its whole timeout."""
+    import boto3
+
+    configs = []
+    monkeypatch.setattr(boto3, "client", lambda name, **kw: configs.append(kw.get("config")) or object())
+    monkeypatch.setattr(vault, "_BUILT", {})
+    vault.Vault.from_environment()
+    [config] = configs
+    assert config is not None
+    assert (config.connect_timeout, config.read_timeout) == (vault.KMS_CONNECT_S, vault.KMS_READ_S)
+    assert config.retries == {"total_max_attempts": vault.KMS_ATTEMPTS, "mode": "standard"}
+    assert vault.KMS_CONNECT_S + vault.KMS_READ_S <= 30
+    assert vault.KMS_ATTEMPTS <= 3
 
 
 def test_on_postgresql_the_writer_purges_through_the_function_by_the_databases_clock():
