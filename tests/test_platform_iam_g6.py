@@ -222,6 +222,11 @@ def test_the_reader_role_holds_exactly_the_platforms_reads():
     stack_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "aws_stack.py").read_text(encoding="utf-8")
     if "generate_db_auth_token(" in stack_src:
         evidence.add("rds-db:connect")
+    # And the infra platform's one read in this role (platforms/infra.py, B17): a kept plan's metadata object.
+    infra_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "platforms" / "infra.py").read_text(
+        encoding="utf-8")
+    if ".get_object(Bucket=bucket, Key=f\"{stack}/plans/{run}.json\")" in infra_src:
+        evidence.add("s3:GetObject")
     assert reads <= reader_iam.granted()
     assert reader_iam.granted() - reads <= evidence, sorted(reader_iam.granted() - reads - evidence)
 
