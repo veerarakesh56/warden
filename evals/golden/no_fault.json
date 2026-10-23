@@ -1,0 +1,764 @@
+{
+ "_comment": "No-fault golden set (B37): each incident's right answer is NO FIX - nothing changed in the environment. Read by evals/golden.py; scored pass^k.",
+ "cases": [
+  {
+   "id": "nf-planned-shutdown",
+   "why": "dev was paused on schedule overnight; zero healthy hosts is the plan, not an outage",
+   "alert": {
+    "alert_id": "nf-planned-shutdown",
+    "name": "HealthyHostCountZero",
+    "severity": "high",
+    "service": "shop-web",
+    "environment": "dev",
+    "summary": "No healthy targets behind the dev load balancer",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z shop-web INFO scheduled pause: scaling service to 0 tasks (pause window 22:00-07:00)",
+    "2026-10-01T03:02:00Z shop-web INFO deregistered 2 targets after scheduled pause"
+   ],
+   "metrics": {
+    "healthy_host_count": 0.0,
+    "request_count": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-single-client-4xx",
+   "why": "one misconfigured client sends bad requests; the service answers correctly",
+   "alert": {
+    "alert_id": "nf-single-client-4xx",
+    "name": "Elevated4xx",
+    "severity": "low",
+    "service": "gateway",
+    "environment": "prod",
+    "summary": "Elevated 4xx from one client",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z gateway WARN 400 bad request from client app-legacy: missing field 'currency'",
+    "2026-10-01T03:02:00Z gateway INFO healthcheck ok"
+   ],
+   "metrics": {
+    "error_rate": 0.003,
+    "p99_latency_ms": 210.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-healthy-deploy",
+   "why": "a deploy landed and nothing broke: a deploy alone is not a cause",
+   "alert": {
+    "alert_id": "nf-healthy-deploy",
+    "name": "DeployFinished",
+    "severity": "low",
+    "service": "orders",
+    "environment": "prod",
+    "summary": "Deployment completed",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z orders INFO rollout complete: 6/6 tasks healthy",
+    "2026-10-01T03:02:00Z orders INFO healthcheck ok"
+   ],
+   "metrics": {
+    "error_rate": 0.001,
+    "p99_latency_ms": 180.0
+   },
+   "recent_deploys": [
+    {
+     "sha": "a1b2c3d",
+     "service": "orders",
+     "deployed_at": "2026-10-01T03:04:00Z",
+     "author": "ci-bot"
+    }
+   ]
+  },
+  {
+   "id": "nf-deploy-boundary",
+   "why": "error rate at the normal 2% ceiling after a deploy - inside the service's usual range",
+   "alert": {
+    "alert_id": "nf-deploy-boundary",
+    "name": "ErrorRateWatch",
+    "severity": "medium",
+    "service": "search",
+    "environment": "prod",
+    "summary": "Error rate at watch threshold",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z search INFO rollout complete",
+    "2026-10-01T03:02:00Z search WARN 2 requests timed out on cold cache"
+   ],
+   "metrics": {
+    "error_rate": 0.02
+   },
+   "recent_deploys": [
+    {
+     "sha": "b2c3d4e",
+     "service": "search",
+     "deployed_at": "2026-10-01T03:04:00Z",
+     "author": "ci-bot"
+    }
+   ]
+  },
+  {
+   "id": "nf-memory-70",
+   "why": "memory at 70% of the limit: the alarm threshold is set too low",
+   "alert": {
+    "alert_id": "nf-memory-70",
+    "name": "MemoryHigh",
+    "severity": "low",
+    "service": "catalog",
+    "environment": "prod",
+    "summary": "Memory above 65%",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z catalog INFO gc pause 12ms",
+    "2026-10-01T03:02:00Z catalog INFO cache warmed: 41000 entries"
+   ],
+   "metrics": {
+    "memory_utilisation": 0.7,
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-memory-boundary",
+   "why": "memory at 84% - under the pressure line, and no container was OOM-killed",
+   "alert": {
+    "alert_id": "nf-memory-boundary",
+    "name": "MemoryHigh",
+    "severity": "low",
+    "service": "catalog",
+    "environment": "dev",
+    "summary": "Memory above 80%",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z catalog INFO gc pause 15ms"
+   ],
+   "metrics": {
+    "memory_utilisation": 0.84,
+    "oom_killed_containers": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-replica-lag-small",
+   "why": "a 4 s replica lag during a nightly vacuum is normal",
+   "alert": {
+    "alert_id": "nf-replica-lag-small",
+    "name": "ReplicaLag",
+    "severity": "low",
+    "service": "orders-db",
+    "environment": "prod",
+    "summary": "Replica lag above 3s",
+    "started_at": "2026-10-01T03:10:00Z",
+    "labels": {
+     "database": "orders-db"
+    }
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z orders-db INFO autovacuum: processing table orders_archive"
+   ],
+   "metrics": {
+    "replica_lag_seconds": 4.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-replica-lag-boundary",
+   "why": "lag at exactly 10 s while a report query runs; it drains on its own",
+   "alert": {
+    "alert_id": "nf-replica-lag-boundary",
+    "name": "ReplicaLag",
+    "severity": "medium",
+    "service": "orders-db",
+    "environment": "dev",
+    "summary": "Replica lag above 8s",
+    "started_at": "2026-10-01T03:10:00Z",
+    "labels": {
+     "database": "orders-db"
+    }
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z orders-db INFO long report query started by analytics"
+   ],
+   "metrics": {
+    "replica_lag_seconds": 10.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-few-idle-tx",
+   "why": "three idle-in-transaction sessions are an ordinary admin console, not pool exhaustion",
+   "alert": {
+    "alert_id": "nf-few-idle-tx",
+    "name": "IdleInTransaction",
+    "severity": "low",
+    "service": "payments-db",
+    "environment": "prod",
+    "summary": "Idle in transaction sessions present",
+    "started_at": "2026-10-01T03:10:00Z",
+    "labels": {
+     "database": "payments-db"
+    }
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z payments-db INFO admin console session open"
+   ],
+   "metrics": {
+    "idle_in_transaction": 3.0,
+    "connection_pool_used": 12.0,
+    "connection_pool_size": 50.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-pool-busy-not-full",
+   "why": "pool at 49 of 50 at peak, every request served",
+   "alert": {
+    "alert_id": "nf-pool-busy-not-full",
+    "name": "PoolHigh",
+    "severity": "medium",
+    "service": "payments-db",
+    "environment": "prod",
+    "summary": "Connection pool above 90%",
+    "started_at": "2026-10-01T03:10:00Z",
+    "labels": {
+     "database": "payments-db"
+    }
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z payments-db INFO peak traffic: 1200 rps",
+    "2026-10-01T03:02:00Z payments-db INFO all requests served"
+   ],
+   "metrics": {
+    "connection_pool_used": 49.0,
+    "connection_pool_size": 50.0,
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-batch-cpu",
+   "why": "the nightly batch job uses the CPU it is sized for",
+   "alert": {
+    "alert_id": "nf-batch-cpu",
+    "name": "CPUHigh",
+    "severity": "low",
+    "service": "reports",
+    "environment": "prod",
+    "summary": "CPU above 90%",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z reports INFO nightly batch started: 1.2M rows",
+    "2026-10-01T03:02:00Z reports INFO batch 40% done"
+   ],
+   "metrics": {
+    "cpu_utilisation": 0.93,
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-latency-blip",
+   "why": "a p99 blip that recovered before anyone looked",
+   "alert": {
+    "alert_id": "nf-latency-blip",
+    "name": "LatencyHigh",
+    "severity": "low",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "p99 latency above 800ms",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z checkout WARN p99 912ms for 1 minute",
+    "2026-10-01T03:02:00Z checkout INFO p99 back to 190ms"
+   ],
+   "metrics": {
+    "p99_latency_ms": 190.0,
+    "error_rate": 0.001
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-insufficient-data",
+   "why": "the alarm went to INSUFFICIENT_DATA because the metric stopped while the service was idle",
+   "alert": {
+    "alert_id": "nf-insufficient-data",
+    "name": "NoData",
+    "severity": "low",
+    "service": "exports",
+    "environment": "dev",
+    "summary": "Alarm has insufficient data",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z exports INFO no export requests in the last 30 minutes"
+   ],
+   "metrics": {},
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-autoscale",
+   "why": "the autoscaler added pods for normal morning traffic",
+   "alert": {
+    "alert_id": "nf-autoscale",
+    "name": "ReplicaCountChanged",
+    "severity": "low",
+    "service": "storefront",
+    "environment": "prod",
+    "summary": "Replica count changed",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z storefront INFO HPA scaled storefront from 3 to 5 replicas",
+    "2026-10-01T03:02:00Z storefront INFO all pods ready"
+   ],
+   "metrics": {
+    "pods_ready": 5.0,
+    "pods_total": 5.0,
+    "restart_count": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-old-restarts",
+   "why": "four lifetime restarts from last week; nothing is crash-looping or OOM-killed now",
+   "alert": {
+    "alert_id": "nf-old-restarts",
+    "name": "PodRestarts",
+    "severity": "low",
+    "service": "worker",
+    "environment": "prod",
+    "summary": "Pod restart count above 3",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z worker INFO worker idle, queue empty"
+   ],
+   "metrics": {
+    "restart_count": 4.0,
+    "crashloop_containers": 0.0,
+    "oom_killed_containers": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-canary-done",
+   "why": "a canary finished cleanly; the deploy is healthy",
+   "alert": {
+    "alert_id": "nf-canary-done",
+    "name": "CanaryComplete",
+    "severity": "low",
+    "service": "pricing",
+    "environment": "prod",
+    "summary": "Canary analysis finished",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z pricing INFO canary analysis passed",
+    "2026-10-01T03:02:00Z pricing INFO promoted to 100%"
+   ],
+   "metrics": {
+    "error_rate": 0.0,
+    "crashloop_containers": 0.0
+   },
+   "recent_deploys": [
+    {
+     "sha": "c3d4e5f",
+     "service": "pricing",
+     "deployed_at": "2026-10-01T03:04:00Z",
+     "author": "ci-bot"
+    }
+   ]
+  },
+  {
+   "id": "nf-synthetic-404",
+   "why": "a synthetic monitor probes a page that was retired on purpose",
+   "alert": {
+    "alert_id": "nf-synthetic-404",
+    "name": "SyntheticFailed",
+    "severity": "low",
+    "service": "marketing-site",
+    "environment": "prod",
+    "summary": "Synthetic check failed",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z marketing-site WARN 404 GET /campaign/summer-2025 from synthetic-monitor"
+   ],
+   "metrics": {
+    "error_rate": 0.0005
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-cert-renewed",
+   "why": "the certificate renewed; the alarm is the renewal notice",
+   "alert": {
+    "alert_id": "nf-cert-renewed",
+    "name": "CertificateExpiry",
+    "severity": "medium",
+    "service": "api",
+    "environment": "prod",
+    "summary": "Certificate expires in 30 days",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z api INFO certificate renewed, valid for 395 days"
+   ],
+   "metrics": {
+    "days_to_expiry": 395.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-rate-limited-bot",
+   "why": "the rate limiter answers a scraping bot with 429, as designed",
+   "alert": {
+    "alert_id": "nf-rate-limited-bot",
+    "name": "Elevated4xx",
+    "severity": "low",
+    "service": "gateway",
+    "environment": "prod",
+    "summary": "429 responses rising",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z gateway ERROR 429 rate limited client bot-crawler (burst 900 rps)",
+    "2026-10-01T03:02:00Z gateway INFO legitimate traffic unaffected"
+   ],
+   "metrics": {
+    "error_rate": 0.045
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-cache-flush",
+   "why": "hit ratio dipped after a planned cache flush and is refilling",
+   "alert": {
+    "alert_id": "nf-cache-flush",
+    "name": "CacheHitRatioLow",
+    "severity": "low",
+    "service": "session-cache",
+    "environment": "prod",
+    "summary": "Cache hit ratio below 80%",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z session-cache INFO planned cache flush completed",
+    "2026-10-01T03:02:00Z session-cache INFO hit ratio 62% and rising"
+   ],
+   "metrics": {
+    "cache_hit_ratio": 0.62,
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-backfill-queue",
+   "why": "queue depth grew during a planned backfill and is being drained",
+   "alert": {
+    "alert_id": "nf-backfill-queue",
+    "name": "QueueDepthHigh",
+    "severity": "low",
+    "service": "ingest",
+    "environment": "prod",
+    "summary": "Queue depth above 10000",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z ingest INFO backfill job started for 2026-09",
+    "2026-10-01T03:02:00Z ingest INFO consumers processing at 900 msg/s"
+   ],
+   "metrics": {
+    "queue_depth": 12000.0,
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-rds-maintenance",
+   "why": "AWS applied a minor version patch in the maintenance window",
+   "alert": {
+    "alert_id": "nf-rds-maintenance",
+    "name": "DBRestarted",
+    "severity": "medium",
+    "service": "orders-db",
+    "environment": "prod",
+    "summary": "Database instance restarted",
+    "started_at": "2026-10-01T03:10:00Z",
+    "labels": {
+     "database": "orders-db"
+    }
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z orders-db INFO RDS maintenance: minor version patch applied in window",
+    "2026-10-01T03:02:00Z orders-db INFO database available"
+   ],
+   "metrics": {
+    "replica_lag_seconds": 2.0,
+    "connection_pool_used": 8.0,
+    "connection_pool_size": 50.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-lambda-cold-start",
+   "why": "cold starts after a quiet hour raised duration; nothing failed",
+   "alert": {
+    "alert_id": "nf-lambda-cold-start",
+    "name": "LambdaDurationHigh",
+    "severity": "low",
+    "service": "thumbnailer",
+    "environment": "prod",
+    "summary": "Duration above 2s",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z thumbnailer INFO INIT_START runtime python3.13",
+    "2026-10-01T03:02:00Z thumbnailer INFO REPORT duration 2310 ms"
+   ],
+   "metrics": {
+    "duration_ms": 2310.0,
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-spot-replaced",
+   "why": "a spot node was reclaimed and its pods rescheduled; all ready",
+   "alert": {
+    "alert_id": "nf-spot-replaced",
+    "name": "NodeNotReady",
+    "severity": "low",
+    "service": "storefront",
+    "environment": "prod",
+    "summary": "A node was not ready",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z storefront INFO spot interruption notice for node ip-10-0-3-7",
+    "2026-10-01T03:02:00Z storefront INFO pods rescheduled, 6/6 ready"
+   ],
+   "metrics": {
+    "pods_ready": 6.0,
+    "pods_total": 6.0,
+    "crashloop_containers": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-debug-logging",
+   "why": "log volume rose because someone enabled debug logging in dev",
+   "alert": {
+    "alert_id": "nf-debug-logging",
+    "name": "LogVolumeHigh",
+    "severity": "low",
+    "service": "orders",
+    "environment": "dev",
+    "summary": "Log bytes above baseline",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z orders DEBUG request body parsed in 0.4ms",
+    "2026-10-01T03:02:00Z orders INFO log level set to DEBUG by operator"
+   ],
+   "metrics": {
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-cost-anomaly",
+   "why": "a cost anomaly from a planned load test, not a service fault",
+   "alert": {
+    "alert_id": "nf-cost-anomaly",
+    "name": "CostAnomaly",
+    "severity": "low",
+    "service": "load-test",
+    "environment": "dev",
+    "summary": "Spend above forecast",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z load-test INFO load test run 42 started",
+    "2026-10-01T03:02:00Z load-test INFO load test run 42 finished"
+   ],
+   "metrics": {
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-disk-70",
+   "why": "disk at 70% on a volume sized for 90%",
+   "alert": {
+    "alert_id": "nf-disk-70",
+    "name": "DiskUsage",
+    "severity": "low",
+    "service": "search",
+    "environment": "prod",
+    "summary": "Disk above 65%",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z search INFO segment merge finished"
+   ],
+   "metrics": {
+    "disk_used_pct": 0.7,
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-expired-client-token",
+   "why": "a partner's expired token gets 401s; the fix is theirs, not a change here",
+   "alert": {
+    "alert_id": "nf-expired-client-token",
+    "name": "Elevated4xx",
+    "severity": "low",
+    "service": "partner-api",
+    "environment": "prod",
+    "summary": "401 responses rising",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z partner-api ERROR 401 token expired for client partner-17",
+    "2026-10-01T03:02:00Z partner-api INFO other clients unaffected"
+   ],
+   "metrics": {
+    "error_rate": 0.03
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-rolling-drain",
+   "why": "connections drained during a healthy rolling deploy",
+   "alert": {
+    "alert_id": "nf-rolling-drain",
+    "name": "TargetErrors",
+    "severity": "low",
+    "service": "orders",
+    "environment": "prod",
+    "summary": "Target 5xx during deployment",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z orders INFO draining connections from old tasks",
+    "2026-10-01T03:02:00Z orders INFO rollout complete: 6/6 healthy"
+   ],
+   "metrics": {
+    "error_rate": 0.008
+   },
+   "recent_deploys": [
+    {
+     "sha": "d4e5f6a",
+     "service": "orders",
+     "deployed_at": "2026-10-01T03:04:00Z",
+     "author": "ci-bot"
+    }
+   ]
+  },
+  {
+   "id": "nf-all-zero-k8s",
+   "why": "the kubelet reports nothing wrong after a deploy",
+   "alert": {
+    "alert_id": "nf-all-zero-k8s",
+    "name": "PodHealth",
+    "severity": "low",
+    "service": "inventory",
+    "environment": "dev",
+    "summary": "Pod health check",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z inventory INFO all containers running"
+   ],
+   "metrics": {
+    "oom_killed_containers": 0.0,
+    "restart_count": 0.0,
+    "crashloop_containers": 0.0,
+    "error_rate": 0.0
+   },
+   "recent_deploys": [
+    {
+     "sha": "e5f6a7b",
+     "service": "inventory",
+     "deployed_at": "2026-10-01T03:04:00Z",
+     "author": "ci-bot"
+    }
+   ]
+  },
+  {
+   "id": "nf-weekend-traffic-drop",
+   "why": "traffic dropped on a holiday; the service is healthy",
+   "alert": {
+    "alert_id": "nf-weekend-traffic-drop",
+    "name": "RequestCountLow",
+    "severity": "medium",
+    "service": "storefront",
+    "environment": "prod",
+    "summary": "Requests below baseline",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z storefront INFO healthcheck ok",
+    "2026-10-01T03:02:00Z storefront INFO 40 rps (holiday)"
+   ],
+   "metrics": {
+    "request_count": 2400.0,
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-dlq-replayed",
+   "why": "two messages went to the DLQ and were already replayed by their owner",
+   "alert": {
+    "alert_id": "nf-dlq-replayed",
+    "name": "DLQNotEmpty",
+    "severity": "low",
+    "service": "billing",
+    "environment": "prod",
+    "summary": "Dead letter queue has messages",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z billing INFO 2 messages replayed from DLQ by billing team"
+   ],
+   "metrics": {
+    "dlq_depth": 0.0,
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  },
+  {
+   "id": "nf-staging-flap",
+   "why": "an alarm flapped once on a dev service under test",
+   "alert": {
+    "alert_id": "nf-staging-flap",
+    "name": "HealthCheckFlap",
+    "severity": "low",
+    "service": "experiments",
+    "environment": "dev",
+    "summary": "Health check failed once",
+    "started_at": "2026-10-01T03:10:00Z"
+   },
+   "logs": [
+    "2026-10-01T03:01:00Z experiments WARN healthcheck timeout once",
+    "2026-10-01T03:02:00Z experiments INFO healthcheck ok"
+   ],
+   "metrics": {
+    "error_rate": 0.0
+   },
+   "recent_deploys": []
+  }
+ ]
+}
