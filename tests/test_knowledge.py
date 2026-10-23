@@ -143,8 +143,7 @@ def test_score_counts_signals_and_orders_by_it():
 
 
 def _state(context):
-    from warden.graph import WardenState  # noqa: F401 - the TypedDict is structural
-
+    # A plain dict in the shape of warden.graph.WardenState: a TypedDict checks only the shape.
     return {"alert": _alert(), "context": context, "redacted_logs": list(context.logs),
             "redacted_deploys": [], "redaction_map": {}}
 

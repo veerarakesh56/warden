@@ -7,14 +7,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from test_remediation_workflow import (  # noqa: F401
+from test_remediation_workflow import (
     _approve_with,
     _no_approval,
     _run,
     _until_awaiting_approval,
-    owner,
     recorded,
-    world,
 )
 from warden import approvals, chatops
 from warden.chatops import Notification
@@ -46,7 +44,7 @@ def sink(monkeypatch):
     return s
 
 
-def test_an_unapproved_plan_is_reminded_halfway_then_reported_expired(world, sink):  # noqa: F811
+def test_an_unapproved_plan_is_reminded_halfway_then_reported_expired(world, sink):
     out = _run(world, _no_approval)
     assert out.status == "expired"
     assert world["platform"].applied == []
@@ -60,7 +58,7 @@ def test_an_unapproved_plan_is_reminded_halfway_then_reported_expired(world, sin
     assert whats == ["waiting", "waiting", "expired"]
 
 
-def test_a_plan_approved_in_time_gets_no_reminder_and_its_approvers_are_told_how_it_went(world, owner, sink):  # noqa: F811
+def test_a_plan_approved_in_time_gets_no_reminder_and_its_approvers_are_told_how_it_went(world, owner, sink):
     """No waiting or expired message - and, since the owner's first live approvals (2026-10-12, G10-24), the
     people who approved it hear that the fix was verified and that it held."""
     out = _run(world, _approve_with(owner))
@@ -76,7 +74,7 @@ def test_a_plan_approved_in_time_gets_no_reminder_and_its_approvers_are_told_how
     assert not any("waiting for an approval" in t or "expired" in t for t in told)
 
 
-def test_a_plan_approved_after_the_reminder_goes_ahead(world, owner, sink):  # noqa: F811
+def test_a_plan_approved_after_the_reminder_goes_ahead(world, owner, sink):
     async def drive(handle):
         plan = await _until_awaiting_approval(handle)
         for _ in range(3000):  # the reminder fires at half the TTL; time passes only while a result is awaited

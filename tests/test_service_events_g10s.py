@@ -15,7 +15,6 @@ import re
 
 import pytest
 
-from test_lambdas_g6 import submitted  # noqa: F401
 from warden import intake, lambdas
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -85,7 +84,7 @@ def test_everything_else_a_service_says_starts_nothing(event):
     assert lambdas.service_event(event, "ops") is None
 
 
-def test_the_alarm_lambda_takes_both_and_an_expected_down_service_event_is_recorded_and_not_looked_at_again(submitted):  # noqa: F811
+def test_the_alarm_lambda_takes_both_and_an_expected_down_service_event_is_recorded_and_not_looked_at_again(submitted):
     assert lambdas.alarm(_ecs())["decisions"] == [{"action": "start"}]
     assert submitted[0].stateless
     assert "ignored" in lambdas.alarm(_ecs("SERVICE_STEADY_STATE", "INFO"))

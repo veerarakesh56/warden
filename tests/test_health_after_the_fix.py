@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from test_aws_platform_g6 import FN, NOW, aws  # noqa: F401
+from test_aws_platform_g6 import FN, NOW
 from warden import catalog
 from warden.platforms import aws as aws_mod
 
@@ -31,7 +31,7 @@ def _by_minute(f, before, after):
     f.get_metric_data = get_metric_data
 
 
-def test_errors_from_before_the_fix_do_not_fail_it(aws):  # noqa: F811
+def test_errors_from_before_the_fix_do_not_fail_it(aws):
     f, p = aws
     _by_minute(f, before={"Invocations": 10.0, "Errors": 5.0}, after={"Invocations": 10.0, "Errors": 0.0})
     params = {"function": FN, "alias": "live", "to_version": "3"}
@@ -40,7 +40,7 @@ def test_errors_from_before_the_fix_do_not_fail_it(aws):  # noqa: F811
     assert p.healthy(FN, entry="lambda_move_alias", params=params) is True
 
 
-def test_errors_after_the_fix_still_fail_it_and_too_soon_is_unknown(aws):  # noqa: F811
+def test_errors_after_the_fix_still_fail_it_and_too_soon_is_unknown(aws):
     f, p = aws
     _by_minute(f, before={"Invocations": 10.0, "Errors": 5.0}, after={"Invocations": 10.0, "Errors": 2.0})
     params = {"function": FN, "alias": "live", "to_version": "3", catalog.APPLIED_AT: FIXED.isoformat()}
@@ -54,7 +54,7 @@ def test_errors_after_the_fix_still_fail_it_and_too_soon_is_unknown(aws):  # noq
     (datetime(2026, 10, 16, 7, 59, 41, tzinfo=UTC), datetime(2026, 10, 16, 8, 1, tzinfo=UTC)),
     (datetime(2026, 10, 16, 7, 59, 30, tzinfo=UTC), datetime(2026, 10, 16, 8, 0, tzinfo=UTC)),
 ])
-def test_no_minute_that_began_before_the_fix_settled_is_counted(aws, at, first):  # noqa: F811
+def test_no_minute_that_began_before_the_fix_settled_is_counted(aws, at, first):
     f, p = aws
     seen = []
     f.get_metric_data = lambda MetricDataQueries, StartTime, EndTime, **kw: seen.append(StartTime) or {
@@ -64,7 +64,7 @@ def test_no_minute_that_began_before_the_fix_settled_is_counted(aws, at, first):
     assert seen == [first]
 
 
-def test_a_fix_judged_by_metrics_gets_the_time_that_takes(aws):  # noqa: F811
+def test_a_fix_judged_by_metrics_gets_the_time_that_takes(aws):
     _, p = aws
     live = p.live("lambda_move_alias", {"function": FN, "alias": "live", "to_version": "3"})
     assert live

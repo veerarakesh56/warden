@@ -91,7 +91,6 @@ def test_slack_is_told_its_note_of_a_button_click_arrived_and_nothing_is_done_wi
     it is answered (docs.slack.dev, button element, read 2026-10-12)."""
     import pathlib
 
-    from test_approval_page import setup as page_setup  # noqa: F401
     from warden.approval_page import ApprovalPage
 
     page = ApprovalPage(rp_id=RP, policy=_policy(), plan_of=lambda wf: None, signal=lambda wf, a: None)

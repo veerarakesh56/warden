@@ -8,13 +8,7 @@ from datetime import UTC, datetime
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from test_remediation_workflow import (  # noqa: F401
-    _approve_with,
-    _run,
-    _until_awaiting_approval,
-    owner,
-    world,
-)
+from test_remediation_workflow import _approve_with, _run, _until_awaiting_approval
 from warden import approvals
 from warden.workflows import RemediationWorkflow
 
@@ -23,7 +17,7 @@ def _end(w):
     return w["log"].entries("inc-42", kinds=("workflow.end",))[-1]["body"]
 
 
-def test_a_change_one_person_approved_says_so(world, owner):  # noqa: F811
+def test_a_change_one_person_approved_says_so(world, owner):
     assert _run(world, _approve_with(owner)).status == "recovered"
     end = _end(world)
     assert end["single_approver"] is True
@@ -33,7 +27,7 @@ def test_a_change_one_person_approved_says_so(world, owner):  # noqa: F811
     assert [e["body"]["required"] for e in accepted] == [1]
 
 
-def test_a_change_two_people_approved_is_not_called_single(world, owner):  # noqa: F811
+def test_a_change_two_people_approved_is_not_called_single(world, owner):
     second = Ed25519PrivateKey.generate()
     pem = second.public_key().public_bytes(serialization.Encoding.PEM,
                                            serialization.PublicFormat.SubjectPublicKeyInfo).decode()

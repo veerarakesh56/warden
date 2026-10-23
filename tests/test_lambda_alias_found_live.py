@@ -5,12 +5,12 @@ that served before, as ever); more than one, and WARDEN does not choose."""
 
 from __future__ import annotations
 
-from test_aws_platform_g6 import FN, aws  # noqa: F401 - the fixture
+from test_aws_platform_g6 import FN
 from warden import catalog, resolver
 from warden.models import ActionKind, Alert, RemediationProposal, Severity
 
 
-def test_a_function_with_one_alias_is_planned_on_it(aws):  # noqa: F811
+def test_a_function_with_one_alias_is_planned_on_it(aws):
     f, p = aws
     f.list_aliases = lambda FunctionName, **kw: {"Aliases": [{"Name": "live"}]}
     live = p.live("lambda_move_alias", {"function": FN})
@@ -19,7 +19,7 @@ def test_a_function_with_one_alias_is_planned_on_it(aws):  # noqa: F811
     assert catalog.validate("lambda_move_alias", {"function": FN, "alias": "live", "to_version": "3"}, live) == []
 
 
-def test_a_function_with_several_aliases_and_none_named_is_refused(aws):  # noqa: F811
+def test_a_function_with_several_aliases_and_none_named_is_refused(aws):
     f, p = aws
     f.list_aliases = lambda FunctionName, **kw: {"Aliases": [{"Name": "live"}, {"Name": "beta"}]}
     live = p.live("lambda_move_alias", {"function": FN})
@@ -38,7 +38,7 @@ def _proposal():
                                blast_radius="single_service", reversible=True)
 
 
-def test_the_resolver_asks_the_live_read_for_the_alias_when_the_alarm_names_none(aws):  # noqa: F811
+def test_the_resolver_asks_the_live_read_for_the_alias_when_the_alarm_names_none(aws):
     f, p = aws
     f.list_aliases = lambda FunctionName, **kw: {"Aliases": [{"Name": "live"}]}
     req, why = resolver.request_for(_alert(), _proposal(), lambda e, params: p.live(e, params))

@@ -10,7 +10,7 @@ import types
 
 import pytest
 
-from test_remediation_workflow import _approve_with, _run, owner, world  # noqa: F401 - fixtures
+from test_remediation_workflow import _approve_with, _run
 from warden.platforms import RoutedPlatform
 from warden.platforms.k8s import (
     RESTARTED_AT,
@@ -224,7 +224,7 @@ def test_the_router_asks_only_platforms_that_know_the_service():
     assert RoutedPlatform(db=_Db()).live("k8s_scale", {}) == {}
 
 
-def test_an_approved_scale_runs_through_the_workflow_end_to_end(world, owner):  # noqa: F811
+def test_an_approved_scale_runs_through_the_workflow_end_to_end(world, owner):
     apps = _Apps(replicas=2)
     world["platform"] = RoutedPlatform(k8s=_platform(apps))
     out = _run(world, _approve_with(owner), entry="k8s_scale", service="orders",

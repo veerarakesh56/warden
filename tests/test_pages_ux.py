@@ -14,7 +14,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from test_approval_page import setup as page_setup  # noqa: F401
 from test_slack_login_g10q import MEMBER, Slack, _login
 from warden import approval_page, audit, brand, records, slack_login
 
@@ -42,7 +41,7 @@ def _log(tmp_path, n=137):
 
 
 @pytest.fixture
-def site(page_setup, tmp_path, monkeypatch):  # noqa: F811
+def site(page_setup, tmp_path, monkeypatch):
     monkeypatch.delenv("WARDEN_RECORD_VIEWERS", raising=False)
     page = page_setup[0]
     policy = page.policy.model_copy(deep=True)

@@ -12,17 +12,17 @@ from concurrent.futures import ThreadPoolExecutor
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from test_discuss_g10v import INCIDENT, _turn, world  # noqa: F401
+from test_discuss_g10v import INCIDENT, _turn
 from warden import codec, discuss
 from warden.cli import DEMO_ALERTS
 from warden.models import Alert
 from warden.workflows import DiscussWorkflow
 
 
-def test_the_record_is_posted_first_and_the_answer_after_it(world):  # noqa: F811
-    acts = world["acts"]
-    pack = world["inc"].prepare(Alert(**{**DEMO_ALERTS["inc-002"], "alert_id": INCIDENT}))
-    world["inc"].verify(pack, world["inc"].diagnose(pack))
+def test_the_record_is_posted_first_and_the_answer_after_it(discuss_world):
+    acts = discuss_world["acts"]
+    pack = discuss_world["inc"].prepare(Alert(**{**DEMO_ALERTS["inc-002"], "alert_id": INCIDENT}))
+    discuss_world["inc"].verify(pack, discuss_world["inc"].diagnose(pack))
 
     async def main():
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
@@ -34,7 +34,7 @@ def test_the_record_is_posted_first_and_the_answer_after_it(world):  # noqa: F81
                                                      id="discuss-facts", task_queue="facts-test")
 
     said = asyncio.run(main())
-    posts = [p for p in world["posted"] if p[0] == "chat.postMessage"]
+    posts = [p for p in discuss_world["posted"] if p[0] == "chat.postMessage"]
     texts = [json.dumps(p[1]) + json.dumps(p[2]) for p in posts]
     assert len(posts) >= 2
     assert f"WARDEN's record of `{INCIDENT}`" in texts[0]

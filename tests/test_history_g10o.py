@@ -8,9 +8,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from test_approval_ladder_h10 import sink  # noqa: F401
 from test_intake import _log
-from test_remediation_workflow import _approve_with, _no_approval, _run, owner, world  # noqa: F401
+from test_remediation_workflow import _approve_with, _no_approval, _run
 from warden import history
 from warden.models import Alert, Severity
 
@@ -120,7 +119,7 @@ def test_an_approval_request_says_when_the_same_fix_on_the_same_target_just_ende
                                now=NOW) == ""
 
 
-def test_the_second_request_for_a_fix_that_was_just_undone_says_so(world, owner, sink):  # noqa: F811
+def test_the_second_request_for_a_fix_that_was_just_undone_says_so(world, owner, sink):
     import dataclasses
 
     from warden import bounds

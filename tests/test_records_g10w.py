@@ -14,7 +14,6 @@ import urllib.parse
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from test_approval_page import setup as page_setup  # noqa: F401
 from test_slack_login_g10q import MEMBER, OTHER, Slack, _login
 from warden import audit, chatops, records, settings, slack_login
 
@@ -56,7 +55,7 @@ def _named(policy):
 # ------------------------------------------------------------------ what a record says
 
 
-def test_a_record_says_how_it_ended_who_decided_with_their_note_and_what_tried_to_steer_warden(page_setup, tmp_path):  # noqa: F811
+def test_a_record_says_how_it_ended_who_decided_with_their_note_and_what_tried_to_steer_warden(page_setup, tmp_path):
     log, policy = _log(tmp_path), _named(page_setup[0].policy)
     _incident(log)
     r = records.record(log, INC, policy)
@@ -71,7 +70,7 @@ def test_a_record_says_how_it_ended_who_decided_with_their_note_and_what_tried_t
     assert records.incident_ids(log) == [INC]  # a discussion's own reading is the incident's, not one of its own
 
 
-def test_a_denial_is_a_decision_with_its_reason_and_nobody_is_shown_by_the_lists_id(page_setup, tmp_path):  # noqa: F811
+def test_a_denial_is_a_decision_with_its_reason_and_nobody_is_shown_by_the_lists_id(page_setup, tmp_path):
     log, policy = _log(tmp_path), _named(page_setup[0].policy)
     _incident(log, end="denied", reasons=["denied by owner: not now", "denied by ghost: x"])
     r = records.record(log, INC, policy)
@@ -83,7 +82,7 @@ def test_a_denial_is_a_decision_with_its_reason_and_nobody_is_shown_by_the_lists
     assert "ghost" not in page
 
 
-def test_every_value_on_a_page_is_text_never_markup(page_setup, tmp_path):  # noqa: F811
+def test_every_value_on_a_page_is_text_never_markup(page_setup, tmp_path):
     log = _log(tmp_path)
     _incident(log)
     r = records.record(log, INC, _named(page_setup[0].policy))
@@ -103,7 +102,7 @@ def test_every_value_on_a_page_is_text_never_markup(page_setup, tmp_path):  # no
 # ------------------------------------------------------------------ who may read them
 
 
-def _page(page_setup, tmp_path):  # noqa: F811
+def _page(page_setup, tmp_path):
     page = page_setup[0]
     log = _log(tmp_path)
     _incident(log)
@@ -112,7 +111,7 @@ def _page(page_setup, tmp_path):  # noqa: F811
     return dataclasses.replace(page, policy=policy, log=log, slack=_login(Slack())), log
 
 
-def test_the_records_open_only_for_an_approver_or_a_listed_viewer_slack_named(page_setup, tmp_path, monkeypatch):  # noqa: F811
+def test_the_records_open_only_for_an_approver_or_a_listed_viewer_slack_named(page_setup, tmp_path, monkeypatch):
     monkeypatch.delenv("WARDEN_RECORD_VIEWERS", raising=False)
     page, _ = _page(page_setup, tmp_path)
     out = page.handle("GET", "/r")
@@ -146,7 +145,7 @@ def test_the_records_open_only_for_an_approver_or_a_listed_viewer_slack_named(pa
     assert INC not in page.handle("GET", "/r", cookies=forged).body
 
 
-def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(page_setup, tmp_path, monkeypatch):  # noqa: F811
+def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(page_setup, tmp_path, monkeypatch):
     monkeypatch.delenv("WARDEN_RECORD_VIEWERS", raising=False)
 
     def sign_in(page, slack, path="/s/r"):
@@ -181,7 +180,7 @@ def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(
     assert page.handle("GET", "/s/r/x/y").status == 404
 
 
-def test_open_all_opens_every_panel_and_every_page_leads_to_all_incidents(page_setup, tmp_path):  # noqa: F811
+def test_open_all_opens_every_panel_and_every_page_leads_to_all_incidents(page_setup, tmp_path):
     """Owner, 2026-10-15: "open all ... didnt open all, the evidence ... every step on the record these 2 didnt open";
     "all the records should be in one place ... that link is missing"."""
     log = _log(tmp_path)
@@ -205,7 +204,7 @@ def _waiting(log, tier="T1"):
                                          "target": "rule/tick", "plan_hash": "h"})
 
 
-def test_a_waiting_plans_record_gives_its_approver_a_button_that_opens_the_plan(page_setup, tmp_path, monkeypatch):  # noqa: F811
+def test_a_waiting_plans_record_gives_its_approver_a_button_that_opens_the_plan(page_setup, tmp_path, monkeypatch):
     """Owner, 2026-10-15: "the approve button i dont see here why". Only for an approver of the plan's tier with a
     passkey, only while it waits; it opens the approval page with a fresh link, and approves nothing itself."""
     monkeypatch.delenv("WARDEN_RECORD_VIEWERS", raising=False)
@@ -315,7 +314,7 @@ FINDINGS = chr(10).join([
     "_Identifiers are masked._"])
 
 
-def test_the_complete_findings_are_on_the_page_section_by_section_and_stay_text(page_setup, tmp_path):  # noqa: F811
+def test_the_complete_findings_are_on_the_page_section_by_section_and_stay_text(page_setup, tmp_path):
     """Owner, 2026-10-14: "not only summary also complete findings on page to refer if needed to see all the details
     in depth" - the whole report, each section its own panel, laid out; and the evidence the model was shown."""
     log = _log(tmp_path)
@@ -338,7 +337,7 @@ def test_the_complete_findings_are_on_the_page_section_by_section_and_stay_text(
     assert 'id="all"' in page  # one script: "open all"
 
 
-def test_every_incident_stays_listed_with_no_time_limit_newest_first_by_day_fifty_a_page(page_setup, tmp_path):  # noqa: F811
+def test_every_incident_stays_listed_with_no_time_limit_newest_first_by_day_fifty_a_page(page_setup, tmp_path):
     """Owner, 2026-10-14: "should be even available after a year too ... no time limit ... multiple pages should be
     in order with time date timestamp ... all of them at one place and can open whichever we want"."""
     from datetime import UTC, datetime, timedelta
@@ -378,7 +377,7 @@ def test_every_incident_stays_listed_with_no_time_limit_newest_first_by_day_fift
 
 
 def test_independent_check_fixes_the_records_close_without_sign_in_name_people_and_show_what_was_said(
-        page_setup, tmp_path):  # noqa: F811
+        page_setup, tmp_path):
     """The independent check, 2026-10-14: the records were open to anyone where no Slack sign-in was set up; a refused
     approval's reason named the list's id; the messages kept instead of posted were not shown, every one labelled
     "Asked for approval"; the list read every incident's whole evidence."""

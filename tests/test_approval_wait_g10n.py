@@ -11,11 +11,9 @@ from datetime import timedelta
 import pytest
 from pydantic import ValidationError
 
-from test_approval_ladder_h10 import sink  # noqa: F401
 from test_approval_page import PLAN, T0, _Clock, _show
-from test_approval_page import setup as page_setup  # noqa: F401
 from test_plan_fix_g9d import _alert, _proposal
-from test_remediation_workflow import REQ, _no_approval, _run, owner, world  # noqa: F401
+from test_remediation_workflow import REQ, _no_approval, _run
 from warden import approval_page, audit, environments, resolver
 from warden.activities import MAX_APPROVAL_TTL_MINUTES, FixRequest, Plan, _deadline
 from warden.models import ActionKind
@@ -45,7 +43,7 @@ def test_a_plan_made_from_an_incident_waits_as_long_as_its_environment_says():
     assert FixRequest(**{k: v for k, v in req.items() if k != "workflow_id"}).approval_ttl_minutes == 72 * 60
 
 
-def test_the_message_says_until_when_and_the_link_lasts_as_long_as_the_plan(world, sink):  # noqa: F811
+def test_the_message_says_until_when_and_the_link_lasts_as_long_as_the_plan(world, sink):
     out = _run(world, _no_approval, approval_ttl_minutes=600)
     assert out.status == "expired"
     assert "It waits until " in sink.texts[0]
@@ -55,7 +53,7 @@ def test_the_message_says_until_when_and_the_link_lasts_as_long_as_the_plan(worl
     assert _deadline(plan.model_copy(update={"approval_ttl_minutes": 0})) == T0 + timedelta(minutes=30)  # an old plan
 
 
-def test_a_link_hours_old_is_still_found_by_the_lambdas_store_and_ends_with_its_own_time(page_setup, tmp_path):  # noqa: F811
+def test_a_link_hours_old_is_still_found_by_the_lambdas_store_and_ends_with_its_own_time(page_setup, tmp_path):
     import dataclasses
 
     page, device, _, _ = page_setup

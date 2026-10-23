@@ -8,8 +8,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from test_approval_ladder_h10 import sink  # noqa: F401
-from test_remediation_workflow import owner, world  # noqa: F401
 from warden import catalog
 from warden.activities import Plan, RemediationActivities
 
@@ -25,7 +23,7 @@ def test_a_mapping_is_shown_by_its_function_and_keyed_by_its_id():
         "dev/k8s:shop/orders"
 
 
-def test_the_approval_request_for_a_mapping_reaches_the_channel(world, sink):  # noqa: F811
+def test_the_approval_request_for_a_mapping_reaches_the_channel(world, sink):
     acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
     plan = Plan(workflow_id="rem-dev-180000b1cc263177", incident_id="inc-7", entry="lambda_enable_esm", tier="T1",
                 params=PARAMS, plan_hash="p" * 64, created_at=datetime.now(UTC),

@@ -4,13 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from test_remediation_workflow import (  # noqa: F401 - fixtures
-    FakePlatform,
-    _approve_with,
-    _run,
-    owner,
-    world,
-)
+from test_remediation_workflow import FakePlatform, _approve_with, _run
 from warden import bounds
 from warden.workflows import CONSECUTIVE_HEALTHY, RemediationWorkflow
 
@@ -27,14 +21,14 @@ class _Sequence(FakePlatform):
         return self.readings[min(self.checks, len(self.readings)) - 1]
 
 
-def test_flapping_health_never_adds_up_to_recovery(world, owner):  # noqa: F811
+def test_flapping_health_never_adds_up_to_recovery(world, owner):
     world["platform"] = _Sequence([True, False, True, True, False] * 20)  # never three in a row
     out = _run(world, _approve_with(owner))
     assert out.status == "rolled_back"
     assert world["platform"].rolled_back
 
 
-def test_recovery_needs_consecutive_healthy_checks_then_holds_through_both_re_checks(world, owner):  # noqa: F811
+def test_recovery_needs_consecutive_healthy_checks_then_holds_through_both_re_checks(world, owner):
     world["platform"] = _Sequence([False, True, True, True])
     out = _run(world, _approve_with(owner))
     assert out.status == "recovered"
@@ -42,7 +36,7 @@ def test_recovery_needs_consecutive_healthy_checks_then_holds_through_both_re_ch
     assert [e["body"]["ok"] for e in world["log"].entries(kinds=(bounds.RESULT,))] == [True]
 
 
-def test_a_relapse_is_a_failed_result_left_for_a_person(world, owner):  # noqa: F811
+def test_a_relapse_is_a_failed_result_left_for_a_person(world, owner):
     world["platform"] = _Sequence([True, True, True, False])  # fails at the T+15 re-check
     out = _run(world, _approve_with(owner))
     assert out.status == "relapsed"
@@ -51,7 +45,7 @@ def test_a_relapse_is_a_failed_result_left_for_a_person(world, owner):  # noqa: 
     assert world["platform"].rolled_back == []  # WARDEN never reverses its own fix on its own (register C8)
 
 
-def test_an_alarm_while_watching_is_a_relapse(world, owner):  # noqa: F811
+def test_an_alarm_while_watching_is_a_relapse(world, owner):
     world["platform"] = _Sequence([True])
 
     async def drive(handle):
@@ -86,7 +80,7 @@ def test_the_recorded_verdict_needs_the_last_k_checks_healthy_too():
     assert acts.record_result(plan, REQ["service"], True, 1).ok is True
 
 
-def test_an_unhealthy_reading_restarts_the_count(world, owner):  # noqa: F811
+def test_an_unhealthy_reading_restarts_the_count(world, owner):
     """T F T F T T T: the third healthy reading is not the third in a row - recovery waits for the seventh."""
     world["platform"] = _Sequence([True, False, True, False, True, True, True])
     out = _run(world, _approve_with(owner))

@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from fakes import HUNTER2
-from test_remediation_workflow import _approve_with, _run, owner, world  # noqa: F401 - fixtures
+from test_remediation_workflow import _approve_with, _run
 from warden.platforms import RoutedPlatform
 from warden.platforms.db import DatabasePlatform, DatabasePlatformError
 
@@ -191,7 +191,7 @@ def test_nothing_to_roll_back_and_health_is_a_positive_read():
     assert not _platform(conn=_Conn(stuck=()), users=[]).healthy("orders")
 
 
-def test_an_approved_close_runs_through_the_workflow_end_to_end(world, owner, monkeypatch):  # noqa: F811
+def test_an_approved_close_runs_through_the_workflow_end_to_end(world, owner, monkeypatch):
     conn = _Conn(stuck=(101,))
     platform = _platform(conn=conn)
     world["platform"] = RoutedPlatform(db=platform)

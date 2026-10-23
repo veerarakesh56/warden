@@ -10,6 +10,7 @@ exercise the live path is still honoured; this only supplies the default the Mak
 """
 
 import functools
+import importlib.util
 import logging
 import os
 import pathlib
@@ -90,7 +91,15 @@ _DATA_KEY = pytest.StashKey[dict]()
 def pytest_configure(config):
     """Under pytest-xdist, start Temporal's time-skipping test server once in the controller, before any
     worker exists: the SDK downloads its binary on first use to one shared path, and several workers doing
-    that at once failed with "Text file busy" (CI, 2026-09-30, commit 14e32e1). Workers then find it."""
+    that at once failed with "Text file busy" (CI, 2026-09-30, commit 14e32e1). Workers then find it.
+
+    Also offers the fixtures several files share (world, owner, sink, page_setup...), so no file imports another's
+    fixtures. They live in the unit tests, which need the approval extra (webauthn, and cbor2 with it). The CI jobs
+    that run a lean install - the live database and cluster tests, the workflow scan's tests - use none of them and
+    do not install it: there they are not offered, and a test that asked for one would fail "fixture not found",
+    never be skipped."""
+    if importlib.util.find_spec("webauthn") is not None:
+        config.pluginmanager.import_plugin("shared_fixtures")
     if not hasattr(config, "workerinput"):
         # Register N9: nothing WARDEN runs writes into its own data/ (held for the whole run, controller only).
         from data_snapshot import snapshot
