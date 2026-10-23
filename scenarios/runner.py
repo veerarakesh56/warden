@@ -597,7 +597,7 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
                 account=harness.account, registry=harness.registry,
             )
             record["revert_ok"] = True
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  # any revert failure is recorded; the run still reports
             record["revert_ok"] = False
             record["revert_error"] = f"{type(exc).__name__}: {exc}"
         record["ended_at"] = _now()
@@ -680,7 +680,7 @@ def run_wave(harness: Harness, scenarios: list[dict], out: pathlib.Path, *, repe
 def _live_harness(timeout_s: float) -> Harness:
     try:
         import boto3
-    except ImportError as exc:  # pragma: no cover - an environment problem, not logic
+    except ImportError as exc:
         raise RunnerError("the benchmark needs boto3: pip install -e '.[aws]'") from exc
 
     outputs = terraform_outputs()
@@ -902,7 +902,7 @@ def _k8s_live_harness(timeout_s: float) -> Harness:
     try:
         from kubernetes import client as kube
         from kubernetes import config as kube_config
-    except ImportError as exc:  # pragma: no cover - an environment problem, not logic
+    except ImportError as exc:
         raise RunnerError("the Kubernetes wave needs the client: pip install -e '.[k8s]'") from exc
 
     kube_config.load_kube_config()

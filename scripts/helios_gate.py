@@ -24,7 +24,7 @@ import json
 import os
 import pathlib
 import re
-import subprocess  # nosec B404 - runs the pinned Helios binary with fixed arguments
+import subprocess  # nosec B404  # runs the pinned Helios binary with fixed arguments
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -111,7 +111,7 @@ def simulate(helios: list[str], document: pathlib.Path, scenario: pathlib.Path):
         argv = _helios_argv(helios, document, scenario)
     except ValueError as e:
         return ("error", str(e)[:300])
-    r = subprocess.run(argv,  # nosec B603
+    r = subprocess.run(argv,  # nosec B603  # the Helios binary and paths checked by _helios_argv
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300, check=False,
                        env=_bare_env())
     if r.returncode == INCONCLUSIVE:

@@ -13,6 +13,7 @@ import base64
 import json
 import os
 import pathlib
+import shutil
 import signal
 import subprocess
 import sys
@@ -556,8 +557,11 @@ def run_suite(paths: list[str] | None = None, limit: int = 1800) -> bool | str:
 
 def _kill_tree(proc: subprocess.Popen) -> None:
     """Stop the run and its workers: killing only pytest leaves xdist workers running on Windows."""
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],  # nosec B603 B607
+    taskkill = shutil.which("taskkill") if os.name == "nt" else None
+    if os.name == "nt" and not taskkill:
+        proc.kill()  # no taskkill found: pytest itself at least
+    elif taskkill:
+        subprocess.run([taskkill, "/T", "/F", "/PID", str(proc.pid)],  # nosec B603  # a fixed argv and no shell
                        capture_output=True, check=False)
     else:
         import signal

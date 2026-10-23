@@ -76,7 +76,7 @@ for label, steps in checks:
         for op, args in steps:
             ops_k8s.OPS[op](clients, t, **args)
         print(f"ACCEPTED  {label}")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  # a preflight reports every rejection of any type
         failed += 1
         msg = str(exc).splitlines()
         body = next((line for line in msg if line.startswith("HTTP response body")), msg[0])

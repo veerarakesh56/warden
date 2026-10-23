@@ -144,7 +144,7 @@ def _billable_orphans(ec2: Any) -> dict[str, list[str]]:
     def _ids(call: str, key: str, path: str, **kw: Any) -> list[str]:
         try:
             return [r[path] for r in getattr(ec2, call)(**kw).get(key) or []]
-        except Exception as exc:  # noqa: BLE001 - a denied or missing API must not hide the rest
+        except Exception as exc:  # noqa: BLE001  # a denied or missing API is named; it never hides the rest
             return [f"could not check: {type(exc).__name__}"]
 
     return {
@@ -192,7 +192,7 @@ def sweep(ecs: Any, logs: Any, tagging: Any, family: str, log_group: str,
     running: list[str] = []
     try:
         running = ecs.list_tasks(cluster=cluster).get("taskArns") or []
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  # any failure but a gone cluster is named; never "none"
         # A cluster that no longer exists has no running tasks; any other failure is not "none" (audit A-B-M19).
         if "ClusterNotFound" not in type(exc).__name__ + str(exc):
             running = [f"could not check list_tasks: {type(exc).__name__}"]

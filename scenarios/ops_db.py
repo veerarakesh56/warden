@@ -29,12 +29,15 @@ scenario. Said here rather than discovered later from a confusing artefact.
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from .ops import OpError
+
+_LOG = logging.getLogger("scenarios.ops_db")
 
 # The table whose presence means "this database is the proving ground". Created by the harness at
 # setup; every op checks it before touching anything.
@@ -150,7 +153,7 @@ def op_db_saturate_connections(clients: Clients, target: Target, *, target_pct: 
         try:
             _HELD.append(clients.connect())
             opened += 1
-        except Exception as exc:  # noqa: BLE001 - the server refusing IS the result here
+        except Exception as exc:  # noqa: BLE001  # the server refusing IS the result here; reported
             # Reported, never silently treated as if the target had been reached.
             return {"max_connections": max_conn, "opened": opened, "stopped_early": str(exc)[:120]}
     return {"max_connections": max_conn, "opened": opened, "target_pct": int(target_pct)}
@@ -174,8 +177,8 @@ def op_db_run_long_query(clients: Clients, target: Target, *, seconds: int = 900
         try:
             with conn.cursor() as cur:
                 cur.execute("SELECT pg_sleep(%s)", (int(seconds),))
-        except Exception:  # noqa: BLE001, S110 - cancellation by the revert is the expected
-            pass           # ending of this thread, and there is nobody left to report it to
+        except Exception as exc:  # noqa: BLE001  # the revert's cancel is this thread's expected end
+            _LOG.debug("the long query ended (%s)", type(exc).__name__)
 
     thread = threading.Thread(target=run, daemon=True, name="warden-bench-long-query")
     thread.start()
@@ -242,13 +245,13 @@ def op_db_release_everything(clients: Clients, target: Target, *, account: str =
     if long_query is not None:
         try:
             long_query.cancel()
-        except Exception:  # noqa: BLE001, S110 - closing below is what actually matters
-            pass
+        except Exception as exc:  # noqa: BLE001  # cleanup: closing below is what actually matters
+            _LOG.debug("the long query was not cancelled (%s)", type(exc).__name__)
         try:
             long_query.close()
             cancelled = 1
-        except Exception:  # noqa: BLE001, S110 - a connection already gone is still gone
-            pass
+        except Exception as exc:  # noqa: BLE001  # cleanup: a connection already gone is still gone
+            _LOG.debug("the long query's connection did not close (%s)", type(exc).__name__)
 
     closed = 0
     while _HELD:
