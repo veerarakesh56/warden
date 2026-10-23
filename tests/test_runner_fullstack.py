@@ -550,7 +550,7 @@ def test_the_stack_file_supplies_the_writer_instance_express_chose():
 def test_the_stack_kubeconfig_loads_through_the_real_client(tmp_path, monkeypatch):
     """Two real crashes: ~/.kube/config with no current context, then a Path where the client needs str.
     This goes through the REAL kubernetes loader with a real file."""
-    kube = pytest.importorskip("kubernetes")
+    kube = pytest.importorskip("kubernetes", reason="pip install -e '.[k8s]'")
     cfg = tmp_path / "kubeconfig"
     cfg.write_text(
         "apiVersion: v1\nkind: Config\ncurrent-context: warden-dev-eks\n"

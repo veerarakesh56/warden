@@ -16,7 +16,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import replay_diagnose as rd  # after the sys.path line above
 
 RUN = ROOT / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z"
-pytestmark = pytest.mark.skipif(not RUN.exists(), reason="the published run is not in this checkout")
 
 
 def test_a_mock_replay_scores_end_to_end(tmp_path):

@@ -405,9 +405,9 @@ def _catalogs():
 
     root = pathlib.Path(__file__).resolve().parents[1]
     catalog = root / "scenarios" / "catalog"
-    if not catalog.exists():
-        pytest.skip("no catalog in this checkout")
-    for path in sorted(catalog.glob("*.yaml")):
+    paths = sorted(catalog.glob("*.yaml"))
+    assert paths, f"no scenario catalog in {catalog}"
+    for path in paths:
         yield path, yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 

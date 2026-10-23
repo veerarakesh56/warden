@@ -29,8 +29,8 @@ def denied(path: str) -> bool:
 
 
 def _tracked() -> list[str]:
-    if not shutil.which("git") or not (ROOT / ".git").exists():
-        pytest.skip("not a git checkout")
+    assert shutil.which("git"), "the tracked-files check needs git"
+    assert (ROOT / ".git").exists(), f"{ROOT} is not a git checkout"
     out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True).stdout
     return [p for p in out.decode("utf-8").split("\0") if p]
 
