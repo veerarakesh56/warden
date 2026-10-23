@@ -463,11 +463,14 @@ def _metric_queries(queries: dict) -> tuple[dict[str, tuple[str, str]], list[dic
 
 def _series_value(stat: str, values: list) -> float:
     """One series' value over the window: a `Sum` is summed (a count), `Sum/s` is the busiest period's per-second rate,
-    every other stat is the max."""
+    `.../min` the lowest period (a balance where lower is worse: credits, free storage; U3-3), every other stat the
+    max."""
     if stat == "Sum":
         return float(sum(values))
     if stat == SUM_PER_SECOND:
         return float(max(values) / METRIC_PERIOD_S)
+    if stat.endswith("/min"):
+        return float(min(values))
     return float(max(values))
 
 
@@ -934,6 +937,12 @@ class StackBackend:
 
         readers += [(key.replace("_", "-"), lambda out, key=key: self._read_state(out, key, lab[key]))
                     for key in aws_describe.TABLE if lab.get(key)]
+        # U3-3: each named resource's key health signals (a NAT gateway's port allocation errors, an EFS file system's
+        # burst credits), with the statistic AWS documents for each - not left to the alarm's sibling list.
+        from . import health_signals
+
+        readers += [(f"{key.replace('_', '-')} health", lambda out, key=key: self._read_health(out, alert, key, lab[key]))
+                    for key in health_signals.TABLE if lab.get(key)]
         # G10-C2: what the group did and why (a scheduled scale-in, a failed launch), and why executions failed.
         if lab.get("asg"):
             readers.append(("asg-activity", lambda out: self._read_asg_activity(out, alert, lab["asg"])))
@@ -1083,6 +1092,10 @@ class StackBackend:
                                           f"{res['StatusCode']} (the series may be incomplete)"))
             if res.get("Id") in ids and values:
                 key, stat = ids[res["Id"]]
+                # A lowest-of-the-window (`/min`, U3-3) from an unfinished series may miss its lowest point and read
+                # healthier than it was: not given at all, only said above (CodeRabbit, PR 144).
+                if stat.endswith("/min") and res.get("StatusCode") not in (None, "Complete"):
+                    continue
                 got[key] = _series_value(stat, values)
         return got
 
@@ -1214,6 +1227,12 @@ class StackBackend:
         if d.service not in self._clients and not hasattr(self._clients, "__missing__"):
             raise ToolError(f"no {d.service} client")
         out.lines.append(aws_describe.read(key, name, self._clients[d.service], self._account, self._cw.meta.region_name))
+
+    def _read_health(self, out: _Out, alert: Alert, key: str, name: str) -> None:
+        from . import health_signals
+
+        out.metrics.update(self._cw_read(out, f"{key.replace('_', '-')} health", alert,
+                                         health_signals.queries(key, name, self._account)))
 
     def _account(self) -> str:
         if not self._account_id:
