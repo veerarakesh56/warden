@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:496b2906-cce1-536a-b6d0-71345e43af8c",
+  "serialNumber": "urn:uuid:983a467e-da21-5ccb-bd07-aeeb4e298452",
   "version": 1,
   "metadata": {
     "component": {
@@ -690,6 +690,19 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:pypi/libcst@1.9.0",
+      "name": "libcst",
+      "version": "1.9.0",
+      "purl": "pkg:pypi/libcst@1.9.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "087b58a9afe076bb08e2d726478e1f16cb928d67ffa9092817e033c335de522a"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:pypi/license-expression@30.4.4",
       "name": "license-expression",
       "version": "30.4.4",
@@ -698,6 +711,19 @@
         {
           "alg": "SHA-256",
           "content": "73448f0aacd8d0808895bdc4b2c8e01a8d67646e4188f887375398c761f340fd"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/linkify-it-py@2.2.0",
+      "name": "linkify-it-py",
+      "version": "2.2.0",
+      "purl": "pkg:pypi/linkify-it-py@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "907acd2d17ac1fbb9ddb62c8957ccbd6158cac602231a15c3b0cd1e215f03cee"
         }
       ]
     },
@@ -755,6 +781,19 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:pypi/mdit-py-plugins@0.6.1",
+      "name": "mdit-py-plugins",
+      "version": "0.6.1",
+      "purl": "pkg:pypi/mdit-py-plugins@0.6.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a2bca0f039f39dbd35fb74ae1b5f998608c437463371f0ff7f49a19a17a114d0"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:pypi/mdurl@0.1.2",
       "name": "mdurl",
       "version": "0.1.2",
@@ -802,6 +841,19 @@
         {
           "alg": "SHA-256",
           "content": "0f06e60fa190aa7abd0914c2a766736fdc8e9f34878c4346338534b73d1b20e2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/mutmut@3.8.0",
+      "name": "mutmut",
+      "version": "3.8.0",
+      "purl": "pkg:pypi/mutmut@3.8.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "bc670276518f893ab356f1d28826c49b7e606e7cf89c300e3888c0b52fc1d2ed"
         }
       ]
     },
@@ -1608,6 +1660,19 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:pypi/pyyaml-ft@8.0.0",
+      "name": "pyyaml-ft",
+      "version": "8.0.0",
+      "purl": "pkg:pypi/pyyaml-ft@8.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "0c947dce03954c7b5d38869ed4878b2e6ff1d44b08a0d84dc83fdad205ae39ab"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:pypi/redis@8.1.0",
       "name": "redis",
       "version": "8.1.0",
@@ -1733,6 +1798,19 @@
         {
           "alg": "SHA-256",
           "content": "fabaf3e0f18a6618d9b36560682562157f77c2b71fcffc7b432be2baed9d753d"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/setproctitle@1.3.8",
+      "name": "setproctitle",
+      "version": "1.3.8",
+      "purl": "pkg:pypi/setproctitle@1.3.8",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "cafe209d064a6efb88cb45a03e97981ff8832802b2b5d009dde0197a3b7b41c8"
         }
       ]
     },
@@ -1915,6 +1993,19 @@
         {
           "alg": "SHA-256",
           "content": "adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/textual@8.2.8",
+      "name": "textual",
+      "version": "8.2.8",
+      "purl": "pkg:pypi/textual@8.2.8",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3f106a9fbc73e39dd266c9712432087de78a6d644084c7c241d6a25c3169115b"
         }
       ]
     },

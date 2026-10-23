@@ -30,6 +30,15 @@ from warden.reporting import build_report
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "warden"
 
+
+@pytest.fixture(autouse=True)
+def _ledger_of_this_test_only(monkeypatch):
+    """Each test here starts with no audit log taking egress rows: a log an earlier test (in any file) gave
+    egress.ledger_to and never closed stayed in egress._OPEN, and these tests then saw it take the rows - mutmut's
+    test order showed it (PR 179). Restored after the test."""
+    monkeypatch.setattr(egress, "_OPEN", [])
+    monkeypatch.setattr(egress, "_SINK", {})
+
 EMAIL = "canary.person" + "@" + "example.org"
 IP = "203.0.113." + "77"
 PHONE = "+1 415 555 " + "0142"

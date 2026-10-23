@@ -561,12 +561,14 @@ def test_the_stack_kubeconfig_loads_through_the_real_client(tmp_path, monkeypatc
     assert cli.load_kubeconfig(kube.config, default=cfg) == "warden-dev-eks"
     # kubectl subprocesses (mint_kubeconfig) must use the same file, not ~/.kube/config.
     assert os.environ["KUBECONFIG"] == str(cfg)
+    # load_kubeconfig wrote it straight into os.environ: removed here, so monkeypatch restores "unset", not this file.
+    os.environ.pop("KUBECONFIG")
     monkeypatch.setenv("KUBECONFIG", str(tmp_path / "missing"))
     with pytest.raises(cli.StepError, match="no usable kubeconfig"):
         cli.load_kubeconfig(kube.config, default=cfg)
 
 
-def test_a_wave4_report_is_posted_as_the_stack_it_ran_on(tmp_path, capsys):
+def test_a_wave4_report_is_posted_as_the_stack_it_ran_on(tmp_path, capsys, monkeypatch):
     """WARDEN ran with WARDEN_BACKEND=stack. The Slack re-render had no mapping for Wave 4's
     target_kind, so a report without stack labels fell back to "assume Kubernetes" commands."""
     import importlib.util
@@ -579,6 +581,10 @@ def test_a_wave4_report_is_posted_as_the_stack_it_ran_on(tmp_path, capsys):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     capsys.readouterr()
+    # main() writes the run's region into os.environ when none is set. setenv then delenv makes monkeypatch record
+    # AWS_REGION as it was before the test (setenv) and leave it unset for main(), so teardown undoes main()'s write.
+    monkeypatch.setenv("AWS_REGION", "recorded-by-monkeypatch")
+    monkeypatch.delenv("AWS_REGION")
     assert mod.main(["--run", str(tmp_path), "--print"]) == 0
     out = capsys.readouterr().out
     assert "assume Kubernetes" not in out

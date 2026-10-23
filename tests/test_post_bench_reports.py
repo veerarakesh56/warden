@@ -30,7 +30,14 @@ def recorded(tmp_path, capsys):
     manifest["scenario_ids"] = [next(i for i in manifest["scenario_ids"] if i.startswith("fs-03-")), "fs-99"]
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     capsys.readouterr()
-    return tmp_path
+    # main() writes AWS_REGION from the run straight into os.environ when it is unset: after the test (and after
+    # monkeypatch's own undo - this fixture is torn down last) it is put back as it was, never left for later tests.
+    region = os.environ.get("AWS_REGION")
+    yield tmp_path
+    if region is None:
+        os.environ.pop("AWS_REGION", None)
+    else:
+        os.environ["AWS_REGION"] = region
 
 
 def _note(**kw):

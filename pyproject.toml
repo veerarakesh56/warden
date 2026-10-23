@@ -75,6 +75,8 @@ apps-check = ["ruff>=0.17.0", "pytest>=8.0", "pyyaml>=6.0", "psycopg[binary]>=3.
               "packaging>=24", "pip>=24", "cryptography>=50.0.2"]
 apps-deploy = ["pyyaml>=6.0", "psycopg[binary]>=3.3.6", "boto3>=1.43.110", "packaging>=24", "pip>=24"]
 infra-deploy = ["boto3>=1.43.110"]   # terraform/fullstack/aurora_express.py: stdlib + boto3 only
+# Mutation testing of the safety modules (B37, .github/workflows/mutation.yml): one exact version, hashed in uv.lock.
+mutation = ["mutmut==3.8.0"]
 
 [tool.uv.build-backend]
 # uv_build packs everything under src/warden; a local .env or log file must never ship (fifth review E,
@@ -254,6 +256,46 @@ testpaths = ["tests", "evals"]
 # `scenarios` harness collected fine locally and failed in CI with ModuleNotFoundError.
 # Verifying with a command shape CI does not use is not verifying.
 pythonpath = ["src", "."]
+
+# Mutation testing (B37): mutmut over the safety modules only, run by .github/workflows/mutation.yml. A mutant the
+# suite does not kill is a hole in the tests around a guard. tests/test_mutation_config.py holds this list.
+[tool.mutmut]
+source_paths = ["src/"]
+# A mutant's CPU limit is (its tests' clean time + 1 s) x this x 2. mutmut's default, 15, let a hanging mutant hold a
+# worker for ~27 minutes (CI, PR 179: gate managed 157 of 631 mutants in 2 hours, stalled 27 min at a time); at 3 the
+# limit is still 6x the clean time.
+timeout_multiplier = 3.0
+only_mutate = [
+    "src/warden/gate.py",
+    "src/warden/verifier.py",
+    "src/warden/catalog.py",
+    "src/warden/approvals.py",
+    "src/warden/autonomy.py",
+    "src/warden/bounds.py",
+    "src/warden/audit.py",
+    "src/warden/redaction.py",
+]
+# The suite reads the whole repository (docs, IAM, workflows, licences), so the copy mutmut tests in holds all of it.
+also_copy = ["conftest.py", "evals/", "scenarios/", "scripts/", "docs/", "iam/", "terraform/", "k8s/", "helm/",
+             "manifests/", ".github/", "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md",
+             "SECURITY.md", "LICENSE", "NOTICE", "Makefile", "Dockerfile", "Dockerfile.runtime", "docker-compose.yml",
+             ".gitignore", ".dockerignore", ".gitattributes", ".python-version", ".coderabbit.yaml", ".sonarcloud.properties"]
+# The unit suite, less the tests that cannot hold in mutmut's copy by construction - each is about the repository,
+# not the behaviour of a safety module: the pinned hashes and the hand-written mutation anchors read the source text
+# mutmut rewrites; the publishability, region and linter-skip checks list files through git, which the copy has not;
+# the package check meets mutmut's own files next to the source.
+pytest_add_cli_args_test_selection = [
+    "tests/", "--ignore=tests/integration",
+    # The mutation setup's own tests: each CI job narrows only_mutate to its module (scripts/mutation_ci.py narrow),
+    # so in that job's copy they read a one-module list by construction.
+    "--ignore=tests/test_mutation_config.py",
+    "--deselect=tests/test_tamper_n8.py::test_the_pinned_hashes_match_the_files",
+    "--deselect=tests/test_mutation_anchors.py::test_every_mutation_anchor_exists_exactly_once",
+    "--deselect=tests/test_check_publishable.py::test_no_path_is_exempt_from_the_scan",
+    "--deselect=tests/test_no_hardcoding_r17.py::test_no_tracked_file_names_a_legacy_resource_or_a_region_outside_the_named_exceptions",
+    "--deselect=tests/test_ci_lanes.py::test_the_privileged_pod_stays_a_negative_test_and_no_linter_needs_a_skip",
+    "--deselect=tests/test_supply_chain.py::test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case",
+]
 
 [tool.ruff]
 line-length = 100

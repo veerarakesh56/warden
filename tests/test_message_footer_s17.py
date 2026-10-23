@@ -69,7 +69,8 @@ def test_the_message_names_the_incident_and_the_head_of_its_signed_record(monkey
     assert status == "COMPLETED"
     [text] = sink.texts
     [row] = log.entries("inc-001", kinds=("incident.notify",))
-    assert f"incident `inc-001` · audit head `{row['body']['head'][:16]}`" in text
+    # audit.short, not [:16]: a head whose first 16 characters are all digits is shown longer (mutmut CI, 2026-10-22)
+    assert f"incident `inc-001` · audit head `{audit.short(row['body']['head'])}`" in text
     assert "check it on its Full record page, which shows the same head with its signatures checked" in text
     assert "warden audit show" not in text
     assert row["body"]["delivered"] == ["capture"]
