@@ -44,6 +44,7 @@ import functools
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import time
@@ -81,8 +82,9 @@ DEFAULT_KUBECONFIG = pathlib.Path.home() / "warden-fullstack-build" / "kubeconfi
 # either wrapped {"k": {"value": v}} or flat {"k": v}, plus `ecs_baseline_task_definition`, which
 # `scripts/deploy_fullstack_apps.py deploy ecs` adds, plus the Aurora keys that
 # `terraform/fullstack/aurora_express.py create` merges in. NO PASSWORD exists anywhere:
-#   - the harness's admin connection is the master user (db_master_username, `postgres`) with an
-#     IAM token signed by the OPERATOR's credentials, fresh for every connection - never given to WARDEN;
+#   - the harness's connection is its own login, db_users["harness"] (warden_<env>_harness; owner B28: it was the
+#     master user), with an IAM token signed by the OPERATOR's credentials, fresh for every connection - never
+#     given to WARDEN;
 #   - WARDEN's warden_ro token is signed with the ASSUMED READER ROLE's credentials (warden_dsns).
 STACK_KEYS = {
     "required": ("reader_role_arn", "aurora_writer_endpoint", "aurora_reader_endpoint",
@@ -161,6 +163,29 @@ def load_stack(path: pathlib.Path) -> dict[str, Any]:
                 if any(k.startswith("aurora_") for k in missing) else "")
         raise StepError(f"{path} is missing {missing}{hint}")
     return flat
+
+
+# The environment part takes 1-31 characters: an environment name is [a-z][a-z0-9-]{0,30} (src/warden/environments.py),
+# with `-` as `_` in a database user name.
+_HARNESS_USER = re.compile(r"warden_[a-z0-9_]{1,31}_harness")
+
+
+def harness_user(stack: dict) -> str:
+    """The harness's database login: stack.json's db_users["harness"] (owner B28), and exactly the name Terraform
+    derives for the stack's own environment (data.tf). Never the master user - a stack written before that login
+    existed is refused, not run as `postgres` - and never another environment's harness user."""
+    users = stack.get("db_users")
+    name = users.get("harness") if isinstance(users, dict) else None
+    if not (isinstance(name, str) and _HARNESS_USER.fullmatch(name)):
+        raise StepError("stack.json names no harness database user (db_users.harness): re-write it with `terraform "
+                        "output -json` and run `scripts/deploy_fullstack_apps.py bootstrap-db` - the harness never "
+                        "logs in as the master user")
+    env = stack.get("environment")
+    want = f"warden_{env.replace('-', '_')}_harness" if isinstance(env, str) and env else None
+    if name != want:
+        raise StepError(f"stack.json's harness user {name!r} is not environment {env!r}'s own (expected {want!r}): "
+                        "re-write stack.json from this environment's `terraform output -json`")
+    return name
 
 
 def target_from_stack(stack: dict) -> fs.Target:
@@ -299,7 +324,7 @@ def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
     target = target_from_stack(stack)
     session = boto3.Session(region_name=target.region)
     rds = session.client("rds")
-    master = stack.get("db_master_username") or "postgres"
+    harness = harness_user(stack)
     port = stack.get("aurora_port") or 5432
     context = load_kubeconfig(kube_config)
     if stack["eks_cluster_name"] not in context:
@@ -310,7 +335,7 @@ def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
         # A fresh token per connection (signing is local): a revert hours after the inject still
         # gets in. ⛔ Timeouts on every harness session: a revert must never wait on a lock forever.
         return lambda **kw: psycopg.connect(
-            iam_dsn(rds, master, host, target.database, port), connect_timeout=10, autocommit=True,
+            iam_dsn(rds, harness, host, target.database, port), connect_timeout=10, autocommit=True,
             options="-c statement_timeout=60000 -c lock_timeout=15000", **kw)
 
     sql = connector(target.writer_endpoint)

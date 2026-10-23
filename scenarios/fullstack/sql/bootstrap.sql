@@ -41,11 +41,14 @@ BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '__TERMINATE__') THEN
         CREATE ROLE __TERMINATE__ LOGIN;
     END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '__HARNESS__') THEN
+        CREATE ROLE __HARNESS__ LOGIN;
+    END IF;
 END
 $$;
 
--- IAM authentication for all four (express configuration refuses password logins anyway).
-GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__;
+-- IAM authentication for all five (express configuration refuses password logins anyway).
+GRANT rds_iam TO __APP__, __CATALOG__, __RO__, __TERMINATE__, __HARNESS__;
 
 -- The application: exactly the tables it reads and writes. Signed in by the order-processor
 -- Lambda's role and orders-api's ECS task role (rds-db:connect on dbuser:*/warden_<env>_app).
@@ -67,3 +70,16 @@ GRANT pg_monitor TO __RO__;
 -- whose sessions are idle or blocking - no table, no CONNECT beyond PUBLIC's. Its token is signed only by an
 -- approved plan's actor session (iam/<env>/actor.json: rds-db:connect as this user, SourceIdentity inc-*).
 GRANT pg_signal_backend, pg_read_all_stats TO __TERMINATE__;
+
+-- The fault harness (scenarios/fullstack_cli.py, owner B28): it logged in as the master user. Now its own login, with
+-- what its faults and checks do (scenarios/ops_fullstack.py) and nothing more:
+--   - it OWNS orders: fs-16 drops and re-creates orders_customer_id_idx (index DDL is the table owner's alone), and
+--     fs-13 holds a SHARE lock on it. CREATE on the schema: CREATE INDEX needs it, and so does taking ownership.
+--   - pg_monitor: it counts every client session and lock waiter (fs-12 and fs-13 verify).
+--   - no pg_signal_backend: it ends only the holder sessions it opened itself, as itself.
+-- The master user is made a member first: on PostgreSQL 16 the table's owner can be changed only to a role the
+-- one changing it may become. Tested on PostgreSQL 16 with a CREATEROLE, non-superuser master, as Aurora's is.
+GRANT __HARNESS__ TO CURRENT_USER;
+GRANT USAGE, CREATE ON SCHEMA public TO __HARNESS__;
+ALTER TABLE orders OWNER TO __HARNESS__;
+GRANT pg_monitor TO __HARNESS__;

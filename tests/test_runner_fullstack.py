@@ -700,6 +700,45 @@ def test_a_fault_needs_a_full_soak_and_a_destroy_a_full_watch_after_the_last_act
     assert cli.main(["--run", str(run), "--dry-run", "destroy-check"]) == 1
 
 
+def test_the_harness_logs_in_as_its_own_user_never_the_master():
+    """Owner B28: the harness's database connection was the master user. It is stack.json's db_users["harness"] now,
+    and a stack that names none - or names the master user, or another environment's shape - is refused, never run as
+    `postgres`."""
+    stack = {"environment": "dev", "db_users": {"app": "warden_dev_app", "harness": "warden_dev_harness"},
+             "db_master_username": "postgres"}
+    assert cli.harness_user(stack) == "warden_dev_harness"
+    for users in (None, {}, {"harness": "postgres"}, {"harness": "warden_dev_app"}, {"harness": "x; DROP TABLE"}):
+        with pytest.raises(cli.StepError, match="never logs in as the master user"):
+            cli.harness_user({"db_users": users, "db_master_username": "postgres"})
+    source = pathlib.Path(cli.__file__).read_text(encoding="utf-8")
+    assert "iam_dsn(rds, harness, host" in source
+    assert 'stack.get("db_master_username")' not in source
+
+
+@pytest.mark.parametrize(("environment", "harness"), [
+    ("prod", "warden_dev_harness"),  # another environment's harness user
+    ("dev", "warden_prod_harness"),
+    ("dev-2", "warden_dev_harness"),  # a prefix of the right name is not the name
+    (None, "warden_dev_harness"),  # a stack.json that names no environment
+    ("", "warden_dev_harness"),
+])
+def test_the_harness_user_must_be_its_own_environments(environment, harness):
+    """Review, PR 149: the shape check alone let a dev stack.json name prod's harness user, and the harness would then
+    sign in as it. The name must equal what data.tf derives for the stack's environment."""
+    stack = {"environment": environment, "db_users": {"harness": harness}}
+    with pytest.raises(cli.StepError, match="is not environment"):
+        cli.harness_user(stack)
+
+
+def test_the_harness_user_of_the_longest_environment_name_is_accepted():
+    """An environment name takes up to 31 characters (src/warden/environments.py), `-` read as `_`."""
+    env = "e" + "-x" * 15
+    assert len(env) == 31
+    name = f"warden_{env.replace('-', '_')}_harness"
+    assert cli.harness_user({"environment": env, "db_users": {"harness": name}}) == name
+
+
+
 # ---- step_inject, the alarm wait and main, split into steps (Sonar S3776)
 
 

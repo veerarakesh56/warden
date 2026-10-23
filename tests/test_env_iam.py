@@ -524,7 +524,7 @@ def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, mon
             assert "Condition" in st, st["Sid"]  # region, function ARN or the environment's tags
             continue
         for res in resources:
-            assert "warden-dev-" in res or res.endswith(("/postgres", "/warden_dev_ro")), (st["Sid"], res)
+            assert "warden-dev-" in res or res.endswith(("/warden_dev_harness", "/warden_dev_ro")), (st["Sid"], res)
         if any(a.startswith("rds-db:") for a in _list(st["Action"])):
             assert all(":dbuser:<CLUSTER_RESOURCE_ID>/" in res for res in resources), resources
     sg = next(s for s in policy["Statement"] if s["Sid"] == "SecurityGroupRulesOfThisEnvironmentOnly")
@@ -536,7 +536,8 @@ def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, mon
         r.main(["--cluster-resource-id", "*"])
     assert r.main(["--cluster-resource-id", "cluster-ABCDEFGHIJ1234"]) == 0
     local = (tmp_path / "iam" / "dev" / "harness.local.json").read_text(encoding="utf-8")
-    assert "dbuser:cluster-ABCDEFGHIJ1234/postgres" in local
+    assert "dbuser:cluster-ABCDEFGHIJ1234/warden_dev_harness" in local
+    assert "/postgres" not in local  # owner B28: the harness never logs in as the master user
     assert "<CLUSTER_RESOURCE_ID>" not in local
 
 
