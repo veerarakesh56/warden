@@ -36,6 +36,7 @@ on:
       - "tests/test_iac_hardening_sonar.py"
       - "tests/test_iac_leftovers_sonar.py"
       - "tests/test_stack_paths_s2083.py"
+      - "tests/test_aws_architecture_diagram.py"
       - "tests/test_helios_gate_r56.py"
       - "scripts/helios_gate.py"
       - "src/warden/paths.py"  # helios_gate.py and aurora_express.py import it
@@ -82,6 +83,7 @@ on:
       - "tests/test_iac_hardening_sonar.py"
       - "tests/test_iac_leftovers_sonar.py"
       - "tests/test_stack_paths_s2083.py"
+      - "tests/test_aws_architecture_diagram.py"
       - "tests/test_helios_gate_r56.py"
       - "scripts/helios_gate.py"
       - "src/warden/paths.py"  # helios_gate.py and aurora_express.py import it

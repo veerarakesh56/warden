@@ -12,63 +12,11 @@ Related reading: [`ai-boundary.md`](ai-boundary.md) (why the model never decides
 
 ## The whole system on one page
 
-```mermaid
-flowchart TB
-    subgraph IN[Ways in]
-        ALARM[CloudWatch alarm event<br/><i>lambdas.py, intake.py</i>]
-        AM[Alertmanager webhook<br/><i>webhooks.py</i>: bearer secret,<br/>size caps, still-firing check]
-        MCP[MCP tools<br/><i>mcp_server.py</i>]
-        CLI[warden CLI<br/><i>cli.py</i>, in one process]
-    end
-    AM --> ALARM
-    ALARM -->|"group repeats, flapping,<br/>open-incident cap, expected-down holds"| IW
+Every box is a module or file in `src/warden/` (or a script), and every arrow is a call that exists in the code; the
+activities sit in the trust zone whose queue runs them. Dashed yellow boxes are open pull requests, not built yet.
+Click the diagram to open it full size; its source is [`diagrams/system-modules.drawio`](diagrams/system-modules.drawio).
 
-    subgraph TEMPORAL[Temporal - every payload encrypted by <i>codec.py</i>]
-        IW[IncidentWorkflow<br/><i>workflows.py</i>]
-        RW[RemediationWorkflow<br/><i>workflows.py</i>, one open plan per resource]
-    end
-    MCP --> IW & RW
-
-    subgraph INC[Incident activities - <i>activities.py</i>]
-        PREP[prepare: read evidence, redact,<br/>tripwire, quarantine to typed facts<br/><i>tools, redaction, tripwire, quarantine, evidence</i>]
-        DIAG[diagnose: the model call<br/><i>llm.py, providers.py</i>]
-        VER[verify: deterministic policies<br/><i>verifier, grounding, numbers, decide</i>]
-        NOTE[notify: one report per incident,<br/>through the outbound gate<br/><i>reporting, gate, chatops</i>]
-        PREP --> DIAG --> VER --> NOTE
-    end
-    IW --> PREP
-    CLI --> PREP
-
-    subgraph REM[Remediation activities - <i>activities.py</i>]
-        PLAN[resolve_plan: catalogue entry to an<br/>exact plan from live state, plan hash<br/><i>catalog, resolver, environments</i>]
-        GATE[gate: kill switch, rate bounds,<br/>change freeze<br/><i>bounds, freeze</i>]
-        APPR[signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
-        APPLY[precheck, apply once, own success check,<br/>roll back if not recovered]
-        FIN[finish: signed end row, change record<br/><i>audit, changes</i>]
-        PLAN --> GATE --> APPR --> APPLY --> FIN
-    end
-    VER -->|"a fix a person may approve"| RW
-    RW --> PLAN
-
-    subgraph PEOPLE[People]
-        PAGE[approval page<br/><i>approval_page.py</i>:<br/>Sign in with Slack, passkey]
-        KEY[warden approve<br/>Ed25519 break-glass key]
-        SLACK([Slack: one message per incident,<br/>a discussion channel])
-    end
-    PAGE -->|signal| RW
-    KEY -->|signal| RW
-    NOTE --> SLACK
-
-    subgraph WRITE[Writes - only after a signed approval]
-        AW[AWS: per-plan actor session<br/><i>platforms/aws.py, identity.py</i>]
-        KW[Kubernetes: restart, bounded scale<br/><i>platforms/k8s.py</i>]
-        DW[databases: close idle-in-transaction sessions<br/><i>platforms/db.py</i>]
-    end
-    APPLY --> AW & KW & DW
-
-    AUD[(audit: hash chain, signed checkpoints<br/><i>audit.py</i>)]
-    INC & REM -->|every step| AUD
-```
+[![WARDEN: the whole system on one page, every module and call](diagrams/system-modules.svg)](diagrams/system-modules.svg)
 
 Four rules carry the design:
 
