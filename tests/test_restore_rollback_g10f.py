@@ -6,8 +6,11 @@ approved, refused, and a refused rollback ends the run as rollback_failed with t
 
 from __future__ import annotations
 
+import pytest
+
 from test_aws_platform_g6 import WHO
 from test_revert_config_history_g10d3 import ASG, ECS, Fake, Groups, _ci, _p, _trail
+from warden.platforms.aws import AwsPlatformRefused
 
 PLAN = {**ECS, "event": "e-1", "desired": "2"}
 
@@ -43,12 +46,8 @@ def test_a_value_someone_else_changed_since_is_still_never_written_over():
     f, p, snap = _restored()
     f.desired = 5  # a person set another count after WARDEN's restore
     f.history["AWS::ECS::Service"].append(_ci(-5, {"DesiredCount": 5}))
-    try:
+    with pytest.raises(AwsPlatformRefused, match="nothing was changed"):  # else a count WARDEN did not set was written over
         p.rollback("ecs_restore_desired", PLAN, snap, who=WHO)
-    except Exception as exc:  # noqa: BLE001 - the platform's refusal, whatever its class
-        assert "nothing was changed" in str(exc)
-    else:
-        raise AssertionError("a count WARDEN did not set was written over")
     assert [w for w in f.writes if w[0] == "update_service"] == [
         ("update_service", {"cluster": "c1", "service": "warden-dev-orders", "desiredCount": 2})]
 

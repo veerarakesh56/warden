@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from temporalio import activity
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -145,7 +146,8 @@ def test_the_workflow_opens_the_offered_plan_and_only_for_p31_alone(tmp_path, po
             await asyncio.wait_for(handle.result(), 120)
             try:
                 return (await env.client.get_workflow_handle("rem-dev-offer").describe()).workflow_type
-            except Exception:  # noqa: BLE001 - no such workflow: no plan was opened
+            except RPCError as err:  # no such workflow: no plan was opened
+                assert err.status == RPCStatusCode.NOT_FOUND, err
                 return None
 
     assert asyncio.run(main()) == ("RemediationWorkflow" if opens else None)
